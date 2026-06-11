@@ -85,6 +85,12 @@ func runDaemon() {
 
 	logger.Info("daemon starting", "socket", path, "log", logPath, "pid", os.Getpid(), "pid_file", pidPath)
 
+	if filtersPath, err := filters.EnsureFile(); err != nil {
+		logger.Warn("could not initialize filters file", "error", err)
+	} else {
+		logger.Info("filters file ready", "path", filtersPath)
+	}
+
 	store, err := state.NewStore(logger)
 	if err != nil {
 		logger.Error("could not initialize state", "error", err)

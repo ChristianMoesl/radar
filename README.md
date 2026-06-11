@@ -119,6 +119,7 @@ Radar can hide or deprioritize noisy repositories and users with an editable JSO
 
 By default this is `$XDG_CONFIG_HOME/radar/filters.json` or `~/.config/radar/filters.json`.
 Override it with `RADAR_FILTERS=/path/to/filters.json`.
+The daemon creates an example file on startup if it does not exist yet.
 
 Example:
 
