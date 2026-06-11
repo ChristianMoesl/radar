@@ -126,13 +126,21 @@ Example:
 ```json
 {
   "mute_repos": ["some-org/noisy-repo"],
-  "deprioritize_repos": ["some-org/low-priority-repo"],
+  "deprioritize_repos": ["some-org/archive-*"],
   "mute_users": ["dependabot[bot]"],
-  "deprioritize_users": ["renovate[bot]"]
+  "deprioritize_users": ["renovate[bot]"],
+  "rules": [
+    {
+      "name": "Track bot PRs in owned repos",
+      "repos": ["some-org/platform-*"],
+      "users": ["renovate[bot]", "dependabot[bot]"],
+      "action": "deprioritize"
+    }
+  ]
 }
 ```
 
-Muted items are hidden from the GUI and statusline counts. Deprioritized items move to the low-priority section.
+Muted items are hidden from the GUI and statusline counts. Deprioritized items move to the low-priority section. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive. Rules use AND semantics across keys; if both `repos` and `users` are set, both must match.
 
 In Neovim, use `:RadarFilters` or press `f` in the Radar window to edit the file. Changes are picked up on the next `:RadarRefresh`, periodic refresh, or Radar window reopen.
 

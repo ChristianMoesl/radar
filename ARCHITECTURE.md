@@ -72,6 +72,50 @@ $XDG_STATE_HOME/radar/items.json
 
 This allows fast startup and lets Neovim show cached information immediately.
 
+## Filters
+
+Filters are user-owned JSON config, not daemon state:
+
+```text
+$XDG_CONFIG_HOME/radar/filters.json
+```
+
+The daemon creates an example file on startup when it is missing. Neovim exposes it with `:RadarFilters` / `f` in the floating window.
+
+Filters are applied when serving items from the daemon, so CLI and Neovim see the same view. Raw collected state stays unmodified on disk.
+
+There are two filter effects:
+
+- `mute`: hide the item and remove it from counts
+- `deprioritize`: keep tracking the item, but move it to `low_priority`
+
+Simple lists are supported for broad rules, and wildcard patterns (`*`) are supported for repository/user matches. Matching is case-insensitive.
+
+```json
+{
+  "deprioritize_repos": ["some-org/archive-*"],
+  "mute_users": ["*[bot]"]
+}
+```
+
+For conditional cases, use ordered rules. A rule matches with AND semantics: if both `repos` and `users` are present, both must match. Later matching rules override earlier broad defaults, and `keep` can cancel a previous mute/deprioritize.
+
+```json
+{
+  "mute_users": ["renovate[bot]"],
+  "rules": [
+    {
+      "name": "Track renovate PRs in owned repos",
+      "repos": ["company/platform-*"],
+      "users": ["renovate[bot]"],
+      "action": "deprioritize"
+    }
+  ]
+}
+```
+
+This lets noisy bot PRs be hidden globally while still tracked as low-priority work in selected repositories.
+
 ## GitHub integration
 
 GitHub access currently uses the `gh` CLI. Radar tracks GitHub core/search rate limits through `gh api rate_limit`. When a budget is low, Radar pauses GitHub collection until GitHub's reset time instead of repeatedly retrying.

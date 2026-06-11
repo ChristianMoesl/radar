@@ -14,7 +14,22 @@ type Config struct {
 	DeprioritizeRepos []string `json:"deprioritize_repos,omitempty"`
 	MuteUsers         []string `json:"mute_users,omitempty"`
 	DeprioritizeUsers []string `json:"deprioritize_users,omitempty"`
+	Rules             []Rule   `json:"rules,omitempty"`
 }
+
+type Rule struct {
+	Name   string   `json:"name,omitempty"`
+	Repos  []string `json:"repos,omitempty"`
+	Users  []string `json:"users,omitempty"`
+	Action string   `json:"action"`
+}
+
+const (
+	actionKeep         = "keep"
+	actionMute         = "mute"
+	actionDeprioritize = "deprioritize"
+	actionLowPriority  = "low_priority"
+)
 
 func Path() (string, error) {
 	if explicit := os.Getenv("RADAR_FILTERS"); explicit != "" {
@@ -71,7 +86,7 @@ func EnsureFile() (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
-	data := []byte("{\n  \"mute_repos\": [],\n  \"deprioritize_repos\": [],\n  \"mute_users\": [],\n  \"deprioritize_users\": []\n}\n")
+	data := []byte("{\n  \"mute_repos\": [],\n  \"deprioritize_repos\": [],\n  \"mute_users\": [],\n  \"deprioritize_users\": [],\n  \"rules\": [\n    {\n      \"name\": \"Track bot PRs in selected repos\",\n      \"repos\": [\"example-org/*\"],\n      \"users\": [\"dependabot[bot]\", \"renovate[bot]\"],\n      \"action\": \"deprioritize\"\n    }\n  ]\n}\n")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return "", err
 	}
@@ -79,18 +94,14 @@ func EnsureFile() (string, error) {
 }
 
 func Apply(items []protocol.Item, cfg Config) []protocol.Item {
-	muteRepos := set(cfg.MuteRepos)
-	lowRepos := set(cfg.DeprioritizeRepos)
-	muteUsers := set(cfg.MuteUsers)
-	lowUsers := set(cfg.DeprioritizeUsers)
-
 	filtered := make([]protocol.Item, 0, len(items))
 	for _, item := range items {
-		if matchesItem(item, muteRepos, muteUsers) {
+		action := actionFor(item, cfg)
+		if action == actionMute {
 			continue
 		}
 
-		if matchesItem(item, lowRepos, lowUsers) {
+		if action == actionDeprioritize || action == actionLowPriority {
 			item.Attention = "low_priority"
 			if item.Reason != "" && !strings.HasPrefix(item.Reason, "low priority") {
 				item.Reason = "low priority: " + item.Reason
@@ -122,30 +133,110 @@ func Summary(items []protocol.Item) protocol.Summary {
 	return summary
 }
 
-func matchesItem(item protocol.Item, repos map[string]bool, users map[string]bool) bool {
-	if len(repos) > 0 {
-		if repos[normalize(item.Repo)] {
-			return true
+func actionFor(item protocol.Item, cfg Config) string {
+	action := actionKeep
+	if matchesRule(item, Rule{Repos: cfg.MuteRepos}) {
+		action = actionMute
+	}
+	if matchesRule(item, Rule{Users: cfg.MuteUsers}) {
+		action = actionMute
+	}
+	if matchesRule(item, Rule{Repos: cfg.DeprioritizeRepos}) {
+		action = actionDeprioritize
+	}
+	if matchesRule(item, Rule{Users: cfg.DeprioritizeUsers}) {
+		action = actionDeprioritize
+	}
+
+	for _, rule := range cfg.Rules {
+		if matchesRule(item, rule) {
+			action = normalizeAction(rule.Action)
 		}
-		for _, entity := range item.Entities {
-			if repos[normalize(entity.Repo)] {
+	}
+	return action
+}
+
+func normalizeAction(action string) string {
+	switch normalize(action) {
+	case actionMute:
+		return actionMute
+	case actionDeprioritize, actionLowPriority:
+		return actionDeprioritize
+	case actionKeep, "":
+		return actionKeep
+	default:
+		return actionKeep
+	}
+}
+
+func matchesRule(item protocol.Item, rule Rule) bool {
+	if len(rule.Repos) == 0 && len(rule.Users) == 0 {
+		return false
+	}
+	if len(rule.Repos) > 0 && !matchesAny(repoValues(item), rule.Repos) {
+		return false
+	}
+	if len(rule.Users) > 0 && !matchesAny(userValues(item), rule.Users) {
+		return false
+	}
+	return true
+}
+
+func repoValues(item protocol.Item) []string {
+	values := []string{item.Repo}
+	for _, entity := range item.Entities {
+		values = append(values, entity.Repo)
+	}
+	return values
+}
+
+func userValues(item protocol.Item) []string {
+	values := []string{metadata(item.Metadata, "user", "author", "login")}
+	for _, entity := range item.Entities {
+		values = append(values, metadata(entity.Metadata, "user", "author", "login"))
+	}
+	return values
+}
+
+func matchesAny(values []string, patterns []string) bool {
+	for _, value := range values {
+		for _, pattern := range patterns {
+			if wildcardMatch(pattern, value) {
 				return true
 			}
 		}
 	}
-
-	if len(users) > 0 {
-		if users[normalize(metadata(item.Metadata, "user", "author", "login"))] {
-			return true
-		}
-		for _, entity := range item.Entities {
-			if users[normalize(metadata(entity.Metadata, "user", "author", "login"))] {
-				return true
-			}
-		}
-	}
-
 	return false
+}
+
+func wildcardMatch(pattern string, value string) bool {
+	pattern = normalize(pattern)
+	value = normalize(value)
+	if pattern == "" || value == "" {
+		return false
+	}
+	if !strings.Contains(pattern, "*") {
+		return pattern == value
+	}
+
+	parts := strings.Split(pattern, "*")
+	pos := 0
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		idx := strings.Index(value[pos:], part)
+		if idx < 0 {
+			return false
+		}
+		if i == 0 && idx != 0 {
+			return false
+		}
+		pos += idx + len(part)
+	}
+
+	last := parts[len(parts)-1]
+	return last == "" || strings.HasSuffix(value, last)
 }
 
 func metadata(values map[string]string, keys ...string) string {
@@ -155,17 +246,6 @@ func metadata(values map[string]string, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func set(values []string) map[string]bool {
-	result := make(map[string]bool, len(values))
-	for _, value := range values {
-		value = normalize(value)
-		if value != "" {
-			result[value] = true
-		}
-	}
-	return result
 }
 
 func normalize(value string) string {
