@@ -5,7 +5,7 @@ local config = {
 	auto_start = true,
 	refresh_ms = 30000,
 	width = 140,
-	height = 24,
+	height = 0.85,
 	notify_new_items = true,
 	prefer_local_radar_binary = true,
 	auto_reload_binary = true,
@@ -265,13 +265,9 @@ end
 
 local function add_item(lines, line_items, line_highlights, item)
 	local fields = {}
-	append_field(fields, "repo", item.repo)
 	append_field(fields, "reason", item.reason)
-	append_field(fields, "kind", item.kind)
-	append_field(fields, "id", item.id)
-	append_field(fields, "done", item.done_at)
 
-	local prefix = string.format("  %-9s ", item_status(item.attention))
+	local prefix = "  "
 	local title = item.title or "Untitled"
 	local line = prefix .. title
 	if #fields > 0 then
@@ -283,19 +279,9 @@ local function add_item(lines, line_items, line_highlights, item)
 	add_highlight(line_highlights, #lines, #prefix, #prefix + #title, "RadarItemTitle")
 
 	for _, entity in ipairs(item.entities or {}) do
-		local entity_fields = {}
-		append_field(entity_fields, "repo", entity.repo)
-		append_field(entity_fields, "status", entity.status)
-		append_field(entity_fields, "branch", entity.branch)
-		append_field(entity_fields, "path", entity.path)
-		append_field(entity_fields, "title", entity.title)
-
-		local entity_prefix = string.format("  ↳ %s/%s ", entity.source or "?", entity.kind or "?")
+		local entity_prefix = "  ↳ "
 		local identifier = entity_identifier(entity)
 		local entity_line = entity_prefix .. identifier
-		if #entity_fields > 0 then
-			entity_line = entity_line .. "  " .. table.concat(entity_fields, "  ")
-		end
 
 		table.insert(lines, entity_line)
 		line_items[#lines] = entity
@@ -319,16 +305,21 @@ local function render_lines()
 		{ key = "low_priority", title = "Low priority", icon = config.icons.low_priority },
 	}
 
+	local rendered_groups = 0
 	for _, group in ipairs(groups) do
 		local added = false
 		for _, item in ipairs(state.items) do
 			if item.attention == group.key then
 				if not added then
+					if rendered_groups > 0 then
+						table.insert(lines, "")
+					end
 					local icon = group.icon or ""
 					local title = icon ~= "" and string.format("%s %s", icon, group.title) or group.title
 					table.insert(lines, title)
 					table.insert(lines, string.rep("─", vim.fn.strdisplaywidth(title)))
 					added = true
+					rendered_groups = rendered_groups + 1
 				end
 				add_item(lines, line_items, line_highlights, item)
 			end
@@ -391,7 +382,8 @@ local function ensure_window()
 	end
 
 	local width = math.min(config.width, vim.o.columns - 4)
-	local height = math.min(config.height, vim.o.lines - 4)
+	local max_height = vim.o.lines - 4
+	local height = config.height <= 1 and math.floor(max_height * config.height) or math.min(config.height, max_height)
 	local row = math.floor((vim.o.lines - height) / 2)
 	local col = math.floor((vim.o.columns - width) / 2)
 
