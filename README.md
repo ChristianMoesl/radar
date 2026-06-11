@@ -142,6 +142,8 @@ Example:
 
 Muted items are hidden from the GUI and statusline counts. Deprioritized items move to the low-priority section. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive. Rules use AND semantics across keys; if both `repos` and `users` are set, both must match.
 
+Rules with both `repos` and exact `users` also drive GitHub PR ingestion: Radar expands wildcard repositories by listing the owning org, caches that repository list for 24 hours, then searches exact repositories for open PRs by those users. This keeps rules like Renovate-in-owned-repos narrow without broad org-wide PR searches.
+
 In Neovim, use `:RadarFilters` or press `f` in the Radar window to edit the file. Changes are picked up on the next `:RadarRefresh`, periodic refresh, or Radar window reopen.
 
 ## Local state

@@ -116,6 +116,8 @@ For conditional cases, use ordered rules. A rule matches with AND semantics: if 
 
 This lets noisy bot PRs be hidden globally while still tracked as low-priority work in selected repositories.
 
+Rules with both `repos` and exact `users` are also used as GitHub PR ingestion hints. Radar expands wildcard repository patterns by listing the owning org, caches that list for 24 hours in the user cache directory, and then searches exact repositories for open PRs by those users. This avoids broad org-wide PR searches for rules such as Renovate in owned repositories.
+
 ## GitHub integration
 
 GitHub access currently uses the `gh` CLI. Radar tracks GitHub core/search rate limits through `gh api rate_limit`. When a budget is low, Radar pauses GitHub collection until GitHub's reset time instead of repeatedly retrying.

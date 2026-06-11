@@ -209,6 +209,10 @@ func matchesAny(values []string, patterns []string) bool {
 	return false
 }
 
+func MatchPattern(pattern string, value string) bool {
+	return wildcardMatch(pattern, value)
+}
+
 func wildcardMatch(pattern string, value string) bool {
 	pattern = normalize(pattern)
 	value = normalize(value)
