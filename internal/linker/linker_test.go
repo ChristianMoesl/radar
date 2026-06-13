@@ -43,6 +43,74 @@ func TestLinkMatchesTicketKeysCaseInsensitivelyInBranch(t *testing.T) {
 	}
 }
 
+func TestLinkMatchesTmuxSessionToWorktreeByPath(t *testing.T) {
+	items := []protocol.Task{
+		{
+			Kind:      "git_worktree",
+			Title:     "feature/no-ticket",
+			Attention: "in_progress",
+			SourceRefs: []protocol.SourceRef{
+				{
+					ID:     "git:worktree:/home/me/repo",
+					Source: "git",
+					Kind:   "worktree",
+					Path:   "/home/me/repo",
+				},
+			},
+		},
+	}
+	sourceRefs := []protocol.SourceRef{
+		{
+			ID:     "tmux:session:$1",
+			Source: "tmux",
+			Kind:   "session",
+			Title:  "scratch",
+			Path:   "/home/me/repo/subdir",
+		},
+	}
+
+	linked := Link(Input{Tasks: items, SourceRefs: sourceRefs})
+
+	if len(linked) != 1 {
+		t.Fatalf("linked item count = %d, want 1", len(linked))
+	}
+	if len(linked[0].SourceRefs) != 2 {
+		t.Fatalf("linked sourceRef count = %d, want 2: %+v", len(linked[0].SourceRefs), linked[0].SourceRefs)
+	}
+	if linked[0].SourceRefs[1].ID != "tmux:session:$1" {
+		t.Fatalf("attached sourceRef = %q, want tmux session", linked[0].SourceRefs[1].ID)
+	}
+}
+
+func TestLinkGroupsStandaloneWorktreeAndTmuxSessionByPath(t *testing.T) {
+	sourceRefs := []protocol.SourceRef{
+		{
+			ID:     "git:worktree:/home/me/repo",
+			Source: "git",
+			Kind:   "worktree",
+			Title:  "feature/no-ticket",
+			Branch: "feature/no-ticket",
+			Path:   "/home/me/repo",
+		},
+		{
+			ID:     "tmux:session:$1",
+			Source: "tmux",
+			Kind:   "session",
+			Title:  "scratch",
+			Path:   "/home/me/repo/subdir",
+		},
+	}
+
+	linked := Link(Input{SourceRefs: sourceRefs})
+
+	if len(linked) != 1 {
+		t.Fatalf("linked item count = %d, want 1", len(linked))
+	}
+	if len(linked[0].SourceRefs) != 2 {
+		t.Fatalf("linked sourceRef count = %d, want 2: %+v", len(linked[0].SourceRefs), linked[0].SourceRefs)
+	}
+}
+
 func TestLinkExtractsTicketKeysFromAnyMetadataValue(t *testing.T) {
 	items := []protocol.Task{
 		{

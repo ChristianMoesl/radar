@@ -111,7 +111,7 @@ If unset, Radar tries the daemon's current working directory.
 
 ## tmux sessions
 
-Radar can collect tmux sessions and attach them to matching tasks by ticket key, e.g. `ABC-123` in the session name. Sessions without ticket keys are shown as standalone in-progress tasks.
+Radar can collect tmux sessions and attach them to matching tasks by ticket key, e.g. `ABC-123` in the session name. It can also attach a tmux session to a Git worktree when the tmux session working directory is inside that worktree. Sessions without ticket keys or matching paths are shown as standalone in-progress tasks.
 
 Radar reads the local tmux server with `tmux list-sessions`. If tmux is not installed or no tmux server is running, the source is disabled.
 

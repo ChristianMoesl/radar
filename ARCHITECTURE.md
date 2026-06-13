@@ -191,7 +191,7 @@ Worktrees that do not attach to another task become standalone `in_progress` tas
 
 ## tmux integration
 
-Tmux integration collects sessions from the local tmux server. Radar attaches sessions to matching tasks when their name contains a ticket key such as `ABC-123`. Sessions that do not attach to another task become standalone `in_progress` tasks.
+Tmux integration collects sessions from the local tmux server. Radar attaches sessions to matching tasks when their name contains a ticket key such as `ABC-123`, or when the session working directory matches a Git worktree path. Sessions that do not attach to another task become standalone `in_progress` tasks.
 
 ## Neovim UI
 

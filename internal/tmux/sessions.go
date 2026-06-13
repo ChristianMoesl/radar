@@ -17,13 +17,14 @@ import (
 
 var ticketPattern = regexp.MustCompile(`(?i)[A-Z][A-Z0-9]+-[0-9]+`)
 
-const sessionFormat = "#{session_id}\t#{session_name}\t#{session_attached}\t#{session_windows}"
+const sessionFormat = "#{session_id}\t#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_path}"
 
 type session struct {
 	ID            string
 	Name          string
 	AttachedCount int
 	WindowCount   int
+	Path          string
 }
 
 func SourceStatus(ctx context.Context) protocol.SourceStatus {
@@ -75,7 +76,7 @@ func parseSessions(output string) ([]session, error) {
 			continue
 		}
 		fields := strings.Split(line, "\t")
-		if len(fields) != 4 {
+		if len(fields) != 5 {
 			return nil, fmt.Errorf("unexpected tmux session output: got %d fields", len(fields))
 		}
 		attachedCount, err := strconv.Atoi(fields[2])
@@ -91,6 +92,7 @@ func parseSessions(output string) ([]session, error) {
 			Name:          fields[1],
 			AttachedCount: attachedCount,
 			WindowCount:   windowCount,
+			Path:          fields[4],
 		})
 	}
 	return sessions, scanner.Err()
@@ -102,11 +104,13 @@ func (s session) SourceRef() protocol.SourceRef {
 		status = "attached"
 	}
 	metadata := map[string]string{
-		"session_id":     s.ID,
-		"session":        s.Name,
-		"attached_count": strconv.Itoa(s.AttachedCount),
-		"window_count":   strconv.Itoa(s.WindowCount),
-		"switch_target":  s.ID,
+		"session_id":        s.ID,
+		"session":           s.Name,
+		"attached_count":    strconv.Itoa(s.AttachedCount),
+		"window_count":      strconv.Itoa(s.WindowCount),
+		"switch_target":     s.ID,
+		"working_directory": s.Path,
+		"session_path":      s.Path,
 	}
 	if ticket := ticketPattern.FindString(s.Name); ticket != "" {
 		metadata["ticket"] = strings.ToUpper(ticket)
@@ -117,6 +121,7 @@ func (s session) SourceRef() protocol.SourceRef {
 		Source:   "tmux",
 		Kind:     "session",
 		Title:    s.Name,
+		Path:     s.Path,
 		Status:   status,
 		Metadata: metadata,
 	}
