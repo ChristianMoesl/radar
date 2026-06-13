@@ -11,7 +11,7 @@
 - `internal/github/`: GitHub ingestion and remote state resolution.
 - `internal/git/`: Git worktree ingestion.
 - `internal/jira/`: Jira Cloud issue ingestion.
-- `internal/tmux/`: tmux pane ingestion.
+- `internal/tmux/`: tmux session ingestion.
 - `internal/linker/`: connects ingested source refs to user-facing tasks.
 - `internal/state/`: local persistent task cache/state.
 
@@ -56,7 +56,7 @@ Radar separates source-system facts from the user-facing task shown in the UI:
 SourceRef + TaskRecord => Task
 ```
 
-- `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, local git worktree, or tmux pane. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:DPSCAP-544`, `git:worktree:<path>`, or `tmux:pane:%4`.
+- `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, local git worktree, or tmux session. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:DPSCAP-544`, `git:worktree:<path>`, or `tmux:session:<name>`.
 - `TaskRecord`: persistent Radar-owned tracking state. It gives continuity across refreshes and will own local state such as stable numeric task IDs, known source ref IDs, first/last seen timestamps, and acknowledgements.
 - `Task`: the current projected user-facing task served to the CLI/Neovim UI. It has a Radar-owned integer ID and is computed from current source refs plus the matching task record.
 
@@ -191,7 +191,7 @@ Worktrees that do not attach to another task become standalone `in_progress` tas
 
 ## tmux integration
 
-Tmux integration collects panes from the local tmux server. Radar attaches panes to matching tasks when their session, window, path, or title contains a ticket key such as `ABC-123`. Panes that do not attach to another task become standalone `in_progress` tasks.
+Tmux integration collects sessions from the local tmux server. Radar attaches sessions to matching tasks when their name contains a ticket key such as `ABC-123`. Sessions that do not attach to another task become standalone `in_progress` tasks.
 
 ## Neovim UI
 

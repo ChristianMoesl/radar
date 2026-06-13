@@ -109,11 +109,13 @@ RADAR_GIT_REPOS=/path/to/repo:/path/to/another/repo ./radar daemon
 
 If unset, Radar tries the daemon's current working directory.
 
-## tmux panes
+## tmux sessions
 
-Radar can collect tmux panes and attach them to matching tasks by ticket key, e.g. `ABC-123` in the session name, window name, pane path, or pane title. Panes without ticket keys are shown as standalone in-progress tasks.
+Radar can collect tmux sessions and attach them to matching tasks by ticket key, e.g. `ABC-123` in the session name. Sessions without ticket keys are shown as standalone in-progress tasks.
 
-Radar reads the local tmux server with `tmux list-panes -a`. If tmux is not installed or no tmux server is running, the source is disabled.
+Radar reads the local tmux server with `tmux list-sessions`. If tmux is not installed or no tmux server is running, the source is disabled.
+
+In the Neovim UI, press `<CR>` on a tmux session to switch to it with `tmux switch-client -t <session>`.
 
 ## Filters
 

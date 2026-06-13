@@ -103,9 +103,9 @@ func runDaemon() {
 		fatal(err)
 	}
 	refresh := refresher(context.Background(), store, logger)
-	go refreshLoop(context.Background(), refresh)
+	go refreshLoop(context.Background(), func() { refresh(false) })
 
-	if err := server.New(store, logger, refresh).ListenAndServe(path); err != nil {
+	if err := server.New(store, logger, func() { refresh(true) }).ListenAndServe(path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}
@@ -145,21 +145,21 @@ func startDetached(name string, args ...string) error {
 	return process.Release()
 }
 
-func refresher(ctx context.Context, store *state.Store, logger *slog.Logger) func() {
+func refresher(ctx context.Context, store *state.Store, logger *slog.Logger) func(force bool) {
 	var mu sync.Mutex
 	var lastRefresh time.Time
 
-	return func() {
+	return func(force bool) {
 		mu.Lock()
 		defer mu.Unlock()
 
-		if time.Since(lastRefresh) < 5*time.Minute {
+		if !force && time.Since(lastRefresh) < 5*time.Minute {
 			logger.Debug("refresh skipped; recently refreshed")
 			return
 		}
 		lastRefresh = time.Now()
 
-		logger.Debug("refresh started")
+		logger.Debug("refresh started", "force", force)
 		previous := store.Tasks()
 		result := collector.Collect(ctx, previous, logger)
 		store.SetTasks(result.Tasks)

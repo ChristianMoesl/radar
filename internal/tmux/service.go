@@ -23,9 +23,9 @@ func (Service) Status(ctx context.Context, logger *slog.Logger) ingestion.Status
 }
 
 func (Service) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
-	sourceRefs, status := FetchPanes(ctx, req.Logger)
+	sourceRefs, status := FetchSessions(ctx, req.Logger)
 	if status.Status == "error" {
-		req.Logger.Warn("tmux pane collection failed", "detail", status.Detail)
+		req.Logger.Warn("tmux session collection failed", "detail", status.Detail)
 		return ingestion.Result{SourceRefs: sourceRefs}
 	}
 	return ingestion.Result{SourceRefs: sourceRefs, Complete: status.Status == "ok"}

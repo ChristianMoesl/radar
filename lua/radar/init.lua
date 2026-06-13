@@ -144,6 +144,32 @@ local function open_url(url)
 	end
 end
 
+local function tmux_session_target(item)
+	if not item then
+		return nil
+	end
+	if item.source == "tmux" and item.kind == "session" then
+		return item.metadata and (item.metadata.switch_target or item.metadata.session) or item.title
+	end
+	for _, sourceRef in ipairs(item.source_refs or {}) do
+		if sourceRef.source == "tmux" and sourceRef.kind == "session" then
+			return sourceRef.metadata and (sourceRef.metadata.switch_target or sourceRef.metadata.session) or sourceRef.title
+		end
+	end
+end
+
+local function switch_tmux_session(target)
+	if not target or target == "" then
+		vim.notify("Radar tmux session has no target", vim.log.levels.WARN)
+		return
+	end
+	run({ "tmux", "switch-client", "-t", target }, function(result)
+		if result.code ~= 0 then
+			vim.notify("Could not switch tmux session: " .. (result.stderr or ""), vim.log.levels.ERROR)
+		end
+	end)
+end
+
 local function open_filters()
 	run({ resolve_radar_cmd(), "filters-path" }, function(result)
 		if result.code ~= 0 then
@@ -423,6 +449,12 @@ local function ensure_window()
 		local line = vim.api.nvim_win_get_cursor(0)[1]
 		local item = state.line_items[line]
 		if item then
+			local tmux_target = tmux_session_target(item)
+			if tmux_target then
+				switch_tmux_session(tmux_target)
+				close_window()
+				return
+			end
 			run({ resolve_radar_cmd(), "ack", tostring(item.id) }, function(result)
 				if result.code == 0 then
 					local response = decode_json(result.stdout)
