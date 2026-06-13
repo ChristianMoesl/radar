@@ -56,7 +56,7 @@ Radar separates source-system facts from the user-facing task shown in the UI:
 SourceRef + TaskRecord => Task
 ```
 
-- `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, local git worktree, or tmux session. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:DPSCAP-544`, `git:worktree:<path>`, or `tmux:session:<name>`.
+- `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, local git worktree, or tmux session. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:DPSCAP-544`, `git:worktree:<path>`, or `tmux:session:<session_id>`.
 - `TaskRecord`: persistent Radar-owned tracking state. It gives continuity across refreshes and will own local state such as stable numeric task IDs, known source ref IDs, first/last seen timestamps, and acknowledgements.
 - `Task`: the current projected user-facing task served to the CLI/Neovim UI. It has a Radar-owned integer ID and is computed from current source refs plus the matching task record.
 

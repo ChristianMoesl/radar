@@ -115,7 +115,9 @@ Radar can collect tmux sessions and attach them to matching tasks by ticket key,
 
 Radar reads the local tmux server with `tmux list-sessions`. If tmux is not installed or no tmux server is running, the source is disabled.
 
-In the Neovim UI, press `<CR>` on a tmux session to switch to it with `tmux switch-client -t <session>`.
+Tmux session refs use `#{session_id}` for stable identity, so renaming a tmux session does not create a new Radar task. The current session name is stored as metadata and used for display/ticket matching.
+
+In the Neovim UI, press `<CR>` on a tmux session to switch to it with `tmux switch-client -t <session_id>`.
 
 ## Filters
 

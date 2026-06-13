@@ -17,9 +17,10 @@ import (
 
 var ticketPattern = regexp.MustCompile(`(?i)[A-Z][A-Z0-9]+-[0-9]+`)
 
-const sessionFormat = "#{session_name}\t#{session_attached}\t#{session_windows}"
+const sessionFormat = "#{session_id}\t#{session_name}\t#{session_attached}\t#{session_windows}"
 
 type session struct {
+	ID            string
 	Name          string
 	AttachedCount int
 	WindowCount   int
@@ -74,19 +75,20 @@ func parseSessions(output string) ([]session, error) {
 			continue
 		}
 		fields := strings.Split(line, "\t")
-		if len(fields) != 3 {
+		if len(fields) != 4 {
 			return nil, fmt.Errorf("unexpected tmux session output: got %d fields", len(fields))
 		}
-		attachedCount, err := strconv.Atoi(fields[1])
+		attachedCount, err := strconv.Atoi(fields[2])
 		if err != nil {
-			return nil, fmt.Errorf("unexpected tmux session attached count %q", fields[1])
+			return nil, fmt.Errorf("unexpected tmux session attached count %q", fields[2])
 		}
-		windowCount, err := strconv.Atoi(fields[2])
+		windowCount, err := strconv.Atoi(fields[3])
 		if err != nil {
-			return nil, fmt.Errorf("unexpected tmux session window count %q", fields[2])
+			return nil, fmt.Errorf("unexpected tmux session window count %q", fields[3])
 		}
 		sessions = append(sessions, session{
-			Name:          fields[0],
+			ID:            fields[0],
+			Name:          fields[1],
 			AttachedCount: attachedCount,
 			WindowCount:   windowCount,
 		})
@@ -100,17 +102,18 @@ func (s session) SourceRef() protocol.SourceRef {
 		status = "attached"
 	}
 	metadata := map[string]string{
+		"session_id":     s.ID,
 		"session":        s.Name,
 		"attached_count": strconv.Itoa(s.AttachedCount),
 		"window_count":   strconv.Itoa(s.WindowCount),
-		"switch_target":  s.Name,
+		"switch_target":  s.ID,
 	}
 	if ticket := ticketPattern.FindString(s.Name); ticket != "" {
 		metadata["ticket"] = strings.ToUpper(ticket)
 	}
 
 	return protocol.SourceRef{
-		ID:       "tmux:session:" + s.Name,
+		ID:       "tmux:session:" + s.ID,
 		Source:   "tmux",
 		Kind:     "session",
 		Title:    s.Name,
