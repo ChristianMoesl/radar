@@ -326,7 +326,7 @@ end
 local function render_lines()
 	local s = state.summary
 	local lines = {
-		string.format("Radar  %s %d urgent  %s %d attention  %s %d progress  %s %d done  %s %d low    <CR>: open  r: refresh  f: filters  q: close", config.icons.immediate, s.immediate or 0, config.icons.attention, s.attention or 0, config.icons.in_progress, s.in_progress or 0, config.icons.done, s.done or 0, config.icons.low_priority, s.low_priority or 0),
+		string.format("Radar  %s %d urgent  %s %d attention  %s %d progress  %s %d done  %s %d low    <CR>: open  r: refresh  R: reset  f: filters  q: close", config.icons.immediate, s.immediate or 0, config.icons.attention, s.attention or 0, config.icons.in_progress, s.in_progress or 0, config.icons.done, s.done or 0, config.icons.low_priority, s.low_priority or 0),
 		"",
 	}
 	local line_items = {}
@@ -444,6 +444,16 @@ local function ensure_window()
 			render_window()
 		end)
 	end, { buffer = state.buf, silent = true })
+	vim.keymap.set("n", "R", function()
+		M.reset(function(ok)
+			if ok then
+				vim.notify("Radar reset complete", vim.log.levels.INFO)
+				render_window()
+			else
+				vim.notify("Radar reset failed", vim.log.levels.ERROR)
+			end
+		end)
+	end, { buffer = state.buf, silent = true })
 	vim.keymap.set("n", "f", open_filters, { buffer = state.buf, silent = true })
 	vim.keymap.set("n", "<CR>", function()
 		local line = vim.api.nvim_win_get_cursor(0)[1]
@@ -529,12 +539,13 @@ local function fetch(method, cb, retried)
 
 		state.summary = response.summary or state.summary
 		local tasks = response.tasks
-		if tasks then
+		if tasks or method == "reset" then
+			tasks = tasks or {}
 			notify_new_items(tasks)
 			state.items = tasks
 		end
-		if response.sources then
-			state.sources = response.sources
+		if response.sources or method == "reset" then
+			state.sources = response.sources or {}
 		end
 		refresh_statusline()
 		if is_open() then
@@ -589,7 +600,13 @@ function M.setup(opts)
 		M.refresh()
 	end, {})
 	vim.api.nvim_create_user_command("RadarReset", function()
-		M.reset()
+		M.reset(function(ok)
+			if ok then
+				vim.notify("Radar reset complete", vim.log.levels.INFO)
+			else
+				vim.notify("Radar reset failed", vim.log.levels.ERROR)
+			end
+		end)
 	end, {})
 	vim.api.nvim_create_user_command("RadarFilters", open_filters, {})
 	vim.api.nvim_create_user_command("RadarStart", start_daemon, {})

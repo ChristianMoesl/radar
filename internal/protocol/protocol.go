@@ -1,5 +1,7 @@
 package protocol
 
+import "encoding/json"
+
 const Version = "0.1.0"
 
 type Request struct {
@@ -53,4 +55,21 @@ type Response struct {
 	Summary *Summary       `json:"summary,omitempty"`
 	Tasks   []Task         `json:"tasks,omitempty"`
 	Sources []SourceStatus `json:"sources,omitempty"`
+}
+
+func (r Response) MarshalJSON() ([]byte, error) {
+	fields := map[string]any{"ok": r.OK}
+	if r.Error != "" {
+		fields["error"] = r.Error
+	}
+	if r.Summary != nil {
+		fields["summary"] = r.Summary
+	}
+	if r.Tasks != nil {
+		fields["tasks"] = r.Tasks
+	}
+	if r.Sources != nil {
+		fields["sources"] = r.Sources
+	}
+	return json.Marshal(fields)
 }
