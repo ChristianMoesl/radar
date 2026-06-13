@@ -111,7 +111,7 @@ If unset, Radar tries the daemon's current working directory.
 
 ## tmux panes
 
-Radar can collect tmux panes and attach them to matching tasks by ticket key, e.g. `ABC-123` in the session name, window name, pane path, or pane title.
+Radar can collect tmux panes and attach them to matching tasks by ticket key, e.g. `ABC-123` in the session name, window name, pane path, or pane title. Panes without ticket keys are shown as standalone in-progress tasks.
 
 Radar reads the local tmux server with `tmux list-panes -a`. If tmux is not installed or no tmux server is running, the source is disabled.
 

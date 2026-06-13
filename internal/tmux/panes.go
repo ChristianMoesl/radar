@@ -61,14 +61,11 @@ func FetchPanes(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef,
 
 	sourceRefs := make([]protocol.SourceRef, 0, len(panes))
 	for _, p := range panes {
-		if !hasTicket(p) {
-			continue
-		}
 		sourceRefs = append(sourceRefs, p.SourceRef())
 	}
 
 	logger.Debug("collected tmux panes", "count", len(sourceRefs))
-	status.Detail = fmt.Sprintf("%d ticket panes", len(sourceRefs))
+	status.Detail = fmt.Sprintf("%d panes", len(sourceRefs))
 	return sourceRefs, status
 }
 
@@ -95,15 +92,6 @@ func parsePanes(output string) ([]pane, error) {
 		})
 	}
 	return panes, scanner.Err()
-}
-
-func hasTicket(p pane) bool {
-	for _, value := range []string{p.SessionName, p.WindowName, p.Path, p.Command, p.Title} {
-		if ticketPattern.MatchString(value) {
-			return true
-		}
-	}
-	return false
 }
 
 func (p pane) SourceRef() protocol.SourceRef {

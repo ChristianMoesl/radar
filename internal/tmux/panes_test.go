@@ -42,12 +42,3 @@ func TestPaneSourceRef(t *testing.T) {
 		t.Fatalf("unexpected ticket metadata: %#v", sourceRef.Metadata)
 	}
 }
-
-func TestHasTicket(t *testing.T) {
-	if !hasTicket(pane{WindowName: "ABC-123-feature"}) {
-		t.Fatal("expected ticket in window name")
-	}
-	if hasTicket(pane{WindowName: "scratch", Path: "/tmp/project"}) {
-		t.Fatal("did not expect ticket")
-	}
-}

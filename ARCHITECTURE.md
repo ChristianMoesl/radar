@@ -191,7 +191,7 @@ Worktrees that do not attach to another task become standalone `in_progress` tas
 
 ## tmux integration
 
-Tmux integration collects panes from the local tmux server. Radar keeps panes whose session, window, path, or title contains a ticket key such as `ABC-123`, then attaches them to matching tasks. Ticket panes that do not attach to another task become standalone `in_progress` tasks.
+Tmux integration collects panes from the local tmux server. Radar attaches panes to matching tasks when their session, window, path, or title contains a ticket key such as `ABC-123`. Panes that do not attach to another task become standalone `in_progress` tasks.
 
 ## Neovim UI
 

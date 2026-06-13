@@ -1,5 +1,9 @@
 # Project Agent Guidelines
 
+## Commits
+
+Use conventional commits for commit messages, for example `feat: add tmux source` or `fix: collect tmux panes without ticket keys`.
+
 ## No backwards compatibility shims
 
 Do not add backwards compatibility code unless the user explicitly asks for it.
