@@ -7,19 +7,19 @@ import (
 )
 
 func TestApplyMutesRepos(t *testing.T) {
-	items := []protocol.Item{
-		{ID: "1", Repo: "org/noisy", Attention: "attention"},
-		{ID: "2", Repo: "org/useful", Attention: "attention"},
+	items := []protocol.Task{
+		{ID: 1, Repo: "org/noisy", Attention: "attention"},
+		{ID: 2, Repo: "org/useful", Attention: "attention"},
 	}
 
 	got := Apply(items, Config{MuteRepos: []string{"ORG/NOISY"}})
-	if len(got) != 1 || got[0].ID != "2" {
+	if len(got) != 1 || got[0].ID != 2 {
 		t.Fatalf("expected only useful item, got %#v", got)
 	}
 }
 
 func TestApplyDeprioritizesRepos(t *testing.T) {
-	items := []protocol.Item{{ID: "1", Repo: "org/noisy", Attention: "attention", Reason: "review requested"}}
+	items := []protocol.Task{{ID: 1, Repo: "org/noisy", Attention: "attention", Reason: "review requested"}}
 
 	got := Apply(items, Config{DeprioritizeRepos: []string{"org/noisy"}})
 	if len(got) != 1 {
@@ -34,21 +34,21 @@ func TestApplyDeprioritizesRepos(t *testing.T) {
 }
 
 func TestApplyMatchesUsers(t *testing.T) {
-	items := []protocol.Item{
-		{ID: "1", Attention: "attention", Metadata: map[string]string{"author": "dependabot[bot]"}},
-		{ID: "2", Attention: "attention", Metadata: map[string]string{"author": "person"}},
+	items := []protocol.Task{
+		{ID: 1, Attention: "attention", Metadata: map[string]string{"author": "dependabot[bot]"}},
+		{ID: 2, Attention: "attention", Metadata: map[string]string{"author": "person"}},
 	}
 
 	got := Apply(items, Config{MuteUsers: []string{"dependabot[bot]"}})
-	if len(got) != 1 || got[0].ID != "2" {
+	if len(got) != 1 || got[0].ID != 2 {
 		t.Fatalf("expected only person item, got %#v", got)
 	}
 }
 
 func TestApplyMatchesWildcardRepos(t *testing.T) {
-	items := []protocol.Item{
-		{ID: "1", Repo: "org/service-api", Attention: "attention"},
-		{ID: "2", Repo: "org/app", Attention: "attention"},
+	items := []protocol.Task{
+		{ID: 1, Repo: "org/service-api", Attention: "attention"},
+		{ID: 2, Repo: "org/app", Attention: "attention"},
 	}
 
 	got := Apply(items, Config{DeprioritizeRepos: []string{"org/service-*"}})
@@ -61,10 +61,10 @@ func TestApplyMatchesWildcardRepos(t *testing.T) {
 }
 
 func TestApplyRuleRequiresRepoAndUser(t *testing.T) {
-	items := []protocol.Item{
-		{ID: "1", Repo: "org/important", Attention: "attention", Metadata: map[string]string{"author": "renovate[bot]"}},
-		{ID: "2", Repo: "org/other", Attention: "attention", Metadata: map[string]string{"author": "renovate[bot]"}},
-		{ID: "3", Repo: "org/important", Attention: "attention", Metadata: map[string]string{"author": "person"}},
+	items := []protocol.Task{
+		{ID: 1, Repo: "org/important", Attention: "attention", Metadata: map[string]string{"author": "renovate[bot]"}},
+		{ID: 2, Repo: "org/other", Attention: "attention", Metadata: map[string]string{"author": "renovate[bot]"}},
+		{ID: 3, Repo: "org/important", Attention: "attention", Metadata: map[string]string{"author": "person"}},
 	}
 
 	got := Apply(items, Config{Rules: []Rule{{Repos: []string{"org/important"}, Users: []string{"renovate[bot]"}, Action: "deprioritize"}}})
@@ -77,7 +77,7 @@ func TestApplyRuleRequiresRepoAndUser(t *testing.T) {
 }
 
 func TestApplyLastMatchingRuleWins(t *testing.T) {
-	items := []protocol.Item{{ID: "1", Repo: "org/important", Attention: "attention", Metadata: map[string]string{"author": "renovate[bot]"}}}
+	items := []protocol.Task{{ID: 1, Repo: "org/important", Attention: "attention", Metadata: map[string]string{"author": "renovate[bot]"}}}
 	cfg := Config{
 		MuteUsers: []string{"renovate[bot]"},
 		Rules: []Rule{
@@ -116,7 +116,7 @@ func TestWildcardMatch(t *testing.T) {
 }
 
 func TestSummaryIncludesLowPriority(t *testing.T) {
-	summary := Summary([]protocol.Item{
+	summary := Summary([]protocol.Task{
 		{Attention: "attention"},
 		{Attention: "low_priority"},
 	})

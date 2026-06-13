@@ -93,8 +93,8 @@ func EnsureFile() (string, error) {
 	return path, nil
 }
 
-func Apply(items []protocol.Item, cfg Config) []protocol.Item {
-	filtered := make([]protocol.Item, 0, len(items))
+func Apply(items []protocol.Task, cfg Config) []protocol.Task {
+	filtered := make([]protocol.Task, 0, len(items))
 	for _, item := range items {
 		action := actionFor(item, cfg)
 		if action == actionMute {
@@ -114,7 +114,7 @@ func Apply(items []protocol.Item, cfg Config) []protocol.Item {
 	return filtered
 }
 
-func Summary(items []protocol.Item) protocol.Summary {
+func Summary(items []protocol.Task) protocol.Summary {
 	var summary protocol.Summary
 	for _, item := range items {
 		switch item.Attention {
@@ -133,7 +133,7 @@ func Summary(items []protocol.Item) protocol.Summary {
 	return summary
 }
 
-func actionFor(item protocol.Item, cfg Config) string {
+func actionFor(item protocol.Task, cfg Config) string {
 	action := actionKeep
 	if matchesRule(item, Rule{Repos: cfg.MuteRepos}) {
 		action = actionMute
@@ -169,7 +169,7 @@ func normalizeAction(action string) string {
 	}
 }
 
-func matchesRule(item protocol.Item, rule Rule) bool {
+func matchesRule(item protocol.Task, rule Rule) bool {
 	if len(rule.Repos) == 0 && len(rule.Users) == 0 {
 		return false
 	}
@@ -182,18 +182,18 @@ func matchesRule(item protocol.Item, rule Rule) bool {
 	return true
 }
 
-func repoValues(item protocol.Item) []string {
+func repoValues(item protocol.Task) []string {
 	values := []string{item.Repo}
-	for _, entity := range item.Entities {
-		values = append(values, entity.Repo)
+	for _, sourceRef := range item.SourceRefs {
+		values = append(values, sourceRef.Repo)
 	}
 	return values
 }
 
-func userValues(item protocol.Item) []string {
+func userValues(item protocol.Task) []string {
 	values := []string{metadata(item.Metadata, "user", "author", "login")}
-	for _, entity := range item.Entities {
-		values = append(values, metadata(entity.Metadata, "user", "author", "login"))
+	for _, sourceRef := range item.SourceRefs {
+		values = append(values, metadata(sourceRef.Metadata, "user", "author", "login"))
 	}
 	return values
 }

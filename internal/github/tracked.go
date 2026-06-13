@@ -40,13 +40,13 @@ type trackedPullRequestCacheEntry struct {
 	PRs       []searchPullRequest `json:"prs"`
 }
 
-func FetchRulePullRequests(ctx context.Context, cfg filters.Config, logger *slog.Logger) ([]protocol.Item, error) {
+func FetchRulePullRequests(ctx context.Context, cfg filters.Config, logger *slog.Logger) ([]protocol.Task, error) {
 	targets := trackingTargets(cfg, logger)
 	if len(targets) == 0 {
 		return nil, nil
 	}
 
-	items := make([]protocol.Item, 0)
+	items := make([]protocol.Task, 0)
 	seen := map[string]bool{}
 	cache, _ := readTrackedPullRequestCache()
 	cacheChanged := false
@@ -68,7 +68,7 @@ func FetchRulePullRequests(ctx context.Context, cfg filters.Config, logger *slog
 				continue
 			}
 			seen[key] = true
-			items = append(items, trackedPullRequestItem(pr))
+			items = append(items, trackedPullRequestTask(pr))
 		}
 	}
 	if cacheChanged {
@@ -376,14 +376,13 @@ func searchPullRequestsByOwnerAndAuthor(ctx context.Context, owner string, autho
 	return prs, nil
 }
 
-func trackedPullRequestItem(pr searchPullRequest) protocol.Item {
+func trackedPullRequestTask(pr searchPullRequest) protocol.Task {
 	repo := repoName(pr)
 	reason := "tracked PR"
 	if pr.Draft {
 		reason = "tracked draft PR"
 	}
-	item := protocol.Item{
-		ID:        fmt.Sprintf("github:tracked_pr:%s:%d", repo, pr.Number),
+	item := protocol.Task{
 		Kind:      "github_tracked_pr",
 		Title:     pr.Title,
 		Repo:      repo,
@@ -392,6 +391,6 @@ func trackedPullRequestItem(pr searchPullRequest) protocol.Item {
 		Reason:    reason,
 		Metadata:  pullRequestMetadata(pr),
 	}
-	item.Entities = []protocol.Entity{githubEntity(item, "pull_request", pr.HeadRefName, pr.Body)}
+	item.SourceRefs = []protocol.SourceRef{newGitHubPullRequestSourceRef(item, repo, pr.Number, "pull_request", pr.HeadRefName, pr.Body)}
 	return item
 }

@@ -51,7 +51,7 @@ Query it from the CLI:
 
 ```sh
 ./radar status
-./radar items
+./radar tasks
 ./radar refresh
 ```
 
@@ -79,7 +79,7 @@ Radar checks GitHub rate limits before GitHub collection. When a budget is low, 
 
 ## Jira
 
-Radar can collect assigned Jira Cloud issues and attach them to matching items by ticket key, e.g. `ABC-123`.
+Radar can collect assigned Jira Cloud issues and attach them to matching tasks by ticket key, e.g. `ABC-123`.
 
 Configure credentials through the environment:
 
@@ -99,7 +99,7 @@ assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC
 
 ## Git worktrees
 
-Radar can collect Git worktree information and attach it to matching items by ticket key, e.g. `ABC-123`.
+Radar can collect Git worktree information and attach it to matching tasks by ticket key, e.g. `ABC-123`.
 
 Configure repositories with:
 
@@ -140,7 +140,7 @@ Example:
 }
 ```
 
-Muted items are hidden from the GUI and statusline counts. Deprioritized items move to the low-priority section. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive. Rules use AND semantics across keys; if both `repos` and `users` are set, both must match.
+Muted tasks are hidden from the GUI and statusline counts. Deprioritized tasks move to the low-priority section. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive. Rules use AND semantics across keys; if both `repos` and `users` are set, both must match.
 
 Rules with both `repos` and exact `users` also drive GitHub PR ingestion: Radar expands wildcard repositories by listing the owning org, caches that repository list for 24 hours, then searches exact repositories for open PRs by those users. This keeps rules like Renovate-in-owned-repos narrow without broad org-wide PR searches.
 
@@ -148,15 +148,15 @@ In Neovim, use `:RadarFilters` or press `f` in the Radar window to edit the file
 
 ## Local state
 
-The daemon stores the latest attention items locally:
+The daemon stores the latest attention tasks locally. Task IDs are Radar-owned integers assigned from this local state.
 
 ```sh
 ./radar state-path
 ```
 
-By default this is `$XDG_STATE_HOME/radar/items.json` or `~/.local/state/radar/items.json`.
+By default this is `$XDG_STATE_HOME/radar/tasks.json` or `~/.local/state/radar/tasks.json`.
 
-Override it with `RADAR_STATE=/path/to/items.json`.
+Override it with `RADAR_STATE=/path/to/tasks.json`.
 
 ## Logs
 

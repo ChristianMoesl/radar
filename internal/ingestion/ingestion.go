@@ -9,15 +9,15 @@ import (
 )
 
 type Request struct {
-	Previous []protocol.Item
+	Previous []protocol.Task
 	Filters  filters.Config
 	Logger   *slog.Logger
 }
 
 type Result struct {
-	Items    []protocol.Item
-	Entities []protocol.Entity
-	Complete bool
+	Tasks      []protocol.Task
+	SourceRefs []protocol.SourceRef
+	Complete   bool
 }
 
 type StatusResult struct {
@@ -35,12 +35,12 @@ type StatusReporter interface {
 }
 
 type ReconcileRequest struct {
-	Previous []protocol.Item
-	Active   []protocol.Item
+	Previous []protocol.Task
+	Active   []protocol.Task
 	Result   Result
 	Logger   *slog.Logger
 }
 
 type Reconciler interface {
-	ReconcileDone(ctx context.Context, req ReconcileRequest) []protocol.Item
+	ReconcileDone(ctx context.Context, req ReconcileRequest) []protocol.Task
 }

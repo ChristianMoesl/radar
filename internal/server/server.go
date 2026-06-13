@@ -65,28 +65,28 @@ func (s *Server) handle(conn net.Conn) {
 		}
 
 		s.logger.Debug("request received", "method", req.Method)
-		if itemID, ok := strings.CutPrefix(req.Method, "ack:"); ok {
-			s.store.Acknowledge(itemID)
+		if taskID, ok := strings.CutPrefix(req.Method, "ack:"); ok {
+			s.store.Acknowledge(taskID)
 			summary := s.store.Summary()
-			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Items: s.store.Items(), Services: s.store.Services()})
+			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: s.store.Tasks(), Services: s.store.Services()})
 			continue
 		}
 		switch req.Method {
 		case "summary":
-			items := s.filteredItems()
-			summary := filters.Summary(items)
+			tasks := s.filteredTasks()
+			summary := filters.Summary(tasks)
 			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Services: s.store.Services()})
-		case "items":
-			items := s.filteredItems()
-			summary := filters.Summary(items)
-			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Items: items, Services: s.store.Services()})
+		case "tasks":
+			tasks := s.filteredTasks()
+			summary := filters.Summary(tasks)
+			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: tasks, Services: s.store.Services()})
 		case "refresh":
 			if s.refresh != nil {
 				s.refresh()
 			}
-			items := s.filteredItems()
-			summary := filters.Summary(items)
-			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Items: items, Services: s.store.Services()})
+			tasks := s.filteredTasks()
+			summary := filters.Summary(tasks)
+			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: tasks, Services: s.store.Services()})
 		default:
 			s.logger.Warn("unknown method", "method", req.Method)
 			_ = encoder.Encode(protocol.Response{OK: false, Error: "unknown method: " + req.Method})
@@ -98,12 +98,12 @@ func (s *Server) handle(conn net.Conn) {
 	}
 }
 
-func (s *Server) filteredItems() []protocol.Item {
-	items := s.store.Items()
+func (s *Server) filteredTasks() []protocol.Task {
+	tasks := s.store.Tasks()
 	cfg, err := filters.Load()
 	if err != nil {
 		s.logger.Warn("could not load filters", "error", err)
-		return items
+		return tasks
 	}
-	return filters.Apply(items, cfg)
+	return filters.Apply(tasks, cfg)
 }

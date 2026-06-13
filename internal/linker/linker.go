@@ -10,91 +10,90 @@ import (
 var ticketPattern = regexp.MustCompile(`(?i)[A-Z][A-Z0-9]+-[0-9]+`)
 
 type Input struct {
-	Items    []protocol.Item
-	Entities []protocol.Entity
+	Tasks      []protocol.Task
+	SourceRefs []protocol.SourceRef
 }
 
-func Link(input Input) []protocol.Item {
-	items := cloneItems(input.Items)
-	items = attachEntities(items, input.Entities)
-	items = append(items, standaloneEntities(items, input.Entities)...)
+func Link(input Input) []protocol.Task {
+	items := cloneTasks(input.Tasks)
+	items = attachSourceRefs(items, input.SourceRefs)
+	items = append(items, standaloneSourceRefs(items, input.SourceRefs)...)
 	return items
 }
 
-func cloneItems(items []protocol.Item) []protocol.Item {
-	cloned := make([]protocol.Item, len(items))
+func cloneTasks(items []protocol.Task) []protocol.Task {
+	cloned := make([]protocol.Task, len(items))
 	copy(cloned, items)
 	return cloned
 }
 
-func attachEntities(items []protocol.Item, entities []protocol.Entity) []protocol.Item {
+func attachSourceRefs(items []protocol.Task, source_refs []protocol.SourceRef) []protocol.Task {
 	for i := range items {
-		itemKeys := keysForItem(items[i])
-		for _, entity := range entities {
-			if matchesAny(itemKeys, keysForEntity(entity)) {
-				items[i].Entities = appendEntity(items[i].Entities, entity)
+		itemKeys := keysForTask(items[i])
+		for _, sourceRef := range source_refs {
+			if matchesAny(itemKeys, keysForSourceRef(sourceRef)) {
+				items[i].SourceRefs = appendSourceRef(items[i].SourceRefs, sourceRef)
 			}
 		}
 	}
 	return items
 }
 
-func standaloneEntities(items []protocol.Item, entities []protocol.Entity) []protocol.Item {
+func standaloneSourceRefs(items []protocol.Task, source_refs []protocol.SourceRef) []protocol.Task {
 	attached := map[string]bool{}
 	for _, item := range items {
-		for _, entity := range item.Entities {
-			attached[entity.ID] = true
+		for _, sourceRef := range item.SourceRefs {
+			attached[sourceRef.ID] = true
 		}
 	}
 
-	standalone := make([]protocol.Item, 0)
-	for _, entity := range entities {
-		if attached[entity.ID] || ignoredEntity(entity) {
+	standalone := make([]protocol.Task, 0)
+	for _, sourceRef := range source_refs {
+		if attached[sourceRef.ID] || ignoredSourceRef(sourceRef) {
 			continue
 		}
-		standalone = append(standalone, itemFromEntity(entity))
+		standalone = append(standalone, taskFromSourceRef(sourceRef))
 	}
 	return standalone
 }
 
-func itemFromEntity(entity protocol.Entity) protocol.Item {
-	reason := entity.Source + " " + entity.Kind
-	return protocol.Item{
-		ID:        entity.ID,
-		Kind:      entity.Source + "_" + entity.Kind,
-		Title:     entity.Title,
-		Repo:      entity.Repo,
-		URL:       entity.URL,
-		Attention: "in_progress",
-		Reason:    reason,
-		Entities:  []protocol.Entity{entity},
+func taskFromSourceRef(sourceRef protocol.SourceRef) protocol.Task {
+	reason := sourceRef.Source + " " + sourceRef.Kind
+	return protocol.Task{
+		Kind:       sourceRef.Source + "_" + sourceRef.Kind,
+		Title:      sourceRef.Title,
+		Repo:       sourceRef.Repo,
+		URL:        sourceRef.URL,
+		Attention:  "in_progress",
+		Reason:     reason,
+		SourceRefs: []protocol.SourceRef{sourceRef},
 	}
 }
 
-func appendEntity(entities []protocol.Entity, entity protocol.Entity) []protocol.Entity {
-	for _, existing := range entities {
-		if existing.ID == entity.ID {
-			return entities
+func appendSourceRef(source_refs []protocol.SourceRef, sourceRef protocol.SourceRef) []protocol.SourceRef {
+	for _, existing := range source_refs {
+		if existing.ID == sourceRef.ID {
+			return source_refs
 		}
 	}
-	return append(entities, entity)
+	return append(source_refs, sourceRef)
 }
 
-func keysForItem(item protocol.Item) []string {
-	values := []string{item.ID, item.Title, item.Repo, item.URL}
-	for _, entity := range item.Entities {
-		values = append(values, valuesForEntity(entity)...)
+func keysForTask(task protocol.Task) []string {
+	values := []string{task.Title, task.Repo, task.URL}
+	for _, sourceRef := range task.SourceRefs {
+		values = append(values, valuesForSourceRef(sourceRef)...)
 	}
 	return extractKeys(values...)
 }
 
-func keysForEntity(entity protocol.Entity) []string {
-	return extractKeys(valuesForEntity(entity)...)
+func keysForSourceRef(sourceRef protocol.SourceRef) []string {
+	return extractKeys(valuesForSourceRef(sourceRef)...)
 }
 
-func valuesForEntity(entity protocol.Entity) []string {
-	values := []string{entity.ID, entity.Title, entity.Branch, entity.Path, entity.Repo, entity.URL}
-	for _, value := range entity.Metadata {
+func valuesForSourceRef(sourceRef protocol.SourceRef) []string {
+	values := []string{sourceRef.ID, sourceRef.Title, sourceRef.Branch, sourceRef.Path, sourceRef.Repo, sourceRef.URL}
+	for _, value := range sourceRef.Metadata {
 		values = append(values, value)
 	}
 	return values
@@ -126,8 +125,8 @@ func matchesAny(left []string, right []string) bool {
 	return false
 }
 
-func ignoredEntity(entity protocol.Entity) bool {
-	return entity.Source == "git" && entity.Kind == "worktree" && ignoredBranch(entity.Branch)
+func ignoredSourceRef(sourceRef protocol.SourceRef) bool {
+	return sourceRef.Source == "git" && sourceRef.Kind == "worktree" && ignoredBranch(sourceRef.Branch)
 }
 
 func ignoredBranch(branch string) bool {

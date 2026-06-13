@@ -219,7 +219,7 @@ local function notify_new_items(items)
 		vim.notify(
 			string.format("%s %s\n%s", item_icon(item.attention), item.title or "Untitled", item.reason or item_label(item.attention)),
 			notification_level(item),
-			{ title = "New Radar item" }
+			{ title = "New Radar task" }
 		)
 	end
 end
@@ -230,8 +230,8 @@ local function append_field(fields, label, value)
 	end
 end
 
-local function entity_identifier(entity)
-	return entity.id or entity.title or entity.repo or entity.path or entity.branch or "unknown"
+local function sourceRef_identifier(sourceRef)
+	return sourceRef.id or sourceRef.title or sourceRef.repo or sourceRef.path or sourceRef.branch or "unknown"
 end
 
 local function add_highlight(line_highlights, line, start_col, end_col, group)
@@ -283,17 +283,17 @@ local function add_item(lines, line_items, line_highlights, item)
 	table.insert(lines, line)
 	line_items[#lines] = item
 	local title_hl = item.attention == "low_priority" and "RadarLowPriorityItemTitle" or "RadarItemTitle"
-	local entity_hl = item.attention == "low_priority" and "RadarLowPriorityEntityIdentifier" or "RadarEntityIdentifier"
+	local sourceRef_hl = item.attention == "low_priority" and "RadarLowPrioritySourceRefIdentifier" or "RadarSourceRefIdentifier"
 	add_highlight(line_highlights, #lines, #prefix, #prefix + #title, title_hl)
 
-	for _, entity in ipairs(item.entities or {}) do
-		local entity_prefix = "  ↳ "
-		local identifier = entity_identifier(entity)
-		local entity_line = entity_prefix .. identifier
+	for _, sourceRef in ipairs(item.source_refs or {}) do
+		local sourceRef_prefix = "  ↳ "
+		local identifier = sourceRef_identifier(sourceRef)
+		local sourceRef_line = sourceRef_prefix .. identifier
 
-		table.insert(lines, entity_line)
-		line_items[#lines] = entity
-		add_highlight(line_highlights, #lines, #entity_prefix, #entity_prefix + #identifier, entity_hl)
+		table.insert(lines, sourceRef_line)
+		line_items[#lines] = sourceRef
+		add_highlight(line_highlights, #lines, #sourceRef_prefix, #sourceRef_prefix + #identifier, sourceRef_hl)
 	end
 end
 
@@ -335,7 +335,7 @@ local function render_lines()
 	end
 
 	if #state.items == 0 then
-		table.insert(lines, "No items need your attention.")
+		table.insert(lines, "No tasks need your attention.")
 	end
 
 	if #state.services > 0 then
@@ -423,12 +423,12 @@ local function ensure_window()
 		local line = vim.api.nvim_win_get_cursor(0)[1]
 		local item = state.line_items[line]
 		if item then
-			run({ resolve_radar_cmd(), "ack", item.id }, function(result)
+			run({ resolve_radar_cmd(), "ack", tostring(item.id) }, function(result)
 				if result.code == 0 then
 					local response = decode_json(result.stdout)
 					if response then
 						state.summary = response.summary or state.summary
-						state.items = response.items or state.items
+						state.items = response.tasks or state.items
 						state.services = response.services or state.services
 						render_window()
 					end
@@ -450,8 +450,8 @@ end
 local function setup_highlights()
 	vim.api.nvim_set_hl(0, "RadarItemTitle", { link = "Title", default = true })
 	vim.api.nvim_set_hl(0, "RadarLowPriorityItemTitle", { link = "Comment", default = true })
-	vim.api.nvim_set_hl(0, "RadarEntityIdentifier", { link = "Identifier", default = true })
-	vim.api.nvim_set_hl(0, "RadarLowPriorityEntityIdentifier", { link = "Comment", default = true })
+	vim.api.nvim_set_hl(0, "RadarSourceRefIdentifier", { link = "Identifier", default = true })
+	vim.api.nvim_set_hl(0, "RadarLowPrioritySourceRefIdentifier", { link = "Comment", default = true })
 	vim.api.nvim_set_hl(0, "RadarServiceName", { link = "Type", default = true })
 	vim.api.nvim_set_hl(0, "RadarServiceStatusOK", { link = "String", default = true })
 	vim.api.nvim_set_hl(0, "RadarServiceStatusWarn", { link = "WarningMsg", default = true })
@@ -539,9 +539,10 @@ local function fetch(method, cb, retried)
 		end
 
 		state.summary = response.summary or state.summary
-		if response.items then
-			notify_new_items(response.items)
-			state.items = response.items
+		local tasks = response.tasks
+		if tasks then
+			notify_new_items(tasks)
+			state.items = tasks
 		end
 		if response.services then
 			state.services = response.services
@@ -561,7 +562,7 @@ function M.refresh(cb)
 end
 
 function M.load(cb)
-	fetch("items", cb)
+	fetch("tasks", cb)
 end
 
 function M.statusline()
@@ -575,7 +576,7 @@ end
 
 function M.open()
 	ensure_window()
-	fetch("items", function()
+	fetch("tasks", function()
 		render_window()
 	end)
 end

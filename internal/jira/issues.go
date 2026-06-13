@@ -54,7 +54,7 @@ type issue struct {
 	} `json:"fields"`
 }
 
-func FetchAssignedIssues(ctx context.Context, logger *slog.Logger) ([]protocol.Entity, protocol.ServiceStatus, error) {
+func FetchAssignedIssues(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.ServiceStatus, error) {
 	status := protocol.ServiceStatus{Name: "jira", Status: "ok"}
 
 	cfg, ok, missing := configFromEnv()
@@ -72,15 +72,15 @@ func FetchAssignedIssues(ctx context.Context, logger *slog.Logger) ([]protocol.E
 		return nil, status, err
 	}
 
-	return entitiesFromIssues(cfg, issues, ""), statusWithCount(status, len(issues), ""), nil
+	return source_refsFromIssues(cfg, issues, ""), statusWithCount(status, len(issues), ""), nil
 }
 
-func entitiesFromIssues(cfg Config, issues []issue, suffix string) []protocol.Entity {
-	entities := make([]protocol.Entity, 0, len(issues))
+func source_refsFromIssues(cfg Config, issues []issue, suffix string) []protocol.SourceRef {
+	source_refs := make([]protocol.SourceRef, 0, len(issues))
 	for _, issue := range issues {
-		entities = append(entities, entityFromIssue(cfg, issue))
+		source_refs = append(source_refs, sourceRefFromIssue(cfg, issue))
 	}
-	return entities
+	return source_refs
 }
 
 func statusWithCount(status protocol.ServiceStatus, count int, suffix string) protocol.ServiceStatus {
@@ -223,7 +223,7 @@ func urlValues(request searchRequest) url.Values {
 	return values
 }
 
-func entityFromIssue(cfg Config, issue issue) protocol.Entity {
+func sourceRefFromIssue(cfg Config, issue issue) protocol.SourceRef {
 	status := ""
 	statusCategory := ""
 	if issue.Fields.Status != nil {
@@ -246,7 +246,7 @@ func entityFromIssue(cfg Config, issue issue) protocol.Entity {
 		metadata["priority"] = issue.Fields.Priority.Name
 	}
 
-	return protocol.Entity{
+	return protocol.SourceRef{
 		ID:       "jira:issue:" + issue.Key,
 		Source:   "jira",
 		Kind:     "issue",

@@ -141,7 +141,7 @@ const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: S
   }
 }`
 
-func FetchPullRequests(ctx context.Context, previous []protocol.Item, logger *slog.Logger) ([]protocol.Item, []protocol.Item, []protocol.Item, error) {
+func FetchPullRequests(ctx context.Context, previous []protocol.Task, logger *slog.Logger) ([]protocol.Task, []protocol.Task, []protocol.Task, error) {
 	var response graphQLPullRequestsResponse
 	args := []string{
 		"api", "graphql",
@@ -159,8 +159,8 @@ func FetchPullRequests(ctx context.Context, previous []protocol.Item, logger *sl
 	}
 
 	previousActivity := activityStateFromPrevious(previous)
-	reviewItems := reviewRequestItems(response.Data.ReviewRequested.Nodes)
-	authoredItems := authoredPullRequestItems(response.Data.Authored.Nodes)
+	reviewItems := reviewRequestTasks(response.Data.ReviewRequested.Nodes)
+	authoredItems := authoredPullRequestTasks(response.Data.Authored.Nodes)
 	activityItems := activityPullRequestItems(response.Data.Participated.Nodes, login, previousActivity)
 	applyActivity(authoredItems, response.Data.Authored.Nodes, login, previousActivity, true)
 	applyActivity(reviewItems, response.Data.ReviewRequested.Nodes, login, previousActivity, false)
@@ -173,36 +173,35 @@ func FetchPullRequests(ctx context.Context, previous []protocol.Item, logger *sl
 	return reviewItems, authoredItems, activityItems, nil
 }
 
-func FetchReviewRequests(ctx context.Context, logger *slog.Logger) ([]protocol.Item, error) {
+func FetchReviewRequests(ctx context.Context, logger *slog.Logger) ([]protocol.Task, error) {
 	prs, err := fetchReviewRequestedPullRequests(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fetch review requested pull requests: %w", err)
 	}
 	logger.Debug("fetched github review requested pull requests", "count", len(prs))
 
-	items := reviewRequestItems(prs)
+	items := reviewRequestTasks(prs)
 	logger.Debug("github review requests classified", "count", len(items))
 	return items, nil
 }
 
-func FetchAuthoredPullRequests(ctx context.Context, logger *slog.Logger) ([]protocol.Item, error) {
+func FetchAuthoredPullRequests(ctx context.Context, logger *slog.Logger) ([]protocol.Task, error) {
 	prs, err := fetchAuthoredPullRequests(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fetch authored pull requests: %w", err)
 	}
 	logger.Debug("fetched authored github pull requests", "count", len(prs))
 
-	items := authoredPullRequestItems(prs)
+	items := authoredPullRequestTasks(prs)
 	logger.Debug("authored github pull requests classified", "count", len(items))
 	return items, nil
 }
 
-func reviewRequestItems(prs []searchPullRequest) []protocol.Item {
-	items := make([]protocol.Item, 0, len(prs))
+func reviewRequestTasks(prs []searchPullRequest) []protocol.Task {
+	items := make([]protocol.Task, 0, len(prs))
 	for _, pr := range prs {
 		repo := repoName(pr)
-		item := protocol.Item{
-			ID:        fmt.Sprintf("github:review_request:%s:%d", repo, pr.Number),
+		item := protocol.Task{
 			Kind:      "github_review_request",
 			Title:     pr.Title,
 			Repo:      repo,
@@ -211,14 +210,14 @@ func reviewRequestItems(prs []searchPullRequest) []protocol.Item {
 			Reason:    "review requested",
 			Metadata:  pullRequestMetadata(pr),
 		}
-		item.Entities = []protocol.Entity{githubEntity(item, "pull_request", pr.HeadRefName, pr.Body)}
+		item.SourceRefs = []protocol.SourceRef{newGitHubPullRequestSourceRef(item, repo, pr.Number, "pull_request", pr.HeadRefName, pr.Body)}
 		items = append(items, item)
 	}
 	return items
 }
 
-func authoredPullRequestItems(prs []searchPullRequest) []protocol.Item {
-	items := make([]protocol.Item, 0, len(prs))
+func authoredPullRequestTasks(prs []searchPullRequest) []protocol.Task {
+	items := make([]protocol.Task, 0, len(prs))
 	for _, pr := range prs {
 		repo := repoName(pr)
 		reason := "open PR"
@@ -226,8 +225,7 @@ func authoredPullRequestItems(prs []searchPullRequest) []protocol.Item {
 			reason = "draft PR"
 		}
 
-		item := protocol.Item{
-			ID:        fmt.Sprintf("github:own_pr:%s:%d", repo, pr.Number),
+		item := protocol.Task{
 			Kind:      "github_own_pr",
 			Title:     pr.Title,
 			Repo:      repo,
@@ -236,7 +234,7 @@ func authoredPullRequestItems(prs []searchPullRequest) []protocol.Item {
 			Reason:    reason,
 			Metadata:  pullRequestMetadata(pr),
 		}
-		item.Entities = []protocol.Entity{githubEntity(item, "pull_request", pr.HeadRefName, pr.Body)}
+		item.SourceRefs = []protocol.SourceRef{newGitHubPullRequestSourceRef(item, repo, pr.Number, "pull_request", pr.HeadRefName, pr.Body)}
 		items = append(items, item)
 	}
 	return items
@@ -256,16 +254,15 @@ type previousPullRequestActivity struct {
 	generalCommentsAckAt string
 }
 
-func activityPullRequestItems(prs []searchPullRequest, login string, previous map[string]previousPullRequestActivity) []protocol.Item {
-	items := make([]protocol.Item, 0)
+func activityPullRequestItems(prs []searchPullRequest, login string, previous map[string]previousPullRequestActivity) []protocol.Task {
+	items := make([]protocol.Task, 0)
 	for _, pr := range prs {
 		activity := detectActivity(pr, login, previous[prKey(repoName(pr), pr.Number)], false)
 		if !activity.needsAttention() {
 			continue
 		}
 		repo := repoName(pr)
-		item := protocol.Item{
-			ID:        fmt.Sprintf("github:pr_activity:%s:%d", repo, pr.Number),
+		item := protocol.Task{
 			Kind:      "github_pr_activity",
 			Title:     pr.Title,
 			Repo:      repo,
@@ -273,43 +270,41 @@ func activityPullRequestItems(prs []searchPullRequest, login string, previous ma
 			Attention: "attention",
 			Reason:    activity.reason(),
 		}
-		item.Entities = []protocol.Entity{githubEntity(item, "pull_request", pr.HeadRefName, pr.Body)}
-		setActivityMetadata(&item.Entities[0], activity, previous[prKey(repo, pr.Number)])
+		item.SourceRefs = []protocol.SourceRef{newGitHubPullRequestSourceRef(item, repo, pr.Number, "pull_request", pr.HeadRefName, pr.Body)}
+		setActivityMetadata(&item.SourceRefs[0], activity, previous[prKey(repo, pr.Number)])
 		items = append(items, item)
 	}
 	return items
 }
 
-func applyActivity(items []protocol.Item, prs []searchPullRequest, login string, previous map[string]previousPullRequestActivity, authored bool) {
+func applyActivity(items []protocol.Task, prs []searchPullRequest, login string, previous map[string]previousPullRequestActivity, authored bool) {
 	activityByKey := map[string]pullRequestActivity{}
 	for _, pr := range prs {
 		key := prKey(repoName(pr), pr.Number)
 		activityByKey[key] = detectActivity(pr, login, previous[key], authored)
 	}
 	for i := range items {
-		if len(items[i].Entities) == 0 {
+		if i >= len(prs) || len(items[i].SourceRefs) == 0 {
 			continue
 		}
-		repo, number, ok := parsePullRequestItemID(items[i].ID)
-		if !ok {
-			continue
-		}
+		repo := repoName(prs[i])
+		number := prs[i].Number
 		key := prKey(repo, number)
 		activity := activityByKey[key]
 		if !activity.needsAttention() {
 			if previous[key].generalCommentsAckAt != "" {
-				setActivityMetadata(&items[i].Entities[0], activity, previous[key])
+				setActivityMetadata(&items[i].SourceRefs[0], activity, previous[key])
 			}
 			continue
 		}
-		if items[i].Entities[0].Metadata == nil {
-			items[i].Entities[0].Metadata = map[string]string{}
+		if items[i].SourceRefs[0].Metadata == nil {
+			items[i].SourceRefs[0].Metadata = map[string]string{}
 		}
-		items[i].Entities[0].Metadata["base_reason"] = items[i].Reason
+		items[i].SourceRefs[0].Metadata["base_reason"] = items[i].Reason
 		items[i].Attention = "attention"
 		items[i].Reason = activity.reason()
-		items[i].Entities[0].Status = items[i].Reason
-		setActivityMetadata(&items[i].Entities[0], activity, previous[key])
+		items[i].SourceRefs[0].Status = items[i].Reason
+		setActivityMetadata(&items[i].SourceRefs[0], activity, previous[key])
 	}
 }
 
@@ -368,19 +363,19 @@ func (activity pullRequestActivity) reason() string {
 	return strings.Join(parts, ", ")
 }
 
-func setActivityMetadata(entity *protocol.Entity, activity pullRequestActivity, previous previousPullRequestActivity) {
-	if entity.Metadata == nil {
-		entity.Metadata = map[string]string{}
+func setActivityMetadata(sourceRef *protocol.SourceRef, activity pullRequestActivity, previous previousPullRequestActivity) {
+	if sourceRef.Metadata == nil {
+		sourceRef.Metadata = map[string]string{}
 	}
 	if activity.unresolvedReviewThreads > 0 {
-		entity.Metadata["unresolved_review_threads"] = strconv.Itoa(activity.unresolvedReviewThreads)
+		sourceRef.Metadata["unresolved_review_threads"] = strconv.Itoa(activity.unresolvedReviewThreads)
 	}
 	if activity.newGeneralComments > 0 {
-		entity.Metadata["new_general_comments"] = strconv.Itoa(activity.newGeneralComments)
-		entity.Metadata["latest_general_comment_at"] = activity.latestGeneralCommentAt
+		sourceRef.Metadata["new_general_comments"] = strconv.Itoa(activity.newGeneralComments)
+		sourceRef.Metadata["latest_general_comment_at"] = activity.latestGeneralCommentAt
 	}
 	if previous.generalCommentsAckAt != "" {
-		entity.Metadata["general_comments_ack_at"] = previous.generalCommentsAckAt
+		sourceRef.Metadata["general_comments_ack_at"] = previous.generalCommentsAckAt
 	}
 }
 
@@ -398,19 +393,19 @@ func pullRequestMetadata(pr searchPullRequest) map[string]string {
 	return map[string]string{"author": pr.Author.Login}
 }
 
-func activityStateFromPrevious(previous []protocol.Item) map[string]previousPullRequestActivity {
+func activityStateFromPrevious(previous []protocol.Task) map[string]previousPullRequestActivity {
 	state := map[string]previousPullRequestActivity{}
 	for _, item := range previous {
-		repo, number, ok := parsePullRequestItemID(item.ID)
-		if !ok {
-			continue
-		}
-		key := prKey(repo, number)
-		for _, entity := range item.Entities {
-			if entity.Metadata == nil {
+		for _, sourceRef := range item.SourceRefs {
+			repo, number, ok := parsePullRequestSourceRefID(sourceRef.ID)
+			if !ok {
 				continue
 			}
-			if ack := entity.Metadata["general_comments_ack_at"]; ack != "" && ack > state[key].generalCommentsAckAt {
+			key := prKey(repo, number)
+			if sourceRef.Metadata == nil {
+				continue
+			}
+			if ack := sourceRef.Metadata["general_comments_ack_at"]; ack != "" && ack > state[key].generalCommentsAckAt {
 				state[key] = previousPullRequestActivity{generalCommentsAckAt: ack}
 			}
 		}
@@ -422,38 +417,39 @@ func prKey(repo string, number int) string {
 	return fmt.Sprintf("%s:%d", repo, number)
 }
 
-func parsePullRequestItemID(id string) (string, int, bool) {
-	for _, prefix := range []string{"github:own_pr:", "github:review_request:", "github:pr_activity:"} {
-		if value, ok := strings.CutPrefix(id, prefix); ok {
-			idx := strings.LastIndex(value, ":")
-			if idx <= 0 || idx == len(value)-1 {
-				return "", 0, false
-			}
-			number, err := strconv.Atoi(value[idx+1:])
-			if err != nil {
-				return "", 0, false
-			}
-			return value[:idx], number, true
-		}
+func parsePullRequestSourceRefID(id string) (string, int, bool) {
+	value, ok := strings.CutPrefix(id, "github:pr:")
+	if !ok {
+		return "", 0, false
 	}
-	return "", 0, false
+	idx := strings.LastIndex(value, ":")
+	if idx <= 0 || idx == len(value)-1 {
+		return "", 0, false
+	}
+	number, err := strconv.Atoi(value[idx+1:])
+	if err != nil {
+		return "", 0, false
+	}
+	return value[:idx], number, true
 }
 
-func ResolveDonePullRequests(ctx context.Context, previous []protocol.Item, active []protocol.Item, authoredComplete bool, logger *slog.Logger) []protocol.Item {
+func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, active []protocol.Task, authoredComplete bool, logger *slog.Logger) []protocol.Task {
 	if !authoredComplete {
 		logger.Debug("skipping github done resolution; authored PR collection was incomplete")
-		return keepTodaysDoneItems(previous)
+		return keepTodaysDoneTasks(previous)
 	}
 	if !EnsureCoreBudget(ctx, logger) {
-		return keepTodaysDoneItems(previous)
+		return keepTodaysDoneTasks(previous)
 	}
 
-	activeIDs := make(map[string]bool, len(active))
+	activePullRequests := make(map[string]bool, len(active))
 	for _, item := range active {
-		activeIDs[item.ID] = true
+		if sourceRef, ok := githubPullRequestSourceRef(item); ok {
+			activePullRequests[sourceRef.ID] = true
+		}
 	}
 
-	items := make([]protocol.Item, 0)
+	items := make([]protocol.Task, 0)
 	for _, item := range previous {
 		if item.Attention == "done" {
 			if isToday(item.DoneAt) {
@@ -462,13 +458,16 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Item, acti
 			continue
 		}
 
-		if item.Kind != "github_own_pr" || activeIDs[item.ID] {
+		if item.Kind != "github_own_pr" {
 			continue
 		}
-
-		repo, number, ok := parseOwnPullRequestID(item.ID)
+		sourceRef, ok := githubPullRequestSourceRef(item)
+		if !ok || activePullRequests[sourceRef.ID] {
+			continue
+		}
+		repo, number, ok := parsePullRequestSourceRefID(sourceRef.ID)
 		if !ok {
-			logger.Warn("could not parse github own PR id", "id", item.ID)
+			logger.Warn("could not parse github PR source ref id", "id", sourceRef.ID)
 			continue
 		}
 
@@ -485,18 +484,16 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Item, acti
 		if pr.Merged {
 			reason = "merged today"
 		}
-		done := protocol.Item{
-			ID:        fmt.Sprintf("github:done_pr:%s:%d", repo, number),
-			Kind:      "github_done_pr",
-			Title:     item.Title,
-			Repo:      item.Repo,
-			URL:       item.URL,
-			Attention: "done",
-			Reason:    reason,
-			DoneAt:    pr.ClosedAt,
-			Entities:  item.Entities,
+		done := protocol.Task{
+			Kind:       "github_done_pr",
+			Title:      item.Title,
+			Repo:       item.Repo,
+			URL:        item.URL,
+			Attention:  "done",
+			Reason:     reason,
+			DoneAt:     pr.ClosedAt,
+			SourceRefs: donePullRequestSourceRefs(item.SourceRefs, repo, number, reason),
 		}
-		done.Entities = append(done.Entities, githubEntity(done, "pull_request", "", ""))
 		items = append(items, done)
 	}
 
@@ -504,8 +501,31 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Item, acti
 	return items
 }
 
-func keepTodaysDoneItems(previous []protocol.Item) []protocol.Item {
-	items := make([]protocol.Item, 0)
+func donePullRequestSourceRefs(sourceRefs []protocol.SourceRef, repo string, number int, reason string) []protocol.SourceRef {
+	id := fmt.Sprintf("github:pr:%s:%d", repo, number)
+	updated := make([]protocol.SourceRef, 0, len(sourceRefs)+1)
+	seen := false
+	for _, sourceRef := range sourceRefs {
+		if sourceRef.ID == id {
+			sourceRef.Status = reason
+			seen = true
+		}
+		updated = append(updated, sourceRef)
+	}
+	if !seen {
+		updated = append(updated, protocol.SourceRef{
+			ID:     id,
+			Source: "github",
+			Kind:   "pull_request",
+			Repo:   repo,
+			Status: reason,
+		})
+	}
+	return updated
+}
+
+func keepTodaysDoneTasks(previous []protocol.Task) []protocol.Task {
+	items := make([]protocol.Task, 0)
 	for _, item := range previous {
 		if item.Attention == "done" && isToday(item.DoneAt) {
 			items = append(items, item)
@@ -514,9 +534,9 @@ func keepTodaysDoneItems(previous []protocol.Item) []protocol.Item {
 	return items
 }
 
-func githubEntity(item protocol.Item, kind string, branch string, body string) protocol.Entity {
-	entity := protocol.Entity{
-		ID:     item.ID,
+func newGitHubPullRequestSourceRef(item protocol.Task, repo string, number int, kind string, branch string, body string) protocol.SourceRef {
+	sourceRef := protocol.SourceRef{
+		ID:     fmt.Sprintf("github:pr:%s:%d", repo, number),
 		Source: "github",
 		Kind:   kind,
 		Title:  item.Title,
@@ -526,9 +546,18 @@ func githubEntity(item protocol.Item, kind string, branch string, body string) p
 		Status: item.Reason,
 	}
 	if body != "" {
-		entity.Metadata = map[string]string{"body": body}
+		sourceRef.Metadata = map[string]string{"body": body}
 	}
-	return entity
+	return sourceRef
+}
+
+func githubPullRequestSourceRef(task protocol.Task) (protocol.SourceRef, bool) {
+	for _, sourceRef := range task.SourceRefs {
+		if sourceRef.Source == "github" && sourceRef.Kind == "pull_request" {
+			return sourceRef, true
+		}
+	}
+	return protocol.SourceRef{}, false
 }
 
 func currentLogin(ctx context.Context) (string, error) {
@@ -587,22 +616,6 @@ func fetchPullRequest(ctx context.Context, apiURL string) (pullRequest, error) {
 		return pr, err
 	}
 	return pr, nil
-}
-
-func parseOwnPullRequestID(id string) (string, int, bool) {
-	value, ok := strings.CutPrefix(id, "github:own_pr:")
-	if !ok {
-		return "", 0, false
-	}
-	idx := strings.LastIndex(value, ":")
-	if idx <= 0 || idx == len(value)-1 {
-		return "", 0, false
-	}
-	number, err := strconv.Atoi(value[idx+1:])
-	if err != nil {
-		return "", 0, false
-	}
-	return value[:idx], number, true
 }
 
 func isToday(value string) bool {

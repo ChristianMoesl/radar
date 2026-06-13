@@ -20,7 +20,7 @@ type ServiceStatus struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-type Entity struct {
+type SourceRef struct {
 	ID       string            `json:"id"`
 	Source   string            `json:"source"`
 	Kind     string            `json:"kind"`
@@ -33,23 +33,23 @@ type Entity struct {
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
-type Item struct {
-	ID        string            `json:"id"`
-	Kind      string            `json:"kind"`
-	Title     string            `json:"title"`
-	Repo      string            `json:"repo,omitempty"`
-	URL       string            `json:"url,omitempty"`
-	Attention string            `json:"attention"`
-	Reason    string            `json:"reason"`
-	DoneAt    string            `json:"done_at,omitempty"`
-	Entities  []Entity          `json:"entities,omitempty"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
+type Task struct {
+	ID         int               `json:"id"`
+	Kind       string            `json:"kind"`
+	Title      string            `json:"title"`
+	Repo       string            `json:"repo,omitempty"`
+	URL        string            `json:"url,omitempty"`
+	Attention  string            `json:"attention"`
+	Reason     string            `json:"reason"`
+	DoneAt     string            `json:"done_at,omitempty"`
+	SourceRefs []SourceRef       `json:"source_refs,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
 type Response struct {
 	OK       bool            `json:"ok"`
 	Error    string          `json:"error,omitempty"`
 	Summary  *Summary        `json:"summary,omitempty"`
-	Items    []Item          `json:"items,omitempty"`
+	Tasks    []Task          `json:"tasks,omitempty"`
 	Services []ServiceStatus `json:"services,omitempty"`
 }

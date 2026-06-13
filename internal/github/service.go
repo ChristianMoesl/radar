@@ -25,7 +25,7 @@ func (Service) Status(ctx context.Context, logger *slog.Logger) ingestion.Status
 
 func (Service) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
 	result := ingestion.Result{
-		Items: make([]protocol.Item, 0),
+		Tasks: make([]protocol.Task, 0),
 	}
 
 	reviewItems, authoredItems, activityItems, err := FetchPullRequests(ctx, req.Previous, req.Logger)
@@ -34,40 +34,40 @@ func (Service) Ingest(ctx context.Context, req ingestion.Request) ingestion.Resu
 		return result
 	}
 
-	result.Items = append(result.Items, reviewItems...)
-	result.Items = append(result.Items, authoredItems...)
-	result.Items = append(result.Items, activityItems...)
+	result.Tasks = append(result.Tasks, reviewItems...)
+	result.Tasks = append(result.Tasks, authoredItems...)
+	result.Tasks = append(result.Tasks, activityItems...)
 
 	trackedItems, err := FetchRulePullRequests(ctx, req.Filters, req.Logger)
 	if err != nil {
 		req.Logger.Warn("github rule pull request collection failed", "error", err)
 	} else {
-		result.Items = appendMissingPullRequests(result.Items, trackedItems)
+		result.Tasks = appendMissingPullRequests(result.Tasks, trackedItems)
 	}
 
 	result.Complete = true
 	return result
 }
 
-func (Service) ReconcileDone(ctx context.Context, req ingestion.ReconcileRequest) []protocol.Item {
+func (Service) ReconcileDone(ctx context.Context, req ingestion.ReconcileRequest) []protocol.Task {
 	return ResolveDonePullRequests(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger)
 }
 
-func appendMissingPullRequests(items []protocol.Item, candidates []protocol.Item) []protocol.Item {
+func appendMissingPullRequests(tasks []protocol.Task, candidates []protocol.Task) []protocol.Task {
 	seen := map[string]bool{}
-	for _, item := range items {
-		if item.URL != "" {
-			seen[item.URL] = true
+	for _, task := range tasks {
+		if task.URL != "" {
+			seen[task.URL] = true
 		}
 	}
-	for _, item := range candidates {
-		if item.URL != "" && seen[item.URL] {
+	for _, task := range candidates {
+		if task.URL != "" && seen[task.URL] {
 			continue
 		}
-		items = append(items, item)
-		if item.URL != "" {
-			seen[item.URL] = true
+		tasks = append(tasks, task)
+		if task.URL != "" {
+			seen[task.URL] = true
 		}
 	}
-	return items
+	return tasks
 }

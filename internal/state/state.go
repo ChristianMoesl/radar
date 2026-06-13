@@ -2,9 +2,11 @@ package state
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"time"
 
@@ -13,7 +15,7 @@ import (
 
 type Store struct {
 	mu       sync.RWMutex
-	items    []protocol.Item
+	items    []protocol.Task
 	services []protocol.ServiceStatus
 	path     string
 	logger   *slog.Logger
@@ -33,7 +35,7 @@ func Path() (string, error) {
 		base = filepath.Join(home, ".local", "state")
 	}
 
-	return filepath.Join(base, "radar", "items.json"), nil
+	return filepath.Join(base, "radar", "tasks.json"), nil
 }
 
 func NewStore(logger *slog.Logger) (*Store, error) {
@@ -43,7 +45,7 @@ func NewStore(logger *slog.Logger) (*Store, error) {
 	}
 
 	store := &Store{
-		items:  []protocol.Item{},
+		items:  []protocol.Task{},
 		path:   path,
 		logger: logger,
 	}
@@ -63,7 +65,7 @@ func (s *Store) Load() error {
 		return err
 	}
 
-	var items []protocol.Item
+	var items []protocol.Task
 	if err := json.Unmarshal(data, &items); err != nil {
 		return err
 	}
@@ -72,14 +74,13 @@ func (s *Store) Load() error {
 	s.items = items
 	s.mu.Unlock()
 
-	s.logger.Info("state loaded", "path", s.path, "items", len(items))
+	s.logger.Info("state loaded", "path", s.path, "tasks", len(items))
 	return nil
 }
 
-func (s *Store) SetItems(items []protocol.Item) {
+func (s *Store) SetTasks(items []protocol.Task) {
 	s.mu.Lock()
-	s.items = make([]protocol.Item, len(items))
-	copy(s.items, items)
+	s.items = assignTaskIDs(s.items, items)
 	s.mu.Unlock()
 
 	if err := s.Save(); err != nil {
@@ -89,7 +90,7 @@ func (s *Store) SetItems(items []protocol.Item) {
 
 func (s *Store) Save() error {
 	s.mu.RLock()
-	items := make([]protocol.Item, len(s.items))
+	items := make([]protocol.Task, len(s.items))
 	copy(items, s.items)
 	s.mu.RUnlock()
 
@@ -110,7 +111,7 @@ func (s *Store) Save() error {
 		return err
 	}
 
-	s.logger.Debug("state saved", "path", s.path, "items", len(items))
+	s.logger.Debug("state saved", "path", s.path, "tasks", len(items))
 	return nil
 }
 
@@ -121,19 +122,19 @@ func (s *Store) Acknowledge(itemID string) bool {
 	items := s.items[:0]
 	for i := range s.items {
 		item := s.items[i]
-		if item.ID != itemID {
+		if fmt.Sprint(item.ID) != itemID {
 			items = append(items, item)
 			continue
 		}
-		for j := range item.Entities {
-			if item.Entities[j].Metadata == nil {
-				item.Entities[j].Metadata = map[string]string{}
+		for j := range item.SourceRefs {
+			if item.SourceRefs[j].Metadata == nil {
+				item.SourceRefs[j].Metadata = map[string]string{}
 			}
-			if latest := item.Entities[j].Metadata["latest_general_comment_at"]; latest != "" {
+			if latest := item.SourceRefs[j].Metadata["latest_general_comment_at"]; latest != "" {
 				ackAt = latest
 			}
-			item.Entities[j].Metadata["general_comments_ack_at"] = ackAt
-			delete(item.Entities[j].Metadata, "new_general_comments")
+			item.SourceRefs[j].Metadata["general_comments_ack_at"] = ackAt
+			delete(item.SourceRefs[j].Metadata, "new_general_comments")
 			changed = true
 		}
 		if item.Kind == "github_pr_activity" && !hasUnresolvedReviewThreads(item) {
@@ -143,8 +144,8 @@ func (s *Store) Acknowledge(itemID string) bool {
 		if item.Kind == "github_own_pr" && !hasUnresolvedReviewThreads(item) {
 			item.Attention = "in_progress"
 			item.Reason = baseReason(item)
-			for j := range item.Entities {
-				item.Entities[j].Status = item.Reason
+			for j := range item.SourceRefs {
+				item.SourceRefs[j].Status = item.Reason
 			}
 		}
 		items = append(items, item)
@@ -160,29 +161,101 @@ func (s *Store) Acknowledge(itemID string) bool {
 	return changed
 }
 
-func hasUnresolvedReviewThreads(item protocol.Item) bool {
-	for _, entity := range item.Entities {
-		if entity.Metadata != nil && entity.Metadata["unresolved_review_threads"] != "" {
+var ticketPattern = regexp.MustCompile(`(?i)[A-Z][A-Z0-9]+-[0-9]+`)
+
+func assignTaskIDs(previous []protocol.Task, next []protocol.Task) []protocol.Task {
+	bySourceRef := map[string]int{}
+	byKey := map[string]int{}
+	maxID := 0
+	for _, task := range previous {
+		if task.ID > maxID {
+			maxID = task.ID
+		}
+		for _, sourceRef := range task.SourceRefs {
+			bySourceRef[sourceRef.ID] = task.ID
+		}
+		for _, key := range taskKeys(task) {
+			byKey[key] = task.ID
+		}
+	}
+
+	assigned := make([]protocol.Task, len(next))
+	used := map[int]bool{}
+	for i, task := range next {
+		id := task.ID
+		if id == 0 {
+			id = matchingTaskID(task, bySourceRef, byKey, used)
+		}
+		if id == 0 {
+			maxID++
+			id = maxID
+		}
+		task.ID = id
+		used[id] = true
+		assigned[i] = task
+	}
+	return assigned
+}
+
+func matchingTaskID(task protocol.Task, bySourceRef map[string]int, byKey map[string]int, used map[int]bool) int {
+	for _, sourceRef := range task.SourceRefs {
+		if id := bySourceRef[sourceRef.ID]; id != 0 && !used[id] {
+			return id
+		}
+	}
+	for _, key := range taskKeys(task) {
+		if id := byKey[key]; id != 0 && !used[id] {
+			return id
+		}
+	}
+	return 0
+}
+
+func taskKeys(task protocol.Task) []string {
+	values := []string{task.Title, task.Repo, task.URL}
+	for _, sourceRef := range task.SourceRefs {
+		values = append(values, sourceRef.ID, sourceRef.Title, sourceRef.Branch, sourceRef.Path, sourceRef.Repo, sourceRef.URL)
+		for _, value := range sourceRef.Metadata {
+			values = append(values, value)
+		}
+	}
+	keys := make([]string, 0)
+	seen := map[string]bool{}
+	for _, value := range values {
+		for _, match := range ticketPattern.FindAllString(value, -1) {
+			key := match
+			if !seen[key] {
+				seen[key] = true
+				keys = append(keys, key)
+			}
+		}
+	}
+	return keys
+}
+
+func hasUnresolvedReviewThreads(item protocol.Task) bool {
+	for _, sourceRef := range item.SourceRefs {
+		if sourceRef.Metadata != nil && sourceRef.Metadata["unresolved_review_threads"] != "" {
 			return true
 		}
 	}
 	return false
 }
 
-func baseReason(item protocol.Item) string {
-	for _, entity := range item.Entities {
-		if entity.Metadata != nil && entity.Metadata["base_reason"] != "" {
-			return entity.Metadata["base_reason"]
+func baseReason(item protocol.Task) string {
+	for _, sourceRef := range item.SourceRefs {
+		if sourceRef.Metadata != nil && sourceRef.Metadata["base_reason"] != "" {
+			return sourceRef.Metadata["base_reason"]
 		}
 	}
 	return "open PR"
 }
 
-func (s *Store) Items() []protocol.Item {
+func (s *Store) Tasks() []protocol.Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	items := make([]protocol.Item, len(s.items))
+	items := make([]protocol.Task, len(s.items))
 	copy(items, s.items)
 	return items
 }

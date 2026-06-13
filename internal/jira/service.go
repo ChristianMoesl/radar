@@ -32,10 +32,10 @@ func (Service) Status(ctx context.Context, logger *slog.Logger) ingestion.Status
 }
 
 func (Service) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
-	entities, _, err := FetchAssignedIssues(ctx, req.Logger)
+	source_refs, _, err := FetchAssignedIssues(ctx, req.Logger)
 	if err != nil {
 		req.Logger.Warn("jira issue collection failed", "error", err)
 		return ingestion.Result{}
 	}
-	return ingestion.Result{Entities: entities, Complete: true}
+	return ingestion.Result{SourceRefs: source_refs, Complete: true}
 }

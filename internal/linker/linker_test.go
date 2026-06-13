@@ -7,15 +7,13 @@ import (
 )
 
 func TestLinkMatchesTicketKeysCaseInsensitivelyInBranch(t *testing.T) {
-	items := []protocol.Item{
+	items := []protocol.Task{
 		{
-			ID:        "github:own_pr:acme/app:42",
 			Kind:      "github_own_pr",
 			Title:     "Implement feature",
 			Attention: "in_progress",
-			Entities: []protocol.Entity{
+			SourceRefs: []protocol.SourceRef{
 				{
-					ID:     "github:own_pr:acme/app:42",
 					Source: "github",
 					Kind:   "pull_request",
 					Branch: "feature/dpscap-544-panel-deletion-navigation",
@@ -23,7 +21,7 @@ func TestLinkMatchesTicketKeysCaseInsensitivelyInBranch(t *testing.T) {
 			},
 		},
 	}
-	entities := []protocol.Entity{
+	source_refs := []protocol.SourceRef{
 		{
 			ID:     "jira:issue:DPSCAP-544",
 			Source: "jira",
@@ -32,29 +30,27 @@ func TestLinkMatchesTicketKeysCaseInsensitivelyInBranch(t *testing.T) {
 		},
 	}
 
-	linked := Link(Input{Items: items, Entities: entities})
+	linked := Link(Input{Tasks: items, SourceRefs: source_refs})
 
 	if len(linked) != 1 {
 		t.Fatalf("linked item count = %d, want 1", len(linked))
 	}
-	if len(linked[0].Entities) != 2 {
-		t.Fatalf("linked entity count = %d, want 2: %+v", len(linked[0].Entities), linked[0].Entities)
+	if len(linked[0].SourceRefs) != 2 {
+		t.Fatalf("linked sourceRef count = %d, want 2: %+v", len(linked[0].SourceRefs), linked[0].SourceRefs)
 	}
-	if linked[0].Entities[1].ID != "jira:issue:DPSCAP-544" {
-		t.Fatalf("attached entity = %q, want jira issue", linked[0].Entities[1].ID)
+	if linked[0].SourceRefs[1].ID != "jira:issue:DPSCAP-544" {
+		t.Fatalf("attached sourceRef = %q, want jira issue", linked[0].SourceRefs[1].ID)
 	}
 }
 
 func TestLinkExtractsTicketKeysFromAnyMetadataValue(t *testing.T) {
-	items := []protocol.Item{
+	items := []protocol.Task{
 		{
-			ID:        "github:own_pr:acme/app:43",
 			Kind:      "github_own_pr",
 			Title:     "Implement feature",
 			Attention: "in_progress",
-			Entities: []protocol.Entity{
+			SourceRefs: []protocol.SourceRef{
 				{
-					ID:       "github:own_pr:acme/app:43",
 					Source:   "github",
 					Kind:     "pull_request",
 					Metadata: map[string]string{"custom_reference": "related to cap-123"},
@@ -62,7 +58,7 @@ func TestLinkExtractsTicketKeysFromAnyMetadataValue(t *testing.T) {
 			},
 		},
 	}
-	entities := []protocol.Entity{
+	source_refs := []protocol.SourceRef{
 		{
 			ID:       "jira:issue:CAP-123",
 			Source:   "jira",
@@ -71,12 +67,12 @@ func TestLinkExtractsTicketKeysFromAnyMetadataValue(t *testing.T) {
 		},
 	}
 
-	linked := Link(Input{Items: items, Entities: entities})
+	linked := Link(Input{Tasks: items, SourceRefs: source_refs})
 
 	if len(linked) != 1 {
 		t.Fatalf("linked item count = %d, want 1", len(linked))
 	}
-	if len(linked[0].Entities) != 2 {
-		t.Fatalf("linked entity count = %d, want 2: %+v", len(linked[0].Entities), linked[0].Entities)
+	if len(linked[0].SourceRefs) != 2 {
+		t.Fatalf("linked sourceRef count = %d, want 2: %+v", len(linked[0].SourceRefs), linked[0].SourceRefs)
 	}
 }

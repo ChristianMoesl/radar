@@ -11,8 +11,8 @@
 - `internal/github/`: GitHub ingestion and remote state resolution.
 - `internal/git/`: Git worktree ingestion.
 - `internal/jira/`: Jira Cloud issue ingestion.
-- `internal/linker/`: connects ingested entities to user-facing items.
-- `internal/state/`: local persistent item store.
+- `internal/linker/`: connects ingested source refs to user-facing tasks.
+- `internal/state/`: local persistent task cache/state.
 
 ## Process model
 
@@ -29,7 +29,7 @@ The binary is intentionally single-file from a user perspective:
 ```sh
 radar daemon
 radar status
-radar items
+radar tasks
 radar refresh
 radar stop
 radar restart
@@ -42,12 +42,35 @@ Neovim does not call GitHub directly. It shells out to `radar`, which talks to t
 The socket protocol is newline-delimited JSON with a tiny request model:
 
 ```json
-{ "method": "items" }
+{ "method": "tasks" }
 { "method": "summary" }
 { "method": "refresh" }
 ```
 
-## Item lifecycle
+## Task model
+
+Radar separates source-system facts from the user-facing task shown in the UI:
+
+```text
+SourceRef + TaskRecord => Task
+```
+
+- `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, or local git worktree. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:DPSCAP-544`, or `git:worktree:<hash>`.
+- `TaskRecord`: persistent Radar-owned tracking state. It gives continuity across refreshes and will own local state such as stable numeric task IDs, known source ref IDs, first/last seen timestamps, and acknowledgements.
+- `Task`: the current projected user-facing task served to the CLI/Neovim UI. It has a Radar-owned integer ID and is computed from current source refs plus the matching task record.
+
+The target pipeline is:
+
+```text
+collect SourceRefs
+→ match/update TaskRecords
+→ project Tasks
+→ serve/cache Tasks
+```
+
+The current implementation has completed the first naming step (`Entity` → `SourceRef`, `Item` → `Task`) and assigns stable integer task IDs by matching new projections against the previous task cache by source ref IDs and ticket keys. It still persists the latest projected tasks as the cache/state boundary. The next state-model step is to introduce explicit `TaskRecord`s and make projected `Task`s cache/output rather than durable source of truth.
+
+## Task lifecycle
 
 Radar has three active categories and one historical category:
 
@@ -56,21 +79,21 @@ Radar has three active categories and one historical category:
 - `in_progress`
 - `done`
 
-Ingestion and linking are separate steps. Ingestion code talks to external systems and produces raw active items/entities. Linker code connects entities from different sources into one user-facing item. Collectors should not blindly import already-completed remote items.
+Ingestion and linking are separate steps. Ingestion code talks to external systems and produces raw active tasks/source refs. Linker code connects source refs from different sources into one user-facing task. Collectors should not blindly import already-completed remote tasks.
 
-`done` is derived from previously tracked items. If an item was active in the local store and later disappears from the active collector result, the relevant integration checks the remote state. If the remote item resolved today, Radar moves it to `done`.
+`done` is derived from previously tracked tasks. If a task was active in the local store and later disappears from the active collector result, the relevant integration checks the remote state. If the remote task resolved today, Radar moves it to `done`.
 
 This keeps `done` meaningful: it means “something Radar was tracking became resolved today.”
 
 ## Local state
 
-The daemon stores the latest known items on disk:
+The daemon currently stores the latest known projected tasks on disk:
 
 ```text
-$XDG_STATE_HOME/radar/items.json
+$XDG_STATE_HOME/radar/tasks.json
 ```
 
-This allows fast startup and lets Neovim show cached information immediately.
+This allows fast startup and lets Neovim show cached information immediately. The stored model will eventually move to explicit task records plus an optional task cache.
 
 ## Filters
 
@@ -82,12 +105,12 @@ $XDG_CONFIG_HOME/radar/filters.json
 
 The daemon creates an example file on startup when it is missing. Neovim exposes it with `:RadarFilters` / `f` in the floating window.
 
-Filters are applied when serving items from the daemon, so CLI and Neovim see the same view. Raw collected state stays unmodified on disk.
+Filters are applied when serving tasks from the daemon, so CLI and Neovim see the same view. Raw collected state stays unmodified on disk.
 
 There are two filter effects:
 
-- `mute`: hide the item and remove it from counts
-- `deprioritize`: keep tracking the item, but move it to `low_priority`
+- `mute`: hide the task and remove it from counts
+- `deprioritize`: keep tracking the task, but move it to `low_priority`
 
 Simple lists are supported for broad rules, and wildcard patterns (`*`) are supported for repository/user matches. Matching is case-insensitive.
 
@@ -145,11 +168,11 @@ RADAR_JIRA_CLOUD_ID=...
 # alternatively: RADAR_JIRA_API_BASE_URL=https://api.atlassian.com/ex/jira/<cloud-id>/rest/api/3
 ```
 
-The Jira collector emits issue entities for assigned non-done tickets. These entities are linked to GitHub PRs and Git worktrees by matching ticket keys such as `ABC-123`.
+The Jira collector emits issue source refs for assigned non-done tickets. These source refs are linked to GitHub PRs and Git worktrees by matching ticket keys such as `ABC-123`.
 
 ## Git integration
 
-Git integration collects worktree entities from configured repositories.
+Git integration collects worktree source refs from configured repositories.
 
 Configure roots with:
 
@@ -159,17 +182,17 @@ RADAR_GIT_REPOS=/path/to/repo:/path/to/another/repo radar daemon
 
 If unset, Radar tries the daemon's current working directory.
 
-Worktree entities include path, branch, HEAD, dirty file count, and ahead/behind information when available.
+Worktree source refs include path, branch, HEAD, dirty file count, and ahead/behind information when available.
 
-The linker attaches worktrees to GitHub/Jira-style items by matching ticket keys such as `ABC-123` in titles, branches, paths, URLs, or metadata.
+The linker attaches worktrees to GitHub/Jira-style tasks by matching ticket keys such as `ABC-123` in titles, branches, paths, URLs, or metadata.
 
-Worktrees that do not attach to another item become standalone `in_progress` items, except common base branches like `main`, `master`, `develop`, and `dev`.
+Worktrees that do not attach to another task become standalone `in_progress` tasks, except common base branches like `main`, `master`, `develop`, and `dev`.
 
 ## Neovim UI
 
 The statusline is the primary UI and must stay cheap and glanceable.
 
-The floating window is secondary and shows detailed item information. Opening it should use cached daemon state and must not block on network refreshes.
+The floating window is secondary and shows detailed task information. Opening it should use cached daemon state and must not block on network refreshes.
 
 Manual refresh is available from the floating window with `r`. Periodic Neovim statusline updates only load cached daemon state; they must not trigger network refreshes.
 

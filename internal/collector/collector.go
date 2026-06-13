@@ -14,14 +14,14 @@ import (
 )
 
 type Ingested struct {
-	Items    []protocol.Item
-	Entities []protocol.Entity
-	Services []protocol.ServiceStatus
-	Results  map[string]ingestion.Result
+	Tasks      []protocol.Task
+	SourceRefs []protocol.SourceRef
+	Services   []protocol.ServiceStatus
+	Results    map[string]ingestion.Result
 }
 
 type Result struct {
-	Items    []protocol.Item
+	Tasks    []protocol.Task
 	Services []protocol.ServiceStatus
 }
 
@@ -33,34 +33,34 @@ func Sources() []ingestion.Source {
 	}
 }
 
-func Collect(ctx context.Context, previous []protocol.Item, logger *slog.Logger) Result {
+func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Result {
 	sources := Sources()
 	ingested := Ingest(ctx, previous, logger)
-	items := linker.Link(linker.Input{
-		Items:    ingested.Items,
-		Entities: ingested.Entities,
+	tasks := linker.Link(linker.Input{
+		Tasks:      ingested.Tasks,
+		SourceRefs: ingested.SourceRefs,
 	})
 	for _, source := range sources {
 		reconciler, ok := source.(ingestion.Reconciler)
 		if !ok {
 			continue
 		}
-		items = append(items, reconciler.ReconcileDone(ctx, ingestion.ReconcileRequest{
+		tasks = append(tasks, reconciler.ReconcileDone(ctx, ingestion.ReconcileRequest{
 			Previous: previous,
-			Active:   items,
+			Active:   tasks,
 			Result:   ingested.Results[source.Name()],
 			Logger:   logger,
 		})...)
 	}
-	return Result{Items: items, Services: ingested.Services}
+	return Result{Tasks: tasks, Services: ingested.Services}
 }
 
-func Ingest(ctx context.Context, previous []protocol.Item, logger *slog.Logger) Ingested {
+func Ingest(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Ingested {
 	result := Ingested{
-		Items:    make([]protocol.Item, 0),
-		Entities: make([]protocol.Entity, 0),
-		Services: make([]protocol.ServiceStatus, 0, 3),
-		Results:  map[string]ingestion.Result{},
+		Tasks:      make([]protocol.Task, 0),
+		SourceRefs: make([]protocol.SourceRef, 0),
+		Services:   make([]protocol.ServiceStatus, 0, 3),
+		Results:    map[string]ingestion.Result{},
 	}
 
 	filterCfg, err := filters.Load()
@@ -87,8 +87,8 @@ func Ingest(ctx context.Context, previous []protocol.Item, logger *slog.Logger) 
 			Logger:   logger,
 		})
 		result.Results[source.Name()] = ingested
-		result.Items = append(result.Items, ingested.Items...)
-		result.Entities = append(result.Entities, ingested.Entities...)
+		result.Tasks = append(result.Tasks, ingested.Tasks...)
+		result.SourceRefs = append(result.SourceRefs, ingested.SourceRefs...)
 	}
 
 	return result

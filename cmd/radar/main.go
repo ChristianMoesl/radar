@@ -36,13 +36,13 @@ func main() {
 		restartDaemon()
 	case "summary", "status":
 		callDaemon("summary")
-	case "items", "list":
-		callDaemon("items")
+	case "tasks":
+		callDaemon("tasks")
 	case "refresh":
 		callDaemon("refresh")
 	case "ack":
 		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: radar ack <item-id>")
+			fmt.Fprintln(os.Stderr, "usage: radar ack <task-id>")
 			os.Exit(2)
 		}
 		callDaemon("ack:" + os.Args[2])
@@ -160,11 +160,11 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger) fun
 		lastRefresh = time.Now()
 
 		logger.Debug("refresh started")
-		previous := store.Items()
+		previous := store.Tasks()
 		result := collector.Collect(ctx, previous, logger)
-		store.SetItems(result.Items)
+		store.SetTasks(result.Tasks)
 		store.SetServices(result.Services)
-		logger.Debug("refresh finished", "items", len(result.Items), "services", len(result.Services))
+		logger.Debug("refresh finished", "tasks", len(result.Tasks), "services", len(result.Services))
 	}
 }
 
@@ -238,7 +238,7 @@ func printRateLimit() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: radar [daemon|stop|restart|status|summary|items|list|refresh|ack <item-id>|log-path|state-path|filters-path|rate-limit]")
+	fmt.Fprintln(os.Stderr, "usage: radar [daemon|stop|restart|status|summary|tasks|refresh|ack <task-id>|log-path|state-path|filters-path|rate-limit]")
 }
 
 func fatal(err error) {

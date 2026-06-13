@@ -17,9 +17,9 @@ import (
 
 var ticketPattern = regexp.MustCompile(`[A-Z][A-Z0-9]+-[0-9]+`)
 
-func FetchWorktrees(ctx context.Context, logger *slog.Logger) ([]protocol.Entity, protocol.ServiceStatus) {
+func FetchWorktrees(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.ServiceStatus) {
 	roots := gitRoots()
-	entities := make([]protocol.Entity, 0)
+	source_refs := make([]protocol.SourceRef, 0)
 	seen := map[string]bool{}
 	status := protocol.ServiceStatus{Name: "git", Status: "ok"}
 	collectedRoots := 0
@@ -28,7 +28,7 @@ func FetchWorktrees(ctx context.Context, logger *slog.Logger) ([]protocol.Entity
 	if len(roots) == 0 {
 		status.Status = "disabled"
 		status.Detail = "no git roots configured"
-		return entities, status
+		return source_refs, status
 	}
 
 	for _, root := range roots {
@@ -44,22 +44,22 @@ func FetchWorktrees(ctx context.Context, logger *slog.Logger) ([]protocol.Entity
 				continue
 			}
 			seen[wt.Path] = true
-			entities = append(entities, wt.Entity(ctx))
+			source_refs = append(source_refs, wt.SourceRef(ctx))
 		}
 	}
 
-	logger.Debug("collected git worktrees", "count", len(entities))
+	logger.Debug("collected git worktrees", "count", len(source_refs))
 	if collectedRoots == 0 {
 		status.Status = "error"
 		status.Detail = "could not inspect any configured git roots"
-		return entities, status
+		return source_refs, status
 	}
 
-	status.Detail = fmt.Sprintf("%d worktrees from %d roots", len(entities), collectedRoots)
+	status.Detail = fmt.Sprintf("%d worktrees from %d roots", len(source_refs), collectedRoots)
 	if failedRoots > 0 {
 		status.Detail = fmt.Sprintf("%s, %d skipped", status.Detail, failedRoots)
 	}
-	return entities, status
+	return source_refs, status
 }
 
 func gitRoots() []string {
@@ -133,7 +133,7 @@ func worktrees(ctx context.Context, root string) ([]worktree, error) {
 	return items, scanner.Err()
 }
 
-func (w worktree) Entity(ctx context.Context) protocol.Entity {
+func (w worktree) SourceRef(ctx context.Context) protocol.SourceRef {
 	status := worktreeStatus(ctx, w.Path)
 	title := w.Branch
 	if title == "" {
@@ -156,7 +156,7 @@ func (w worktree) Entity(ctx context.Context) protocol.Entity {
 		metadata["behind"] = status.Behind
 	}
 
-	return protocol.Entity{
+	return protocol.SourceRef{
 		ID:       "git:worktree:" + w.Path,
 		Source:   "git",
 		Kind:     "worktree",

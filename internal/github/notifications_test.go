@@ -72,8 +72,7 @@ esac
 	if len(reviewItems) != 1 {
 		t.Fatalf("review item count = %d, want 1", len(reviewItems))
 	}
-	assertItem(t, reviewItems[0], protocol.Item{
-		ID:        "github:review_request:acme/widgets:12",
+	assertItem(t, reviewItems[0], protocol.Task{
 		Kind:      "github_review_request",
 		Title:     "Review me",
 		Repo:      "acme/widgets",
@@ -81,13 +80,12 @@ esac
 		Attention: "attention",
 		Reason:    "review requested",
 	})
-	assertEntity(t, reviewItems[0].Entities, "github:review_request:acme/widgets:12", "review requested", "dpscap-12-review-me", "refs: DPSCAP-12")
+	assertSourceRef(t, reviewItems[0].SourceRefs, "github:pr:acme/widgets:12", "review requested", "dpscap-12-review-me", "refs: DPSCAP-12")
 
 	if len(authoredItems) != 1 {
 		t.Fatalf("authored item count = %d, want 1", len(authoredItems))
 	}
-	assertItem(t, authoredItems[0], protocol.Item{
-		ID:        "github:own_pr:acme/app:34",
+	assertItem(t, authoredItems[0], protocol.Task{
 		Kind:      "github_own_pr",
 		Title:     "My draft",
 		Repo:      "acme/app",
@@ -95,7 +93,7 @@ esac
 		Attention: "in_progress",
 		Reason:    "draft PR",
 	})
-	assertEntity(t, authoredItems[0].Entities, "github:own_pr:acme/app:34", "draft PR", "DPSCAP-34-my-draft", "refs: DPSCAP-34")
+	assertSourceRef(t, authoredItems[0].SourceRefs, "github:pr:acme/app:34", "draft PR", "DPSCAP-34-my-draft", "refs: DPSCAP-34")
 }
 
 func TestDetectActivityTracksReviewThreadsAndGeneralComments(t *testing.T) {
@@ -138,25 +136,42 @@ exit 1
 
 	today := time.Now().Format(time.RFC3339)
 	yesterday := time.Now().Add(-24 * time.Hour).Format(time.RFC3339)
-	previous := []protocol.Item{
-		{ID: "github:own_pr:acme/app:34", Kind: "github_own_pr", Attention: "in_progress", Title: "Still unknown"},
-		{ID: "github:done_pr:acme/app:33", Kind: "github_done_pr", Attention: "done", DoneAt: today, Title: "Done today"},
-		{ID: "github:done_pr:acme/app:32", Kind: "github_done_pr", Attention: "done", DoneAt: yesterday, Title: "Done yesterday"},
+	previous := []protocol.Task{
+		{ID: 1, Kind: "github_own_pr", Attention: "in_progress", Title: "Still unknown", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:34", Source: "github", Kind: "pull_request"}}},
+		{ID: 2, Kind: "github_done_pr", Attention: "done", DoneAt: today, Title: "Done today", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:33", Source: "github", Kind: "pull_request"}}},
+		{ID: 3, Kind: "github_done_pr", Attention: "done", DoneAt: yesterday, Title: "Done yesterday", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:32", Source: "github", Kind: "pull_request"}}},
 	}
 
 	items := ResolveDonePullRequests(context.Background(), previous, nil, false, testLogger())
 	if len(items) != 1 {
 		t.Fatalf("resolved items = %d, want 1", len(items))
 	}
-	if items[0].ID != "github:done_pr:acme/app:33" {
-		t.Fatalf("resolved item ID = %q, want today's done item", items[0].ID)
+	if items[0].ID != 2 {
+		t.Fatalf("resolved item ID = %d, want today's done item", items[0].ID)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("gh was called even though authored collection was incomplete")
 	}
 }
 
-func TestParseOwnPullRequestID(t *testing.T) {
+func TestDonePullRequestSourceRefsReusesCanonicalGitHubPRRef(t *testing.T) {
+	sourceRefs := donePullRequestSourceRefs([]protocol.SourceRef{
+		{ID: "github:pr:acme/app:42", Source: "github", Kind: "pull_request", Status: "open PR"},
+		{ID: "jira:issue:DPSCAP-42", Source: "jira", Kind: "issue"},
+	}, "acme/app", 42, "merged today")
+
+	if len(sourceRefs) != 2 {
+		t.Fatalf("source refs = %d, want 2: %+v", len(sourceRefs), sourceRefs)
+	}
+	if sourceRefs[0].ID != "github:pr:acme/app:42" || sourceRefs[0].Status != "merged today" {
+		t.Fatalf("github source ref = %+v, want canonical PR ref marked done", sourceRefs[0])
+	}
+	if sourceRefs[1].ID != "jira:issue:DPSCAP-42" {
+		t.Fatalf("jira source ref = %+v, want preserved jira ref", sourceRefs[1])
+	}
+}
+
+func TestParsePullRequestSourceRefID(t *testing.T) {
 	tests := []struct {
 		name       string
 		id         string
@@ -164,18 +179,18 @@ func TestParseOwnPullRequestID(t *testing.T) {
 		wantNumber int
 		wantOK     bool
 	}{
-		{name: "valid", id: "github:own_pr:acme/app:42", wantRepo: "acme/app", wantNumber: 42, wantOK: true},
-		{name: "repo with colon", id: "github:own_pr:enterprise:acme/app:42", wantRepo: "enterprise:acme/app", wantNumber: 42, wantOK: true},
-		{name: "wrong prefix", id: "github:review_request:acme/app:42"},
-		{name: "missing number", id: "github:own_pr:acme/app:"},
-		{name: "non numeric", id: "github:own_pr:acme/app:nope"},
+		{name: "valid", id: "github:pr:acme/app:42", wantRepo: "acme/app", wantNumber: 42, wantOK: true},
+		{name: "repo with colon", id: "github:pr:enterprise:acme/app:42", wantRepo: "enterprise:acme/app", wantNumber: 42, wantOK: true},
+		{name: "wrong prefix", id: "github:issue:acme/app:42"},
+		{name: "missing number", id: "github:pr:acme/app:"},
+		{name: "non numeric", id: "github:pr:acme/app:nope"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotRepo, gotNumber, gotOK := parseOwnPullRequestID(tt.id)
+			gotRepo, gotNumber, gotOK := parsePullRequestSourceRefID(tt.id)
 			if gotOK != tt.wantOK || gotRepo != tt.wantRepo || gotNumber != tt.wantNumber {
-				t.Fatalf("parseOwnPullRequestID(%q) = (%q, %d, %v), want (%q, %d, %v)", tt.id, gotRepo, gotNumber, gotOK, tt.wantRepo, tt.wantNumber, tt.wantOK)
+				t.Fatalf("parsePullRequestSourceRefID(%q) = (%q, %d, %v), want (%q, %d, %v)", tt.id, gotRepo, gotNumber, gotOK, tt.wantRepo, tt.wantNumber, tt.wantOK)
 			}
 		})
 	}
@@ -219,20 +234,20 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func assertItem(t *testing.T, got protocol.Item, want protocol.Item) {
+func assertItem(t *testing.T, got protocol.Task, want protocol.Task) {
 	t.Helper()
 	if got.ID != want.ID || got.Kind != want.Kind || got.Title != want.Title || got.Repo != want.Repo || got.URL != want.URL || got.Attention != want.Attention || got.Reason != want.Reason {
 		t.Fatalf("item = %+v, want matching %+v", got, want)
 	}
 }
 
-func assertEntity(t *testing.T, entities []protocol.Entity, wantID string, wantStatus string, wantBranch string, wantBody string) {
+func assertSourceRef(t *testing.T, source_refs []protocol.SourceRef, wantID string, wantStatus string, wantBranch string, wantBody string) {
 	t.Helper()
-	if len(entities) != 1 {
-		t.Fatalf("entity count = %d, want 1", len(entities))
+	if len(source_refs) != 1 {
+		t.Fatalf("sourceRef count = %d, want 1", len(source_refs))
 	}
-	entity := entities[0]
-	if entity.ID != wantID || entity.Source != "github" || entity.Kind != "pull_request" || entity.Status != wantStatus || entity.Branch != wantBranch || entity.Metadata["body"] != wantBody {
-		t.Fatalf("entity = %+v, want github pull_request %q status %q branch %q body %q", entity, wantID, wantStatus, wantBranch, wantBody)
+	sourceRef := source_refs[0]
+	if sourceRef.ID != wantID || sourceRef.Source != "github" || sourceRef.Kind != "pull_request" || sourceRef.Status != wantStatus || sourceRef.Branch != wantBranch || sourceRef.Metadata["body"] != wantBody {
+		t.Fatalf("sourceRef = %+v, want github pull_request %q status %q branch %q body %q", sourceRef, wantID, wantStatus, wantBranch, wantBody)
 	}
 }

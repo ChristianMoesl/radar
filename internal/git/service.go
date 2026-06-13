@@ -26,10 +26,10 @@ func (Service) Status(ctx context.Context, logger *slog.Logger) ingestion.Status
 }
 
 func (Service) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
-	entities, status := FetchWorktrees(ctx, req.Logger)
+	source_refs, status := FetchWorktrees(ctx, req.Logger)
 	if status.Status == "error" {
 		req.Logger.Warn("git worktree collection failed", "detail", status.Detail)
-		return ingestion.Result{Entities: entities}
+		return ingestion.Result{SourceRefs: source_refs}
 	}
-	return ingestion.Result{Entities: entities, Complete: status.Status == "ok"}
+	return ingestion.Result{SourceRefs: source_refs, Complete: status.Status == "ok"}
 }
