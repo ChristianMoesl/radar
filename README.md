@@ -26,7 +26,7 @@ This project is split into two parts:
 Neovim talks to the daemon through a Unix socket. This lets multiple Neovim sessions share the same state without each session polling GitHub/Jira/etc. independently.
 
 ```text
-Neovim statusline -> radar.nvim -> Unix socket -> radar daemon -> GitHub/Jira/Pi/etc.
+Neovim statusline -> radar.nvim -> Unix socket -> radar daemon -> GitHub/Jira/Git/tmux/etc.
 ```
 
 ## Current status
@@ -108,6 +108,12 @@ RADAR_GIT_REPOS=/path/to/repo:/path/to/another/repo ./radar daemon
 ```
 
 If unset, Radar tries the daemon's current working directory.
+
+## tmux panes
+
+Radar can collect tmux panes and attach them to matching tasks by ticket key, e.g. `ABC-123` in the session name, window name, pane path, or pane title.
+
+Radar reads the local tmux server with `tmux list-panes -a`. If tmux is not installed or no tmux server is running, the source is disabled.
 
 ## Filters
 

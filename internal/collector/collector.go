@@ -11,6 +11,7 @@ import (
 	"radar.nvim/internal/jira"
 	"radar.nvim/internal/linker"
 	"radar.nvim/internal/protocol"
+	"radar.nvim/internal/tmux"
 )
 
 type Ingested struct {
@@ -30,6 +31,7 @@ func Sources() []ingestion.Source {
 		github.NewService(),
 		jira.NewService(),
 		gitcollector.NewService(),
+		tmux.NewService(),
 	}
 }
 
@@ -59,7 +61,7 @@ func Ingest(ctx context.Context, previous []protocol.Task, logger *slog.Logger) 
 	result := Ingested{
 		Tasks:      make([]protocol.Task, 0),
 		SourceRefs: make([]protocol.SourceRef, 0),
-		Services:   make([]protocol.ServiceStatus, 0, 3),
+		Services:   make([]protocol.ServiceStatus, 0, 4),
 		Results:    map[string]ingestion.Result{},
 	}
 

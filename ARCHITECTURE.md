@@ -11,6 +11,7 @@
 - `internal/github/`: GitHub ingestion and remote state resolution.
 - `internal/git/`: Git worktree ingestion.
 - `internal/jira/`: Jira Cloud issue ingestion.
+- `internal/tmux/`: tmux pane ingestion.
 - `internal/linker/`: connects ingested source refs to user-facing tasks.
 - `internal/state/`: local persistent task cache/state.
 
@@ -55,7 +56,7 @@ Radar separates source-system facts from the user-facing task shown in the UI:
 SourceRef + TaskRecord => Task
 ```
 
-- `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, or local git worktree. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:DPSCAP-544`, or `git:worktree:<hash>`.
+- `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, local git worktree, or tmux pane. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:DPSCAP-544`, `git:worktree:<path>`, or `tmux:pane:%4`.
 - `TaskRecord`: persistent Radar-owned tracking state. It gives continuity across refreshes and will own local state such as stable numeric task IDs, known source ref IDs, first/last seen timestamps, and acknowledgements.
 - `Task`: the current projected user-facing task served to the CLI/Neovim UI. It has a Radar-owned integer ID and is computed from current source refs plus the matching task record.
 
@@ -187,6 +188,10 @@ Worktree source refs include path, branch, HEAD, dirty file count, and ahead/beh
 The linker attaches worktrees to GitHub/Jira-style tasks by matching ticket keys such as `ABC-123` in titles, branches, paths, URLs, or metadata.
 
 Worktrees that do not attach to another task become standalone `in_progress` tasks, except common base branches like `main`, `master`, `develop`, and `dev`.
+
+## tmux integration
+
+Tmux integration collects panes from the local tmux server. Radar keeps panes whose session, window, path, or title contains a ticket key such as `ABC-123`, then attaches them to matching tasks. Ticket panes that do not attach to another task become standalone `in_progress` tasks.
 
 ## Neovim UI
 
