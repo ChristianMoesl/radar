@@ -69,30 +69,26 @@ func Stop() error {
 }
 
 func DaemonPIDs() ([]int, error) {
-	entries, err := os.ReadDir("/proc")
+	pid, err := ReadPID()
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return daemonPIDsFromPS()
+		return nil, err
 	}
-
-	self := os.Getpid()
-	pids := make([]int, 0)
-	for _, entry := range entries {
-		pid, err := strconv.Atoi(entry.Name())
-		if err != nil || pid == self {
-			continue
-		}
-
-		data, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
-		if err != nil || len(data) == 0 {
-			continue
-		}
-
-		parts := strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
-		if isRadarDaemon(parts) {
-			pids = append(pids, pid)
-		}
+	if !Running(pid) || !isPIDRadarDaemon(pid) {
+		return nil, nil
 	}
-	return pids, nil
+	return []int{pid}, nil
+}
+
+func isPIDRadarDaemon(pid int) bool {
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+	if err != nil || len(data) == 0 {
+		return Running(pid)
+	}
+	parts := strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
+	return isRadarDaemon(parts)
 }
 
 func daemonPIDsFromPS() ([]int, error) {
