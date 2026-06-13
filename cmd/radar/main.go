@@ -40,6 +40,8 @@ func main() {
 		callDaemon("tasks")
 	case "refresh":
 		callDaemon("refresh")
+	case "reset":
+		callDaemon("reset")
 	case "ack":
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: radar ack <task-id>")
@@ -102,10 +104,11 @@ func runDaemon() {
 		logger.Error("could not initialize state", "error", err)
 		fatal(err)
 	}
-	refresh := refresher(context.Background(), store, logger)
+	collectionMu := &sync.Mutex{}
+	refresh := refresher(context.Background(), store, logger, collectionMu)
 	go refreshLoop(context.Background(), func() { refresh(false) })
 
-	if err := server.New(store, logger, func() { refresh(true) }).ListenAndServe(path); err != nil {
+	if err := server.New(store, logger, func() { refresh(true) }, resetter(context.Background(), store, logger, collectionMu)).ListenAndServe(path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}
@@ -145,8 +148,7 @@ func startDetached(name string, args ...string) error {
 	return process.Release()
 }
 
-func refresher(ctx context.Context, store *state.Store, logger *slog.Logger) func(force bool) {
-	var mu sync.Mutex
+func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex) func(force bool) {
 	var lastRefresh time.Time
 
 	return func(force bool) {
@@ -165,6 +167,23 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger) fun
 		store.SetTasks(result.Tasks)
 		store.SetSources(result.Sources)
 		logger.Debug("refresh finished", "tasks", len(result.Tasks), "sources", len(result.Sources))
+	}
+}
+
+func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex) func() error {
+	return func() error {
+		mu.Lock()
+		defer mu.Unlock()
+
+		logger.Debug("reset started")
+		if err := store.Reset(); err != nil {
+			return err
+		}
+		result := collector.Collect(ctx, nil, logger)
+		store.SetTasks(result.Tasks)
+		store.SetSources(result.Sources)
+		logger.Debug("reset finished", "tasks", len(result.Tasks), "sources", len(result.Sources))
+		return nil
 	}
 }
 
@@ -238,7 +257,7 @@ func printRateLimit() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: radar [daemon|stop|restart|status|summary|tasks|refresh|ack <task-id>|log-path|state-path|filters-path|rate-limit]")
+	fmt.Fprintln(os.Stderr, "usage: radar [daemon|stop|restart|status|summary|tasks|refresh|reset|ack <task-id>|log-path|state-path|filters-path|rate-limit]")
 }
 
 func fatal(err error) {

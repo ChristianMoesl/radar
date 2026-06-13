@@ -115,6 +115,20 @@ func (s *Store) Save() error {
 	return nil
 }
 
+func (s *Store) Reset() error {
+	if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	s.mu.Lock()
+	s.items = []protocol.Task{}
+	s.sources = []protocol.SourceStatus{}
+	s.mu.Unlock()
+
+	s.logger.Info("state reset", "path", s.path)
+	return nil
+}
+
 func (s *Store) Acknowledge(itemID string) bool {
 	s.mu.Lock()
 	changed := false
