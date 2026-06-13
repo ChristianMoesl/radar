@@ -550,6 +550,10 @@ function M.refresh(cb)
 	fetch("refresh", cb)
 end
 
+function M.reset(cb)
+	fetch("reset", cb)
+end
+
 function M.load(cb)
 	fetch("tasks", cb)
 end
@@ -583,6 +587,9 @@ function M.setup(opts)
 	vim.api.nvim_create_user_command("Radar", M.open, {})
 	vim.api.nvim_create_user_command("RadarRefresh", function()
 		M.refresh()
+	end, {})
+	vim.api.nvim_create_user_command("RadarReset", function()
+		M.reset()
 	end, {})
 	vim.api.nvim_create_user_command("RadarFilters", open_filters, {})
 	vim.api.nvim_create_user_command("RadarStart", start_daemon, {})

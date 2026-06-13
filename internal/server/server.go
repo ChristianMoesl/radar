@@ -18,10 +18,11 @@ type Server struct {
 	store   *state.Store
 	logger  *slog.Logger
 	refresh func()
+	reset   func() error
 }
 
-func New(store *state.Store, logger *slog.Logger, refresh func()) *Server {
-	return &Server{store: store, logger: logger, refresh: refresh}
+func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() error) *Server {
+	return &Server{store: store, logger: logger, refresh: refresh, reset: reset}
 }
 
 func (s *Server) ListenAndServe(path string) error {
@@ -83,6 +84,17 @@ func (s *Server) handle(conn net.Conn) {
 		case "refresh":
 			if s.refresh != nil {
 				s.refresh()
+			}
+			tasks := s.filteredTasks()
+			summary := filters.Summary(tasks)
+			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: tasks, Sources: s.store.Sources()})
+		case "reset":
+			if s.reset != nil {
+				if err := s.reset(); err != nil {
+					s.logger.Warn("reset failed", "error", err)
+					_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error()})
+					continue
+				}
 			}
 			tasks := s.filteredTasks()
 			summary := filters.Summary(tasks)

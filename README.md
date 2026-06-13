@@ -53,6 +53,7 @@ Query it from the CLI:
 ./radar status
 ./radar tasks
 ./radar refresh
+./radar reset
 ```
 
 Stop or restart the daemon:
@@ -159,6 +160,8 @@ In Neovim, use `:RadarFilters` or press `f` in the Radar window to edit the file
 ## Local state
 
 The daemon stores the latest attention tasks locally. Task IDs are Radar-owned integers assigned from this local state.
+
+Use `./radar reset` or `:RadarReset` to delete this state and ingest everything again from scratch.
 
 ```sh
 ./radar state-path
