@@ -54,8 +54,8 @@ type issue struct {
 	} `json:"fields"`
 }
 
-func FetchAssignedIssues(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.ServiceStatus, error) {
-	status := protocol.ServiceStatus{Name: "jira", Status: "ok"}
+func FetchAssignedIssues(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.SourceStatus, error) {
+	status := protocol.SourceStatus{Name: "jira", Status: "ok"}
 
 	cfg, ok, missing := configFromEnv()
 	if !ok {
@@ -83,7 +83,7 @@ func source_refsFromIssues(cfg Config, issues []issue, suffix string) []protocol
 	return source_refs
 }
 
-func statusWithCount(status protocol.ServiceStatus, count int, suffix string) protocol.ServiceStatus {
+func statusWithCount(status protocol.SourceStatus, count int, suffix string) protocol.SourceStatus {
 	status.Detail = fmt.Sprintf("%d assigned issues", count)
 	if suffix != "" {
 		status.Detail += " " + suffix

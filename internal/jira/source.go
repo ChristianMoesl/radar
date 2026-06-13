@@ -9,18 +9,18 @@ import (
 	"radar.nvim/internal/protocol"
 )
 
-type Service struct{}
+type Source struct{}
 
-func NewService() Service {
-	return Service{}
+func NewSource() Source {
+	return Source{}
 }
 
-func (Service) Name() string {
+func (Source) Name() string {
 	return "jira"
 }
 
-func (Service) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
-	status := protocol.ServiceStatus{Name: "jira", Status: "ok"}
+func (Source) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
+	status := protocol.SourceStatus{Name: "jira", Status: "ok"}
 	_, ok, missing := configFromEnv()
 	if !ok {
 		logger.Debug("jira collector not configured", "missing", missing)
@@ -31,11 +31,11 @@ func (Service) Status(ctx context.Context, logger *slog.Logger) ingestion.Status
 	return ingestion.StatusResult{Status: status, CanRun: true}
 }
 
-func (Service) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
-	source_refs, _, err := FetchAssignedIssues(ctx, req.Logger)
+func (Source) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
+	sourceRefs, _, err := FetchAssignedIssues(ctx, req.Logger)
 	if err != nil {
 		req.Logger.Warn("jira issue collection failed", "error", err)
 		return ingestion.Result{}
 	}
-	return ingestion.Result{SourceRefs: source_refs, Complete: true}
+	return ingestion.Result{SourceRefs: sourceRefs, Complete: true}
 }

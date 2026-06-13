@@ -8,22 +8,22 @@ import (
 	"radar.nvim/internal/protocol"
 )
 
-type Service struct{}
+type Source struct{}
 
-func NewService() Service {
-	return Service{}
+func NewSource() Source {
+	return Source{}
 }
 
-func (Service) Name() string {
+func (Source) Name() string {
 	return "github"
 }
 
-func (Service) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
-	status, allowed := GraphQLServiceStatus(ctx, logger)
+func (Source) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
+	status, allowed := GraphQLSourceStatus(ctx, logger)
 	return ingestion.StatusResult{Status: status, CanRun: allowed}
 }
 
-func (Service) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
+func (Source) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
 	result := ingestion.Result{
 		Tasks: make([]protocol.Task, 0),
 	}
@@ -49,7 +49,7 @@ func (Service) Ingest(ctx context.Context, req ingestion.Request) ingestion.Resu
 	return result
 }
 
-func (Service) ReconcileDone(ctx context.Context, req ingestion.ReconcileRequest) []protocol.Task {
+func (Source) ReconcileDone(ctx context.Context, req ingestion.ReconcileRequest) []protocol.Task {
 	return ResolveDonePullRequests(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger)
 }
 

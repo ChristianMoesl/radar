@@ -22,7 +22,7 @@ local config = {
 local state = {
 	summary = { immediate = 0, attention = 0, in_progress = 0, done = 0, low_priority = 0 },
 	items = {},
-	services = {
+	sources = {
 		{ name = "github", status = "initializing" },
 		{ name = "jira", status = "initializing" },
 		{ name = "git", status = "initializing" },
@@ -267,21 +267,21 @@ local function add_highlight(line_highlights, line, start_col, end_col, group)
 	})
 end
 
-local function service_status_hl(status)
+local function source_status_hl(status)
 	return ({
-		ok = "RadarServiceStatusOK",
-		paused = "RadarServiceStatusWarn",
-		error = "RadarServiceStatusError",
-		disabled = "RadarServiceStatusDisabled",
-		initializing = "RadarServiceStatusInitializing",
-	})[status] or "RadarServiceStatusDisabled"
+		ok = "RadarSourceStatusOK",
+		paused = "RadarSourceStatusWarn",
+		error = "RadarSourceStatusError",
+		disabled = "RadarSourceStatusDisabled",
+		initializing = "RadarSourceStatusInitializing",
+	})[status] or "RadarSourceStatusDisabled"
 end
 
-local function add_service(lines, line_highlights, service)
-	local name = service.name or "unknown"
-	local status = service.status or "unknown"
-	local source_ref_count = service.source_ref_count or 0
-	local detail = service.detail or ""
+local function add_source(lines, line_highlights, source)
+	local name = source.name or "unknown"
+	local status = source.status or "unknown"
+	local source_ref_count = source.source_ref_count or 0
+	local detail = source.detail or ""
 	local prefix = string.format("  %-8s ", name)
 	local status_text = string.format("%-8s", status)
 	local count_text = string.format("%4d refs", source_ref_count)
@@ -291,8 +291,8 @@ local function add_service(lines, line_highlights, service)
 	end
 
 	table.insert(lines, line)
-	add_highlight(line_highlights, #lines, 2, 2 + #name, "RadarServiceName")
-	add_highlight(line_highlights, #lines, #prefix, #prefix + #status, service_status_hl(status))
+	add_highlight(line_highlights, #lines, 2, 2 + #name, "RadarSourceName")
+	add_highlight(line_highlights, #lines, #prefix, #prefix + #status, source_status_hl(status))
 end
 
 local function add_item(lines, line_items, line_highlights, item)
@@ -364,13 +364,13 @@ local function render_lines()
 		table.insert(lines, "No tasks need your attention.")
 	end
 
-	if #state.services > 0 then
+	if #state.sources > 0 then
 		table.insert(lines, "")
 		local title = "Sources"
 		table.insert(lines, title)
 		table.insert(lines, string.rep("─", #title))
-		for _, service in ipairs(state.services) do
-			add_service(lines, line_highlights, service)
+		for _, source in ipairs(state.sources) do
+			add_source(lines, line_highlights, source)
 		end
 	end
 
@@ -461,7 +461,7 @@ local function ensure_window()
 					if response then
 						state.summary = response.summary or state.summary
 						state.items = response.tasks or state.items
-						state.services = response.services or state.services
+						state.sources = response.sources or state.sources
 						render_window()
 					end
 				end
@@ -484,12 +484,12 @@ local function setup_highlights()
 	vim.api.nvim_set_hl(0, "RadarLowPriorityItemTitle", { link = "Comment", default = true })
 	vim.api.nvim_set_hl(0, "RadarSourceRefIdentifier", { link = "Identifier", default = true })
 	vim.api.nvim_set_hl(0, "RadarLowPrioritySourceRefIdentifier", { link = "Comment", default = true })
-	vim.api.nvim_set_hl(0, "RadarServiceName", { link = "Type", default = true })
-	vim.api.nvim_set_hl(0, "RadarServiceStatusOK", { link = "String", default = true })
-	vim.api.nvim_set_hl(0, "RadarServiceStatusWarn", { link = "WarningMsg", default = true })
-	vim.api.nvim_set_hl(0, "RadarServiceStatusError", { link = "ErrorMsg", default = true })
-	vim.api.nvim_set_hl(0, "RadarServiceStatusDisabled", { link = "Comment", default = true })
-	vim.api.nvim_set_hl(0, "RadarServiceStatusInitializing", { link = "Comment", default = true })
+	vim.api.nvim_set_hl(0, "RadarSourceName", { link = "Type", default = true })
+	vim.api.nvim_set_hl(0, "RadarSourceStatusOK", { link = "String", default = true })
+	vim.api.nvim_set_hl(0, "RadarSourceStatusWarn", { link = "WarningMsg", default = true })
+	vim.api.nvim_set_hl(0, "RadarSourceStatusError", { link = "ErrorMsg", default = true })
+	vim.api.nvim_set_hl(0, "RadarSourceStatusDisabled", { link = "Comment", default = true })
+	vim.api.nvim_set_hl(0, "RadarSourceStatusInitializing", { link = "Comment", default = true })
 end
 
 
@@ -533,8 +533,8 @@ local function fetch(method, cb, retried)
 			notify_new_items(tasks)
 			state.items = tasks
 		end
-		if response.services then
-			state.services = response.services
+		if response.sources then
+			state.sources = response.sources
 		end
 		refresh_statusline()
 		if is_open() then

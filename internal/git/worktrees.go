@@ -17,11 +17,11 @@ import (
 
 var ticketPattern = regexp.MustCompile(`[A-Z][A-Z0-9]+-[0-9]+`)
 
-func FetchWorktrees(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.ServiceStatus) {
+func FetchWorktrees(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.SourceStatus) {
 	roots := gitRoots()
 	source_refs := make([]protocol.SourceRef, 0)
 	seen := map[string]bool{}
-	status := protocol.ServiceStatus{Name: "git", Status: "ok"}
+	status := protocol.SourceStatus{Name: "git", Status: "ok"}
 	collectedRoots := 0
 	failedRoots := 0
 

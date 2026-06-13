@@ -70,12 +70,12 @@ func EnsureCoreBudget(ctx context.Context, logger *slog.Logger) bool {
 }
 
 func EnsureGraphQLBudget(ctx context.Context, logger *slog.Logger) bool {
-	_, allowed := GraphQLServiceStatus(ctx, logger)
+	_, allowed := GraphQLSourceStatus(ctx, logger)
 	return allowed
 }
 
-func GraphQLServiceStatus(ctx context.Context, logger *slog.Logger) (protocol.ServiceStatus, bool) {
-	status := protocol.ServiceStatus{Name: "github", Status: "ok"}
+func GraphQLSourceStatus(ctx context.Context, logger *slog.Logger) (protocol.SourceStatus, bool) {
+	status := protocol.SourceStatus{Name: "github", Status: "ok"}
 
 	if until, ok := pausedUntilTime("graphql"); ok {
 		logger.Debug("github collection paused until rate limit reset", "resource", "graphql", "reset", until.Format(time.RFC3339))

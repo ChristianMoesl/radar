@@ -14,7 +14,7 @@ type Summary struct {
 	LowPriority int `json:"low_priority"`
 }
 
-type ServiceStatus struct {
+type SourceStatus struct {
 	Name           string `json:"name"`
 	Status         string `json:"status"`
 	Detail         string `json:"detail,omitempty"`
@@ -48,9 +48,9 @@ type Task struct {
 }
 
 type Response struct {
-	OK       bool            `json:"ok"`
-	Error    string          `json:"error,omitempty"`
-	Summary  *Summary        `json:"summary,omitempty"`
-	Tasks    []Task          `json:"tasks,omitempty"`
-	Services []ServiceStatus `json:"services,omitempty"`
+	OK      bool           `json:"ok"`
+	Error   string         `json:"error,omitempty"`
+	Summary *Summary       `json:"summary,omitempty"`
+	Tasks   []Task         `json:"tasks,omitempty"`
+	Sources []SourceStatus `json:"sources,omitempty"`
 }

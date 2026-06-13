@@ -68,25 +68,25 @@ func (s *Server) handle(conn net.Conn) {
 		if taskID, ok := strings.CutPrefix(req.Method, "ack:"); ok {
 			s.store.Acknowledge(taskID)
 			summary := s.store.Summary()
-			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: s.store.Tasks(), Services: s.store.Services()})
+			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: s.store.Tasks(), Sources: s.store.Sources()})
 			continue
 		}
 		switch req.Method {
 		case "summary":
 			tasks := s.filteredTasks()
 			summary := filters.Summary(tasks)
-			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Services: s.store.Services()})
+			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Sources: s.store.Sources()})
 		case "tasks":
 			tasks := s.filteredTasks()
 			summary := filters.Summary(tasks)
-			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: tasks, Services: s.store.Services()})
+			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: tasks, Sources: s.store.Sources()})
 		case "refresh":
 			if s.refresh != nil {
 				s.refresh()
 			}
 			tasks := s.filteredTasks()
 			summary := filters.Summary(tasks)
-			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: tasks, Services: s.store.Services()})
+			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: tasks, Sources: s.store.Sources()})
 		default:
 			s.logger.Warn("unknown method", "method", req.Method)
 			_ = encoder.Encode(protocol.Response{OK: false, Error: "unknown method: " + req.Method})

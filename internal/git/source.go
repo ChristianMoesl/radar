@@ -8,24 +8,24 @@ import (
 	"radar.nvim/internal/protocol"
 )
 
-type Service struct{}
+type Source struct{}
 
-func NewService() Service {
-	return Service{}
+func NewSource() Source {
+	return Source{}
 }
 
-func (Service) Name() string {
+func (Source) Name() string {
 	return "git"
 }
 
-func (Service) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
+func (Source) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
 	return ingestion.StatusResult{
-		Status: protocol.ServiceStatus{Name: "git", Status: "ok"},
+		Status: protocol.SourceStatus{Name: "git", Status: "ok"},
 		CanRun: true,
 	}
 }
 
-func (Service) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
+func (Source) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
 	source_refs, status := FetchWorktrees(ctx, req.Logger)
 	if status.Status == "error" {
 		req.Logger.Warn("git worktree collection failed", "detail", status.Detail)

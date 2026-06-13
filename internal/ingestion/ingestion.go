@@ -21,7 +21,7 @@ type Result struct {
 }
 
 type StatusResult struct {
-	Status protocol.ServiceStatus
+	Status protocol.SourceStatus
 	CanRun bool
 }
 

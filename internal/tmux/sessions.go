@@ -26,8 +26,8 @@ type session struct {
 	WindowCount   int
 }
 
-func ServiceStatus(ctx context.Context) protocol.ServiceStatus {
-	status := protocol.ServiceStatus{Name: "tmux", Status: "ok"}
+func SourceStatus(ctx context.Context) protocol.SourceStatus {
+	status := protocol.SourceStatus{Name: "tmux", Status: "ok"}
 	if _, err := exec.LookPath("tmux"); err != nil {
 		status.Status = "disabled"
 		status.Detail = "tmux not found"
@@ -40,8 +40,8 @@ func ServiceStatus(ctx context.Context) protocol.ServiceStatus {
 	return status
 }
 
-func FetchSessions(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.ServiceStatus) {
-	status := protocol.ServiceStatus{Name: "tmux", Status: "ok"}
+func FetchSessions(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.SourceStatus) {
+	status := protocol.SourceStatus{Name: "tmux", Status: "ok"}
 	output, err := tmuxOutput(ctx, "list-sessions", "-F", sessionFormat)
 	if err != nil {
 		status.Status = "error"

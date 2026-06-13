@@ -14,11 +14,11 @@ import (
 )
 
 type Store struct {
-	mu       sync.RWMutex
-	items    []protocol.Task
-	services []protocol.ServiceStatus
-	path     string
-	logger   *slog.Logger
+	mu      sync.RWMutex
+	items   []protocol.Task
+	sources []protocol.SourceStatus
+	path    string
+	logger  *slog.Logger
 }
 
 func Path() (string, error) {
@@ -260,20 +260,20 @@ func (s *Store) Tasks() []protocol.Task {
 	return items
 }
 
-func (s *Store) SetServices(services []protocol.ServiceStatus) {
+func (s *Store) SetSources(sources []protocol.SourceStatus) {
 	s.mu.Lock()
-	s.services = make([]protocol.ServiceStatus, len(services))
-	copy(s.services, services)
+	s.sources = make([]protocol.SourceStatus, len(sources))
+	copy(s.sources, sources)
 	s.mu.Unlock()
 }
 
-func (s *Store) Services() []protocol.ServiceStatus {
+func (s *Store) Sources() []protocol.SourceStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	services := make([]protocol.ServiceStatus, len(s.services))
-	copy(services, s.services)
-	return services
+	sources := make([]protocol.SourceStatus, len(s.sources))
+	copy(sources, s.sources)
+	return sources
 }
 
 func (s *Store) Summary() protocol.Summary {

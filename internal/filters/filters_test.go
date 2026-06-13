@@ -47,11 +47,11 @@ func TestApplyMatchesUsers(t *testing.T) {
 
 func TestApplyMatchesWildcardRepos(t *testing.T) {
 	items := []protocol.Task{
-		{ID: 1, Repo: "org/service-api", Attention: "attention"},
+		{ID: 1, Repo: "org/api-backend", Attention: "attention"},
 		{ID: 2, Repo: "org/app", Attention: "attention"},
 	}
 
-	got := Apply(items, Config{DeprioritizeRepos: []string{"org/service-*"}})
+	got := Apply(items, Config{DeprioritizeRepos: []string{"org/api-*"}})
 	if got[0].Attention != "low_priority" {
 		t.Fatalf("expected wildcard repo to be low priority, got %#v", got[0])
 	}

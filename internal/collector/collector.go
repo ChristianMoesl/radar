@@ -17,21 +17,21 @@ import (
 type Ingested struct {
 	Tasks      []protocol.Task
 	SourceRefs []protocol.SourceRef
-	Services   []protocol.ServiceStatus
+	Sources    []protocol.SourceStatus
 	Results    map[string]ingestion.Result
 }
 
 type Result struct {
-	Tasks    []protocol.Task
-	Services []protocol.ServiceStatus
+	Tasks   []protocol.Task
+	Sources []protocol.SourceStatus
 }
 
 func Sources() []ingestion.Source {
 	return []ingestion.Source{
-		github.NewService(),
-		jira.NewService(),
-		gitcollector.NewService(),
-		tmux.NewService(),
+		github.NewSource(),
+		jira.NewSource(),
+		gitcollector.NewSource(),
+		tmux.NewSource(),
 	}
 }
 
@@ -54,14 +54,14 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger)
 			Logger:   logger,
 		})...)
 	}
-	return Result{Tasks: tasks, Services: ingested.Services}
+	return Result{Tasks: tasks, Sources: ingested.Sources}
 }
 
 func Ingest(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Ingested {
 	result := Ingested{
 		Tasks:      make([]protocol.Task, 0),
 		SourceRefs: make([]protocol.SourceRef, 0),
-		Services:   make([]protocol.ServiceStatus, 0, 4),
+		Sources:    make([]protocol.SourceStatus, 0, 4),
 		Results:    map[string]ingestion.Result{},
 	}
 
@@ -72,14 +72,14 @@ func Ingest(ctx context.Context, previous []protocol.Task, logger *slog.Logger) 
 
 	for _, source := range Sources() {
 		status := ingestion.StatusResult{
-			Status: protocol.ServiceStatus{Name: source.Name(), Status: "ok"},
+			Status: protocol.SourceStatus{Name: source.Name(), Status: "ok"},
 			CanRun: true,
 		}
 		if reporter, ok := source.(ingestion.StatusReporter); ok {
 			status = reporter.Status(ctx, logger)
 		}
 		if !status.CanRun {
-			result.Services = append(result.Services, status.Status)
+			result.Sources = append(result.Sources, status.Status)
 			continue
 		}
 
@@ -89,7 +89,7 @@ func Ingest(ctx context.Context, previous []protocol.Task, logger *slog.Logger) 
 			Logger:   logger,
 		})
 		status.Status.SourceRefCount = sourceRefCount(source.Name(), ingested)
-		result.Services = append(result.Services, status.Status)
+		result.Sources = append(result.Sources, status.Status)
 		result.Results[source.Name()] = ingested
 		result.Tasks = append(result.Tasks, ingested.Tasks...)
 		result.SourceRefs = append(result.SourceRefs, ingested.SourceRefs...)

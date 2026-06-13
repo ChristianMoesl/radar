@@ -7,22 +7,22 @@ import (
 	"radar.nvim/internal/ingestion"
 )
 
-type Service struct{}
+type Source struct{}
 
-func NewService() Service {
-	return Service{}
+func NewSource() Source {
+	return Source{}
 }
 
-func (Service) Name() string {
+func (Source) Name() string {
 	return "tmux"
 }
 
-func (Service) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
-	status := ServiceStatus(ctx)
+func (Source) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
+	status := SourceStatus(ctx)
 	return ingestion.StatusResult{Status: status, CanRun: status.Status == "ok"}
 }
 
-func (Service) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
+func (Source) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
 	sourceRefs, status := FetchSessions(ctx, req.Logger)
 	if status.Status == "error" {
 		req.Logger.Warn("tmux session collection failed", "detail", status.Detail)

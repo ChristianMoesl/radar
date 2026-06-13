@@ -163,8 +163,8 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger) fun
 		previous := store.Tasks()
 		result := collector.Collect(ctx, previous, logger)
 		store.SetTasks(result.Tasks)
-		store.SetServices(result.Services)
-		logger.Debug("refresh finished", "tasks", len(result.Tasks), "services", len(result.Services))
+		store.SetSources(result.Sources)
+		logger.Debug("refresh finished", "tasks", len(result.Tasks), "sources", len(result.Sources))
 	}
 }
 
