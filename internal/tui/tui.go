@@ -54,6 +54,13 @@ type deletePreview struct {
 	SessionOnly bool
 }
 
+type linkChoice struct {
+	Key    string
+	Source string
+	Label  string
+	URL    string
+}
+
 type picker struct {
 	query   string
 	options []string
@@ -82,6 +89,7 @@ type model struct {
 	mode       string
 	create     createForm
 	delete     deletePreview
+	links      []linkChoice
 	message    string
 	scroll     int
 }
@@ -166,6 +174,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 		}
+		if m.mode == "open_link" {
+			switch msg.String() {
+			case "esc", "backspace", "h":
+				m.mode = ""
+				m.links = nil
+				return m, nil
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "g", "j":
+				link, ok := matchingLink(m.links, msg.String())
+				if !ok {
+					m.message = "No " + linkKeyLabel(msg.String()) + " link on selected task"
+					return m, nil
+				}
+				m.mode = ""
+				m.links = nil
+				m.loading = true
+				m.err = nil
+				return m, m.openTaskURL(m.tasks[m.cursor], link.URL)
+			default:
+				return m, nil
+			}
+		}
 		if m.mode == "delete_confirm" {
 			switch msg.String() {
 			case "y", "Y":
@@ -197,6 +228,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "i", "right", "l":
 			if len(m.tasks) > 0 {
 				m.mode = "detail"
+			}
+		case "o":
+			if len(m.tasks) > 0 {
+				m.links = taskLinks(m.tasks[m.cursor])
+				if len(m.links) == 0 {
+					m.message = "No link on selected task"
+					return m, nil
+				}
+				m.mode = "open_link"
+				m.message = ""
 			}
 		case "d":
 			if len(m.tasks) > 0 {
@@ -233,7 +274,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.tasks) > 0 {
 				m.loading = true
 				m.err = nil
-				return m, m.openSelected()
+				return m, m.switchSelected()
 			}
 		}
 	case fetchMsg:
@@ -307,7 +348,16 @@ func (m model) View() string {
 
 	if m.mode == "detail" {
 		sections = append(sections, m.detailView(contentWidth))
-		sections = append(sections, helpStyle.Render("esc/backspace/h back • enter open/switch • q quit"))
+		sections = append(sections, helpStyle.Render("esc/backspace/h back • q quit"))
+		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
+	}
+
+	if m.mode == "open_link" {
+		sections = append(sections, m.openLinkView(contentWidth))
+		if m.err != nil {
+			sections = append(sections, errorStyle.Render(m.err.Error()))
+		}
+		sections = append(sections, helpStyle.Render("g GitHub • j Jira • esc cancel • q quit"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
@@ -351,7 +401,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter open/switch • i inspect • c create • d delete • f filters • r refresh • R reset • q quit"))
+	sections = append(sections, helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • o open link • i inspect • c create • d delete • f filters • r refresh • R reset • q quit"))
 	return sections
 }
 
@@ -786,6 +836,18 @@ func shortenPath(path string) string {
 	return path
 }
 
+func (m model) openLinkView(width int) string {
+	if len(m.links) == 0 {
+		return subtleStyle.Render("No links on selected task.")
+	}
+	lines := []string{titleStyle.Render("Open link")}
+	for _, link := range m.links {
+		lines = append(lines, fmt.Sprintf("  %s  %-6s %s", titleStyle.Render(link.Key), link.Source, link.Label))
+		lines = append(lines, subtleStyle.Render("           "+link.URL))
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m model) detailView(width int) string {
 	if len(m.tasks) == 0 {
 		return subtleStyle.Render("No task selected.")
@@ -860,7 +922,7 @@ func (m model) openFilters() tea.Cmd {
 	})
 }
 
-func (m model) openSelected() tea.Cmd {
+func (m model) switchSelected() tea.Cmd {
 	task := m.tasks[m.cursor]
 	return func() tea.Msg {
 		if target := tmuxSessionTarget(task); target != "" {
@@ -869,7 +931,12 @@ func (m model) openSelected() tea.Cmd {
 			}
 			return actionMsg{quit: true}
 		}
+		return actionMsg{message: "No tmux session on selected task"}
+	}
+}
 
+func (m model) openTaskURL(task protocol.Task, url string) tea.Cmd {
+	return func() tea.Msg {
 		var response *protocol.Response
 		if task.ID != 0 {
 			res, err := client.Call(m.socketPath, "ack:"+fmt.Sprint(task.ID))
@@ -882,10 +949,8 @@ func (m model) openSelected() tea.Cmd {
 			response = &res
 		}
 
-		if task.URL != "" {
-			if err := openURL(task.URL); err != nil {
-				return actionMsg{response: response, err: err}
-			}
+		if err := openURL(url); err != nil {
+			return actionMsg{response: response, err: err}
 		}
 		return actionMsg{response: response}
 	}
@@ -922,6 +987,69 @@ func metadataValue(metadata map[string]string, keys ...string) string {
 		if metadata[key] != "" {
 			return metadata[key]
 		}
+	}
+	return ""
+}
+
+func taskLinks(task protocol.Task) []linkChoice {
+	seen := map[string]bool{}
+	var links []linkChoice
+	add := func(source string, label string, url string) {
+		if url == "" || seen[url] {
+			return
+		}
+		key := linkSourceKey(source)
+		if key == "" {
+			return
+		}
+		seen[url] = true
+		links = append(links, linkChoice{Key: key, Source: linkKeyLabel(key), Label: label, URL: url})
+	}
+
+	for _, ref := range task.SourceRefs {
+		add(ref.Source, sourceRefLabel(ref), ref.URL)
+	}
+	add(linkSourceFromURL(task.URL), task.Title, task.URL)
+	return links
+}
+
+func matchingLink(links []linkChoice, key string) (linkChoice, bool) {
+	for _, link := range links {
+		if link.Key == key {
+			return link, true
+		}
+	}
+	return linkChoice{}, false
+}
+
+func linkSourceKey(source string) string {
+	switch source {
+	case "github":
+		return "g"
+	case "jira":
+		return "j"
+	default:
+		return ""
+	}
+}
+
+func linkKeyLabel(key string) string {
+	switch key {
+	case "g":
+		return "GitHub"
+	case "j":
+		return "Jira"
+	default:
+		return "link"
+	}
+}
+
+func linkSourceFromURL(url string) string {
+	if strings.Contains(url, "github.com") {
+		return "github"
+	}
+	if strings.Contains(url, "atlassian.net") || strings.Contains(url, "/browse/") {
+		return "jira"
 	}
 	return ""
 }
