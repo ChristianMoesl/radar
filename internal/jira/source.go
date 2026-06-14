@@ -39,3 +39,7 @@ func (Source) Ingest(ctx context.Context, req ingestion.Request) ingestion.Resul
 	}
 	return ingestion.Result{SourceRefs: sourceRefs, Complete: true}
 }
+
+func (Source) ReconcileDone(ctx context.Context, req ingestion.ReconcileRequest) []protocol.Task {
+	return ResolveDoneIssues(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger)
+}

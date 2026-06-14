@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"radar.nvim/internal/protocol"
 )
 
 func TestSearchAssignedIssuesUsesSearchJQLEndpoint(t *testing.T) {
@@ -83,6 +87,52 @@ func TestSearchAssignedIssuesFallsBackToSearch(t *testing.T) {
 		if called[i] != want[i] {
 			t.Fatalf("called[%d] = %q, want %q", i, called[i], want[i])
 		}
+	}
+}
+
+func TestResolveDoneIssuesMarksMissingDoneIssueDone(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/issue/RAD-123" {
+			t.Fatalf("request = %s %s, want GET /issue/RAD-123", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"10001","key":"RAD-123","fields":{"summary":"Ship reconciliation","status":{"name":"Done","statusCategory":{"key":"done","name":"Done"}}}}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("RADAR_JIRA_API_BASE_URL", server.URL)
+	t.Setenv("RADAR_JIRA_BASE_URL", "https://jira.example.test")
+	t.Setenv("RADAR_JIRA_EMAIL", "me@example.com")
+	t.Setenv("RADAR_JIRA_API_TOKEN", "token")
+
+	previous := []protocol.Task{{
+		ID:        42,
+		Kind:      "jira_issue",
+		Title:     "RAD-123 Ship reconciliation",
+		URL:       "https://jira.example.test/browse/RAD-123",
+		Attention: "in_progress",
+		Reason:    "jira issue",
+		SourceRefs: []protocol.SourceRef{{
+			ID:     "jira:issue:RAD-123",
+			Source: "jira",
+			Kind:   "issue",
+			Title:  "RAD-123 Ship reconciliation",
+		}},
+	}}
+
+	items := ResolveDoneIssues(context.Background(), previous, nil, true, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if len(items) != 1 {
+		t.Fatalf("done items = %d, want 1: %+v", len(items), items)
+	}
+	if items[0].Kind != "jira_done_issue" || items[0].Attention != "done" || items[0].Reason != "jira done" {
+		t.Fatalf("done item = %+v, want jira_done_issue done", items[0])
+	}
+	if items[0].DoneAt == "" {
+		t.Fatalf("DoneAt is empty")
+	}
+	if items[0].SourceRefs[0].Status != "jira done" {
+		t.Fatalf("source ref status = %q, want jira done", items[0].SourceRefs[0].Status)
 	}
 }
 
