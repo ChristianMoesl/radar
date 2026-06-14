@@ -489,16 +489,17 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 	m.err = nil
 	m.message = "Creating workstream…"
 	return m, func() tea.Msg {
+		switchAfterCreate := os.Getenv("TMUX") != ""
 		created, err := workstream.Create(context.Background(), workstream.ExecRunner{}, workstream.CreateOptions{
 			Repo:   form.repo,
 			Base:   form.base,
 			Name:   form.name,
-			Switch: os.Getenv("TMUX") != "",
+			Switch: switchAfterCreate,
 		})
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		return actionMsg{message: "Created " + created.SessionName, refresh: true}
+		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
 	}
 }
 
