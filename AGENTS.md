@@ -4,6 +4,8 @@
 
 Use conventional commits for commit messages, for example `feat: add tmux source` or `fix: collect tmux panes without ticket keys`.
 
+After making a commit, always push it to the remote immediately.
+
 Always push to the main remote (`origin`) unless the user explicitly asks for a different remote.
 
 ## Streamlined product design
