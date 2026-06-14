@@ -73,11 +73,79 @@ func gitRoots() []string {
 		}
 		return roots
 	}
-	cwd, err := os.Getwd()
+
+	roots := make([]string, 0)
+	if cwd, err := os.Getwd(); err == nil {
+		roots = appendUniqueRoot(roots, cwd)
+	}
+	for _, root := range workstreamGitRoots() {
+		roots = appendUniqueRoot(roots, root)
+	}
+	for _, root := range tmuxSessionGitRoots() {
+		roots = appendUniqueRoot(roots, root)
+	}
+	return roots
+}
+
+func workstreamGitRoots() []string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil
+	}
+	matches, err := filepath.Glob(filepath.Join(home, "workstreams", "*", "*"))
 	if err != nil {
 		return nil
 	}
-	return []string{cwd}
+	roots := make([]string, 0, len(matches))
+	for _, match := range matches {
+		info, err := os.Stat(match)
+		if err == nil && info.IsDir() {
+			roots = append(roots, match)
+		}
+	}
+	return roots
+}
+
+func tmuxSessionGitRoots() []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "tmux", "list-sessions", "-F", "#{session_path}").Output()
+	if err != nil {
+		return nil
+	}
+	roots := make([]string, 0)
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	for scanner.Scan() {
+		root := strings.TrimSpace(scanner.Text())
+		if root != "" {
+			roots = appendUniqueRoot(roots, root)
+		}
+	}
+	return roots
+}
+
+func appendUniqueRoot(roots []string, root string) []string {
+	root = cleanRoot(root)
+	if root == "" {
+		return roots
+	}
+	for _, existing := range roots {
+		if existing == root {
+			return roots
+		}
+	}
+	return append(roots, root)
+}
+
+func cleanRoot(root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		return abs
+	}
+	return root
 }
 
 func expandPath(path string) string {

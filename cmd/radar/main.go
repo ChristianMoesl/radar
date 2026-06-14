@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -83,19 +84,12 @@ func runTUIWithMode(mode string) {
 	if err != nil {
 		fatal(err)
 	}
+	if err := ensureDaemonCurrent(path); err != nil {
+		fatal(err)
+	}
 	if _, err := client.Call(path, "tasks"); err != nil {
-		executable, executableErr := os.Executable()
-		if executableErr != nil {
-			fatal(executableErr)
-		}
-		if err := startDetached(executable, "daemon"); err != nil {
+		if err := startDaemonAndWait(path); err != nil {
 			fatal(err)
-		}
-		for range 20 {
-			time.Sleep(50 * time.Millisecond)
-			if _, err := client.Call(path, "tasks"); err == nil {
-				break
-			}
 		}
 	}
 	if mode == "create" {
@@ -224,15 +218,61 @@ func stopDaemon() {
 }
 
 func restartDaemon() {
-	_ = process.Stop()
-	cmd, err := os.Executable()
-	if err != nil {
-		fatal(err)
-	}
-	if err := startDetached(cmd, "daemon"); err != nil {
+	if err := restartDaemonAndWait(""); err != nil {
 		fatal(err)
 	}
 	fmt.Println("radar daemon restarted")
+}
+
+func ensureDaemonCurrent(socketPath string) error {
+	pids, err := process.DaemonPIDs()
+	if err != nil || len(pids) == 0 {
+		return err
+	}
+	current, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	currentInfo, err := os.Stat(current)
+	if err != nil {
+		return err
+	}
+	for _, pid := range pids {
+		daemonInfo, err := os.Stat(filepath.Join("/proc", fmt.Sprint(pid), "exe"))
+		if err != nil {
+			continue
+		}
+		if currentInfo.ModTime().After(daemonInfo.ModTime()) {
+			return restartDaemonAndWait(socketPath)
+		}
+	}
+	return nil
+}
+
+func restartDaemonAndWait(socketPath string) error {
+	_ = process.Stop()
+	return startDaemonAndWait(socketPath)
+}
+
+func startDaemonAndWait(socketPath string) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if err := startDetached(executable, "daemon"); err != nil {
+		return err
+	}
+	if socketPath == "" {
+		return nil
+	}
+	for range 100 {
+		time.Sleep(50 * time.Millisecond)
+		res, err := client.Call(socketPath, "tasks")
+		if err == nil && len(res.Sources) > 0 {
+			return nil
+		}
+	}
+	return nil
 }
 
 func startDetached(name string, args ...string) error {
@@ -351,6 +391,10 @@ func refreshLoop(ctx context.Context, refresh func(refreshScope, bool)) {
 func callDaemon(method string) {
 	path, err := socket.Path()
 	if err != nil {
+		fatal(err)
+	}
+
+	if err := ensureDaemonCurrent(path); err != nil {
 		fatal(err)
 	}
 
