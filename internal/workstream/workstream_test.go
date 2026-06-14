@@ -97,6 +97,16 @@ func TestDeleteRefusesDirtyWorktreeBeforeKillingSession(t *testing.T) {
 	}
 }
 
+func TestDeleteForceRemovesDirtyWorktree(t *testing.T) {
+	runner := &dirtyRunner{fakeRunner: fakeRunner{hasSession: true}}
+	path := filepath.Join(t.TempDir(), "repo", "small-fix")
+	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", true); err != nil {
+		t.Fatal(err)
+	}
+	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
+	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove --force "+path)
+}
+
 func TestSessionNameSanitizesNames(t *testing.T) {
 	if got, want := SessionName("my.repo", "small fix"), "my-repo-small-fix"; got != want {
 		t.Fatalf("SessionName() = %q, want %q", got, want)
