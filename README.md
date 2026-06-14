@@ -8,6 +8,13 @@ Radar is a CLI-first tool for keeping track of engineering work that needs your 
 go build -o radar ./cmd/radar
 ```
 
+## Prerequisites
+
+Radar opens task URLs with the platform URL opener when you press `o` and choose a URL-backed source such as Jira or GitHub:
+
+- Linux: requires `xdg-open`, usually provided by `xdg-utils`
+- macOS: uses the built-in `open` command
+
 ## Run
 
 Start the daemon:
@@ -33,7 +40,8 @@ The TUI supports:
 ```text
 j / down     move down
 k / up       move up
-enter        open task URL or switch tmux session
+enter        switch tmux session when connected
+o            open task link, then press g for GitHub or j for Jira
 i            inspect selected task
 c            create workstream
 d            delete selected workstream after confirmation
