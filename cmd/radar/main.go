@@ -74,6 +74,10 @@ func main() {
 }
 
 func runTUI() {
+	runTUIWithMode("")
+}
+
+func runTUIWithMode(mode string) {
 	path, err := socket.Path()
 	if err != nil {
 		fatal(err)
@@ -93,6 +97,12 @@ func runTUI() {
 			}
 		}
 	}
+	if mode == "create" {
+		if err := tui.RunCreate(path); err != nil {
+			fatal(err)
+		}
+		return
+	}
 	if err := tui.Run(path); err != nil {
 		fatal(err)
 	}
@@ -105,6 +115,10 @@ func runCreate(args []string) {
 	name := flags.String("name", "", "workstream name")
 	_ = flags.Parse(args)
 
+	if *repo == "" && *base == "" && *name == "" {
+		runTUIWithMode("create")
+		return
+	}
 	if *repo == "" || *base == "" || *name == "" {
 		createUsage()
 		os.Exit(2)
@@ -353,6 +367,7 @@ Interactive:
   radar                         open the terminal UI
 
 Workstreams:
+  radar create
   radar create --repo <repo> --base <branch> --name <name>
   radar delete --path <workstream-path>
 
@@ -374,7 +389,8 @@ Other:
 }
 
 func createUsage() {
-	fmt.Fprintln(os.Stderr, `usage: radar create --repo <repo> --base <branch> --name <name>
+	fmt.Fprintln(os.Stderr, `usage: radar create
+       radar create --repo <repo> --base <branch> --name <name>
 
 Options:
   --repo   repository path
