@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
+	"strconv"
 	"sync"
 	"time"
 
@@ -19,17 +21,21 @@ import (
 	"radar.nvim/internal/server"
 	"radar.nvim/internal/socket"
 	"radar.nvim/internal/state"
+	"radar.nvim/internal/tui"
 )
 
 func main() {
-	command := "status"
-	if len(os.Args) > 1 {
-		command = os.Args[1]
+	if len(os.Args) == 1 {
+		runTUI()
+		return
 	}
 
+	command := os.Args[1]
 	switch command {
 	case "daemon":
 		runDaemon()
+	case "tmux":
+		runTmuxCommand(os.Args[2:])
 	case "stop":
 		stopDaemon()
 	case "restart":
@@ -61,6 +67,30 @@ func main() {
 	default:
 		usage()
 		os.Exit(2)
+	}
+}
+
+func runTUI() {
+	path, err := socket.Path()
+	if err != nil {
+		fatal(err)
+	}
+	if err := tui.Run(path); err != nil {
+		fatal(err)
+	}
+}
+
+func runTmuxCommand(args []string) {
+	if len(args) != 1 || args[0] != "popup" {
+		usage()
+		os.Exit(2)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		fatal(err)
+	}
+	if err := exec.Command("tmux", "display-popup", "-E", strconv.Quote(exe)).Run(); err != nil {
+		fatal(err)
 	}
 }
 
@@ -257,7 +287,7 @@ func printRateLimit() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: radar [daemon|stop|restart|status|summary|tasks|refresh|reset|ack <task-id>|log-path|state-path|filters-path|rate-limit]")
+	fmt.Fprintln(os.Stderr, "usage: radar [daemon|tmux popup|stop|restart|status|summary|tasks|refresh|reset|ack <task-id>|log-path|state-path|filters-path|rate-limit]")
 }
 
 func fatal(err error) {

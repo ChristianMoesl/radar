@@ -76,6 +76,18 @@ Start the daemon:
 ./radar daemon
 ```
 
+Open the interactive terminal UI:
+
+```sh
+./radar
+```
+
+Open Radar in a tmux popup:
+
+```sh
+./radar tmux popup
+```
+
 Query it from the CLI:
 
 ```sh
