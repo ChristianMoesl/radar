@@ -50,6 +50,7 @@ type deletePreview struct {
 	Branch      string
 	SessionName string
 	Dirty       bool
+	SessionOnly bool
 }
 
 type picker struct {
@@ -165,8 +166,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = ""
 				m.loading = true
 				m.err = nil
-				m.message = "Deleting workstream…"
-				return m, m.deleteWorkstream(preview)
+				m.message = "Deleting…"
+				return m, m.deleteSelected(preview)
 			case "esc", "backspace", "h", "n", "N":
 				m.mode = ""
 				m.err = nil
@@ -194,7 +195,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.tasks) > 0 {
 				m.loading = true
 				m.err = nil
-				m.message = "Inspecting workstream…"
+				m.message = "Inspecting delete target…"
 				return m, m.previewDelete(m.tasks[m.cursor])
 			}
 		case "R":
@@ -207,11 +208,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			m.message = "Refreshing…"
 			return m, m.fetch("refresh")
-		case "j", "down":
+		case "j", "down", "ctrl+n":
 			if m.cursor < len(m.tasks)-1 {
 				m.cursor++
 			}
-		case "k", "up":
+		case "k", "up", "ctrl+p":
 			if m.cursor > 0 {
 				m.cursor--
 			}
@@ -347,7 +348,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, helpStyle.Render("↑/k ↓/j select • enter open/switch • i inspect • c create • d delete workstream • f filters • r refresh • R reset • q quit"))
+	sections = append(sections, helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter open/switch • i inspect • c create • d delete • f filters • r refresh • R reset • q quit"))
 	return sections
 }
 
@@ -399,10 +400,10 @@ func (m model) updateCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = ""
 		m.err = nil
 		return m, nil
-	case "up", "k":
+	case "up", "k", "ctrl+p":
 		m.moveCreateCursor(-1)
 		return m, nil
-	case "down", "j":
+	case "down", "j", "ctrl+n":
 		m.moveCreateCursor(1)
 		return m, nil
 	case "enter":
@@ -505,7 +506,11 @@ func (m model) previewDelete(task protocol.Task) tea.Cmd {
 	return func() tea.Msg {
 		ref, ok := worktreeRef(task)
 		if !ok || strings.TrimSpace(ref.Path) == "" {
-			return deletePreviewMsg{err: fmt.Errorf("selected task is not backed by a git worktree")}
+			sessionName := tmuxSessionTarget(task)
+			if sessionName == "" {
+				return deletePreviewMsg{err: fmt.Errorf("selected task is not backed by a git worktree or tmux session")}
+			}
+			return deletePreviewMsg{preview: deletePreview{SessionName: sessionName, SessionOnly: true}}
 		}
 		status, err := workstream.ExecRunner{}.Run(context.Background(), "", "git", "-C", ref.Path, "status", "--porcelain")
 		if err != nil {
@@ -521,8 +526,15 @@ func (m model) previewDelete(task protocol.Task) tea.Cmd {
 	}
 }
 
-func (m model) deleteWorkstream(preview deletePreview) tea.Cmd {
+func (m model) deleteSelected(preview deletePreview) tea.Cmd {
 	return func() tea.Msg {
+		if preview.SessionOnly {
+			deleted, err := workstream.DeleteSession(context.Background(), workstream.ExecRunner{}, preview.SessionName)
+			if err != nil {
+				return actionMsg{err: err}
+			}
+			return actionMsg{message: "Deleted session " + deleted.SessionName, refresh: true}
+		}
 		deleted, err := workstream.Delete(context.Background(), workstream.ExecRunner{}, preview.Path, preview.SessionName, true)
 		if err != nil {
 			return actionMsg{err: err}
@@ -641,7 +653,10 @@ func (m model) deleteConfirmView(width int) string {
 	preview := m.delete
 	title := "Delete workstream?"
 	warning := "This will remove the git worktree."
-	if preview.Dirty {
+	if preview.SessionOnly {
+		title = "Delete tmux session?"
+		warning = "This will kill only the tmux session."
+	} else if preview.Dirty {
 		title = "Delete dirty workstream?"
 		warning = "This worktree has uncommitted changes. Deleting will permanently discard them."
 	}
@@ -650,7 +665,9 @@ func (m model) deleteConfirmView(width int) string {
 		titleStyle.Render(title),
 		warning,
 		"",
-		"Path    " + shortenPath(preview.Path),
+	}
+	if preview.Path != "" {
+		lines = append(lines, "Path    "+shortenPath(preview.Path))
 	}
 	if preview.Branch != "" {
 		lines = append(lines, "Branch  "+preview.Branch)

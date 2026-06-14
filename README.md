@@ -74,7 +74,13 @@ Delete a clean workstream:
 ./radar delete --path ~/workstreams/<repo>/my-feature
 ```
 
-Deletion refuses dirty worktrees. There is intentionally no force flag yet; keep the command path conservative until the TUI has a confirmation flow.
+Delete only a tmux session:
+
+```sh
+./radar delete --session <tmux-session-name-or-id>
+```
+
+Workstream deletion refuses dirty worktrees. There is intentionally no force flag yet; keep the command path conservative until the TUI has a confirmation flow.
 
 ## Scriptable commands
 
