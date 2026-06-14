@@ -81,6 +81,7 @@ type model struct {
 	create     createForm
 	delete     deletePreview
 	message    string
+	scroll     int
 }
 
 var (
@@ -288,11 +289,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+const maxContentWidth = 140
+
 func (m model) View() string {
-	contentWidth := m.width - 8
-	if contentWidth < 60 {
-		contentWidth = 60
-	}
+	contentWidth := m.contentWidth()
 
 	var sections []string
 	sections = append(sections, m.header(contentWidth))
@@ -300,8 +300,7 @@ func (m model) View() string {
 	if m.mode == "detail" {
 		sections = append(sections, m.detailView(contentWidth))
 		sections = append(sections, helpStyle.Render("esc/backspace/h back • enter open/switch • q quit"))
-		panel := panelStyle.Width(contentWidth).Render(strings.Join(sections, "\n\n"))
-		return appStyle.Render(panel)
+		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
 	if m.mode == "delete_confirm" {
@@ -310,8 +309,7 @@ func (m model) View() string {
 			sections = append(sections, errorStyle.Render(m.err.Error()))
 		}
 		sections = append(sections, helpStyle.Render("y delete • esc/n cancel • q quit"))
-		panel := panelStyle.Width(contentWidth).Render(strings.Join(sections, "\n\n"))
-		return appStyle.Render(panel)
+		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
 	if strings.HasPrefix(m.mode, "create_") {
@@ -320,8 +318,7 @@ func (m model) View() string {
 			sections = append(sections, errorStyle.Render(m.err.Error()))
 		}
 		sections = append(sections, helpStyle.Render("type to filter • ↑/k ↓/j move • enter select/submit • esc cancel"))
-		panel := panelStyle.Width(contentWidth).Render(strings.Join(sections, "\n\n"))
-		return appStyle.Render(panel)
+		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
 	if m.message != "" {
@@ -335,17 +332,61 @@ func (m model) View() string {
 	} else if len(m.tasks) == 0 {
 		sections = append(sections, subtleStyle.Render("No tasks need your attention."))
 	} else {
-		sections = append(sections, m.taskList(contentWidth))
+		afterTaskSections := m.afterTaskSections(contentWidth)
+		sections = append(sections, m.taskList(contentWidth, m.availableTaskRows(sections, afterTaskSections)))
+		sections = append(sections, afterTaskSections...)
+		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
+	sections = append(sections, m.afterTaskSections(contentWidth)...)
+	return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
+}
+
+func (m model) afterTaskSections(width int) []string {
+	sections := []string{}
 	if len(m.sources) > 0 {
-		sections = append(sections, m.sourceList(contentWidth))
+		sections = append(sections, m.sourceList(width))
 	}
-
 	sections = append(sections, helpStyle.Render("↑/k ↓/j select • enter open/switch • i inspect • c create • d delete workstream • f filters • r refresh • R reset • q quit"))
+	return sections
+}
 
-	panel := panelStyle.Width(contentWidth).Render(strings.Join(sections, "\n\n"))
-	return appStyle.Render(panel)
+func (m model) availableTaskRows(before []string, after []string) int {
+	if m.height <= 0 {
+		return 20
+	}
+	used := m.frameHeight()
+	for _, section := range before {
+		used += lipgloss.Height(section)
+	}
+	for _, section := range after {
+		used += lipgloss.Height(section)
+	}
+	used += max(0, len(before)+len(after))
+	return max(3, m.height-used)
+}
+
+func (m model) frameHeight() int {
+	if os.Getenv("TMUX") != "" {
+		return 2
+	}
+	return 6
+}
+
+func (m model) contentWidth() int {
+	width := m.width - 8
+	if width <= 0 {
+		width = maxContentWidth
+	}
+	width = min(width, maxContentWidth)
+	return max(width, 60)
+}
+
+func (m model) renderFrame(content string, width int) string {
+	if os.Getenv("TMUX") != "" {
+		return appStyle.Width(width).Render(content)
+	}
+	return appStyle.Render(panelStyle.Width(width).Render(content))
 }
 
 func newCreateForm() createForm {
@@ -834,7 +875,31 @@ func (m model) header(width int) string {
 	)
 }
 
-func (m model) taskList(width int) string {
+func (m model) taskList(width int, height int) string {
+	lines, selectedLine := m.taskLines(width)
+	if height <= 0 || len(lines) <= height {
+		return strings.Join(lines, "\n")
+	}
+
+	scroll := m.scroll
+	if selectedLine < scroll {
+		scroll = selectedLine
+	}
+	if selectedLine >= scroll+height {
+		scroll = selectedLine - height + 1
+	}
+	scroll = max(0, min(scroll, len(lines)-height))
+	visible := append([]string{}, lines[scroll:scroll+height]...)
+	if scroll > 0 && selectedLine != scroll {
+		visible[0] = subtleStyle.Render("↑ more")
+	}
+	if scroll+height < len(lines) && selectedLine != scroll+height-1 {
+		visible[len(visible)-1] = subtleStyle.Render("↓ more")
+	}
+	return strings.Join(visible, "\n")
+}
+
+func (m model) taskLines(width int) ([]string, int) {
 	groups := []struct {
 		key   string
 		title string
@@ -847,6 +912,7 @@ func (m model) taskList(width int) string {
 		{key: "low_priority", title: "🔇 Low priority", style: lowStyle},
 	}
 
+	selectedLine := 0
 	var lines []string
 	for _, group := range groups {
 		var groupLines []string
@@ -856,6 +922,11 @@ func (m model) taskList(width int) string {
 			}
 			line := taskLine(task)
 			if i == m.cursor {
+				groupStart := len(lines)
+				if len(lines) > 0 {
+					groupStart++
+				}
+				selectedLine = groupStart + len(groupLines) + 1
 				line = selectedStyle.Width(width - 4).Render("› " + line)
 			} else {
 				line = "  " + line
@@ -874,7 +945,7 @@ func (m model) taskList(width int) string {
 			lines = append(lines, groupLines...)
 		}
 	}
-	return strings.Join(lines, "\n")
+	return lines, selectedLine
 }
 
 func taskLine(task protocol.Task) string {
