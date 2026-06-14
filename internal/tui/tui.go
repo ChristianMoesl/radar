@@ -511,7 +511,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • o open link • i inspect • c create • d delete • f config • r refresh • R reset • q quit"))
+	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • o open link • i inspect • c create • d delete • f config • r refresh • R reset • q quit"), width))
 	return sections
 }
 
@@ -541,7 +541,7 @@ func (m model) contentWidth() int {
 	if os.Getenv("TMUX") != "" {
 		width := m.width - 4
 		if width <= 0 {
-			width = maxContentWidth
+			width = 80
 		}
 		return max(width, 60)
 	}
@@ -1421,35 +1421,47 @@ func (m model) header(width int) string {
 	}
 
 	left := lipgloss.JoinHorizontal(lipgloss.Top, titleStyle.Render("Radar"), "  ", counts)
+	if status == "" {
+		return truncateLine(left, width)
+	}
+	available := max(0, width-lipgloss.Width(status))
+	left = truncateLine(left, available)
 	gap := strings.Repeat(" ", max(0, width-lipgloss.Width(left)-lipgloss.Width(status)))
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, gap, status)
 }
 
 func (m model) taskList(width int, height int) string {
-	lines, selectedLine := m.taskLines(width)
+	lines, selectedStart, selectedEnd := m.taskLines(width)
+	return scrolledLines(lines, selectedStart, selectedEnd, m.scroll, height)
+}
+
+func scrolledLines(lines []string, selectedStart int, selectedEnd int, scroll int, height int) string {
 	if height <= 0 || len(lines) <= height {
 		return strings.Join(lines, "\n")
 	}
-
-	scroll := m.scroll
-	if selectedLine < scroll {
-		scroll = selectedLine
+	if selectedStart < scroll {
+		scroll = selectedStart
 	}
-	if selectedLine >= scroll+height {
-		scroll = selectedLine - height + 1
+	if selectedEnd >= scroll+height {
+		selectedHeight := selectedEnd - selectedStart + 1
+		if selectedHeight >= height {
+			scroll = selectedStart
+		} else {
+			scroll = selectedEnd - height + 1
+		}
 	}
 	scroll = max(0, min(scroll, len(lines)-height))
 	visible := append([]string{}, lines[scroll:scroll+height]...)
-	if scroll > 0 && selectedLine != scroll {
+	if scroll > 0 && selectedStart != scroll {
 		visible[0] = subtleStyle.Render("↑ more")
 	}
-	if scroll+height < len(lines) && selectedLine != scroll+height-1 {
+	if scroll+height < len(lines) && selectedEnd != scroll+height-1 {
 		visible[len(visible)-1] = subtleStyle.Render("↓ more")
 	}
 	return strings.Join(visible, "\n")
 }
 
-func (m model) taskLines(width int) ([]string, int) {
+func (m model) taskLines(width int) ([]string, int, int) {
 	groups := []struct {
 		key   string
 		title string
@@ -1462,30 +1474,40 @@ func (m model) taskLines(width int) ([]string, int) {
 		{key: "low_priority", title: "🔇 Low priority", style: lowStyle},
 	}
 
-	selectedLine := 0
+	selectedStart := 0
+	selectedEnd := 0
 	var lines []string
 	for _, group := range groups {
 		var groupLines []string
+		groupHeaderIndex := len(lines)
+		if len(lines) > 0 {
+			groupHeaderIndex++
+		}
 		for i, task := range m.tasks {
 			if task.Attention != group.key {
 				continue
 			}
 			line := taskLine(task, i == m.cursor)
 			if i == m.cursor {
-				groupStart := len(lines)
-				if len(lines) > 0 {
-					groupStart++
-				}
-				selectedLine = groupStart + len(groupLines) + 1
 				line = selectedStyle.Render("› " + line)
 			} else {
 				line = "  " + line
 			}
-			groupLines = append(groupLines, line)
-
+			lineWidth := max(20, width-20)
+			block := []string{truncateLine(line, lineWidth)}
 			for _, ref := range task.SourceRefs {
-				groupLines = append(groupLines, subtleStyle.Render("    ↳ "+sourceRefLabel(ref)))
+				block = append(block, truncateLine(subtleStyle.Render("    ↳ "+sourceRefLabel(ref)), lineWidth))
 			}
+			if i == m.cursor {
+				groupStart := groupHeaderIndex
+				taskStart := groupStart + len(groupLines) + 1
+				selectedStart = taskStart
+				if len(groupLines) == 0 {
+					selectedStart = groupStart
+				}
+				selectedEnd = taskStart + len(block) - 1
+			}
+			groupLines = append(groupLines, block...)
 		}
 		if len(groupLines) > 0 {
 			if len(lines) > 0 {
@@ -1495,7 +1517,14 @@ func (m model) taskLines(width int) ([]string, int) {
 			lines = append(lines, groupLines...)
 		}
 	}
-	return lines, selectedLine
+	return lines, selectedStart, selectedEnd
+}
+
+func truncateLine(line string, width int) string {
+	if width <= 0 {
+		return line
+	}
+	return ansi.Truncate(line, width, "…")
 }
 
 func taskLine(task protocol.Task, selected bool) string {
@@ -1535,7 +1564,7 @@ func (m model) sourceList(width int) string {
 		if source.Detail != "" {
 			line += "  " + subtleStyle.Render(source.Detail)
 		}
-		lines = append(lines, line)
+		lines = append(lines, truncateLine(line, width))
 	}
 	return strings.Join(lines, "\n")
 }

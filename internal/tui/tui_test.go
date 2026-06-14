@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+
 	"radar.nvim/internal/protocol"
 )
 
@@ -64,6 +67,62 @@ func TestCreateRepoViewShortensHomePaths(t *testing.T) {
 	}
 	if strings.Contains(view, path) {
 		t.Fatalf("View() contains unshortened home path:\n%s", view)
+	}
+}
+
+func TestTaskListKeepsSelectedSourceRefsVisible(t *testing.T) {
+	model := model{cursor: 1, tasks: []protocol.Task{
+		{Title: "first", Attention: "attention"},
+		{Title: "selected", Attention: "attention", SourceRefs: []protocol.SourceRef{
+			{ID: "git:worktree:/repo/selected", Source: "git", Kind: "worktree", Path: "/repo/selected"},
+			{ID: "jira:issue:DPSCAP-1", Source: "jira", Kind: "issue", Title: "DPSCAP-1 Do thing"},
+		}},
+	}}
+
+	view := model.taskList(100, 4)
+	for _, want := range []string{"selected", "/repo/selected", "DPSCAP-1"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("taskList() missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestTaskListCanReturnToTopOfLargeSelectedBlock(t *testing.T) {
+	model := model{cursor: 0, scroll: 5, tasks: []protocol.Task{{
+		Title:     "selected",
+		Attention: "attention",
+		SourceRefs: []protocol.SourceRef{
+			{ID: "git:worktree:/repo/selected", Source: "git", Kind: "worktree", Path: "/repo/selected"},
+			{ID: "jira:issue:DPSCAP-1", Source: "jira", Kind: "issue", Title: "DPSCAP-1 Do thing"},
+			{ID: "github:pr:owner/repo:1", Source: "github", Kind: "pull_request", Title: "PR 1"},
+		},
+	}}}
+
+	view := model.taskList(100, 3)
+	if !strings.Contains(view, "Need attention") || !strings.Contains(view, "selected") {
+		t.Fatalf("taskList() did not show top of selected block:\n%s", view)
+	}
+}
+
+func TestTaskListTruncatesLongRows(t *testing.T) {
+	model := model{tasks: []protocol.Task{{
+		Title:     "selected task with a very very very long title that should not wrap",
+		Repo:      "redbullmediahouse/rb3ca-experience-center",
+		Reason:    "2 unresolved review thread(s), 1 new PR comment(s)",
+		Attention: "attention",
+		SourceRefs: []protocol.SourceRef{{
+			ID:     "git:worktree:/very/very/very/very/very/very/very/long/path/that/would/wrap",
+			Source: "git",
+			Kind:   "worktree",
+			Path:   "/very/very/very/very/very/very/very/long/path/that/would/wrap",
+		}},
+	}}}
+
+	view := model.taskList(60, 20)
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(ansi.Strip(line)); got > 60 {
+			t.Fatalf("taskList() line width = %d, want <= 60 for %q:\n%s", got, ansi.Strip(line), view)
+		}
 	}
 }
 

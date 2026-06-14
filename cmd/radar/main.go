@@ -215,7 +215,11 @@ func runDaemon() {
 	}
 	collectionMu := &sync.Mutex{}
 	refresh := refresher(context.Background(), store, logger, collectionMu)
-	go refreshLoop(context.Background(), refresh)
+	if collectionDisabled() {
+		logger.Info("source collection disabled", "env", "RADAR_DISABLE_COLLECTION")
+	} else {
+		go refreshLoop(context.Background(), refresh)
+	}
 
 	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu)).ListenAndServe(path); err != nil {
 		logger.Error("daemon stopped", "error", err)
@@ -316,10 +320,18 @@ const (
 	refreshLocal refreshScope = "local"
 )
 
+func collectionDisabled() bool {
+	return os.Getenv("RADAR_DISABLE_COLLECTION") == "1"
+}
+
 func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex) func(refreshScope, bool) {
 	var lastFullRefresh time.Time
 
 	return func(scope refreshScope, force bool) {
+		if collectionDisabled() {
+			logger.Debug("refresh skipped; source collection disabled", "scope", scope, "force", force)
+			return
+		}
 		mu.Lock()
 		defer mu.Unlock()
 
@@ -377,6 +389,10 @@ func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *
 		logger.Debug("reset started")
 		if err := store.Reset(); err != nil {
 			return err
+		}
+		if collectionDisabled() {
+			logger.Debug("reset finished without collection; source collection disabled")
+			return nil
 		}
 		result := collector.Collect(ctx, nil, logger)
 		store.SetTasks(result.Tasks)
