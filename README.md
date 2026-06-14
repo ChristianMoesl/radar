@@ -46,7 +46,13 @@ The create flow is step-by-step: fuzzy search a repository, fuzzy search a base 
 
 ## Workstreams
 
-Create a workstream from the CLI:
+Open the interactive workstream creation flow:
+
+```sh
+./radar create
+```
+
+Create a workstream non-interactively:
 
 ```sh
 ./radar create --repo /path/to/repo --base origin/main --name my-feature

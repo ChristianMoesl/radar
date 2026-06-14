@@ -104,12 +104,25 @@ func Run(socketPath string) error {
 	return err
 }
 
+func RunCreate(socketPath string) error {
+	model := newModel(socketPath)
+	model.mode = "create_repo"
+	model.create = newCreateForm()
+	program := tea.NewProgram(model, tea.WithAltScreen())
+	_, err := program.Run()
+	return err
+}
+
 func newModel(socketPath string) model {
 	return model{socketPath: socketPath, loading: true}
 }
 
 func (m model) Init() tea.Cmd {
-	return m.fetch("tasks")
+	commands := []tea.Cmd{m.fetch("tasks")}
+	if m.mode == "create_repo" {
+		commands = append(commands, m.loadRepos())
+	}
+	return tea.Batch(commands...)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
