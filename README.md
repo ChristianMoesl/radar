@@ -2,19 +2,48 @@
 
 `radar.nvim` is a small Neovim radar for keeping track of engineering work that needs your attention.
 
-The goal is to show a tiny statusline summary like:
+The statusline shows a compact summary of the current task counts:
 
 ```text
-Radar 🔴1 🟡3 🔵2
+🚨1 👀3 ⏳2 ✅1 🔇4
 ```
 
 Where:
 
-- 🔴 needs immediate attention
-- 🟡 needs attention
-- 🔵 is in progress
+- 🚨 urgent tasks that need immediate attention
+- 👀 tasks that need attention
+- ⏳ tasks currently in progress
+- ✅ tasks completed today
+- 🔇 low-priority tasks
 
-Details are available from Neovim with `:Radar`.
+Details are available from Neovim with `:Radar`, which opens a rounded floating window:
+
+```text
+Radar  🚨 1 urgent  👀 3 attention  ⏳ 2 progress  ✅ 1 done  🔇 4 low    <CR>: open  r: refresh  R: reset  f: filters  q: close
+
+🚨 Need immediate attention
+───────────────────────────
+  Review production hotfix  reason=review requested
+  ↳ github:pr:owner/repo:123
+
+👀 Need attention
+─────────────────
+  DPSCAP-544 Investigate flaky deploy
+  ↳ jira:issue:DPSCAP-544
+  ↳ tmux:session:$3
+
+⏳ In progress
+──────────────
+  radar-cli-tool
+  ↳ git:worktree:/path/to/radar
+
+Sources
+───────
+  github   ok           12 refs
+  jira     ok            4 refs
+  git      ok            3 refs
+  tmux     ok            2 refs
+```
 
 ## Architecture
 
