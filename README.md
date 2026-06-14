@@ -36,6 +36,7 @@ k / up       move up
 enter        open task URL or switch tmux session
 i            inspect selected task
 c            create workstream
+d            delete selected workstream after confirmation
 f            edit filters
 r            refresh
 R            reset local state and refresh

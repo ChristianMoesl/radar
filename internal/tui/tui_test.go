@@ -67,6 +67,26 @@ func TestCreateRepoViewShortensHomePaths(t *testing.T) {
 	}
 }
 
+func TestDeleteConfirmViewWarnsAboutDirtyWorkstream(t *testing.T) {
+	model := model{mode: "delete_confirm", delete: deletePreview{Path: "/repo/worktrees/small-fix", Branch: "small-fix", SessionName: "repo-small-fix", Dirty: true}}
+
+	view := model.View()
+	for _, want := range []string{"Delete dirty workstream?", "uncommitted changes", "/repo/worktrees/small-fix", "small-fix", "repo-small-fix"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("View() missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestWorktreeRefFindsGitWorktreeSource(t *testing.T) {
+	task := protocol.Task{SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/repo/worktrees/small-fix"}}}
+
+	ref, ok := worktreeRef(task)
+	if !ok || ref.Path != "/repo/worktrees/small-fix" {
+		t.Fatalf("worktreeRef() = %#v, %v", ref, ok)
+	}
+}
+
 func TestFuzzyMatch(t *testing.T) {
 	if !fuzzyMatch("/repo/radar", "rdr") {
 		t.Fatal("fuzzyMatch() did not match ordered characters")

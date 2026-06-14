@@ -40,6 +40,18 @@ type branchesMsg struct {
 	err      error
 }
 
+type deletePreviewMsg struct {
+	preview deletePreview
+	err     error
+}
+
+type deletePreview struct {
+	Path        string
+	Branch      string
+	SessionName string
+	Dirty       bool
+}
+
 type picker struct {
 	query   string
 	options []string
@@ -67,6 +79,7 @@ type model struct {
 	cursor     int
 	mode       string
 	create     createForm
+	delete     deletePreview
 	message    string
 }
 
@@ -144,6 +157,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 		}
+		if m.mode == "delete_confirm" {
+			switch msg.String() {
+			case "y", "Y":
+				preview := m.delete
+				m.mode = ""
+				m.loading = true
+				m.err = nil
+				m.message = "Deleting workstream…"
+				return m, m.deleteWorkstream(preview)
+			case "esc", "backspace", "h", "n", "N":
+				m.mode = ""
+				m.err = nil
+				return m, nil
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			}
+		}
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			return m, tea.Quit
@@ -158,6 +188,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "i", "right", "l":
 			if len(m.tasks) > 0 {
 				m.mode = "detail"
+			}
+		case "d":
+			if len(m.tasks) > 0 {
+				m.loading = true
+				m.err = nil
+				m.message = "Inspecting workstream…"
+				return m, m.previewDelete(m.tasks[m.cursor])
 			}
 		case "R":
 			m.loading = true
@@ -218,6 +255,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.create.baseList.options = msg.branches
 			m.create.baseList.cursor = 0
 		}
+	case deletePreviewMsg:
+		m.loading = false
+		m.err = msg.err
+		m.message = ""
+		if msg.err == nil {
+			m.delete = msg.preview
+			m.mode = "delete_confirm"
+		}
 	case actionMsg:
 		m.loading = false
 		m.err = msg.err
@@ -259,6 +304,16 @@ func (m model) View() string {
 		return appStyle.Render(panel)
 	}
 
+	if m.mode == "delete_confirm" {
+		sections = append(sections, m.deleteConfirmView(contentWidth))
+		if m.err != nil {
+			sections = append(sections, errorStyle.Render(m.err.Error()))
+		}
+		sections = append(sections, helpStyle.Render("y delete • esc/n cancel • q quit"))
+		panel := panelStyle.Width(contentWidth).Render(strings.Join(sections, "\n\n"))
+		return appStyle.Render(panel)
+	}
+
 	if strings.HasPrefix(m.mode, "create_") {
 		sections = append(sections, m.createView(contentWidth))
 		if m.err != nil {
@@ -287,7 +342,7 @@ func (m model) View() string {
 		sections = append(sections, m.sourceList(contentWidth))
 	}
 
-	sections = append(sections, helpStyle.Render("↑/k ↓/j select • enter open/switch • i inspect • c create • f filters • r refresh • R reset • q quit"))
+	sections = append(sections, helpStyle.Render("↑/k ↓/j select • enter open/switch • i inspect • c create • d delete workstream • f filters • r refresh • R reset • q quit"))
 
 	panel := panelStyle.Width(contentWidth).Render(strings.Join(sections, "\n\n"))
 	return appStyle.Render(panel)
@@ -405,6 +460,36 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m model) previewDelete(task protocol.Task) tea.Cmd {
+	return func() tea.Msg {
+		ref, ok := worktreeRef(task)
+		if !ok || strings.TrimSpace(ref.Path) == "" {
+			return deletePreviewMsg{err: fmt.Errorf("selected task is not backed by a git worktree")}
+		}
+		status, err := workstream.ExecRunner{}.Run(context.Background(), "", "git", "-C", ref.Path, "status", "--porcelain")
+		if err != nil {
+			return deletePreviewMsg{err: err}
+		}
+		preview := deletePreview{
+			Path:        ref.Path,
+			Branch:      ref.Branch,
+			SessionName: tmuxSessionTarget(task),
+			Dirty:       strings.TrimSpace(status) != "",
+		}
+		return deletePreviewMsg{preview: preview}
+	}
+}
+
+func (m model) deleteWorkstream(preview deletePreview) tea.Cmd {
+	return func() tea.Msg {
+		deleted, err := workstream.Delete(context.Background(), workstream.ExecRunner{}, preview.Path, preview.SessionName, true)
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		return actionMsg{message: "Deleted " + deleted.Path, refresh: true}
+	}
+}
+
 func (m *model) appendCreateQuery(value string) {
 	switch m.mode {
 	case "create_repo":
@@ -509,6 +594,31 @@ func (m model) createView(width int) string {
 	default:
 		return ""
 	}
+}
+
+func (m model) deleteConfirmView(width int) string {
+	preview := m.delete
+	title := "Delete workstream?"
+	warning := "This will remove the git worktree."
+	if preview.Dirty {
+		title = "Delete dirty workstream?"
+		warning = "This worktree has uncommitted changes. Deleting will permanently discard them."
+	}
+
+	lines := []string{
+		titleStyle.Render(title),
+		warning,
+		"",
+		"Path    " + shortenPath(preview.Path),
+	}
+	if preview.Branch != "" {
+		lines = append(lines, "Branch  "+preview.Branch)
+	}
+	if preview.SessionName != "" {
+		lines = append(lines, "Session "+preview.SessionName)
+	}
+	lines = append(lines, "", errorStyle.Render("Press y to delete."))
+	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
 }
 
 func (m model) pickerView(width int, title string, label string, list picker) string {
@@ -656,6 +766,15 @@ func (m model) openSelected() tea.Cmd {
 		}
 		return actionMsg{response: response}
 	}
+}
+
+func worktreeRef(task protocol.Task) (protocol.SourceRef, bool) {
+	for _, ref := range task.SourceRefs {
+		if ref.Source == "git" && ref.Kind == "worktree" && ref.Path != "" {
+			return ref, true
+		}
+	}
+	return protocol.SourceRef{}, false
 }
 
 func tmuxSessionTarget(task protocol.Task) string {
