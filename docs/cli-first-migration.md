@@ -2,7 +2,7 @@
 
 Radar is moving from a Neovim-plugin-first project to a CLI-first tool.
 
-The existing Neovim plugin stays in the repository for now, but it is legacy code. New product work should target the Go binary and daemon, not the Lua plugin.
+The Neovim plugin has been removed. New product work targets the Go binary, TUI, CLI commands, and daemon.
 
 ## Motivation
 
@@ -23,7 +23,7 @@ Requiring an active Neovim session to create, inspect, or switch work sessions m
 - Non-interactive commands should remain scriptable.
 - tmux integration should open Radar in a floating popup and provide shortcuts for quick access.
 - Radar should absorb the useful workflow functionality from [`fork.nvim`](https://github.com/ChristianMoesl/fork.nvim) into the CLI/TUI experience.
-- The Neovim plugin is legacy and should not receive new features or refactors unless explicitly requested.
+- The Neovim plugin has been removed; do not reintroduce editor-specific product logic.
 
 Example target shape:
 
@@ -73,7 +73,7 @@ The exact feature mapping should be designed when this work starts, but the targ
 - project/worktree/session creation from the CLI/TUI
 - quick selection and switching between active work contexts
 - tmux-friendly workflows for opening or attaching to work
-- scriptable commands for automation
+- scriptable commands for automation, starting with `radar create --repo <repo> --base <branch> --name <name>` and `radar delete --path <workstream-path>`
 - no new dependency on Neovim as the primary interface
 
 ## tmux integration
@@ -93,26 +93,23 @@ radar tmux bind-key
 
 The tmux integration should call the CLI/TUI. It should not become a separate source of domain logic.
 
-## Neovim plugin status
+## Editor integrations
 
-`lua/radar/` is legacy code.
+The old Neovim plugin has been removed.
 
-Rules for the migration:
+Rules for future editor integrations:
 
-- do not add new Neovim features
-- do not refactor the Lua plugin as part of CLI/TUI work
-- do not preserve compatibility with the plugin when changing new CLI/domain concepts unless explicitly requested
-- leave the plugin in place for now as a historical/reference frontend
-
-If Neovim support is revisited later, it should integrate with the CLI instead of becoming the primary implementation again.
+- do not put product/domain logic in an editor plugin
+- integrate through the CLI or daemon API
+- keep Radar usable from terminals, tmux, and scripts without an editor
 
 ## Migration steps
 
-1. Document the CLI-first direction and legacy plugin boundary.
-2. Keep daemon and scriptable CLI commands working.
-3. Introduce a TUI package in Go that uses the existing client/service boundaries.
-4. Make `radar` without subcommands open the TUI.
-5. Add a minimal tmux popup command.
-6. Fold the useful `fork.nvim` workflow into Radar's CLI/TUI model.
-7. Expand the TUI around session/task creation, switching, filtering, and inspection.
-8. Update README examples to present Radar as a CLI-first tool.
+1. Document the CLI-first direction. Done.
+2. Keep daemon and scriptable CLI commands working. Done.
+3. Introduce a TUI package in Go that uses the existing client/service boundaries. Done.
+4. Make `radar` without subcommands open the TUI. Done.
+5. Add a minimal tmux popup command. Done.
+6. Fold the useful `fork.nvim` workflow into Radar's CLI/TUI model. In progress: create is implemented; delete remains CLI-only.
+7. Expand the TUI around session/task creation, switching, filtering, and inspection. In progress: create, switching, filters, reset, and inspection are implemented.
+8. Update README examples to present Radar as a CLI-first tool. Done.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"radar.nvim/internal/state"
 	"radar.nvim/internal/tmux"
 	"radar.nvim/internal/tui"
+	"radar.nvim/internal/workstream"
 )
 
 func main() {
@@ -32,6 +34,10 @@ func main() {
 
 	command := os.Args[1]
 	switch command {
+	case "create":
+		runCreate(os.Args[2:])
+	case "delete":
+		runDelete(os.Args[2:])
 	case "daemon":
 		runDaemon()
 	case "tmux":
@@ -93,6 +99,47 @@ func runTUI() {
 	if err := tui.Run(path); err != nil {
 		fatal(err)
 	}
+}
+
+func runCreate(args []string) {
+	flags := flag.NewFlagSet("radar create", flag.ExitOnError)
+	repo := flags.String("repo", "", "repository path")
+	base := flags.String("base", "", "base branch or revision")
+	name := flags.String("name", "", "workstream name")
+	_ = flags.Parse(args)
+
+	if *repo == "" || *base == "" || *name == "" {
+		createUsage()
+		os.Exit(2)
+	}
+
+	result, err := workstream.Create(context.Background(), workstream.ExecRunner{}, workstream.CreateOptions{
+		Repo:   *repo,
+		Base:   *base,
+		Name:   *name,
+		Switch: os.Getenv("TMUX") != "",
+	})
+	if err != nil {
+		fatal(err)
+	}
+	printJSON(result)
+}
+
+func runDelete(args []string) {
+	flags := flag.NewFlagSet("radar delete", flag.ExitOnError)
+	path := flags.String("path", "", "workstream path")
+	_ = flags.Parse(args)
+
+	if *path == "" {
+		deleteUsage()
+		os.Exit(2)
+	}
+
+	result, err := workstream.Delete(context.Background(), workstream.ExecRunner{}, *path, "", false)
+	if err != nil {
+		fatal(err)
+	}
+	printJSON(result)
 }
 
 func runTmuxCommand(args []string) {
@@ -275,6 +322,14 @@ func callDaemon(method string) {
 	fmt.Println(string(out))
 }
 
+func printJSON(value any) {
+	out, err := json.Marshal(value)
+	if err != nil {
+		fatal(err)
+	}
+	fmt.Println(string(out))
+}
+
 func printLogPath() {
 	path, err := logging.Path()
 	if err != nil {
@@ -309,7 +364,47 @@ func printRateLimit() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: radar [daemon|tmux popup|stop|restart|status|summary|tasks|refresh|reset|ack <task-id>|log-path|state-path|filters-path|rate-limit]")
+	fmt.Fprintln(os.Stderr, `usage: radar [command]
+
+Interactive:
+  radar                         open the terminal UI
+
+Workstreams:
+  radar create --repo <repo> --base <branch> --name <name>
+  radar delete --path <workstream-path>
+
+Daemon and status:
+  radar daemon
+  radar status
+  radar tasks
+  radar refresh
+  radar reset
+  radar stop
+  radar restart
+
+Other:
+  radar tmux popup
+  radar ack <task-id>
+  radar log-path
+  radar state-path
+  radar filters-path
+  radar rate-limit`)
+}
+
+func createUsage() {
+	fmt.Fprintln(os.Stderr, `usage: radar create --repo <repo> --base <branch> --name <name>
+
+Options:
+  --repo   repository path
+  --base   base branch or revision, for example origin/main
+  --name   workstream name; also used as the branch name`)
+}
+
+func deleteUsage() {
+	fmt.Fprintln(os.Stderr, `usage: radar delete --path <workstream-path>
+
+Options:
+  --path   workstream path to delete`)
 }
 
 func fatal(err error) {
