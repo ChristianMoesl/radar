@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -10,7 +12,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"radar.nvim/internal/client"
+	"radar.nvim/internal/filters"
 	"radar.nvim/internal/protocol"
+	"radar.nvim/internal/workstream"
 )
 
 type fetchMsg struct {
@@ -22,6 +26,33 @@ type actionMsg struct {
 	response *protocol.Response
 	err      error
 	quit     bool
+	refresh  bool
+	message  string
+}
+
+type reposMsg struct {
+	repos []string
+	err   error
+}
+
+type branchesMsg struct {
+	branches []string
+	err      error
+}
+
+type picker struct {
+	query   string
+	options []string
+	cursor  int
+	loading bool
+}
+
+type createForm struct {
+	repo     string
+	base     string
+	name     string
+	repoList picker
+	baseList picker
 }
 
 type model struct {
@@ -34,6 +65,9 @@ type model struct {
 	tasks      []protocol.Task
 	sources    []protocol.SourceStatus
 	cursor     int
+	mode       string
+	create     createForm
+	message    string
 }
 
 var (
@@ -85,12 +119,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 	case tea.KeyMsg:
+		if strings.HasPrefix(m.mode, "create_") {
+			return m.updateCreate(msg)
+		}
+		if m.mode == "detail" {
+			switch msg.String() {
+			case "esc", "backspace", "h":
+				m.mode = ""
+				return m, nil
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			}
+		}
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			return m, tea.Quit
+		case "c":
+			m.mode = "create_repo"
+			m.err = nil
+			m.message = ""
+			m.create = newCreateForm()
+			return m, m.loadRepos()
+		case "f":
+			return m, m.openFilters()
+		case "i", "right", "l":
+			if len(m.tasks) > 0 {
+				m.mode = "detail"
+			}
+		case "R":
+			m.loading = true
+			m.err = nil
+			m.message = "Resetting…"
+			return m, m.fetch("reset")
 		case "r":
 			m.loading = true
 			m.err = nil
+			m.message = "Refreshing…"
 			return m, m.fetch("refresh")
 		case "j", "down":
 			if m.cursor < len(m.tasks)-1 {
@@ -117,6 +181,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.err = msg.err
 		if msg.err == nil {
+			m.message = ""
 			if msg.response.Summary != nil {
 				m.summary = *msg.response.Summary
 			}
@@ -126,9 +191,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor = max(0, len(m.tasks)-1)
 			}
 		}
+	case reposMsg:
+		m.err = msg.err
+		m.create.repoList.loading = false
+		if msg.err == nil {
+			m.create.repoList.options = msg.repos
+			m.create.repoList.cursor = 0
+		}
+	case branchesMsg:
+		m.err = msg.err
+		m.create.baseList.loading = false
+		if msg.err == nil {
+			m.create.baseList.options = msg.branches
+			m.create.baseList.cursor = 0
+		}
 	case actionMsg:
 		m.loading = false
 		m.err = msg.err
+		m.message = msg.message
 		if msg.response != nil {
 			if msg.response.Summary != nil {
 				m.summary = *msg.response.Summary
@@ -142,6 +222,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.quit && msg.err == nil {
 			return m, tea.Quit
 		}
+		if msg.refresh && msg.err == nil {
+			m.loading = true
+			return m, m.fetch("refresh")
+		}
 	}
 	return m, nil
 }
@@ -154,6 +238,27 @@ func (m model) View() string {
 
 	var sections []string
 	sections = append(sections, m.header(contentWidth))
+
+	if m.mode == "detail" {
+		sections = append(sections, m.detailView(contentWidth))
+		sections = append(sections, helpStyle.Render("esc/backspace/h back • enter open/switch • q quit"))
+		panel := panelStyle.Width(contentWidth).Render(strings.Join(sections, "\n\n"))
+		return appStyle.Render(panel)
+	}
+
+	if strings.HasPrefix(m.mode, "create_") {
+		sections = append(sections, m.createView(contentWidth))
+		if m.err != nil {
+			sections = append(sections, errorStyle.Render(m.err.Error()))
+		}
+		sections = append(sections, helpStyle.Render("type to filter • ↑/k ↓/j move • enter select/submit • esc cancel"))
+		panel := panelStyle.Width(contentWidth).Render(strings.Join(sections, "\n\n"))
+		return appStyle.Render(panel)
+	}
+
+	if m.message != "" {
+		sections = append(sections, doneStyle.Render(m.message))
+	}
 
 	if m.err != nil {
 		sections = append(sections, errorStyle.Render("Could not load Radar tasks: "+m.err.Error()))
@@ -169,10 +274,314 @@ func (m model) View() string {
 		sections = append(sections, m.sourceList(contentWidth))
 	}
 
-	sections = append(sections, helpStyle.Render("↑/k ↓/j select • enter open/switch • r refresh • q quit"))
+	sections = append(sections, helpStyle.Render("↑/k ↓/j select • enter open/switch • i inspect • c create • f filters • r refresh • R reset • q quit"))
 
 	panel := panelStyle.Width(contentWidth).Render(strings.Join(sections, "\n\n"))
 	return appStyle.Render(panel)
+}
+
+func newCreateForm() createForm {
+	return createForm{repoList: picker{loading: true}}
+}
+
+func (m model) updateCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "ctrl+c":
+		m.mode = ""
+		m.err = nil
+		return m, nil
+	case "up", "k":
+		m.moveCreateCursor(-1)
+		return m, nil
+	case "down", "j":
+		m.moveCreateCursor(1)
+		return m, nil
+	case "enter":
+		return m.selectCreateStep()
+	case "backspace", "ctrl+h":
+		m.backspaceCreateQuery()
+		return m, nil
+	}
+
+	if msg.Type == tea.KeyRunes {
+		m.appendCreateQuery(string(msg.Runes))
+	}
+	return m, nil
+}
+
+func (m model) loadRepos() tea.Cmd {
+	return func() tea.Msg {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return reposMsg{err: err}
+		}
+		return reposMsg{repos: workstream.DiscoverRepos(context.Background(), workstream.ExecRunner{}, cwd)}
+	}
+}
+
+func (m model) loadBranches(repo string) tea.Cmd {
+	return func() tea.Msg {
+		branches, err := workstream.Branches(context.Background(), workstream.ExecRunner{}, repo)
+		return branchesMsg{branches: branches, err: err}
+	}
+}
+
+func (m *model) moveCreateCursor(delta int) {
+	list := m.activePicker()
+	if list == nil {
+		return
+	}
+	matches := filteredOptions(*list)
+	if len(matches) == 0 {
+		list.cursor = 0
+		return
+	}
+	list.cursor = (list.cursor + delta + len(matches)) % len(matches)
+}
+
+func (m model) selectCreateStep() (tea.Model, tea.Cmd) {
+	switch m.mode {
+	case "create_repo":
+		selected := selectedPickerOption(m.create.repoList)
+		if selected == "" {
+			m.err = fmt.Errorf("select a repository")
+			return m, nil
+		}
+		m.create.repo = selected
+		m.create.baseList = picker{loading: true}
+		m.mode = "create_base"
+		m.err = nil
+		return m, m.loadBranches(selected)
+	case "create_base":
+		selected := selectedPickerOption(m.create.baseList)
+		if selected == "" {
+			m.err = fmt.Errorf("select a base branch")
+			return m, nil
+		}
+		m.create.base = selected
+		m.mode = "create_name"
+		m.err = nil
+		return m, nil
+	case "create_name":
+		return m.submitCreate()
+	}
+	return m, nil
+}
+
+func (m model) submitCreate() (tea.Model, tea.Cmd) {
+	if strings.TrimSpace(m.create.repo) == "" || strings.TrimSpace(m.create.base) == "" || strings.TrimSpace(m.create.name) == "" {
+		m.err = fmt.Errorf("repo, base, and name are required")
+		return m, nil
+	}
+	form := m.create
+	m.mode = ""
+	m.loading = true
+	m.err = nil
+	m.message = "Creating workstream…"
+	return m, func() tea.Msg {
+		created, err := workstream.Create(context.Background(), workstream.ExecRunner{}, workstream.CreateOptions{
+			Repo:   form.repo,
+			Base:   form.base,
+			Name:   form.name,
+			Switch: os.Getenv("TMUX") != "",
+		})
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		return actionMsg{message: "Created " + created.SessionName, refresh: true}
+	}
+}
+
+func (m *model) appendCreateQuery(value string) {
+	switch m.mode {
+	case "create_repo":
+		m.create.repoList.query += value
+		m.create.repoList.cursor = 0
+	case "create_base":
+		m.create.baseList.query += value
+		m.create.baseList.cursor = 0
+	case "create_name":
+		m.create.name += value
+	}
+}
+
+func (m *model) backspaceCreateQuery() {
+	switch m.mode {
+	case "create_repo":
+		m.create.repoList.query = dropLastRune(m.create.repoList.query)
+		m.create.repoList.cursor = 0
+	case "create_base":
+		m.create.baseList.query = dropLastRune(m.create.baseList.query)
+		m.create.baseList.cursor = 0
+	case "create_name":
+		m.create.name = dropLastRune(m.create.name)
+	}
+}
+
+func (m *model) activePicker() *picker {
+	switch m.mode {
+	case "create_repo":
+		return &m.create.repoList
+	case "create_base":
+		return &m.create.baseList
+	default:
+		return nil
+	}
+}
+
+func dropLastRune(value string) string {
+	if value == "" {
+		return ""
+	}
+	runes := []rune(value)
+	return string(runes[:len(runes)-1])
+}
+
+func selectedPickerOption(list picker) string {
+	matches := filteredOptions(list)
+	if len(matches) == 0 {
+		return ""
+	}
+	if list.cursor >= len(matches) {
+		return matches[len(matches)-1]
+	}
+	return matches[list.cursor]
+}
+
+func filteredOptions(list picker) []string {
+	if list.query == "" {
+		return list.options
+	}
+	matches := make([]string, 0, len(list.options))
+	query := strings.ToLower(list.query)
+	for _, option := range list.options {
+		if fuzzyMatch(strings.ToLower(option), query) {
+			matches = append(matches, option)
+		}
+	}
+	return matches
+}
+
+func fuzzyMatch(value string, query string) bool {
+	for _, r := range query {
+		index := strings.IndexRune(value, r)
+		if index < 0 {
+			return false
+		}
+		value = value[index+len(string(r)):]
+	}
+	return true
+}
+
+func (m model) createView(width int) string {
+	switch m.mode {
+	case "create_repo":
+		return m.pickerView(width, "Create workstream", "Repository", m.create.repoList)
+	case "create_base":
+		return strings.Join([]string{
+			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
+			m.pickerView(width, "Create workstream", "Base branch", m.create.baseList),
+		}, "\n")
+	case "create_name":
+		name := m.create.name
+		if name == "" {
+			name = subtleStyle.Render("type a workstream name")
+		}
+		return strings.Join([]string{
+			titleStyle.Render("Create workstream"),
+			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
+			subtleStyle.Render("Base       " + m.create.base),
+			selectedStyle.Width(width - 4).Render("› Name       " + name),
+		}, "\n")
+	default:
+		return ""
+	}
+}
+
+func (m model) pickerView(width int, title string, label string, list picker) string {
+	lines := []string{titleStyle.Render(title), label + ": " + list.query}
+	if list.loading {
+		lines = append(lines, subtleStyle.Render("Loading…"))
+		return strings.Join(lines, "\n")
+	}
+	matches := filteredOptions(list)
+	if len(matches) == 0 {
+		lines = append(lines, subtleStyle.Render("No matches"))
+		return strings.Join(lines, "\n")
+	}
+	limit := min(len(matches), 10)
+	start := 0
+	if list.cursor >= limit {
+		start = list.cursor - limit + 1
+	}
+	for i := start; i < start+limit; i++ {
+		line := shortenPath(matches[i])
+		if i == list.cursor {
+			line = selectedStyle.Width(width - 4).Render("› " + line)
+		} else {
+			line = "  " + line
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func shortenPath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if strings.HasPrefix(path, home+string(os.PathSeparator)) {
+		return "~" + strings.TrimPrefix(path, home)
+	}
+	return path
+}
+
+func (m model) detailView(width int) string {
+	if len(m.tasks) == 0 {
+		return subtleStyle.Render("No task selected.")
+	}
+	task := m.tasks[m.cursor]
+	lines := []string{titleStyle.Render(task.Title)}
+	appendDetailLine := func(label string, value string) {
+		if value != "" {
+			lines = append(lines, fmt.Sprintf("%-10s %s", label, value))
+		}
+	}
+	appendDetailLine("Status", task.Attention)
+	appendDetailLine("Reason", task.Reason)
+	appendDetailLine("Repo", task.Repo)
+	appendDetailLine("URL", task.URL)
+	if len(task.Metadata) > 0 {
+		lines = append(lines, "", titleStyle.Render("Metadata"))
+		for key, value := range task.Metadata {
+			appendDetailLine(key, value)
+		}
+	}
+	if len(task.SourceRefs) > 0 {
+		lines = append(lines, "", titleStyle.Render("Source refs"))
+		for _, ref := range task.SourceRefs {
+			line := "  " + sourceRefLabel(ref)
+			if ref.URL != "" {
+				line += "  " + subtleStyle.Render(ref.URL)
+			}
+			lines = append(lines, line)
+			appendRefDetail := func(label string, value string) {
+				if value != "" {
+					lines = append(lines, subtleStyle.Render(fmt.Sprintf("    %-8s %s", label, value)))
+				}
+			}
+			appendRefDetail("source", ref.Source)
+			appendRefDetail("kind", ref.Kind)
+			appendRefDetail("repo", ref.Repo)
+			appendRefDetail("path", shortenPath(ref.Path))
+			appendRefDetail("branch", ref.Branch)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m model) fetch(method string) tea.Cmd {
@@ -186,6 +595,23 @@ func (m model) fetch(method string) tea.Cmd {
 		}
 		return fetchMsg{response: res}
 	}
+}
+
+func (m model) openFilters() tea.Cmd {
+	path, err := filters.EnsureFile()
+	if err != nil {
+		return func() tea.Msg { return actionMsg{err: err} }
+	}
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+	return tea.ExecProcess(exec.Command(editor, path), func(err error) tea.Msg {
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		return actionMsg{message: "Filters saved", refresh: true}
+	})
 }
 
 func (m model) openSelected() tea.Cmd {
