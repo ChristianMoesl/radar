@@ -37,6 +37,8 @@ func main() {
 	switch command {
 	case "create":
 		runCreate(os.Args[2:])
+	case "fork":
+		runFork(os.Args[2:])
 	case "delete":
 		runDelete(os.Args[2:])
 	case "daemon":
@@ -98,6 +100,12 @@ func runTUIWithMode(mode string) {
 		}
 		return
 	}
+	if mode == "fork" {
+		if err := tui.RunFork(path); err != nil {
+			fatal(err)
+		}
+		return
+	}
 	if err := tui.Run(path); err != nil {
 		fatal(err)
 	}
@@ -129,6 +137,16 @@ func runCreate(args []string) {
 		fatal(err)
 	}
 	printJSON(result)
+}
+
+func runFork(args []string) {
+	flags := flag.NewFlagSet("radar fork", flag.ExitOnError)
+	_ = flags.Parse(args)
+	if flags.NArg() != 0 {
+		forkUsage()
+		os.Exit(2)
+	}
+	runTUIWithMode("fork")
 }
 
 func runDelete(args []string) {
@@ -462,6 +480,7 @@ Interactive:
 Workspaces:
   radar create
   radar create --repo <repo> --base <branch> --name <name>
+  radar fork
   radar delete --path <workspace-path>
   radar delete --session <tmux-session-name-or-id>
 
@@ -490,6 +509,12 @@ Options:
   --repo   repository path
   --base   base branch or revision, for example origin/main
   --name   workspace name; also used as the branch name`)
+}
+
+func forkUsage() {
+	fmt.Fprintln(os.Stderr, `usage: radar fork
+
+Fork the current tmux workspace into a sibling workspace and fork its Pi session.`)
 }
 
 func deleteUsage() {

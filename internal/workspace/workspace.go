@@ -44,6 +44,7 @@ type CreateOptions struct {
 	SessionName   string
 	WorkspaceRoot string
 	Switch        bool
+	ForkPiSession string
 }
 
 type Workspace struct {
@@ -129,7 +130,11 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		}
 	}
 	if _, err := runner.Run(ctx, repo, "tmux", "has-session", "-t", sessionName); err != nil {
-		if _, err := runner.Run(ctx, repo, "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, "pi"); err != nil {
+		piCommand := fmt.Sprintf("pi --session-id %s --name %s", shellQuote(sessionName), shellQuote(sessionName))
+		if options.ForkPiSession != "" {
+			piCommand = fmt.Sprintf("pi --fork %s --session-id %s --name %s", shellQuote(options.ForkPiSession), shellQuote(sessionName), shellQuote(sessionName))
+		}
+		if _, err := runner.Run(ctx, repo, "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, piCommand); err != nil {
 			rollback()
 			return Workspace{}, err
 		}
@@ -290,4 +295,8 @@ func copyFile(source string, target string, mode os.FileMode) error {
 		return err
 	}
 	return output.Close()
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }

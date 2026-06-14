@@ -81,6 +81,24 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
 }
 
+func TestCreateForksPiSession(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	runner := &fakeRunner{repo: repo}
+
+	workspace, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		Name:          "follow up",
+		Base:          "HEAD",
+		WorkspaceRoot: root,
+		ForkPiSession: "repo-current-task",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCalledContains(t, runner.calls, "tmux", "pi --fork 'repo-current-task' --session-id '"+workspace.SessionName+"'")
+}
+
 func TestCreateDoesNotCopyEnvWithoutRepoConfig(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
@@ -213,6 +231,16 @@ func assertCalled(t *testing.T, calls []call, name string, argsPrefix string) {
 		}
 	}
 	t.Fatalf("%s %s was not called; calls: %#v", name, argsPrefix, calls)
+}
+
+func assertCalledContains(t *testing.T, calls []call, name string, argsPart string) {
+	t.Helper()
+	for _, call := range calls {
+		if call.name == name && strings.Contains(strings.Join(call.args, " "), argsPart) {
+			return
+		}
+	}
+	t.Fatalf("%s containing %s was not called; calls: %#v", name, argsPart, calls)
 }
 
 type dirtyRunner struct {

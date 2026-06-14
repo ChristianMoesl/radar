@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -69,11 +70,13 @@ type picker struct {
 }
 
 type createForm struct {
-	repo     string
-	base     string
-	name     string
-	repoList picker
-	baseList picker
+	repo           string
+	base           string
+	name           string
+	forkPiSession  string
+	sourceRepoName string
+	repoList       picker
+	baseList       picker
 }
 
 type model struct {
@@ -142,6 +145,19 @@ func RunCreate(socketPath string) error {
 	model.create = newCreateForm()
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := program.Run()
+	return err
+}
+
+func RunFork(socketPath string) error {
+	form, err := newForkCreateForm()
+	if err != nil {
+		return err
+	}
+	model := newModel(socketPath)
+	model.mode = "create_name"
+	model.create = form
+	program := tea.NewProgram(model, tea.WithAltScreen())
+	_, err = program.Run()
 	return err
 }
 
@@ -592,6 +608,39 @@ func newCreateForm() createForm {
 	return createForm{repoList: picker{loading: true}}
 }
 
+func newForkCreateForm() (createForm, error) {
+	if os.Getenv("TMUX") == "" {
+		return createForm{}, fmt.Errorf("radar fork must run inside tmux")
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return createForm{}, err
+	}
+	runner := workspace.ExecRunner{}
+	repo, err := runner.Run(context.Background(), cwd, "git", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return createForm{}, err
+	}
+	sessionName, err := runner.Run(context.Background(), cwd, "tmux", "display-message", "-p", "#{session_name}")
+	if err != nil {
+		return createForm{}, err
+	}
+	sessionName = strings.TrimSpace(sessionName)
+	if sessionName == "" {
+		return createForm{}, fmt.Errorf("could not detect current tmux session")
+	}
+	sourceRepoName := filepath.Base(repo)
+	if root, err := workspace.DefaultRoot(); err == nil {
+		if rel, err := filepath.Rel(root, repo); err == nil && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != ".." {
+			parts := strings.Split(rel, string(os.PathSeparator))
+			if len(parts) >= 2 && parts[0] != "." && parts[0] != "" {
+				sourceRepoName = parts[0]
+			}
+		}
+	}
+	return createForm{repo: repo, base: "HEAD", forkPiSession: sessionName, sourceRepoName: sourceRepoName}, nil
+}
+
 func (m model) updateCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "ctrl+c":
@@ -691,14 +740,27 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 	m.loading = true
 	m.err = nil
 	m.message = "Creating workspace…"
+	if form.forkPiSession != "" {
+		m.message = "Forking workspace…"
+	}
 	return m, func() tea.Msg {
 		switchAfterCreate := os.Getenv("TMUX") != ""
-		created, err := workspace.Create(context.Background(), workspace.ExecRunner{}, workspace.CreateOptions{
-			Repo:   form.repo,
-			Base:   form.base,
-			Name:   form.name,
-			Switch: switchAfterCreate,
-		})
+		options := workspace.CreateOptions{
+			Repo:          form.repo,
+			Base:          form.base,
+			Name:          form.name,
+			Switch:        switchAfterCreate,
+			ForkPiSession: form.forkPiSession,
+		}
+		if form.forkPiSession != "" && form.sourceRepoName != "" {
+			root, err := workspace.DefaultRoot()
+			if err != nil {
+				return actionMsg{err: err}
+			}
+			options.Path = filepath.Join(root, form.sourceRepoName, workspace.WorktreeName(form.name))
+			options.SessionName = workspace.SessionName(form.sourceRepoName, form.name)
+		}
+		created, err := workspace.Create(context.Background(), workspace.ExecRunner{}, options)
 		if err != nil {
 			return actionMsg{err: err}
 		}
@@ -842,12 +904,18 @@ func (m model) createView(width int) string {
 		if name == "" {
 			name = subtleStyle.Render("type a workspace name")
 		}
-		return strings.Join([]string{
-			titleStyle.Render("Create workspace"),
+		title := "Create workspace"
+		lines := []string{
+			titleStyle.Render(title),
 			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
 			subtleStyle.Render("Base       " + m.create.base),
-			selectedStyle.Width(width - 4).Render("› Name       " + name),
-		}, "\n")
+		}
+		if m.create.forkPiSession != "" {
+			lines[0] = titleStyle.Render("Fork workspace")
+			lines = append(lines, subtleStyle.Render("Pi fork    "+m.create.forkPiSession))
+		}
+		lines = append(lines, selectedStyle.Width(width-4).Render("› Name       "+name))
+		return strings.Join(lines, "\n")
 	default:
 		return ""
 	}

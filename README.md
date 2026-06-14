@@ -41,6 +41,13 @@ Open Radar in a tmux popup from tmux:
 tmux display-popup -E "radar"
 ```
 
+Useful tmux bindings:
+
+```tmux
+bind-key R display-popup -E "radar"
+bind-key F display-popup -E "radar fork"
+```
+
 The TUI supports:
 
 ```text
@@ -94,6 +101,14 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 `copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created.
 
 When run inside tmux, Radar switches to the new session.
+
+Fork the current tmux workspace into a sibling workspace and fork its Pi session:
+
+```sh
+./radar fork
+```
+
+`radar fork` detects the current git worktree and tmux session, asks only for the new workspace name, creates the new worktree from `HEAD`, starts Pi with `--fork`, and switches to the new tmux session.
 
 Delete a clean workspace:
 
