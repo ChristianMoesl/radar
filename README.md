@@ -108,7 +108,7 @@ Fork the current tmux workspace into a sibling workspace and fork its Pi session
 ./radar fork
 ```
 
-`radar fork` detects the current git worktree and tmux session, asks only for the new workspace name, creates the new worktree from `HEAD`, starts Pi with `--fork`, and switches to the new tmux session.
+`radar fork` detects the current git worktree and tmux session, asks for the base branch with the current branch prefilled, asks for the new workspace name, starts Pi with `--fork`, and switches to the new tmux session.
 
 Delete a clean workspace:
 

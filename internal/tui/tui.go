@@ -154,7 +154,7 @@ func RunFork(socketPath string) error {
 		return err
 	}
 	model := newModel(socketPath)
-	model.mode = "create_name"
+	model.mode = "create_base"
 	model.create = form
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	_, err = program.Run()
@@ -169,6 +169,9 @@ func (m model) Init() tea.Cmd {
 	commands := []tea.Cmd{m.fetch("tasks")}
 	if m.mode == "create_repo" {
 		commands = append(commands, m.loadRepos())
+	}
+	if m.mode == "create_base" && m.create.repo != "" {
+		commands = append(commands, m.loadBranches(m.create.repo))
 	}
 	return tea.Batch(commands...)
 }
@@ -629,6 +632,8 @@ func newForkCreateForm() (createForm, error) {
 	if sessionName == "" {
 		return createForm{}, fmt.Errorf("could not detect current tmux session")
 	}
+	currentBranch, _ := runner.Run(context.Background(), repo, "git", "branch", "--show-current")
+	currentBranch = strings.TrimSpace(currentBranch)
 	sourceRepoName := filepath.Base(repo)
 	if root, err := workspace.DefaultRoot(); err == nil {
 		if rel, err := filepath.Rel(root, repo); err == nil && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != ".." {
@@ -638,7 +643,12 @@ func newForkCreateForm() (createForm, error) {
 			}
 		}
 	}
-	return createForm{repo: repo, base: "HEAD", forkPiSession: sessionName, sourceRepoName: sourceRepoName}, nil
+	return createForm{
+		repo:           repo,
+		forkPiSession:  sessionName,
+		sourceRepoName: sourceRepoName,
+		baseList:       picker{loading: true, query: currentBranch},
+	}, nil
 }
 
 func (m model) updateCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -895,9 +905,13 @@ func (m model) createView(width int) string {
 	case "create_repo":
 		return m.pickerView(width, "Create workspace", "Repository", m.create.repoList)
 	case "create_base":
+		title := "Create workspace"
+		if m.create.forkPiSession != "" {
+			title = "Fork workspace"
+		}
 		return strings.Join([]string{
 			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
-			m.pickerView(width, "Create workspace", "Base branch", m.create.baseList),
+			m.pickerView(width, title, "Base branch", m.create.baseList),
 		}, "\n")
 	case "create_name":
 		name := m.create.name
