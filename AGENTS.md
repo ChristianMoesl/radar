@@ -6,6 +6,14 @@ Use conventional commits for commit messages, for example `feat: add tmux source
 
 Always push to the main remote (`origin`) unless the user explicitly asks for a different remote.
 
+## Streamlined product design
+
+Build Radar as a streamlined tool with one clear way to do each task.
+
+Limit optional alternatives wherever possible. Do not add duplicate command paths, aliases, parallel workflows, configuration switches, or fallback behavior unless the user explicitly asks for them or there is a strong product reason.
+
+Prefer simple, opinionated flows over broad configurability. When a new capability overlaps with an existing one, replace or reshape the existing path rather than adding another way to do the same thing.
+
 ## No backwards compatibility shims
 
 Do not add backwards compatibility code unless the user explicitly asks for it.
