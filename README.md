@@ -104,7 +104,7 @@ Radar is a single Go binary with three modes:
 TUI / CLI -> Unix socket -> radar daemon -> GitHub/Jira/Git/tmux/etc.
 ```
 
-The daemon keeps collection centralized so UI/status reads can use cached local state instead of polling external services repeatedly.
+The daemon keeps collection centralized so UI/status reads can use cached local state instead of polling external services repeatedly. It refreshes local Git/tmux state every 15 seconds and runs a full GitHub/Jira/Git/tmux refresh every 5 minutes.
 
 ## GitHub
 
