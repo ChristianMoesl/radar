@@ -133,7 +133,8 @@ func isRadarDaemon(args []string) bool {
 	if len(args) < 2 {
 		return false
 	}
-	if filepath.Base(args[0]) != "radar" {
+	name := filepath.Base(args[0])
+	if name != "radar" && !strings.HasPrefix(name, "radar-") {
 		return false
 	}
 	for _, arg := range args[1:] {

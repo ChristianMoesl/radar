@@ -7,9 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
-	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"radar.nvim/internal/client"
@@ -21,6 +20,7 @@ import (
 	"radar.nvim/internal/server"
 	"radar.nvim/internal/socket"
 	"radar.nvim/internal/state"
+	"radar.nvim/internal/tmux"
 	"radar.nvim/internal/tui"
 )
 
@@ -75,6 +75,21 @@ func runTUI() {
 	if err != nil {
 		fatal(err)
 	}
+	if _, err := client.Call(path, "tasks"); err != nil {
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			fatal(executableErr)
+		}
+		if err := startDetached(executable, "daemon"); err != nil {
+			fatal(err)
+		}
+		for range 20 {
+			time.Sleep(50 * time.Millisecond)
+			if _, err := client.Call(path, "tasks"); err == nil {
+				break
+			}
+		}
+	}
 	if err := tui.Run(path); err != nil {
 		fatal(err)
 	}
@@ -89,7 +104,7 @@ func runTmuxCommand(args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	if err := exec.Command("tmux", "display-popup", "-E", strconv.Quote(exe)).Run(); err != nil {
+	if err := tmux.Popup(exe); err != nil {
 		fatal(err)
 	}
 }
@@ -169,8 +184,15 @@ func restartDaemon() {
 }
 
 func startDetached(name string, args ...string) error {
+	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	defer devNull.Close()
+
 	process, err := os.StartProcess(name, append([]string{name}, args...), &os.ProcAttr{
-		Files: []*os.File{nil, os.Stderr, os.Stderr},
+		Files: []*os.File{devNull, devNull, devNull},
+		Sys:   &syscall.SysProcAttr{Setsid: true},
 	})
 	if err != nil {
 		return err
