@@ -77,8 +77,21 @@ Radar creates:
 
 - a Git worktree at `<workspace_root>/<repo>/<name>`
 - a branch named after the workspace
+- files copied from the source repo when configured
+- setup commands run in the new worktree when configured
 - a matching tmux session
 - `pi` and `nvim` tmux windows
+
+Configure repo-specific workspace setup with a repo-local `.radar.json` file:
+
+```json
+{
+  "copy_files": [".env", ".env.local"],
+  "setup": ["pnpm install --frozen-lockfile"]
+}
+```
+
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created.
 
 When run inside tmux, Radar switches to the new session.
 

@@ -46,6 +46,12 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("SECRET=local\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
+  "copy_files": [".env"],
+  "setup": ["pnpm install --frozen-lockfile"]
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
@@ -69,9 +75,32 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 		t.Fatalf("copied .env = %q", data)
 	}
 	assertCalled(t, runner.calls, "git", "worktree add -b small fix "+workspace.Path+" origin/main")
+	assertCalled(t, runner.calls, "sh", "-lc pnpm install --frozen-lockfile")
 	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workspace.SessionName)
 	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+":")
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
+}
+
+func TestCreateDoesNotCopyEnvWithoutRepoConfig(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("SECRET=local\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{repo: repo}
+
+	workspace, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		Name:          "small fix",
+		Base:          "origin/main",
+		WorkspaceRoot: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace.Path, ".env")); !os.IsNotExist(err) {
+		t.Fatalf(".env was copied without .radar.json config: %v", err)
+	}
 }
 
 func TestCreateEscapesWorktreeNamePathSegment(t *testing.T) {

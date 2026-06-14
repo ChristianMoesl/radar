@@ -142,7 +142,7 @@ Open the TUI in a tmux popup with `tmux display-popup -E "radar"`. Selecting a t
 
 ## Workspaces
 
-Workspaces absorb the useful workflow from `fork.nvim`. The application layer discovers repositories under configured repository directories, creates Git worktrees under the configured workspace root, copies local setup files, and creates matching tmux sessions with `pi` and `nvim` windows.
+Workspaces absorb the useful workflow from `fork.nvim`. The application layer discovers repositories under configured repository directories, creates Git worktrees under the configured workspace root, applies repo-local `.radar.json` workspace setup, and creates matching tmux sessions with `pi` and `nvim` windows.
 
 Creation is available from the TUI and `radar create`. Deletion is intentionally conservative: `radar delete` refuses dirty worktrees and there is no force flag yet.
 

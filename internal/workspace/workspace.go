@@ -69,6 +69,10 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	if err != nil {
 		return Workspace{}, err
 	}
+	repoConfig, err := loadRepoConfig(repo)
+	if err != nil {
+		return Workspace{}, err
+	}
 	name := strings.TrimSpace(options.Name)
 	repoName := filepath.Base(repo)
 	branch := options.Branch
@@ -114,9 +118,15 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		_, _ = runner.Run(ctx, repo, "git", "worktree", "remove", "--force", path)
 	}
 
-	if err := copySetupFiles(repo, path); err != nil {
+	if err := copyConfiguredFiles(repo, path, repoConfig.CopyFiles); err != nil {
 		rollback()
 		return Workspace{}, err
+	}
+	for _, command := range repoConfig.Setup {
+		if _, err := runner.Run(ctx, path, "sh", "-lc", command); err != nil {
+			rollback()
+			return Workspace{}, err
+		}
 	}
 	if _, err := runner.Run(ctx, repo, "tmux", "has-session", "-t", sessionName); err != nil {
 		if _, err := runner.Run(ctx, repo, "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, "pi"); err != nil {
@@ -236,8 +246,8 @@ func SessionName(repoName string, workspaceName string) string {
 	return WorktreeName(repoName + "-" + workspaceName)
 }
 
-func copySetupFiles(source string, target string) error {
-	for _, name := range []string{".env", ".env.local"} {
+func copyConfiguredFiles(source string, target string, names []string) error {
+	for _, name := range names {
 		from := filepath.Join(source, name)
 		to := filepath.Join(target, name)
 		if _, err := os.Stat(to); err == nil {
@@ -250,6 +260,12 @@ func copySetupFiles(source string, target string) error {
 			continue
 		}
 		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("configured copy path is not a file: %s", from)
+		}
+		if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
 			return err
 		}
 		if err := copyFile(from, to, info.Mode().Perm()); err != nil {
