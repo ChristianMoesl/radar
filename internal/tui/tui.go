@@ -378,6 +378,14 @@ func (m model) frameHeight() int {
 }
 
 func (m model) contentWidth() int {
+	if os.Getenv("TMUX") != "" {
+		width := m.width - 4
+		if width <= 0 {
+			width = maxContentWidth
+		}
+		return max(width, 60)
+	}
+
 	width := m.width - 8
 	if width <= 0 {
 		width = maxContentWidth
