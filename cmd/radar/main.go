@@ -18,6 +18,7 @@ import (
 	"radar.nvim/internal/github"
 	"radar.nvim/internal/logging"
 	"radar.nvim/internal/process"
+	"radar.nvim/internal/protocol"
 	"radar.nvim/internal/server"
 	"radar.nvim/internal/socket"
 	"radar.nvim/internal/state"
@@ -195,9 +196,9 @@ func runDaemon() {
 	}
 	collectionMu := &sync.Mutex{}
 	refresh := refresher(context.Background(), store, logger, collectionMu)
-	go refreshLoop(context.Background(), func() { refresh(false) })
+	go refreshLoop(context.Background(), refresh)
 
-	if err := server.New(store, logger, func() { refresh(true) }, resetter(context.Background(), store, logger, collectionMu)).ListenAndServe(path); err != nil {
+	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu)).ListenAndServe(path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}
@@ -244,26 +245,64 @@ func startDetached(name string, args ...string) error {
 	return process.Release()
 }
 
-func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex) func(force bool) {
-	var lastRefresh time.Time
+type refreshScope string
 
-	return func(force bool) {
+const (
+	refreshFull  refreshScope = "full"
+	refreshLocal refreshScope = "local"
+)
+
+func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex) func(refreshScope, bool) {
+	var lastFullRefresh time.Time
+
+	return func(scope refreshScope, force bool) {
 		mu.Lock()
 		defer mu.Unlock()
 
-		if !force && time.Since(lastRefresh) < 5*time.Minute {
-			logger.Debug("refresh skipped; recently refreshed")
+		if scope == refreshFull && !force && time.Since(lastFullRefresh) < 5*time.Minute {
+			logger.Debug("full refresh skipped; recently refreshed")
 			return
 		}
-		lastRefresh = time.Now()
+		if scope == refreshFull {
+			lastFullRefresh = time.Now()
+		}
 
-		logger.Debug("refresh started", "force", force)
+		logger.Debug("refresh started", "scope", scope, "force", force)
 		previous := store.Tasks()
-		result := collector.Collect(ctx, previous, logger)
-		store.SetTasks(result.Tasks)
-		store.SetSources(result.Sources)
-		logger.Debug("refresh finished", "tasks", len(result.Tasks), "sources", len(result.Sources))
+		var result collector.Result
+		if scope == refreshLocal {
+			result = collector.CollectLocal(ctx, previous, logger)
+			store.SetTasks(result.Tasks)
+			store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
+		} else {
+			result = collector.Collect(ctx, previous, logger)
+			store.SetTasks(result.Tasks)
+			store.SetSources(result.Sources)
+		}
+		logger.Debug("refresh finished", "scope", scope, "tasks", len(result.Tasks), "sources", len(result.Sources))
 	}
+}
+
+func mergeSourceStatuses(previous []protocol.SourceStatus, updates []protocol.SourceStatus) []protocol.SourceStatus {
+	byName := map[string]protocol.SourceStatus{}
+	order := make([]string, 0, len(previous)+len(updates))
+	for _, source := range previous {
+		if _, ok := byName[source.Name]; !ok {
+			order = append(order, source.Name)
+		}
+		byName[source.Name] = source
+	}
+	for _, source := range updates {
+		if _, ok := byName[source.Name]; !ok {
+			order = append(order, source.Name)
+		}
+		byName[source.Name] = source
+	}
+	merged := make([]protocol.SourceStatus, 0, len(order))
+	for _, name := range order {
+		merged = append(merged, byName[name])
+	}
+	return merged
 }
 
 func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex) func() error {
@@ -283,17 +322,21 @@ func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *
 	}
 }
 
-func refreshLoop(ctx context.Context, refresh func()) {
-	refresh()
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
+func refreshLoop(ctx context.Context, refresh func(refreshScope, bool)) {
+	refresh(refreshFull, false)
+	localTicker := time.NewTicker(15 * time.Second)
+	defer localTicker.Stop()
+	fullTicker := time.NewTicker(5 * time.Minute)
+	defer fullTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			refresh()
+		case <-localTicker.C:
+			refresh(refreshLocal, false)
+		case <-fullTicker.C:
+			refresh(refreshFull, false)
 		}
 	}
 }

@@ -35,9 +35,16 @@ func Sources() []ingestion.Source {
 	}
 }
 
+func LocalSources() []ingestion.Source {
+	return []ingestion.Source{
+		gitcollector.NewSource(),
+		tmux.NewSource(),
+	}
+}
+
 func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Result {
 	sources := Sources()
-	ingested := Ingest(ctx, previous, logger)
+	ingested := IngestSources(ctx, previous, logger, sources)
 	tasks := linker.Link(linker.Input{
 		Tasks:      ingested.Tasks,
 		SourceRefs: ingested.SourceRefs,
@@ -57,7 +64,21 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger)
 	return Result{Tasks: tasks, Sources: ingested.Sources}
 }
 
+func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Result {
+	ingested := IngestSources(ctx, previous, logger, LocalSources())
+	baseTasks := withoutSourceRefs(previous, map[string]bool{"git": true, "tmux": true})
+	tasks := linker.Link(linker.Input{
+		Tasks:      baseTasks,
+		SourceRefs: ingested.SourceRefs,
+	})
+	return Result{Tasks: tasks, Sources: ingested.Sources}
+}
+
 func Ingest(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Ingested {
+	return IngestSources(ctx, previous, logger, Sources())
+}
+
+func IngestSources(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []ingestion.Source) Ingested {
 	result := Ingested{
 		Tasks:      make([]protocol.Task, 0),
 		SourceRefs: make([]protocol.SourceRef, 0),
@@ -70,7 +91,7 @@ func Ingest(ctx context.Context, previous []protocol.Task, logger *slog.Logger) 
 		logger.Warn("could not load filters for ingestion", "error", err)
 	}
 
-	for _, source := range Sources() {
+	for _, source := range sources {
 		status := ingestion.StatusResult{
 			Status: protocol.SourceStatus{Name: source.Name(), Status: "ok"},
 			CanRun: true,
@@ -96,6 +117,24 @@ func Ingest(ctx context.Context, previous []protocol.Task, logger *slog.Logger) 
 	}
 
 	return result
+}
+
+func withoutSourceRefs(tasks []protocol.Task, sources map[string]bool) []protocol.Task {
+	kept := make([]protocol.Task, 0, len(tasks))
+	for _, task := range tasks {
+		refs := make([]protocol.SourceRef, 0, len(task.SourceRefs))
+		for _, sourceRef := range task.SourceRefs {
+			if !sources[sourceRef.Source] {
+				refs = append(refs, sourceRef)
+			}
+		}
+		if len(task.SourceRefs) > 0 && len(refs) == 0 {
+			continue
+		}
+		task.SourceRefs = refs
+		kept = append(kept, task)
+	}
+	return kept
 }
 
 func sourceRefCount(sourceName string, result ingestion.Result) int {
