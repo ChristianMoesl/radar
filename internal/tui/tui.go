@@ -927,7 +927,7 @@ func (m model) taskLines(width int) ([]string, int) {
 					groupStart++
 				}
 				selectedLine = groupStart + len(groupLines) + 1
-				line = selectedStyle.Width(width - 4).Render("› " + line)
+				line = selectedStyle.Render("› " + line)
 			} else {
 				line = "  " + line
 			}
