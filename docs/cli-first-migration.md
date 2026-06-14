@@ -22,6 +22,7 @@ Requiring an active Neovim session to create, inspect, or switch work sessions m
 - The default interactive experience should become a terminal UI.
 - Non-interactive commands should remain scriptable.
 - tmux integration should open Radar in a floating popup and provide shortcuts for quick access.
+- Radar should absorb the useful workflow functionality from [`fork.nvim`](https://github.com/ChristianMoesl/fork.nvim) into the CLI/TUI experience.
 - The Neovim plugin is legacy and should not receive new features or refactors unless explicitly requested.
 
 Example target shape:
@@ -61,6 +62,20 @@ Use Go-native TUI libraries. The preferred stack is the Charm ecosystem:
 
 Other libraries can be reconsidered later, but Bubble Tea/Lip Gloss is the default direction for a polished terminal UI.
 
+## fork.nvim functionality
+
+Radar should include the useful functionality from [`fork.nvim`](https://github.com/ChristianMoesl/fork.nvim) as part of the CLI-first product direction.
+
+The goal is not to maintain another Neovim plugin, but to bring that workflow into the standalone Radar CLI/TUI so it works from tmux, terminals, scripts, and any future editor integration.
+
+The exact feature mapping should be designed when this work starts, but the target is:
+
+- project/worktree/session creation from the CLI/TUI
+- quick selection and switching between active work contexts
+- tmux-friendly workflows for opening or attaching to work
+- scriptable commands for automation
+- no new dependency on Neovim as the primary interface
+
 ## tmux integration
 
 The first tmux integration can be intentionally small:
@@ -98,5 +113,6 @@ If Neovim support is revisited later, it should integrate with the CLI instead o
 3. Introduce a TUI package in Go that uses the existing client/service boundaries.
 4. Make `radar` without subcommands open the TUI.
 5. Add a minimal tmux popup command.
-6. Expand the TUI around session/task creation, switching, filtering, and inspection.
-7. Update README examples to present Radar as a CLI-first tool.
+6. Fold the useful `fork.nvim` workflow into Radar's CLI/TUI model.
+7. Expand the TUI around session/task creation, switching, filtering, and inspection.
+8. Update README examples to present Radar as a CLI-first tool.
