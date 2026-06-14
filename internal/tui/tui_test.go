@@ -168,6 +168,30 @@ func TestFuzzyMatch(t *testing.T) {
 	}
 }
 
+func TestTaskCursorForHintsPrefersCurrentWorktree(t *testing.T) {
+	tasks := []protocol.Task{
+		{Title: "other", SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/workspaces/repo/other"}}},
+		{Title: "current", SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/workspaces/repo/current"}}},
+	}
+
+	cursor, ok := taskCursorForHints(tasks, currentTaskHints{cwd: "/workspaces/repo/current/internal", worktree: "/workspaces/repo/current"})
+	if !ok || cursor != 1 {
+		t.Fatalf("taskCursorForHints() = %d, %v; want 1, true", cursor, ok)
+	}
+}
+
+func TestTaskCursorForHintsMatchesTmuxSession(t *testing.T) {
+	tasks := []protocol.Task{
+		{Title: "other", SourceRefs: []protocol.SourceRef{{Source: "tmux", Kind: "session", Metadata: map[string]string{"session_id": "$1", "session": "other"}}}},
+		{Title: "current", SourceRefs: []protocol.SourceRef{{Source: "tmux", Kind: "session", Metadata: map[string]string{"session_id": "$2", "session": "repo-current"}}}},
+	}
+
+	cursor, ok := taskCursorForHints(tasks, currentTaskHints{sessionName: "repo-current", sessionID: "$2"})
+	if !ok || cursor != 1 {
+		t.Fatalf("taskCursorForHints() = %d, %v; want 1, true", cursor, ok)
+	}
+}
+
 func TestTmuxSessionTargetUsesStableSessionID(t *testing.T) {
 	task := protocol.Task{SourceRefs: []protocol.SourceRef{{
 		Source: "tmux",

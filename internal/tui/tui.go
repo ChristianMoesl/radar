@@ -80,23 +80,24 @@ type createForm struct {
 }
 
 type model struct {
-	socketPath     string
-	width          int
-	height         int
-	loading        bool
-	err            error
-	summary        protocol.Summary
-	tasks          []protocol.Task
-	sources        []protocol.SourceStatus
-	cursor         int
-	mode           string
-	create         createForm
-	delete         deletePreview
-	links          []linkChoice
-	worktrees      []protocol.SourceRef
-	worktreeCursor int
-	message        string
-	scroll         int
+	socketPath          string
+	width               int
+	height              int
+	loading             bool
+	err                 error
+	summary             protocol.Summary
+	tasks               []protocol.Task
+	sources             []protocol.SourceStatus
+	cursor              int
+	selectedCurrentTask bool
+	mode                string
+	create              createForm
+	delete              deletePreview
+	links               []linkChoice
+	worktrees           []protocol.SourceRef
+	worktreeCursor      int
+	message             string
+	scroll              int
 }
 
 var (
@@ -333,6 +334,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.tasks = msg.response.Tasks
 			m.sources = msg.response.Sources
+			if !m.selectedCurrentTask {
+				if cursor, ok := currentTaskCursor(m.tasks); ok {
+					m.cursor = cursor
+				}
+				m.selectedCurrentTask = true
+			}
 			if m.cursor >= len(m.tasks) {
 				m.cursor = max(0, len(m.tasks)-1)
 			}
@@ -1204,6 +1211,102 @@ func gitWorktreeRefs(task protocol.Task) []protocol.SourceRef {
 		}
 	}
 	return refs
+}
+
+type currentTaskHints struct {
+	cwd         string
+	worktree    string
+	sessionName string
+	sessionID   string
+}
+
+func currentTaskCursor(tasks []protocol.Task) (int, bool) {
+	return taskCursorForHints(tasks, detectCurrentTaskHints())
+}
+
+func detectCurrentTaskHints() currentTaskHints {
+	hints := currentTaskHints{}
+	if cwd, err := os.Getwd(); err == nil {
+		hints.cwd = filepath.Clean(cwd)
+		runner := workspace.ExecRunner{}
+		if worktree, err := runner.Run(context.Background(), cwd, "git", "rev-parse", "--show-toplevel"); err == nil {
+			hints.worktree = filepath.Clean(worktree)
+		}
+	}
+	if os.Getenv("TMUX") != "" {
+		runner := workspace.ExecRunner{}
+		if output, err := runner.Run(context.Background(), hints.cwd, "tmux", "display-message", "-p", "#{session_name}\t#{session_id}"); err == nil {
+			fields := strings.Split(output, "\t")
+			if len(fields) > 0 {
+				hints.sessionName = strings.TrimSpace(fields[0])
+			}
+			if len(fields) > 1 {
+				hints.sessionID = strings.TrimSpace(fields[1])
+			}
+		}
+	}
+	return hints
+}
+
+func taskCursorForHints(tasks []protocol.Task, hints currentTaskHints) (int, bool) {
+	if hints.worktree != "" || hints.cwd != "" {
+		for i, task := range tasks {
+			for _, ref := range task.SourceRefs {
+				if ref.Source == "git" && ref.Kind == "worktree" && ref.Path != "" && currentPathMatches(ref.Path, hints) {
+					return i, true
+				}
+			}
+		}
+	}
+	if hints.sessionName != "" || hints.sessionID != "" {
+		for i, task := range tasks {
+			if task.Kind == "session" && metadataMatchesSession(task.Metadata, hints) {
+				return i, true
+			}
+			for _, ref := range task.SourceRefs {
+				if ref.Source == "tmux" && ref.Kind == "session" && tmuxRefMatchesSession(ref, hints) {
+					return i, true
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+func currentPathMatches(refPath string, hints currentTaskHints) bool {
+	refPath = filepath.Clean(refPath)
+	return samePath(hints.worktree, refPath) || sameOrDescendant(hints.cwd, refPath)
+}
+
+func tmuxRefMatchesSession(ref protocol.SourceRef, hints currentTaskHints) bool {
+	return metadataMatchesSession(ref.Metadata, hints) || ref.Title == hints.sessionName
+}
+
+func metadataMatchesSession(metadata map[string]string, hints currentTaskHints) bool {
+	for _, key := range []string{"switch_target", "session_id", "session"} {
+		value := metadata[key]
+		if value != "" && (value == hints.sessionID || value == hints.sessionName) {
+			return true
+		}
+	}
+	return false
+}
+
+func samePath(left string, right string) bool {
+	return left != "" && right != "" && filepath.Clean(left) == filepath.Clean(right)
+}
+
+func sameOrDescendant(path string, root string) bool {
+	if path == "" || root == "" {
+		return false
+	}
+	path = filepath.Clean(path)
+	root = filepath.Clean(root)
+	if path == root {
+		return true
+	}
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
 func tmuxSessionTarget(task protocol.Task) string {
