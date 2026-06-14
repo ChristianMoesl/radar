@@ -21,7 +21,7 @@ Requiring an active Neovim session to create, inspect, or switch work sessions m
 - The daemon remains part of that binary.
 - The default interactive experience should become a terminal UI.
 - Non-interactive commands should remain scriptable.
-- tmux integration should open Radar in a floating popup and provide shortcuts for quick access.
+- tmux integration should use a simple tmux binding to open Radar in a floating popup.
 - Radar should absorb the useful workflow functionality from [`fork.nvim`](https://github.com/ChristianMoesl/fork.nvim) into the CLI/TUI experience.
 - The Neovim plugin has been removed; do not reintroduce editor-specific product logic.
 
@@ -33,7 +33,6 @@ radar daemon           # run daemon
 radar status           # scriptable status summary
 radar tasks            # scriptable task list
 radar refresh          # refresh daemon state
-radar tmux popup       # open Radar in a tmux popup
 ```
 
 ## Binary and process model
@@ -84,13 +83,6 @@ The first tmux integration can be intentionally small:
 tmux display-popup -E "radar"
 ```
 
-Future commands may provide installable bindings or helper commands, for example:
-
-```sh
-radar tmux popup
-radar tmux bind-key
-```
-
 The tmux integration should call the CLI/TUI. It should not become a separate source of domain logic.
 
 ## Editor integrations
@@ -109,7 +101,7 @@ Rules for future editor integrations:
 2. Keep daemon and scriptable CLI commands working. Done.
 3. Introduce a TUI package in Go that uses the existing client/service boundaries. Done.
 4. Make `radar` without subcommands open the TUI. Done.
-5. Add a minimal tmux popup command. Done.
+5. Document a simple tmux popup binding. Done.
 6. Fold the useful `fork.nvim` workflow into Radar's CLI/TUI model. In progress: create is implemented; delete remains CLI-only.
 7. Expand the TUI around session/task creation, switching, filtering, and inspection. In progress: create, switching, filters, reset, and inspection are implemented.
 8. Update README examples to present Radar as a CLI-first tool. Done.

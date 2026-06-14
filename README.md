@@ -22,10 +22,10 @@ Open the terminal UI:
 ./radar
 ```
 
-Open Radar in a tmux popup:
+Open Radar in a tmux popup from tmux:
 
 ```sh
-./radar tmux popup
+tmux display-popup -E "radar"
 ```
 
 The TUI supports:

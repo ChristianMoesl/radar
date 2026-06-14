@@ -21,7 +21,6 @@ import (
 	"radar.nvim/internal/server"
 	"radar.nvim/internal/socket"
 	"radar.nvim/internal/state"
-	"radar.nvim/internal/tmux"
 	"radar.nvim/internal/tui"
 	"radar.nvim/internal/workstream"
 )
@@ -40,8 +39,6 @@ func main() {
 		runDelete(os.Args[2:])
 	case "daemon":
 		runDaemon()
-	case "tmux":
-		runTmuxCommand(os.Args[2:])
 	case "stop":
 		stopDaemon()
 	case "restart":
@@ -140,20 +137,6 @@ func runDelete(args []string) {
 		fatal(err)
 	}
 	printJSON(result)
-}
-
-func runTmuxCommand(args []string) {
-	if len(args) != 1 || args[0] != "popup" {
-		usage()
-		os.Exit(2)
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		fatal(err)
-	}
-	if err := tmux.Popup(exe); err != nil {
-		fatal(err)
-	}
 }
 
 func runDaemon() {
@@ -383,7 +366,6 @@ Daemon and status:
   radar restart
 
 Other:
-  radar tmux popup
   radar ack <task-id>
   radar log-path
   radar state-path
