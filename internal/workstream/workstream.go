@@ -144,6 +144,16 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workstre
 	return Workstream{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName}, nil
 }
 
+func DeleteSession(ctx context.Context, runner Runner, sessionName string) (Workstream, error) {
+	if strings.TrimSpace(sessionName) == "" {
+		return Workstream{}, fmt.Errorf("tmux session is required")
+	}
+	if _, err := runner.Run(ctx, "", "tmux", "kill-session", "-t", sessionName); err != nil {
+		return Workstream{}, err
+	}
+	return Workstream{SessionName: sessionName}, nil
+}
+
 func Delete(ctx context.Context, runner Runner, path string, sessionName string, force bool) (Workstream, error) {
 	if strings.TrimSpace(path) == "" {
 		return Workstream{}, fmt.Errorf("workstream path is required")

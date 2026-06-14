@@ -140,14 +140,21 @@ func runCreate(args []string) {
 func runDelete(args []string) {
 	flags := flag.NewFlagSet("radar delete", flag.ExitOnError)
 	path := flags.String("path", "", "workstream path")
+	session := flags.String("session", "", "tmux session name or id")
 	_ = flags.Parse(args)
 
-	if *path == "" {
+	if (*path == "") == (*session == "") {
 		deleteUsage()
 		os.Exit(2)
 	}
 
-	result, err := workstream.Delete(context.Background(), workstream.ExecRunner{}, *path, "", false)
+	var result workstream.Workstream
+	var err error
+	if *session != "" {
+		result, err = workstream.DeleteSession(context.Background(), workstream.ExecRunner{}, *session)
+	} else {
+		result, err = workstream.Delete(context.Background(), workstream.ExecRunner{}, *path, "", false)
+	}
 	if err != nil {
 		fatal(err)
 	}
@@ -413,6 +420,7 @@ Workstreams:
   radar create
   radar create --repo <repo> --base <branch> --name <name>
   radar delete --path <workstream-path>
+  radar delete --session <tmux-session-name-or-id>
 
 Daemon and status:
   radar daemon
@@ -442,10 +450,11 @@ Options:
 }
 
 func deleteUsage() {
-	fmt.Fprintln(os.Stderr, `usage: radar delete --path <workstream-path>
+	fmt.Fprintln(os.Stderr, `usage: radar delete (--path <workstream-path> | --session <tmux-session-name-or-id>)
 
 Options:
-  --path   workstream path to delete`)
+  --path      workstream path to delete
+  --session   tmux session name or id to delete`)
 }
 
 func fatal(err error) {

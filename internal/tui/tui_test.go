@@ -67,6 +67,20 @@ func TestCreateRepoViewShortensHomePaths(t *testing.T) {
 	}
 }
 
+func TestDeleteConfirmViewShowsTmuxSessionOnlyDelete(t *testing.T) {
+	model := model{mode: "delete_confirm", delete: deletePreview{SessionName: "$3", SessionOnly: true}}
+
+	view := model.View()
+	for _, want := range []string{"Delete tmux session?", "kill only the tmux session", "$3"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("View() missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Path") {
+		t.Fatalf("View() contains path for session-only delete:\n%s", view)
+	}
+}
+
 func TestDeleteConfirmViewWarnsAboutDirtyWorkstream(t *testing.T) {
 	model := model{mode: "delete_confirm", delete: deletePreview{Path: "/repo/worktrees/small-fix", Branch: "small-fix", SessionName: "repo-small-fix", Dirty: true}}
 
