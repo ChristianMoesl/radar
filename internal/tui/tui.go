@@ -920,7 +920,7 @@ func (m model) taskLines(width int) ([]string, int) {
 			if task.Attention != group.key {
 				continue
 			}
-			line := taskLine(task)
+			line := taskLine(task, i == m.cursor)
 			if i == m.cursor {
 				groupStart := len(lines)
 				if len(lines) > 0 {
@@ -948,13 +948,21 @@ func (m model) taskLines(width int) ([]string, int) {
 	return lines, selectedLine
 }
 
-func taskLine(task protocol.Task) string {
+func taskLine(task protocol.Task, selected bool) string {
 	title := task.Title
 	if task.Repo != "" {
-		title = fmt.Sprintf("%s  %s", title, subtleStyle.Render(task.Repo))
+		repo := task.Repo
+		if !selected {
+			repo = subtleStyle.Render(repo)
+		}
+		title = fmt.Sprintf("%s  %s", title, repo)
 	}
 	if task.Reason != "" {
-		title = fmt.Sprintf("%s  %s", title, subtleStyle.Render(task.Reason))
+		reason := task.Reason
+		if !selected {
+			reason = subtleStyle.Render(reason)
+		}
+		title = fmt.Sprintf("%s  %s", title, reason)
 	}
 	return title
 }
