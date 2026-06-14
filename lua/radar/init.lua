@@ -149,11 +149,11 @@ local function tmux_session_target(item)
 		return nil
 	end
 	if item.source == "tmux" and item.kind == "session" then
-		return item.metadata and (item.metadata.switch_target or item.metadata.session) or item.title
+		return item.metadata and (item.metadata.switch_target or item.metadata.session_id or item.metadata.session) or item.title
 	end
 	for _, sourceRef in ipairs(item.source_refs or {}) do
 		if sourceRef.source == "tmux" and sourceRef.kind == "session" then
-			return sourceRef.metadata and (sourceRef.metadata.switch_target or sourceRef.metadata.session) or sourceRef.title
+			return sourceRef.metadata and (sourceRef.metadata.switch_target or sourceRef.metadata.session_id or sourceRef.metadata.session) or sourceRef.title
 		end
 	end
 end
