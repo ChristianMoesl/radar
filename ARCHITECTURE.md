@@ -12,7 +12,7 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 - `internal/github/`: GitHub ingestion and remote state resolution.
 - `internal/git/`: Git worktree ingestion.
 - `internal/jira/`: Jira Cloud issue ingestion.
-- `internal/tmux/`: tmux session ingestion and popup helpers.
+- `internal/tmux/`: tmux session ingestion.
 - `internal/linker/`: connects ingested source refs to user-facing tasks.
 - `internal/state/`: local persistent task cache/state.
 
@@ -37,7 +37,6 @@ radar refresh
 radar reset
 radar stop
 radar restart
-radar tmux popup
 radar create --repo <repo> --base <branch> --name <name>
 radar delete --path <workstream-path>
 ```
@@ -139,7 +138,7 @@ Git worktree integration collects configured local repositories and attaches wor
 
 Tmux integration collects sessions from the local tmux server. Radar attaches sessions to matching tasks when their name contains a ticket key or when the session working directory matches a Git worktree path. Sessions that do not attach to another task become standalone `in_progress` tasks.
 
-`radar tmux popup` opens the TUI in a tmux popup. Selecting a tmux-backed task switches the current client by stable session ID.
+Open the TUI in a tmux popup with `tmux display-popup -E "radar"`. Selecting a tmux-backed task switches the current client by stable session ID.
 
 ## Workstreams
 
