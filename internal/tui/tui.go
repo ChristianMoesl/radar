@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"radar.nvim/internal/client"
 	"radar.nvim/internal/filters"
@@ -111,6 +112,12 @@ var (
 			Foreground(lipgloss.Color("230")).
 			Background(lipgloss.Color("63")).
 			Bold(true)
+
+	notificationStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("120")).
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("36")).
+				Padding(0, 1)
 )
 
 func Run(socketPath string) error {
@@ -322,10 +329,6 @@ func (m model) View() string {
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
-	if m.message != "" {
-		sections = append(sections, doneStyle.Render(m.message))
-	}
-
 	if m.err != nil {
 		sections = append(sections, errorStyle.Render("Could not load Radar tasks: "+m.err.Error()))
 	} else if m.loading && len(m.tasks) == 0 {
@@ -384,10 +387,63 @@ func (m model) contentWidth() int {
 }
 
 func (m model) renderFrame(content string, width int) string {
-	if os.Getenv("TMUX") != "" {
-		return appStyle.Width(width).Render(content)
+	frame := appStyle.Width(width).Render(content)
+	if os.Getenv("TMUX") == "" {
+		frame = appStyle.Render(panelStyle.Width(width).Render(content))
 	}
-	return appStyle.Render(panelStyle.Width(width).Render(content))
+	return m.overlayNotification(frame)
+}
+
+func (m model) overlayNotification(frame string) string {
+	if m.message == "" {
+		return frame
+	}
+
+	lines := strings.Split(frame, "\n")
+	popupLines := strings.Split(notificationStyle.Render(m.message), "\n")
+	row := 1
+	popupWidth := 0
+	for _, popupLine := range popupLines {
+		popupWidth = max(popupWidth, lipgloss.Width(popupLine))
+	}
+	for i, popupLine := range popupLines {
+		target := row + i
+		if target >= len(lines) {
+			break
+		}
+		plainLine := ansi.Strip(lines[target])
+		col := max(0, lipgloss.Width(plainLine)-popupWidth-2)
+		prefix := takeCells(plainLine, col)
+		rest := dropCells(plainLine, col+lipgloss.Width(popupLine))
+		lines[target] = prefix + popupLine + rest
+	}
+	return strings.Join(lines, "\n")
+}
+
+func takeCells(s string, cells int) string {
+	var out strings.Builder
+	used := 0
+	for _, r := range s {
+		w := lipgloss.Width(string(r))
+		if used+w > cells {
+			break
+		}
+		out.WriteRune(r)
+		used += w
+	}
+	return out.String()
+}
+
+func dropCells(s string, cells int) string {
+	used := 0
+	for i, r := range s {
+		w := lipgloss.Width(string(r))
+		if used+w > cells {
+			return s[i:]
+		}
+		used += w
+	}
+	return ""
 }
 
 func newCreateForm() createForm {
@@ -884,13 +940,9 @@ func (m model) header(width int) string {
 		status = subtleStyle.Render("refreshing…")
 	}
 
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		titleStyle.Render("Radar"),
-		"  ",
-		counts,
-		strings.Repeat(" ", max(0, width-lipgloss.Width("Radar  "+counts+status)-4)),
-		status,
-	)
+	left := lipgloss.JoinHorizontal(lipgloss.Top, titleStyle.Render("Radar"), "  ", counts)
+	gap := strings.Repeat(" ", max(0, width-lipgloss.Width(left)-lipgloss.Width(status)))
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, gap, status)
 }
 
 func (m model) taskList(width int, height int) string {
