@@ -75,6 +75,66 @@ func FetchAssignedIssues(ctx context.Context, logger *slog.Logger) ([]protocol.S
 	return source_refsFromIssues(cfg, issues, ""), statusWithCount(status, len(issues), ""), nil
 }
 
+func ResolveDoneIssues(ctx context.Context, previous []protocol.Task, active []protocol.Task, jiraComplete bool, logger *slog.Logger) []protocol.Task {
+	if !jiraComplete {
+		logger.Debug("skipping jira done resolution; issue collection was incomplete")
+		return keepTodaysDoneIssues(previous)
+	}
+
+	cfg, ok, missing := configFromEnv()
+	if !ok {
+		logger.Debug("skipping jira done resolution; jira collector not configured", "missing", missing)
+		return keepTodaysDoneIssues(previous)
+	}
+
+	activeIssues := activeJiraIssueRefs(active)
+	items := make([]protocol.Task, 0)
+	checked := map[string]bool{}
+	for _, item := range previous {
+		if item.Attention == "done" {
+			if isToday(item.DoneAt) {
+				items = append(items, item)
+			}
+			continue
+		}
+
+		issueRef, ok := jiraIssueSourceRef(item)
+		if !ok || activeIssues[issueRef.ID] || checked[issueRef.ID] {
+			continue
+		}
+		checked[issueRef.ID] = true
+
+		key, ok := issueKeyFromSourceRefID(issueRef.ID)
+		if !ok {
+			logger.Warn("could not parse jira issue source ref id", "id", issueRef.ID)
+			continue
+		}
+		issue, err := fetchIssue(ctx, cfg, key)
+		if err != nil {
+			logger.Warn("could not resolve previous jira issue", "id", item.ID, "error", err)
+			continue
+		}
+		if !issueDone(issue) {
+			continue
+		}
+
+		reason := "jira done"
+		items = append(items, protocol.Task{
+			Kind:       "jira_done_issue",
+			Title:      item.Title,
+			Repo:       item.Repo,
+			URL:        item.URL,
+			Attention:  "done",
+			Reason:     reason,
+			DoneAt:     time.Now().UTC().Format(time.RFC3339),
+			SourceRefs: doneIssueSourceRefs(item.SourceRefs, cfg, issue, reason),
+		})
+	}
+
+	logger.Debug("resolved done jira issues", "count", len(items))
+	return items
+}
+
 func source_refsFromIssues(cfg Config, issues []issue, suffix string) []protocol.SourceRef {
 	source_refs := make([]protocol.SourceRef, 0, len(issues))
 	for _, issue := range issues {
@@ -118,6 +178,39 @@ func configFromEnv() (Config, bool, []string) {
 		missing = append(missing, "RADAR_JIRA_BASE_URL")
 	}
 	return cfg, len(missing) == 0, missing
+}
+
+func fetchIssue(ctx context.Context, cfg Config, key string) (issue, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	issueURL := cfg.APIBaseURL + "/issue/" + url.PathEscape(key) + "?fields=summary,status,issuetype,priority"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, issueURL, nil)
+	if err != nil {
+		return issue{}, err
+	}
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.SetBasicAuth(cfg.Email, cfg.APIToken)
+
+	res, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return issue{}, err
+	}
+	defer res.Body.Close()
+
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return issue{}, err
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return issue{}, fmt.Errorf("jira issue fetch failed: %s: %s", res.Status, strings.TrimSpace(string(data)))
+	}
+
+	var response issue
+	if err := json.Unmarshal(data, &response); err != nil {
+		return issue{}, fmt.Errorf("jira issue decode failed: %w: %s", err, previewResponse(data))
+	}
+	return response, nil
 }
 
 func searchAssignedIssues(ctx context.Context, cfg Config) ([]issue, error) {
@@ -266,4 +359,78 @@ func jiraIssueURL(baseURL string, key string) string {
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
 	return parsed.String()
+}
+
+func activeJiraIssueRefs(tasks []protocol.Task) map[string]bool {
+	active := map[string]bool{}
+	for _, task := range tasks {
+		for _, sourceRef := range task.SourceRefs {
+			if sourceRef.Source == "jira" && sourceRef.Kind == "issue" {
+				active[sourceRef.ID] = true
+			}
+		}
+	}
+	return active
+}
+
+func jiraIssueSourceRef(task protocol.Task) (protocol.SourceRef, bool) {
+	for _, sourceRef := range task.SourceRefs {
+		if sourceRef.Source == "jira" && sourceRef.Kind == "issue" {
+			return sourceRef, true
+		}
+	}
+	return protocol.SourceRef{}, false
+}
+
+func issueKeyFromSourceRefID(id string) (string, bool) {
+	key, ok := strings.CutPrefix(id, "jira:issue:")
+	return key, ok && key != ""
+}
+
+func issueDone(issue issue) bool {
+	return issue.Fields.Status != nil && issue.Fields.Status.StatusCategory != nil && strings.EqualFold(issue.Fields.Status.StatusCategory.Key, "done")
+}
+
+func doneIssueSourceRefs(sourceRefs []protocol.SourceRef, cfg Config, issue issue, reason string) []protocol.SourceRef {
+	updated := make([]protocol.SourceRef, 0, len(sourceRefs)+1)
+	id := "jira:issue:" + issue.Key
+	seen := false
+	for _, sourceRef := range sourceRefs {
+		if sourceRef.ID == id {
+			sourceRef = sourceRefFromIssue(cfg, issue)
+			sourceRef.Status = reason
+			seen = true
+		}
+		updated = append(updated, sourceRef)
+	}
+	if !seen {
+		sourceRef := sourceRefFromIssue(cfg, issue)
+		sourceRef.Status = reason
+		updated = append(updated, sourceRef)
+	}
+	return updated
+}
+
+func keepTodaysDoneIssues(previous []protocol.Task) []protocol.Task {
+	items := make([]protocol.Task, 0)
+	for _, item := range previous {
+		if item.Attention == "done" && isToday(item.DoneAt) {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+func isToday(value string) bool {
+	if value == "" {
+		return false
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return strings.HasPrefix(value, time.Now().Format("2006-01-02"))
+	}
+	now := time.Now()
+	y1, m1, d1 := parsed.Local().Date()
+	y2, m2, d2 := now.Local().Date()
+	return y1 == y2 && m1 == m2 && d1 == d2
 }
