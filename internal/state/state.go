@@ -457,10 +457,10 @@ func projectTasks(state persistedState) []protocol.Task {
 		if record.State == "done" && olderThan(record.DoneAt, 30*24*time.Hour) {
 			continue
 		}
-		task := record.Snapshot
+		task := cloneTask(record.Snapshot)
 		task.ID = record.NumericID
 		if refs := sourceRefsByRecord[record.ID]; len(refs) > 0 {
-			task.SourceRefs = sortSourceRefs(mergeSourceRefs(nil, refs))
+			task.SourceRefs = cloneSourceRefs(sortSourceRefs(mergeSourceRefs(nil, refs)))
 		}
 		if record.State == "done" {
 			task.Attention = "done"
@@ -482,6 +482,33 @@ func projectTasks(state persistedState) []protocol.Task {
 	}
 	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
 	return tasks
+}
+
+func cloneTask(task protocol.Task) protocol.Task {
+	task.SourceRefs = cloneSourceRefs(task.SourceRefs)
+	if task.Metadata != nil {
+		task.Metadata = cloneMetadata(task.Metadata)
+	}
+	return task
+}
+
+func cloneSourceRefs(sourceRefs []protocol.SourceRef) []protocol.SourceRef {
+	cloned := make([]protocol.SourceRef, len(sourceRefs))
+	for i, sourceRef := range sourceRefs {
+		cloned[i] = sourceRef
+		if sourceRef.Metadata != nil {
+			cloned[i].Metadata = cloneMetadata(sourceRef.Metadata)
+		}
+	}
+	return cloned
+}
+
+func cloneMetadata(metadata map[string]string) map[string]string {
+	cloned := make(map[string]string, len(metadata))
+	for key, value := range metadata {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func applyAck(task *protocol.Task, ack TaskAckState) bool {
