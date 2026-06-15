@@ -111,6 +111,42 @@ func TestLinkGroupsStandaloneWorktreeAndTmuxSessionByPath(t *testing.T) {
 	}
 }
 
+func TestLinkMergesMultiplePullRequestsOnSameTicket(t *testing.T) {
+	items := []protocol.Task{
+		{
+			Kind:      "github_own_pr",
+			Title:     "CAP-7 first PR",
+			Attention: "in_progress",
+			SourceRefs: []protocol.SourceRef{{
+				ID:     "github:pr:acme/app:1",
+				Source: "github",
+				Kind:   "pull_request",
+				Branch: "feature/CAP-7-first",
+			}},
+		},
+		{
+			Kind:      "github_own_pr",
+			Title:     "CAP-7 second PR",
+			Attention: "in_progress",
+			SourceRefs: []protocol.SourceRef{{
+				ID:     "github:pr:acme/app:2",
+				Source: "github",
+				Kind:   "pull_request",
+				Branch: "feature/CAP-7-second",
+			}},
+		},
+	}
+
+	linked := Link(Input{Tasks: items})
+
+	if len(linked) != 1 {
+		t.Fatalf("linked item count = %d, want 1", len(linked))
+	}
+	if len(linked[0].SourceRefs) != 2 {
+		t.Fatalf("source ref count = %d, want both PRs: %+v", len(linked[0].SourceRefs), linked[0].SourceRefs)
+	}
+}
+
 func TestLinkExtractsTicketKeysFromAnyMetadataValue(t *testing.T) {
 	items := []protocol.Task{
 		{
