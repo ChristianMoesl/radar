@@ -207,6 +207,9 @@ func assignTaskIDs(previous []protocol.Task, next []protocol.Task) []protocol.Ta
 	used := map[int]bool{}
 	for i, task := range next {
 		id := task.ID
+		if id != 0 && used[id] {
+			id = 0
+		}
 		if id == 0 {
 			id = matchingTaskID(task, bySourceRef, byKey, used)
 		}
