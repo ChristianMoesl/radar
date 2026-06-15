@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-var invalidSessionCharacters = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+var invalidWorkspaceNameCharacters = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 type Runner interface {
 	LookPath(name string) error
@@ -84,7 +84,7 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	}
 	path := options.Path
 	if path == "" {
-		path = filepath.Join(root, repoName, name)
+		path = filepath.Join(root, repoName, WorktreeName(name))
 	}
 	sessionName := options.SessionName
 	if sessionName == "" {
@@ -187,13 +187,17 @@ func Delete(ctx context.Context, runner Runner, path string, sessionName string,
 	return Workspace{Path: path, SessionName: sessionName}, nil
 }
 
-func SessionName(repoName string, workspaceName string) string {
-	name := invalidSessionCharacters.ReplaceAllString(repoName+"-"+workspaceName, "-")
+func WorktreeName(workspaceName string) string {
+	name := invalidWorkspaceNameCharacters.ReplaceAllString(workspaceName, "-")
 	name = strings.Trim(name, "-_")
 	if name == "" {
 		return "workspace"
 	}
 	return name
+}
+
+func SessionName(repoName string, workspaceName string) string {
+	return WorktreeName(repoName + "-" + workspaceName)
 }
 
 func copySetupFiles(source string, target string) error {

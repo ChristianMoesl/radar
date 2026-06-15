@@ -74,6 +74,33 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
 }
 
+func TestCreateEscapesWorktreeNamePathSegment(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	runner := &fakeRunner{repo: repo}
+
+	workspace, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		Name:          "feature/nested fix",
+		Base:          "origin/main",
+		WorkspaceRoot: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantPath := filepath.Join(root, filepath.Base(repo), "feature-nested-fix")
+	if workspace.Path != wantPath {
+		t.Fatalf("workspace path = %q, want %q", workspace.Path, wantPath)
+	}
+	if filepath.Dir(workspace.Path) != filepath.Join(root, filepath.Base(repo)) {
+		t.Fatalf("workspace path created nested directories: %q", workspace.Path)
+	}
+	if workspace.Branch != "feature/nested fix" {
+		t.Fatalf("workspace branch = %q, want original name", workspace.Branch)
+	}
+}
+
 func TestDeleteKillsSessionAndRemovesWorktree(t *testing.T) {
 	runner := &fakeRunner{hasSession: true}
 	path := filepath.Join(t.TempDir(), "repo", "small-fix")
@@ -120,6 +147,12 @@ func TestDeleteForceRemovesDirtyWorktree(t *testing.T) {
 	}
 	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
 	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove --force "+path)
+}
+
+func TestWorktreeNameSanitizesNames(t *testing.T) {
+	if got, want := WorktreeName("feature/nested fix"), "feature-nested-fix"; got != want {
+		t.Fatalf("WorktreeName() = %q, want %q", got, want)
+	}
 }
 
 func TestSessionNameSanitizesNames(t *testing.T) {
