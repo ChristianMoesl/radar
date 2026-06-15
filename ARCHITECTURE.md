@@ -66,16 +66,18 @@ SourceRef + TaskRecord => Task
 - `TaskRecord`: persistent Radar-owned tracking state. It gives continuity across refreshes and will own local state such as stable numeric task IDs, known source ref IDs, first/last seen timestamps, and acknowledgements.
 - `Task`: the current projected user-facing task served to the CLI/TUI. It has a Radar-owned integer ID and is computed from current source refs plus the matching task record.
 
-The target pipeline is:
+The pipeline is:
 
 ```text
 collect SourceRefs
 → match/update TaskRecords
 → project Tasks
-→ serve/cache Tasks
+→ serve Tasks
 ```
 
-The current implementation assigns stable integer task IDs by matching new projections against the previous task cache by source ref IDs and ticket keys. It still persists the latest projected tasks as the cache/state boundary. The next state-model step is to introduce explicit `TaskRecord`s and make projected `Task`s cache/output rather than durable source of truth.
+The local state file persists explicit `TaskRecord`s and `SourceRefRecord`s. `Task`s are disposable projections for the socket protocol, CLI, and TUI. Task records own durable identity, stable numeric task IDs, lifecycle state, source-ref ownership, and user acknowledgement state. Source refs remain source-system facts with first/last seen timestamps and an active flag.
+
+Radar groups work ticket-first: if any linked source ref contains a ticket key, that ticket is the canonical work item. Without a ticket, local workspaces group by worktree path, then GitHub PRs, Jira issues, or standalone source refs become the canonical key. Each source ref is assigned to one task record at a time, so local and remote refs do not duplicate across multiple projected tasks.
 
 ## Task lifecycle
 
@@ -88,17 +90,19 @@ Radar has three active categories and one historical category:
 
 Ingestion and linking are separate steps. Ingestion code talks to external systems and produces raw active tasks/source refs. Linker code connects source refs from different sources into one user-facing task.
 
-`done` is derived from previously tracked tasks. If a task was active in the local store and later disappears from the active collector result, the relevant integration checks the remote state. If the remote task resolved today, Radar moves it to `done`.
+`done` is a durable task-record state. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state and emits a done transition. The state store applies that transition to the existing task record. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate.
+
+Local cleanup has explicit semantics: removing a tmux session only marks that source ref inactive, while removing a local worktree marks the local workspace record done when no GitHub or Jira source remains attached.
 
 ## Local state
 
-The daemon currently stores the latest known projected tasks on disk:
+The daemon stores durable task records and source-ref records on disk:
 
 ```text
 $XDG_STATE_HOME/radar/tasks.json
 ```
 
-This allows fast startup and lets the TUI show cached information immediately. The stored model will eventually move to explicit task records plus an optional task cache.
+Projected tasks are rebuilt from this state. The file also stores source statuses so the TUI can show cached status immediately. User acknowledgement state lives on task records, not inside source-ref metadata.
 
 ## Config
 
