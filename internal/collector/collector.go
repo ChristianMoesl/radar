@@ -67,11 +67,7 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger)
 
 func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Result {
 	ingested := IngestSources(ctx, previous, logger, LocalSources())
-	baseTasks := withoutSourceRefs(previous, map[string]bool{"git": true, "tmux": true})
-	tasks := linker.Link(linker.Input{
-		Tasks:      baseTasks,
-		SourceRefs: ingested.SourceRefs,
-	})
+	tasks := linker.Link(linker.Input{SourceRefs: ingested.SourceRefs})
 	return Result{Tasks: applyTaskFilters(tasks, logger), Sources: ingested.Sources}
 }
 

@@ -143,8 +143,16 @@ func (s *Store) Load() error {
 }
 
 func (s *Store) SetTasks(items []protocol.Task) {
+	s.setTasks(items, nil)
+}
+
+func (s *Store) SetLocalTasks(items []protocol.Task) {
+	s.setTasks(items, map[string]bool{"git": true, "tmux": true})
+}
+
+func (s *Store) setTasks(items []protocol.Task, sources map[string]bool) {
 	s.mu.Lock()
-	s.state = reconcileState(s.state, items, time.Now().UTC())
+	s.state = reconcileStateForSources(s.state, items, time.Now().UTC(), sources)
 	s.items = projectTasks(s.state)
 	s.mu.Unlock()
 
@@ -284,6 +292,10 @@ func (s *Store) Summary() protocol.Summary {
 var ticketPattern = regexp.MustCompile(`(?i)[A-Z][A-Z0-9]+-[0-9]+`)
 
 func reconcileState(previous persistedState, observed []protocol.Task, now time.Time) persistedState {
+	return reconcileStateForSources(previous, observed, now, nil)
+}
+
+func reconcileStateForSources(previous persistedState, observed []protocol.Task, now time.Time, sourceScope map[string]bool) persistedState {
 	state := previous
 	state.Version = stateVersion
 	nowText := now.Format(time.RFC3339)
@@ -314,7 +326,9 @@ func reconcileState(previous persistedState, observed []protocol.Task, now time.
 	state.NextTaskID = maxID
 
 	for i := range state.SourceRefs {
-		state.SourceRefs[i].Active = false
+		if sourceScope == nil || sourceScope[state.SourceRefs[i].Source] {
+			state.SourceRefs[i].Active = false
+		}
 	}
 	sourceRefsByID := map[string]*SourceRefRecord{}
 	for i := range state.SourceRefs {
@@ -346,7 +360,11 @@ func reconcileState(previous persistedState, observed []protocol.Task, now time.
 
 		record.LastSeen = nowText
 		record.UpdatedAt = nowText
-		record.Snapshot = task
+		if sourceScope == nil {
+			record.Snapshot = task
+		} else {
+			record.Snapshot = mergeTasks(record.Snapshot, task)
+		}
 		record.SourceRefIDs = mergeStringSet(record.SourceRefIDs, sourceRefIDs(task.SourceRefs))
 		if task.Attention == "done" {
 			record.State = "done"
@@ -442,13 +460,15 @@ func mergeTasks(left, right protocol.Task) protocol.Task {
 }
 
 func projectTasks(state persistedState) []protocol.Task {
-	sourceRefsByRecord := map[string][]protocol.SourceRef{}
+	activeSourceRefsByRecord := map[string][]protocol.SourceRef{}
+	allSourceRefsByRecord := map[string][]protocol.SourceRef{}
 	for _, ref := range state.SourceRefs {
-		if ref.TaskRecordID == "" || ref.ID == "" {
+		if ref.TaskRecordID == "" || ref.ID == "" || ref.Snapshot.ID == "" {
 			continue
 		}
-		if ref.Active || ref.Snapshot.ID != "" {
-			sourceRefsByRecord[ref.TaskRecordID] = append(sourceRefsByRecord[ref.TaskRecordID], ref.Snapshot)
+		allSourceRefsByRecord[ref.TaskRecordID] = append(allSourceRefsByRecord[ref.TaskRecordID], ref.Snapshot)
+		if ref.Active {
+			activeSourceRefsByRecord[ref.TaskRecordID] = append(activeSourceRefsByRecord[ref.TaskRecordID], ref.Snapshot)
 		}
 	}
 
@@ -459,7 +479,14 @@ func projectTasks(state persistedState) []protocol.Task {
 		}
 		task := cloneTask(record.Snapshot)
 		task.ID = record.NumericID
-		if refs := sourceRefsByRecord[record.ID]; len(refs) > 0 {
+		refs := activeSourceRefsByRecord[record.ID]
+		if record.State == "done" {
+			refs = allSourceRefsByRecord[record.ID]
+		}
+		if len(refs) == 0 && record.State != "done" {
+			continue
+		}
+		if len(refs) > 0 {
 			task.SourceRefs = cloneSourceRefs(sortSourceRefs(mergeSourceRefs(nil, refs)))
 		}
 		if record.State == "done" {

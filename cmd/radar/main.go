@@ -348,7 +348,7 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 		var result collector.Result
 		if scope == refreshLocal {
 			result = collector.CollectLocal(ctx, previous, logger)
-			store.SetTasks(result.Tasks)
+			store.SetLocalTasks(result.Tasks)
 			store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
 		} else {
 			result = collector.Collect(ctx, previous, logger)

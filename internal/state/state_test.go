@@ -72,6 +72,45 @@ func TestProjectTasksAppliesAcknowledgementOutsideSourceMetadata(t *testing.T) {
 	}
 }
 
+func TestLocalReconcilePreservesRemoteRefsAndUpdatesLocalRefs(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{
+		Title:     "CAP-7 ship",
+		Attention: "in_progress",
+		SourceRefs: []protocol.SourceRef{
+			{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request", Branch: "feature/CAP-7-ship"},
+			{ID: "git:worktree:/old", Source: "git", Kind: "worktree", Path: "/old", Branch: "feature/CAP-7-ship"},
+		},
+	}}, now)
+
+	state = reconcileStateForSources(state, []protocol.Task{{
+		Title:      "feature/CAP-7-ship",
+		Attention:  "in_progress",
+		SourceRefs: []protocol.SourceRef{{ID: "git:worktree:/new", Source: "git", Kind: "worktree", Path: "/new", Branch: "feature/CAP-7-ship"}},
+	}}, now.Add(time.Hour), map[string]bool{"git": true, "tmux": true})
+
+	var githubActive, oldGitActive, newGitActive bool
+	for _, ref := range state.SourceRefs {
+		switch ref.ID {
+		case "github:pr:acme/app:7":
+			githubActive = ref.Active
+		case "git:worktree:/old":
+			oldGitActive = ref.Active
+		case "git:worktree:/new":
+			newGitActive = ref.Active
+		}
+	}
+	if !githubActive {
+		t.Fatal("local reconcile deactivated remote github ref")
+	}
+	if oldGitActive {
+		t.Fatal("local reconcile kept old git ref active")
+	}
+	if !newGitActive {
+		t.Fatal("local reconcile did not activate new git ref")
+	}
+}
+
 func TestReconcileStateMarksRemovedWorktreeDoneButNotTmuxOnly(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
