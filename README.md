@@ -1,6 +1,6 @@
 # Radar
 
-Radar is a CLI-first tool for keeping track of engineering work that needs your attention. It combines a terminal UI, scriptable commands, a background daemon, GitHub/Jira/Git/tmux collection, and workstream creation in one Go binary.
+Radar is a CLI-first tool for keeping track of engineering work that needs your attention. It combines a terminal UI, scriptable commands, a background daemon, GitHub/Jira/Git/tmux collection, and workspace creation in one Go binary.
 
 ## Build
 
@@ -14,7 +14,7 @@ Radar uses these local tools:
 
 - `fd` for fast repository discovery in `radar create`
 - `git` for repository and worktree operations
-- `tmux`, `pi`, and `nvim` for workstream creation
+- `tmux`, `pi`, and `nvim` for workspace creation
 
 Radar opens task URLs with the platform URL opener when you press `o` and choose a URL-backed source such as Jira or GitHub:
 
@@ -49,25 +49,25 @@ k / up       move up
 enter        switch tmux session when connected
 o            open task link, then press g for GitHub or j for Jira
 i            inspect selected task
-c            create workstream
-d            delete selected workstream after confirmation
-f            edit filters
+c            create workspace
+d            delete selected workspace after confirmation
+f            edit config
 r            refresh
 R            reset local state and refresh
 q / esc      quit
 ```
 
-The create flow is step-by-step: fuzzy search a repository, fuzzy search a base branch, then enter the workstream name. Repository paths are displayed as `~/...` when they are inside your home directory.
+The create flow is step-by-step: fuzzy search a repository, fuzzy search a base branch, then enter the workspace name. Repository paths are displayed as `~/...` when they are inside your home directory.
 
-## Workstreams
+## Workspaces
 
-Open the interactive workstream creation flow:
+Open the interactive workspace creation flow:
 
 ```sh
 ./radar create
 ```
 
-Create a workstream non-interactively:
+Create a workspace non-interactively:
 
 ```sh
 ./radar create --repo /path/to/repo --base origin/main --name my-feature
@@ -75,17 +75,17 @@ Create a workstream non-interactively:
 
 Radar creates:
 
-- a Git worktree at `~/workstreams/<repo>/<name>`
-- a branch named after the workstream
+- a Git worktree at `<workspace_root>/<repo>/<name>`
+- a branch named after the workspace
 - a matching tmux session
 - `pi` and `nvim` tmux windows
 
 When run inside tmux, Radar switches to the new session.
 
-Delete a clean workstream:
+Delete a clean workspace:
 
 ```sh
-./radar delete --path ~/workstreams/<repo>/my-feature
+./radar delete --path <workspace_root>/<repo>/my-feature
 ```
 
 Delete only a tmux session:
@@ -94,7 +94,7 @@ Delete only a tmux session:
 ./radar delete --session <tmux-session-name-or-id>
 ```
 
-Workstream deletion refuses dirty worktrees. There is intentionally no force flag yet; keep the command path conservative until the TUI has a confirmation flow.
+Workspace deletion refuses dirty worktrees. There is intentionally no force flag yet; keep the command path conservative until the TUI has a confirmation flow.
 
 ## Scriptable commands
 
@@ -105,7 +105,7 @@ Workstream deletion refuses dirty worktrees. There is intentionally no force fla
 ./radar reset
 ./radar stop
 ./radar restart
-./radar filters-path
+./radar config-path
 ./radar state-path
 ./radar log-path
 ```
@@ -179,36 +179,41 @@ Radar collects tmux sessions from the local tmux server and attaches them to mat
 
 Tmux session refs use `#{session_id}` for stable identity, so renaming a tmux session does not create a new Radar task. Selecting a tmux-backed task switches to the stable session target.
 
-## Filters
+## Config
 
-Radar can hide or deprioritize noisy repositories and users with an editable JSON file:
+Radar uses one editable JSON config file:
 
 ```sh
-./radar filters-path
+./radar config-path
 ```
 
-By default this is `$XDG_CONFIG_HOME/radar/filters.json` or `~/.config/radar/filters.json`.
-Override it with `RADAR_FILTERS=/path/to/filters.json`.
+By default this is `$XDG_CONFIG_HOME/radar/config.json` or `~/.config/radar/config.json`.
 The daemon creates an example file on startup if it does not exist yet.
 
 Example:
 
 ```json
 {
-  "mute_repos": ["some-org/noisy-repo"],
-  "deprioritize_repos": ["some-org/archive-*"],
-  "mute_users": ["dependabot[bot]"],
-  "deprioritize_users": ["renovate[bot]"],
-  "rules": [
-    {
-      "name": "Track bot PRs in owned repos",
-      "repos": ["some-org/platform-*"],
-      "users": ["renovate[bot]", "dependabot[bot]"],
-      "action": "deprioritize"
-    }
-  ]
+  "repository_dirs": ["~/workspace", "~/code", "~/src", "~/dev", "~/projects"],
+  "workspace_root": "~/workspaces",
+  "filters": {
+    "mute_repos": ["some-org/noisy-repo"],
+    "deprioritize_repos": ["some-org/archive-*"],
+    "mute_users": ["dependabot[bot]"],
+    "deprioritize_users": ["renovate[bot]"],
+    "rules": [
+      {
+        "name": "Track bot PRs in owned repos",
+        "repos": ["some-org/platform-*"],
+        "users": ["renovate[bot]", "dependabot[bot]"],
+        "action": "deprioritize"
+      }
+    ]
+  }
 }
 ```
+
+`repository_dirs` controls where `radar create` discovers base repositories. `workspace_root` controls where Radar creates worktrees.
 
 Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the low-priority section. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive.
 

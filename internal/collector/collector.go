@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"radar.nvim/internal/filters"
+	"radar.nvim/internal/config"
 	gitcollector "radar.nvim/internal/git"
 	"radar.nvim/internal/github"
 	"radar.nvim/internal/ingestion"
@@ -86,10 +86,11 @@ func IngestSources(ctx context.Context, previous []protocol.Task, logger *slog.L
 		Results:    map[string]ingestion.Result{},
 	}
 
-	filterCfg, err := filters.Load()
+	cfg, err := config.Load()
 	if err != nil {
-		logger.Warn("could not load filters for ingestion", "error", err)
+		logger.Warn("could not load config for ingestion", "error", err)
 	}
+	filterCfg := cfg.Filters
 
 	for _, source := range sources {
 		status := ingestion.StatusResult{

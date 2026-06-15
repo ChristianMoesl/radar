@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"radar.nvim/internal/config"
 	"radar.nvim/internal/filters"
 	"radar.nvim/internal/protocol"
 	"radar.nvim/internal/socket"
@@ -112,10 +113,10 @@ func (s *Server) handle(conn net.Conn) {
 
 func (s *Server) filteredTasks() []protocol.Task {
 	tasks := s.store.Tasks()
-	cfg, err := filters.Load()
+	cfg, err := config.Load()
 	if err != nil {
-		s.logger.Warn("could not load filters", "error", err)
+		s.logger.Warn("could not load config", "error", err)
 		return tasks
 	}
-	return filters.Apply(tasks, cfg)
+	return filters.Apply(tasks, cfg.Filters)
 }

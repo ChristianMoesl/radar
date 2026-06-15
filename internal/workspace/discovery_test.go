@@ -1,4 +1,4 @@
-package workstream
+package workspace
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"radar.nvim/internal/config"
 )
 
 type discoveryRunner struct {
@@ -59,18 +61,19 @@ func (d *countingDiscoveryRunner) Run(_ context.Context, cwd string, name string
 func TestDiscoverReposUsesGitDirectoriesWithoutResolvingEveryRepo(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 
 	current := filepath.Join(home, "workspace", "current")
 	currentSubdir := filepath.Join(current, "src")
 	repo := filepath.Join(home, "workspace", "repo")
 	worktree := filepath.Join(home, "workspace", "worktree")
-	generatedWorkstream := filepath.Join(home, "workstreams", "repo", "feature")
+	generatedWorkspace := filepath.Join(home, "workspaces", "repo", "feature")
 	for _, path := range []string{
 		filepath.Join(current, ".git"),
 		currentSubdir,
 		filepath.Join(repo, ".git"),
 		worktree,
-		filepath.Join(generatedWorkstream, ".git"),
+		filepath.Join(generatedWorkspace, ".git"),
 	} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)
@@ -85,7 +88,7 @@ func TestDiscoverReposUsesGitDirectoriesWithoutResolvingEveryRepo(t *testing.T) 
 		fdOutput: strings.Join([]string{
 			filepath.Join(current, ".git"),
 			filepath.Join(repo, ".git"),
-			filepath.Join(generatedWorkstream, ".git"),
+			filepath.Join(generatedWorkspace, ".git"),
 		}, "\n"),
 	}
 	got, err := DiscoverRepos(context.Background(), runner, currentSubdir)
@@ -108,6 +111,45 @@ func TestDiscoverReposUsesGitDirectoriesWithoutResolvingEveryRepo(t *testing.T) 
 	}
 }
 
+func TestRepositoryDirsUsesConfig(t *testing.T) {
+	home := t.TempDir()
+	one := filepath.Join(home, "one")
+	two := filepath.Join(home, "two")
+	missing := filepath.Join(home, "missing")
+	if err := os.MkdirAll(one, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(two, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := RepositoryDirs(config.Config{RepositoryDirs: []string{one, missing, two, one}})
+	want := []string{one, two}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("RepositoryDirs() = %#v, want %#v", got, want)
+	}
+}
+
+func TestDefaultRootUsesConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	path := filepath.Join(home, "config", "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"workspace_root":"~/streams"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := DefaultRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(home, "streams")
+	if got != want {
+		t.Fatalf("DefaultRoot() = %q, want %q", got, want)
+	}
+}
+
 func TestBranchesOrdersOriginBeforeLocal(t *testing.T) {
 	runner := discoveryRunner{branches: strings.Join([]string{
 		"refs/heads/feature\tfeature\t",
@@ -126,7 +168,7 @@ func TestBranchesOrdersOriginBeforeLocal(t *testing.T) {
 	}
 }
 
-func TestPathsListsWorkstreams(t *testing.T) {
+func TestPathsListsWorkspaces(t *testing.T) {
 	root := t.TempDir()
 	for _, path := range []string{
 		filepath.Join(root, "repo-b", "two"),

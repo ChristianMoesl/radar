@@ -1,9 +1,6 @@
 package filters
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"radar.nvim/internal/protocol"
@@ -30,68 +27,6 @@ const (
 	actionDeprioritize = "deprioritize"
 	actionLowPriority  = "low_priority"
 )
-
-func Path() (string, error) {
-	if explicit := os.Getenv("RADAR_FILTERS"); explicit != "" {
-		return explicit, nil
-	}
-
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		base = filepath.Join(home, ".config")
-	}
-
-	return filepath.Join(base, "radar", "filters.json"), nil
-}
-
-func Load() (Config, error) {
-	path, err := Path()
-	if err != nil {
-		return Config{}, err
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return Config{}, nil
-		}
-		return Config{}, err
-	}
-	if len(strings.TrimSpace(string(data))) == 0 {
-		return Config{}, nil
-	}
-
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return Config{}, err
-	}
-	return cfg, nil
-}
-
-func EnsureFile() (string, error) {
-	path, err := Path()
-	if err != nil {
-		return "", err
-	}
-	if _, err := os.Stat(path); err == nil {
-		return path, nil
-	} else if !os.IsNotExist(err) {
-		return "", err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", err
-	}
-	data := []byte("{\n  \"mute_repos\": [],\n  \"deprioritize_repos\": [],\n  \"mute_users\": [],\n  \"deprioritize_users\": [],\n  \"rules\": [\n    {\n      \"name\": \"Track bot PRs in selected repos\",\n      \"repos\": [\"example-org/*\"],\n      \"users\": [\"dependabot[bot]\", \"renovate[bot]\"],\n      \"action\": \"deprioritize\"\n    }\n  ]\n}\n")
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return "", err
-	}
-	return path, nil
-}
 
 func Apply(items []protocol.Task, cfg Config) []protocol.Task {
 	filtered := make([]protocol.Task, 0, len(items))

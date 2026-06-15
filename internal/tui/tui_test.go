@@ -34,7 +34,7 @@ func TestCreateRepoViewRendersFuzzySearch(t *testing.T) {
 	model := model{mode: "create_repo", create: createForm{repoList: picker{query: "rad", options: []string{"/repo/radar", "/repo/other"}}}}
 
 	view := model.View()
-	for _, want := range []string{"Create workstream", "Repository", "rad", "/repo/radar"} {
+	for _, want := range []string{"Create workspace", "Repository", "rad", "/repo/radar"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q:\n%s", want, view)
 		}
@@ -45,7 +45,7 @@ func TestCreateNameViewRendersSelectedRepoAndBase(t *testing.T) {
 	model := model{mode: "create_name", create: createForm{repo: "/repo/radar", base: "origin/main", name: "small-fix"}}
 
 	view := model.View()
-	for _, want := range []string{"Create workstream", "Repository /repo/radar", "Base       origin/main", "Name       small-fix"} {
+	for _, want := range []string{"Create workspace", "Repository /repo/radar", "Base       origin/main", "Name       small-fix"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q:\n%s", want, view)
 		}
@@ -81,11 +81,11 @@ func TestDeleteConfirmViewShowsTmuxSessionOnlyDelete(t *testing.T) {
 	}
 }
 
-func TestDeleteConfirmViewWarnsAboutDirtyWorkstream(t *testing.T) {
+func TestDeleteConfirmViewWarnsAboutDirtyWorkspace(t *testing.T) {
 	model := model{mode: "delete_confirm", delete: deletePreview{Path: "/repo/worktrees/small-fix", Branch: "small-fix", SessionName: "repo-small-fix", Dirty: true}}
 
 	view := model.View()
-	for _, want := range []string{"Delete dirty workstream?", "uncommitted changes", "/repo/worktrees/small-fix", "small-fix", "repo-small-fix"} {
+	for _, want := range []string{"Delete dirty workspace?", "uncommitted changes", "/repo/worktrees/small-fix", "small-fix", "repo-small-fix"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q:\n%s", want, view)
 		}

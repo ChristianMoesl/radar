@@ -1,4 +1,4 @@
-package workstream
+package workspace
 
 import (
 	"context"
@@ -48,7 +48,7 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	}
 	runner := &fakeRunner{repo: repo}
 
-	workstream, err := Create(context.Background(), runner, CreateOptions{
+	workspace, err := Create(context.Background(), runner, CreateOptions{
 		Repo:          repo,
 		Name:          "small fix",
 		Base:          "origin/main",
@@ -58,20 +58,20 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if workstream.Branch != "small fix" || workstream.SessionName != filepath.Base(repo)+"-small-fix" {
-		t.Fatalf("unexpected workstream: %#v", workstream)
+	if workspace.Branch != "small fix" || workspace.SessionName != filepath.Base(repo)+"-small-fix" {
+		t.Fatalf("unexpected workspace: %#v", workspace)
 	}
-	data, err := os.ReadFile(filepath.Join(workstream.Path, ".env"))
+	data, err := os.ReadFile(filepath.Join(workspace.Path, ".env"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(data) != "SECRET=local\n" {
 		t.Fatalf("copied .env = %q", data)
 	}
-	assertCalled(t, runner.calls, "git", "worktree add -b small fix "+workstream.Path+" origin/main")
-	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workstream.SessionName)
-	assertCalled(t, runner.calls, "tmux", "new-window -t "+workstream.SessionName+":")
-	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workstream.SessionName)
+	assertCalled(t, runner.calls, "git", "worktree add -b small fix "+workspace.Path+" origin/main")
+	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workspace.SessionName)
+	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+":")
+	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
 }
 
 func TestDeleteKillsSessionAndRemovesWorktree(t *testing.T) {

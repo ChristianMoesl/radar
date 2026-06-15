@@ -69,7 +69,6 @@ func setupIsolatedEnvironment(t *testing.T, tmp string) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(tmp, "state"))
-	t.Setenv("RADAR_FILTERS", filepath.Join(tmp, "missing-filters.json"))
 	t.Setenv("TMUX", "")
 }
 

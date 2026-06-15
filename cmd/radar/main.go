@@ -15,7 +15,7 @@ import (
 
 	"radar.nvim/internal/client"
 	"radar.nvim/internal/collector"
-	"radar.nvim/internal/filters"
+	"radar.nvim/internal/config"
 	"radar.nvim/internal/github"
 	"radar.nvim/internal/logging"
 	"radar.nvim/internal/process"
@@ -24,7 +24,7 @@ import (
 	"radar.nvim/internal/socket"
 	"radar.nvim/internal/state"
 	"radar.nvim/internal/tui"
-	"radar.nvim/internal/workstream"
+	"radar.nvim/internal/workspace"
 )
 
 func main() {
@@ -63,8 +63,8 @@ func main() {
 		printLogPath()
 	case "state-path":
 		printStatePath()
-	case "filters-path":
-		printFiltersPath()
+	case "config-path":
+		printConfigPath()
 	case "rate-limit", "rate-limits":
 		printRateLimit()
 	case "help", "-h", "--help":
@@ -107,7 +107,7 @@ func runCreate(args []string) {
 	flags := flag.NewFlagSet("radar create", flag.ExitOnError)
 	repo := flags.String("repo", "", "repository path")
 	base := flags.String("base", "", "base branch or revision")
-	name := flags.String("name", "", "workstream name")
+	name := flags.String("name", "", "workspace name")
 	_ = flags.Parse(args)
 
 	if *repo == "" && *base == "" && *name == "" {
@@ -119,7 +119,7 @@ func runCreate(args []string) {
 		os.Exit(2)
 	}
 
-	result, err := workstream.Create(context.Background(), workstream.ExecRunner{}, workstream.CreateOptions{
+	result, err := workspace.Create(context.Background(), workspace.ExecRunner{}, workspace.CreateOptions{
 		Repo:   *repo,
 		Base:   *base,
 		Name:   *name,
@@ -133,7 +133,7 @@ func runCreate(args []string) {
 
 func runDelete(args []string) {
 	flags := flag.NewFlagSet("radar delete", flag.ExitOnError)
-	path := flags.String("path", "", "workstream path")
+	path := flags.String("path", "", "workspace path")
 	session := flags.String("session", "", "tmux session name or id")
 	_ = flags.Parse(args)
 
@@ -142,12 +142,12 @@ func runDelete(args []string) {
 		os.Exit(2)
 	}
 
-	var result workstream.Workstream
+	var result workspace.Workspace
 	var err error
 	if *session != "" {
-		result, err = workstream.DeleteSession(context.Background(), workstream.ExecRunner{}, *session)
+		result, err = workspace.DeleteSession(context.Background(), workspace.ExecRunner{}, *session)
 	} else {
-		result, err = workstream.Delete(context.Background(), workstream.ExecRunner{}, *path, "", false)
+		result, err = workspace.Delete(context.Background(), workspace.ExecRunner{}, *path, "", false)
 	}
 	if err != nil {
 		fatal(err)
@@ -184,10 +184,10 @@ func runDaemon() {
 
 	logger.Info("daemon starting", "socket", path, "log", logPath, "pid", os.Getpid(), "pid_file", pidPath)
 
-	if filtersPath, err := filters.EnsureFile(); err != nil {
-		logger.Warn("could not initialize filters file", "error", err)
+	if configPath, err := config.EnsureFile(); err != nil {
+		logger.Warn("could not initialize config file", "error", err)
 	} else {
-		logger.Info("filters file ready", "path", filtersPath)
+		logger.Info("config file ready", "path", configPath)
 	}
 
 	store, err := state.NewStore(logger)
@@ -437,8 +437,8 @@ func printStatePath() {
 	fmt.Println(path)
 }
 
-func printFiltersPath() {
-	path, err := filters.EnsureFile()
+func printConfigPath() {
+	path, err := config.EnsureFile()
 	if err != nil {
 		fatal(err)
 	}
@@ -460,10 +460,10 @@ func usage() {
 Interactive:
   radar                         open the terminal UI
 
-Workstreams:
+Workspaces:
   radar create
   radar create --repo <repo> --base <branch> --name <name>
-  radar delete --path <workstream-path>
+  radar delete --path <workspace-path>
   radar delete --session <tmux-session-name-or-id>
 
 Daemon and status:
@@ -479,7 +479,7 @@ Other:
   radar ack <task-id>
   radar log-path
   radar state-path
-  radar filters-path
+  radar config-path
   radar rate-limit`)
 }
 
@@ -490,14 +490,14 @@ func createUsage() {
 Options:
   --repo   repository path
   --base   base branch or revision, for example origin/main
-  --name   workstream name; also used as the branch name`)
+  --name   workspace name; also used as the branch name`)
 }
 
 func deleteUsage() {
-	fmt.Fprintln(os.Stderr, `usage: radar delete (--path <workstream-path> | --session <tmux-session-name-or-id>)
+	fmt.Fprintln(os.Stderr, `usage: radar delete (--path <workspace-path> | --session <tmux-session-name-or-id>)
 
 Options:
-  --path      workstream path to delete
+  --path      workspace path to delete
   --session   tmux session name or id to delete`)
 }
 

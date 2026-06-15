@@ -72,7 +72,7 @@ The exact feature mapping should be designed when this work starts, but the targ
 - project/worktree/session creation from the CLI/TUI
 - quick selection and switching between active work contexts
 - tmux-friendly workflows for opening or attaching to work
-- scriptable commands for automation, starting with `radar create --repo <repo> --base <branch> --name <name>` and `radar delete --path <workstream-path>`
+- scriptable commands for automation, starting with `radar create --repo <repo> --base <branch> --name <name>` and `radar delete --path <workspace-path>`
 - no new dependency on Neovim as the primary interface
 
 ## tmux integration

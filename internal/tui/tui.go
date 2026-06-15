@@ -13,9 +13,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"radar.nvim/internal/client"
-	"radar.nvim/internal/filters"
+	"radar.nvim/internal/config"
 	"radar.nvim/internal/protocol"
-	"radar.nvim/internal/workstream"
+	"radar.nvim/internal/workspace"
 )
 
 type fetchMsg struct {
@@ -224,7 +224,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.create = newCreateForm()
 			return m, m.loadRepos()
 		case "f":
-			return m, m.openFilters()
+			return m, m.openConfig()
 		case "i", "right", "l":
 			if len(m.tasks) > 0 {
 				m.mode = "detail"
@@ -401,7 +401,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • o open link • i inspect • c create • d delete • f filters • r refresh • R reset • q quit"))
+	sections = append(sections, helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • o open link • i inspect • c create • d delete • f config • r refresh • R reset • q quit"))
 	return sections
 }
 
@@ -539,14 +539,14 @@ func (m model) loadRepos() tea.Cmd {
 		if err != nil {
 			return reposMsg{err: err}
 		}
-		repos, err := workstream.DiscoverRepos(context.Background(), workstream.ExecRunner{}, cwd)
+		repos, err := workspace.DiscoverRepos(context.Background(), workspace.ExecRunner{}, cwd)
 		return reposMsg{repos: repos, err: err}
 	}
 }
 
 func (m model) loadBranches(repo string) tea.Cmd {
 	return func() tea.Msg {
-		branches, err := workstream.Branches(context.Background(), workstream.ExecRunner{}, repo)
+		branches, err := workspace.Branches(context.Background(), workspace.ExecRunner{}, repo)
 		return branchesMsg{branches: branches, err: err}
 	}
 }
@@ -602,10 +602,10 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 	m.mode = ""
 	m.loading = true
 	m.err = nil
-	m.message = "Creating workstream…"
+	m.message = "Creating workspace…"
 	return m, func() tea.Msg {
 		switchAfterCreate := os.Getenv("TMUX") != ""
-		created, err := workstream.Create(context.Background(), workstream.ExecRunner{}, workstream.CreateOptions{
+		created, err := workspace.Create(context.Background(), workspace.ExecRunner{}, workspace.CreateOptions{
 			Repo:   form.repo,
 			Base:   form.base,
 			Name:   form.name,
@@ -628,7 +628,7 @@ func (m model) previewDelete(task protocol.Task) tea.Cmd {
 			}
 			return deletePreviewMsg{preview: deletePreview{SessionName: sessionName, SessionOnly: true}}
 		}
-		status, err := workstream.ExecRunner{}.Run(context.Background(), "", "git", "-C", ref.Path, "status", "--porcelain")
+		status, err := workspace.ExecRunner{}.Run(context.Background(), "", "git", "-C", ref.Path, "status", "--porcelain")
 		if err != nil {
 			return deletePreviewMsg{err: err}
 		}
@@ -645,13 +645,13 @@ func (m model) previewDelete(task protocol.Task) tea.Cmd {
 func (m model) deleteSelected(preview deletePreview) tea.Cmd {
 	return func() tea.Msg {
 		if preview.SessionOnly {
-			deleted, err := workstream.DeleteSession(context.Background(), workstream.ExecRunner{}, preview.SessionName)
+			deleted, err := workspace.DeleteSession(context.Background(), workspace.ExecRunner{}, preview.SessionName)
 			if err != nil {
 				return actionMsg{err: err}
 			}
 			return actionMsg{message: "Deleted session " + deleted.SessionName, refresh: true}
 		}
-		deleted, err := workstream.Delete(context.Background(), workstream.ExecRunner{}, preview.Path, preview.SessionName, true)
+		deleted, err := workspace.Delete(context.Background(), workspace.ExecRunner{}, preview.Path, preview.SessionName, true)
 		if err != nil {
 			return actionMsg{err: err}
 		}
@@ -743,19 +743,19 @@ func fuzzyMatch(value string, query string) bool {
 func (m model) createView(width int) string {
 	switch m.mode {
 	case "create_repo":
-		return m.pickerView(width, "Create workstream", "Repository", m.create.repoList)
+		return m.pickerView(width, "Create workspace", "Repository", m.create.repoList)
 	case "create_base":
 		return strings.Join([]string{
 			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
-			m.pickerView(width, "Create workstream", "Base branch", m.create.baseList),
+			m.pickerView(width, "Create workspace", "Base branch", m.create.baseList),
 		}, "\n")
 	case "create_name":
 		name := m.create.name
 		if name == "" {
-			name = subtleStyle.Render("type a workstream name")
+			name = subtleStyle.Render("type a workspace name")
 		}
 		return strings.Join([]string{
-			titleStyle.Render("Create workstream"),
+			titleStyle.Render("Create workspace"),
 			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
 			subtleStyle.Render("Base       " + m.create.base),
 			selectedStyle.Width(width - 4).Render("› Name       " + name),
@@ -767,13 +767,13 @@ func (m model) createView(width int) string {
 
 func (m model) deleteConfirmView(width int) string {
 	preview := m.delete
-	title := "Delete workstream?"
+	title := "Delete workspace?"
 	warning := "This will remove the git worktree."
 	if preview.SessionOnly {
 		title = "Delete tmux session?"
 		warning = "This will kill only the tmux session."
 	} else if preview.Dirty {
-		title = "Delete dirty workstream?"
+		title = "Delete dirty workspace?"
 		warning = "This worktree has uncommitted changes. Deleting will permanently discard them."
 	}
 
@@ -906,8 +906,8 @@ func (m model) fetch(method string) tea.Cmd {
 	}
 }
 
-func (m model) openFilters() tea.Cmd {
-	path, err := filters.EnsureFile()
+func (m model) openConfig() tea.Cmd {
+	path, err := config.EnsureFile()
 	if err != nil {
 		return func() tea.Msg { return actionMsg{err: err} }
 	}
@@ -919,7 +919,7 @@ func (m model) openFilters() tea.Cmd {
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		return actionMsg{message: "Filters saved", refresh: true}
+		return actionMsg{message: "Config saved", refresh: true}
 	})
 }
 

@@ -1,4 +1,4 @@
-package workstream
+package workspace
 
 import (
 	"context"
@@ -7,20 +7,22 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"radar.nvim/internal/config"
 )
 
 func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) ([]string, error) {
-	home, err := os.UserHomeDir()
+	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
-	workstreams := filepath.Join(home, "workstreams")
+	workspaces := ExpandPath(cfg.WorkspaceRoot)
 	repos := make([]string, 0)
 	seen := map[string]bool{}
 	addRepo := func(repo string) {
 		repo = filepath.Clean(repo)
 		key := pathKey(repo)
-		if repo == "" || isSubpath(repo, workstreams) || seen[key] {
+		if repo == "" || isSubpath(repo, workspaces) || seen[key] {
 			return
 		}
 		seen[key] = true
@@ -34,7 +36,7 @@ func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) 
 	if err := runner.LookPath("fd"); err != nil {
 		return nil, err
 	}
-	roots := existingDiscoveryRoots(home)
+	roots := RepositoryDirs(cfg)
 	if len(roots) > 0 {
 		args := []string{"-H", "-t", "d", `^\.git$`, "--max-depth", "5"}
 		args = append(args, roots...)
@@ -49,7 +51,7 @@ func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) 
 			}
 			// Intentionally only ask fd for real .git directories. Linked Git worktrees
 			// use a .git file that points at the main repository's metadata; those are
-			// existing workstreams and should not appear as base repositories for create.
+			// existing workspaces and should not appear as base repositories for create.
 			// Because the parent of a .git directory is already the repository root, we
 			// avoid running git rev-parse for every discovered repository.
 			addRepo(filepath.Dir(filepath.Clean(gitDirectory)))
@@ -96,11 +98,11 @@ func Branches(ctx context.Context, runner Runner, repo string) ([]string, error)
 
 func Paths(workspaceRoot string) ([]string, error) {
 	if workspaceRoot == "" {
-		home, err := os.UserHomeDir()
+		root, err := DefaultRoot()
 		if err != nil {
 			return nil, err
 		}
-		workspaceRoot = filepath.Join(home, "workstreams")
+		workspaceRoot = root
 	}
 	repos, err := os.ReadDir(workspaceRoot)
 	if os.IsNotExist(err) {
@@ -128,15 +130,52 @@ func Paths(workspaceRoot string) ([]string, error) {
 	return paths, nil
 }
 
-func existingDiscoveryRoots(home string) []string {
-	roots := make([]string, 0, 5)
-	for _, root := range []string{"workspace", "code", "src", "dev", "projects"} {
-		path := filepath.Join(home, root)
+func RepositoryDirs(cfg config.Config) []string {
+	paths := make([]string, 0, len(cfg.RepositoryDirs))
+	for _, root := range cfg.RepositoryDirs {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		paths = append(paths, filepath.Clean(ExpandPath(root)))
+	}
+	return existingDirs(paths)
+}
+
+func DefaultRoot() (string, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(ExpandPath(cfg.WorkspaceRoot)), nil
+}
+
+func existingDirs(paths []string) []string {
+	roots := make([]string, 0, len(paths))
+	seen := map[string]bool{}
+	for _, path := range paths {
+		key := pathKey(path)
+		if seen[key] {
+			continue
+		}
 		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			seen[key] = true
 			roots = append(roots, path)
 		}
 	}
 	return roots
+}
+
+func ExpandPath(path string) string {
+	if path == "~" {
+		home, _ := os.UserHomeDir()
+		return home
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, path[2:])
+	}
+	return path
 }
 
 func sortBranches(branches []string) {
