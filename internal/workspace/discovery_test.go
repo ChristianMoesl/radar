@@ -150,6 +150,32 @@ func TestDefaultRootUsesConfig(t *testing.T) {
 	}
 }
 
+func TestFetchBranchesPrunesOrigin(t *testing.T) {
+	runner := &fetchBranchesRunner{}
+	if err := FetchBranches(context.Background(), runner, "/repo"); err != nil {
+		t.Fatal(err)
+	}
+	wantArgs := []string{"fetch", "--prune", "origin"}
+	if runner.cwd != "/repo" || runner.name != "git" || !reflect.DeepEqual(runner.args, wantArgs) {
+		t.Fatalf("FetchBranches() ran cwd=%q name=%q args=%#v, want cwd=%q name=%q args=%#v", runner.cwd, runner.name, runner.args, "/repo", "git", wantArgs)
+	}
+}
+
+type fetchBranchesRunner struct {
+	cwd  string
+	name string
+	args []string
+}
+
+func (f *fetchBranchesRunner) LookPath(string) error { return nil }
+
+func (f *fetchBranchesRunner) Run(_ context.Context, cwd string, name string, args ...string) (string, error) {
+	f.cwd = cwd
+	f.name = name
+	f.args = append([]string(nil), args...)
+	return "", nil
+}
+
 func TestBranchesOrdersOriginBeforeLocal(t *testing.T) {
 	runner := discoveryRunner{branches: strings.Join([]string{
 		"refs/heads/feature\tfeature\t",

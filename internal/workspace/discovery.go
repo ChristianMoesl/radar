@@ -70,6 +70,11 @@ func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) 
 	return repos, nil
 }
 
+func FetchBranches(ctx context.Context, runner Runner, repo string) error {
+	_, err := runner.Run(ctx, repo, "git", "fetch", "--prune", "origin")
+	return err
+}
+
 func Branches(ctx context.Context, runner Runner, repo string) ([]string, error) {
 	output, err := runner.Run(ctx, repo, "git", "for-each-ref", "--format=%(refname)\t%(refname:short)\t%(symref)", "refs/heads", "refs/remotes/origin")
 	if err != nil {

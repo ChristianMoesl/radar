@@ -546,7 +546,11 @@ func (m model) loadRepos() tea.Cmd {
 
 func (m model) loadBranches(repo string) tea.Cmd {
 	return func() tea.Msg {
-		branches, err := workspace.Branches(context.Background(), workspace.ExecRunner{}, repo)
+		runner := workspace.ExecRunner{}
+		if err := workspace.FetchBranches(context.Background(), runner, repo); err != nil {
+			return branchesMsg{err: err}
+		}
+		branches, err := workspace.Branches(context.Background(), runner, repo)
 		return branchesMsg{branches: branches, err: err}
 	}
 }
