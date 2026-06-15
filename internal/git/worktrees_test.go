@@ -18,7 +18,7 @@ func TestGitRootsDefaultsToCwdAndWorkstreams(t *testing.T) {
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("RADAR_GIT_REPOS", "")
-	t.Chdir(cwd)
+	chdir(t, cwd)
 
 	roots := gitRoots()
 	assertContainsRoot(t, roots, cwd)
@@ -47,7 +47,7 @@ func TestGitRootsIncludesTmuxSessionPaths(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", bin)
 	t.Setenv("RADAR_GIT_REPOS", "")
-	t.Chdir(cwd)
+	chdir(t, cwd)
 
 	roots := gitRoots()
 	assertContainsRoot(t, roots, cwd)
@@ -69,6 +69,22 @@ func TestGitRootsEnvOverridesDefaults(t *testing.T) {
 			t.Fatalf("gitRoots() = %#v, want %#v", roots, want)
 		}
 	}
+}
+
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func assertContainsRoot(t *testing.T, roots []string, want string) {
