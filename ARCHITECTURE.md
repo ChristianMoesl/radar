@@ -1,12 +1,12 @@
 # Architecture
 
-Radar is a CLI-first Go application with a terminal UI, scriptable commands, workstream management, and a shared backend daemon.
+Radar is a CLI-first Go application with a terminal UI, scriptable commands, workspace management, and a shared backend daemon.
 
 ## Components
 
 - `cmd/radar/`: single Go binary with TUI, CLI, and daemon modes.
 - `internal/tui/`: Bubble Tea terminal UI.
-- `internal/workstream/`: repository discovery and Git worktree/tmux workstream lifecycle.
+- `internal/workspace/`: repository discovery and Git worktree/tmux workspace lifecycle.
 - `internal/server/`: Unix socket API used by TUI and CLI commands.
 - `internal/collector/`: orchestrates ingestion, linking, and resolution.
 - `internal/github/`: GitHub ingestion and remote state resolution.
@@ -38,7 +38,7 @@ radar reset
 radar stop
 radar restart
 radar create --repo <repo> --base <branch> --name <name>
-radar delete --path <workstream-path>
+radar delete --path <workspace-path>
 ```
 
 ## Communication
@@ -100,17 +100,17 @@ $XDG_STATE_HOME/radar/tasks.json
 
 This allows fast startup and lets the TUI show cached information immediately. The stored model will eventually move to explicit task records plus an optional task cache.
 
-## Filters
+## Config
 
-Filters are user-owned JSON config, not daemon state:
+Config is user-owned JSON, not daemon state:
 
 ```text
-$XDG_CONFIG_HOME/radar/filters.json
+$XDG_CONFIG_HOME/radar/config.json
 ```
 
 The daemon creates an example file on startup when it is missing. The TUI exposes it with `f`.
 
-Filters are applied when serving tasks from the daemon, so CLI and TUI see the same view. Raw collected state stays unmodified on disk.
+The config controls repository discovery roots, the workspace root, and filters. Filters are applied when serving tasks from the daemon, so CLI and TUI see the same view. Raw collected state stays unmodified on disk.
 
 There are two filter effects:
 
@@ -140,15 +140,15 @@ Tmux integration collects sessions from the local tmux server. Radar attaches se
 
 Open the TUI in a tmux popup with `tmux display-popup -E "radar"`. Selecting a tmux-backed task switches the current client by stable session ID.
 
-## Workstreams
+## Workspaces
 
-Workstreams absorb the useful workflow from `fork.nvim`. The application layer discovers repositories and branches, creates Git worktrees under `~/workstreams`, copies local setup files, and creates matching tmux sessions with `pi` and `nvim` windows.
+Workspaces absorb the useful workflow from `fork.nvim`. The application layer discovers repositories under configured repository directories, creates Git worktrees under the configured workspace root, applies repo-local `.radar.json` workspace setup, and creates matching tmux sessions with `pi` and `nvim` windows.
 
 Creation is available from the TUI and `radar create`. Deletion is intentionally conservative: `radar delete` refuses dirty worktrees and there is no force flag yet.
 
 ## Terminal UI
 
-The Bubble Tea TUI is the default interface. It reads cached daemon state, groups tasks by attention, shows source details, switches tmux sessions, opens task URLs, edits filters, refreshes/resets state, and launches step-by-step workstream creation.
+The Bubble Tea TUI is the default interface. It reads cached daemon state, groups tasks by attention, shows source details, switches tmux sessions, opens task URLs, edits config, refreshes/resets state, and launches step-by-step workspace creation.
 
 ## Logging
 

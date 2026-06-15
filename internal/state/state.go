@@ -13,6 +13,8 @@ import (
 	"radar.nvim/internal/protocol"
 )
 
+const maxStateFileSize = 50 * 1024 * 1024
+
 type Store struct {
 	mu      sync.RWMutex
 	items   []protocol.Task
@@ -56,12 +58,20 @@ func NewStore(logger *slog.Logger) (*Store, error) {
 }
 
 func (s *Store) Load() error {
-	data, err := os.ReadFile(s.path)
+	info, err := os.Stat(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			s.logger.Info("state file does not exist yet", "path", s.path)
 			return nil
 		}
+		return err
+	}
+	if info.Size() > maxStateFileSize {
+		return fmt.Errorf("state file is too large: %d bytes", info.Size())
+	}
+
+	data, err := os.ReadFile(s.path)
+	if err != nil {
 		return err
 	}
 

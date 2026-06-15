@@ -57,8 +57,8 @@ func TestCollectEndToEndIngestsLinksAndMarksGitHubPRDone(t *testing.T) {
 	if done == nil {
 		t.Fatalf("second collect did not keep closed GitHub PR; tasks=%+v", second.Tasks)
 	}
-	if done.Kind != "github_done_pr" || done.Attention != "done" || done.Reason != "merged today" {
-		t.Fatalf("done task = %s/%s/%s, want github_done_pr/done/merged today", done.Kind, done.Attention, done.Reason)
+	if done.Kind != "github_own_pr" || done.Attention != "done" || done.Reason != "merged today" {
+		t.Fatalf("done task = %s/%s/%s, want github_own_pr/done/merged today", done.Kind, done.Attention, done.Reason)
 	}
 	assertHasSourceRef(t, *done, "jira:issue:RAD-123")
 	assertHasSourceRefPrefix(t, *done, "git:worktree:")
@@ -69,7 +69,6 @@ func setupIsolatedEnvironment(t *testing.T, tmp string) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(tmp, "state"))
-	t.Setenv("RADAR_FILTERS", filepath.Join(tmp, "missing-filters.json"))
 	t.Setenv("TMUX", "")
 }
 

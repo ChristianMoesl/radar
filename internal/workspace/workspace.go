@@ -1,4 +1,4 @@
-package workstream
+package workspace
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-var invalidSessionCharacters = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+var invalidWorkspaceNameCharacters = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 type Runner interface {
 	LookPath(name string) error
@@ -44,9 +44,10 @@ type CreateOptions struct {
 	SessionName   string
 	WorkspaceRoot string
 	Switch        bool
+	ForkPiSession string
 }
 
-type Workstream struct {
+type Workspace struct {
 	Name        string `json:"name,omitempty"`
 	Branch      string `json:"branch,omitempty"`
 	Base        string `json:"base,omitempty"`
@@ -55,19 +56,23 @@ type Workstream struct {
 	SessionName string `json:"session_name"`
 }
 
-func Create(ctx context.Context, runner Runner, options CreateOptions) (Workstream, error) {
+func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
 	for _, dependency := range []string{"git", "tmux", "pi", "nvim"} {
 		if err := runner.LookPath(dependency); err != nil {
-			return Workstream{}, fmt.Errorf("workstream creation requires %q: %w", dependency, err)
+			return Workspace{}, fmt.Errorf("workspace creation requires %q: %w", dependency, err)
 		}
 	}
 	if strings.TrimSpace(options.Name) == "" {
-		return Workstream{}, fmt.Errorf("workstream name is required")
+		return Workspace{}, fmt.Errorf("workspace name is required")
 	}
 
 	repo, err := runner.Run(ctx, options.Repo, "git", "rev-parse", "--show-toplevel")
 	if err != nil {
-		return Workstream{}, err
+		return Workspace{}, err
+	}
+	repoConfig, err := loadRepoConfig(repo)
+	if err != nil {
+		return Workspace{}, err
 	}
 	name := strings.TrimSpace(options.Name)
 	repoName := filepath.Base(repo)
@@ -77,27 +82,26 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workstre
 	}
 	root := options.WorkspaceRoot
 	if root == "" {
-		home, err := os.UserHomeDir()
+		root, err = DefaultRoot()
 		if err != nil {
-			return Workstream{}, err
+			return Workspace{}, err
 		}
-		root = filepath.Join(home, "workstreams")
 	}
 	path := options.Path
 	if path == "" {
-		path = filepath.Join(root, repoName, name)
+		path = filepath.Join(root, repoName, WorktreeName(name))
 	}
 	sessionName := options.SessionName
 	if sessionName == "" {
 		sessionName = SessionName(repoName, name)
 	}
 	if _, err := os.Stat(path); err == nil {
-		return Workstream{}, fmt.Errorf("workstream already exists: %s", path)
+		return Workspace{}, fmt.Errorf("workspace already exists: %s", path)
 	} else if !os.IsNotExist(err) {
-		return Workstream{}, err
+		return Workspace{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return Workstream{}, err
+		return Workspace{}, err
 	}
 
 	args := []string{"worktree", "add", "-b", branch, path}
@@ -105,7 +109,7 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workstre
 		args = append(args, options.Base)
 	}
 	if _, err := runner.Run(ctx, repo, "git", args...); err != nil {
-		return Workstream{}, err
+		return Workspace{}, err
 	}
 	createdSession := false
 	rollback := func() {
@@ -115,66 +119,112 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workstre
 		_, _ = runner.Run(ctx, repo, "git", "worktree", "remove", "--force", path)
 	}
 
-	if err := copySetupFiles(repo, path); err != nil {
+	if err := copyConfiguredFiles(repo, path, repoConfig.CopyFiles); err != nil {
 		rollback()
-		return Workstream{}, err
+		return Workspace{}, err
+	}
+	for _, command := range repoConfig.Setup {
+		if _, err := runner.Run(ctx, path, "sh", "-lc", command); err != nil {
+			rollback()
+			return Workspace{}, err
+		}
 	}
 	if _, err := runner.Run(ctx, repo, "tmux", "has-session", "-t", sessionName); err != nil {
 		piCommand := fmt.Sprintf("pi --session-id %s --name %s", shellQuote(sessionName), shellQuote(sessionName))
+		if options.ForkPiSession != "" {
+			piCommand = fmt.Sprintf("pi --fork %s --session-id %s --name %s", shellQuote(options.ForkPiSession), shellQuote(sessionName), shellQuote(sessionName))
+		}
 		if _, err := runner.Run(ctx, repo, "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, piCommand); err != nil {
 			rollback()
-			return Workstream{}, err
+			return Workspace{}, err
 		}
 		createdSession = true
 		if _, err := runner.Run(ctx, repo, "tmux", "new-window", "-t", sessionName+":", "-n", "nvim", "-c", path, "nvim ."); err != nil {
 			rollback()
-			return Workstream{}, err
+			return Workspace{}, err
 		}
 		if _, err := runner.Run(ctx, repo, "tmux", "select-window", "-t", sessionName+":pi"); err != nil {
 			rollback()
-			return Workstream{}, err
+			return Workspace{}, err
 		}
 	}
 	if options.Switch {
 		if _, err := runner.Run(ctx, repo, "tmux", "switch-client", "-t", sessionName); err != nil {
-			return Workstream{}, err
+			return Workspace{}, err
 		}
 	}
 
-	return Workstream{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName}, nil
+	return Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName}, nil
 }
 
-func DeleteSession(ctx context.Context, runner Runner, sessionName string) (Workstream, error) {
-	if strings.TrimSpace(sessionName) == "" {
-		return Workstream{}, fmt.Errorf("tmux session is required")
+func CreateSession(ctx context.Context, runner Runner, path string, sessionName string, switchClient bool) (Workspace, error) {
+	for _, dependency := range []string{"tmux", "pi", "nvim"} {
+		if err := runner.LookPath(dependency); err != nil {
+			return Workspace{}, fmt.Errorf("workspace session creation requires %q: %w", dependency, err)
+		}
 	}
-	if _, err := runner.Run(ctx, "", "tmux", "kill-session", "-t", sessionName); err != nil {
-		return Workstream{}, err
-	}
-	return Workstream{SessionName: sessionName}, nil
-}
-
-func Delete(ctx context.Context, runner Runner, path string, sessionName string, force bool) (Workstream, error) {
 	if strings.TrimSpace(path) == "" {
-		return Workstream{}, fmt.Errorf("workstream path is required")
+		return Workspace{}, fmt.Errorf("workspace path is required")
 	}
 	path, err := filepath.Abs(path)
 	if err != nil {
-		return Workstream{}, err
+		return Workspace{}, err
+	}
+	if sessionName == "" {
+		sessionName = SessionName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
+	}
+	if _, err := runner.Run(ctx, "", "tmux", "has-session", "-t", sessionName); err != nil {
+		if _, err := runner.Run(ctx, "", "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, "pi"); err != nil {
+			return Workspace{}, err
+		}
+		if _, err := runner.Run(ctx, "", "tmux", "new-window", "-t", sessionName+":", "-n", "nvim", "-c", path, "nvim ."); err != nil {
+			_, _ = runner.Run(ctx, "", "tmux", "kill-session", "-t", sessionName)
+			return Workspace{}, err
+		}
+		if _, err := runner.Run(ctx, "", "tmux", "select-window", "-t", sessionName+":pi"); err != nil {
+			_, _ = runner.Run(ctx, "", "tmux", "kill-session", "-t", sessionName)
+			return Workspace{}, err
+		}
+	}
+	if switchClient {
+		if _, err := runner.Run(ctx, "", "tmux", "switch-client", "-t", sessionName); err != nil {
+			return Workspace{}, err
+		}
+	}
+	return Workspace{Path: path, SessionName: sessionName}, nil
+}
+
+func DeleteSession(ctx context.Context, runner Runner, sessionName string) (Workspace, error) {
+	if strings.TrimSpace(sessionName) == "" {
+		return Workspace{}, fmt.Errorf("tmux session is required")
+	}
+	if _, err := runner.Run(ctx, "", "tmux", "kill-session", "-t", sessionName); err != nil {
+		return Workspace{}, err
+	}
+	return Workspace{SessionName: sessionName}, nil
+}
+
+func Delete(ctx context.Context, runner Runner, path string, sessionName string, force bool) (Workspace, error) {
+	if strings.TrimSpace(path) == "" {
+		return Workspace{}, fmt.Errorf("workspace path is required")
+	}
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return Workspace{}, err
 	}
 	if sessionName == "" {
 		sessionName = SessionName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
 	}
 	status, err := runner.Run(ctx, "", "git", "-C", path, "status", "--porcelain")
 	if err != nil {
-		return Workstream{}, err
+		return Workspace{}, err
 	}
 	if status != "" && !force {
-		return Workstream{}, fmt.Errorf("workstream has local changes; rerun with --force to delete it")
+		return Workspace{}, fmt.Errorf("workspace has local changes; rerun with --force to delete it")
 	}
 	if _, err := runner.Run(ctx, "", "tmux", "has-session", "-t", sessionName); err == nil {
 		if _, err := runner.Run(ctx, "", "tmux", "kill-session", "-t", sessionName); err != nil {
-			return Workstream{}, err
+			return Workspace{}, err
 		}
 	}
 	args := []string{"-C", path, "worktree", "remove"}
@@ -183,22 +233,26 @@ func Delete(ctx context.Context, runner Runner, path string, sessionName string,
 	}
 	args = append(args, path)
 	if _, err := runner.Run(ctx, "", "git", args...); err != nil {
-		return Workstream{}, err
+		return Workspace{}, err
 	}
-	return Workstream{Path: path, SessionName: sessionName}, nil
+	return Workspace{Path: path, SessionName: sessionName}, nil
 }
 
-func SessionName(repoName string, workstreamName string) string {
-	name := invalidSessionCharacters.ReplaceAllString(repoName+"-"+workstreamName, "-")
+func WorktreeName(workspaceName string) string {
+	name := invalidWorkspaceNameCharacters.ReplaceAllString(workspaceName, "-")
 	name = strings.Trim(name, "-_")
 	if name == "" {
-		return "workstream"
+		return "workspace"
 	}
 	return name
 }
 
-func copySetupFiles(source string, target string) error {
-	for _, name := range []string{".env", ".env.local"} {
+func SessionName(repoName string, workspaceName string) string {
+	return WorktreeName(repoName + "-" + workspaceName)
+}
+
+func copyConfiguredFiles(source string, target string, names []string) error {
+	for _, name := range names {
 		from := filepath.Join(source, name)
 		to := filepath.Join(target, name)
 		if _, err := os.Stat(to); err == nil {
@@ -211,6 +265,12 @@ func copySetupFiles(source string, target string) error {
 			continue
 		}
 		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("configured copy path is not a file: %s", from)
+		}
+		if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
 			return err
 		}
 		if err := copyFile(from, to, info.Mode().Perm()); err != nil {

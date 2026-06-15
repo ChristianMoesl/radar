@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"radar.nvim/internal/protocol"
+	"radar.nvim/internal/workspace"
 )
 
 var ticketPattern = regexp.MustCompile(`[A-Z][A-Z0-9]+-[0-9]+`)
@@ -78,7 +79,7 @@ func gitRoots() []string {
 	if cwd, err := os.Getwd(); err == nil {
 		roots = appendUniqueRoot(roots, cwd)
 	}
-	for _, root := range workstreamGitRoots() {
+	for _, root := range workspaceGitRoots() {
 		roots = appendUniqueRoot(roots, root)
 	}
 	for _, root := range tmuxSessionGitRoots() {
@@ -87,12 +88,12 @@ func gitRoots() []string {
 	return roots
 }
 
-func workstreamGitRoots() []string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+func workspaceGitRoots() []string {
+	root, err := workspace.DefaultRoot()
+	if err != nil || root == "" {
 		return nil
 	}
-	matches, err := filepath.Glob(filepath.Join(home, "workstreams", "*", "*"))
+	matches, err := filepath.Glob(filepath.Join(root, "*", "*"))
 	if err != nil {
 		return nil
 	}

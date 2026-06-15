@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+
 	"radar.nvim/internal/protocol"
 )
 
@@ -34,7 +37,7 @@ func TestCreateRepoViewRendersFuzzySearch(t *testing.T) {
 	model := model{mode: "create_repo", create: createForm{repoList: picker{query: "rad", options: []string{"/repo/radar", "/repo/other"}}}}
 
 	view := model.View()
-	for _, want := range []string{"Create workstream", "Repository", "rad", "/repo/radar"} {
+	for _, want := range []string{"Create workspace", "Repository", "rad", "/repo/radar"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q:\n%s", want, view)
 		}
@@ -45,7 +48,7 @@ func TestCreateNameViewRendersSelectedRepoAndBase(t *testing.T) {
 	model := model{mode: "create_name", create: createForm{repo: "/repo/radar", base: "origin/main", name: "small-fix"}}
 
 	view := model.View()
-	for _, want := range []string{"Create workstream", "Repository /repo/radar", "Base       origin/main", "Name       small-fix"} {
+	for _, want := range []string{"Create workspace", "Repository /repo/radar", "Base       origin/main", "Name       small-fix"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q:\n%s", want, view)
 		}
@@ -67,6 +70,104 @@ func TestCreateRepoViewShortensHomePaths(t *testing.T) {
 	}
 }
 
+func TestTaskListKeepsSelectedSourceRefsVisible(t *testing.T) {
+	model := model{cursor: 1, tasks: []protocol.Task{
+		{Title: "first", Attention: "attention"},
+		{Title: "selected", Attention: "attention", SourceRefs: []protocol.SourceRef{
+			{ID: "git:worktree:/repo/selected", Source: "git", Kind: "worktree", Path: "/repo/selected"},
+			{ID: "jira:issue:DPSCAP-1", Source: "jira", Kind: "issue", Title: "DPSCAP-1 Do thing"},
+		}},
+	}}
+
+	view := model.taskList(100, 4)
+	for _, want := range []string{"selected", "/repo/selected", "DPSCAP-1"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("taskList() missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestTaskListCanReturnToTopOfLargeSelectedBlock(t *testing.T) {
+	model := model{cursor: 0, scroll: 5, tasks: []protocol.Task{{
+		Title:     "selected",
+		Attention: "attention",
+		SourceRefs: []protocol.SourceRef{
+			{ID: "git:worktree:/repo/selected", Source: "git", Kind: "worktree", Path: "/repo/selected"},
+			{ID: "jira:issue:DPSCAP-1", Source: "jira", Kind: "issue", Title: "DPSCAP-1 Do thing"},
+			{ID: "github:pr:owner/repo:1", Source: "github", Kind: "pull_request", Title: "PR 1"},
+		},
+	}}}
+
+	view := model.taskList(100, 3)
+	if !strings.Contains(view, "Need attention") || !strings.Contains(view, "selected") {
+		t.Fatalf("taskList() did not show top of selected block:\n%s", view)
+	}
+}
+
+func TestTaskListTruncatesLongRows(t *testing.T) {
+	model := model{tasks: []protocol.Task{{
+		Title:     "selected task with a very very very long title that should not wrap",
+		Repo:      "redbullmediahouse/rb3ca-experience-center",
+		Reason:    "2 unresolved review thread(s), 1 new PR comment(s)",
+		Attention: "attention",
+		SourceRefs: []protocol.SourceRef{{
+			ID:     "git:worktree:/very/very/very/very/very/very/very/long/path/that/would/wrap",
+			Source: "git",
+			Kind:   "worktree",
+			Path:   "/very/very/very/very/very/very/very/long/path/that/would/wrap",
+		}},
+	}}}
+
+	view := model.taskList(60, 20)
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(ansi.Strip(line)); got > 60 {
+			t.Fatalf("taskList() line width = %d, want <= 60 for %q:\n%s", got, ansi.Strip(line), view)
+		}
+	}
+}
+
+func TestTaskCursorOrderFollowsRenderedGroups(t *testing.T) {
+	model := model{tasks: []protocol.Task{
+		{Title: "low", Attention: "low_priority"},
+		{Title: "attention", Attention: "attention"},
+		{Title: "done", Attention: "done"},
+		{Title: "progress", Attention: "in_progress"},
+	}}
+
+	got := model.taskCursorOrder()
+	want := []int{1, 3, 2, 0}
+	if len(got) != len(want) {
+		t.Fatalf("taskCursorOrder() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("taskCursorOrder() = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestMoveCursorUsesRenderedTaskOrder(t *testing.T) {
+	model := model{cursor: 1, tasks: []protocol.Task{
+		{Title: "low", Attention: "low_priority"},
+		{Title: "attention", Attention: "attention"},
+		{Title: "done", Attention: "done"},
+		{Title: "progress", Attention: "in_progress"},
+	}}
+
+	model.moveCursor(1)
+	if model.cursor != 3 {
+		t.Fatalf("cursor after down = %d, want 3", model.cursor)
+	}
+	model.moveCursor(1)
+	if model.cursor != 2 {
+		t.Fatalf("cursor after second down = %d, want 2", model.cursor)
+	}
+	model.moveCursor(-1)
+	if model.cursor != 3 {
+		t.Fatalf("cursor after up = %d, want 3", model.cursor)
+	}
+}
+
 func TestDeleteConfirmViewShowsTmuxSessionOnlyDelete(t *testing.T) {
 	model := model{mode: "delete_confirm", delete: deletePreview{SessionName: "$3", SessionOnly: true}}
 
@@ -81,14 +182,30 @@ func TestDeleteConfirmViewShowsTmuxSessionOnlyDelete(t *testing.T) {
 	}
 }
 
-func TestDeleteConfirmViewWarnsAboutDirtyWorkstream(t *testing.T) {
+func TestDeleteConfirmViewWarnsAboutDirtyWorkspace(t *testing.T) {
 	model := model{mode: "delete_confirm", delete: deletePreview{Path: "/repo/worktrees/small-fix", Branch: "small-fix", SessionName: "repo-small-fix", Dirty: true}}
 
 	view := model.View()
-	for _, want := range []string{"Delete dirty workstream?", "uncommitted changes", "/repo/worktrees/small-fix", "small-fix", "repo-small-fix"} {
+	for _, want := range []string{"Delete dirty workspace?", "uncommitted changes", "/repo/worktrees/small-fix", "small-fix", "repo-small-fix"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestActivateSelectedAsksForWorktreeWhenTaskHasMultipleWorktrees(t *testing.T) {
+	m := model{tasks: []protocol.Task{{SourceRefs: []protocol.SourceRef{
+		{Source: "git", Kind: "worktree", Path: "/repo/one"},
+		{Source: "git", Kind: "worktree", Path: "/repo/two"},
+	}}}}
+
+	updated, cmd := m.activateSelected()
+	if cmd != nil {
+		t.Fatal("activateSelected() returned command for multiple worktrees")
+	}
+	got := updated.(model)
+	if got.mode != "worktree_session" || len(got.worktrees) != 2 {
+		t.Fatalf("activateSelected() mode=%q worktrees=%d, want worktree_session/2", got.mode, len(got.worktrees))
 	}
 }
 
@@ -107,6 +224,30 @@ func TestFuzzyMatch(t *testing.T) {
 	}
 	if fuzzyMatch("/repo/radar", "zzz") {
 		t.Fatal("fuzzyMatch() matched missing characters")
+	}
+}
+
+func TestTaskCursorForHintsPrefersCurrentWorktree(t *testing.T) {
+	tasks := []protocol.Task{
+		{Title: "other", SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/workspaces/repo/other"}}},
+		{Title: "current", SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/workspaces/repo/current"}}},
+	}
+
+	cursor, ok := taskCursorForHints(tasks, currentTaskHints{cwd: "/workspaces/repo/current/internal", worktree: "/workspaces/repo/current"})
+	if !ok || cursor != 1 {
+		t.Fatalf("taskCursorForHints() = %d, %v; want 1, true", cursor, ok)
+	}
+}
+
+func TestTaskCursorForHintsMatchesTmuxSession(t *testing.T) {
+	tasks := []protocol.Task{
+		{Title: "other", SourceRefs: []protocol.SourceRef{{Source: "tmux", Kind: "session", Metadata: map[string]string{"session_id": "$1", "session": "other"}}}},
+		{Title: "current", SourceRefs: []protocol.SourceRef{{Source: "tmux", Kind: "session", Metadata: map[string]string{"session_id": "$2", "session": "repo-current"}}}},
+	}
+
+	cursor, ok := taskCursorForHints(tasks, currentTaskHints{sessionName: "repo-current", sessionID: "$2"})
+	if !ok || cursor != 1 {
+		t.Fatalf("taskCursorForHints() = %d, %v; want 1, true", cursor, ok)
 	}
 }
 

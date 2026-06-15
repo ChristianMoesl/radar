@@ -1,4 +1,4 @@
-package workstream
+package workspace
 
 import (
 	"context"
@@ -46,9 +46,15 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("SECRET=local\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
+  "copy_files": [".env"],
+  "setup": ["pnpm install --frozen-lockfile"]
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	runner := &fakeRunner{repo: repo}
 
-	workstream, err := Create(context.Background(), runner, CreateOptions{
+	workspace, err := Create(context.Background(), runner, CreateOptions{
 		Repo:          repo,
 		Name:          "small fix",
 		Base:          "origin/main",
@@ -58,20 +64,103 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if workstream.Branch != "small fix" || workstream.SessionName != filepath.Base(repo)+"-small-fix" {
-		t.Fatalf("unexpected workstream: %#v", workstream)
+	if workspace.Branch != "small fix" || workspace.SessionName != filepath.Base(repo)+"-small-fix" {
+		t.Fatalf("unexpected workspace: %#v", workspace)
 	}
-	data, err := os.ReadFile(filepath.Join(workstream.Path, ".env"))
+	data, err := os.ReadFile(filepath.Join(workspace.Path, ".env"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(data) != "SECRET=local\n" {
 		t.Fatalf("copied .env = %q", data)
 	}
-	assertCalled(t, runner.calls, "git", "worktree add -b small fix "+workstream.Path+" origin/main")
-	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workstream.SessionName)
-	assertCalled(t, runner.calls, "tmux", "new-window -t "+workstream.SessionName+":")
-	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workstream.SessionName)
+	assertCalled(t, runner.calls, "git", "worktree add -b small fix "+workspace.Path+" origin/main")
+	assertCalled(t, runner.calls, "sh", "-lc pnpm install --frozen-lockfile")
+	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workspace.SessionName)
+	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+":")
+	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
+}
+
+func TestCreateForksPiSession(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	runner := &fakeRunner{repo: repo}
+
+	workspace, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		Name:          "follow up",
+		Base:          "HEAD",
+		WorkspaceRoot: root,
+		ForkPiSession: "repo-current-task",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCalledContains(t, runner.calls, "tmux", "pi --fork 'repo-current-task' --session-id '"+workspace.SessionName+"'")
+}
+
+func TestCreateDoesNotCopyEnvWithoutRepoConfig(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("SECRET=local\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{repo: repo}
+
+	workspace, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		Name:          "small fix",
+		Base:          "origin/main",
+		WorkspaceRoot: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace.Path, ".env")); !os.IsNotExist(err) {
+		t.Fatalf(".env was copied without .radar.json config: %v", err)
+	}
+}
+
+func TestCreateEscapesWorktreeNamePathSegment(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	runner := &fakeRunner{repo: repo}
+
+	workspace, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		Name:          "feature/nested fix",
+		Base:          "origin/main",
+		WorkspaceRoot: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantPath := filepath.Join(root, filepath.Base(repo), "feature-nested-fix")
+	if workspace.Path != wantPath {
+		t.Fatalf("workspace path = %q, want %q", workspace.Path, wantPath)
+	}
+	if filepath.Dir(workspace.Path) != filepath.Join(root, filepath.Base(repo)) {
+		t.Fatalf("workspace path created nested directories: %q", workspace.Path)
+	}
+	if workspace.Branch != "feature/nested fix" {
+		t.Fatalf("workspace branch = %q, want original name", workspace.Branch)
+	}
+}
+
+func TestCreateSessionCreatesTmuxSessionForWorktree(t *testing.T) {
+	runner := &fakeRunner{}
+	path := filepath.Join(t.TempDir(), "repo", "small-fix")
+	created, err := CreateSession(context.Background(), runner, path, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.SessionName != "repo-small-fix" || created.Path != path {
+		t.Fatalf("unexpected session workspace: %#v", created)
+	}
+	assertCalled(t, runner.calls, "tmux", "new-session -d -s repo-small-fix")
+	assertCalled(t, runner.calls, "tmux", "new-window -t repo-small-fix:")
+	assertCalled(t, runner.calls, "tmux", "switch-client -t repo-small-fix")
 }
 
 func TestDeleteKillsSessionAndRemovesWorktree(t *testing.T) {
@@ -122,6 +211,12 @@ func TestDeleteForceRemovesDirtyWorktree(t *testing.T) {
 	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove --force "+path)
 }
 
+func TestWorktreeNameSanitizesNames(t *testing.T) {
+	if got, want := WorktreeName("feature/nested fix"), "feature-nested-fix"; got != want {
+		t.Fatalf("WorktreeName() = %q, want %q", got, want)
+	}
+}
+
 func TestSessionNameSanitizesNames(t *testing.T) {
 	if got, want := SessionName("my.repo", "small fix"), "my-repo-small-fix"; got != want {
 		t.Fatalf("SessionName() = %q, want %q", got, want)
@@ -136,6 +231,16 @@ func assertCalled(t *testing.T, calls []call, name string, argsPrefix string) {
 		}
 	}
 	t.Fatalf("%s %s was not called; calls: %#v", name, argsPrefix, calls)
+}
+
+func assertCalledContains(t *testing.T, calls []call, name string, argsPart string) {
+	t.Helper()
+	for _, call := range calls {
+		if call.name == name && strings.Contains(strings.Join(call.args, " "), argsPart) {
+			return
+		}
+	}
+	t.Fatalf("%s containing %s was not called; calls: %#v", name, argsPart, calls)
 }
 
 type dirtyRunner struct {

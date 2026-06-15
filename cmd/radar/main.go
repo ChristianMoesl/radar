@@ -15,7 +15,7 @@ import (
 
 	"radar.nvim/internal/client"
 	"radar.nvim/internal/collector"
-	"radar.nvim/internal/filters"
+	"radar.nvim/internal/config"
 	"radar.nvim/internal/github"
 	"radar.nvim/internal/logging"
 	"radar.nvim/internal/process"
@@ -24,7 +24,7 @@ import (
 	"radar.nvim/internal/socket"
 	"radar.nvim/internal/state"
 	"radar.nvim/internal/tui"
-	"radar.nvim/internal/workstream"
+	"radar.nvim/internal/workspace"
 )
 
 func main() {
@@ -37,6 +37,8 @@ func main() {
 	switch command {
 	case "create":
 		runCreate(os.Args[2:])
+	case "fork":
+		runFork(os.Args[2:])
 	case "delete":
 		runDelete(os.Args[2:])
 	case "daemon":
@@ -63,8 +65,8 @@ func main() {
 		printLogPath()
 	case "state-path":
 		printStatePath()
-	case "filters-path":
-		printFiltersPath()
+	case "config-path":
+		printConfigPath()
 	case "rate-limit", "rate-limits":
 		printRateLimit()
 	case "help", "-h", "--help":
@@ -98,6 +100,12 @@ func runTUIWithMode(mode string) {
 		}
 		return
 	}
+	if mode == "fork" {
+		if err := tui.RunFork(path); err != nil {
+			fatal(err)
+		}
+		return
+	}
 	if err := tui.Run(path); err != nil {
 		fatal(err)
 	}
@@ -107,7 +115,7 @@ func runCreate(args []string) {
 	flags := flag.NewFlagSet("radar create", flag.ExitOnError)
 	repo := flags.String("repo", "", "repository path")
 	base := flags.String("base", "", "base branch or revision")
-	name := flags.String("name", "", "workstream name")
+	name := flags.String("name", "", "workspace name")
 	_ = flags.Parse(args)
 
 	if *repo == "" && *base == "" && *name == "" {
@@ -119,7 +127,7 @@ func runCreate(args []string) {
 		os.Exit(2)
 	}
 
-	result, err := workstream.Create(context.Background(), workstream.ExecRunner{}, workstream.CreateOptions{
+	result, err := workspace.Create(context.Background(), workspace.ExecRunner{}, workspace.CreateOptions{
 		Repo:   *repo,
 		Base:   *base,
 		Name:   *name,
@@ -131,9 +139,19 @@ func runCreate(args []string) {
 	printJSON(result)
 }
 
+func runFork(args []string) {
+	flags := flag.NewFlagSet("radar fork", flag.ExitOnError)
+	_ = flags.Parse(args)
+	if flags.NArg() != 0 {
+		forkUsage()
+		os.Exit(2)
+	}
+	runTUIWithMode("fork")
+}
+
 func runDelete(args []string) {
 	flags := flag.NewFlagSet("radar delete", flag.ExitOnError)
-	path := flags.String("path", "", "workstream path")
+	path := flags.String("path", "", "workspace path")
 	session := flags.String("session", "", "tmux session name or id")
 	_ = flags.Parse(args)
 
@@ -142,12 +160,12 @@ func runDelete(args []string) {
 		os.Exit(2)
 	}
 
-	var result workstream.Workstream
+	var result workspace.Workspace
 	var err error
 	if *session != "" {
-		result, err = workstream.DeleteSession(context.Background(), workstream.ExecRunner{}, *session)
+		result, err = workspace.DeleteSession(context.Background(), workspace.ExecRunner{}, *session)
 	} else {
-		result, err = workstream.Delete(context.Background(), workstream.ExecRunner{}, *path, "", false)
+		result, err = workspace.Delete(context.Background(), workspace.ExecRunner{}, *path, "", false)
 	}
 	if err != nil {
 		fatal(err)
@@ -184,10 +202,10 @@ func runDaemon() {
 
 	logger.Info("daemon starting", "socket", path, "log", logPath, "pid", os.Getpid(), "pid_file", pidPath)
 
-	if filtersPath, err := filters.EnsureFile(); err != nil {
-		logger.Warn("could not initialize filters file", "error", err)
+	if configPath, err := config.EnsureFile(); err != nil {
+		logger.Warn("could not initialize config file", "error", err)
 	} else {
-		logger.Info("filters file ready", "path", filtersPath)
+		logger.Info("config file ready", "path", configPath)
 	}
 
 	store, err := state.NewStore(logger)
@@ -197,7 +215,11 @@ func runDaemon() {
 	}
 	collectionMu := &sync.Mutex{}
 	refresh := refresher(context.Background(), store, logger, collectionMu)
-	go refreshLoop(context.Background(), refresh)
+	if collectionDisabled() {
+		logger.Info("source collection disabled", "env", "RADAR_DISABLE_COLLECTION")
+	} else {
+		go refreshLoop(context.Background(), refresh)
+	}
 
 	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu)).ListenAndServe(path); err != nil {
 		logger.Error("daemon stopped", "error", err)
@@ -267,8 +289,7 @@ func startDaemonAndWait(socketPath string) error {
 	}
 	for range 100 {
 		time.Sleep(50 * time.Millisecond)
-		res, err := client.Call(socketPath, "tasks")
-		if err == nil && len(res.Sources) > 0 {
+		if _, err := client.Call(socketPath, "tasks"); err == nil {
 			return nil
 		}
 	}
@@ -299,10 +320,18 @@ const (
 	refreshLocal refreshScope = "local"
 )
 
+func collectionDisabled() bool {
+	return os.Getenv("RADAR_DISABLE_COLLECTION") == "1"
+}
+
 func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex) func(refreshScope, bool) {
 	var lastFullRefresh time.Time
 
 	return func(scope refreshScope, force bool) {
+		if collectionDisabled() {
+			logger.Debug("refresh skipped; source collection disabled", "scope", scope, "force", force)
+			return
+		}
 		mu.Lock()
 		defer mu.Unlock()
 
@@ -360,6 +389,10 @@ func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *
 		logger.Debug("reset started")
 		if err := store.Reset(); err != nil {
 			return err
+		}
+		if collectionDisabled() {
+			logger.Debug("reset finished without collection; source collection disabled")
+			return nil
 		}
 		result := collector.Collect(ctx, nil, logger)
 		store.SetTasks(result.Tasks)
@@ -437,8 +470,8 @@ func printStatePath() {
 	fmt.Println(path)
 }
 
-func printFiltersPath() {
-	path, err := filters.EnsureFile()
+func printConfigPath() {
+	path, err := config.EnsureFile()
 	if err != nil {
 		fatal(err)
 	}
@@ -460,10 +493,11 @@ func usage() {
 Interactive:
   radar                         open the terminal UI
 
-Workstreams:
+Workspaces:
   radar create
   radar create --repo <repo> --base <branch> --name <name>
-  radar delete --path <workstream-path>
+  radar fork
+  radar delete --path <workspace-path>
   radar delete --session <tmux-session-name-or-id>
 
 Daemon and status:
@@ -479,7 +513,7 @@ Other:
   radar ack <task-id>
   radar log-path
   radar state-path
-  radar filters-path
+  radar config-path
   radar rate-limit`)
 }
 
@@ -490,14 +524,20 @@ func createUsage() {
 Options:
   --repo   repository path
   --base   base branch or revision, for example origin/main
-  --name   workstream name; also used as the branch name`)
+  --name   workspace name; also used as the branch name`)
+}
+
+func forkUsage() {
+	fmt.Fprintln(os.Stderr, `usage: radar fork
+
+Fork the current tmux workspace into a sibling workspace and fork its Pi session.`)
 }
 
 func deleteUsage() {
-	fmt.Fprintln(os.Stderr, `usage: radar delete (--path <workstream-path> | --session <tmux-session-name-or-id>)
+	fmt.Fprintln(os.Stderr, `usage: radar delete (--path <workspace-path> | --session <tmux-session-name-or-id>)
 
 Options:
-  --path      workstream path to delete
+  --path      workspace path to delete
   --session   tmux session name or id to delete`)
 }
 

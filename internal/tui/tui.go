@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -13,9 +14,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"radar.nvim/internal/client"
-	"radar.nvim/internal/filters"
+	"radar.nvim/internal/config"
 	"radar.nvim/internal/protocol"
-	"radar.nvim/internal/workstream"
+	"radar.nvim/internal/workspace"
 )
 
 type fetchMsg struct {
@@ -69,29 +70,34 @@ type picker struct {
 }
 
 type createForm struct {
-	repo     string
-	base     string
-	name     string
-	repoList picker
-	baseList picker
+	repo           string
+	base           string
+	name           string
+	forkPiSession  string
+	sourceRepoName string
+	repoList       picker
+	baseList       picker
 }
 
 type model struct {
-	socketPath string
-	width      int
-	height     int
-	loading    bool
-	err        error
-	summary    protocol.Summary
-	tasks      []protocol.Task
-	sources    []protocol.SourceStatus
-	cursor     int
-	mode       string
-	create     createForm
-	delete     deletePreview
-	links      []linkChoice
-	message    string
-	scroll     int
+	socketPath          string
+	width               int
+	height              int
+	loading             bool
+	err                 error
+	summary             protocol.Summary
+	tasks               []protocol.Task
+	sources             []protocol.SourceStatus
+	cursor              int
+	selectedCurrentTask bool
+	mode                string
+	create              createForm
+	delete              deletePreview
+	links               []linkChoice
+	worktrees           []protocol.SourceRef
+	worktreeCursor      int
+	message             string
+	scroll              int
 }
 
 var (
@@ -143,6 +149,19 @@ func RunCreate(socketPath string) error {
 	return err
 }
 
+func RunFork(socketPath string) error {
+	form, err := newForkCreateForm()
+	if err != nil {
+		return err
+	}
+	model := newModel(socketPath)
+	model.mode = "create_base"
+	model.create = form
+	program := tea.NewProgram(model, tea.WithAltScreen())
+	_, err = program.Run()
+	return err
+}
+
 func newModel(socketPath string) model {
 	return model{socketPath: socketPath, loading: true}
 }
@@ -151,6 +170,9 @@ func (m model) Init() tea.Cmd {
 	commands := []tea.Cmd{m.fetch("tasks")}
 	if m.mode == "create_repo" {
 		commands = append(commands, m.loadRepos())
+	}
+	if m.mode == "create_base" && m.create.repo != "" {
+		commands = append(commands, m.loadBranches(m.create.repo))
 	}
 	return tea.Batch(commands...)
 }
@@ -197,6 +219,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		if m.mode == "worktree_session" {
+			switch msg.String() {
+			case "esc", "backspace", "h":
+				m.mode = ""
+				m.worktrees = nil
+				m.worktreeCursor = 0
+				return m, nil
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "j", "down", "ctrl+n":
+				if m.worktreeCursor < len(m.worktrees)-1 {
+					m.worktreeCursor++
+				}
+				return m, nil
+			case "k", "up", "ctrl+p":
+				if m.worktreeCursor > 0 {
+					m.worktreeCursor--
+				}
+				return m, nil
+			case "enter":
+				if len(m.worktrees) == 0 {
+					return m, nil
+				}
+				ref := m.worktrees[m.worktreeCursor]
+				m.mode = ""
+				m.worktrees = nil
+				m.worktreeCursor = 0
+				m.loading = true
+				m.err = nil
+				m.message = "Creating tmux session…"
+				return m, m.createSessionForWorktree(ref)
+			default:
+				return m, nil
+			}
+		}
 		if m.mode == "delete_confirm" {
 			switch msg.String() {
 			case "y", "Y":
@@ -224,7 +281,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.create = newCreateForm()
 			return m, m.loadRepos()
 		case "f":
-			return m, m.openFilters()
+			return m, m.openConfig()
 		case "i", "right", "l":
 			if len(m.tasks) > 0 {
 				m.mode = "detail"
@@ -257,25 +314,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.message = "Refreshing…"
 			return m, m.fetch("refresh")
 		case "j", "down", "ctrl+n":
-			if m.cursor < len(m.tasks)-1 {
-				m.cursor++
-			}
+			m.moveCursor(1)
 		case "k", "up", "ctrl+p":
-			if m.cursor > 0 {
-				m.cursor--
-			}
+			m.moveCursor(-1)
 		case "g", "home":
-			m.cursor = 0
+			m.moveCursorToEdge(false)
 		case "G", "end":
-			if len(m.tasks) > 0 {
-				m.cursor = len(m.tasks) - 1
-			}
+			m.moveCursorToEdge(true)
 		case "enter":
-			if len(m.tasks) > 0 {
-				m.loading = true
-				m.err = nil
-				return m, m.switchSelected()
-			}
+			return m.activateSelected()
 		}
 	case fetchMsg:
 		m.loading = false
@@ -287,6 +334,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.tasks = msg.response.Tasks
 			m.sources = msg.response.Sources
+			if !m.selectedCurrentTask {
+				if cursor, ok := currentTaskCursor(m.tasks); ok {
+					m.cursor = cursor
+				}
+				m.selectedCurrentTask = true
+			}
 			if m.cursor >= len(m.tasks) {
 				m.cursor = max(0, len(m.tasks)-1)
 			}
@@ -340,6 +393,54 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 const maxContentWidth = 140
 
+var taskGroupKeys = []string{"immediate", "attention", "in_progress", "done", "low_priority"}
+
+func (m *model) moveCursor(delta int) {
+	order := m.taskCursorOrder()
+	if len(order) == 0 {
+		return
+	}
+
+	position := -1
+	for i, index := range order {
+		if index == m.cursor {
+			position = i
+			break
+		}
+	}
+	if position == -1 {
+		m.cursor = order[0]
+		return
+	}
+
+	position = max(0, min(position+delta, len(order)-1))
+	m.cursor = order[position]
+}
+
+func (m *model) moveCursorToEdge(last bool) {
+	order := m.taskCursorOrder()
+	if len(order) == 0 {
+		return
+	}
+	if last {
+		m.cursor = order[len(order)-1]
+		return
+	}
+	m.cursor = order[0]
+}
+
+func (m model) taskCursorOrder() []int {
+	order := make([]int, 0, len(m.tasks))
+	for _, key := range taskGroupKeys {
+		for i, task := range m.tasks {
+			if task.Attention == key {
+				order = append(order, i)
+			}
+		}
+	}
+	return order
+}
+
 func (m model) View() string {
 	contentWidth := m.contentWidth()
 
@@ -367,6 +468,15 @@ func (m model) View() string {
 			sections = append(sections, errorStyle.Render(m.err.Error()))
 		}
 		sections = append(sections, helpStyle.Render("y delete • esc/n cancel • q quit"))
+		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
+	}
+
+	if m.mode == "worktree_session" {
+		sections = append(sections, m.worktreeSessionView(contentWidth))
+		if m.err != nil {
+			sections = append(sections, errorStyle.Render(m.err.Error()))
+		}
+		sections = append(sections, helpStyle.Render("↑/k ↓/j move • enter create session • esc cancel • q quit"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
@@ -401,7 +511,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • o open link • i inspect • c create • d delete • f filters • r refresh • R reset • q quit"))
+	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • o open link • i inspect • c create • d delete • f config • r refresh • R reset • q quit"), width))
 	return sections
 }
 
@@ -431,7 +541,7 @@ func (m model) contentWidth() int {
 	if os.Getenv("TMUX") != "" {
 		width := m.width - 4
 		if width <= 0 {
-			width = maxContentWidth
+			width = 80
 		}
 		return max(width, 60)
 	}
@@ -508,6 +618,46 @@ func newCreateForm() createForm {
 	return createForm{repoList: picker{loading: true}}
 }
 
+func newForkCreateForm() (createForm, error) {
+	if os.Getenv("TMUX") == "" {
+		return createForm{}, fmt.Errorf("radar fork must run inside tmux")
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return createForm{}, err
+	}
+	runner := workspace.ExecRunner{}
+	repo, err := runner.Run(context.Background(), cwd, "git", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return createForm{}, err
+	}
+	sessionName, err := runner.Run(context.Background(), cwd, "tmux", "display-message", "-p", "#{session_name}")
+	if err != nil {
+		return createForm{}, err
+	}
+	sessionName = strings.TrimSpace(sessionName)
+	if sessionName == "" {
+		return createForm{}, fmt.Errorf("could not detect current tmux session")
+	}
+	currentBranch, _ := runner.Run(context.Background(), repo, "git", "branch", "--show-current")
+	currentBranch = strings.TrimSpace(currentBranch)
+	sourceRepoName := filepath.Base(repo)
+	if root, err := workspace.DefaultRoot(); err == nil {
+		if rel, err := filepath.Rel(root, repo); err == nil && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != ".." {
+			parts := strings.Split(rel, string(os.PathSeparator))
+			if len(parts) >= 2 && parts[0] != "." && parts[0] != "" {
+				sourceRepoName = parts[0]
+			}
+		}
+	}
+	return createForm{
+		repo:           repo,
+		forkPiSession:  sessionName,
+		sourceRepoName: sourceRepoName,
+		baseList:       picker{loading: true, query: currentBranch},
+	}, nil
+}
+
 func (m model) updateCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "ctrl+c":
@@ -539,13 +689,18 @@ func (m model) loadRepos() tea.Cmd {
 		if err != nil {
 			return reposMsg{err: err}
 		}
-		return reposMsg{repos: workstream.DiscoverRepos(context.Background(), workstream.ExecRunner{}, cwd)}
+		repos, err := workspace.DiscoverRepos(context.Background(), workspace.ExecRunner{}, cwd)
+		return reposMsg{repos: repos, err: err}
 	}
 }
 
 func (m model) loadBranches(repo string) tea.Cmd {
 	return func() tea.Msg {
-		branches, err := workstream.Branches(context.Background(), workstream.ExecRunner{}, repo)
+		runner := workspace.ExecRunner{}
+		if err := workspace.FetchBranches(context.Background(), runner, repo); err != nil {
+			return branchesMsg{err: err}
+		}
+		branches, err := workspace.Branches(context.Background(), runner, repo)
 		return branchesMsg{branches: branches, err: err}
 	}
 }
@@ -601,15 +756,28 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 	m.mode = ""
 	m.loading = true
 	m.err = nil
-	m.message = "Creating workstream…"
+	m.message = "Creating workspace…"
+	if form.forkPiSession != "" {
+		m.message = "Forking workspace…"
+	}
 	return m, func() tea.Msg {
 		switchAfterCreate := os.Getenv("TMUX") != ""
-		created, err := workstream.Create(context.Background(), workstream.ExecRunner{}, workstream.CreateOptions{
-			Repo:   form.repo,
-			Base:   form.base,
-			Name:   form.name,
-			Switch: switchAfterCreate,
-		})
+		options := workspace.CreateOptions{
+			Repo:          form.repo,
+			Base:          form.base,
+			Name:          form.name,
+			Switch:        switchAfterCreate,
+			ForkPiSession: form.forkPiSession,
+		}
+		if form.forkPiSession != "" && form.sourceRepoName != "" {
+			root, err := workspace.DefaultRoot()
+			if err != nil {
+				return actionMsg{err: err}
+			}
+			options.Path = filepath.Join(root, form.sourceRepoName, workspace.WorktreeName(form.name))
+			options.SessionName = workspace.SessionName(form.sourceRepoName, form.name)
+		}
+		created, err := workspace.Create(context.Background(), workspace.ExecRunner{}, options)
 		if err != nil {
 			return actionMsg{err: err}
 		}
@@ -627,7 +795,7 @@ func (m model) previewDelete(task protocol.Task) tea.Cmd {
 			}
 			return deletePreviewMsg{preview: deletePreview{SessionName: sessionName, SessionOnly: true}}
 		}
-		status, err := workstream.ExecRunner{}.Run(context.Background(), "", "git", "-C", ref.Path, "status", "--porcelain")
+		status, err := workspace.ExecRunner{}.Run(context.Background(), "", "git", "-C", ref.Path, "status", "--porcelain")
 		if err != nil {
 			return deletePreviewMsg{err: err}
 		}
@@ -644,13 +812,13 @@ func (m model) previewDelete(task protocol.Task) tea.Cmd {
 func (m model) deleteSelected(preview deletePreview) tea.Cmd {
 	return func() tea.Msg {
 		if preview.SessionOnly {
-			deleted, err := workstream.DeleteSession(context.Background(), workstream.ExecRunner{}, preview.SessionName)
+			deleted, err := workspace.DeleteSession(context.Background(), workspace.ExecRunner{}, preview.SessionName)
 			if err != nil {
 				return actionMsg{err: err}
 			}
 			return actionMsg{message: "Deleted session " + deleted.SessionName, refresh: true}
 		}
-		deleted, err := workstream.Delete(context.Background(), workstream.ExecRunner{}, preview.Path, preview.SessionName, true)
+		deleted, err := workspace.Delete(context.Background(), workspace.ExecRunner{}, preview.Path, preview.SessionName, true)
 		if err != nil {
 			return actionMsg{err: err}
 		}
@@ -742,23 +910,33 @@ func fuzzyMatch(value string, query string) bool {
 func (m model) createView(width int) string {
 	switch m.mode {
 	case "create_repo":
-		return m.pickerView(width, "Create workstream", "Repository", m.create.repoList)
+		return m.pickerView(width, "Create workspace", "Repository", m.create.repoList)
 	case "create_base":
+		title := "Create workspace"
+		if m.create.forkPiSession != "" {
+			title = "Fork workspace"
+		}
 		return strings.Join([]string{
 			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
-			m.pickerView(width, "Create workstream", "Base branch", m.create.baseList),
+			m.pickerView(width, title, "Base branch", m.create.baseList),
 		}, "\n")
 	case "create_name":
 		name := m.create.name
 		if name == "" {
-			name = subtleStyle.Render("type a workstream name")
+			name = subtleStyle.Render("type a workspace name")
 		}
-		return strings.Join([]string{
-			titleStyle.Render("Create workstream"),
+		title := "Create workspace"
+		lines := []string{
+			titleStyle.Render(title),
 			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
 			subtleStyle.Render("Base       " + m.create.base),
-			selectedStyle.Width(width - 4).Render("› Name       " + name),
-		}, "\n")
+		}
+		if m.create.forkPiSession != "" {
+			lines[0] = titleStyle.Render("Fork workspace")
+			lines = append(lines, subtleStyle.Render("Pi fork    "+m.create.forkPiSession))
+		}
+		lines = append(lines, selectedStyle.Width(width-4).Render("› Name       "+name))
+		return strings.Join(lines, "\n")
 	default:
 		return ""
 	}
@@ -766,13 +944,13 @@ func (m model) createView(width int) string {
 
 func (m model) deleteConfirmView(width int) string {
 	preview := m.delete
-	title := "Delete workstream?"
+	title := "Delete workspace?"
 	warning := "This will remove the git worktree."
 	if preview.SessionOnly {
 		title = "Delete tmux session?"
 		warning = "This will kill only the tmux session."
 	} else if preview.Dirty {
-		title = "Delete dirty workstream?"
+		title = "Delete dirty workspace?"
 		warning = "This worktree has uncommitted changes. Deleting will permanently discard them."
 	}
 
@@ -792,6 +970,29 @@ func (m model) deleteConfirmView(width int) string {
 	}
 	lines = append(lines, "", errorStyle.Render("Press y to delete."))
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) worktreeSessionView(width int) string {
+	if len(m.worktrees) == 0 {
+		return subtleStyle.Render("No git worktrees on selected task.")
+	}
+	lines := []string{titleStyle.Render("Create tmux session for worktree")}
+	for i, ref := range m.worktrees {
+		label := sourceRefLabel(ref)
+		if ref.Path != "" {
+			label = shortenPath(ref.Path)
+		}
+		if ref.Branch != "" {
+			label += "  " + subtleStyle.Render(ref.Branch)
+		}
+		if i == m.worktreeCursor {
+			label = selectedStyle.Width(width - 4).Render("› " + label)
+		} else {
+			label = "  " + label
+		}
+		lines = append(lines, label)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m model) pickerView(width int, title string, label string, list picker) string {
@@ -905,8 +1106,8 @@ func (m model) fetch(method string) tea.Cmd {
 	}
 }
 
-func (m model) openFilters() tea.Cmd {
-	path, err := filters.EnsureFile()
+func (m model) openConfig() tea.Cmd {
+	path, err := config.EnsureFile()
 	if err != nil {
 		return func() tea.Msg { return actionMsg{err: err} }
 	}
@@ -918,20 +1119,58 @@ func (m model) openFilters() tea.Cmd {
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		return actionMsg{message: "Filters saved", refresh: true}
+		return actionMsg{message: "Config saved", refresh: true}
 	})
 }
 
-func (m model) switchSelected() tea.Cmd {
+func (m model) activateSelected() (tea.Model, tea.Cmd) {
+	if len(m.tasks) == 0 {
+		return m, nil
+	}
 	task := m.tasks[m.cursor]
+	if target := tmuxSessionTarget(task); target != "" {
+		m.loading = true
+		m.err = nil
+		return m, m.switchTmuxSession(target)
+	}
+
+	worktrees := gitWorktreeRefs(task)
+	switch len(worktrees) {
+	case 0:
+		m.message = "No tmux session or git worktree on selected task"
+		return m, nil
+	case 1:
+		m.loading = true
+		m.err = nil
+		m.message = "Creating tmux session…"
+		return m, m.createSessionForWorktree(worktrees[0])
+	default:
+		m.mode = "worktree_session"
+		m.worktrees = worktrees
+		m.worktreeCursor = 0
+		m.message = ""
+		m.err = nil
+		return m, nil
+	}
+}
+
+func (m model) switchTmuxSession(target string) tea.Cmd {
 	return func() tea.Msg {
-		if target := tmuxSessionTarget(task); target != "" {
-			if err := exec.Command("tmux", "switch-client", "-t", target).Run(); err != nil {
-				return actionMsg{err: err}
-			}
-			return actionMsg{quit: true}
+		if err := exec.Command("tmux", "switch-client", "-t", target).Run(); err != nil {
+			return actionMsg{err: err}
 		}
-		return actionMsg{message: "No tmux session on selected task"}
+		return actionMsg{quit: true}
+	}
+}
+
+func (m model) createSessionForWorktree(ref protocol.SourceRef) tea.Cmd {
+	return func() tea.Msg {
+		switchAfterCreate := os.Getenv("TMUX") != ""
+		created, err := workspace.CreateSession(context.Background(), workspace.ExecRunner{}, ref.Path, "", switchAfterCreate)
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
 	}
 }
 
@@ -957,12 +1196,117 @@ func (m model) openTaskURL(task protocol.Task, url string) tea.Cmd {
 }
 
 func worktreeRef(task protocol.Task) (protocol.SourceRef, bool) {
+	refs := gitWorktreeRefs(task)
+	if len(refs) == 0 {
+		return protocol.SourceRef{}, false
+	}
+	return refs[0], true
+}
+
+func gitWorktreeRefs(task protocol.Task) []protocol.SourceRef {
+	refs := make([]protocol.SourceRef, 0)
 	for _, ref := range task.SourceRefs {
 		if ref.Source == "git" && ref.Kind == "worktree" && ref.Path != "" {
-			return ref, true
+			refs = append(refs, ref)
 		}
 	}
-	return protocol.SourceRef{}, false
+	return refs
+}
+
+type currentTaskHints struct {
+	cwd         string
+	worktree    string
+	sessionName string
+	sessionID   string
+}
+
+func currentTaskCursor(tasks []protocol.Task) (int, bool) {
+	return taskCursorForHints(tasks, detectCurrentTaskHints())
+}
+
+func detectCurrentTaskHints() currentTaskHints {
+	hints := currentTaskHints{}
+	if cwd, err := os.Getwd(); err == nil {
+		hints.cwd = filepath.Clean(cwd)
+		runner := workspace.ExecRunner{}
+		if worktree, err := runner.Run(context.Background(), cwd, "git", "rev-parse", "--show-toplevel"); err == nil {
+			hints.worktree = filepath.Clean(worktree)
+		}
+	}
+	if os.Getenv("TMUX") != "" {
+		runner := workspace.ExecRunner{}
+		if output, err := runner.Run(context.Background(), hints.cwd, "tmux", "display-message", "-p", "#{session_name}\t#{session_id}"); err == nil {
+			fields := strings.Split(output, "\t")
+			if len(fields) > 0 {
+				hints.sessionName = strings.TrimSpace(fields[0])
+			}
+			if len(fields) > 1 {
+				hints.sessionID = strings.TrimSpace(fields[1])
+			}
+		}
+	}
+	return hints
+}
+
+func taskCursorForHints(tasks []protocol.Task, hints currentTaskHints) (int, bool) {
+	if hints.worktree != "" || hints.cwd != "" {
+		for i, task := range tasks {
+			for _, ref := range task.SourceRefs {
+				if ref.Source == "git" && ref.Kind == "worktree" && ref.Path != "" && currentPathMatches(ref.Path, hints) {
+					return i, true
+				}
+			}
+		}
+	}
+	if hints.sessionName != "" || hints.sessionID != "" {
+		for i, task := range tasks {
+			if task.Kind == "session" && metadataMatchesSession(task.Metadata, hints) {
+				return i, true
+			}
+			for _, ref := range task.SourceRefs {
+				if ref.Source == "tmux" && ref.Kind == "session" && tmuxRefMatchesSession(ref, hints) {
+					return i, true
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+func currentPathMatches(refPath string, hints currentTaskHints) bool {
+	refPath = filepath.Clean(refPath)
+	return samePath(hints.worktree, refPath) || sameOrDescendant(hints.cwd, refPath)
+}
+
+func tmuxRefMatchesSession(ref protocol.SourceRef, hints currentTaskHints) bool {
+	return metadataMatchesSession(ref.Metadata, hints) || ref.Title == hints.sessionName
+}
+
+func metadataMatchesSession(metadata map[string]string, hints currentTaskHints) bool {
+	for _, key := range []string{"switch_target", "session_id", "session"} {
+		value := metadata[key]
+		if value != "" && (value == hints.sessionID || value == hints.sessionName) {
+			return true
+		}
+	}
+	return false
+}
+
+func samePath(left string, right string) bool {
+	return left != "" && right != "" && filepath.Clean(left) == filepath.Clean(right)
+}
+
+func sameOrDescendant(path string, root string) bool {
+	if path == "" || root == "" {
+		return false
+	}
+	path = filepath.Clean(path)
+	root = filepath.Clean(root)
+	if path == root {
+		return true
+	}
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
 func tmuxSessionTarget(task protocol.Task) string {
@@ -1077,35 +1421,47 @@ func (m model) header(width int) string {
 	}
 
 	left := lipgloss.JoinHorizontal(lipgloss.Top, titleStyle.Render("Radar"), "  ", counts)
+	if status == "" {
+		return truncateLine(left, width)
+	}
+	available := max(0, width-lipgloss.Width(status))
+	left = truncateLine(left, available)
 	gap := strings.Repeat(" ", max(0, width-lipgloss.Width(left)-lipgloss.Width(status)))
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, gap, status)
 }
 
 func (m model) taskList(width int, height int) string {
-	lines, selectedLine := m.taskLines(width)
+	lines, selectedStart, selectedEnd := m.taskLines(width)
+	return scrolledLines(lines, selectedStart, selectedEnd, m.scroll, height)
+}
+
+func scrolledLines(lines []string, selectedStart int, selectedEnd int, scroll int, height int) string {
 	if height <= 0 || len(lines) <= height {
 		return strings.Join(lines, "\n")
 	}
-
-	scroll := m.scroll
-	if selectedLine < scroll {
-		scroll = selectedLine
+	if selectedStart < scroll {
+		scroll = selectedStart
 	}
-	if selectedLine >= scroll+height {
-		scroll = selectedLine - height + 1
+	if selectedEnd >= scroll+height {
+		selectedHeight := selectedEnd - selectedStart + 1
+		if selectedHeight >= height {
+			scroll = selectedStart
+		} else {
+			scroll = selectedEnd - height + 1
+		}
 	}
 	scroll = max(0, min(scroll, len(lines)-height))
 	visible := append([]string{}, lines[scroll:scroll+height]...)
-	if scroll > 0 && selectedLine != scroll {
+	if scroll > 0 && selectedStart != scroll {
 		visible[0] = subtleStyle.Render("↑ more")
 	}
-	if scroll+height < len(lines) && selectedLine != scroll+height-1 {
+	if scroll+height < len(lines) && selectedEnd != scroll+height-1 {
 		visible[len(visible)-1] = subtleStyle.Render("↓ more")
 	}
 	return strings.Join(visible, "\n")
 }
 
-func (m model) taskLines(width int) ([]string, int) {
+func (m model) taskLines(width int) ([]string, int, int) {
 	groups := []struct {
 		key   string
 		title string
@@ -1118,30 +1474,40 @@ func (m model) taskLines(width int) ([]string, int) {
 		{key: "low_priority", title: "🔇 Low priority", style: lowStyle},
 	}
 
-	selectedLine := 0
+	selectedStart := 0
+	selectedEnd := 0
 	var lines []string
 	for _, group := range groups {
 		var groupLines []string
+		groupHeaderIndex := len(lines)
+		if len(lines) > 0 {
+			groupHeaderIndex++
+		}
 		for i, task := range m.tasks {
 			if task.Attention != group.key {
 				continue
 			}
 			line := taskLine(task, i == m.cursor)
 			if i == m.cursor {
-				groupStart := len(lines)
-				if len(lines) > 0 {
-					groupStart++
-				}
-				selectedLine = groupStart + len(groupLines) + 1
 				line = selectedStyle.Render("› " + line)
 			} else {
 				line = "  " + line
 			}
-			groupLines = append(groupLines, line)
-
+			lineWidth := max(20, width-20)
+			block := []string{truncateLine(line, lineWidth)}
 			for _, ref := range task.SourceRefs {
-				groupLines = append(groupLines, subtleStyle.Render("    ↳ "+sourceRefLabel(ref)))
+				block = append(block, truncateLine(subtleStyle.Render("    ↳ "+sourceRefLabel(ref)), lineWidth))
 			}
+			if i == m.cursor {
+				groupStart := groupHeaderIndex
+				taskStart := groupStart + len(groupLines) + 1
+				selectedStart = taskStart
+				if len(groupLines) == 0 {
+					selectedStart = groupStart
+				}
+				selectedEnd = taskStart + len(block) - 1
+			}
+			groupLines = append(groupLines, block...)
 		}
 		if len(groupLines) > 0 {
 			if len(lines) > 0 {
@@ -1151,7 +1517,14 @@ func (m model) taskLines(width int) ([]string, int) {
 			lines = append(lines, groupLines...)
 		}
 	}
-	return lines, selectedLine
+	return lines, selectedStart, selectedEnd
+}
+
+func truncateLine(line string, width int) string {
+	if width <= 0 {
+		return line
+	}
+	return ansi.Truncate(line, width, "…")
 }
 
 func taskLine(task protocol.Task, selected bool) string {
@@ -1191,7 +1564,7 @@ func (m model) sourceList(width int) string {
 		if source.Detail != "" {
 			line += "  " + subtleStyle.Render(source.Detail)
 		}
-		lines = append(lines, line)
+		lines = append(lines, truncateLine(line, width))
 	}
 	return strings.Join(lines, "\n")
 }

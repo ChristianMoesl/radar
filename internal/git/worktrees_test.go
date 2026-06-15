@@ -6,25 +6,26 @@ import (
 	"testing"
 )
 
-func TestGitRootsDefaultsToCwdAndWorkstreams(t *testing.T) {
+func TestGitRootsDefaultsToCwdAndWorkspaces(t *testing.T) {
 	home := t.TempDir()
-	cwd := filepath.Join(home, "not-a-workstream")
-	workstream := filepath.Join(home, "workstreams", "repo", "feature")
-	otherWorkstream := filepath.Join(home, "workstreams", "other", "fix")
-	for _, dir := range []string{cwd, workstream, otherWorkstream, filepath.Join(home, "workstreams", "repo")} {
+	cwd := filepath.Join(home, "not-a-workspace")
+	workspace := filepath.Join(home, "workspaces", "repo", "feature")
+	otherWorkspace := filepath.Join(home, "workspaces", "other", "fix")
+	for _, dir := range []string{cwd, workspace, otherWorkspace, filepath.Join(home, "workspaces", "repo")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("RADAR_GIT_REPOS", "")
 	t.Chdir(cwd)
 
 	roots := gitRoots()
 	assertContainsRoot(t, roots, cwd)
-	assertContainsRoot(t, roots, workstream)
-	assertContainsRoot(t, roots, otherWorkstream)
-	assertMissingRoot(t, roots, filepath.Join(home, "workstreams", "repo"))
+	assertContainsRoot(t, roots, workspace)
+	assertContainsRoot(t, roots, otherWorkspace)
+	assertMissingRoot(t, roots, filepath.Join(home, "workspaces", "repo"))
 }
 
 func TestGitRootsIncludesTmuxSessionPaths(t *testing.T) {
@@ -45,6 +46,7 @@ func TestGitRootsIncludesTmuxSessionPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("PATH", bin)
 	t.Setenv("RADAR_GIT_REPOS", "")
 	t.Chdir(cwd)
@@ -57,6 +59,7 @@ func TestGitRootsIncludesTmuxSessionPaths(t *testing.T) {
 func TestGitRootsEnvOverridesDefaults(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("RADAR_GIT_REPOS", "~/repo:/tmp/other")
 
 	roots := gitRoots()
