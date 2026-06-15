@@ -77,21 +77,23 @@ type createForm struct {
 }
 
 type model struct {
-	socketPath string
-	width      int
-	height     int
-	loading    bool
-	err        error
-	summary    protocol.Summary
-	tasks      []protocol.Task
-	sources    []protocol.SourceStatus
-	cursor     int
-	mode       string
-	create     createForm
-	delete     deletePreview
-	links      []linkChoice
-	message    string
-	scroll     int
+	socketPath     string
+	width          int
+	height         int
+	loading        bool
+	err            error
+	summary        protocol.Summary
+	tasks          []protocol.Task
+	sources        []protocol.SourceStatus
+	cursor         int
+	mode           string
+	create         createForm
+	delete         deletePreview
+	links          []linkChoice
+	worktrees      []protocol.SourceRef
+	worktreeCursor int
+	message        string
+	scroll         int
 }
 
 var (
@@ -197,6 +199,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		if m.mode == "worktree_session" {
+			switch msg.String() {
+			case "esc", "backspace", "h":
+				m.mode = ""
+				m.worktrees = nil
+				m.worktreeCursor = 0
+				return m, nil
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "j", "down", "ctrl+n":
+				if m.worktreeCursor < len(m.worktrees)-1 {
+					m.worktreeCursor++
+				}
+				return m, nil
+			case "k", "up", "ctrl+p":
+				if m.worktreeCursor > 0 {
+					m.worktreeCursor--
+				}
+				return m, nil
+			case "enter":
+				if len(m.worktrees) == 0 {
+					return m, nil
+				}
+				ref := m.worktrees[m.worktreeCursor]
+				m.mode = ""
+				m.worktrees = nil
+				m.worktreeCursor = 0
+				m.loading = true
+				m.err = nil
+				m.message = "Creating tmux session…"
+				return m, m.createSessionForWorktree(ref)
+			default:
+				return m, nil
+			}
+		}
 		if m.mode == "delete_confirm" {
 			switch msg.String() {
 			case "y", "Y":
@@ -265,11 +302,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "G", "end":
 			m.moveCursorToEdge(true)
 		case "enter":
-			if len(m.tasks) > 0 {
-				m.loading = true
-				m.err = nil
-				return m, m.switchSelected()
-			}
+			return m.activateSelected()
 		}
 	case fetchMsg:
 		m.loading = false
@@ -409,6 +442,15 @@ func (m model) View() string {
 			sections = append(sections, errorStyle.Render(m.err.Error()))
 		}
 		sections = append(sections, helpStyle.Render("y delete • esc/n cancel • q quit"))
+		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
+	}
+
+	if m.mode == "worktree_session" {
+		sections = append(sections, m.worktreeSessionView(contentWidth))
+		if m.err != nil {
+			sections = append(sections, errorStyle.Render(m.err.Error()))
+		}
+		sections = append(sections, helpStyle.Render("↑/k ↓/j move • enter create session • esc cancel • q quit"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
@@ -841,6 +883,29 @@ func (m model) deleteConfirmView(width int) string {
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
 }
 
+func (m model) worktreeSessionView(width int) string {
+	if len(m.worktrees) == 0 {
+		return subtleStyle.Render("No git worktrees on selected task.")
+	}
+	lines := []string{titleStyle.Render("Create tmux session for worktree")}
+	for i, ref := range m.worktrees {
+		label := sourceRefLabel(ref)
+		if ref.Path != "" {
+			label = shortenPath(ref.Path)
+		}
+		if ref.Branch != "" {
+			label += "  " + subtleStyle.Render(ref.Branch)
+		}
+		if i == m.worktreeCursor {
+			label = selectedStyle.Width(width - 4).Render("› " + label)
+		} else {
+			label = "  " + label
+		}
+		lines = append(lines, label)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m model) pickerView(width int, title string, label string, list picker) string {
 	lines := []string{titleStyle.Render(title), label + ": " + list.query}
 	if list.loading {
@@ -969,16 +1034,54 @@ func (m model) openConfig() tea.Cmd {
 	})
 }
 
-func (m model) switchSelected() tea.Cmd {
+func (m model) activateSelected() (tea.Model, tea.Cmd) {
+	if len(m.tasks) == 0 {
+		return m, nil
+	}
 	task := m.tasks[m.cursor]
+	if target := tmuxSessionTarget(task); target != "" {
+		m.loading = true
+		m.err = nil
+		return m, m.switchTmuxSession(target)
+	}
+
+	worktrees := gitWorktreeRefs(task)
+	switch len(worktrees) {
+	case 0:
+		m.message = "No tmux session or git worktree on selected task"
+		return m, nil
+	case 1:
+		m.loading = true
+		m.err = nil
+		m.message = "Creating tmux session…"
+		return m, m.createSessionForWorktree(worktrees[0])
+	default:
+		m.mode = "worktree_session"
+		m.worktrees = worktrees
+		m.worktreeCursor = 0
+		m.message = ""
+		m.err = nil
+		return m, nil
+	}
+}
+
+func (m model) switchTmuxSession(target string) tea.Cmd {
 	return func() tea.Msg {
-		if target := tmuxSessionTarget(task); target != "" {
-			if err := exec.Command("tmux", "switch-client", "-t", target).Run(); err != nil {
-				return actionMsg{err: err}
-			}
-			return actionMsg{quit: true}
+		if err := exec.Command("tmux", "switch-client", "-t", target).Run(); err != nil {
+			return actionMsg{err: err}
 		}
-		return actionMsg{message: "No tmux session on selected task"}
+		return actionMsg{quit: true}
+	}
+}
+
+func (m model) createSessionForWorktree(ref protocol.SourceRef) tea.Cmd {
+	return func() tea.Msg {
+		switchAfterCreate := os.Getenv("TMUX") != ""
+		created, err := workspace.CreateSession(context.Background(), workspace.ExecRunner{}, ref.Path, "", switchAfterCreate)
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
 	}
 }
 
@@ -1004,12 +1107,21 @@ func (m model) openTaskURL(task protocol.Task, url string) tea.Cmd {
 }
 
 func worktreeRef(task protocol.Task) (protocol.SourceRef, bool) {
+	refs := gitWorktreeRefs(task)
+	if len(refs) == 0 {
+		return protocol.SourceRef{}, false
+	}
+	return refs[0], true
+}
+
+func gitWorktreeRefs(task protocol.Task) []protocol.SourceRef {
+	refs := make([]protocol.SourceRef, 0)
 	for _, ref := range task.SourceRefs {
 		if ref.Source == "git" && ref.Kind == "worktree" && ref.Path != "" {
-			return ref, true
+			refs = append(refs, ref)
 		}
 	}
-	return protocol.SourceRef{}, false
+	return refs
 }
 
 func tmuxSessionTarget(task protocol.Task) string {

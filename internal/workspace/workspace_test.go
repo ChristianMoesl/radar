@@ -101,6 +101,21 @@ func TestCreateEscapesWorktreeNamePathSegment(t *testing.T) {
 	}
 }
 
+func TestCreateSessionCreatesTmuxSessionForWorktree(t *testing.T) {
+	runner := &fakeRunner{}
+	path := filepath.Join(t.TempDir(), "repo", "small-fix")
+	created, err := CreateSession(context.Background(), runner, path, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.SessionName != "repo-small-fix" || created.Path != path {
+		t.Fatalf("unexpected session workspace: %#v", created)
+	}
+	assertCalled(t, runner.calls, "tmux", "new-session -d -s repo-small-fix")
+	assertCalled(t, runner.calls, "tmux", "new-window -t repo-small-fix:")
+	assertCalled(t, runner.calls, "tmux", "switch-client -t repo-small-fix")
+}
+
 func TestDeleteKillsSessionAndRemovesWorktree(t *testing.T) {
 	runner := &fakeRunner{hasSession: true}
 	path := filepath.Join(t.TempDir(), "repo", "small-fix")

@@ -119,8 +119,7 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		return Workspace{}, err
 	}
 	if _, err := runner.Run(ctx, repo, "tmux", "has-session", "-t", sessionName); err != nil {
-		piCommand := fmt.Sprintf("pi --session-id %s --name %s", shellQuote(sessionName), shellQuote(sessionName))
-		if _, err := runner.Run(ctx, repo, "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, piCommand); err != nil {
+		if _, err := runner.Run(ctx, repo, "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, "pi"); err != nil {
 			rollback()
 			return Workspace{}, err
 		}
@@ -141,6 +140,43 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	}
 
 	return Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName}, nil
+}
+
+func CreateSession(ctx context.Context, runner Runner, path string, sessionName string, switchClient bool) (Workspace, error) {
+	for _, dependency := range []string{"tmux", "pi", "nvim"} {
+		if err := runner.LookPath(dependency); err != nil {
+			return Workspace{}, fmt.Errorf("workspace session creation requires %q: %w", dependency, err)
+		}
+	}
+	if strings.TrimSpace(path) == "" {
+		return Workspace{}, fmt.Errorf("workspace path is required")
+	}
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return Workspace{}, err
+	}
+	if sessionName == "" {
+		sessionName = SessionName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
+	}
+	if _, err := runner.Run(ctx, "", "tmux", "has-session", "-t", sessionName); err != nil {
+		if _, err := runner.Run(ctx, "", "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, "pi"); err != nil {
+			return Workspace{}, err
+		}
+		if _, err := runner.Run(ctx, "", "tmux", "new-window", "-t", sessionName+":", "-n", "nvim", "-c", path, "nvim ."); err != nil {
+			_, _ = runner.Run(ctx, "", "tmux", "kill-session", "-t", sessionName)
+			return Workspace{}, err
+		}
+		if _, err := runner.Run(ctx, "", "tmux", "select-window", "-t", sessionName+":pi"); err != nil {
+			_, _ = runner.Run(ctx, "", "tmux", "kill-session", "-t", sessionName)
+			return Workspace{}, err
+		}
+	}
+	if switchClient {
+		if _, err := runner.Run(ctx, "", "tmux", "switch-client", "-t", sessionName); err != nil {
+			return Workspace{}, err
+		}
+	}
+	return Workspace{Path: path, SessionName: sessionName}, nil
 }
 
 func DeleteSession(ctx context.Context, runner Runner, sessionName string) (Workspace, error) {
@@ -238,8 +274,4 @@ func copyFile(source string, target string, mode os.FileMode) error {
 		return err
 	}
 	return output.Close()
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }

@@ -134,6 +134,22 @@ func TestDeleteConfirmViewWarnsAboutDirtyWorkspace(t *testing.T) {
 	}
 }
 
+func TestActivateSelectedAsksForWorktreeWhenTaskHasMultipleWorktrees(t *testing.T) {
+	m := model{tasks: []protocol.Task{{SourceRefs: []protocol.SourceRef{
+		{Source: "git", Kind: "worktree", Path: "/repo/one"},
+		{Source: "git", Kind: "worktree", Path: "/repo/two"},
+	}}}}
+
+	updated, cmd := m.activateSelected()
+	if cmd != nil {
+		t.Fatal("activateSelected() returned command for multiple worktrees")
+	}
+	got := updated.(model)
+	if got.mode != "worktree_session" || len(got.worktrees) != 2 {
+		t.Fatalf("activateSelected() mode=%q worktrees=%d, want worktree_session/2", got.mode, len(got.worktrees))
+	}
+}
+
 func TestWorktreeRefFindsGitWorktreeSource(t *testing.T) {
 	task := protocol.Task{SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/repo/worktrees/small-fix"}}}
 
