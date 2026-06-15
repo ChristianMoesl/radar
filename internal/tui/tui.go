@@ -257,19 +257,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.message = "Refreshing…"
 			return m, m.fetch("refresh")
 		case "j", "down", "ctrl+n":
-			if m.cursor < len(m.tasks)-1 {
-				m.cursor++
-			}
+			m.moveCursor(1)
 		case "k", "up", "ctrl+p":
-			if m.cursor > 0 {
-				m.cursor--
-			}
+			m.moveCursor(-1)
 		case "g", "home":
-			m.cursor = 0
+			m.moveCursorToEdge(false)
 		case "G", "end":
-			if len(m.tasks) > 0 {
-				m.cursor = len(m.tasks) - 1
-			}
+			m.moveCursorToEdge(true)
 		case "enter":
 			if len(m.tasks) > 0 {
 				m.loading = true
@@ -339,6 +333,54 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 const maxContentWidth = 140
+
+var taskGroupKeys = []string{"immediate", "attention", "in_progress", "done", "low_priority"}
+
+func (m *model) moveCursor(delta int) {
+	order := m.taskCursorOrder()
+	if len(order) == 0 {
+		return
+	}
+
+	position := -1
+	for i, index := range order {
+		if index == m.cursor {
+			position = i
+			break
+		}
+	}
+	if position == -1 {
+		m.cursor = order[0]
+		return
+	}
+
+	position = max(0, min(position+delta, len(order)-1))
+	m.cursor = order[position]
+}
+
+func (m *model) moveCursorToEdge(last bool) {
+	order := m.taskCursorOrder()
+	if len(order) == 0 {
+		return
+	}
+	if last {
+		m.cursor = order[len(order)-1]
+		return
+	}
+	m.cursor = order[0]
+}
+
+func (m model) taskCursorOrder() []int {
+	order := make([]int, 0, len(m.tasks))
+	for _, key := range taskGroupKeys {
+		for i, task := range m.tasks {
+			if task.Attention == key {
+				order = append(order, i)
+			}
+		}
+	}
+	return order
+}
 
 func (m model) View() string {
 	contentWidth := m.contentWidth()

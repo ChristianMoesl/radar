@@ -67,6 +67,48 @@ func TestCreateRepoViewShortensHomePaths(t *testing.T) {
 	}
 }
 
+func TestTaskCursorOrderFollowsRenderedGroups(t *testing.T) {
+	model := model{tasks: []protocol.Task{
+		{Title: "low", Attention: "low_priority"},
+		{Title: "attention", Attention: "attention"},
+		{Title: "done", Attention: "done"},
+		{Title: "progress", Attention: "in_progress"},
+	}}
+
+	got := model.taskCursorOrder()
+	want := []int{1, 3, 2, 0}
+	if len(got) != len(want) {
+		t.Fatalf("taskCursorOrder() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("taskCursorOrder() = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestMoveCursorUsesRenderedTaskOrder(t *testing.T) {
+	model := model{cursor: 1, tasks: []protocol.Task{
+		{Title: "low", Attention: "low_priority"},
+		{Title: "attention", Attention: "attention"},
+		{Title: "done", Attention: "done"},
+		{Title: "progress", Attention: "in_progress"},
+	}}
+
+	model.moveCursor(1)
+	if model.cursor != 3 {
+		t.Fatalf("cursor after down = %d, want 3", model.cursor)
+	}
+	model.moveCursor(1)
+	if model.cursor != 2 {
+		t.Fatalf("cursor after second down = %d, want 2", model.cursor)
+	}
+	model.moveCursor(-1)
+	if model.cursor != 3 {
+		t.Fatalf("cursor after up = %d, want 3", model.cursor)
+	}
+}
+
 func TestDeleteConfirmViewShowsTmuxSessionOnlyDelete(t *testing.T) {
 	model := model{mode: "delete_confirm", delete: deletePreview{SessionName: "$3", SessionOnly: true}}
 
