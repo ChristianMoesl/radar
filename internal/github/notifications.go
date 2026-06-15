@@ -374,9 +374,6 @@ func setActivityMetadata(sourceRef *protocol.SourceRef, activity pullRequestActi
 		sourceRef.Metadata["new_general_comments"] = strconv.Itoa(activity.newGeneralComments)
 		sourceRef.Metadata["latest_general_comment_at"] = activity.latestGeneralCommentAt
 	}
-	if previous.generalCommentsAckAt != "" {
-		sourceRef.Metadata["general_comments_ack_at"] = previous.generalCommentsAckAt
-	}
 }
 
 func repoName(pr searchPullRequest) string {
@@ -396,16 +393,20 @@ func pullRequestMetadata(pr searchPullRequest) map[string]string {
 func activityStateFromPrevious(previous []protocol.Task) map[string]previousPullRequestActivity {
 	state := map[string]previousPullRequestActivity{}
 	for _, item := range previous {
+		ack := ""
+		if item.Metadata != nil {
+			ack = item.Metadata["general_comments_ack_at"]
+		}
+		if ack == "" {
+			continue
+		}
 		for _, sourceRef := range item.SourceRefs {
 			repo, number, ok := parsePullRequestSourceRefID(sourceRef.ID)
 			if !ok {
 				continue
 			}
 			key := prKey(repo, number)
-			if sourceRef.Metadata == nil {
-				continue
-			}
-			if ack := sourceRef.Metadata["general_comments_ack_at"]; ack != "" && ack > state[key].generalCommentsAckAt {
+			if ack > state[key].generalCommentsAckAt {
 				state[key] = previousPullRequestActivity{generalCommentsAckAt: ack}
 			}
 		}

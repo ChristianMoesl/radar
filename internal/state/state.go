@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,13 +16,54 @@ import (
 )
 
 const maxStateFileSize = 50 * 1024 * 1024
+const stateVersion = 2
 
 type Store struct {
-	mu      sync.RWMutex
-	items   []protocol.Task
-	sources []protocol.SourceStatus
-	path    string
-	logger  *slog.Logger
+	mu     sync.RWMutex
+	state  persistedState
+	items  []protocol.Task
+	path   string
+	logger *slog.Logger
+}
+
+type persistedState struct {
+	Version    int                     `json:"version"`
+	NextTaskID int                     `json:"next_task_id"`
+	Records    []TaskRecord            `json:"task_records"`
+	SourceRefs []SourceRefRecord       `json:"source_refs"`
+	Sources    []protocol.SourceStatus `json:"sources,omitempty"`
+}
+
+type TaskRecord struct {
+	ID           string        `json:"id"`
+	NumericID    int           `json:"numeric_id"`
+	CanonicalKey string        `json:"canonical_key"`
+	Kind         string        `json:"kind"`
+	State        string        `json:"state"`
+	Reason       string        `json:"reason,omitempty"`
+	DoneAt       string        `json:"done_at,omitempty"`
+	FirstSeen    string        `json:"first_seen"`
+	LastSeen     string        `json:"last_seen"`
+	UpdatedAt    string        `json:"updated_at"`
+	SourceRefIDs []string      `json:"source_ref_ids"`
+	Ack          TaskAckState  `json:"ack,omitempty"`
+	Snapshot     protocol.Task `json:"snapshot"`
+}
+
+type TaskAckState struct {
+	GeneralCommentsAckAt string `json:"general_comments_ack_at,omitempty"`
+}
+
+type SourceRefRecord struct {
+	ID           string             `json:"id"`
+	Source       string             `json:"source"`
+	Kind         string             `json:"kind"`
+	TaskRecordID string             `json:"task_record_id"`
+	FirstSeen    string             `json:"first_seen"`
+	LastSeen     string             `json:"last_seen"`
+	ObservedAt   string             `json:"observed_at"`
+	Active       bool               `json:"active"`
+	Snapshot     protocol.SourceRef `json:"snapshot"`
 }
 
 func Path() (string, error) {
@@ -47,6 +90,7 @@ func NewStore(logger *slog.Logger) (*Store, error) {
 	}
 
 	store := &Store{
+		state:  persistedState{Version: stateVersion, Records: []TaskRecord{}, SourceRefs: []SourceRefRecord{}},
 		items:  []protocol.Task{},
 		path:   path,
 		logger: logger,
@@ -75,22 +119,33 @@ func (s *Store) Load() error {
 		return err
 	}
 
-	var items []protocol.Task
-	if err := json.Unmarshal(data, &items); err != nil {
+	var state persistedState
+	if err := json.Unmarshal(data, &state); err != nil {
 		return err
+	}
+	if state.Version != stateVersion {
+		return fmt.Errorf("unsupported state version %d; run radar reset", state.Version)
+	}
+	if state.Records == nil {
+		state.Records = []TaskRecord{}
+	}
+	if state.SourceRefs == nil {
+		state.SourceRefs = []SourceRefRecord{}
 	}
 
 	s.mu.Lock()
-	s.items = items
+	s.state = state
+	s.items = projectTasks(state)
 	s.mu.Unlock()
 
-	s.logger.Info("state loaded", "path", s.path, "tasks", len(items))
+	s.logger.Info("state loaded", "path", s.path, "records", len(state.Records), "source_refs", len(state.SourceRefs))
 	return nil
 }
 
 func (s *Store) SetTasks(items []protocol.Task) {
 	s.mu.Lock()
-	s.items = assignTaskIDs(s.items, items)
+	s.state = reconcileState(s.state, items, time.Now().UTC())
+	s.items = projectTasks(s.state)
 	s.mu.Unlock()
 
 	if err := s.Save(); err != nil {
@@ -100,15 +155,17 @@ func (s *Store) SetTasks(items []protocol.Task) {
 
 func (s *Store) Save() error {
 	s.mu.RLock()
-	items := make([]protocol.Task, len(s.items))
-	copy(items, s.items)
+	state := s.state
+	state.Records = append([]TaskRecord(nil), s.state.Records...)
+	state.SourceRefs = append([]SourceRefRecord(nil), s.state.SourceRefs...)
+	state.Sources = append([]protocol.SourceStatus(nil), s.state.Sources...)
 	s.mu.RUnlock()
 
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
 	}
 
-	data, err := json.MarshalIndent(items, "", "  ")
+	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -121,7 +178,7 @@ func (s *Store) Save() error {
 		return err
 	}
 
-	s.logger.Debug("state saved", "path", s.path, "tasks", len(items))
+	s.logger.Debug("state saved", "path", s.path, "records", len(state.Records), "source_refs", len(state.SourceRefs))
 	return nil
 }
 
@@ -131,8 +188,8 @@ func (s *Store) Reset() error {
 	}
 
 	s.mu.Lock()
+	s.state = persistedState{Version: stateVersion, Records: []TaskRecord{}, SourceRefs: []SourceRefRecord{}}
 	s.items = []protocol.Task{}
-	s.sources = []protocol.SourceStatus{}
 	s.mu.Unlock()
 
 	s.logger.Info("state reset", "path", s.path)
@@ -143,38 +200,26 @@ func (s *Store) Acknowledge(itemID string) bool {
 	s.mu.Lock()
 	changed := false
 	ackAt := time.Now().UTC().Format(time.RFC3339)
-	items := s.items[:0]
-	for i := range s.items {
-		item := s.items[i]
-		if fmt.Sprint(item.ID) != itemID {
-			items = append(items, item)
+	for i := range s.state.Records {
+		if fmt.Sprint(s.state.Records[i].NumericID) != itemID {
 			continue
 		}
-		for j := range item.SourceRefs {
-			if item.SourceRefs[j].Metadata == nil {
-				item.SourceRefs[j].Metadata = map[string]string{}
+		for _, sourceRef := range s.state.Records[i].Snapshot.SourceRefs {
+			if sourceRef.Metadata == nil {
+				continue
 			}
-			if latest := item.SourceRefs[j].Metadata["latest_general_comment_at"]; latest != "" {
+			if latest := sourceRef.Metadata["latest_general_comment_at"]; latest != "" && latest > ackAt {
 				ackAt = latest
 			}
-			item.SourceRefs[j].Metadata["general_comments_ack_at"] = ackAt
-			delete(item.SourceRefs[j].Metadata, "new_general_comments")
-			changed = true
 		}
-		if item.Kind == "github_pr_activity" && !hasUnresolvedReviewThreads(item) {
-			changed = true
-			continue
-		}
-		if item.Kind == "github_own_pr" && !hasUnresolvedReviewThreads(item) {
-			item.Attention = "in_progress"
-			item.Reason = baseReason(item)
-			for j := range item.SourceRefs {
-				item.SourceRefs[j].Status = item.Reason
-			}
-		}
-		items = append(items, item)
+		s.state.Records[i].Ack.GeneralCommentsAckAt = ackAt
+		s.state.Records[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		changed = true
+		break
 	}
-	s.items = items
+	if changed {
+		s.items = projectTasks(s.state)
+	}
 	s.mu.Unlock()
 
 	if changed {
@@ -183,99 +228,6 @@ func (s *Store) Acknowledge(itemID string) bool {
 		}
 	}
 	return changed
-}
-
-var ticketPattern = regexp.MustCompile(`(?i)[A-Z][A-Z0-9]+-[0-9]+`)
-
-func assignTaskIDs(previous []protocol.Task, next []protocol.Task) []protocol.Task {
-	bySourceRef := map[string]int{}
-	byKey := map[string]int{}
-	maxID := 0
-	for _, task := range previous {
-		if task.ID > maxID {
-			maxID = task.ID
-		}
-		for _, sourceRef := range task.SourceRefs {
-			bySourceRef[sourceRef.ID] = task.ID
-		}
-		for _, key := range taskKeys(task) {
-			byKey[key] = task.ID
-		}
-	}
-
-	assigned := make([]protocol.Task, len(next))
-	used := map[int]bool{}
-	for i, task := range next {
-		id := task.ID
-		if id != 0 && used[id] {
-			id = 0
-		}
-		if id == 0 {
-			id = matchingTaskID(task, bySourceRef, byKey, used)
-		}
-		if id == 0 {
-			maxID++
-			id = maxID
-		}
-		task.ID = id
-		used[id] = true
-		assigned[i] = task
-	}
-	return assigned
-}
-
-func matchingTaskID(task protocol.Task, bySourceRef map[string]int, byKey map[string]int, used map[int]bool) int {
-	for _, sourceRef := range task.SourceRefs {
-		if id := bySourceRef[sourceRef.ID]; id != 0 && !used[id] {
-			return id
-		}
-	}
-	for _, key := range taskKeys(task) {
-		if id := byKey[key]; id != 0 && !used[id] {
-			return id
-		}
-	}
-	return 0
-}
-
-func taskKeys(task protocol.Task) []string {
-	values := []string{task.Title, task.Repo, task.URL}
-	for _, sourceRef := range task.SourceRefs {
-		values = append(values, sourceRef.ID, sourceRef.Title, sourceRef.Branch, sourceRef.Path, sourceRef.Repo, sourceRef.URL)
-		for _, value := range sourceRef.Metadata {
-			values = append(values, value)
-		}
-	}
-	keys := make([]string, 0)
-	seen := map[string]bool{}
-	for _, value := range values {
-		for _, match := range ticketPattern.FindAllString(value, -1) {
-			key := match
-			if !seen[key] {
-				seen[key] = true
-				keys = append(keys, key)
-			}
-		}
-	}
-	return keys
-}
-
-func hasUnresolvedReviewThreads(item protocol.Task) bool {
-	for _, sourceRef := range item.SourceRefs {
-		if sourceRef.Metadata != nil && sourceRef.Metadata["unresolved_review_threads"] != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func baseReason(item protocol.Task) string {
-	for _, sourceRef := range item.SourceRefs {
-		if sourceRef.Metadata != nil && sourceRef.Metadata["base_reason"] != "" {
-			return sourceRef.Metadata["base_reason"]
-		}
-	}
-	return "open PR"
 }
 
 func (s *Store) Tasks() []protocol.Task {
@@ -289,17 +241,21 @@ func (s *Store) Tasks() []protocol.Task {
 
 func (s *Store) SetSources(sources []protocol.SourceStatus) {
 	s.mu.Lock()
-	s.sources = make([]protocol.SourceStatus, len(sources))
-	copy(s.sources, sources)
+	s.state.Sources = make([]protocol.SourceStatus, len(sources))
+	copy(s.state.Sources, sources)
 	s.mu.Unlock()
+
+	if err := s.Save(); err != nil {
+		s.logger.Warn("could not save source status", "path", s.path, "error", err)
+	}
 }
 
 func (s *Store) Sources() []protocol.SourceStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	sources := make([]protocol.SourceStatus, len(s.sources))
-	copy(sources, s.sources)
+	sources := make([]protocol.SourceStatus, len(s.state.Sources))
+	copy(sources, s.state.Sources)
 	return sources
 }
 
@@ -323,4 +279,465 @@ func (s *Store) Summary() protocol.Summary {
 		}
 	}
 	return summary
+}
+
+var ticketPattern = regexp.MustCompile(`(?i)[A-Z][A-Z0-9]+-[0-9]+`)
+
+func reconcileState(previous persistedState, observed []protocol.Task, now time.Time) persistedState {
+	state := previous
+	state.Version = stateVersion
+	nowText := now.Format(time.RFC3339)
+	if state.Records == nil {
+		state.Records = []TaskRecord{}
+	}
+	if state.SourceRefs == nil {
+		state.SourceRefs = []SourceRefRecord{}
+	}
+
+	recordsByID := map[string]*TaskRecord{}
+	recordsBySourceRef := map[string]*TaskRecord{}
+	recordsByKey := map[string]*TaskRecord{}
+	maxID := state.NextTaskID
+	for i := range state.Records {
+		record := &state.Records[i]
+		if record.NumericID > maxID {
+			maxID = record.NumericID
+		}
+		recordsByID[record.ID] = record
+		if record.CanonicalKey != "" {
+			recordsByKey[record.CanonicalKey] = record
+		}
+		for _, id := range record.SourceRefIDs {
+			recordsBySourceRef[id] = record
+		}
+	}
+	state.NextTaskID = maxID
+
+	for i := range state.SourceRefs {
+		state.SourceRefs[i].Active = false
+	}
+	sourceRefsByID := map[string]*SourceRefRecord{}
+	for i := range state.SourceRefs {
+		sourceRefsByID[state.SourceRefs[i].ID] = &state.SourceRefs[i]
+	}
+
+	for _, task := range mergeObservedTasks(observed) {
+		key := canonicalTaskKey(task)
+		record := matchingRecord(task, key, recordsBySourceRef, recordsByKey)
+		if record == nil {
+			state.NextTaskID++
+			record = &TaskRecord{
+				ID:           fmt.Sprintf("task:%d", state.NextTaskID),
+				NumericID:    state.NextTaskID,
+				CanonicalKey: key,
+				Kind:         recordKind(task, key),
+				State:        "active",
+				FirstSeen:    nowText,
+			}
+			state.Records = append(state.Records, *record)
+			record = &state.Records[len(state.Records)-1]
+			recordsByID[record.ID] = record
+		} else if key != "" && record.CanonicalKey == "" {
+			record.CanonicalKey = key
+		}
+		if record.CanonicalKey != "" {
+			recordsByKey[record.CanonicalKey] = record
+		}
+
+		record.LastSeen = nowText
+		record.UpdatedAt = nowText
+		record.Snapshot = task
+		record.SourceRefIDs = mergeStringSet(record.SourceRefIDs, sourceRefIDs(task.SourceRefs))
+		if task.Attention == "done" {
+			record.State = "done"
+			record.DoneAt = firstNonEmpty(task.DoneAt, nowText)
+			record.Reason = task.Reason
+		} else {
+			record.State = "active"
+			record.DoneAt = ""
+			record.Reason = ""
+		}
+
+		for _, sourceRef := range task.SourceRefs {
+			if sourceRef.ID == "" {
+				continue
+			}
+			refRecord := sourceRefsByID[sourceRef.ID]
+			if refRecord == nil {
+				state.SourceRefs = append(state.SourceRefs, SourceRefRecord{ID: sourceRef.ID, FirstSeen: nowText})
+				refRecord = &state.SourceRefs[len(state.SourceRefs)-1]
+				sourceRefsByID[sourceRef.ID] = refRecord
+			}
+			refRecord.Source = sourceRef.Source
+			refRecord.Kind = sourceRef.Kind
+			refRecord.TaskRecordID = record.ID
+			refRecord.LastSeen = nowText
+			refRecord.ObservedAt = nowText
+			refRecord.Active = true
+			refRecord.Snapshot = sourceRef
+			recordsBySourceRef[sourceRef.ID] = record
+		}
+	}
+
+	for i := range state.Records {
+		record := &state.Records[i]
+		if record.State != "active" || hasActiveSourceRef(*record, state.SourceRefs) {
+			continue
+		}
+		if hasWorktreeSource(*record, state.SourceRefs) && !hasRemoteSource(*record, state.SourceRefs) {
+			record.State = "done"
+			record.DoneAt = nowText
+			record.Reason = "workspace closed"
+			record.UpdatedAt = nowText
+		}
+	}
+
+	return state
+}
+
+func matchingRecord(task protocol.Task, key string, bySourceRef map[string]*TaskRecord, byKey map[string]*TaskRecord) *TaskRecord {
+	if key != "" {
+		if record := byKey[key]; record != nil {
+			return record
+		}
+	}
+	for _, sourceRef := range task.SourceRefs {
+		if record := bySourceRef[sourceRef.ID]; record != nil {
+			return record
+		}
+	}
+	return nil
+}
+
+func mergeObservedTasks(tasks []protocol.Task) []protocol.Task {
+	merged := make([]protocol.Task, 0, len(tasks))
+	byKey := map[string]int{}
+	for _, task := range tasks {
+		key := canonicalTaskKey(task)
+		if key != "" {
+			if idx, ok := byKey[key]; ok {
+				merged[idx] = mergeTasks(merged[idx], task)
+				continue
+			}
+			byKey[key] = len(merged)
+		}
+		merged = append(merged, task)
+	}
+	return merged
+}
+
+func mergeTasks(left, right protocol.Task) protocol.Task {
+	if attentionRank(right.Attention) > attentionRank(left.Attention) || left.Title == "" {
+		left.Kind = right.Kind
+		left.Title = right.Title
+		left.Repo = right.Repo
+		left.URL = right.URL
+		left.Attention = right.Attention
+		left.Reason = right.Reason
+		left.DoneAt = right.DoneAt
+		left.Metadata = right.Metadata
+	}
+	left.SourceRefs = mergeSourceRefs(left.SourceRefs, right.SourceRefs)
+	return left
+}
+
+func projectTasks(state persistedState) []protocol.Task {
+	sourceRefsByRecord := map[string][]protocol.SourceRef{}
+	for _, ref := range state.SourceRefs {
+		if ref.TaskRecordID == "" || ref.ID == "" {
+			continue
+		}
+		if ref.Active || ref.Snapshot.ID != "" {
+			sourceRefsByRecord[ref.TaskRecordID] = append(sourceRefsByRecord[ref.TaskRecordID], ref.Snapshot)
+		}
+	}
+
+	tasks := make([]protocol.Task, 0, len(state.Records))
+	for _, record := range state.Records {
+		if record.State == "done" && olderThan(record.DoneAt, 30*24*time.Hour) {
+			continue
+		}
+		task := record.Snapshot
+		task.ID = record.NumericID
+		if refs := sourceRefsByRecord[record.ID]; len(refs) > 0 {
+			task.SourceRefs = sortSourceRefs(mergeSourceRefs(nil, refs))
+		}
+		if record.State == "done" {
+			task.Attention = "done"
+			task.DoneAt = record.DoneAt
+			if record.Reason != "" {
+				task.Reason = record.Reason
+			}
+		}
+		if task.Metadata == nil {
+			task.Metadata = map[string]string{}
+		}
+		if record.Ack.GeneralCommentsAckAt != "" {
+			task.Metadata["general_comments_ack_at"] = record.Ack.GeneralCommentsAckAt
+		}
+		if !applyAck(&task, record.Ack) {
+			continue
+		}
+		tasks = append(tasks, task)
+	}
+	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
+	return tasks
+}
+
+func applyAck(task *protocol.Task, ack TaskAckState) bool {
+	if ack.GeneralCommentsAckAt == "" || task.Attention == "done" {
+		return true
+	}
+	hasUnresolved := false
+	hasNewComments := false
+	for i := range task.SourceRefs {
+		metadata := task.SourceRefs[i].Metadata
+		if metadata == nil {
+			continue
+		}
+		if metadata["unresolved_review_threads"] != "" {
+			hasUnresolved = true
+		}
+		if latest := metadata["latest_general_comment_at"]; latest != "" && latest <= ack.GeneralCommentsAckAt {
+			delete(metadata, "new_general_comments")
+		}
+		if metadata["new_general_comments"] != "" {
+			hasNewComments = true
+		}
+	}
+	if hasUnresolved || hasNewComments {
+		return true
+	}
+	if task.Kind == "github_pr_activity" {
+		return false
+	}
+	if task.Kind == "github_own_pr" {
+		task.Attention = "in_progress"
+		task.Reason = baseReason(*task)
+		for i := range task.SourceRefs {
+			task.SourceRefs[i].Status = task.Reason
+		}
+	}
+	return true
+}
+
+func canonicalTaskKey(task protocol.Task) string {
+	if key := firstTicketKey(task); key != "" {
+		return "ticket:" + key
+	}
+	for _, sourceRef := range task.SourceRefs {
+		if sourceRef.Source == "git" && sourceRef.Kind == "worktree" && sourceRef.Path != "" {
+			return "workspace:" + cleanPath(sourceRef.Path)
+		}
+	}
+	for _, sourceRef := range task.SourceRefs {
+		if sourceRef.Source == "github" && sourceRef.Kind == "pull_request" && sourceRef.ID != "" {
+			return sourceRef.ID
+		}
+	}
+	for _, sourceRef := range task.SourceRefs {
+		if sourceRef.Source == "jira" && sourceRef.Kind == "issue" && sourceRef.ID != "" {
+			return sourceRef.ID
+		}
+	}
+	for _, sourceRef := range task.SourceRefs {
+		if sourceRef.ID != "" {
+			return sourceRef.ID
+		}
+	}
+	if task.URL != "" {
+		return "url:" + task.URL
+	}
+	return ""
+}
+
+func recordKind(task protocol.Task, key string) string {
+	if strings.HasPrefix(key, "ticket:") {
+		return "ticket"
+	}
+	if strings.HasPrefix(key, "workspace:") {
+		return "workspace"
+	}
+	if strings.HasPrefix(key, "github:pr:") {
+		return "pull_request"
+	}
+	if strings.HasPrefix(key, "jira:issue:") {
+		return "issue"
+	}
+	return task.Kind
+}
+
+func firstTicketKey(task protocol.Task) string {
+	values := []string{task.Title, task.Repo, task.URL}
+	for _, sourceRef := range task.SourceRefs {
+		values = append(values, sourceRef.ID, sourceRef.Title, sourceRef.Branch, sourceRef.Path, sourceRef.Repo, sourceRef.URL)
+		for _, value := range sourceRef.Metadata {
+			values = append(values, value)
+		}
+	}
+	for _, value := range values {
+		if match := ticketPattern.FindString(value); match != "" {
+			return strings.ToUpper(match)
+		}
+	}
+	return ""
+}
+
+func sourceRefIDs(sourceRefs []protocol.SourceRef) []string {
+	ids := make([]string, 0, len(sourceRefs))
+	for _, sourceRef := range sourceRefs {
+		if sourceRef.ID != "" {
+			ids = append(ids, sourceRef.ID)
+		}
+	}
+	return ids
+}
+
+func mergeStringSet(left, right []string) []string {
+	seen := map[string]bool{}
+	merged := make([]string, 0, len(left)+len(right))
+	for _, value := range append(left, right...) {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		merged = append(merged, value)
+	}
+	return merged
+}
+
+func mergeSourceRefs(left []protocol.SourceRef, right []protocol.SourceRef) []protocol.SourceRef {
+	seen := map[string]bool{}
+	merged := make([]protocol.SourceRef, 0, len(left)+len(right))
+	for _, sourceRef := range append(left, right...) {
+		if sourceRef.ID != "" && seen[sourceRef.ID] {
+			continue
+		}
+		merged = append(merged, sourceRef)
+		if sourceRef.ID != "" {
+			seen[sourceRef.ID] = true
+		}
+	}
+	return merged
+}
+
+func sortSourceRefs(refs []protocol.SourceRef) []protocol.SourceRef {
+	sort.SliceStable(refs, func(i, j int) bool {
+		return sourceOrder(refs[i].Source) < sourceOrder(refs[j].Source)
+	})
+	return refs
+}
+
+func sourceOrder(source string) int {
+	switch source {
+	case "jira":
+		return 0
+	case "github":
+		return 1
+	case "git":
+		return 2
+	case "tmux":
+		return 3
+	default:
+		return 9
+	}
+}
+
+func attentionRank(attention string) int {
+	switch attention {
+	case "immediate":
+		return 5
+	case "attention":
+		return 4
+	case "in_progress":
+		return 3
+	case "done":
+		return 2
+	case "low_priority":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func hasActiveSourceRef(record TaskRecord, sourceRefs []SourceRefRecord) bool {
+	ids := map[string]bool{}
+	for _, id := range record.SourceRefIDs {
+		ids[id] = true
+	}
+	for _, sourceRef := range sourceRefs {
+		if ids[sourceRef.ID] && sourceRef.Active {
+			return true
+		}
+	}
+	return false
+}
+
+func hasWorktreeSource(record TaskRecord, sourceRefs []SourceRefRecord) bool {
+	return hasRecordSource(record, sourceRefs, "git", "worktree")
+}
+
+func hasRemoteSource(record TaskRecord, sourceRefs []SourceRefRecord) bool {
+	ids := map[string]bool{}
+	for _, id := range record.SourceRefIDs {
+		ids[id] = true
+	}
+	for _, sourceRef := range sourceRefs {
+		if !ids[sourceRef.ID] {
+			continue
+		}
+		if sourceRef.Source == "github" || sourceRef.Source == "jira" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRecordSource(record TaskRecord, sourceRefs []SourceRefRecord, source, kind string) bool {
+	ids := map[string]bool{}
+	for _, id := range record.SourceRefIDs {
+		ids[id] = true
+	}
+	for _, sourceRef := range sourceRefs {
+		if ids[sourceRef.ID] && sourceRef.Source == source && sourceRef.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func olderThan(value string, age time.Duration) bool {
+	if value == "" {
+		return false
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return false
+	}
+	return time.Since(parsed) > age
+}
+
+func baseReason(item protocol.Task) string {
+	for _, sourceRef := range item.SourceRefs {
+		if sourceRef.Metadata != nil && sourceRef.Metadata["base_reason"] != "" {
+			return sourceRef.Metadata["base_reason"]
+		}
+	}
+	return "open PR"
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func cleanPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	return filepath.Clean(path)
 }

@@ -12,7 +12,7 @@ func Link(input Input) []protocol.Task {
 	items = linkSourceRefsByTicket(items, input.SourceRefs)
 	items = linkSourceRefsByPath(items, input.SourceRefs)
 	items = append(items, standaloneSourceRefTasks(items, input.SourceRefs)...)
-	return items
+	return mergeTasksByWorkKey(items)
 }
 
 func cloneTasks(items []protocol.Task) []protocol.Task {
