@@ -78,23 +78,21 @@ func FetchAssignedIssues(ctx context.Context, logger *slog.Logger) ([]protocol.S
 func ResolveDoneIssues(ctx context.Context, previous []protocol.Task, active []protocol.Task, jiraComplete bool, logger *slog.Logger) []protocol.Task {
 	if !jiraComplete {
 		logger.Debug("skipping jira done resolution; issue collection was incomplete")
-		return keepTodaysDoneIssues(previous)
+		return keepTodaysDoneIssues(nil, previous)
 	}
 
 	cfg, ok, missing := configFromEnv()
 	if !ok {
 		logger.Debug("skipping jira done resolution; jira collector not configured", "missing", missing)
-		return keepTodaysDoneIssues(previous)
+		return keepTodaysDoneIssues(nil, previous)
 	}
 
 	activeIssues := activeJiraIssueRefs(active)
-	items := make([]protocol.Task, 0)
+	items := keepTodaysDoneIssues(nil, previous)
+	seenDone := doneIssueIDs(items)
 	checked := map[string]bool{}
 	for _, item := range previous {
 		if item.Attention == "done" {
-			if isToday(item.DoneAt) {
-				items = append(items, item)
-			}
 			continue
 		}
 
@@ -119,7 +117,7 @@ func ResolveDoneIssues(ctx context.Context, previous []protocol.Task, active []p
 		}
 
 		reason := "jira done"
-		items = append(items, protocol.Task{
+		done := protocol.Task{
 			Kind:       "jira_done_issue",
 			Title:      item.Title,
 			Repo:       item.Repo,
@@ -128,7 +126,14 @@ func ResolveDoneIssues(ctx context.Context, previous []protocol.Task, active []p
 			Reason:     reason,
 			DoneAt:     time.Now().UTC().Format(time.RFC3339),
 			SourceRefs: doneIssueSourceRefs(item.SourceRefs, cfg, issue, reason),
-		})
+		}
+		if id := doneIssueID(done); id != "" && seenDone[id] {
+			continue
+		}
+		if id := doneIssueID(done); id != "" {
+			seenDone[id] = true
+		}
+		items = append(items, done)
 	}
 
 	logger.Debug("resolved done jira issues", "count", len(items))
@@ -411,14 +416,50 @@ func doneIssueSourceRefs(sourceRefs []protocol.SourceRef, cfg Config, issue issu
 	return updated
 }
 
-func keepTodaysDoneIssues(previous []protocol.Task) []protocol.Task {
-	items := make([]protocol.Task, 0)
+func keepTodaysDoneIssues(items []protocol.Task, previous []protocol.Task) []protocol.Task {
+	seen := doneIssueIDs(items)
 	for _, item := range previous {
-		if item.Attention == "done" && isToday(item.DoneAt) {
-			items = append(items, item)
+		if item.Attention != "done" || !isToday(item.DoneAt) || !hasSource(item, "jira") {
+			continue
 		}
+		id := doneIssueID(item)
+		if id != "" && seen[id] {
+			continue
+		}
+		if id != "" {
+			seen[id] = true
+		}
+		items = append(items, item)
 	}
 	return items
+}
+
+func doneIssueIDs(items []protocol.Task) map[string]bool {
+	seen := map[string]bool{}
+	for _, item := range items {
+		if id := doneIssueID(item); id != "" {
+			seen[id] = true
+		}
+	}
+	return seen
+}
+
+func doneIssueID(item protocol.Task) string {
+	for _, sourceRef := range item.SourceRefs {
+		if sourceRef.Source == "jira" && sourceRef.ID != "" {
+			return sourceRef.ID
+		}
+	}
+	return ""
+}
+
+func hasSource(item protocol.Task, source string) bool {
+	for _, sourceRef := range item.SourceRefs {
+		if sourceRef.Source == source {
+			return true
+		}
+	}
+	return false
 }
 
 func isToday(value string) bool {

@@ -267,8 +267,7 @@ func startDaemonAndWait(socketPath string) error {
 	}
 	for range 100 {
 		time.Sleep(50 * time.Millisecond)
-		res, err := client.Call(socketPath, "tasks")
-		if err == nil && len(res.Sources) > 0 {
+		if _, err := client.Call(socketPath, "tasks"); err == nil {
 			return nil
 		}
 	}

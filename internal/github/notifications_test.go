@@ -138,8 +138,8 @@ exit 1
 	yesterday := time.Now().Add(-24 * time.Hour).Format(time.RFC3339)
 	previous := []protocol.Task{
 		{ID: 1, Kind: "github_own_pr", Attention: "in_progress", Title: "Still unknown", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:34", Source: "github", Kind: "pull_request"}}},
-		{ID: 2, Kind: "github_done_pr", Attention: "done", DoneAt: today, Title: "Done today", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:33", Source: "github", Kind: "pull_request"}}},
-		{ID: 3, Kind: "github_done_pr", Attention: "done", DoneAt: yesterday, Title: "Done yesterday", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:32", Source: "github", Kind: "pull_request"}}},
+		{ID: 2, Kind: "github_own_pr", Attention: "done", DoneAt: today, Title: "Done today", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:33", Source: "github", Kind: "pull_request"}}},
+		{ID: 3, Kind: "github_own_pr", Attention: "done", DoneAt: yesterday, Title: "Done yesterday", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:32", Source: "github", Kind: "pull_request"}}},
 	}
 
 	items := ResolveDonePullRequests(context.Background(), previous, nil, false, testLogger())
@@ -151,6 +151,22 @@ exit 1
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("gh was called even though authored collection was incomplete")
+	}
+}
+
+func TestResolveDonePullRequestsDeduplicatesDonePRRefs(t *testing.T) {
+	today := time.Now().Format(time.RFC3339)
+	previous := []protocol.Task{
+		{ID: 1, Kind: "github_own_pr", Attention: "done", DoneAt: today, SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:33", Source: "github", Kind: "pull_request"}}},
+		{ID: 1, Kind: "github_own_pr", Attention: "done", DoneAt: today, SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:33", Source: "github", Kind: "pull_request"}}},
+	}
+
+	items := ResolveDonePullRequests(context.Background(), previous, nil, false, testLogger())
+	if len(items) != 1 {
+		t.Fatalf("resolved items = %d, want 1", len(items))
+	}
+	if items[0].SourceRefs[0].ID != "github:pr:acme/app:33" {
+		t.Fatalf("source ref = %+v", items[0].SourceRefs[0])
 	}
 }
 
@@ -181,7 +197,7 @@ func TestParsePullRequestSourceRefID(t *testing.T) {
 	}{
 		{name: "valid", id: "github:pr:acme/app:42", wantRepo: "acme/app", wantNumber: 42, wantOK: true},
 		{name: "repo with colon", id: "github:pr:enterprise:acme/app:42", wantRepo: "enterprise:acme/app", wantNumber: 42, wantOK: true},
-		{name: "wrong prefix", id: "github:issue:acme/app:42"},
+		{name: "wrong prefix", id: "notgithub-issue-acme/app-42"},
 		{name: "missing number", id: "github:pr:acme/app:"},
 		{name: "non numeric", id: "github:pr:acme/app:nope"},
 	}
