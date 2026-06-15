@@ -4,9 +4,9 @@
 
 Use conventional commits for commit messages, for example `feat: add tmux source` or `fix: collect tmux panes without ticket keys`.
 
-After making a commit, always push it to the remote immediately.
+After making a commit, make sure it lands on remote `main` immediately.
 
-Always push to the main remote (`origin`) unless the user explicitly asks for a different remote.
+Default target: `origin/main`. Unless the user explicitly asks for a different remote or branch, merge or fast-forward the committed work into `origin/main` and push that. Do not stop after pushing only the current feature/worktree branch; intermediate branches such as `origin/improvements` are not important unless needed as part of getting the commit onto `origin/main`.
 
 ## Streamlined product design
 
