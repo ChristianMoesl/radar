@@ -6,7 +6,28 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"radar.nvim/internal/protocol"
 )
+
+func TestAssignTaskIDsReassignsDuplicateExplicitIDs(t *testing.T) {
+	previous := []protocol.Task{
+		{ID: 7, Title: "first", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:1"}}},
+		{ID: 7, Title: "second", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:2"}}},
+	}
+	next := []protocol.Task{
+		{ID: 7, Title: "first", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:1"}}},
+		{ID: 7, Title: "second", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:2"}}},
+	}
+
+	got := assignTaskIDs(previous, next)
+	if got[0].ID != 7 {
+		t.Fatalf("first ID = %d, want 7", got[0].ID)
+	}
+	if got[1].ID == 0 || got[1].ID == 7 {
+		t.Fatalf("second ID = %d, want a new unique ID", got[1].ID)
+	}
+}
 
 func TestLoadRejectsHugeStateFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tasks.json")

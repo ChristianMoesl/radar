@@ -61,7 +61,7 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger)
 			Logger:   logger,
 		})...)
 	}
-	return Result{Tasks: tasks, Sources: ingested.Sources}
+	return Result{Tasks: deduplicateReconciledTasks(tasks), Sources: ingested.Sources}
 }
 
 func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Result {
@@ -153,4 +153,57 @@ func sourceRefCount(sourceName string, result ingestion.Result) int {
 		}
 	}
 	return len(seen)
+}
+
+func deduplicateReconciledTasks(tasks []protocol.Task) []protocol.Task {
+	kept := make([]protocol.Task, 0, len(tasks))
+	byIdentity := map[string]int{}
+	for _, task := range tasks {
+		identity := reconciliationIdentity(task)
+		if identity != "" {
+			if existing, ok := byIdentity[identity]; ok {
+				kept[existing].SourceRefs = mergeSourceRefs(kept[existing].SourceRefs, task.SourceRefs)
+				continue
+			}
+			byIdentity[identity] = len(kept)
+		}
+		kept = append(kept, task)
+	}
+	return kept
+}
+
+func reconciliationIdentity(task protocol.Task) string {
+	for _, sourceRef := range task.SourceRefs {
+		if sourceRef.Source == "github" && sourceRef.Kind == "pull_request" && sourceRef.ID != "" {
+			return sourceRef.ID
+		}
+	}
+	for _, sourceRef := range task.SourceRefs {
+		if sourceRef.Source == "jira" && sourceRef.Kind == "issue" && sourceRef.ID != "" {
+			return sourceRef.ID
+		}
+	}
+	if task.URL != "" {
+		return "url:" + task.URL
+	}
+	return ""
+}
+
+func mergeSourceRefs(left []protocol.SourceRef, right []protocol.SourceRef) []protocol.SourceRef {
+	seen := map[string]bool{}
+	for _, sourceRef := range left {
+		if sourceRef.ID != "" {
+			seen[sourceRef.ID] = true
+		}
+	}
+	for _, sourceRef := range right {
+		if sourceRef.ID != "" && seen[sourceRef.ID] {
+			continue
+		}
+		left = append(left, sourceRef)
+		if sourceRef.ID != "" {
+			seen[sourceRef.ID] = true
+		}
+	}
+	return left
 }
