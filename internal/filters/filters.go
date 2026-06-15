@@ -69,23 +69,23 @@ func Summary(items []protocol.Task) protocol.Summary {
 }
 
 func actionFor(item protocol.Task, cfg Config) string {
+	if matchesRule(item, Rule{Repos: cfg.MuteRepos}) || matchesRule(item, Rule{Users: cfg.MuteUsers}) {
+		return actionMute
+	}
+
 	action := actionKeep
-	if matchesRule(item, Rule{Repos: cfg.MuteRepos}) {
-		action = actionMute
-	}
-	if matchesRule(item, Rule{Users: cfg.MuteUsers}) {
-		action = actionMute
-	}
-	if matchesRule(item, Rule{Repos: cfg.DeprioritizeRepos}) {
-		action = actionDeprioritize
-	}
-	if matchesRule(item, Rule{Users: cfg.DeprioritizeUsers}) {
+	if matchesRule(item, Rule{Repos: cfg.DeprioritizeRepos}) || matchesRule(item, Rule{Users: cfg.DeprioritizeUsers}) {
 		action = actionDeprioritize
 	}
 
 	for _, rule := range cfg.Rules {
-		if matchesRule(item, rule) {
-			action = normalizeAction(rule.Action)
+		if !matchesRule(item, rule) {
+			continue
+		}
+		if normalized := normalizeAction(rule.Action); normalized == actionMute {
+			return actionMute
+		} else {
+			action = normalized
 		}
 	}
 	return action

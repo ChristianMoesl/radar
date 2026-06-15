@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"radar.nvim/internal/config"
+	"radar.nvim/internal/filters"
 	gitcollector "radar.nvim/internal/git"
 	"radar.nvim/internal/github"
 	"radar.nvim/internal/ingestion"
@@ -61,7 +62,7 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger)
 			Logger:   logger,
 		})...)
 	}
-	return Result{Tasks: deduplicateReconciledTasks(tasks), Sources: ingested.Sources}
+	return Result{Tasks: applyTaskFilters(deduplicateReconciledTasks(tasks), logger), Sources: ingested.Sources}
 }
 
 func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Result {
@@ -71,7 +72,7 @@ func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Lo
 		Tasks:      baseTasks,
 		SourceRefs: ingested.SourceRefs,
 	})
-	return Result{Tasks: tasks, Sources: ingested.Sources}
+	return Result{Tasks: applyTaskFilters(tasks, logger), Sources: ingested.Sources}
 }
 
 func Ingest(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Ingested {
@@ -153,6 +154,15 @@ func sourceRefCount(sourceName string, result ingestion.Result) int {
 		}
 	}
 	return len(seen)
+}
+
+func applyTaskFilters(tasks []protocol.Task, logger *slog.Logger) []protocol.Task {
+	cfg, err := config.Load()
+	if err != nil {
+		logger.Warn("could not load config for task filtering", "error", err)
+		return tasks
+	}
+	return filters.Apply(tasks, cfg.Filters)
 }
 
 func deduplicateReconciledTasks(tasks []protocol.Task) []protocol.Task {

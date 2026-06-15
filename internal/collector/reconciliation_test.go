@@ -1,10 +1,35 @@
 package collector
 
 import (
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"radar.nvim/internal/protocol"
 )
+
+func TestApplyTaskFiltersRemovesMutedTasksBeforeSaving(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configPath := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`{"filters":{"mute_repos":["org/noisy"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tasks := []protocol.Task{
+		{ID: 1, Repo: "org/noisy", Attention: "attention"},
+		{ID: 2, Repo: "org/useful", Attention: "attention"},
+	}
+
+	got := applyTaskFilters(tasks, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if len(got) != 1 || got[0].ID != 2 {
+		t.Fatalf("filtered tasks = %+v, want only useful task", got)
+	}
+}
 
 func TestDeduplicateReconciledTasksKeepsOneTaskPerGitHubPullRequest(t *testing.T) {
 	tasks := []protocol.Task{

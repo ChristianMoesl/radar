@@ -76,7 +76,7 @@ func TestApplyRuleRequiresRepoAndUser(t *testing.T) {
 	}
 }
 
-func TestApplyLastMatchingRuleWins(t *testing.T) {
+func TestApplyMuteWinsOverOtherMatchingRules(t *testing.T) {
 	items := []protocol.Task{{ID: 1, Repo: "org/important", Attention: "attention", Metadata: map[string]string{"author": "renovate[bot]"}}}
 	cfg := Config{
 		MuteUsers: []string{"renovate[bot]"},
@@ -87,11 +87,8 @@ func TestApplyLastMatchingRuleWins(t *testing.T) {
 	}
 
 	got := Apply(items, cfg)
-	if len(got) != 1 {
-		t.Fatalf("expected keep rule to unmute item, got %#v", got)
-	}
-	if got[0].Attention != "attention" {
-		t.Fatalf("expected keep rule to preserve attention, got %#v", got[0])
+	if len(got) != 0 {
+		t.Fatalf("expected muted item to stay hidden, got %#v", got)
 	}
 }
 
