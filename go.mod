@@ -1,6 +1,6 @@
 module radar.nvim
 
-go 1.22
+go 1.26.4
 
 require (
 	github.com/charmbracelet/bubbletea v0.26.4
