@@ -102,7 +102,7 @@ The daemon stores durable task records and source-ref records on disk:
 $XDG_STATE_HOME/radar/tasks.json
 ```
 
-Projected tasks are rebuilt from this state. The file also stores source statuses so the TUI can show cached status immediately. User acknowledgement state lives on task records, not inside source-ref metadata.
+Projected tasks are rebuilt from this state. Full refreshes reconcile all source refs; local refreshes reconcile only Git/tmux refs and leave remote GitHub/Jira refs untouched. The file also stores source statuses so the TUI can show cached status immediately. User acknowledgement state lives on task records, not inside source-ref metadata.
 
 ## Config
 

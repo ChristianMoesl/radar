@@ -117,24 +117,6 @@ func IngestSources(ctx context.Context, previous []protocol.Task, logger *slog.L
 	return result
 }
 
-func withoutSourceRefs(tasks []protocol.Task, sources map[string]bool) []protocol.Task {
-	kept := make([]protocol.Task, 0, len(tasks))
-	for _, task := range tasks {
-		refs := make([]protocol.SourceRef, 0, len(task.SourceRefs))
-		for _, sourceRef := range task.SourceRefs {
-			if !sources[sourceRef.Source] {
-				refs = append(refs, sourceRef)
-			}
-		}
-		if len(task.SourceRefs) > 0 && len(refs) == 0 {
-			continue
-		}
-		task.SourceRefs = refs
-		kept = append(kept, task)
-	}
-	return kept
-}
-
 func sourceRefCount(sourceName string, result ingestion.Result) int {
 	seen := map[string]bool{}
 	for _, sourceRef := range result.SourceRefs {
