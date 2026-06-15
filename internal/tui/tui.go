@@ -539,7 +539,8 @@ func (m model) loadRepos() tea.Cmd {
 		if err != nil {
 			return reposMsg{err: err}
 		}
-		return reposMsg{repos: workstream.DiscoverRepos(context.Background(), workstream.ExecRunner{}, cwd)}
+		repos, err := workstream.DiscoverRepos(context.Background(), workstream.ExecRunner{}, cwd)
+		return reposMsg{repos: repos, err: err}
 	}
 }
 

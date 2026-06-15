@@ -4,42 +4,68 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
 
-func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) []string {
+func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) ([]string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	workstreams := filepath.Join(home, "workstreams")
 	repos := make([]string, 0)
 	seen := map[string]bool{}
-	add := func(path string) {
-		repo, err := runner.Run(ctx, path, "git", "rev-parse", "--show-toplevel")
-		if err != nil || repo == "" || isSubpath(repo, workstreams) || seen[repo] {
+	addRepo := func(repo string) {
+		repo = filepath.Clean(repo)
+		key := pathKey(repo)
+		if repo == "" || isSubpath(repo, workstreams) || seen[key] {
 			return
 		}
-		seen[repo] = true
+		seen[key] = true
 		repos = append(repos, repo)
 	}
 
-	add(currentDirectory)
-	for _, root := range []string{"workspace", "code", "src", "dev", "projects"} {
-		discoverGitDirectories(filepath.Join(home, root), 4, add)
+	current, currentErr := runner.Run(ctx, currentDirectory, "git", "rev-parse", "--show-toplevel")
+	if currentErr == nil {
+		addRepo(current)
+	}
+	if err := runner.LookPath("fd"); err != nil {
+		return nil, err
+	}
+	roots := existingDiscoveryRoots(home)
+	if len(roots) > 0 {
+		args := []string{"-H", "-t", "d", `^\.git$`, "--max-depth", "5"}
+		args = append(args, roots...)
+		output, err := runner.Run(ctx, "", "fd", args...)
+		if err != nil {
+			return nil, err
+		}
+		for _, gitDirectory := range strings.Split(output, "\n") {
+			gitDirectory = strings.TrimSpace(gitDirectory)
+			if gitDirectory == "" {
+				continue
+			}
+			// Intentionally only ask fd for real .git directories. Linked Git worktrees
+			// use a .git file that points at the main repository's metadata; those are
+			// existing workstreams and should not appear as base repositories for create.
+			// Because the parent of a .git directory is already the repository root, we
+			// avoid running git rev-parse for every discovered repository.
+			addRepo(filepath.Dir(filepath.Clean(gitDirectory)))
+		}
 	}
 	sort.Strings(repos)
-	if current, err := runner.Run(ctx, currentDirectory, "git", "rev-parse", "--show-toplevel"); err == nil {
+	if currentErr == nil {
 		for i, repo := range repos {
-			if repo == current {
+			if pathKey(repo) == pathKey(current) {
 				copy(repos[1:i+1], repos[0:i])
-				repos[0] = current
+				repos[0] = repo
 				break
 			}
 		}
 	}
-	return repos
+	return repos, nil
 }
 
 func Branches(ctx context.Context, runner Runner, repo string) ([]string, error) {
@@ -102,28 +128,15 @@ func Paths(workspaceRoot string) ([]string, error) {
 	return paths, nil
 }
 
-func discoverGitDirectories(root string, maxDepth int, add func(string)) {
-	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return nil
+func existingDiscoveryRoots(home string) []string {
+	roots := make([]string, 0, 5)
+	for _, root := range []string{"workspace", "code", "src", "dev", "projects"} {
+		path := filepath.Join(home, root)
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			roots = append(roots, path)
 		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return nil
-		}
-		depth := 0
-		if relative != "." {
-			depth = len(strings.Split(relative, string(os.PathSeparator)))
-		}
-		if entry.IsDir() && depth > maxDepth {
-			return filepath.SkipDir
-		}
-		if entry.IsDir() && entry.Name() == ".git" {
-			add(filepath.Dir(path))
-			return filepath.SkipDir
-		}
-		return nil
-	})
+	}
+	return roots
 }
 
 func sortBranches(branches []string) {
@@ -147,4 +160,12 @@ func branchSortKey(branch string) string {
 func isSubpath(path string, root string) bool {
 	relative, err := filepath.Rel(root, path)
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator))
+}
+
+func pathKey(path string) string {
+	path = filepath.Clean(path)
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		return strings.ToLower(path)
+	}
+	return path
 }

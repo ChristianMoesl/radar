@@ -10,6 +10,12 @@ go build -o radar ./cmd/radar
 
 ## Prerequisites
 
+Radar uses these local tools:
+
+- `fd` for fast repository discovery in `radar create`
+- `git` for repository and worktree operations
+- `tmux`, `pi`, and `nvim` for workstream creation
+
 Radar opens task URLs with the platform URL opener when you press `o` and choose a URL-backed source such as Jira or GitHub:
 
 - Linux: requires `xdg-open`, usually provided by `xdg-utils`
