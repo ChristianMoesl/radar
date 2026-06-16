@@ -303,6 +303,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.message = "Inspecting delete target…"
 				return m, m.previewDelete(m.tasks[m.cursor])
 			}
+		case "D":
+			if len(m.tasks) > 0 {
+				hints := detectCurrentTaskHints()
+				cursor, ok := taskCursorForHints(m.tasks, hints)
+				if !ok {
+					m.message = "No current workspace tracked by Radar"
+					return m, nil
+				}
+				m.loading = true
+				m.err = nil
+				m.message = "Inspecting current workspace…"
+				return m, m.previewCurrentWorkspaceDelete(m.tasks[cursor], hints)
+			}
 		case "R":
 			m.loading = true
 			m.err = nil
@@ -511,7 +524,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • o open link • i inspect • c create • d delete • f config • r refresh • R reset • q quit"), width))
+	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • o open link • i inspect • c create • d delete • D delete current • f config • r refresh • R reset • q quit"), width))
 	return sections
 }
 
@@ -795,18 +808,32 @@ func (m model) previewDelete(task protocol.Task) tea.Cmd {
 			}
 			return deletePreviewMsg{preview: deletePreview{SessionName: sessionName, SessionOnly: true}}
 		}
-		status, err := workspace.ExecRunner{}.Run(context.Background(), "", "git", "-C", ref.Path, "status", "--porcelain")
-		if err != nil {
-			return deletePreviewMsg{err: err}
-		}
-		preview := deletePreview{
-			Path:        ref.Path,
-			Branch:      ref.Branch,
-			SessionName: tmuxSessionTarget(task),
-			Dirty:       strings.TrimSpace(status) != "",
-		}
-		return deletePreviewMsg{preview: preview}
+		return previewWorkspaceDelete(task, ref)
 	}
+}
+
+func (m model) previewCurrentWorkspaceDelete(task protocol.Task, hints currentTaskHints) tea.Cmd {
+	return func() tea.Msg {
+		ref, ok := currentWorktreeRef(task, hints)
+		if !ok || strings.TrimSpace(ref.Path) == "" {
+			return deletePreviewMsg{err: fmt.Errorf("current task is not backed by the current git worktree")}
+		}
+		return previewWorkspaceDelete(task, ref)
+	}
+}
+
+func previewWorkspaceDelete(task protocol.Task, ref protocol.SourceRef) tea.Msg {
+	status, err := workspace.ExecRunner{}.Run(context.Background(), "", "git", "-C", ref.Path, "status", "--porcelain")
+	if err != nil {
+		return deletePreviewMsg{err: err}
+	}
+	preview := deletePreview{
+		Path:        ref.Path,
+		Branch:      ref.Branch,
+		SessionName: tmuxSessionTarget(task),
+		Dirty:       strings.TrimSpace(status) != "",
+	}
+	return deletePreviewMsg{preview: preview}
 }
 
 func (m model) deleteSelected(preview deletePreview) tea.Cmd {
@@ -1201,6 +1228,15 @@ func worktreeRef(task protocol.Task) (protocol.SourceRef, bool) {
 		return protocol.SourceRef{}, false
 	}
 	return refs[0], true
+}
+
+func currentWorktreeRef(task protocol.Task, hints currentTaskHints) (protocol.SourceRef, bool) {
+	for _, ref := range gitWorktreeRefs(task) {
+		if currentPathMatches(ref.Path, hints) {
+			return ref, true
+		}
+	}
+	return protocol.SourceRef{}, false
 }
 
 func gitWorktreeRefs(task protocol.Task) []protocol.SourceRef {

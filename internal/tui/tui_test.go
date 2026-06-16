@@ -218,6 +218,27 @@ func TestWorktreeRefFindsGitWorktreeSource(t *testing.T) {
 	}
 }
 
+func TestCurrentWorktreeRefSelectsMatchingWorkspace(t *testing.T) {
+	task := protocol.Task{SourceRefs: []protocol.SourceRef{
+		{Source: "git", Kind: "worktree", Path: "/repo/worktrees/other"},
+		{Source: "git", Kind: "worktree", Path: "/repo/worktrees/current"},
+	}}
+
+	ref, ok := currentWorktreeRef(task, currentTaskHints{cwd: "/repo/worktrees/current/internal", worktree: "/repo/worktrees/current"})
+	if !ok || ref.Path != "/repo/worktrees/current" {
+		t.Fatalf("currentWorktreeRef() = %#v, %v; want current workspace", ref, ok)
+	}
+}
+
+func TestCurrentWorktreeRefRejectsNonCurrentWorkspace(t *testing.T) {
+	task := protocol.Task{SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/repo/worktrees/other"}}}
+
+	ref, ok := currentWorktreeRef(task, currentTaskHints{cwd: "/repo/worktrees/current", worktree: "/repo/worktrees/current"})
+	if ok {
+		t.Fatalf("currentWorktreeRef() = %#v, true; want no match", ref)
+	}
+}
+
 func TestFuzzyMatch(t *testing.T) {
 	if !fuzzyMatch("/repo/radar", "rdr") {
 		t.Fatal("fuzzyMatch() did not match ordered characters")

@@ -58,6 +58,7 @@ o            open task link, then press g for GitHub or j for Jira
 i            inspect selected task
 c            create workspace
 d            delete selected workspace after confirmation
+D            delete current open workspace after confirmation
 f            edit config
 r            refresh
 R            reset local state and refresh
