@@ -69,8 +69,9 @@ func (s *Server) handle(conn net.Conn) {
 		s.logger.Debug("request received", "method", req.Method)
 		if taskID, ok := strings.CutPrefix(req.Method, "ack:"); ok {
 			s.store.Acknowledge(taskID)
-			summary := s.store.Summary()
-			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: s.store.Tasks(), Sources: s.store.Sources()})
+			tasks := s.filteredTasks()
+			summary := filters.Summary(tasks)
+			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: tasks, Sources: s.store.Sources()})
 			continue
 		}
 		switch req.Method {
