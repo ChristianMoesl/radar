@@ -16,17 +16,17 @@ func TestLinkMatchesTicketKeysCaseInsensitivelyInBranch(t *testing.T) {
 				{
 					Source: "github",
 					Kind:   "pull_request",
-					Branch: "feature/dpscap-544-panel-deletion-navigation",
+					Branch: "feature/abc-544-panel-deletion-navigation",
 				},
 			},
 		},
 	}
 	source_refs := []protocol.SourceRef{
 		{
-			ID:     "jira:issue:DPSCAP-544",
+			ID:     "jira:issue:ABC-544",
 			Source: "jira",
 			Kind:   "issue",
-			Title:  "DPSCAP-544 Fix navigation",
+			Title:  "ABC-544 Fix navigation",
 		},
 	}
 
@@ -38,7 +38,7 @@ func TestLinkMatchesTicketKeysCaseInsensitivelyInBranch(t *testing.T) {
 	if len(linked[0].SourceRefs) != 2 {
 		t.Fatalf("linked sourceRef count = %d, want 2: %+v", len(linked[0].SourceRefs), linked[0].SourceRefs)
 	}
-	if linked[0].SourceRefs[1].ID != "jira:issue:DPSCAP-544" {
+	if linked[0].SourceRefs[1].ID != "jira:issue:ABC-544" {
 		t.Fatalf("attached sourceRef = %q, want jira issue", linked[0].SourceRefs[1].ID)
 	}
 }

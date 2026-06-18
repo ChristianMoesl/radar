@@ -75,12 +75,12 @@ func TestTaskListKeepsSelectedSourceRefsVisible(t *testing.T) {
 		{Title: "first", Attention: "attention"},
 		{Title: "selected", Attention: "attention", SourceRefs: []protocol.SourceRef{
 			{ID: "git:worktree:/repo/selected", Source: "git", Kind: "worktree", Path: "/repo/selected"},
-			{ID: "jira:issue:DPSCAP-1", Source: "jira", Kind: "issue", Title: "DPSCAP-1 Do thing"},
+			{ID: "jira:issue:ABC-1", Source: "jira", Kind: "issue", Title: "ABC-1 Do thing"},
 		}},
 	}}
 
 	view := model.taskList(100, 4)
-	for _, want := range []string{"selected", "/repo/selected", "DPSCAP-1"} {
+	for _, want := range []string{"selected", "/repo/selected", "ABC-1"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("taskList() missing %q:\n%s", want, view)
 		}
@@ -93,7 +93,7 @@ func TestTaskListCanReturnToTopOfLargeSelectedBlock(t *testing.T) {
 		Attention: "attention",
 		SourceRefs: []protocol.SourceRef{
 			{ID: "git:worktree:/repo/selected", Source: "git", Kind: "worktree", Path: "/repo/selected"},
-			{ID: "jira:issue:DPSCAP-1", Source: "jira", Kind: "issue", Title: "DPSCAP-1 Do thing"},
+			{ID: "jira:issue:ABC-1", Source: "jira", Kind: "issue", Title: "ABC-1 Do thing"},
 			{ID: "github:pr:owner/repo:1", Source: "github", Kind: "pull_request", Title: "PR 1"},
 		},
 	}}}
@@ -206,6 +206,32 @@ func TestActivateSelectedAsksForWorktreeWhenTaskHasMultipleWorktrees(t *testing.
 	got := updated.(model)
 	if got.mode != "worktree_session" || len(got.worktrees) != 2 {
 		t.Fatalf("activateSelected() mode=%q worktrees=%d, want worktree_session/2", got.mode, len(got.worktrees))
+	}
+}
+
+func TestActivateSelectedStartsWorkspaceCreateForJiraOnlyTask(t *testing.T) {
+	m := model{tasks: []protocol.Task{{
+		Title: "ABC-123 Build the thing",
+		SourceRefs: []protocol.SourceRef{{
+			ID:     "jira:issue:ABC-123",
+			Source: "jira",
+			Kind:   "issue",
+		}},
+	}}}
+
+	updated, cmd := m.activateSelected()
+	if cmd == nil {
+		t.Fatal("activateSelected() returned no command")
+	}
+	got := updated.(model)
+	if got.mode != "create_repo" {
+		t.Fatalf("activateSelected() mode = %q, want create_repo", got.mode)
+	}
+	if got.create.name != "" {
+		t.Fatalf("create name = %q, want empty name", got.create.name)
+	}
+	if !got.create.repoList.loading {
+		t.Fatal("repo picker is not loading")
 	}
 }
 

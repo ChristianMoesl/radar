@@ -30,8 +30,8 @@ case "$*" in
           "url": "https://github.com/acme/widgets/pull/12",
           "state": "OPEN",
           "isDraft": false,
-          "headRefName": "dpscap-12-review-me",
-          "body": "refs: DPSCAP-12",
+          "headRefName": "abc-12-review-me",
+          "body": "refs: ABC-12",
           "repository": { "nameWithOwner": "acme/widgets" }
         }
       ]
@@ -44,8 +44,8 @@ case "$*" in
           "url": "https://github.com/acme/app/pull/34",
           "state": "OPEN",
           "isDraft": true,
-          "headRefName": "DPSCAP-34-my-draft",
-          "body": "refs: DPSCAP-34",
+          "headRefName": "ABC-34-my-draft",
+          "body": "refs: ABC-34",
           "repository": { "nameWithOwner": "acme/app" }
         }
       ]
@@ -80,7 +80,7 @@ esac
 		Attention: "attention",
 		Reason:    "review requested",
 	})
-	assertSourceRef(t, reviewItems[0].SourceRefs, "github:pr:acme/widgets:12", "review requested", "dpscap-12-review-me", "refs: DPSCAP-12")
+	assertSourceRef(t, reviewItems[0].SourceRefs, "github:pr:acme/widgets:12", "review requested", "abc-12-review-me", "refs: ABC-12")
 
 	if len(authoredItems) != 1 {
 		t.Fatalf("authored item count = %d, want 1", len(authoredItems))
@@ -93,7 +93,7 @@ esac
 		Attention: "in_progress",
 		Reason:    "draft PR",
 	})
-	assertSourceRef(t, authoredItems[0].SourceRefs, "github:pr:acme/app:34", "draft PR", "DPSCAP-34-my-draft", "refs: DPSCAP-34")
+	assertSourceRef(t, authoredItems[0].SourceRefs, "github:pr:acme/app:34", "draft PR", "ABC-34-my-draft", "refs: ABC-34")
 }
 
 func TestDetectActivityTracksReviewThreadsAndGeneralComments(t *testing.T) {
@@ -173,7 +173,7 @@ func TestResolveDonePullRequestsDeduplicatesDonePRRefs(t *testing.T) {
 func TestDonePullRequestSourceRefsReusesCanonicalGitHubPRRef(t *testing.T) {
 	sourceRefs := donePullRequestSourceRefs([]protocol.SourceRef{
 		{ID: "github:pr:acme/app:42", Source: "github", Kind: "pull_request", Status: "open PR"},
-		{ID: "jira:issue:DPSCAP-42", Source: "jira", Kind: "issue"},
+		{ID: "jira:issue:ABC-42", Source: "jira", Kind: "issue"},
 	}, "acme/app", 42, "merged today")
 
 	if len(sourceRefs) != 2 {
@@ -182,7 +182,7 @@ func TestDonePullRequestSourceRefsReusesCanonicalGitHubPRRef(t *testing.T) {
 	if sourceRefs[0].ID != "github:pr:acme/app:42" || sourceRefs[0].Status != "merged today" {
 		t.Fatalf("github source ref = %+v, want canonical PR ref marked done", sourceRefs[0])
 	}
-	if sourceRefs[1].ID != "jira:issue:DPSCAP-42" {
+	if sourceRefs[1].ID != "jira:issue:ABC-42" {
 		t.Fatalf("jira source ref = %+v, want preserved jira ref", sourceRefs[1])
 	}
 }

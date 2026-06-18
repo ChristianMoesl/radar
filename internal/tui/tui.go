@@ -1164,6 +1164,13 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 	worktrees := gitWorktreeRefs(task)
 	switch len(worktrees) {
 	case 0:
+		if hasJiraIssueRef(task) {
+			m.mode = "create_repo"
+			m.create = newCreateForm()
+			m.message = ""
+			m.err = nil
+			return m, m.loadRepos()
+		}
 		m.message = "No tmux session or git worktree on selected task"
 		return m, nil
 	case 1:
@@ -1247,6 +1254,15 @@ func gitWorktreeRefs(task protocol.Task) []protocol.SourceRef {
 		}
 	}
 	return refs
+}
+
+func hasJiraIssueRef(task protocol.Task) bool {
+	for _, ref := range task.SourceRefs {
+		if ref.Source == "jira" && ref.Kind == "issue" {
+			return true
+		}
+	}
+	return false
 }
 
 type currentTaskHints struct {
