@@ -59,13 +59,11 @@ func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) 
 	}
 	sort.Strings(repos)
 	if currentErr == nil {
-		for i, repo := range repos {
-			if pathKey(repo) == pathKey(current) {
-				copy(repos[1:i+1], repos[0:i])
-				repos[0] = repo
-				break
-			}
+		preferred := current
+		if sourceRepoName, ok := workspaceSourceRepoName(current, workspaces); ok {
+			preferred = sourceRepoName
 		}
+		preferRepo(repos, preferred)
 	}
 	return repos, nil
 }
@@ -198,6 +196,28 @@ func branchSortKey(branch string) string {
 		return "1"
 	default:
 		return "2" + name
+	}
+}
+
+func workspaceSourceRepoName(path string, root string) (string, bool) {
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+	parts := strings.Split(relative, string(os.PathSeparator))
+	if len(parts) < 2 || parts[0] == "" || parts[0] == "." {
+		return "", false
+	}
+	return parts[0], true
+}
+
+func preferRepo(repos []string, preferred string) {
+	for i, repo := range repos {
+		if pathKey(repo) == pathKey(preferred) || pathKey(filepath.Base(repo)) == pathKey(preferred) {
+			copy(repos[1:i+1], repos[0:i])
+			repos[0] = repo
+			return
+		}
 	}
 }
 

@@ -111,6 +111,42 @@ func TestDiscoverReposUsesGitDirectoriesWithoutResolvingEveryRepo(t *testing.T) 
 	}
 }
 
+func TestDiscoverReposPrefersSourceRepoForCurrentWorkspace(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+
+	current := filepath.Join(home, "workspaces", "radar", "small-fix")
+	currentSubdir := filepath.Join(current, "src")
+	radar := filepath.Join(home, "workspace", "radar")
+	alpha := filepath.Join(home, "workspace", "alpha")
+	for _, path := range []string{
+		filepath.Join(radar, ".git"),
+		filepath.Join(alpha, ".git"),
+		currentSubdir,
+	} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	runner := &countingDiscoveryRunner{
+		repos: map[string]string{currentSubdir: current},
+		fdOutput: strings.Join([]string{
+			filepath.Join(alpha, ".git"),
+			filepath.Join(radar, ".git"),
+		}, "\n"),
+	}
+	got, err := DiscoverRepos(context.Background(), runner, currentSubdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{radar, alpha}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("DiscoverRepos() = %#v, want %#v", got, want)
+	}
+}
+
 func TestRepositoryDirsUsesConfig(t *testing.T) {
 	home := t.TempDir()
 	one := filepath.Join(home, "one")
