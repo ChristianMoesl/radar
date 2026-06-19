@@ -55,6 +55,29 @@ func TestCreateNameViewRendersSelectedRepoAndBase(t *testing.T) {
 	}
 }
 
+func TestSubmitCreateShowsCreatingWorkspaceNotification(t *testing.T) {
+	m := model{mode: "create_name", create: createForm{repo: "/repo/radar", base: "origin/main", name: "small-fix"}}
+
+	updated, cmd := m.submitCreate()
+	if cmd == nil {
+		t.Fatal("submitCreate() command = nil")
+	}
+	got := updated.(model)
+	if !got.loading || got.message != creatingWorkspaceMessage {
+		t.Fatalf("submitCreate() loading=%v message=%q, want loading with creating notification", got.loading, got.message)
+	}
+}
+
+func TestPreparingWorkspaceNotificationUpdatesCreateMessage(t *testing.T) {
+	m := model{loading: true, message: creatingWorkspaceMessage}
+
+	updated, _ := m.Update(preparingWorkspaceMsg{})
+	got := updated.(model)
+	if got.message != preparingWorkspaceMessage {
+		t.Fatalf("message = %q, want %q", got.message, preparingWorkspaceMessage)
+	}
+}
+
 func TestCreateRepoViewShortensHomePaths(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

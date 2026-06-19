@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -46,6 +47,8 @@ type deletePreviewMsg struct {
 	preview deletePreview
 	err     error
 }
+
+type preparingWorkspaceMsg struct{}
 
 type deletePreview struct {
 	Path        string
@@ -99,6 +102,11 @@ type model struct {
 	message             string
 	scroll              int
 }
+
+const (
+	creatingWorkspaceMessage  = "Creating Workspace..."
+	preparingWorkspaceMessage = "Preparing workspace..."
+)
 
 var (
 	appStyle = lipgloss.NewStyle().Padding(1, 2)
@@ -378,6 +386,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.delete = msg.preview
 			m.mode = "delete_confirm"
+		}
+	case preparingWorkspaceMsg:
+		if m.loading && m.message == creatingWorkspaceMessage {
+			m.message = preparingWorkspaceMessage
 		}
 	case actionMsg:
 		m.loading = false
@@ -790,11 +802,11 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 	m.mode = ""
 	m.loading = true
 	m.err = nil
-	m.message = "Creating workspace…"
+	m.message = creatingWorkspaceMessage
 	if form.forkPiSession != "" {
 		m.message = "Forking workspace…"
 	}
-	return m, func() tea.Msg {
+	cmd := func() tea.Msg {
 		switchAfterCreate := os.Getenv("TMUX") != ""
 		options := workspace.CreateOptions{
 			Repo:          form.repo,
@@ -817,6 +829,16 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 		}
 		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
 	}
+	if form.forkPiSession != "" {
+		return m, cmd
+	}
+	return m, tea.Batch(preparingWorkspaceNotification(), cmd)
+}
+
+func preparingWorkspaceNotification() tea.Cmd {
+	return tea.Tick(800*time.Millisecond, func(time.Time) tea.Msg {
+		return preparingWorkspaceMsg{}
+	})
 }
 
 func (m model) previewDelete(task protocol.Task) tea.Cmd {
