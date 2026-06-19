@@ -524,7 +524,7 @@ func createUsage() {
 Options:
   --repo   repository path
   --base   base branch or revision, for example origin/main
-  --name   workspace name; also used as the branch name`)
+  --name   workspace name; also used to derive a sanitized branch name`)
 }
 
 func forkUsage() {

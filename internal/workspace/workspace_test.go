@@ -64,7 +64,7 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if workspace.Branch != "small fix" || workspace.SessionName != filepath.Base(repo)+"-small-fix" {
+	if workspace.Branch != "small-fix" || workspace.SessionName != filepath.Base(repo)+"-small-fix" {
 		t.Fatalf("unexpected workspace: %#v", workspace)
 	}
 	data, err := os.ReadFile(filepath.Join(workspace.Path, ".env"))
@@ -74,7 +74,7 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	if string(data) != "SECRET=local\n" {
 		t.Fatalf("copied .env = %q", data)
 	}
-	assertCalled(t, runner.calls, "git", "worktree add -b small fix "+workspace.Path+" origin/main")
+	assertCalled(t, runner.calls, "git", "worktree add -b small-fix "+workspace.Path+" origin/main")
 	assertCalled(t, runner.calls, "sh", "-lc pnpm install --frozen-lockfile")
 	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workspace.SessionName)
 	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+":")
@@ -143,8 +143,8 @@ func TestCreateEscapesWorktreeNamePathSegment(t *testing.T) {
 	if filepath.Dir(workspace.Path) != filepath.Join(root, filepath.Base(repo)) {
 		t.Fatalf("workspace path created nested directories: %q", workspace.Path)
 	}
-	if workspace.Branch != "feature/nested fix" {
-		t.Fatalf("workspace branch = %q, want original name", workspace.Branch)
+	if workspace.Branch != "feature-nested-fix" {
+		t.Fatalf("workspace branch = %q, want sanitized name", workspace.Branch)
 	}
 }
 
@@ -214,6 +214,19 @@ func TestDeleteForceRemovesDirtyWorktree(t *testing.T) {
 func TestWorktreeNameSanitizesNames(t *testing.T) {
 	if got, want := WorktreeName("feature/nested fix"), "feature-nested-fix"; got != want {
 		t.Fatalf("WorktreeName() = %q, want %q", got, want)
+	}
+}
+
+func TestBranchNameSanitizesNames(t *testing.T) {
+	cases := map[string]string{
+		"feature/nested fix": "feature-nested-fix",
+		"...":                "workspace",
+		"HEAD":               "workspace-HEAD",
+	}
+	for input, want := range cases {
+		if got := BranchName(input); got != want {
+			t.Fatalf("BranchName(%q) = %q, want %q", input, got, want)
+		}
 	}
 }
 

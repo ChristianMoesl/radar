@@ -84,7 +84,7 @@ Create a workspace non-interactively:
 Radar creates:
 
 - a Git worktree at `<workspace_root>/<repo>/<name>`
-- a branch named after the workspace
+- a sanitized branch named after the workspace
 - files copied from the source repo when configured
 - setup commands run in the new worktree when configured
 - a matching tmux session
