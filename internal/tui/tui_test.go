@@ -216,6 +216,7 @@ func TestActivateSelectedStartsWorkspaceCreateForJiraOnlyTask(t *testing.T) {
 			ID:     "jira:issue:ABC-123",
 			Source: "jira",
 			Kind:   "issue",
+			Title:  "ABC-123 Build the thing",
 		}},
 	}}}
 
@@ -227,11 +228,24 @@ func TestActivateSelectedStartsWorkspaceCreateForJiraOnlyTask(t *testing.T) {
 	if got.mode != "create_repo" {
 		t.Fatalf("activateSelected() mode = %q, want create_repo", got.mode)
 	}
-	if got.create.name != "" {
-		t.Fatalf("create name = %q, want empty name", got.create.name)
+	if got.create.name != "ABC-123 Build the thing" {
+		t.Fatalf("create name = %q, want task title", got.create.name)
 	}
 	if !got.create.repoList.loading {
 		t.Fatal("repo picker is not loading")
+	}
+}
+
+func TestWorkspaceNameForTaskFallsBackToJiraKey(t *testing.T) {
+	task := protocol.Task{SourceRefs: []protocol.SourceRef{{
+		ID:       "jira:issue:ABC-123",
+		Source:   "jira",
+		Kind:     "issue",
+		Metadata: map[string]string{"key": "ABC-123"},
+	}}}
+
+	if got := workspaceNameForTask(task); got != "ABC-123" {
+		t.Fatalf("workspaceNameForTask() = %q, want Jira key", got)
 	}
 }
 

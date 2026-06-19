@@ -631,6 +631,27 @@ func newCreateForm() createForm {
 	return createForm{repoList: picker{loading: true}}
 }
 
+func newCreateFormForTask(task protocol.Task) createForm {
+	form := newCreateForm()
+	form.name = workspaceNameForTask(task)
+	return form
+}
+
+func workspaceNameForTask(task protocol.Task) string {
+	if ref, ok := jiraIssueRef(task); ok {
+		if title := strings.TrimSpace(ref.Title); title != "" {
+			return title
+		}
+		if key := metadataValue(ref.Metadata, "key"); key != "" {
+			return key
+		}
+		if key, ok := strings.CutPrefix(ref.ID, "jira:issue:"); ok {
+			return key
+		}
+	}
+	return strings.TrimSpace(task.Title)
+}
+
 func newForkCreateForm() (createForm, error) {
 	if os.Getenv("TMUX") == "" {
 		return createForm{}, fmt.Errorf("radar fork must run inside tmux")
@@ -1164,9 +1185,9 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 	worktrees := gitWorktreeRefs(task)
 	switch len(worktrees) {
 	case 0:
-		if hasJiraIssueRef(task) {
+		if _, ok := jiraIssueRef(task); ok {
 			m.mode = "create_repo"
-			m.create = newCreateForm()
+			m.create = newCreateFormForTask(task)
 			m.message = ""
 			m.err = nil
 			return m, m.loadRepos()
@@ -1256,13 +1277,13 @@ func gitWorktreeRefs(task protocol.Task) []protocol.SourceRef {
 	return refs
 }
 
-func hasJiraIssueRef(task protocol.Task) bool {
+func jiraIssueRef(task protocol.Task) (protocol.SourceRef, bool) {
 	for _, ref := range task.SourceRefs {
 		if ref.Source == "jira" && ref.Kind == "issue" {
-			return true
+			return ref, true
 		}
 	}
-	return false
+	return protocol.SourceRef{}, false
 }
 
 type currentTaskHints struct {
