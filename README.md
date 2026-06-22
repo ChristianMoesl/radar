@@ -95,11 +95,12 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 ```json
 {
   "copy_files": [".env", ".env.local"],
-  "setup": ["pnpm install --frozen-lockfile"]
+  "setup": ["pnpm install --frozen-lockfile"],
+  "model": "anthropic/claude-sonnet-4"
 }
 ```
 
-`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created.
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created. `model` is passed to Pi as `--model` for the workspace session.
 
 When run inside tmux, Radar switches to the new session.
 

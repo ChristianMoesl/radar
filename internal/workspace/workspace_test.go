@@ -48,7 +48,8 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
   "copy_files": [".env"],
-  "setup": ["pnpm install --frozen-lockfile"]
+  "setup": ["pnpm install --frozen-lockfile"],
+  "model": "anthropic/claude-sonnet-4"
 }`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -76,6 +77,7 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	}
 	assertCalled(t, runner.calls, "git", "worktree add -b small-fix "+workspace.Path+" origin/main")
 	assertCalled(t, runner.calls, "sh", "-lc pnpm install --frozen-lockfile")
+	assertCalledContains(t, runner.calls, "tmux", "pi --model 'anthropic/claude-sonnet-4' --session-id '"+workspace.SessionName+"'")
 	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workspace.SessionName)
 	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+":")
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
@@ -84,6 +86,9 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 func TestCreateForksPiSession(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"model":"google/gemini-2.5-pro"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
@@ -96,7 +101,7 @@ func TestCreateForksPiSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertCalledContains(t, runner.calls, "tmux", "pi --fork 'repo-current-task' --session-id '"+workspace.SessionName+"'")
+	assertCalledContains(t, runner.calls, "tmux", "pi --fork 'repo-current-task' --model 'google/gemini-2.5-pro' --session-id '"+workspace.SessionName+"'")
 }
 
 func TestCreateDoesNotCopyEnvWithoutRepoConfig(t *testing.T) {

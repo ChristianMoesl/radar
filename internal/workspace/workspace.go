@@ -132,11 +132,8 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		}
 	}
 	if _, err := runner.Run(ctx, repo, "tmux", "has-session", "-t", sessionName); err != nil {
-		piCommand := fmt.Sprintf("pi --session-id %s --name %s", shellQuote(sessionName), shellQuote(sessionName))
-		if options.ForkPiSession != "" {
-			piCommand = fmt.Sprintf("pi --fork %s --session-id %s --name %s", shellQuote(options.ForkPiSession), shellQuote(sessionName), shellQuote(sessionName))
-		}
-		if _, err := runner.Run(ctx, repo, "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, piCommand); err != nil {
+		piCommandText := piCommand(sessionName, repoConfig.Model, options.ForkPiSession)
+		if _, err := runner.Run(ctx, repo, "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, piCommandText); err != nil {
 			rollback()
 			return Workspace{}, err
 		}
@@ -305,6 +302,18 @@ func copyFile(source string, target string, mode os.FileMode) error {
 		return err
 	}
 	return output.Close()
+}
+
+func piCommand(sessionName string, model string, forkSession string) string {
+	args := []string{"pi"}
+	if forkSession != "" {
+		args = append(args, "--fork", shellQuote(forkSession))
+	}
+	if strings.TrimSpace(model) != "" {
+		args = append(args, "--model", shellQuote(strings.TrimSpace(model)))
+	}
+	args = append(args, "--session-id", shellQuote(sessionName), "--name", shellQuote(sessionName))
+	return strings.Join(args, " ")
 }
 
 func shellQuote(value string) string {

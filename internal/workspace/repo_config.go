@@ -11,6 +11,7 @@ import (
 type RepoConfig struct {
 	CopyFiles []string `json:"copy_files,omitempty"`
 	Setup     []string `json:"setup,omitempty"`
+	Model     string   `json:"model,omitempty"`
 }
 
 func loadRepoConfig(repo string) (RepoConfig, error) {
@@ -42,6 +43,9 @@ func validateRepoConfig(cfg RepoConfig) error {
 		if strings.TrimSpace(command) == "" {
 			return fmt.Errorf("setup contains an empty command")
 		}
+	}
+	if cfg.Model != "" && strings.TrimSpace(cfg.Model) == "" {
+		return fmt.Errorf("model is empty")
 	}
 	return nil
 }
