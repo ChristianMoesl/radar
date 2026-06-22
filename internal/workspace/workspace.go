@@ -43,6 +43,7 @@ type CreateOptions struct {
 	Path          string
 	SessionName   string
 	WorkspaceRoot string
+	Model         string
 	Switch        bool
 	ForkPiSession string
 }
@@ -132,7 +133,11 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		}
 	}
 	if _, err := runner.Run(ctx, repo, "tmux", "has-session", "-t", sessionName); err != nil {
-		piCommandText := piCommand(sessionName, repoConfig.Model, options.ForkPiSession)
+		model := options.Model
+		if strings.TrimSpace(repoConfig.Model) != "" {
+			model = repoConfig.Model
+		}
+		piCommandText := piCommand(sessionName, model, options.ForkPiSession)
 		if _, err := runner.Run(ctx, repo, "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, piCommandText); err != nil {
 			rollback()
 			return Workspace{}, err

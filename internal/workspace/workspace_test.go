@@ -96,6 +96,7 @@ func TestCreateForksPiSession(t *testing.T) {
 		Name:          "follow up",
 		Base:          "HEAD",
 		WorkspaceRoot: root,
+		Model:         "openai-codex/gpt-5.4",
 		ForkPiSession: "repo-current-task",
 	})
 	if err != nil {
@@ -117,6 +118,7 @@ func TestCreateDoesNotCopyEnvWithoutRepoConfig(t *testing.T) {
 		Name:          "small fix",
 		Base:          "origin/main",
 		WorkspaceRoot: root,
+		Model:         "github-copilot/claude-sonnet-4.5",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -124,6 +126,7 @@ func TestCreateDoesNotCopyEnvWithoutRepoConfig(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(workspace.Path, ".env")); !os.IsNotExist(err) {
 		t.Fatalf(".env was copied without .radar.json config: %v", err)
 	}
+	assertCalledContains(t, runner.calls, "tmux", "pi --model 'github-copilot/claude-sonnet-4.5' --session-id '"+workspace.SessionName+"'")
 }
 
 func TestCreateEscapesWorktreeNamePathSegment(t *testing.T) {

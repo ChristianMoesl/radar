@@ -226,6 +226,7 @@ Example:
 {
   "repository_dirs": ["~/workspace", "~/code", "~/src", "~/dev", "~/projects"],
   "workspace_root": "~/workspaces",
+  "model": "github-copilot/claude-sonnet-4.5",
   "filters": {
     "mute_repos": ["some-org/noisy-repo"],
     "deprioritize_repos": ["some-org/archive-*"],
@@ -243,7 +244,7 @@ Example:
 }
 ```
 
-`repository_dirs` controls where `radar create` discovers base repositories. `workspace_root` controls where Radar creates worktrees.
+`repository_dirs` controls where `radar create` discovers base repositories. `workspace_root` controls where Radar creates worktrees. `model` is passed to Pi as `--model` for new workspace sessions unless the repository's `.radar.json` defines its own `model`.
 
 Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the low-priority section. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive.
 

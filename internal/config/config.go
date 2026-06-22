@@ -12,6 +12,7 @@ import (
 type Config struct {
 	RepositoryDirs []string       `json:"repository_dirs,omitempty"`
 	WorkspaceRoot  string         `json:"workspace_root,omitempty"`
+	Model          string         `json:"model,omitempty"`
 	Filters        filters.Config `json:"filters,omitempty"`
 }
 

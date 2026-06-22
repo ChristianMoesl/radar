@@ -807,11 +807,16 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 		m.message = "Forking workspace…"
 	}
 	cmd := func() tea.Msg {
+		cfg, err := config.Load()
+		if err != nil {
+			return actionMsg{err: err}
+		}
 		switchAfterCreate := os.Getenv("TMUX") != ""
 		options := workspace.CreateOptions{
 			Repo:          form.repo,
 			Base:          form.base,
 			Name:          form.name,
+			Model:         cfg.Model,
 			Switch:        switchAfterCreate,
 			ForkPiSession: form.forkPiSession,
 		}

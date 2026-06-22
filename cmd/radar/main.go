@@ -127,10 +127,15 @@ func runCreate(args []string) {
 		os.Exit(2)
 	}
 
+	cfg, err := config.Load()
+	if err != nil {
+		fatal(err)
+	}
 	result, err := workspace.Create(context.Background(), workspace.ExecRunner{}, workspace.CreateOptions{
 		Repo:   *repo,
 		Base:   *base,
 		Name:   *name,
+		Model:  cfg.Model,
 		Switch: os.Getenv("TMUX") != "",
 	})
 	if err != nil {
