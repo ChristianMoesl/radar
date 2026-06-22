@@ -49,7 +49,8 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
   "copy_files": [".env"],
   "setup": ["pnpm install --frozen-lockfile"],
-  "model": "anthropic/claude-sonnet-4"
+  "model": "anthropic/claude-sonnet-4",
+  "thinking": "high"
 }`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +78,7 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	}
 	assertCalled(t, runner.calls, "git", "worktree add -b small-fix "+workspace.Path+" origin/main")
 	assertCalled(t, runner.calls, "sh", "-lc pnpm install --frozen-lockfile")
-	assertCalledContains(t, runner.calls, "tmux", "pi --model 'anthropic/claude-sonnet-4' --session-id '"+workspace.SessionName+"'")
+	assertCalledContains(t, runner.calls, "tmux", "pi --model 'anthropic/claude-sonnet-4' --thinking 'high' --session-id '"+workspace.SessionName+"'")
 	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workspace.SessionName)
 	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+":")
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
@@ -86,7 +87,7 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 func TestCreateForksPiSession(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"model":"google/gemini-2.5-pro"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"model":"google/gemini-2.5-pro","thinking":"xhigh"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{repo: repo}
@@ -97,12 +98,49 @@ func TestCreateForksPiSession(t *testing.T) {
 		Base:          "HEAD",
 		WorkspaceRoot: root,
 		Model:         "openai-codex/gpt-5.4",
+		Thinking:      "medium",
 		ForkPiSession: "repo-current-task",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertCalledContains(t, runner.calls, "tmux", "pi --fork 'repo-current-task' --model 'google/gemini-2.5-pro' --session-id '"+workspace.SessionName+"'")
+	assertCalledContains(t, runner.calls, "tmux", "pi --fork 'repo-current-task' --model 'google/gemini-2.5-pro' --thinking 'xhigh' --session-id '"+workspace.SessionName+"'")
+}
+
+func TestCreateRejectsInvalidRepoThinking(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"thinking":"maximum"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{repo: repo}
+
+	_, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		Name:          "small fix",
+		Base:          "origin/main",
+		WorkspaceRoot: root,
+	})
+	if err == nil {
+		t.Fatal("Create() error = nil, want invalid thinking error")
+	}
+}
+
+func TestCreateRejectsInvalidDefaultThinking(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	runner := &fakeRunner{repo: repo}
+
+	_, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		Name:          "small fix",
+		Base:          "origin/main",
+		WorkspaceRoot: root,
+		Thinking:      "maximum",
+	})
+	if err == nil {
+		t.Fatal("Create() error = nil, want invalid thinking error")
+	}
 }
 
 func TestCreateDoesNotCopyEnvWithoutRepoConfig(t *testing.T) {
@@ -119,6 +157,7 @@ func TestCreateDoesNotCopyEnvWithoutRepoConfig(t *testing.T) {
 		Base:          "origin/main",
 		WorkspaceRoot: root,
 		Model:         "github-copilot/claude-sonnet-4.5",
+		Thinking:      "low",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +165,7 @@ func TestCreateDoesNotCopyEnvWithoutRepoConfig(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(workspace.Path, ".env")); !os.IsNotExist(err) {
 		t.Fatalf(".env was copied without .radar.json config: %v", err)
 	}
-	assertCalledContains(t, runner.calls, "tmux", "pi --model 'github-copilot/claude-sonnet-4.5' --session-id '"+workspace.SessionName+"'")
+	assertCalledContains(t, runner.calls, "tmux", "pi --model 'github-copilot/claude-sonnet-4.5' --thinking 'low' --session-id '"+workspace.SessionName+"'")
 }
 
 func TestCreateEscapesWorktreeNamePathSegment(t *testing.T) {

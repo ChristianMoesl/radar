@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"radar.nvim/internal/pi"
 )
 
 var invalidWorkspaceNameCharacters = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
@@ -44,6 +46,7 @@ type CreateOptions struct {
 	SessionName   string
 	WorkspaceRoot string
 	Model         string
+	Thinking      string
 	Switch        bool
 	ForkPiSession string
 }
@@ -73,6 +76,9 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	}
 	repoConfig, err := loadRepoConfig(repo)
 	if err != nil {
+		return Workspace{}, err
+	}
+	if err := pi.ValidateThinking(options.Thinking); err != nil {
 		return Workspace{}, err
 	}
 	name := strings.TrimSpace(options.Name)
@@ -137,7 +143,11 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		if strings.TrimSpace(repoConfig.Model) != "" {
 			model = repoConfig.Model
 		}
-		piCommandText := piCommand(sessionName, model, options.ForkPiSession)
+		thinking := options.Thinking
+		if strings.TrimSpace(repoConfig.Thinking) != "" {
+			thinking = repoConfig.Thinking
+		}
+		piCommandText := piCommand(sessionName, model, thinking, options.ForkPiSession)
 		if _, err := runner.Run(ctx, repo, "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, piCommandText); err != nil {
 			rollback()
 			return Workspace{}, err
@@ -309,13 +319,16 @@ func copyFile(source string, target string, mode os.FileMode) error {
 	return output.Close()
 }
 
-func piCommand(sessionName string, model string, forkSession string) string {
+func piCommand(sessionName string, model string, thinking string, forkSession string) string {
 	args := []string{"pi"}
 	if forkSession != "" {
 		args = append(args, "--fork", shellQuote(forkSession))
 	}
 	if strings.TrimSpace(model) != "" {
 		args = append(args, "--model", shellQuote(strings.TrimSpace(model)))
+	}
+	if strings.TrimSpace(thinking) != "" {
+		args = append(args, "--thinking", shellQuote(strings.TrimSpace(thinking)))
 	}
 	args = append(args, "--session-id", shellQuote(sessionName), "--name", shellQuote(sessionName))
 	return strings.Join(args, " ")

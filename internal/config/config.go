@@ -7,12 +7,14 @@ import (
 	"strings"
 
 	"radar.nvim/internal/filters"
+	"radar.nvim/internal/pi"
 )
 
 type Config struct {
 	RepositoryDirs []string       `json:"repository_dirs,omitempty"`
 	WorkspaceRoot  string         `json:"workspace_root,omitempty"`
 	Model          string         `json:"model,omitempty"`
+	Thinking       string         `json:"thinking,omitempty"`
 	Filters        filters.Config `json:"filters,omitempty"`
 }
 
@@ -48,6 +50,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	applyDefaults(&cfg)
+	if err := validate(cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -105,4 +110,8 @@ func applyDefaults(cfg *Config) {
 	if strings.TrimSpace(cfg.WorkspaceRoot) == "" {
 		cfg.WorkspaceRoot = defaults.WorkspaceRoot
 	}
+}
+
+func validate(cfg Config) error {
+	return pi.ValidateThinking(cfg.Thinking)
 }

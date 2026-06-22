@@ -132,11 +132,12 @@ func runCreate(args []string) {
 		fatal(err)
 	}
 	result, err := workspace.Create(context.Background(), workspace.ExecRunner{}, workspace.CreateOptions{
-		Repo:   *repo,
-		Base:   *base,
-		Name:   *name,
-		Model:  cfg.Model,
-		Switch: os.Getenv("TMUX") != "",
+		Repo:     *repo,
+		Base:     *base,
+		Name:     *name,
+		Model:    cfg.Model,
+		Thinking: cfg.Thinking,
+		Switch:   os.Getenv("TMUX") != "",
 	})
 	if err != nil {
 		fatal(err)

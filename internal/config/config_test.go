@@ -37,6 +37,7 @@ func TestLoadReadsConfigFile(t *testing.T) {
   "repository_dirs": ["~/repos"],
   "workspace_root": "~/streams",
   "model": "github-copilot/claude-sonnet-4.5",
+  "thinking": "high",
   "filters": {"mute_repos": ["org/noisy"]}
 }`), 0o600); err != nil {
 		t.Fatal(err)
@@ -55,8 +56,29 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	if cfg.Model != "github-copilot/claude-sonnet-4.5" {
 		t.Fatalf("Model = %q", cfg.Model)
 	}
+	if cfg.Thinking != "high" {
+		t.Fatalf("Thinking = %q", cfg.Thinking)
+	}
 	if !reflect.DeepEqual(cfg.Filters.MuteRepos, []string{"org/noisy"}) {
 		t.Fatalf("Filters.MuteRepos = %#v", cfg.Filters.MuteRepos)
+	}
+}
+
+func TestLoadRejectsInvalidThinking(t *testing.T) {
+	home := t.TempDir()
+	configHome := filepath.Join(home, "config")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	path := filepath.Join(configHome, "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"thinking":"maximum"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want invalid thinking error")
 	}
 }
 

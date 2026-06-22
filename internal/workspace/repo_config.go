@@ -6,12 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"radar.nvim/internal/pi"
 )
 
 type RepoConfig struct {
 	CopyFiles []string `json:"copy_files,omitempty"`
 	Setup     []string `json:"setup,omitempty"`
 	Model     string   `json:"model,omitempty"`
+	Thinking  string   `json:"thinking,omitempty"`
 }
 
 func loadRepoConfig(repo string) (RepoConfig, error) {
@@ -46,6 +49,9 @@ func validateRepoConfig(cfg RepoConfig) error {
 	}
 	if cfg.Model != "" && strings.TrimSpace(cfg.Model) == "" {
 		return fmt.Errorf("model is empty")
+	}
+	if err := pi.ValidateThinking(cfg.Thinking); err != nil {
+		return err
 	}
 	return nil
 }

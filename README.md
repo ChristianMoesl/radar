@@ -96,11 +96,12 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 {
   "copy_files": [".env", ".env.local"],
   "setup": ["pnpm install --frozen-lockfile"],
-  "model": "anthropic/claude-sonnet-4"
+  "model": "anthropic/claude-sonnet-4",
+  "thinking": "high"
 }
 ```
 
-`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created. `model` is passed to Pi as `--model` for the workspace session.
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
 
 When run inside tmux, Radar switches to the new session.
 
@@ -227,6 +228,7 @@ Example:
   "repository_dirs": ["~/workspace", "~/code", "~/src", "~/dev", "~/projects"],
   "workspace_root": "~/workspaces",
   "model": "github-copilot/claude-sonnet-4.5",
+  "thinking": "medium",
   "filters": {
     "mute_repos": ["some-org/noisy-repo"],
     "deprioritize_repos": ["some-org/archive-*"],
@@ -244,7 +246,7 @@ Example:
 }
 ```
 
-`repository_dirs` controls where `radar create` discovers base repositories. `workspace_root` controls where Radar creates worktrees. `model` is passed to Pi as `--model` for new workspace sessions unless the repository's `.radar.json` defines its own `model`.
+`repository_dirs` controls where `radar create` discovers base repositories. `workspace_root` controls where Radar creates worktrees. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values.
 
 Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the low-priority section. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive.
 

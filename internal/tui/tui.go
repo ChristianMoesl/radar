@@ -817,6 +817,7 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 			Base:          form.base,
 			Name:          form.name,
 			Model:         cfg.Model,
+			Thinking:      cfg.Thinking,
 			Switch:        switchAfterCreate,
 			ForkPiSession: form.forkPiSession,
 		}
