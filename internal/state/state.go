@@ -397,6 +397,8 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 		}
 	}
 
+	state = relinkState(state)
+
 	for i := range state.Records {
 		record := &state.Records[i]
 		if record.State != "active" || hasActiveSourceRef(*record, state.SourceRefs) {
@@ -411,6 +413,217 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 	}
 
 	return state
+}
+
+func relinkState(state persistedState) persistedState {
+	groups := sourceRefLinkGroups(state.SourceRefs)
+	for _, group := range groups {
+		recordIDs := uniqueTaskRecordIDs(group)
+		if len(recordIDs) < 2 {
+			continue
+		}
+		winnerID := winningRecordID(state.Records, recordIDs)
+		if winnerID == "" {
+			continue
+		}
+		for i := range state.SourceRefs {
+			if containsString(recordIDs, state.SourceRefs[i].TaskRecordID) {
+				state.SourceRefs[i].TaskRecordID = winnerID
+			}
+		}
+		state.Records = mergeTaskRecords(state.Records, recordIDs, winnerID, state.SourceRefs)
+	}
+	return state
+}
+
+func sourceRefLinkGroups(refs []SourceRefRecord) [][]SourceRefRecord {
+	groups := make([][]SourceRefRecord, 0)
+	used := make([]bool, len(refs))
+	for i := range refs {
+		if used[i] || !refs[i].Active || refs[i].TaskRecordID == "" {
+			continue
+		}
+		group := make([]SourceRefRecord, 0)
+		queue := []int{i}
+		used[i] = true
+		for len(queue) > 0 {
+			idx := queue[0]
+			queue = queue[1:]
+			group = append(group, refs[idx])
+			for j := range refs {
+				if used[j] || !refs[j].Active || refs[j].TaskRecordID == "" {
+					continue
+				}
+				if sourceRefRecordsRelated(refs[idx], refs[j]) {
+					used[j] = true
+					queue = append(queue, j)
+				}
+			}
+		}
+		groups = append(groups, group)
+	}
+	return groups
+}
+
+func sourceRefRecordsRelated(left, right SourceRefRecord) bool {
+	return matchesAnyString(linkKeysForSourceRef(left.Snapshot), linkKeysForSourceRef(right.Snapshot))
+}
+
+func linkKeysForSourceRef(ref protocol.SourceRef) []string {
+	keys := make([]string, 0)
+	seen := map[string]bool{}
+	add := func(key string) {
+		key = strings.TrimSpace(key)
+		if key == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	for _, key := range extractTicketKeys(ref.ID, ref.Title, ref.Branch, ref.Path, ref.Repo, ref.URL) {
+		add("ticket:" + key)
+	}
+	if ref.Source == "jira" && ref.Kind == "issue" {
+		if key := jiraIssueKey(ref); key != "" {
+			add("ticket:" + key)
+		}
+	}
+	if ref.Source == "git" && ref.Kind == "worktree" && ref.Path != "" {
+		add("workspace:" + cleanPath(ref.Path))
+	}
+	if ref.Source == "github" && ref.Kind == "pull_request" && ref.ID != "" {
+		add(ref.ID)
+	}
+	if branch := normalizedLinkBranch(ref.Branch); branch != "" {
+		if repo := normalizedLinkRepo(ref.Repo); repo != "" && branchLinkableSource(ref) {
+			add("branch:" + repo + ":" + branch)
+		}
+	}
+	return keys
+}
+
+func branchLinkableSource(ref protocol.SourceRef) bool {
+	return (ref.Source == "github" && ref.Kind == "pull_request") || (ref.Source == "git" && ref.Kind == "worktree")
+}
+
+func normalizedLinkBranch(branch string) string {
+	branch = strings.TrimSpace(branch)
+	branch = strings.TrimPrefix(branch, "refs/remotes/")
+	branch = strings.TrimPrefix(branch, "origin/")
+	branch = strings.TrimPrefix(branch, "refs/heads/")
+	return strings.ReplaceAll(branch, "/", "-")
+}
+
+func normalizedLinkRepo(repo string) string {
+	repo = strings.TrimSpace(repo)
+	repo = strings.TrimSuffix(repo, ".git")
+	repo = strings.TrimPrefix(repo, "https://github.com/")
+	repo = strings.TrimPrefix(repo, "http://github.com/")
+	repo = strings.TrimPrefix(repo, "git@github.com:")
+	if strings.Contains(repo, "://") || strings.Contains(repo, "@") {
+		return ""
+	}
+	return repo
+}
+
+func jiraIssueKey(ref protocol.SourceRef) string {
+	if ref.Metadata != nil {
+		if key := strings.TrimSpace(ref.Metadata["key"]); key != "" {
+			return strings.ToUpper(key)
+		}
+	}
+	if key, ok := strings.CutPrefix(ref.ID, "jira:issue:"); ok {
+		return strings.ToUpper(key)
+	}
+	return ""
+}
+
+func uniqueTaskRecordIDs(group []SourceRefRecord) []string {
+	ids := make([]string, 0)
+	seen := map[string]bool{}
+	for _, ref := range group {
+		if ref.TaskRecordID == "" || seen[ref.TaskRecordID] {
+			continue
+		}
+		seen[ref.TaskRecordID] = true
+		ids = append(ids, ref.TaskRecordID)
+	}
+	return ids
+}
+
+func winningRecordID(records []TaskRecord, ids []string) string {
+	var winner *TaskRecord
+	for i := range records {
+		if !containsString(ids, records[i].ID) {
+			continue
+		}
+		if winner == nil || recordMergeRank(records[i]) < recordMergeRank(*winner) || (recordMergeRank(records[i]) == recordMergeRank(*winner) && records[i].NumericID < winner.NumericID) {
+			winner = &records[i]
+		}
+	}
+	if winner == nil {
+		return ""
+	}
+	return winner.ID
+}
+
+func recordMergeRank(record TaskRecord) int {
+	switch {
+	case strings.HasPrefix(record.CanonicalKey, "ticket:"):
+		return 0
+	case strings.HasPrefix(record.CanonicalKey, "github:pr:"):
+		return 1
+	case strings.HasPrefix(record.CanonicalKey, "workspace:"):
+		return 2
+	default:
+		return 3
+	}
+}
+
+func mergeTaskRecords(records []TaskRecord, ids []string, winnerID string, refs []SourceRefRecord) []TaskRecord {
+	merged := make([]TaskRecord, 0, len(records))
+	var winner TaskRecord
+	var loserSnapshots []protocol.Task
+	for _, record := range records {
+		if record.ID == winnerID {
+			winner = record
+			continue
+		}
+		if containsString(ids, record.ID) {
+			loserSnapshots = append(loserSnapshots, record.Snapshot)
+			if winner.Ack.GeneralCommentsAckAt == "" {
+				winner.Ack = record.Ack
+			}
+			continue
+		}
+		merged = append(merged, record)
+	}
+	for _, snapshot := range loserSnapshots {
+		winner.Snapshot = mergeTasks(winner.Snapshot, snapshot)
+	}
+	winner.SourceRefIDs = sourceRefIDsForRecord(winnerID, refs)
+	merged = append(merged, winner)
+	sort.SliceStable(merged, func(i, j int) bool { return merged[i].NumericID < merged[j].NumericID })
+	return merged
+}
+
+func sourceRefIDsForRecord(recordID string, refs []SourceRefRecord) []string {
+	ids := make([]string, 0)
+	for _, ref := range refs {
+		if ref.TaskRecordID == recordID && ref.ID != "" {
+			ids = append(ids, ref.ID)
+		}
+	}
+	return mergeStringSet(nil, ids)
+}
+
+func containsString(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
 }
 
 func matchingRecord(task protocol.Task, key string, bySourceRef map[string]*TaskRecord, byKey map[string]*TaskRecord) *TaskRecord {
@@ -629,12 +842,38 @@ func firstTicketKey(task protocol.Task) string {
 			values = append(values, value)
 		}
 	}
+	keys := extractTicketKeys(values...)
+	if len(keys) == 0 {
+		return ""
+	}
+	return keys[0]
+}
+
+func extractTicketKeys(values ...string) []string {
+	keys := make([]string, 0)
+	seen := map[string]bool{}
 	for _, value := range values {
-		if match := ticketPattern.FindString(value); match != "" {
-			return strings.ToUpper(match)
+		for _, match := range ticketPattern.FindAllString(value, -1) {
+			key := strings.ToUpper(match)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			keys = append(keys, key)
 		}
 	}
-	return ""
+	return keys
+}
+
+func matchesAnyString(left []string, right []string) bool {
+	for _, l := range left {
+		for _, r := range right {
+			if l == r {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func sourceRefIDs(sourceRefs []protocol.SourceRef) []string {

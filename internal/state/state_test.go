@@ -29,6 +29,48 @@ func TestReconcileStateUsesTicketRecordForMultiplePullRequests(t *testing.T) {
 	}
 }
 
+func TestReconcileStateDurablyLinksPullRequestAndWorktreeByOriginAndBranch(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{
+		Kind:      "github_own_pr",
+		Title:     "Feature without ticket",
+		Attention: "in_progress",
+		SourceRefs: []protocol.SourceRef{{
+			ID:     "github:pr:acme/app:7",
+			Source: "github",
+			Kind:   "pull_request",
+			Repo:   "acme/app",
+			Branch: "feature/no-ticket",
+		}},
+	}}, now)
+
+	state = reconcileStateForSources(state, []protocol.Task{{
+		Kind:      "git_worktree",
+		Title:     "feature-no-ticket",
+		Attention: "in_progress",
+		SourceRefs: []protocol.SourceRef{{
+			ID:     "git:worktree:/workspaces/app/feature-no-ticket",
+			Source: "git",
+			Kind:   "worktree",
+			Repo:   "acme/app",
+			Path:   "/workspaces/app/feature-no-ticket",
+			Branch: "feature-no-ticket",
+		}},
+	}}, now.Add(time.Hour), map[string]bool{"git": true})
+
+	if len(state.Records) != 1 {
+		t.Fatalf("records = %d, want durable merge: %+v", len(state.Records), state.Records)
+	}
+	if len(state.Records[0].SourceRefIDs) != 2 {
+		t.Fatalf("source refs = %+v, want PR and worktree", state.Records[0].SourceRefIDs)
+	}
+	for _, ref := range state.SourceRefs {
+		if ref.TaskRecordID != state.Records[0].ID {
+			t.Fatalf("source ref %s linked to %s, want %s", ref.ID, ref.TaskRecordID, state.Records[0].ID)
+		}
+	}
+}
+
 func TestReconcileStateReopensDoneRecord(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{Title: "CAP-7 ship", Attention: "done", DoneAt: now.Format(time.RFC3339), SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request", Branch: "CAP-7-ship"}}}}, now)
