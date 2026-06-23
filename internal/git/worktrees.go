@@ -209,6 +209,7 @@ func (w worktree) SourceRef(ctx context.Context) protocol.SourceRef {
 		title = filepath.Base(w.Path)
 	}
 
+	originRepo := worktreeOriginRepo(ctx, w.Path)
 	metadata := map[string]string{
 		"head": w.Head,
 	}
@@ -230,6 +231,7 @@ func (w worktree) SourceRef(ctx context.Context) protocol.SourceRef {
 		Source:   "git",
 		Kind:     "worktree",
 		Title:    title,
+		Repo:     originRepo,
 		Path:     w.Path,
 		Branch:   w.Branch,
 		Status:   status.Label(),
@@ -258,6 +260,26 @@ func (s status) Label() string {
 		return "clean"
 	}
 	return strings.Join(parts, ", ")
+}
+
+func worktreeOriginRepo(ctx context.Context, path string) string {
+	output, err := gitOutput(ctx, path, "remote", "get-url", "origin")
+	if err != nil {
+		return ""
+	}
+	return normalizeGitHubRepo(output)
+}
+
+func normalizeGitHubRepo(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimSuffix(value, ".git")
+	value = strings.TrimPrefix(value, "https://github.com/")
+	value = strings.TrimPrefix(value, "http://github.com/")
+	value = strings.TrimPrefix(value, "git@github.com:")
+	if strings.Contains(value, "://") || strings.Contains(value, "@") {
+		return ""
+	}
+	return value
 }
 
 func worktreeStatus(ctx context.Context, path string) status {

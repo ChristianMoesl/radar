@@ -43,6 +43,69 @@ func TestLinkMatchesTicketKeysCaseInsensitivelyInBranch(t *testing.T) {
 	}
 }
 
+func TestLinkMatchesPullRequestToWorktreeByRepoAndBranch(t *testing.T) {
+	items := []protocol.Task{
+		{
+			Kind:      "github_own_pr",
+			Title:     "Implement feature",
+			Attention: "in_progress",
+			SourceRefs: []protocol.SourceRef{{
+				ID:     "github:pr:acme/app:7",
+				Source: "github",
+				Kind:   "pull_request",
+				Repo:   "acme/app",
+				Branch: "feature/no-ticket",
+			}},
+		},
+	}
+	sourceRefs := []protocol.SourceRef{{
+		ID:     "git:worktree:/workspaces/app/feature-no-ticket",
+		Source: "git",
+		Kind:   "worktree",
+		Repo:   "acme/app",
+		Path:   "/workspaces/app/feature-no-ticket",
+		Branch: "feature-no-ticket",
+	}}
+
+	linked := Link(Input{Tasks: items, SourceRefs: sourceRefs})
+
+	if len(linked) != 1 {
+		t.Fatalf("linked item count = %d, want 1", len(linked))
+	}
+	if len(linked[0].SourceRefs) != 2 {
+		t.Fatalf("linked sourceRef count = %d, want 2: %+v", len(linked[0].SourceRefs), linked[0].SourceRefs)
+	}
+}
+
+func TestLinkDoesNotMatchPullRequestToDifferentRepoWorktreeWithSameBranch(t *testing.T) {
+	items := []protocol.Task{{
+		Kind:      "github_own_pr",
+		Title:     "Implement feature",
+		Attention: "in_progress",
+		SourceRefs: []protocol.SourceRef{{
+			ID:     "github:pr:acme/app:7",
+			Source: "github",
+			Kind:   "pull_request",
+			Repo:   "acme/app",
+			Branch: "feature/no-ticket",
+		}},
+	}}
+	sourceRefs := []protocol.SourceRef{{
+		ID:     "git:worktree:/workspaces/other/feature-no-ticket",
+		Source: "git",
+		Kind:   "worktree",
+		Repo:   "acme/other",
+		Path:   "/workspaces/other/feature-no-ticket",
+		Branch: "feature-no-ticket",
+	}}
+
+	linked := Link(Input{Tasks: items, SourceRefs: sourceRefs})
+
+	if len(linked) != 2 {
+		t.Fatalf("linked item count = %d, want unlinked PR and worktree", len(linked))
+	}
+}
+
 func TestLinkMatchesTmuxSessionToWorktreeByPath(t *testing.T) {
 	items := []protocol.Task{
 		{

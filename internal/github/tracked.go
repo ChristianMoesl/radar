@@ -368,7 +368,7 @@ func searchPullRequestsByOwnerAndAuthor(ctx context.Context, owner string, autho
 		"--author", author,
 		"--state", "open",
 		"--limit", "100",
-		"--json", "number,title,url,repository,isDraft,state,body,author",
+		"--json", "number,title,url,repository,isDraft,state,body,author,headRefName",
 	}
 	if err := ghJSON(ctx, args, &prs); err != nil {
 		return nil, err

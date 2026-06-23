@@ -307,9 +307,16 @@ func TestActivateSelectedCreatesWorkspaceForPullRequestOnlyTask(t *testing.T) {
 	}
 }
 
-func TestGitHubRepoFromRefIDKeepsRepositoryColons(t *testing.T) {
-	if got := githubRepoFromRefID("github:pr:enterprise:owner/repo:7"); got != "enterprise:owner/repo" {
-		t.Fatalf("githubRepoFromRefID() = %q, want repo with colon", got)
+func TestGitHubPullRequestRepoKeepsRepositoryColons(t *testing.T) {
+	ref := protocol.SourceRef{ID: "github:pr:enterprise:owner/repo:7"}
+	if got := githubPullRequestRepo(ref); got != "enterprise:owner/repo" {
+		t.Fatalf("githubPullRequestRepo() = %q, want repo with colon", got)
+	}
+}
+
+func TestGitHubPullRequestNumber(t *testing.T) {
+	if got := githubPullRequestNumber("github:pr:enterprise:owner/repo:7"); got != "7" {
+		t.Fatalf("githubPullRequestNumber() = %q, want PR number", got)
 	}
 }
 

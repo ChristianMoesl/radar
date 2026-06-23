@@ -54,7 +54,7 @@ func sourceRefGroups(sourceRefs []protocol.SourceRef) [][]protocol.SourceRef {
 }
 
 func sourceRefsRelated(left, right protocol.SourceRef) bool {
-	return ticketKeysMatch(left, right) || sourceRefPathsMatch(left, right)
+	return ticketKeysMatch(left, right) || sourceRefPathsMatch(left, right) || sourceRefBranchesMatch(left, right)
 }
 
 func taskFromSourceRefs(sourceRefs []protocol.SourceRef) protocol.Task {

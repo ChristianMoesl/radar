@@ -1270,15 +1270,21 @@ func (m model) createSessionForWorktree(ref protocol.SourceRef) tea.Cmd {
 
 func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
 	return func() tea.Msg {
-		name := pullRequestWorkspaceName(ref)
-		if name == "" {
-			return actionMsg{err: fmt.Errorf("github pull request has no origin branch")}
-		}
 		repo, err := localRepoForPullRequest(ref)
 		if err != nil {
 			return actionMsg{err: err}
 		}
 		runner := workspace.ExecRunner{}
+		name := pullRequestWorkspaceName(ref)
+		if name == "" {
+			name, err = fetchPullRequestHeadBranch(context.Background(), runner, ref)
+			if err != nil {
+				return actionMsg{err: err}
+			}
+		}
+		if name == "" {
+			return actionMsg{err: fmt.Errorf("github pull request has no origin branch")}
+		}
 		if err := workspace.FetchBranches(context.Background(), runner, repo); err != nil {
 			return actionMsg{err: err}
 		}
@@ -1307,10 +1313,7 @@ func localRepoForPullRequest(ref protocol.SourceRef) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	wantRepo := strings.TrimSpace(ref.Repo)
-	if wantRepo == "" {
-		wantRepo = githubRepoFromRefID(ref.ID)
-	}
+	wantRepo := githubPullRequestRepo(ref)
 	if wantRepo == "" {
 		return "", fmt.Errorf("github pull request has no repository")
 	}
@@ -1337,8 +1340,27 @@ func localRepoMatchesGitHubRepo(repo string, wantRepo string) bool {
 	return filepath.Base(repo) == filepath.Base(wantRepo)
 }
 
-func githubRepoFromRefID(id string) string {
-	value, ok := strings.CutPrefix(id, "github:pr:")
+func fetchPullRequestHeadBranch(ctx context.Context, runner workspace.Runner, ref protocol.SourceRef) (string, error) {
+	if err := runner.LookPath("gh"); err != nil {
+		return "", fmt.Errorf("github pull request branch lookup requires %q: %w", "gh", err)
+	}
+	repo := githubPullRequestRepo(ref)
+	number := githubPullRequestNumber(ref.ID)
+	if repo == "" || number == "" {
+		return "", fmt.Errorf("github pull request has no repository or number")
+	}
+	branch, err := runner.Run(ctx, "", "gh", "pr", "view", number, "--repo", repo, "--json", "headRefName", "--jq", ".headRefName")
+	if err != nil {
+		return "", err
+	}
+	return pullRequestWorkspaceName(protocol.SourceRef{Branch: branch}), nil
+}
+
+func githubPullRequestRepo(ref protocol.SourceRef) string {
+	if repo := strings.TrimSpace(ref.Repo); repo != "" {
+		return repo
+	}
+	value, ok := strings.CutPrefix(ref.ID, "github:pr:")
 	if !ok {
 		return ""
 	}
@@ -1347,6 +1369,18 @@ func githubRepoFromRefID(id string) string {
 		return ""
 	}
 	return value[:index]
+}
+
+func githubPullRequestNumber(id string) string {
+	value, ok := strings.CutPrefix(id, "github:pr:")
+	if !ok {
+		return ""
+	}
+	index := strings.LastIndex(value, ":")
+	if index < 0 || index == len(value)-1 {
+		return ""
+	}
+	return value[index+1:]
 }
 
 func normalizeGitHubRepo(value string) string {
