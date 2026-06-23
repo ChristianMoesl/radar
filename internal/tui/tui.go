@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -1633,12 +1634,18 @@ func metadataValue(metadata map[string]string, keys ...string) string {
 func taskLinks(task protocol.Task) []linkChoice {
 	seen := map[string]bool{}
 	var links []linkChoice
+	usedKeys := map[string]bool{}
 	add := func(source string, label string, url string) {
 		if url == "" || seen[url] || len(links) >= 9 {
 			return
 		}
 		seen[url] = true
-		links = append(links, linkChoice{Key: fmt.Sprint(len(links) + 1), Source: source, Label: label, URL: url})
+		key := linkMnemonic(source, usedKeys)
+		if key == "" {
+			key = fmt.Sprint(len(links) + 1)
+		}
+		usedKeys[key] = true
+		links = append(links, linkChoice{Key: key, Source: source, Label: label, URL: url})
 	}
 
 	for _, ref := range task.SourceRefs {
@@ -1655,6 +1662,19 @@ func matchingLink(links []linkChoice, key string) (linkChoice, bool) {
 		}
 	}
 	return linkChoice{}, false
+}
+
+func linkMnemonic(label string, used map[string]bool) string {
+	for _, r := range label {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			continue
+		}
+		key := strings.ToLower(string(r))
+		if !used[key] {
+			return key
+		}
+	}
+	return ""
 }
 
 func sourceRefSourceLabel(ref protocol.SourceRef) string {

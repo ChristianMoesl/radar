@@ -423,6 +423,21 @@ func TestTmuxSessionTargetUsesStableSessionID(t *testing.T) {
 	}
 }
 
+func TestTaskLinksUsesMnemonicFallbackForDuplicateSourceLabels(t *testing.T) {
+	task := protocol.Task{SourceRefs: []protocol.SourceRef{
+		{Source: "github", SourceLabel: "GitHub", URL: "https://github.com/owner/repo/pull/7"},
+		{Source: "gitlab", SourceLabel: "GitLab", URL: "https://gitlab.example.test/owner/repo/-/merge_requests/1"},
+	}}
+
+	links := taskLinks(task)
+	if len(links) != 2 {
+		t.Fatalf("taskLinks() returned %d links, want 2: %+v", len(links), links)
+	}
+	if links[0].Key != "g" || links[1].Key != "i" {
+		t.Fatalf("links = %+v, want first available mnemonic per label", links)
+	}
+}
+
 func TestTaskLinksUsesSourceLabels(t *testing.T) {
 	task := protocol.Task{SourceRefs: []protocol.SourceRef{
 		{ID: "jira:issue:RAD-123", Source: "jira", SourceLabel: "Jira", Kind: "issue", URL: "https://jira.example.test/browse/RAD-123"},
@@ -433,10 +448,10 @@ func TestTaskLinksUsesSourceLabels(t *testing.T) {
 	if len(links) != 2 {
 		t.Fatalf("taskLinks() returned %d links, want 2: %+v", len(links), links)
 	}
-	if links[0].Key != "1" || links[0].Source != "Jira" {
-		t.Fatalf("jira link = %+v, want 1/Jira", links[0])
+	if links[0].Key != "j" || links[0].Source != "Jira" {
+		t.Fatalf("jira link = %+v, want j/Jira", links[0])
 	}
-	if links[1].Key != "2" || links[1].Source != "GitHub" {
-		t.Fatalf("github link = %+v, want 2/GitHub", links[1])
+	if links[1].Key != "g" || links[1].Source != "GitHub" {
+		t.Fatalf("github link = %+v, want g/GitHub", links[1])
 	}
 }
