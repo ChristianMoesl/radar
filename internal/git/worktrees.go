@@ -228,7 +228,7 @@ func (w worktree) SourceRef(ctx context.Context) protocol.SourceRef {
 	}
 
 	canonicalKey := linking.WorkspaceKey(w.Path)
-	linkingKeys := linking.Keys(append(linking.TicketKeys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, w.Branch))...)
+	linkingKeys := linking.Keys(append(linking.TicketKeys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, gitBranchKey(w.Branch)))...)
 
 	return protocol.SourceRef{
 		ID:           "git:worktree:" + w.Path,
@@ -274,6 +274,14 @@ func worktreeOriginRepo(ctx context.Context, path string) string {
 		return ""
 	}
 	return normalizeGitHubRepo(output)
+}
+
+func gitBranchKey(branch string) string {
+	branch = strings.TrimSpace(branch)
+	branch = strings.TrimPrefix(branch, "refs/remotes/")
+	branch = strings.TrimPrefix(branch, "origin/")
+	branch = strings.TrimPrefix(branch, "refs/heads/")
+	return strings.ReplaceAll(branch, "/", "-")
 }
 
 func normalizeGitHubRepo(value string) string {

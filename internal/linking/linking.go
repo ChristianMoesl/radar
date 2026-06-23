@@ -46,13 +46,13 @@ func WorkspaceKey(path string) string {
 	return "workspace:" + path
 }
 
-func BranchKey(repo string, branch string) string {
-	repo = NormalizeRepo(repo)
-	branch = NormalizeBranch(branch)
-	if repo == "" || branch == "" {
+func BranchKey(repoKey string, branchKey string) string {
+	repoKey = strings.TrimSpace(repoKey)
+	branchKey = strings.TrimSpace(branchKey)
+	if repoKey == "" || branchKey == "" {
 		return ""
 	}
-	return "branch:" + repo + ":" + branch
+	return "branch:" + repoKey + ":" + branchKey
 }
 
 func CleanPath(path string) string {
@@ -65,24 +65,4 @@ func CleanPath(path string) string {
 		return path
 	}
 	return cleaned
-}
-
-func NormalizeBranch(branch string) string {
-	branch = strings.TrimSpace(branch)
-	branch = strings.TrimPrefix(branch, "refs/remotes/")
-	branch = strings.TrimPrefix(branch, "origin/")
-	branch = strings.TrimPrefix(branch, "refs/heads/")
-	return strings.ReplaceAll(branch, "/", "-")
-}
-
-func NormalizeRepo(repo string) string {
-	repo = strings.TrimSpace(repo)
-	repo = strings.TrimSuffix(repo, ".git")
-	repo = strings.TrimPrefix(repo, "https://github.com/")
-	repo = strings.TrimPrefix(repo, "http://github.com/")
-	repo = strings.TrimPrefix(repo, "git@github.com:")
-	if strings.Contains(repo, "://") || strings.Contains(repo, "@") {
-		return ""
-	}
-	return repo
 }

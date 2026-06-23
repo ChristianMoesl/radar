@@ -587,8 +587,28 @@ func githubPullRequestRef(id string, repo string, number int, title string, url 
 		Branch:       branch,
 		Status:       status,
 		CanonicalKey: id,
-		LinkingKeys:  linking.Keys(append(linking.TicketKeys(title, branch, repo, url), id, linking.BranchKey(repo, branch))...),
+		LinkingKeys:  linking.Keys(append(linking.TicketKeys(title, branch, repo, url), id, linking.BranchKey(githubRepoKey(repo), githubBranchKey(branch)))...),
 	}
+}
+
+func githubRepoKey(repo string) string {
+	repo = strings.TrimSpace(repo)
+	repo = strings.TrimSuffix(repo, ".git")
+	repo = strings.TrimPrefix(repo, "https://github.com/")
+	repo = strings.TrimPrefix(repo, "http://github.com/")
+	repo = strings.TrimPrefix(repo, "git@github.com:")
+	if strings.Contains(repo, "://") || strings.Contains(repo, "@") {
+		return ""
+	}
+	return repo
+}
+
+func githubBranchKey(branch string) string {
+	branch = strings.TrimSpace(branch)
+	branch = strings.TrimPrefix(branch, "refs/remotes/")
+	branch = strings.TrimPrefix(branch, "origin/")
+	branch = strings.TrimPrefix(branch, "refs/heads/")
+	return strings.ReplaceAll(branch, "/", "-")
 }
 
 func githubPullRequestSourceRef(task protocol.Task) (protocol.SourceRef, bool) {

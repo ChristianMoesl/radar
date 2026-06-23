@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,7 +176,7 @@ func testGitHubPRRef(id string, repo string, branch string) protocol.SourceRef {
 		Repo:         repo,
 		Branch:       branch,
 		CanonicalKey: id,
-		LinkingKeys:  linking.Keys(append(linking.TicketKeys(id, repo, branch), id, linking.BranchKey(repo, branch))...),
+		LinkingKeys:  linking.Keys(append(linking.TicketKeys(id, repo, branch), id, linking.BranchKey(repo, testBranchKey(branch)))...),
 	}
 }
 
@@ -189,8 +190,16 @@ func testGitWorktreeRef(id string, path string, repo string, branch string) prot
 		Path:         path,
 		Branch:       branch,
 		CanonicalKey: canonicalKey,
-		LinkingKeys:  linking.Keys(append(linking.TicketKeys(id, path, repo, branch), canonicalKey, linking.BranchKey(repo, branch))...),
+		LinkingKeys:  linking.Keys(append(linking.TicketKeys(id, path, repo, branch), canonicalKey, linking.BranchKey(repo, testBranchKey(branch)))...),
 	}
+}
+
+func testBranchKey(branch string) string {
+	branch = strings.TrimSpace(branch)
+	branch = strings.TrimPrefix(branch, "refs/remotes/")
+	branch = strings.TrimPrefix(branch, "origin/")
+	branch = strings.TrimPrefix(branch, "refs/heads/")
+	return strings.ReplaceAll(branch, "/", "-")
 }
 
 func testTmuxSessionRef(id string, path string) protocol.SourceRef {
