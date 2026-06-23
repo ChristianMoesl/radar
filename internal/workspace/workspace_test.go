@@ -84,6 +84,35 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
 }
 
+func TestCreateStartsConfiguredSandbox(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
+  "sandbox": {
+    "compose": "docker-compose.yml",
+    "services": ["server"]
+  }
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{repo: repo}
+
+	workspace, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		Name:          "small fix",
+		Base:          "origin/main",
+		WorkspaceRoot: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if workspace.SandboxName != "radar-"+filepath.Base(repo)+"-small-fix" {
+		t.Fatalf("sandbox name = %q", workspace.SandboxName)
+	}
+	assertCalled(t, runner.calls, "docker", "compose -f docker-compose.yml -p "+workspace.SandboxName+" up -d server")
+}
+
 func TestCreateForksPiSession(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
@@ -220,6 +249,29 @@ func TestDeleteKillsSessionAndRemovesWorktree(t *testing.T) {
 	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove "+path)
 }
 
+func TestDeleteStopsConfiguredSandbox(t *testing.T) {
+	runner := &fakeRunner{hasSession: true}
+	path := filepath.Join(t.TempDir(), "repo", "small-fix")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, ".radar.json"), []byte(`{"sandbox":{"compose":"docker-compose.yml"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	deleted, err := Delete(context.Background(), runner, path, "repo-small-fix", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if deleted.SandboxName != "radar-repo-small-fix" {
+		t.Fatalf("sandbox name = %q", deleted.SandboxName)
+	}
+	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
+	assertCalled(t, runner.calls, "docker", "compose -f docker-compose.yml -p radar-repo-small-fix down")
+	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove "+path)
+}
+
 func TestDeleteSessionKillsOnlyTmuxSession(t *testing.T) {
 	runner := &fakeRunner{}
 	deleted, err := DeleteSession(context.Background(), runner, "repo-small-fix")
@@ -280,6 +332,12 @@ func TestBranchNameSanitizesNames(t *testing.T) {
 func TestSessionNameSanitizesNames(t *testing.T) {
 	if got, want := SessionName("my.repo", "small fix"), "my-repo-small-fix"; got != want {
 		t.Fatalf("SessionName() = %q, want %q", got, want)
+	}
+}
+
+func TestSandboxNameSanitizesNames(t *testing.T) {
+	if got, want := SandboxName("my.repo", "small fix"), "radar-my-repo-small-fix"; got != want {
+		t.Fatalf("SandboxName() = %q, want %q", got, want)
 	}
 }
 

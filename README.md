@@ -96,12 +96,16 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 {
   "copy_files": [".env", ".env.local"],
   "setup": ["pnpm install --frozen-lockfile"],
+  "sandbox": {
+    "compose": "docker-compose.yml",
+    "services": ["server"]
+  },
   "model": "anthropic/claude-sonnet-4",
   "thinking": "high"
 }
 ```
 
-`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created. If `sandbox` is configured, Radar runs `docker compose -f <compose> -p <sandbox-name> up -d <services...>` from the new worktree before creating tmux windows. Omit `services` to start the compose file's default services. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
 
 When run inside tmux, Radar switches to the new session.
 

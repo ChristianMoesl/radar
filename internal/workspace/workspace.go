@@ -58,6 +58,7 @@ type Workspace struct {
 	Repo        string `json:"repo,omitempty"`
 	Path        string `json:"path"`
 	SessionName string `json:"session_name"`
+	SandboxName string `json:"sandbox_name,omitempty"`
 }
 
 func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
@@ -80,6 +81,11 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	}
 	if err := pi.ValidateThinking(options.Thinking); err != nil {
 		return Workspace{}, err
+	}
+	if repoConfig.Sandbox != nil {
+		if err := runner.LookPath("docker"); err != nil {
+			return Workspace{}, fmt.Errorf("workspace sandbox requires %q: %w", "docker", err)
+		}
 	}
 	name := strings.TrimSpace(options.Name)
 	repoName := filepath.Base(repo)
@@ -121,9 +127,17 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		return Workspace{}, err
 	}
 	createdSession := false
+	createdSandbox := false
+	sandboxName := ""
+	if repoConfig.Sandbox != nil {
+		sandboxName = SandboxName(repoName, name)
+	}
 	rollback := func() {
 		if createdSession {
 			_, _ = runner.Run(ctx, repo, "tmux", "kill-session", "-t", sessionName)
+		}
+		if createdSandbox {
+			_, _ = stopSandbox(ctx, runner, path, *repoConfig.Sandbox, sandboxName)
 		}
 		_, _ = runner.Run(ctx, repo, "git", "worktree", "remove", "--force", path)
 	}
@@ -137,6 +151,13 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 			rollback()
 			return Workspace{}, err
 		}
+	}
+	if repoConfig.Sandbox != nil {
+		if _, err := startSandbox(ctx, runner, path, *repoConfig.Sandbox, sandboxName); err != nil {
+			rollback()
+			return Workspace{}, err
+		}
+		createdSandbox = true
 	}
 	if _, err := runner.Run(ctx, repo, "tmux", "has-session", "-t", sessionName); err != nil {
 		model := options.Model
@@ -168,7 +189,7 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		}
 	}
 
-	return Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName}, nil
+	return Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName, SandboxName: sandboxName}, nil
 }
 
 func CreateSession(ctx context.Context, runner Runner, path string, sessionName string, switchClient bool) (Workspace, error) {
@@ -241,6 +262,15 @@ func Delete(ctx context.Context, runner Runner, path string, sessionName string,
 			return Workspace{}, err
 		}
 	}
+	sandboxName := ""
+	if repoConfig, err := loadRepoConfig(path); err != nil {
+		return Workspace{}, err
+	} else if repoConfig.Sandbox != nil {
+		sandboxName = SandboxName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
+		if _, err := stopSandbox(ctx, runner, path, *repoConfig.Sandbox, sandboxName); err != nil {
+			return Workspace{}, err
+		}
+	}
 	args := []string{"-C", path, "worktree", "remove"}
 	if force {
 		args = append(args, "--force")
@@ -249,7 +279,7 @@ func Delete(ctx context.Context, runner Runner, path string, sessionName string,
 	if _, err := runner.Run(ctx, "", "git", args...); err != nil {
 		return Workspace{}, err
 	}
-	return Workspace{Path: path, SessionName: sessionName}, nil
+	return Workspace{Path: path, SessionName: sessionName, SandboxName: sandboxName}, nil
 }
 
 func WorktreeName(workspaceName string) string {
@@ -271,6 +301,10 @@ func BranchName(workspaceName string) string {
 
 func SessionName(repoName string, workspaceName string) string {
 	return WorktreeName(repoName + "-" + workspaceName)
+}
+
+func SandboxName(repoName string, workspaceName string) string {
+	return WorktreeName("radar-" + repoName + "-" + workspaceName)
 }
 
 func copyConfiguredFiles(source string, target string, names []string) error {
@@ -317,6 +351,22 @@ func copyFile(source string, target string, mode os.FileMode) error {
 		return err
 	}
 	return output.Close()
+}
+
+func startSandbox(ctx context.Context, runner Runner, path string, cfg SandboxConfig, name string) (string, error) {
+	args := sandboxComposeArgs(cfg, name, "up", "-d")
+	args = append(args, cfg.Services...)
+	return runner.Run(ctx, path, "docker", args...)
+}
+
+func stopSandbox(ctx context.Context, runner Runner, path string, cfg SandboxConfig, name string) (string, error) {
+	return runner.Run(ctx, path, "docker", sandboxComposeArgs(cfg, name, "down")...)
+}
+
+func sandboxComposeArgs(cfg SandboxConfig, name string, command ...string) []string {
+	args := []string{"compose", "-f", cfg.Compose, "-p", name}
+	args = append(args, command...)
+	return args
 }
 
 func piCommand(sessionName string, model string, thinking string, forkSession string) string {
