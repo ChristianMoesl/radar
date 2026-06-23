@@ -1,6 +1,9 @@
 package tmux
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestParseSessions(t *testing.T) {
 	output := "$1\tABC-123-feature\t2\t3\t/home/me/repo\n$2\tother\t0\t1\t/tmp\n"
@@ -57,5 +60,10 @@ func TestSessionSourceRef(t *testing.T) {
 	}
 	if sourceRef.Metadata["window_count"] != "3" {
 		t.Fatalf("unexpected window count metadata: %#v", sourceRef.Metadata)
+	}
+	for _, want := range []string{"ticket:ABC-123", "workspace:/home/me/repo"} {
+		if !slices.Contains(sourceRef.LinkingKeys, want) {
+			t.Fatalf("linking keys = %+v, want %s", sourceRef.LinkingKeys, want)
+		}
 	}
 }

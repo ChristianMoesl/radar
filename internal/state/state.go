@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -336,8 +335,6 @@ func (s *Store) Summary() protocol.Summary {
 	return summary
 }
 
-var ticketPattern = regexp.MustCompile(`(?i)[A-Z][A-Z0-9]+-[0-9]+`)
-
 func reconcileState(previous persistedState, observed []protocol.Task, now time.Time) persistedState {
 	return reconcileStateForSources(previous, observed, now, nil)
 }
@@ -517,72 +514,17 @@ func sourceRefRecordsRelated(left, right SourceRefRecord) bool {
 }
 
 func linkKeysForSourceRef(ref protocol.SourceRef) []string {
-	keys := make([]string, 0)
+	keys := make([]string, 0, len(ref.LinkingKeys))
 	seen := map[string]bool{}
-	add := func(key string) {
+	for _, key := range ref.LinkingKeys {
 		key = strings.TrimSpace(key)
 		if key == "" || seen[key] {
-			return
+			continue
 		}
 		seen[key] = true
 		keys = append(keys, key)
 	}
-	for _, key := range extractTicketKeys(ref.ID, ref.Title, ref.Branch, ref.Path, ref.Repo, ref.URL) {
-		add("ticket:" + key)
-	}
-	if ref.Source == "jira" && ref.Kind == "issue" {
-		if key := jiraIssueKey(ref); key != "" {
-			add("ticket:" + key)
-		}
-	}
-	if ref.Source == "git" && ref.Kind == "worktree" && ref.Path != "" {
-		add("workspace:" + cleanPath(ref.Path))
-	}
-	if ref.Source == "github" && ref.Kind == "pull_request" && ref.ID != "" {
-		add(ref.ID)
-	}
-	if branch := normalizedLinkBranch(ref.Branch); branch != "" {
-		if repo := normalizedLinkRepo(ref.Repo); repo != "" && branchLinkableSource(ref) {
-			add("branch:" + repo + ":" + branch)
-		}
-	}
 	return keys
-}
-
-func branchLinkableSource(ref protocol.SourceRef) bool {
-	return (ref.Source == "github" && ref.Kind == "pull_request") || (ref.Source == "git" && ref.Kind == "worktree")
-}
-
-func normalizedLinkBranch(branch string) string {
-	branch = strings.TrimSpace(branch)
-	branch = strings.TrimPrefix(branch, "refs/remotes/")
-	branch = strings.TrimPrefix(branch, "origin/")
-	branch = strings.TrimPrefix(branch, "refs/heads/")
-	return strings.ReplaceAll(branch, "/", "-")
-}
-
-func normalizedLinkRepo(repo string) string {
-	repo = strings.TrimSpace(repo)
-	repo = strings.TrimSuffix(repo, ".git")
-	repo = strings.TrimPrefix(repo, "https://github.com/")
-	repo = strings.TrimPrefix(repo, "http://github.com/")
-	repo = strings.TrimPrefix(repo, "git@github.com:")
-	if strings.Contains(repo, "://") || strings.Contains(repo, "@") {
-		return ""
-	}
-	return repo
-}
-
-func jiraIssueKey(ref protocol.SourceRef) string {
-	if ref.Metadata != nil {
-		if key := strings.TrimSpace(ref.Metadata["key"]); key != "" {
-			return strings.ToUpper(key)
-		}
-	}
-	if key, ok := strings.CutPrefix(ref.ID, "jira:issue:"); ok {
-		return strings.ToUpper(key)
-	}
-	return ""
 }
 
 func uniqueTaskRecordIDs(group []SourceRefRecord) []string {
@@ -618,12 +560,10 @@ func recordMergeRank(record TaskRecord) int {
 	switch {
 	case strings.HasPrefix(record.CanonicalKey, "ticket:"):
 		return 0
-	case strings.HasPrefix(record.CanonicalKey, "github:pr:"):
-		return 1
 	case strings.HasPrefix(record.CanonicalKey, "workspace:"):
-		return 2
+		return 1
 	default:
-		return 3
+		return 2
 	}
 }
 
@@ -836,22 +776,12 @@ func applyAck(task *protocol.Task, ack TaskAckState) bool {
 }
 
 func canonicalTaskKey(task protocol.Task) string {
-	if key := firstTicketKey(task); key != "" {
-		return "ticket:" + key
+	if key := firstTicketLinkKey(task); key != "" {
+		return key
 	}
 	for _, sourceRef := range task.SourceRefs {
-		if sourceRef.Source == "git" && sourceRef.Kind == "worktree" && sourceRef.Path != "" {
-			return "workspace:" + cleanPath(sourceRef.Path)
-		}
-	}
-	for _, sourceRef := range task.SourceRefs {
-		if sourceRef.Source == "github" && sourceRef.Kind == "pull_request" && sourceRef.ID != "" {
-			return sourceRef.ID
-		}
-	}
-	for _, sourceRef := range task.SourceRefs {
-		if sourceRef.Source == "jira" && sourceRef.Kind == "issue" && sourceRef.ID != "" {
-			return sourceRef.ID
+		if key := strings.TrimSpace(sourceRef.CanonicalKey); key != "" {
+			return key
 		}
 	}
 	for _, sourceRef := range task.SourceRefs {
@@ -872,44 +802,19 @@ func recordKind(task protocol.Task, key string) string {
 	if strings.HasPrefix(key, "workspace:") {
 		return "workspace"
 	}
-	if strings.HasPrefix(key, "github:pr:") {
-		return "pull_request"
-	}
-	if strings.HasPrefix(key, "jira:issue:") {
-		return "issue"
-	}
 	return task.Kind
 }
 
-func firstTicketKey(task protocol.Task) string {
-	values := []string{task.Title, task.Repo, task.URL}
+func firstTicketLinkKey(task protocol.Task) string {
 	for _, sourceRef := range task.SourceRefs {
-		values = append(values, sourceRef.ID, sourceRef.Title, sourceRef.Branch, sourceRef.Path, sourceRef.Repo, sourceRef.URL)
-		for _, value := range sourceRef.Metadata {
-			values = append(values, value)
-		}
-	}
-	keys := extractTicketKeys(values...)
-	if len(keys) == 0 {
-		return ""
-	}
-	return keys[0]
-}
-
-func extractTicketKeys(values ...string) []string {
-	keys := make([]string, 0)
-	seen := map[string]bool{}
-	for _, value := range values {
-		for _, match := range ticketPattern.FindAllString(value, -1) {
-			key := strings.ToUpper(match)
-			if seen[key] {
-				continue
+		for _, key := range sourceRef.LinkingKeys {
+			key = strings.TrimSpace(key)
+			if strings.HasPrefix(key, "ticket:") {
+				return key
 			}
-			seen[key] = true
-			keys = append(keys, key)
 		}
 	}
-	return keys
+	return ""
 }
 
 func matchesAnyString(left []string, right []string) bool {
@@ -1073,11 +978,4 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func cleanPath(path string) string {
-	if path == "" {
-		return ""
-	}
-	return filepath.Clean(path)
 }

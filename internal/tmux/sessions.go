@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"radar.nvim/internal/linking"
 	"radar.nvim/internal/protocol"
 )
 
@@ -117,13 +118,14 @@ func (s session) SourceRef() protocol.SourceRef {
 	}
 
 	return protocol.SourceRef{
-		ID:       "tmux:session:" + s.ID,
-		Source:   "tmux",
-		Kind:     "session",
-		Title:    s.Name,
-		Path:     s.Path,
-		Status:   status,
-		Metadata: metadata,
+		ID:          "tmux:session:" + s.ID,
+		Source:      "tmux",
+		Kind:        "session",
+		Title:       s.Name,
+		Path:        s.Path,
+		Status:      status,
+		LinkingKeys: linking.Keys(append(linking.TicketKeys(s.Name, s.Path), linking.WorkspaceKey(s.Path))...),
+		Metadata:    metadata,
 	}
 }
 

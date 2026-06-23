@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"radar.nvim/internal/linking"
 	"radar.nvim/internal/protocol"
 )
 
@@ -345,13 +346,15 @@ func sourceRefFromIssue(cfg Config, issue issue) protocol.SourceRef {
 	}
 
 	return protocol.SourceRef{
-		ID:       "jira:issue:" + issue.Key,
-		Source:   "jira",
-		Kind:     "issue",
-		Title:    issue.Key + " " + issue.Fields.Summary,
-		URL:      jiraIssueURL(cfg.BaseURL, issue.Key),
-		Status:   status,
-		Metadata: metadata,
+		ID:           "jira:issue:" + issue.Key,
+		Source:       "jira",
+		Kind:         "issue",
+		Title:        issue.Key + " " + issue.Fields.Summary,
+		URL:          jiraIssueURL(cfg.BaseURL, issue.Key),
+		Status:       status,
+		CanonicalKey: "jira:issue:" + issue.Key,
+		LinkingKeys:  linking.Keys("ticket:" + strings.ToUpper(issue.Key)),
+		Metadata:     metadata,
 	}
 }
 

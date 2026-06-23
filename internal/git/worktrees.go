@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"radar.nvim/internal/linking"
 	"radar.nvim/internal/protocol"
 	"radar.nvim/internal/workspace"
 )
@@ -226,16 +227,21 @@ func (w worktree) SourceRef(ctx context.Context) protocol.SourceRef {
 		metadata["behind"] = status.Behind
 	}
 
+	canonicalKey := linking.WorkspaceKey(w.Path)
+	linkingKeys := linking.Keys(append(linking.TicketKeys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, w.Branch))...)
+
 	return protocol.SourceRef{
-		ID:       "git:worktree:" + w.Path,
-		Source:   "git",
-		Kind:     "worktree",
-		Title:    title,
-		Repo:     originRepo,
-		Path:     w.Path,
-		Branch:   w.Branch,
-		Status:   status.Label(),
-		Metadata: metadata,
+		ID:           "git:worktree:" + w.Path,
+		Source:       "git",
+		Kind:         "worktree",
+		Title:        title,
+		Repo:         originRepo,
+		Path:         w.Path,
+		Branch:       w.Branch,
+		Status:       status.Label(),
+		CanonicalKey: canonicalKey,
+		LinkingKeys:  linkingKeys,
+		Metadata:     metadata,
 	}
 }
 

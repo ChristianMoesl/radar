@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"radar.nvim/internal/protocol"
@@ -133,6 +134,9 @@ func TestResolveDoneIssuesMarksMissingDoneIssueDone(t *testing.T) {
 	}
 	if items[0].SourceRefs[0].Status != "jira done" {
 		t.Fatalf("source ref status = %q, want jira done", items[0].SourceRefs[0].Status)
+	}
+	if items[0].SourceRefs[0].CanonicalKey != "jira:issue:RAD-123" || !slices.Contains(items[0].SourceRefs[0].LinkingKeys, "ticket:RAD-123") {
+		t.Fatalf("source ref linking = %+v", items[0].SourceRefs[0])
 	}
 }
 

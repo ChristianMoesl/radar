@@ -24,16 +24,18 @@ type SourceStatus struct {
 }
 
 type SourceRef struct {
-	ID       string            `json:"id"`
-	Source   string            `json:"source"`
-	Kind     string            `json:"kind"`
-	Title    string            `json:"title,omitempty"`
-	Repo     string            `json:"repo,omitempty"`
-	URL      string            `json:"url,omitempty"`
-	Path     string            `json:"path,omitempty"`
-	Branch   string            `json:"branch,omitempty"`
-	Status   string            `json:"status,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
+	ID           string            `json:"id"`
+	Source       string            `json:"source"`
+	Kind         string            `json:"kind"`
+	Title        string            `json:"title,omitempty"`
+	Repo         string            `json:"repo,omitempty"`
+	URL          string            `json:"url,omitempty"`
+	Path         string            `json:"path,omitempty"`
+	Branch       string            `json:"branch,omitempty"`
+	Status       string            `json:"status,omitempty"`
+	CanonicalKey string            `json:"canonical_key,omitempty"`
+	LinkingKeys  []string          `json:"linking_keys,omitempty"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
 }
 
 type Task struct {

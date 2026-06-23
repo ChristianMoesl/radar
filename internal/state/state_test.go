@@ -9,14 +9,15 @@ import (
 	"testing"
 	"time"
 
+	"radar.nvim/internal/linking"
 	"radar.nvim/internal/protocol"
 )
 
 func TestReconcileStateUsesTicketRecordForMultiplePullRequests(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
-		{Kind: "github_own_pr", Title: "CAP-7 first", Attention: "in_progress", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:1", Source: "github", Kind: "pull_request", Branch: "CAP-7-a"}}},
-		{Kind: "github_own_pr", Title: "CAP-7 second", Attention: "in_progress", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:2", Source: "github", Kind: "pull_request", Branch: "CAP-7-b"}}},
+		{Kind: "github_own_pr", Title: "CAP-7 first", Attention: "in_progress", SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:1", "acme/app", "CAP-7-a")}},
+		{Kind: "github_own_pr", Title: "CAP-7 second", Attention: "in_progress", SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:2", "acme/app", "CAP-7-b")}},
 	}, now)
 
 	if len(state.Records) != 1 {
@@ -33,30 +34,17 @@ func TestReconcileStateUsesTicketRecordForMultiplePullRequests(t *testing.T) {
 func TestReconcileStateDurablyLinksPullRequestAndWorktreeByOriginAndBranch(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{
-		Kind:      "github_own_pr",
-		Title:     "Feature without ticket",
-		Attention: "in_progress",
-		SourceRefs: []protocol.SourceRef{{
-			ID:     "github:pr:acme/app:7",
-			Source: "github",
-			Kind:   "pull_request",
-			Repo:   "acme/app",
-			Branch: "feature/no-ticket",
-		}},
+		Kind:       "github_own_pr",
+		Title:      "Feature without ticket",
+		Attention:  "in_progress",
+		SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:7", "acme/app", "feature/no-ticket")},
 	}}, now)
 
 	state = reconcileStateForSources(state, []protocol.Task{{
-		Kind:      "git_worktree",
-		Title:     "feature-no-ticket",
-		Attention: "in_progress",
-		SourceRefs: []protocol.SourceRef{{
-			ID:     "git:worktree:/workspaces/app/feature-no-ticket",
-			Source: "git",
-			Kind:   "worktree",
-			Repo:   "acme/app",
-			Path:   "/workspaces/app/feature-no-ticket",
-			Branch: "feature-no-ticket",
-		}},
+		Kind:       "git_worktree",
+		Title:      "feature-no-ticket",
+		Attention:  "in_progress",
+		SourceRefs: []protocol.SourceRef{testGitWorktreeRef("git:worktree:/workspaces/app/feature-no-ticket", "/workspaces/app/feature-no-ticket", "acme/app", "feature-no-ticket")},
 	}}, now.Add(time.Hour), map[string]bool{"git": true})
 
 	if len(state.Records) != 1 {
@@ -74,8 +62,8 @@ func TestReconcileStateDurablyLinksPullRequestAndWorktreeByOriginAndBranch(t *te
 
 func TestReconcileStateReopensDoneRecord(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
-	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{Title: "CAP-7 ship", Attention: "done", DoneAt: now.Format(time.RFC3339), SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request", Branch: "CAP-7-ship"}}}}, now)
-	state = reconcileState(state, []protocol.Task{{Title: "CAP-7 ship", Attention: "in_progress", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request", Branch: "CAP-7-ship"}}}}, now.Add(time.Hour))
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{Title: "CAP-7 ship", Attention: "done", DoneAt: now.Format(time.RFC3339), SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")}}}, now)
+	state = reconcileState(state, []protocol.Task{{Title: "CAP-7 ship", Attention: "in_progress", SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")}}}, now.Add(time.Hour))
 
 	if len(state.Records) != 1 {
 		t.Fatalf("records = %d, want one reused record", len(state.Records))
@@ -92,11 +80,11 @@ func TestProjectTasksAppliesAcknowledgementOutsideSourceMetadata(t *testing.T) {
 		Title:     "CAP-7 ship",
 		Attention: "attention",
 		Reason:    "1 new PR comment(s)",
-		SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request", Metadata: map[string]string{
+		SourceRefs: []protocol.SourceRef{withMetadata(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship"), map[string]string{
 			"base_reason":               "open PR",
 			"new_general_comments":      "1",
 			"latest_general_comment_at": "2026-06-15T11:00:00Z",
-		}}},
+		})},
 	}}, now)
 	state.Records[0].Ack.GeneralCommentsAckAt = "2026-06-15T11:00:00Z"
 
@@ -121,15 +109,15 @@ func TestLocalReconcilePreservesRemoteRefsAndUpdatesLocalRefs(t *testing.T) {
 		Title:     "CAP-7 ship",
 		Attention: "in_progress",
 		SourceRefs: []protocol.SourceRef{
-			{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request", Branch: "feature/CAP-7-ship"},
-			{ID: "git:worktree:/old", Source: "git", Kind: "worktree", Path: "/old", Branch: "feature/CAP-7-ship"},
+			testGitHubPRRef("github:pr:acme/app:7", "acme/app", "feature/CAP-7-ship"),
+			testGitWorktreeRef("git:worktree:/old", "/old", "acme/app", "feature/CAP-7-ship"),
 		},
 	}}, now)
 
 	state = reconcileStateForSources(state, []protocol.Task{{
 		Title:      "feature/CAP-7-ship",
 		Attention:  "in_progress",
-		SourceRefs: []protocol.SourceRef{{ID: "git:worktree:/new", Source: "git", Kind: "worktree", Path: "/new", Branch: "feature/CAP-7-ship"}},
+		SourceRefs: []protocol.SourceRef{testGitWorktreeRef("git:worktree:/new", "/new", "acme/app", "feature/CAP-7-ship")},
 	}}, now.Add(time.Hour), map[string]bool{"git": true, "tmux": true})
 
 	var githubActive, oldGitActive, newGitActive bool
@@ -157,8 +145,8 @@ func TestLocalReconcilePreservesRemoteRefsAndUpdatesLocalRefs(t *testing.T) {
 func TestReconcileStateMarksRemovedWorktreeDoneButNotTmuxOnly(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
-		{Title: "local", Attention: "in_progress", SourceRefs: []protocol.SourceRef{{ID: "git:worktree:/repo/local", Source: "git", Kind: "worktree", Path: "/repo/local"}}},
-		{Title: "session", Attention: "in_progress", SourceRefs: []protocol.SourceRef{{ID: "tmux:session:$1", Source: "tmux", Kind: "session"}}},
+		{Title: "local", Attention: "in_progress", SourceRefs: []protocol.SourceRef{testGitWorktreeRef("git:worktree:/repo/local", "/repo/local", "", "")}},
+		{Title: "session", Attention: "in_progress", SourceRefs: []protocol.SourceRef{testTmuxSessionRef("tmux:session:$1", "")}},
 	}, now)
 	state = reconcileState(state, nil, now.Add(time.Hour))
 
@@ -177,6 +165,47 @@ func TestReconcileStateMarksRemovedWorktreeDoneButNotTmuxOnly(t *testing.T) {
 	if tmuxState != "active" {
 		t.Fatalf("tmux state = %q, want active cleanup without done transition", tmuxState)
 	}
+}
+
+func testGitHubPRRef(id string, repo string, branch string) protocol.SourceRef {
+	return protocol.SourceRef{
+		ID:           id,
+		Source:       "github",
+		Kind:         "pull_request",
+		Repo:         repo,
+		Branch:       branch,
+		CanonicalKey: id,
+		LinkingKeys:  linking.Keys(append(linking.TicketKeys(id, repo, branch), id, linking.BranchKey(repo, branch))...),
+	}
+}
+
+func testGitWorktreeRef(id string, path string, repo string, branch string) protocol.SourceRef {
+	canonicalKey := linking.WorkspaceKey(path)
+	return protocol.SourceRef{
+		ID:           id,
+		Source:       "git",
+		Kind:         "worktree",
+		Repo:         repo,
+		Path:         path,
+		Branch:       branch,
+		CanonicalKey: canonicalKey,
+		LinkingKeys:  linking.Keys(append(linking.TicketKeys(id, path, repo, branch), canonicalKey, linking.BranchKey(repo, branch))...),
+	}
+}
+
+func testTmuxSessionRef(id string, path string) protocol.SourceRef {
+	return protocol.SourceRef{
+		ID:          id,
+		Source:      "tmux",
+		Kind:        "session",
+		Path:        path,
+		LinkingKeys: linking.Keys(append(linking.TicketKeys(id, path), linking.WorkspaceKey(path))...),
+	}
+}
+
+func withMetadata(ref protocol.SourceRef, metadata map[string]string) protocol.SourceRef {
+	ref.Metadata = metadata
+	return ref
 }
 
 func TestStoreRevisionIncrementsOnMutations(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -265,5 +266,8 @@ func assertSourceRef(t *testing.T, source_refs []protocol.SourceRef, wantID stri
 	sourceRef := source_refs[0]
 	if sourceRef.ID != wantID || sourceRef.Source != "github" || sourceRef.Kind != "pull_request" || sourceRef.Status != wantStatus || sourceRef.Branch != wantBranch || sourceRef.Metadata["body"] != wantBody {
 		t.Fatalf("sourceRef = %+v, want github pull_request %q status %q branch %q body %q", sourceRef, wantID, wantStatus, wantBranch, wantBody)
+	}
+	if sourceRef.CanonicalKey != wantID || !slices.Contains(sourceRef.LinkingKeys, wantID) {
+		t.Fatalf("sourceRef linking = canonical %q keys %+v, want canonical and linking key %q", sourceRef.CanonicalKey, sourceRef.LinkingKeys, wantID)
 	}
 }

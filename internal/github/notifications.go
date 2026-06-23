@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"radar.nvim/internal/linking"
 	"radar.nvim/internal/protocol"
 )
 
@@ -504,19 +505,13 @@ func donePullRequestSourceRefs(sourceRefs []protocol.SourceRef, repo string, num
 	seen := false
 	for _, sourceRef := range sourceRefs {
 		if sourceRef.ID == id {
-			sourceRef.Status = reason
+			sourceRef = githubPullRequestRef(id, repo, number, sourceRef.Title, sourceRef.URL, reason, sourceRef.Branch)
 			seen = true
 		}
 		updated = append(updated, sourceRef)
 	}
 	if !seen {
-		updated = append(updated, protocol.SourceRef{
-			ID:     id,
-			Source: "github",
-			Kind:   "pull_request",
-			Repo:   repo,
-			Status: reason,
-		})
+		updated = append(updated, githubPullRequestRef(id, repo, 0, "", "", reason, ""))
 	}
 	return updated
 }
@@ -568,20 +563,32 @@ func hasSource(item protocol.Task, source string) bool {
 }
 
 func newGitHubPullRequestSourceRef(item protocol.Task, repo string, number int, kind string, branch string, body string) protocol.SourceRef {
-	sourceRef := protocol.SourceRef{
-		ID:     fmt.Sprintf("github:pr:%s:%d", repo, number),
-		Source: "github",
-		Kind:   kind,
-		Title:  item.Title,
-		Repo:   item.Repo,
-		URL:    item.URL,
-		Branch: branch,
-		Status: item.Reason,
+	sourceRef := githubPullRequestRef(fmt.Sprintf("github:pr:%s:%d", repo, number), repo, number, item.Title, item.URL, item.Reason, branch)
+	if kind != "" {
+		sourceRef.Kind = kind
 	}
 	if body != "" {
 		sourceRef.Metadata = map[string]string{"body": body}
 	}
 	return sourceRef
+}
+
+func githubPullRequestRef(id string, repo string, number int, title string, url string, status string, branch string) protocol.SourceRef {
+	if id == "" && repo != "" && number != 0 {
+		id = fmt.Sprintf("github:pr:%s:%d", repo, number)
+	}
+	return protocol.SourceRef{
+		ID:           id,
+		Source:       "github",
+		Kind:         "pull_request",
+		Title:        title,
+		Repo:         repo,
+		URL:          url,
+		Branch:       branch,
+		Status:       status,
+		CanonicalKey: id,
+		LinkingKeys:  linking.Keys(append(linking.TicketKeys(title, branch, repo, url), id, linking.BranchKey(repo, branch))...),
+	}
 }
 
 func githubPullRequestSourceRef(task protocol.Task) (protocol.SourceRef, bool) {

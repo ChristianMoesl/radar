@@ -62,6 +62,8 @@ SourceRef + TaskRecord => Task
 ```
 
 - `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, local git worktree, or tmux session. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:ABC-544`, `git:worktree:<path>`, or `tmux:session:<session_id>`.
+- `SourceRef.LinkingKeys`: source-owned join keys that tell Radar which refs describe the same work. Examples: `ticket:ABC-544`, `workspace:/repo/worktree`, `branch:owner/repo:feature-ABC-544`, or `github:pr:owner/repo:123`. These keys are derived inside each source provider, not in the state store.
+- `SourceRef.CanonicalKey`: the source-owned fallback identity for a standalone ref when no ticket key exists. Examples: a Git worktree uses `workspace:<path>`, while a GitHub PR uses its PR source-ref ID.
 - `TaskRecord`: persistent Radar-owned tracking state. It gives continuity across refreshes and will own local state such as stable numeric task IDs, known source ref IDs, first/last seen timestamps, and acknowledgements.
 - `Task`: the current projected user-facing task served to the CLI/TUI. It has a Radar-owned integer ID and is computed from current source refs plus the matching task record.
 
@@ -77,7 +79,9 @@ collect SourceRefs
 
 The local state file persists explicit `TaskRecord`s and `SourceRefRecord`s. `Task`s are disposable projections for the socket protocol, CLI, and TUI. Task records own durable identity, stable numeric task IDs, lifecycle state, source-ref ownership, and user acknowledgement state. Source refs remain source-system facts with first/last seen timestamps and an active flag.
 
-Radar groups work ticket-first: if any linked source ref contains a ticket key, that ticket is the canonical work item. Without a ticket, local workspaces group by worktree path, then GitHub PRs, Jira issues, or standalone source refs become the canonical key. Each source ref is assigned to one task record at a time, so local and remote refs do not duplicate across multiple projected tasks.
+Radar groups work ticket-first: if any linked source ref exposes a `ticket:<KEY>` linking key, that ticket is the canonical work item. Without a ticket, source-provided canonical keys decide the standalone identity; for example, local workspaces use `workspace:<path>`, GitHub PRs use `github:pr:<repo>:<number>`, and Jira issues use `jira:issue:<KEY>`. Each source ref is assigned to one task record at a time, so local and remote refs do not duplicate across multiple projected tasks.
+
+Source providers own all source-specific identity and linking rules. Adding a new source should not require editing `internal/state` to teach it about the source's IDs, branch formats, URLs, or ticket extraction. The source should populate `SourceRef.ID`, `SourceRef.CanonicalKey`, and `SourceRef.LinkingKeys`; state only persists refs, matches equal linking keys, chooses ticket keys first, and projects tasks.
 
 ## Task lifecycle
 
@@ -88,7 +92,7 @@ Radar has three active categories and one historical category:
 - `in_progress`
 - `done`
 
-Ingestion and durable linking are separate steps. Ingestion code talks to external systems and produces raw active tasks/source refs. The state store computes link keys for active persisted source refs, merges records that describe the same work, and then projects one user-facing task per task record.
+Ingestion and durable linking are separate steps. Ingestion code talks to external systems and produces raw active tasks/source refs with source-owned linking keys. The state store matches active persisted source refs by those keys, merges records that describe the same work, and then projects one user-facing task per task record.
 
 `done` is a durable task-record state. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state and emits a done transition. The state store applies that transition to the existing task record. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate.
 
