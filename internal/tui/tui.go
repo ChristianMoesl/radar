@@ -25,6 +25,13 @@ type fetchMsg struct {
 	err      error
 }
 
+type watchMsg struct {
+	response protocol.Response
+	err      error
+}
+
+type watchRetryMsg struct{}
+
 type actionMsg struct {
 	response *protocol.Response
 	err      error
@@ -101,6 +108,8 @@ type model struct {
 	worktreeCursor      int
 	message             string
 	scroll              int
+	revision            int64
+	watching            bool
 }
 
 const (
@@ -350,20 +359,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.message = ""
-			if msg.response.Summary != nil {
-				m.summary = *msg.response.Summary
+			m.applyResponse(msg.response, true)
+			if !m.watching {
+				m.watching = true
+				return m, m.watch(m.revision)
 			}
-			m.tasks = msg.response.Tasks
-			m.sources = msg.response.Sources
-			if !m.selectedCurrentTask {
-				if cursor, ok := currentTaskCursor(m.tasks); ok {
-					m.cursor = cursor
-				}
-				m.selectedCurrentTask = true
-			}
-			if m.cursor >= len(m.tasks) {
-				m.cursor = max(0, len(m.tasks)-1)
-			}
+		}
+	case watchMsg:
+		m.watching = false
+		if msg.err != nil {
+			m.err = msg.err
+			return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return watchRetryMsg{} })
+		}
+		m.err = nil
+		m.applyResponse(msg.response, false)
+		m.watching = true
+		return m, m.watch(m.revision)
+	case watchRetryMsg:
+		if !m.watching {
+			m.watching = true
+			return m, m.watch(m.revision)
 		}
 	case reposMsg:
 		m.err = msg.err
@@ -396,14 +411,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		m.message = msg.message
 		if msg.response != nil {
-			if msg.response.Summary != nil {
-				m.summary = *msg.response.Summary
-			}
-			m.tasks = msg.response.Tasks
-			m.sources = msg.response.Sources
-			if m.cursor >= len(m.tasks) {
-				m.cursor = max(0, len(m.tasks)-1)
-			}
+			m.applyResponse(*msg.response, false)
 		}
 		if msg.quit && msg.err == nil {
 			return m, tea.Quit
@@ -1174,6 +1182,30 @@ func (m model) detailView(width int) string {
 	return strings.Join(lines, "\n")
 }
 
+func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool) {
+	if response.Revision > m.revision {
+		m.revision = response.Revision
+	}
+	if response.Summary != nil {
+		m.summary = *response.Summary
+	}
+	if response.Tasks != nil {
+		m.tasks = response.Tasks
+	}
+	if response.Sources != nil {
+		m.sources = response.Sources
+	}
+	if selectCurrentTask && !m.selectedCurrentTask {
+		if cursor, ok := currentTaskCursor(m.tasks); ok {
+			m.cursor = cursor
+		}
+		m.selectedCurrentTask = true
+	}
+	if m.cursor >= len(m.tasks) {
+		m.cursor = max(0, len(m.tasks)-1)
+	}
+}
+
 func (m model) fetch(method string) tea.Cmd {
 	return func() tea.Msg {
 		res, err := client.Call(m.socketPath, method)
@@ -1184,6 +1216,19 @@ func (m model) fetch(method string) tea.Cmd {
 			return fetchMsg{err: fmt.Errorf("%s", res.Error)}
 		}
 		return fetchMsg{response: res}
+	}
+}
+
+func (m model) watch(revision int64) tea.Cmd {
+	return func() tea.Msg {
+		res, err := client.Call(m.socketPath, fmt.Sprintf("watch:%d", revision))
+		if err != nil {
+			return watchMsg{err: err}
+		}
+		if !res.OK {
+			return watchMsg{err: fmt.Errorf("%s", res.Error)}
+		}
+		return watchMsg{response: res}
 	}
 }
 

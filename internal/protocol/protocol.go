@@ -50,17 +50,25 @@ type Task struct {
 }
 
 type Response struct {
-	OK      bool           `json:"ok"`
-	Error   string         `json:"error,omitempty"`
-	Summary *Summary       `json:"summary,omitempty"`
-	Tasks   []Task         `json:"tasks,omitempty"`
-	Sources []SourceStatus `json:"sources,omitempty"`
+	OK       bool           `json:"ok"`
+	Error    string         `json:"error,omitempty"`
+	Revision int64          `json:"revision,omitempty"`
+	Version  string         `json:"version,omitempty"`
+	Summary  *Summary       `json:"summary,omitempty"`
+	Tasks    []Task         `json:"tasks,omitempty"`
+	Sources  []SourceStatus `json:"sources,omitempty"`
 }
 
 func (r Response) MarshalJSON() ([]byte, error) {
 	fields := map[string]any{"ok": r.OK}
 	if r.Error != "" {
 		fields["error"] = r.Error
+	}
+	if r.Revision != 0 {
+		fields["revision"] = r.Revision
+	}
+	if r.Version != "" {
+		fields["version"] = r.Version
 	}
 	if r.Summary != nil {
 		fields["summary"] = r.Summary

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"os"
@@ -175,6 +176,67 @@ func TestReconcileStateMarksRemovedWorktreeDoneButNotTmuxOnly(t *testing.T) {
 	}
 	if tmuxState != "active" {
 		t.Fatalf("tmux state = %q, want active cleanup without done transition", tmuxState)
+	}
+}
+
+func TestStoreRevisionIncrementsOnMutations(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	store, err := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store.SetTasks([]protocol.Task{{Title: "one", Attention: "attention"}})
+	if got := store.Revision(); got != 1 {
+		t.Fatalf("revision after SetTasks = %d, want 1", got)
+	}
+	store.SetLocalTasks([]protocol.Task{{Title: "local", Attention: "in_progress", SourceRefs: []protocol.SourceRef{{ID: "git:worktree:/tmp/a", Source: "git", Kind: "worktree"}}}})
+	store.SetSources([]protocol.SourceStatus{{Name: "git", Status: "ok"}})
+	store.Acknowledge("1")
+	if got := store.Revision(); got != 4 {
+		t.Fatalf("revision after mutations = %d, want 4", got)
+	}
+	if err := store.Reset(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Revision(); got != 5 {
+		t.Fatalf("revision after Reset = %d, want 5", got)
+	}
+}
+
+func TestWaitForRevisionReturnsImmediatelyWhenNewer(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	store, err := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetTasks([]protocol.Task{{Title: "one", Attention: "attention"}})
+
+	if got := store.WaitForRevision(context.Background(), 0); got != 1 {
+		t.Fatalf("WaitForRevision = %d, want 1", got)
+	}
+}
+
+func TestWaitForRevisionUnblocksOnMutation(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	store, err := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan int64, 1)
+	go func() {
+		done <- store.WaitForRevision(context.Background(), 0)
+	}()
+	store.SetSources([]protocol.SourceStatus{{Name: "git", Status: "ok"}})
+
+	select {
+	case got := <-done:
+		if got != 1 {
+			t.Fatalf("WaitForRevision = %d, want 1", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WaitForRevision did not unblock")
 	}
 }
 

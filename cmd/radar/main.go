@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -24,6 +23,7 @@ import (
 	"radar.nvim/internal/socket"
 	"radar.nvim/internal/state"
 	"radar.nvim/internal/tui"
+	"radar.nvim/internal/version"
 	"radar.nvim/internal/workspace"
 )
 
@@ -206,7 +206,7 @@ func runDaemon() {
 	}
 	defer os.Remove(pidPath)
 
-	logger.Info("daemon starting", "socket", path, "log", logPath, "pid", os.Getpid(), "pid_file", pidPath)
+	logger.Info("daemon starting", "socket", path, "log", logPath, "pid", os.Getpid(), "pid_file", pidPath, "version", version.Current())
 
 	if configPath, err := config.EnsureFile(); err != nil {
 		logger.Warn("could not initialize config file", "error", err)
@@ -253,26 +253,20 @@ func restartDaemon() {
 }
 
 func ensureDaemonCurrent(socketPath string) error {
-	pids, err := process.DaemonPIDs()
-	if err != nil || len(pids) == 0 {
-		return err
-	}
-	current, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	currentInfo, err := os.Stat(current)
-	if err != nil {
-		return err
-	}
-	for _, pid := range pids {
-		daemonInfo, err := os.Stat(filepath.Join("/proc", fmt.Sprint(pid), "exe"))
-		if err != nil {
-			continue
+	res, callErr := client.Call(socketPath, "version")
+	if callErr == nil {
+		if res.OK && res.Version == version.Current() {
+			return nil
 		}
-		if currentInfo.ModTime().After(daemonInfo.ModTime()) {
-			return restartDaemonAndWait(socketPath)
-		}
+		return restartDaemonAndWait(socketPath)
+	}
+
+	pids, pidErr := process.DaemonPIDs()
+	if pidErr != nil {
+		return pidErr
+	}
+	if len(pids) > 0 {
+		return restartDaemonAndWait(socketPath)
 	}
 	return nil
 }
@@ -295,11 +289,12 @@ func startDaemonAndWait(socketPath string) error {
 	}
 	for range 100 {
 		time.Sleep(50 * time.Millisecond)
-		if _, err := client.Call(socketPath, "tasks"); err == nil {
+		res, err := client.Call(socketPath, "version")
+		if err == nil && res.OK && res.Version == version.Current() {
 			return nil
 		}
 	}
-	return nil
+	return fmt.Errorf("radar daemon did not start with matching version")
 }
 
 func startDetached(name string, args ...string) error {

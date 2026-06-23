@@ -14,6 +14,70 @@ import (
 	"radar.nvim/internal/state"
 )
 
+func TestWatchOldRevisionReturnsTasksImmediately(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetTasks([]protocol.Task{{Title: "one", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/repo:1", Source: "github", Kind: "pull_request"}}}})
+
+	server, client := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		New(store, logger, nil, nil).handle(server)
+	}()
+	if _, err := client.Write([]byte("{\"method\":\"watch:0\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	var response protocol.Response
+	if err := json.NewDecoder(client).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	_ = client.Close()
+	<-done
+
+	if !response.OK || response.Revision != 1 || len(response.Tasks) != 1 {
+		t.Fatalf("watch response = %+v, want revision 1 with tasks", response)
+	}
+}
+
+func TestWatchCurrentRevisionTimesOutWithoutTasks(t *testing.T) {
+	previousTimeout := watchTimeout
+	watchTimeout = 10 * time.Millisecond
+	defer func() { watchTimeout = previousTimeout }()
+
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetTasks([]protocol.Task{{Title: "one", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/repo:1", Source: "github", Kind: "pull_request"}}}})
+
+	server, client := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		New(store, logger, nil, nil).handle(server)
+	}()
+	if _, err := client.Write([]byte("{\"method\":\"watch:1\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	var response protocol.Response
+	if err := json.NewDecoder(client).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	_ = client.Close()
+	<-done
+
+	if !response.OK || response.Revision != 1 || response.Tasks != nil {
+		t.Fatalf("watch timeout response = %+v, want revision only", response)
+	}
+}
+
 func TestAckResponseAppliesFilters(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))

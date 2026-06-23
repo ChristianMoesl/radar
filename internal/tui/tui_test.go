@@ -33,6 +33,30 @@ func TestViewRendersTasksAndSources(t *testing.T) {
 	}
 }
 
+func TestWatchResponseDoesNotResetSelection(t *testing.T) {
+	m := model{
+		cursor:              1,
+		selectedCurrentTask: true,
+		revision:            1,
+		tasks: []protocol.Task{
+			{Title: "current", Attention: "in_progress"},
+			{Title: "selected", Attention: "attention"},
+		},
+	}
+
+	updated, cmd := m.Update(watchMsg{response: protocol.Response{OK: true, Revision: 2, Tasks: []protocol.Task{
+		{Title: "current", Attention: "in_progress"},
+		{Title: "selected", Attention: "attention"},
+	}}})
+	got := updated.(model)
+	if cmd == nil {
+		t.Fatal("watch response should start next watch")
+	}
+	if got.cursor != 1 {
+		t.Fatalf("cursor = %d, want 1", got.cursor)
+	}
+}
+
 func TestCreateRepoViewRendersFuzzySearch(t *testing.T) {
 	model := model{mode: "create_repo", create: createForm{repoList: picker{query: "rad", options: []string{"/repo/radar", "/repo/other"}}}}
 

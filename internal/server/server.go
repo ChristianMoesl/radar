@@ -2,18 +2,24 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"radar.nvim/internal/config"
 	"radar.nvim/internal/filters"
 	"radar.nvim/internal/protocol"
 	"radar.nvim/internal/socket"
 	"radar.nvim/internal/state"
+	"radar.nvim/internal/version"
 )
+
+var watchTimeout = 30 * time.Second
 
 type Server struct {
 	store   *state.Store
@@ -69,38 +75,48 @@ func (s *Server) handle(conn net.Conn) {
 		s.logger.Debug("request received", "method", req.Method)
 		if taskID, ok := strings.CutPrefix(req.Method, "ack:"); ok {
 			s.store.Acknowledge(taskID)
-			tasks := s.filteredTasks()
-			summary := filters.Summary(tasks)
-			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: tasks, Sources: s.store.Sources()})
+			_ = encoder.Encode(s.tasksResponse())
+			continue
+		}
+		if revisionText, ok := strings.CutPrefix(req.Method, "watch:"); ok {
+			revision, err := strconv.ParseInt(revisionText, 10, 64)
+			if err != nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "invalid revision: " + revisionText, Revision: s.store.Revision()})
+				continue
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), watchTimeout)
+			currentRevision := s.store.WaitForRevision(ctx, revision)
+			cancel()
+			if currentRevision > revision {
+				_ = encoder.Encode(s.tasksResponse())
+				continue
+			}
+			_ = encoder.Encode(protocol.Response{OK: true, Revision: currentRevision})
 			continue
 		}
 		switch req.Method {
+		case "version":
+			_ = encoder.Encode(protocol.Response{OK: true, Version: version.Current(), Revision: s.store.Revision()})
 		case "summary":
 			tasks := s.filteredTasks()
 			summary := filters.Summary(tasks)
-			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Sources: s.store.Sources()})
+			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), Summary: &summary, Sources: s.store.Sources()})
 		case "tasks":
-			tasks := s.filteredTasks()
-			summary := filters.Summary(tasks)
-			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: tasks, Sources: s.store.Sources()})
+			_ = encoder.Encode(s.tasksResponse())
 		case "refresh":
 			if s.refresh != nil {
 				s.refresh()
 			}
-			tasks := s.filteredTasks()
-			summary := filters.Summary(tasks)
-			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: tasks, Sources: s.store.Sources()})
+			_ = encoder.Encode(s.tasksResponse())
 		case "reset":
 			if s.reset != nil {
 				if err := s.reset(); err != nil {
 					s.logger.Warn("reset failed", "error", err)
-					_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error()})
+					_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
 					continue
 				}
 			}
-			tasks := s.filteredTasks()
-			summary := filters.Summary(tasks)
-			_ = encoder.Encode(protocol.Response{OK: true, Summary: &summary, Tasks: tasks, Sources: s.store.Sources()})
+			_ = encoder.Encode(s.tasksResponse())
 		default:
 			s.logger.Warn("unknown method", "method", req.Method)
 			_ = encoder.Encode(protocol.Response{OK: false, Error: "unknown method: " + req.Method})
@@ -110,6 +126,12 @@ func (s *Server) handle(conn net.Conn) {
 	if err := scanner.Err(); err != nil {
 		s.logger.Warn("client read failed", "error", err)
 	}
+}
+
+func (s *Server) tasksResponse() protocol.Response {
+	tasks := s.filteredTasks()
+	summary := filters.Summary(tasks)
+	return protocol.Response{OK: true, Revision: s.store.Revision(), Summary: &summary, Tasks: tasks, Sources: s.store.Sources()}
 }
 
 func (s *Server) filteredTasks() []protocol.Task {

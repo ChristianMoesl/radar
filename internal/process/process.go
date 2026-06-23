@@ -70,16 +70,18 @@ func Stop() error {
 
 func DaemonPIDs() ([]int, error) {
 	pid, err := ReadPID()
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+	if err == nil && Running(pid) && isPIDRadarDaemon(pid) {
+		return []int{pid}, nil
 	}
-	if err != nil {
+
+	pids, psErr := daemonPIDsFromPS()
+	if psErr == nil {
+		return pids, nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	if !Running(pid) || !isPIDRadarDaemon(pid) {
-		return nil, nil
-	}
-	return []int{pid}, nil
+	return nil, psErr
 }
 
 func isPIDRadarDaemon(pid int) bool {

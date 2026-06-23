@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -19,11 +20,13 @@ const maxStateFileSize = 50 * 1024 * 1024
 const stateVersion = 2
 
 type Store struct {
-	mu     sync.RWMutex
-	state  persistedState
-	items  []protocol.Task
-	path   string
-	logger *slog.Logger
+	mu       sync.RWMutex
+	state    persistedState
+	items    []protocol.Task
+	path     string
+	logger   *slog.Logger
+	revision int64
+	notify   chan struct{}
 }
 
 type persistedState struct {
@@ -94,6 +97,7 @@ func NewStore(logger *slog.Logger) (*Store, error) {
 		items:  []protocol.Task{},
 		path:   path,
 		logger: logger,
+		notify: make(chan struct{}),
 	}
 	if err := store.Load(); err != nil {
 		logger.Warn("could not load state", "path", path, "error", err)
@@ -154,6 +158,7 @@ func (s *Store) setTasks(items []protocol.Task, sources map[string]bool) {
 	s.mu.Lock()
 	s.state = reconcileStateForSources(s.state, items, time.Now().UTC(), sources)
 	s.items = projectTasks(s.state)
+	s.bumpRevisionLocked()
 	s.mu.Unlock()
 
 	if err := s.Save(); err != nil {
@@ -198,6 +203,7 @@ func (s *Store) Reset() error {
 	s.mu.Lock()
 	s.state = persistedState{Version: stateVersion, Records: []TaskRecord{}, SourceRefs: []SourceRefRecord{}}
 	s.items = []protocol.Task{}
+	s.bumpRevisionLocked()
 	s.mu.Unlock()
 
 	s.logger.Info("state reset", "path", s.path)
@@ -227,6 +233,7 @@ func (s *Store) Acknowledge(itemID string) bool {
 	}
 	if changed {
 		s.items = projectTasks(s.state)
+		s.bumpRevisionLocked()
 	}
 	s.mu.Unlock()
 
@@ -251,6 +258,7 @@ func (s *Store) SetSources(sources []protocol.SourceStatus) {
 	s.mu.Lock()
 	s.state.Sources = make([]protocol.SourceStatus, len(sources))
 	copy(s.state.Sources, sources)
+	s.bumpRevisionLocked()
 	s.mu.Unlock()
 
 	if err := s.Save(); err != nil {
@@ -265,6 +273,45 @@ func (s *Store) Sources() []protocol.SourceStatus {
 	sources := make([]protocol.SourceStatus, len(s.state.Sources))
 	copy(sources, s.state.Sources)
 	return sources
+}
+
+func (s *Store) Revision() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.revision
+}
+
+func (s *Store) WaitForRevision(ctx context.Context, after int64) int64 {
+	for {
+		s.mu.Lock()
+		if s.revision > after {
+			revision := s.revision
+			s.mu.Unlock()
+			return revision
+		}
+		if s.notify == nil {
+			s.notify = make(chan struct{})
+		}
+		notify := s.notify
+		s.mu.Unlock()
+
+		select {
+		case <-notify:
+			continue
+		case <-ctx.Done():
+			return s.Revision()
+		}
+	}
+}
+
+func (s *Store) bumpRevisionLocked() {
+	s.revision++
+	if s.notify == nil {
+		s.notify = make(chan struct{})
+		return
+	}
+	close(s.notify)
+	s.notify = make(chan struct{})
 }
 
 func (s *Store) Summary() protocol.Summary {
