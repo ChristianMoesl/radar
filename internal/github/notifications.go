@@ -580,6 +580,7 @@ func githubPullRequestRef(id string, repo string, number int, title string, url 
 	return protocol.SourceRef{
 		ID:           id,
 		Source:       "github",
+		SourceLabel:  "GitHub",
 		Kind:         "pull_request",
 		Title:        title,
 		Repo:         repo,

@@ -120,6 +120,7 @@ func (s session) SourceRef() protocol.SourceRef {
 	return protocol.SourceRef{
 		ID:          "tmux:session:" + s.ID,
 		Source:      "tmux",
+		SourceLabel: "tmux",
 		Kind:        "session",
 		Title:       s.Name,
 		Path:        s.Path,

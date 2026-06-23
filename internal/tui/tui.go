@@ -221,10 +221,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "q", "ctrl+c":
 				return m, tea.Quit
-			case "g", "j":
+			default:
 				link, ok := matchingLink(m.links, msg.String())
 				if !ok {
-					m.message = "No " + linkKeyLabel(msg.String()) + " link on selected task"
 					return m, nil
 				}
 				m.mode = ""
@@ -232,8 +231,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				m.err = nil
 				return m, m.openTaskURL(m.tasks[m.cursor], link.URL)
-			default:
-				return m, nil
 			}
 		}
 		if m.mode == "worktree_session" {
@@ -1637,21 +1634,17 @@ func taskLinks(task protocol.Task) []linkChoice {
 	seen := map[string]bool{}
 	var links []linkChoice
 	add := func(source string, label string, url string) {
-		if url == "" || seen[url] {
-			return
-		}
-		key := linkSourceKey(source)
-		if key == "" {
+		if url == "" || seen[url] || len(links) >= 9 {
 			return
 		}
 		seen[url] = true
-		links = append(links, linkChoice{Key: key, Source: linkKeyLabel(key), Label: label, URL: url})
+		links = append(links, linkChoice{Key: fmt.Sprint(len(links) + 1), Source: source, Label: label, URL: url})
 	}
 
 	for _, ref := range task.SourceRefs {
-		add(ref.Source, sourceRefLabel(ref), ref.URL)
+		add(sourceRefSourceLabel(ref), sourceRefLabel(ref), ref.URL)
 	}
-	add(linkSourceFromURL(task.URL), task.Title, task.URL)
+	add("link", task.Title, task.URL)
 	return links
 }
 
@@ -1664,36 +1657,14 @@ func matchingLink(links []linkChoice, key string) (linkChoice, bool) {
 	return linkChoice{}, false
 }
 
-func linkSourceKey(source string) string {
-	switch source {
-	case "github":
-		return "g"
-	case "jira":
-		return "j"
-	default:
-		return ""
+func sourceRefSourceLabel(ref protocol.SourceRef) string {
+	if ref.SourceLabel != "" {
+		return ref.SourceLabel
 	}
-}
-
-func linkKeyLabel(key string) string {
-	switch key {
-	case "g":
-		return "GitHub"
-	case "j":
-		return "Jira"
-	default:
-		return "link"
+	if ref.Source != "" {
+		return ref.Source
 	}
-}
-
-func linkSourceFromURL(url string) string {
-	if strings.Contains(url, "github.com") {
-		return "github"
-	}
-	if strings.Contains(url, "atlassian.net") || strings.Contains(url, "/browse/") {
-		return "jira"
-	}
-	return ""
+	return "link"
 }
 
 func openURL(url string) error {

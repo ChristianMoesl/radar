@@ -26,6 +26,7 @@ type SourceStatus struct {
 type SourceRef struct {
 	ID           string            `json:"id"`
 	Source       string            `json:"source"`
+	SourceLabel  string            `json:"source_label,omitempty"`
 	Kind         string            `json:"kind"`
 	Title        string            `json:"title,omitempty"`
 	Repo         string            `json:"repo,omitempty"`

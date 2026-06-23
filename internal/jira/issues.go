@@ -348,6 +348,7 @@ func sourceRefFromIssue(cfg Config, issue issue) protocol.SourceRef {
 	return protocol.SourceRef{
 		ID:           "jira:issue:" + issue.Key,
 		Source:       "jira",
+		SourceLabel:  "Jira",
 		Kind:         "issue",
 		Title:        issue.Key + " " + issue.Fields.Summary,
 		URL:          jiraIssueURL(cfg.BaseURL, issue.Key),

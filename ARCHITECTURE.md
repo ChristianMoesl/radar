@@ -64,6 +64,8 @@ SourceRef + TaskRecord => Task
 - `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, local git worktree, or tmux session. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:ABC-544`, `git:worktree:<path>`, or `tmux:session:<session_id>`.
 - `SourceRef.LinkingKeys`: source-owned join keys that tell Radar which refs describe the same work. Examples: `ticket:ABC-544`, `workspace:/repo/worktree`, `branch:owner/repo:feature-ABC-544`, or `github:pr:owner/repo:123`. These keys are derived inside each source provider, not in the state store.
 - `SourceRef.CanonicalKey`: the source-owned fallback identity for a standalone ref when no ticket key exists. Examples: a Git worktree uses `workspace:<path>`, while a GitHub PR uses its PR source-ref ID.
+- `SourceRef.URL`: a generic openable URL. If a source ref has a URL, frontends may offer an open-link action without source-specific URL inspection.
+- `SourceRef.SourceLabel`: the source-owned display label for frontend link/source presentation, such as `GitHub` or `Jira`.
 - `TaskRecord`: persistent Radar-owned tracking state. It gives continuity across refreshes and will own local state such as stable numeric task IDs, known source ref IDs, first/last seen timestamps, and acknowledgements.
 - `Task`: the current projected user-facing task served to the CLI/TUI. It has a Radar-owned integer ID and is computed from current source refs plus the matching task record.
 

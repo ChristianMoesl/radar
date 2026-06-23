@@ -233,6 +233,7 @@ func (w worktree) SourceRef(ctx context.Context) protocol.SourceRef {
 	return protocol.SourceRef{
 		ID:           "git:worktree:" + w.Path,
 		Source:       "git",
+		SourceLabel:  "git",
 		Kind:         "worktree",
 		Title:        title,
 		Repo:         originRepo,
