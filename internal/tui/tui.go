@@ -661,6 +661,11 @@ func workspaceNameForTask(task protocol.Task) string {
 			return key
 		}
 	}
+	if ref, ok := githubPullRequestRef(task); ok {
+		if name := pullRequestWorkspaceName(ref); name != "" {
+			return name
+		}
+	}
 	return strings.TrimSpace(task.Title)
 }
 
@@ -1213,6 +1218,12 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 	worktrees := gitWorktreeRefs(task)
 	switch len(worktrees) {
 	case 0:
+		if ref, ok := githubPullRequestRef(task); ok {
+			m.loading = true
+			m.err = nil
+			m.message = creatingWorkspaceMessage
+			return m, tea.Batch(preparingWorkspaceNotification(), m.createWorkspaceForPullRequest(ref))
+		}
 		if _, ok := jiraIssueRef(task); ok {
 			m.mode = "create_repo"
 			m.create = newCreateFormForTask(task)
@@ -1255,6 +1266,96 @@ func (m model) createSessionForWorktree(ref protocol.SourceRef) tea.Cmd {
 		}
 		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
 	}
+}
+
+func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
+	return func() tea.Msg {
+		name := pullRequestWorkspaceName(ref)
+		if name == "" {
+			return actionMsg{err: fmt.Errorf("github pull request has no origin branch")}
+		}
+		repo, err := localRepoForPullRequest(ref)
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		runner := workspace.ExecRunner{}
+		if err := workspace.FetchBranches(context.Background(), runner, repo); err != nil {
+			return actionMsg{err: err}
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		switchAfterCreate := os.Getenv("TMUX") != ""
+		created, err := workspace.Create(context.Background(), runner, workspace.CreateOptions{
+			Repo:     repo,
+			Base:     "origin/" + name,
+			Name:     name,
+			Model:    cfg.Model,
+			Thinking: cfg.Thinking,
+			Switch:   switchAfterCreate,
+		})
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
+	}
+}
+
+func localRepoForPullRequest(ref protocol.SourceRef) (string, error) {
+	repos, err := workspace.DiscoverRepos(context.Background(), workspace.ExecRunner{}, "")
+	if err != nil {
+		return "", err
+	}
+	wantRepo := strings.TrimSpace(ref.Repo)
+	if wantRepo == "" {
+		wantRepo = githubRepoFromRefID(ref.ID)
+	}
+	if wantRepo == "" {
+		return "", fmt.Errorf("github pull request has no repository")
+	}
+	matches := make([]string, 0)
+	for _, repo := range repos {
+		if localRepoMatchesGitHubRepo(repo, wantRepo) {
+			matches = append(matches, repo)
+		}
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("no local repository found for %s", wantRepo)
+	}
+	if len(matches) > 1 {
+		return "", fmt.Errorf("multiple local repositories found for %s", wantRepo)
+	}
+	return matches[0], nil
+}
+
+func localRepoMatchesGitHubRepo(repo string, wantRepo string) bool {
+	remote, err := workspace.ExecRunner{}.Run(context.Background(), repo, "git", "remote", "get-url", "origin")
+	if err == nil {
+		return normalizeGitHubRepo(remote) == normalizeGitHubRepo(wantRepo)
+	}
+	return filepath.Base(repo) == filepath.Base(wantRepo)
+}
+
+func githubRepoFromRefID(id string) string {
+	value, ok := strings.CutPrefix(id, "github:pr:")
+	if !ok {
+		return ""
+	}
+	index := strings.LastIndex(value, ":")
+	if index <= 0 {
+		return ""
+	}
+	return value[:index]
+}
+
+func normalizeGitHubRepo(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimSuffix(value, ".git")
+	value = strings.TrimPrefix(value, "https://github.com/")
+	value = strings.TrimPrefix(value, "http://github.com/")
+	value = strings.TrimPrefix(value, "git@github.com:")
+	return value
 }
 
 func (m model) openTaskURL(task protocol.Task, url string) tea.Cmd {
@@ -1312,6 +1413,23 @@ func jiraIssueRef(task protocol.Task) (protocol.SourceRef, bool) {
 		}
 	}
 	return protocol.SourceRef{}, false
+}
+
+func githubPullRequestRef(task protocol.Task) (protocol.SourceRef, bool) {
+	for _, ref := range task.SourceRefs {
+		if ref.Source == "github" && ref.Kind == "pull_request" {
+			return ref, true
+		}
+	}
+	return protocol.SourceRef{}, false
+}
+
+func pullRequestWorkspaceName(ref protocol.SourceRef) string {
+	branch := strings.TrimSpace(ref.Branch)
+	branch = strings.TrimPrefix(branch, "refs/remotes/")
+	branch = strings.TrimPrefix(branch, "origin/")
+	branch = strings.TrimPrefix(branch, "refs/heads/")
+	return branch
 }
 
 type currentTaskHints struct {

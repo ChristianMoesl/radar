@@ -272,6 +272,47 @@ func TestWorkspaceNameForTaskFallsBackToJiraKey(t *testing.T) {
 	}
 }
 
+func TestWorkspaceNameForTaskUsesPullRequestOriginBranchWithoutOriginPrefix(t *testing.T) {
+	task := protocol.Task{Title: "Review", SourceRefs: []protocol.SourceRef{{
+		ID:     "github:pr:owner/repo:7",
+		Source: "github",
+		Kind:   "pull_request",
+		Branch: "origin/feature/build-thing",
+	}}}
+
+	if got := workspaceNameForTask(task); got != "feature/build-thing" {
+		t.Fatalf("workspaceNameForTask() = %q, want PR branch without origin prefix", got)
+	}
+}
+
+func TestActivateSelectedCreatesWorkspaceForPullRequestOnlyTask(t *testing.T) {
+	m := model{tasks: []protocol.Task{{
+		Title: "Review",
+		SourceRefs: []protocol.SourceRef{{
+			ID:     "github:pr:owner/repo:7",
+			Source: "github",
+			Kind:   "pull_request",
+			Repo:   "owner/repo",
+			Branch: "feature/build-thing",
+		}},
+	}}}
+
+	updated, cmd := m.activateSelected()
+	if cmd == nil {
+		t.Fatal("activateSelected() returned no command")
+	}
+	got := updated.(model)
+	if !got.loading || got.message != creatingWorkspaceMessage {
+		t.Fatalf("activateSelected() loading=%v message=%q, want workspace creation", got.loading, got.message)
+	}
+}
+
+func TestGitHubRepoFromRefIDKeepsRepositoryColons(t *testing.T) {
+	if got := githubRepoFromRefID("github:pr:enterprise:owner/repo:7"); got != "enterprise:owner/repo" {
+		t.Fatalf("githubRepoFromRefID() = %q, want repo with colon", got)
+	}
+}
+
 func TestWorktreeRefFindsGitWorktreeSource(t *testing.T) {
 	task := protocol.Task{SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/repo/worktrees/small-fix"}}}
 
