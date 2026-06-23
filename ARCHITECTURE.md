@@ -8,13 +8,12 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 - `internal/tui/`: Bubble Tea terminal UI.
 - `internal/workspace/`: repository discovery and Git worktree/tmux workspace lifecycle.
 - `internal/server/`: Unix socket API used by TUI and CLI commands.
-- `internal/collector/`: orchestrates ingestion, linking, and resolution.
+- `internal/collector/`: orchestrates ingestion and remote state resolution.
 - `internal/github/`: GitHub ingestion and remote state resolution.
 - `internal/git/`: Git worktree ingestion.
 - `internal/jira/`: Jira Cloud issue ingestion.
 - `internal/tmux/`: tmux session ingestion.
-- `internal/linker/`: connects ingested source refs to user-facing tasks.
-- `internal/state/`: local persistent task cache/state.
+- `internal/state/`: local persistent task cache/state and durable source-ref linking.
 
 ## Process model
 
@@ -70,7 +69,8 @@ The pipeline is:
 
 ```text
 collect SourceRefs
-→ match/update TaskRecords
+→ match/update SourceRefRecords
+→ durably link SourceRefRecords into TaskRecords
 → project Tasks
 → serve Tasks
 ```
@@ -88,7 +88,7 @@ Radar has three active categories and one historical category:
 - `in_progress`
 - `done`
 
-Ingestion and linking are separate steps. Ingestion code talks to external systems and produces raw active tasks/source refs. Linker code connects source refs from different sources into one user-facing task.
+Ingestion and durable linking are separate steps. Ingestion code talks to external systems and produces raw active tasks/source refs. The state store computes link keys for active persisted source refs, merges records that describe the same work, and then projects one user-facing task per task record.
 
 `done` is a durable task-record state. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state and emits a done transition. The state store applies that transition to the existing task record. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate.
 

@@ -10,7 +10,6 @@ import (
 	"radar.nvim/internal/github"
 	"radar.nvim/internal/ingestion"
 	"radar.nvim/internal/jira"
-	"radar.nvim/internal/linker"
 	"radar.nvim/internal/protocol"
 	"radar.nvim/internal/tmux"
 )
@@ -46,10 +45,7 @@ func LocalSources() []ingestion.Source {
 func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Result {
 	sources := Sources()
 	ingested := IngestSources(ctx, previous, logger, sources)
-	tasks := linker.Link(linker.Input{
-		Tasks:      ingested.Tasks,
-		SourceRefs: ingested.SourceRefs,
-	})
+	tasks := observedTasks(ingested)
 	for _, source := range sources {
 		reconciler, ok := source.(ingestion.Reconciler)
 		if !ok {
@@ -67,8 +63,7 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger)
 
 func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Result {
 	ingested := IngestSources(ctx, previous, logger, LocalSources())
-	tasks := linker.Link(linker.Input{SourceRefs: ingested.SourceRefs})
-	return Result{Tasks: applyTaskFilters(tasks, logger), Sources: ingested.Sources}
+	return Result{Tasks: applyTaskFilters(observedTasks(ingested), logger), Sources: ingested.Sources}
 }
 
 func Ingest(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Ingested {
@@ -115,6 +110,43 @@ func IngestSources(ctx context.Context, previous []protocol.Task, logger *slog.L
 	}
 
 	return result
+}
+
+func observedTasks(ingested Ingested) []protocol.Task {
+	tasks := make([]protocol.Task, 0, len(ingested.Tasks)+len(ingested.SourceRefs))
+	tasks = append(tasks, ingested.Tasks...)
+	for _, sourceRef := range ingested.SourceRefs {
+		if ignoredStandaloneSourceRef(sourceRef) {
+			continue
+		}
+		tasks = append(tasks, taskFromSourceRef(sourceRef))
+	}
+	return tasks
+}
+
+func taskFromSourceRef(sourceRef protocol.SourceRef) protocol.Task {
+	reason := sourceRef.Source + " " + sourceRef.Kind
+	return protocol.Task{
+		Kind:       sourceRef.Source + "_" + sourceRef.Kind,
+		Title:      sourceRef.Title,
+		Repo:       sourceRef.Repo,
+		URL:        sourceRef.URL,
+		Attention:  "in_progress",
+		Reason:     reason,
+		SourceRefs: []protocol.SourceRef{sourceRef},
+	}
+}
+
+func ignoredStandaloneSourceRef(sourceRef protocol.SourceRef) bool {
+	if sourceRef.Source != "git" || sourceRef.Kind != "worktree" {
+		return false
+	}
+	switch sourceRef.Branch {
+	case "", "main", "master", "develop", "dev":
+		return true
+	default:
+		return false
+	}
 }
 
 func sourceRefCount(sourceName string, result ingestion.Result) int {

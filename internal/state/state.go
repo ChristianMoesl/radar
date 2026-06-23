@@ -938,14 +938,14 @@ func sourceOrder(source string) int {
 
 func attentionRank(attention string) int {
 	switch attention {
+	case "done":
+		return 6
 	case "immediate":
 		return 5
 	case "attention":
 		return 4
 	case "in_progress":
 		return 3
-	case "done":
-		return 2
 	case "low_priority":
 		return 1
 	default:

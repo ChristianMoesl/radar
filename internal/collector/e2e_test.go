@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"radar.nvim/internal/protocol"
+	"radar.nvim/internal/state"
 )
 
 func TestCollectEndToEndIngestsLinksAndMarksGitHubPRDone(t *testing.T) {
@@ -30,10 +31,17 @@ func TestCollectEndToEndIngestsLinksAndMarksGitHubPRDone(t *testing.T) {
 	t.Setenv("RADAR_JIRA_EMAIL", "radar@example.test")
 	t.Setenv("RADAR_JIRA_API_TOKEN", "token")
 
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	first := Collect(ctx, nil, logger)
-	active := taskBySourceRef(first.Tasks, "github:pr:acme/app:7")
+	store.SetTasks(first.Tasks)
+	firstTasks := store.Tasks()
+	active := taskBySourceRef(firstTasks, "github:pr:acme/app:7")
 	if active == nil {
-		t.Fatalf("first collect did not ingest GitHub PR; tasks=%+v", first.Tasks)
+		t.Fatalf("first collect did not ingest GitHub PR; tasks=%+v", firstTasks)
 	}
 	if active.Kind != "github_own_pr" || active.Attention != "in_progress" {
 		t.Fatalf("github task = %s/%s, want github_own_pr/in_progress", active.Kind, active.Attention)
@@ -52,10 +60,12 @@ func TestCollectEndToEndIngestsLinksAndMarksGitHubPRDone(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "gh-mode"), []byte("closed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	second := Collect(ctx, first.Tasks, logger)
-	done := taskBySourceRef(second.Tasks, "github:pr:acme/app:7")
+	second := Collect(ctx, firstTasks, logger)
+	store.SetTasks(second.Tasks)
+	secondTasks := store.Tasks()
+	done := taskBySourceRef(secondTasks, "github:pr:acme/app:7")
 	if done == nil {
-		t.Fatalf("second collect did not keep closed GitHub PR; tasks=%+v", second.Tasks)
+		t.Fatalf("second collect did not keep closed GitHub PR; tasks=%+v", secondTasks)
 	}
 	if done.Kind != "github_own_pr" || done.Attention != "done" || done.Reason != "merged today" {
 		t.Fatalf("done task = %s/%s/%s, want github_own_pr/done/merged today", done.Kind, done.Attention, done.Reason)
