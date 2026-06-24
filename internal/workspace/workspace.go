@@ -174,6 +174,17 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 			return Workspace{}, err
 		}
 		createdSession = true
+		if repoConfig.Sandbox != nil {
+			shellCommand := sandboxRunCommand(sandboxName)
+			if _, err := runner.Run(ctx, repo, "tmux", "set-option", "-t", sessionName, "default-command", shellCommand); err != nil {
+				rollback()
+				return Workspace{}, err
+			}
+			if _, err := runner.Run(ctx, repo, "tmux", "new-window", "-t", sessionName+":", "-n", "shell", "-c", path, shellCommand); err != nil {
+				rollback()
+				return Workspace{}, err
+			}
+		}
 		if _, err := runner.Run(ctx, repo, "tmux", "new-window", "-t", sessionName+":", "-n", "nvim", "-c", path, "nvim ."); err != nil {
 			rollback()
 			return Workspace{}, err
@@ -359,6 +370,10 @@ func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConf
 
 func stopSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
 	return runner.Run(ctx, path, "docker", "sandbox", "rm", name)
+}
+
+func sandboxRunCommand(name string) string {
+	return "docker sandbox run " + shellQuote(name)
 }
 
 func piCommand(sessionName string, model string, thinking string, forkSession string) string {

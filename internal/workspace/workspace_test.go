@@ -108,6 +108,8 @@ func TestCreateStartsConfiguredSandbox(t *testing.T) {
 		t.Fatalf("sandbox name = %q", workspace.SandboxName)
 	}
 	assertCalled(t, runner.calls, "docker", "sandbox create --name "+workspace.SandboxName+" shell "+workspace.Path)
+	assertCalled(t, runner.calls, "tmux", "set-option -t "+workspace.SessionName+" default-command docker sandbox run '"+workspace.SandboxName+"'")
+	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+": -n shell -c "+workspace.Path+" docker sandbox run '"+workspace.SandboxName+"'")
 }
 
 func TestCreateForksPiSession(t *testing.T) {
