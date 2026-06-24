@@ -107,9 +107,7 @@ func TestCreateStartsConfiguredSandbox(t *testing.T) {
 	if workspace.SandboxName != "radar-"+filepath.Base(repo)+"-small-fix" {
 		t.Fatalf("sandbox name = %q", workspace.SandboxName)
 	}
-	assertCalled(t, runner.calls, "docker", "image inspect radar-pi-shell:latest")
-	assertCalled(t, runner.calls, "docker", "sandbox create --template radar-pi-shell:latest --name "+workspace.SandboxName+" shell "+workspace.Path)
-	assertCalledContains(t, runner.calls, "tmux", "docker sandbox exec -i -t --workdir '"+workspace.Path+"' '"+workspace.SandboxName+"' sh -lc")
+	assertCalled(t, runner.calls, "docker", "sandbox create --name "+workspace.SandboxName+" shell "+workspace.Path)
 	assertCalled(t, runner.calls, "tmux", "set-option -t "+workspace.SessionName+" default-command docker sandbox run '"+workspace.SandboxName+"'")
 	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+": -n shell -c "+workspace.Path+" docker sandbox run '"+workspace.SandboxName+"'")
 }

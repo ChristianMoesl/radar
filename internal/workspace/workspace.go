@@ -8,9 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
-	"time"
 
 	"radar/internal/pi"
 )
@@ -155,12 +153,7 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		}
 	}
 	if repoConfig.Sandbox != nil {
-		template, err := ensureSandboxTemplate(ctx, runner, repo)
-		if err != nil {
-			rollback()
-			return Workspace{}, err
-		}
-		if _, err := startSandbox(ctx, runner, path, *repoConfig.Sandbox, sandboxName, template); err != nil {
+		if _, err := startSandbox(ctx, runner, path, *repoConfig.Sandbox, sandboxName); err != nil {
 			rollback()
 			return Workspace{}, err
 		}
@@ -176,9 +169,6 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 			thinking = repoConfig.Thinking
 		}
 		piCommandText := piCommand(sessionName, model, thinking, options.ForkPiSession)
-		if repoConfig.Sandbox != nil {
-			piCommandText = sandboxExecCommand(sandboxName, path, piCommandText)
-		}
 		if _, err := runner.Run(ctx, repo, "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, piCommandText); err != nil {
 			rollback()
 			return Workspace{}, err
@@ -374,62 +364,16 @@ func copyFile(source string, target string, mode os.FileMode) error {
 	return output.Close()
 }
 
-func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string, template string) (string, error) {
-	return runner.Run(ctx, path, "docker", "sandbox", "create", "--template", template, "--name", name, "shell", path)
+func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
+	return runner.Run(ctx, path, "docker", "sandbox", "create", "--name", name, "shell", path)
 }
 
 func stopSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
 	return runner.Run(ctx, path, "docker", "sandbox", "rm", name)
 }
 
-func ensureSandboxTemplate(ctx context.Context, runner Runner, path string) (string, error) {
-	version, _ := runner.Run(ctx, "", "pi", "--version")
-	version = strings.TrimSpace(version)
-	tag := "radar-pi-shell:" + sandboxTemplateVersion(version)
-	if _, err := runner.Run(ctx, path, "docker", "image", "inspect", tag); err == nil {
-		return tag, nil
-	}
-
-	name := "radar-template-" + strings.ToLower(strconv.FormatInt(time.Now().UnixNano(), 36))
-	created := false
-	cleanup := func() {
-		if created {
-			_, _ = runner.Run(ctx, path, "docker", "sandbox", "rm", name)
-		}
-	}
-	if _, err := runner.Run(ctx, path, "docker", "sandbox", "create", "--name", name, "shell", path); err != nil {
-		return "", err
-	}
-	created = true
-	packageSpec := "@earendil-works/pi-coding-agent"
-	if version != "" {
-		packageSpec += "@" + version
-	}
-	if _, err := runner.Run(ctx, path, "docker", "sandbox", "exec", name, "npm", "install", "-g", packageSpec); err != nil {
-		cleanup()
-		return "", err
-	}
-	if _, err := runner.Run(ctx, path, "docker", "sandbox", "save", name, tag); err != nil {
-		cleanup()
-		return "", err
-	}
-	cleanup()
-	return tag, nil
-}
-
-func sandboxTemplateVersion(version string) string {
-	if version == "" {
-		return "latest"
-	}
-	return invalidWorkspaceNameCharacters.ReplaceAllString(version, "-")
-}
-
 func sandboxRunCommand(name string) string {
 	return "docker sandbox run " + shellQuote(name)
-}
-
-func sandboxExecCommand(name string, workdir string, command string) string {
-	return "docker sandbox exec -i -t --workdir " + shellQuote(workdir) + " " + shellQuote(name) + " sh -lc " + shellQuote(command)
 }
 
 func piCommand(sessionName string, model string, thinking string, forkSession string) string {
