@@ -1704,19 +1704,7 @@ func (m model) header(width int) string {
 		lowStyle.Render(fmt.Sprintf("🔇 %d low", m.summary.LowPriority)),
 	}, "  ")
 
-	status := ""
-	if m.loading {
-		status = subtleStyle.Render("refreshing…")
-	}
-
-	left := lipgloss.JoinHorizontal(lipgloss.Top, titleStyle.Render("Radar"), "  ", counts)
-	if status == "" {
-		return truncateLine(left, width)
-	}
-	available := max(0, width-lipgloss.Width(status))
-	left = truncateLine(left, available)
-	gap := strings.Repeat(" ", max(0, width-lipgloss.Width(left)-lipgloss.Width(status)))
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, gap, status)
+	return truncateLine(lipgloss.JoinHorizontal(lipgloss.Top, titleStyle.Render("Radar"), "  ", counts), width)
 }
 
 func (m model) taskList(width int, height int) string {
