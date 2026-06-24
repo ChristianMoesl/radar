@@ -8,6 +8,8 @@ After making a commit, make sure it lands on remote `main` immediately.
 
 Default target: `origin/main`. Unless the user explicitly asks for a different remote or branch, merge or fast-forward the committed work into `origin/main` and push that. Do not stop after pushing only the current feature/worktree branch; intermediate branches such as `origin/improvements` are not important unless needed as part of getting the commit onto `origin/main`.
 
+After the committed work has been pushed to `origin/main`, run `make install` so the local `radar` binary is up to date.
+
 ## Streamlined product design
 
 Build Radar as a streamlined tool with one clear way to do each task.
