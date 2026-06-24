@@ -107,7 +107,7 @@ func TestCreateStartsConfiguredSandbox(t *testing.T) {
 	if workspace.SandboxName != "radar-"+filepath.Base(repo)+"-small-fix" {
 		t.Fatalf("sandbox name = %q", workspace.SandboxName)
 	}
-	assertCalled(t, runner.calls, "docker", "sandbox create "+workspace.SandboxName)
+	assertCalled(t, runner.calls, "docker", "sandbox create --name "+workspace.SandboxName+" shell "+workspace.Path)
 }
 
 func TestCreateForksPiSession(t *testing.T) {

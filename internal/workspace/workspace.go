@@ -354,7 +354,7 @@ func copyFile(source string, target string, mode os.FileMode) error {
 }
 
 func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
-	return runner.Run(ctx, path, "docker", "sandbox", "create", name)
+	return runner.Run(ctx, path, "docker", "sandbox", "create", "--name", name, "shell", path)
 }
 
 func stopSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
