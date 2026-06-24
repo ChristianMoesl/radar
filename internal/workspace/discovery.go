@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -37,12 +39,13 @@ func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) 
 		return nil, err
 	}
 	roots := RepositoryDirs(cfg)
-	if len(roots) > 0 {
-		args := []string{"-H", "-t", "d", `^\.git$`, "--max-depth", "5"}
-		args = append(args, roots...)
+	fdErrors := make([]error, 0)
+	for _, root := range roots {
+		args := []string{"-H", "-t", "d", `^\.git$`, "--max-depth", "5", root}
 		output, err := runner.Run(ctx, "", "fd", args...)
 		if err != nil {
-			return nil, err
+			fdErrors = append(fdErrors, fmt.Errorf("%s: %w", root, err))
+			continue
 		}
 		for _, gitDirectory := range strings.Split(output, "\n") {
 			gitDirectory = strings.TrimSpace(gitDirectory)
@@ -56,6 +59,9 @@ func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) 
 			// avoid running git rev-parse for every discovered repository.
 			addRepo(filepath.Dir(filepath.Clean(gitDirectory)))
 		}
+	}
+	if len(repos) == 0 && len(fdErrors) > 0 {
+		return nil, fmt.Errorf("discover repositories with fd: %w", errors.Join(fdErrors...))
 	}
 	sort.Strings(repos)
 	if currentErr == nil {

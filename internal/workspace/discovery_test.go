@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -31,6 +33,8 @@ func (d discoveryRunner) Run(_ context.Context, cwd string, name string, args ..
 type countingDiscoveryRunner struct {
 	repos    map[string]string
 	fdOutput string
+	fdByRoot map[string]string
+	fdErrors map[string]error
 	fdArgs   []string
 	gitCalls int
 	fdCalls  int
@@ -53,6 +57,13 @@ func (d *countingDiscoveryRunner) Run(_ context.Context, cwd string, name string
 	if name == "fd" {
 		d.fdCalls++
 		d.fdArgs = append([]string(nil), args...)
+		root := args[len(args)-1]
+		if err := d.fdErrors[root]; err != nil {
+			return "", err
+		}
+		if d.fdByRoot != nil {
+			return d.fdByRoot[root], nil
+		}
 		return d.fdOutput, nil
 	}
 	return "", os.ErrNotExist
@@ -111,6 +122,62 @@ func TestDiscoverReposUsesGitDirectoriesWithoutResolvingEveryRepo(t *testing.T) 
 	}
 }
 
+func TestDiscoverReposContinuesWhenOneRepositoryDirFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+
+	one := filepath.Join(home, "one")
+	two := filepath.Join(home, "two")
+	for _, path := range []string{one, filepath.Join(two, "repo", ".git")} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeDiscoveryConfig(t, home, []string{one, two})
+
+	runner := &countingDiscoveryRunner{
+		repos:    map[string]string{},
+		fdByRoot: map[string]string{two: filepath.Join(two, "repo", ".git")},
+		fdErrors: map[string]error{one: errors.New("permission denied")},
+	}
+	got, err := DiscoverRepos(context.Background(), runner, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{filepath.Join(two, "repo")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("DiscoverRepos() = %#v, want %#v", got, want)
+	}
+	if runner.fdCalls != 2 {
+		t.Fatalf("DiscoverRepos() ran fd %d times, want 2", runner.fdCalls)
+	}
+}
+
+func TestDiscoverReposReportsFdErrorsWhenNoRepositoriesCanBeDiscovered(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+
+	one := filepath.Join(home, "one")
+	if err := os.MkdirAll(one, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeDiscoveryConfig(t, home, []string{one})
+
+	runner := &countingDiscoveryRunner{
+		repos:    map[string]string{},
+		fdErrors: map[string]error{one: errors.New("permission denied")},
+	}
+	_, err := DiscoverRepos(context.Background(), runner, "")
+	if err == nil {
+		t.Fatal("DiscoverRepos() error = nil, want fd error")
+	}
+	if !strings.Contains(err.Error(), one) || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("DiscoverRepos() error = %q, want root and cause", err)
+	}
+}
+
 func TestDiscoverReposPrefersSourceRepoForCurrentWorkspace(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -144,6 +211,21 @@ func TestDiscoverReposPrefersSourceRepoForCurrentWorkspace(t *testing.T) {
 	want := []string{radar, alpha}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("DiscoverRepos() = %#v, want %#v", got, want)
+	}
+}
+
+func writeDiscoveryConfig(t *testing.T, home string, repositoryDirs []string) {
+	t.Helper()
+	path := filepath.Join(home, "config", "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(config.Config{RepositoryDirs: repositoryDirs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

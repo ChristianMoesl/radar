@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
 
 	"radar/internal/pi"
 )
@@ -33,13 +35,58 @@ func (ExecRunner) LookPath(name string) error {
 }
 
 func (ExecRunner) Run(ctx context.Context, cwd string, name string, args ...string) (string, error) {
-	command := exec.CommandContext(ctx, name, args...)
-	command.Dir = cwd
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("%s %s failed: %s", name, strings.Join(args, " "), strings.TrimSpace(string(output)))
+	candidates := commandCandidates(name)
+	if len(candidates) == 0 {
+		candidates = []string{name}
 	}
-	return strings.TrimSpace(string(output)), nil
+	formatErrors := make([]error, 0)
+	for _, candidate := range candidates {
+		command := exec.CommandContext(ctx, candidate, args...)
+		command.Dir = cwd
+		output, err := command.CombinedOutput()
+		if err == nil {
+			return strings.TrimSpace(string(output)), nil
+		}
+		if errors.Is(err, syscall.ENOEXEC) && candidate != name {
+			formatErrors = append(formatErrors, fmt.Errorf("%s: %w", candidate, err))
+			continue
+		}
+		return "", commandError(name, args, output, err)
+	}
+	return "", commandError(name, args, nil, errors.Join(formatErrors...))
+}
+
+func commandCandidates(name string) []string {
+	if strings.Contains(name, string(os.PathSeparator)) {
+		return []string{name}
+	}
+	seen := map[string]bool{}
+	candidates := make([]string, 0)
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			dir = "."
+		}
+		candidate := filepath.Join(dir, name)
+		if seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		info, err := os.Stat(candidate)
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates
+}
+
+func commandError(name string, args []string, output []byte, err error) error {
+	detail := strings.TrimSpace(string(output))
+	if detail != "" {
+		detail += "\n"
+	}
+	detail += err.Error()
+	return fmt.Errorf("%s %s failed: %s", name, strings.Join(args, " "), detail)
 }
 
 type CreateOptions struct {

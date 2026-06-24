@@ -40,6 +40,27 @@ func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...str
 	return "", nil
 }
 
+func TestExecRunnerSkipsPathEntriesWithExecFormatErrors(t *testing.T) {
+	badBin := t.TempDir()
+	goodBin := t.TempDir()
+	name := "radar-test-tool"
+	if err := os.WriteFile(filepath.Join(badBin, name), []byte("not a runnable executable\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(goodBin, name), []byte("#!/bin/sh\necho ok\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", badBin+string(os.PathListSeparator)+goodBin)
+
+	output, err := ExecRunner{}.Run(context.Background(), "", name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output != "ok" {
+		t.Fatalf("ExecRunner.Run() = %q, want ok", output)
+	}
+}
+
 func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
