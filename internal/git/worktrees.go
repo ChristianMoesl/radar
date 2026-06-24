@@ -163,9 +163,10 @@ func expandPath(path string) string {
 }
 
 type worktree struct {
-	Path   string
-	Branch string
-	Head   string
+	Path     string
+	Branch   string
+	Head     string
+	Prunable bool
 }
 
 func worktrees(ctx context.Context, root string) ([]worktree, error) {
@@ -178,7 +179,7 @@ func worktrees(ctx context.Context, root string) ([]worktree, error) {
 	var current worktree
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	flush := func() {
-		if current.Path != "" {
+		if current.Path != "" && !current.Prunable {
 			items = append(items, current)
 		}
 		current = worktree{}
@@ -197,6 +198,8 @@ func worktrees(ctx context.Context, root string) ([]worktree, error) {
 			current.Head = value
 		case "branch":
 			current.Branch = strings.TrimPrefix(value, "refs/heads/")
+		case "prunable":
+			current.Prunable = true
 		}
 	}
 	flush()

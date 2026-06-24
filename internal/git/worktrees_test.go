@@ -1,10 +1,42 @@
 package git
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
+
+func TestWorktreesSkipsPrunableEntries(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	repo := filepath.Join(home, "repo")
+	stale := filepath.Join(home, "stale")
+
+	runGit(t, ctx, home, "init", "repo")
+	runGit(t, ctx, repo, "config", "user.email", "radar@example.com")
+	runGit(t, ctx, repo, "config", "user.name", "Radar")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, ctx, repo, "add", "README.md")
+	runGit(t, ctx, repo, "commit", "-m", "init")
+	runGit(t, ctx, repo, "worktree", "add", "-b", "feature/RAD-123-stale", stale)
+	if err := os.RemoveAll(stale); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := worktrees(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.Path == stale {
+			t.Fatalf("worktrees() included prunable worktree: %#v", items)
+		}
+	}
+}
 
 func TestGitRootsDefaultsToCwdAndWorkspaces(t *testing.T) {
 	home := t.TempDir()
@@ -71,6 +103,16 @@ func TestGitRootsEnvOverridesDefaults(t *testing.T) {
 		if roots[i] != want[i] {
 			t.Fatalf("gitRoots() = %#v, want %#v", roots, want)
 		}
+	}
+}
+
+func runGit(t *testing.T, ctx context.Context, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, output)
 	}
 }
 
