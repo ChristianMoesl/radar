@@ -88,10 +88,7 @@ func TestCreateStartsConfiguredSandbox(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
-  "sandbox": {
-    "compose": "docker-compose.yml",
-    "services": ["server"]
-  }
+  "sandbox": {}
 }`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +107,7 @@ func TestCreateStartsConfiguredSandbox(t *testing.T) {
 	if workspace.SandboxName != "radar-"+filepath.Base(repo)+"-small-fix" {
 		t.Fatalf("sandbox name = %q", workspace.SandboxName)
 	}
-	assertCalled(t, runner.calls, "docker", "compose -f docker-compose.yml -p "+workspace.SandboxName+" up -d server")
+	assertCalled(t, runner.calls, "docker", "sbx create "+workspace.SandboxName)
 }
 
 func TestCreateForksPiSession(t *testing.T) {
@@ -255,7 +252,7 @@ func TestDeleteStopsConfiguredSandbox(t *testing.T) {
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(path, ".radar.json"), []byte(`{"sandbox":{"compose":"docker-compose.yml"}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(path, ".radar.json"), []byte(`{"sandbox":{}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -268,7 +265,7 @@ func TestDeleteStopsConfiguredSandbox(t *testing.T) {
 		t.Fatalf("sandbox name = %q", deleted.SandboxName)
 	}
 	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
-	assertCalled(t, runner.calls, "docker", "compose -f docker-compose.yml -p radar-repo-small-fix down")
+	assertCalled(t, runner.calls, "docker", "sbx rm radar-repo-small-fix")
 	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove "+path)
 }
 

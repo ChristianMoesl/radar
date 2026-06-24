@@ -18,10 +18,7 @@ type RepoConfig struct {
 	Sandbox   *SandboxConfig `json:"sandbox,omitempty"`
 }
 
-type SandboxConfig struct {
-	Compose  string   `json:"compose,omitempty"`
-	Services []string `json:"services,omitempty"`
-}
+type SandboxConfig struct{}
 
 func loadRepoConfig(repo string) (RepoConfig, error) {
 	path := filepath.Join(repo, ".radar.json")
@@ -55,19 +52,6 @@ func validateRepoConfig(cfg RepoConfig) error {
 	}
 	if cfg.Model != "" && strings.TrimSpace(cfg.Model) == "" {
 		return fmt.Errorf("model is empty")
-	}
-	if cfg.Sandbox != nil {
-		if strings.TrimSpace(cfg.Sandbox.Compose) == "" {
-			return fmt.Errorf("sandbox compose path is required")
-		}
-		if err := validateRelativeFilePath(cfg.Sandbox.Compose); err != nil {
-			return fmt.Errorf("sandbox compose contains invalid path %q: %w", cfg.Sandbox.Compose, err)
-		}
-		for _, service := range cfg.Sandbox.Services {
-			if strings.TrimSpace(service) == "" {
-				return fmt.Errorf("sandbox services contains an empty service")
-			}
-		}
 	}
 	if err := pi.ValidateThinking(cfg.Thinking); err != nil {
 		return err

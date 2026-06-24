@@ -353,20 +353,12 @@ func copyFile(source string, target string, mode os.FileMode) error {
 	return output.Close()
 }
 
-func startSandbox(ctx context.Context, runner Runner, path string, cfg SandboxConfig, name string) (string, error) {
-	args := sandboxComposeArgs(cfg, name, "up", "-d")
-	args = append(args, cfg.Services...)
-	return runner.Run(ctx, path, "docker", args...)
+func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
+	return runner.Run(ctx, path, "docker", "sbx", "create", name)
 }
 
-func stopSandbox(ctx context.Context, runner Runner, path string, cfg SandboxConfig, name string) (string, error) {
-	return runner.Run(ctx, path, "docker", sandboxComposeArgs(cfg, name, "down")...)
-}
-
-func sandboxComposeArgs(cfg SandboxConfig, name string, command ...string) []string {
-	args := []string{"compose", "-f", cfg.Compose, "-p", name}
-	args = append(args, command...)
-	return args
+func stopSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
+	return runner.Run(ctx, path, "docker", "sbx", "rm", name)
 }
 
 func piCommand(sessionName string, model string, thinking string, forkSession string) string {
