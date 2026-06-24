@@ -147,11 +147,9 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	}
 	name := strings.TrimSpace(options.Name)
 	repoName := filepath.Base(repo)
-	branch := options.Branch
+	branch := strings.TrimSpace(options.Branch)
 	if branch == "" {
 		branch = BranchName(name)
-	} else {
-		branch = BranchName(branch)
 	}
 	root := options.WorkspaceRoot
 	if root == "" {

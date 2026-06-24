@@ -1395,6 +1395,7 @@ func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
 			Repo:            repo,
 			Base:            "origin/" + name,
 			Name:            name,
+			Branch:          name,
 			Model:           cfg.Model,
 			Thinking:        cfg.Thinking,
 			SandboxTemplate: cfg.SandboxTemplate,

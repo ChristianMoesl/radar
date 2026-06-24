@@ -284,6 +284,28 @@ func TestCreateEscapesWorktreeNamePathSegment(t *testing.T) {
 	}
 }
 
+func TestCreatePreservesExplicitBranchName(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	runner := &fakeRunner{repo: repo}
+
+	workspace, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		Name:          "feature/nested fix",
+		Branch:        "feature/nested-fix",
+		Base:          "origin/feature/nested-fix",
+		WorkspaceRoot: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if workspace.Branch != "feature/nested-fix" {
+		t.Fatalf("workspace branch = %q, want explicit branch", workspace.Branch)
+	}
+	assertCalled(t, runner.calls, "git", "worktree add -b feature/nested-fix "+workspace.Path+" origin/feature/nested-fix")
+}
+
 func TestCreateSessionCreatesTmuxSessionForWorktree(t *testing.T) {
 	runner := &fakeRunner{}
 	path := filepath.Join(t.TempDir(), "repo", "small-fix")

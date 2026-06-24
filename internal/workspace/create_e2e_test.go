@@ -31,7 +31,7 @@ func TestCreateWorkspaceReusesExistingLocalBranchE2E(t *testing.T) {
 	}
 	runGitE2E(t, ctx, repo, "add", "README.md")
 	runGitE2E(t, ctx, repo, "commit", "-m", "initial")
-	runGitE2E(t, ctx, repo, "branch", "chore-install-helper-binaries")
+	runGitE2E(t, ctx, repo, "branch", "chore/install-helper-binaries")
 
 	root := filepath.Join(tmp, "workspaces")
 	created, err := Create(ctx, ExecRunner{}, CreateOptions{
@@ -44,14 +44,14 @@ func TestCreateWorkspaceReusesExistingLocalBranchE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Branch != "chore-install-helper-binaries" {
+	if created.Branch != "chore/install-helper-binaries" {
 		t.Fatalf("branch = %q", created.Branch)
 	}
 	if _, err := os.Stat(created.Path); err != nil {
 		t.Fatalf("created path missing: %v", err)
 	}
 	branch := strings.TrimSpace(gitOutputE2E(t, ctx, created.Path, "branch", "--show-current"))
-	if branch != "chore-install-helper-binaries" {
+	if branch != "chore/install-helper-binaries" {
 		t.Fatalf("worktree branch = %q", branch)
 	}
 
