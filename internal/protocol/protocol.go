@@ -26,16 +26,20 @@ func (c CurrentContext) Empty() bool {
 }
 
 type DeletePreview struct {
-	TaskID      int    `json:"task_id,omitempty"`
-	SourceRefID string `json:"source_ref_id,omitempty"`
-	Source      string `json:"source,omitempty"`
-	Kind        string `json:"kind,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Path        string `json:"path,omitempty"`
-	Branch      string `json:"branch,omitempty"`
-	SessionName string `json:"session_name,omitempty"`
-	Dirty       bool   `json:"dirty,omitempty"`
-	SessionOnly bool   `json:"session_only,omitempty"`
+	TaskID         int    `json:"task_id,omitempty"`
+	SourceRefID    string `json:"source_ref_id,omitempty"`
+	Source         string `json:"source,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+	Title          string `json:"title,omitempty"`
+	Path           string `json:"path,omitempty"`
+	Branch         string `json:"branch,omitempty"`
+	SessionName    string `json:"session_name,omitempty"`
+	Dirty          bool   `json:"dirty,omitempty"`
+	SessionOnly    bool   `json:"session_only,omitempty"`
+	TargetLabel    string `json:"target_label,omitempty"`
+	ConfirmTitle   string `json:"confirm_title,omitempty"`
+	Warning        string `json:"warning,omitempty"`
+	SuccessMessage string `json:"success_message,omitempty"`
 }
 
 type DeleteResult struct {

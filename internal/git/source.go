@@ -52,17 +52,27 @@ func (Source) PreviewDelete(ctx context.Context, req ingestion.DeletePreviewRequ
 	if err != nil {
 		return protocol.DeletePreview{}, true, err
 	}
-	return protocol.DeletePreview{
-		TaskID:      req.Task.ID,
-		SourceRefID: ref.ID,
-		Source:      "git",
-		Kind:        "worktree",
-		Title:       ref.Title,
-		Path:        ref.Path,
-		Branch:      ref.Branch,
-		SessionName: tmux.SessionTarget(req.Task),
-		Dirty:       strings.TrimSpace(status) != "",
-	}, true, nil
+	dirty := strings.TrimSpace(status) != ""
+	preview := protocol.DeletePreview{
+		TaskID:         req.Task.ID,
+		SourceRefID:    ref.ID,
+		Source:         "git",
+		Kind:           "worktree",
+		Title:          ref.Title,
+		Path:           ref.Path,
+		Branch:         ref.Branch,
+		SessionName:    tmux.SessionTarget(req.Task),
+		Dirty:          dirty,
+		TargetLabel:    "workspace",
+		ConfirmTitle:   "Delete workspace?",
+		Warning:        "This will remove the git worktree.",
+		SuccessMessage: "Deleted " + ref.Path,
+	}
+	if dirty {
+		preview.ConfirmTitle = "Delete dirty workspace?"
+		preview.Warning = "This worktree has uncommitted changes. Deleting will permanently discard them."
+	}
+	return preview, true, nil
 }
 
 func (Source) Delete(ctx context.Context, preview protocol.DeletePreview) (protocol.DeleteResult, error) {

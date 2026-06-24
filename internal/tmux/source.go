@@ -51,14 +51,18 @@ func (Source) PreviewDelete(ctx context.Context, req ingestion.DeletePreviewRequ
 			return protocol.DeletePreview{}, true, fmt.Errorf("tmux session has no delete target")
 		}
 		return protocol.DeletePreview{
-			TaskID:      req.Task.ID,
-			SourceRefID: ref.ID,
-			Source:      "tmux",
-			Kind:        "session",
-			Title:       ref.Title,
-			Path:        ref.Path,
-			SessionName: target,
-			SessionOnly: true,
+			TaskID:         req.Task.ID,
+			SourceRefID:    ref.ID,
+			Source:         "tmux",
+			Kind:           "session",
+			Title:          ref.Title,
+			Path:           ref.Path,
+			SessionName:    target,
+			SessionOnly:    true,
+			TargetLabel:    "tmux session",
+			ConfirmTitle:   "Delete tmux session?",
+			Warning:        "This will kill only the tmux session.",
+			SuccessMessage: "Deleted session " + target,
 		}, true, nil
 	}
 	return protocol.DeletePreview{}, false, nil

@@ -18,7 +18,8 @@ import (
 	"radar/internal/client"
 	"radar/internal/config"
 	"radar/internal/protocol"
-	"radar/internal/sbx"
+	"radar/internal/sourceactions"
+	"radar/internal/taskrefs"
 	"radar/internal/workspace"
 )
 
@@ -316,8 +317,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "D":
 			if len(m.tasks) > 0 {
-				hints := detectCurrentTaskHints()
-				cursor, ok := taskCursorForHints(m.tasks, hints)
+				current := taskrefs.DetectCurrentContext()
+				cursor, ok := taskrefs.TaskCursorForCurrent(m.tasks, current)
 				if !ok {
 					m.message = "No current workspace tracked by Radar"
 					return m, nil
@@ -325,7 +326,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				m.err = nil
 				m.message = "Inspecting current workspace…"
-				return m, m.previewCurrentWorkspaceDelete(m.tasks[cursor], hints)
+				return m, m.previewCurrentWorkspaceDelete(m.tasks[cursor], current)
 			}
 		case "R":
 			m.loading = true
@@ -652,23 +653,7 @@ func newCreateFormForTask(task protocol.Task) createForm {
 }
 
 func workspaceNameForTask(task protocol.Task) string {
-	if ref, ok := jiraIssueRef(task); ok {
-		if title := strings.TrimSpace(ref.Title); title != "" {
-			return title
-		}
-		if key := metadataValue(ref.Metadata, "key"); key != "" {
-			return key
-		}
-		if key, ok := strings.CutPrefix(ref.ID, "jira:issue:"); ok {
-			return key
-		}
-	}
-	if ref, ok := githubPullRequestRef(task); ok {
-		if name := pullRequestWorkspaceName(ref); name != "" {
-			return name
-		}
-	}
-	return strings.TrimSpace(task.Title)
+	return taskrefs.WorkspaceName(task)
 }
 
 func newForkCreateForm() (createForm, error) {
@@ -871,9 +856,9 @@ func (m model) previewDelete(task protocol.Task) tea.Cmd {
 	}
 }
 
-func (m model) previewCurrentWorkspaceDelete(task protocol.Task, hints currentTaskHints) tea.Cmd {
+func (m model) previewCurrentWorkspaceDelete(task protocol.Task, current protocol.CurrentContext) tea.Cmd {
 	return func() tea.Msg {
-		response, err := client.CallRequest(m.socketPath, protocol.Request{Method: "delete-current-preview", TaskID: task.ID, Current: hints.protocolContext()})
+		response, err := client.CallRequest(m.socketPath, protocol.Request{Method: "delete-current-preview", TaskID: task.ID, Current: current})
 		if err != nil {
 			return deletePreviewMsg{err: err}
 		}
@@ -1018,18 +1003,13 @@ func (m model) createView(width int) string {
 
 func (m model) deleteConfirmView(width int) string {
 	preview := m.delete
-	title := "Delete " + deleteTargetLabel(preview) + "?"
-	warning := "This will remove the " + deleteTargetLabel(preview) + "."
-	if (preview.Source == "git" && preview.Kind == "worktree") || (preview.Source == "" && preview.Path != "") {
-		title = "Delete workspace?"
-		warning = "This will remove the git worktree."
-		if preview.Dirty {
-			title = "Delete dirty workspace?"
-			warning = "This worktree has uncommitted changes. Deleting will permanently discard them."
-		}
-	} else if preview.SessionOnly {
-		title = "Delete tmux session?"
-		warning = "This will kill only the tmux session."
+	title := preview.ConfirmTitle
+	if title == "" {
+		title = "Delete target?"
+	}
+	warning := preview.Warning
+	if warning == "" {
+		warning = "This will remove the selected target."
 	}
 
 	lines := []string{
@@ -1054,8 +1034,8 @@ func (m model) deleteConfirmView(width int) string {
 }
 
 func deleteSuccessMessage(preview protocol.DeletePreview) string {
-	if preview.SessionOnly {
-		return "Deleted session " + preview.SessionName
+	if preview.SuccessMessage != "" {
+		return preview.SuccessMessage
 	}
 	if preview.Path != "" {
 		return "Deleted " + preview.Path
@@ -1063,20 +1043,7 @@ func deleteSuccessMessage(preview protocol.DeletePreview) string {
 	if preview.Title != "" {
 		return "Deleted " + preview.Title
 	}
-	return "Deleted " + deleteTargetLabel(preview)
-}
-
-func deleteTargetLabel(preview protocol.DeletePreview) string {
-	if preview.Source == "sbx" && preview.Kind == "sandbox" {
-		return "sbx sandbox"
-	}
-	if preview.Source == "tmux" && preview.Kind == "session" {
-		return "tmux session"
-	}
-	if preview.Source != "" && preview.Kind != "" {
-		return preview.Source + " " + strings.ReplaceAll(preview.Kind, "_", " ")
-	}
-	return "target"
+	return "Deleted target"
 }
 
 func (m model) worktreeSessionView(width int) string {
@@ -1342,22 +1309,22 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	task := m.tasks[m.cursor]
-	if target := tmuxSessionTarget(task); target != "" {
+	if target := taskrefs.SessionTarget(task); target != "" {
 		m.loading = true
 		m.err = nil
 		return m, m.switchTmuxSession(target)
 	}
 
-	worktrees := gitWorktreeRefs(task)
+	worktrees := taskrefs.Worktrees(task)
 	switch len(worktrees) {
 	case 0:
-		if ref, ok := githubPullRequestRef(task); ok {
+		if ref, ok := taskrefs.GitHubPullRequest(task); ok {
 			m.loading = true
 			m.err = nil
 			m.message = creatingWorkspaceMessage
 			return m, tea.Batch(preparingWorkspaceNotification(), m.createWorkspaceForPullRequest(ref))
 		}
-		if _, ok := jiraIssueRef(task); ok {
+		if _, ok := taskrefs.JiraIssue(task); ok {
 			m.mode = "create_repo"
 			m.create = newCreateFormForTask(task)
 			m.message = ""
@@ -1408,7 +1375,7 @@ func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
 			return actionMsg{err: err}
 		}
 		runner := workspace.ExecRunner{}
-		name := pullRequestWorkspaceName(ref)
+		name := taskrefs.PullRequestWorkspaceName(ref)
 		if name == "" {
 			name, err = fetchPullRequestHeadBranch(context.Background(), runner, ref)
 			if err != nil {
@@ -1487,7 +1454,7 @@ func fetchPullRequestHeadBranch(ctx context.Context, runner workspace.Runner, re
 	if err != nil {
 		return "", err
 	}
-	return pullRequestWorkspaceName(protocol.SourceRef{Branch: branch}), nil
+	return taskrefs.PullRequestWorkspaceName(protocol.SourceRef{Branch: branch}), nil
 }
 
 func githubPullRequestRepo(ref protocol.SourceRef) string {
@@ -1527,8 +1494,8 @@ func normalizeGitHubRepo(value string) string {
 }
 
 func (m model) openTask(task protocol.Task, choice linkChoice) tea.Cmd {
-	if choice.Action == sbx.OpenShellAction {
-		return m.openSbxSandbox(task, choice.Ref)
+	if choice.Action != "" {
+		return m.openSourceAction(task, choice)
 	}
 	return m.openTaskURL(task, choice.URL)
 }
@@ -1554,200 +1521,18 @@ func (m model) openTaskURL(task protocol.Task, url string) tea.Cmd {
 	}
 }
 
-func (m model) openSbxSandbox(task protocol.Task, ref protocol.SourceRef) tea.Cmd {
+func (m model) openSourceAction(task protocol.Task, choice linkChoice) tea.Cmd {
 	return func() tea.Msg {
-		result, err := sbx.OpenShell(context.Background(), workspace.ExecRunner{}, ref, sbx.OpenShellOptions{
-			SessionTarget: tmuxSessionTarget(task),
-			SwitchClient:  os.Getenv("TMUX") != "",
-		})
+		result, err := sourceactions.Open(context.Background(), task, choice.Action, choice.Ref)
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		message := "Opened sbx sandbox in " + result.SessionName
-		if result.CreatedSession {
-			message = "Created " + result.SessionName + " and opened sbx sandbox"
-		}
-		return actionMsg{message: message, refresh: true, quit: os.Getenv("TMUX") != ""}
+		return actionMsg{message: result.Message, refresh: result.Refresh, quit: result.Quit}
 	}
-}
-
-func worktreeRef(task protocol.Task) (protocol.SourceRef, bool) {
-	refs := gitWorktreeRefs(task)
-	if len(refs) == 0 {
-		return protocol.SourceRef{}, false
-	}
-	return refs[0], true
-}
-
-func currentWorktreeRef(task protocol.Task, hints currentTaskHints) (protocol.SourceRef, bool) {
-	for _, ref := range gitWorktreeRefs(task) {
-		if currentPathMatches(ref.Path, hints) {
-			return ref, true
-		}
-	}
-	return protocol.SourceRef{}, false
-}
-
-func gitWorktreeRefs(task protocol.Task) []protocol.SourceRef {
-	refs := make([]protocol.SourceRef, 0)
-	for _, ref := range task.SourceRefs {
-		if ref.Source == "git" && ref.Kind == "worktree" && ref.Path != "" {
-			refs = append(refs, ref)
-		}
-	}
-	return refs
-}
-
-func jiraIssueRef(task protocol.Task) (protocol.SourceRef, bool) {
-	for _, ref := range task.SourceRefs {
-		if ref.Source == "jira" && ref.Kind == "issue" {
-			return ref, true
-		}
-	}
-	return protocol.SourceRef{}, false
-}
-
-func githubPullRequestRef(task protocol.Task) (protocol.SourceRef, bool) {
-	for _, ref := range task.SourceRefs {
-		if ref.Source == "github" && ref.Kind == "pull_request" {
-			return ref, true
-		}
-	}
-	return protocol.SourceRef{}, false
-}
-
-func pullRequestWorkspaceName(ref protocol.SourceRef) string {
-	branch := strings.TrimSpace(ref.Branch)
-	branch = strings.TrimPrefix(branch, "refs/remotes/")
-	branch = strings.TrimPrefix(branch, "origin/")
-	branch = strings.TrimPrefix(branch, "refs/heads/")
-	return branch
-}
-
-type currentTaskHints struct {
-	cwd         string
-	worktree    string
-	sessionName string
-	sessionID   string
-}
-
-func (h currentTaskHints) protocolContext() protocol.CurrentContext {
-	return protocol.CurrentContext{CWD: h.cwd, Worktree: h.worktree, SessionName: h.sessionName, SessionID: h.sessionID}
 }
 
 func currentTaskCursor(tasks []protocol.Task) (int, bool) {
-	return taskCursorForHints(tasks, detectCurrentTaskHints())
-}
-
-func detectCurrentTaskHints() currentTaskHints {
-	hints := currentTaskHints{}
-	if cwd, err := os.Getwd(); err == nil {
-		hints.cwd = filepath.Clean(cwd)
-		runner := workspace.ExecRunner{}
-		if worktree, err := runner.Run(context.Background(), cwd, "git", "rev-parse", "--show-toplevel"); err == nil {
-			hints.worktree = filepath.Clean(worktree)
-		}
-	}
-	if os.Getenv("TMUX") != "" {
-		runner := workspace.ExecRunner{}
-		if output, err := runner.Run(context.Background(), hints.cwd, "tmux", "display-message", "-p", "#{session_name}\t#{session_id}"); err == nil {
-			fields := strings.Split(output, "\t")
-			if len(fields) > 0 {
-				hints.sessionName = strings.TrimSpace(fields[0])
-			}
-			if len(fields) > 1 {
-				hints.sessionID = strings.TrimSpace(fields[1])
-			}
-		}
-	}
-	return hints
-}
-
-func taskCursorForHints(tasks []protocol.Task, hints currentTaskHints) (int, bool) {
-	if hints.worktree != "" || hints.cwd != "" {
-		for i, task := range tasks {
-			for _, ref := range task.SourceRefs {
-				if ref.Source == "git" && ref.Kind == "worktree" && ref.Path != "" && currentPathMatches(ref.Path, hints) {
-					return i, true
-				}
-			}
-		}
-	}
-	if hints.sessionName != "" || hints.sessionID != "" {
-		for i, task := range tasks {
-			if task.Kind == "session" && metadataMatchesSession(task.Metadata, hints) {
-				return i, true
-			}
-			for _, ref := range task.SourceRefs {
-				if ref.Source == "tmux" && ref.Kind == "session" && tmuxRefMatchesSession(ref, hints) {
-					return i, true
-				}
-			}
-		}
-	}
-	return 0, false
-}
-
-func currentPathMatches(refPath string, hints currentTaskHints) bool {
-	refPath = filepath.Clean(refPath)
-	return samePath(hints.worktree, refPath) || sameOrDescendant(hints.cwd, refPath)
-}
-
-func tmuxRefMatchesSession(ref protocol.SourceRef, hints currentTaskHints) bool {
-	return metadataMatchesSession(ref.Metadata, hints) || ref.Title == hints.sessionName
-}
-
-func metadataMatchesSession(metadata map[string]string, hints currentTaskHints) bool {
-	for _, key := range []string{"switch_target", "session_id", "session"} {
-		value := metadata[key]
-		if value != "" && (value == hints.sessionID || value == hints.sessionName) {
-			return true
-		}
-	}
-	return false
-}
-
-func samePath(left string, right string) bool {
-	return left != "" && right != "" && filepath.Clean(left) == filepath.Clean(right)
-}
-
-func sameOrDescendant(path string, root string) bool {
-	if path == "" || root == "" {
-		return false
-	}
-	path = filepath.Clean(path)
-	root = filepath.Clean(root)
-	if path == root {
-		return true
-	}
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
-}
-
-func tmuxSessionTarget(task protocol.Task) string {
-	if task.Kind == "session" {
-		if target := metadataValue(task.Metadata, "switch_target", "session_id", "session"); target != "" {
-			return target
-		}
-	}
-	for _, ref := range task.SourceRefs {
-		if ref.Source == "tmux" && ref.Kind == "session" {
-			if target := metadataValue(ref.Metadata, "switch_target", "session_id", "session"); target != "" {
-				return target
-			}
-			return ref.Title
-		}
-	}
-	return ""
-}
-
-func metadataValue(metadata map[string]string, keys ...string) string {
-	for _, key := range keys {
-		if metadata[key] != "" {
-			return metadata[key]
-		}
-	}
-	return ""
+	return taskrefs.TaskCursorForCurrent(tasks, taskrefs.DetectCurrentContext())
 }
 
 func taskLinks(task protocol.Task) []linkChoice {
@@ -1782,9 +1567,10 @@ func taskLinks(task protocol.Task) []linkChoice {
 	}
 
 	for _, ref := range task.SourceRefs {
-		addURL(sourceRefSourceLabel(ref), sourceRefLabel(ref), ref.URL)
-		if sbx.IsSandboxRef(ref) {
-			addAction("s", "Docker sbx", sourceRefLabel(ref), "sbx run --name "+sbx.SandboxName(ref), sbx.OpenShellAction, ref)
+		label := sourceRefLabel(ref)
+		addURL(sourceRefSourceLabel(ref), label, ref.URL)
+		for _, action := range sourceactions.SourceRefActions(ref, label) {
+			addAction(action.PreferredKey, action.Source, action.Label, action.Detail, action.Action, action.Ref)
 		}
 	}
 	addURL("link", task.Title, task.URL)

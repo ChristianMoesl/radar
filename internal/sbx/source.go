@@ -55,12 +55,16 @@ func (Source) PreviewDelete(ctx context.Context, req ingestion.DeletePreviewRequ
 			return protocol.DeletePreview{}, true, fmt.Errorf("sbx sandbox name is required")
 		}
 		return protocol.DeletePreview{
-			TaskID:      req.Task.ID,
-			SourceRefID: ref.ID,
-			Source:      "sbx",
-			Kind:        "sandbox",
-			Title:       name,
-			Path:        ref.Path,
+			TaskID:         req.Task.ID,
+			SourceRefID:    ref.ID,
+			Source:         "sbx",
+			Kind:           "sandbox",
+			Title:          name,
+			Path:           ref.Path,
+			TargetLabel:    "sbx sandbox",
+			ConfirmTitle:   "Delete sbx sandbox?",
+			Warning:        "This will remove the sbx sandbox.",
+			SuccessMessage: "Deleted " + name,
 		}, true, nil
 	}
 	return protocol.DeletePreview{}, false, nil

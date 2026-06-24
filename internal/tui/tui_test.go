@@ -261,7 +261,7 @@ func TestMoveCursorUsesRenderedTaskOrder(t *testing.T) {
 }
 
 func TestDeleteConfirmViewShowsTmuxSessionOnlyDelete(t *testing.T) {
-	model := model{mode: "delete_confirm", delete: protocol.DeletePreview{SessionName: "$3", SessionOnly: true}}
+	model := model{mode: "delete_confirm", delete: protocol.DeletePreview{SessionName: "$3", SessionOnly: true, ConfirmTitle: "Delete tmux session?", Warning: "This will kill only the tmux session."}}
 
 	view := model.View()
 	for _, want := range []string{"Delete tmux session?", "kill only the tmux session", "$3"} {
@@ -275,7 +275,7 @@ func TestDeleteConfirmViewShowsTmuxSessionOnlyDelete(t *testing.T) {
 }
 
 func TestDeleteConfirmViewShowsSbxSandboxDelete(t *testing.T) {
-	model := model{mode: "delete_confirm", delete: protocol.DeletePreview{Source: "sbx", Kind: "sandbox", Title: "radar-repo-small-fix", Path: "/repo/small-fix"}}
+	model := model{mode: "delete_confirm", delete: protocol.DeletePreview{Title: "radar-repo-small-fix", Path: "/repo/small-fix", ConfirmTitle: "Delete sbx sandbox?", Warning: "This will remove the sbx sandbox."}}
 
 	view := model.View()
 	for _, want := range []string{"Delete sbx sandbox?", "remove the sbx sandbox", "radar-repo-small-fix", "/repo/small-fix"} {
@@ -286,7 +286,7 @@ func TestDeleteConfirmViewShowsSbxSandboxDelete(t *testing.T) {
 }
 
 func TestDeleteConfirmViewWarnsAboutDirtyWorkspace(t *testing.T) {
-	model := model{mode: "delete_confirm", delete: protocol.DeletePreview{Path: "/repo/worktrees/small-fix", Branch: "small-fix", SessionName: "repo-small-fix", Dirty: true}}
+	model := model{mode: "delete_confirm", delete: protocol.DeletePreview{Path: "/repo/worktrees/small-fix", Branch: "small-fix", SessionName: "repo-small-fix", Dirty: true, ConfirmTitle: "Delete dirty workspace?", Warning: "This worktree has uncommitted changes. Deleting will permanently discard them."}}
 
 	view := model.View()
 	for _, want := range []string{"Delete dirty workspace?", "uncommitted changes", "/repo/worktrees/small-fix", "small-fix", "repo-small-fix"} {
@@ -400,82 +400,12 @@ func TestGitHubPullRequestNumber(t *testing.T) {
 	}
 }
 
-func TestWorktreeRefFindsGitWorktreeSource(t *testing.T) {
-	task := protocol.Task{SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/repo/worktrees/small-fix"}}}
-
-	ref, ok := worktreeRef(task)
-	if !ok || ref.Path != "/repo/worktrees/small-fix" {
-		t.Fatalf("worktreeRef() = %#v, %v", ref, ok)
-	}
-}
-
-func TestCurrentWorktreeRefSelectsMatchingWorkspace(t *testing.T) {
-	task := protocol.Task{SourceRefs: []protocol.SourceRef{
-		{Source: "git", Kind: "worktree", Path: "/repo/worktrees/other"},
-		{Source: "git", Kind: "worktree", Path: "/repo/worktrees/current"},
-	}}
-
-	ref, ok := currentWorktreeRef(task, currentTaskHints{cwd: "/repo/worktrees/current/internal", worktree: "/repo/worktrees/current"})
-	if !ok || ref.Path != "/repo/worktrees/current" {
-		t.Fatalf("currentWorktreeRef() = %#v, %v; want current workspace", ref, ok)
-	}
-}
-
-func TestCurrentWorktreeRefRejectsNonCurrentWorkspace(t *testing.T) {
-	task := protocol.Task{SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/repo/worktrees/other"}}}
-
-	ref, ok := currentWorktreeRef(task, currentTaskHints{cwd: "/repo/worktrees/current", worktree: "/repo/worktrees/current"})
-	if ok {
-		t.Fatalf("currentWorktreeRef() = %#v, true; want no match", ref)
-	}
-}
-
 func TestFuzzyMatch(t *testing.T) {
 	if !fuzzyMatch("/repo/radar", "rdr") {
 		t.Fatal("fuzzyMatch() did not match ordered characters")
 	}
 	if fuzzyMatch("/repo/radar", "zzz") {
 		t.Fatal("fuzzyMatch() matched missing characters")
-	}
-}
-
-func TestTaskCursorForHintsPrefersCurrentWorktree(t *testing.T) {
-	tasks := []protocol.Task{
-		{Title: "other", SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/workspaces/repo/other"}}},
-		{Title: "current", SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/workspaces/repo/current"}}},
-	}
-
-	cursor, ok := taskCursorForHints(tasks, currentTaskHints{cwd: "/workspaces/repo/current/internal", worktree: "/workspaces/repo/current"})
-	if !ok || cursor != 1 {
-		t.Fatalf("taskCursorForHints() = %d, %v; want 1, true", cursor, ok)
-	}
-}
-
-func TestTaskCursorForHintsMatchesTmuxSession(t *testing.T) {
-	tasks := []protocol.Task{
-		{Title: "other", SourceRefs: []protocol.SourceRef{{Source: "tmux", Kind: "session", Metadata: map[string]string{"session_id": "$1", "session": "other"}}}},
-		{Title: "current", SourceRefs: []protocol.SourceRef{{Source: "tmux", Kind: "session", Metadata: map[string]string{"session_id": "$2", "session": "repo-current"}}}},
-	}
-
-	cursor, ok := taskCursorForHints(tasks, currentTaskHints{sessionName: "repo-current", sessionID: "$2"})
-	if !ok || cursor != 1 {
-		t.Fatalf("taskCursorForHints() = %d, %v; want 1, true", cursor, ok)
-	}
-}
-
-func TestTmuxSessionTargetUsesStableSessionID(t *testing.T) {
-	task := protocol.Task{SourceRefs: []protocol.SourceRef{{
-		Source: "tmux",
-		Kind:   "session",
-		Title:  "radar",
-		Metadata: map[string]string{
-			"session_id":    "$3",
-			"switch_target": "$3",
-		},
-	}}}
-
-	if got := tmuxSessionTarget(task); got != "$3" {
-		t.Fatalf("tmuxSessionTarget() = %q, want $3", got)
 	}
 }
 
