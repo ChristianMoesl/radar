@@ -107,6 +107,8 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 
 func TestCreateStartsConfiguredSandboxForPiWindowOnly(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	repo := t.TempDir()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
@@ -127,14 +129,10 @@ func TestCreateStartsConfiguredSandboxForPiWindowOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatal(err)
-	}
 	if workspace.SandboxName != "radar-"+filepath.Base(repo)+"-small-fix" {
 		t.Fatalf("sandbox name = %q", workspace.SandboxName)
 	}
-	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --template example/radar-sandbox:test shell "+workspace.Path+" "+filepath.Join(home, ".pi", "agent"))
+	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --template example/radar-sandbox:test shell "+workspace.Path+" "+filepath.Join(home, ".pi", "agent")+":ro "+filepath.Join(home, ".pi", "agent", "sessions"))
 	assertCalledContains(t, runner.calls, "tmux", "sbx exec -it --workdir '"+workspace.Path+"' '"+workspace.SandboxName+"' sh -lc")
 	assertCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_DIR=")
 	assertCalledContains(t, runner.calls, "tmux", filepath.Join(home, ".pi", "agent"))

@@ -16,7 +16,8 @@ When Radar creates a new workspace and tmux session, the Pi window should run Pi
 The sandbox should have access to:
 
 - the workspace path
-- the host Pi auth file: `~/.pi/agent/auth.json`
+- the host Pi agent directory as read-only state
+- the host Pi sessions directory as writable state
 
 This should support both Pi providers:
 
@@ -25,17 +26,18 @@ This should support both Pi providers:
 
 ## SBX sandbox creation
 
-On macOS, Radar should create a sandbox with the Pi agent directory mount. SBX requires mount paths to be directories, so mount `~/.pi/agent` instead of the individual auth file:
+On macOS, Radar should create a sandbox with the Pi agent directory mounted read-only and the sessions directory mounted writable. SBX requires mount paths to be directories, so mount `~/.pi/agent` instead of the individual auth file:
 
 ```sh
 sbx create \
   --name <sandbox-name> \
   --template christianmoesl/radar-sandbox:latest \
   shell <workspace-path> \
-  ~/.pi/agent
+  ~/.pi/agent:ro \
+  ~/.pi/agent/sessions
 ```
 
-The auth directory mount should be read-write because Pi may refresh or rotate OAuth tokens.
+Only the sessions directory should be writable from inside SBX. Pi configuration, prompts, extensions, helper binaries, and auth state should not be silently modified by sandboxed processes.
 
 ## Pi tmux command
 
@@ -83,7 +85,7 @@ When creating a new workspace:
 1. Clone or create the workspace as Radar does today.
 2. Create the SBX sandbox for that workspace.
 3. Mount the workspace path.
-4. Mount `~/.pi/agent`.
+4. Mount `~/.pi/agent` read-only and `~/.pi/agent/sessions` writable.
 5. Create the tmux session.
 6. Start the Pi window through `sbx exec`.
 7. Leave other tmux windows unchanged.
@@ -92,10 +94,7 @@ When creating a new workspace:
 
 Pi should use the mounted host auth file through `PI_CODING_AGENT_DIR`.
 
-This lets Pi refresh OAuth tokens normally for:
-
-- `openai-codex/*`
-- `github-copilot/*`
+This lets Pi read provider credentials and write conversation sessions while preventing sandboxed processes from changing persistent host Pi behavior.
 
 ## Non-goals
 
@@ -110,8 +109,8 @@ This lets Pi refresh OAuth tokens normally for:
 ## Risks
 
 - Mounting `auth.json` exposes Pi OAuth tokens to the sandbox.
-- Mounting the full `~/.pi/agent` directory exposes more than `auth.json`, but SBX does not accept file mounts.
-- Read-only auth mounts may break token refresh, so use read-write.
+- Mounting `~/.pi/agent` exposes more than `auth.json`, but the read-only mount prevents persistent modification of host Pi behavior.
+- Read-only auth mounts may break token refresh flows that need to update credentials.
 
 ## Validation
 

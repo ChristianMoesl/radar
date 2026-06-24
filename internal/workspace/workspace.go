@@ -427,7 +427,11 @@ func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConf
 	if err != nil {
 		return "", err
 	}
-	return runner.Run(ctx, path, "sbx", "create", "--name", name, "--template", template, "shell", path, authDir)
+	sessionsDir := filepath.Join(authDir, "sessions")
+	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
+		return "", fmt.Errorf("could not prepare Pi sessions mount: %w", err)
+	}
+	return runner.Run(ctx, path, "sbx", "create", "--name", name, "--template", template, "shell", path, authDir+":ro", sessionsDir)
 }
 
 func stopSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {

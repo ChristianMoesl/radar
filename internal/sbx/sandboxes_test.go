@@ -15,7 +15,8 @@ func TestParseSandboxes(t *testing.T) {
       "status": "running",
       "workspaces": [
         "/Users/me/radar/rb3ca-experience-center/DPSCAP-600-Integrate-generated-links",
-        "/Users/me/.pi/agent"
+        "/Users/me/.pi/agent",
+        "/Users/me/.pi/agent/sessions"
       ]
     }
   ]
@@ -40,6 +41,7 @@ func TestSandboxSourceRef(t *testing.T) {
 		Workspaces: []string{
 			"/Users/me/radar/rb3ca-experience-center/DPSCAP-600-Integrate-generated-links",
 			"/Users/me/.pi/agent",
+			"/Users/me/.pi/agent/sessions",
 		},
 	}
 
@@ -61,13 +63,13 @@ func TestSandboxSourceRef(t *testing.T) {
 	if !reflect.DeepEqual(ref.LinkingKeys, wantKeys) {
 		t.Fatalf("linking keys = %+v, want %+v", ref.LinkingKeys, wantKeys)
 	}
-	if ref.Metadata["id"] != s.ID || ref.Metadata["agent"] != "shell" || ref.Metadata["workspace_count"] != "2" {
+	if ref.Metadata["id"] != s.ID || ref.Metadata["agent"] != "shell" || ref.Metadata["workspace_count"] != "3" {
 		t.Fatalf("metadata = %+v", ref.Metadata)
 	}
 }
 
 func TestPrimarySandboxWorkspaceSkipsPiAgentMount(t *testing.T) {
-	workspace := primarySandboxWorkspace([]string{"/Users/me/.pi/agent", "/repo/worktree"})
+	workspace := primarySandboxWorkspace([]string{"/Users/me/.pi/agent", "/Users/me/.pi/agent/sessions", "/repo/worktree"})
 	if workspace != "/repo/worktree" {
 		t.Fatalf("workspace = %q, want /repo/worktree", workspace)
 	}

@@ -137,12 +137,17 @@ func primarySandboxWorkspace(workspaces []string) string {
 		if workspace == "" {
 			continue
 		}
-		if strings.HasSuffix(filepath.ToSlash(workspace), "/.pi/agent") {
+		if isPiAgentMount(workspace) {
 			continue
 		}
 		return workspace
 	}
 	return ""
+}
+
+func isPiAgentMount(path string) bool {
+	path = filepath.ToSlash(path)
+	return strings.HasSuffix(path, "/.pi/agent") || strings.Contains(path, "/.pi/agent/")
 }
 
 func sbxOutput(ctx context.Context, args ...string) (string, error) {
