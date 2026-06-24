@@ -824,13 +824,14 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 		}
 		switchAfterCreate := os.Getenv("TMUX") != ""
 		options := workspace.CreateOptions{
-			Repo:          form.repo,
-			Base:          form.base,
-			Name:          form.name,
-			Model:         cfg.Model,
-			Thinking:      cfg.Thinking,
-			Switch:        switchAfterCreate,
-			ForkPiSession: form.forkPiSession,
+			Repo:            form.repo,
+			Base:            form.base,
+			Name:            form.name,
+			Model:           cfg.Model,
+			Thinking:        cfg.Thinking,
+			SandboxTemplate: cfg.SandboxTemplate,
+			Switch:          switchAfterCreate,
+			ForkPiSession:   form.forkPiSession,
 		}
 		if form.forkPiSession != "" && form.sourceRepoName != "" {
 			root, err := workspace.DefaultRoot()
@@ -1405,12 +1406,13 @@ func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
 		}
 		switchAfterCreate := os.Getenv("TMUX") != ""
 		created, err := workspace.Create(context.Background(), runner, workspace.CreateOptions{
-			Repo:     repo,
-			Base:     "origin/" + name,
-			Name:     name,
-			Model:    cfg.Model,
-			Thinking: cfg.Thinking,
-			Switch:   switchAfterCreate,
+			Repo:            repo,
+			Base:            "origin/" + name,
+			Name:            name,
+			Model:           cfg.Model,
+			Thinking:        cfg.Thinking,
+			SandboxTemplate: cfg.SandboxTemplate,
+			Switch:          switchAfterCreate,
 		})
 		if err != nil {
 			return actionMsg{err: err}

@@ -8,12 +8,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"radar/internal/pi"
 )
 
 var invalidWorkspaceNameCharacters = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+
+var workspaceGOOS = runtime.GOOS
+
+const defaultSandboxTemplate = "christianmoesl/radar-sandbox:latest"
 
 type Runner interface {
 	LookPath(name string) error
@@ -38,17 +43,18 @@ func (ExecRunner) Run(ctx context.Context, cwd string, name string, args ...stri
 }
 
 type CreateOptions struct {
-	Repo          string
-	Name          string
-	Branch        string
-	Base          string
-	Path          string
-	SessionName   string
-	WorkspaceRoot string
-	Model         string
-	Thinking      string
-	Switch        bool
-	ForkPiSession string
+	Repo            string
+	Name            string
+	Branch          string
+	Base            string
+	Path            string
+	SessionName     string
+	WorkspaceRoot   string
+	Model           string
+	Thinking        string
+	SandboxTemplate string
+	Switch          bool
+	ForkPiSession   string
 }
 
 type Workspace struct {
@@ -62,7 +68,7 @@ type Workspace struct {
 }
 
 func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
-	for _, dependency := range []string{"git", "tmux", "pi", "nvim"} {
+	for _, dependency := range []string{"git", "tmux", "nvim"} {
 		if err := runner.LookPath(dependency); err != nil {
 			return Workspace{}, fmt.Errorf("workspace creation requires %q: %w", dependency, err)
 		}
@@ -83,9 +89,14 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		return Workspace{}, err
 	}
 	if repoConfig.Sandbox != nil {
-		if err := runner.LookPath("docker"); err != nil {
-			return Workspace{}, fmt.Errorf("workspace sandbox requires %q: %w", "docker", err)
+		if workspaceGOOS != "darwin" {
+			return Workspace{}, fmt.Errorf("workspace sandbox is only supported on macOS")
 		}
+		if err := runner.LookPath("sbx"); err != nil {
+			return Workspace{}, fmt.Errorf("workspace sandbox requires %q: %w", "sbx", err)
+		}
+	} else if err := runner.LookPath("pi"); err != nil {
+		return Workspace{}, fmt.Errorf("workspace creation requires %q: %w", "pi", err)
 	}
 	name := strings.TrimSpace(options.Name)
 	repoName := filepath.Base(repo)
@@ -152,8 +163,12 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 			return Workspace{}, err
 		}
 	}
+	sandboxTemplate := strings.TrimSpace(options.SandboxTemplate)
+	if sandboxTemplate == "" {
+		sandboxTemplate = defaultSandboxTemplate
+	}
 	if repoConfig.Sandbox != nil {
-		if _, err := startSandbox(ctx, runner, path, *repoConfig.Sandbox, sandboxName); err != nil {
+		if _, err := startSandbox(ctx, runner, path, *repoConfig.Sandbox, sandboxName, sandboxTemplate); err != nil {
 			rollback()
 			return Workspace{}, err
 		}
@@ -169,22 +184,18 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 			thinking = repoConfig.Thinking
 		}
 		piCommandText := piCommand(sessionName, model, thinking, options.ForkPiSession)
+		if repoConfig.Sandbox != nil {
+			piCommandText, err = sandboxPiCommand(path, sandboxName, sessionName, model, thinking, options.ForkPiSession)
+			if err != nil {
+				rollback()
+				return Workspace{}, err
+			}
+		}
 		if _, err := runner.Run(ctx, repo, "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, piCommandText); err != nil {
 			rollback()
 			return Workspace{}, err
 		}
 		createdSession = true
-		if repoConfig.Sandbox != nil {
-			shellCommand := sandboxRunCommand(sandboxName)
-			if _, err := runner.Run(ctx, repo, "tmux", "set-option", "-t", sessionName, "default-command", shellCommand); err != nil {
-				rollback()
-				return Workspace{}, err
-			}
-			if _, err := runner.Run(ctx, repo, "tmux", "new-window", "-t", sessionName+":", "-n", "shell", "-c", path, shellCommand); err != nil {
-				rollback()
-				return Workspace{}, err
-			}
-		}
 		if _, err := runner.Run(ctx, repo, "tmux", "new-window", "-t", sessionName+":", "-n", "nvim", "-c", path, "nvim ."); err != nil {
 			rollback()
 			return Workspace{}, err
@@ -276,7 +287,7 @@ func Delete(ctx context.Context, runner Runner, path string, sessionName string,
 	sandboxName := ""
 	if repoConfig, err := loadRepoConfig(path); err != nil {
 		return Workspace{}, err
-	} else if repoConfig.Sandbox != nil {
+	} else if repoConfig.Sandbox != nil && workspaceGOOS == "darwin" {
 		sandboxName = SandboxName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
 		if _, err := stopSandbox(ctx, runner, path, *repoConfig.Sandbox, sandboxName); err != nil {
 			return Workspace{}, err
@@ -364,16 +375,42 @@ func copyFile(source string, target string, mode os.FileMode) error {
 	return output.Close()
 }
 
-func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
-	return runner.Run(ctx, path, "docker", "sandbox", "create", "--name", name, "shell", path)
+func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string, template string) (string, error) {
+	authFile, err := piAuthFile()
+	if err != nil {
+		return "", err
+	}
+	return runner.Run(ctx, path, "sbx", "create", "--name", name, "--template", template, "shell", path, authFile)
 }
 
 func stopSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
-	return runner.Run(ctx, path, "docker", "sandbox", "rm", name)
+	return runner.Run(ctx, path, "sbx", "rm", name)
 }
 
-func sandboxRunCommand(name string) string {
-	return "docker sandbox run " + shellQuote(name)
+func sandboxPiCommand(path string, sandboxName string, sessionName string, model string, thinking string, forkSession string) (string, error) {
+	authDir, err := piAuthDir()
+	if err != nil {
+		return "", err
+	}
+	innerCommand := "PI_CODING_AGENT_DIR=" + shellQuote(authDir) + " " + piCommand(sessionName, model, thinking, forkSession)
+	args := []string{"sbx", "exec", "--workdir", shellQuote(path), shellQuote(sandboxName), "sh", "-lc", shellQuote(innerCommand)}
+	return strings.Join(args, " "), nil
+}
+
+func piAuthFile() (string, error) {
+	dir, err := piAuthDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "auth.json"), nil
+}
+
+func piAuthDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("could not determine home directory for Pi auth mount: %w", err)
+	}
+	return filepath.Join(home, ".pi", "agent"), nil
 }
 
 func piCommand(sessionName string, model string, thinking string, forkSession string) string {

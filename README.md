@@ -15,6 +15,7 @@ Radar uses these local tools:
 - `fd` for fast repository discovery in `radar create`
 - `git` for repository and worktree operations
 - `tmux`, `pi`, and `nvim` for workspace creation
+- `sbx` on macOS for repositories that enable sandboxed Pi sessions
 
 Radar opens task URLs with the platform URL opener when you press `o` and choose a URL-backed source such as Jira or GitHub:
 
@@ -102,7 +103,15 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 }
 ```
 
-`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created. If `sandbox` is configured, Radar runs `docker sandbox create --name <sandbox-name> shell <workspace-path>` from the new worktree, creates a `shell` tmux window with `docker sandbox run <sandbox-name>`, and configures new tmux windows in the workspace session to open sandbox shells by default. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created. On macOS, if `sandbox` is configured, Radar creates an SBX sandbox for the workspace with `sbx create --template <sandbox_template>`, mounts the workspace plus `~/.pi/agent/auth.json`, and starts only the `pi` tmux window through `sbx exec`. The `nvim` window and any ordinary shell windows remain on the host. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
+
+Configure the SBX template image in the user config at `radar config-path`:
+
+```json
+{
+  "sandbox_template": "christianmoesl/radar-sandbox:latest"
+}
+```
 
 When run inside tmux, Radar switches to the new session.
 

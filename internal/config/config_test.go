@@ -22,6 +22,9 @@ func TestLoadUsesDefaultsWhenConfigIsMissing(t *testing.T) {
 	if cfg.WorkspaceRoot != "~/workspaces" {
 		t.Fatalf("WorkspaceRoot = %q", cfg.WorkspaceRoot)
 	}
+	if cfg.SandboxTemplate != "christianmoesl/radar-sandbox:latest" {
+		t.Fatalf("SandboxTemplate = %q", cfg.SandboxTemplate)
+	}
 }
 
 func TestLoadReadsConfigFile(t *testing.T) {
@@ -38,6 +41,7 @@ func TestLoadReadsConfigFile(t *testing.T) {
   "workspace_root": "~/streams",
   "model": "github-copilot/claude-sonnet-4.5",
   "thinking": "high",
+  "sandbox_template": "example/radar-sandbox:test",
   "filters": {"mute_repos": ["org/noisy"]}
 }`), 0o600); err != nil {
 		t.Fatal(err)
@@ -58,6 +62,9 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	}
 	if cfg.Thinking != "high" {
 		t.Fatalf("Thinking = %q", cfg.Thinking)
+	}
+	if cfg.SandboxTemplate != "example/radar-sandbox:test" {
+		t.Fatalf("SandboxTemplate = %q", cfg.SandboxTemplate)
 	}
 	if !reflect.DeepEqual(cfg.Filters.MuteRepos, []string{"org/noisy"}) {
 		t.Fatalf("Filters.MuteRepos = %#v", cfg.Filters.MuteRepos)

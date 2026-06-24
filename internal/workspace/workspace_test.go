@@ -84,7 +84,8 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
 }
 
-func TestCreateStartsConfiguredSandbox(t *testing.T) {
+func TestCreateStartsConfiguredSandboxForPiWindowOnly(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	repo := t.TempDir()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
@@ -95,21 +96,53 @@ func TestCreateStartsConfiguredSandbox(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
-		Repo:          repo,
-		Name:          "small fix",
-		Base:          "origin/main",
-		WorkspaceRoot: root,
+		Repo:            repo,
+		Name:            "small fix",
+		Base:            "origin/main",
+		WorkspaceRoot:   root,
+		SandboxTemplate: "example/radar-sandbox:test",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if workspace.SandboxName != "radar-"+filepath.Base(repo)+"-small-fix" {
 		t.Fatalf("sandbox name = %q", workspace.SandboxName)
 	}
-	assertCalled(t, runner.calls, "docker", "sandbox create --name "+workspace.SandboxName+" shell "+workspace.Path)
-	assertCalled(t, runner.calls, "tmux", "set-option -t "+workspace.SessionName+" default-command docker sandbox run '"+workspace.SandboxName+"'")
-	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+": -n shell -c "+workspace.Path+" docker sandbox run '"+workspace.SandboxName+"'")
+	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --template example/radar-sandbox:test shell "+workspace.Path+" "+filepath.Join(home, ".pi", "agent", "auth.json"))
+	assertCalledContains(t, runner.calls, "tmux", "sbx exec --workdir '"+workspace.Path+"' '"+workspace.SandboxName+"' sh -lc")
+	assertCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_DIR=")
+	assertCalledContains(t, runner.calls, "tmux", filepath.Join(home, ".pi", "agent"))
+	assertCalledContains(t, runner.calls, "tmux", "pi --session-id")
+	assertCalledContains(t, runner.calls, "tmux", workspace.SessionName)
+	assertNotCalled(t, runner.calls, "docker")
+	assertNotCalledContains(t, runner.calls, "tmux", "default-command")
+	assertNotCalledContains(t, runner.calls, "tmux", "-n shell")
+}
+
+func TestCreateRejectsConfiguredSandboxOutsideMacOS(t *testing.T) {
+	withWorkspaceGOOS(t, "linux")
+	repo := t.TempDir()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"sandbox": {}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{repo: repo}
+
+	_, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		Name:          "small fix",
+		Base:          "origin/main",
+		WorkspaceRoot: root,
+	})
+	if err == nil || !strings.Contains(err.Error(), "only supported on macOS") {
+		t.Fatalf("Create() error = %v, want macOS-only sandbox error", err)
+	}
+	assertNotCalled(t, runner.calls, "sbx")
 }
 
 func TestCreateForksPiSession(t *testing.T) {
@@ -249,6 +282,7 @@ func TestDeleteKillsSessionAndRemovesWorktree(t *testing.T) {
 }
 
 func TestDeleteStopsConfiguredSandbox(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	runner := &fakeRunner{hasSession: true}
 	path := filepath.Join(t.TempDir(), "repo", "small-fix")
 	if err := os.MkdirAll(path, 0o755); err != nil {
@@ -267,7 +301,7 @@ func TestDeleteStopsConfiguredSandbox(t *testing.T) {
 		t.Fatalf("sandbox name = %q", deleted.SandboxName)
 	}
 	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
-	assertCalled(t, runner.calls, "docker", "sandbox rm radar-repo-small-fix")
+	assertCalled(t, runner.calls, "sbx", "rm radar-repo-small-fix")
 	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove "+path)
 }
 
@@ -358,6 +392,31 @@ func assertCalledContains(t *testing.T, calls []call, name string, argsPart stri
 		}
 	}
 	t.Fatalf("%s containing %s was not called; calls: %#v", name, argsPart, calls)
+}
+
+func assertNotCalled(t *testing.T, calls []call, name string) {
+	t.Helper()
+	for _, call := range calls {
+		if call.name == name {
+			t.Fatalf("%s was called unexpectedly; calls: %#v", name, calls)
+		}
+	}
+}
+
+func assertNotCalledContains(t *testing.T, calls []call, name string, argsPart string) {
+	t.Helper()
+	for _, call := range calls {
+		if call.name == name && strings.Contains(strings.Join(call.args, " "), argsPart) {
+			t.Fatalf("%s containing %s was called unexpectedly; calls: %#v", name, argsPart, calls)
+		}
+	}
+}
+
+func withWorkspaceGOOS(t *testing.T, value string) {
+	t.Helper()
+	previous := workspaceGOOS
+	workspaceGOOS = value
+	t.Cleanup(func() { workspaceGOOS = previous })
 }
 
 type dirtyRunner struct {

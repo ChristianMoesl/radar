@@ -11,11 +11,12 @@ import (
 )
 
 type Config struct {
-	RepositoryDirs []string       `json:"repository_dirs,omitempty"`
-	WorkspaceRoot  string         `json:"workspace_root,omitempty"`
-	Model          string         `json:"model,omitempty"`
-	Thinking       string         `json:"thinking,omitempty"`
-	Filters        filters.Config `json:"filters,omitempty"`
+	RepositoryDirs  []string       `json:"repository_dirs,omitempty"`
+	WorkspaceRoot   string         `json:"workspace_root,omitempty"`
+	Model           string         `json:"model,omitempty"`
+	Thinking        string         `json:"thinking,omitempty"`
+	SandboxTemplate string         `json:"sandbox_template,omitempty"`
+	Filters         filters.Config `json:"filters,omitempty"`
 }
 
 func Path() (string, error) {
@@ -82,8 +83,9 @@ func EnsureFile() (string, error) {
 
 func Default() Config {
 	cfg := Config{
-		RepositoryDirs: []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"},
-		WorkspaceRoot:  "~/workspaces",
+		RepositoryDirs:  []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"},
+		WorkspaceRoot:   "~/workspaces",
+		SandboxTemplate: "christianmoesl/radar-sandbox:latest",
 		Filters: filters.Config{
 			MuteRepos:         []string{},
 			DeprioritizeRepos: []string{},
@@ -109,6 +111,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if strings.TrimSpace(cfg.WorkspaceRoot) == "" {
 		cfg.WorkspaceRoot = defaults.WorkspaceRoot
+	}
+	if strings.TrimSpace(cfg.SandboxTemplate) == "" {
+		cfg.SandboxTemplate = defaults.SandboxTemplate
 	}
 }
 
