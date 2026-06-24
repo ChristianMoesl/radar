@@ -34,8 +34,17 @@ func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...str
 		}
 		return "", nil
 	}
-	if name == "git" && len(args) > 4 && args[0] == "worktree" && args[1] == "add" {
+	if name == "git" && len(args) > 0 && args[0] == "show-ref" {
+		return "", errors.New("missing")
+	}
+	if name == "git" && len(args) > 0 && strings.Join(args, " ") == "worktree list --porcelain" {
+		return "", nil
+	}
+	if name == "git" && len(args) > 4 && args[0] == "worktree" && args[1] == "add" && args[2] == "-b" {
 		return "", os.MkdirAll(args[4], 0o755)
+	}
+	if name == "git" && len(args) > 3 && args[0] == "worktree" && args[1] == "add" {
+		return "", os.MkdirAll(args[2], 0o755)
 	}
 	return "", nil
 }

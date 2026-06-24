@@ -168,7 +168,19 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	if sessionName == "" {
 		sessionName = SessionName(repoName, name)
 	}
+	sandboxName := ""
+	if repoConfig.Sandbox != nil {
+		sandboxName = SandboxName(repoName, name)
+	}
+	if existingPath, ok, err := worktreePathForBranch(ctx, runner, repo, branch); err != nil {
+		return Workspace{}, err
+	} else if ok {
+		return openExistingWorkspace(ctx, runner, Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: existingPath, SessionName: sessionName, SandboxName: sandboxName}, options.Switch)
+	}
 	if _, err := os.Stat(path); err == nil {
+		if isGitWorktree(ctx, runner, path) {
+			return openExistingWorkspace(ctx, runner, Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName, SandboxName: sandboxName}, options.Switch)
+		}
 		return Workspace{}, fmt.Errorf("workspace already exists: %s", path)
 	} else if !os.IsNotExist(err) {
 		return Workspace{}, err
@@ -177,19 +189,20 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		return Workspace{}, err
 	}
 
-	args := []string{"worktree", "add", "-b", branch, path}
-	if options.Base != "" {
-		args = append(args, options.Base)
+	args := []string{"worktree", "add"}
+	if branchExists(ctx, runner, repo, branch) {
+		args = append(args, path, branch)
+	} else {
+		args = append(args, "-b", branch, path)
+		if options.Base != "" {
+			args = append(args, options.Base)
+		}
 	}
 	if _, err := runner.Run(ctx, repo, "git", args...); err != nil {
 		return Workspace{}, err
 	}
 	createdSession := false
 	createdSandbox := false
-	sandboxName := ""
-	if repoConfig.Sandbox != nil {
-		sandboxName = SandboxName(repoName, name)
-	}
 	rollback := func() {
 		if createdSession {
 			_, _ = runner.Run(ctx, repo, "tmux", "kill-session", "-t", sessionName)
@@ -259,6 +272,62 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	}
 
 	return Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName, SandboxName: sandboxName}, nil
+}
+
+func openExistingWorkspace(ctx context.Context, runner Runner, workspace Workspace, switchClient bool) (Workspace, error) {
+	created, err := CreateSession(ctx, runner, workspace.Path, workspace.SessionName, switchClient)
+	if err != nil {
+		return Workspace{}, err
+	}
+	workspace.Path = created.Path
+	workspace.SessionName = created.SessionName
+	return workspace, nil
+}
+
+func branchExists(ctx context.Context, runner Runner, repo string, branch string) bool {
+	_, err := runner.Run(ctx, repo, "git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	return err == nil
+}
+
+func isGitWorktree(ctx context.Context, runner Runner, path string) bool {
+	_, err := runner.Run(ctx, path, "git", "rev-parse", "--show-toplevel")
+	return err == nil
+}
+
+func worktreePathForBranch(ctx context.Context, runner Runner, repo string, branch string) (string, bool, error) {
+	output, err := runner.Run(ctx, repo, "git", "worktree", "list", "--porcelain")
+	if err != nil {
+		return "", false, err
+	}
+	var currentPath string
+	var currentBranch string
+	flush := func() (string, bool) {
+		if currentPath != "" && currentBranch == branch {
+			return currentPath, true
+		}
+		return "", false
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if line == "" {
+			if path, ok := flush(); ok {
+				return path, true, nil
+			}
+			currentPath = ""
+			currentBranch = ""
+			continue
+		}
+		key, value, _ := strings.Cut(line, " ")
+		switch key {
+		case "worktree":
+			currentPath = value
+		case "branch":
+			currentBranch = strings.TrimPrefix(value, "refs/heads/")
+		}
+	}
+	if path, ok := flush(); ok {
+		return path, true, nil
+	}
+	return "", false, nil
 }
 
 func CreateSession(ctx context.Context, runner Runner, path string, sessionName string, switchClient bool) (Workspace, error) {
