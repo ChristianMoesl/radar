@@ -30,6 +30,10 @@ type Source interface {
 	Ingest(ctx context.Context, req Request) Result
 }
 
+type LocalSource interface {
+	Local() bool
+}
+
 type StatusReporter interface {
 	Status(ctx context.Context, logger *slog.Logger) StatusResult
 }

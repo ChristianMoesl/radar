@@ -11,19 +11,22 @@ import (
 	"radar/internal/ingestion"
 	"radar/internal/jira"
 	"radar/internal/protocol"
+	"radar/internal/sbx"
 	"radar/internal/tmux"
 )
 
 type Ingested struct {
-	Tasks      []protocol.Task
-	SourceRefs []protocol.SourceRef
-	Sources    []protocol.SourceStatus
-	Results    map[string]ingestion.Result
+	Tasks       []protocol.Task
+	SourceRefs  []protocol.SourceRef
+	Sources     []protocol.SourceStatus
+	SourceNames []string
+	Results     map[string]ingestion.Result
 }
 
 type Result struct {
-	Tasks   []protocol.Task
-	Sources []protocol.SourceStatus
+	Tasks       []protocol.Task
+	Sources     []protocol.SourceStatus
+	SourceNames []string
 }
 
 func Sources() []ingestion.Source {
@@ -32,14 +35,19 @@ func Sources() []ingestion.Source {
 		jira.NewSource(),
 		gitcollector.NewSource(),
 		tmux.NewSource(),
+		sbx.NewSource(),
 	}
 }
 
 func LocalSources() []ingestion.Source {
-	return []ingestion.Source{
-		gitcollector.NewSource(),
-		tmux.NewSource(),
+	locals := make([]ingestion.Source, 0)
+	for _, source := range Sources() {
+		local, ok := source.(ingestion.LocalSource)
+		if ok && local.Local() {
+			locals = append(locals, source)
+		}
 	}
+	return locals
 }
 
 func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Result {
@@ -58,12 +66,12 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger)
 			Logger:   logger,
 		})...)
 	}
-	return Result{Tasks: applyTaskFilters(deduplicateReconciledTasks(tasks), logger), Sources: ingested.Sources}
+	return Result{Tasks: applyTaskFilters(deduplicateReconciledTasks(tasks), logger), Sources: ingested.Sources, SourceNames: ingested.SourceNames}
 }
 
 func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Result {
 	ingested := IngestSources(ctx, previous, logger, LocalSources())
-	return Result{Tasks: applyTaskFilters(observedTasks(ingested), logger), Sources: ingested.Sources}
+	return Result{Tasks: applyTaskFilters(observedTasks(ingested), logger), Sources: ingested.Sources, SourceNames: ingested.SourceNames}
 }
 
 func Ingest(ctx context.Context, previous []protocol.Task, logger *slog.Logger) Ingested {
@@ -72,10 +80,11 @@ func Ingest(ctx context.Context, previous []protocol.Task, logger *slog.Logger) 
 
 func IngestSources(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []ingestion.Source) Ingested {
 	result := Ingested{
-		Tasks:      make([]protocol.Task, 0),
-		SourceRefs: make([]protocol.SourceRef, 0),
-		Sources:    make([]protocol.SourceStatus, 0, 4),
-		Results:    map[string]ingestion.Result{},
+		Tasks:       make([]protocol.Task, 0),
+		SourceRefs:  make([]protocol.SourceRef, 0),
+		Sources:     make([]protocol.SourceStatus, 0, 4),
+		SourceNames: make([]string, 0, len(sources)),
+		Results:     map[string]ingestion.Result{},
 	}
 
 	cfg, err := config.Load()
@@ -85,6 +94,7 @@ func IngestSources(ctx context.Context, previous []protocol.Task, logger *slog.L
 	filterCfg := cfg.Filters
 
 	for _, source := range sources {
+		result.SourceNames = append(result.SourceNames, source.Name())
 		status := ingestion.StatusResult{
 			Status: protocol.SourceStatus{Name: source.Name(), Status: "ok"},
 			CanRun: true,

@@ -7,8 +7,30 @@ import (
 	"path/filepath"
 	"testing"
 
+	"radar/internal/ingestion"
 	"radar/internal/protocol"
 )
+
+func TestLocalSourcesComeFromSourceDeclarations(t *testing.T) {
+	got := sourceNames(LocalSources())
+	want := []string{"git", "tmux", "sbx"}
+	if len(got) != len(want) {
+		t.Fatalf("local sources = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("local sources = %+v, want %+v", got, want)
+		}
+	}
+}
+
+func sourceNames(sources []ingestion.Source) []string {
+	names := make([]string, 0, len(sources))
+	for _, source := range sources {
+		names = append(names, source.Name())
+	}
+	return names
+}
 
 func TestApplyTaskFiltersRemovesMutedTasksBeforeSaving(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

@@ -18,6 +18,10 @@ func (Source) Name() string {
 	return "git"
 }
 
+func (Source) Local() bool {
+	return true
+}
+
 func (Source) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
 	return ingestion.StatusResult{
 		Status: protocol.SourceStatus{Name: "git", Status: "ok"},

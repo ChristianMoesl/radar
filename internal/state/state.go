@@ -149,8 +149,22 @@ func (s *Store) SetTasks(items []protocol.Task) {
 	s.setTasks(items, nil)
 }
 
-func (s *Store) SetLocalTasks(items []protocol.Task) {
-	s.setTasks(items, map[string]bool{"git": true, "tmux": true})
+func (s *Store) SetTasksForSources(items []protocol.Task, sourceNames []string) {
+	s.setTasks(items, sourceScope(sourceNames))
+}
+
+func sourceScope(sourceNames []string) map[string]bool {
+	if len(sourceNames) == 0 {
+		return nil
+	}
+	sources := make(map[string]bool, len(sourceNames))
+	for _, name := range sourceNames {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			sources[name] = true
+		}
+	}
+	return sources
 }
 
 func (s *Store) setTasks(items []protocol.Task, sources map[string]bool) {
@@ -883,6 +897,8 @@ func sourceOrder(source string) int {
 		return 2
 	case "tmux":
 		return 3
+	case "sbx":
+		return 4
 	default:
 		return 9
 	}

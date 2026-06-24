@@ -1,4 +1,4 @@
-package tmux
+package sbx
 
 import (
 	"context"
@@ -14,7 +14,7 @@ func NewSource() Source {
 }
 
 func (Source) Name() string {
-	return "tmux"
+	return "sbx"
 }
 
 func (Source) Local() bool {
@@ -27,10 +27,14 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusR
 }
 
 func (Source) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
-	sourceRefs, status := FetchSessions(ctx, req.Logger)
+	sourceRefs, status := FetchSandboxes(ctx, req.Logger)
 	if status.Status == "error" {
-		req.Logger.Warn("tmux session collection failed", "detail", status.Detail)
+		req.Logger.Warn("sbx sandbox collection failed", "detail", status.Detail)
 		return ingestion.Result{SourceRefs: sourceRefs}
 	}
 	return ingestion.Result{SourceRefs: sourceRefs, Complete: status.Status == "ok"}
 }
+
+var _ ingestion.Source = Source{}
+var _ ingestion.LocalSource = Source{}
+var _ ingestion.StatusReporter = Source{}

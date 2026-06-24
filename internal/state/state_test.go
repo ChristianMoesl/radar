@@ -228,7 +228,7 @@ func TestStoreRevisionIncrementsOnMutations(t *testing.T) {
 	if got := store.Revision(); got != 1 {
 		t.Fatalf("revision after SetTasks = %d, want 1", got)
 	}
-	store.SetLocalTasks([]protocol.Task{{Title: "local", Attention: "in_progress", SourceRefs: []protocol.SourceRef{{ID: "git:worktree:/tmp/a", Source: "git", Kind: "worktree"}}}})
+	store.SetTasksForSources([]protocol.Task{{Title: "local", Attention: "in_progress", SourceRefs: []protocol.SourceRef{{ID: "git:worktree:/tmp/a", Source: "git", Kind: "worktree"}}}}, []string{"git"})
 	store.SetSources([]protocol.SourceStatus{{Name: "git", Status: "ok"}})
 	store.Acknowledge("1")
 	if got := store.Revision(); got != 4 {

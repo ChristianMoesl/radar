@@ -13,6 +13,7 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 - `internal/git/`: Git worktree ingestion.
 - `internal/jira/`: Jira Cloud issue ingestion.
 - `internal/tmux/`: tmux session ingestion.
+- `internal/sbx/`: Docker sbx sandbox ingestion.
 - `internal/state/`: local persistent task cache/state and durable source-ref linking.
 
 ## Process model
@@ -81,7 +82,7 @@ collect SourceRefs
 
 The local state file persists explicit `TaskRecord`s and `SourceRefRecord`s. `Task`s are disposable projections for the socket protocol, CLI, and TUI. Task records own durable identity, stable numeric task IDs, lifecycle state, source-ref ownership, and user acknowledgement state. Source refs remain source-system facts with first/last seen timestamps and an active flag.
 
-Radar groups work ticket-first: if any linked source ref exposes a `ticket:<KEY>` linking key, that ticket is the canonical work item. Without a ticket, source-provided canonical keys decide the standalone identity; for example, local workspaces use `workspace:<path>`, GitHub PRs use `github:pr:<repo>:<number>`, and Jira issues use `jira:issue:<KEY>`. Each source ref is assigned to one task record at a time, so local and remote refs do not duplicate across multiple projected tasks.
+Radar groups work ticket-first: if any linked source ref exposes a `ticket:<KEY>` linking key, that ticket is the canonical work item. Without a ticket, source-provided canonical keys decide the standalone identity; for example, local workspaces and sbx sandboxes use `workspace:<path>`, GitHub PRs use `github:pr:<repo>:<number>`, and Jira issues use `jira:issue:<KEY>`. Each source ref is assigned to one task record at a time, so local and remote refs do not duplicate across multiple projected tasks.
 
 Source providers own all source-specific identity and linking rules. Adding a new source should not require editing `internal/state` to teach it about the source's IDs, branch formats, URLs, or ticket extraction. The source should populate `SourceRef.ID`, `SourceRef.CanonicalKey`, and `SourceRef.LinkingKeys`; state only persists refs, matches equal linking keys, chooses ticket keys first, and projects tasks.
 
@@ -108,7 +109,7 @@ The daemon stores durable task records and source-ref records on disk:
 $XDG_STATE_HOME/radar/tasks.json
 ```
 
-Projected tasks are rebuilt from this state. Full refreshes reconcile all source refs; local refreshes reconcile only Git/tmux refs and leave remote GitHub/Jira refs untouched. The file also stores source statuses so the TUI can show cached status immediately. User acknowledgement state lives on task records, not inside source-ref metadata.
+Projected tasks are rebuilt from this state. Full refreshes reconcile all source refs; local refreshes reconcile refs from sources that declare themselves local and leave remote GitHub/Jira refs untouched. The file also stores source statuses so the TUI can show cached status immediately. User acknowledgement state lives on task records, not inside source-ref metadata.
 
 ## Config
 
@@ -149,6 +150,10 @@ Git worktree integration collects configured local repositories and attaches wor
 Tmux integration collects sessions from the local tmux server. Radar attaches sessions to matching tasks when their name contains a ticket key or when the session working directory matches a Git worktree path. Sessions that do not attach to another task become standalone `in_progress` tasks.
 
 Open the TUI in a tmux popup with `tmux display-popup -E "radar"`. Selecting a tmux-backed task switches the current client by stable session ID.
+
+## Docker sbx sandboxes
+
+Docker sbx integration collects sandboxes with `sbx ls --json`. Radar attaches sandboxes to matching tasks when their name or primary workspace contains a ticket key, or when the primary workspace matches a Git worktree path. Sandboxes that do not attach to another task become standalone `in_progress` tasks.
 
 ## Workspaces
 

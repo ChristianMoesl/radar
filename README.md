@@ -1,6 +1,6 @@
 # Radar
 
-Radar is a CLI-first tool for keeping track of engineering work that needs your attention. It combines a terminal UI, scriptable commands, a background daemon, GitHub/Jira/Git/tmux collection, and workspace creation in one Go binary.
+Radar is a CLI-first tool for keeping track of engineering work that needs your attention. It combines a terminal UI, scriptable commands, a background daemon, GitHub/Jira/Git/tmux/sbx collection, and workspace creation in one Go binary.
 
 ## Build
 
@@ -162,10 +162,10 @@ Radar is a single Go binary with three modes:
 - daemon mode, started with `radar daemon`
 
 ```text
-TUI / CLI -> Unix socket -> radar daemon -> GitHub/Jira/Git/tmux/etc.
+TUI / CLI -> Unix socket -> radar daemon -> GitHub/Jira/Git/tmux/sbx/etc.
 ```
 
-The daemon keeps collection centralized so UI/status reads can use cached local state instead of polling external services repeatedly. It refreshes local Git/tmux state every 15 seconds and runs a full GitHub/Jira/Git/tmux refresh every 5 minutes.
+The daemon keeps collection centralized so UI/status reads can use cached local state instead of polling external services repeatedly. It refreshes local Git/tmux/sbx state every 15 seconds and runs a full GitHub/Jira/Git/tmux/sbx refresh every 5 minutes.
 
 ## GitHub
 
@@ -219,6 +219,10 @@ If unset, Radar tries the daemon's current working directory.
 Radar collects tmux sessions from the local tmux server and attaches them to matching tasks when their name contains a ticket key, or when the session working directory matches a Git worktree path. Sessions without matches are shown as standalone in-progress tasks.
 
 Tmux session refs use `#{session_id}` for stable identity, so renaming a tmux session does not create a new Radar task. Selecting a tmux-backed task switches to the stable session target.
+
+## Docker sbx sandboxes
+
+Radar collects Docker sbx sandboxes with `sbx ls --json` when `sbx` is installed. Sandboxes attach to matching tasks through ticket keys in the sandbox/workspace name and through their primary workspace path. Sandboxes without matches are shown as standalone in-progress tasks.
 
 ## Config
 
