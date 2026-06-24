@@ -39,19 +39,64 @@ func TestWatchResponseDoesNotResetSelection(t *testing.T) {
 		selectedCurrentTask: true,
 		revision:            1,
 		tasks: []protocol.Task{
-			{Title: "current", Attention: "in_progress"},
-			{Title: "selected", Attention: "attention"},
+			{ID: 1, Title: "current", Attention: "in_progress"},
+			{ID: 2, Title: "selected", Attention: "attention"},
 		},
 	}
 
 	updated, cmd := m.Update(watchMsg{response: protocol.Response{OK: true, Revision: 2, Tasks: []protocol.Task{
-		{Title: "current", Attention: "in_progress"},
-		{Title: "selected", Attention: "attention"},
+		{ID: 3, Title: "new", Attention: "attention"},
+		{ID: 1, Title: "current", Attention: "in_progress"},
+		{ID: 2, Title: "selected", Attention: "attention"},
 	}}})
 	got := updated.(model)
 	if cmd == nil {
 		t.Fatal("watch response should start next watch")
 	}
+	if got.cursor != 2 {
+		t.Fatalf("cursor = %d, want 2", got.cursor)
+	}
+}
+
+func TestWatchResponseSelectsSameTaskBySourceRef(t *testing.T) {
+	m := model{
+		cursor:              1,
+		selectedCurrentTask: true,
+		revision:            1,
+		tasks: []protocol.Task{
+			{Title: "first", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/repo:1"}}},
+			{Title: "selected", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/repo:2"}}},
+		},
+	}
+
+	updated, _ := m.Update(watchMsg{response: protocol.Response{OK: true, Revision: 2, Tasks: []protocol.Task{
+		{Title: "new", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/repo:3"}}},
+		{Title: "first", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/repo:1"}}},
+		{Title: "selected", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/repo:2"}}},
+	}}})
+	got := updated.(model)
+	if got.cursor != 2 {
+		t.Fatalf("cursor = %d, want 2", got.cursor)
+	}
+}
+
+func TestWatchResponseSelectsNextRenderedTaskWhenSelectedTaskDisappears(t *testing.T) {
+	m := model{
+		cursor:              1,
+		selectedCurrentTask: true,
+		revision:            1,
+		tasks: []protocol.Task{
+			{ID: 1, Title: "low", Attention: "low_priority"},
+			{ID: 2, Title: "selected", Attention: "attention"},
+			{ID: 3, Title: "progress", Attention: "in_progress"},
+		},
+	}
+
+	updated, _ := m.Update(watchMsg{response: protocol.Response{OK: true, Revision: 2, Tasks: []protocol.Task{
+		{ID: 1, Title: "low", Attention: "low_priority"},
+		{ID: 3, Title: "progress", Attention: "in_progress"},
+	}}})
+	got := updated.(model)
 	if got.cursor != 1 {
 		t.Fatalf("cursor = %d, want 1", got.cursor)
 	}

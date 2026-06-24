@@ -1181,6 +1181,14 @@ func (m model) detailView(width int) string {
 }
 
 func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool) {
+	var selectedTask *protocol.Task
+	selectedPosition := -1
+	if response.Tasks != nil && m.cursor >= 0 && m.cursor < len(m.tasks) {
+		selected := m.tasks[m.cursor]
+		selectedTask = &selected
+		selectedPosition = m.cursorPosition()
+	}
+
 	if response.Revision > m.revision {
 		m.revision = response.Revision
 	}
@@ -1189,6 +1197,7 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 	}
 	if response.Tasks != nil {
 		m.tasks = response.Tasks
+		m.restoreCursor(selectedTask, selectedPosition)
 	}
 	if response.Sources != nil {
 		m.sources = response.Sources
@@ -1202,6 +1211,65 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 	if m.cursor >= len(m.tasks) {
 		m.cursor = max(0, len(m.tasks)-1)
 	}
+}
+
+func (m model) cursorPosition() int {
+	for position, cursor := range m.taskCursorOrder() {
+		if cursor == m.cursor {
+			return position
+		}
+	}
+	return -1
+}
+
+func (m *model) restoreCursor(selectedTask *protocol.Task, selectedPosition int) {
+	if selectedTask != nil {
+		if cursor, ok := matchingTaskCursor(m.tasks, *selectedTask); ok {
+			m.cursor = cursor
+			return
+		}
+	}
+
+	order := m.taskCursorOrder()
+	if len(order) == 0 {
+		m.cursor = 0
+		return
+	}
+	if selectedPosition >= 0 {
+		m.cursor = order[min(selectedPosition, len(order)-1)]
+		return
+	}
+	if m.cursor >= len(m.tasks) {
+		m.cursor = max(0, len(m.tasks)-1)
+	}
+}
+
+func matchingTaskCursor(tasks []protocol.Task, selected protocol.Task) (int, bool) {
+	if selected.ID != 0 {
+		for i, task := range tasks {
+			if task.ID == selected.ID {
+				return i, true
+			}
+		}
+	}
+
+	selectedRefs := make(map[string]struct{}, len(selected.SourceRefs))
+	for _, ref := range selected.SourceRefs {
+		if ref.ID != "" {
+			selectedRefs[ref.ID] = struct{}{}
+		}
+	}
+	if len(selectedRefs) == 0 {
+		return 0, false
+	}
+	for i, task := range tasks {
+		for _, ref := range task.SourceRefs {
+			if _, ok := selectedRefs[ref.ID]; ok && ref.ID != "" {
+				return i, true
+			}
+		}
+	}
+	return 0, false
 }
 
 func (m model) fetch(method string) tea.Cmd {
