@@ -261,7 +261,7 @@ func TestMoveCursorUsesRenderedTaskOrder(t *testing.T) {
 }
 
 func TestDeleteConfirmViewShowsTmuxSessionOnlyDelete(t *testing.T) {
-	model := model{mode: "delete_confirm", delete: deletePreview{SessionName: "$3", SessionOnly: true}}
+	model := model{mode: "delete_confirm", delete: protocol.DeletePreview{SessionName: "$3", SessionOnly: true}}
 
 	view := model.View()
 	for _, want := range []string{"Delete tmux session?", "kill only the tmux session", "$3"} {
@@ -275,7 +275,7 @@ func TestDeleteConfirmViewShowsTmuxSessionOnlyDelete(t *testing.T) {
 }
 
 func TestDeleteConfirmViewWarnsAboutDirtyWorkspace(t *testing.T) {
-	model := model{mode: "delete_confirm", delete: deletePreview{Path: "/repo/worktrees/small-fix", Branch: "small-fix", SessionName: "repo-small-fix", Dirty: true}}
+	model := model{mode: "delete_confirm", delete: protocol.DeletePreview{Path: "/repo/worktrees/small-fix", Branch: "small-fix", SessionName: "repo-small-fix", Dirty: true}}
 
 	view := model.View()
 	for _, want := range []string{"Delete dirty workspace?", "uncommitted changes", "/repo/worktrees/small-fix", "small-fix", "repo-small-fix"} {

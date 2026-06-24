@@ -14,6 +14,7 @@ import (
 
 	"radar/internal/linking"
 	"radar/internal/protocol"
+	"radar/internal/workspace"
 )
 
 var ticketPattern = regexp.MustCompile(`(?i)[A-Z][A-Z0-9]+-[0-9]+`)
@@ -128,6 +129,54 @@ func (s session) SourceRef() protocol.SourceRef {
 		LinkingKeys: linking.Keys(append(linking.TicketKeys(s.Name, s.Path), linking.WorkspaceKey(s.Path))...),
 		Metadata:    metadata,
 	}
+}
+
+func SessionTarget(task protocol.Task) string {
+	if task.Kind == "session" {
+		if target := metadataValue(task.Metadata, "switch_target", "session_id", "session"); target != "" {
+			return target
+		}
+	}
+	for _, ref := range task.SourceRefs {
+		if ref.Source == "tmux" && ref.Kind == "session" {
+			if target := metadataValue(ref.Metadata, "switch_target", "session_id", "session"); target != "" {
+				return target
+			}
+			return ref.Title
+		}
+	}
+	return ""
+}
+
+func SessionRefMatchesCurrent(ref protocol.SourceRef, current protocol.CurrentContext) bool {
+	return metadataMatchesSession(ref.Metadata, current) || ref.Title == current.SessionName
+}
+
+func DeleteSession(ctx context.Context, target string) (protocol.DeleteResult, error) {
+	deleted, err := workspace.DeleteSession(ctx, workspace.ExecRunner{}, target)
+	if err != nil {
+		return protocol.DeleteResult{}, err
+	}
+	return protocol.DeleteResult{Source: "tmux", Kind: "session", Title: deleted.SessionName, SessionName: deleted.SessionName}, nil
+}
+
+func metadataMatchesSession(metadata map[string]string, current protocol.CurrentContext) bool {
+	for _, key := range []string{"switch_target", "session_id", "session"} {
+		value := metadata[key]
+		if value != "" && (value == current.SessionID || value == current.SessionName) {
+			return true
+		}
+	}
+	return false
+}
+
+func metadataValue(metadata map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if metadata[key] != "" {
+			return metadata[key]
+		}
+	}
+	return ""
 }
 
 func tmuxOutput(ctx context.Context, args ...string) (string, error) {

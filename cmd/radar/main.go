@@ -228,7 +228,7 @@ func runDaemon() {
 		go refreshLoop(context.Background(), refresh)
 	}
 
-	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu)).ListenAndServe(path); err != nil {
+	if err := server.NewWithSources(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu), collector.Sources()).ListenAndServe(path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}

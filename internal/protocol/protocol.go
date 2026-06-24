@@ -5,7 +5,46 @@ import "encoding/json"
 const Version = "0.1.0"
 
 type Request struct {
-	Method string `json:"method"`
+	Method  string         `json:"method"`
+	TaskID  int            `json:"task_id,omitempty"`
+	Current CurrentContext `json:"current,omitempty"`
+	Delete  *DeletePreview `json:"delete,omitempty"`
+}
+
+// CurrentContext contains client-side hints that the daemon can use when an
+// action should target the current shell/tmux context instead of the first
+// matching source ref on a task.
+type CurrentContext struct {
+	CWD         string `json:"cwd,omitempty"`
+	Worktree    string `json:"worktree,omitempty"`
+	SessionName string `json:"session_name,omitempty"`
+	SessionID   string `json:"session_id,omitempty"`
+}
+
+func (c CurrentContext) Empty() bool {
+	return c.CWD == "" && c.Worktree == "" && c.SessionName == "" && c.SessionID == ""
+}
+
+type DeletePreview struct {
+	TaskID      int    `json:"task_id,omitempty"`
+	SourceRefID string `json:"source_ref_id,omitempty"`
+	Source      string `json:"source,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	SessionName string `json:"session_name,omitempty"`
+	Dirty       bool   `json:"dirty,omitempty"`
+	SessionOnly bool   `json:"session_only,omitempty"`
+}
+
+type DeleteResult struct {
+	SourceRefID string `json:"source_ref_id,omitempty"`
+	Source      string `json:"source,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Path        string `json:"path,omitempty"`
+	SessionName string `json:"session_name,omitempty"`
 }
 
 type Summary struct {
@@ -53,13 +92,15 @@ type Task struct {
 }
 
 type Response struct {
-	OK       bool           `json:"ok"`
-	Error    string         `json:"error,omitempty"`
-	Revision int64          `json:"revision,omitempty"`
-	Version  string         `json:"version,omitempty"`
-	Summary  *Summary       `json:"summary,omitempty"`
-	Tasks    []Task         `json:"tasks,omitempty"`
-	Sources  []SourceStatus `json:"sources,omitempty"`
+	OK            bool           `json:"ok"`
+	Error         string         `json:"error,omitempty"`
+	Revision      int64          `json:"revision,omitempty"`
+	Version       string         `json:"version,omitempty"`
+	Summary       *Summary       `json:"summary,omitempty"`
+	Tasks         []Task         `json:"tasks,omitempty"`
+	Sources       []SourceStatus `json:"sources,omitempty"`
+	DeletePreview *DeletePreview `json:"delete_preview,omitempty"`
+	DeleteResult  *DeleteResult  `json:"delete_result,omitempty"`
 }
 
 func (r Response) MarshalJSON() ([]byte, error) {
@@ -81,6 +122,12 @@ func (r Response) MarshalJSON() ([]byte, error) {
 	}
 	if r.Sources != nil {
 		fields["sources"] = r.Sources
+	}
+	if r.DeletePreview != nil {
+		fields["delete_preview"] = r.DeletePreview
+	}
+	if r.DeleteResult != nil {
+		fields["delete_result"] = r.DeleteResult
 	}
 	return json.Marshal(fields)
 }

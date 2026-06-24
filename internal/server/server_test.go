@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"radar/internal/ingestion"
 	"radar/internal/protocol"
 	"radar/internal/state"
 )
@@ -78,6 +80,41 @@ func TestWatchCurrentRevisionTimesOutWithoutTasks(t *testing.T) {
 	}
 }
 
+func TestDeletePreviewDelegatesToDeletableSource(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetTasks([]protocol.Task{{Title: "deletable", SourceRefs: []protocol.SourceRef{{ID: "fake:ref:1", Source: "fake", Kind: "thing", Path: "/tmp/item"}}}})
+
+	preview, err := NewWithSources(store, logger, nil, nil, []ingestion.Source{fakeDeleteSource{}}).deletePreview(context.Background(), 1, protocol.CurrentContext{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.SourceRefID != "fake:ref:1" || preview.Path != "/tmp/item" {
+		t.Fatalf("delete preview = %+v", preview)
+	}
+}
+
+func TestDeleteDelegatesToPreviewSource(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewWithSources(store, logger, nil, nil, []ingestion.Source{fakeDeleteSource{}}).delete(context.Background(), &protocol.DeletePreview{Source: "fake", SourceRefID: "fake:ref:1", Path: "/tmp/item"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SourceRefID != "fake:ref:1" || result.Path != "/tmp/item" {
+		t.Fatalf("delete result = %+v", result)
+	}
+}
+
 func TestAckResponseAppliesFilters(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
@@ -131,4 +168,25 @@ func TestAckResponseAppliesFilters(t *testing.T) {
 	if response.Summary == nil || response.Summary.Attention != 1 {
 		t.Fatalf("summary = %+v, want one attention task", response.Summary)
 	}
+}
+
+type fakeDeleteSource struct{}
+
+func (fakeDeleteSource) Name() string { return "fake" }
+
+func (fakeDeleteSource) Ingest(context.Context, ingestion.Request) ingestion.Result {
+	return ingestion.Result{}
+}
+
+func (fakeDeleteSource) PreviewDelete(_ context.Context, req ingestion.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {
+	for _, ref := range req.Task.SourceRefs {
+		if ref.Source == "fake" {
+			return protocol.DeletePreview{TaskID: req.Task.ID, SourceRefID: ref.ID, Source: ref.Source, Kind: ref.Kind, Path: ref.Path}, true, nil
+		}
+	}
+	return protocol.DeletePreview{}, false, nil
+}
+
+func (fakeDeleteSource) Delete(_ context.Context, preview protocol.DeletePreview) (protocol.DeleteResult, error) {
+	return protocol.DeleteResult{SourceRefID: preview.SourceRefID, Source: preview.Source, Kind: preview.Kind, Path: preview.Path}, nil
 }

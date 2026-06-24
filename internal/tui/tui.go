@@ -53,19 +53,11 @@ type branchesMsg struct {
 }
 
 type deletePreviewMsg struct {
-	preview deletePreview
+	preview protocol.DeletePreview
 	err     error
 }
 
 type preparingWorkspaceMsg struct{}
-
-type deletePreview struct {
-	Path        string
-	Branch      string
-	SessionName string
-	Dirty       bool
-	SessionOnly bool
-}
 
 type linkChoice struct {
 	Key    string
@@ -107,7 +99,7 @@ type model struct {
 	selectedCurrentTask bool
 	mode                string
 	create              createForm
-	delete              deletePreview
+	delete              protocol.DeletePreview
 	links               []linkChoice
 	worktrees           []protocol.SourceRef
 	worktreeCursor      int
@@ -865,56 +857,50 @@ func preparingWorkspaceNotification() tea.Cmd {
 
 func (m model) previewDelete(task protocol.Task) tea.Cmd {
 	return func() tea.Msg {
-		ref, ok := worktreeRef(task)
-		if !ok || strings.TrimSpace(ref.Path) == "" {
-			sessionName := tmuxSessionTarget(task)
-			if sessionName == "" {
-				return deletePreviewMsg{err: fmt.Errorf("selected task is not backed by a git worktree or tmux session")}
-			}
-			return deletePreviewMsg{preview: deletePreview{SessionName: sessionName, SessionOnly: true}}
+		response, err := client.CallRequest(m.socketPath, protocol.Request{Method: "delete-preview", TaskID: task.ID})
+		if err != nil {
+			return deletePreviewMsg{err: err}
 		}
-		return previewWorkspaceDelete(task, ref)
+		if !response.OK {
+			return deletePreviewMsg{err: fmt.Errorf("%s", response.Error)}
+		}
+		if response.DeletePreview == nil {
+			return deletePreviewMsg{err: fmt.Errorf("delete preview response was empty")}
+		}
+		return deletePreviewMsg{preview: *response.DeletePreview}
 	}
 }
 
 func (m model) previewCurrentWorkspaceDelete(task protocol.Task, hints currentTaskHints) tea.Cmd {
 	return func() tea.Msg {
-		ref, ok := currentWorktreeRef(task, hints)
-		if !ok || strings.TrimSpace(ref.Path) == "" {
-			return deletePreviewMsg{err: fmt.Errorf("current task is not backed by the current git worktree")}
+		response, err := client.CallRequest(m.socketPath, protocol.Request{Method: "delete-current-preview", TaskID: task.ID, Current: hints.protocolContext()})
+		if err != nil {
+			return deletePreviewMsg{err: err}
 		}
-		return previewWorkspaceDelete(task, ref)
+		if !response.OK {
+			return deletePreviewMsg{err: fmt.Errorf("%s", response.Error)}
+		}
+		if response.DeletePreview == nil {
+			return deletePreviewMsg{err: fmt.Errorf("delete preview response was empty")}
+		}
+		return deletePreviewMsg{preview: *response.DeletePreview}
 	}
 }
 
-func previewWorkspaceDelete(task protocol.Task, ref protocol.SourceRef) tea.Msg {
-	status, err := workspace.ExecRunner{}.Run(context.Background(), "", "git", "-C", ref.Path, "status", "--porcelain")
-	if err != nil {
-		return deletePreviewMsg{err: err}
-	}
-	preview := deletePreview{
-		Path:        ref.Path,
-		Branch:      ref.Branch,
-		SessionName: tmuxSessionTarget(task),
-		Dirty:       strings.TrimSpace(status) != "",
-	}
-	return deletePreviewMsg{preview: preview}
-}
-
-func (m model) deleteSelected(preview deletePreview) tea.Cmd {
+func (m model) deleteSelected(preview protocol.DeletePreview) tea.Cmd {
 	return func() tea.Msg {
-		if preview.SessionOnly {
-			deleted, err := workspace.DeleteSession(context.Background(), workspace.ExecRunner{}, preview.SessionName)
-			if err != nil {
-				return actionMsg{err: err}
-			}
-			return actionMsg{message: "Deleted session " + deleted.SessionName, refresh: true}
-		}
-		deleted, err := workspace.Delete(context.Background(), workspace.ExecRunner{}, preview.Path, preview.SessionName, true)
+		response, err := client.CallRequest(m.socketPath, protocol.Request{Method: "delete", Delete: &preview})
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		return actionMsg{message: "Deleted " + deleted.Path, refresh: true}
+		if !response.OK {
+			return actionMsg{err: fmt.Errorf("%s", response.Error)}
+		}
+		message := "Deleted " + preview.Path
+		if preview.SessionOnly {
+			message = "Deleted session " + preview.SessionName
+		}
+		return actionMsg{message: message, refresh: true}
 	}
 }
 
@@ -1614,6 +1600,10 @@ type currentTaskHints struct {
 	worktree    string
 	sessionName string
 	sessionID   string
+}
+
+func (h currentTaskHints) protocolContext() protocol.CurrentContext {
+	return protocol.CurrentContext{CWD: h.cwd, Worktree: h.worktree, SessionName: h.sessionName, SessionID: h.sessionID}
 }
 
 func currentTaskCursor(tasks []protocol.Task) (int, bool) {
