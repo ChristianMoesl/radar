@@ -25,19 +25,7 @@ This should support both Pi providers:
 
 ## SBX sandbox creation
 
-On macOS, Radar should create a sandbox with:
-
-```sh
-sbx create \
-  --name <sandbox-name> \
-  --template christianmoesl/radar-sandbox:latest \
-  shell <workspace-path> \
-  ~/.pi/agent/auth.json
-```
-
-Start with a single-file mount for `auth.json`.
-
-If SBX does not support single-file mounts reliably, switch to mounting the directory instead:
+On macOS, Radar should create a sandbox with the Pi agent directory mount. SBX requires mount paths to be directories, so mount `~/.pi/agent` instead of the individual auth file:
 
 ```sh
 sbx create \
@@ -47,7 +35,7 @@ sbx create \
   ~/.pi/agent
 ```
 
-The auth mount should be read-write because Pi may refresh or rotate OAuth tokens.
+The auth directory mount should be read-write because Pi may refresh or rotate OAuth tokens.
 
 ## Pi tmux command
 
@@ -95,7 +83,7 @@ When creating a new workspace:
 1. Clone or create the workspace as Radar does today.
 2. Create the SBX sandbox for that workspace.
 3. Mount the workspace path.
-4. Mount `~/.pi/agent/auth.json`.
+4. Mount `~/.pi/agent`.
 5. Create the tmux session.
 6. Start the Pi window through `sbx exec`.
 7. Leave other tmux windows unchanged.
@@ -122,7 +110,7 @@ This lets Pi refresh OAuth tokens normally for:
 ## Risks
 
 - Mounting `auth.json` exposes Pi OAuth tokens to the sandbox.
-- Single-file mounts may not work; mounting `~/.pi/agent` may be required.
+- Mounting the full `~/.pi/agent` directory exposes more than `auth.json`, but SBX does not accept file mounts.
 - Read-only auth mounts may break token refresh, so use read-write.
 
 ## Validation

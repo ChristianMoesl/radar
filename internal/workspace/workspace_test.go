@@ -113,7 +113,7 @@ func TestCreateStartsConfiguredSandboxForPiWindowOnly(t *testing.T) {
 	if workspace.SandboxName != "radar-"+filepath.Base(repo)+"-small-fix" {
 		t.Fatalf("sandbox name = %q", workspace.SandboxName)
 	}
-	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --template example/radar-sandbox:test shell "+workspace.Path+" "+filepath.Join(home, ".pi", "agent", "auth.json"))
+	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --template example/radar-sandbox:test shell "+workspace.Path+" "+filepath.Join(home, ".pi", "agent"))
 	assertCalledContains(t, runner.calls, "tmux", "sbx exec --workdir '"+workspace.Path+"' '"+workspace.SandboxName+"' sh -lc")
 	assertCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_DIR=")
 	assertCalledContains(t, runner.calls, "tmux", filepath.Join(home, ".pi", "agent"))

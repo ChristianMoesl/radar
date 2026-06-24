@@ -376,11 +376,11 @@ func copyFile(source string, target string, mode os.FileMode) error {
 }
 
 func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string, template string) (string, error) {
-	authFile, err := piAuthFile()
+	authDir, err := piAuthDir()
 	if err != nil {
 		return "", err
 	}
-	return runner.Run(ctx, path, "sbx", "create", "--name", name, "--template", template, "shell", path, authFile)
+	return runner.Run(ctx, path, "sbx", "create", "--name", name, "--template", template, "shell", path, authDir)
 }
 
 func stopSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
@@ -395,14 +395,6 @@ func sandboxPiCommand(path string, sandboxName string, sessionName string, model
 	innerCommand := "PI_CODING_AGENT_DIR=" + shellQuote(authDir) + " " + piCommand(sessionName, model, thinking, forkSession)
 	args := []string{"sbx", "exec", "--workdir", shellQuote(path), shellQuote(sandboxName), "sh", "-lc", shellQuote(innerCommand)}
 	return strings.Join(args, " "), nil
-}
-
-func piAuthFile() (string, error) {
-	dir, err := piAuthDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "auth.json"), nil
 }
 
 func piAuthDir() (string, error) {
