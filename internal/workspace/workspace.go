@@ -393,7 +393,7 @@ func sandboxPiCommand(path string, sandboxName string, sessionName string, model
 		return "", err
 	}
 	innerCommand := "PI_CODING_AGENT_DIR=" + shellQuote(authDir) + " " + piCommand(sessionName, model, thinking, forkSession)
-	args := []string{"sbx", "exec", "--workdir", shellQuote(path), shellQuote(sandboxName), "sh", "-lc", shellQuote(innerCommand)}
+	args := []string{"sbx", "exec", "-it", "--workdir", shellQuote(path), shellQuote(sandboxName), "sh", "-lc", shellQuote(innerCommand)}
 	return strings.Join(args, " "), nil
 }
 
