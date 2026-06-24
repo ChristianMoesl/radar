@@ -102,7 +102,7 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 }
 ```
 
-`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created. If `sandbox` is configured, Radar runs `docker sbx create <sandbox-name>` from the new worktree before creating tmux windows. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created. If `sandbox` is configured, Radar runs `docker sandbox create <sandbox-name>` from the new worktree before creating tmux windows. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
 
 When run inside tmux, Radar switches to the new session.
 

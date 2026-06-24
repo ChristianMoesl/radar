@@ -354,11 +354,11 @@ func copyFile(source string, target string, mode os.FileMode) error {
 }
 
 func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
-	return runner.Run(ctx, path, "docker", "sbx", "create", name)
+	return runner.Run(ctx, path, "docker", "sandbox", "create", name)
 }
 
 func stopSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
-	return runner.Run(ctx, path, "docker", "sbx", "rm", name)
+	return runner.Run(ctx, path, "docker", "sandbox", "rm", name)
 }
 
 func piCommand(sessionName string, model string, thinking string, forkSession string) string {

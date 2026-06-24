@@ -107,7 +107,7 @@ func TestCreateStartsConfiguredSandbox(t *testing.T) {
 	if workspace.SandboxName != "radar-"+filepath.Base(repo)+"-small-fix" {
 		t.Fatalf("sandbox name = %q", workspace.SandboxName)
 	}
-	assertCalled(t, runner.calls, "docker", "sbx create "+workspace.SandboxName)
+	assertCalled(t, runner.calls, "docker", "sandbox create "+workspace.SandboxName)
 }
 
 func TestCreateForksPiSession(t *testing.T) {
@@ -265,7 +265,7 @@ func TestDeleteStopsConfiguredSandbox(t *testing.T) {
 		t.Fatalf("sandbox name = %q", deleted.SandboxName)
 	}
 	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
-	assertCalled(t, runner.calls, "docker", "sbx rm radar-repo-small-fix")
+	assertCalled(t, runner.calls, "docker", "sandbox rm radar-repo-small-fix")
 	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove "+path)
 }
 
