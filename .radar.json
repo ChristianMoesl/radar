@@ -1,0 +1,7 @@
+{
+  "setup": ["go mod download"],
+  "sandbox": {
+    "compose": "docker-compose.yml",
+    "services": ["sandbox"]
+  }
+}
