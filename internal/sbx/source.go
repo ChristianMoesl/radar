@@ -79,7 +79,7 @@ func deleteSandbox(ctx context.Context, runner workspace.Runner, preview protoco
 	if name == "" {
 		return protocol.DeleteResult{}, fmt.Errorf("sbx sandbox name is required")
 	}
-	if _, err := runner.Run(ctx, "", "sbx", "rm", name); err != nil {
+	if _, err := runner.Run(ctx, "", "sbx", "rm", "--force", name); err != nil {
 		return protocol.DeleteResult{}, err
 	}
 	return protocol.DeleteResult{

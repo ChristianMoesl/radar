@@ -111,7 +111,7 @@ func TestDeleteSandboxRemovesNamedSandbox(t *testing.T) {
 	if result.Source != "sbx" || result.Kind != "sandbox" || result.Title != "radar-repo-small-fix" {
 		t.Fatalf("result = %+v", result)
 	}
-	assertCallContains(t, runner.calls, "sbx", "rm radar-repo-small-fix")
+	assertCallContains(t, runner.calls, "sbx", "rm --force radar-repo-small-fix")
 	if len(runner.calls) != 1 || runner.calls[0].cwd != "" {
 		t.Fatalf("deleteSandbox() cwd = %+v, want empty cwd", runner.calls)
 	}
