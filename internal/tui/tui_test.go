@@ -274,6 +274,17 @@ func TestDeleteConfirmViewShowsTmuxSessionOnlyDelete(t *testing.T) {
 	}
 }
 
+func TestDeleteConfirmViewShowsSbxSandboxDelete(t *testing.T) {
+	model := model{mode: "delete_confirm", delete: protocol.DeletePreview{Source: "sbx", Kind: "sandbox", Title: "radar-repo-small-fix", Path: "/repo/small-fix"}}
+
+	view := model.View()
+	for _, want := range []string{"Delete sbx sandbox?", "remove the sbx sandbox", "radar-repo-small-fix", "/repo/small-fix"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("View() missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestDeleteConfirmViewWarnsAboutDirtyWorkspace(t *testing.T) {
 	model := model{mode: "delete_confirm", delete: protocol.DeletePreview{Path: "/repo/worktrees/small-fix", Branch: "small-fix", SessionName: "repo-small-fix", Dirty: true}}
 

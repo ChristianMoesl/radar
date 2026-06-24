@@ -896,11 +896,7 @@ func (m model) deleteSelected(preview protocol.DeletePreview) tea.Cmd {
 		if !response.OK {
 			return actionMsg{err: fmt.Errorf("%s", response.Error)}
 		}
-		message := "Deleted " + preview.Path
-		if preview.SessionOnly {
-			message = "Deleted session " + preview.SessionName
-		}
-		return actionMsg{message: message, refresh: true}
+		return actionMsg{message: deleteSuccessMessage(preview), refresh: true}
 	}
 }
 
@@ -1022,20 +1018,27 @@ func (m model) createView(width int) string {
 
 func (m model) deleteConfirmView(width int) string {
 	preview := m.delete
-	title := "Delete workspace?"
-	warning := "This will remove the git worktree."
-	if preview.SessionOnly {
+	title := "Delete " + deleteTargetLabel(preview) + "?"
+	warning := "This will remove the " + deleteTargetLabel(preview) + "."
+	if (preview.Source == "git" && preview.Kind == "worktree") || (preview.Source == "" && preview.Path != "") {
+		title = "Delete workspace?"
+		warning = "This will remove the git worktree."
+		if preview.Dirty {
+			title = "Delete dirty workspace?"
+			warning = "This worktree has uncommitted changes. Deleting will permanently discard them."
+		}
+	} else if preview.SessionOnly {
 		title = "Delete tmux session?"
 		warning = "This will kill only the tmux session."
-	} else if preview.Dirty {
-		title = "Delete dirty workspace?"
-		warning = "This worktree has uncommitted changes. Deleting will permanently discard them."
 	}
 
 	lines := []string{
 		titleStyle.Render(title),
 		warning,
 		"",
+	}
+	if preview.Title != "" && preview.Title != preview.Branch && preview.Title != preview.SessionName {
+		lines = append(lines, "Name    "+preview.Title)
 	}
 	if preview.Path != "" {
 		lines = append(lines, "Path    "+shortenPath(preview.Path))
@@ -1048,6 +1051,32 @@ func (m model) deleteConfirmView(width int) string {
 	}
 	lines = append(lines, "", errorStyle.Render("Press y to delete."))
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func deleteSuccessMessage(preview protocol.DeletePreview) string {
+	if preview.SessionOnly {
+		return "Deleted session " + preview.SessionName
+	}
+	if preview.Path != "" {
+		return "Deleted " + preview.Path
+	}
+	if preview.Title != "" {
+		return "Deleted " + preview.Title
+	}
+	return "Deleted " + deleteTargetLabel(preview)
+}
+
+func deleteTargetLabel(preview protocol.DeletePreview) string {
+	if preview.Source == "sbx" && preview.Kind == "sandbox" {
+		return "sbx sandbox"
+	}
+	if preview.Source == "tmux" && preview.Kind == "session" {
+		return "tmux session"
+	}
+	if preview.Source != "" && preview.Kind != "" {
+		return preview.Source + " " + strings.ReplaceAll(preview.Kind, "_", " ")
+	}
+	return "target"
 }
 
 func (m model) worktreeSessionView(width int) string {

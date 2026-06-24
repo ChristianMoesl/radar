@@ -1,8 +1,12 @@
 package sbx
 
 import (
+	"context"
 	"reflect"
 	"testing"
+
+	"radar/internal/ingestion"
+	"radar/internal/protocol"
 )
 
 func TestParseSandboxes(t *testing.T) {
@@ -66,6 +70,48 @@ func TestSandboxSourceRef(t *testing.T) {
 	if ref.Metadata["id"] != s.ID || ref.Metadata["agent"] != "shell" || ref.Metadata["workspace_count"] != "3" {
 		t.Fatalf("metadata = %+v", ref.Metadata)
 	}
+}
+
+func TestSourcePreviewDeleteReturnsSandboxTarget(t *testing.T) {
+	ref := sandbox{Name: "radar-repo-small-fix", Workspaces: []string{"/work/repo/small-fix"}}.SourceRef()
+	preview, ok, err := Source{}.PreviewDelete(context.Background(), ingestion.DeletePreviewRequest{
+		Task: protocol.Task{ID: 7, SourceRefs: []protocol.SourceRef{ref}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("PreviewDelete() ok = false, want true")
+	}
+	if preview.Source != "sbx" || preview.Kind != "sandbox" || preview.Title != "radar-repo-small-fix" || preview.Path != "/work/repo/small-fix" {
+		t.Fatalf("preview = %+v", preview)
+	}
+}
+
+func TestSourcePreviewDeleteHonorsCurrentPath(t *testing.T) {
+	ref := sandbox{Name: "radar-repo-small-fix", Workspaces: []string{"/work/repo/small-fix"}}.SourceRef()
+	_, ok, err := Source{}.PreviewDelete(context.Background(), ingestion.DeletePreviewRequest{
+		Task:    protocol.Task{ID: 7, SourceRefs: []protocol.SourceRef{ref}},
+		Current: protocol.CurrentContext{CWD: "/other"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("PreviewDelete() ok = true, want false for non-matching current path")
+	}
+}
+
+func TestDeleteSandboxRemovesNamedSandbox(t *testing.T) {
+	runner := &fakeRunner{}
+	result, err := deleteSandbox(context.Background(), runner, protocol.DeletePreview{SourceRefID: "sbx:sandbox:radar-repo-small-fix", Title: "radar-repo-small-fix", Path: "/work/repo/small-fix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Source != "sbx" || result.Kind != "sandbox" || result.Title != "radar-repo-small-fix" {
+		t.Fatalf("result = %+v", result)
+	}
+	assertCallContains(t, runner.calls, "sbx", "rm radar-repo-small-fix")
 }
 
 func TestPrimarySandboxWorkspaceSkipsPiAgentMount(t *testing.T) {
