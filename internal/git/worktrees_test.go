@@ -6,6 +6,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"radar/internal/ingestion"
+	"radar/internal/protocol"
 )
 
 func TestWorktreesSkipsPrunableEntries(t *testing.T) {
@@ -35,6 +38,20 @@ func TestWorktreesSkipsPrunableEntries(t *testing.T) {
 		if item.Path == stale {
 			t.Fatalf("worktrees() included prunable worktree: %#v", items)
 		}
+	}
+}
+
+func TestPreviewDeleteRejectsMainWorkingTree(t *testing.T) {
+	ctx := context.Background()
+	repo := filepath.Join(t.TempDir(), "repo")
+	runGit(t, ctx, filepath.Dir(repo), "init", "repo")
+
+	_, ok, err := Source{}.PreviewDelete(ctx, ingestion.DeletePreviewRequest{Task: protocol.Task{ID: 1, SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: repo}}}})
+	if err == nil {
+		t.Fatal("PreviewDelete() error = nil, want main working tree error")
+	}
+	if !ok {
+		t.Fatal("PreviewDelete() ok = false, want true for rejected git target")
 	}
 }
 

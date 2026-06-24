@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -48,6 +49,13 @@ func (Source) PreviewDelete(ctx context.Context, req ingestion.DeletePreviewRequ
 	if !ok {
 		return protocol.DeletePreview{}, false, nil
 	}
+	mainWorkingTree, err := mainWorkingTree(ctx, ref.Path)
+	if err != nil {
+		return protocol.DeletePreview{}, true, err
+	}
+	if mainWorkingTree {
+		return protocol.DeletePreview{}, true, fmt.Errorf("main working tree cannot be deleted from Radar")
+	}
 	status, err := gitOutput(ctx, ref.Path, "status", "--porcelain")
 	if err != nil {
 		return protocol.DeletePreview{}, true, err
@@ -88,6 +96,22 @@ func (Source) Delete(ctx context.Context, preview protocol.DeletePreview) (proto
 		Path:        deleted.Path,
 		SessionName: deleted.SessionName,
 	}, nil
+}
+
+func mainWorkingTree(ctx context.Context, path string) (bool, error) {
+	gitDir, err := gitOutput(ctx, path, "rev-parse", "--path-format=absolute", "--git-dir")
+	if err != nil {
+		return false, err
+	}
+	return cleanPhysicalPath(gitDir) == filepath.Join(cleanPhysicalPath(path), ".git"), nil
+}
+
+func cleanPhysicalPath(path string) string {
+	path = strings.TrimSpace(path)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(path)
 }
 
 func deleteWorktreeRef(task protocol.Task, current protocol.CurrentContext) (protocol.SourceRef, bool) {

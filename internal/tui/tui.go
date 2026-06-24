@@ -147,6 +147,12 @@ var (
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(lipgloss.Color("36")).
 				Padding(0, 1)
+
+	errorNotificationStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("203")).
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("203")).
+				Padding(0, 1)
 )
 
 func Run(socketPath string) error {
@@ -483,43 +489,29 @@ func (m model) View() string {
 
 	if m.mode == "open_link" {
 		sections = append(sections, m.openLinkView(contentWidth))
-		if m.err != nil {
-			sections = append(sections, errorStyle.Render(m.err.Error()))
-		}
 		sections = append(sections, helpStyle.Render("press key to open • esc cancel • q quit"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
 	if m.mode == "delete_confirm" {
 		sections = append(sections, m.deleteConfirmView(contentWidth))
-		if m.err != nil {
-			sections = append(sections, errorStyle.Render(m.err.Error()))
-		}
 		sections = append(sections, helpStyle.Render("y delete • esc/n cancel • q quit"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
 	if m.mode == "worktree_session" {
 		sections = append(sections, m.worktreeSessionView(contentWidth))
-		if m.err != nil {
-			sections = append(sections, errorStyle.Render(m.err.Error()))
-		}
 		sections = append(sections, helpStyle.Render("↑/k ↓/j move • enter create session • esc cancel • q quit"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
 	if strings.HasPrefix(m.mode, "create_") {
 		sections = append(sections, m.createView(contentWidth))
-		if m.err != nil {
-			sections = append(sections, errorStyle.Render(m.err.Error()))
-		}
 		sections = append(sections, helpStyle.Render("type to filter • ↑/k ↓/j move • enter select/submit • esc cancel"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
-	if m.err != nil {
-		sections = append(sections, errorStyle.Render("Could not load Radar tasks: "+m.err.Error()))
-	} else if m.loading && len(m.tasks) == 0 {
+	if m.loading && len(m.tasks) == 0 {
 		sections = append(sections, subtleStyle.Render("Loading tasks…"))
 	} else if len(m.tasks) == 0 {
 		sections = append(sections, subtleStyle.Render("No tasks need your attention."))
@@ -591,12 +583,18 @@ func (m model) renderFrame(content string, width int) string {
 }
 
 func (m model) overlayNotification(frame string) string {
-	if m.message == "" {
+	message := m.message
+	style := notificationStyle
+	if m.err != nil {
+		message = "Error: " + m.err.Error()
+		style = errorNotificationStyle
+	}
+	if message == "" {
 		return frame
 	}
 
 	lines := strings.Split(frame, "\n")
-	popupLines := strings.Split(notificationStyle.Render(m.message), "\n")
+	popupLines := strings.Split(style.Render(message), "\n")
 	row := 1
 	popupWidth := 0
 	for _, popupLine := range popupLines {

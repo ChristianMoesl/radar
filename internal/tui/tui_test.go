@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,28 @@ import (
 
 	"radar/internal/protocol"
 )
+
+func TestViewShowsErrorsAsToastWithoutReplacingTasks(t *testing.T) {
+	model := model{
+		err:     errors.New("boom"),
+		summary: protocol.Summary{Attention: 1},
+		tasks: []protocol.Task{{
+			Title:     "Review change",
+			Reason:    "review requested",
+			Attention: "attention",
+		}},
+	}
+
+	view := model.View()
+	for _, want := range []string{"Review change", "Error: boom"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("View() missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Could not load Radar tasks") {
+		t.Fatalf("View() rendered inline load error:\n%s", view)
+	}
+}
 
 func TestViewRendersTasksAndSources(t *testing.T) {
 	model := model{
