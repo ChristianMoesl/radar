@@ -435,7 +435,11 @@ func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConf
 }
 
 func stopSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
-	return runner.Run(ctx, path, "sbx", "rm", name)
+	output, err := runner.Run(ctx, "", "sbx", "rm", "--force", name)
+	if err != nil && strings.Contains(err.Error(), "not found") {
+		return output, nil
+	}
+	return output, err
 }
 
 func sandboxPiCommand(path string, sandboxName string, sessionName string, model string, thinking string, forkSession string) (string, error) {

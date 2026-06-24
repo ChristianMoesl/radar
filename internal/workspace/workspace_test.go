@@ -320,7 +320,7 @@ func TestDeleteStopsConfiguredSandbox(t *testing.T) {
 		t.Fatalf("sandbox name = %q", deleted.SandboxName)
 	}
 	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
-	assertCalled(t, runner.calls, "sbx", "rm radar-repo-small-fix")
+	assertCalled(t, runner.calls, "sbx", "rm --force radar-repo-small-fix")
 	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove "+path)
 }
 
