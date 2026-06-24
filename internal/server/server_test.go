@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"radar.nvim/internal/protocol"
-	"radar.nvim/internal/state"
+	"radar/internal/protocol"
+	"radar/internal/state"
 )
 
 func TestWatchOldRevisionReturnsTasksImmediately(t *testing.T) {

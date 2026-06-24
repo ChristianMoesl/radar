@@ -11,7 +11,7 @@ import (
 	"slices"
 	"testing"
 
-	"radar.nvim/internal/protocol"
+	"radar/internal/protocol"
 )
 
 func TestSearchAssignedIssuesUsesSearchJQLEndpoint(t *testing.T) {

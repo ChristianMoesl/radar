@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"radar.nvim/internal/filters"
-	"radar.nvim/internal/pi"
+	"radar/internal/filters"
+	"radar/internal/pi"
 )
 
 type Config struct {

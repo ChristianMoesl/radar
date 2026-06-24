@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"radar.nvim/internal/pi"
+	"radar/internal/pi"
 )
 
 var invalidWorkspaceNameCharacters = regexp.MustCompile(`[^A-Za-z0-9_-]+`)

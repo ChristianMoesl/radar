@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"radar.nvim/internal/protocol"
+	"radar/internal/protocol"
 )
 
 func TestViewRendersTasksAndSources(t *testing.T) {

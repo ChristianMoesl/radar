@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"radar.nvim/internal/pi"
+	"radar/internal/pi"
 )
 
 type RepoConfig struct {

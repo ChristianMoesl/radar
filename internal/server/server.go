@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"radar.nvim/internal/config"
-	"radar.nvim/internal/filters"
-	"radar.nvim/internal/protocol"
-	"radar.nvim/internal/socket"
-	"radar.nvim/internal/state"
-	"radar.nvim/internal/version"
+	"radar/internal/config"
+	"radar/internal/filters"
+	"radar/internal/protocol"
+	"radar/internal/socket"
+	"radar/internal/state"
+	"radar/internal/version"
 )
 
 var watchTimeout = 30 * time.Second

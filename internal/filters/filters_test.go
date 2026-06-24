@@ -3,7 +3,7 @@ package filters
 import (
 	"testing"
 
-	"radar.nvim/internal/protocol"
+	"radar/internal/protocol"
 )
 
 func TestApplyMutesRepos(t *testing.T) {

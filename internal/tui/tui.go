@@ -15,10 +15,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"radar.nvim/internal/client"
-	"radar.nvim/internal/config"
-	"radar.nvim/internal/protocol"
-	"radar.nvim/internal/workspace"
+	"radar/internal/client"
+	"radar/internal/config"
+	"radar/internal/protocol"
+	"radar/internal/workspace"
 )
 
 type fetchMsg struct {

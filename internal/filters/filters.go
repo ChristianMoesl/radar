@@ -3,7 +3,7 @@ package filters
 import (
 	"strings"
 
-	"radar.nvim/internal/protocol"
+	"radar/internal/protocol"
 )
 
 type Config struct {

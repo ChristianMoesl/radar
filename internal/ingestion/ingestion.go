@@ -4,8 +4,8 @@ import (
 	"context"
 	"log/slog"
 
-	"radar.nvim/internal/filters"
-	"radar.nvim/internal/protocol"
+	"radar/internal/filters"
+	"radar/internal/protocol"
 )
 
 type Request struct {

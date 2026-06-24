@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"radar.nvim/internal/protocol"
-	"radar.nvim/internal/state"
+	"radar/internal/protocol"
+	"radar/internal/state"
 )
 
 func TestCollectEndToEndIngestsLinksAndMarksGitHubPRDone(t *testing.T) {

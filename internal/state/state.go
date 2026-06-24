@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"radar.nvim/internal/protocol"
+	"radar/internal/protocol"
 )
 
 const maxStateFileSize = 50 * 1024 * 1024

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"radar.nvim/internal/config"
+	"radar/internal/config"
 )
 
 type discoveryRunner struct {

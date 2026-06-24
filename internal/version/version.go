@@ -6,7 +6,7 @@ import (
 	"os"
 	"sync"
 
-	"radar.nvim/internal/protocol"
+	"radar/internal/protocol"
 )
 
 var (

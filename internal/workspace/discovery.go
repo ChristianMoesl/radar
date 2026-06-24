@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"radar.nvim/internal/config"
+	"radar/internal/config"
 )
 
 func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) ([]string, error) {

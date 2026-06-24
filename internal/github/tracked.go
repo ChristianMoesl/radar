@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"radar.nvim/internal/filters"
-	"radar.nvim/internal/protocol"
+	"radar/internal/filters"
+	"radar/internal/protocol"
 )
 
 const repoCacheTTL = 24 * time.Hour

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"radar.nvim/internal/protocol"
+	"radar/internal/protocol"
 )
 
 const minSearchRemaining = 2

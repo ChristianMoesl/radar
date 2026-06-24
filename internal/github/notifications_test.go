@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"radar.nvim/internal/protocol"
+	"radar/internal/protocol"
 )
 
 func TestFetchPullRequestsClassifiesGraphQLResults(t *testing.T) {

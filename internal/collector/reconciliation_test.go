@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"radar.nvim/internal/protocol"
+	"radar/internal/protocol"
 )
 
 func TestApplyTaskFiltersRemovesMutedTasksBeforeSaving(t *testing.T) {

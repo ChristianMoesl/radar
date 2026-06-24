@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"radar.nvim/internal/ingestion"
+	"radar/internal/ingestion"
 )
 
 type Source struct{}

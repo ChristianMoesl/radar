@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/teatest"
 
-	"radar.nvim/internal/protocol"
+	"radar/internal/protocol"
 )
 
 type staticTUIModel struct {

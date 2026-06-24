@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"radar.nvim/internal/linking"
-	"radar.nvim/internal/protocol"
-	"radar.nvim/internal/workspace"
+	"radar/internal/linking"
+	"radar/internal/protocol"
+	"radar/internal/workspace"
 )
 
 var ticketPattern = regexp.MustCompile(`[A-Z][A-Z0-9]+-[0-9]+`)

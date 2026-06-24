@@ -4,14 +4,14 @@ import (
 	"context"
 	"log/slog"
 
-	"radar.nvim/internal/config"
-	"radar.nvim/internal/filters"
-	gitcollector "radar.nvim/internal/git"
-	"radar.nvim/internal/github"
-	"radar.nvim/internal/ingestion"
-	"radar.nvim/internal/jira"
-	"radar.nvim/internal/protocol"
-	"radar.nvim/internal/tmux"
+	"radar/internal/config"
+	"radar/internal/filters"
+	gitcollector "radar/internal/git"
+	"radar/internal/github"
+	"radar/internal/ingestion"
+	"radar/internal/jira"
+	"radar/internal/protocol"
+	"radar/internal/tmux"
 )
 
 type Ingested struct {

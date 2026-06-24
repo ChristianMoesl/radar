@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"radar.nvim/internal/linking"
-	"radar.nvim/internal/protocol"
+	"radar/internal/linking"
+	"radar/internal/protocol"
 )
 
 func TestReconcileStateUsesTicketRecordForMultiplePullRequests(t *testing.T) {
