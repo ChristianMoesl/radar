@@ -55,7 +55,7 @@ The TUI supports:
 j / down     move down
 k / up       move up
 enter        switch tmux session when connected
-o            open task link, then press g for GitHub or j for Jira
+o            open task link/action, then press g for GitHub, j for Jira, or s for sbx
 i            inspect selected task
 c            create workspace
 d            delete selected workspace after confirmation

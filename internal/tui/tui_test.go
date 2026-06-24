@@ -483,6 +483,25 @@ func TestTaskLinksUsesMnemonicFallbackForDuplicateSourceLabels(t *testing.T) {
 	}
 }
 
+func TestTaskLinksIncludesSbxSandboxAction(t *testing.T) {
+	task := protocol.Task{SourceRefs: []protocol.SourceRef{{
+		ID:          "sbx:sandbox:radar-repo-DPSCAP-600-shell",
+		Source:      "sbx",
+		SourceLabel: "Docker sbx",
+		Kind:        "sandbox",
+		Title:       "radar-repo-DPSCAP-600-shell",
+		Metadata:    map[string]string{"name": "radar-repo-DPSCAP-600-shell"},
+	}}}
+
+	links := taskLinks(task)
+	if len(links) != 1 {
+		t.Fatalf("taskLinks() returned %d links, want 1: %+v", len(links), links)
+	}
+	if links[0].Key != "s" || links[0].Action != "sbx_shell" || links[0].Source != "Docker sbx" {
+		t.Fatalf("sbx link = %+v, want s/Docker sbx action", links[0])
+	}
+}
+
 func TestTaskLinksUsesSourceLabels(t *testing.T) {
 	task := protocol.Task{SourceRefs: []protocol.SourceRef{
 		{ID: "jira:issue:RAD-123", Source: "jira", SourceLabel: "Jira", Kind: "issue", URL: "https://jira.example.test/browse/RAD-123"},

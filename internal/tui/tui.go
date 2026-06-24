@@ -18,6 +18,7 @@ import (
 	"radar/internal/client"
 	"radar/internal/config"
 	"radar/internal/protocol"
+	"radar/internal/sbx"
 	"radar/internal/workspace"
 )
 
@@ -70,7 +71,10 @@ type linkChoice struct {
 	Key    string
 	Source string
 	Label  string
+	Detail string
 	URL    string
+	Action string
+	Ref    protocol.SourceRef
 }
 
 type picker struct {
@@ -231,7 +235,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.links = nil
 				m.loading = true
 				m.err = nil
-				return m, m.openTaskURL(m.tasks[m.cursor], link.URL)
+				return m, m.openTask(m.tasks[m.cursor], link)
 			}
 		}
 		if m.mode == "worktree_session" {
@@ -489,7 +493,7 @@ func (m model) View() string {
 		if m.err != nil {
 			sections = append(sections, errorStyle.Render(m.err.Error()))
 		}
-		sections = append(sections, helpStyle.Render("g GitHub • j Jira • esc cancel • q quit"))
+		sections = append(sections, helpStyle.Render("press key to open • esc cancel • q quit"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
@@ -1131,8 +1135,10 @@ func (m model) openLinkView(width int) string {
 	}
 	lines := []string{titleStyle.Render("Open link")}
 	for _, link := range m.links {
-		lines = append(lines, fmt.Sprintf("  %s  %-6s %s", titleStyle.Render(link.Key), link.Source, link.Label))
-		lines = append(lines, subtleStyle.Render("           "+link.URL))
+		lines = append(lines, fmt.Sprintf("  %s  %-10s %s", titleStyle.Render(link.Key), link.Source, link.Label))
+		if link.Detail != "" {
+			lines = append(lines, subtleStyle.Render("               "+link.Detail))
+		}
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1505,6 +1511,13 @@ func normalizeGitHubRepo(value string) string {
 	return value
 }
 
+func (m model) openTask(task protocol.Task, choice linkChoice) tea.Cmd {
+	if choice.Action == sbx.OpenShellAction {
+		return m.openSbxSandbox(task, choice.Ref)
+	}
+	return m.openTaskURL(task, choice.URL)
+}
+
 func (m model) openTaskURL(task protocol.Task, url string) tea.Cmd {
 	return func() tea.Msg {
 		var response *protocol.Response
@@ -1523,6 +1536,23 @@ func (m model) openTaskURL(task protocol.Task, url string) tea.Cmd {
 			return actionMsg{response: response, err: err}
 		}
 		return actionMsg{response: response}
+	}
+}
+
+func (m model) openSbxSandbox(task protocol.Task, ref protocol.SourceRef) tea.Cmd {
+	return func() tea.Msg {
+		result, err := sbx.OpenShell(context.Background(), workspace.ExecRunner{}, ref, sbx.OpenShellOptions{
+			SessionTarget: tmuxSessionTarget(task),
+			SwitchClient:  os.Getenv("TMUX") != "",
+		})
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		message := "Opened sbx sandbox in " + result.SessionName
+		if result.CreatedSession {
+			message = "Created " + result.SessionName + " and opened sbx sandbox"
+		}
+		return actionMsg{message: message, refresh: true, quit: os.Getenv("TMUX") != ""}
 	}
 }
 
@@ -1705,23 +1735,40 @@ func taskLinks(task protocol.Task) []linkChoice {
 	seen := map[string]bool{}
 	var links []linkChoice
 	usedKeys := map[string]bool{}
-	add := func(source string, label string, url string) {
-		if url == "" || seen[url] || len(links) >= 9 {
-			return
+	reserveKey := func(preferred string, source string) string {
+		key := strings.ToLower(strings.TrimSpace(preferred))
+		if key != "" && !usedKeys[key] {
+			usedKeys[key] = true
+			return key
 		}
-		seen[url] = true
-		key := linkMnemonic(source, usedKeys)
+		key = linkMnemonic(source, usedKeys)
 		if key == "" {
 			key = fmt.Sprint(len(links) + 1)
 		}
 		usedKeys[key] = true
-		links = append(links, linkChoice{Key: key, Source: source, Label: label, URL: url})
+		return key
+	}
+	addURL := func(source string, label string, url string) {
+		if url == "" || seen[url] || len(links) >= 9 {
+			return
+		}
+		seen[url] = true
+		links = append(links, linkChoice{Key: reserveKey("", source), Source: source, Label: label, Detail: url, URL: url})
+	}
+	addAction := func(preferredKey string, source string, label string, detail string, action string, ref protocol.SourceRef) {
+		if action == "" || len(links) >= 9 {
+			return
+		}
+		links = append(links, linkChoice{Key: reserveKey(preferredKey, source), Source: source, Label: label, Detail: detail, Action: action, Ref: ref})
 	}
 
 	for _, ref := range task.SourceRefs {
-		add(sourceRefSourceLabel(ref), sourceRefLabel(ref), ref.URL)
+		addURL(sourceRefSourceLabel(ref), sourceRefLabel(ref), ref.URL)
+		if sbx.IsSandboxRef(ref) {
+			addAction("s", "Docker sbx", sourceRefLabel(ref), "sbx run --name "+sbx.SandboxName(ref), sbx.OpenShellAction, ref)
+		}
 	}
-	add("link", task.Title, task.URL)
+	addURL("link", task.Title, task.URL)
 	return links
 }
 
