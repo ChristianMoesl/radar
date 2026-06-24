@@ -112,6 +112,9 @@ func TestDeleteSandboxRemovesNamedSandbox(t *testing.T) {
 		t.Fatalf("result = %+v", result)
 	}
 	assertCallContains(t, runner.calls, "sbx", "rm radar-repo-small-fix")
+	if len(runner.calls) != 1 || runner.calls[0].cwd != "" {
+		t.Fatalf("deleteSandbox() cwd = %+v, want empty cwd", runner.calls)
+	}
 }
 
 func TestPrimarySandboxWorkspaceSkipsPiAgentMount(t *testing.T) {
