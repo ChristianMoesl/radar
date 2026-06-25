@@ -38,4 +38,4 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --verify-tag \
             --title "${GITHUB_REF_NAME}" \
-            --notes "Versioned Radar binaries for Linux and macOS. Verify downloads with checksums.txt."
+            --generate-notes
