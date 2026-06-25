@@ -28,14 +28,13 @@ make install
 
 ## Release
 
-Releases are tag-driven. To publish versioned Linux and macOS binaries:
+Releases are tag-driven. To publish versioned Linux and macOS binaries from a clean, up-to-date `main`:
 
 ```sh
-git tag -a v0.1.0 -m v0.1.0
-git push origin v0.1.0
+make release VERSION=v0.1.0
 ```
 
-The release workflow builds `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64` tarballs, plus `checksums.txt`.
+The release script tests, builds the release archives, creates an annotated tag, and pushes it. The release workflow then publishes `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64` tarballs, plus `checksums.txt`, with generated notes from the changes since the previous tag.
 
 ## Prerequisites
 
