@@ -15,8 +15,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"radar/internal/app"
 	"radar/internal/client"
 	"radar/internal/config"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/sourceactions"
 	"radar/internal/taskrefs"
@@ -802,7 +804,7 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 			return actionMsg{err: err}
 		}
 		switchAfterCreate := os.Getenv("TMUX") != ""
-		options := workspace.CreateOptions{
+		options := integration.CreateWorkspaceRequest{
 			Repo:            form.repo,
 			Base:            form.base,
 			Name:            form.name,
@@ -820,7 +822,7 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 			options.Path = filepath.Join(root, form.sourceRepoName, workspace.WorktreeName(form.name))
 			options.SessionName = workspace.SessionName(form.sourceRepoName, form.name)
 		}
-		created, err := workspace.Create(context.Background(), workspace.ExecRunner{}, options)
+		created, err := app.DefaultIntegrationSet().Workspace.Create(context.Background(), options)
 		if err != nil {
 			return actionMsg{err: err}
 		}
@@ -1348,7 +1350,7 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 
 func (m model) switchTmuxSession(target string) tea.Cmd {
 	return func() tea.Msg {
-		if err := exec.Command("tmux", "switch-client", "-t", target).Run(); err != nil {
+		if err := app.DefaultIntegrationSet().Multiplexer.Switch(context.Background(), integration.SessionTarget{Name: target}); err != nil {
 			return actionMsg{err: err}
 		}
 		return actionMsg{quit: true}
@@ -1358,11 +1360,23 @@ func (m model) switchTmuxSession(target string) tea.Cmd {
 func (m model) createSessionForWorktree(ref protocol.SourceRef) tea.Cmd {
 	return func() tea.Msg {
 		switchAfterCreate := os.Getenv("TMUX") != ""
-		created, err := workspace.CreateSession(context.Background(), workspace.ExecRunner{}, ref.Path, "", switchAfterCreate)
+		sessionName := workspace.SessionName(filepath.Base(filepath.Dir(ref.Path)), filepath.Base(ref.Path))
+		multiplexer := app.DefaultIntegrationSet().Multiplexer
+		created, err := multiplexer.EnsureSession(context.Background(), integration.EnsureSessionRequest{Name: sessionName, Path: ref.Path, FirstWindow: "pi", FirstCommand: "pi"})
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
+		if created.Created {
+			if err := multiplexer.OpenWindow(context.Background(), integration.OpenWindowRequest{SessionName: sessionName, Name: "nvim", Path: ref.Path, Command: "nvim ."}); err != nil {
+				return actionMsg{err: err}
+			}
+		}
+		if switchAfterCreate {
+			if err := multiplexer.Switch(context.Background(), integration.SessionTarget{Name: sessionName}); err != nil {
+				return actionMsg{err: err}
+			}
+		}
+		return actionMsg{message: "Created " + created.Name, refresh: !switchAfterCreate, quit: switchAfterCreate}
 	}
 }
 
@@ -1391,7 +1405,7 @@ func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
 			return actionMsg{err: err}
 		}
 		switchAfterCreate := os.Getenv("TMUX") != ""
-		created, err := workspace.Create(context.Background(), runner, workspace.CreateOptions{
+		created, err := app.DefaultIntegrationSet().Workspace.Create(context.Background(), integration.CreateWorkspaceRequest{
 			Repo:            repo,
 			Base:            "origin/" + name,
 			Name:            name,
