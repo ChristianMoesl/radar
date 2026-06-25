@@ -272,7 +272,7 @@ The daemon stores durable task records and source-ref records locally. Task IDs 
 
 Radar groups work ticket-first when a Jira-style key is present, then by local workspace, then by PR/issue/source-ref identity. Done state and acknowledgement state are kept on durable task records instead of being inferred from the latest projected task.
 
-Use `./radar reset` or `R` in the TUI to delete this state and ingest everything again from scratch.
+Use `./radar reset` or `R` in the TUI to delete this state and collect everything again from scratch.
 
 ```sh
 ./radar state-path
