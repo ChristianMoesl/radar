@@ -42,6 +42,15 @@ The release script tests, builds the release archives, creates a signed annotate
 
 Release assets should not be replaced after publishing. If a release is wrong, publish a new patch version.
 
+The sandbox image is released separately because it packages frequently updated tools such as Pi, Node, pnpm, and gh. The sandbox image workflow runs weekly and can be triggered manually. It publishes:
+
+```text
+christianmoesl/radar-sandbox:YYYY.MM.DD
+christianmoesl/radar-sandbox:latest
+```
+
+Publishing the sandbox image requires the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` GitHub secrets.
+
 ## Prerequisites
 
 Radar uses these local tools:
@@ -259,6 +268,8 @@ Tmux session refs use `#{session_id}` for stable identity, so renaming a tmux se
 ## Docker sbx sandboxes
 
 Radar collects Docker sbx sandboxes with `sbx ls --json` when `sbx` is installed. Sandboxes attach to matching tasks through ticket keys in the sandbox/workspace name and through their primary workspace path. Sandboxes without matches are shown as standalone in-progress tasks.
+
+The default sandbox template is `christianmoesl/radar-sandbox:latest`. Pin a date tag such as `christianmoesl/radar-sandbox:2026.06.25` in the user config when you want a reproducible tool snapshot.
 
 ## Config
 
