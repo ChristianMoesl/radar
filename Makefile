@@ -1,4 +1,4 @@
-.PHONY: build install test dist clean-dist clean
+.PHONY: build install test dist release clean-dist clean
 
 GO ?= go
 BINARY := radar
@@ -36,6 +36,13 @@ dist: clean-dist
 		rm -rf "$${dir}"; \
 	done; \
 	cd "$(DIST_DIR)" && shasum -a 256 *.tar.gz > checksums.txt
+
+release:
+	@if [ "$(origin VERSION)" != "command line" ]; then \
+		echo "usage: make release VERSION=vX.Y.Z" >&2; \
+		exit 2; \
+	fi
+	@scripts/release.sh "$(VERSION)"
 
 clean-dist:
 	rm -rf $(DIST_DIR)
