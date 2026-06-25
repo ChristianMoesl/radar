@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"radar/internal/ingestion"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 )
 
@@ -18,13 +18,13 @@ func (Source) Name() string {
 	return "github"
 }
 
-func (Source) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
+func (Source) Status(ctx context.Context, logger *slog.Logger) integration.StatusResult {
 	status, allowed := GraphQLSourceStatus(ctx, logger)
-	return ingestion.StatusResult{Status: status, CanRun: allowed}
+	return integration.StatusResult{Status: status, CanRun: allowed}
 }
 
-func (Source) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
-	result := ingestion.Result{
+func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
+	result := integration.CollectResult{
 		Tasks: make([]protocol.Task, 0),
 	}
 
@@ -49,7 +49,7 @@ func (Source) Ingest(ctx context.Context, req ingestion.Request) ingestion.Resul
 	return result
 }
 
-func (Source) ReconcileDone(ctx context.Context, req ingestion.ReconcileRequest) []protocol.Task {
+func (Source) ReconcileDone(ctx context.Context, req integration.ReconcileRequest) []protocol.Task {
 	return ResolveDonePullRequests(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger)
 }
 
@@ -71,3 +71,8 @@ func appendMissingPullRequests(tasks []protocol.Task, candidates []protocol.Task
 	}
 	return tasks
 }
+
+var _ integration.Source = Source{}
+var _ integration.StatusReporter = Source{}
+var _ integration.Reconciler = Source{}
+var _ integration.CodeReviewProvider = Source{}

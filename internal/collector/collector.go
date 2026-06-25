@@ -8,7 +8,7 @@ import (
 	"radar/internal/filters"
 	gitcollector "radar/internal/git"
 	"radar/internal/github"
-	"radar/internal/ingestion"
+	"radar/internal/integration"
 	"radar/internal/jira"
 	"radar/internal/protocol"
 	"radar/internal/sbx"
@@ -20,7 +20,7 @@ type Ingested struct {
 	SourceRefs  []protocol.SourceRef
 	Sources     []protocol.SourceStatus
 	SourceNames []string
-	Results     map[string]ingestion.Result
+	Results     map[string]integration.CollectResult
 }
 
 type Result struct {
@@ -29,8 +29,8 @@ type Result struct {
 	SourceNames []string
 }
 
-func Sources() []ingestion.Source {
-	return []ingestion.Source{
+func Sources() []integration.Source {
+	return []integration.Source{
 		github.NewSource(),
 		jira.NewSource(),
 		gitcollector.NewSource(),
@@ -39,10 +39,10 @@ func Sources() []ingestion.Source {
 	}
 }
 
-func LocalSources() []ingestion.Source {
-	locals := make([]ingestion.Source, 0)
+func LocalSources() []integration.Source {
+	locals := make([]integration.Source, 0)
 	for _, source := range Sources() {
-		local, ok := source.(ingestion.LocalSource)
+		local, ok := source.(integration.LocalSource)
 		if ok && local.Local() {
 			locals = append(locals, source)
 		}
@@ -55,11 +55,11 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger)
 	ingested := IngestSources(ctx, previous, logger, sources)
 	tasks := observedTasks(ingested)
 	for _, source := range sources {
-		reconciler, ok := source.(ingestion.Reconciler)
+		reconciler, ok := source.(integration.Reconciler)
 		if !ok {
 			continue
 		}
-		tasks = append(tasks, reconciler.ReconcileDone(ctx, ingestion.ReconcileRequest{
+		tasks = append(tasks, reconciler.ReconcileDone(ctx, integration.ReconcileRequest{
 			Previous: previous,
 			Active:   tasks,
 			Result:   ingested.Results[source.Name()],
@@ -78,13 +78,13 @@ func Ingest(ctx context.Context, previous []protocol.Task, logger *slog.Logger) 
 	return IngestSources(ctx, previous, logger, Sources())
 }
 
-func IngestSources(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []ingestion.Source) Ingested {
+func IngestSources(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Ingested {
 	result := Ingested{
 		Tasks:       make([]protocol.Task, 0),
 		SourceRefs:  make([]protocol.SourceRef, 0),
 		Sources:     make([]protocol.SourceStatus, 0, 4),
 		SourceNames: make([]string, 0, len(sources)),
-		Results:     map[string]ingestion.Result{},
+		Results:     map[string]integration.CollectResult{},
 	}
 
 	cfg, err := config.Load()
@@ -95,11 +95,11 @@ func IngestSources(ctx context.Context, previous []protocol.Task, logger *slog.L
 
 	for _, source := range sources {
 		result.SourceNames = append(result.SourceNames, source.Name())
-		status := ingestion.StatusResult{
+		status := integration.StatusResult{
 			Status: protocol.SourceStatus{Name: source.Name(), Status: "ok"},
 			CanRun: true,
 		}
-		if reporter, ok := source.(ingestion.StatusReporter); ok {
+		if reporter, ok := source.(integration.StatusReporter); ok {
 			status = reporter.Status(ctx, logger)
 		}
 		if !status.CanRun {
@@ -107,7 +107,7 @@ func IngestSources(ctx context.Context, previous []protocol.Task, logger *slog.L
 			continue
 		}
 
-		ingested := source.Ingest(ctx, ingestion.Request{
+		ingested := source.Collect(ctx, integration.CollectRequest{
 			Previous: previous,
 			Filters:  filterCfg,
 			Logger:   logger,
@@ -159,7 +159,7 @@ func ignoredStandaloneSourceRef(sourceRef protocol.SourceRef) bool {
 	}
 }
 
-func sourceRefCount(sourceName string, result ingestion.Result) int {
+func sourceRefCount(sourceName string, result integration.CollectResult) int {
 	seen := map[string]bool{}
 	for _, sourceRef := range result.SourceRefs {
 		if sourceRef.Source == sourceName {

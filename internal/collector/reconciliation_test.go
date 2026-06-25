@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"radar/internal/ingestion"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 )
 
@@ -24,7 +24,7 @@ func TestLocalSourcesComeFromSourceDeclarations(t *testing.T) {
 	}
 }
 
-func sourceNames(sources []ingestion.Source) []string {
+func sourceNames(sources []integration.Source) []string {
 	names := make([]string, 0, len(sources))
 	for _, source := range sources {
 		names = append(names, source.Name())

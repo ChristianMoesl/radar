@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"radar/internal/ingestion"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/workspace"
 )
@@ -27,21 +27,21 @@ func (Source) Local() bool {
 	return true
 }
 
-func (Source) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
+func (Source) Status(ctx context.Context, logger *slog.Logger) integration.StatusResult {
 	status := SourceStatus(ctx)
-	return ingestion.StatusResult{Status: status, CanRun: status.Status == "ok"}
+	return integration.StatusResult{Status: status, CanRun: status.Status == "ok"}
 }
 
-func (Source) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
+func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	sourceRefs, status := FetchSandboxes(ctx, req.Logger)
 	if status.Status == "error" {
 		req.Logger.Warn("sbx sandbox collection failed", "detail", status.Detail)
-		return ingestion.Result{SourceRefs: sourceRefs}
+		return integration.CollectResult{SourceRefs: sourceRefs}
 	}
-	return ingestion.Result{SourceRefs: sourceRefs, Complete: status.Status == "ok"}
+	return integration.CollectResult{SourceRefs: sourceRefs, Complete: status.Status == "ok"}
 }
 
-func (Source) PreviewDelete(ctx context.Context, req ingestion.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {
+func (Source) PreviewDelete(ctx context.Context, req integration.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {
 	_ = ctx
 	for _, ref := range req.Task.SourceRefs {
 		if !IsSandboxRef(ref) {
@@ -113,7 +113,7 @@ func sameOrDescendant(path string, root string) bool {
 	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
-var _ ingestion.Source = Source{}
-var _ ingestion.LocalSource = Source{}
-var _ ingestion.StatusReporter = Source{}
-var _ ingestion.Deleter = Source{}
+var _ integration.Source = Source{}
+var _ integration.LocalSource = Source{}
+var _ integration.StatusReporter = Source{}
+var _ integration.DeleteProvider = Source{}

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"radar/internal/ingestion"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 )
 
@@ -23,21 +23,21 @@ func (Source) Local() bool {
 	return true
 }
 
-func (Source) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
+func (Source) Status(ctx context.Context, logger *slog.Logger) integration.StatusResult {
 	status := SourceStatus(ctx)
-	return ingestion.StatusResult{Status: status, CanRun: status.Status == "ok"}
+	return integration.StatusResult{Status: status, CanRun: status.Status == "ok"}
 }
 
-func (Source) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
+func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	sourceRefs, status := FetchSessions(ctx, req.Logger)
 	if status.Status == "error" {
 		req.Logger.Warn("tmux session collection failed", "detail", status.Detail)
-		return ingestion.Result{SourceRefs: sourceRefs}
+		return integration.CollectResult{SourceRefs: sourceRefs}
 	}
-	return ingestion.Result{SourceRefs: sourceRefs, Complete: status.Status == "ok"}
+	return integration.CollectResult{SourceRefs: sourceRefs, Complete: status.Status == "ok"}
 }
 
-func (Source) PreviewDelete(ctx context.Context, req ingestion.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {
+func (Source) PreviewDelete(ctx context.Context, req integration.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {
 	_ = ctx
 	for _, ref := range req.Task.SourceRefs {
 		if ref.Source != "tmux" || ref.Kind != "session" {
@@ -77,3 +77,8 @@ func (Source) Delete(ctx context.Context, preview protocol.DeletePreview) (proto
 	deleted.Title = preview.Title
 	return deleted, nil
 }
+
+var _ integration.Source = Source{}
+var _ integration.LocalSource = Source{}
+var _ integration.StatusReporter = Source{}
+var _ integration.DeleteProvider = Source{}

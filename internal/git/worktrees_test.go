@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"radar/internal/ingestion"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 )
 
@@ -46,7 +46,7 @@ func TestPreviewDeleteRejectsMainWorkingTree(t *testing.T) {
 	repo := filepath.Join(t.TempDir(), "repo")
 	runGit(t, ctx, filepath.Dir(repo), "init", "repo")
 
-	_, ok, err := Source{}.PreviewDelete(ctx, ingestion.DeletePreviewRequest{Task: protocol.Task{ID: 1, SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: repo}}}})
+	_, ok, err := Source{}.PreviewDelete(ctx, integration.DeletePreviewRequest{Task: protocol.Task{ID: 1, SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: repo}}}})
 	if err == nil {
 		t.Fatal("PreviewDelete() error = nil, want main working tree error")
 	}

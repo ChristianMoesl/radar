@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"radar/internal/ingestion"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/sbx"
 	"radar/internal/state"
@@ -48,7 +48,7 @@ func TestDeleteSbxSandboxE2EUsesForceWithoutWorkspaceCWD(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		NewWithSources(store, logger, nil, nil, []ingestion.Source{sbx.NewSource()}).handle(serverConn)
+		NewWithSources(store, logger, nil, nil, []integration.Source{sbx.NewSource()}).handle(serverConn)
 	}()
 
 	encoder := json.NewEncoder(clientConn)
