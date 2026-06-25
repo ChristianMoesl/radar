@@ -14,6 +14,10 @@ install -m 0755 "${archive%.tar.gz}/radar" ~/.local/bin/radar
 radar version
 ```
 
+## Update
+
+Download the new release archive, verify it with `checksums.txt`, and install it over the old binary. Run `radar restart` after updating if the daemon is already running.
+
 ## Build
 
 ```sh
@@ -34,7 +38,9 @@ Releases are tag-driven. To publish versioned Linux and macOS binaries from a cl
 make release VERSION=v0.1.0
 ```
 
-The release script tests, builds the release archives, creates an annotated tag, and pushes it. The release workflow then publishes `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64` tarballs, plus `checksums.txt`, with generated notes from the changes since the previous tag.
+The release script tests, builds the release archives, creates a signed annotated tag, and pushes it. The release workflow then publishes `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64` tarballs, plus `checksums.txt`, with generated notes from the changes since the previous tag.
+
+Release assets should not be replaced after publishing. If a release is wrong, publish a new patch version.
 
 ## Prerequisites
 

@@ -54,7 +54,7 @@ commit="$(git rev-parse --short=12 HEAD)"
 make test
 make dist VERSION="$version" COMMIT="$commit"
 
-git tag -a "$version" -m "$version"
+git tag -s "$version" -m "$version"
 git push origin main
 git push origin "$version"
 
