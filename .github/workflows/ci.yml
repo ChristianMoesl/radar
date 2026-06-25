@@ -34,7 +34,10 @@ jobs:
           fi
 
       - name: Build
-        run: go build ./cmd/radar
+        run: make build
 
       - name: Test
-        run: go test ./...
+        run: make test
+
+      - name: Check release packaging
+        run: make dist VERSION=ci

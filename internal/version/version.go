@@ -3,20 +3,23 @@ package version
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"sync"
-
-	"radar/internal/protocol"
 )
 
 var (
+	Number = "dev"
+	Commit = "unknown"
+	Date   = "unknown"
+
 	currentOnce sync.Once
 	current     string
 )
 
 func Current() string {
 	currentOnce.Do(func() {
-		current = protocol.Version
+		current = Number
 		path, err := os.Executable()
 		if err != nil {
 			return
@@ -26,7 +29,11 @@ func Current() string {
 			return
 		}
 		sum := sha256.Sum256(data)
-		current = protocol.Version + "+" + hex.EncodeToString(sum[:])
+		current = Number + "+" + hex.EncodeToString(sum[:])
 	})
 	return current
+}
+
+func Text() string {
+	return fmt.Sprintf("radar %s\ncommit %s\nbuilt %s", Number, Commit, Date)
 }
