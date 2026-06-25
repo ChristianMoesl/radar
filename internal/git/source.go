@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"radar/internal/ingestion"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/tmux"
 	"radar/internal/workspace"
@@ -28,23 +28,23 @@ func (Source) Local() bool {
 	return true
 }
 
-func (Source) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
-	return ingestion.StatusResult{
+func (Source) Status(ctx context.Context, logger *slog.Logger) integration.StatusResult {
+	return integration.StatusResult{
 		Status: protocol.SourceStatus{Name: "git", Status: "ok"},
 		CanRun: true,
 	}
 }
 
-func (Source) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
+func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	source_refs, status := FetchWorktrees(ctx, req.Logger)
 	if status.Status == "error" {
 		req.Logger.Warn("git worktree collection failed", "detail", status.Detail)
-		return ingestion.Result{SourceRefs: source_refs}
+		return integration.CollectResult{SourceRefs: source_refs}
 	}
-	return ingestion.Result{SourceRefs: source_refs, Complete: status.Status == "ok"}
+	return integration.CollectResult{SourceRefs: source_refs, Complete: status.Status == "ok"}
 }
 
-func (Source) PreviewDelete(ctx context.Context, req ingestion.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {
+func (Source) PreviewDelete(ctx context.Context, req integration.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {
 	ref, ok := deleteWorktreeRef(req.Task, req.Current)
 	if !ok {
 		return protocol.DeletePreview{}, false, nil
@@ -147,3 +147,8 @@ func sameOrDescendant(path string, root string) bool {
 	rel, err := filepath.Rel(root, path)
 	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
+
+var _ integration.Source = Source{}
+var _ integration.LocalSource = Source{}
+var _ integration.StatusReporter = Source{}
+var _ integration.DeleteProvider = Source{}

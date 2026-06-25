@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"radar/internal/ingestion"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 )
 
@@ -74,7 +74,7 @@ func TestSandboxSourceRef(t *testing.T) {
 
 func TestSourcePreviewDeleteReturnsSandboxTarget(t *testing.T) {
 	ref := sandbox{Name: "radar-repo-small-fix", Workspaces: []string{"/work/repo/small-fix"}}.SourceRef()
-	preview, ok, err := Source{}.PreviewDelete(context.Background(), ingestion.DeletePreviewRequest{
+	preview, ok, err := Source{}.PreviewDelete(context.Background(), integration.DeletePreviewRequest{
 		Task: protocol.Task{ID: 7, SourceRefs: []protocol.SourceRef{ref}},
 	})
 	if err != nil {
@@ -90,7 +90,7 @@ func TestSourcePreviewDeleteReturnsSandboxTarget(t *testing.T) {
 
 func TestSourcePreviewDeleteHonorsCurrentPath(t *testing.T) {
 	ref := sandbox{Name: "radar-repo-small-fix", Workspaces: []string{"/work/repo/small-fix"}}.SourceRef()
-	_, ok, err := Source{}.PreviewDelete(context.Background(), ingestion.DeletePreviewRequest{
+	_, ok, err := Source{}.PreviewDelete(context.Background(), integration.DeletePreviewRequest{
 		Task:    protocol.Task{ID: 7, SourceRefs: []protocol.SourceRef{ref}},
 		Current: protocol.CurrentContext{CWD: "/other"},
 	})

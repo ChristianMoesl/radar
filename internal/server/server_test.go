@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"radar/internal/ingestion"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/state"
 )
@@ -89,7 +89,7 @@ func TestDeletePreviewDelegatesToDeletableSource(t *testing.T) {
 	}
 	store.SetTasks([]protocol.Task{{Title: "deletable", SourceRefs: []protocol.SourceRef{{ID: "fake:ref:1", Source: "fake", Kind: "thing", Path: "/tmp/item"}}}})
 
-	preview, err := NewWithSources(store, logger, nil, nil, []ingestion.Source{fakeDeleteSource{}}).deletePreview(context.Background(), 1, protocol.CurrentContext{CWD: "/tmp"})
+	preview, err := NewWithSources(store, logger, nil, nil, []integration.Source{fakeDeleteSource{}}).deletePreview(context.Background(), 1, protocol.CurrentContext{CWD: "/tmp"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestDeleteDelegatesToPreviewSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := NewWithSources(store, logger, nil, nil, []ingestion.Source{fakeDeleteSource{}}).delete(context.Background(), &protocol.DeletePreview{Source: "fake", SourceRefID: "fake:ref:1", Path: "/tmp/item"})
+	result, err := NewWithSources(store, logger, nil, nil, []integration.Source{fakeDeleteSource{}}).delete(context.Background(), &protocol.DeletePreview{Source: "fake", SourceRefID: "fake:ref:1", Path: "/tmp/item"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,11 +174,11 @@ type fakeDeleteSource struct{}
 
 func (fakeDeleteSource) Name() string { return "fake" }
 
-func (fakeDeleteSource) Ingest(context.Context, ingestion.Request) ingestion.Result {
-	return ingestion.Result{}
+func (fakeDeleteSource) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
+	return integration.CollectResult{}
 }
 
-func (fakeDeleteSource) PreviewDelete(_ context.Context, req ingestion.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {
+func (fakeDeleteSource) PreviewDelete(_ context.Context, req integration.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {
 	for _, ref := range req.Task.SourceRefs {
 		if ref.Source == "fake" {
 			return protocol.DeletePreview{TaskID: req.Task.ID, SourceRefID: ref.ID, Source: ref.Source, Kind: ref.Kind, Path: ref.Path}, true, nil

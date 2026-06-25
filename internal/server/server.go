@@ -14,7 +14,7 @@ import (
 
 	"radar/internal/config"
 	"radar/internal/filters"
-	"radar/internal/ingestion"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/socket"
 	"radar/internal/state"
@@ -28,14 +28,14 @@ type Server struct {
 	logger  *slog.Logger
 	refresh func()
 	reset   func() error
-	sources []ingestion.Source
+	sources []integration.Source
 }
 
 func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() error) *Server {
 	return NewWithSources(store, logger, refresh, reset, nil)
 }
 
-func NewWithSources(store *state.Store, logger *slog.Logger, refresh func(), reset func() error, sources []ingestion.Source) *Server {
+func NewWithSources(store *state.Store, logger *slog.Logger, refresh func(), reset func() error, sources []integration.Source) *Server {
 	return &Server{store: store, logger: logger, refresh: refresh, reset: reset, sources: sources}
 }
 
@@ -155,11 +155,11 @@ func (s *Server) deletePreview(ctx context.Context, taskID int, current protocol
 		return protocol.DeletePreview{}, fmt.Errorf("task %d not found", taskID)
 	}
 	for _, source := range s.sources {
-		deleter, ok := source.(ingestion.Deleter)
+		deleter, ok := source.(integration.DeleteProvider)
 		if !ok {
 			continue
 		}
-		preview, canDelete, err := deleter.PreviewDelete(ctx, ingestion.DeletePreviewRequest{Task: task, Current: current, Logger: s.logger})
+		preview, canDelete, err := deleter.PreviewDelete(ctx, integration.DeletePreviewRequest{Task: task, Current: current, Logger: s.logger})
 		if err != nil {
 			return protocol.DeletePreview{}, err
 		}
@@ -181,7 +181,7 @@ func (s *Server) delete(ctx context.Context, preview *protocol.DeletePreview) (p
 		if source.Name() != preview.Source {
 			continue
 		}
-		deleter, ok := source.(ingestion.Deleter)
+		deleter, ok := source.(integration.DeleteProvider)
 		if !ok {
 			break
 		}

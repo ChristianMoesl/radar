@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"radar/internal/ingestion"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 )
 
@@ -19,27 +19,32 @@ func (Source) Name() string {
 	return "jira"
 }
 
-func (Source) Status(ctx context.Context, logger *slog.Logger) ingestion.StatusResult {
+func (Source) Status(ctx context.Context, logger *slog.Logger) integration.StatusResult {
 	status := protocol.SourceStatus{Name: "jira", Status: "ok"}
 	_, ok, missing := configFromEnv()
 	if !ok {
 		logger.Debug("jira collector not configured", "missing", missing)
 		status.Status = "disabled"
 		status.Detail = "missing " + strings.Join(missing, ", ")
-		return ingestion.StatusResult{Status: status, CanRun: false}
+		return integration.StatusResult{Status: status, CanRun: false}
 	}
-	return ingestion.StatusResult{Status: status, CanRun: true}
+	return integration.StatusResult{Status: status, CanRun: true}
 }
 
-func (Source) Ingest(ctx context.Context, req ingestion.Request) ingestion.Result {
+func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	sourceRefs, _, err := FetchAssignedIssues(ctx, req.Logger)
 	if err != nil {
 		req.Logger.Warn("jira issue collection failed", "error", err)
-		return ingestion.Result{}
+		return integration.CollectResult{}
 	}
-	return ingestion.Result{SourceRefs: sourceRefs, Complete: true}
+	return integration.CollectResult{SourceRefs: sourceRefs, Complete: true}
 }
 
-func (Source) ReconcileDone(ctx context.Context, req ingestion.ReconcileRequest) []protocol.Task {
+func (Source) ReconcileDone(ctx context.Context, req integration.ReconcileRequest) []protocol.Task {
 	return ResolveDoneIssues(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger)
 }
+
+var _ integration.Source = Source{}
+var _ integration.StatusReporter = Source{}
+var _ integration.Reconciler = Source{}
+var _ integration.WorkTracker = Source{}
