@@ -98,6 +98,62 @@ func (Source) Delete(ctx context.Context, preview protocol.DeletePreview) (proto
 	}, nil
 }
 
+func (Source) Current(ctx context.Context, cwd string) (integration.Workspace, bool, error) {
+	if strings.TrimSpace(cwd) == "" {
+		return integration.Workspace{}, false, nil
+	}
+	path, err := workspace.ExecRunner{}.Run(ctx, cwd, "git", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return integration.Workspace{}, false, nil
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return integration.Workspace{}, false, nil
+	}
+	return integration.Workspace{Path: path}, true, nil
+}
+
+func (Source) Create(ctx context.Context, req integration.CreateWorkspaceRequest) (integration.Workspace, error) {
+	created, err := workspace.Create(ctx, workspace.ExecRunner{}, workspace.CreateOptions{
+		Repo:            req.Repo,
+		Name:            req.Name,
+		Branch:          req.Branch,
+		Base:            req.Base,
+		Path:            req.Path,
+		SessionName:     req.SessionName,
+		WorkspaceRoot:   req.WorkspaceRoot,
+		Model:           req.Model,
+		Thinking:        req.Thinking,
+		SandboxTemplate: req.SandboxTemplate,
+		Switch:          req.Switch,
+		ForkPiSession:   req.ForkPiSession,
+	})
+	if err != nil {
+		return integration.Workspace{}, err
+	}
+	return integrationWorkspace(created), nil
+}
+
+func (Source) DeleteWorkspace(ctx context.Context, req integration.DeleteWorkspaceRequest) (integration.Workspace, error) {
+	deleted, err := workspace.Delete(ctx, workspace.ExecRunner{}, req.Path, req.SessionName, req.Force)
+	if err != nil {
+		return integration.Workspace{}, err
+	}
+	return integrationWorkspace(deleted), nil
+}
+
+func integrationWorkspace(workspace workspace.Workspace) integration.Workspace {
+	return integration.Workspace{
+		Name:        workspace.Name,
+		Branch:      workspace.Branch,
+		Base:        workspace.Base,
+		Repo:        workspace.Repo,
+		Path:        workspace.Path,
+		SessionName: workspace.SessionName,
+		SandboxName: workspace.SandboxName,
+	}
+}
+
 func mainWorkingTree(ctx context.Context, path string) (bool, error) {
 	gitDir, err := gitOutput(ctx, path, "rev-parse", "--path-format=absolute", "--git-dir")
 	if err != nil {
@@ -147,6 +203,12 @@ func sameOrDescendant(path string, root string) bool {
 	rel, err := filepath.Rel(root, path)
 	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
+
+var _ integration.Source = Source{}
+var _ integration.LocalSource = Source{}
+var _ integration.StatusReporter = Source{}
+var _ integration.DeleteProvider = Source{}
+var _ integration.WorkspaceProvider = Source{}
 
 var _ integration.Source = Source{}
 var _ integration.LocalSource = Source{}

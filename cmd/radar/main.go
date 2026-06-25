@@ -26,7 +26,6 @@ import (
 	"radar/internal/state"
 	"radar/internal/tui"
 	"radar/internal/version"
-	"radar/internal/workspace"
 )
 
 func main() {
@@ -133,7 +132,8 @@ func runCreate(args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	result, err := workspace.Create(context.Background(), workspace.ExecRunner{}, workspace.CreateOptions{
+	integrations := app.DefaultIntegrationSet()
+	result, err := integrations.Workspace.Create(context.Background(), integration.CreateWorkspaceRequest{
 		Repo:            *repo,
 		Base:            *base,
 		Name:            *name,
@@ -169,12 +169,14 @@ func runDelete(args []string) {
 		os.Exit(2)
 	}
 
-	var result workspace.Workspace
+	integrations := app.DefaultIntegrationSet()
+	var result integration.Workspace
 	var err error
 	if *session != "" {
-		result, err = workspace.DeleteSession(context.Background(), workspace.ExecRunner{}, *session)
+		err = integrations.Multiplexer.DeleteSession(context.Background(), integration.SessionTarget{Name: *session})
+		result = integration.Workspace{SessionName: *session}
 	} else {
-		result, err = workspace.Delete(context.Background(), workspace.ExecRunner{}, *path, "", false)
+		result, err = integrations.Workspace.DeleteWorkspace(context.Background(), integration.DeleteWorkspaceRequest{Path: *path})
 	}
 	if err != nil {
 		fatal(err)
