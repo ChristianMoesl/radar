@@ -91,6 +91,7 @@ type RunActionRequest struct {
 	ActionID     string
 	Ref          protocol.SourceRef
 	SwitchClient bool
+	Multiplexer  MultiplexerProvider
 }
 
 type ActionResult struct {

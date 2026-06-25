@@ -27,10 +27,18 @@ func SourceRefActionsWithProviders(ctx context.Context, providers []integration.
 }
 
 func Open(ctx context.Context, task protocol.Task, actionID string, ref protocol.SourceRef) (Result, error) {
-	return OpenWithProviders(ctx, app.DefaultIntegrationSet().ActionProviders, task, actionID, ref)
+	return OpenWithIntegrations(ctx, app.DefaultIntegrationSet(), task, actionID, ref)
+}
+
+func OpenWithIntegrations(ctx context.Context, integrations integration.Set, task protocol.Task, actionID string, ref protocol.SourceRef) (Result, error) {
+	return open(ctx, integrations.ActionProviders, integrations.Multiplexer, task, actionID, ref)
 }
 
 func OpenWithProviders(ctx context.Context, providers []integration.ActionProvider, task protocol.Task, actionID string, ref protocol.SourceRef) (Result, error) {
+	return open(ctx, providers, nil, task, actionID, ref)
+}
+
+func open(ctx context.Context, providers []integration.ActionProvider, multiplexer integration.MultiplexerProvider, task protocol.Task, actionID string, ref protocol.SourceRef) (Result, error) {
 	switchClient := os.Getenv("TMUX") != ""
 	for _, provider := range providers {
 		actions := provider.Actions(ctx, integration.ActionRequest{Task: task, Ref: ref})
@@ -38,7 +46,7 @@ func OpenWithProviders(ctx context.Context, providers []integration.ActionProvid
 			if action.ID != actionID {
 				continue
 			}
-			return provider.RunAction(ctx, integration.RunActionRequest{Task: task, ActionID: actionID, Ref: ref, SwitchClient: switchClient})
+			return provider.RunAction(ctx, integration.RunActionRequest{Task: task, ActionID: actionID, Ref: ref, SwitchClient: switchClient, Multiplexer: multiplexer})
 		}
 	}
 	return Result{}, fmt.Errorf("unknown source action: %s", actionID)
