@@ -17,7 +17,7 @@ import (
 	"radar/internal/state"
 )
 
-func TestCollectEndToEndIngestsLinksAndMarksGitHubPRDone(t *testing.T) {
+func TestCollectEndToEndLinksAndMarksGitHubPRDone(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	tmp := t.TempDir()
@@ -43,7 +43,7 @@ func TestCollectEndToEndIngestsLinksAndMarksGitHubPRDone(t *testing.T) {
 	firstTasks := store.Tasks()
 	active := taskBySourceRef(firstTasks, "github:pr:acme/app:7")
 	if active == nil {
-		t.Fatalf("first collect did not ingest GitHub PR; tasks=%+v", firstTasks)
+		t.Fatalf("first collect did not include GitHub PR; tasks=%+v", firstTasks)
 	}
 	if active.Kind != "github_own_pr" || active.Attention != "in_progress" {
 		t.Fatalf("github task = %s/%s, want github_own_pr/in_progress", active.Kind, active.Attention)
