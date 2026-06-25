@@ -110,13 +110,13 @@ type DeleteProvider interface {
 }
 
 type Workspace struct {
-	Name        string
-	Branch      string
-	Base        string
-	Repo        string
-	Path        string
-	SessionName string
-	SandboxName string
+	Name        string `json:"name,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	Base        string `json:"base,omitempty"`
+	Repo        string `json:"repo,omitempty"`
+	Path        string `json:"path"`
+	SessionName string `json:"session_name"`
+	SandboxName string `json:"sandbox_name,omitempty"`
 }
 
 type CreateWorkspaceRequest struct {
