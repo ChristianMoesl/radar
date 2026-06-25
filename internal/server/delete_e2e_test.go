@@ -48,7 +48,7 @@ func TestDeleteSbxSandboxE2EUsesForceWithoutWorkspaceCWD(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		NewWithSources(store, logger, nil, nil, []integration.Source{sbx.NewSource()}).handle(serverConn)
+		NewWithIntegrations(store, logger, nil, nil, integration.Set{DeleteProviders: []integration.DeleteProvider{sbx.NewSource()}}).handle(serverConn)
 	}()
 
 	encoder := json.NewEncoder(clientConn)

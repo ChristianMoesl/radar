@@ -10,6 +10,7 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/protocol"
+	"radar/internal/taskrefs"
 	"radar/internal/workspace"
 )
 
@@ -74,6 +75,39 @@ func (Source) Delete(ctx context.Context, preview protocol.DeletePreview) (proto
 	return deleteSandbox(ctx, workspace.ExecRunner{}, preview)
 }
 
+func (Source) Actions(ctx context.Context, req integration.ActionRequest) []integration.Action {
+	_ = ctx
+	if !IsSandboxRef(req.Ref) {
+		return nil
+	}
+	return []integration.Action{{
+		PreferredKey: "s",
+		Source:       "Docker sbx",
+		Label:        req.Label,
+		Detail:       "sbx run --name " + SandboxName(req.Ref),
+		ID:           OpenShellAction,
+		Ref:          req.Ref,
+	}}
+}
+
+func (Source) RunAction(ctx context.Context, req integration.RunActionRequest) (integration.ActionResult, error) {
+	if req.ActionID != OpenShellAction {
+		return integration.ActionResult{}, fmt.Errorf("unknown sbx action: %s", req.ActionID)
+	}
+	result, err := OpenShell(ctx, workspace.ExecRunner{}, req.Ref, OpenShellOptions{
+		SessionTarget: taskrefs.SessionTarget(req.Task),
+		SwitchClient:  req.SwitchClient,
+	})
+	if err != nil {
+		return integration.ActionResult{}, err
+	}
+	message := "Opened sbx sandbox in " + result.SessionName
+	if result.CreatedSession {
+		message = "Created " + result.SessionName + " and opened sbx sandbox"
+	}
+	return integration.ActionResult{Message: message, Refresh: true, Quit: req.SwitchClient}, nil
+}
+
 func deleteSandbox(ctx context.Context, runner workspace.Runner, preview protocol.DeletePreview) (protocol.DeleteResult, error) {
 	name := strings.TrimSpace(preview.Title)
 	if name == "" {
@@ -117,3 +151,5 @@ var _ integration.Source = Source{}
 var _ integration.LocalSource = Source{}
 var _ integration.StatusReporter = Source{}
 var _ integration.DeleteProvider = Source{}
+var _ integration.ActionProvider = Source{}
+var _ integration.RuntimeProvider = Source{}
