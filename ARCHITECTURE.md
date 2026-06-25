@@ -6,14 +6,16 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 
 - `cmd/radar/`: single Go binary with TUI, CLI, and daemon modes.
 - `internal/tui/`: Bubble Tea terminal UI.
-- `internal/workspace/`: repository discovery and Git worktree/tmux workspace lifecycle.
+- `internal/integration/`: source-compiled integration capability interfaces and observation model.
+- `internal/app/`: explicit assembly of the active integration set.
+- `internal/workspace/`: repository discovery and Git worktree/tmux workspace lifecycle helpers.
 - `internal/server/`: Unix socket API used by TUI and CLI commands.
-- `internal/collector/`: orchestrates ingestion and remote state resolution.
-- `internal/github/`: GitHub ingestion and remote state resolution.
-- `internal/git/`: Git worktree ingestion.
-- `internal/jira/`: Jira Cloud issue ingestion.
-- `internal/tmux/`: tmux session ingestion.
-- `internal/sbx/`: Docker sbx sandbox ingestion.
+- `internal/collector/`: orchestrates integration collection, observation projection, and remote state resolution.
+- `internal/github/`: GitHub source facts and remote state resolution.
+- `internal/git/`: Git worktree source facts and workspace provider.
+- `internal/jira/`: Jira Cloud issue source facts and remote state resolution.
+- `internal/tmux/`: tmux session source facts and active multiplexer provider.
+- `internal/sbx/`: Docker sbx sandbox source facts, actions, and deletion.
 - `internal/state/`: local persistent task cache/state and durable source-ref linking.
 
 ## Process model
@@ -73,7 +75,8 @@ SourceRef + TaskRecord => Task
 The pipeline is:
 
 ```text
-collect SourceRefs
+collect integration Observations
+→ project observed SourceRefs into candidate Tasks
 → match/update SourceRefRecords
 → durably link SourceRefRecords into TaskRecords
 → project Tasks
@@ -95,7 +98,7 @@ Radar has three active categories and one historical category:
 - `in_progress`
 - `done`
 
-Ingestion and durable linking are separate steps. Ingestion code talks to external systems and produces raw active tasks/source refs with source-owned linking keys. The state store matches active persisted source refs by those keys, merges records that describe the same work, and then projects one user-facing task per task record.
+Collection and durable linking are separate steps. Integration code talks to external systems and produces observations/source refs with source-owned linking keys. Core collection projects those observations into candidate tasks. The state store matches active persisted source refs by those keys, merges records that describe the same work, and then projects one user-facing task per task record.
 
 `done` is a durable task-record state. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state and emits a done transition. The state store applies that transition to the existing task record. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate.
 
@@ -154,6 +157,10 @@ Open the TUI in a tmux popup with `tmux display-popup -E "radar"`. Selecting a t
 ## Docker sbx sandboxes
 
 Docker sbx integration collects sandboxes with `sbx ls --json`. Radar attaches sandboxes to matching tasks when their name or primary workspace contains a ticket key, or when the primary workspace matches a Git worktree path. Sandboxes that do not attach to another task become standalone `in_progress` tasks. The sbx source owns its open action: pressing `o` then `s` opens `sbx run --name <sandbox>` in a new tmux window, creating the matching tmux session first when needed.
+
+## Integration development
+
+New integrations are source-compiled packages registered explicitly in `internal/app.DefaultIntegrationSet`. See [docs/integrations.md](docs/integrations.md) for the capability checklist, SourceRef contract, and Zellij/GitLab examples.
 
 ## Workspaces
 

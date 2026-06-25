@@ -3,6 +3,9 @@ package tmux
 import (
 	"slices"
 	"testing"
+
+	"radar/internal/integration/contracttest"
+	"radar/internal/protocol"
 )
 
 func TestParseSessions(t *testing.T) {
@@ -34,6 +37,7 @@ func TestSessionSourceRef(t *testing.T) {
 	}
 
 	sourceRef := session.SourceRef()
+	contracttest.AssertValidSourceRefs(t, "tmux", []protocol.SourceRef{sourceRef})
 	if sourceRef.ID != "tmux:session:$1" {
 		t.Fatalf("unexpected ID: %s", sourceRef.ID)
 	}
