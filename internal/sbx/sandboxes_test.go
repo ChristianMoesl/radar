@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"radar/internal/integration"
+	"radar/internal/integration/contracttest"
 	"radar/internal/protocol"
 )
 
@@ -50,6 +51,7 @@ func TestSandboxSourceRef(t *testing.T) {
 	}
 
 	ref := s.SourceRef()
+	contracttest.AssertValidSourceRefs(t, "sbx", []protocol.SourceRef{ref})
 	if ref.ID != "sbx:sandbox:"+s.Name || ref.Source != "sbx" || ref.Kind != "sandbox" {
 		t.Fatalf("unexpected source ref identity: %+v", ref)
 	}

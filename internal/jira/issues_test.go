@@ -11,8 +11,17 @@ import (
 	"slices"
 	"testing"
 
+	"radar/internal/integration/contracttest"
 	"radar/internal/protocol"
 )
+
+func TestIssueSourceRefContract(t *testing.T) {
+	var issue issue
+	issue.Key = "RAD-123"
+	issue.Fields.Summary = "Ship integration contracts"
+	ref := sourceRefFromIssue(Config{BaseURL: "https://jira.example.test"}, issue)
+	contracttest.AssertValidSourceRefs(t, "jira", []protocol.SourceRef{ref})
+}
 
 func TestSearchAssignedIssuesUsesSearchJQLEndpoint(t *testing.T) {
 	var called []string

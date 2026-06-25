@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"radar/internal/integration"
+	"radar/internal/integration/contracttest"
 	"radar/internal/protocol"
 )
 
@@ -39,6 +40,11 @@ func TestWorktreesSkipsPrunableEntries(t *testing.T) {
 			t.Fatalf("worktrees() included prunable worktree: %#v", items)
 		}
 	}
+}
+
+func TestWorktreeSourceRefContract(t *testing.T) {
+	ref := worktree{Path: "/work/repo/RAD-123-fix", Branch: "RAD-123-fix", Head: "abc"}.SourceRef(context.Background())
+	contracttest.AssertValidSourceRefs(t, "git", []protocol.SourceRef{ref})
 }
 
 func TestPreviewDeleteRejectsMainWorkingTree(t *testing.T) {

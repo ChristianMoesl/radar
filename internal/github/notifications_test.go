@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"radar/internal/integration/contracttest"
 	"radar/internal/protocol"
 )
 
@@ -264,6 +265,7 @@ func assertSourceRef(t *testing.T, source_refs []protocol.SourceRef, wantID stri
 		t.Fatalf("sourceRef count = %d, want 1", len(source_refs))
 	}
 	sourceRef := source_refs[0]
+	contracttest.AssertValidSourceRefs(t, "github", source_refs)
 	if sourceRef.ID != wantID || sourceRef.Source != "github" || sourceRef.Kind != "pull_request" || sourceRef.Status != wantStatus || sourceRef.Branch != wantBranch || sourceRef.Metadata["body"] != wantBody {
 		t.Fatalf("sourceRef = %+v, want github pull_request %q status %q branch %q body %q", sourceRef, wantID, wantStatus, wantBranch, wantBody)
 	}
