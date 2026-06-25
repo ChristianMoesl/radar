@@ -12,10 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	"radar/internal/app"
 	"radar/internal/client"
 	"radar/internal/collector"
 	"radar/internal/config"
 	"radar/internal/github"
+	"radar/internal/integration"
 	"radar/internal/logging"
 	"radar/internal/process"
 	"radar/internal/protocol"
@@ -220,15 +222,16 @@ func runDaemon() {
 		logger.Error("could not initialize state", "error", err)
 		fatal(err)
 	}
+	integrations := app.DefaultIntegrationSet()
 	collectionMu := &sync.Mutex{}
-	refresh := refresher(context.Background(), store, logger, collectionMu)
+	refresh := refresher(context.Background(), store, logger, collectionMu, integrations)
 	if collectionDisabled() {
 		logger.Info("source collection disabled", "env", "RADAR_DISABLE_COLLECTION")
 	} else {
 		go refreshLoop(context.Background(), refresh)
 	}
 
-	if err := server.NewWithSources(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu), collector.Sources()).ListenAndServe(path); err != nil {
+	if err := server.NewWithSources(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu, integrations), integrations.Sources).ListenAndServe(path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}
@@ -326,7 +329,7 @@ func collectionDisabled() bool {
 	return os.Getenv("RADAR_DISABLE_COLLECTION") == "1"
 }
 
-func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex) func(refreshScope, bool) {
+func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Set) func(refreshScope, bool) {
 	var lastFullRefresh time.Time
 
 	return func(scope refreshScope, force bool) {
@@ -349,11 +352,11 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 		previous := store.Tasks()
 		var result collector.Result
 		if scope == refreshLocal {
-			result = collector.CollectLocal(ctx, previous, logger)
+			result = collector.CollectLocal(ctx, previous, logger, integrations.Sources)
 			store.SetTasksForSources(result.Tasks, result.SourceNames)
 			store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
 		} else {
-			result = collector.Collect(ctx, previous, logger)
+			result = collector.Collect(ctx, previous, logger, integrations.Sources)
 			store.SetTasks(result.Tasks)
 			store.SetSources(result.Sources)
 		}
@@ -383,7 +386,7 @@ func mergeSourceStatuses(previous []protocol.SourceStatus, updates []protocol.So
 	return merged
 }
 
-func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex) func() error {
+func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Set) func() error {
 	return func() error {
 		mu.Lock()
 		defer mu.Unlock()
@@ -396,7 +399,7 @@ func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *
 			logger.Debug("reset finished without collection; source collection disabled")
 			return nil
 		}
-		result := collector.Collect(ctx, nil, logger)
+		result := collector.Collect(ctx, nil, logger, integrations.Sources)
 		store.SetTasks(result.Tasks)
 		store.SetSources(result.Sources)
 		logger.Debug("reset finished", "tasks", len(result.Tasks), "sources", len(result.Sources))

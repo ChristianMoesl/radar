@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"radar/internal/app"
 	"radar/internal/protocol"
 	"radar/internal/state"
 )
@@ -36,7 +37,8 @@ func TestCollectEndToEndIngestsLinksAndMarksGitHubPRDone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first := Collect(ctx, nil, logger)
+	integrations := app.DefaultIntegrationSet()
+	first := Collect(ctx, nil, logger, integrations.Sources)
 	store.SetTasks(first.Tasks)
 	firstTasks := store.Tasks()
 	active := taskBySourceRef(firstTasks, "github:pr:acme/app:7")
@@ -60,7 +62,7 @@ func TestCollectEndToEndIngestsLinksAndMarksGitHubPRDone(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "gh-mode"), []byte("closed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	second := Collect(ctx, firstTasks, logger)
+	second := Collect(ctx, firstTasks, logger, integrations.Sources)
 	store.SetTasks(second.Tasks)
 	secondTasks := store.Tasks()
 	done := taskBySourceRef(secondTasks, "github:pr:acme/app:7")
