@@ -24,9 +24,7 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 }
 
 func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
-	result := integration.CollectResult{
-		Tasks: make([]protocol.Task, 0),
-	}
+	result := integration.CollectResult{}
 
 	reviewItems, authoredItems, activityItems, err := FetchPullRequests(ctx, req.Previous, req.Logger)
 	if err != nil {
@@ -34,23 +32,45 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		return result
 	}
 
-	result.Tasks = append(result.Tasks, reviewItems...)
-	result.Tasks = append(result.Tasks, authoredItems...)
-	result.Tasks = append(result.Tasks, activityItems...)
+	observed := make([]protocol.Task, 0, len(reviewItems)+len(authoredItems)+len(activityItems))
+	observed = append(observed, reviewItems...)
+	observed = append(observed, authoredItems...)
+	observed = append(observed, activityItems...)
 
 	trackedItems, err := FetchRulePullRequests(ctx, req.Filters, req.Logger)
 	if err != nil {
 		req.Logger.Warn("github rule pull request collection failed", "error", err)
 	} else {
-		result.Tasks = appendMissingPullRequests(result.Tasks, trackedItems)
+		observed = appendMissingPullRequests(observed, trackedItems)
 	}
 
+	result.Observations = observationsFromTasks(observed)
 	result.Complete = true
 	return result
 }
 
 func (Source) ReconcileDone(ctx context.Context, req integration.ReconcileRequest) []protocol.Task {
 	return ResolveDonePullRequests(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger)
+}
+
+func observationsFromTasks(tasks []protocol.Task) []integration.Observation {
+	observations := make([]integration.Observation, 0, len(tasks))
+	for _, task := range tasks {
+		if len(task.SourceRefs) == 0 {
+			continue
+		}
+		ref := task.SourceRefs[0]
+		if task.Metadata != nil {
+			if ref.Metadata == nil {
+				ref.Metadata = map[string]string{}
+			}
+			for key, value := range task.Metadata {
+				ref.Metadata[key] = value
+			}
+		}
+		observations = append(observations, integration.Observation{Ref: ref, Signal: integration.WorkSignal(task.Attention), Reason: task.Reason})
+	}
+	return observations
 }
 
 func appendMissingPullRequests(tasks []protocol.Task, candidates []protocol.Task) []protocol.Task {

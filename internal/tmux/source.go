@@ -35,9 +35,9 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	sourceRefs, status := FetchSessions(ctx, req.Logger)
 	if status.Status == "error" {
 		req.Logger.Warn("tmux session collection failed", "detail", status.Detail)
-		return integration.CollectResult{SourceRefs: sourceRefs}
+		return integration.CollectResult{Observations: integration.ObserveRefs(sourceRefs, integration.SignalInProgress)}
 	}
-	return integration.CollectResult{SourceRefs: sourceRefs, Complete: status.Status == "ok"}
+	return integration.CollectResult{Observations: integration.ObserveRefs(sourceRefs, integration.SignalInProgress), Complete: status.Status == "ok"}
 }
 
 func (Source) PreviewDelete(ctx context.Context, req integration.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {
