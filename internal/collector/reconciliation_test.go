@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"os"
@@ -12,8 +13,9 @@ import (
 )
 
 func TestLocalSourcesComeFromSourceDeclarations(t *testing.T) {
-	got := sourceNames(LocalSources())
-	want := []string{"git", "tmux", "sbx"}
+	sources := []integration.Source{fakeSource{name: "remote"}, fakeLocalSource{name: "local-a"}, fakeLocalSource{name: "local-b"}}
+	got := sourceNames(LocalSources(sources))
+	want := []string{"local-a", "local-b"}
 	if len(got) != len(want) {
 		t.Fatalf("local sources = %+v, want %+v", got, want)
 	}
@@ -31,6 +33,21 @@ func sourceNames(sources []integration.Source) []string {
 	}
 	return names
 }
+
+type fakeSource struct{ name string }
+
+func (s fakeSource) Name() string { return s.name }
+func (s fakeSource) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
+	return integration.CollectResult{}
+}
+
+type fakeLocalSource struct{ name string }
+
+func (s fakeLocalSource) Name() string { return s.name }
+func (s fakeLocalSource) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
+	return integration.CollectResult{}
+}
+func (s fakeLocalSource) Local() bool { return true }
 
 func TestApplyTaskFiltersRemovesMutedTasksBeforeSaving(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
