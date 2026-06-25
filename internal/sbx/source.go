@@ -94,7 +94,10 @@ func (Source) RunAction(ctx context.Context, req integration.RunActionRequest) (
 	if req.ActionID != OpenShellAction {
 		return integration.ActionResult{}, fmt.Errorf("unknown sbx action: %s", req.ActionID)
 	}
-	result, err := OpenShell(ctx, workspace.ExecRunner{}, req.Ref, OpenShellOptions{
+	if req.Multiplexer == nil {
+		return integration.ActionResult{}, fmt.Errorf("open sbx sandbox requires an active multiplexer provider")
+	}
+	result, err := openShellWithMultiplexer(ctx, req.Multiplexer, req.Ref, OpenShellOptions{
 		SessionTarget: taskrefs.SessionTarget(req.Task),
 		SwitchClient:  req.SwitchClient,
 	})
@@ -106,6 +109,43 @@ func (Source) RunAction(ctx context.Context, req integration.RunActionRequest) (
 		message = "Created " + result.SessionName + " and opened sbx sandbox"
 	}
 	return integration.ActionResult{Message: message, Refresh: true, Quit: req.SwitchClient}, nil
+}
+
+func openShellWithMultiplexer(ctx context.Context, multiplexer integration.MultiplexerProvider, ref protocol.SourceRef, options OpenShellOptions) (OpenShellResult, error) {
+	name := SandboxName(ref)
+	if name == "" {
+		return OpenShellResult{}, fmt.Errorf("sbx sandbox name is required")
+	}
+	runner := workspace.ExecRunner{}
+	if err := runner.LookPath("sbx"); err != nil {
+		return OpenShellResult{}, fmt.Errorf("open sbx sandbox requires %q: %w", "sbx", err)
+	}
+	sessionName := strings.TrimSpace(options.SessionTarget)
+	if sessionName == "" {
+		sessionName = SandboxSessionName(ref)
+	}
+	if sessionName == "" {
+		return OpenShellResult{}, fmt.Errorf("multiplexer session name is required")
+	}
+	command := "sbx run --name " + shellQuote(name)
+	path := strings.TrimSpace(ref.Path)
+	result := OpenShellResult{SessionName: sessionName}
+	session, err := multiplexer.EnsureSession(ctx, integration.EnsureSessionRequest{Name: sessionName, Path: path, FirstWindow: "sbx", FirstCommand: command})
+	if err != nil {
+		return OpenShellResult{}, err
+	}
+	result.CreatedSession = session.Created
+	if !session.Created {
+		if err := multiplexer.OpenWindow(ctx, integration.OpenWindowRequest{SessionName: sessionName, Name: "sbx", Path: path, Command: command}); err != nil {
+			return OpenShellResult{}, err
+		}
+	}
+	if options.SwitchClient {
+		if err := multiplexer.Switch(ctx, integration.SessionTarget{Name: sessionName}); err != nil {
+			return OpenShellResult{}, err
+		}
+	}
+	return result, nil
 }
 
 func deleteSandbox(ctx context.Context, runner workspace.Runner, preview protocol.DeletePreview) (protocol.DeleteResult, error) {
