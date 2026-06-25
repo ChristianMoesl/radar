@@ -2,11 +2,40 @@
 
 Radar is a CLI-first tool for keeping track of engineering work that needs your attention. It combines a terminal UI, scriptable commands, a background daemon, GitHub/Jira/Git/tmux/sbx collection, and workspace creation in one Go binary.
 
+## Install
+
+Download the matching archive from the [latest release](https://github.com/ChristianMoesl/radar.nvim/releases/latest), verify it with `checksums.txt`, and place the binary on your `PATH`:
+
+```sh
+archive=radar_<version>_<os>_<arch>.tar.gz
+grep -F "  $archive" checksums.txt | shasum -a 256 -c -
+tar -xzf "$archive"
+install -m 0755 "${archive%.tar.gz}/radar" ~/.local/bin/radar
+radar version
+```
+
 ## Build
 
 ```sh
-go build -o radar ./cmd/radar
+make build
 ```
+
+Install a local build:
+
+```sh
+make install
+```
+
+## Release
+
+Releases are tag-driven. To publish versioned Linux and macOS binaries:
+
+```sh
+git tag -a v0.1.0 -m v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow builds `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64` tarballs, plus `checksums.txt`.
 
 ## Prerequisites
 

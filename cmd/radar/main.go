@@ -70,6 +70,8 @@ func main() {
 		printConfigPath()
 	case "rate-limit", "rate-limits":
 		printRateLimit()
+	case "version":
+		printVersion()
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -494,6 +496,10 @@ func printRateLimit() {
 	fmt.Println(summary)
 }
 
+func printVersion() {
+	fmt.Println(version.Text())
+}
+
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage: radar [command]
 
@@ -521,7 +527,8 @@ Other:
   radar log-path
   radar state-path
   radar config-path
-  radar rate-limit`)
+  radar rate-limit
+  radar version`)
 }
 
 func createUsage() {
