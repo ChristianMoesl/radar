@@ -39,9 +39,9 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	source_refs, status := FetchWorktrees(ctx, req.Logger)
 	if status.Status == "error" {
 		req.Logger.Warn("git worktree collection failed", "detail", status.Detail)
-		return integration.CollectResult{SourceRefs: source_refs}
+		return integration.CollectResult{Observations: integration.ObserveRefs(source_refs, integration.SignalInProgress)}
 	}
-	return integration.CollectResult{SourceRefs: source_refs, Complete: status.Status == "ok"}
+	return integration.CollectResult{Observations: integration.ObserveRefs(source_refs, integration.SignalInProgress), Complete: status.Status == "ok"}
 }
 
 func (Source) PreviewDelete(ctx context.Context, req integration.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {

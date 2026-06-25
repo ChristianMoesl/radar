@@ -11,11 +11,10 @@ import (
 )
 
 type Ingested struct {
-	Tasks       []protocol.Task
-	SourceRefs  []protocol.SourceRef
-	Sources     []protocol.SourceStatus
-	SourceNames []string
-	Results     map[string]integration.CollectResult
+	Observations []integration.Observation
+	Sources      []protocol.SourceStatus
+	SourceNames  []string
+	Results      map[string]integration.CollectResult
 }
 
 type Result struct {
@@ -60,11 +59,10 @@ func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Lo
 
 func IngestSources(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Ingested {
 	result := Ingested{
-		Tasks:       make([]protocol.Task, 0),
-		SourceRefs:  make([]protocol.SourceRef, 0),
-		Sources:     make([]protocol.SourceStatus, 0, 4),
-		SourceNames: make([]string, 0, len(sources)),
-		Results:     map[string]integration.CollectResult{},
+		Observations: make([]integration.Observation, 0),
+		Sources:      make([]protocol.SourceStatus, 0, 4),
+		SourceNames:  make([]string, 0, len(sources)),
+		Results:      map[string]integration.CollectResult{},
 	}
 
 	cfg, err := config.Load()
@@ -95,36 +93,67 @@ func IngestSources(ctx context.Context, previous []protocol.Task, logger *slog.L
 		status.Status.SourceRefCount = sourceRefCount(source.Name(), ingested)
 		result.Sources = append(result.Sources, status.Status)
 		result.Results[source.Name()] = ingested
-		result.Tasks = append(result.Tasks, ingested.Tasks...)
-		result.SourceRefs = append(result.SourceRefs, ingested.SourceRefs...)
+		result.Observations = append(result.Observations, ingested.Observations...)
 	}
 
 	return result
 }
 
 func observedTasks(ingested Ingested) []protocol.Task {
-	tasks := make([]protocol.Task, 0, len(ingested.Tasks)+len(ingested.SourceRefs))
-	tasks = append(tasks, ingested.Tasks...)
-	for _, sourceRef := range ingested.SourceRefs {
-		if ignoredStandaloneSourceRef(sourceRef) {
+	tasks := make([]protocol.Task, 0, len(ingested.Observations))
+	for _, observation := range ingested.Observations {
+		if ignoredStandaloneSourceRef(observation.Ref) {
 			continue
 		}
-		tasks = append(tasks, taskFromSourceRef(sourceRef))
+		tasks = append(tasks, taskFromObservation(observation))
 	}
 	return tasks
 }
 
-func taskFromSourceRef(sourceRef protocol.SourceRef) protocol.Task {
-	reason := sourceRef.Source + " " + sourceRef.Kind
+func taskFromObservation(observation integration.Observation) protocol.Task {
+	sourceRef := observation.Ref
+	reason := observation.Reason
+	if reason == "" {
+		reason = sourceRef.Source + " " + sourceRef.Kind
+	}
+	attention := string(observation.Signal)
+	if attention == "" {
+		attention = string(integration.SignalInProgress)
+	}
 	return protocol.Task{
-		Kind:       sourceRef.Source + "_" + sourceRef.Kind,
+		Kind:       taskKindFromObservation(observation),
 		Title:      sourceRef.Title,
 		Repo:       sourceRef.Repo,
 		URL:        sourceRef.URL,
-		Attention:  "in_progress",
+		Attention:  attention,
 		Reason:     reason,
 		SourceRefs: []protocol.SourceRef{sourceRef},
+		Metadata:   taskMetadataFromObservation(observation),
 	}
+}
+
+func taskKindFromObservation(observation integration.Observation) string {
+	ref := observation.Ref
+	if ref.Source == "github" && ref.Kind == "pull_request" {
+		if observation.Signal == integration.SignalAttention && observation.Reason == "review requested" {
+			return "github_review_request"
+		}
+		if observation.Signal == integration.SignalAttention {
+			return "github_pr_activity"
+		}
+		return "github_own_pr"
+	}
+	return ref.Source + "_" + ref.Kind
+}
+
+func taskMetadataFromObservation(observation integration.Observation) map[string]string {
+	if observation.Ref.Source != "github" || observation.Ref.Metadata == nil {
+		return nil
+	}
+	if author := observation.Ref.Metadata["author"]; author != "" {
+		return map[string]string{"author": author}
+	}
+	return nil
 }
 
 func ignoredStandaloneSourceRef(sourceRef protocol.SourceRef) bool {
@@ -141,16 +170,9 @@ func ignoredStandaloneSourceRef(sourceRef protocol.SourceRef) bool {
 
 func sourceRefCount(sourceName string, result integration.CollectResult) int {
 	seen := map[string]bool{}
-	for _, sourceRef := range result.SourceRefs {
-		if sourceRef.Source == sourceName {
-			seen[sourceRef.ID] = true
-		}
-	}
-	for _, task := range result.Tasks {
-		for _, sourceRef := range task.SourceRefs {
-			if sourceRef.Source == sourceName {
-				seen[sourceRef.ID] = true
-			}
+	for _, observation := range result.Observations {
+		if observation.Ref.Source == sourceName {
+			seen[observation.Ref.ID] = true
 		}
 	}
 	return len(seen)

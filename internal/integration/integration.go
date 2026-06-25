@@ -30,10 +30,16 @@ type Observation struct {
 }
 
 type CollectResult struct {
-	Tasks        []protocol.Task
-	SourceRefs   []protocol.SourceRef
 	Observations []Observation
 	Complete     bool
+}
+
+func ObserveRefs(refs []protocol.SourceRef, signal WorkSignal) []Observation {
+	observations := make([]Observation, 0, len(refs))
+	for _, ref := range refs {
+		observations = append(observations, Observation{Ref: ref, Signal: signal})
+	}
+	return observations
 }
 
 type StatusResult struct {

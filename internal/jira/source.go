@@ -37,7 +37,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		req.Logger.Warn("jira issue collection failed", "error", err)
 		return integration.CollectResult{}
 	}
-	return integration.CollectResult{SourceRefs: sourceRefs, Complete: true}
+	return integration.CollectResult{Observations: integration.ObserveRefs(sourceRefs, integration.SignalInProgress), Complete: true}
 }
 
 func (Source) ReconcileDone(ctx context.Context, req integration.ReconcileRequest) []protocol.Task {
