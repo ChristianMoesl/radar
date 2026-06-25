@@ -89,7 +89,7 @@ func TestDeletePreviewDelegatesToDeletableSource(t *testing.T) {
 	}
 	store.SetTasks([]protocol.Task{{Title: "deletable", SourceRefs: []protocol.SourceRef{{ID: "fake:ref:1", Source: "fake", Kind: "thing", Path: "/tmp/item"}}}})
 
-	preview, err := NewWithSources(store, logger, nil, nil, []integration.Source{fakeDeleteSource{}}).deletePreview(context.Background(), 1, protocol.CurrentContext{CWD: "/tmp"})
+	preview, err := NewWithIntegrations(store, logger, nil, nil, integration.Set{DeleteProviders: []integration.DeleteProvider{fakeDeleteSource{}}}).deletePreview(context.Background(), 1, protocol.CurrentContext{CWD: "/tmp"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestDeleteDelegatesToPreviewSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := NewWithSources(store, logger, nil, nil, []integration.Source{fakeDeleteSource{}}).delete(context.Background(), &protocol.DeletePreview{Source: "fake", SourceRefID: "fake:ref:1", Path: "/tmp/item"})
+	result, err := NewWithIntegrations(store, logger, nil, nil, integration.Set{DeleteProviders: []integration.DeleteProvider{fakeDeleteSource{}}}).delete(context.Background(), &protocol.DeletePreview{Source: "fake", SourceRefID: "fake:ref:1", Path: "/tmp/item"})
 	if err != nil {
 		t.Fatal(err)
 	}

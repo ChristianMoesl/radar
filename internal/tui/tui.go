@@ -1569,7 +1569,7 @@ func taskLinks(task protocol.Task) []linkChoice {
 		label := sourceRefLabel(ref)
 		addURL(sourceRefSourceLabel(ref), label, ref.URL)
 		for _, action := range sourceactions.SourceRefActions(ref, label) {
-			addAction(action.PreferredKey, action.Source, action.Label, action.Detail, action.Action, action.Ref)
+			addAction(action.PreferredKey, action.Source, action.Label, action.Detail, action.ID, action.Ref)
 		}
 	}
 	addURL("link", task.Title, task.URL)

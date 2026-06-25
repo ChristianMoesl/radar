@@ -24,19 +24,19 @@ import (
 var watchTimeout = 30 * time.Second
 
 type Server struct {
-	store   *state.Store
-	logger  *slog.Logger
-	refresh func()
-	reset   func() error
-	sources []integration.Source
+	store        *state.Store
+	logger       *slog.Logger
+	refresh      func()
+	reset        func() error
+	integrations integration.Set
 }
 
 func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() error) *Server {
-	return NewWithSources(store, logger, refresh, reset, nil)
+	return NewWithIntegrations(store, logger, refresh, reset, integration.Set{})
 }
 
-func NewWithSources(store *state.Store, logger *slog.Logger, refresh func(), reset func() error, sources []integration.Source) *Server {
-	return &Server{store: store, logger: logger, refresh: refresh, reset: reset, sources: sources}
+func NewWithIntegrations(store *state.Store, logger *slog.Logger, refresh func(), reset func() error, integrations integration.Set) *Server {
+	return &Server{store: store, logger: logger, refresh: refresh, reset: reset, integrations: integrations}
 }
 
 func (s *Server) ListenAndServe(path string) error {
@@ -154,11 +154,7 @@ func (s *Server) deletePreview(ctx context.Context, taskID int, current protocol
 	if !ok {
 		return protocol.DeletePreview{}, fmt.Errorf("task %d not found", taskID)
 	}
-	for _, source := range s.sources {
-		deleter, ok := source.(integration.DeleteProvider)
-		if !ok {
-			continue
-		}
+	for _, deleter := range s.integrations.DeleteProviders {
 		preview, canDelete, err := deleter.PreviewDelete(ctx, integration.DeletePreviewRequest{Task: task, Current: current, Logger: s.logger})
 		if err != nil {
 			return protocol.DeletePreview{}, err
@@ -177,17 +173,20 @@ func (s *Server) delete(ctx context.Context, preview *protocol.DeletePreview) (p
 	if preview == nil {
 		return protocol.DeleteResult{}, fmt.Errorf("delete target is required")
 	}
-	for _, source := range s.sources {
-		if source.Name() != preview.Source {
+	for _, deleter := range s.integrations.DeleteProviders {
+		if providerSourceName(deleter) != preview.Source {
 			continue
-		}
-		deleter, ok := source.(integration.DeleteProvider)
-		if !ok {
-			break
 		}
 		return deleter.Delete(ctx, *preview)
 	}
 	return protocol.DeleteResult{}, fmt.Errorf("source %q cannot delete source refs", preview.Source)
+}
+
+func providerSourceName(provider integration.DeleteProvider) string {
+	if source, ok := provider.(integration.Source); ok {
+		return source.Name()
+	}
+	return ""
 }
 
 func taskByID(tasks []protocol.Task, id int) (protocol.Task, bool) {

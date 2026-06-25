@@ -5,58 +5,41 @@ import (
 	"fmt"
 	"os"
 
+	"radar/internal/app"
+	"radar/internal/integration"
 	"radar/internal/protocol"
-	"radar/internal/sbx"
-	"radar/internal/taskrefs"
-	"radar/internal/workspace"
 )
 
-type Action struct {
-	PreferredKey string
-	Source       string
-	Label        string
-	Detail       string
-	Action       string
-	Ref          protocol.SourceRef
-}
+type Action = integration.Action
 
-type Result struct {
-	Message string
-	Refresh bool
-	Quit    bool
-}
+type Result = integration.ActionResult
 
 func SourceRefActions(ref protocol.SourceRef, label string) []Action {
-	if sbx.IsSandboxRef(ref) {
-		return []Action{{
-			PreferredKey: "s",
-			Source:       "Docker sbx",
-			Label:        label,
-			Detail:       "sbx run --name " + sbx.SandboxName(ref),
-			Action:       sbx.OpenShellAction,
-			Ref:          ref,
-		}}
-	}
-	return nil
+	return SourceRefActionsWithProviders(context.Background(), app.DefaultIntegrationSet().ActionProviders, protocol.Task{}, ref, label)
 }
 
-func Open(ctx context.Context, task protocol.Task, action string, ref protocol.SourceRef) (Result, error) {
-	switchClient := os.Getenv("TMUX") != ""
-	switch action {
-	case sbx.OpenShellAction:
-		result, err := sbx.OpenShell(ctx, workspace.ExecRunner{}, ref, sbx.OpenShellOptions{
-			SessionTarget: taskrefs.SessionTarget(task),
-			SwitchClient:  switchClient,
-		})
-		if err != nil {
-			return Result{}, err
-		}
-		message := "Opened sbx sandbox in " + result.SessionName
-		if result.CreatedSession {
-			message = "Created " + result.SessionName + " and opened sbx sandbox"
-		}
-		return Result{Message: message, Refresh: true, Quit: switchClient}, nil
-	default:
-		return Result{}, fmt.Errorf("unknown source action: %s", action)
+func SourceRefActionsWithProviders(ctx context.Context, providers []integration.ActionProvider, task protocol.Task, ref protocol.SourceRef, label string) []Action {
+	actions := make([]Action, 0)
+	for _, provider := range providers {
+		actions = append(actions, provider.Actions(ctx, integration.ActionRequest{Task: task, Ref: ref, Label: label})...)
 	}
+	return actions
+}
+
+func Open(ctx context.Context, task protocol.Task, actionID string, ref protocol.SourceRef) (Result, error) {
+	return OpenWithProviders(ctx, app.DefaultIntegrationSet().ActionProviders, task, actionID, ref)
+}
+
+func OpenWithProviders(ctx context.Context, providers []integration.ActionProvider, task protocol.Task, actionID string, ref protocol.SourceRef) (Result, error) {
+	switchClient := os.Getenv("TMUX") != ""
+	for _, provider := range providers {
+		actions := provider.Actions(ctx, integration.ActionRequest{Task: task, Ref: ref})
+		for _, action := range actions {
+			if action.ID != actionID {
+				continue
+			}
+			return provider.RunAction(ctx, integration.RunActionRequest{Task: task, ActionID: actionID, Ref: ref, SwitchClient: switchClient})
+		}
+	}
+	return Result{}, fmt.Errorf("unknown source action: %s", actionID)
 }
