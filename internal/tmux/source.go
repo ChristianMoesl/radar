@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 
 	"radar/internal/integration"
 	"radar/internal/protocol"
+	"radar/internal/workspace"
 )
 
 type Source struct{}
@@ -78,7 +81,105 @@ func (Source) Delete(ctx context.Context, preview protocol.DeletePreview) (proto
 	return deleted, nil
 }
 
+func (Source) Current(ctx context.Context) (integration.SessionContext, bool, error) {
+	if os.Getenv("TMUX") == "" {
+		return integration.SessionContext{}, false, nil
+	}
+	output, err := workspace.ExecRunner{}.Run(ctx, "", "tmux", "display-message", "-p", "#{session_name}\t#{session_id}\t#{pane_current_path}")
+	if err != nil {
+		return integration.SessionContext{}, false, err
+	}
+	fields := strings.Split(output, "\t")
+	if len(fields) < 2 {
+		return integration.SessionContext{}, false, fmt.Errorf("unexpected tmux current context output: %q", output)
+	}
+	current := integration.SessionContext{Name: fields[0], ID: fields[1]}
+	if len(fields) > 2 {
+		current.Path = fields[2]
+	}
+	return current, true, nil
+}
+
+func (Source) EnsureSession(ctx context.Context, req integration.EnsureSessionRequest) (integration.Session, error) {
+	runner := workspace.ExecRunner{}
+	if strings.TrimSpace(req.Name) == "" {
+		return integration.Session{}, fmt.Errorf("tmux session name is required")
+	}
+	created := false
+	if _, err := runner.Run(ctx, "", "tmux", "has-session", "-t", req.Name); err != nil {
+		window := req.FirstWindow
+		if window == "" {
+			window = "pi"
+		}
+		command := req.FirstCommand
+		if command == "" {
+			command = "pi"
+		}
+		args := []string{"new-session", "-d", "-s", req.Name, "-n", window}
+		if req.Path != "" {
+			args = append(args, "-c", req.Path)
+		}
+		args = append(args, command)
+		if _, err := runner.Run(ctx, "", "tmux", args...); err != nil {
+			return integration.Session{}, err
+		}
+		created = true
+	}
+	if req.Switch {
+		if err := (Source{}).Switch(ctx, integration.SessionTarget{Name: req.Name}); err != nil {
+			return integration.Session{}, err
+		}
+	}
+	return integration.Session{Name: req.Name, Path: req.Path, Created: created}, nil
+}
+
+func (Source) OpenWindow(ctx context.Context, req integration.OpenWindowRequest) error {
+	if strings.TrimSpace(req.SessionName) == "" {
+		return fmt.Errorf("tmux session name is required")
+	}
+	args := []string{"new-window", "-t", req.SessionName + ":"}
+	if req.Name != "" {
+		args = append(args, "-n", req.Name)
+	}
+	if req.Path != "" {
+		args = append(args, "-c", req.Path)
+	}
+	if req.Command != "" {
+		args = append(args, req.Command)
+	}
+	_, err := workspace.ExecRunner{}.Run(ctx, "", "tmux", args...)
+	return err
+}
+
+func (Source) Switch(ctx context.Context, target integration.SessionTarget) error {
+	tmuxTarget := firstNonEmpty(target.ID, target.Name)
+	if tmuxTarget == "" {
+		return fmt.Errorf("tmux session target is required")
+	}
+	_, err := workspace.ExecRunner{}.Run(ctx, "", "tmux", "switch-client", "-t", tmuxTarget)
+	return err
+}
+
+func (Source) DeleteSession(ctx context.Context, target integration.SessionTarget) error {
+	tmuxTarget := firstNonEmpty(target.ID, target.Name)
+	if tmuxTarget == "" {
+		return fmt.Errorf("tmux session target is required")
+	}
+	_, err := workspace.ExecRunner{}.Run(ctx, "", "tmux", "kill-session", "-t", tmuxTarget)
+	return err
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 var _ integration.Source = Source{}
 var _ integration.LocalSource = Source{}
 var _ integration.StatusReporter = Source{}
 var _ integration.DeleteProvider = Source{}
+var _ integration.MultiplexerProvider = Source{}
