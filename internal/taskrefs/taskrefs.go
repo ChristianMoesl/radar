@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"radar/internal/integration/tmux"
 	"radar/internal/protocol"
-	"radar/internal/tmux"
 	"radar/internal/workspace"
 )
 

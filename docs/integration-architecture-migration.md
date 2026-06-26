@@ -320,9 +320,7 @@ LinkingKeys:   ticket:ABC-123, workspace:/Users/me/workspaces/repo/feature
 
 ## Package layout
 
-Prefer a modest package shift rather than a large rewrite.
-
-Target layout:
+Final layout:
 
 ```text
 internal/integration/
@@ -335,15 +333,14 @@ internal/integration/
   workspace.go
   multiplexer.go
   runtime.go
-
-internal/git/
-internal/tmux/
-internal/github/
-internal/jira/
-internal/sbx/
+  github/
+  jira/
+  git/
+  tmux/
+  sbx/
 ```
 
-Do not move all integration packages at once. Keeping `internal/git`, `internal/tmux`, etc. avoids unnecessary churn. The key is that they depend on `internal/integration` capability interfaces rather than on collector-specific details.
+The `internal/integration` package root defines capability interfaces and shared integration types. Subpackages under it are source-compiled integration implementations. This keeps integrations visually grouped while preserving the distinction between Radar core packages and external-tool adapters.
 
 ## Orchestration model
 
@@ -470,7 +467,7 @@ Goal: decouple Radar workflow code from tmux as a concrete dependency.
 Steps:
 
 1. Define `integration.MultiplexerProvider`.
-2. Adapt `internal/tmux` to implement it.
+2. Adapt `internal/integration/tmux` to implement it.
 3. Update workspace creation/session switching code to depend on the interface where practical.
 4. Keep tmux as the only active provider.
 5. Do not add a `multiplexer` config option yet.
@@ -480,7 +477,7 @@ Tests:
 
 - Add fake multiplexer tests for workspace creation orchestration.
 - Verify session creation, window creation, and switch behavior through the interface.
-- Keep tmux command-format tests in `internal/tmux`.
+- Keep tmux command-format tests in `internal/integration/tmux`.
 
 Expected production behavior change: none.
 
@@ -491,7 +488,7 @@ Goal: decouple workspace orchestration from git worktree implementation details.
 Steps:
 
 1. Define `integration.WorkspaceProvider`.
-2. Adapt `internal/git`/`internal/workspace` boundaries carefully.
+2. Adapt `internal/integration/git`/`internal/workspace` boundaries carefully.
 3. Keep Git as the only workspace provider.
 4. Avoid inventing support for non-Git workspaces until there is a real use case.
 
@@ -519,7 +516,7 @@ Steps:
 Tests:
 
 - Add fake action provider tests for action listing and dispatch.
-- Keep sbx open-shell tests in `internal/sbx`.
+- Keep sbx open-shell tests in `internal/integration/sbx`.
 - Add a regression test that unknown action IDs fail clearly.
 
 Expected production behavior change: none, except the core no longer imports sbx for action dispatch.

@@ -33,7 +33,7 @@ Do not assign Radar task IDs in integrations. Do not parse another source's IDs 
 ## Checklist
 
 1. Choose capabilities.
-2. Add `internal/<name>`.
+2. Add `internal/integration/<name>`.
 3. Implement `Source` first.
 4. Emit stable source refs and observations.
 5. Add source ref contract tests and provider-specific parser/API tests.
