@@ -6,16 +6,16 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 
 - `cmd/radar/`: single Go binary with TUI, CLI, and daemon modes.
 - `internal/tui/`: Bubble Tea terminal UI.
-- `internal/integration/`: source-compiled integration capability interfaces and observation model.
+- `internal/integration/`: integration capability interfaces, observation model, and source-compiled implementations.
+- `internal/integration/github/`: GitHub source facts and remote state resolution.
+- `internal/integration/git/`: Git worktree source facts and workspace provider.
+- `internal/integration/jira/`: Jira Cloud issue source facts and remote state resolution.
+- `internal/integration/tmux/`: tmux session source facts and active multiplexer provider.
+- `internal/integration/sbx/`: Docker sbx sandbox source facts, actions, and deletion.
 - `internal/app/`: explicit assembly of the active integration set.
 - `internal/workspace/`: repository discovery and Git worktree/tmux workspace lifecycle helpers.
 - `internal/server/`: Unix socket API used by TUI and CLI commands.
 - `internal/collector/`: orchestrates integration collection, observation projection, and remote state resolution.
-- `internal/github/`: GitHub source facts and remote state resolution.
-- `internal/git/`: Git worktree source facts and workspace provider.
-- `internal/jira/`: Jira Cloud issue source facts and remote state resolution.
-- `internal/tmux/`: tmux session source facts and active multiplexer provider.
-- `internal/sbx/`: Docker sbx sandbox source facts, actions, and deletion.
 - `internal/state/`: local persistent task cache/state and durable source-ref linking.
 
 ## Process model
@@ -160,7 +160,7 @@ Docker sbx integration collects sandboxes with `sbx ls --json`. Radar attaches s
 
 ## Integration development
 
-New integrations are source-compiled packages registered explicitly in `internal/app.DefaultIntegrationSet`. See [docs/integrations.md](docs/integrations.md) for the capability checklist, SourceRef contract, and Zellij/GitLab examples.
+New integrations are source-compiled packages under `internal/integration/<name>` and registered explicitly in `internal/app.DefaultIntegrationSet`. See [docs/integrations.md](docs/integrations.md) for the capability checklist, SourceRef contract, and Zellij/GitLab examples.
 
 ## Workspaces
 

@@ -1,12 +1,12 @@
 package app
 
 import (
-	"radar/internal/git"
-	"radar/internal/github"
 	"radar/internal/integration"
-	"radar/internal/jira"
-	"radar/internal/sbx"
-	"radar/internal/tmux"
+	"radar/internal/integration/git"
+	"radar/internal/integration/github"
+	"radar/internal/integration/jira"
+	"radar/internal/integration/sbx"
+	"radar/internal/integration/tmux"
 )
 
 func DefaultIntegrationSet() integration.Set {

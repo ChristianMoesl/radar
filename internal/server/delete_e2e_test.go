@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"radar/internal/integration"
+	"radar/internal/integration/sbx"
 	"radar/internal/protocol"
-	"radar/internal/sbx"
 	"radar/internal/state"
 )
 

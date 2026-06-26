@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"radar/internal/integration"
+	"radar/internal/integration/tmux"
 	"radar/internal/protocol"
-	"radar/internal/tmux"
 	"radar/internal/workspace"
 )
 
