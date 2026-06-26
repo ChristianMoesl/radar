@@ -18,6 +18,30 @@ radar version
 
 Download the new release archive, verify it with `checksums.txt`, and install it over the old binary. Run `radar restart` after updating if the daemon is already running.
 
+## Development setup
+
+Install the local development tools:
+
+```sh
+brew install go fd git tmux neovim
+curl -fsSL https://pi.dev/install.sh | sh
+```
+
+Linux developers also need `xdg-open`, usually provided by the system `xdg-utils` package:
+
+```sh
+sudo apt-get install xdg-utils
+```
+
+Build, test, and install a local Radar binary:
+
+```sh
+make test
+make build
+make install
+radar version
+```
+
 ## Build
 
 ```sh
