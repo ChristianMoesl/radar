@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -280,6 +281,27 @@ func TestMoveCursorUsesRenderedTaskOrder(t *testing.T) {
 	model.moveCursor(-1)
 	if model.cursor != 3 {
 		t.Fatalf("cursor after up = %d, want 3", model.cursor)
+	}
+}
+
+func TestScrollDoesNotMoveUpUntilCursorHitsTop(t *testing.T) {
+	tasks := make([]protocol.Task, 12)
+	for i := range tasks {
+		tasks[i] = protocol.Task{Title: fmt.Sprintf("task %d", i), Attention: "attention"}
+	}
+	model := model{width: 100, height: 10, tasks: tasks}
+
+	for i := 0; i < 6; i++ {
+		model.moveCursor(1)
+	}
+	scrolledDown := model.scroll
+	if scrolledDown == 0 {
+		t.Fatalf("scroll after moving down = 0, want > 0")
+	}
+
+	model.moveCursor(-1)
+	if model.scroll != scrolledDown {
+		t.Fatalf("scroll after moving up one row = %d, want %d", model.scroll, scrolledDown)
 	}
 }
 

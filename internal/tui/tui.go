@@ -205,6 +205,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.syncTaskScroll()
 		return m, nil
 	case tea.KeyMsg:
 		if strings.HasPrefix(m.mode, "create_") {
@@ -434,6 +435,7 @@ var taskGroupKeys = []string{"immediate", "attention", "in_progress", "done", "l
 func (m *model) moveCursor(delta int) {
 	order := m.taskCursorOrder()
 	if len(order) == 0 {
+		m.syncTaskScroll()
 		return
 	}
 
@@ -446,23 +448,28 @@ func (m *model) moveCursor(delta int) {
 	}
 	if position == -1 {
 		m.cursor = order[0]
+		m.syncTaskScroll()
 		return
 	}
 
 	position = max(0, min(position+delta, len(order)-1))
 	m.cursor = order[position]
+	m.syncTaskScroll()
 }
 
 func (m *model) moveCursorToEdge(last bool) {
 	order := m.taskCursorOrder()
 	if len(order) == 0 {
+		m.syncTaskScroll()
 		return
 	}
 	if last {
 		m.cursor = order[len(order)-1]
+		m.syncTaskScroll()
 		return
 	}
 	m.cursor = order[0]
+	m.syncTaskScroll()
 }
 
 func (m model) taskCursorOrder() []int {
@@ -1200,6 +1207,7 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 	if m.cursor >= len(m.tasks) {
 		m.cursor = max(0, len(m.tasks)-1)
 	}
+	m.syncTaskScroll()
 }
 
 func (m model) cursorPosition() int {
@@ -1644,12 +1652,28 @@ func (m model) header(width int) string {
 
 func (m model) taskList(width int, height int) string {
 	lines, selectedStart, selectedEnd := m.taskLines(width)
-	return scrolledLines(lines, selectedStart, selectedEnd, m.scroll, height)
+	scroll := adjustedTaskScroll(lines, selectedStart, selectedEnd, m.scroll, height)
+	return scrolledLines(lines, selectedStart, selectedEnd, scroll, height)
 }
 
-func scrolledLines(lines []string, selectedStart int, selectedEnd int, scroll int, height int) string {
+func (m *model) syncTaskScroll() {
+	if len(m.tasks) == 0 {
+		m.scroll = 0
+		return
+	}
+	width := m.contentWidth()
+	lines, selectedStart, selectedEnd := m.taskLines(width)
+	m.scroll = adjustedTaskScroll(lines, selectedStart, selectedEnd, m.scroll, m.taskListHeight(width))
+}
+
+func (m model) taskListHeight(width int) int {
+	before := []string{m.header(width)}
+	return m.availableTaskRows(before, m.afterTaskSections(width))
+}
+
+func adjustedTaskScroll(lines []string, selectedStart int, selectedEnd int, scroll int, height int) int {
 	if height <= 0 || len(lines) <= height {
-		return strings.Join(lines, "\n")
+		return 0
 	}
 	if selectedStart < scroll {
 		scroll = selectedStart
@@ -1661,6 +1685,13 @@ func scrolledLines(lines []string, selectedStart int, selectedEnd int, scroll in
 		} else {
 			scroll = selectedEnd - height + 1
 		}
+	}
+	return max(0, min(scroll, len(lines)-height))
+}
+
+func scrolledLines(lines []string, selectedStart int, selectedEnd int, scroll int, height int) string {
+	if height <= 0 || len(lines) <= height {
+		return strings.Join(lines, "\n")
 	}
 	scroll = max(0, min(scroll, len(lines)-height))
 	visible := append([]string{}, lines[scroll:scroll+height]...)
