@@ -5,7 +5,6 @@ import (
 	"log/slog"
 
 	"radar/internal/config"
-	"radar/internal/filters"
 	"radar/internal/integration"
 	"radar/internal/protocol"
 )
@@ -49,12 +48,12 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger,
 			Logger:   logger,
 		})...)
 	}
-	return Result{Tasks: applyTaskFilters(deduplicateReconciledTasks(tasks), logger), Sources: collected.Sources, SourceNames: collected.SourceNames}
+	return Result{Tasks: deduplicateReconciledTasks(tasks), Sources: collected.Sources, SourceNames: collected.SourceNames}
 }
 
 func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Result {
 	collected := CollectSources(ctx, previous, logger, LocalSources(sources))
-	return Result{Tasks: applyTaskFilters(observedTasks(collected), logger), Sources: collected.Sources, SourceNames: collected.SourceNames}
+	return Result{Tasks: observedTasks(collected), Sources: collected.Sources, SourceNames: collected.SourceNames}
 }
 
 func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Collected {
@@ -120,6 +119,7 @@ func taskFromObservation(observation integration.Observation) protocol.Task {
 	if attention == "" {
 		attention = string(integration.SignalInProgress)
 	}
+	sourceRef.Signal = attention
 	return protocol.Task{
 		Kind:       taskKindFromObservation(observation),
 		Title:      sourceRef.Title,
@@ -176,15 +176,6 @@ func sourceRefCount(sourceName string, result integration.CollectResult) int {
 		}
 	}
 	return len(seen)
-}
-
-func applyTaskFilters(tasks []protocol.Task, logger *slog.Logger) []protocol.Task {
-	cfg, err := config.Load()
-	if err != nil {
-		logger.Warn("could not load config for task filtering", "error", err)
-		return tasks
-	}
-	return filters.Apply(tasks, cfg.Filters)
 }
 
 func deduplicateReconciledTasks(tasks []protocol.Task) []protocol.Task {

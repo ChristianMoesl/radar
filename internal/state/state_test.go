@@ -74,6 +74,39 @@ func TestReconcileStateReopensDoneRecord(t *testing.T) {
 	}
 }
 
+func TestProjectTasksKeepsActiveWorkWhenLinkedRemoteIsDone(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{makeTask("in_progress", "jira issue", testJiraIssueRef("jira:issue:CAP-7", "CAP-7 Ship"))}, now)
+	state = reconcileState(state, []protocol.Task{
+		makeTask("in_progress", "jira issue", testJiraIssueRef("jira:issue:CAP-7", "CAP-7 Ship")),
+		makeTask("done", "merged today", withSignal(withStatus(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship"), "merged today"), "done")),
+	}, now.Add(time.Hour))
+
+	tasks := projectTasks(state)
+	if len(tasks) != 1 {
+		t.Fatalf("tasks = %d, want one linked task: %+v", len(tasks), tasks)
+	}
+	if tasks[0].Attention != "in_progress" {
+		t.Fatalf("task attention = %q, want active Jira work to stay in_progress: %+v", tasks[0].Attention, tasks[0])
+	}
+}
+
+func TestProjectTasksPromptsCleanupWhenRemoteDoneAndOnlyLocalRemains(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
+		makeTask("done", "merged today", withSignal(withStatus(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship"), "merged today"), "done")),
+		makeTask("in_progress", "git worktree", testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "CAP-7-ship")),
+	}, now)
+
+	tasks := projectTasks(state)
+	if len(tasks) != 1 {
+		t.Fatalf("tasks = %d, want one cleanup task: %+v", len(tasks), tasks)
+	}
+	if tasks[0].Attention != "attention" || !strings.Contains(tasks[0].Reason, "cleanup workspace") {
+		t.Fatalf("task = %s/%s, want attention cleanup prompt", tasks[0].Attention, tasks[0].Reason)
+	}
+}
+
 func TestProjectTasksAppliesAcknowledgementOutsideSourceMetadata(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{
@@ -212,8 +245,37 @@ func testTmuxSessionRef(id string, path string) protocol.SourceRef {
 	}
 }
 
+func testJiraIssueRef(id string, title string) protocol.SourceRef {
+	key := strings.TrimPrefix(id, "jira:issue:")
+	return protocol.SourceRef{
+		ID:           id,
+		Source:       "jira",
+		Kind:         "issue",
+		Title:        title,
+		CanonicalKey: id,
+		LinkingKeys:  linking.Keys("ticket:" + key),
+	}
+}
+
+func makeTask(attention string, reason string, ref protocol.SourceRef) protocol.Task {
+	if ref.Signal == "" {
+		ref.Signal = attention
+	}
+	return protocol.Task{Title: ref.Title, Attention: attention, Reason: reason, SourceRefs: []protocol.SourceRef{ref}}
+}
+
 func withMetadata(ref protocol.SourceRef, metadata map[string]string) protocol.SourceRef {
 	ref.Metadata = metadata
+	return ref
+}
+
+func withStatus(ref protocol.SourceRef, status string) protocol.SourceRef {
+	ref.Status = status
+	return ref
+}
+
+func withSignal(ref protocol.SourceRef, signal string) protocol.SourceRef {
+	ref.Signal = signal
 	return ref
 }
 

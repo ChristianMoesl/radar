@@ -77,6 +77,7 @@ type SourceRef struct {
 	Path         string            `json:"path,omitempty"`
 	Branch       string            `json:"branch,omitempty"`
 	Status       string            `json:"status,omitempty"`
+	Signal       string            `json:"signal,omitempty"`
 	CanonicalKey string            `json:"canonical_key,omitempty"`
 	LinkingKeys  []string          `json:"linking_keys,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`

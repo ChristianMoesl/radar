@@ -128,6 +128,25 @@ func TestDetectActivityTracksReviewThreadsAndGeneralComments(t *testing.T) {
 	}
 }
 
+func TestDetectActivityIgnoresRoutineBotComments(t *testing.T) {
+	pr := searchPullRequest{
+		Comments: graphQLComments{Nodes: []graphQLComment{
+			{Author: user{Login: "dependabot[bot]"}, CreatedAt: "2026-06-11T10:00:00Z"},
+		}},
+		ReviewThreads: graphQLReviewThreads{Nodes: []graphQLReviewThread{
+			{IsResolved: false, Comments: graphQLComments{Nodes: []graphQLComment{
+				{Author: user{Login: "me"}, CreatedAt: "2026-06-11T09:00:00Z"},
+				{Author: user{Login: "github-actions[bot]"}, CreatedAt: "2026-06-11T10:00:00Z"},
+			}}},
+		}},
+	}
+
+	activity := detectActivity(pr, "me", previousPullRequestActivity{}, true)
+	if activity.needsAttention() {
+		t.Fatalf("activity = %+v, want bot-only activity ignored", activity)
+	}
+}
+
 func TestResolveDonePullRequestsSkipsRemoteFetchWhenAuthoredIncomplete(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "called")
 	installFakeGH(t, `#!/bin/sh
@@ -172,20 +191,17 @@ func TestResolveDonePullRequestsDeduplicatesDonePRRefs(t *testing.T) {
 	}
 }
 
-func TestDonePullRequestSourceRefsReusesCanonicalGitHubPRRef(t *testing.T) {
+func TestDonePullRequestSourceRefsOnlyMarksCanonicalGitHubPRRefDone(t *testing.T) {
 	sourceRefs := donePullRequestSourceRefs([]protocol.SourceRef{
 		{ID: "github:pr:acme/app:42", Source: "github", Kind: "pull_request", Status: "open PR"},
 		{ID: "jira:issue:ABC-42", Source: "jira", Kind: "issue"},
 	}, "acme/app", 42, "merged today")
 
-	if len(sourceRefs) != 2 {
-		t.Fatalf("source refs = %d, want 2: %+v", len(sourceRefs), sourceRefs)
+	if len(sourceRefs) != 1 {
+		t.Fatalf("source refs = %d, want only canonical GitHub ref: %+v", len(sourceRefs), sourceRefs)
 	}
-	if sourceRefs[0].ID != "github:pr:acme/app:42" || sourceRefs[0].Status != "merged today" {
+	if sourceRefs[0].ID != "github:pr:acme/app:42" || sourceRefs[0].Status != "merged today" || sourceRefs[0].Signal != "done" {
 		t.Fatalf("github source ref = %+v, want canonical PR ref marked done", sourceRefs[0])
-	}
-	if sourceRefs[1].ID != "jira:issue:ABC-42" {
-		t.Fatalf("jira source ref = %+v, want preserved jira ref", sourceRefs[1])
 	}
 }
 
