@@ -234,7 +234,7 @@ TUI / CLI -> Unix socket -> radar daemon -> source-compiled integrations
 
 The daemon keeps collection centralized so UI/status reads can use cached local state instead of polling external services repeatedly. It refreshes local Git/tmux/sbx state every 15 seconds and runs a full GitHub/Jira/Git/tmux/sbx refresh every 5 minutes.
 
-For internals, see [ARCHITECTURE.md](ARCHITECTURE.md). To add a source-compiled integration, see [docs/integrations.md](docs/integrations.md).
+For internals, see [ARCHITECTURE.md](ARCHITECTURE.md). For how Radar decides what needs attention, see [docs/attention-algorithm.md](docs/attention-algorithm.md). To add a source-compiled integration, see [docs/integrations.md](docs/integrations.md).
 
 ## GitHub
 

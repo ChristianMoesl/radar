@@ -98,6 +98,8 @@ Radar has three active categories and one historical category:
 - `in_progress`
 - `done`
 
+The high-level categorization rules are documented in [docs/attention-algorithm.md](docs/attention-algorithm.md).
+
 Collection and durable linking are separate steps. Integration code talks to external systems and produces observations/source refs with source-owned linking keys. Core collection projects those observations into candidate tasks. The state store matches active persisted source refs by those keys, merges records that describe the same work, and then projects one user-facing task per task record.
 
 `done` is a durable task-record state. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state and emits a done transition. The state store applies that transition to the existing task record. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate.
