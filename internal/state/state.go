@@ -394,6 +394,7 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 	}
 
 	for _, task := range mergeObservedTasks(observed) {
+		task = taskWithSourceSignals(task)
 		key := canonicalTaskKey(task)
 		record := matchingRecord(task, key, recordsBySourceRef, recordsByKey)
 		if record == nil {
@@ -444,6 +445,9 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 				refRecord = &state.SourceRefs[len(state.SourceRefs)-1]
 				sourceRefsByID[sourceRef.ID] = refRecord
 			}
+			if sourceRef.Signal == "" {
+				sourceRef.Signal = task.Attention
+			}
 			refRecord.Source = sourceRef.Source
 			refRecord.Kind = sourceRef.Kind
 			refRecord.TaskRecordID = record.ID
@@ -456,6 +460,7 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 	}
 
 	state = relinkState(state)
+	updateRecordLifecycles(state.Records, state.SourceRefs, nowText)
 
 	for i := range state.Records {
 		record := &state.Records[i]
@@ -608,6 +613,64 @@ func mergeTaskRecords(records []TaskRecord, ids []string, winnerID string, refs 
 	return merged
 }
 
+func updateRecordLifecycles(records []TaskRecord, sourceRefs []SourceRefRecord, nowText string) {
+	for i := range records {
+		refs := activeSourceRefRecordsForRecord(records[i].ID, sourceRefs)
+		if len(refs) == 0 {
+			continue
+		}
+		fallback := records[i].Snapshot.Attention
+		if hasDoneSignal(refs, fallback) && !hasNonDoneSignal(refs, fallback) {
+			records[i].State = "done"
+			records[i].DoneAt = firstNonEmpty(records[i].DoneAt, nowText)
+			records[i].Reason = firstDoneReason(refs, fallback)
+			records[i].UpdatedAt = nowText
+			continue
+		}
+		records[i].State = "active"
+		records[i].DoneAt = ""
+		records[i].Reason = ""
+	}
+}
+
+func activeSourceRefRecordsForRecord(recordID string, refs []SourceRefRecord) []SourceRefRecord {
+	active := make([]SourceRefRecord, 0)
+	for _, ref := range refs {
+		if ref.TaskRecordID == recordID && ref.Active {
+			active = append(active, ref)
+		}
+	}
+	return active
+}
+
+func hasDoneSignal(refs []SourceRefRecord, fallback string) bool {
+	for _, ref := range refs {
+		if sourceSignal(ref.Snapshot, fallback) == "done" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNonDoneSignal(refs []SourceRefRecord, fallback string) bool {
+	for _, ref := range refs {
+		signal := sourceSignal(ref.Snapshot, fallback)
+		if signal != "" && signal != "done" {
+			return true
+		}
+	}
+	return false
+}
+
+func firstDoneReason(refs []SourceRefRecord, fallback string) string {
+	for _, ref := range refs {
+		if sourceSignal(ref.Snapshot, fallback) == "done" && ref.Snapshot.Status != "" {
+			return ref.Snapshot.Status
+		}
+	}
+	return "done"
+}
+
 func sourceRefIDsForRecord(recordID string, refs []SourceRefRecord) []string {
 	ids := make([]string, 0)
 	for _, ref := range refs {
@@ -673,6 +736,140 @@ func mergeTasks(left, right protocol.Task) protocol.Task {
 	return left
 }
 
+func taskWithSourceSignals(task protocol.Task) protocol.Task {
+	for i := range task.SourceRefs {
+		if task.SourceRefs[i].Signal == "" {
+			task.SourceRefs[i].Signal = task.Attention
+		}
+	}
+	return task
+}
+
+func applySourceSignals(task *protocol.Task, record TaskRecord, refs []protocol.SourceRef) {
+	fallback := record.Snapshot.Attention
+	if signal, reason := firstSignal(refs, "immediate", fallback); signal != "" {
+		task.Attention = signal
+		if reason != "" {
+			task.Reason = reason
+		}
+		return
+	}
+	if signal, reason := firstSignal(refs, "attention", fallback); signal != "" {
+		task.Attention = signal
+		if reason != "" {
+			task.Reason = reason
+		}
+		return
+	}
+	if remoteDoneWithLocalCleanup(refs, fallback) {
+		task.Attention = "attention"
+		task.Reason = cleanupReason(refs)
+		return
+	}
+	if signal, reason := firstSignal(refs, "in_progress", fallback); signal != "" {
+		task.Attention = signal
+		if task.Reason == "" || record.Snapshot.Attention != signal {
+			task.Reason = reason
+		}
+		return
+	}
+}
+
+func firstSignal(refs []protocol.SourceRef, want string, fallback string) (string, string) {
+	for _, ref := range refs {
+		if sourceSignal(ref, fallback) == want {
+			return want, sourceReason(ref, want)
+		}
+	}
+	return "", ""
+}
+
+func sourceSignal(ref protocol.SourceRef, fallback string) string {
+	if ref.Signal != "" {
+		return ref.Signal
+	}
+	return fallback
+}
+
+func sourceReason(ref protocol.SourceRef, signal string) string {
+	if ref.Status != "" {
+		return ref.Status
+	}
+	switch signal {
+	case "immediate":
+		return "immediate attention"
+	case "attention":
+		return "needs attention"
+	case "in_progress":
+		return ref.Source + " " + ref.Kind
+	case "done":
+		return "done"
+	default:
+		return ""
+	}
+}
+
+func remoteDoneWithLocalCleanup(refs []protocol.SourceRef, fallback string) bool {
+	hasRemoteDone := false
+	hasLocalCleanup := false
+	for _, ref := range refs {
+		signal := sourceSignal(ref, fallback)
+		if signal == "done" && remoteSource(ref.Source) {
+			hasRemoteDone = true
+			continue
+		}
+		if signal == "done" {
+			continue
+		}
+		if localCleanupSource(ref) {
+			hasLocalCleanup = true
+			continue
+		}
+		return false
+	}
+	return hasRemoteDone && hasLocalCleanup
+}
+
+func remoteSource(source string) bool {
+	return source == "github" || source == "jira"
+}
+
+func localCleanupSource(ref protocol.SourceRef) bool {
+	switch ref.Source {
+	case "git", "tmux", "sbx":
+		return true
+	default:
+		return false
+	}
+}
+
+func cleanupReason(refs []protocol.SourceRef) string {
+	resources := map[string]bool{}
+	for _, ref := range refs {
+		if !localCleanupSource(ref) {
+			continue
+		}
+		switch ref.Source {
+		case "git":
+			resources["workspace"] = true
+		case "tmux":
+			resources["tmux session"] = true
+		case "sbx":
+			resources["sandbox"] = true
+		}
+	}
+	labels := make([]string, 0, len(resources))
+	for _, label := range []string{"workspace", "tmux session", "sandbox"} {
+		if resources[label] {
+			labels = append(labels, label)
+		}
+	}
+	if len(labels) == 0 {
+		return "remote done; cleanup local resources"
+	}
+	return "remote done; cleanup " + strings.Join(labels, ", ")
+}
+
 func projectTasks(state persistedState) []protocol.Task {
 	activeSourceRefsByRecord := map[string][]protocol.SourceRef{}
 	allSourceRefsByRecord := map[string][]protocol.SourceRef{}
@@ -709,6 +906,8 @@ func projectTasks(state persistedState) []protocol.Task {
 			if record.Reason != "" {
 				task.Reason = record.Reason
 			}
+		} else {
+			applySourceSignals(&task, record, refs)
 		}
 		if task.Metadata == nil {
 			task.Metadata = map[string]string{}
@@ -906,14 +1105,14 @@ func sourceOrder(source string) int {
 
 func attentionRank(attention string) int {
 	switch attention {
-	case "done":
-		return 6
 	case "immediate":
 		return 5
 	case "attention":
 		return 4
 	case "in_progress":
 		return 3
+	case "done":
+		return 2
 	case "low_priority":
 		return 1
 	default:

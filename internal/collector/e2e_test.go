@@ -17,7 +17,7 @@ import (
 	"radar/internal/state"
 )
 
-func TestCollectEndToEndLinksAndMarksGitHubPRDone(t *testing.T) {
+func TestCollectEndToEndKeepsLinkedWorkActiveWhenGitHubPRIsDone(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	tmp := t.TempDir()
@@ -65,15 +65,15 @@ func TestCollectEndToEndLinksAndMarksGitHubPRDone(t *testing.T) {
 	second := Collect(ctx, firstTasks, logger, integrations.Sources)
 	store.SetTasks(second.Tasks)
 	secondTasks := store.Tasks()
-	done := taskBySourceRef(secondTasks, "github:pr:acme/app:7")
-	if done == nil {
+	activeLinked := taskBySourceRef(secondTasks, "github:pr:acme/app:7")
+	if activeLinked == nil {
 		t.Fatalf("second collect did not keep closed GitHub PR; tasks=%+v", secondTasks)
 	}
-	if done.Kind != "github_own_pr" || done.Attention != "done" || done.Reason != "merged today" {
-		t.Fatalf("done task = %s/%s/%s, want github_own_pr/done/merged today", done.Kind, done.Attention, done.Reason)
+	if activeLinked.Attention != "in_progress" {
+		t.Fatalf("linked task = %s/%s/%s, want active work to remain in_progress", activeLinked.Kind, activeLinked.Attention, activeLinked.Reason)
 	}
-	assertHasSourceRef(t, *done, "jira:issue:RAD-123")
-	assertHasSourceRefPrefix(t, *done, "git:worktree:")
+	assertHasSourceRef(t, *activeLinked, "jira:issue:RAD-123")
+	assertHasSourceRefPrefix(t, *activeLinked, "git:worktree:")
 }
 
 func setupIsolatedEnvironment(t *testing.T, tmp string) {

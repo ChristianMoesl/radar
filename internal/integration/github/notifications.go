@@ -319,7 +319,7 @@ func detectActivity(pr searchPullRequest, login string, previous previousPullReq
 	}
 	if authored {
 		for _, comment := range append(pr.Comments.Nodes, pr.Reviews.Nodes...) {
-			if strings.EqualFold(comment.Author.Login, login) || comment.CreatedAt == "" || comment.CreatedAt <= previous.generalCommentsAckAt {
+			if strings.EqualFold(comment.Author.Login, login) || isBotLogin(comment.Author.Login) || comment.CreatedAt == "" || comment.CreatedAt <= previous.generalCommentsAckAt {
 				continue
 			}
 			activity.newGeneralComments++
@@ -339,7 +339,7 @@ func relevantReviewThread(thread graphQLReviewThread, login string, authored boo
 			if comment.CreatedAt > latestMine {
 				latestMine = comment.CreatedAt
 			}
-		} else if comment.Author.Login != "" && comment.CreatedAt > latestOther {
+		} else if comment.Author.Login != "" && !isBotLogin(comment.Author.Login) && comment.CreatedAt > latestOther {
 			latestOther = comment.CreatedAt
 		}
 	}
@@ -347,6 +347,11 @@ func relevantReviewThread(thread graphQLReviewThread, login string, authored boo
 		return latestOther != ""
 	}
 	return latestMine != "" && latestOther > latestMine
+}
+
+func isBotLogin(login string) bool {
+	login = strings.ToLower(strings.TrimSpace(login))
+	return strings.HasSuffix(login, "[bot]")
 }
 
 func (activity pullRequestActivity) needsAttention() bool {
@@ -501,19 +506,17 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, acti
 
 func donePullRequestSourceRefs(sourceRefs []protocol.SourceRef, repo string, number int, reason string) []protocol.SourceRef {
 	id := fmt.Sprintf("github:pr:%s:%d", repo, number)
-	updated := make([]protocol.SourceRef, 0, len(sourceRefs)+1)
-	seen := false
 	for _, sourceRef := range sourceRefs {
-		if sourceRef.ID == id {
-			sourceRef = githubPullRequestRef(id, repo, number, sourceRef.Title, sourceRef.URL, reason, sourceRef.Branch)
-			seen = true
+		if sourceRef.ID != id {
+			continue
 		}
-		updated = append(updated, sourceRef)
+		ref := githubPullRequestRef(id, repo, number, sourceRef.Title, sourceRef.URL, reason, sourceRef.Branch)
+		ref.Signal = "done"
+		return []protocol.SourceRef{ref}
 	}
-	if !seen {
-		updated = append(updated, githubPullRequestRef(id, repo, 0, "", "", reason, ""))
-	}
-	return updated
+	ref := githubPullRequestRef(id, repo, number, "", "", reason, "")
+	ref.Signal = "done"
+	return []protocol.SourceRef{ref}
 }
 
 func keepTodaysDoneTasks(items []protocol.Task, previous []protocol.Task) []protocol.Task {

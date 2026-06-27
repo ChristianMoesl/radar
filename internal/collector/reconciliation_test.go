@@ -49,7 +49,7 @@ func (s fakeLocalSource) Collect(context.Context, integration.CollectRequest) in
 }
 func (s fakeLocalSource) Local() bool { return true }
 
-func TestApplyTaskFiltersRemovesMutedTasksBeforeSaving(t *testing.T) {
+func TestCollectReturnsRawTasksWithoutDisplayFilters(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	configPath := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar", "config.json")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
@@ -59,15 +59,21 @@ func TestApplyTaskFiltersRemovesMutedTasksBeforeSaving(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tasks := []protocol.Task{
-		{ID: 1, Repo: "org/noisy", Attention: "attention"},
-		{ID: 2, Repo: "org/useful", Attention: "attention"},
+	result := Collect(context.Background(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)), []integration.Source{fakeObservedSource{}})
+	if len(result.Tasks) != 1 || result.Tasks[0].Repo != "org/noisy" {
+		t.Fatalf("collected tasks = %+v, want raw muted task to remain for storage", result.Tasks)
 	}
+}
 
-	got := applyTaskFilters(tasks, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if len(got) != 1 || got[0].ID != 2 {
-		t.Fatalf("filtered tasks = %+v, want only useful task", got)
-	}
+type fakeObservedSource struct{}
+
+func (fakeObservedSource) Name() string { return "fake" }
+func (fakeObservedSource) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
+	return integration.CollectResult{Observations: []integration.Observation{{
+		Ref:    protocol.SourceRef{ID: "github:pr:org/noisy:1", Source: "github", Kind: "pull_request", Repo: "org/noisy", Title: "Noisy PR"},
+		Signal: integration.SignalAttention,
+		Reason: "review requested",
+	}}}
 }
 
 func TestDeduplicateReconciledTasksKeepsOneTaskPerGitHubPullRequest(t *testing.T) {

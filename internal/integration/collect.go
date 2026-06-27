@@ -36,6 +36,7 @@ type CollectResult struct {
 func ObserveRefs(refs []protocol.SourceRef, signal WorkSignal) []Observation {
 	observations := make([]Observation, 0, len(refs))
 	for _, ref := range refs {
+		ref.Signal = string(signal)
 		observations = append(observations, Observation{Ref: ref, Signal: signal})
 	}
 	return observations

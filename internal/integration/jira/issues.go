@@ -400,24 +400,11 @@ func issueDone(issue issue) bool {
 	return issue.Fields.Status != nil && issue.Fields.Status.StatusCategory != nil && strings.EqualFold(issue.Fields.Status.StatusCategory.Key, "done")
 }
 
-func doneIssueSourceRefs(sourceRefs []protocol.SourceRef, cfg Config, issue issue, reason string) []protocol.SourceRef {
-	updated := make([]protocol.SourceRef, 0, len(sourceRefs)+1)
-	id := "jira:issue:" + issue.Key
-	seen := false
-	for _, sourceRef := range sourceRefs {
-		if sourceRef.ID == id {
-			sourceRef = sourceRefFromIssue(cfg, issue)
-			sourceRef.Status = reason
-			seen = true
-		}
-		updated = append(updated, sourceRef)
-	}
-	if !seen {
-		sourceRef := sourceRefFromIssue(cfg, issue)
-		sourceRef.Status = reason
-		updated = append(updated, sourceRef)
-	}
-	return updated
+func doneIssueSourceRefs(_ []protocol.SourceRef, cfg Config, issue issue, reason string) []protocol.SourceRef {
+	sourceRef := sourceRefFromIssue(cfg, issue)
+	sourceRef.Status = reason
+	sourceRef.Signal = "done"
+	return []protocol.SourceRef{sourceRef}
 }
 
 func keepTodaysDoneIssues(items []protocol.Task, previous []protocol.Task) []protocol.Task {

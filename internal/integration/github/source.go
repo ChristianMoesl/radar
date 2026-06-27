@@ -60,6 +60,7 @@ func observationsFromTasks(tasks []protocol.Task) []integration.Observation {
 			continue
 		}
 		ref := task.SourceRefs[0]
+		ref.Signal = task.Attention
 		if task.Metadata != nil {
 			if ref.Metadata == nil {
 				ref.Metadata = map[string]string{}
