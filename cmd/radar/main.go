@@ -141,6 +141,7 @@ func runCreate(args []string) {
 		Name:            *name,
 		Model:           cfg.Model,
 		Thinking:        cfg.Thinking,
+		Sandbox:         cfg.Sandbox != nil,
 		SandboxTemplate: cfg.SandboxTemplate,
 		Switch:          os.Getenv("TMUX") != "",
 	})
@@ -178,7 +179,11 @@ func runDelete(args []string) {
 		err = integrations.Multiplexer.DeleteSession(context.Background(), integration.SessionTarget{Name: *session})
 		result = integration.Workspace{SessionName: *session}
 	} else {
-		result, err = integrations.Workspace.DeleteWorkspace(context.Background(), integration.DeleteWorkspaceRequest{Path: *path})
+		cfg, cfgErr := config.Load()
+		if cfgErr != nil {
+			fatal(cfgErr)
+		}
+		result, err = integrations.Workspace.DeleteWorkspace(context.Background(), integration.DeleteWorkspaceRequest{Path: *path, Sandbox: cfg.Sandbox != nil})
 	}
 	if err != nil {
 		fatal(err)

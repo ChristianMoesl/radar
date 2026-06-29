@@ -99,6 +99,7 @@ type CreateOptions struct {
 	WorkspaceRoot   string
 	Model           string
 	Thinking        string
+	Sandbox         bool
 	SandboxTemplate string
 	Switch          bool
 	ForkPiSession   string
@@ -135,7 +136,8 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	if err := pi.ValidateThinking(options.Thinking); err != nil {
 		return Workspace{}, err
 	}
-	if repoConfig.Sandbox != nil {
+	sandboxConfig, sandboxEnabled := workspaceSandboxConfig(repoConfig, options.Sandbox)
+	if sandboxEnabled {
 		if workspaceGOOS != "darwin" {
 			return Workspace{}, fmt.Errorf("workspace sandbox is only supported on macOS")
 		}
@@ -167,7 +169,7 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		sessionName = SessionName(repoName, name)
 	}
 	sandboxName := ""
-	if repoConfig.Sandbox != nil {
+	if sandboxEnabled {
 		sandboxName = SandboxName(repoName, name)
 	}
 	if existingPath, ok, err := worktreePathForBranch(ctx, runner, repo, branch); err != nil {
@@ -206,7 +208,7 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 			_, _ = runner.Run(ctx, repo, "tmux", "kill-session", "-t", sessionName)
 		}
 		if createdSandbox {
-			_, _ = stopSandbox(ctx, runner, path, *repoConfig.Sandbox, sandboxName)
+			_, _ = stopSandbox(ctx, runner, path, sandboxConfig, sandboxName)
 		}
 		_, _ = runner.Run(ctx, repo, "git", "worktree", "remove", "--force", path)
 	}
@@ -225,8 +227,8 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	if sandboxTemplate == "" {
 		sandboxTemplate = defaultSandboxTemplate
 	}
-	if repoConfig.Sandbox != nil {
-		if _, err := startSandbox(ctx, runner, path, *repoConfig.Sandbox, sandboxName, sandboxTemplate); err != nil {
+	if sandboxEnabled {
+		if _, err := startSandbox(ctx, runner, path, sandboxConfig, sandboxName, sandboxTemplate); err != nil {
 			rollback()
 			return Workspace{}, err
 		}
@@ -242,7 +244,7 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 			thinking = repoConfig.Thinking
 		}
 		piCommandText := piCommand(sessionName, model, thinking, options.ForkPiSession)
-		if repoConfig.Sandbox != nil {
+		if sandboxEnabled {
 			piCommandText, err = sandboxPiCommand(path, sandboxName, sessionName, model, thinking, options.ForkPiSession)
 			if err != nil {
 				rollback()
@@ -270,6 +272,16 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	}
 
 	return Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName, SandboxName: sandboxName}, nil
+}
+
+func workspaceSandboxConfig(repoConfig RepoConfig, enabledByUserConfig bool) (SandboxConfig, bool) {
+	if repoConfig.Sandbox != nil {
+		return *repoConfig.Sandbox, true
+	}
+	if enabledByUserConfig {
+		return SandboxConfig{}, true
+	}
+	return SandboxConfig{}, false
 }
 
 func openExistingWorkspace(ctx context.Context, runner Runner, workspace Workspace, switchClient bool) (Workspace, error) {
@@ -375,7 +387,7 @@ func DeleteSession(ctx context.Context, runner Runner, sessionName string) (Work
 	return Workspace{SessionName: sessionName}, nil
 }
 
-func Delete(ctx context.Context, runner Runner, path string, sessionName string, force bool) (Workspace, error) {
+func Delete(ctx context.Context, runner Runner, path string, sessionName string, force bool, sandboxDefault bool) (Workspace, error) {
 	if strings.TrimSpace(path) == "" {
 		return Workspace{}, fmt.Errorf("workspace path is required")
 	}
@@ -401,9 +413,9 @@ func Delete(ctx context.Context, runner Runner, path string, sessionName string,
 	sandboxName := ""
 	if repoConfig, err := loadRepoConfig(path); err != nil {
 		return Workspace{}, err
-	} else if repoConfig.Sandbox != nil && workspaceGOOS == "darwin" {
+	} else if sandboxConfig, sandboxEnabled := workspaceSandboxConfig(repoConfig, sandboxDefault); sandboxEnabled && workspaceGOOS == "darwin" {
 		sandboxName = SandboxName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
-		if _, err := stopSandbox(ctx, runner, path, *repoConfig.Sandbox, sandboxName); err != nil {
+		if _, err := stopSandbox(ctx, runner, path, sandboxConfig, sandboxName); err != nil {
 			return Workspace{}, err
 		}
 	}

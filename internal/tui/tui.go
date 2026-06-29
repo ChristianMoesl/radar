@@ -817,6 +817,7 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 			Name:            form.name,
 			Model:           cfg.Model,
 			Thinking:        cfg.Thinking,
+			Sandbox:         cfg.Sandbox != nil,
 			SandboxTemplate: cfg.SandboxTemplate,
 			Switch:          switchAfterCreate,
 			ForkPiSession:   form.forkPiSession,
@@ -1420,6 +1421,7 @@ func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
 			Branch:          name,
 			Model:           cfg.Model,
 			Thinking:        cfg.Thinking,
+			Sandbox:         cfg.Sandbox != nil,
 			SandboxTemplate: cfg.SandboxTemplate,
 			Switch:          switchAfterCreate,
 		})

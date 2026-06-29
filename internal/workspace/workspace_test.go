@@ -152,6 +152,33 @@ func TestCreateStartsConfiguredSandboxForPiWindowOnly(t *testing.T) {
 	assertNotCalledContains(t, runner.calls, "tmux", "-n shell")
 }
 
+func TestCreateStartsSandboxEnabledByUserConfig(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo := t.TempDir()
+	root := t.TempDir()
+	runner := &fakeRunner{repo: repo}
+
+	workspace, err := Create(context.Background(), runner, CreateOptions{
+		Repo:            repo,
+		Name:            "small fix",
+		Base:            "origin/main",
+		WorkspaceRoot:   root,
+		Sandbox:         true,
+		SandboxTemplate: "example/radar-sandbox:test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if workspace.SandboxName != "radar-"+filepath.Base(repo)+"-small-fix" {
+		t.Fatalf("sandbox name = %q", workspace.SandboxName)
+	}
+	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --template example/radar-sandbox:test shell "+workspace.Path+" "+filepath.Join(home, ".pi", "agent")+":ro "+filepath.Join(home, ".pi", "agent", "sessions"))
+	assertCalledContains(t, runner.calls, "tmux", "sbx exec -it --workdir '"+workspace.Path+"' '"+workspace.SandboxName+"' sh -lc")
+}
+
 func TestCreateRejectsConfiguredSandboxOutsideMacOS(t *testing.T) {
 	withWorkspaceGOOS(t, "linux")
 	repo := t.TempDir()
@@ -324,7 +351,7 @@ func TestCreateSessionCreatesTmuxSessionForWorktree(t *testing.T) {
 func TestDeleteKillsSessionAndRemovesWorktree(t *testing.T) {
 	runner := &fakeRunner{hasSession: true}
 	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", false); err != nil {
+	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", false, false); err != nil {
 		t.Fatal(err)
 	}
 	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
@@ -342,7 +369,7 @@ func TestDeleteStopsConfiguredSandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deleted, err := Delete(context.Background(), runner, path, "repo-small-fix", false)
+	deleted, err := Delete(context.Background(), runner, path, "repo-small-fix", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,6 +380,25 @@ func TestDeleteStopsConfiguredSandbox(t *testing.T) {
 	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
 	assertCalled(t, runner.calls, "sbx", "rm --force radar-repo-small-fix")
 	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove "+path)
+}
+
+func TestDeleteStopsSandboxEnabledByUserConfig(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
+	runner := &fakeRunner{hasSession: true}
+	path := filepath.Join(t.TempDir(), "repo", "small-fix")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	deleted, err := Delete(context.Background(), runner, path, "repo-small-fix", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if deleted.SandboxName != "radar-repo-small-fix" {
+		t.Fatalf("sandbox name = %q", deleted.SandboxName)
+	}
+	assertCalled(t, runner.calls, "sbx", "rm --force radar-repo-small-fix")
 }
 
 func TestDeleteSessionKillsOnlyTmuxSession(t *testing.T) {
@@ -373,7 +419,7 @@ func TestDeleteSessionKillsOnlyTmuxSession(t *testing.T) {
 func TestDeleteRefusesDirtyWorktreeBeforeKillingSession(t *testing.T) {
 	runner := &dirtyRunner{fakeRunner: fakeRunner{hasSession: true}}
 	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", false); err == nil {
+	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", false, false); err == nil {
 		t.Fatal("Delete() error = nil, want dirty worktree error")
 	}
 	for _, call := range runner.calls {
@@ -386,7 +432,7 @@ func TestDeleteRefusesDirtyWorktreeBeforeKillingSession(t *testing.T) {
 func TestDeleteForceRemovesDirtyWorktree(t *testing.T) {
 	runner := &dirtyRunner{fakeRunner: fakeRunner{hasSession: true}}
 	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", true); err != nil {
+	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", true, false); err != nil {
 		t.Fatal(err)
 	}
 	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
