@@ -22,6 +22,7 @@ type CreateWorkspaceRequest struct {
 	WorkspaceRoot   string
 	Model           string
 	Thinking        string
+	Sandbox         bool
 	SandboxTemplate string
 	Switch          bool
 	ForkPiSession   string
@@ -31,6 +32,7 @@ type DeleteWorkspaceRequest struct {
 	Path        string
 	SessionName string
 	Force       bool
+	Sandbox     bool
 }
 
 type WorkspaceProvider interface {

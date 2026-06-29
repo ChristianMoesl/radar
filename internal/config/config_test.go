@@ -41,6 +41,7 @@ func TestLoadReadsConfigFile(t *testing.T) {
   "workspace_root": "~/streams",
   "model": "github-copilot/claude-sonnet-4.5",
   "thinking": "high",
+  "sandbox": {},
   "sandbox_template": "example/radar-sandbox:test",
   "filters": {"mute_repos": ["org/noisy"]}
 }`), 0o600); err != nil {
@@ -62,6 +63,9 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	}
 	if cfg.Thinking != "high" {
 		t.Fatalf("Thinking = %q", cfg.Thinking)
+	}
+	if cfg.Sandbox == nil {
+		t.Fatalf("Sandbox = nil, want enabled sandbox config")
 	}
 	if cfg.SandboxTemplate != "example/radar-sandbox:test" {
 		t.Fatalf("SandboxTemplate = %q", cfg.SandboxTemplate)

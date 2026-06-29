@@ -15,9 +15,12 @@ type Config struct {
 	WorkspaceRoot   string         `json:"workspace_root,omitempty"`
 	Model           string         `json:"model,omitempty"`
 	Thinking        string         `json:"thinking,omitempty"`
+	Sandbox         *SandboxConfig `json:"sandbox,omitempty"`
 	SandboxTemplate string         `json:"sandbox_template,omitempty"`
 	Filters         filters.Config `json:"filters,omitempty"`
 }
+
+type SandboxConfig struct{}
 
 func Path() (string, error) {
 	base := os.Getenv("XDG_CONFIG_HOME")

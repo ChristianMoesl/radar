@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/integration/tmux"
 	"radar/internal/protocol"
@@ -84,7 +85,8 @@ func (Source) PreviewDelete(ctx context.Context, req integration.DeletePreviewRe
 }
 
 func (Source) Delete(ctx context.Context, preview protocol.DeletePreview) (protocol.DeleteResult, error) {
-	deleted, err := workspace.Delete(ctx, workspace.ExecRunner{}, preview.Path, preview.SessionName, true)
+	cfg, _ := config.Load()
+	deleted, err := workspace.Delete(ctx, workspace.ExecRunner{}, preview.Path, preview.SessionName, true, cfg.Sandbox != nil)
 	if err != nil {
 		return protocol.DeleteResult{}, err
 	}
@@ -124,6 +126,7 @@ func (Source) Create(ctx context.Context, req integration.CreateWorkspaceRequest
 		WorkspaceRoot:   req.WorkspaceRoot,
 		Model:           req.Model,
 		Thinking:        req.Thinking,
+		Sandbox:         req.Sandbox,
 		SandboxTemplate: req.SandboxTemplate,
 		Switch:          req.Switch,
 		ForkPiSession:   req.ForkPiSession,
@@ -135,7 +138,7 @@ func (Source) Create(ctx context.Context, req integration.CreateWorkspaceRequest
 }
 
 func (Source) DeleteWorkspace(ctx context.Context, req integration.DeleteWorkspaceRequest) (integration.Workspace, error) {
-	deleted, err := workspace.Delete(ctx, workspace.ExecRunner{}, req.Path, req.SessionName, req.Force)
+	deleted, err := workspace.Delete(ctx, workspace.ExecRunner{}, req.Path, req.SessionName, req.Force, req.Sandbox)
 	if err != nil {
 		return integration.Workspace{}, err
 	}
