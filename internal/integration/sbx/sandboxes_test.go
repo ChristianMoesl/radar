@@ -2,6 +2,7 @@ package sbx
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -133,5 +134,12 @@ func TestSandboxWithoutWorkspaceUsesSourceRefCanonicalKey(t *testing.T) {
 	}
 	if len(ref.LinkingKeys) != 0 {
 		t.Fatalf("linking keys = %+v, want none", ref.LinkingKeys)
+	}
+}
+
+func TestSBXErrorDetailSuggestsLoginForAuthFailure(t *testing.T) {
+	err := sbxErrorDetail(errors.New("sbx ls --json failed: ERROR: list sandboxes: request failed: 401 Unauthorized: user is not authenticated to Docker: secret not found\nno valid user session found, please sign in to Docker to proceed"))
+	if err != "not signed in; run sbx login" {
+		t.Fatalf("sbxErrorDetail() = %q, want login suggestion", err)
 	}
 }

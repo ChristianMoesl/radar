@@ -39,7 +39,7 @@ func TestDeleteWorkspaceIgnoresMissingConfiguredSandboxE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deleted, err := Delete(ctx, ExecRunner{}, worktree, "", true, false)
+	deleted, err := Delete(ctx, ExecRunner{}, worktree, "", true, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}

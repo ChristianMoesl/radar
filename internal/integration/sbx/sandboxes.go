@@ -169,5 +169,17 @@ func sbxErrorDetail(err error) string {
 	if errors.Is(err, exec.ErrNotFound) {
 		return "sbx not found"
 	}
-	return err.Error()
+	detail := err.Error()
+	if isSBXAuthError(detail) {
+		return "not signed in; run sbx login"
+	}
+	return detail
+}
+
+func isSBXAuthError(detail string) bool {
+	detail = strings.ToLower(detail)
+	return strings.Contains(detail, "401 unauthorized") ||
+		strings.Contains(detail, "not authenticated to docker") ||
+		strings.Contains(detail, "no valid user session found") ||
+		strings.Contains(detail, "secret not found")
 }

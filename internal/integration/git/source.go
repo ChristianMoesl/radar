@@ -62,6 +62,7 @@ func (Source) PreviewDelete(ctx context.Context, req integration.DeletePreviewRe
 		return protocol.DeletePreview{}, true, err
 	}
 	dirty := strings.TrimSpace(status) != ""
+	sandboxName := matchingSandboxName(req.Task, ref.Path)
 	preview := protocol.DeletePreview{
 		TaskID:         req.Task.ID,
 		SourceRefID:    ref.ID,
@@ -71,22 +72,32 @@ func (Source) PreviewDelete(ctx context.Context, req integration.DeletePreviewRe
 		Path:           ref.Path,
 		Branch:         ref.Branch,
 		SessionName:    tmux.SessionTarget(req.Task),
+		SandboxName:    sandboxName,
 		Dirty:          dirty,
 		TargetLabel:    "workspace",
 		ConfirmTitle:   "Delete workspace?",
 		Warning:        "This will remove the git worktree.",
 		SuccessMessage: "Deleted " + ref.Path,
 	}
+	if sandboxName != "" && !dirty {
+		preview.Warning = "This will remove the git worktree and sbx sandbox."
+		if preview.SessionName != "" {
+			preview.Warning = "This will remove the git worktree, tmux session, and sbx sandbox."
+		}
+	}
 	if dirty {
 		preview.ConfirmTitle = "Delete dirty workspace?"
 		preview.Warning = "This worktree has uncommitted changes. Deleting will permanently discard them."
+		if sandboxName != "" {
+			preview.Warning = "This worktree has uncommitted changes. Deleting will permanently discard them and remove the sbx sandbox."
+		}
 	}
 	return preview, true, nil
 }
 
 func (Source) Delete(ctx context.Context, preview protocol.DeletePreview) (protocol.DeleteResult, error) {
 	cfg, _ := config.Load()
-	deleted, err := workspace.Delete(ctx, workspace.ExecRunner{}, preview.Path, preview.SessionName, true, cfg.Sandbox != nil)
+	deleted, err := workspace.Delete(ctx, workspace.ExecRunner{}, preview.Path, preview.SessionName, true, preview.SandboxName, cfg.Sandbox != nil)
 	if err != nil {
 		return protocol.DeleteResult{}, err
 	}
@@ -97,6 +108,7 @@ func (Source) Delete(ctx context.Context, preview protocol.DeletePreview) (proto
 		Title:       preview.Title,
 		Path:        deleted.Path,
 		SessionName: deleted.SessionName,
+		SandboxName: deleted.SandboxName,
 	}, nil
 }
 
@@ -138,7 +150,7 @@ func (Source) Create(ctx context.Context, req integration.CreateWorkspaceRequest
 }
 
 func (Source) DeleteWorkspace(ctx context.Context, req integration.DeleteWorkspaceRequest) (integration.Workspace, error) {
-	deleted, err := workspace.Delete(ctx, workspace.ExecRunner{}, req.Path, req.SessionName, req.Force, req.Sandbox)
+	deleted, err := workspace.Delete(ctx, workspace.ExecRunner{}, req.Path, req.SessionName, req.Force, "", req.Sandbox)
 	if err != nil {
 		return integration.Workspace{}, err
 	}
@@ -183,6 +195,20 @@ func deleteWorktreeRef(task protocol.Task, current protocol.CurrentContext) (pro
 		}
 	}
 	return protocol.SourceRef{}, false
+}
+
+func matchingSandboxName(task protocol.Task, worktreePath string) string {
+	for _, ref := range task.SourceRefs {
+		if ref.Source != "sbx" || ref.Kind != "sandbox" || !samePath(ref.Path, worktreePath) {
+			continue
+		}
+		name := strings.TrimSpace(ref.Title)
+		if name != "" {
+			return name
+		}
+		return strings.TrimPrefix(ref.ID, "sbx:sandbox:")
+	}
+	return ""
 }
 
 func currentPathMatches(refPath string, current protocol.CurrentContext) bool {

@@ -1037,6 +1037,9 @@ func (m model) deleteConfirmView(width int) string {
 	if preview.SessionName != "" {
 		lines = append(lines, "Session "+preview.SessionName)
 	}
+	if preview.SandboxName != "" {
+		lines = append(lines, "Sandbox "+preview.SandboxName)
+	}
 	lines = append(lines, "", errorStyle.Render("Press y to delete."))
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
 }

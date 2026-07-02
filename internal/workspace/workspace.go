@@ -387,7 +387,7 @@ func DeleteSession(ctx context.Context, runner Runner, sessionName string) (Work
 	return Workspace{SessionName: sessionName}, nil
 }
 
-func Delete(ctx context.Context, runner Runner, path string, sessionName string, force bool, sandboxDefault bool) (Workspace, error) {
+func Delete(ctx context.Context, runner Runner, path string, sessionName string, force bool, sandboxName string, sandboxDefault bool) (Workspace, error) {
 	if strings.TrimSpace(path) == "" {
 		return Workspace{}, fmt.Errorf("workspace path is required")
 	}
@@ -410,12 +410,16 @@ func Delete(ctx context.Context, runner Runner, path string, sessionName string,
 			return Workspace{}, err
 		}
 	}
-	sandboxName := ""
-	if repoConfig, err := loadRepoConfig(path); err != nil {
-		return Workspace{}, err
-	} else if sandboxConfig, sandboxEnabled := workspaceSandboxConfig(repoConfig, sandboxDefault); sandboxEnabled && workspaceGOOS == "darwin" {
-		sandboxName = SandboxName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
-		if _, err := stopSandbox(ctx, runner, path, sandboxConfig, sandboxName); err != nil {
+	sandboxName = strings.TrimSpace(sandboxName)
+	if sandboxName == "" {
+		if repoConfig, err := loadRepoConfig(path); err != nil {
+			return Workspace{}, err
+		} else if _, sandboxEnabled := workspaceSandboxConfig(repoConfig, sandboxDefault); sandboxEnabled && workspaceGOOS == "darwin" {
+			sandboxName = SandboxName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
+		}
+	}
+	if sandboxName != "" {
+		if _, err := stopSandbox(ctx, runner, path, SandboxConfig{}, sandboxName); err != nil {
 			return Workspace{}, err
 		}
 	}
@@ -510,7 +514,11 @@ func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConf
 	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
 		return "", fmt.Errorf("could not prepare Pi sessions mount: %w", err)
 	}
-	return runner.Run(ctx, path, "sbx", "create", "--name", name, "--template", template, "shell", path, authDir+":ro", sessionsDir)
+	output, err := runner.Run(ctx, path, "sbx", "create", "--name", name, "--template", template, "shell", path, authDir+":ro", sessionsDir)
+	if err != nil {
+		return output, sbxCommandError(err)
+	}
+	return output, nil
 }
 
 func stopSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
@@ -518,7 +526,28 @@ func stopSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfi
 	if err != nil && strings.Contains(err.Error(), "not found") {
 		return output, nil
 	}
-	return output, err
+	if err != nil {
+		return output, sbxCommandError(err)
+	}
+	return output, nil
+}
+
+func sbxCommandError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if isSBXAuthError(err.Error()) {
+		return fmt.Errorf("sbx is not signed in; run sbx login")
+	}
+	return err
+}
+
+func isSBXAuthError(detail string) bool {
+	detail = strings.ToLower(detail)
+	return strings.Contains(detail, "401 unauthorized") ||
+		strings.Contains(detail, "not authenticated to docker") ||
+		strings.Contains(detail, "no valid user session found") ||
+		strings.Contains(detail, "secret not found")
 }
 
 func sandboxPiCommand(path string, sandboxName string, sessionName string, model string, thinking string, forkSession string) (string, error) {

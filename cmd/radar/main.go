@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	exec "os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -89,12 +91,23 @@ func runTUIWithMode(mode string) {
 	if err != nil {
 		fatal(err)
 	}
+	sbxLoggedIn, err := ensureSBXLogin(context.Background())
+	if err != nil {
+		fatal(err)
+	}
 	if err := ensureDaemonCurrent(path); err != nil {
 		fatal(err)
 	}
 	if _, err := client.Call(path, "tasks"); err != nil {
 		if err := startDaemonAndWait(path); err != nil {
 			fatal(err)
+		}
+	}
+	if sbxLoggedIn {
+		if res, err := client.Call(path, "refresh"); err != nil {
+			fatal(err)
+		} else if !res.OK {
+			fatal(errors.New(res.Error))
 		}
 	}
 	if mode == "create" {
@@ -134,6 +147,11 @@ func runCreate(args []string) {
 	if err != nil {
 		fatal(err)
 	}
+	if cfg.Sandbox != nil {
+		if _, err := ensureSBXLogin(context.Background()); err != nil {
+			fatal(err)
+		}
+	}
 	integrations := app.DefaultIntegrationSet()
 	result, err := integrations.Workspace.Create(context.Background(), integration.CreateWorkspaceRequest{
 		Repo:            *repo,
@@ -161,6 +179,39 @@ func runFork(args []string) {
 	runTUIWithMode("fork")
 }
 
+func ensureSBXLogin(ctx context.Context) (bool, error) {
+	if _, err := exec.LookPath("sbx"); err != nil {
+		return false, nil
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	check := exec.CommandContext(checkCtx, "sbx", "ls", "--json")
+	output, err := check.CombinedOutput()
+	if err == nil {
+		return false, nil
+	}
+	if !isSBXLoginRequired(string(output) + "\n" + err.Error()) {
+		return false, nil
+	}
+	fmt.Fprintln(os.Stderr, "radar: sbx is not signed in; starting sbx login")
+	login := exec.CommandContext(ctx, "sbx", "login")
+	login.Stdin = os.Stdin
+	login.Stdout = os.Stdout
+	login.Stderr = os.Stderr
+	if err := login.Run(); err != nil {
+		return false, fmt.Errorf("sbx login failed: %w", err)
+	}
+	return true, nil
+}
+
+func isSBXLoginRequired(detail string) bool {
+	detail = strings.ToLower(detail)
+	return strings.Contains(detail, "401 unauthorized") ||
+		strings.Contains(detail, "not authenticated to docker") ||
+		strings.Contains(detail, "no valid user session found") ||
+		strings.Contains(detail, "secret not found")
+}
+
 func runDelete(args []string) {
 	flags := flag.NewFlagSet("radar delete", flag.ExitOnError)
 	path := flags.String("path", "", "workspace path")
@@ -182,6 +233,11 @@ func runDelete(args []string) {
 		cfg, cfgErr := config.Load()
 		if cfgErr != nil {
 			fatal(cfgErr)
+		}
+		if cfg.Sandbox != nil {
+			if _, loginErr := ensureSBXLogin(context.Background()); loginErr != nil {
+				fatal(loginErr)
+			}
 		}
 		result, err = integrations.Workspace.DeleteWorkspace(context.Background(), integration.DeleteWorkspaceRequest{Path: *path, Sandbox: cfg.Sandbox != nil})
 	}
