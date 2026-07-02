@@ -348,10 +348,17 @@ func TestCreateSessionCreatesTmuxSessionForWorktree(t *testing.T) {
 	assertCalled(t, runner.calls, "tmux", "switch-client -t repo-small-fix")
 }
 
+func TestSandboxCommandErrorSuggestsLoginForAuthFailure(t *testing.T) {
+	err := sbxCommandError(errors.New("sbx create failed: ERROR: request failed: 401 Unauthorized: user is not authenticated to Docker: secret not found"))
+	if err == nil || err.Error() != "sbx is not signed in; run sbx login" {
+		t.Fatalf("sbxCommandError() = %v, want login suggestion", err)
+	}
+}
+
 func TestDeleteKillsSessionAndRemovesWorktree(t *testing.T) {
 	runner := &fakeRunner{hasSession: true}
 	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", false, false); err != nil {
+	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", false, "", false); err != nil {
 		t.Fatal(err)
 	}
 	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
@@ -369,7 +376,7 @@ func TestDeleteStopsConfiguredSandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deleted, err := Delete(context.Background(), runner, path, "repo-small-fix", false, false)
+	deleted, err := Delete(context.Background(), runner, path, "repo-small-fix", false, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,6 +389,25 @@ func TestDeleteStopsConfiguredSandbox(t *testing.T) {
 	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove "+path)
 }
 
+func TestDeleteStopsExplicitSandbox(t *testing.T) {
+	runner := &fakeRunner{hasSession: true}
+	path := filepath.Join(t.TempDir(), "repo", "small-fix")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	deleted, err := Delete(context.Background(), runner, path, "repo-small-fix", false, "radar-custom-small-fix", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if deleted.SandboxName != "radar-custom-small-fix" {
+		t.Fatalf("sandbox name = %q, want radar-custom-small-fix", deleted.SandboxName)
+	}
+	assertCalled(t, runner.calls, "sbx", "rm --force radar-custom-small-fix")
+	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove "+path)
+}
+
 func TestDeleteStopsSandboxEnabledByUserConfig(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
 	runner := &fakeRunner{hasSession: true}
@@ -390,7 +416,7 @@ func TestDeleteStopsSandboxEnabledByUserConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deleted, err := Delete(context.Background(), runner, path, "repo-small-fix", false, true)
+	deleted, err := Delete(context.Background(), runner, path, "repo-small-fix", false, "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +445,7 @@ func TestDeleteSessionKillsOnlyTmuxSession(t *testing.T) {
 func TestDeleteRefusesDirtyWorktreeBeforeKillingSession(t *testing.T) {
 	runner := &dirtyRunner{fakeRunner: fakeRunner{hasSession: true}}
 	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", false, false); err == nil {
+	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", false, "", false); err == nil {
 		t.Fatal("Delete() error = nil, want dirty worktree error")
 	}
 	for _, call := range runner.calls {
@@ -432,7 +458,7 @@ func TestDeleteRefusesDirtyWorktreeBeforeKillingSession(t *testing.T) {
 func TestDeleteForceRemovesDirtyWorktree(t *testing.T) {
 	runner := &dirtyRunner{fakeRunner: fakeRunner{hasSession: true}}
 	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", true, false); err != nil {
+	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", true, "", false); err != nil {
 		t.Fatal(err)
 	}
 	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")

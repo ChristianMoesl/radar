@@ -61,6 +61,40 @@ func TestPreviewDeleteRejectsMainWorkingTree(t *testing.T) {
 	}
 }
 
+func TestPreviewDeleteIncludesMatchingSandbox(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	repo := filepath.Join(home, "repo")
+	worktree := filepath.Join(home, "worktrees", "small-fix")
+	runGit(t, ctx, home, "init", "repo")
+	runGit(t, ctx, repo, "config", "user.email", "radar@example.com")
+	runGit(t, ctx, repo, "config", "user.name", "Radar")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, ctx, repo, "add", "README.md")
+	runGit(t, ctx, repo, "commit", "-m", "init")
+	runGit(t, ctx, repo, "worktree", "add", "-b", "small-fix", worktree)
+
+	preview, ok, err := Source{}.PreviewDelete(ctx, integration.DeletePreviewRequest{Task: protocol.Task{ID: 1, SourceRefs: []protocol.SourceRef{
+		{ID: "git:worktree:" + worktree, Source: "git", Kind: "worktree", Path: worktree, Branch: "small-fix", Title: "small-fix"},
+		{ID: "tmux:session:$1", Source: "tmux", Kind: "session", Title: "repo-small-fix"},
+		{ID: "sbx:sandbox:radar-repo-small-fix", Source: "sbx", Kind: "sandbox", Title: "radar-repo-small-fix", Path: worktree},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("PreviewDelete() ok = false, want true")
+	}
+	if preview.SandboxName != "radar-repo-small-fix" {
+		t.Fatalf("sandbox name = %q, want radar-repo-small-fix", preview.SandboxName)
+	}
+	if preview.SessionName != "repo-small-fix" {
+		t.Fatalf("session name = %q, want repo-small-fix", preview.SessionName)
+	}
+}
+
 func TestGitRootsDefaultsToCwdAndWorkspaces(t *testing.T) {
 	home := t.TempDir()
 	cwd := filepath.Join(home, "not-a-workspace")

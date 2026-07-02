@@ -34,6 +34,7 @@ type DeletePreview struct {
 	Path           string `json:"path,omitempty"`
 	Branch         string `json:"branch,omitempty"`
 	SessionName    string `json:"session_name,omitempty"`
+	SandboxName    string `json:"sandbox_name,omitempty"`
 	Dirty          bool   `json:"dirty,omitempty"`
 	SessionOnly    bool   `json:"session_only,omitempty"`
 	TargetLabel    string `json:"target_label,omitempty"`
@@ -49,6 +50,7 @@ type DeleteResult struct {
 	Title       string `json:"title,omitempty"`
 	Path        string `json:"path,omitempty"`
 	SessionName string `json:"session_name,omitempty"`
+	SandboxName string `json:"sandbox_name,omitempty"`
 }
 
 type Summary struct {
