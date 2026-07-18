@@ -71,14 +71,16 @@ func (d *countingDiscoveryRunner) Run(_ context.Context, cwd string, name string
 
 func TestDiscoverReposUsesGitDirectoriesWithoutResolvingEveryRepo(t *testing.T) {
 	home := t.TempDir()
+	dataHome := filepath.Join(home, "data")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_DATA_HOME", dataHome)
 
 	current := filepath.Join(home, "workspace", "current")
 	currentSubdir := filepath.Join(current, "src")
 	repo := filepath.Join(home, "workspace", "repo")
 	worktree := filepath.Join(home, "workspace", "worktree")
-	generatedWorkspace := filepath.Join(home, "workspaces", "repo", "feature")
+	generatedWorkspace := filepath.Join(dataHome, "radar", "workspaces", "repo", "feature")
 	for _, path := range []string{
 		filepath.Join(current, ".git"),
 		currentSubdir,
@@ -180,10 +182,12 @@ func TestDiscoverReposReportsFdErrorsWhenNoRepositoriesCanBeDiscovered(t *testin
 
 func TestDiscoverReposPrefersSourceRepoForCurrentWorkspace(t *testing.T) {
 	home := t.TempDir()
+	dataHome := filepath.Join(home, "data")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_DATA_HOME", dataHome)
 
-	current := filepath.Join(home, "workspaces", "radar", "small-fix")
+	current := filepath.Join(dataHome, "radar", "workspaces", "radar", "small-fix")
 	currentSubdir := filepath.Join(current, "src")
 	radar := filepath.Join(home, "workspace", "radar")
 	alpha := filepath.Join(home, "workspace", "alpha")

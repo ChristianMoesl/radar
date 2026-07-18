@@ -89,6 +89,12 @@ func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.
 			Filters:  filterCfg,
 			Logger:   logger,
 		})
+		if collected.SourceStatus != nil {
+			status.Status = *collected.SourceStatus
+			if status.Status.Name == "" {
+				status.Status.Name = source.Name()
+			}
+		}
 		status.Status.SourceRefCount = sourceRefCount(source.Name(), collected)
 		result.Sources = append(result.Sources, status.Status)
 		result.Results[source.Name()] = collected

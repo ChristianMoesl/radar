@@ -11,11 +11,14 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 - `internal/integration/git/`: Git worktree source facts and workspace provider.
 - `internal/integration/jira/`: Jira Cloud issue source facts and remote state resolution.
 - `internal/integration/tmux/`: tmux session source facts and active multiplexer provider.
-- `internal/integration/sbx/`: Docker sbx sandbox source facts, actions, and deletion.
+- `internal/integration/sbx/`: Docker sbx sandbox source facts, actions, and cleanup.
 - `internal/app/`: explicit assembly of the active integration set.
-- `internal/workspace/`: repository discovery and Git worktree/tmux workspace lifecycle helpers.
+- `internal/cleanup/`: shared application service for cleanup preview aggregation and ordered provider execution.
+- `internal/workspace/`: repository discovery, workspace creation, and source-specific Git worktree/tmux removal primitives.
+- `internal/workspacegc/`: conservative eligibility and target selection for automatic cleanup of completed work.
 - `internal/server/`: Unix socket API used by TUI and CLI commands.
 - `internal/collector/`: orchestrates integration collection, observation projection, and remote state resolution.
+- `internal/notification/`: detects newly actionable tasks and delivers host OS notifications.
 - `internal/state/`: local persistent task cache/state and durable source-ref linking.
 
 ## Process model
@@ -26,7 +29,7 @@ There is one long-running daemon per user:
 TUI / CLI -> Unix socket -> radar daemon -> collectors
 ```
 
-All frontends share the same daemon and state. This avoids duplicated polling and keeps interactive and scriptable status reads fast.
+All frontends share the same daemon and state. This avoids duplicated polling and keeps interactive and scriptable status reads fast. After each refresh, the daemon compares the previous and current filtered task views and sends a host notification for tasks that newly enter `immediate` or `attention`. macOS notifications use the built-in `osascript`; other operating systems currently use a no-op notifier.
 
 The binary is intentionally single-file from a user perspective:
 
@@ -40,7 +43,7 @@ radar reset
 radar stop
 radar restart
 radar create --repo <repo> --base <branch> --name <name>
-radar delete --path <workspace-path>
+radar cleanup <task-id>
 ```
 
 ## Communication
@@ -102,9 +105,13 @@ The high-level categorization rules are documented in [docs/attention-algorithm.
 
 Collection and durable linking are separate steps. Integration code talks to external systems and produces observations/source refs with source-owned linking keys. Core collection projects those observations into candidate tasks. The state store matches active persisted source refs by those keys, merges records that describe the same work, and then projects one user-facing task per task record.
 
-`done` is a durable task-record state. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state and emits a done transition. The state store applies that transition to the existing task record. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate.
+`done` is a durable task-record state. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state and emits a done transition. The state store applies that transition to the existing task record. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate. Done-task projections preserve historical remote refs, but omit inactive local worktree, tmux, and SBX refs after those resources are removed.
 
-Local cleanup has explicit semantics: removing a tmux session only marks that source ref inactive, while removing a local worktree marks the local workspace record done when no GitHub or Jira source remains attached.
+Completion and local cleanup are separate. A task becomes `done` when its remote work is complete: if both GitHub and Jira refs are linked, both must be done; if only one remote source is linked, that source is authoritative. Remaining local worktrees, tmux sessions, or sbx sandboxes do not keep the task active. The daemon garbage-collects clean linked worktrees under the configured workspace root after the task has been done for 24 hours, deleting the linked detached tmux session and sbx sandbox with the worktree. Attached tmux sessions are skipped and retried later.
+
+Manual cleanup and garbage collection both preview and execute targets through `internal/cleanup.Service`. Manual cleanup executes the confirmed preview with force enabled. `internal/workspacegc` owns automatic eligibility and filters each preview to one workspace path before executing without force. The hourly daemon run, `radar gc`, and the TUI's `X` key all use those same conservative eligibility rules. Providers exclusively remove their own resources in deterministic tmux, SBX, then Git order.
+
+Removing a tmux session only marks that source ref inactive, while removing a local worktree marks the local workspace record done when no GitHub or Jira source remains attached.
 
 ## Local state
 
@@ -166,9 +173,9 @@ New integrations are source-compiled packages under `internal/integration/<name>
 
 ## Workspaces
 
-Workspaces absorb the useful workflow from `fork.nvim`. The application layer discovers repositories under configured repository directories, creates Git worktrees under the configured workspace root, applies repo-local `.radar.json` workspace setup, and creates matching tmux sessions with `pi` and `nvim` windows.
+Workspaces absorb the useful workflow from `fork.nvim`. The application layer discovers repositories under configured repository directories, creates Git worktrees under the configured workspace root, applies repo-local `.radar.json` workspace setup, and creates matching tmux sessions with `pi` and `nvim` windows. Sandboxed linked worktrees mount both the workspace and its writable common Git directory so sandboxed tools can follow the worktree's absolute `.git` pointer.
 
-Creation is available from the TUI and `radar create`. Deletion is intentionally conservative: `radar delete` refuses dirty worktrees and there is no force flag yet.
+Creation is available from the TUI and `radar create`. Task cleanup is available with `x` in the TUI and `radar cleanup <task-id>`. Cleanup preflights every linked local resource, shows a consolidated dirty-worktree warning, then removes linked tmux sessions, SBX sandboxes, and Git worktrees while preserving branches and remote resources.
 
 ## Terminal UI
 

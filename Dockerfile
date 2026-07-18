@@ -21,9 +21,7 @@ RUN set -eux; \
   rm -f /tmp/node.tar.gz; \
   corepack enable; \
   corepack prepare "pnpm@${PNPM_VERSION}" --activate; \
-  curl -fsSL https://pi.dev/install.sh | sh; \
   pnpm --version >/dev/null; \
-  pi --version >/dev/null; \
   rm -rf /root/.cache /tmp/* /opt/node/include /opt/node/share/doc /opt/node/share/man
 
 USER agent

@@ -2,6 +2,8 @@ package git
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,21 +49,18 @@ func TestWorktreeSourceRefContract(t *testing.T) {
 	contracttest.AssertValidSourceRefs(t, "git", []protocol.SourceRef{ref})
 }
 
-func TestPreviewDeleteRejectsMainWorkingTree(t *testing.T) {
+func TestPreviewCleanupRejectsMainWorkingTree(t *testing.T) {
 	ctx := context.Background()
 	repo := filepath.Join(t.TempDir(), "repo")
 	runGit(t, ctx, filepath.Dir(repo), "init", "repo")
 
-	_, ok, err := Source{}.PreviewDelete(ctx, integration.DeletePreviewRequest{Task: protocol.Task{ID: 1, SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: repo}}}})
+	_, err := Source{}.PreviewCleanup(ctx, integration.CleanupPreviewRequest{Task: protocol.Task{ID: 1, SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: repo}}}})
 	if err == nil {
-		t.Fatal("PreviewDelete() error = nil, want main working tree error")
-	}
-	if !ok {
-		t.Fatal("PreviewDelete() ok = false, want true for rejected git target")
+		t.Fatal("PreviewCleanup() error = nil, want main working tree error")
 	}
 }
 
-func TestPreviewDeleteIncludesMatchingSandbox(t *testing.T) {
+func TestPreviewCleanupReturnsWorktreeTarget(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
 	repo := filepath.Join(home, "repo")
@@ -76,7 +75,7 @@ func TestPreviewDeleteIncludesMatchingSandbox(t *testing.T) {
 	runGit(t, ctx, repo, "commit", "-m", "init")
 	runGit(t, ctx, repo, "worktree", "add", "-b", "small-fix", worktree)
 
-	preview, ok, err := Source{}.PreviewDelete(ctx, integration.DeletePreviewRequest{Task: protocol.Task{ID: 1, SourceRefs: []protocol.SourceRef{
+	targets, err := Source{}.PreviewCleanup(ctx, integration.CleanupPreviewRequest{Task: protocol.Task{ID: 1, SourceRefs: []protocol.SourceRef{
 		{ID: "git:worktree:" + worktree, Source: "git", Kind: "worktree", Path: worktree, Branch: "small-fix", Title: "small-fix"},
 		{ID: "tmux:session:$1", Source: "tmux", Kind: "session", Title: "repo-small-fix"},
 		{ID: "sbx:sandbox:radar-repo-small-fix", Source: "sbx", Kind: "sandbox", Title: "radar-repo-small-fix", Path: worktree},
@@ -84,29 +83,29 @@ func TestPreviewDeleteIncludesMatchingSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ok {
-		t.Fatal("PreviewDelete() ok = false, want true")
+	if len(targets) != 1 {
+		t.Fatalf("cleanup targets = %+v, want one worktree", targets)
 	}
-	if preview.SandboxName != "radar-repo-small-fix" {
-		t.Fatalf("sandbox name = %q, want radar-repo-small-fix", preview.SandboxName)
-	}
-	if preview.SessionName != "repo-small-fix" {
-		t.Fatalf("session name = %q, want repo-small-fix", preview.SessionName)
+	if targets[0].Source != "git" || targets[0].Kind != "worktree" || targets[0].Path != worktree {
+		t.Fatalf("cleanup target = %+v", targets[0])
 	}
 }
 
 func TestGitRootsDefaultsToCwdAndWorkspaces(t *testing.T) {
 	home := t.TempDir()
+	dataHome := filepath.Join(home, "data")
+	workspaceRoot := filepath.Join(dataHome, "radar", "workspaces")
 	cwd := filepath.Join(home, "not-a-workspace")
-	workspace := filepath.Join(home, "workspaces", "repo", "feature")
-	otherWorkspace := filepath.Join(home, "workspaces", "other", "fix")
-	for _, dir := range []string{cwd, workspace, otherWorkspace, filepath.Join(home, "workspaces", "repo")} {
+	workspace := filepath.Join(workspaceRoot, "repo", "feature")
+	otherWorkspace := filepath.Join(workspaceRoot, "other", "fix")
+	for _, dir := range []string{cwd, workspace, otherWorkspace, filepath.Join(workspaceRoot, "repo")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_DATA_HOME", dataHome)
 	t.Setenv("RADAR_GIT_REPOS", "")
 	t.Chdir(cwd)
 
@@ -114,7 +113,66 @@ func TestGitRootsDefaultsToCwdAndWorkspaces(t *testing.T) {
 	assertContainsRoot(t, roots, cwd)
 	assertContainsRoot(t, roots, workspace)
 	assertContainsRoot(t, roots, otherWorkspace)
-	assertMissingRoot(t, roots, filepath.Join(home, "workspaces", "repo"))
+	assertMissingRoot(t, roots, filepath.Join(workspaceRoot, "repo"))
+}
+
+func TestPathInRepositoryDirs(t *testing.T) {
+	home := t.TempDir()
+	repositoryDir := filepath.Join(home, "repos")
+	inside := filepath.Join(repositoryDir, "radar")
+	outside := filepath.Join(home, "workspaces", "radar", "feature")
+	for _, path := range []string{inside, outside} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if !pathInRepositoryDirs(inside, []string{repositoryDir}) {
+		t.Fatalf("pathInRepositoryDirs(%q) = false, want true", inside)
+	}
+	if pathInRepositoryDirs(outside, []string{repositoryDir}) {
+		t.Fatalf("pathInRepositoryDirs(%q) = true, want false", outside)
+	}
+}
+
+func TestFetchWorktreesExcludesConfiguredRepositoryDirs(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	repositoryDir := filepath.Join(home, "repos")
+	repo := filepath.Join(repositoryDir, "radar")
+	linkedWorktree := filepath.Join(home, "workspaces", "radar", "feature")
+	if err := os.MkdirAll(repositoryDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, ctx, repositoryDir, "init", "radar")
+	runGit(t, ctx, repo, "config", "user.email", "radar@example.com")
+	runGit(t, ctx, repo, "config", "user.name", "Radar")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, ctx, repo, "add", "README.md")
+	runGit(t, ctx, repo, "commit", "-m", "init")
+	runGit(t, ctx, repo, "worktree", "add", "-b", "feature/RAD-123", linkedWorktree)
+
+	configHome := filepath.Join(home, "config")
+	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configJSON := []byte(`{"repository_dirs":["` + repositoryDir + `"]}`)
+	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), configJSON, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("RADAR_GIT_REPOS", repo)
+
+	refs, status := FetchWorktrees(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if status.Status != "ok" {
+		t.Fatalf("FetchWorktrees() status = %+v", status)
+	}
+	if len(refs) != 1 || cleanPhysicalPath(refs[0].Path) != cleanPhysicalPath(linkedWorktree) {
+		t.Fatalf("FetchWorktrees() refs = %+v, want only %q", refs, linkedWorktree)
+	}
 }
 
 func TestGitRootsIncludesTmuxSessionPaths(t *testing.T) {

@@ -451,7 +451,7 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, acti
 
 	activePullRequests := make(map[string]bool, len(active))
 	for _, item := range active {
-		if sourceRef, ok := githubPullRequestSourceRef(item); ok {
+		for _, sourceRef := range githubPullRequestSourceRefs(item) {
 			activePullRequests[sourceRef.ID] = true
 		}
 	}
@@ -459,45 +459,40 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, acti
 	items := keepTodaysDoneTasks(nil, previous)
 	seenDone := doneTaskIDs(items)
 	for _, item := range previous {
-		if item.Attention == "done" {
-			continue
-		}
+		for _, sourceRef := range githubPullRequestSourceRefs(item) {
+			if activePullRequests[sourceRef.ID] || seenDone[sourceRef.ID] {
+				continue
+			}
+			repo, number, ok := parsePullRequestSourceRefID(sourceRef.ID)
+			if !ok {
+				logger.Warn("could not parse github PR source ref id", "id", sourceRef.ID)
+				continue
+			}
 
-		sourceRef, ok := githubPullRequestSourceRef(item)
-		if !ok || activePullRequests[sourceRef.ID] {
-			continue
-		}
-		repo, number, ok := parsePullRequestSourceRefID(sourceRef.ID)
-		if !ok {
-			logger.Warn("could not parse github PR source ref id", "id", sourceRef.ID)
-			continue
-		}
+			pr, err := fetchPullRequest(ctx, fmt.Sprintf("/repos/%s/pulls/%d", repo, number))
+			if err != nil {
+				logger.Warn("could not resolve previous github PR", "id", sourceRef.ID, "error", err)
+				continue
+			}
+			if pr.State != "closed" {
+				continue
+			}
 
-		pr, err := fetchPullRequest(ctx, fmt.Sprintf("/repos/%s/pulls/%d", repo, number))
-		if err != nil {
-			logger.Warn("could not resolve previous github PR", "id", item.ID, "error", err)
-			continue
+			reason := "closed"
+			if pr.Merged {
+				reason = "merged"
+			}
+			if isToday(pr.ClosedAt) {
+				reason += " today"
+			}
+			done := item
+			done.Attention = "done"
+			done.Reason = reason
+			done.DoneAt = pr.ClosedAt
+			done.SourceRefs = donePullRequestSourceRefs(item.SourceRefs, repo, number, reason)
+			seenDone[sourceRef.ID] = true
+			items = append(items, done)
 		}
-		if pr.State != "closed" || !isToday(pr.ClosedAt) {
-			continue
-		}
-
-		reason := "closed today"
-		if pr.Merged {
-			reason = "merged today"
-		}
-		done := item
-		done.Attention = "done"
-		done.Reason = reason
-		done.DoneAt = pr.ClosedAt
-		done.SourceRefs = donePullRequestSourceRefs(item.SourceRefs, repo, number, reason)
-		if id := doneTaskID(done); id != "" && seenDone[id] {
-			continue
-		}
-		if id := doneTaskID(done); id != "" {
-			seenDone[id] = true
-		}
-		items = append(items, done)
 	}
 
 	logger.Debug("resolved done github pull requests", "count", len(items))
@@ -522,17 +517,18 @@ func donePullRequestSourceRefs(sourceRefs []protocol.SourceRef, repo string, num
 func keepTodaysDoneTasks(items []protocol.Task, previous []protocol.Task) []protocol.Task {
 	seen := doneTaskIDs(items)
 	for _, item := range previous {
-		if item.Attention != "done" || !isToday(item.DoneAt) || !hasSource(item, "github") {
+		if item.Attention != "done" || !isToday(item.DoneAt) {
 			continue
 		}
-		id := doneTaskID(item)
-		if id != "" && seen[id] {
-			continue
+		for _, sourceRef := range githubPullRequestSourceRefs(item) {
+			if sourceRef.Signal != "" && sourceRef.Signal != "done" || seen[sourceRef.ID] {
+				continue
+			}
+			done := item
+			done.SourceRefs = []protocol.SourceRef{sourceRef}
+			seen[sourceRef.ID] = true
+			items = append(items, done)
 		}
-		if id != "" {
-			seen[id] = true
-		}
-		items = append(items, item)
 	}
 	return items
 }
@@ -554,15 +550,6 @@ func doneTaskID(item protocol.Task) string {
 		}
 	}
 	return ""
-}
-
-func hasSource(item protocol.Task, source string) bool {
-	for _, sourceRef := range item.SourceRefs {
-		if sourceRef.Source == source {
-			return true
-		}
-	}
-	return false
 }
 
 func newGitHubPullRequestSourceRef(item protocol.Task, repo string, number int, kind string, branch string, body string) protocol.SourceRef {
@@ -615,13 +602,14 @@ func githubBranchKey(branch string) string {
 	return strings.ReplaceAll(branch, "/", "-")
 }
 
-func githubPullRequestSourceRef(task protocol.Task) (protocol.SourceRef, bool) {
+func githubPullRequestSourceRefs(task protocol.Task) []protocol.SourceRef {
+	refs := make([]protocol.SourceRef, 0)
 	for _, sourceRef := range task.SourceRefs {
-		if sourceRef.Source == "github" && sourceRef.Kind == "pull_request" {
-			return sourceRef, true
+		if sourceRef.Source == "github" && sourceRef.Kind == "pull_request" && sourceRef.ID != "" {
+			refs = append(refs, sourceRef)
 		}
 	}
-	return protocol.SourceRef{}, false
+	return refs
 }
 
 func currentLogin(ctx context.Context) (string, error) {

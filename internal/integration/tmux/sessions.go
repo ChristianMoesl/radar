@@ -14,7 +14,6 @@ import (
 
 	"radar/internal/linking"
 	"radar/internal/protocol"
-	"radar/internal/workspace"
 )
 
 var ticketPattern = regexp.MustCompile(`(?i)[A-Z][A-Z0-9]+-[0-9]+`)
@@ -150,14 +149,6 @@ func SessionTarget(task protocol.Task) string {
 
 func SessionRefMatchesCurrent(ref protocol.SourceRef, current protocol.CurrentContext) bool {
 	return metadataMatchesSession(ref.Metadata, current) || ref.Title == current.SessionName
-}
-
-func DeleteSession(ctx context.Context, target string) (protocol.DeleteResult, error) {
-	deleted, err := workspace.DeleteSession(ctx, workspace.ExecRunner{}, target)
-	if err != nil {
-		return protocol.DeleteResult{}, err
-	}
-	return protocol.DeleteResult{Source: "tmux", Kind: "session", Title: deleted.SessionName, SessionName: deleted.SessionName}, nil
 }
 
 func metadataMatchesSession(metadata map[string]string, current protocol.CurrentContext) bool {

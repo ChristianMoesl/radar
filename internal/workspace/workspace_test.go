@@ -16,9 +16,11 @@ type call struct {
 }
 
 type fakeRunner struct {
-	repo       string
-	hasSession bool
-	calls      []call
+	repo          string
+	gitCommonDir  string
+	hasSession    bool
+	sbxListOutput string
+	calls         []call
 }
 
 func (f *fakeRunner) LookPath(string) error { return nil }
@@ -27,6 +29,15 @@ func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...str
 	f.calls = append(f.calls, call{cwd: cwd, name: name, args: args})
 	if name == "git" && strings.Join(args, " ") == "rev-parse --show-toplevel" {
 		return f.repo, nil
+	}
+	if name == "git" && strings.Join(args, " ") == "rev-parse --path-format=absolute --git-common-dir" {
+		if f.gitCommonDir != "" {
+			return f.gitCommonDir, nil
+		}
+		if f.repo != "" {
+			return filepath.Join(f.repo, ".git"), nil
+		}
+		return filepath.Join(cwd, ".git"), nil
 	}
 	if name == "tmux" && len(args) > 0 && args[0] == "has-session" {
 		if !f.hasSession {
@@ -45,6 +56,12 @@ func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...str
 	}
 	if name == "git" && len(args) > 3 && args[0] == "worktree" && args[1] == "add" {
 		return "", os.MkdirAll(args[2], 0o755)
+	}
+	if name == "sbx" && strings.Join(args, " ") == "ls --json" {
+		if f.sbxListOutput != "" {
+			return f.sbxListOutput, nil
+		}
+		return `{"sandboxes":[]}`, nil
 	}
 	return "", nil
 }
@@ -114,10 +131,8 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
 }
 
-func TestCreateStartsConfiguredSandboxForPiWindowOnly(t *testing.T) {
+func TestCreateStartsPiOnHostWithConfiguredSandbox(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
-	home := t.TempDir()
-	t.Setenv("HOME", home)
 	repo := t.TempDir()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
@@ -138,14 +153,16 @@ func TestCreateStartsConfiguredSandboxForPiWindowOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if workspace.SandboxName != "radar-"+filepath.Base(repo)+"-small-fix" {
-		t.Fatalf("sandbox name = %q", workspace.SandboxName)
+	if want := SandboxName(filepath.Base(repo), "small fix"); workspace.SandboxName != want {
+		t.Fatalf("sandbox name = %q, want %q", workspace.SandboxName, want)
 	}
-	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --template example/radar-sandbox:test shell "+workspace.Path+" "+filepath.Join(home, ".pi", "agent")+":ro "+filepath.Join(home, ".pi", "agent", "sessions"))
-	assertCalledContains(t, runner.calls, "tmux", "sbx exec -it --workdir '"+workspace.Path+"' '"+workspace.SandboxName+"' sh -lc")
-	assertCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_DIR=")
-	assertCalledContains(t, runner.calls, "tmux", filepath.Join(home, ".pi", "agent"))
+	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --template example/radar-sandbox:test shell "+workspace.Path+" "+filepath.Join(repo, ".git"))
 	assertCalledContains(t, runner.calls, "tmux", "pi --session-id")
+	assertNotCalledContains(t, runner.calls, "tmux", "sbx exec")
+	assertNotCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_DIR=")
+	assertNotCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_SESSION_DIR=")
+	assertNotCalledContains(t, runner.calls, "tmux", "pi --approve")
+	assertCalledContains(t, runner.calls, "tmux", "--session-id")
 	assertCalledContains(t, runner.calls, "tmux", workspace.SessionName)
 	assertNotCalled(t, runner.calls, "docker")
 	assertNotCalledContains(t, runner.calls, "tmux", "default-command")
@@ -154,8 +171,6 @@ func TestCreateStartsConfiguredSandboxForPiWindowOnly(t *testing.T) {
 
 func TestCreateStartsSandboxEnabledByUserConfig(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
-	home := t.TempDir()
-	t.Setenv("HOME", home)
 	repo := t.TempDir()
 	root := t.TempDir()
 	runner := &fakeRunner{repo: repo}
@@ -172,11 +187,14 @@ func TestCreateStartsSandboxEnabledByUserConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if workspace.SandboxName != "radar-"+filepath.Base(repo)+"-small-fix" {
-		t.Fatalf("sandbox name = %q", workspace.SandboxName)
+	if want := SandboxName(filepath.Base(repo), "small fix"); workspace.SandboxName != want {
+		t.Fatalf("sandbox name = %q, want %q", workspace.SandboxName, want)
 	}
-	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --template example/radar-sandbox:test shell "+workspace.Path+" "+filepath.Join(home, ".pi", "agent")+":ro "+filepath.Join(home, ".pi", "agent", "sessions"))
-	assertCalledContains(t, runner.calls, "tmux", "sbx exec -it --workdir '"+workspace.Path+"' '"+workspace.SandboxName+"' sh -lc")
+	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --template example/radar-sandbox:test shell "+workspace.Path+" "+filepath.Join(repo, ".git"))
+	assertCalledContains(t, runner.calls, "tmux", "pi --session-id")
+	assertNotCalledContains(t, runner.calls, "tmux", "sbx exec")
+	assertNotCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_SESSION_DIR=")
+	assertNotCalledContains(t, runner.calls, "tmux", "pi --approve")
 }
 
 func TestCreateRejectsConfiguredSandboxOutsideMacOS(t *testing.T) {
@@ -348,120 +366,110 @@ func TestCreateSessionCreatesTmuxSessionForWorktree(t *testing.T) {
 	assertCalled(t, runner.calls, "tmux", "switch-client -t repo-small-fix")
 }
 
+func TestCreateSessionMountsLinkedWorktreeGitDirectoryInNewSandbox(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
+	root := t.TempDir()
+	path := filepath.Join(root, "worktrees", "small-fix")
+	commonDir := filepath.Join(root, "repo", ".git")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{gitCommonDir: commonDir}
+
+	created, err := CreateSessionWithOptions(context.Background(), runner, CreateSessionOptions{
+		Path:            path,
+		SessionName:     "repo-small-fix",
+		Sandbox:         true,
+		SandboxTemplate: "example/radar-sandbox:test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalled(t, runner.calls, "sbx", "create --name "+created.SandboxName+" --template example/radar-sandbox:test shell "+path+" "+commonDir)
+}
+
+func TestSandboxMountsDoesNotRepeatGitDirectoryInsideWorkspace(t *testing.T) {
+	path := t.TempDir()
+	runner := &fakeRunner{gitCommonDir: filepath.Join(path, ".git")}
+
+	mounts, err := sandboxMounts(context.Background(), runner, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mounts) != 1 || mounts[0] != path {
+		t.Fatalf("sandbox mounts = %#v, want workspace only", mounts)
+	}
+}
+
+func TestCreateSessionUsesLinkedSandboxForHostPiTools(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
+	path := filepath.Join(t.TempDir(), "repo", "small-fix")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{sbxListOutput: `{"sandboxes":[{"name":"existing-sandbox"}]}`}
+
+	created, err := CreateSessionWithOptions(context.Background(), runner, CreateSessionOptions{Path: path, SessionName: "repo-small-fix", SandboxName: "existing-sandbox"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if created.SandboxName != "existing-sandbox" {
+		t.Fatalf("sandbox name = %q, want existing-sandbox", created.SandboxName)
+	}
+	assertCalled(t, runner.calls, "sbx", "ls --json")
+	assertNotCalledContains(t, runner.calls, "sbx", "create")
+	assertCalledContains(t, runner.calls, "tmux", "pi --session-id 'repo-small-fix'")
+	assertNotCalledContains(t, runner.calls, "tmux", "sbx exec")
+	assertNotCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_SESSION_DIR=")
+	assertNotCalledContains(t, runner.calls, "tmux", "pi --approve")
+	assertCalled(t, runner.calls, "tmux", "new-window -t repo-small-fix:")
+}
+
 func TestSandboxCommandErrorSuggestsLoginForAuthFailure(t *testing.T) {
-	err := sbxCommandError(errors.New("sbx create failed: ERROR: request failed: 401 Unauthorized: user is not authenticated to Docker: secret not found"))
+	err := sbxCommandError(errors.New("sbx create failed: docker Hub session has no access token (run 'sbx login' to refresh)"))
 	if err == nil || err.Error() != "sbx is not signed in; run sbx login" {
 		t.Fatalf("sbxCommandError() = %v, want login suggestion", err)
 	}
 }
 
-func TestDeleteKillsSessionAndRemovesWorktree(t *testing.T) {
+func TestRemoveSessionKillsExistingSession(t *testing.T) {
 	runner := &fakeRunner{hasSession: true}
-	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", false, "", false); err != nil {
-		t.Fatal(err)
-	}
-	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
-	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove "+path)
-}
-
-func TestDeleteStopsConfiguredSandbox(t *testing.T) {
-	withWorkspaceGOOS(t, "darwin")
-	runner := &fakeRunner{hasSession: true}
-	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(path, ".radar.json"), []byte(`{"sandbox":{}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	deleted, err := Delete(context.Background(), runner, path, "repo-small-fix", false, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if deleted.SandboxName != "radar-repo-small-fix" {
-		t.Fatalf("sandbox name = %q", deleted.SandboxName)
-	}
-	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
-	assertCalled(t, runner.calls, "sbx", "rm --force radar-repo-small-fix")
-	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove "+path)
-}
-
-func TestDeleteStopsExplicitSandbox(t *testing.T) {
-	runner := &fakeRunner{hasSession: true}
-	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	deleted, err := Delete(context.Background(), runner, path, "repo-small-fix", false, "radar-custom-small-fix", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if deleted.SandboxName != "radar-custom-small-fix" {
-		t.Fatalf("sandbox name = %q, want radar-custom-small-fix", deleted.SandboxName)
-	}
-	assertCalled(t, runner.calls, "sbx", "rm --force radar-custom-small-fix")
-	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove "+path)
-}
-
-func TestDeleteStopsSandboxEnabledByUserConfig(t *testing.T) {
-	withWorkspaceGOOS(t, "darwin")
-	runner := &fakeRunner{hasSession: true}
-	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	deleted, err := Delete(context.Background(), runner, path, "repo-small-fix", false, "", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if deleted.SandboxName != "radar-repo-small-fix" {
-		t.Fatalf("sandbox name = %q", deleted.SandboxName)
-	}
-	assertCalled(t, runner.calls, "sbx", "rm --force radar-repo-small-fix")
-}
-
-func TestDeleteSessionKillsOnlyTmuxSession(t *testing.T) {
-	runner := &fakeRunner{}
-	deleted, err := DeleteSession(context.Background(), runner, "repo-small-fix")
+	deleted, err := RemoveSession(context.Background(), runner, "repo-small-fix")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if deleted.SessionName != "repo-small-fix" || deleted.Path != "" {
 		t.Fatalf("unexpected deleted session: %#v", deleted)
 	}
-	if len(runner.calls) != 1 {
-		t.Fatalf("DeleteSession() calls = %#v, want one tmux call", runner.calls)
-	}
+	assertCalled(t, runner.calls, "tmux", "has-session -t repo-small-fix")
 	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
 }
 
-func TestDeleteRefusesDirtyWorktreeBeforeKillingSession(t *testing.T) {
-	runner := &dirtyRunner{fakeRunner: fakeRunner{hasSession: true}}
-	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", false, "", false); err == nil {
-		t.Fatal("Delete() error = nil, want dirty worktree error")
-	}
-	for _, call := range runner.calls {
-		if call.name == "tmux" && len(call.args) > 0 && call.args[0] == "kill-session" {
-			t.Fatalf("Delete() killed session before refusing dirty worktree: %#v", runner.calls)
-		}
-	}
-}
-
-func TestDeleteForceRemovesDirtyWorktree(t *testing.T) {
-	runner := &dirtyRunner{fakeRunner: fakeRunner{hasSession: true}}
-	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if _, err := Delete(context.Background(), runner, path, "repo-small-fix", true, "", false); err != nil {
+func TestRemoveSessionIgnoresMissingSession(t *testing.T) {
+	runner := &fakeRunner{}
+	if _, err := RemoveSession(context.Background(), runner, "repo-small-fix"); err != nil {
 		t.Fatal(err)
 	}
-	assertCalled(t, runner.calls, "tmux", "kill-session -t repo-small-fix")
+	assertNotCalledContains(t, runner.calls, "tmux", "kill-session")
+}
+
+func TestRemoveWorktreeRefusesDirtyWorktree(t *testing.T) {
+	runner := &dirtyRunner{}
+	path := filepath.Join(t.TempDir(), "repo", "small-fix")
+	if _, err := RemoveWorktree(context.Background(), runner, path, false); err == nil {
+		t.Fatal("RemoveWorktree() error = nil, want dirty worktree error")
+	}
+	assertNotCalledContains(t, runner.calls, "git", "worktree remove")
+}
+
+func TestRemoveWorktreeForceRemovesDirtyWorktree(t *testing.T) {
+	runner := &dirtyRunner{}
+	path := filepath.Join(t.TempDir(), "repo", "small-fix")
+	if _, err := RemoveWorktree(context.Background(), runner, path, true); err != nil {
+		t.Fatal(err)
+	}
 	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove --force "+path)
 }
 
@@ -491,8 +499,21 @@ func TestSessionNameSanitizesNames(t *testing.T) {
 }
 
 func TestSandboxNameSanitizesNames(t *testing.T) {
-	if got, want := SandboxName("my.repo", "small fix"), "radar-my-repo-small-fix"; got != want {
+	if got, want := SandboxName("my.repo", "small fix"), "small-fix-1d922a0c"; got != want {
 		t.Fatalf("SandboxName() = %q, want %q", got, want)
+	}
+}
+
+func TestSandboxNameTruncatesLongNames(t *testing.T) {
+	got := SandboxName("rb3ca-experience-center", "DPSCAP-602 Page Asset variables displayed incorrectly for none asset based configurations")
+	if len(got) > maxSandboxNameLength {
+		t.Fatalf("SandboxName() length = %d, want <= %d: %q", len(got), maxSandboxNameLength, got)
+	}
+	if !strings.HasPrefix(got, "DPSCAP-602-Page-Asset-variables-displayed-incorrectly") {
+		t.Fatalf("SandboxName() = %q, want readable workspace prefix", got)
+	}
+	if !strings.Contains(got, "-") {
+		t.Fatalf("SandboxName() = %q, want hash suffix", got)
 	}
 }
 

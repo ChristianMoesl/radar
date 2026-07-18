@@ -25,10 +25,10 @@ func DefaultIntegrationSet() integration.Set {
 		Workspace:       gitSource,
 		Multiplexer:     tmuxSource,
 		ActionProviders: []integration.ActionProvider{sbxSource},
-		DeleteProviders: []integration.DeleteProvider{
-			gitSource,
+		CleanupProviders: []integration.CleanupProvider{
 			tmuxSource,
 			sbxSource,
+			gitSource,
 		},
 	}
 }

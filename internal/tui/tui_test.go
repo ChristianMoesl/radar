@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
@@ -123,6 +124,30 @@ func TestWatchResponseSelectsNextRenderedTaskWhenSelectedTaskDisappears(t *testi
 	got := updated.(model)
 	if got.cursor != 1 {
 		t.Fatalf("cursor = %d, want 1", got.cursor)
+	}
+}
+
+func TestGarbageCollectionKeyStartsCollection(t *testing.T) {
+	updated, cmd := (model{}).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
+	if cmd == nil {
+		t.Fatal("X command = nil")
+	}
+	got := updated.(model)
+	if !got.loading || got.message != "Garbage collecting…" {
+		t.Fatalf("X loading=%v message=%q", got.loading, got.message)
+	}
+}
+
+func TestGarbageCollectionMessageSummarizesResult(t *testing.T) {
+	result := protocol.GarbageCollectionResult{
+		Deleted: []protocol.GarbageCollectionItem{{Path: "/workspaces/one"}},
+		Skipped: []protocol.GarbageCollectionItem{{Path: "/workspaces/two"}},
+	}
+	if got, want := garbageCollectionMessage(result), "Garbage collection: deleted 1, skipped 1"; got != want {
+		t.Fatalf("garbageCollectionMessage() = %q, want %q", got, want)
+	}
+	if got, want := garbageCollectionMessage(protocol.GarbageCollectionResult{}), "No workspaces eligible for garbage collection"; got != want {
+		t.Fatalf("empty garbageCollectionMessage() = %q, want %q", got, want)
 	}
 }
 
@@ -305,36 +330,15 @@ func TestScrollDoesNotMoveUpUntilCursorHitsTop(t *testing.T) {
 	}
 }
 
-func TestDeleteConfirmViewShowsTmuxSessionOnlyDelete(t *testing.T) {
-	model := model{mode: "delete_confirm", delete: protocol.DeletePreview{SessionName: "$3", SessionOnly: true, ConfirmTitle: "Delete tmux session?", Warning: "This will kill only the tmux session."}}
+func TestCleanupConfirmViewShowsEveryLocalResourceAndDirtyWarning(t *testing.T) {
+	model := model{mode: "cleanup_confirm", cleanup: protocol.CleanupPreview{Targets: []protocol.CleanupTarget{
+		{Source: "tmux", Kind: "session", SessionName: "repo-small-fix"},
+		{Source: "sbx", Kind: "sandbox", SandboxName: "small-fix-12345678"},
+		{Source: "git", Kind: "worktree", Path: "/repo/worktrees/small-fix", Dirty: true},
+	}}}
 
 	view := model.View()
-	for _, want := range []string{"Delete tmux session?", "kill only the tmux session", "$3"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("View() missing %q:\n%s", want, view)
-		}
-	}
-	if strings.Contains(view, "Path") {
-		t.Fatalf("View() contains path for session-only delete:\n%s", view)
-	}
-}
-
-func TestDeleteConfirmViewShowsSbxSandboxDelete(t *testing.T) {
-	model := model{mode: "delete_confirm", delete: protocol.DeletePreview{Title: "radar-repo-small-fix", Path: "/repo/small-fix", ConfirmTitle: "Delete sbx sandbox?", Warning: "This will remove the sbx sandbox."}}
-
-	view := model.View()
-	for _, want := range []string{"Delete sbx sandbox?", "remove the sbx sandbox", "radar-repo-small-fix", "/repo/small-fix"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("View() missing %q:\n%s", want, view)
-		}
-	}
-}
-
-func TestDeleteConfirmViewWarnsAboutDirtyWorkspace(t *testing.T) {
-	model := model{mode: "delete_confirm", delete: protocol.DeletePreview{Path: "/repo/worktrees/small-fix", Branch: "small-fix", SessionName: "repo-small-fix", Dirty: true, ConfirmTitle: "Delete dirty workspace?", Warning: "This worktree has uncommitted changes. Deleting will permanently discard them."}}
-
-	view := model.View()
-	for _, want := range []string{"Delete dirty workspace?", "uncommitted changes", "/repo/worktrees/small-fix", "small-fix", "repo-small-fix"} {
+	for _, want := range []string{"Clean up local resources?", "discard uncommitted changes", "repo-small-fix", "small-fix-12345678", "/repo/worktrees/small-fix", "(dirty)", "Press y to clean up"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q:\n%s", want, view)
 		}

@@ -16,7 +16,6 @@ import (
 )
 
 const repoCacheTTL = 24 * time.Hour
-const trackedPullRequestCacheTTL = 30 * time.Minute
 
 type repoListEntry struct {
 	NameWithOwner string `json:"nameWithOwner"`
@@ -288,9 +287,6 @@ func cachedSearchPullRequestsByOwnerAndAuthor(ctx context.Context, owner string,
 	}
 	key := trackedPullRequestCacheKey(owner, author)
 	entry, hasEntry := cache.Targets[key]
-	if hasEntry && !trackedPullRequestCacheExpired(entry) {
-		return entry.PRs, false, nil
-	}
 
 	if !EnsureSearchBudget(ctx, logger) {
 		if hasEntry {
@@ -303,7 +299,7 @@ func cachedSearchPullRequestsByOwnerAndAuthor(ctx context.Context, owner string,
 	prs, err := searchPullRequestsByOwnerAndAuthor(ctx, owner, author)
 	if err != nil {
 		if hasEntry {
-			logger.Debug("using stale github tracked pull request cache after search failure", "owner", owner, "user", author, "error", err)
+			logger.Warn("using stale github tracked pull request cache after search failure", "owner", owner, "user", author, "error", err)
 			return entry.PRs, false, nil
 		}
 		return nil, false, err
@@ -314,11 +310,6 @@ func cachedSearchPullRequestsByOwnerAndAuthor(ctx context.Context, owner string,
 
 func trackedPullRequestCacheKey(owner string, author string) string {
 	return strings.ToLower(owner + "\x00" + author)
-}
-
-func trackedPullRequestCacheExpired(entry trackedPullRequestCacheEntry) bool {
-	fetchedAt, err := time.Parse(time.RFC3339, entry.FetchedAt)
-	return err != nil || time.Since(fetchedAt) > trackedPullRequestCacheTTL
 }
 
 func trackedPullRequestCachePath() (string, error) {
@@ -368,7 +359,7 @@ func searchPullRequestsByOwnerAndAuthor(ctx context.Context, owner string, autho
 		"--author", author,
 		"--state", "open",
 		"--limit", "100",
-		"--json", "number,title,url,repository,isDraft,state,body,author,headRefName",
+		"--json", "number,title,url,repository,isDraft,state,body,author",
 	}
 	if err := ghJSON(ctx, args, &prs); err != nil {
 		return nil, err

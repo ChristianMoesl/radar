@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"radar/internal/config"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 	"radar/internal/workspace"
@@ -21,6 +22,7 @@ var ticketPattern = regexp.MustCompile(`[A-Z][A-Z0-9]+-[0-9]+`)
 
 func FetchWorktrees(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.SourceStatus) {
 	roots := gitRoots()
+	repositoryDirs := configuredRepositoryDirs()
 	source_refs := make([]protocol.SourceRef, 0)
 	seen := map[string]bool{}
 	status := protocol.SourceStatus{Name: "git", Status: "ok"}
@@ -42,7 +44,7 @@ func FetchWorktrees(ctx context.Context, logger *slog.Logger) ([]protocol.Source
 		}
 		collectedRoots++
 		for _, wt := range worktrees {
-			if seen[wt.Path] {
+			if seen[wt.Path] || pathInRepositoryDirs(wt.Path, repositoryDirs) {
 				continue
 			}
 			seen[wt.Path] = true
@@ -89,6 +91,26 @@ func gitRoots() []string {
 	return roots
 }
 
+func configuredRepositoryDirs() []string {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil
+	}
+	return workspace.RepositoryDirs(cfg)
+}
+
+func pathInRepositoryDirs(path string, roots []string) bool {
+	path = cleanPhysicalPath(path)
+	for _, root := range roots {
+		root = cleanPhysicalPath(root)
+		relative, err := filepath.Rel(root, path)
+		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	return false
+}
+
 func workspaceGitRoots() []string {
 	root, err := workspace.DefaultRoot()
 	if err != nil || root == "" {
@@ -109,7 +131,7 @@ func workspaceGitRoots() []string {
 }
 
 func tmuxSessionGitRoots() []string {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	output, err := exec.CommandContext(ctx, "tmux", "list-sessions", "-F", "#{session_path}").Output()
 	if err != nil {

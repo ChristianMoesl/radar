@@ -8,9 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"radar/internal/config"
 	"radar/internal/integration"
-	"radar/internal/integration/tmux"
 	"radar/internal/protocol"
 	"radar/internal/workspace"
 )
@@ -45,71 +43,46 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	return integration.CollectResult{Observations: integration.ObserveRefs(source_refs, integration.SignalInProgress), Complete: status.Status == "ok"}
 }
 
-func (Source) PreviewDelete(ctx context.Context, req integration.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {
-	ref, ok := deleteWorktreeRef(req.Task, req.Current)
-	if !ok {
-		return protocol.DeletePreview{}, false, nil
-	}
-	mainWorkingTree, err := mainWorkingTree(ctx, ref.Path)
-	if err != nil {
-		return protocol.DeletePreview{}, true, err
-	}
-	if mainWorkingTree {
-		return protocol.DeletePreview{}, true, fmt.Errorf("main working tree cannot be deleted from Radar")
-	}
-	status, err := gitOutput(ctx, ref.Path, "status", "--porcelain")
-	if err != nil {
-		return protocol.DeletePreview{}, true, err
-	}
-	dirty := strings.TrimSpace(status) != ""
-	sandboxName := matchingSandboxName(req.Task, ref.Path)
-	preview := protocol.DeletePreview{
-		TaskID:         req.Task.ID,
-		SourceRefID:    ref.ID,
-		Source:         "git",
-		Kind:           "worktree",
-		Title:          ref.Title,
-		Path:           ref.Path,
-		Branch:         ref.Branch,
-		SessionName:    tmux.SessionTarget(req.Task),
-		SandboxName:    sandboxName,
-		Dirty:          dirty,
-		TargetLabel:    "workspace",
-		ConfirmTitle:   "Delete workspace?",
-		Warning:        "This will remove the git worktree.",
-		SuccessMessage: "Deleted " + ref.Path,
-	}
-	if sandboxName != "" && !dirty {
-		preview.Warning = "This will remove the git worktree and sbx sandbox."
-		if preview.SessionName != "" {
-			preview.Warning = "This will remove the git worktree, tmux session, and sbx sandbox."
+func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
+	targets := make([]protocol.CleanupTarget, 0)
+	for _, ref := range req.Task.SourceRefs {
+		if ref.Source != "git" || ref.Kind != "worktree" || ref.Path == "" {
+			continue
 		}
-	}
-	if dirty {
-		preview.ConfirmTitle = "Delete dirty workspace?"
-		preview.Warning = "This worktree has uncommitted changes. Deleting will permanently discard them."
-		if sandboxName != "" {
-			preview.Warning = "This worktree has uncommitted changes. Deleting will permanently discard them and remove the sbx sandbox."
+		if _, err := os.Stat(ref.Path); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return nil, err
 		}
+		mainWorkingTree, err := mainWorkingTree(ctx, ref.Path)
+		if err != nil {
+			return nil, err
+		}
+		if mainWorkingTree {
+			return nil, fmt.Errorf("main working tree cannot be cleaned up from Radar")
+		}
+		status, err := gitOutput(ctx, ref.Path, "status", "--porcelain")
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, protocol.CleanupTarget{
+			SourceRefID: ref.ID,
+			Source:      "git",
+			Kind:        "worktree",
+			Title:       ref.Title,
+			Path:        ref.Path,
+			Branch:      ref.Branch,
+			Dirty:       strings.TrimSpace(status) != "",
+		})
 	}
-	return preview, true, nil
+	return targets, nil
 }
 
-func (Source) Delete(ctx context.Context, preview protocol.DeletePreview) (protocol.DeleteResult, error) {
-	cfg, _ := config.Load()
-	deleted, err := workspace.Delete(ctx, workspace.ExecRunner{}, preview.Path, preview.SessionName, true, preview.SandboxName, cfg.Sandbox != nil)
-	if err != nil {
-		return protocol.DeleteResult{}, err
+func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+	if _, err := workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Force); err != nil {
+		return protocol.CleanupTarget{}, err
 	}
-	return protocol.DeleteResult{
-		SourceRefID: preview.SourceRefID,
-		Source:      "git",
-		Kind:        "worktree",
-		Title:       preview.Title,
-		Path:        deleted.Path,
-		SessionName: deleted.SessionName,
-		SandboxName: deleted.SandboxName,
-	}, nil
+	return req.Target, nil
 }
 
 func (Source) Current(ctx context.Context, cwd string) (integration.Workspace, bool, error) {
@@ -149,14 +122,6 @@ func (Source) Create(ctx context.Context, req integration.CreateWorkspaceRequest
 	return integrationWorkspace(created), nil
 }
 
-func (Source) DeleteWorkspace(ctx context.Context, req integration.DeleteWorkspaceRequest) (integration.Workspace, error) {
-	deleted, err := workspace.Delete(ctx, workspace.ExecRunner{}, req.Path, req.SessionName, req.Force, "", req.Sandbox)
-	if err != nil {
-		return integration.Workspace{}, err
-	}
-	return integrationWorkspace(deleted), nil
-}
-
 func integrationWorkspace(workspace workspace.Workspace) integration.Workspace {
 	return integration.Workspace{
 		Name:        workspace.Name,
@@ -185,61 +150,8 @@ func cleanPhysicalPath(path string) string {
 	return filepath.Clean(path)
 }
 
-func deleteWorktreeRef(task protocol.Task, current protocol.CurrentContext) (protocol.SourceRef, bool) {
-	for _, ref := range task.SourceRefs {
-		if ref.Source != "git" || ref.Kind != "worktree" || ref.Path == "" {
-			continue
-		}
-		if current.Empty() || currentPathMatches(ref.Path, current) {
-			return ref, true
-		}
-	}
-	return protocol.SourceRef{}, false
-}
-
-func matchingSandboxName(task protocol.Task, worktreePath string) string {
-	for _, ref := range task.SourceRefs {
-		if ref.Source != "sbx" || ref.Kind != "sandbox" || !samePath(ref.Path, worktreePath) {
-			continue
-		}
-		name := strings.TrimSpace(ref.Title)
-		if name != "" {
-			return name
-		}
-		return strings.TrimPrefix(ref.ID, "sbx:sandbox:")
-	}
-	return ""
-}
-
-func currentPathMatches(refPath string, current protocol.CurrentContext) bool {
-	refPath = filepath.Clean(refPath)
-	return samePath(current.Worktree, refPath) || sameOrDescendant(current.CWD, refPath)
-}
-
-func samePath(left string, right string) bool {
-	return left != "" && right != "" && filepath.Clean(left) == filepath.Clean(right)
-}
-
-func sameOrDescendant(path string, root string) bool {
-	if path == "" || root == "" {
-		return false
-	}
-	path = filepath.Clean(path)
-	root = filepath.Clean(root)
-	if path == root {
-		return true
-	}
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
-}
-
 var _ integration.Source = Source{}
 var _ integration.LocalSource = Source{}
 var _ integration.StatusReporter = Source{}
-var _ integration.DeleteProvider = Source{}
+var _ integration.CleanupProvider = Source{}
 var _ integration.WorkspaceProvider = Source{}
-
-var _ integration.Source = Source{}
-var _ integration.LocalSource = Source{}
-var _ integration.StatusReporter = Source{}
-var _ integration.DeleteProvider = Source{}

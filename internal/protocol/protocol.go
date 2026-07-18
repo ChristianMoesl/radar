@@ -5,10 +5,9 @@ import "encoding/json"
 const Version = "0.1.0"
 
 type Request struct {
-	Method  string         `json:"method"`
-	TaskID  int            `json:"task_id,omitempty"`
-	Current CurrentContext `json:"current,omitempty"`
-	Delete  *DeletePreview `json:"delete,omitempty"`
+	Method  string          `json:"method"`
+	TaskID  int             `json:"task_id,omitempty"`
+	Cleanup *CleanupPreview `json:"cleanup,omitempty"`
 }
 
 // CurrentContext contains client-side hints that the daemon can use when an
@@ -25,32 +24,38 @@ func (c CurrentContext) Empty() bool {
 	return c.CWD == "" && c.Worktree == "" && c.SessionName == "" && c.SessionID == ""
 }
 
-type DeletePreview struct {
-	TaskID         int    `json:"task_id,omitempty"`
-	SourceRefID    string `json:"source_ref_id,omitempty"`
-	Source         string `json:"source,omitempty"`
-	Kind           string `json:"kind,omitempty"`
-	Title          string `json:"title,omitempty"`
-	Path           string `json:"path,omitempty"`
-	Branch         string `json:"branch,omitempty"`
-	SessionName    string `json:"session_name,omitempty"`
-	SandboxName    string `json:"sandbox_name,omitempty"`
-	Dirty          bool   `json:"dirty,omitempty"`
-	SessionOnly    bool   `json:"session_only,omitempty"`
-	TargetLabel    string `json:"target_label,omitempty"`
-	ConfirmTitle   string `json:"confirm_title,omitempty"`
-	Warning        string `json:"warning,omitempty"`
-	SuccessMessage string `json:"success_message,omitempty"`
-}
-
-type DeleteResult struct {
-	SourceRefID string `json:"source_ref_id,omitempty"`
-	Source      string `json:"source,omitempty"`
-	Kind        string `json:"kind,omitempty"`
+type CleanupTarget struct {
+	SourceRefID string `json:"source_ref_id"`
+	Source      string `json:"source"`
+	Kind        string `json:"kind"`
 	Title       string `json:"title,omitempty"`
 	Path        string `json:"path,omitempty"`
+	Branch      string `json:"branch,omitempty"`
 	SessionName string `json:"session_name,omitempty"`
 	SandboxName string `json:"sandbox_name,omitempty"`
+	Dirty       bool   `json:"dirty,omitempty"`
+}
+
+type CleanupPreview struct {
+	TaskID    int             `json:"task_id"`
+	TaskTitle string          `json:"task_title"`
+	Targets   []CleanupTarget `json:"targets"`
+}
+
+type CleanupResult struct {
+	TaskID  int             `json:"task_id"`
+	Targets []CleanupTarget `json:"targets"`
+}
+
+type GarbageCollectionItem struct {
+	TaskID int    `json:"task_id"`
+	Path   string `json:"path"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type GarbageCollectionResult struct {
+	Deleted []GarbageCollectionItem `json:"deleted"`
+	Skipped []GarbageCollectionItem `json:"skipped"`
 }
 
 type Summary struct {
@@ -99,15 +104,16 @@ type Task struct {
 }
 
 type Response struct {
-	OK            bool           `json:"ok"`
-	Error         string         `json:"error,omitempty"`
-	Revision      int64          `json:"revision,omitempty"`
-	Version       string         `json:"version,omitempty"`
-	Summary       *Summary       `json:"summary,omitempty"`
-	Tasks         []Task         `json:"tasks,omitempty"`
-	Sources       []SourceStatus `json:"sources,omitempty"`
-	DeletePreview *DeletePreview `json:"delete_preview,omitempty"`
-	DeleteResult  *DeleteResult  `json:"delete_result,omitempty"`
+	OK                      bool                     `json:"ok"`
+	Error                   string                   `json:"error,omitempty"`
+	Revision                int64                    `json:"revision,omitempty"`
+	Version                 string                   `json:"version,omitempty"`
+	Summary                 *Summary                 `json:"summary,omitempty"`
+	Tasks                   []Task                   `json:"tasks,omitempty"`
+	Sources                 []SourceStatus           `json:"sources,omitempty"`
+	CleanupPreview          *CleanupPreview          `json:"cleanup_preview,omitempty"`
+	CleanupResult           *CleanupResult           `json:"cleanup_result,omitempty"`
+	GarbageCollectionResult *GarbageCollectionResult `json:"garbage_collection_result,omitempty"`
 }
 
 func (r Response) MarshalJSON() ([]byte, error) {
@@ -130,11 +136,14 @@ func (r Response) MarshalJSON() ([]byte, error) {
 	if r.Sources != nil {
 		fields["sources"] = r.Sources
 	}
-	if r.DeletePreview != nil {
-		fields["delete_preview"] = r.DeletePreview
+	if r.CleanupPreview != nil {
+		fields["cleanup_preview"] = r.CleanupPreview
 	}
-	if r.DeleteResult != nil {
-		fields["delete_result"] = r.DeleteResult
+	if r.CleanupResult != nil {
+		fields["cleanup_result"] = r.CleanupResult
+	}
+	if r.GarbageCollectionResult != nil {
+		fields["garbage_collection_result"] = r.GarbageCollectionResult
 	}
 	return json.Marshal(fields)
 }

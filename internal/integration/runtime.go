@@ -3,7 +3,7 @@ package integration
 type RuntimeProvider interface {
 	Source
 	ActionProvider
-	DeleteProvider
+	CleanupProvider
 }
 
 type CodeReviewProvider interface {

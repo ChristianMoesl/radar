@@ -28,16 +28,8 @@ type CreateWorkspaceRequest struct {
 	ForkPiSession   string
 }
 
-type DeleteWorkspaceRequest struct {
-	Path        string
-	SessionName string
-	Force       bool
-	Sandbox     bool
-}
-
 type WorkspaceProvider interface {
 	Source
 	Current(ctx context.Context, cwd string) (Workspace, bool, error)
 	Create(ctx context.Context, req CreateWorkspaceRequest) (Workspace, error)
-	DeleteWorkspace(ctx context.Context, req DeleteWorkspaceRequest) (Workspace, error)
 }
