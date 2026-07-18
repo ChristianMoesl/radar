@@ -66,7 +66,7 @@ The release script tests, builds the release archives, creates a signed annotate
 
 Release assets should not be replaced after publishing. If a release is wrong, publish a new patch version.
 
-The sandbox image is released separately because it packages frequently updated tools such as Pi, Node, pnpm, and gh. The sandbox image workflow runs weekly and can be triggered manually. It publishes:
+The sandbox image is released separately because it packages frequently updated tools such as Node, pnpm, and gh. The sandbox image workflow runs weekly and can be triggered manually. It publishes:
 
 ```text
 christianmoesl/radar-sandbox:YYYY.MM.DD
@@ -82,7 +82,9 @@ Radar uses these local tools:
 - `fd` for fast repository discovery in `radar create`
 - `git` for repository and worktree operations
 - `tmux`, `pi`, and `nvim` for workspace creation
-- `sbx` on macOS for repositories that enable sandboxed Pi sessions
+- `sbx` and the [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) Pi extension on macOS for repositories that enable sandboxed tool execution
+
+On macOS, the daemon uses the built-in `osascript` command to send host notifications when a task newly needs immediate attention or attention. Existing actionable tasks are not notified again on every refresh or daemon restart. Muted and deprioritized tasks do not produce notifications.
 
 Radar opens task URLs with the platform URL opener when you press `o` and choose a URL-backed source such as Jira or GitHub:
 
@@ -125,8 +127,8 @@ enter        switch tmux session when connected
 o            open task link/action, then press g for GitHub, j for Jira, or s for sbx
 i            inspect selected task
 c            create workspace
-d            delete selected workspace after confirmation
-D            delete current open workspace after confirmation
+x            clean up all local resources linked to the selected task
+X            garbage-collect all eligible workspaces
 f            edit config
 r            refresh
 R            reset local state and refresh
@@ -170,7 +172,7 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 }
 ```
 
-`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created. On macOS, if `sandbox` is configured in either `.radar.json` or the user config, Radar creates an SBX sandbox for the workspace with `sbx create --template <sandbox_template>`, mounts the workspace plus `~/.pi/agent` read-only with `~/.pi/agent/sessions` writable, and starts only the `pi` tmux window through `sbx exec`. The `nvim` window and any ordinary shell windows remain on the host. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created. On macOS, if `sandbox` is configured in either `.radar.json` or the user config, Radar creates an SBX sandbox for the workspace with `sbx create --template <sandbox_template>`, using a deterministic workspace-slug-plus-hash name capped at 63 characters. The sandbox mounts the workspace and, for a linked Git worktree, its writable common Git directory so Git commands work inside SBX. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's tool calls through `sbx exec`. Install it with `pi install git:github.com/ChristianMoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
 
 Enable sandboxes by default and configure the SBX template image in the user config at `radar config-path`:
 
@@ -191,25 +193,23 @@ Fork the current tmux workspace into a sibling workspace and fork its Pi session
 
 `radar fork` detects the current git worktree and tmux session, asks for the base branch with the current branch prefilled, asks for the new workspace name, starts Pi with `--fork`, and switches to the new tmux session.
 
-Delete a clean workspace:
+Clean up every local resource linked to a task:
 
 ```sh
-./radar delete --path <workspace_root>/<repo>/my-feature
+./radar cleanup <task-id>
 ```
 
-Delete only a tmux session:
+Cleanup shows one confirmation covering all linked Git worktrees, tmux sessions, and SBX sandboxes. Dirty worktrees are called out explicitly and their uncommitted changes are discarded only after confirmation. Git branches, Jira issues, and GitHub pull requests are preserved. Standalone local-resource tasks are handled by the same command; for example, cleaning up a standalone tmux task removes only that session.
 
-```sh
-./radar delete --session <tmux-session-name-or-id>
-```
-
-Workspace deletion refuses dirty worktrees. There is intentionally no force flag yet; keep the command path conservative until the TUI has a confirmation flow.
+The daemon automatically garbage-collects local workspaces for tasks that have been done for at least 24 hours. Automatic cleanup only targets clean worktrees under the configured workspace root and skips workspaces whose linked tmux session is attached. Run `radar gc`, or press `X` in the TUI, to trigger the same conservative garbage collection immediately.
 
 ## Scriptable commands
 
 ```sh
 ./radar status
 ./radar tasks
+./radar cleanup <task-id>
+./radar gc
 ./radar refresh
 ./radar reset
 ./radar stop
@@ -312,7 +312,6 @@ Example:
 ```json
 {
   "repository_dirs": ["~/workspace", "~/code", "~/src", "~/dev", "~/projects"],
-  "workspace_root": "~/workspaces",
   "model": "github-copilot/claude-sonnet-4.5",
   "thinking": "medium",
   "filters": {
@@ -332,7 +331,7 @@ Example:
 }
 ```
 
-`repository_dirs` controls where `radar create` discovers base repositories. `workspace_root` controls where Radar creates worktrees. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values.
+`repository_dirs` controls where `radar create` discovers base repositories. `workspace_root` controls where Radar creates worktrees. When omitted, the workspace root is `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values.
 
 Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the low-priority section. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive.
 

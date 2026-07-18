@@ -87,7 +87,7 @@ func EnsureFile() (string, error) {
 func Default() Config {
 	cfg := Config{
 		RepositoryDirs:  []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"},
-		WorkspaceRoot:   "~/workspaces",
+		WorkspaceRoot:   defaultWorkspaceRoot(),
 		SandboxTemplate: "christianmoesl/radar-sandbox:latest",
 		Filters: filters.Config{
 			MuteRepos:         []string{},
@@ -105,6 +105,13 @@ func Default() Config {
 		},
 	}
 	return cfg
+}
+
+func defaultWorkspaceRoot() string {
+	if base := os.Getenv("XDG_DATA_HOME"); filepath.IsAbs(base) {
+		return filepath.Join(base, "radar", "workspaces")
+	}
+	return "~/.local/share/radar/workspaces"
 }
 
 func applyDefaults(cfg *Config) {

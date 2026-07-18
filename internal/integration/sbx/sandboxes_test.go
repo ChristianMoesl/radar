@@ -3,8 +3,15 @@ package sbx
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"radar/internal/integration"
 	"radar/internal/integration/contracttest"
@@ -75,39 +82,23 @@ func TestSandboxSourceRef(t *testing.T) {
 	}
 }
 
-func TestSourcePreviewDeleteReturnsSandboxTarget(t *testing.T) {
-	ref := sandbox{Name: "radar-repo-small-fix", Workspaces: []string{"/work/repo/small-fix"}}.SourceRef()
-	preview, ok, err := Source{}.PreviewDelete(context.Background(), integration.DeletePreviewRequest{
-		Task: protocol.Task{ID: 7, SourceRefs: []protocol.SourceRef{ref}},
+func TestSourcePreviewCleanupReturnsEverySandboxTarget(t *testing.T) {
+	one := sandbox{Name: "radar-repo-one", Workspaces: []string{"/work/repo/one"}}.SourceRef()
+	two := sandbox{Name: "radar-repo-two", Workspaces: []string{"/work/repo/two"}}.SourceRef()
+	targets, err := Source{}.PreviewCleanup(context.Background(), integration.CleanupPreviewRequest{
+		Task: protocol.Task{ID: 7, SourceRefs: []protocol.SourceRef{one, two}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ok {
-		t.Fatal("PreviewDelete() ok = false, want true")
-	}
-	if preview.Source != "sbx" || preview.Kind != "sandbox" || preview.Title != "radar-repo-small-fix" || preview.Path != "/work/repo/small-fix" {
-		t.Fatalf("preview = %+v", preview)
+	if len(targets) != 2 || targets[0].SandboxName != "radar-repo-one" || targets[1].SandboxName != "radar-repo-two" {
+		t.Fatalf("cleanup targets = %+v", targets)
 	}
 }
 
-func TestSourcePreviewDeleteHonorsCurrentPath(t *testing.T) {
-	ref := sandbox{Name: "radar-repo-small-fix", Workspaces: []string{"/work/repo/small-fix"}}.SourceRef()
-	_, ok, err := Source{}.PreviewDelete(context.Background(), integration.DeletePreviewRequest{
-		Task:    protocol.Task{ID: 7, SourceRefs: []protocol.SourceRef{ref}},
-		Current: protocol.CurrentContext{CWD: "/other"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok {
-		t.Fatal("PreviewDelete() ok = true, want false for non-matching current path")
-	}
-}
-
-func TestDeleteSandboxRemovesNamedSandbox(t *testing.T) {
+func TestCleanupSandboxRemovesNamedSandbox(t *testing.T) {
 	runner := &fakeRunner{}
-	result, err := deleteSandbox(context.Background(), runner, protocol.DeletePreview{SourceRefID: "sbx:sandbox:radar-repo-small-fix", Title: "radar-repo-small-fix", Path: "/work/repo/small-fix"})
+	result, err := cleanupSandbox(context.Background(), runner, protocol.CleanupTarget{SourceRefID: "sbx:sandbox:radar-repo-small-fix", Source: "sbx", Kind: "sandbox", Title: "radar-repo-small-fix", SandboxName: "radar-repo-small-fix", Path: "/work/repo/small-fix"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +107,7 @@ func TestDeleteSandboxRemovesNamedSandbox(t *testing.T) {
 	}
 	assertCallContains(t, runner.calls, "sbx", "rm --force radar-repo-small-fix")
 	if len(runner.calls) != 1 || runner.calls[0].cwd != "" {
-		t.Fatalf("deleteSandbox() cwd = %+v, want empty cwd", runner.calls)
+		t.Fatalf("cleanupSandbox() cwd = %+v, want empty cwd", runner.calls)
 	}
 }
 
@@ -138,8 +129,67 @@ func TestSandboxWithoutWorkspaceUsesSourceRefCanonicalKey(t *testing.T) {
 }
 
 func TestSBXErrorDetailSuggestsLoginForAuthFailure(t *testing.T) {
-	err := sbxErrorDetail(errors.New("sbx ls --json failed: ERROR: list sandboxes: request failed: 401 Unauthorized: user is not authenticated to Docker: secret not found\nno valid user session found, please sign in to Docker to proceed"))
+	err := sbxErrorDetail(errors.New("sbx ls --json failed: Sign-in required"))
 	if err != "not signed in; run sbx login" {
 		t.Fatalf("sbxErrorDetail() = %q, want login suggestion", err)
 	}
+}
+
+func TestSourceListsSandboxesOncePerCollection(t *testing.T) {
+	tmp := t.TempDir()
+	countPath := filepath.Join(tmp, "calls")
+	installFakeSBX(t, tmp, fmt.Sprintf("printf 'call\\n' >> %q\nprintf '{\"sandboxes\":[]}\\n'\n", countPath))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	source := Source{}
+
+	preflight := source.Status(context.Background(), logger)
+	if !preflight.CanRun {
+		t.Fatalf("preflight status = %+v, want runnable", preflight)
+	}
+	if _, err := os.Stat(countPath); !os.IsNotExist(err) {
+		t.Fatalf("sbx was invoked during preflight: %v", err)
+	}
+
+	result := source.Collect(context.Background(), integration.CollectRequest{Logger: logger})
+	if result.SourceStatus == nil || result.SourceStatus.Status != "ok" {
+		t.Fatalf("collection status = %+v, want ok", result.SourceStatus)
+	}
+	calls, err := os.ReadFile(countPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(calls), "call\n"); got != 1 {
+		t.Fatalf("sbx calls = %d, want 1", got)
+	}
+}
+
+func TestSBXOutputReportsEmptyStderrFailure(t *testing.T) {
+	tmp := t.TempDir()
+	installFakeSBX(t, tmp, "exit 1\n")
+
+	_, err := sbxOutput(context.Background(), "ls", "--json")
+	if err == nil || !strings.Contains(err.Error(), "sbx ls --json failed: exit status 1") {
+		t.Fatalf("sbxOutput() error = %v, want exit status detail", err)
+	}
+}
+
+func TestSBXOutputReportsTimeout(t *testing.T) {
+	tmp := t.TempDir()
+	installFakeSBX(t, tmp, "sleep 1\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	_, err := sbxOutput(ctx, "ls", "--json")
+	if err == nil || !strings.Contains(err.Error(), "sbx ls --json failed: context deadline exceeded") {
+		t.Fatalf("sbxOutput() error = %v, want timeout detail", err)
+	}
+}
+
+func installFakeSBX(t *testing.T, dir string, body string) {
+	t.Helper()
+	path := filepath.Join(dir, "sbx")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }

@@ -42,5 +42,4 @@ type MultiplexerProvider interface {
 	EnsureSession(ctx context.Context, req EnsureSessionRequest) (Session, error)
 	OpenWindow(ctx context.Context, req OpenWindowRequest) error
 	Switch(ctx context.Context, target SessionTarget) error
-	DeleteSession(ctx context.Context, target SessionTarget) error
 }

@@ -14,6 +14,7 @@ import (
 
 	"radar/internal/linking"
 	"radar/internal/protocol"
+	"radar/internal/sbxauth"
 )
 
 type listResponse struct {
@@ -29,25 +30,12 @@ type sandbox struct {
 }
 
 func SourceStatus(ctx context.Context) protocol.SourceStatus {
+	_ = ctx
 	status := protocol.SourceStatus{Name: "sbx", Status: "ok"}
 	if _, err := exec.LookPath("sbx"); err != nil {
 		status.Status = "disabled"
 		status.Detail = "sbx not found"
-		return status
 	}
-	output, err := sbxOutput(ctx, "ls", "--json")
-	if err != nil {
-		status.Status = "error"
-		status.Detail = sbxErrorDetail(err)
-		return status
-	}
-	sandboxes, err := parseSandboxes(output)
-	if err != nil {
-		status.Status = "error"
-		status.Detail = err.Error()
-		return status
-	}
-	status.Detail = fmt.Sprintf("%d sandboxes", len(sandboxes))
 	return status
 }
 
@@ -151,16 +139,24 @@ func isPiAgentMount(path string) bool {
 }
 
 func sbxOutput(ctx context.Context, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "sbx", args...)
 	output, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return "", fmt.Errorf("sbx %s failed: %s", strings.Join(args, " "), strings.TrimSpace(string(exitErr.Stderr)))
+		command := "sbx " + strings.Join(args, " ")
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", fmt.Errorf("%s failed: %w", command, ctxErr)
 		}
-		return "", err
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			detail := strings.TrimSpace(string(exitErr.Stderr))
+			if detail == "" {
+				detail = exitErr.Error()
+			}
+			return "", fmt.Errorf("%s failed: %s", command, detail)
+		}
+		return "", fmt.Errorf("%s failed: %w", command, err)
 	}
 	return string(output), nil
 }
@@ -170,16 +166,8 @@ func sbxErrorDetail(err error) string {
 		return "sbx not found"
 	}
 	detail := err.Error()
-	if isSBXAuthError(detail) {
+	if sbxauth.IsRequired(detail) {
 		return "not signed in; run sbx login"
 	}
 	return detail
-}
-
-func isSBXAuthError(detail string) bool {
-	detail = strings.ToLower(detail)
-	return strings.Contains(detail, "401 unauthorized") ||
-		strings.Contains(detail, "not authenticated to docker") ||
-		strings.Contains(detail, "no valid user session found") ||
-		strings.Contains(detail, "secret not found")
 }

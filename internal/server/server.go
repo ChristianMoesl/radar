@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"radar/internal/cleanup"
 	"radar/internal/config"
 	"radar/internal/filters"
-	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/socket"
 	"radar/internal/state"
@@ -24,19 +24,23 @@ import (
 var watchTimeout = 30 * time.Second
 
 type Server struct {
-	store        *state.Store
-	logger       *slog.Logger
-	refresh      func()
-	reset        func() error
-	integrations integration.Set
+	store          *state.Store
+	logger         *slog.Logger
+	refresh        func()
+	reset          func() error
+	garbageCollect func() (protocol.GarbageCollectionResult, error)
+	cleanupService cleanup.Service
 }
 
-func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() error) *Server {
-	return NewWithIntegrations(store, logger, refresh, reset, integration.Set{})
-}
-
-func NewWithIntegrations(store *state.Store, logger *slog.Logger, refresh func(), reset func() error, integrations integration.Set) *Server {
-	return &Server{store: store, logger: logger, refresh: refresh, reset: reset, integrations: integrations}
+func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() error, garbageCollect func() (protocol.GarbageCollectionResult, error), cleanupService cleanup.Service) *Server {
+	return &Server{
+		store:          store,
+		logger:         logger,
+		refresh:        refresh,
+		reset:          reset,
+		garbageCollect: garbageCollect,
+		cleanupService: cleanupService,
+	}
 }
 
 func (s *Server) ListenAndServe(path string) error {
@@ -124,20 +128,32 @@ func (s *Server) handle(conn net.Conn) {
 				}
 			}
 			_ = encoder.Encode(s.tasksResponse())
-		case "delete-preview", "delete-current-preview":
-			preview, err := s.deletePreview(context.Background(), req.TaskID, req.Current)
+		case "gc":
+			result := protocol.GarbageCollectionResult{}
+			if s.garbageCollect != nil {
+				var err error
+				result, err = s.garbageCollect()
+				if err != nil {
+					s.logger.Warn("garbage collection failed", "error", err)
+					_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
+					continue
+				}
+			}
+			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), GarbageCollectionResult: &result})
+		case "cleanup-preview":
+			preview, err := s.cleanupPreview(context.Background(), req.TaskID)
 			if err != nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
 				continue
 			}
-			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), DeletePreview: &preview})
-		case "delete":
-			result, err := s.delete(context.Background(), req.Delete)
+			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), CleanupPreview: &preview})
+		case "cleanup":
+			result, err := s.cleanup(context.Background(), req.Cleanup)
 			if err != nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
 				continue
 			}
-			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), DeleteResult: &result})
+			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), CleanupResult: &result})
 		default:
 			s.logger.Warn("unknown method", "method", req.Method)
 			_ = encoder.Encode(protocol.Response{OK: false, Error: "unknown method: " + req.Method})
@@ -149,44 +165,19 @@ func (s *Server) handle(conn net.Conn) {
 	}
 }
 
-func (s *Server) deletePreview(ctx context.Context, taskID int, current protocol.CurrentContext) (protocol.DeletePreview, error) {
+func (s *Server) cleanupPreview(ctx context.Context, taskID int) (protocol.CleanupPreview, error) {
 	task, ok := taskByID(s.filteredTasks(), taskID)
 	if !ok {
-		return protocol.DeletePreview{}, fmt.Errorf("task %d not found", taskID)
+		return protocol.CleanupPreview{}, fmt.Errorf("task %d not found", taskID)
 	}
-	for _, deleter := range s.integrations.DeleteProviders {
-		preview, canDelete, err := deleter.PreviewDelete(ctx, integration.DeletePreviewRequest{Task: task, Current: current, Logger: s.logger})
-		if err != nil {
-			return protocol.DeletePreview{}, err
-		}
-		if canDelete {
-			return preview, nil
-		}
-	}
-	if current.Empty() {
-		return protocol.DeletePreview{}, fmt.Errorf("selected task is not backed by a deletable source ref")
-	}
-	return protocol.DeletePreview{}, fmt.Errorf("current task is not backed by a deletable source ref matching the current context")
+	return s.cleanupService.Preview(ctx, task)
 }
 
-func (s *Server) delete(ctx context.Context, preview *protocol.DeletePreview) (protocol.DeleteResult, error) {
+func (s *Server) cleanup(ctx context.Context, preview *protocol.CleanupPreview) (protocol.CleanupResult, error) {
 	if preview == nil {
-		return protocol.DeleteResult{}, fmt.Errorf("delete target is required")
+		return protocol.CleanupResult{}, fmt.Errorf("cleanup targets are required")
 	}
-	for _, deleter := range s.integrations.DeleteProviders {
-		if providerSourceName(deleter) != preview.Source {
-			continue
-		}
-		return deleter.Delete(ctx, *preview)
-	}
-	return protocol.DeleteResult{}, fmt.Errorf("source %q cannot delete source refs", preview.Source)
-}
-
-func providerSourceName(provider integration.DeleteProvider) string {
-	if source, ok := provider.(integration.Source); ok {
-		return source.Name()
-	}
-	return ""
+	return s.cleanupService.Execute(ctx, *preview, cleanup.ExecuteOptions{Force: true})
 }
 
 func taskByID(tasks []protocol.Task, id int) (protocol.Task, bool) {

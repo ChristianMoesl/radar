@@ -40,45 +40,34 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	return integration.CollectResult{Observations: integration.ObserveRefs(sourceRefs, integration.SignalInProgress), Complete: status.Status == "ok"}
 }
 
-func (Source) PreviewDelete(ctx context.Context, req integration.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {
+func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
 	_ = ctx
+	targets := make([]protocol.CleanupTarget, 0)
 	for _, ref := range req.Task.SourceRefs {
 		if ref.Source != "tmux" || ref.Kind != "session" {
 			continue
 		}
-		if !req.Current.Empty() && !SessionRefMatchesCurrent(ref, req.Current) {
-			continue
+		session := SessionTarget(protocol.Task{Kind: "session", SourceRefs: []protocol.SourceRef{ref}})
+		if session == "" {
+			return nil, fmt.Errorf("tmux session has no cleanup target")
 		}
-		target := SessionTarget(protocol.Task{Kind: "session", SourceRefs: []protocol.SourceRef{ref}})
-		if target == "" {
-			return protocol.DeletePreview{}, true, fmt.Errorf("tmux session has no delete target")
-		}
-		return protocol.DeletePreview{
-			TaskID:         req.Task.ID,
-			SourceRefID:    ref.ID,
-			Source:         "tmux",
-			Kind:           "session",
-			Title:          ref.Title,
-			Path:           ref.Path,
-			SessionName:    target,
-			SessionOnly:    true,
-			TargetLabel:    "tmux session",
-			ConfirmTitle:   "Delete tmux session?",
-			Warning:        "This will kill only the tmux session.",
-			SuccessMessage: "Deleted session " + target,
-		}, true, nil
+		targets = append(targets, protocol.CleanupTarget{
+			SourceRefID: ref.ID,
+			Source:      "tmux",
+			Kind:        "session",
+			Title:       ref.Title,
+			Path:        ref.Path,
+			SessionName: session,
+		})
 	}
-	return protocol.DeletePreview{}, false, nil
+	return targets, nil
 }
 
-func (Source) Delete(ctx context.Context, preview protocol.DeletePreview) (protocol.DeleteResult, error) {
-	deleted, err := DeleteSession(ctx, preview.SessionName)
-	if err != nil {
-		return protocol.DeleteResult{}, err
+func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+	if _, err := workspace.RemoveSession(ctx, workspace.ExecRunner{}, req.Target.SessionName); err != nil {
+		return protocol.CleanupTarget{}, err
 	}
-	deleted.SourceRefID = preview.SourceRefID
-	deleted.Title = preview.Title
-	return deleted, nil
+	return req.Target, nil
 }
 
 func (Source) Current(ctx context.Context) (integration.SessionContext, bool, error) {
@@ -160,15 +149,6 @@ func (Source) Switch(ctx context.Context, target integration.SessionTarget) erro
 	return err
 }
 
-func (Source) DeleteSession(ctx context.Context, target integration.SessionTarget) error {
-	tmuxTarget := firstNonEmpty(target.ID, target.Name)
-	if tmuxTarget == "" {
-		return fmt.Errorf("tmux session target is required")
-	}
-	_, err := workspace.ExecRunner{}.Run(ctx, "", "tmux", "kill-session", "-t", tmuxTarget)
-	return err
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {
@@ -181,5 +161,5 @@ func firstNonEmpty(values ...string) string {
 var _ integration.Source = Source{}
 var _ integration.LocalSource = Source{}
 var _ integration.StatusReporter = Source{}
-var _ integration.DeleteProvider = Source{}
+var _ integration.CleanupProvider = Source{}
 var _ integration.MultiplexerProvider = Source{}

@@ -74,6 +74,20 @@ func TestReconcileStateReopensDoneRecord(t *testing.T) {
 	}
 }
 
+func TestReconcileStatePreservesDoneAtAcrossRepeatedDoneObservations(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	task := protocol.Task{Title: "CAP-7 ship", Attention: "done", SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")}}
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{task}, now)
+	state = reconcileState(state, []protocol.Task{task}, now.Add(time.Hour))
+
+	if len(state.Records) != 1 {
+		t.Fatalf("records = %d, want one reused record", len(state.Records))
+	}
+	if state.Records[0].DoneAt != now.Format(time.RFC3339) {
+		t.Fatalf("done_at = %q, want original completion time %q", state.Records[0].DoneAt, now.Format(time.RFC3339))
+	}
+}
+
 func TestProjectTasksKeepsActiveWorkWhenLinkedRemoteIsDone(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{makeTask("in_progress", "jira issue", testJiraIssueRef("jira:issue:CAP-7", "CAP-7 Ship"))}, now)
@@ -91,8 +105,8 @@ func TestProjectTasksKeepsActiveWorkWhenLinkedRemoteIsDone(t *testing.T) {
 	}
 }
 
-func TestProjectTasksPromptsCleanupWhenRemoteDoneAndOnlyLocalRemains(t *testing.T) {
-	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+func TestProjectTasksMarksDoneWhenRemoteDoneAndOnlyLocalRemains(t *testing.T) {
+	now := time.Now().UTC()
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
 		makeTask("done", "merged today", withSignal(withStatus(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship"), "merged today"), "done")),
 		makeTask("in_progress", "git worktree", testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "CAP-7-ship")),
@@ -100,10 +114,66 @@ func TestProjectTasksPromptsCleanupWhenRemoteDoneAndOnlyLocalRemains(t *testing.
 
 	tasks := projectTasks(state)
 	if len(tasks) != 1 {
-		t.Fatalf("tasks = %d, want one cleanup task: %+v", len(tasks), tasks)
+		t.Fatalf("tasks = %d, want one done task: %+v", len(tasks), tasks)
 	}
-	if tasks[0].Attention != "attention" || !strings.Contains(tasks[0].Reason, "cleanup workspace") {
-		t.Fatalf("task = %s/%s, want attention cleanup prompt", tasks[0].Attention, tasks[0].Reason)
+	if tasks[0].Attention != "done" || tasks[0].Reason != "merged today" {
+		t.Fatalf("task = %s/%s, want done remote completion", tasks[0].Attention, tasks[0].Reason)
+	}
+}
+
+func TestProjectTasksHidesInactiveLocalRefsFromDoneTasks(t *testing.T) {
+	now := time.Now().UTC()
+	remote := testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")
+	worktree := testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "CAP-7-ship")
+	session := testTmuxSessionRef("tmux:session:$7", "/work/CAP-7-ship")
+	sandbox := protocol.SourceRef{ID: "sbx:sandbox:CAP-7-ship", Source: "sbx", Kind: "sandbox", Path: "/work/CAP-7-ship"}
+	state := persistedState{
+		Version: stateVersion,
+		Records: []TaskRecord{{
+			ID:        "task:7",
+			NumericID: 7,
+			State:     "done",
+			DoneAt:    now.Format(time.RFC3339),
+			Snapshot:  protocol.Task{Title: "CAP-7 ship", Attention: "done", SourceRefs: []protocol.SourceRef{remote, worktree, session, sandbox}},
+		}},
+		SourceRefs: []SourceRefRecord{
+			{ID: remote.ID, Source: remote.Source, Kind: remote.Kind, TaskRecordID: "task:7", Active: false, Snapshot: remote},
+			{ID: worktree.ID, Source: worktree.Source, Kind: worktree.Kind, TaskRecordID: "task:7", Active: true, Snapshot: worktree},
+			{ID: session.ID, Source: session.Source, Kind: session.Kind, TaskRecordID: "task:7", Active: false, Snapshot: session},
+			{ID: sandbox.ID, Source: sandbox.Source, Kind: sandbox.Kind, TaskRecordID: "task:7", Active: false, Snapshot: sandbox},
+		},
+	}
+
+	tasks := projectTasks(state)
+	if len(tasks) != 1 {
+		t.Fatalf("tasks = %+v, want one done task", tasks)
+	}
+	if len(tasks[0].SourceRefs) != 2 || tasks[0].SourceRefs[0].ID != remote.ID || tasks[0].SourceRefs[1].ID != worktree.ID {
+		t.Fatalf("source refs = %+v, want historical remote and active worktree only", tasks[0].SourceRefs)
+	}
+}
+
+func TestProjectTasksClearsSnapshotRefsWhenDoneLocalResourcesAreGone(t *testing.T) {
+	now := time.Now().UTC()
+	worktree := testGitWorktreeRef("git:worktree:/work/local", "/work/local", "", "local")
+	state := persistedState{
+		Version: stateVersion,
+		Records: []TaskRecord{{
+			ID:        "task:1",
+			NumericID: 1,
+			State:     "done",
+			DoneAt:    now.Format(time.RFC3339),
+			Snapshot:  protocol.Task{Title: "local", Attention: "done", SourceRefs: []protocol.SourceRef{worktree}},
+		}},
+		SourceRefs: []SourceRefRecord{{ID: worktree.ID, Source: worktree.Source, Kind: worktree.Kind, TaskRecordID: "task:1", Active: false, Snapshot: worktree}},
+	}
+
+	tasks := projectTasks(state)
+	if len(tasks) != 1 {
+		t.Fatalf("tasks = %+v, want one historical task", tasks)
+	}
+	if len(tasks[0].SourceRefs) != 0 {
+		t.Fatalf("source refs = %+v, want no deleted local refs", tasks[0].SourceRefs)
 	}
 }
 

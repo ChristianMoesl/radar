@@ -61,7 +61,7 @@ Radar should show this as `attention`, with a cleanup-oriented reason.
 The expected flow is:
 
 1. Radar shows the task as needing cleanup attention.
-2. You delete the local workspace/session/sandbox from Radar.
+2. You clean up the task's local workspace, session, and sandbox from Radar.
 3. Radar recalculates the task.
 4. If nothing active remains, the task becomes `done`.
 

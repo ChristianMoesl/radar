@@ -175,6 +175,82 @@ exit 1
 	}
 }
 
+func TestResolveDonePullRequestsMarksPRMergedBeforeTodayDone(t *testing.T) {
+	resetRateStateForTest(t)
+	closedAt := time.Now().Add(-48 * time.Hour).UTC().Format(time.RFC3339)
+	installFakeGH(t, `#!/bin/sh
+case "$*" in
+  "api rate_limit")
+    echo '{"resources":{"core":{"limit":5000,"remaining":5000,"reset":4102444800},"search":{"limit":30,"remaining":30,"reset":4102444800},"graphql":{"limit":5000,"remaining":5000,"reset":4102444800}}}'
+    ;;
+  "api /repos/acme/app/pulls/34")
+    echo '{"state":"closed","merged":true,"closed_at":"`+closedAt+`"}'
+    ;;
+  *)
+    echo "unexpected gh args: $*" >&2
+    exit 1
+    ;;
+esac
+`)
+	previous := []protocol.Task{{
+		ID:        1,
+		Kind:      "github_own_pr",
+		Attention: "in_progress",
+		Title:     "Merged while Radar was offline",
+		SourceRefs: []protocol.SourceRef{{
+			ID: "github:pr:acme/app:34", Source: "github", Kind: "pull_request", Status: "open PR",
+		}},
+	}}
+
+	items := ResolveDonePullRequests(context.Background(), previous, nil, true, testLogger())
+	if len(items) != 1 {
+		t.Fatalf("resolved items = %d, want 1", len(items))
+	}
+	if items[0].Attention != "done" || items[0].Reason != "merged" || items[0].DoneAt != closedAt {
+		t.Fatalf("resolved item = %+v, want done/merged at %s", items[0], closedAt)
+	}
+	if got := items[0].SourceRefs[0]; got.Signal != "done" || got.Status != "merged" {
+		t.Fatalf("resolved source ref = %+v, want done/merged", got)
+	}
+}
+
+func TestResolveDonePullRequestsChecksEveryPRInGroupedTask(t *testing.T) {
+	resetRateStateForTest(t)
+	closedAt := time.Now().UTC().Format(time.RFC3339)
+	installFakeGH(t, `#!/bin/sh
+case "$*" in
+  "api rate_limit")
+    echo '{"resources":{"core":{"limit":5000,"remaining":5000,"reset":4102444800},"search":{"limit":30,"remaining":30,"reset":4102444800},"graphql":{"limit":5000,"remaining":5000,"reset":4102444800}}}'
+    ;;
+  "api /repos/acme/app/pulls/34")
+    echo '{"state":"closed","merged":true,"closed_at":"`+closedAt+`"}'
+    ;;
+  *)
+    echo "unexpected gh args: $*" >&2
+    exit 1
+    ;;
+esac
+`)
+	previous := []protocol.Task{{
+		ID: 1, Attention: "attention", Title: "Grouped work",
+		SourceRefs: []protocol.SourceRef{
+			{ID: "github:pr:acme/app:33", Source: "github", Kind: "pull_request", Signal: "attention"},
+			{ID: "github:pr:acme/app:34", Source: "github", Kind: "pull_request", Signal: "attention"},
+		},
+	}}
+	active := []protocol.Task{{SourceRefs: []protocol.SourceRef{{
+		ID: "github:pr:acme/app:33", Source: "github", Kind: "pull_request",
+	}}}}
+
+	items := ResolveDonePullRequests(context.Background(), previous, active, true, testLogger())
+	if len(items) != 1 || items[0].SourceRefs[0].ID != "github:pr:acme/app:34" {
+		t.Fatalf("resolved items = %+v, want grouped PR 34 marked done", items)
+	}
+	if items[0].Attention != "done" || items[0].SourceRefs[0].Signal != "done" {
+		t.Fatalf("resolved item = %+v, want done signals", items[0])
+	}
+}
+
 func TestResolveDonePullRequestsDeduplicatesDonePRRefs(t *testing.T) {
 	today := time.Now().Format(time.RFC3339)
 	previous := []protocol.Task{

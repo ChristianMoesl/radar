@@ -11,13 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"radar/internal/cleanup"
 	"radar/internal/integration"
 	"radar/internal/integration/sbx"
 	"radar/internal/protocol"
 	"radar/internal/state"
 )
 
-func TestDeleteSbxSandboxE2EUsesForceWithoutWorkspaceCWD(t *testing.T) {
+func TestCleanupSbxSandboxE2EUsesForceWithoutWorkspaceCWD(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("RADAR_STATE", filepath.Join(tmp, "state", "tasks.json"))
 
@@ -48,30 +49,30 @@ func TestDeleteSbxSandboxE2EUsesForceWithoutWorkspaceCWD(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		NewWithIntegrations(store, logger, nil, nil, integration.Set{DeleteProviders: []integration.DeleteProvider{sbx.NewSource()}}).handle(serverConn)
+		New(store, logger, nil, nil, nil, cleanup.New([]integration.CleanupProvider{sbx.NewSource()})).handle(serverConn)
 	}()
 
 	encoder := json.NewEncoder(clientConn)
 	decoder := json.NewDecoder(clientConn)
-	if err := encoder.Encode(protocol.Request{Method: "delete-preview", TaskID: 1}); err != nil {
+	if err := encoder.Encode(protocol.Request{Method: "cleanup-preview", TaskID: 1}); err != nil {
 		t.Fatal(err)
 	}
 	var previewResponse protocol.Response
 	if err := decoder.Decode(&previewResponse); err != nil {
 		t.Fatal(err)
 	}
-	if !previewResponse.OK || previewResponse.DeletePreview == nil {
+	if !previewResponse.OK || previewResponse.CleanupPreview == nil {
 		t.Fatalf("preview response = %+v", previewResponse)
 	}
-	if previewResponse.DeletePreview.ConfirmTitle != "Delete sbx sandbox?" || previewResponse.DeletePreview.Warning == "" {
-		t.Fatalf("delete preview = %+v", previewResponse.DeletePreview)
+	if len(previewResponse.CleanupPreview.Targets) != 1 || previewResponse.CleanupPreview.Targets[0].SandboxName != "sandbox-conn-test" {
+		t.Fatalf("cleanup preview = %+v", previewResponse.CleanupPreview)
 	}
 
-	if err := encoder.Encode(protocol.Request{Method: "delete", Delete: previewResponse.DeletePreview}); err != nil {
+	if err := encoder.Encode(protocol.Request{Method: "cleanup", Cleanup: previewResponse.CleanupPreview}); err != nil {
 		t.Fatal(err)
 	}
-	var deleteResponse protocol.Response
-	if err := decoder.Decode(&deleteResponse); err != nil {
+	var cleanupResponse protocol.Response
+	if err := decoder.Decode(&cleanupResponse); err != nil {
 		t.Fatal(err)
 	}
 	_ = clientConn.Close()
@@ -80,11 +81,11 @@ func TestDeleteSbxSandboxE2EUsesForceWithoutWorkspaceCWD(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("server handler did not exit")
 	}
-	if !deleteResponse.OK {
-		t.Fatalf("delete response error = %s", deleteResponse.Error)
+	if !cleanupResponse.OK {
+		t.Fatalf("cleanup response error = %s", cleanupResponse.Error)
 	}
-	if deleteResponse.DeleteResult == nil || deleteResponse.DeleteResult.Title != "sandbox-conn-test" {
-		t.Fatalf("delete result = %+v", deleteResponse.DeleteResult)
+	if cleanupResponse.CleanupResult == nil || len(cleanupResponse.CleanupResult.Targets) != 1 || cleanupResponse.CleanupResult.Targets[0].SandboxName != "sandbox-conn-test" {
+		t.Fatalf("cleanup result = %+v", cleanupResponse.CleanupResult)
 	}
 
 	logData, err := os.ReadFile(logPath)

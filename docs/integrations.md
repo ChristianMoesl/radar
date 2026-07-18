@@ -11,7 +11,7 @@ Core packages depend on `internal/integration` capability interfaces. An integra
 - `LocalSource`: marks sources that can be refreshed frequently without remote API calls.
 - `Reconciler`: resolves disappeared remote refs into `done` transitions.
 - `ActionProvider`: exposes source-owned actions for source refs.
-- `DeleteProvider`: previews and executes source-owned deletion.
+- `CleanupProvider`: previews and cleans up source-owned local resources through the shared cleanup service.
 - `WorkspaceProvider`: owns local code workspace lifecycle. Git is the active provider.
 - `MultiplexerProvider`: owns interactive sessions. tmux is the active provider.
 
@@ -29,6 +29,23 @@ Every emitted `protocol.SourceRef` must have:
 6. `URL` only when it is directly openable.
 
 Do not assign Radar task IDs in integrations. Do not parse another source's IDs in core state. Keep source-specific metadata behavior tested in the source package.
+
+## Cleanup providers
+
+`internal/cleanup.Service` asks registered providers for targets in registration order and executes a confirmed or automatically selected preview sequentially in that same order. Every target's `Source` must match the provider's source name.
+
+Providers receive an explicit `integration.CleanupRequest`:
+
+```go
+type CleanupRequest struct {
+    Target protocol.CleanupTarget
+    Force  bool
+}
+```
+
+The provider owns removal of only its resource type. tmux removes sessions, SBX removes sandboxes, and Git removes worktrees while preserving branches. Manual cleanup passes `Force: true` after user confirmation; automatic workspace garbage collection passes `Force: false`. Providers that do not have a force concept ignore the option and should treat already-missing resources as cleaned.
+
+The active provider order is tmux, SBX, then Git so processes stop before their sandbox and worktree are removed. Do not orchestrate another integration's resources from a provider or from `internal/workspace`.
 
 ## Checklist
 

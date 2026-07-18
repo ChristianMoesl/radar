@@ -31,6 +31,7 @@ type Observation struct {
 type CollectResult struct {
 	Observations []Observation
 	Complete     bool
+	SourceStatus *protocol.SourceStatus
 }
 
 func ObserveRefs(refs []protocol.SourceRef, signal WorkSignal) []Observation {

@@ -9,8 +9,10 @@ import (
 
 func TestLoadUsesDefaultsWhenConfigIsMissing(t *testing.T) {
 	home := t.TempDir()
+	dataHome := filepath.Join(home, "data")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_DATA_HOME", dataHome)
 
 	cfg, err := Load()
 	if err != nil {
@@ -19,11 +21,27 @@ func TestLoadUsesDefaultsWhenConfigIsMissing(t *testing.T) {
 	if !reflect.DeepEqual(cfg.RepositoryDirs, []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"}) {
 		t.Fatalf("RepositoryDirs = %#v", cfg.RepositoryDirs)
 	}
-	if cfg.WorkspaceRoot != "~/workspaces" {
+	if cfg.WorkspaceRoot != filepath.Join(dataHome, "radar", "workspaces") {
 		t.Fatalf("WorkspaceRoot = %q", cfg.WorkspaceRoot)
 	}
 	if cfg.SandboxTemplate != "christianmoesl/radar-sandbox:latest" {
 		t.Fatalf("SandboxTemplate = %q", cfg.SandboxTemplate)
+	}
+}
+
+func TestDefaultWorkspaceRootUsesXDGDataFallback(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "")
+
+	if got := Default().WorkspaceRoot; got != "~/.local/share/radar/workspaces" {
+		t.Fatalf("WorkspaceRoot = %q", got)
+	}
+}
+
+func TestDefaultWorkspaceRootIgnoresRelativeXDGDataHome(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "relative/data")
+
+	if got := Default().WorkspaceRoot; got != "~/.local/share/radar/workspaces" {
+		t.Fatalf("WorkspaceRoot = %q", got)
 	}
 }
 

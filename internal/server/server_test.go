@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"radar/internal/cleanup"
 	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/state"
@@ -29,7 +30,7 @@ func TestWatchOldRevisionReturnsTasksImmediately(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil).handle(server)
+		New(store, logger, nil, nil, nil, cleanup.New(nil)).handle(server)
 	}()
 	if _, err := client.Write([]byte("{\"method\":\"watch:0\"}\n")); err != nil {
 		t.Fatal(err)
@@ -63,7 +64,7 @@ func TestWatchCurrentRevisionTimesOutWithoutTasks(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil).handle(server)
+		New(store, logger, nil, nil, nil, cleanup.New(nil)).handle(server)
 	}()
 	if _, err := client.Write([]byte("{\"method\":\"watch:1\"}\n")); err != nil {
 		t.Fatal(err)
@@ -80,38 +81,79 @@ func TestWatchCurrentRevisionTimesOutWithoutTasks(t *testing.T) {
 	}
 }
 
-func TestDeletePreviewDelegatesToDeletableSource(t *testing.T) {
+func TestGarbageCollectionReturnsCallbackResult(t *testing.T) {
 	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	store, err := state.NewStore(logger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.SetTasks([]protocol.Task{{Title: "deletable", SourceRefs: []protocol.SourceRef{{ID: "fake:ref:1", Source: "fake", Kind: "thing", Path: "/tmp/item"}}}})
+	garbageCollect := func() (protocol.GarbageCollectionResult, error) {
+		return protocol.GarbageCollectionResult{Deleted: []protocol.GarbageCollectionItem{{TaskID: 7, Path: "/workspaces/ship"}}}, nil
+	}
 
-	preview, err := NewWithIntegrations(store, logger, nil, nil, integration.Set{DeleteProviders: []integration.DeleteProvider{fakeDeleteSource{}}}).deletePreview(context.Background(), 1, protocol.CurrentContext{CWD: "/tmp"})
-	if err != nil {
+	serverConn, clientConn := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		New(store, logger, nil, nil, garbageCollect, cleanup.New(nil)).handle(serverConn)
+	}()
+	if _, err := clientConn.Write([]byte("{\"method\":\"gc\"}\n")); err != nil {
 		t.Fatal(err)
 	}
-	if preview.SourceRefID != "fake:ref:1" || preview.Path != "/tmp/item" {
-		t.Fatalf("delete preview = %+v", preview)
+	var response protocol.Response
+	if err := json.NewDecoder(clientConn).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	_ = clientConn.Close()
+	<-done
+
+	if !response.OK || response.GarbageCollectionResult == nil || len(response.GarbageCollectionResult.Deleted) != 1 {
+		t.Fatalf("gc response = %+v, want one deleted workspace", response)
 	}
 }
 
-func TestDeleteDelegatesToPreviewSource(t *testing.T) {
+func TestCleanupPreviewCollectsEveryLocalTarget(t *testing.T) {
 	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	store, err := state.NewStore(logger)
 	if err != nil {
 		t.Fatal(err)
 	}
+	store.SetTasks([]protocol.Task{{Title: "cleanup", SourceRefs: []protocol.SourceRef{
+		{ID: "fake-a:ref:1", Source: "fake-a", Kind: "thing", Path: "/tmp/one"},
+		{ID: "fake-b:ref:2", Source: "fake-b", Kind: "thing", Path: "/tmp/two"},
+	}}})
 
-	result, err := NewWithIntegrations(store, logger, nil, nil, integration.Set{DeleteProviders: []integration.DeleteProvider{fakeDeleteSource{}}}).delete(context.Background(), &protocol.DeletePreview{Source: "fake", SourceRefID: "fake:ref:1", Path: "/tmp/item"})
+	preview, err := New(store, logger, nil, nil, nil, cleanup.New([]integration.CleanupProvider{
+		fakeCleanupSource{name: "fake-a"},
+		fakeCleanupSource{name: "fake-b"},
+	})).cleanupPreview(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.SourceRefID != "fake:ref:1" || result.Path != "/tmp/item" {
-		t.Fatalf("delete result = %+v", result)
+	if len(preview.Targets) != 2 || preview.Targets[0].Path != "/tmp/one" || preview.Targets[1].Path != "/tmp/two" {
+		t.Fatalf("cleanup preview = %+v", preview)
+	}
+}
+
+func TestCleanupExecutesEveryPreviewTarget(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview := protocol.CleanupPreview{TaskID: 1, Targets: []protocol.CleanupTarget{
+		{Source: "fake", SourceRefID: "fake:ref:1", Path: "/tmp/one"},
+		{Source: "fake", SourceRefID: "fake:ref:2", Path: "/tmp/two"},
+	}}
+	result, err := New(store, logger, nil, nil, nil, cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake"}})).cleanup(context.Background(), &preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Targets) != 2 || result.Targets[0].Path != "/tmp/one" || result.Targets[1].Path != "/tmp/two" {
+		t.Fatalf("cleanup result = %+v", result)
 	}
 }
 
@@ -142,7 +184,7 @@ func TestAckResponseAppliesFilters(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil).handle(server)
+		New(store, logger, nil, nil, nil, cleanup.New(nil)).handle(server)
 	}()
 
 	if _, err := client.Write([]byte("{\"method\":\"ack:2\"}\n")); err != nil {
@@ -170,23 +212,24 @@ func TestAckResponseAppliesFilters(t *testing.T) {
 	}
 }
 
-type fakeDeleteSource struct{}
+type fakeCleanupSource struct{ name string }
 
-func (fakeDeleteSource) Name() string { return "fake" }
+func (f fakeCleanupSource) Name() string { return f.name }
 
-func (fakeDeleteSource) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
+func (fakeCleanupSource) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
 	return integration.CollectResult{}
 }
 
-func (fakeDeleteSource) PreviewDelete(_ context.Context, req integration.DeletePreviewRequest) (protocol.DeletePreview, bool, error) {
+func (f fakeCleanupSource) PreviewCleanup(_ context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
+	targets := make([]protocol.CleanupTarget, 0)
 	for _, ref := range req.Task.SourceRefs {
-		if ref.Source == "fake" {
-			return protocol.DeletePreview{TaskID: req.Task.ID, SourceRefID: ref.ID, Source: ref.Source, Kind: ref.Kind, Path: ref.Path}, true, nil
+		if ref.Source == f.name {
+			targets = append(targets, protocol.CleanupTarget{SourceRefID: ref.ID, Source: ref.Source, Kind: ref.Kind, Path: ref.Path})
 		}
 	}
-	return protocol.DeletePreview{}, false, nil
+	return targets, nil
 }
 
-func (fakeDeleteSource) Delete(_ context.Context, preview protocol.DeletePreview) (protocol.DeleteResult, error) {
-	return protocol.DeleteResult{SourceRefID: preview.SourceRefID, Source: preview.Source, Kind: preview.Kind, Path: preview.Path}, nil
+func (fakeCleanupSource) Cleanup(_ context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+	return req.Target, nil
 }

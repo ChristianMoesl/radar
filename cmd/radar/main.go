@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,25 +10,31 @@ import (
 	"log/slog"
 	"os"
 	exec "os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"radar/internal/app"
+	"radar/internal/cleanup"
 	"radar/internal/client"
 	"radar/internal/collector"
 	"radar/internal/config"
+	"radar/internal/filters"
 	"radar/internal/integration"
 	"radar/internal/integration/github"
 	"radar/internal/logging"
+	"radar/internal/notification"
 	"radar/internal/process"
 	"radar/internal/protocol"
+	"radar/internal/sbxauth"
 	"radar/internal/server"
 	"radar/internal/socket"
 	"radar/internal/state"
 	"radar/internal/tui"
 	"radar/internal/version"
+	"radar/internal/workspacegc"
 )
 
 func main() {
@@ -42,8 +49,10 @@ func main() {
 		runCreate(os.Args[2:])
 	case "fork":
 		runFork(os.Args[2:])
-	case "delete":
-		runDelete(os.Args[2:])
+	case "cleanup":
+		runCleanup(os.Args[2:])
+	case "gc":
+		runGarbageCollection(os.Args[2:])
 	case "daemon":
 		runDaemon()
 	case "stop":
@@ -91,9 +100,12 @@ func runTUIWithMode(mode string) {
 	if err != nil {
 		fatal(err)
 	}
-	sbxLoggedIn, err := ensureSBXLogin(context.Background())
-	if err != nil {
-		fatal(err)
+	sbxLoggedIn := false
+	if shouldEnsureSBXLogin(mode) {
+		sbxLoggedIn, err = ensureSBXLogin(context.Background())
+		if err != nil {
+			fatal(err)
+		}
 	}
 	if err := ensureDaemonCurrent(path); err != nil {
 		fatal(err)
@@ -179,6 +191,10 @@ func runFork(args []string) {
 	runTUIWithMode("fork")
 }
 
+func shouldEnsureSBXLogin(mode string) bool {
+	return mode == "create" || mode == "fork"
+}
+
 func ensureSBXLogin(ctx context.Context) (bool, error) {
 	if _, err := exec.LookPath("sbx"); err != nil {
 		return false, nil
@@ -190,7 +206,7 @@ func ensureSBXLogin(ctx context.Context) (bool, error) {
 	if err == nil {
 		return false, nil
 	}
-	if !isSBXLoginRequired(string(output) + "\n" + err.Error()) {
+	if !sbxauth.IsRequired(string(output) + "\n" + err.Error()) {
 		return false, nil
 	}
 	fmt.Fprintln(os.Stderr, "radar: sbx is not signed in; starting sbx login")
@@ -204,47 +220,100 @@ func ensureSBXLogin(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func isSBXLoginRequired(detail string) bool {
-	detail = strings.ToLower(detail)
-	return strings.Contains(detail, "401 unauthorized") ||
-		strings.Contains(detail, "not authenticated to docker") ||
-		strings.Contains(detail, "no valid user session found") ||
-		strings.Contains(detail, "secret not found")
-}
-
-func runDelete(args []string) {
-	flags := flag.NewFlagSet("radar delete", flag.ExitOnError)
-	path := flags.String("path", "", "workspace path")
-	session := flags.String("session", "", "tmux session name or id")
-	_ = flags.Parse(args)
-
-	if (*path == "") == (*session == "") {
-		deleteUsage()
+func runCleanup(args []string) {
+	if len(args) != 1 {
+		cleanupUsage()
 		os.Exit(2)
 	}
-
-	integrations := app.DefaultIntegrationSet()
-	var result integration.Workspace
-	var err error
-	if *session != "" {
-		err = integrations.Multiplexer.DeleteSession(context.Background(), integration.SessionTarget{Name: *session})
-		result = integration.Workspace{SessionName: *session}
-	} else {
-		cfg, cfgErr := config.Load()
-		if cfgErr != nil {
-			fatal(cfgErr)
-		}
-		if cfg.Sandbox != nil {
-			if _, loginErr := ensureSBXLogin(context.Background()); loginErr != nil {
-				fatal(loginErr)
-			}
-		}
-		result, err = integrations.Workspace.DeleteWorkspace(context.Background(), integration.DeleteWorkspaceRequest{Path: *path, Sandbox: cfg.Sandbox != nil})
+	taskID, err := strconv.Atoi(args[0])
+	if err != nil || taskID <= 0 {
+		cleanupUsage()
+		os.Exit(2)
 	}
+	path, err := socket.Path()
 	if err != nil {
 		fatal(err)
 	}
-	printJSON(result)
+	if err := ensureDaemonCurrent(path); err != nil {
+		fatal(err)
+	}
+	response, err := client.CallRequest(path, protocol.Request{Method: "cleanup-preview", TaskID: taskID})
+	if err != nil {
+		if startErr := startDaemonAndWait(path); startErr != nil {
+			fatal(startErr)
+		}
+		response, err = client.CallRequest(path, protocol.Request{Method: "cleanup-preview", TaskID: taskID})
+		if err != nil {
+			fatal(err)
+		}
+	}
+	if !response.OK {
+		fatal(errors.New(response.Error))
+	}
+	if response.CleanupPreview == nil {
+		fatal(errors.New("cleanup preview response was empty"))
+	}
+	preview := response.CleanupPreview
+	for _, target := range preview.Targets {
+		if target.Source == "sbx" {
+			if _, err := ensureSBXLogin(context.Background()); err != nil {
+				fatal(err)
+			}
+			break
+		}
+	}
+	fmt.Fprintf(os.Stderr, "Local resources linked to %q:\n", preview.TaskTitle)
+	for _, target := range preview.Targets {
+		fmt.Fprintln(os.Stderr, "  - "+cleanupTargetDescription(target))
+	}
+	fmt.Fprintf(os.Stderr, "Clean up all %d local resource(s)? [y/N] ", len(preview.Targets))
+	answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	if strings.ToLower(strings.TrimSpace(answer)) != "y" {
+		fmt.Fprintln(os.Stderr, "Cleanup cancelled")
+		return
+	}
+	response, err = client.CallRequest(path, protocol.Request{Method: "cleanup", Cleanup: preview})
+	if err != nil {
+		fatal(err)
+	}
+	if !response.OK {
+		fatal(errors.New(response.Error))
+	}
+	if response.CleanupResult == nil {
+		fatal(errors.New("cleanup response was empty"))
+	}
+	printJSON(response.CleanupResult)
+}
+
+func runGarbageCollection(args []string) {
+	if len(args) != 0 {
+		garbageCollectionUsage()
+		os.Exit(2)
+	}
+	path, err := socket.Path()
+	if err != nil {
+		fatal(err)
+	}
+	if err := ensureDaemonCurrent(path); err != nil {
+		fatal(err)
+	}
+	response, err := client.Call(path, "gc")
+	if err != nil {
+		if startErr := startDaemonAndWait(path); startErr != nil {
+			fatal(startErr)
+		}
+		response, err = client.Call(path, "gc")
+		if err != nil {
+			fatal(err)
+		}
+	}
+	if !response.OK {
+		fatal(errors.New(response.Error))
+	}
+	if response.GarbageCollectionResult == nil {
+		fatal(errors.New("garbage collection response was empty"))
+	}
+	printJSON(response.GarbageCollectionResult)
 }
 
 func runDaemon() {
@@ -288,15 +357,18 @@ func runDaemon() {
 		fatal(err)
 	}
 	integrations := app.DefaultIntegrationSet()
+	cleanupService := cleanup.New(integrations.CleanupProviders)
+	notificationService := notification.New(logger)
 	collectionMu := &sync.Mutex{}
-	refresh := refresher(context.Background(), store, logger, collectionMu, integrations)
+	refresh := refresher(context.Background(), store, logger, collectionMu, integrations, cleanupService, notificationService)
+	garbageCollect := garbageCollector(context.Background(), store, logger, collectionMu, integrations, cleanupService)
 	if collectionDisabled() {
 		logger.Info("source collection disabled", "env", "RADAR_DISABLE_COLLECTION")
 	} else {
 		go refreshLoop(context.Background(), refresh)
 	}
 
-	if err := server.NewWithIntegrations(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu, integrations), integrations).ListenAndServe(path); err != nil {
+	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu, integrations), garbageCollect, cleanupService).ListenAndServe(path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}
@@ -394,8 +466,9 @@ func collectionDisabled() bool {
 	return os.Getenv("RADAR_DISABLE_COLLECTION") == "1"
 }
 
-func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Set) func(refreshScope, bool) {
+func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Set, cleanupService cleanup.Service, notificationService notification.Service) func(refreshScope, bool) {
 	var lastFullRefresh time.Time
+	var lastWorkspaceGC time.Time
 
 	return func(scope refreshScope, force bool) {
 		if collectionDisabled() {
@@ -403,9 +476,9 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 			return
 		}
 		mu.Lock()
-		defer mu.Unlock()
 
 		if scope == refreshFull && !force && time.Since(lastFullRefresh) < 5*time.Minute {
+			mu.Unlock()
 			logger.Debug("full refresh skipped; recently refreshed")
 			return
 		}
@@ -425,8 +498,66 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 			store.SetTasks(result.Tasks)
 			store.SetSources(result.Sources)
 		}
+		if time.Since(lastWorkspaceGC) >= time.Hour {
+			lastWorkspaceGC = time.Now()
+			gcResult, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{})
+			if err != nil {
+				logger.Warn("workspace gc failed", "error", err)
+			} else if len(gcResult.Deleted) > 0 {
+				result = collector.CollectLocal(ctx, store.Tasks(), logger, integrations.Sources)
+				store.SetTasksForSources(result.Tasks, result.SourceNames)
+				store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
+				logger.Debug("workspace gc refresh finished", "deleted", len(gcResult.Deleted), "tasks", len(result.Tasks))
+			}
+		}
+		current := store.Tasks()
+		mu.Unlock()
+
+		notifyActionableTransitions(ctx, previous, current, logger, notificationService)
 		logger.Debug("refresh finished", "scope", scope, "tasks", len(result.Tasks), "sources", len(result.Sources))
 	}
+}
+
+func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Set, cleanupService cleanup.Service) func() (protocol.GarbageCollectionResult, error) {
+	return func() (protocol.GarbageCollectionResult, error) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		result, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{})
+		if err != nil {
+			return protocol.GarbageCollectionResult{}, err
+		}
+		if len(result.Deleted) > 0 {
+			collected := collector.CollectLocal(ctx, store.Tasks(), logger, integrations.Sources)
+			store.SetTasksForSources(collected.Tasks, collected.SourceNames)
+			store.SetSources(mergeSourceStatuses(store.Sources(), collected.Sources))
+			logger.Debug("manual workspace gc refresh finished", "deleted", len(result.Deleted), "tasks", len(collected.Tasks))
+		}
+		return garbageCollectionResult(result), nil
+	}
+}
+
+func garbageCollectionResult(result workspacegc.Result) protocol.GarbageCollectionResult {
+	converted := protocol.GarbageCollectionResult{
+		Deleted: make([]protocol.GarbageCollectionItem, 0, len(result.Deleted)),
+		Skipped: make([]protocol.GarbageCollectionItem, 0, len(result.Skipped)),
+	}
+	for _, deleted := range result.Deleted {
+		converted.Deleted = append(converted.Deleted, protocol.GarbageCollectionItem{TaskID: deleted.TaskID, Path: deleted.Path})
+	}
+	for _, skipped := range result.Skipped {
+		converted.Skipped = append(converted.Skipped, protocol.GarbageCollectionItem{TaskID: skipped.TaskID, Path: skipped.Path, Reason: skipped.Reason})
+	}
+	return converted
+}
+
+func notifyActionableTransitions(ctx context.Context, previous, current []protocol.Task, logger *slog.Logger, notificationService notification.Service) {
+	cfg, err := config.Load()
+	if err != nil {
+		logger.Warn("notifications skipped; could not load config", "error", err)
+		return
+	}
+	notificationService.NotifyTransitions(ctx, filters.Apply(previous, cfg.Filters), filters.Apply(current, cfg.Filters))
 }
 
 func mergeSourceStatuses(previous []protocol.SourceStatus, updates []protocol.SourceStatus) []protocol.SourceStatus {
@@ -571,8 +702,8 @@ Workspaces:
   radar create
   radar create --repo <repo> --base <branch> --name <name>
   radar fork
-  radar delete --path <workspace-path>
-  radar delete --session <tmux-session-name-or-id>
+  radar cleanup <task-id>
+  radar gc
 
 Daemon and status:
   radar daemon
@@ -608,12 +739,33 @@ func forkUsage() {
 Fork the current tmux workspace into a sibling workspace and fork its Pi session.`)
 }
 
-func deleteUsage() {
-	fmt.Fprintln(os.Stderr, `usage: radar delete (--path <workspace-path> | --session <tmux-session-name-or-id>)
+func cleanupTargetDescription(target protocol.CleanupTarget) string {
+	switch target.Kind {
+	case "worktree":
+		description := "worktree " + target.Path
+		if target.Dirty {
+			description += " (dirty; uncommitted changes will be discarded)"
+		}
+		return description
+	case "session":
+		return "tmux session " + target.SessionName
+	case "sandbox":
+		return "SBX sandbox " + target.SandboxName
+	default:
+		return target.Source + " " + target.Title
+	}
+}
 
-Options:
-  --path      workspace path to delete
-  --session   tmux session name or id to delete`)
+func cleanupUsage() {
+	fmt.Fprintln(os.Stderr, `usage: radar cleanup <task-id>
+
+Clean up every local worktree, tmux session, and SBX sandbox linked to the task.`)
+}
+
+func garbageCollectionUsage() {
+	fmt.Fprintln(os.Stderr, `usage: radar gc
+
+Garbage-collect eligible local workspaces using the conservative automatic cleanup rules.`)
 }
 
 func fatal(err error) {

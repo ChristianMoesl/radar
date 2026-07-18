@@ -55,8 +55,8 @@ type branchesMsg struct {
 	err      error
 }
 
-type deletePreviewMsg struct {
-	preview protocol.DeletePreview
+type cleanupPreviewMsg struct {
+	preview protocol.CleanupPreview
 	err     error
 }
 
@@ -102,9 +102,10 @@ type model struct {
 	selectedCurrentTask bool
 	mode                string
 	create              createForm
-	delete              protocol.DeletePreview
+	cleanup             protocol.CleanupPreview
 	links               []linkChoice
 	worktrees           []protocol.SourceRef
+	worktreeTask        protocol.Task
 	worktreeCursor      int
 	message             string
 	scroll              int
@@ -264,26 +265,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				ref := m.worktrees[m.worktreeCursor]
+				task := m.worktreeTask
 				m.mode = ""
 				m.worktrees = nil
+				m.worktreeTask = protocol.Task{}
 				m.worktreeCursor = 0
 				m.loading = true
 				m.err = nil
 				m.message = "Creating tmux session…"
-				return m, m.createSessionForWorktree(ref)
+				return m, m.createSessionForWorktree(task, ref)
 			default:
 				return m, nil
 			}
 		}
-		if m.mode == "delete_confirm" {
+		if m.mode == "cleanup_confirm" {
 			switch msg.String() {
 			case "y", "Y":
-				preview := m.delete
+				preview := m.cleanup
 				m.mode = ""
 				m.loading = true
 				m.err = nil
-				m.message = "Deleting…"
-				return m, m.deleteSelected(preview)
+				m.message = "Cleaning up…"
+				return m, m.cleanupSelected(preview)
 			case "esc", "backspace", "h", "n", "N":
 				m.mode = ""
 				m.err = nil
@@ -317,26 +320,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = "open_link"
 				m.message = ""
 			}
-		case "d":
+		case "x":
 			if len(m.tasks) > 0 {
 				m.loading = true
 				m.err = nil
-				m.message = "Inspecting delete target…"
-				return m, m.previewDelete(m.tasks[m.cursor])
+				m.message = "Inspecting local resources…"
+				return m, m.previewCleanup(m.tasks[m.cursor])
 			}
-		case "D":
-			if len(m.tasks) > 0 {
-				current := taskrefs.DetectCurrentContext()
-				cursor, ok := taskrefs.TaskCursorForCurrent(m.tasks, current)
-				if !ok {
-					m.message = "No current workspace tracked by Radar"
-					return m, nil
-				}
-				m.loading = true
-				m.err = nil
-				m.message = "Inspecting current workspace…"
-				return m, m.previewCurrentWorkspaceDelete(m.tasks[cursor], current)
-			}
+		case "X":
+			m.loading = true
+			m.err = nil
+			m.message = "Garbage collecting…"
+			return m, m.garbageCollect()
 		case "R":
 			m.loading = true
 			m.err = nil
@@ -398,13 +393,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.create.baseList.options = msg.branches
 			m.create.baseList.cursor = 0
 		}
-	case deletePreviewMsg:
+	case cleanupPreviewMsg:
 		m.loading = false
 		m.err = msg.err
 		m.message = ""
 		if msg.err == nil {
-			m.delete = msg.preview
-			m.mode = "delete_confirm"
+			m.cleanup = msg.preview
+			m.mode = "cleanup_confirm"
 		}
 	case preparingWorkspaceMsg:
 		if m.loading && m.message == creatingWorkspaceMessage {
@@ -502,9 +497,9 @@ func (m model) View() string {
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
-	if m.mode == "delete_confirm" {
-		sections = append(sections, m.deleteConfirmView(contentWidth))
-		sections = append(sections, helpStyle.Render("y delete • esc/n cancel • q quit"))
+	if m.mode == "cleanup_confirm" {
+		sections = append(sections, m.cleanupConfirmView(contentWidth))
+		sections = append(sections, helpStyle.Render("y clean up • esc/n cancel • q quit"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
@@ -540,7 +535,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • o open link • i inspect • c create • d delete • D delete current • f config • r refresh • R reset • q quit"), width))
+	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • o open link • i inspect • c create • x cleanup • X garbage collect • f config • r refresh • R reset • q quit"), width))
 	return sections
 }
 
@@ -848,48 +843,55 @@ func preparingWorkspaceNotification() tea.Cmd {
 	})
 }
 
-func (m model) previewDelete(task protocol.Task) tea.Cmd {
+func (m model) garbageCollect() tea.Cmd {
 	return func() tea.Msg {
-		response, err := client.CallRequest(m.socketPath, protocol.Request{Method: "delete-preview", TaskID: task.ID})
-		if err != nil {
-			return deletePreviewMsg{err: err}
-		}
-		if !response.OK {
-			return deletePreviewMsg{err: fmt.Errorf("%s", response.Error)}
-		}
-		if response.DeletePreview == nil {
-			return deletePreviewMsg{err: fmt.Errorf("delete preview response was empty")}
-		}
-		return deletePreviewMsg{preview: *response.DeletePreview}
-	}
-}
-
-func (m model) previewCurrentWorkspaceDelete(task protocol.Task, current protocol.CurrentContext) tea.Cmd {
-	return func() tea.Msg {
-		response, err := client.CallRequest(m.socketPath, protocol.Request{Method: "delete-current-preview", TaskID: task.ID, Current: current})
-		if err != nil {
-			return deletePreviewMsg{err: err}
-		}
-		if !response.OK {
-			return deletePreviewMsg{err: fmt.Errorf("%s", response.Error)}
-		}
-		if response.DeletePreview == nil {
-			return deletePreviewMsg{err: fmt.Errorf("delete preview response was empty")}
-		}
-		return deletePreviewMsg{preview: *response.DeletePreview}
-	}
-}
-
-func (m model) deleteSelected(preview protocol.DeletePreview) tea.Cmd {
-	return func() tea.Msg {
-		response, err := client.CallRequest(m.socketPath, protocol.Request{Method: "delete", Delete: &preview})
+		response, err := client.Call(m.socketPath, "gc")
 		if err != nil {
 			return actionMsg{err: err}
 		}
 		if !response.OK {
 			return actionMsg{err: fmt.Errorf("%s", response.Error)}
 		}
-		return actionMsg{message: deleteSuccessMessage(preview), refresh: true}
+		if response.GarbageCollectionResult == nil {
+			return actionMsg{err: fmt.Errorf("garbage collection response was empty")}
+		}
+		return actionMsg{response: &response, message: garbageCollectionMessage(*response.GarbageCollectionResult)}
+	}
+}
+
+func garbageCollectionMessage(result protocol.GarbageCollectionResult) string {
+	if len(result.Deleted) == 0 && len(result.Skipped) == 0 {
+		return "No workspaces eligible for garbage collection"
+	}
+	return fmt.Sprintf("Garbage collection: deleted %d, skipped %d", len(result.Deleted), len(result.Skipped))
+}
+
+func (m model) previewCleanup(task protocol.Task) tea.Cmd {
+	return func() tea.Msg {
+		response, err := client.CallRequest(m.socketPath, protocol.Request{Method: "cleanup-preview", TaskID: task.ID})
+		if err != nil {
+			return cleanupPreviewMsg{err: err}
+		}
+		if !response.OK {
+			return cleanupPreviewMsg{err: fmt.Errorf("%s", response.Error)}
+		}
+		if response.CleanupPreview == nil {
+			return cleanupPreviewMsg{err: fmt.Errorf("cleanup preview response was empty")}
+		}
+		return cleanupPreviewMsg{preview: *response.CleanupPreview}
+	}
+}
+
+func (m model) cleanupSelected(preview protocol.CleanupPreview) tea.Cmd {
+	return func() tea.Msg {
+		response, err := client.CallRequest(m.socketPath, protocol.Request{Method: "cleanup", Cleanup: &preview})
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		if !response.OK {
+			return actionMsg{err: fmt.Errorf("%s", response.Error)}
+		}
+		return actionMsg{message: cleanupSuccessMessage(preview), refresh: true}
 	}
 }
 
@@ -1009,52 +1011,42 @@ func (m model) createView(width int) string {
 	}
 }
 
-func (m model) deleteConfirmView(width int) string {
-	preview := m.delete
-	title := preview.ConfirmTitle
-	if title == "" {
-		title = "Delete target?"
+func (m model) cleanupConfirmView(width int) string {
+	preview := m.cleanup
+	dirty := false
+	for _, target := range preview.Targets {
+		if target.Dirty {
+			dirty = true
+			break
+		}
 	}
-	warning := preview.Warning
-	if warning == "" {
-		warning = "This will remove the selected target."
+	warning := "This will remove every local resource linked to the task. Git branches and remote resources are preserved."
+	if dirty {
+		warning = "This will discard uncommitted changes and remove every local resource linked to the task."
 	}
-
-	lines := []string{
-		titleStyle.Render(title),
-		warning,
-		"",
+	lines := []string{titleStyle.Render("Clean up local resources?"), warning, ""}
+	for _, target := range preview.Targets {
+		switch target.Kind {
+		case "worktree":
+			label := "Worktree " + shortenPath(target.Path)
+			if target.Dirty {
+				label += " (dirty)"
+			}
+			lines = append(lines, label)
+		case "session":
+			lines = append(lines, "Session  "+target.SessionName)
+		case "sandbox":
+			lines = append(lines, "Sandbox  "+target.SandboxName)
+		default:
+			lines = append(lines, target.Source+" "+target.Title)
+		}
 	}
-	if preview.Title != "" && preview.Title != preview.Branch && preview.Title != preview.SessionName {
-		lines = append(lines, "Name    "+preview.Title)
-	}
-	if preview.Path != "" {
-		lines = append(lines, "Path    "+shortenPath(preview.Path))
-	}
-	if preview.Branch != "" {
-		lines = append(lines, "Branch  "+preview.Branch)
-	}
-	if preview.SessionName != "" {
-		lines = append(lines, "Session "+preview.SessionName)
-	}
-	if preview.SandboxName != "" {
-		lines = append(lines, "Sandbox "+preview.SandboxName)
-	}
-	lines = append(lines, "", errorStyle.Render("Press y to delete."))
+	lines = append(lines, "", errorStyle.Render("Press y to clean up."))
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
 }
 
-func deleteSuccessMessage(preview protocol.DeletePreview) string {
-	if preview.SuccessMessage != "" {
-		return preview.SuccessMessage
-	}
-	if preview.Path != "" {
-		return "Deleted " + preview.Path
-	}
-	if preview.Title != "" {
-		return "Deleted " + preview.Title
-	}
-	return "Deleted target"
+func cleanupSuccessMessage(preview protocol.CleanupPreview) string {
+	return fmt.Sprintf("Cleaned up %d local resource(s)", len(preview.Targets))
 }
 
 func (m model) worktreeSessionView(width int) string {
@@ -1349,10 +1341,11 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 		m.loading = true
 		m.err = nil
 		m.message = "Creating tmux session…"
-		return m, m.createSessionForWorktree(worktrees[0])
+		return m, m.createSessionForWorktree(task, worktrees[0])
 	default:
 		m.mode = "worktree_session"
 		m.worktrees = worktrees
+		m.worktreeTask = task
 		m.worktreeCursor = 0
 		m.message = ""
 		m.err = nil
@@ -1369,27 +1362,49 @@ func (m model) switchTmuxSession(target string) tea.Cmd {
 	}
 }
 
-func (m model) createSessionForWorktree(ref protocol.SourceRef) tea.Cmd {
+func (m model) createSessionForWorktree(task protocol.Task, ref protocol.SourceRef) tea.Cmd {
 	return func() tea.Msg {
 		switchAfterCreate := os.Getenv("TMUX") != ""
 		sessionName := workspace.SessionName(filepath.Base(filepath.Dir(ref.Path)), filepath.Base(ref.Path))
-		multiplexer := app.DefaultIntegrationSet().Multiplexer
-		created, err := multiplexer.EnsureSession(context.Background(), integration.EnsureSessionRequest{Name: sessionName, Path: ref.Path, FirstWindow: "pi", FirstCommand: "pi"})
+		cfg, err := config.Load()
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		if created.Created {
-			if err := multiplexer.OpenWindow(context.Background(), integration.OpenWindowRequest{SessionName: sessionName, Name: "nvim", Path: ref.Path, Command: "nvim ."}); err != nil {
-				return actionMsg{err: err}
-			}
+		created, err := workspace.CreateSessionWithOptions(context.Background(), workspace.ExecRunner{}, workspace.CreateSessionOptions{
+			Path:            ref.Path,
+			SessionName:     sessionName,
+			Model:           cfg.Model,
+			Thinking:        cfg.Thinking,
+			Sandbox:         cfg.Sandbox != nil,
+			SandboxTemplate: cfg.SandboxTemplate,
+			SandboxName:     sandboxNameForWorktree(task, ref.Path),
+			Switch:          switchAfterCreate,
+		})
+		if err != nil {
+			return actionMsg{err: err}
 		}
-		if switchAfterCreate {
-			if err := multiplexer.Switch(context.Background(), integration.SessionTarget{Name: sessionName}); err != nil {
-				return actionMsg{err: err}
-			}
-		}
-		return actionMsg{message: "Created " + created.Name, refresh: !switchAfterCreate, quit: switchAfterCreate}
+		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
 	}
+}
+
+func sandboxNameForWorktree(task protocol.Task, path string) string {
+	for _, ref := range task.SourceRefs {
+		if ref.Source != "sbx" || ref.Kind != "sandbox" || !samePath(ref.Path, path) {
+			continue
+		}
+		if ref.Metadata != nil && strings.TrimSpace(ref.Metadata["name"]) != "" {
+			return ref.Metadata["name"]
+		}
+		if strings.TrimSpace(ref.Title) != "" {
+			return ref.Title
+		}
+		return strings.TrimPrefix(ref.ID, "sbx:sandbox:")
+	}
+	return ""
+}
+
+func samePath(left string, right string) bool {
+	return strings.TrimSpace(left) != "" && strings.TrimSpace(right) != "" && filepath.Clean(left) == filepath.Clean(right)
 }
 
 func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {

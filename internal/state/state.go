@@ -288,6 +288,24 @@ func (s *Store) Sources() []protocol.SourceStatus {
 	return sources
 }
 
+func (s *Store) Records() []TaskRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	records := make([]TaskRecord, len(s.state.Records))
+	copy(records, s.state.Records)
+	return records
+}
+
+func (s *Store) SourceRefs() []SourceRefRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	refs := make([]SourceRefRecord, len(s.state.SourceRefs))
+	copy(refs, s.state.SourceRefs)
+	return refs
+}
+
 func (s *Store) Revision() int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -427,7 +445,7 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 		record.SourceRefIDs = mergeStringSet(record.SourceRefIDs, sourceRefIDs(task.SourceRefs))
 		if task.Attention == "done" {
 			record.State = "done"
-			record.DoneAt = firstNonEmpty(task.DoneAt, nowText)
+			record.DoneAt = firstNonEmpty(record.DoneAt, task.DoneAt, nowText)
 			record.Reason = task.Reason
 		} else {
 			record.State = "active"
@@ -619,8 +637,9 @@ func updateRecordLifecycles(records []TaskRecord, sourceRefs []SourceRefRecord, 
 		if len(refs) == 0 {
 			continue
 		}
+		allRefs := sourceRefRecordsForRecord(records[i].ID, sourceRefs)
 		fallback := records[i].Snapshot.Attention
-		if hasDoneSignal(refs, fallback) && !hasNonDoneSignal(refs, fallback) {
+		if (hasDoneSignal(refs, fallback) && !hasNonDoneSignal(refs, fallback)) || remoteDoneRecordsWithOnlyLocalRefs(allRefs, fallback) {
 			records[i].State = "done"
 			records[i].DoneAt = firstNonEmpty(records[i].DoneAt, nowText)
 			records[i].Reason = firstDoneReason(refs, fallback)
@@ -641,6 +660,16 @@ func activeSourceRefRecordsForRecord(recordID string, refs []SourceRefRecord) []
 		}
 	}
 	return active
+}
+
+func sourceRefRecordsForRecord(recordID string, refs []SourceRefRecord) []SourceRefRecord {
+	matched := make([]SourceRefRecord, 0)
+	for _, ref := range refs {
+		if ref.TaskRecordID == recordID {
+			matched = append(matched, ref)
+		}
+	}
+	return matched
 }
 
 func hasDoneSignal(refs []SourceRefRecord, fallback string) bool {
@@ -761,11 +790,6 @@ func applySourceSignals(task *protocol.Task, record TaskRecord, refs []protocol.
 		}
 		return
 	}
-	if remoteDoneWithLocalCleanup(refs, fallback) {
-		task.Attention = "attention"
-		task.Reason = cleanupReason(refs)
-		return
-	}
 	if signal, reason := firstSignal(refs, "in_progress", fallback); signal != "" {
 		task.Attention = signal
 		if task.Reason == "" || record.Snapshot.Attention != signal {
@@ -809,13 +833,25 @@ func sourceReason(ref protocol.SourceRef, signal string) string {
 	}
 }
 
-func remoteDoneWithLocalCleanup(refs []protocol.SourceRef, fallback string) bool {
+func remoteDoneRecordsWithOnlyLocalRefs(refs []SourceRefRecord, fallback string) bool {
+	snapshots := make([]protocol.SourceRef, 0, len(refs))
+	for _, ref := range refs {
+		snapshots = append(snapshots, ref.Snapshot)
+	}
+	return remoteDoneWithOnlyLocalRefs(snapshots, fallback)
+}
+
+func remoteDoneWithOnlyLocalRefs(refs []protocol.SourceRef, fallback string) bool {
 	hasRemoteDone := false
 	hasLocalCleanup := false
 	for _, ref := range refs {
 		signal := sourceSignal(ref, fallback)
-		if signal == "done" && remoteSource(ref.Source) {
-			hasRemoteDone = true
+		if remoteSource(ref.Source) {
+			if signal == "done" {
+				hasRemoteDone = true
+			} else {
+				return false
+			}
 			continue
 		}
 		if signal == "done" {
@@ -843,43 +879,18 @@ func localCleanupSource(ref protocol.SourceRef) bool {
 	}
 }
 
-func cleanupReason(refs []protocol.SourceRef) string {
-	resources := map[string]bool{}
-	for _, ref := range refs {
-		if !localCleanupSource(ref) {
-			continue
-		}
-		switch ref.Source {
-		case "git":
-			resources["workspace"] = true
-		case "tmux":
-			resources["tmux session"] = true
-		case "sbx":
-			resources["sandbox"] = true
-		}
-	}
-	labels := make([]string, 0, len(resources))
-	for _, label := range []string{"workspace", "tmux session", "sandbox"} {
-		if resources[label] {
-			labels = append(labels, label)
-		}
-	}
-	if len(labels) == 0 {
-		return "remote done; cleanup local resources"
-	}
-	return "remote done; cleanup " + strings.Join(labels, ", ")
-}
-
 func projectTasks(state persistedState) []protocol.Task {
 	activeSourceRefsByRecord := map[string][]protocol.SourceRef{}
-	allSourceRefsByRecord := map[string][]protocol.SourceRef{}
+	doneSourceRefsByRecord := map[string][]protocol.SourceRef{}
 	for _, ref := range state.SourceRefs {
 		if ref.TaskRecordID == "" || ref.ID == "" || ref.Snapshot.ID == "" {
 			continue
 		}
-		allSourceRefsByRecord[ref.TaskRecordID] = append(allSourceRefsByRecord[ref.TaskRecordID], ref.Snapshot)
 		if ref.Active {
 			activeSourceRefsByRecord[ref.TaskRecordID] = append(activeSourceRefsByRecord[ref.TaskRecordID], ref.Snapshot)
+		}
+		if ref.Active || !localCleanupSource(ref.Snapshot) {
+			doneSourceRefsByRecord[ref.TaskRecordID] = append(doneSourceRefsByRecord[ref.TaskRecordID], ref.Snapshot)
 		}
 	}
 
@@ -892,14 +903,12 @@ func projectTasks(state persistedState) []protocol.Task {
 		task.ID = record.NumericID
 		refs := activeSourceRefsByRecord[record.ID]
 		if record.State == "done" {
-			refs = allSourceRefsByRecord[record.ID]
+			refs = doneSourceRefsByRecord[record.ID]
 		}
 		if len(refs) == 0 && record.State != "done" {
 			continue
 		}
-		if len(refs) > 0 {
-			task.SourceRefs = cloneSourceRefs(sortSourceRefs(mergeSourceRefs(nil, refs)))
-		}
+		task.SourceRefs = cloneSourceRefs(sortSourceRefs(mergeSourceRefs(nil, refs)))
 		if record.State == "done" {
 			task.Attention = "done"
 			task.DoneAt = record.DoneAt
