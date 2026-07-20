@@ -28,16 +28,22 @@ func TestGarbageCollectionResultConvertsDeletedAndSkippedWorkspaces(t *testing.T
 
 func TestShouldEnsureSBXLogin(t *testing.T) {
 	for _, test := range []struct {
-		mode string
-		want bool
+		name    string
+		mode    string
+		sources []protocol.SourceStatus
+		want    bool
 	}{
-		{mode: "", want: false},
-		{mode: "create", want: true},
-		{mode: "fork", want: true},
+		{name: "normal startup", want: false},
+		{name: "create", mode: "create", want: true},
+		{name: "fork", mode: "fork", want: true},
+		{name: "expired session", sources: []protocol.SourceStatus{{Name: "sbx", Status: "error", Detail: "not signed in; run sbx login"}}, want: true},
+		{name: "unrelated sbx failure", sources: []protocol.SourceStatus{{Name: "sbx", Status: "error", Detail: "sbx daemon is unavailable"}}, want: false},
 	} {
-		if got := shouldEnsureSBXLogin(test.mode); got != test.want {
-			t.Errorf("shouldEnsureSBXLogin(%q) = %t, want %t", test.mode, got, test.want)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			if got := shouldEnsureSBXLogin(test.mode, test.sources); got != test.want {
+				t.Errorf("shouldEnsureSBXLogin(%q, %+v) = %t, want %t", test.mode, test.sources, got, test.want)
+			}
+		})
 	}
 }
 

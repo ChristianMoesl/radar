@@ -12,6 +12,7 @@ func TestIsRequired(t *testing.T) {
 		{name: "legacy session", detail: "no valid user session found", want: true},
 		{name: "current sign in", detail: "Sign-in required", want: true},
 		{name: "current token", detail: "docker Hub session has no access token (run 'sbx login' to refresh)", want: true},
+		{name: "radar status", detail: "not signed in; run sbx login", want: true},
 		{name: "unrelated", detail: "sbx daemon is unavailable", want: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
