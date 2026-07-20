@@ -14,6 +14,8 @@ func IsRequired(detail string) bool {
 		"sign-in required",
 		"sign in required",
 		"please sign in to docker",
+		"not signed in",
+		"run sbx login",
 		"run 'sbx login'",
 		`run "sbx login"`,
 	} {

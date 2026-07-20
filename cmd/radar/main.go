@@ -100,18 +100,23 @@ func runTUIWithMode(mode string) {
 	if err != nil {
 		fatal(err)
 	}
-	sbxLoggedIn := false
-	if shouldEnsureSBXLogin(mode) {
-		sbxLoggedIn, err = ensureSBXLogin(context.Background())
+	if err := ensureDaemonCurrent(path); err != nil {
+		fatal(err)
+	}
+	response, err := client.Call(path, "tasks")
+	if err != nil {
+		if err := startDaemonAndWait(path); err != nil {
+			fatal(err)
+		}
+		response, err = client.Call(path, "tasks")
 		if err != nil {
 			fatal(err)
 		}
 	}
-	if err := ensureDaemonCurrent(path); err != nil {
-		fatal(err)
-	}
-	if _, err := client.Call(path, "tasks"); err != nil {
-		if err := startDaemonAndWait(path); err != nil {
+	sbxLoggedIn := false
+	if shouldEnsureSBXLogin(mode, response.Sources) {
+		sbxLoggedIn, err = ensureSBXLogin(context.Background())
+		if err != nil {
 			fatal(err)
 		}
 	}
@@ -191,8 +196,16 @@ func runFork(args []string) {
 	runTUIWithMode("fork")
 }
 
-func shouldEnsureSBXLogin(mode string) bool {
-	return mode == "create" || mode == "fork"
+func shouldEnsureSBXLogin(mode string, sources []protocol.SourceStatus) bool {
+	if mode == "create" || mode == "fork" {
+		return true
+	}
+	for _, source := range sources {
+		if source.Name == "sbx" && source.Status == "error" && sbxauth.IsRequired(source.Detail) {
+			return true
+		}
+	}
+	return false
 }
 
 func ensureSBXLogin(ctx context.Context) (bool, error) {
