@@ -27,8 +27,12 @@ func AssertValidSourceRefs(t *testing.T, source string, refs []protocol.SourceRe
 			t.Fatalf("duplicate source ref ID %q", ref.ID)
 		}
 		seen[ref.ID] = true
-		if ref.CanonicalKey == "" && len(ref.LinkingKeys) == 0 {
-			t.Fatalf("source ref has neither canonical key nor linking keys: %+v", ref)
+		if ref.Role == protocol.SourceRefRoleInformational {
+			if ref.CanonicalKey != "" || len(ref.LinkingKeys) != 0 || ref.Signal != "" {
+				t.Fatalf("informational source ref exposes authority: %+v", ref)
+			}
+		} else if ref.CanonicalKey == "" && len(ref.LinkingKeys) == 0 {
+			t.Fatalf("authoritative source ref has neither canonical key nor linking keys: %+v", ref)
 		}
 		for _, key := range ref.LinkingKeys {
 			if !strings.Contains(key, ":") {

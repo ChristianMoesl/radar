@@ -15,8 +15,15 @@ import (
 	"testing"
 
 	"radar/internal/integration"
+	"radar/internal/integration/contracttest"
 	"radar/internal/protocol"
 )
+
+func TestInformationalIssueSourceRefContract(t *testing.T) {
+	value := jiraIssueWithType("RAD-7", "Epic", "Open")
+	observation := informationalObservation(Config{BaseURL: "https://jira.example.test"}, value, issueMention{Key: "RAD-7", TaskID: 42})
+	contracttest.AssertValidSourceRefs(t, "jira", []protocol.SourceRef{observation.Ref})
+}
 
 func TestCollectFetchesUnassignedTitleReferenceAsInformational(t *testing.T) {
 	var requests []string
