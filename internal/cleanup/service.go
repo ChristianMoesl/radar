@@ -57,8 +57,7 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 
 func (s Service) provider(sourceName string) (integration.CleanupProvider, bool) {
 	for _, provider := range s.providers {
-		source, ok := provider.(integration.Source)
-		if ok && source.Name() == sourceName {
+		if provider.Descriptor().Name == sourceName {
 			return provider, true
 		}
 	}

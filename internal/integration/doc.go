@@ -8,12 +8,14 @@
 //
 // Source refs are the stable fact boundary between integrations and core:
 //   - ID is globally stable and owned by the integration.
-//   - Source is the integration name, such as github, jira, datadog, git, tmux, or sbx.
-//   - Kind is source-owned, such as pull_request, issue, worktree, session, or sandbox.
+//   - EntityID correlates representations of one external entity without linking tasks.
+//   - Source and Kind are source-owned; labels and ordering come from the descriptor.
+//   - Lifecycle classifies authoritative refs as work items, workspaces, or resources.
 //   - CanonicalKey is the source-owned standalone identity for a task when present.
 //   - LinkingKeys are source-owned hints used by core to join related refs.
 //   - Metadata is opaque to core unless a core feature explicitly documents a key.
 //
-// Integrations produce observations and tool actions. Radar core owns task state,
-// linking, projection, filtering, presentation, and daemon protocol behavior.
+// Integrations compile source-specific semantics into observations, associations,
+// presentation hints, and tool actions. Radar core consumes those generic facts and
+// owns task state, linking, projection, filtering, and daemon protocol behavior.
 package integration

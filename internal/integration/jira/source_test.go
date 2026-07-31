@@ -19,6 +19,19 @@ import (
 	"radar/internal/protocol"
 )
 
+func TestNormalizeAssociationOwnsJiraKeyValidation(t *testing.T) {
+	association, err := NewSource().NormalizeAssociation(context.Background(), " dpscap-123 ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if association.ExternalID != "DPSCAP-123" || association.CanonicalKey != "ticket:DPSCAP-123" || association.Lifecycle != protocol.SourceRefLifecycleWorkItem {
+		t.Fatalf("association = %+v", association)
+	}
+	if _, err := NewSource().NormalizeAssociation(context.Background(), "not-an-issue"); err == nil {
+		t.Fatal("NormalizeAssociation() accepted invalid Jira key")
+	}
+}
+
 func TestInformationalIssueSourceRefContract(t *testing.T) {
 	value := jiraIssueWithType("RAD-7", "Epic", "Open")
 	observation := informationalObservation(Config{BaseURL: "https://jira.example.test"}, value, issueMention{Key: "RAD-7", TaskID: 42})
@@ -52,8 +65,8 @@ func TestCollectFetchesUnassignedTitleReferenceAsInformational(t *testing.T) {
 	if got.Signal != "" || got.Ref.Signal != "" || got.Ref.CanonicalKey != "" || len(got.Ref.LinkingKeys) != 0 {
 		t.Fatalf("informational authority leaked: %+v", got)
 	}
-	if got.Ref.Metadata["issue_type"] != "Epic" || got.Ref.Metadata["canonical_id"] != "jira:issue:RAD-7" {
-		t.Fatalf("metadata = %+v", got.Ref.Metadata)
+	if got.Ref.Metadata["issue_type"] != "Epic" || got.Ref.EntityID != "jira:issue:RAD-7" {
+		t.Fatalf("reference = %+v", got.Ref)
 	}
 	if !reflect.DeepEqual(requests, []string{"POST /search/jql", "GET /issue/RAD-7"}) {
 		t.Fatalf("requests = %+v", requests)
@@ -94,7 +107,9 @@ func TestCollectTreatsExplicitAttachmentAsAuthoritative(t *testing.T) {
 	defer server.Close()
 	configureJiraSource(t, server.URL, `{"authoritative_issue_types":[]}`)
 
-	previous := []protocol.Task{{ID: 8, Title: "No key remains", Metadata: map[string]string{"association_keys": "ticket:RAD-7"}}}
+	previous := []protocol.Task{{ID: 8, Title: "No key remains", Associations: []protocol.TaskAssociation{{
+		Source: "jira", ExternalID: "RAD-7", CanonicalKey: "ticket:RAD-7", LinkingKeys: []string{"ticket:RAD-7"}, Lifecycle: protocol.SourceRefLifecycleWorkItem,
+	}}}}
 	result := NewSource().Collect(context.Background(), jiraCollectRequest(previous))
 	if len(result.Observations) != 1 || result.Observations[0].Ref.Role != protocol.SourceRefRoleAuthoritative || result.Observations[0].Signal != integration.SignalDone {
 		t.Fatalf("observations = %+v", result.Observations)
@@ -132,9 +147,12 @@ func TestAssignedSearchFailureDoesNotKeepDemotedTitleAuthority(t *testing.T) {
 	})
 	defer server.Close()
 	configureJiraSource(t, server.URL, `{}`)
+	order := 0
 	previousRef := protocol.SourceRef{
 		ID: "jira:issue:RAD-7", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative,
-		Title: "RAD-7 Remote", Metadata: map[string]string{"key": "RAD-7", "title_order": "0"},
+		EntityID: "jira:issue:RAD-7", Lifecycle: protocol.SourceRefLifecycleWorkItem,
+		Title: "RAD-7 Remote", Metadata: map[string]string{"key": "RAD-7"},
+		Presentation: protocol.SourceRefPresentation{PreferTitle: true, TitleOrder: &order},
 	}
 	previous := []protocol.Task{{
 		ID: 9, Title: "RAD-7 Remote", Metadata: map[string]string{"manual_title": "Investigate RAD-7"}, SourceRefs: []protocol.SourceRef{previousRef},
@@ -161,7 +179,7 @@ func TestCollectKeepsOtherReferencesAndPreviousFailedReference(t *testing.T) {
 	})
 	defer server.Close()
 	configureJiraSource(t, server.URL, `{}`)
-	previousRef := protocol.SourceRef{ID: "jira:mention:9:RAD-1", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleInformational, Title: "RAD-1 Existing", Metadata: map[string]string{"key": "RAD-1"}}
+	previousRef := protocol.SourceRef{ID: "jira:mention:9:RAD-1", EntityID: "jira:issue:RAD-1", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleInformational, Title: "RAD-1 Existing", Metadata: map[string]string{"key": "RAD-1"}}
 	previous := []protocol.Task{{ID: 9, Title: "Compare RAD-1 and RAD-2", SourceRefs: []protocol.SourceRef{previousRef}}}
 
 	result := NewSource().Collect(context.Background(), jiraCollectRequest(previous))
@@ -202,7 +220,7 @@ func TestCollectBoundsTitleReferenceFetches(t *testing.T) {
 
 func TestExplicitAttachmentDoesNotOverrideTitleKeyOrder(t *testing.T) {
 	mentions := discoverIssueMentions([]protocol.Task{{
-		ID: 4, Title: "RAD-1 then RAD-2", Metadata: map[string]string{"association_keys": "ticket:RAD-2"},
+		ID: 4, Title: "RAD-1 then RAD-2", Associations: []protocol.TaskAssociation{{Source: "jira", ExternalID: "RAD-2"}},
 	}})
 	if len(mentions) != 2 || mentions[0].Key != "RAD-1" || mentions[0].Explicit || mentions[1].Key != "RAD-2" || !mentions[1].Explicit {
 		t.Fatalf("mentions = %+v", mentions)

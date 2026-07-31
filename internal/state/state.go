@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +16,7 @@ import (
 )
 
 const maxStateFileSize = 50 * 1024 * 1024
-const stateVersion = 4
+const stateVersion = 5
 const doneTaskDisplayRetention = 3 * 24 * time.Hour
 
 type Store struct {
@@ -57,11 +56,11 @@ type TaskRecord struct {
 }
 
 type ManualIntent struct {
-	Title            string   `json:"title"`
-	CreatedAt        string   `json:"created_at"`
-	UpdatedAt        string   `json:"updated_at"`
-	ManuallyComplete bool     `json:"manually_complete"`
-	AssociationKeys  []string `json:"association_keys"`
+	Title            string                     `json:"title"`
+	CreatedAt        string                     `json:"created_at"`
+	UpdatedAt        string                     `json:"updated_at"`
+	ManuallyComplete bool                       `json:"manually_complete"`
+	Associations     []protocol.TaskAssociation `json:"associations,omitempty"`
 }
 
 type TaskAckState struct {
@@ -252,10 +251,10 @@ func (s *Store) CreateManualTask(title string) (protocol.Task, error) {
 		LastSeen:  now,
 		UpdatedAt: now,
 		Intent: &ManualIntent{
-			Title:           title,
-			CreatedAt:       now,
-			UpdatedAt:       now,
-			AssociationKeys: []string{},
+			Title:        title,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+			Associations: []protocol.TaskAssociation{},
 		},
 		Snapshot: protocol.Task{Kind: "manual", Title: title, Attention: "low_priority", Reason: "manual task"},
 	}
@@ -290,9 +289,9 @@ func (s *Store) setManualCompletion(taskID int, complete bool) (protocol.Task, e
 		s.mu.Unlock()
 		return protocol.Task{}, fmt.Errorf("task %d is not a manual task", taskID)
 	}
-	if manualLifecycleIsRemote(*record, s.state.SourceRefs) {
+	if manualLifecycleUsesWorkItem(*record, s.state.SourceRefs) {
 		s.mu.Unlock()
-		return protocol.Task{}, fmt.Errorf("task %d lifecycle is controlled by an attached remote source", taskID)
+		return protocol.Task{}, fmt.Errorf("task %d lifecycle is controlled by an attached work item", taskID)
 	}
 	if complete {
 		record.State = "done"
@@ -351,12 +350,18 @@ func (s *Store) SetTaskPriority(taskID int, priority string) (protocol.Task, err
 	return task, nil
 }
 
-func (s *Store) AttachJira(taskID int, jiraKey string) (protocol.Task, error) {
-	jiraKey = strings.ToUpper(strings.TrimSpace(jiraKey))
-	if !validJiraKey(jiraKey) {
-		return protocol.Task{}, fmt.Errorf("invalid Jira issue key %q", jiraKey)
+func (s *Store) AttachAssociation(taskID int, association protocol.TaskAssociation) (protocol.Task, error) {
+	association.Source = strings.TrimSpace(association.Source)
+	association.ExternalID = strings.TrimSpace(association.ExternalID)
+	association.CanonicalKey = strings.TrimSpace(association.CanonicalKey)
+	association.LinkingKeys = mergeStringSet(nil, association.LinkingKeys)
+	if association.Source == "" || association.ExternalID == "" || association.CanonicalKey == "" {
+		return protocol.Task{}, fmt.Errorf("task association source, external ID, and canonical key are required")
 	}
-	key := "ticket:" + jiraKey
+	if association.Lifecycle != protocol.SourceRefLifecycleWorkItem && association.Lifecycle != protocol.SourceRefLifecycleWorkspace && association.Lifecycle != protocol.SourceRefLifecycleResource {
+		return protocol.Task{}, fmt.Errorf("task association has unsupported lifecycle %q", association.Lifecycle)
+	}
+
 	now := time.Now().UTC().Format(time.RFC3339)
 	s.mu.Lock()
 	record := recordByNumericID(s.state.Records, taskID)
@@ -368,16 +373,16 @@ func (s *Store) AttachJira(taskID int, jiraKey string) (protocol.Task, error) {
 		s.mu.Unlock()
 		return protocol.Task{}, fmt.Errorf("task %d is not a manual task", taskID)
 	}
-	record.CanonicalKey = key
-	record.Kind = "ticket"
+	record.CanonicalKey = association.CanonicalKey
+	record.Kind = recordKind(protocol.Task{}, association.CanonicalKey)
 	record.State = "active"
 	record.DoneAt = ""
 	record.Reason = ""
 	record.Intent.ManuallyComplete = false
-	record.Intent.AssociationKeys = mergeStringSet(record.Intent.AssociationKeys, []string{key})
+	record.Intent.Associations = mergeAssociations(record.Intent.Associations, []protocol.TaskAssociation{association})
 	record.Intent.UpdatedAt = now
 	record.UpdatedAt = now
-	s.state = mergeRecordIntoManual(s.state, record.ID, key)
+	s.state = mergeRecordIntoManual(s.state, record.ID, association.CanonicalKey)
 	updateRecordLifecycles(s.state.Records, s.state.SourceRefs, now)
 	s.items = projectTasks(s.state)
 	s.bumpRevisionLocked()
@@ -407,33 +412,15 @@ func taskByNumericID(tasks []protocol.Task, id int) (protocol.Task, bool) {
 	return protocol.Task{}, false
 }
 
-func validJiraKey(key string) bool {
-	parts := strings.Split(key, "-")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return false
-	}
-	for _, r := range parts[0] {
-		if (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
-			return false
-		}
-	}
-	for _, r := range parts[1] {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-func manualLifecycleIsRemote(record TaskRecord, refs []SourceRefRecord) bool {
+func manualLifecycleUsesWorkItem(record TaskRecord, refs []SourceRefRecord) bool {
 	if record.Intent != nil {
-		for _, key := range record.Intent.AssociationKeys {
-			if strings.HasPrefix(key, "ticket:") {
+		for _, association := range record.Intent.Associations {
+			if association.Lifecycle == protocol.SourceRefLifecycleWorkItem {
 				return true
 			}
 		}
 	}
-	return hasRemoteSource(record, refs)
+	return hasLifecycleSource(record, refs, protocol.SourceRefLifecycleWorkItem)
 }
 
 func mergeRecordIntoManual(state persistedState, manualID, canonicalKey string) persistedState {
@@ -712,7 +699,7 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 		}
 		record.SourceRefIDs = mergeStringSet(record.SourceRefIDs, sourceRefIDs(task.SourceRefs))
 		if authoritative {
-			if record.Intent != nil && taskHasRemoteSource(task) {
+			if record.Intent != nil && taskHasWorkItemSource(task) {
 				record.Intent.ManuallyComplete = false
 				record.Intent.UpdatedAt = nowText
 			}
@@ -761,7 +748,7 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 		if record.State != "active" || hasActiveSourceRef(*record, state.SourceRefs) {
 			continue
 		}
-		if hasWorktreeSource(*record, state.SourceRefs) && !hasRemoteSource(*record, state.SourceRefs) {
+		if hasKnownLifecycleSource(*record, state.SourceRefs, protocol.SourceRefLifecycleWorkspace) && !hasLifecycleSource(*record, state.SourceRefs, protocol.SourceRefLifecycleWorkItem) {
 			record.State = "done"
 			record.DoneAt = nowText
 			record.Reason = "workspace closed"
@@ -819,7 +806,7 @@ func recomputeDerivedCanonicalKeys(records []TaskRecord, refs []SourceRefRecord)
 			continue
 		}
 		active := activeSourceRefRecordsForRecord(record.ID, refs)
-		if canonicalKeyPresent(record.CanonicalKey, active) || !hasInformationalReplacement(record.ID, record.CanonicalKey, refs) {
+		if canonicalKeyPresent(record.CanonicalKey, active) || !hasAuthorityDemotion(record.ID, refs) {
 			continue
 		}
 		snapshots := make([]protocol.SourceRef, 0, len(active))
@@ -848,13 +835,15 @@ func resetDemotedRecordLifecycles(records []TaskRecord, demoted map[string]bool)
 	}
 }
 
-func hasInformationalReplacement(recordID, canonicalKey string, refs []SourceRefRecord) bool {
-	jiraKey, ok := strings.CutPrefix(canonicalKey, "ticket:")
-	if !ok {
-		return false
+func hasAuthorityDemotion(recordID string, refs []SourceRefRecord) bool {
+	informationalEntities := map[string]bool{}
+	for _, ref := range refs {
+		if ref.TaskRecordID == recordID && ref.Active && ref.Snapshot.Role == protocol.SourceRefRoleInformational && ref.Snapshot.EntityID != "" {
+			informationalEntities[ref.Snapshot.Source+"\x00"+ref.Snapshot.EntityID] = true
+		}
 	}
 	for _, ref := range refs {
-		if ref.TaskRecordID == recordID && ref.Active && ref.Snapshot.Role == protocol.SourceRefRoleInformational && strings.EqualFold(ref.Snapshot.Metadata["key"], jiraKey) {
+		if ref.TaskRecordID == recordID && !ref.Active && authoritativeRef(ref.Snapshot) && informationalEntities[ref.Snapshot.Source+"\x00"+ref.Snapshot.EntityID] {
 			return true
 		}
 	}
@@ -862,7 +851,15 @@ func hasInformationalReplacement(recordID, canonicalKey string, refs []SourceRef
 }
 
 func manualAssociationContains(record TaskRecord, key string) bool {
-	return record.Intent != nil && containsString(record.Intent.AssociationKeys, key)
+	if record.Intent == nil {
+		return false
+	}
+	for _, association := range record.Intent.Associations {
+		if association.CanonicalKey == key || containsString(association.LinkingKeys, key) {
+			return true
+		}
+	}
+	return false
 }
 
 func canonicalKeyPresent(key string, refs []SourceRefRecord) bool {
@@ -1010,7 +1007,7 @@ func updateRecordLifecycles(records []TaskRecord, sourceRefs []SourceRefRecord, 
 		}
 		allRefs := sourceRefRecordsForRecord(records[i].ID, sourceRefs)
 		fallback := records[i].Snapshot.Attention
-		if (hasDoneSignal(refs, fallback) && !hasNonDoneSignal(refs, fallback)) || remoteDoneRecordsWithOnlyLocalRefs(allRefs, fallback) {
+		if (hasDoneSignal(refs, fallback) && !hasNonDoneSignal(refs, fallback)) || workItemsDoneWithSupportingRefs(allRefs, fallback) {
 			records[i].State = "done"
 			records[i].DoneAt = firstNonEmpty(records[i].DoneAt, nowText)
 			records[i].Reason = firstDoneReason(refs, fallback)
@@ -1221,40 +1218,33 @@ func sourceReason(ref protocol.SourceRef, signal string) string {
 	}
 }
 
-func remoteDoneRecordsWithOnlyLocalRefs(refs []SourceRefRecord, fallback string) bool {
+func workItemsDoneWithSupportingRefs(refs []SourceRefRecord, fallback string) bool {
 	snapshots := make([]protocol.SourceRef, 0, len(refs))
 	for _, ref := range refs {
 		snapshots = append(snapshots, ref.Snapshot)
 	}
-	return remoteDoneWithOnlyLocalRefs(snapshots, fallback)
+	return workItemsDone(snapshots, fallback)
 }
 
-func remoteDoneWithOnlyLocalRefs(refs []protocol.SourceRef, fallback string) bool {
-	hasRemoteDone := false
-	hasLocalCleanup := false
+func workItemsDone(refs []protocol.SourceRef, fallback string) bool {
+	hasDoneWorkItem := false
+	hasSupportingRef := false
 	for _, ref := range refs {
 		if !authoritativeRef(ref) {
 			continue
 		}
-		signal := sourceSignal(ref, fallback)
-		if remoteSource(ref.Source) {
-			if signal == "done" {
-				hasRemoteDone = true
-			} else {
+		if ref.Lifecycle == protocol.SourceRefLifecycleWorkItem {
+			if sourceSignal(ref, fallback) != "done" {
 				return false
 			}
+			hasDoneWorkItem = true
 			continue
 		}
-		if signal == "done" {
-			continue
+		if ref.Lifecycle == protocol.SourceRefLifecycleWorkspace || ref.Lifecycle == protocol.SourceRefLifecycleResource {
+			hasSupportingRef = true
 		}
-		if localCleanupSource(ref) {
-			hasLocalCleanup = true
-			continue
-		}
-		return false
 	}
-	return hasRemoteDone && hasLocalCleanup
+	return hasDoneWorkItem && hasSupportingRef
 }
 
 func authoritativeRef(ref protocol.SourceRef) bool {
@@ -1270,17 +1260,8 @@ func hasAuthoritativeProtocolRef(refs []protocol.SourceRef) bool {
 	return false
 }
 
-func remoteSource(source string) bool {
-	return source == "github" || source == "jira"
-}
-
 func localCleanupSource(ref protocol.SourceRef) bool {
-	switch ref.Source {
-	case "git", "tmux", "sbx":
-		return true
-	default:
-		return false
-	}
+	return ref.Lifecycle == protocol.SourceRefLifecycleWorkspace || ref.Lifecycle == protocol.SourceRefLifecycleResource
 }
 
 func projectTasks(state persistedState) []protocol.Task {
@@ -1317,7 +1298,7 @@ func projectTasks(state persistedState) []protocol.Task {
 		if record.Intent != nil {
 			task.Title = record.Intent.Title
 		}
-		if title := jiraTitle(refs); title != "" {
+		if title := preferredTitle(refs); title != "" {
 			task.Title = title
 		}
 		if record.State == "done" {
@@ -1343,15 +1324,13 @@ func projectTasks(state persistedState) []protocol.Task {
 			task.Metadata["priority_override"] = "urgent"
 		}
 		if record.Intent != nil {
+			task.Associations = cloneAssociations(record.Intent.Associations)
 			task.Metadata["manual_task"] = "true"
 			task.Metadata["manual_title"] = record.Intent.Title
 			task.Metadata["manual_created_at"] = record.Intent.CreatedAt
 			task.Metadata["manual_updated_at"] = record.Intent.UpdatedAt
 			task.Metadata["manual_complete"] = fmt.Sprint(record.Intent.ManuallyComplete)
-			task.Metadata["manual_lifecycle_available"] = fmt.Sprint(!manualLifecycleIsRemote(record, state.SourceRefs))
-			if len(record.Intent.AssociationKeys) > 0 {
-				task.Metadata["association_keys"] = strings.Join(record.Intent.AssociationKeys, ", ")
-			}
+			task.Metadata["manual_lifecycle_available"] = fmt.Sprint(!manualLifecycleUsesWorkItem(record, state.SourceRefs))
 		}
 		if record.Ack.GeneralCommentsAckAt != "" {
 			task.Metadata["general_comments_ack_at"] = record.Ack.GeneralCommentsAckAt
@@ -1365,23 +1344,22 @@ func projectTasks(state persistedState) []protocol.Task {
 	return tasks
 }
 
-func jiraTitle(refs []protocol.SourceRef) string {
+func preferredTitle(refs []protocol.SourceRef) string {
 	title := ""
 	bestOrder := int(^uint(0) >> 1)
 	for _, ref := range refs {
-		if !authoritativeRef(ref) || ref.Source != "jira" || ref.Kind != "issue" || ref.Title == "" {
+		if !authoritativeRef(ref) || !ref.Presentation.PreferTitle || strings.TrimSpace(ref.Title) == "" {
 			continue
 		}
-		order, err := strconv.Atoi(ref.Metadata["title_order"])
-		if err != nil {
+		if ref.Presentation.TitleOrder == nil {
 			if title == "" {
 				title = ref.Title
 			}
 			continue
 		}
-		if order < bestOrder {
+		if *ref.Presentation.TitleOrder < bestOrder {
 			title = ref.Title
-			bestOrder = order
+			bestOrder = *ref.Presentation.TitleOrder
 		}
 	}
 	return title
@@ -1391,9 +1369,9 @@ func taskHasAuthoritativeSource(task protocol.Task) bool {
 	return hasAuthoritativeProtocolRef(task.SourceRefs)
 }
 
-func taskHasRemoteSource(task protocol.Task) bool {
+func taskHasWorkItemSource(task protocol.Task) bool {
 	for _, ref := range task.SourceRefs {
-		if authoritativeRef(ref) && remoteSource(ref.Source) {
+		if authoritativeRef(ref) && ref.Lifecycle == protocol.SourceRefLifecycleWorkItem {
 			return true
 		}
 	}
@@ -1402,10 +1380,20 @@ func taskHasRemoteSource(task protocol.Task) bool {
 
 func cloneTask(task protocol.Task) protocol.Task {
 	task.SourceRefs = cloneSourceRefs(task.SourceRefs)
+	task.Associations = cloneAssociations(task.Associations)
 	if task.Metadata != nil {
 		task.Metadata = cloneMetadata(task.Metadata)
 	}
 	return task
+}
+
+func cloneAssociations(associations []protocol.TaskAssociation) []protocol.TaskAssociation {
+	cloned := make([]protocol.TaskAssociation, len(associations))
+	for i, association := range associations {
+		cloned[i] = association
+		cloned[i].LinkingKeys = append([]string(nil), association.LinkingKeys...)
+	}
+	return cloned
 }
 
 func cloneSourceRefs(sourceRefs []protocol.SourceRef) []protocol.SourceRef {
@@ -1538,6 +1526,24 @@ func sourceRefIDs(sourceRefs []protocol.SourceRef) []string {
 	return ids
 }
 
+func mergeAssociations(left, right []protocol.TaskAssociation) []protocol.TaskAssociation {
+	merged := cloneAssociations(left)
+	indexes := map[string]int{}
+	for i, association := range merged {
+		indexes[association.Source+"\x00"+association.ExternalID] = i
+	}
+	for _, association := range right {
+		key := association.Source + "\x00" + association.ExternalID
+		if index, ok := indexes[key]; ok {
+			merged[index] = cloneAssociations([]protocol.TaskAssociation{association})[0]
+			continue
+		}
+		indexes[key] = len(merged)
+		merged = append(merged, cloneAssociations([]protocol.TaskAssociation{association})[0])
+	}
+	return merged
+}
+
 func mergeStringSet(left, right []string) []string {
 	seen := map[string]bool{}
 	merged := make([]string, 0, len(left)+len(right))
@@ -1568,26 +1574,9 @@ func mergeSourceRefs(left []protocol.SourceRef, right []protocol.SourceRef) []pr
 
 func sortSourceRefs(refs []protocol.SourceRef) []protocol.SourceRef {
 	sort.SliceStable(refs, func(i, j int) bool {
-		return sourceOrder(refs[i].Source) < sourceOrder(refs[j].Source)
+		return refs[i].DisplayOrder < refs[j].DisplayOrder
 	})
 	return refs
-}
-
-func sourceOrder(source string) int {
-	switch source {
-	case "jira":
-		return 0
-	case "github":
-		return 1
-	case "git":
-		return 2
-	case "tmux":
-		return 3
-	case "sbx":
-		return 4
-	default:
-		return 9
-	}
 }
 
 func attentionRank(attention string) int {
@@ -1620,33 +1609,26 @@ func hasActiveSourceRef(record TaskRecord, sourceRefs []SourceRefRecord) bool {
 	return false
 }
 
-func hasWorktreeSource(record TaskRecord, sourceRefs []SourceRefRecord) bool {
-	return hasRecordSource(record, sourceRefs, "git", "worktree")
-}
-
-func hasRemoteSource(record TaskRecord, sourceRefs []SourceRefRecord) bool {
+func hasLifecycleSource(record TaskRecord, sourceRefs []SourceRefRecord, lifecycle protocol.SourceRefLifecycle) bool {
 	ids := map[string]bool{}
 	for _, id := range record.SourceRefIDs {
 		ids[id] = true
 	}
 	for _, sourceRef := range sourceRefs {
-		if !ids[sourceRef.ID] {
-			continue
-		}
-		if sourceRef.Active && authoritativeRef(sourceRef.Snapshot) && (sourceRef.Source == "github" || sourceRef.Source == "jira") {
+		if ids[sourceRef.ID] && sourceRef.Active && authoritativeRef(sourceRef.Snapshot) && sourceRef.Snapshot.Lifecycle == lifecycle {
 			return true
 		}
 	}
 	return false
 }
 
-func hasRecordSource(record TaskRecord, sourceRefs []SourceRefRecord, source, kind string) bool {
+func hasKnownLifecycleSource(record TaskRecord, sourceRefs []SourceRefRecord, lifecycle protocol.SourceRefLifecycle) bool {
 	ids := map[string]bool{}
 	for _, id := range record.SourceRefIDs {
 		ids[id] = true
 	}
 	for _, sourceRef := range sourceRefs {
-		if ids[sourceRef.ID] && authoritativeRef(sourceRef.Snapshot) && sourceRef.Source == source && sourceRef.Kind == kind {
+		if ids[sourceRef.ID] && authoritativeRef(sourceRef.Snapshot) && sourceRef.Snapshot.Lifecycle == lifecycle {
 			return true
 		}
 	}

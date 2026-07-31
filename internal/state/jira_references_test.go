@@ -107,9 +107,11 @@ func TestAuthoritativeTitleDiscoveryTargetsAndMergesManualTask(t *testing.T) {
 func TestMultipleAuthoritativeJiraReferencesUseTitleOrderAndAllControlCompletion(t *testing.T) {
 	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
 	first := authoritativeJiraTask(1, "RAD-2", "RAD-2 First title", "Done", "done")
-	first.SourceRefs[0].Metadata["title_order"] = "0"
+	firstOrder := 0
+	first.SourceRefs[0].Presentation.TitleOrder = &firstOrder
 	second := authoritativeJiraTask(1, "RAD-1", "RAD-1 Second title", "In Progress", "in_progress")
-	second.SourceRefs[0].Metadata["title_order"] = "1"
+	secondOrder := 1
+	second.SourceRefs[0].Presentation.TitleOrder = &secondOrder
 	state := persistedState{Version: stateVersion, NextTaskID: 1, Records: []TaskRecord{{
 		ID: "task:1", NumericID: 1, Kind: "manual", State: "active", Intent: &ManualIntent{Title: "RAD-2 then RAD-1"},
 		Snapshot: protocol.Task{Kind: "manual", Title: "RAD-2 then RAD-1", Attention: "low_priority"},
@@ -153,7 +155,7 @@ func TestJiraReferenceDemotionRemovesDerivedAuthority(t *testing.T) {
 
 func informationalJiraTask(target int, key, title, status string) protocol.Task {
 	return protocol.Task{TargetTaskID: target, SourceRefs: []protocol.SourceRef{{
-		ID: "jira:mention:" + strconv.Itoa(target) + ":" + key, Source: "jira", Kind: "issue",
+		ID: "jira:mention:" + strconv.Itoa(target) + ":" + key, EntityID: "jira:issue:" + key, Source: "jira", Kind: "issue",
 		Role: protocol.SourceRefRoleInformational, Title: title, URL: "https://jira.example.test/browse/" + key,
 		Status: status, Metadata: map[string]string{"key": key, "issue_type": "Epic", "status_category": "done"},
 	}}}
@@ -161,7 +163,8 @@ func informationalJiraTask(target int, key, title, status string) protocol.Task 
 
 func authoritativeJiraTask(target int, key, title, status, signal string) protocol.Task {
 	return protocol.Task{TargetTaskID: target, Kind: "jira_issue", Title: title, Attention: signal, Reason: status, SourceRefs: []protocol.SourceRef{{
-		ID: "jira:issue:" + key, Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative,
+		ID: "jira:issue:" + key, EntityID: "jira:issue:" + key, Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative,
+		Lifecycle: protocol.SourceRefLifecycleWorkItem, Presentation: protocol.SourceRefPresentation{PreferTitle: true},
 		Title: title, URL: "https://jira.example.test/browse/" + key, Status: status, Signal: signal,
 		CanonicalKey: "jira:issue:" + key, LinkingKeys: []string{"ticket:" + key}, Metadata: map[string]string{"key": key, "issue_type": "Task"},
 	}}}

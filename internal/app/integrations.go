@@ -10,27 +10,13 @@ import (
 	"radar/internal/integration/tmux"
 )
 
-func DefaultIntegrationSet() integration.Set {
-	gitSource := git.NewSource()
-	tmuxSource := tmux.NewSource()
-	sbxSource := sbx.NewSource()
-
-	return integration.Set{
-		Sources: []integration.Source{
-			github.NewSource(),
-			jira.NewSource(),
-			datadog.NewSource(),
-			gitSource,
-			tmuxSource,
-			sbxSource,
-		},
-		Workspace:       gitSource,
-		Multiplexer:     tmuxSource,
-		ActionProviders: []integration.ActionProvider{sbxSource},
-		CleanupProviders: []integration.CleanupProvider{
-			tmuxSource,
-			sbxSource,
-			gitSource,
-		},
-	}
+func DefaultIntegrations() integration.Registry {
+	return integration.NewRegistry(
+		github.NewSource(),
+		jira.NewSource(),
+		datadog.NewSource(),
+		git.NewSource(),
+		tmux.NewSource(),
+		sbx.NewSource(),
+	)
 }

@@ -13,6 +13,7 @@ import (
 
 	"radar/internal/cleanup"
 	"radar/internal/integration"
+	"radar/internal/integration/jira"
 	"radar/internal/protocol"
 	"radar/internal/state"
 )
@@ -30,7 +31,7 @@ func TestWatchOldRevisionReturnsTasksImmediately(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil, nil, cleanup.New(nil)).handle(server)
+		New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New(nil)).handle(server)
 	}()
 	if _, err := client.Write([]byte("{\"method\":\"watch:0\"}\n")); err != nil {
 		t.Fatal(err)
@@ -64,7 +65,7 @@ func TestWatchCurrentRevisionTimesOutWithoutTasks(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil, nil, cleanup.New(nil)).handle(server)
+		New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New(nil)).handle(server)
 	}()
 	if _, err := client.Write([]byte("{\"method\":\"watch:1\"}\n")); err != nil {
 		t.Fatal(err)
@@ -92,7 +93,7 @@ func TestStructuredTaskMutations(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil, nil, cleanup.New(nil)).handle(serverConn)
+		New(store, logger, nil, nil, nil, integration.NewRegistry(jira.NewSource()), cleanup.New(nil)).handle(serverConn)
 	}()
 	encoder := json.NewEncoder(clientConn)
 	decoder := json.NewDecoder(clientConn)
@@ -102,7 +103,7 @@ func TestStructuredTaskMutations(t *testing.T) {
 		{Method: "task-reopen", TaskMutation: &protocol.TaskMutation{TaskID: 1}},
 		{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: 1, Priority: "urgent"}},
 		{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: 1, Priority: "normal"}},
-		{Method: "task-attach-jira", TaskMutation: &protocol.TaskMutation{TaskID: 1, JiraKey: "DPSCAP-123"}},
+		{Method: "task-associate", TaskMutation: &protocol.TaskMutation{TaskID: 1, AssociationSource: "jira", AssociationValue: "DPSCAP-123"}},
 	}
 	for _, request := range requests {
 		if err := encoder.Encode(request); err != nil {
@@ -118,7 +119,7 @@ func TestStructuredTaskMutations(t *testing.T) {
 	}
 	_ = clientConn.Close()
 	<-done
-	if got := store.Tasks(); len(got) != 1 || got[0].Metadata["association_keys"] != "ticket:DPSCAP-123" {
+	if got := store.Tasks(); len(got) != 1 || len(got[0].Associations) != 1 || got[0].Associations[0].CanonicalKey != "ticket:DPSCAP-123" {
 		t.Fatalf("stored tasks = %+v", got)
 	}
 }
@@ -138,7 +139,7 @@ func TestGarbageCollectionReturnsCallbackResult(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil, garbageCollect, cleanup.New(nil)).handle(serverConn)
+		New(store, logger, nil, nil, garbageCollect, integration.NewRegistry(), cleanup.New(nil)).handle(serverConn)
 	}()
 	if _, err := clientConn.Write([]byte("{\"method\":\"gc\"}\n")); err != nil {
 		t.Fatal(err)
@@ -167,7 +168,7 @@ func TestCleanupPreviewCollectsEveryLocalTarget(t *testing.T) {
 		{ID: "fake-b:ref:2", Source: "fake-b", Kind: "thing", Role: protocol.SourceRefRoleAuthoritative, Path: "/tmp/two"},
 	}}})
 
-	preview, err := New(store, logger, nil, nil, nil, cleanup.New([]integration.CleanupProvider{
+	preview, err := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{
 		fakeCleanupSource{name: "fake-a"},
 		fakeCleanupSource{name: "fake-b"},
 	})).cleanupPreview(context.Background(), 1)
@@ -190,7 +191,7 @@ func TestCleanupExecutesEveryPreviewTarget(t *testing.T) {
 		{Source: "fake", SourceRefID: "fake:ref:1", Path: "/tmp/one"},
 		{Source: "fake", SourceRefID: "fake:ref:2", Path: "/tmp/two"},
 	}}
-	result, err := New(store, logger, nil, nil, nil, cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake"}})).cleanup(context.Background(), &preview)
+	result, err := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake"}})).cleanup(context.Background(), &preview)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +227,7 @@ func TestAckResponseAppliesFilters(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil, nil, cleanup.New(nil)).handle(server)
+		New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New(nil)).handle(server)
 	}()
 
 	if _, err := client.Write([]byte("{\"method\":\"ack:2\"}\n")); err != nil {
@@ -256,7 +257,9 @@ func TestAckResponseAppliesFilters(t *testing.T) {
 
 type fakeCleanupSource struct{ name string }
 
-func (f fakeCleanupSource) Name() string { return f.name }
+func (f fakeCleanupSource) Descriptor() integration.Descriptor {
+	return integration.Descriptor{Name: f.name}
+}
 
 func (fakeCleanupSource) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
 	return integration.CollectResult{}

@@ -35,20 +35,25 @@ func LocalSources(sources []integration.Source) []integration.Source {
 
 func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Result {
 	collected := CollectSources(ctx, previous, logger, sources)
-	tasks := observedTasks(collected)
+	active := observedTasks(collected)
 	for _, source := range sources {
 		reconciler, ok := source.(integration.Reconciler)
 		if !ok {
 			continue
 		}
-		tasks = append(tasks, reconciler.ReconcileDone(ctx, integration.ReconcileRequest{
+		name := source.Descriptor().Name
+		reconciled := reconciler.Reconcile(ctx, integration.ReconcileRequest{
 			Previous: previous,
-			Active:   tasks,
-			Result:   collected.Results[source.Name()],
+			Active:   active,
+			Result:   collected.Results[name],
 			Logger:   logger,
-		})...)
+		})
+		for i := range reconciled {
+			reconciled[i] = describeObservation(source.Descriptor(), reconciled[i])
+		}
+		collected.Observations = append(collected.Observations, reconciled...)
 	}
-	return Result{Tasks: deduplicateReconciledTasks(tasks), Sources: collected.Sources, SourceNames: collected.SourceNames}
+	return Result{Tasks: deduplicateReconciledTasks(observedTasks(collected)), Sources: collected.Sources, SourceNames: collected.SourceNames}
 }
 
 func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Result {
@@ -71,9 +76,10 @@ func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.
 	filterCfg := cfg.GitHub.Filters
 
 	for _, source := range sources {
-		result.SourceNames = append(result.SourceNames, source.Name())
+		descriptor := source.Descriptor()
+		result.SourceNames = append(result.SourceNames, descriptor.Name)
 		status := integration.StatusResult{
-			Status: protocol.SourceStatus{Name: source.Name(), Status: "ok"},
+			Status: protocol.SourceStatus{Name: descriptor.Name, Status: "ok"},
 			CanRun: true,
 		}
 		if reporter, ok := source.(integration.StatusReporter); ok {
@@ -92,16 +98,26 @@ func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.
 		if collected.SourceStatus != nil {
 			status.Status = *collected.SourceStatus
 			if status.Status.Name == "" {
-				status.Status.Name = source.Name()
+				status.Status.Name = descriptor.Name
 			}
 		}
-		status.Status.SourceRefCount = sourceRefCount(source.Name(), collected)
+		for i := range collected.Observations {
+			collected.Observations[i] = describeObservation(descriptor, collected.Observations[i])
+		}
+		status.Status.SourceRefCount = sourceRefCount(descriptor.Name, collected)
 		result.Sources = append(result.Sources, status.Status)
-		result.Results[source.Name()] = collected
+		result.Results[descriptor.Name] = collected
 		result.Observations = append(result.Observations, collected.Observations...)
 	}
 
 	return result
+}
+
+func describeObservation(descriptor integration.Descriptor, observation integration.Observation) integration.Observation {
+	observation.Ref.Source = descriptor.Name
+	observation.Ref.SourceLabel = descriptor.Label
+	observation.Ref.DisplayOrder = descriptor.DisplayOrder
+	return observation
 }
 
 func observedTasks(collected Collected) []protocol.Task {
@@ -211,15 +227,7 @@ func deduplicateReconciledTasks(tasks []protocol.Task) []protocol.Task {
 
 func reconciliationIdentity(task protocol.Task) string {
 	for _, sourceRef := range task.SourceRefs {
-		if sourceRef.Role == protocol.SourceRefRoleInformational {
-			continue
-		}
-		if sourceRef.Source == "github" && sourceRef.Kind == "pull_request" && sourceRef.ID != "" {
-			return sourceRef.ID
-		}
-	}
-	for _, sourceRef := range task.SourceRefs {
-		if sourceRef.Role != protocol.SourceRefRoleInformational && sourceRef.Source == "jira" && sourceRef.Kind == "issue" && sourceRef.ID != "" {
+		if sourceRef.Role == protocol.SourceRefRoleAuthoritative && sourceRef.ID != "" {
 			return sourceRef.ID
 		}
 	}

@@ -61,12 +61,13 @@ func TestManualTaskLifecyclePersistsWithoutSources(t *testing.T) {
 	}
 }
 
-func TestAttachJiraMergesIntoManualTaskAndPreservesID(t *testing.T) {
+func TestAttachAssociationMergesIntoManualTaskAndPreservesID(t *testing.T) {
 	store := newManualTestStore(t)
 	jira := protocol.Task{
 		Kind: "jira_issue", Title: "DPSCAP-123 Implement release process", Attention: "in_progress", Reason: "In Progress",
 		SourceRefs: []protocol.SourceRef{{
-			ID: "jira:issue:DPSCAP-123", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative, Title: "DPSCAP-123 Implement release process",
+			ID: "jira:issue:DPSCAP-123", EntityID: "jira:issue:DPSCAP-123", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative,
+			Lifecycle: protocol.SourceRefLifecycleWorkItem, Presentation: protocol.SourceRefPresentation{PreferTitle: true}, Title: "DPSCAP-123 Implement release process",
 			CanonicalKey: "jira:issue:DPSCAP-123", LinkingKeys: []string{"ticket:DPSCAP-123"}, Signal: "in_progress", Status: "In Progress",
 		}},
 	}
@@ -76,7 +77,7 @@ func TestAttachJiraMergesIntoManualTaskAndPreservesID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	attached, err := store.AttachJira(manual.ID, "dpscap-123")
+	attached, err := store.AttachAssociation(manual.ID, testAssociation("DPSCAP-123"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,21 +98,28 @@ func TestAttachJiraMergesIntoManualTaskAndPreservesID(t *testing.T) {
 	}
 }
 
-func TestAttachJiraLinksLaterTicketReferences(t *testing.T) {
+func TestAttachAssociationLinksLaterTicketReferences(t *testing.T) {
 	store := newManualTestStore(t)
 	manual, err := store.CreateManualTask("Plan DPSCAP-88")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AttachJira(manual.ID, "DPSCAP-88"); err != nil {
+	if _, err := store.AttachAssociation(manual.ID, testAssociation("DPSCAP-88")); err != nil {
 		t.Fatal(err)
 	}
 	store.SetTasks([]protocol.Task{{
 		Title: "DPSCAP-88 Planned work", Attention: "low_priority", Reason: "Selected for Development",
-		SourceRefs: []protocol.SourceRef{{ID: "jira:issue:DPSCAP-88", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative, Title: "DPSCAP-88 Planned work", LinkingKeys: []string{"ticket:DPSCAP-88"}, Signal: "low_priority"}},
+		SourceRefs: []protocol.SourceRef{{ID: "jira:issue:DPSCAP-88", EntityID: "jira:issue:DPSCAP-88", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Presentation: protocol.SourceRefPresentation{PreferTitle: true}, Title: "DPSCAP-88 Planned work", LinkingKeys: []string{"ticket:DPSCAP-88"}, Signal: "low_priority"}},
 	}})
 	got := store.Tasks()
-	if len(got) != 1 || got[0].ID != manual.ID || got[0].Metadata["association_keys"] != "ticket:DPSCAP-88" {
+	if len(got) != 1 || got[0].ID != manual.ID || len(got[0].Associations) != 1 || got[0].Associations[0].CanonicalKey != "ticket:DPSCAP-88" {
 		t.Fatalf("linked tasks = %+v", got)
+	}
+}
+
+func testAssociation(key string) protocol.TaskAssociation {
+	return protocol.TaskAssociation{
+		Source: "jira", ExternalID: key, CanonicalKey: "ticket:" + key,
+		LinkingKeys: []string{"ticket:" + key}, Lifecycle: protocol.SourceRefLifecycleWorkItem,
 	}
 }

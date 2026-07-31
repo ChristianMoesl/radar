@@ -12,10 +12,11 @@ type Request struct {
 }
 
 type TaskMutation struct {
-	TaskID   int    `json:"task_id,omitempty"`
-	Title    string `json:"title,omitempty"`
-	JiraKey  string `json:"jira_key,omitempty"`
-	Priority string `json:"priority,omitempty"`
+	TaskID            int    `json:"task_id,omitempty"`
+	Title             string `json:"title,omitempty"`
+	AssociationSource string `json:"association_source,omitempty"`
+	AssociationValue  string `json:"association_value,omitempty"`
+	Priority          string `json:"priority,omitempty"`
 }
 
 // CurrentContext contains client-side hints that the daemon can use when an
@@ -88,22 +89,48 @@ const (
 	SourceRefRoleInformational SourceRefRole = "informational"
 )
 
+type SourceRefLifecycle string
+
+const (
+	SourceRefLifecycleWorkItem  SourceRefLifecycle = "work_item"
+	SourceRefLifecycleWorkspace SourceRefLifecycle = "workspace"
+	SourceRefLifecycleResource  SourceRefLifecycle = "resource"
+)
+
+type SourceRefPresentation struct {
+	PreferTitle   bool   `json:"prefer_title,omitempty"`
+	TitleOrder    *int   `json:"title_order,omitempty"`
+	WorkspaceName string `json:"workspace_name,omitempty"`
+}
+
+type TaskAssociation struct {
+	Source       string             `json:"source"`
+	ExternalID   string             `json:"external_id"`
+	CanonicalKey string             `json:"canonical_key"`
+	LinkingKeys  []string           `json:"linking_keys,omitempty"`
+	Lifecycle    SourceRefLifecycle `json:"lifecycle"`
+}
+
 type SourceRef struct {
-	ID           string            `json:"id"`
-	Source       string            `json:"source"`
-	SourceLabel  string            `json:"source_label,omitempty"`
-	Kind         string            `json:"kind"`
-	Role         SourceRefRole     `json:"role"`
-	Title        string            `json:"title,omitempty"`
-	Repo         string            `json:"repo,omitempty"`
-	URL          string            `json:"url,omitempty"`
-	Path         string            `json:"path,omitempty"`
-	Branch       string            `json:"branch,omitempty"`
-	Status       string            `json:"status,omitempty"`
-	Signal       string            `json:"signal,omitempty"`
-	CanonicalKey string            `json:"canonical_key,omitempty"`
-	LinkingKeys  []string          `json:"linking_keys,omitempty"`
-	Metadata     map[string]string `json:"metadata,omitempty"`
+	ID           string                `json:"id"`
+	Source       string                `json:"source"`
+	SourceLabel  string                `json:"source_label,omitempty"`
+	Kind         string                `json:"kind"`
+	Role         SourceRefRole         `json:"role"`
+	Title        string                `json:"title,omitempty"`
+	Repo         string                `json:"repo,omitempty"`
+	URL          string                `json:"url,omitempty"`
+	Path         string                `json:"path,omitempty"`
+	Branch       string                `json:"branch,omitempty"`
+	Status       string                `json:"status,omitempty"`
+	Signal       string                `json:"signal,omitempty"`
+	CanonicalKey string                `json:"canonical_key,omitempty"`
+	LinkingKeys  []string              `json:"linking_keys,omitempty"`
+	Metadata     map[string]string     `json:"metadata,omitempty"`
+	EntityID     string                `json:"entity_id,omitempty"`
+	Lifecycle    SourceRefLifecycle    `json:"lifecycle,omitempty"`
+	Presentation SourceRefPresentation `json:"presentation,omitempty"`
+	DisplayOrder int                   `json:"display_order,omitempty"`
 }
 
 type Task struct {
@@ -117,6 +144,7 @@ type Task struct {
 	Reason       string            `json:"reason"`
 	DoneAt       string            `json:"done_at,omitempty"`
 	SourceRefs   []SourceRef       `json:"source_refs,omitempty"`
+	Associations []TaskAssociation `json:"associations,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
 }
 

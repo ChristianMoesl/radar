@@ -16,6 +16,7 @@ type CleanupRequest struct {
 }
 
 type CleanupProvider interface {
+	Integration
 	PreviewCleanup(ctx context.Context, req CleanupPreviewRequest) ([]protocol.CleanupTarget, error)
 	Cleanup(ctx context.Context, req CleanupRequest) (protocol.CleanupTarget, error)
 }

@@ -911,7 +911,11 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 			options.Path = filepath.Join(root, form.sourceRepoName, workspace.WorktreeName(form.name))
 			options.SessionName = workspace.SessionName(form.sourceRepoName, form.name)
 		}
-		created, err := app.DefaultIntegrationSet().Workspace.Create(context.Background(), options)
+		workspaceProvider, err := app.DefaultIntegrations().Workspace()
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		created, err := workspaceProvider.Create(context.Background(), options)
 		if err != nil {
 			return actionMsg{err: err}
 		}
@@ -1480,13 +1484,13 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 	worktrees := taskrefs.Worktrees(task)
 	switch len(worktrees) {
 	case 0:
-		if ref, ok := taskrefs.GitHubPullRequest(task); ok {
-			m.loading = true
-			m.err = nil
-			m.message = creatingWorkspaceMessage
-			return m, tea.Batch(preparingWorkspaceNotification(), m.createWorkspaceForPullRequest(ref))
-		}
-		if _, ok := taskrefs.JiraIssue(task); ok {
+		if ref, ok := taskrefs.WorkspaceCandidate(task); ok {
+			if ref.Repo != "" && ref.Branch != "" {
+				m.loading = true
+				m.err = nil
+				m.message = creatingWorkspaceMessage
+				return m, tea.Batch(preparingWorkspaceNotification(), m.createWorkspaceForPullRequest(ref))
+			}
 			m.mode = "create_repo"
 			m.create = newCreateFormForTask(task)
 			m.message = ""
@@ -1513,7 +1517,11 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 
 func (m model) switchTmuxSession(target string) tea.Cmd {
 	return func() tea.Msg {
-		if err := app.DefaultIntegrationSet().Multiplexer.Switch(context.Background(), integration.SessionTarget{Name: target}); err != nil {
+		multiplexer, err := app.DefaultIntegrations().Multiplexer()
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		if err := multiplexer.Switch(context.Background(), integration.SessionTarget{Name: target}); err != nil {
 			return actionMsg{err: err}
 		}
 		return actionMsg{quit: true}
@@ -1575,7 +1583,7 @@ func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
 			return actionMsg{err: err}
 		}
 		runner := workspace.ExecRunner{}
-		name := taskrefs.PullRequestWorkspaceName(ref)
+		name := strings.TrimSpace(ref.Presentation.WorkspaceName)
 		if name == "" {
 			name, err = fetchPullRequestHeadBranch(context.Background(), runner, ref)
 			if err != nil {
@@ -1593,7 +1601,11 @@ func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
 			return actionMsg{err: err}
 		}
 		switchAfterCreate := os.Getenv("TMUX") != ""
-		created, err := app.DefaultIntegrationSet().Workspace.Create(context.Background(), integration.CreateWorkspaceRequest{
+		workspaceProvider, err := app.DefaultIntegrations().Workspace()
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		created, err := workspaceProvider.Create(context.Background(), integration.CreateWorkspaceRequest{
 			Repo:                    repo,
 			Base:                    "origin/" + name,
 			Name:                    name,
@@ -1659,7 +1671,10 @@ func fetchPullRequestHeadBranch(ctx context.Context, runner workspace.Runner, re
 	if err != nil {
 		return "", err
 	}
-	return taskrefs.PullRequestWorkspaceName(protocol.SourceRef{Branch: branch}), nil
+	branch = strings.TrimSpace(branch)
+	branch = strings.TrimPrefix(branch, "refs/remotes/")
+	branch = strings.TrimPrefix(branch, "origin/")
+	return strings.TrimPrefix(branch, "refs/heads/"), nil
 }
 
 func githubPullRequestRepo(ref protocol.SourceRef) string {
@@ -1975,8 +1990,12 @@ func taskLine(task protocol.Task, selected bool) string {
 
 func sourceRefLabel(ref protocol.SourceRef) string {
 	prefix := ""
-	if ref.Role == protocol.SourceRefRoleInformational && ref.Source == "jira" && ref.Kind == "issue" {
-		prefix = "Jira reference: "
+	if ref.Role == protocol.SourceRefRoleInformational {
+		label := strings.TrimSpace(ref.SourceLabel)
+		if label == "" {
+			label = ref.Source
+		}
+		prefix = label + " reference: "
 	}
 	for _, value := range []string{ref.ID, ref.Title, ref.Repo, ref.Path, ref.Branch} {
 		if value != "" {

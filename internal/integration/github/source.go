@@ -14,8 +14,8 @@ func NewSource() Source {
 	return Source{}
 }
 
-func (Source) Name() string {
-	return "github"
+func (Source) Descriptor() integration.Descriptor {
+	return integration.Descriptor{Name: "github", Label: "GitHub", DisplayOrder: 1}
 }
 
 func (Source) Status(ctx context.Context, logger *slog.Logger) integration.StatusResult {
@@ -49,8 +49,8 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	return result
 }
 
-func (Source) ReconcileDone(ctx context.Context, req integration.ReconcileRequest) []protocol.Task {
-	return ResolveDonePullRequests(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger)
+func (Source) Reconcile(ctx context.Context, req integration.ReconcileRequest) []integration.Observation {
+	return observationsFromTasks(ResolveDonePullRequests(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger))
 }
 
 func observationsFromTasks(tasks []protocol.Task) []integration.Observation {

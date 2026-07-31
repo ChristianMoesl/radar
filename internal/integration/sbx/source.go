@@ -18,8 +18,8 @@ func NewSource() Source {
 	return Source{}
 }
 
-func (Source) Name() string {
-	return "sbx"
+func (Source) Descriptor() integration.Descriptor {
+	return integration.Descriptor{Name: "sbx", Label: "Docker sbx", DisplayOrder: 4, CleanupOrder: 1}
 }
 
 func (Source) Local() bool {

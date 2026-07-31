@@ -15,5 +15,6 @@ type ReconcileRequest struct {
 }
 
 type Reconciler interface {
-	ReconcileDone(ctx context.Context, req ReconcileRequest) []protocol.Task
+	Integration
+	Reconcile(ctx context.Context, req ReconcileRequest) []Observation
 }

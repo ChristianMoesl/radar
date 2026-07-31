@@ -50,7 +50,7 @@ func TestCleanupSbxSandboxE2EUsesForceWithoutWorkspaceCWD(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil, nil, cleanup.New([]integration.CleanupProvider{sbx.NewSource()})).handle(serverConn)
+		New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{sbx.NewSource()})).handle(serverConn)
 	}()
 
 	encoder := json.NewEncoder(clientConn)

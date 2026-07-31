@@ -22,8 +22,8 @@ func NewSource() Source {
 	return Source{searcher: apiClient{}}
 }
 
-func (Source) Name() string {
-	return "datadog"
+func (Source) Descriptor() integration.Descriptor {
+	return integration.Descriptor{Name: "datadog", Label: "Datadog", DisplayOrder: 9}
 }
 
 func (Source) Status(_ context.Context, logger *slog.Logger) integration.StatusResult {
@@ -103,7 +103,7 @@ func (s Source) Collect(ctx context.Context, req integration.CollectRequest) int
 	return integration.CollectResult{Observations: observations, Complete: true, SourceStatus: &status}
 }
 
-func (Source) ReconcileDone(_ context.Context, req integration.ReconcileRequest) []protocol.Task {
+func (Source) Reconcile(_ context.Context, req integration.ReconcileRequest) []integration.Observation {
 	if !req.Result.Complete {
 		return nil
 	}
@@ -117,7 +117,7 @@ func (Source) ReconcileDone(_ context.Context, req integration.ReconcileRequest)
 		}
 	}
 
-	done := make([]protocol.Task, 0)
+	done := make([]integration.Observation, 0)
 	seen := map[string]bool{}
 	for _, task := range req.Previous {
 		if task.Attention == "done" {
@@ -130,18 +130,8 @@ func (Source) ReconcileDone(_ context.Context, req integration.ReconcileRequest)
 			seen[ref.ID] = true
 			ref.Signal = string(integration.SignalDone)
 			ref.Status = "Recovered"
-			title := ref.Title
-			if title == "" {
-				title = task.Title
-			}
-			done = append(done, protocol.Task{
-				Kind:       "datadog_monitor",
-				Title:      title,
-				URL:        ref.URL,
-				Attention:  string(integration.SignalDone),
-				Reason:     "Datadog monitor recovered",
-				DoneAt:     time.Now().UTC().Format(time.RFC3339),
-				SourceRefs: []protocol.SourceRef{ref},
+			done = append(done, integration.Observation{
+				Ref: ref, Signal: integration.SignalDone, Reason: "Datadog monitor recovered",
 			})
 		}
 	}
@@ -184,6 +174,8 @@ func observationFromMonitor(cfg credentials, monitor monitor) (integration.Obser
 			SourceLabel:  "Datadog",
 			Kind:         "monitor",
 			Role:         protocol.SourceRefRoleAuthoritative,
+			EntityID:     id,
+			Lifecycle:    protocol.SourceRefLifecycleWorkItem,
 			Title:        title,
 			URL:          monitorURL,
 			Status:       monitor.Status,

@@ -29,21 +29,23 @@ func TestLocalSourcesComeFromSourceDeclarations(t *testing.T) {
 func sourceNames(sources []integration.Source) []string {
 	names := make([]string, 0, len(sources))
 	for _, source := range sources {
-		names = append(names, source.Name())
+		names = append(names, source.Descriptor().Name)
 	}
 	return names
 }
 
 type fakeSource struct{ name string }
 
-func (s fakeSource) Name() string { return s.name }
+func (s fakeSource) Descriptor() integration.Descriptor { return integration.Descriptor{Name: s.name} }
 func (s fakeSource) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
 	return integration.CollectResult{}
 }
 
 type fakeLocalSource struct{ name string }
 
-func (s fakeLocalSource) Name() string { return s.name }
+func (s fakeLocalSource) Descriptor() integration.Descriptor {
+	return integration.Descriptor{Name: s.name}
+}
 func (s fakeLocalSource) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
 	return integration.CollectResult{}
 }
@@ -67,7 +69,9 @@ func TestCollectReturnsRawTasksWithoutDisplayFilters(t *testing.T) {
 
 type fakeObservedSource struct{}
 
-func (fakeObservedSource) Name() string { return "fake" }
+func (fakeObservedSource) Descriptor() integration.Descriptor {
+	return integration.Descriptor{Name: "fake"}
+}
 func (fakeObservedSource) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
 	return integration.CollectResult{Observations: []integration.Observation{{
 		Ref:    protocol.SourceRef{ID: "github:pr:org/noisy:1", Source: "github", Kind: "pull_request", Repo: "org/noisy", Title: "Noisy PR"},
@@ -82,7 +86,7 @@ func TestDeduplicateReconciledTasksKeepsOneTaskPerGitHubPullRequest(t *testing.T
 			Title:     "Ship panel details",
 			Attention: "done",
 			SourceRefs: []protocol.SourceRef{
-				{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request"},
+				{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative},
 				{ID: "git:worktree:/repo/feature", Source: "git", Kind: "worktree"},
 			},
 		},
@@ -90,7 +94,7 @@ func TestDeduplicateReconciledTasksKeepsOneTaskPerGitHubPullRequest(t *testing.T
 			Title:     "Ship panel details",
 			Attention: "done",
 			SourceRefs: []protocol.SourceRef{
-				{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request"},
+				{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative},
 				{ID: "jira:issue:CAP-7", Source: "jira", Kind: "issue"},
 			},
 		},
@@ -107,8 +111,8 @@ func TestDeduplicateReconciledTasksKeepsOneTaskPerGitHubPullRequest(t *testing.T
 
 func TestDeduplicateReconciledTasksKeepsDifferentGitHubPullRequestsOnSameIssue(t *testing.T) {
 	tasks := []protocol.Task{
-		{Title: "first", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request"}, {ID: "jira:issue:CAP-7", Source: "jira", Kind: "issue"}}},
-		{Title: "second", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:8", Source: "github", Kind: "pull_request"}, {ID: "jira:issue:CAP-7", Source: "jira", Kind: "issue"}}},
+		{Title: "first", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative}, {ID: "jira:issue:CAP-7", Source: "jira", Kind: "issue"}}},
+		{Title: "second", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:8", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative}, {ID: "jira:issue:CAP-7", Source: "jira", Kind: "issue"}}},
 	}
 
 	got := deduplicateReconciledTasks(tasks)

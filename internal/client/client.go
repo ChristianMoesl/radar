@@ -25,8 +25,10 @@ func ReopenTask(socketPath string, taskID int) (protocol.Response, error) {
 	return CallRequest(socketPath, protocol.Request{Method: "task-reopen", TaskMutation: &protocol.TaskMutation{TaskID: taskID}})
 }
 
-func AttachJira(socketPath string, taskID int, jiraKey string) (protocol.Response, error) {
-	return CallRequest(socketPath, protocol.Request{Method: "task-attach-jira", TaskMutation: &protocol.TaskMutation{TaskID: taskID, JiraKey: jiraKey}})
+func AssociateTask(socketPath string, taskID int, source string, value string) (protocol.Response, error) {
+	return CallRequest(socketPath, protocol.Request{Method: "task-associate", TaskMutation: &protocol.TaskMutation{
+		TaskID: taskID, AssociationSource: source, AssociationValue: value,
+	}})
 }
 
 func SetTaskPriority(socketPath string, taskID int, priority string) (protocol.Response, error) {

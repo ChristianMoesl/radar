@@ -516,11 +516,12 @@ func TestActivateSelectedStartsWorkspaceCreateForJiraOnlyTask(t *testing.T) {
 	m := model{tasks: []protocol.Task{{
 		Title: "ABC-123 Build the thing",
 		SourceRefs: []protocol.SourceRef{{
-			ID:     "jira:issue:ABC-123",
-			Source: "jira",
-			Kind:   "issue",
-			Role:   protocol.SourceRefRoleAuthoritative,
-			Title:  "ABC-123 Build the thing",
+			ID:           "jira:issue:ABC-123",
+			Source:       "jira",
+			Kind:         "issue",
+			Role:         protocol.SourceRefRoleAuthoritative,
+			Title:        "ABC-123 Build the thing",
+			Presentation: protocol.SourceRefPresentation{WorkspaceName: "ABC-123 Build the thing"},
 		}},
 	}}}
 
@@ -542,11 +543,11 @@ func TestActivateSelectedStartsWorkspaceCreateForJiraOnlyTask(t *testing.T) {
 
 func TestWorkspaceNameForTaskFallsBackToJiraKey(t *testing.T) {
 	task := protocol.Task{SourceRefs: []protocol.SourceRef{{
-		ID:       "jira:issue:ABC-123",
-		Source:   "jira",
-		Kind:     "issue",
-		Role:     protocol.SourceRefRoleAuthoritative,
-		Metadata: map[string]string{"key": "ABC-123"},
+		ID:           "jira:issue:ABC-123",
+		Source:       "jira",
+		Kind:         "issue",
+		Role:         protocol.SourceRefRoleAuthoritative,
+		Presentation: protocol.SourceRefPresentation{WorkspaceName: "ABC-123"},
 	}}}
 
 	if got := workspaceNameForTask(task); got != "ABC-123" {
@@ -556,10 +557,12 @@ func TestWorkspaceNameForTaskFallsBackToJiraKey(t *testing.T) {
 
 func TestWorkspaceNameForTaskUsesPullRequestOriginBranchWithoutOriginPrefix(t *testing.T) {
 	task := protocol.Task{Title: "Review", SourceRefs: []protocol.SourceRef{{
-		ID:     "github:pr:owner/repo:7",
-		Source: "github",
-		Kind:   "pull_request",
-		Branch: "origin/feature/build-thing",
+		ID:           "github:pr:owner/repo:7",
+		Source:       "github",
+		Kind:         "pull_request",
+		Role:         protocol.SourceRefRoleAuthoritative,
+		Branch:       "origin/feature/build-thing",
+		Presentation: protocol.SourceRefPresentation{WorkspaceName: "feature/build-thing"},
 	}}}
 
 	if got := workspaceNameForTask(task); got != "feature/build-thing" {
@@ -571,11 +574,13 @@ func TestActivateSelectedCreatesWorkspaceForPullRequestOnlyTask(t *testing.T) {
 	m := model{tasks: []protocol.Task{{
 		Title: "Review",
 		SourceRefs: []protocol.SourceRef{{
-			ID:     "github:pr:owner/repo:7",
-			Source: "github",
-			Kind:   "pull_request",
-			Repo:   "owner/repo",
-			Branch: "feature/build-thing",
+			ID:           "github:pr:owner/repo:7",
+			Source:       "github",
+			Kind:         "pull_request",
+			Role:         protocol.SourceRefRoleAuthoritative,
+			Repo:         "owner/repo",
+			Branch:       "feature/build-thing",
+			Presentation: protocol.SourceRefPresentation{WorkspaceName: "feature/build-thing"},
 		}},
 	}}}
 

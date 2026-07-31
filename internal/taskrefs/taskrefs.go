@@ -12,21 +12,8 @@ import (
 )
 
 func WorkspaceName(task protocol.Task) string {
-	if ref, ok := JiraIssue(task); ok {
-		if title := strings.TrimSpace(ref.Title); title != "" {
-			return title
-		}
-		if key := MetadataValue(ref.Metadata, "key"); key != "" {
-			return key
-		}
-		if key, ok := strings.CutPrefix(ref.ID, "jira:issue:"); ok {
-			return key
-		}
-	}
-	if ref, ok := GitHubPullRequest(task); ok {
-		if name := PullRequestWorkspaceName(ref); name != "" {
-			return name
-		}
+	if ref, ok := WorkspaceCandidate(task); ok {
+		return strings.TrimSpace(ref.Presentation.WorkspaceName)
 	}
 	return strings.TrimSpace(task.Title)
 }
@@ -58,30 +45,20 @@ func Worktrees(task protocol.Task) []protocol.SourceRef {
 	return refs
 }
 
-func JiraIssue(task protocol.Task) (protocol.SourceRef, bool) {
+func WorkspaceCandidate(task protocol.Task) (protocol.SourceRef, bool) {
+	var fallback protocol.SourceRef
 	for _, ref := range task.SourceRefs {
-		if ref.Role == protocol.SourceRefRoleAuthoritative && ref.Source == "jira" && ref.Kind == "issue" {
+		if ref.Role != protocol.SourceRefRoleAuthoritative || strings.TrimSpace(ref.Presentation.WorkspaceName) == "" {
+			continue
+		}
+		if ref.Repo != "" && ref.Branch != "" {
 			return ref, true
 		}
-	}
-	return protocol.SourceRef{}, false
-}
-
-func GitHubPullRequest(task protocol.Task) (protocol.SourceRef, bool) {
-	for _, ref := range task.SourceRefs {
-		if ref.Source == "github" && ref.Kind == "pull_request" {
-			return ref, true
+		if fallback.ID == "" {
+			fallback = ref
 		}
 	}
-	return protocol.SourceRef{}, false
-}
-
-func PullRequestWorkspaceName(ref protocol.SourceRef) string {
-	branch := strings.TrimSpace(ref.Branch)
-	branch = strings.TrimPrefix(branch, "refs/remotes/")
-	branch = strings.TrimPrefix(branch, "origin/")
-	branch = strings.TrimPrefix(branch, "refs/heads/")
-	return branch
+	return fallback, fallback.ID != ""
 }
 
 func DetectCurrentContext() protocol.CurrentContext {

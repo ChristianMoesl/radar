@@ -28,11 +28,22 @@ func AssertValidSourceRefs(t *testing.T, source string, refs []protocol.SourceRe
 		}
 		seen[ref.ID] = true
 		if ref.Role == protocol.SourceRefRoleInformational {
-			if ref.CanonicalKey != "" || len(ref.LinkingKeys) != 0 || ref.Signal != "" {
+			if ref.CanonicalKey != "" || len(ref.LinkingKeys) != 0 || ref.Signal != "" || ref.Lifecycle != "" {
 				t.Fatalf("informational source ref exposes authority: %+v", ref)
 			}
-		} else if ref.CanonicalKey == "" && len(ref.LinkingKeys) == 0 {
-			t.Fatalf("authoritative source ref has neither canonical key nor linking keys: %+v", ref)
+			if ref.EntityID == "" {
+				t.Fatalf("informational source ref has no external entity identity: %+v", ref)
+			}
+		} else {
+			if ref.CanonicalKey == "" && len(ref.LinkingKeys) == 0 {
+				t.Fatalf("authoritative source ref has neither canonical key nor linking keys: %+v", ref)
+			}
+			if ref.EntityID == "" {
+				t.Fatalf("authoritative source ref has no external entity identity: %+v", ref)
+			}
+			if ref.Lifecycle != protocol.SourceRefLifecycleWorkItem && ref.Lifecycle != protocol.SourceRefLifecycleWorkspace && ref.Lifecycle != protocol.SourceRefLifecycleResource {
+				t.Fatalf("authoritative source ref has invalid lifecycle %q: %+v", ref.Lifecycle, ref)
+			}
 		}
 		for _, key := range ref.LinkingKeys {
 			if !strings.Contains(key, ":") {

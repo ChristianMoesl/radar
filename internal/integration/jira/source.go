@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"strconv"
 	"strings"
 
 	"radar/internal/config"
@@ -29,8 +28,8 @@ func NewSource() Source {
 	return Source{}
 }
 
-func (Source) Name() string {
-	return "jira"
+func (Source) Descriptor() integration.Descriptor {
+	return integration.Descriptor{Name: "jira", Label: "Jira", DisplayOrder: 0}
 }
 
 func (Source) Status(ctx context.Context, logger *slog.Logger) integration.StatusResult {
@@ -227,11 +226,12 @@ func titleFacts(task protocol.Task) []string {
 
 func explicitAssociationKeys(task protocol.Task) []string {
 	keys := make([]string, 0)
-	for _, value := range strings.Split(task.Metadata["association_keys"], ",") {
-		value = strings.TrimSpace(value)
-		key, ok := strings.CutPrefix(value, "ticket:")
-		if ok && normalizeIssueKey(key) != "" {
-			keys = append(keys, normalizeIssueKey(key))
+	for _, association := range task.Associations {
+		if association.Source != "jira" {
+			continue
+		}
+		if key := normalizeIssueKey(association.ExternalID); key != "" {
+			keys = append(keys, key)
 		}
 	}
 	return keys
@@ -269,7 +269,8 @@ func authoritativeObservation(cfg config.JiraConfig, jiraConfig Config, value is
 	ref := sourceRefFromIssue(jiraConfig, value)
 	ref.Role = protocol.SourceRefRoleAuthoritative
 	if mention.TaskID != 0 {
-		ref.Metadata["title_order"] = strconv.Itoa(mention.Order)
+		order := mention.Order
+		ref.Presentation.TitleOrder = &order
 	}
 	signal := integration.WorkSignal(cfg.SignalForStatus(ref.Status))
 	if strings.EqualFold(ref.Metadata["status_category"], "done") {
@@ -281,14 +282,13 @@ func authoritativeObservation(cfg config.JiraConfig, jiraConfig Config, value is
 
 func informationalObservation(jiraConfig Config, value issue, mention issueMention) integration.Observation {
 	ref := sourceRefFromIssue(jiraConfig, value)
-	canonicalID := ref.ID
 	ref.ID = fmt.Sprintf("jira:mention:%d:%s", mention.TaskID, value.Key)
 	ref.Role = protocol.SourceRefRoleInformational
 	ref.Signal = ""
 	ref.CanonicalKey = ""
 	ref.LinkingKeys = nil
-	ref.Metadata["canonical_id"] = canonicalID
-	ref.Metadata["title_order"] = strconv.Itoa(mention.Order)
+	ref.Lifecycle = ""
+	ref.Presentation = protocol.SourceRefPresentation{}
 	return integration.Observation{Ref: ref, TargetTaskID: mention.TaskID}
 }
 
@@ -301,7 +301,7 @@ func previousJiraObservations(tasks []protocol.Task, failedKeys map[string]bool,
 				continue
 			}
 			key := normalizeIssueKey(ref.Metadata["key"])
-			preserveAssigned := keepAllAuthoritative && ref.Role == protocol.SourceRefRoleAuthoritative && ref.Metadata["title_order"] == ""
+			preserveAssigned := keepAllAuthoritative && ref.Role == protocol.SourceRefRoleAuthoritative && ref.Presentation.TitleOrder == nil
 			if !failedKeys[key] && !preserveAssigned {
 				continue
 			}
@@ -330,6 +330,21 @@ func deduplicateObservations(observations []integration.Observation) []integrati
 	return kept
 }
 
+func (Source) NormalizeAssociation(_ context.Context, value string) (protocol.TaskAssociation, error) {
+	key := normalizeIssueKey(value)
+	if key == "" {
+		return protocol.TaskAssociation{}, fmt.Errorf("invalid Jira issue key %q", strings.TrimSpace(value))
+	}
+	ticketKey := "ticket:" + key
+	return protocol.TaskAssociation{
+		Source:       "jira",
+		ExternalID:   key,
+		CanonicalKey: ticketKey,
+		LinkingKeys:  []string{ticketKey},
+		Lifecycle:    protocol.SourceRefLifecycleWorkItem,
+	}, nil
+}
+
 func normalizeIssueKey(key string) string {
 	key = strings.ToUpper(strings.TrimSpace(key))
 	parts := strings.Split(key, "-")
@@ -356,11 +371,24 @@ func issueTypeName(value issue) string {
 	return strings.TrimSpace(value.Fields.IssueType.Name)
 }
 
-func (Source) ReconcileDone(ctx context.Context, req integration.ReconcileRequest) []protocol.Task {
-	return ResolveDoneIssues(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger)
+func (Source) Reconcile(ctx context.Context, req integration.ReconcileRequest) []integration.Observation {
+	tasks := ResolveDoneIssues(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger)
+	observations := make([]integration.Observation, 0, len(tasks))
+	for _, task := range tasks {
+		if len(task.SourceRefs) == 0 {
+			continue
+		}
+		ref := task.SourceRefs[0]
+		ref.Signal = task.Attention
+		observations = append(observations, integration.Observation{
+			Ref: ref, Signal: integration.WorkSignal(task.Attention), Reason: task.Reason,
+		})
+	}
+	return observations
 }
 
 var _ integration.Source = Source{}
 var _ integration.StatusReporter = Source{}
 var _ integration.Reconciler = Source{}
+var _ integration.AssociationProvider = Source{}
 var _ integration.WorkTracker = Source{}

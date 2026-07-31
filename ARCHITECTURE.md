@@ -75,7 +75,10 @@ SourceRef(s) + TaskRecord intent => Task
 - `SourceRef.LinkingKeys`: source-owned join keys that tell Radar which authoritative refs describe the same work. Examples: `ticket:ABC-544`, `workspace:/repo/worktree`, `branch:owner/repo:feature-ABC-544`, or `github:pr:owner/repo:123`. These keys are derived inside each source provider, not in the state store. Informational refs expose no linking keys.
 - `SourceRef.CanonicalKey`: the source-owned fallback identity for a standalone ref when no ticket key exists. Examples: a Git worktree uses `workspace:<path>`, while a GitHub PR uses its PR source-ref ID.
 - `SourceRef.URL`: a generic openable URL. If a source ref has a URL, frontends may offer an open-link action without source-specific URL inspection.
-- `SourceRef.SourceLabel`: the source-owned display label for frontend link/source presentation, such as `GitHub` or `Jira`.
+- `SourceRef.SourceLabel` and `SourceRef.DisplayOrder`: generic presentation values stamped from the integration descriptor, so frontends and state never need source-name switches.
+- `SourceRef.EntityID`: an opaque source-owned external entity identity used to correlate authoritative and informational representations without contributing task identity or linking.
+- `SourceRef.Lifecycle`: classifies an authoritative ref as a remote `work_item`, local `workspace`, or supporting `resource`. Core lifecycle rules operate on these generic roles rather than lists of integration names.
+- `SourceRef.Presentation`: source-compiled title preference/order and workspace-name hints consumed generically by state and frontends.
 - `TaskRecord`: persistent Radar-owned tracking state. It gives continuity across refreshes and owns stable numeric task IDs, optional Radar-owned manual intent, lifecycle state, an optional urgent priority override, association keys, known source ref IDs, first/last seen timestamps, and acknowledgements. A record with manual intent remains projectable without source refs.
 - `Task`: the current projected user-facing task served to the CLI/TUI. It has a Radar-owned integer ID and is computed from current source refs plus the matching task record.
 
@@ -94,7 +97,7 @@ The local state file persists explicit `TaskRecord`s and `SourceRefRecord`s. `Ta
 
 Radar groups authoritative work ticket-first: if any authoritative source ref or explicit manual association exposes a `ticket:<KEY>` linking key, that ticket is the canonical work item. Without a ticket, authoritative source-provided canonical keys decide the standalone identity; for example, local workspaces and sbx sandboxes use `workspace:<path>`, GitHub PRs use `github:pr:<repo>:<number>`, and Jira issues use `jira:issue:<KEY>`. Informational refs never provide canonical or linking identity. Each source ref is assigned to one task record at a time, so local and remote refs do not duplicate across multiple projected tasks.
 
-Source providers own all source-specific identity and linking rules. Adding a new source should not require editing `internal/state` to teach it about the source's IDs, branch formats, URLs, or ticket extraction. The source must populate `SourceRef.ID` and `SourceRef.Role`; authoritative standalone/linkable refs also populate `SourceRef.CanonicalKey` and `SourceRef.LinkingKeys`. State persists refs, matches targeted observations first, links only authoritative refs, chooses ticket keys first, and projects tasks.
+Source providers own all source-specific identity, linking, lifecycle, and presentation rules. Adding a new source should not require editing `internal/state` to teach it about the source's name, IDs, branch formats, URLs, ticket extraction, title precedence, or remote/local behavior. The source must populate `SourceRef.ID`, `SourceRef.EntityID`, and `SourceRef.Role`; authoritative refs also declare `SourceRef.Lifecycle`, and standalone/linkable refs populate `SourceRef.CanonicalKey` and `SourceRef.LinkingKeys`. State persists refs, matches targeted observations first, links only authoritative refs, chooses ticket keys first, and projects tasks.
 
 ## Task lifecycle
 
@@ -190,7 +193,7 @@ Docker sbx integration collects sandboxes with `sbx ls --json`. Radar attaches s
 
 ## Integration development
 
-New integrations are source-compiled packages under `internal/integration/<name>` and registered explicitly in `internal/app.DefaultIntegrationSet`. See [docs/integrations.md](docs/integrations.md) for the capability checklist, SourceRef contract, and Zellij/GitLab examples.
+New integrations are source-compiled packages under `internal/integration/<name>` and registered once in `internal/app.DefaultIntegrations`. The registry discovers collection, reconciliation, association, action, cleanup, workspace, and multiplexer capabilities through interfaces. See [docs/integrations.md](docs/integrations.md) for the capability checklist, SourceRef contract, and Zellij/GitLab examples.
 
 ## Workspaces
 

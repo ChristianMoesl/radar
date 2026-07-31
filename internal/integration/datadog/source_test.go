@@ -145,12 +145,12 @@ func TestReconcileMarksDisappearedMonitorDone(t *testing.T) {
 		}},
 	}}
 
-	done := NewSource().ReconcileDone(context.Background(), integration.ReconcileRequest{Previous: previous, Result: integration.CollectResult{Complete: true}})
+	done := NewSource().Reconcile(context.Background(), integration.ReconcileRequest{Previous: previous, Result: integration.CollectResult{Complete: true}})
 	if len(done) != 1 {
 		t.Fatalf("done = %+v", done)
 	}
-	if done[0].Attention != "done" || done[0].Reason != "Datadog monitor recovered" || done[0].SourceRefs[0].Status != "Recovered" {
-		t.Fatalf("done task = %+v", done[0])
+	if done[0].Signal != integration.SignalDone || done[0].Reason != "Datadog monitor recovered" || done[0].Ref.Status != "Recovered" {
+		t.Fatalf("done observation = %+v", done[0])
 	}
 }
 

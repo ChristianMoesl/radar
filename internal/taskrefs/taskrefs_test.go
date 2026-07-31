@@ -6,16 +6,27 @@ import (
 	"radar/internal/protocol"
 )
 
-func TestJiraIssueIgnoresInformationalReference(t *testing.T) {
+func TestWorkspaceCandidateIgnoresInformationalReference(t *testing.T) {
 	task := protocol.Task{SourceRefs: []protocol.SourceRef{{
 		ID: "jira:mention:1:RAD-7", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleInformational,
 		Title: "RAD-7 Informational",
 	}}}
-	if _, ok := JiraIssue(task); ok {
-		t.Fatal("JiraIssue() returned informational reference")
+	if _, ok := WorkspaceCandidate(task); ok {
+		t.Fatal("WorkspaceCandidate() returned informational reference")
 	}
 	if got := WorkspaceName(protocol.Task{Title: "Manual title", SourceRefs: task.SourceRefs}); got != "Manual title" {
 		t.Fatalf("WorkspaceName() = %q, want manual title", got)
+	}
+}
+
+func TestWorkspaceCandidatePrefersReadyCodeWorkspace(t *testing.T) {
+	task := protocol.Task{SourceRefs: []protocol.SourceRef{
+		{ID: "tracker:issue:1", Role: protocol.SourceRefRoleAuthoritative, Presentation: protocol.SourceRefPresentation{WorkspaceName: "Issue one"}},
+		{ID: "review:change:2", Role: protocol.SourceRefRoleAuthoritative, Repo: "owner/repo", Branch: "feature", Presentation: protocol.SourceRefPresentation{WorkspaceName: "feature"}},
+	}}
+	ref, ok := WorkspaceCandidate(task)
+	if !ok || ref.ID != "review:change:2" {
+		t.Fatalf("WorkspaceCandidate() = %+v, %v", ref, ok)
 	}
 }
 

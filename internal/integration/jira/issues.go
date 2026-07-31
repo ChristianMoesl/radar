@@ -365,11 +365,17 @@ func sourceRefFromIssue(cfg Config, issue issue) protocol.SourceRef {
 	}
 
 	return protocol.SourceRef{
-		ID:           "jira:issue:" + issue.Key,
-		Source:       "jira",
-		SourceLabel:  "Jira",
-		Kind:         "issue",
-		Role:         protocol.SourceRefRoleAuthoritative,
+		ID:          "jira:issue:" + issue.Key,
+		Source:      "jira",
+		SourceLabel: "Jira",
+		Kind:        "issue",
+		Role:        protocol.SourceRefRoleAuthoritative,
+		EntityID:    "jira:issue:" + issue.Key,
+		Lifecycle:   protocol.SourceRefLifecycleWorkItem,
+		Presentation: protocol.SourceRefPresentation{
+			PreferTitle:   true,
+			WorkspaceName: issue.Key + " " + issue.Fields.Summary,
+		},
 		Title:        issue.Key + " " + issue.Fields.Summary,
 		URL:          jiraIssueURL(cfg.BaseURL, issue.Key),
 		Status:       status,

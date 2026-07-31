@@ -616,6 +616,9 @@ func githubPullRequestRef(id string, repo string, number int, title string, url 
 		SourceLabel:  "GitHub",
 		Kind:         "pull_request",
 		Role:         protocol.SourceRefRoleAuthoritative,
+		EntityID:     id,
+		Lifecycle:    protocol.SourceRefLifecycleWorkItem,
+		Presentation: protocol.SourceRefPresentation{WorkspaceName: pullRequestWorkspaceName(branch)},
 		Title:        title,
 		Repo:         repo,
 		URL:          url,
@@ -638,12 +641,15 @@ func githubRepoKey(repo string) string {
 	return repo
 }
 
-func githubBranchKey(branch string) string {
+func pullRequestWorkspaceName(branch string) string {
 	branch = strings.TrimSpace(branch)
 	branch = strings.TrimPrefix(branch, "refs/remotes/")
 	branch = strings.TrimPrefix(branch, "origin/")
-	branch = strings.TrimPrefix(branch, "refs/heads/")
-	return strings.ReplaceAll(branch, "/", "-")
+	return strings.TrimPrefix(branch, "refs/heads/")
+}
+
+func githubBranchKey(branch string) string {
+	return strings.ReplaceAll(pullRequestWorkspaceName(branch), "/", "-")
 }
 
 func githubPullRequestSourceRefs(task protocol.Task) []protocol.SourceRef {

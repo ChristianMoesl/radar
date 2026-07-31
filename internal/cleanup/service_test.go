@@ -19,7 +19,9 @@ type fakeProvider struct {
 	failPath string
 }
 
-func (f fakeProvider) Name() string { return f.name }
+func (f fakeProvider) Descriptor() integration.Descriptor {
+	return integration.Descriptor{Name: f.name}
+}
 func (fakeProvider) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
 	return integration.CollectResult{}
 }

@@ -149,7 +149,7 @@ func TestProjectTasksHidesInactiveLocalRefsFromDoneTasks(t *testing.T) {
 	remote := testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")
 	worktree := testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "CAP-7-ship")
 	session := testTmuxSessionRef("tmux:session:$7", "/work/CAP-7-ship")
-	sandbox := protocol.SourceRef{ID: "sbx:sandbox:CAP-7-ship", Source: "sbx", Kind: "sandbox", Role: protocol.SourceRefRoleAuthoritative, Path: "/work/CAP-7-ship"}
+	sandbox := protocol.SourceRef{ID: "sbx:sandbox:CAP-7-ship", EntityID: "sbx:sandbox:CAP-7-ship", Source: "sbx", Kind: "sandbox", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Path: "/work/CAP-7-ship"}
 	state := persistedState{
 		Version: stateVersion,
 		Records: []TaskRecord{{
@@ -345,6 +345,8 @@ func testGitHubPRRef(id string, repo string, branch string) protocol.SourceRef {
 		Source:       "github",
 		Kind:         "pull_request",
 		Role:         protocol.SourceRefRoleAuthoritative,
+		EntityID:     id,
+		Lifecycle:    protocol.SourceRefLifecycleWorkItem,
 		Repo:         repo,
 		Branch:       branch,
 		CanonicalKey: id,
@@ -359,6 +361,8 @@ func testGitWorktreeRef(id string, path string, repo string, branch string) prot
 		Source:       "git",
 		Kind:         "worktree",
 		Role:         protocol.SourceRefRoleAuthoritative,
+		EntityID:     id,
+		Lifecycle:    protocol.SourceRefLifecycleWorkspace,
 		Repo:         repo,
 		Path:         path,
 		Branch:       branch,
@@ -381,6 +385,8 @@ func testTmuxSessionRef(id string, path string) protocol.SourceRef {
 		Source:      "tmux",
 		Kind:        "session",
 		Role:        protocol.SourceRefRoleAuthoritative,
+		EntityID:    id,
+		Lifecycle:   protocol.SourceRefLifecycleResource,
 		Path:        path,
 		LinkingKeys: linking.Keys(append(linking.TicketKeys(id, path), linking.WorkspaceKey(path))...),
 	}
@@ -393,6 +399,9 @@ func testJiraIssueRef(id string, title string) protocol.SourceRef {
 		Source:       "jira",
 		Kind:         "issue",
 		Role:         protocol.SourceRefRoleAuthoritative,
+		EntityID:     id,
+		Lifecycle:    protocol.SourceRefLifecycleWorkItem,
+		Presentation: protocol.SourceRefPresentation{PreferTitle: true},
 		Title:        title,
 		CanonicalKey: id,
 		LinkingKeys:  linking.Keys("ticket:" + key),

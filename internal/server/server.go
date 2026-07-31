@@ -15,6 +15,7 @@ import (
 	"radar/internal/cleanup"
 	"radar/internal/config"
 	"radar/internal/filters"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/socket"
 	"radar/internal/state"
@@ -29,16 +30,18 @@ type Server struct {
 	refresh        func()
 	reset          func() error
 	garbageCollect func() (protocol.GarbageCollectionResult, error)
+	integrations   integration.Registry
 	cleanupService cleanup.Service
 }
 
-func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() error, garbageCollect func() (protocol.GarbageCollectionResult, error), cleanupService cleanup.Service) *Server {
+func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() error, garbageCollect func() (protocol.GarbageCollectionResult, error), integrations integration.Registry, cleanupService cleanup.Service) *Server {
 	return &Server{
 		store:          store,
 		logger:         logger,
 		refresh:        refresh,
 		reset:          reset,
 		garbageCollect: garbageCollect,
+		integrations:   integrations,
 		cleanupService: cleanupService,
 	}
 }
@@ -140,7 +143,7 @@ func (s *Server) handle(conn net.Conn) {
 				}
 			}
 			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), GarbageCollectionResult: &result})
-		case "task-create", "task-done", "task-reopen", "task-attach-jira", "task-priority":
+		case "task-create", "task-done", "task-reopen", "task-associate", "task-priority":
 			task, err := s.mutateTask(req.Method, req.TaskMutation)
 			if err != nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
@@ -183,8 +186,16 @@ func (s *Server) mutateTask(method string, mutation *protocol.TaskMutation) (pro
 		return s.store.CompleteManualTask(mutation.TaskID)
 	case "task-reopen":
 		return s.store.ReopenManualTask(mutation.TaskID)
-	case "task-attach-jira":
-		return s.store.AttachJira(mutation.TaskID, mutation.JiraKey)
+	case "task-associate":
+		provider, ok := s.integrations.AssociationProvider(mutation.AssociationSource)
+		if !ok {
+			return protocol.Task{}, fmt.Errorf("association integration %q is not registered", mutation.AssociationSource)
+		}
+		association, err := provider.NormalizeAssociation(context.Background(), mutation.AssociationValue)
+		if err != nil {
+			return protocol.Task{}, err
+		}
+		return s.store.AttachAssociation(mutation.TaskID, association)
 	case "task-priority":
 		return s.store.SetTaskPriority(mutation.TaskID, mutation.Priority)
 	default:

@@ -19,8 +19,8 @@ func NewSource() Source {
 	return Source{}
 }
 
-func (Source) Name() string {
-	return "git"
+func (Source) Descriptor() integration.Descriptor {
+	return integration.Descriptor{Name: "git", Label: "Git", DisplayOrder: 2, CleanupOrder: 2}
 }
 
 func (Source) Local() bool {

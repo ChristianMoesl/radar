@@ -1,15 +1,16 @@
 # Adding an integration
 
-Radar integrations are source-compiled Go packages. Radar does not load plugins dynamically: there is no plugin discovery, manifest format, Go `plugin`, or subprocess plugin protocol. Add new integrations explicitly and keep product behavior in core.
+Radar integrations are source-compiled Go packages. Radar does not load plugins dynamically: there is no plugin discovery, manifest format, Go `plugin`, or subprocess plugin protocol. Register each integration once in `internal/app.DefaultIntegrations`; the registry discovers its capabilities through interfaces.
 
 ## Integration boundary
 
-Core packages depend on `internal/integration` capability interfaces. An integration implements the smallest capability set it needs:
+Every integration implements `Integration` by returning a descriptor with its stable name, display label, and ordering. It then implements the smallest capability set it needs:
 
 - `Source`: collects source facts as observations.
 - `StatusReporter`: reports whether collection can run.
 - `LocalSource`: marks sources that can be refreshed frequently without remote API calls.
-- `Reconciler`: resolves disappeared remote refs into `done` transitions.
+- `Reconciler`: resolves disappeared remote refs into observations, including `done` signals.
+- `AssociationProvider`: validates and normalizes an explicit task association such as `attach-jira` into a generic durable association.
 - `ActionProvider`: exposes source-owned actions for source refs.
 - `CleanupProvider`: previews and cleans up source-owned local resources through the shared cleanup service.
 - `WorkspaceProvider`: owns local code workspace lifecycle. Git is the active provider.
@@ -22,14 +23,17 @@ Integrations emit `integration.Observation` values. Radar core projects observat
 Every emitted `protocol.SourceRef` must have:
 
 1. Stable source-owned `ID`.
-2. `Source` equal to the integration name.
-3. Non-empty source-owned `Kind`.
-4. An explicit `Role`: normally `authoritative`, or intentionally `informational` for an inspect/open-only association.
-5. `CanonicalKey` when an authoritative ref can become a standalone task.
-6. `LinkingKeys` for authoritative joins such as `ticket:<KEY>`, `workspace:<path>`, or `branch:<repo>:<branch>`.
-7. `URL` only when it is directly openable.
+2. Stable source-owned `EntityID`; different representations of one external entity share it.
+3. `Source` equal to the integration name.
+4. Non-empty source-owned `Kind`.
+5. An explicit `Role`: normally `authoritative`, or intentionally `informational` for an inspect/open-only association.
+6. An explicit lifecycle (`work_item`, `workspace`, or `resource`) for authoritative refs.
+7. `CanonicalKey` when an authoritative ref can become a standalone task.
+8. `LinkingKeys` for authoritative joins such as `ticket:<KEY>`, `workspace:<path>`, or `branch:<repo>:<branch>`.
+9. Generic presentation hints when the source owns title precedence or workspace naming.
+10. `URL` only when it is directly openable.
 
-Informational refs must not emit signals, canonical keys, or linking keys. An observation may set `TargetTaskID` to associate such a ref with a stable existing Radar task without turning source metadata into task identity. Do not invent Radar task IDs in integrations or parse another source's IDs in core state. Keep source-specific metadata behavior tested in the source package.
+The collector stamps source label and display order from the integration descriptor. Informational refs must not emit signals, lifecycle authority, canonical keys, or linking keys. An observation may set `TargetTaskID` to associate such a ref with a stable existing Radar task without turning source metadata into task identity. Do not invent Radar task IDs in integrations or parse another source's IDs or metadata in core state. Keep source-specific behavior tested in the source package.
 
 ## Cleanup providers
 
@@ -55,7 +59,7 @@ The active provider order is tmux, SBX, then Git so processes stop before their 
 3. Implement `Source` first.
 4. Emit stable source refs and observations.
 5. Add source ref contract tests and provider-specific parser/API tests.
-6. Register the package explicitly in `internal/app.DefaultIntegrationSet`.
+6. Register the package once in `internal/app.DefaultIntegrations`.
 7. Add only the minimum config needed.
 8. Avoid fallback chains, aliases, or duplicate command paths.
 

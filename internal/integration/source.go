@@ -3,7 +3,7 @@ package integration
 import "context"
 
 type Source interface {
-	Name() string
+	Integration
 	Collect(ctx context.Context, req CollectRequest) CollectResult
 }
 

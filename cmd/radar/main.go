@@ -175,7 +175,9 @@ func runTask(args []string) {
 			os.Exit(2)
 		}
 		id := parseTaskID(args[1])
-		request = protocol.Request{Method: "task-attach-jira", TaskMutation: &protocol.TaskMutation{TaskID: id, JiraKey: args[2]}}
+		request = protocol.Request{Method: "task-associate", TaskMutation: &protocol.TaskMutation{
+			TaskID: id, AssociationSource: "jira", AssociationValue: args[2],
+		}}
 	case "priority":
 		if len(args) != 3 || (args[2] != "urgent" && args[2] != "normal") {
 			taskUsage()
@@ -253,8 +255,12 @@ func runCreate(args []string) {
 			fatal(err)
 		}
 	}
-	integrations := app.DefaultIntegrationSet()
-	result, err := integrations.Workspace.Create(context.Background(), integration.CreateWorkspaceRequest{
+	integrations := app.DefaultIntegrations()
+	workspaceProvider, err := integrations.Workspace()
+	if err != nil {
+		fatal(err)
+	}
+	result, err := workspaceProvider.Create(context.Background(), integration.CreateWorkspaceRequest{
 		Repo:                    *repo,
 		Base:                    *base,
 		Name:                    *name,
@@ -456,8 +462,8 @@ func runDaemon() {
 		logger.Error("could not initialize state", "error", err)
 		fatal(err)
 	}
-	integrations := app.DefaultIntegrationSet()
-	cleanupService := cleanup.New(integrations.CleanupProviders)
+	integrations := app.DefaultIntegrations()
+	cleanupService := cleanup.New(integrations.CleanupProviders())
 	notificationService := notification.New(logger)
 	collectionMu := &sync.Mutex{}
 	refresh := refresher(context.Background(), store, logger, collectionMu, integrations, cleanupService, notificationService)
@@ -468,7 +474,7 @@ func runDaemon() {
 		go refreshLoop(context.Background(), refresh)
 	}
 
-	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu, integrations), garbageCollect, cleanupService).ListenAndServe(path); err != nil {
+	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu, integrations), garbageCollect, integrations, cleanupService).ListenAndServe(path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}
@@ -566,7 +572,7 @@ func collectionDisabled() bool {
 	return os.Getenv("RADAR_DISABLE_COLLECTION") == "1"
 }
 
-func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Set, cleanupService cleanup.Service, notificationService notification.Service) func(refreshScope, bool) {
+func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry, cleanupService cleanup.Service, notificationService notification.Service) func(refreshScope, bool) {
 	var lastFullRefresh time.Time
 	var lastWorkspaceGC time.Time
 
@@ -590,11 +596,11 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 		previous := store.Tasks()
 		var result collector.Result
 		if scope == refreshLocal {
-			result = collector.CollectLocal(ctx, previous, logger, integrations.Sources)
+			result = collector.CollectLocal(ctx, previous, logger, integrations.Sources())
 			store.SetTasksForSources(result.Tasks, result.SourceNames)
 			store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
 		} else {
-			result = collector.Collect(ctx, previous, logger, integrations.Sources)
+			result = collector.Collect(ctx, previous, logger, integrations.Sources())
 			store.SetTasks(result.Tasks)
 			store.SetSources(result.Sources)
 		}
@@ -607,7 +613,7 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 			} else if len(gcResult.Deleted) > 0 {
 				converted := garbageCollectionResult(gcResult)
 				gcNotification = &converted
-				result = collector.CollectLocal(ctx, store.Tasks(), logger, integrations.Sources)
+				result = collector.CollectLocal(ctx, store.Tasks(), logger, integrations.Sources())
 				store.SetTasksForSources(result.Tasks, result.SourceNames)
 				store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
 				logger.Debug("workspace gc refresh finished", "deleted", len(gcResult.Deleted), "tasks", len(result.Tasks))
@@ -624,7 +630,7 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 	}
 }
 
-func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Set, cleanupService cleanup.Service, notificationService notification.Service) func() (protocol.GarbageCollectionResult, error) {
+func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry, cleanupService cleanup.Service, notificationService notification.Service) func() (protocol.GarbageCollectionResult, error) {
 	return func() (protocol.GarbageCollectionResult, error) {
 		mu.Lock()
 
@@ -634,7 +640,7 @@ func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logg
 			return protocol.GarbageCollectionResult{}, err
 		}
 		if len(result.Deleted) > 0 {
-			collected := collector.CollectLocal(ctx, store.Tasks(), logger, integrations.Sources)
+			collected := collector.CollectLocal(ctx, store.Tasks(), logger, integrations.Sources())
 			store.SetTasksForSources(collected.Tasks, collected.SourceNames)
 			store.SetSources(mergeSourceStatuses(store.Sources(), collected.Sources))
 			logger.Debug("manual workspace gc refresh finished", "deleted", len(result.Deleted), "tasks", len(collected.Tasks))
@@ -691,7 +697,7 @@ func mergeSourceStatuses(previous []protocol.SourceStatus, updates []protocol.So
 	return merged
 }
 
-func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Set) func() error {
+func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry) func() error {
 	return func() error {
 		mu.Lock()
 		defer mu.Unlock()
@@ -704,7 +710,7 @@ func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *
 			logger.Debug("reset finished without collection; source collection disabled")
 			return nil
 		}
-		result := collector.Collect(ctx, nil, logger, integrations.Sources)
+		result := collector.Collect(ctx, nil, logger, integrations.Sources())
 		store.SetTasks(result.Tasks)
 		store.SetSources(result.Sources)
 		logger.Debug("reset finished", "tasks", len(result.Tasks), "sources", len(result.Sources))

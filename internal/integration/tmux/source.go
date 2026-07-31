@@ -18,8 +18,8 @@ func NewSource() Source {
 	return Source{}
 }
 
-func (Source) Name() string {
-	return "tmux"
+func (Source) Descriptor() integration.Descriptor {
+	return integration.Descriptor{Name: "tmux", Label: "tmux", DisplayOrder: 3, CleanupOrder: 0}
 }
 
 func (Source) Local() bool {

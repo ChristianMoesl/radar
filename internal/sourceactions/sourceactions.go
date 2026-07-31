@@ -15,7 +15,7 @@ type Action = integration.Action
 type Result = integration.ActionResult
 
 func SourceRefActions(ref protocol.SourceRef, label string) []Action {
-	return SourceRefActionsWithProviders(context.Background(), app.DefaultIntegrationSet().ActionProviders, protocol.Task{}, ref, label)
+	return SourceRefActionsWithProviders(context.Background(), app.DefaultIntegrations().ActionProviders(), protocol.Task{}, ref, label)
 }
 
 func SourceRefActionsWithProviders(ctx context.Context, providers []integration.ActionProvider, task protocol.Task, ref protocol.SourceRef, label string) []Action {
@@ -27,11 +27,12 @@ func SourceRefActionsWithProviders(ctx context.Context, providers []integration.
 }
 
 func Open(ctx context.Context, task protocol.Task, actionID string, ref protocol.SourceRef) (Result, error) {
-	return OpenWithIntegrations(ctx, app.DefaultIntegrationSet(), task, actionID, ref)
+	return OpenWithIntegrations(ctx, app.DefaultIntegrations(), task, actionID, ref)
 }
 
-func OpenWithIntegrations(ctx context.Context, integrations integration.Set, task protocol.Task, actionID string, ref protocol.SourceRef) (Result, error) {
-	return open(ctx, integrations.ActionProviders, integrations.Multiplexer, task, actionID, ref)
+func OpenWithIntegrations(ctx context.Context, integrations integration.Registry, task protocol.Task, actionID string, ref protocol.SourceRef) (Result, error) {
+	multiplexer, _ := integrations.Multiplexer()
+	return open(ctx, integrations.ActionProviders(), multiplexer, task, actionID, ref)
 }
 
 func OpenWithProviders(ctx context.Context, providers []integration.ActionProvider, task protocol.Task, actionID string, ref protocol.SourceRef) (Result, error) {

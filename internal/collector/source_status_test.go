@@ -12,7 +12,9 @@ import (
 
 type collectionStatusSource struct{}
 
-func (collectionStatusSource) Name() string { return "runtime" }
+func (collectionStatusSource) Descriptor() integration.Descriptor {
+	return integration.Descriptor{Name: "runtime"}
+}
 
 func (collectionStatusSource) Status(context.Context, *slog.Logger) integration.StatusResult {
 	return integration.StatusResult{

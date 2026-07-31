@@ -36,6 +36,7 @@ type ActionResult struct {
 }
 
 type ActionProvider interface {
+	Integration
 	Actions(ctx context.Context, req ActionRequest) []Action
 	RunAction(ctx context.Context, req RunActionRequest) (ActionResult, error)
 }

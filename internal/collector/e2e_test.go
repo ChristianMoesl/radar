@@ -37,8 +37,8 @@ func TestCollectEndToEndKeepsLinkedWorkActiveWhenGitHubPRIsDone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	integrations := app.DefaultIntegrationSet()
-	first := Collect(ctx, nil, logger, integrations.Sources)
+	integrations := app.DefaultIntegrations()
+	first := Collect(ctx, nil, logger, integrations.Sources())
 	store.SetTasks(first.Tasks)
 	firstTasks := store.Tasks()
 	active := taskBySourceRef(firstTasks, "github:pr:acme/app:7")
@@ -62,7 +62,7 @@ func TestCollectEndToEndKeepsLinkedWorkActiveWhenGitHubPRIsDone(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "gh-mode"), []byte("closed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	second := Collect(ctx, firstTasks, logger, integrations.Sources)
+	second := Collect(ctx, firstTasks, logger, integrations.Sources())
 	store.SetTasks(second.Tasks)
 	secondTasks := store.Tasks()
 	activeLinked := taskBySourceRef(secondTasks, "github:pr:acme/app:7")
