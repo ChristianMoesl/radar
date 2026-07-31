@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1345,12 +1346,25 @@ func projectTasks(state persistedState) []protocol.Task {
 }
 
 func jiraTitle(refs []protocol.SourceRef) string {
+	title := ""
+	bestOrder := int(^uint(0) >> 1)
 	for _, ref := range refs {
-		if authoritativeRef(ref) && ref.Source == "jira" && ref.Kind == "issue" && ref.Title != "" {
-			return ref.Title
+		if !authoritativeRef(ref) || ref.Source != "jira" || ref.Kind != "issue" || ref.Title == "" {
+			continue
+		}
+		order, err := strconv.Atoi(ref.Metadata["title_order"])
+		if err != nil {
+			if title == "" {
+				title = ref.Title
+			}
+			continue
+		}
+		if order < bestOrder {
+			title = ref.Title
+			bestOrder = order
 		}
 	}
-	return ""
+	return title
 }
 
 func taskHasAuthoritativeSource(task protocol.Task) bool {

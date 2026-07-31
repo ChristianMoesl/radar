@@ -71,6 +71,31 @@ func TestAuthoritativeTitleDiscoveryTargetsAndMergesManualTask(t *testing.T) {
 	}
 }
 
+func TestMultipleAuthoritativeJiraReferencesUseTitleOrderAndAllControlCompletion(t *testing.T) {
+	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
+	first := authoritativeJiraTask(1, "RAD-2", "RAD-2 First title", "Done", "done")
+	first.SourceRefs[0].Metadata["title_order"] = "0"
+	second := authoritativeJiraTask(1, "RAD-1", "RAD-1 Second title", "In Progress", "in_progress")
+	second.SourceRefs[0].Metadata["title_order"] = "1"
+	state := persistedState{Version: stateVersion, NextTaskID: 1, Records: []TaskRecord{{
+		ID: "task:1", NumericID: 1, Kind: "manual", State: "active", Intent: &ManualIntent{Title: "RAD-2 then RAD-1"},
+		Snapshot: protocol.Task{Kind: "manual", Title: "RAD-2 then RAD-1", Attention: "low_priority"},
+	}}}
+
+	state = reconcileState(state, []protocol.Task{first, second}, now)
+	tasks := projectTasks(state)
+	if len(tasks) != 1 || tasks[0].Title != "RAD-2 First title" || tasks[0].Attention != "in_progress" {
+		t.Fatalf("tasks = %+v, want first Jira title and incomplete lifecycle", tasks)
+	}
+	second.SourceRefs[0].Status = "Done"
+	second.SourceRefs[0].Signal = "done"
+	second.Attention = "done"
+	state = reconcileState(state, []protocol.Task{first, second}, now.Add(time.Hour))
+	if tasks = projectTasks(state); len(tasks) != 1 || tasks[0].Attention != "done" {
+		t.Fatalf("tasks = %+v, want done after every authoritative ref completes", tasks)
+	}
+}
+
 func TestJiraReferenceDemotionRemovesDerivedAuthority(t *testing.T) {
 	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
 	state := persistedState{Version: stateVersion, NextTaskID: 1, Records: []TaskRecord{{

@@ -66,6 +66,10 @@ func FetchAssignedIssues(ctx context.Context, issueTypes []string, logger *slog.
 		return nil, status, nil
 	}
 
+	if len(issueTypes) == 0 {
+		return nil, statusWithCount(status, 0, "(authoritative issue types disabled)"), nil
+	}
+
 	issues, err := searchAssignedIssues(ctx, cfg, issueTypes)
 	if err != nil {
 		status.Status = "error"
@@ -142,11 +146,11 @@ func ResolveDoneIssues(ctx context.Context, previous []protocol.Task, active []p
 }
 
 func source_refsFromIssues(cfg Config, issues []issue, suffix string) []protocol.SourceRef {
-	source_refs := make([]protocol.SourceRef, 0, len(issues))
+	sourceRefs := make([]protocol.SourceRef, 0, len(issues))
 	for _, issue := range issues {
-		source_refs = append(source_refs, sourceRefFromIssue(cfg, issue))
+		sourceRefs = append(sourceRefs, sourceRefFromIssue(cfg, issue))
 	}
-	return source_refs
+	return sourceRefs
 }
 
 func statusWithCount(status protocol.SourceStatus, count int, suffix string) protocol.SourceStatus {
@@ -337,6 +341,7 @@ func urlValues(request searchRequest) url.Values {
 }
 
 func sourceRefFromIssue(cfg Config, issue issue) protocol.SourceRef {
+	issue.Key = strings.ToUpper(strings.TrimSpace(issue.Key))
 	status := ""
 	statusCategory := ""
 	if issue.Fields.Status != nil {
@@ -389,7 +394,7 @@ func activeJiraIssueRefs(tasks []protocol.Task) map[string]bool {
 	active := map[string]bool{}
 	for _, task := range tasks {
 		for _, sourceRef := range task.SourceRefs {
-			if sourceRef.Source == "jira" && sourceRef.Kind == "issue" {
+			if sourceRef.Role == protocol.SourceRefRoleAuthoritative && sourceRef.Source == "jira" && sourceRef.Kind == "issue" {
 				active[sourceRef.ID] = true
 			}
 		}
@@ -399,7 +404,7 @@ func activeJiraIssueRefs(tasks []protocol.Task) map[string]bool {
 
 func jiraIssueSourceRef(task protocol.Task) (protocol.SourceRef, bool) {
 	for _, sourceRef := range task.SourceRefs {
-		if sourceRef.Source == "jira" && sourceRef.Kind == "issue" {
+		if sourceRef.Role == protocol.SourceRefRoleAuthoritative && sourceRef.Source == "jira" && sourceRef.Kind == "issue" {
 			return sourceRef, true
 		}
 	}
@@ -452,7 +457,7 @@ func doneIssueIDs(items []protocol.Task) map[string]bool {
 
 func doneIssueID(item protocol.Task) string {
 	for _, sourceRef := range item.SourceRefs {
-		if sourceRef.Source == "jira" && sourceRef.ID != "" {
+		if sourceRef.Role == protocol.SourceRefRoleAuthoritative && sourceRef.Source == "jira" && sourceRef.ID != "" {
 			return sourceRef.ID
 		}
 	}

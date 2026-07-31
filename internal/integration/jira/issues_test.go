@@ -214,6 +214,7 @@ func TestResolveDoneIssuesMarksMissingDoneIssueDone(t *testing.T) {
 			ID:     "jira:issue:RAD-123",
 			Source: "jira",
 			Kind:   "issue",
+			Role:   protocol.SourceRefRoleAuthoritative,
 			Title:  "RAD-123 Ship reconciliation",
 		}},
 	}}
