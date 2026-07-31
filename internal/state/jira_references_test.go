@@ -136,7 +136,10 @@ func TestJiraReferenceDemotionRemovesDerivedAuthority(t *testing.T) {
 		Intent:   &ManualIntent{Title: "Investigate RAD-7 rollout"},
 		Snapshot: protocol.Task{Kind: "manual", Title: "Investigate RAD-7 rollout", Attention: "low_priority"},
 	}}}
-	state = reconcileState(state, []protocol.Task{authoritativeJiraTask(1, "RAD-7", "RAD-7 Remote title", "Blocked", "attention")}, now)
+	state = reconcileState(state, []protocol.Task{authoritativeJiraTask(1, "RAD-7", "RAD-7 Remote title", "Done", "done")}, now)
+	if tasks := projectTasks(state); len(tasks) != 1 || tasks[0].Attention != "done" {
+		t.Fatalf("authoritative Jira did not complete task: %+v", tasks)
+	}
 	state = reconcileState(state, []protocol.Task{informationalJiraTask(1, "RAD-7", "RAD-7 Remote title", "Done")}, now.Add(time.Hour))
 
 	tasks := projectTasks(state)

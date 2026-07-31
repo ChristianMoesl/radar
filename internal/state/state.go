@@ -751,7 +751,8 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 		}
 	}
 
-	recomputeDerivedCanonicalKeys(state.Records, state.SourceRefs)
+	demotedRecords := recomputeDerivedCanonicalKeys(state.Records, state.SourceRefs)
+	resetDemotedRecordLifecycles(state.Records, demotedRecords)
 	state = relinkState(state)
 	updateRecordLifecycles(state.Records, state.SourceRefs, nowText)
 
@@ -810,7 +811,8 @@ func mergeRelatedRecords(state persistedState, recordIDs []string) persistedStat
 	return state
 }
 
-func recomputeDerivedCanonicalKeys(records []TaskRecord, refs []SourceRefRecord) {
+func recomputeDerivedCanonicalKeys(records []TaskRecord, refs []SourceRefRecord) map[string]bool {
+	demoted := map[string]bool{}
 	for i := range records {
 		record := &records[i]
 		if record.CanonicalKey == "" || manualAssociationContains(*record, record.CanonicalKey) {
@@ -825,6 +827,24 @@ func recomputeDerivedCanonicalKeys(records []TaskRecord, refs []SourceRefRecord)
 			snapshots = append(snapshots, ref.Snapshot)
 		}
 		record.CanonicalKey = canonicalTaskKey(protocol.Task{SourceRefs: snapshots})
+		demoted[record.ID] = true
+	}
+	return demoted
+}
+
+func resetDemotedRecordLifecycles(records []TaskRecord, demoted map[string]bool) {
+	for i := range records {
+		if !demoted[records[i].ID] {
+			continue
+		}
+		if records[i].Intent != nil && records[i].Intent.ManuallyComplete {
+			records[i].State = "done"
+			records[i].Reason = "manually completed"
+			continue
+		}
+		records[i].State = "active"
+		records[i].DoneAt = ""
+		records[i].Reason = ""
 	}
 }
 
