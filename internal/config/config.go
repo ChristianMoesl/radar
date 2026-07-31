@@ -40,16 +40,17 @@ type GitHubConfig struct {
 }
 
 type JiraConfig struct {
-	IssueTypes     []string          `json:"issue_types"`
-	StatusMapping  map[string]string `json:"status_mapping"`
-	UnmappedStatus string            `json:"unmapped_status"`
+	IssueTypes        []string          `json:"issue_types"`
+	StatusMapping     map[string]string `json:"status_mapping,omitempty"`
+	UnmappedStatus    string            `json:"unmapped_status,omitempty"`
+	unmappedStatusSet bool
 }
 
 func (c *JiraConfig) UnmarshalJSON(data []byte) error {
 	var raw struct {
 		IssueTypes     []string        `json:"issue_types"`
 		StatusMapping  json.RawMessage `json:"status_mapping"`
-		UnmappedStatus string          `json:"unmapped_status"`
+		UnmappedStatus *string         `json:"unmapped_status"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -64,8 +65,9 @@ func (c *JiraConfig) UnmarshalJSON(data []byte) error {
 		}
 		c.StatusMapping = mapping
 	}
-	if raw.UnmappedStatus != "" {
-		c.UnmappedStatus = raw.UnmappedStatus
+	if raw.UnmappedStatus != nil {
+		c.UnmappedStatus = *raw.UnmappedStatus
+		c.unmappedStatusSet = true
 	}
 	return nil
 }
@@ -204,7 +206,7 @@ func applyDefaults(cfg *Config) {
 	if cfg.Jira.StatusMapping == nil {
 		cfg.Jira.StatusMapping = defaults.Jira.StatusMapping
 	}
-	if strings.TrimSpace(cfg.Jira.UnmappedStatus) == "" {
+	if !cfg.Jira.unmappedStatusSet && strings.TrimSpace(cfg.Jira.UnmappedStatus) == "" {
 		cfg.Jira.UnmappedStatus = defaults.Jira.UnmappedStatus
 	}
 	cfg.Tmux = tmuxlayout.WithDefaults(cfg.Tmux)
@@ -219,10 +221,17 @@ func validate(cfg Config) error {
 			return fmt.Errorf("jira.issue_types[%d] must not be empty", i)
 		}
 	}
+	statusNames := map[string]string{}
 	for status, signal := range cfg.Jira.StatusMapping {
-		if strings.TrimSpace(status) == "" {
+		trimmed := strings.TrimSpace(status)
+		if trimmed == "" {
 			return fmt.Errorf("jira.status_mapping status names must not be empty")
 		}
+		normalized := strings.ToLower(trimmed)
+		if previous, exists := statusNames[normalized]; exists {
+			return fmt.Errorf("jira.status_mapping status names %q and %q match case-insensitively", previous, status)
+		}
+		statusNames[normalized] = status
 		if !validJiraSignal(signal) {
 			return fmt.Errorf("jira.status_mapping[%q] has unsupported value %q", status, signal)
 		}

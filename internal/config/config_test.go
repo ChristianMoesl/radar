@@ -214,6 +214,8 @@ func TestLoadRejectsInvalidJiraStatusMapping(t *testing.T) {
 		{name: "empty status", jira: `{"status_mapping":{" ":"attention"}}`, field: "jira.status_mapping"},
 		{name: "unsupported mapping", jira: `{"status_mapping":{"Blocked":"done"}}`, field: `jira.status_mapping["Blocked"]`},
 		{name: "unsupported fallback", jira: `{"unmapped_status":"done"}`, field: "jira.unmapped_status"},
+		{name: "empty fallback", jira: `{"unmapped_status":""}`, field: "jira.unmapped_status"},
+		{name: "duplicate normalized status", jira: `{"status_mapping":{"Blocked":"attention"," blocked ":"immediate"}}`, field: "match case-insensitively"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
