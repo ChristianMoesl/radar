@@ -33,6 +33,18 @@ func TestApplyDeprioritizesRepos(t *testing.T) {
 	}
 }
 
+func TestApplyManualUrgencyWinsOverDeprioritizationButNotMute(t *testing.T) {
+	item := protocol.Task{ID: 1, Repo: "org/noisy", Attention: "immediate", Reason: "manually urgent", Metadata: map[string]string{"priority_override": "urgent"}}
+
+	got := Apply([]protocol.Task{item}, Config{DeprioritizeRepos: []string{"org/noisy"}})
+	if len(got) != 1 || got[0].Attention != "immediate" {
+		t.Fatalf("deprioritized urgent task = %+v", got)
+	}
+	if got := Apply([]protocol.Task{item}, Config{MuteRepos: []string{"org/noisy"}}); len(got) != 0 {
+		t.Fatalf("muted urgent task = %+v", got)
+	}
+}
+
 func TestApplyDoesNotDeprioritizeDoneTasks(t *testing.T) {
 	items := []protocol.Task{{ID: 1, Repo: "org/noisy", Attention: "done", Reason: "merged"}}
 

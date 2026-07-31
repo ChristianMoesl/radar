@@ -176,6 +176,13 @@ func runTask(args []string) {
 		}
 		id := parseTaskID(args[1])
 		request = protocol.Request{Method: "task-attach-jira", TaskMutation: &protocol.TaskMutation{TaskID: id, JiraKey: args[2]}}
+	case "priority":
+		if len(args) != 3 || (args[2] != "urgent" && args[2] != "normal") {
+			taskUsage()
+			os.Exit(2)
+		}
+		id := parseTaskID(args[1])
+		request = protocol.Request{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: id, Priority: args[2]}}
 	default:
 		taskUsage()
 		os.Exit(2)
@@ -805,6 +812,7 @@ Tasks:
   radar task done <task-id>
   radar task reopen <task-id>
   radar task attach-jira <task-id> <issue-key>
+  radar task priority <task-id> urgent|normal
 
 Workspaces:
   radar create
@@ -835,7 +843,8 @@ func taskUsage() {
 	fmt.Fprintln(os.Stderr, `usage: radar task create --title <title>
        radar task done <task-id>
        radar task reopen <task-id>
-       radar task attach-jira <task-id> <issue-key>`)
+       radar task attach-jira <task-id> <issue-key>
+       radar task priority <task-id> urgent|normal`)
 }
 
 func createUsage() {

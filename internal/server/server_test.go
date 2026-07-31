@@ -100,6 +100,8 @@ func TestStructuredTaskMutations(t *testing.T) {
 		{Method: "task-create", TaskMutation: &protocol.TaskMutation{Title: "Write release notes"}},
 		{Method: "task-done", TaskMutation: &protocol.TaskMutation{TaskID: 1}},
 		{Method: "task-reopen", TaskMutation: &protocol.TaskMutation{TaskID: 1}},
+		{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: 1, Priority: "urgent"}},
+		{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: 1, Priority: "normal"}},
 		{Method: "task-attach-jira", TaskMutation: &protocol.TaskMutation{TaskID: 1, JiraKey: "DPSCAP-123"}},
 	}
 	for _, request := range requests {

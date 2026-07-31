@@ -28,13 +28,13 @@ Radar uses these visible categories:
 
 ## Category decision order
 
-For each grouped task, Radar looks at all active source signals and chooses the most useful category:
+Radar applies lifecycle and user policy in this order:
 
-1. If any active source says `immediate`, show `immediate`.
-2. Else if any active source says `attention`, show `attention`.
-3. Else if any active source says `in_progress`, show `in_progress`.
-4. Else if an active source says `low_priority`, show `low_priority`.
-5. Else, when no active source keeps the task alive, show `done`.
+1. Terminal completion → `done`.
+2. Mute → hidden.
+3. A manual urgent override → `immediate`.
+4. Otherwise, choose the strongest active source signal: `immediate`, `attention`, `in_progress`, then `low_priority`.
+5. Deprioritization may lower naturally classified active work to `low_priority`, but never lowers a manual urgent override.
 
 The key rules are:
 
@@ -45,6 +45,10 @@ A merged PR should not hide an active Jira issue. Once the authoritative remote 
 ## Manual lifecycle
 
 A manual-only task starts in `low_priority`. Completing it explicitly moves it to `done`; reopening restores `low_priority`. Its original title is retained as Radar-owned intent even when an attached Jira issue supplies the display title. Once Jira or GitHub is attached, that remote source controls completion and manual done/reopen is unavailable.
+
+## Manual urgency
+
+Any active task can be marked manually urgent. This durable override promotes it to `immediate`; clearing the override restores its current natural classification, including new source information observed while it was urgent. It never reopens a done task, bypasses mute, or sends an OS notification for the user's own mutation. A task already naturally immediate is not lowered by the TUI priority key.
 
 ## Cleanup after remote completion
 

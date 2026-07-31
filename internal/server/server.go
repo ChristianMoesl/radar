@@ -140,7 +140,7 @@ func (s *Server) handle(conn net.Conn) {
 				}
 			}
 			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), GarbageCollectionResult: &result})
-		case "task-create", "task-done", "task-reopen", "task-attach-jira":
+		case "task-create", "task-done", "task-reopen", "task-attach-jira", "task-priority":
 			task, err := s.mutateTask(req.Method, req.TaskMutation)
 			if err != nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
@@ -185,6 +185,8 @@ func (s *Server) mutateTask(method string, mutation *protocol.TaskMutation) (pro
 		return s.store.ReopenManualTask(mutation.TaskID)
 	case "task-attach-jira":
 		return s.store.AttachJira(mutation.TaskID, mutation.JiraKey)
+	case "task-priority":
+		return s.store.SetTaskPriority(mutation.TaskID, mutation.Priority)
 	default:
 		return protocol.Task{}, fmt.Errorf("unknown task mutation: %s", method)
 	}

@@ -167,6 +167,47 @@ func TestManualDoneRejectsRemoteLifecycle(t *testing.T) {
 	}
 }
 
+func TestPriorityKeyTogglesManualOverride(t *testing.T) {
+	tests := []protocol.Task{
+		{ID: 7, Attention: "low_priority"},
+		{ID: 7, Attention: "immediate", Metadata: map[string]string{"priority_override": "urgent"}},
+	}
+	for _, task := range tests {
+		m := model{tasks: []protocol.Task{task}}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+		got := updated.(model)
+		if cmd == nil || !got.loading {
+			t.Fatalf("task=%+v: command=%v loading=%v", task, cmd, got.loading)
+		}
+	}
+}
+
+func TestPriorityKeyDoesNotLowerSourceImmediateOrReopenDone(t *testing.T) {
+	tests := []struct {
+		task protocol.Task
+		want string
+	}{
+		{task: protocol.Task{ID: 1, Attention: "immediate"}, want: "because of a source"},
+		{task: protocol.Task{ID: 2, Attention: "done"}, want: "cannot be made urgent"},
+	}
+	for _, tt := range tests {
+		m := model{tasks: []protocol.Task{tt.task}}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+		got := updated.(model)
+		if cmd != nil || !strings.Contains(got.message, tt.want) {
+			t.Fatalf("task=%+v: command=%v message=%q", tt.task, cmd, got.message)
+		}
+	}
+}
+
+func TestPriorityResponseKeepsSelectionByTaskID(t *testing.T) {
+	m := model{cursor: 1, tasks: []protocol.Task{{ID: 1, Attention: "attention"}, {ID: 2, Attention: "low_priority"}}}
+	m.applyResponse(protocol.Response{Tasks: []protocol.Task{{ID: 1, Attention: "attention"}, {ID: 2, Attention: "immediate", Metadata: map[string]string{"priority_override": "urgent"}}}}, false)
+	if m.cursor != 1 || m.tasks[m.cursor].ID != 2 {
+		t.Fatalf("cursor=%d tasks=%+v", m.cursor, m.tasks)
+	}
+}
+
 func TestGarbageCollectionKeyStartsCollection(t *testing.T) {
 	updated, cmd := (model{}).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
 	if cmd == nil {

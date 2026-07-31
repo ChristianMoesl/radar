@@ -29,6 +29,10 @@ func AttachJira(socketPath string, taskID int, jiraKey string) (protocol.Respons
 	return CallRequest(socketPath, protocol.Request{Method: "task-attach-jira", TaskMutation: &protocol.TaskMutation{TaskID: taskID, JiraKey: jiraKey}})
 }
 
+func SetTaskPriority(socketPath string, taskID int, priority string) (protocol.Response, error) {
+	return CallRequest(socketPath, protocol.Request{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: taskID, Priority: priority}})
+}
+
 func CallRequest(socketPath string, req protocol.Request) (protocol.Response, error) {
 	conn, err := net.DialTimeout("unix", socketPath, 500*time.Millisecond)
 	if err != nil {

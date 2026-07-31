@@ -36,7 +36,7 @@ func Apply(items []protocol.Task, cfg Config) []protocol.Task {
 			continue
 		}
 
-		if item.Attention != "done" && (action == actionDeprioritize || action == actionLowPriority) {
+		if item.Attention != "done" && item.Metadata["priority_override"] != "urgent" && (action == actionDeprioritize || action == actionLowPriority) {
 			item.Attention = "low_priority"
 			if item.Reason != "" && !strings.HasPrefix(item.Reason, "low priority") {
 				item.Reason = "low priority: " + item.Reason

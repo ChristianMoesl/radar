@@ -346,6 +346,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = nil
 				return m, m.setManualTaskDone(task, task.Metadata["manual_complete"] != "true")
 			}
+		case "p":
+			if len(m.tasks) > 0 {
+				task := m.tasks[m.cursor]
+				if task.Attention == "done" {
+					m.message = "Done tasks cannot be made urgent"
+					return m, nil
+				}
+				priority := "urgent"
+				if task.Metadata["priority_override"] == "urgent" {
+					priority = "normal"
+				} else if task.Attention == "immediate" {
+					m.message = "Selected task is already immediate because of a source"
+					return m, nil
+				}
+				m.loading = true
+				m.err = nil
+				return m, m.setTaskPriority(task, priority)
+			}
 		case "c":
 			m.mode = "create_repo"
 			m.err = nil
@@ -589,7 +607,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • n new task • d done/reopen • o open link • i inspect • c create workspace • x cleanup • X garbage collect • f config • r refresh • R reset • q quit"), width))
+	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • n new task • d done/reopen • p urgent/normal • o open link • i inspect • c create workspace • x cleanup • X garbage collect • f config • r refresh • R reset • q quit"), width))
 	return sections
 }
 
@@ -929,6 +947,23 @@ func (m model) setManualTaskDone(task protocol.Task, complete bool) tea.Cmd {
 		}
 		if !response.OK {
 			return actionMsg{err: fmt.Errorf("%s", response.Error)}
+		}
+		return actionMsg{response: &response, message: message}
+	}
+}
+
+func (m model) setTaskPriority(task protocol.Task, priority string) tea.Cmd {
+	return func() tea.Msg {
+		response, err := client.SetTaskPriority(m.socketPath, task.ID, priority)
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		if !response.OK {
+			return actionMsg{err: fmt.Errorf("%s", response.Error)}
+		}
+		message := "Task marked urgent"
+		if priority == "normal" {
+			message = "Task restored to natural priority"
 		}
 		return actionMsg{response: &response, message: message}
 	}

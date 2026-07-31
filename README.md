@@ -244,9 +244,11 @@ radar task create --title "Write the release process in Notion"
 radar task done <task-id>
 radar task reopen <task-id>
 radar task attach-jira <task-id> DPSCAP-123
+radar task priority <task-id> urgent
+radar task priority <task-id> normal
 ```
 
-Manual tasks start in `low_priority` and keep their Radar-owned numeric ID across refreshes and restarts. Press `n` in the TUI to enter a title, and `d` to complete or reopen a selected manual-only task. Attaching Jira preserves the original intent and ID, merges an already-collected issue if needed, and lets later ticket-bearing worktrees and pull requests join the same task. Jira or GitHub lifecycle rules become authoritative after a remote reference is attached.
+Manual tasks start in `low_priority` and keep their Radar-owned numeric ID across refreshes and restarts. Press `n` in the TUI to enter a title, and `d` to complete or reopen a selected manual-only task. Press `p` on any active task to mark it manually urgent; press it again to restore the current source-derived priority. Done tasks stay done, and a source-derived immediate signal cannot be lowered with `p`. Attaching Jira preserves the original intent and ID, merges an already-collected issue if needed, and lets later ticket-bearing worktrees and pull requests join the same task. Jira or GitHub lifecycle rules become authoritative after a remote reference is attached.
 
 ## Scriptable commands
 
@@ -255,6 +257,7 @@ Manual tasks start in `low_priority` and keep their Radar-owned numeric ID acros
 ./radar task done <task-id>
 ./radar task reopen <task-id>
 ./radar task attach-jira <task-id> <issue-key>
+./radar task priority <task-id> urgent|normal
 ./radar status
 ./radar tasks
 ./radar cleanup <task-id>

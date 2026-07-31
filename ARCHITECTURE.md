@@ -75,7 +75,7 @@ SourceRef(s) + TaskRecord intent => Task
 - `SourceRef.CanonicalKey`: the source-owned fallback identity for a standalone ref when no ticket key exists. Examples: a Git worktree uses `workspace:<path>`, while a GitHub PR uses its PR source-ref ID.
 - `SourceRef.URL`: a generic openable URL. If a source ref has a URL, frontends may offer an open-link action without source-specific URL inspection.
 - `SourceRef.SourceLabel`: the source-owned display label for frontend link/source presentation, such as `GitHub` or `Jira`.
-- `TaskRecord`: persistent Radar-owned tracking state. It gives continuity across refreshes and owns stable numeric task IDs, optional Radar-owned manual intent, lifecycle state, association keys, known source ref IDs, first/last seen timestamps, and acknowledgements. A record with manual intent remains projectable without source refs.
+- `TaskRecord`: persistent Radar-owned tracking state. It gives continuity across refreshes and owns stable numeric task IDs, optional Radar-owned manual intent, lifecycle state, an optional urgent priority override, association keys, known source ref IDs, first/last seen timestamps, and acknowledgements. A record with manual intent remains projectable without source refs.
 - `Task`: the current projected user-facing task served to the CLI/TUI. It has a Radar-owned integer ID and is computed from current source refs plus the matching task record.
 
 The pipeline is:
@@ -108,7 +108,7 @@ The high-level categorization rules are documented in [docs/attention-algorithm.
 
 Collection and durable linking are separate steps. Integration code talks to external systems and produces observations/source refs with source-owned linking keys. Core collection projects those observations into candidate tasks. The state store matches active persisted source refs by those keys, merges records that describe the same work, and then projects one user-facing task per task record.
 
-A manual-only task naturally projects as `low_priority`; it can be completed and reopened explicitly. Its original intent remains on the task record when a source title takes over. Attaching Jira adds a `ticket:<KEY>` association and merges any existing ticket record into the manual record while preserving the manual numeric ID. Once Jira or GitHub is attached, remote lifecycle is authoritative and manual completion is disabled.
+A manual-only task naturally projects as `low_priority`; it can be completed and reopened explicitly. Any active task may carry a Radar-owned `urgent` override, which projects as `immediate` until cleared. Clearing it recomputes priority from source refs rather than forcing low priority. Terminal completion wins over the override. Its original intent remains on the task record when a source title takes over. Attaching Jira adds a `ticket:<KEY>` association and merges any existing ticket record into the manual record while preserving the manual numeric ID. Once Jira or GitHub is attached, remote lifecycle is authoritative and manual completion is disabled.
 
 `done` is a durable task-record state and is terminal for attention display. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state once and emits a done transition. The state store applies that transition to the existing task record. Already-done items are not remotely revalidated on subsequent refreshes. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate. Done-task projections preserve historical remote refs, but omit inactive local worktree, tmux, and SBX refs after those resources are removed. While a record remains done, neither cleanup state nor display filtering may move it to `immediate`, `attention`, `in_progress`, or `low_priority`.
 
@@ -144,6 +144,8 @@ There are two filter effects:
 
 - `mute`: hide the task and remove it from counts
 - `deprioritize`: keep tracking an active task, but move it to `low_priority`; done tasks remain `done`
+
+Mute is applied before manual priority display, so muted tasks stay hidden. An explicit urgent override wins over deprioritization. Task mutations are handled directly by the daemon and do not run the external-transition notification path, preventing self-notification.
 
 User filters also apply while GitHub activity is classified. Activity from a muted or deprioritized actor does not promote a PR to attention. GitHub's actor type is used only to generate equivalent bot login aliases (`name` and `name[bot]`) for configuration matching; bot identity is not itself a filtering policy.
 

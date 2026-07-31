@@ -38,20 +38,21 @@ type persistedState struct {
 }
 
 type TaskRecord struct {
-	ID           string        `json:"id"`
-	NumericID    int           `json:"numeric_id"`
-	CanonicalKey string        `json:"canonical_key"`
-	Kind         string        `json:"kind"`
-	State        string        `json:"state"`
-	Reason       string        `json:"reason,omitempty"`
-	DoneAt       string        `json:"done_at,omitempty"`
-	FirstSeen    string        `json:"first_seen"`
-	LastSeen     string        `json:"last_seen"`
-	UpdatedAt    string        `json:"updated_at"`
-	SourceRefIDs []string      `json:"source_ref_ids"`
-	Intent       *ManualIntent `json:"intent,omitempty"`
-	Ack          TaskAckState  `json:"ack,omitempty"`
-	Snapshot     protocol.Task `json:"snapshot"`
+	ID               string        `json:"id"`
+	NumericID        int           `json:"numeric_id"`
+	CanonicalKey     string        `json:"canonical_key"`
+	Kind             string        `json:"kind"`
+	State            string        `json:"state"`
+	Reason           string        `json:"reason,omitempty"`
+	DoneAt           string        `json:"done_at,omitempty"`
+	FirstSeen        string        `json:"first_seen"`
+	LastSeen         string        `json:"last_seen"`
+	UpdatedAt        string        `json:"updated_at"`
+	SourceRefIDs     []string      `json:"source_ref_ids"`
+	Intent           *ManualIntent `json:"intent,omitempty"`
+	PriorityOverride string        `json:"priority_override,omitempty"`
+	Ack              TaskAckState  `json:"ack,omitempty"`
+	Snapshot         protocol.Task `json:"snapshot"`
 }
 
 type ManualIntent struct {
@@ -314,6 +315,41 @@ func (s *Store) setManualCompletion(taskID int, complete bool) (protocol.Task, e
 	return task, nil
 }
 
+func (s *Store) SetTaskPriority(taskID int, priority string) (protocol.Task, error) {
+	priority = strings.ToLower(strings.TrimSpace(priority))
+	if priority != "urgent" && priority != "normal" {
+		return protocol.Task{}, fmt.Errorf("unsupported task priority %q; use urgent or normal", priority)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	s.mu.Lock()
+	record := recordByNumericID(s.state.Records, taskID)
+	if record == nil {
+		s.mu.Unlock()
+		return protocol.Task{}, fmt.Errorf("task %d not found", taskID)
+	}
+	if record.State == "done" {
+		s.mu.Unlock()
+		return protocol.Task{}, fmt.Errorf("task %d is done and cannot be made urgent", taskID)
+	}
+	if priority == "urgent" {
+		record.PriorityOverride = "urgent"
+	} else {
+		record.PriorityOverride = ""
+	}
+	record.UpdatedAt = now
+	if record.Intent != nil {
+		record.Intent.UpdatedAt = now
+	}
+	s.items = projectTasks(s.state)
+	s.bumpRevisionLocked()
+	task, _ := taskByNumericID(s.items, taskID)
+	s.mu.Unlock()
+	if err := s.Save(); err != nil {
+		return protocol.Task{}, err
+	}
+	return task, nil
+}
+
 func (s *Store) AttachJira(taskID int, jiraKey string) (protocol.Task, error) {
 	jiraKey = strings.ToUpper(strings.TrimSpace(jiraKey))
 	if !validJiraKey(jiraKey) {
@@ -411,6 +447,9 @@ func mergeRecordIntoManual(state persistedState, manualID, canonicalKey string) 
 			loserIDs[record.ID] = true
 			manual.Snapshot = mergeTasks(manual.Snapshot, record.Snapshot)
 			manual.SourceRefIDs = mergeStringSet(manual.SourceRefIDs, record.SourceRefIDs)
+			if manual.PriorityOverride == "" {
+				manual.PriorityOverride = record.PriorityOverride
+			}
 			if manual.Ack.GeneralCommentsAckAt == "" {
 				manual.Ack = record.Ack
 			}
@@ -836,17 +875,23 @@ func recordMergeRank(record TaskRecord) int {
 
 func mergeTaskRecords(records []TaskRecord, ids []string, winnerID string, refs []SourceRefRecord) []TaskRecord {
 	merged := make([]TaskRecord, 0, len(records))
-	var winner TaskRecord
+	winnerRecord := recordByID(records, winnerID)
+	if winnerRecord == nil {
+		return records
+	}
+	winner := *winnerRecord
 	var loserSnapshots []protocol.Task
 	for _, record := range records {
 		if record.ID == winnerID {
-			winner = record
 			continue
 		}
 		if containsString(ids, record.ID) {
 			loserSnapshots = append(loserSnapshots, record.Snapshot)
 			if winner.Intent == nil && record.Intent != nil {
 				winner.Intent = record.Intent
+			}
+			if winner.PriorityOverride == "" {
+				winner.PriorityOverride = record.PriorityOverride
 			}
 			if winner.Ack.GeneralCommentsAckAt == "" {
 				winner.Ack = record.Ack
@@ -1166,8 +1211,15 @@ func projectTasks(state persistedState) []protocol.Task {
 		} else {
 			applySourceSignals(&task, record, refs)
 		}
+		if record.State != "done" && record.PriorityOverride == "urgent" {
+			task.Attention = "immediate"
+			task.Reason = "manually urgent"
+		}
 		if task.Metadata == nil {
 			task.Metadata = map[string]string{}
+		}
+		if record.PriorityOverride == "urgent" {
+			task.Metadata["priority_override"] = "urgent"
 		}
 		if record.Intent != nil {
 			task.Metadata["manual_task"] = "true"
