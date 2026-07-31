@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#132941"/>
+      <stop offset="0.58" stop-color="#081827"/>
+      <stop offset="1" stop-color="#04101C"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(512 512) rotate(90) scale(390)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1ECAEA" stop-opacity="0.17"/>
+      <stop offset="1" stop-color="#1ECAEA" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="512" y1="512" x2="766" y2="254" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#51E6FF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#51E6FF" stop-opacity="0.04"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="192" y1="164" x2="832" y2="860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#48E1FF" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#48E1FF" stop-opacity="0.08"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1024" height="1050" filterUnits="userSpaceOnUse">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="24"/>
+      <feOffset dy="22"/>
+      <feColorMatrix values="0 0 0 0 0 0 0 0 0 0.04 0 0 0 0 0.08 0 0 0 0.6 0"/>
+      <feBlend in="SourceGraphic"/>
+    </filter>
+    <filter id="blipGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="13" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <rect x="72" y="64" width="880" height="880" rx="205" fill="url(#background)"/>
+    <rect x="73.5" y="65.5" width="877" height="877" rx="203.5" fill="none" stroke="url(#rim)" stroke-width="3"/>
+  </g>
+
+  <circle cx="512" cy="504" r="365" fill="url(#glow)"/>
+  <path d="M512 504 L512 178 A326 326 0 0 1 741 272 Z" fill="url(#sweep)"/>
+
+  <g fill="none" stroke="#59DDF5" stroke-linecap="round">
+    <circle cx="512" cy="504" r="326" stroke-width="14" stroke-opacity="0.92"/>
+    <circle cx="512" cy="504" r="226" stroke-width="9" stroke-opacity="0.58"/>
+    <circle cx="512" cy="504" r="126" stroke-width="8" stroke-opacity="0.52"/>
+    <path d="M186 504 H838 M512 178 V830" stroke-width="7" stroke-opacity="0.22"/>
+    <path d="M281.5 273.5 L742.5 734.5 M742.5 273.5 L281.5 734.5" stroke-width="6" stroke-opacity="0.14"/>
+    <path d="M512 504 L742 273" stroke="#83F0FF" stroke-width="16" stroke-opacity="0.96"/>
+  </g>
+
+  <circle cx="512" cy="504" r="25" fill="#B7F7FF"/>
+  <circle cx="512" cy="504" r="12" fill="#FFFFFF"/>
+
+  <g filter="url(#blipGlow)">
+    <circle cx="662" cy="383" r="19" fill="#FFF178"/>
+    <circle cx="662" cy="383" r="7" fill="#FFFFFF"/>
+    <circle cx="380" cy="665" r="17" fill="#FF8A72"/>
+    <circle cx="380" cy="665" r="6" fill="#FFFFFF"/>
+    <circle cx="703" cy="615" r="14" fill="#74F7BA"/>
+    <circle cx="703" cy="615" r="5" fill="#FFFFFF"/>
+  </g>
+</svg>

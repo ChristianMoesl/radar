@@ -425,7 +425,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 const maxContentWidth = 140
 
-var taskGroupKeys = []string{"immediate", "attention", "in_progress", "done", "low_priority"}
+var taskGroupKeys = []string{"immediate", "attention", "in_progress", "low_priority", "done"}
 
 func (m *model) moveCursor(delta int) {
 	order := m.taskCursorOrder()
@@ -511,7 +511,7 @@ func (m model) View() string {
 
 	if strings.HasPrefix(m.mode, "create_") {
 		sections = append(sections, m.createView(contentWidth))
-		sections = append(sections, helpStyle.Render("type to filter • ↑/k ↓/j move • enter select/submit • esc cancel"))
+		sections = append(sections, helpStyle.Render("type to filter • ↑/ctrl+p ↓/ctrl+n move • enter select/submit • esc cancel"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
@@ -704,10 +704,10 @@ func (m model) updateCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = ""
 		m.err = nil
 		return m, nil
-	case "up", "k", "ctrl+p":
+	case "up", "ctrl+p":
 		m.moveCreateCursor(-1)
 		return m, nil
-	case "down", "j", "ctrl+n":
+	case "down", "ctrl+n":
 		m.moveCreateCursor(1)
 		return m, nil
 	case "enter":
@@ -807,15 +807,18 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 		}
 		switchAfterCreate := os.Getenv("TMUX") != ""
 		options := integration.CreateWorkspaceRequest{
-			Repo:            form.repo,
-			Base:            form.base,
-			Name:            form.name,
-			Model:           cfg.Model,
-			Thinking:        cfg.Thinking,
-			Sandbox:         cfg.Sandbox != nil,
-			SandboxTemplate: cfg.SandboxTemplate,
-			Switch:          switchAfterCreate,
-			ForkPiSession:   form.forkPiSession,
+			Repo:                    form.repo,
+			Base:                    form.base,
+			Name:                    form.name,
+			Model:                   cfg.Model,
+			Thinking:                cfg.Thinking,
+			Sandbox:                 cfg.SBX.Enabled,
+			SandboxKitName:          cfg.SBX.Kit.Name,
+			SandboxKitPath:          cfg.SBX.Kit.Path,
+			AdditionalSandboxMounts: cfg.SBX.AdditionalMounts,
+			Tmux:                    cfg.Tmux,
+			Switch:                  switchAfterCreate,
+			ForkPiSession:           form.forkPiSession,
 		}
 		if form.forkPiSession != "" && form.sourceRepoName != "" {
 			root, err := workspace.DefaultRoot()
@@ -1371,14 +1374,17 @@ func (m model) createSessionForWorktree(task protocol.Task, ref protocol.SourceR
 			return actionMsg{err: err}
 		}
 		created, err := workspace.CreateSessionWithOptions(context.Background(), workspace.ExecRunner{}, workspace.CreateSessionOptions{
-			Path:            ref.Path,
-			SessionName:     sessionName,
-			Model:           cfg.Model,
-			Thinking:        cfg.Thinking,
-			Sandbox:         cfg.Sandbox != nil,
-			SandboxTemplate: cfg.SandboxTemplate,
-			SandboxName:     sandboxNameForWorktree(task, ref.Path),
-			Switch:          switchAfterCreate,
+			Path:                    ref.Path,
+			SessionName:             sessionName,
+			Model:                   cfg.Model,
+			Thinking:                cfg.Thinking,
+			Sandbox:                 cfg.SBX.Enabled,
+			SandboxKitName:          cfg.SBX.Kit.Name,
+			SandboxKitPath:          cfg.SBX.Kit.Path,
+			AdditionalSandboxMounts: cfg.SBX.AdditionalMounts,
+			SandboxName:             sandboxNameForWorktree(task, ref.Path),
+			Tmux:                    cfg.Tmux,
+			Switch:                  switchAfterCreate,
 		})
 		if err != nil {
 			return actionMsg{err: err}
@@ -1433,15 +1439,18 @@ func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
 		}
 		switchAfterCreate := os.Getenv("TMUX") != ""
 		created, err := app.DefaultIntegrationSet().Workspace.Create(context.Background(), integration.CreateWorkspaceRequest{
-			Repo:            repo,
-			Base:            "origin/" + name,
-			Name:            name,
-			Branch:          name,
-			Model:           cfg.Model,
-			Thinking:        cfg.Thinking,
-			Sandbox:         cfg.Sandbox != nil,
-			SandboxTemplate: cfg.SandboxTemplate,
-			Switch:          switchAfterCreate,
+			Repo:                    repo,
+			Base:                    "origin/" + name,
+			Name:                    name,
+			Branch:                  name,
+			Model:                   cfg.Model,
+			Thinking:                cfg.Thinking,
+			Sandbox:                 cfg.SBX.Enabled,
+			SandboxKitName:          cfg.SBX.Kit.Name,
+			SandboxKitPath:          cfg.SBX.Kit.Path,
+			AdditionalSandboxMounts: cfg.SBX.AdditionalMounts,
+			Tmux:                    cfg.Tmux,
+			Switch:                  switchAfterCreate,
 		})
 		if err != nil {
 			return actionMsg{err: err}
@@ -1663,8 +1672,8 @@ func (m model) header(width int) string {
 		urgentStyle.Render(fmt.Sprintf("🚨 %d urgent", m.summary.Immediate)),
 		attentionStyle.Render(fmt.Sprintf("👀 %d attention", m.summary.Attention)),
 		progressStyle.Render(fmt.Sprintf("⏳ %d progress", m.summary.InProgress)),
-		doneStyle.Render(fmt.Sprintf("✅ %d done", m.summary.Done)),
 		lowStyle.Render(fmt.Sprintf("🔇 %d low", m.summary.LowPriority)),
+		doneStyle.Render(fmt.Sprintf("✅ %d done", m.summary.Done)),
 	}, "  ")
 
 	return truncateLine(lipgloss.JoinHorizontal(lipgloss.Top, titleStyle.Render("Radar"), "  ", counts), width)
@@ -1733,8 +1742,8 @@ func (m model) taskLines(width int) ([]string, int, int) {
 		{key: "immediate", title: "🚨 Need immediate attention", style: urgentStyle},
 		{key: "attention", title: "👀 Need attention", style: attentionStyle},
 		{key: "in_progress", title: "⏳ In progress", style: progressStyle},
-		{key: "done", title: "✅ Done today", style: doneStyle},
 		{key: "low_priority", title: "🔇 Low priority", style: lowStyle},
+		{key: "done", title: "✅ Done (last 3 days)", style: doneStyle},
 	}
 
 	selectedStart := 0

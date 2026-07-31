@@ -1,4 +1,4 @@
 {
   "setup": ["go mod download"],
-  "sandbox": {}
+  "sbx": {"enabled": true}
 }

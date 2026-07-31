@@ -15,10 +15,19 @@ type RepoConfig struct {
 	Setup     []string       `json:"setup,omitempty"`
 	Model     string         `json:"model,omitempty"`
 	Thinking  string         `json:"thinking,omitempty"`
-	Sandbox   *SandboxConfig `json:"sandbox,omitempty"`
+	SBX       *SandboxConfig `json:"sbx,omitempty"`
 }
 
-type SandboxConfig struct{}
+type SandboxConfig struct {
+	Enabled          *bool             `json:"enabled,omitempty"`
+	Kit              *SandboxKitConfig `json:"kit,omitempty"`
+	AdditionalMounts []string          `json:"additional_mounts,omitempty"`
+}
+
+type SandboxKitConfig struct {
+	Name string `json:"name"`
+	Path string `json:"path,omitempty"`
+}
 
 func loadRepoConfig(repo string) (RepoConfig, error) {
 	path := filepath.Join(repo, ".radar.json")
@@ -55,6 +64,9 @@ func validateRepoConfig(cfg RepoConfig) error {
 	}
 	if err := pi.ValidateThinking(cfg.Thinking); err != nil {
 		return err
+	}
+	if cfg.SBX != nil && cfg.SBX.Kit != nil && strings.TrimSpace(cfg.SBX.Kit.Name) == "" {
+		return fmt.Errorf("sbx.kit.name is required")
 	}
 	return nil
 }

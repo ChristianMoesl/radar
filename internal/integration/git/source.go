@@ -102,19 +102,22 @@ func (Source) Current(ctx context.Context, cwd string) (integration.Workspace, b
 
 func (Source) Create(ctx context.Context, req integration.CreateWorkspaceRequest) (integration.Workspace, error) {
 	created, err := workspace.Create(ctx, workspace.ExecRunner{}, workspace.CreateOptions{
-		Repo:            req.Repo,
-		Name:            req.Name,
-		Branch:          req.Branch,
-		Base:            req.Base,
-		Path:            req.Path,
-		SessionName:     req.SessionName,
-		WorkspaceRoot:   req.WorkspaceRoot,
-		Model:           req.Model,
-		Thinking:        req.Thinking,
-		Sandbox:         req.Sandbox,
-		SandboxTemplate: req.SandboxTemplate,
-		Switch:          req.Switch,
-		ForkPiSession:   req.ForkPiSession,
+		Repo:                    req.Repo,
+		Name:                    req.Name,
+		Branch:                  req.Branch,
+		Base:                    req.Base,
+		Path:                    req.Path,
+		SessionName:             req.SessionName,
+		WorkspaceRoot:           req.WorkspaceRoot,
+		Model:                   req.Model,
+		Thinking:                req.Thinking,
+		Sandbox:                 req.Sandbox,
+		SandboxKitName:          req.SandboxKitName,
+		SandboxKitPath:          req.SandboxKitPath,
+		AdditionalSandboxMounts: req.AdditionalSandboxMounts,
+		Tmux:                    req.Tmux,
+		Switch:                  req.Switch,
+		ForkPiSession:           req.ForkPiSession,
 	})
 	if err != nil {
 		return integration.Workspace{}, err

@@ -18,8 +18,9 @@ import (
 const DefaultRetention = 24 * time.Hour
 
 type Options struct {
-	Retention     time.Duration
-	WorkspaceRoot string
+	Retention       time.Duration
+	WorkspaceRoot   string
+	IgnoreRetention bool
 }
 
 type Candidate struct {
@@ -68,7 +69,7 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 	refsByRecord := activeRefsByRecord(store.SourceRefs())
 	plan := Plan{}
 	for _, record := range store.Records() {
-		if record.State != "done" || !doneLongEnough(record.DoneAt, now, retention) {
+		if record.State != "done" || (!options.IgnoreRetention && !doneLongEnough(record.DoneAt, now, retention)) {
 			continue
 		}
 		refs := refsByRecord[record.ID]

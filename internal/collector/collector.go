@@ -68,7 +68,7 @@ func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.
 	if err != nil {
 		logger.Warn("could not load config for collection", "error", err)
 	}
-	filterCfg := cfg.Filters
+	filterCfg := cfg.GitHub.Filters
 
 	for _, source := range sources {
 		result.SourceNames = append(result.SourceNames, source.Name())

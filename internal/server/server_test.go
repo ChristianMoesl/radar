@@ -166,7 +166,7 @@ func TestAckResponseAppliesFilters(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(configPath, []byte(`{"filters":{"mute_repos":["org/noisy"]}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"github":{"filters":{"mute_repos":["org/noisy"]}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

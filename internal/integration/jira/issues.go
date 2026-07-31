@@ -55,7 +55,7 @@ type issue struct {
 	} `json:"fields"`
 }
 
-func FetchAssignedIssues(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.SourceStatus, error) {
+func FetchAssignedIssues(ctx context.Context, issueTypes []string, logger *slog.Logger) ([]protocol.SourceRef, protocol.SourceStatus, error) {
 	status := protocol.SourceStatus{Name: "jira", Status: "ok"}
 
 	cfg, ok, missing := configFromEnv()
@@ -66,7 +66,7 @@ func FetchAssignedIssues(ctx context.Context, logger *slog.Logger) ([]protocol.S
 		return nil, status, nil
 	}
 
-	issues, err := searchAssignedIssues(ctx, cfg)
+	issues, err := searchAssignedIssues(ctx, cfg, issueTypes)
 	if err != nil {
 		status.Status = "error"
 		status.Detail = err.Error()
@@ -219,9 +219,9 @@ func fetchIssue(ctx context.Context, cfg Config, key string) (issue, error) {
 	return response, nil
 }
 
-func searchAssignedIssues(ctx context.Context, cfg Config) ([]issue, error) {
+func searchAssignedIssues(ctx context.Context, cfg Config, issueTypes []string) ([]issue, error) {
 	request := searchRequest{
-		JQL:        "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC",
+		JQL:        assignedIssuesJQL(issueTypes),
 		MaxResults: 100,
 		Fields:     []string{"summary", "status", "issuetype", "priority"},
 	}
@@ -256,6 +256,20 @@ func searchAssignedIssues(ctx context.Context, cfg Config) ([]issue, error) {
 		return nil, fmt.Errorf("jira search failed on all supported endpoints: %s", strings.Join(errors, " | "))
 	}
 	return nil, fmt.Errorf("jira search failed: no supported search endpoint")
+}
+
+func assignedIssuesJQL(issueTypes []string) string {
+	jql := "assignee = currentUser() AND statusCategory != Done"
+	if len(issueTypes) > 0 {
+		quoted := make([]string, 0, len(issueTypes))
+		for _, issueType := range issueTypes {
+			issueType = strings.TrimSpace(issueType)
+			issueType = strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(issueType)
+			quoted = append(quoted, `"`+issueType+`"`)
+		}
+		jql += " AND issuetype IN (" + strings.Join(quoted, ", ") + ")"
+	}
+	return jql + " ORDER BY updated DESC"
 }
 
 type searchEndpoint struct {

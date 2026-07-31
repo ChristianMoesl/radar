@@ -13,11 +13,12 @@
 When Radar creates a workspace with sandboxing enabled, it should:
 
 1. Create the Git worktree.
-2. Create an SBX shell sandbox that mounts the workspace and its external common Git directory when needed.
-3. Create the tmux session on the host.
-4. Start Pi normally in the host-side `pi` window.
-5. Let `pi-sbx` discover the sandbox from its workspace mount and route tool calls into it.
-6. Start nvim normally in its host-side window.
+2. Create an SBX kit sandbox that mounts the workspace, its external common Git directory when needed, and the user-configured global additional mounts.
+3. Run repository setup commands inside the sandbox with `sbx exec`.
+4. Create the tmux session on the host.
+5. Start Pi normally in the host-side `pi` window.
+6. Let `pi-sbx` discover the sandbox from its workspace mount and route tool calls into it.
+7. Start nvim normally in its host-side window.
 
 Pi provider authentication, extension loading, and session persistence remain entirely on the host.
 
@@ -33,16 +34,16 @@ The extension fails tool calls closed when no sandbox mounts Pi's current workin
 
 ## SBX sandbox creation
 
-Radar creates the sandbox with the workspace and the writable common Git directory used by a linked worktree:
+Radar creates the sandbox with the workspace, the writable common Git directory used by a linked worktree, and any directories from the user config's `sbx.additional_mounts`:
 
 ```sh
 sbx create \
   --name <sandbox-name> \
-  --template christianmoesl/radar-sandbox:latest \
-  shell <workspace-path> <common-git-dir>
+  --kit <optional-kit-path> \
+  <kit-name> <workspace-path> <common-git-dir> <additional-mount>...
 ```
 
-The common Git directory is omitted when it is already inside the workspace, as with a repository's main working tree. Linked worktrees contain an absolute `.git` pointer into this directory, so it must be mounted at the same host path for status, staging, commits, objects, and refs to work inside SBX. The deterministic sandbox name uses the workspace slug plus a short hash suffix and remains at or below 63 characters.
+The `--kit <path>` option is omitted when `sbx.kit.path` is not configured, and the kit name defaults to `shell`. The common Git directory is omitted when it is already inside the workspace, as with a repository's main working tree. Linked worktrees contain an absolute `.git` pointer into this directory, so it must be mounted at the same host path for status, staging, commits, objects, and refs to work inside SBX. The deterministic sandbox name uses the workspace slug plus a short hash suffix and remains at or below 63 characters.
 
 ## Pi tmux command
 
@@ -70,7 +71,7 @@ The Radar sandbox image contains development tools used by tool calls, including
 
 For a sandbox-enabled Radar workspace:
 
-1. Confirm `sbx ls --json` lists the workspace first and the linked worktree's common Git directory as the only additional mount.
+1. Confirm `sbx ls --json` lists the workspace first, then the linked worktree's common Git directory and the configured `sbx.additional_mounts`.
 2. Confirm `git status` works through Pi's bash tool.
 3. Confirm the tmux `pi` pane runs a host `pi` command, not `sbx exec`.
 4. Confirm the Pi footer shows the matching `sbx` sandbox.

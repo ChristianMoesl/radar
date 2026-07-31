@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"radar/internal/tmuxlayout"
 )
 
 type call struct {
@@ -44,6 +46,9 @@ func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...str
 			return "", errors.New("missing")
 		}
 		return "", nil
+	}
+	if name == "tmux" && len(args) > 0 && (args[0] == "new-session" || args[0] == "new-window" || args[0] == "split-window") {
+		return "@1 %1", nil
 	}
 	if name == "git" && len(args) > 0 && args[0] == "show-ref" {
 		return "", errors.New("missing")
@@ -131,23 +136,59 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
 }
 
+func TestCreateUsesConfiguredTmuxWindowsAndHorizontalPanes(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	runner := &fakeRunner{repo: repo}
+
+	created, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		Name:          "small fix",
+		Base:          "origin/main",
+		WorkspaceRoot: root,
+		Model:         "anthropic/claude-sonnet-4",
+		Tmux: tmuxlayout.Config{Windows: []tmuxlayout.Window{{
+			Name:   "workspace",
+			Layout: "horizontal",
+			Panes: []tmuxlayout.Pane{
+				{Command: "pi-wrapper " + tmuxlayout.PiArgsPlaceholder},
+				{Command: "nvim ."},
+			},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalledContains(t, runner.calls, "tmux", "new-session -d -s "+created.SessionName+" -n workspace")
+	assertCalledContains(t, runner.calls, "tmux", "pi-wrapper --model 'anthropic/claude-sonnet-4' --session-id '")
+	assertCalledContains(t, runner.calls, "tmux", "split-window -d -t %1")
+	assertCalledContains(t, runner.calls, "tmux", "nvim .")
+	assertCalledContains(t, runner.calls, "tmux", "select-layout -t @1 even-horizontal")
+	assertNotCalledContains(t, runner.calls, "tmux", "new-window")
+	assertNotCalledContains(t, runner.calls, "tmux", tmuxlayout.PiArgsPlaceholder)
+}
+
 func TestCreateStartsPiOnHostWithConfiguredSandbox(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	repo := t.TempDir()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
-  "sandbox": {}
+  "sbx": {"enabled": true}
 }`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
-		Repo:            repo,
-		Name:            "small fix",
-		Base:            "origin/main",
-		WorkspaceRoot:   root,
-		SandboxTemplate: "example/radar-sandbox:test",
+		Repo:           repo,
+		Name:           "small fix",
+		Base:           "origin/main",
+		WorkspaceRoot:  root,
+		SandboxKitName: "radar",
+		SandboxKitPath: "~/kits/radar",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -156,7 +197,7 @@ func TestCreateStartsPiOnHostWithConfiguredSandbox(t *testing.T) {
 	if want := SandboxName(filepath.Base(repo), "small fix"); workspace.SandboxName != want {
 		t.Fatalf("sandbox name = %q, want %q", workspace.SandboxName, want)
 	}
-	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --template example/radar-sandbox:test shell "+workspace.Path+" "+filepath.Join(repo, ".git"))
+	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --kit "+filepath.Join(home, "kits", "radar")+" radar "+workspace.Path+" "+filepath.Join(repo, ".git"))
 	assertCalledContains(t, runner.calls, "tmux", "pi --session-id")
 	assertNotCalledContains(t, runner.calls, "tmux", "sbx exec")
 	assertNotCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_DIR=")
@@ -169,19 +210,53 @@ func TestCreateStartsPiOnHostWithConfiguredSandbox(t *testing.T) {
 	assertNotCalledContains(t, runner.calls, "tmux", "-n shell")
 }
 
+func TestCreateRunsSetupInsideConfiguredSandbox(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
+	repo := t.TempDir()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
+  "setup": ["pnpm install --frozen-lockfile", "pnpm build"],
+  "sbx": {"enabled": true}
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{repo: repo}
+
+	created, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		Name:          "small fix",
+		Base:          "origin/main",
+		WorkspaceRoot: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalled(t, runner.calls, "sbx", "create --name "+created.SandboxName)
+	assertCalled(t, runner.calls, "sbx", "exec --workdir "+created.Path+" "+created.SandboxName+" sh -lc pnpm install --frozen-lockfile")
+	assertCalled(t, runner.calls, "sbx", "exec --workdir "+created.Path+" "+created.SandboxName+" sh -lc pnpm build")
+	assertNotCalled(t, runner.calls, "sh")
+	assertCallOrder(t, runner.calls,
+		call{name: "sbx", args: []string{"create", "--name", created.SandboxName}},
+		call{name: "sbx", args: []string{"exec", "--workdir", created.Path, created.SandboxName, "sh", "-lc", "pnpm install --frozen-lockfile"}},
+	)
+}
+
 func TestCreateStartsSandboxEnabledByUserConfig(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
 	repo := t.TempDir()
 	root := t.TempDir()
+	shared := t.TempDir()
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
-		Repo:            repo,
-		Name:            "small fix",
-		Base:            "origin/main",
-		WorkspaceRoot:   root,
-		Sandbox:         true,
-		SandboxTemplate: "example/radar-sandbox:test",
+		Repo:                    repo,
+		Name:                    "small fix",
+		Base:                    "origin/main",
+		WorkspaceRoot:           root,
+		Sandbox:                 true,
+		SandboxKitName:          "radar",
+		AdditionalSandboxMounts: []string{shared},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -190,18 +265,48 @@ func TestCreateStartsSandboxEnabledByUserConfig(t *testing.T) {
 	if want := SandboxName(filepath.Base(repo), "small fix"); workspace.SandboxName != want {
 		t.Fatalf("sandbox name = %q, want %q", workspace.SandboxName, want)
 	}
-	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --template example/radar-sandbox:test shell "+workspace.Path+" "+filepath.Join(repo, ".git"))
+	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" radar "+workspace.Path+" "+filepath.Join(repo, ".git")+" "+shared)
 	assertCalledContains(t, runner.calls, "tmux", "pi --session-id")
 	assertNotCalledContains(t, runner.calls, "tmux", "sbx exec")
 	assertNotCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_SESSION_DIR=")
 	assertNotCalledContains(t, runner.calls, "tmux", "pi --approve")
 }
 
+func TestWorkspaceSandboxConfigAppliesRepoOverrides(t *testing.T) {
+	disabled := false
+	settings := workspaceSandboxConfig(RepoConfig{SBX: &SandboxConfig{
+		Enabled:          &disabled,
+		Kit:              &SandboxKitConfig{Name: "repo-kit", Path: "/repo/kit"},
+		AdditionalMounts: []string{"/repo/shared"},
+	}}, true, "user-kit", "/user/kit", []string{"/user/shared"})
+
+	if settings.Enabled {
+		t.Fatal("sandbox enabled = true, want repo override to disable it")
+	}
+	if settings.Kit.Name != "repo-kit" || settings.Kit.Path != "/repo/kit" {
+		t.Fatalf("sandbox kit = %#v", settings.Kit)
+	}
+	wantMounts := []string{"/user/shared", "/repo/shared"}
+	if strings.Join(settings.AdditionalMounts, "\n") != strings.Join(wantMounts, "\n") {
+		t.Fatalf("additional mounts = %#v, want %#v", settings.AdditionalMounts, wantMounts)
+	}
+}
+
+func TestWorkspaceSandboxConfigInheritsUserSettings(t *testing.T) {
+	settings := workspaceSandboxConfig(RepoConfig{SBX: &SandboxConfig{
+		AdditionalMounts: []string{"/repo/shared"},
+	}}, true, "user-kit", "/user/kit", []string{"/user/shared"})
+
+	if !settings.Enabled || settings.Kit.Name != "user-kit" || settings.Kit.Path != "/user/kit" {
+		t.Fatalf("sandbox settings = %+v, want inherited enabled state and kit", settings)
+	}
+}
+
 func TestCreateRejectsConfiguredSandboxOutsideMacOS(t *testing.T) {
 	withWorkspaceGOOS(t, "linux")
 	repo := t.TempDir()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"sandbox": {}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"sbx":{"enabled":true}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{repo: repo}
@@ -377,28 +482,58 @@ func TestCreateSessionMountsLinkedWorktreeGitDirectoryInNewSandbox(t *testing.T)
 	runner := &fakeRunner{gitCommonDir: commonDir}
 
 	created, err := CreateSessionWithOptions(context.Background(), runner, CreateSessionOptions{
-		Path:            path,
-		SessionName:     "repo-small-fix",
-		Sandbox:         true,
-		SandboxTemplate: "example/radar-sandbox:test",
+		Path:           path,
+		SessionName:    "repo-small-fix",
+		Sandbox:        true,
+		SandboxKitName: "radar",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertCalled(t, runner.calls, "sbx", "create --name "+created.SandboxName+" --template example/radar-sandbox:test shell "+path+" "+commonDir)
+	assertCalled(t, runner.calls, "sbx", "create --name "+created.SandboxName+" radar "+path+" "+commonDir)
 }
 
 func TestSandboxMountsDoesNotRepeatGitDirectoryInsideWorkspace(t *testing.T) {
 	path := t.TempDir()
 	runner := &fakeRunner{gitCommonDir: filepath.Join(path, ".git")}
 
-	mounts, err := sandboxMounts(context.Background(), runner, path)
+	mounts, err := sandboxMounts(context.Background(), runner, path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(mounts) != 1 || mounts[0] != path {
 		t.Fatalf("sandbox mounts = %#v, want workspace only", mounts)
+	}
+}
+
+func TestSandboxMountsExpandsAndDeduplicatesAdditionalMounts(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := t.TempDir()
+	runner := &fakeRunner{gitCommonDir: filepath.Join(path, ".git")}
+
+	mounts, err := sandboxMounts(context.Background(), runner, path, []string{"~/shared", "", path, "~/shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := filepath.Join(home, "shared")
+	want := []string{path, shared}
+	if strings.Join(mounts, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("sandbox mounts = %#v, want %#v", mounts, want)
+	}
+	if info, err := os.Stat(shared); err != nil || !info.IsDir() {
+		t.Fatalf("additional sandbox mount was not created as a directory: info=%v err=%v", info, err)
+	}
+}
+
+func TestSandboxMountsRejectsRelativeAdditionalMount(t *testing.T) {
+	path := t.TempDir()
+	runner := &fakeRunner{gitCommonDir: filepath.Join(path, ".git")}
+
+	_, err := sandboxMounts(context.Background(), runner, path, []string{"shared"})
+	if err == nil || !strings.Contains(err.Error(), "must be absolute") {
+		t.Fatalf("sandboxMounts() error = %v, want absolute path error", err)
 	}
 }
 
@@ -514,6 +649,24 @@ func TestSandboxNameTruncatesLongNames(t *testing.T) {
 	}
 	if !strings.Contains(got, "-") {
 		t.Fatalf("SandboxName() = %q, want hash suffix", got)
+	}
+}
+
+func assertCallOrder(t *testing.T, calls []call, first call, second call) {
+	t.Helper()
+	firstIndex := -1
+	secondIndex := -1
+	for i, actual := range calls {
+		args := strings.Join(actual.args, " ")
+		if firstIndex == -1 && actual.name == first.name && strings.HasPrefix(args, strings.Join(first.args, " ")) {
+			firstIndex = i
+		}
+		if secondIndex == -1 && actual.name == second.name && strings.HasPrefix(args, strings.Join(second.args, " ")) {
+			secondIndex = i
+		}
+	}
+	if firstIndex == -1 || secondIndex == -1 || firstIndex >= secondIndex {
+		t.Fatalf("expected %#v before %#v; calls: %#v", first, second, calls)
 	}
 }
 

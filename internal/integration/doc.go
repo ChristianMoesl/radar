@@ -8,7 +8,7 @@
 //
 // Source refs are the stable fact boundary between integrations and core:
 //   - ID is globally stable and owned by the integration.
-//   - Source is the integration name, such as github, jira, git, tmux, or sbx.
+//   - Source is the integration name, such as github, jira, datadog, git, tmux, or sbx.
 //   - Kind is source-owned, such as pull_request, issue, worktree, session, or sandbox.
 //   - CanonicalKey is the source-owned standalone identity for a task when present.
 //   - LinkingKeys are source-owned hints used by core to join related refs.

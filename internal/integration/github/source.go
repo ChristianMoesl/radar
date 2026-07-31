@@ -26,7 +26,7 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	result := integration.CollectResult{}
 
-	reviewItems, authoredItems, activityItems, err := FetchPullRequests(ctx, req.Previous, req.Logger)
+	reviewItems, authoredItems, activityItems, err := FetchPullRequests(ctx, req.Previous, req.Filters, req.Logger)
 	if err != nil {
 		req.Logger.Warn("github pull request collection failed", "error", err)
 		return result

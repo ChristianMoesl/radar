@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/protocol"
 )
@@ -21,6 +22,12 @@ func (Source) Name() string {
 
 func (Source) Status(ctx context.Context, logger *slog.Logger) integration.StatusResult {
 	status := protocol.SourceStatus{Name: "jira", Status: "ok"}
+	if _, err := config.Load(); err != nil {
+		logger.Debug("jira user configuration is invalid", "error", err)
+		status.Status = "error"
+		status.Detail = "could not load config"
+		return integration.StatusResult{Status: status, CanRun: false}
+	}
 	_, ok, missing := configFromEnv()
 	if !ok {
 		logger.Debug("jira collector not configured", "missing", missing)
@@ -32,12 +39,22 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 }
 
 func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
-	sourceRefs, _, err := FetchAssignedIssues(ctx, req.Logger)
+	userConfig, err := config.Load()
+	if err != nil {
+		req.Logger.Warn("jira user configuration is invalid", "error", err)
+		status := protocol.SourceStatus{Name: "jira", Status: "error", Detail: "could not load config"}
+		return integration.CollectResult{SourceStatus: &status}
+	}
+	sourceRefs, status, err := FetchAssignedIssues(ctx, userConfig.Jira.IssueTypes, req.Logger)
 	if err != nil {
 		req.Logger.Warn("jira issue collection failed", "error", err)
-		return integration.CollectResult{}
+		return integration.CollectResult{SourceStatus: &status}
 	}
-	return integration.CollectResult{Observations: integration.ObserveRefs(sourceRefs, integration.SignalInProgress), Complete: true}
+	return integration.CollectResult{
+		Observations: integration.ObserveRefs(sourceRefs, integration.SignalInProgress),
+		Complete:     true,
+		SourceStatus: &status,
+	}
 }
 
 func (Source) ReconcileDone(ctx context.Context, req integration.ReconcileRequest) []protocol.Task {

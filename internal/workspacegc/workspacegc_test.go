@@ -80,6 +80,26 @@ func TestBuildPlanWaitsForRetention(t *testing.T) {
 	}
 }
 
+func TestBuildPlanIncludesNewlyDoneWorkspaceWhenRetentionIsIgnored(t *testing.T) {
+	store := testStore(t)
+	root := filepath.Join(t.TempDir(), "workspaces")
+	path := filepath.Join(root, "app", "CAP-7-ship")
+
+	store.SetTasks([]protocol.Task{
+		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")),
+		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "CAP-7-ship")),
+		makeTask("in_progress", "sbx", sandboxRef(path, "radar-app-CAP-7-ship")),
+	})
+
+	plan, err := BuildPlan(store, time.Now(), Options{WorkspaceRoot: root, Retention: 48 * time.Hour, IgnoreRetention: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Candidates) != 1 || plan.Candidates[0].SandboxName != "radar-app-CAP-7-ship" {
+		t.Fatalf("candidates = %+v, want newly done workspace bundle", plan.Candidates)
+	}
+}
+
 func TestRunSelectsOneWorkspaceBundleAndUsesConservativeExecution(t *testing.T) {
 	store := testStore(t)
 	root := filepath.Join(t.TempDir(), "workspaces")

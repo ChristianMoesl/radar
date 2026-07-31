@@ -33,6 +33,18 @@ func TestApplyDeprioritizesRepos(t *testing.T) {
 	}
 }
 
+func TestApplyDoesNotDeprioritizeDoneTasks(t *testing.T) {
+	items := []protocol.Task{{ID: 1, Repo: "org/noisy", Attention: "done", Reason: "merged"}}
+
+	got := Apply(items, Config{DeprioritizeRepos: []string{"org/noisy"}})
+	if len(got) != 1 {
+		t.Fatalf("expected one item, got %d", len(got))
+	}
+	if got[0].Attention != "done" || got[0].Reason != "merged" {
+		t.Fatalf("done task was changed by deprioritize filter: %#v", got[0])
+	}
+}
+
 func TestApplyMatchesUsers(t *testing.T) {
 	items := []protocol.Task{
 		{ID: 1, Attention: "attention", Metadata: map[string]string{"author": "dependabot[bot]"}},
@@ -89,6 +101,33 @@ func TestApplyMuteWinsOverOtherMatchingRules(t *testing.T) {
 	got := Apply(items, cfg)
 	if len(got) != 0 {
 		t.Fatalf("expected muted item to stay hidden, got %#v", got)
+	}
+}
+
+func TestSuppressesActivityUsesActorAliases(t *testing.T) {
+	cfg := Config{MuteUsers: []string{"gemini-code-assist[bot]"}}
+	aliases := []string{"gemini-code-assist", "gemini-code-assist[bot]"}
+
+	if !SuppressesActivity(cfg, "org/repo", aliases) {
+		t.Fatal("configured bot alias should suppress activity")
+	}
+	if SuppressesActivity(cfg, "org/repo", []string{"other-bot", "other-bot[bot]"}) {
+		t.Fatal("unconfigured bot should not be suppressed")
+	}
+}
+
+func TestSuppressesActivityAppliesRepositoryUserRules(t *testing.T) {
+	cfg := Config{Rules: []Rule{{
+		Repos:  []string{"org/important"},
+		Users:  []string{"reviewer"},
+		Action: "deprioritize",
+	}}}
+
+	if !SuppressesActivity(cfg, "org/important", []string{"reviewer"}) {
+		t.Fatal("matching repository and actor should suppress attention")
+	}
+	if SuppressesActivity(cfg, "org/other", []string{"reviewer"}) {
+		t.Fatal("partial rule match should not suppress attention")
 	}
 }
 

@@ -2,6 +2,7 @@ package app
 
 import (
 	"radar/internal/integration"
+	"radar/internal/integration/datadog"
 	"radar/internal/integration/git"
 	"radar/internal/integration/github"
 	"radar/internal/integration/jira"
@@ -18,6 +19,7 @@ func DefaultIntegrationSet() integration.Set {
 		Sources: []integration.Source{
 			github.NewSource(),
 			jira.NewSource(),
+			datadog.NewSource(),
 			gitSource,
 			tmuxSource,
 			sbxSource,

@@ -2,25 +2,50 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"radar/internal/filters"
 	"radar/internal/pi"
+	"radar/internal/tmuxlayout"
 )
 
 type Config struct {
-	RepositoryDirs  []string       `json:"repository_dirs,omitempty"`
-	WorkspaceRoot   string         `json:"workspace_root,omitempty"`
-	Model           string         `json:"model,omitempty"`
-	Thinking        string         `json:"thinking,omitempty"`
-	Sandbox         *SandboxConfig `json:"sandbox,omitempty"`
-	SandboxTemplate string         `json:"sandbox_template,omitempty"`
-	Filters         filters.Config `json:"filters,omitempty"`
+	RepositoryDirs []string          `json:"repository_dirs,omitempty"`
+	WorkspaceRoot  string            `json:"workspace_root,omitempty"`
+	Model          string            `json:"model,omitempty"`
+	Thinking       string            `json:"thinking,omitempty"`
+	SBX            SBXConfig         `json:"sbx"`
+	Tmux           tmuxlayout.Config `json:"tmux"`
+	GitHub         GitHubConfig      `json:"github"`
+	Jira           JiraConfig        `json:"jira"`
+	Datadog        DatadogConfig     `json:"datadog"`
 }
 
-type SandboxConfig struct{}
+type SBXConfig struct {
+	Enabled          bool         `json:"enabled"`
+	Kit              SBXKitConfig `json:"kit"`
+	AdditionalMounts []string     `json:"additional_mounts"`
+}
+
+type SBXKitConfig struct {
+	Name string `json:"name"`
+	Path string `json:"path,omitempty"`
+}
+
+type GitHubConfig struct {
+	Filters filters.Config `json:"filters"`
+}
+
+type JiraConfig struct {
+	IssueTypes []string `json:"issue_types"`
+}
+
+type DatadogConfig struct {
+	MonitorQuery string `json:"monitor_query"`
+}
 
 func Path() (string, error) {
 	base := os.Getenv("XDG_CONFIG_HOME")
@@ -86,20 +111,29 @@ func EnsureFile() (string, error) {
 
 func Default() Config {
 	cfg := Config{
-		RepositoryDirs:  []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"},
-		WorkspaceRoot:   defaultWorkspaceRoot(),
-		SandboxTemplate: "christianmoesl/radar-sandbox:latest",
-		Filters: filters.Config{
-			MuteRepos:         []string{},
-			DeprioritizeRepos: []string{},
-			MuteUsers:         []string{},
-			DeprioritizeUsers: []string{},
-			Rules: []filters.Rule{
-				{
-					Name:   "Track bot PRs in selected repos",
-					Repos:  []string{"example-org/*"},
-					Users:  []string{"dependabot[bot]", "renovate[bot]"},
-					Action: "deprioritize",
+		RepositoryDirs: []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"},
+		WorkspaceRoot:  defaultWorkspaceRoot(),
+		SBX: SBXConfig{
+			Kit:              SBXKitConfig{Name: "shell"},
+			AdditionalMounts: []string{},
+		},
+		Tmux: tmuxlayout.Default(),
+		Jira: JiraConfig{
+			IssueTypes: []string{},
+		},
+		GitHub: GitHubConfig{
+			Filters: filters.Config{
+				MuteRepos:         []string{},
+				DeprioritizeRepos: []string{},
+				MuteUsers:         []string{},
+				DeprioritizeUsers: []string{},
+				Rules: []filters.Rule{
+					{
+						Name:   "Track bot PRs in selected repos",
+						Repos:  []string{"example-org/*"},
+						Users:  []string{"dependabot[bot]", "renovate[bot]"},
+						Action: "deprioritize",
+					},
 				},
 			},
 		},
@@ -122,11 +156,20 @@ func applyDefaults(cfg *Config) {
 	if strings.TrimSpace(cfg.WorkspaceRoot) == "" {
 		cfg.WorkspaceRoot = defaults.WorkspaceRoot
 	}
-	if strings.TrimSpace(cfg.SandboxTemplate) == "" {
-		cfg.SandboxTemplate = defaults.SandboxTemplate
+	if strings.TrimSpace(cfg.SBX.Kit.Name) == "" {
+		cfg.SBX.Kit.Name = defaults.SBX.Kit.Name
 	}
+	cfg.Tmux = tmuxlayout.WithDefaults(cfg.Tmux)
 }
 
 func validate(cfg Config) error {
-	return pi.ValidateThinking(cfg.Thinking)
+	if err := pi.ValidateThinking(cfg.Thinking); err != nil {
+		return err
+	}
+	for i, issueType := range cfg.Jira.IssueTypes {
+		if strings.TrimSpace(issueType) == "" {
+			return fmt.Errorf("jira.issue_types[%d] must not be empty", i)
+		}
+	}
+	return tmuxlayout.Validate(cfg.Tmux)
 }

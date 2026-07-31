@@ -18,13 +18,14 @@ import (
 
 	"radar/internal/pi"
 	"radar/internal/sbxauth"
+	"radar/internal/tmuxlayout"
 )
 
 var invalidWorkspaceNameCharacters = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 var workspaceGOOS = runtime.GOOS
 
-const defaultSandboxTemplate = "christianmoesl/radar-sandbox:latest"
+const defaultSandboxKitName = "shell"
 const maxSandboxNameLength = 63
 const sandboxNameHashLength = 8
 
@@ -96,19 +97,22 @@ func commandError(name string, args []string, output []byte, err error) error {
 }
 
 type CreateOptions struct {
-	Repo            string
-	Name            string
-	Branch          string
-	Base            string
-	Path            string
-	SessionName     string
-	WorkspaceRoot   string
-	Model           string
-	Thinking        string
-	Sandbox         bool
-	SandboxTemplate string
-	Switch          bool
-	ForkPiSession   string
+	Repo                    string
+	Name                    string
+	Branch                  string
+	Base                    string
+	Path                    string
+	SessionName             string
+	WorkspaceRoot           string
+	Model                   string
+	Thinking                string
+	Sandbox                 bool
+	SandboxKitName          string
+	SandboxKitPath          string
+	AdditionalSandboxMounts []string
+	Tmux                    tmuxlayout.Config
+	Switch                  bool
+	ForkPiSession           string
 }
 
 type Workspace struct {
@@ -122,18 +126,21 @@ type Workspace struct {
 }
 
 type CreateSessionOptions struct {
-	Path            string
-	SessionName     string
-	Model           string
-	Thinking        string
-	Sandbox         bool
-	SandboxTemplate string
-	SandboxName     string
-	Switch          bool
+	Path                    string
+	SessionName             string
+	Model                   string
+	Thinking                string
+	Sandbox                 bool
+	SandboxKitName          string
+	SandboxKitPath          string
+	AdditionalSandboxMounts []string
+	SandboxName             string
+	Tmux                    tmuxlayout.Config
+	Switch                  bool
 }
 
 func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
-	for _, dependency := range []string{"git", "tmux", "nvim", "pi"} {
+	for _, dependency := range []string{"git", "tmux"} {
 		if err := runner.LookPath(dependency); err != nil {
 			return Workspace{}, fmt.Errorf("workspace creation requires %q: %w", dependency, err)
 		}
@@ -153,8 +160,11 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	if err := pi.ValidateThinking(options.Thinking); err != nil {
 		return Workspace{}, err
 	}
-	sandboxConfig, sandboxEnabled := workspaceSandboxConfig(repoConfig, options.Sandbox)
-	if sandboxEnabled {
+	if err := tmuxlayout.Validate(options.Tmux); err != nil {
+		return Workspace{}, err
+	}
+	sandbox := workspaceSandboxConfig(repoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.AdditionalSandboxMounts)
+	if sandbox.Enabled {
 		if workspaceGOOS != "darwin" {
 			return Workspace{}, fmt.Errorf("workspace sandbox is only supported on macOS")
 		}
@@ -184,17 +194,17 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		sessionName = SessionName(repoName, name)
 	}
 	sandboxName := ""
-	if sandboxEnabled {
+	if sandbox.Enabled {
 		sandboxName = SandboxName(repoName, name)
 	}
 	if existingPath, ok, err := worktreePathForBranch(ctx, runner, repo, branch); err != nil {
 		return Workspace{}, err
 	} else if ok {
-		return openExistingWorkspace(ctx, runner, Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: existingPath, SessionName: sessionName, SandboxName: sandboxName}, options.Switch)
+		return openExistingWorkspace(ctx, runner, Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: existingPath, SessionName: sessionName, SandboxName: sandboxName}, options)
 	}
 	if _, err := os.Stat(path); err == nil {
 		if isGitWorktree(ctx, runner, path) {
-			return openExistingWorkspace(ctx, runner, Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName, SandboxName: sandboxName}, options.Switch)
+			return openExistingWorkspace(ctx, runner, Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName, SandboxName: sandboxName}, options)
 		}
 		return Workspace{}, fmt.Errorf("workspace already exists: %s", path)
 	} else if !os.IsNotExist(err) {
@@ -223,7 +233,7 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 			_, _ = runner.Run(ctx, repo, "tmux", "kill-session", "-t", sessionName)
 		}
 		if createdSandbox {
-			_, _ = stopSandbox(ctx, runner, path, sandboxConfig, sandboxName)
+			_, _ = stopSandbox(ctx, runner, path, sandboxName)
 		}
 		_, _ = runner.Run(ctx, repo, "git", "worktree", "remove", "--force", path)
 	}
@@ -232,22 +242,16 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		rollback()
 		return Workspace{}, err
 	}
-	for _, command := range repoConfig.Setup {
-		if _, err := runner.Run(ctx, path, "sh", "-lc", command); err != nil {
-			rollback()
-			return Workspace{}, err
-		}
-	}
-	sandboxTemplate := strings.TrimSpace(options.SandboxTemplate)
-	if sandboxTemplate == "" {
-		sandboxTemplate = defaultSandboxTemplate
-	}
-	if sandboxEnabled {
-		if _, err := startSandbox(ctx, runner, path, sandboxConfig, sandboxName, sandboxTemplate); err != nil {
+	if sandbox.Enabled {
+		if _, err := startSandbox(ctx, runner, path, sandboxName, sandbox.Kit, sandbox.AdditionalMounts); err != nil {
 			rollback()
 			return Workspace{}, err
 		}
 		createdSandbox = true
+	}
+	if err := runSetupCommands(ctx, runner, path, sandboxName, repoConfig.Setup); err != nil {
+		rollback()
+		return Workspace{}, err
 	}
 	if _, err := runner.Run(ctx, repo, "tmux", "has-session", "-t", sessionName); err != nil {
 		model := options.Model
@@ -258,20 +262,12 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		if strings.TrimSpace(repoConfig.Thinking) != "" {
 			thinking = repoConfig.Thinking
 		}
-		piCommandText := piCommand(sessionName, model, thinking, options.ForkPiSession)
-		if _, err := runner.Run(ctx, repo, "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, piCommandText); err != nil {
+		piArgsText := piArgs(sessionName, model, thinking, options.ForkPiSession)
+		if err := createTmuxWorkspace(ctx, runner, repo, path, sessionName, options.Tmux, piArgsText); err != nil {
 			rollback()
 			return Workspace{}, err
 		}
 		createdSession = true
-		if _, err := runner.Run(ctx, repo, "tmux", "new-window", "-t", sessionName+":", "-n", "nvim", "-c", path, "nvim ."); err != nil {
-			rollback()
-			return Workspace{}, err
-		}
-		if _, err := runner.Run(ctx, repo, "tmux", "select-window", "-t", sessionName+":pi"); err != nil {
-			rollback()
-			return Workspace{}, err
-		}
 	}
 	if options.Switch {
 		if _, err := runner.Run(ctx, repo, "tmux", "switch-client", "-t", sessionName); err != nil {
@@ -282,18 +278,54 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	return Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName, SandboxName: sandboxName}, nil
 }
 
-func workspaceSandboxConfig(repoConfig RepoConfig, enabledByUserConfig bool) (SandboxConfig, bool) {
-	if repoConfig.Sandbox != nil {
-		return *repoConfig.Sandbox, true
-	}
-	if enabledByUserConfig {
-		return SandboxConfig{}, true
-	}
-	return SandboxConfig{}, false
+type sandboxSettings struct {
+	Enabled          bool
+	Kit              SandboxKitConfig
+	AdditionalMounts []string
 }
 
-func openExistingWorkspace(ctx context.Context, runner Runner, workspace Workspace, switchClient bool) (Workspace, error) {
-	created, err := CreateSession(ctx, runner, workspace.Path, workspace.SessionName, switchClient)
+func workspaceSandboxConfig(repoConfig RepoConfig, enabled bool, kitName string, kitPath string, additionalMounts []string) sandboxSettings {
+	settings := sandboxSettings{
+		Enabled: enabled,
+		Kit: SandboxKitConfig{
+			Name: strings.TrimSpace(kitName),
+			Path: strings.TrimSpace(kitPath),
+		},
+		AdditionalMounts: append([]string(nil), additionalMounts...),
+	}
+	if settings.Kit.Name == "" {
+		settings.Kit.Name = defaultSandboxKitName
+	}
+	if repoConfig.SBX == nil {
+		return settings
+	}
+	if repoConfig.SBX.Enabled != nil {
+		settings.Enabled = *repoConfig.SBX.Enabled
+	}
+	if repoConfig.SBX.Kit != nil {
+		settings.Kit = SandboxKitConfig{
+			Name: strings.TrimSpace(repoConfig.SBX.Kit.Name),
+			Path: strings.TrimSpace(repoConfig.SBX.Kit.Path),
+		}
+	}
+	settings.AdditionalMounts = append(settings.AdditionalMounts, repoConfig.SBX.AdditionalMounts...)
+	return settings
+}
+
+func openExistingWorkspace(ctx context.Context, runner Runner, workspace Workspace, options CreateOptions) (Workspace, error) {
+	created, err := CreateSessionWithOptions(ctx, runner, CreateSessionOptions{
+		Path:                    workspace.Path,
+		SessionName:             workspace.SessionName,
+		Model:                   options.Model,
+		Thinking:                options.Thinking,
+		Sandbox:                 options.Sandbox,
+		SandboxKitName:          options.SandboxKitName,
+		SandboxKitPath:          options.SandboxKitPath,
+		AdditionalSandboxMounts: options.AdditionalSandboxMounts,
+		SandboxName:             workspace.SandboxName,
+		Tmux:                    options.Tmux,
+		Switch:                  options.Switch,
+	})
 	if err != nil {
 		return Workspace{}, err
 	}
@@ -353,7 +385,7 @@ func CreateSession(ctx context.Context, runner Runner, path string, sessionName 
 }
 
 func CreateSessionWithOptions(ctx context.Context, runner Runner, options CreateSessionOptions) (Workspace, error) {
-	for _, dependency := range []string{"tmux", "nvim", "pi"} {
+	for _, dependency := range []string{"tmux"} {
 		if err := runner.LookPath(dependency); err != nil {
 			return Workspace{}, fmt.Errorf("workspace session creation requires %q: %w", dependency, err)
 		}
@@ -372,12 +404,15 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 	if err := pi.ValidateThinking(options.Thinking); err != nil {
 		return Workspace{}, err
 	}
-	sandboxConfig, sandboxEnabled := workspaceSandboxConfig(repoConfig, options.Sandbox)
+	if err := tmuxlayout.Validate(options.Tmux); err != nil {
+		return Workspace{}, err
+	}
+	sandbox := workspaceSandboxConfig(repoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.AdditionalSandboxMounts)
 	sandboxName := strings.TrimSpace(options.SandboxName)
 	if sandboxName != "" {
-		sandboxEnabled = true
+		sandbox.Enabled = true
 	}
-	if sandboxEnabled {
+	if sandbox.Enabled {
 		if workspaceGOOS != "darwin" {
 			return Workspace{}, fmt.Errorf("workspace sandbox is only supported on macOS")
 		}
@@ -389,7 +424,7 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 	if sessionName == "" {
 		sessionName = SessionName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
 	}
-	if sandboxEnabled && sandboxName == "" {
+	if sandbox.Enabled && sandboxName == "" {
 		sandboxName = SandboxName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
 	}
 	if _, err := runner.Run(ctx, "", "tmux", "has-session", "-t", sessionName); err != nil {
@@ -401,39 +436,21 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 		if strings.TrimSpace(repoConfig.Thinking) != "" {
 			thinking = repoConfig.Thinking
 		}
-		piCommandText := piCommand(sessionName, model, thinking, "")
+		piArgsText := piArgs(sessionName, model, thinking, "")
 		createdSandbox := false
-		if sandboxEnabled {
+		if sandbox.Enabled {
 			if exists, err := sandboxExists(ctx, runner, sandboxName); err != nil {
 				return Workspace{}, err
 			} else if !exists {
-				sandboxTemplate := strings.TrimSpace(options.SandboxTemplate)
-				if sandboxTemplate == "" {
-					sandboxTemplate = defaultSandboxTemplate
-				}
-				if _, err := startSandbox(ctx, runner, path, sandboxConfig, sandboxName, sandboxTemplate); err != nil {
+				if _, err := startSandbox(ctx, runner, path, sandboxName, sandbox.Kit, sandbox.AdditionalMounts); err != nil {
 					return Workspace{}, err
 				}
 				createdSandbox = true
 			}
 		}
-		if _, err := runner.Run(ctx, "", "tmux", "new-session", "-d", "-s", sessionName, "-n", "pi", "-c", path, piCommandText); err != nil {
+		if err := createTmuxWorkspace(ctx, runner, "", path, sessionName, options.Tmux, piArgsText); err != nil {
 			if createdSandbox {
-				_, _ = stopSandbox(ctx, runner, path, sandboxConfig, sandboxName)
-			}
-			return Workspace{}, err
-		}
-		if _, err := runner.Run(ctx, "", "tmux", "new-window", "-t", sessionName+":", "-n", "nvim", "-c", path, "nvim ."); err != nil {
-			_, _ = runner.Run(ctx, "", "tmux", "kill-session", "-t", sessionName)
-			if createdSandbox {
-				_, _ = stopSandbox(ctx, runner, path, sandboxConfig, sandboxName)
-			}
-			return Workspace{}, err
-		}
-		if _, err := runner.Run(ctx, "", "tmux", "select-window", "-t", sessionName+":pi"); err != nil {
-			_, _ = runner.Run(ctx, "", "tmux", "kill-session", "-t", sessionName)
-			if createdSandbox {
-				_, _ = stopSandbox(ctx, runner, path, sandboxConfig, sandboxName)
+				_, _ = stopSandbox(ctx, runner, path, sandboxName)
 			}
 			return Workspace{}, err
 		}
@@ -571,12 +588,31 @@ func copyFile(source string, target string, mode os.FileMode) error {
 	return output.Close()
 }
 
-func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string, template string) (string, error) {
-	mounts, err := sandboxMounts(ctx, runner, path)
+func runSetupCommands(ctx context.Context, runner Runner, path string, sandboxName string, commands []string) error {
+	for _, command := range commands {
+		if sandboxName != "" {
+			if _, err := runner.Run(ctx, path, "sbx", "exec", "--workdir", path, sandboxName, "sh", "-lc", command); err != nil {
+				return sbxCommandError(err)
+			}
+			continue
+		}
+		if _, err := runner.Run(ctx, path, "sh", "-lc", command); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func startSandbox(ctx context.Context, runner Runner, path string, name string, kit SandboxKitConfig, additionalMounts []string) (string, error) {
+	mounts, err := sandboxMounts(ctx, runner, path, additionalMounts)
 	if err != nil {
 		return "", err
 	}
-	args := []string{"create", "--name", name, "--template", template, "shell"}
+	args := []string{"create", "--name", name}
+	if kit.Path != "" {
+		args = append(args, "--kit", ExpandPath(kit.Path))
+	}
+	args = append(args, kit.Name)
 	args = append(args, mounts...)
 	output, err := runner.Run(ctx, path, "sbx", args...)
 	if err != nil {
@@ -585,7 +621,7 @@ func startSandbox(ctx context.Context, runner Runner, path string, _ SandboxConf
 	return output, nil
 }
 
-func sandboxMounts(ctx context.Context, runner Runner, path string) ([]string, error) {
+func sandboxMounts(ctx context.Context, runner Runner, path string, additionalMounts []string) ([]string, error) {
 	commonDir, err := runner.Run(ctx, path, "git", "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return nil, err
@@ -598,7 +634,32 @@ func sandboxMounts(ctx context.Context, runner Runner, path string) ([]string, e
 	if !pathContains(path, commonDir) {
 		mounts = append(mounts, commonDir)
 	}
+	for _, configuredMount := range additionalMounts {
+		mount := strings.TrimSpace(configuredMount)
+		if mount == "" {
+			continue
+		}
+		mount = filepath.Clean(ExpandPath(mount))
+		if !filepath.IsAbs(mount) {
+			return nil, fmt.Errorf("additional sandbox mount %q must be absolute or start with ~/", configuredMount)
+		}
+		if err := os.MkdirAll(mount, 0o755); err != nil {
+			return nil, fmt.Errorf("create additional sandbox mount %s: %w", mount, err)
+		}
+		if !containsPath(mounts, mount) {
+			mounts = append(mounts, mount)
+		}
+	}
 	return mounts, nil
+}
+
+func containsPath(paths []string, candidate string) bool {
+	for _, path := range paths {
+		if filepath.Clean(path) == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func pathContains(root string, path string) bool {
@@ -606,7 +667,7 @@ func pathContains(root string, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func stopSandbox(ctx context.Context, runner Runner, path string, _ SandboxConfig, name string) (string, error) {
+func stopSandbox(ctx context.Context, runner Runner, path string, name string) (string, error) {
 	output, err := runner.Run(ctx, "", "sbx", "rm", "--force", name)
 	if err != nil && strings.Contains(err.Error(), "not found") {
 		return output, nil
@@ -650,8 +711,93 @@ func sbxCommandError(err error) error {
 	return err
 }
 
-func piCommand(sessionName string, model string, thinking string, forkSession string) string {
-	args := []string{"pi"}
+func createTmuxWorkspace(ctx context.Context, runner Runner, cwd string, path string, sessionName string, cfg tmuxlayout.Config, piArgsText string) error {
+	cfg = tmuxlayout.WithDefaults(cfg)
+	if err := tmuxlayout.Validate(cfg); err != nil {
+		return err
+	}
+
+	createdSession := false
+	cleanup := func(err error) error {
+		if createdSession {
+			_, _ = runner.Run(ctx, cwd, "tmux", "kill-session", "-t", sessionName)
+		}
+		return err
+	}
+	var piWindowID string
+	var piPaneID string
+	for windowIndex, window := range cfg.Windows {
+		firstCommand := expandPiArgs(window.Panes[0].Command, piArgsText)
+		var output string
+		var err error
+		if windowIndex == 0 {
+			output, err = runner.Run(ctx, cwd, "tmux", "new-session", "-d", "-s", sessionName, "-n", window.Name, "-c", path, "-P", "-F", "#{window_id} #{pane_id}", firstCommand)
+			if err == nil {
+				createdSession = true
+			}
+		} else {
+			output, err = runner.Run(ctx, cwd, "tmux", "new-window", "-t", sessionName+":", "-d", "-n", window.Name, "-c", path, "-P", "-F", "#{window_id} #{pane_id}", firstCommand)
+		}
+		if err != nil {
+			return cleanup(err)
+		}
+		windowID, firstPaneID, err := parseTmuxIDs(output)
+		if err != nil {
+			return cleanup(err)
+		}
+		if strings.Contains(window.Panes[0].Command, tmuxlayout.PiArgsPlaceholder) {
+			piWindowID = windowID
+			piPaneID = firstPaneID
+		}
+
+		for _, pane := range window.Panes[1:] {
+			command := expandPiArgs(pane.Command, piArgsText)
+			output, err := runner.Run(ctx, cwd, "tmux", "split-window", "-d", "-t", firstPaneID, "-c", path, "-P", "-F", "#{window_id} #{pane_id}", command)
+			if err != nil {
+				return cleanup(err)
+			}
+			paneWindowID, paneID, err := parseTmuxIDs(output)
+			if err != nil {
+				return cleanup(err)
+			}
+			if strings.Contains(pane.Command, tmuxlayout.PiArgsPlaceholder) {
+				piWindowID = paneWindowID
+				piPaneID = paneID
+			}
+		}
+		layout, err := tmuxlayout.NativeLayout(window.Layout)
+		if err != nil {
+			return cleanup(err)
+		}
+		if layout != "" {
+			if _, err := runner.Run(ctx, cwd, "tmux", "select-layout", "-t", windowID, layout); err != nil {
+				return cleanup(err)
+			}
+		}
+	}
+	if _, err := runner.Run(ctx, cwd, "tmux", "select-window", "-t", piWindowID); err != nil {
+		return cleanup(err)
+	}
+	if _, err := runner.Run(ctx, cwd, "tmux", "select-pane", "-t", piPaneID); err != nil {
+		return cleanup(err)
+	}
+	return nil
+}
+
+func parseTmuxIDs(output string) (string, string, error) {
+	fields := strings.Fields(output)
+	if len(fields) != 2 || !strings.HasPrefix(fields[0], "@") || !strings.HasPrefix(fields[1], "%") {
+		return "", "", fmt.Errorf("unexpected tmux pane output %q", output)
+	}
+	return fields[0], fields[1], nil
+}
+
+func expandPiArgs(command string, args string) string {
+	return strings.ReplaceAll(command, tmuxlayout.PiArgsPlaceholder, args)
+}
+
+func piArgs(sessionName string, model string, thinking string, forkSession string) string {
+	args := []string{}
 	if forkSession != "" {
 		args = append(args, "--fork", shellQuote(forkSession))
 	}

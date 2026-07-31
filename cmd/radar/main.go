@@ -164,21 +164,24 @@ func runCreate(args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	if cfg.Sandbox != nil {
+	if cfg.SBX.Enabled {
 		if _, err := ensureSBXLogin(context.Background()); err != nil {
 			fatal(err)
 		}
 	}
 	integrations := app.DefaultIntegrationSet()
 	result, err := integrations.Workspace.Create(context.Background(), integration.CreateWorkspaceRequest{
-		Repo:            *repo,
-		Base:            *base,
-		Name:            *name,
-		Model:           cfg.Model,
-		Thinking:        cfg.Thinking,
-		Sandbox:         cfg.Sandbox != nil,
-		SandboxTemplate: cfg.SandboxTemplate,
-		Switch:          os.Getenv("TMUX") != "",
+		Repo:                    *repo,
+		Base:                    *base,
+		Name:                    *name,
+		Model:                   cfg.Model,
+		Thinking:                cfg.Thinking,
+		Sandbox:                 cfg.SBX.Enabled,
+		SandboxKitName:          cfg.SBX.Kit.Name,
+		SandboxKitPath:          cfg.SBX.Kit.Path,
+		AdditionalSandboxMounts: cfg.SBX.AdditionalMounts,
+		Tmux:                    cfg.Tmux,
+		Switch:                  os.Getenv("TMUX") != "",
 	})
 	if err != nil {
 		fatal(err)
@@ -374,7 +377,7 @@ func runDaemon() {
 	notificationService := notification.New(logger)
 	collectionMu := &sync.Mutex{}
 	refresh := refresher(context.Background(), store, logger, collectionMu, integrations, cleanupService, notificationService)
-	garbageCollect := garbageCollector(context.Background(), store, logger, collectionMu, integrations, cleanupService)
+	garbageCollect := garbageCollector(context.Background(), store, logger, collectionMu, integrations, cleanupService, notificationService)
 	if collectionDisabled() {
 		logger.Info("source collection disabled", "env", "RADAR_DISABLE_COLLECTION")
 	} else {
@@ -511,12 +514,15 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 			store.SetTasks(result.Tasks)
 			store.SetSources(result.Sources)
 		}
+		var gcNotification *protocol.GarbageCollectionResult
 		if time.Since(lastWorkspaceGC) >= time.Hour {
 			lastWorkspaceGC = time.Now()
 			gcResult, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{})
 			if err != nil {
 				logger.Warn("workspace gc failed", "error", err)
 			} else if len(gcResult.Deleted) > 0 {
+				converted := garbageCollectionResult(gcResult)
+				gcNotification = &converted
 				result = collector.CollectLocal(ctx, store.Tasks(), logger, integrations.Sources)
 				store.SetTasksForSources(result.Tasks, result.SourceNames)
 				store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
@@ -526,18 +532,21 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 		current := store.Tasks()
 		mu.Unlock()
 
+		if gcNotification != nil {
+			notificationService.NotifyGarbageCollection(ctx, *gcNotification)
+		}
 		notifyActionableTransitions(ctx, previous, current, logger, notificationService)
 		logger.Debug("refresh finished", "scope", scope, "tasks", len(result.Tasks), "sources", len(result.Sources))
 	}
 }
 
-func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Set, cleanupService cleanup.Service) func() (protocol.GarbageCollectionResult, error) {
+func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Set, cleanupService cleanup.Service, notificationService notification.Service) func() (protocol.GarbageCollectionResult, error) {
 	return func() (protocol.GarbageCollectionResult, error) {
 		mu.Lock()
-		defer mu.Unlock()
 
-		result, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{})
+		result, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{IgnoreRetention: true})
 		if err != nil {
+			mu.Unlock()
 			return protocol.GarbageCollectionResult{}, err
 		}
 		if len(result.Deleted) > 0 {
@@ -546,7 +555,10 @@ func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logg
 			store.SetSources(mergeSourceStatuses(store.Sources(), collected.Sources))
 			logger.Debug("manual workspace gc refresh finished", "deleted", len(result.Deleted), "tasks", len(collected.Tasks))
 		}
-		return garbageCollectionResult(result), nil
+		converted := garbageCollectionResult(result)
+		mu.Unlock()
+		notificationService.NotifyGarbageCollection(ctx, converted)
+		return converted, nil
 	}
 }
 
@@ -570,7 +582,7 @@ func notifyActionableTransitions(ctx context.Context, previous, current []protoc
 		logger.Warn("notifications skipped; could not load config", "error", err)
 		return
 	}
-	notificationService.NotifyTransitions(ctx, filters.Apply(previous, cfg.Filters), filters.Apply(current, cfg.Filters))
+	notificationService.NotifyTransitions(ctx, filters.Apply(previous, cfg.GitHub.Filters), filters.Apply(current, cfg.GitHub.Filters))
 }
 
 func mergeSourceStatuses(previous []protocol.SourceStatus, updates []protocol.SourceStatus) []protocol.SourceStatus {

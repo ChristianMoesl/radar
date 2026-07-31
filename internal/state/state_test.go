@@ -207,6 +207,51 @@ func TestProjectTasksAppliesAcknowledgementOutsideSourceMetadata(t *testing.T) {
 	}
 }
 
+func TestProjectTasksKeepsLinkedActiveWorkAfterAcknowledgingPRActivity(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	githubRef := withSignal(withStatus(withMetadata(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship"), map[string]string{
+		"base_reason":               "draft PR",
+		"new_general_comments":      "1",
+		"latest_general_comment_at": "2026-06-15T11:00:00Z",
+	}), "1 new PR comment(s)"), "attention")
+	jiraRef := withSignal(withStatus(testJiraIssueRef("jira:issue:CAP-7", "CAP-7 Ship"), "In Progress"), "in_progress")
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{
+		Kind:       "github_pr_activity",
+		Title:      "CAP-7 ship",
+		Attention:  "attention",
+		Reason:     "1 new PR comment(s)",
+		SourceRefs: []protocol.SourceRef{githubRef, jiraRef},
+	}}, now)
+	state.Records[0].Ack.GeneralCommentsAckAt = "2026-06-15T11:00:00Z"
+
+	tasks := projectTasks(state)
+	if len(tasks) != 1 {
+		t.Fatalf("tasks = %d, want linked active task to remain: %+v", len(tasks), tasks)
+	}
+	if tasks[0].Attention != "in_progress" || tasks[0].Reason != "In Progress" {
+		t.Fatalf("task = %s/%s, want in_progress/In Progress", tasks[0].Attention, tasks[0].Reason)
+	}
+}
+
+func TestProjectTasksHidesStandaloneAcknowledgedPRActivity(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{
+		Kind:      "github_pr_activity",
+		Title:     "Unlinked activity",
+		Attention: "attention",
+		Reason:    "1 new PR comment(s)",
+		SourceRefs: []protocol.SourceRef{withMetadata(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "unlinked"), map[string]string{
+			"new_general_comments":      "1",
+			"latest_general_comment_at": "2026-06-15T11:00:00Z",
+		})},
+	}}, now)
+	state.Records[0].Ack.GeneralCommentsAckAt = "2026-06-15T11:00:00Z"
+
+	if tasks := projectTasks(state); len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want standalone acknowledged activity hidden", tasks)
+	}
+}
+
 func TestLocalReconcilePreservesRemoteRefsAndUpdatesLocalRefs(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{

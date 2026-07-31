@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"radar/internal/filters"
 	"radar/internal/integration/contracttest"
 	"radar/internal/protocol"
 )
@@ -48,7 +49,9 @@ case "$*" in
           "isDraft": true,
           "headRefName": "ABC-34-my-draft",
           "body": "refs: ABC-34",
-          "repository": { "nameWithOwner": "acme/app" }
+          "repository": { "nameWithOwner": "acme/app" },
+          "reviews": { "nodes": [{ "author": { "__typename": "Bot", "login": "gemini-code-assist" }, "createdAt": "2026-06-11T10:00:00Z" }] },
+          "reviewThreads": { "nodes": [{ "isResolved": false, "comments": { "nodes": [{ "author": { "__typename": "Bot", "login": "gemini-code-assist" }, "createdAt": "2026-06-11T10:00:00Z" }] } }] }
         }
       ]
     }
@@ -63,7 +66,8 @@ JSON
 esac
 `)
 
-	reviewItems, authoredItems, activityItems, err := FetchPullRequests(context.Background(), nil, testLogger())
+	cfg := filters.Config{MuteUsers: []string{"gemini-code-assist[bot]"}}
+	reviewItems, authoredItems, activityItems, err := FetchPullRequests(context.Background(), nil, cfg, testLogger())
 	if err != nil {
 		t.Fatalf("FetchPullRequests() error = %v", err)
 	}
@@ -117,33 +121,120 @@ func TestDetectActivityTracksReviewThreadsAndGeneralComments(t *testing.T) {
 		}},
 	}
 
-	activity := detectActivity(pr, "me", previousPullRequestActivity{generalCommentsAckAt: "2026-06-11T09:30:00Z"}, true)
+	activity := detectActivity(pr, "me", previousPullRequestActivity{generalCommentsAckAt: "2026-06-11T09:30:00Z"}, filters.Config{}, true)
 	if activity.unresolvedReviewThreads != 1 || activity.newGeneralComments != 1 || activity.latestGeneralCommentAt != "2026-06-11T10:00:00Z" {
 		t.Fatalf("activity = %+v, want one unresolved thread and one new general comment", activity)
 	}
 
-	activity = detectActivity(pr, "me", previousPullRequestActivity{}, false)
+	activity = detectActivity(pr, "me", previousPullRequestActivity{}, filters.Config{}, false)
 	if activity.unresolvedReviewThreads != 1 || activity.newGeneralComments != 0 {
 		t.Fatalf("participated activity = %+v, want one unresolved participated thread only", activity)
 	}
 }
 
-func TestDetectActivityIgnoresRoutineBotComments(t *testing.T) {
+func TestRelevantReviewThreadOnlyNeedsAttentionWhenAnotherHumanRespondedLast(t *testing.T) {
+	tests := []struct {
+		name     string
+		authored bool
+		comments []graphQLComment
+		want     bool
+	}{
+		{
+			name:     "authored PR with initial reviewer comment",
+			authored: true,
+			comments: []graphQLComment{{Author: user{Login: "reviewer"}, CreatedAt: "2026-06-11T09:00:00Z"}},
+			want:     true,
+		},
+		{
+			name:     "authored PR awaiting author response",
+			authored: true,
+			comments: []graphQLComment{
+				{Author: user{Login: "me"}, CreatedAt: "2026-06-11T09:00:00Z"},
+				{Author: user{Login: "reviewer"}, CreatedAt: "2026-06-11T10:00:00Z"},
+			},
+			want: true,
+		},
+		{
+			name:     "authored PR awaiting reviewer response",
+			authored: true,
+			comments: []graphQLComment{
+				{Author: user{Login: "reviewer"}, CreatedAt: "2026-06-11T09:00:00Z"},
+				{Author: user{Login: "me"}, CreatedAt: "2026-06-11T10:00:00Z"},
+			},
+			want: false,
+		},
+		{
+			name:     "participated PR requires prior participation",
+			authored: false,
+			comments: []graphQLComment{{Author: user{Login: "reviewer"}, CreatedAt: "2026-06-11T09:00:00Z"}},
+			want:     false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			thread := graphQLReviewThread{Comments: graphQLComments{Nodes: test.comments}}
+			if got := relevantReviewThread(thread, "me", "acme/app", filters.Config{}, test.authored); got != test.want {
+				t.Fatalf("relevantReviewThread() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestDetectActivityFiltersConfiguredBotAliases(t *testing.T) {
 	pr := searchPullRequest{
-		Comments: graphQLComments{Nodes: []graphQLComment{
-			{Author: user{Login: "dependabot[bot]"}, CreatedAt: "2026-06-11T10:00:00Z"},
+		Repository: struct {
+			FullName      string `json:"fullName"`
+			NameWithOwner string `json:"nameWithOwner"`
+		}{NameWithOwner: "acme/app"},
+		Reviews: graphQLComments{Nodes: []graphQLComment{
+			{Author: user{Type: "Bot", Login: "gemini-code-assist"}, CreatedAt: "2026-06-11T10:00:00Z"},
 		}},
 		ReviewThreads: graphQLReviewThreads{Nodes: []graphQLReviewThread{
 			{IsResolved: false, Comments: graphQLComments{Nodes: []graphQLComment{
 				{Author: user{Login: "me"}, CreatedAt: "2026-06-11T09:00:00Z"},
-				{Author: user{Login: "github-actions[bot]"}, CreatedAt: "2026-06-11T10:00:00Z"},
+				{Author: user{Type: "Bot", Login: "gemini-code-assist"}, CreatedAt: "2026-06-11T10:00:00Z"},
 			}}},
 		}},
 	}
+	cfg := filters.Config{MuteUsers: []string{"gemini-code-assist[bot]"}}
 
-	activity := detectActivity(pr, "me", previousPullRequestActivity{}, true)
+	activity := detectActivity(pr, "me", previousPullRequestActivity{}, cfg, true)
 	if activity.needsAttention() {
-		t.Fatalf("activity = %+v, want bot-only activity ignored", activity)
+		t.Fatalf("activity = %+v, want configured bot alias filtered", activity)
+	}
+}
+
+func TestGitHubActorAliasesNormalizesBotsForConfiguration(t *testing.T) {
+	tests := []struct {
+		name  string
+		actor user
+		want  []string
+	}{
+		{name: "graphql bot", actor: user{Type: "Bot", Login: "gemini-code-assist"}, want: []string{"gemini-code-assist", "gemini-code-assist[bot]"}},
+		{name: "suffix-only bot", actor: user{Login: "renovate[bot]"}, want: []string{"renovate[bot]", "renovate"}},
+		{name: "human", actor: user{Type: "User", Login: "reviewer"}, want: []string{"reviewer"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := githubActorAliases(test.actor); !slices.Equal(got, test.want) {
+				t.Fatalf("githubActorAliases() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestDetectActivityKeepsUnconfiguredBotComments(t *testing.T) {
+	pr := searchPullRequest{
+		Reviews: graphQLComments{Nodes: []graphQLComment{
+			{Author: user{Type: "Bot", Login: "review-bot"}, CreatedAt: "2026-06-11T10:00:00Z"},
+		}},
+	}
+
+	activity := detectActivity(pr, "me", previousPullRequestActivity{}, filters.Config{}, true)
+	if activity.newGeneralComments != 1 {
+		t.Fatalf("activity = %+v, want unconfigured bot activity retained", activity)
 	}
 }
 
@@ -172,6 +263,35 @@ exit 1
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("gh was called even though authored collection was incomplete")
+	}
+}
+
+func TestResolveDonePullRequestsDoesNotRefetchDonePRs(t *testing.T) {
+	resetRateStateForTest(t)
+	marker := filepath.Join(t.TempDir(), "called")
+	installFakeGH(t, `#!/bin/sh
+touch "`+marker+`"
+echo "gh should not be called for done PRs" >&2
+exit 1
+`)
+
+	today := time.Now().Format(time.RFC3339)
+	yesterday := time.Now().Add(-24 * time.Hour).Format(time.RFC3339)
+	previous := []protocol.Task{
+		{ID: 1, Kind: "github_own_pr", Attention: "done", DoneAt: today, SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:33", Source: "github", Kind: "pull_request", Signal: "done"}}},
+		{ID: 2, Kind: "github_own_pr", Attention: "done", DoneAt: yesterday, SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:32", Source: "github", Kind: "pull_request", Signal: "done"}}},
+		{ID: 3, Kind: "jira_issue", Attention: "in_progress", SourceRefs: []protocol.SourceRef{
+			{ID: "jira:issue:ABC-31", Source: "jira", Kind: "issue", Signal: "in_progress"},
+			{ID: "github:pr:acme/app:31", Source: "github", Kind: "pull_request", Signal: "done"},
+		}},
+	}
+
+	items := ResolveDonePullRequests(context.Background(), previous, nil, true, testLogger())
+	if len(items) != 1 || items[0].ID != 1 {
+		t.Fatalf("resolved items = %+v, want only today's cached done PR", items)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("gh was called for an already-done PR")
 	}
 }
 

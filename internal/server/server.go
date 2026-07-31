@@ -202,5 +202,5 @@ func (s *Server) filteredTasks() []protocol.Task {
 		s.logger.Warn("could not load config", "error", err)
 		return tasks
 	}
-	return filters.Apply(tasks, cfg.Filters)
+	return filters.Apply(tasks, cfg.GitHub.Filters)
 }

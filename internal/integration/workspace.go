@@ -1,6 +1,10 @@
 package integration
 
-import "context"
+import (
+	"context"
+
+	"radar/internal/tmuxlayout"
+)
 
 type Workspace struct {
 	Name        string `json:"name,omitempty"`
@@ -13,19 +17,22 @@ type Workspace struct {
 }
 
 type CreateWorkspaceRequest struct {
-	Repo            string
-	Name            string
-	Branch          string
-	Base            string
-	Path            string
-	SessionName     string
-	WorkspaceRoot   string
-	Model           string
-	Thinking        string
-	Sandbox         bool
-	SandboxTemplate string
-	Switch          bool
-	ForkPiSession   string
+	Repo                    string
+	Name                    string
+	Branch                  string
+	Base                    string
+	Path                    string
+	SessionName             string
+	WorkspaceRoot           string
+	Model                   string
+	Thinking                string
+	Sandbox                 bool
+	SandboxKitName          string
+	SandboxKitPath          string
+	AdditionalSandboxMounts []string
+	Tmux                    tmuxlayout.Config
+	Switch                  bool
+	ForkPiSession           string
 }
 
 type WorkspaceProvider interface {

@@ -36,7 +36,7 @@ func Apply(items []protocol.Task, cfg Config) []protocol.Task {
 			continue
 		}
 
-		if action == actionDeprioritize || action == actionLowPriority {
+		if item.Attention != "done" && (action == actionDeprioritize || action == actionLowPriority) {
 			item.Attention = "low_priority"
 			if item.Reason != "" && !strings.HasPrefix(item.Reason, "low priority") {
 				item.Reason = "low priority: " + item.Reason
@@ -69,17 +69,27 @@ func Summary(items []protocol.Task) protocol.Summary {
 }
 
 func actionFor(item protocol.Task, cfg Config) string {
-	if matchesRule(item, Rule{Repos: cfg.MuteRepos}) || matchesRule(item, Rule{Users: cfg.MuteUsers}) {
+	return actionForValues(repoValues(item), userValues(item), cfg)
+}
+
+// SuppressesActivity reports whether configured filters prevent an actor's
+// activity from promoting work in the given repository to attention.
+func SuppressesActivity(cfg Config, repo string, actorAliases []string) bool {
+	return actionForValues([]string{repo}, actorAliases, cfg) != actionKeep
+}
+
+func actionForValues(repos []string, users []string, cfg Config) string {
+	if matchesRuleValues(repos, users, Rule{Repos: cfg.MuteRepos}) || matchesRuleValues(repos, users, Rule{Users: cfg.MuteUsers}) {
 		return actionMute
 	}
 
 	action := actionKeep
-	if matchesRule(item, Rule{Repos: cfg.DeprioritizeRepos}) || matchesRule(item, Rule{Users: cfg.DeprioritizeUsers}) {
+	if matchesRuleValues(repos, users, Rule{Repos: cfg.DeprioritizeRepos}) || matchesRuleValues(repos, users, Rule{Users: cfg.DeprioritizeUsers}) {
 		action = actionDeprioritize
 	}
 
 	for _, rule := range cfg.Rules {
-		if !matchesRule(item, rule) {
+		if !matchesRuleValues(repos, users, rule) {
 			continue
 		}
 		if normalized := normalizeAction(rule.Action); normalized == actionMute {
@@ -104,14 +114,14 @@ func normalizeAction(action string) string {
 	}
 }
 
-func matchesRule(item protocol.Task, rule Rule) bool {
+func matchesRuleValues(repos []string, users []string, rule Rule) bool {
 	if len(rule.Repos) == 0 && len(rule.Users) == 0 {
 		return false
 	}
-	if len(rule.Repos) > 0 && !matchesAny(repoValues(item), rule.Repos) {
+	if len(rule.Repos) > 0 && !matchesAny(repos, rule.Repos) {
 		return false
 	}
-	if len(rule.Users) > 0 && !matchesAny(userValues(item), rule.Users) {
+	if len(rule.Users) > 0 && !matchesAny(users, rule.Users) {
 		return false
 	}
 	return true

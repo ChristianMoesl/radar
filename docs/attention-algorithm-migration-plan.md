@@ -14,9 +14,9 @@ The migration should keep Radar simple and opinionated: source systems report fa
    - When multiple source refs are linked into one task, a done signal can currently dominate the projected task.
    - This can make a still-active ticket, workspace, or Jira issue look done because one linked PR was merged or closed.
 
-2. **Remote completion with local leftovers needs a clear prompt**
-   - If a remote item is done but local workspaces, sessions, or sandboxes are still open, the task should not simply look like ordinary in-progress work.
-   - Most of the time this means Radar should prompt the user to clean up the local environment.
+2. **Remote completion with local leftovers must stay out of attention**
+   - If authoritative remote work is done, leftover workspaces, sessions, or sandboxes are cleanup bookkeeping rather than active work.
+   - Radar should keep the task done and handle eligible local cleanup conservatively in the background.
 
 3. **Filters can affect stored task state**
    - Muting and deprioritizing are intended to affect what the user sees, not the raw tracked state.
@@ -63,22 +63,14 @@ For each grouped task, Radar should derive the visible category from the active 
 
 1. If any active source says `immediate`, show `immediate`.
 2. Else if any active source says `attention`, show `attention`.
-3. Else if a remote source is done and only local cleanup remains, show `attention`.
-4. Else if any active source says `in_progress`, show `in_progress`.
-5. Only show `done` when the task record itself is done and no active source keeps the work alive.
+3. Else if any active source says `in_progress`, show `in_progress`.
+4. Show `done` when the authoritative work is complete.
 
-In other words: **done is a lifecycle state, not a higher-priority attention signal.** But remote completion can still create an attention item when local workspaces, sessions, or sandboxes should be cleaned up.
+In other words: **done is a terminal attention state.** It remains outside `immediate`, `attention`, `in_progress`, and `low_priority` unless a source becomes active again.
 
 ### Cleanup flow
 
-When remote work is done and only local resources remain, Radar should prefer one clear workflow:
-
-1. Show an attention item with a cleanup-oriented reason.
-2. Offer cleanup/delete actions for the local workspace, tmux session, or sbx sandbox.
-3. After cleanup, recalculate the task from remaining source refs.
-4. If nothing active remains, the task becomes done.
-
-Do not add a parallel "mark as done" path for this cleanup case unless a clear product need emerges.
+When remote work is done and local resources remain, Radar should keep the task done. Manual cleanup remains available, and automatic garbage collection removes eligible local workspaces, tmux sessions, and sbx sandboxes after the retention period. Cleanup bookkeeping must not return completed work to the user's attention.
 
 ### GitHub activity quality
 
@@ -87,10 +79,10 @@ GitHub activity should distinguish actionable human feedback from routine noise.
 Functional expectation:
 
 - Direct review requests should remain attention.
-- Unresolved review threads with relevant human replies should remain attention.
-- Human comments on authored PRs can ask for attention.
-- Routine bot comments should not move a task to attention by default.
-- Bot comments can still be tracked as source detail, but should be low priority or ignored unless they indicate a concrete failure/blocker.
+- Unresolved review threads should remain attention only while another human is waiting for the user's response.
+- Comments and reviews on authored PRs can ask for attention.
+- Activity from actors matched by mute or deprioritize filters should not move a task to attention.
+- Bot identity should provide configuration aliases, not an unconditional filtering policy.
 - CI/check failures should become attention only when they are actionable and tied to the user's PR.
 
 ### Acknowledgements
@@ -109,7 +101,7 @@ Functional expectation:
 Filters are display behavior:
 
 - `mute`: hide the task and remove it from counts.
-- `deprioritize`: keep the task visible, but show it in `low_priority`.
+- `deprioritize`: keep an active task visible in `low_priority`; done tasks remain `done`.
 
 Raw tracked state should stay unfiltered so changing config immediately changes the displayed view without needing a new collection cycle.
 
@@ -121,7 +113,7 @@ Confirm the target behavior above, especially:
 
 - whether `done` should never outrank active work,
 - how acknowledgement should affect GitHub activity,
-- how strictly GitHub bot comments should be ignored, deprioritized, or classified as actionable failures,
+- how GitHub activity actors should use the existing mute and deprioritize filters,
 - whether `low_priority` remains purely a display category,
 - and whether GitHub-specific task kinds still matter to users.
 
@@ -142,8 +134,8 @@ Change the functional rule for merged tasks so the final visible category comes 
 
 Expected user-visible change:
 
-- Active Jira/workspace/tmux/sbx work should no longer disappear into `done` just because a linked PR closed.
-- If remote work is complete but local workspaces/sessions/sandboxes remain, the task should ask for cleanup attention instead of appearing as ordinary in-progress work.
+- Active Jira work should no longer disappear into `done` just because a linked PR closed.
+- If authoritative remote work is complete, leftover local resources should not return the task to attention.
 - Attention should be more predictable for tasks that have several linked sources.
 
 ### Phase 4: Treat done as lifecycle only
@@ -152,9 +144,9 @@ Make done transitions close a task only when no active source keeps the grouped 
 
 Expected user-visible change:
 
-- A merged PR can show as a done source ref while the overall task remains alive if Jira/local work still exists.
-- If the only remaining active sources are local cleanup items, the task should move to `attention` with a cleanup-oriented reason.
-- A standalone PR can still become `done` when it is merged/closed.
+- A merged PR can show as a done source ref while the overall task remains alive if Jira work still exists.
+- If only local cleanup resources remain after authoritative remote completion, the task stays `done`.
+- A standalone PR becomes `done` when it is merged or closed.
 
 ### Phase 5: Move GitHub to source facts
 
@@ -162,8 +154,8 @@ Functionally simplify GitHub collection so it reports:
 
 - review requested → attention,
 - authored PR → in progress,
-- authored/participated PR with relevant human activity → attention,
-- routine bot comments → no attention by default,
+- authored/participated PR with relevant unfiltered activity → attention,
+- configured muted or deprioritized actor activity → no attention,
 - actionable automation failures → attention when they indicate the user needs to act,
 - closed/merged tracked PR → done.
 
@@ -172,7 +164,7 @@ Radar core should decide how those signals combine with Jira, git, tmux, and sbx
 Expected user-visible change:
 
 - GitHub behavior should stay the same for standalone PRs with human review activity.
-- Bot noise should stop pushing tasks into `attention` by default.
+- Activity from configured noisy actors should stop pushing tasks into `attention`.
 - Linked GitHub work should combine more cleanly with local/Jira work.
 
 ### Phase 6: Revisit task labels and reasons
@@ -196,7 +188,7 @@ Check the new behavior against common scenarios:
 1. Standalone authored PR.
 2. Standalone review request.
 3. Authored PR with new human comments.
-4. Authored PR with routine bot comments.
+4. Authored PR with comments from a configured muted or deprioritized actor.
 5. Authored PR with actionable CI/check failure.
 6. Participated PR with unresolved review thread.
 7. Jira issue plus local workspace.
@@ -218,5 +210,4 @@ Expected user-visible change:
 3. Should an acknowledged task move from `attention` to `in_progress`, or disappear only when it was purely an activity item?
 4. For linked tasks, should the displayed title prefer Jira, GitHub, or the most urgent source?
 5. Should done tasks show all historical source refs or only the source refs that caused completion?
-6. Which GitHub bots should be considered routine noise by default?
-7. Which automation signals are actionable enough to become attention, for example failed checks or security alerts?
+6. Which automation signals are actionable enough to become attention, for example failed checks or security alerts?

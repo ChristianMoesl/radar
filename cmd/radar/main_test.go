@@ -51,8 +51,8 @@ type recordingNotificationSender struct {
 	titles []string
 }
 
-func (s *recordingNotificationSender) Send(_ context.Context, title, _ string) error {
-	s.titles = append(s.titles, title)
+func (s *recordingNotificationSender) Send(_ context.Context, message notification.Notification) error {
+	s.titles = append(s.titles, message.Title)
 	return nil
 }
 
@@ -64,9 +64,11 @@ func TestNotifyActionableTransitionsAppliesConfiguredFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(`{
-  "filters": {
-    "mute_repos": ["org/muted"],
-    "deprioritize_repos": ["org/deprioritized"]
+  "github": {
+    "filters": {
+      "mute_repos": ["org/muted"],
+      "deprioritize_repos": ["org/deprioritized"]
+    }
   }
 }`), 0o600); err != nil {
 		t.Fatal(err)

@@ -17,6 +17,7 @@ import (
 
 const maxStateFileSize = 50 * 1024 * 1024
 const stateVersion = 2
+const doneTaskDisplayRetention = 3 * 24 * time.Hour
 
 type Store struct {
 	mu       sync.RWMutex
@@ -896,7 +897,7 @@ func projectTasks(state persistedState) []protocol.Task {
 
 	tasks := make([]protocol.Task, 0, len(state.Records))
 	for _, record := range state.Records {
-		if record.State == "done" && olderThan(record.DoneAt, 30*24*time.Hour) {
+		if record.State == "done" && olderThan(record.DoneAt, doneTaskDisplayRetention) {
 			continue
 		}
 		task := cloneTask(record.Snapshot)
@@ -985,6 +986,11 @@ func applyAck(task *protocol.Task, ack TaskAckState) bool {
 		return true
 	}
 	if task.Kind == "github_pr_activity" {
+		if signal, reason := firstSignal(task.SourceRefs, "in_progress", ""); signal != "" {
+			task.Attention = signal
+			task.Reason = reason
+			return true
+		}
 		return false
 	}
 	if task.Kind == "github_own_pr" {

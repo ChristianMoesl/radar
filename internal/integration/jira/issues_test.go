@@ -33,6 +33,14 @@ func TestSearchAssignedIssuesUsesSearchJQLEndpoint(t *testing.T) {
 		if r.Method != http.MethodPost || r.URL.Path != "/search/jql" {
 			t.Fatalf("request = %s %s, want POST /search/jql", r.Method, r.URL.Path)
 		}
+		var request searchRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		wantJQL := `assignee = currentUser() AND statusCategory != Done AND issuetype IN ("Story", "Bug") ORDER BY updated DESC`
+		if request.JQL != wantJQL {
+			t.Fatalf("JQL = %q, want %q", request.JQL, wantJQL)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(searchResponse{
 			Issues: []issue{{Key: "ABC-123"}},
@@ -45,7 +53,7 @@ func TestSearchAssignedIssuesUsesSearchJQLEndpoint(t *testing.T) {
 		BaseURL:    "https://jira.example.com",
 		Email:      "me@example.com",
 		APIToken:   "token",
-	})
+	}, []string{"Story", "Bug"})
 	if err != nil {
 		t.Fatalf("searchAssignedIssues() error = %v", err)
 	}
@@ -82,7 +90,7 @@ func TestSearchAssignedIssuesFallsBackToSearch(t *testing.T) {
 		BaseURL:    "https://jira.example.com",
 		Email:      "me@example.com",
 		APIToken:   "token",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("searchAssignedIssues() error = %v", err)
 	}
@@ -97,6 +105,22 @@ func TestSearchAssignedIssuesFallsBackToSearch(t *testing.T) {
 		if called[i] != want[i] {
 			t.Fatalf("called[%d] = %q, want %q", i, called[i], want[i])
 		}
+	}
+}
+
+func TestAssignedIssuesJQLFiltersConfiguredIssueTypes(t *testing.T) {
+	got := assignedIssuesJQL([]string{"Story", "Service Request", `Type "quoted"`})
+	want := `assignee = currentUser() AND statusCategory != Done AND issuetype IN ("Story", "Service Request", "Type \"quoted\"") ORDER BY updated DESC`
+	if got != want {
+		t.Fatalf("assignedIssuesJQL() = %q, want %q", got, want)
+	}
+}
+
+func TestAssignedIssuesJQLIncludesAllIssueTypesByDefault(t *testing.T) {
+	got := assignedIssuesJQL(nil)
+	want := "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
+	if got != want {
+		t.Fatalf("assignedIssuesJQL() = %q, want %q", got, want)
 	}
 }
 

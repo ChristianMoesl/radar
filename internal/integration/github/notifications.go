@@ -7,10 +7,12 @@ import (
 	"log/slog"
 	"net/url"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"radar/internal/filters"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
@@ -29,6 +31,7 @@ type notification struct {
 }
 
 type user struct {
+	Type  string `json:"__typename"`
 	Login string `json:"login"`
 }
 
@@ -103,7 +106,7 @@ const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: S
         body
         author { login }
         repository { nameWithOwner }
-        reviewThreads(first: 25) { nodes { id isResolved comments(first: 25) { nodes { author { login } createdAt } } } }
+        reviewThreads(first: 25) { nodes { id isResolved comments(first: 25) { nodes { author { __typename login } createdAt } } } }
       }
     }
   }
@@ -119,9 +122,9 @@ const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: S
         body
         author { login }
         repository { nameWithOwner }
-        comments(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { author { login } createdAt } }
-        reviews(first: 50) { nodes { author { login } createdAt } }
-        reviewThreads(first: 25) { nodes { id isResolved comments(first: 25) { nodes { author { login } createdAt } } } }
+        comments(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { author { __typename login } createdAt } }
+        reviews(first: 50) { nodes { author { __typename login } createdAt } }
+        reviewThreads(first: 25) { nodes { id isResolved comments(first: 25) { nodes { author { __typename login } createdAt } } } }
       }
     }
   }
@@ -136,13 +139,13 @@ const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: S
         headRefName
         body
         repository { nameWithOwner }
-        reviewThreads(first: 25) { nodes { id isResolved comments(first: 25) { nodes { author { login } createdAt } } } }
+        reviewThreads(first: 25) { nodes { id isResolved comments(first: 25) { nodes { author { __typename login } createdAt } } } }
       }
     }
   }
 }`
 
-func FetchPullRequests(ctx context.Context, previous []protocol.Task, logger *slog.Logger) ([]protocol.Task, []protocol.Task, []protocol.Task, error) {
+func FetchPullRequests(ctx context.Context, previous []protocol.Task, cfg filters.Config, logger *slog.Logger) ([]protocol.Task, []protocol.Task, []protocol.Task, error) {
 	var response graphQLPullRequestsResponse
 	args := []string{
 		"api", "graphql",
@@ -162,9 +165,9 @@ func FetchPullRequests(ctx context.Context, previous []protocol.Task, logger *sl
 	previousActivity := activityStateFromPrevious(previous)
 	reviewItems := reviewRequestTasks(response.Data.ReviewRequested.Nodes)
 	authoredItems := authoredPullRequestTasks(response.Data.Authored.Nodes)
-	activityItems := activityPullRequestItems(response.Data.Participated.Nodes, login, previousActivity)
-	applyActivity(authoredItems, response.Data.Authored.Nodes, login, previousActivity, true)
-	applyActivity(reviewItems, response.Data.ReviewRequested.Nodes, login, previousActivity, false)
+	activityItems := activityPullRequestItems(response.Data.Participated.Nodes, login, previousActivity, cfg)
+	applyActivity(authoredItems, response.Data.Authored.Nodes, login, previousActivity, cfg, true)
+	applyActivity(reviewItems, response.Data.ReviewRequested.Nodes, login, previousActivity, cfg, false)
 	logger.Debug(
 		"fetched github pull requests",
 		"review_requested", len(reviewItems),
@@ -255,10 +258,10 @@ type previousPullRequestActivity struct {
 	generalCommentsAckAt string
 }
 
-func activityPullRequestItems(prs []searchPullRequest, login string, previous map[string]previousPullRequestActivity) []protocol.Task {
+func activityPullRequestItems(prs []searchPullRequest, login string, previous map[string]previousPullRequestActivity, cfg filters.Config) []protocol.Task {
 	items := make([]protocol.Task, 0)
 	for _, pr := range prs {
-		activity := detectActivity(pr, login, previous[prKey(repoName(pr), pr.Number)], false)
+		activity := detectActivity(pr, login, previous[prKey(repoName(pr), pr.Number)], cfg, false)
 		if !activity.needsAttention() {
 			continue
 		}
@@ -278,11 +281,11 @@ func activityPullRequestItems(prs []searchPullRequest, login string, previous ma
 	return items
 }
 
-func applyActivity(items []protocol.Task, prs []searchPullRequest, login string, previous map[string]previousPullRequestActivity, authored bool) {
+func applyActivity(items []protocol.Task, prs []searchPullRequest, login string, previous map[string]previousPullRequestActivity, cfg filters.Config, authored bool) {
 	activityByKey := map[string]pullRequestActivity{}
 	for _, pr := range prs {
 		key := prKey(repoName(pr), pr.Number)
-		activityByKey[key] = detectActivity(pr, login, previous[key], authored)
+		activityByKey[key] = detectActivity(pr, login, previous[key], cfg, authored)
 	}
 	for i := range items {
 		if i >= len(prs) || len(items[i].SourceRefs) == 0 {
@@ -309,17 +312,18 @@ func applyActivity(items []protocol.Task, prs []searchPullRequest, login string,
 	}
 }
 
-func detectActivity(pr searchPullRequest, login string, previous previousPullRequestActivity, authored bool) pullRequestActivity {
+func detectActivity(pr searchPullRequest, login string, previous previousPullRequestActivity, cfg filters.Config, authored bool) pullRequestActivity {
 	activity := pullRequestActivity{}
+	repo := repoName(pr)
 	for _, thread := range pr.ReviewThreads.Nodes {
-		if thread.IsResolved || !relevantReviewThread(thread, login, authored) {
+		if thread.IsResolved || !relevantReviewThread(thread, login, repo, cfg, authored) {
 			continue
 		}
 		activity.unresolvedReviewThreads++
 	}
 	if authored {
 		for _, comment := range append(pr.Comments.Nodes, pr.Reviews.Nodes...) {
-			if strings.EqualFold(comment.Author.Login, login) || isBotLogin(comment.Author.Login) || comment.CreatedAt == "" || comment.CreatedAt <= previous.generalCommentsAckAt {
+			if strings.EqualFold(comment.Author.Login, login) || comment.Author.Login == "" || filters.SuppressesActivity(cfg, repo, githubActorAliases(comment.Author)) || comment.CreatedAt == "" || comment.CreatedAt <= previous.generalCommentsAckAt {
 				continue
 			}
 			activity.newGeneralComments++
@@ -331,7 +335,7 @@ func detectActivity(pr searchPullRequest, login string, previous previousPullReq
 	return activity
 }
 
-func relevantReviewThread(thread graphQLReviewThread, login string, authored bool) bool {
+func relevantReviewThread(thread graphQLReviewThread, login string, repo string, cfg filters.Config, authored bool) bool {
 	latestMine := ""
 	latestOther := ""
 	for _, comment := range thread.Comments.Nodes {
@@ -339,14 +343,36 @@ func relevantReviewThread(thread graphQLReviewThread, login string, authored boo
 			if comment.CreatedAt > latestMine {
 				latestMine = comment.CreatedAt
 			}
-		} else if comment.Author.Login != "" && !isBotLogin(comment.Author.Login) && comment.CreatedAt > latestOther {
+		} else if comment.Author.Login != "" && !filters.SuppressesActivity(cfg, repo, githubActorAliases(comment.Author)) && comment.CreatedAt > latestOther {
 			latestOther = comment.CreatedAt
 		}
 	}
 	if authored {
-		return latestOther != ""
+		return latestOther > latestMine
 	}
 	return latestMine != "" && latestOther > latestMine
+}
+
+func githubActorAliases(actor user) []string {
+	login := strings.TrimSpace(actor.Login)
+	if login == "" {
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(actor.Type), "bot") && !isBotLogin(login) {
+		return []string{login}
+	}
+
+	base := login
+	if isBotLogin(login) {
+		base = strings.TrimSpace(login[:len(login)-len("[bot]")])
+	}
+	aliases := []string{login}
+	for _, alias := range []string{base, base + "[bot]"} {
+		if alias != "" && !slices.ContainsFunc(aliases, func(existing string) bool { return strings.EqualFold(existing, alias) }) {
+			aliases = append(aliases, alias)
+		}
+	}
+	return aliases
 }
 
 func isBotLogin(login string) bool {
@@ -445,10 +471,6 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, acti
 		logger.Debug("skipping github done resolution; authored PR collection was incomplete")
 		return keepTodaysDoneTasks(nil, previous)
 	}
-	if !EnsureCoreBudget(ctx, logger) {
-		return keepTodaysDoneTasks(nil, previous)
-	}
-
 	activePullRequests := make(map[string]bool, len(active))
 	for _, item := range active {
 		for _, sourceRef := range githubPullRequestSourceRefs(item) {
@@ -458,9 +480,16 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, acti
 
 	items := keepTodaysDoneTasks(nil, previous)
 	seenDone := doneTaskIDs(items)
+	if !needsPullRequestResolution(previous, activePullRequests, seenDone) || !EnsureCoreBudget(ctx, logger) {
+		return items
+	}
+
 	for _, item := range previous {
+		if item.Attention == "done" {
+			continue
+		}
 		for _, sourceRef := range githubPullRequestSourceRefs(item) {
-			if activePullRequests[sourceRef.ID] || seenDone[sourceRef.ID] {
+			if sourceRef.Signal == "done" || activePullRequests[sourceRef.ID] || seenDone[sourceRef.ID] {
 				continue
 			}
 			repo, number, ok := parsePullRequestSourceRefID(sourceRef.ID)
@@ -497,6 +526,20 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, acti
 
 	logger.Debug("resolved done github pull requests", "count", len(items))
 	return items
+}
+
+func needsPullRequestResolution(previous []protocol.Task, activePullRequests map[string]bool, seenDone map[string]bool) bool {
+	for _, item := range previous {
+		if item.Attention == "done" {
+			continue
+		}
+		for _, sourceRef := range githubPullRequestSourceRefs(item) {
+			if sourceRef.Signal != "done" && !activePullRequests[sourceRef.ID] && !seenDone[sourceRef.ID] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func donePullRequestSourceRefs(sourceRefs []protocol.SourceRef, repo string, number int, reason string) []protocol.SourceRef {

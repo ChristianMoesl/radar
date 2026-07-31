@@ -39,5 +39,22 @@ jobs:
       - name: Test
         run: make test
 
-      - name: Check release packaging
-        run: make dist VERSION=ci
+      - name: Check Linux release packaging
+        run: make dist VERSION=ci DIST_TARGETS="linux/amd64 linux/arm64"
+
+  macos-notifier:
+    name: Build macOS notifier and release archives
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check macOS release packaging
+        run: make dist VERSION=ci DIST_TARGETS="darwin/amd64 darwin/arm64"

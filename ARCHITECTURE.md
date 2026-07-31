@@ -8,6 +8,7 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 - `internal/tui/`: Bubble Tea terminal UI.
 - `internal/integration/`: integration capability interfaces, observation model, and source-compiled implementations.
 - `internal/integration/github/`: GitHub source facts and remote state resolution.
+- `internal/integration/datadog/`: Datadog monitor source facts and recovery reconciliation.
 - `internal/integration/git/`: Git worktree source facts and workspace provider.
 - `internal/integration/jira/`: Jira Cloud issue source facts and remote state resolution.
 - `internal/integration/tmux/`: tmux session source facts and active multiplexer provider.
@@ -18,7 +19,7 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 - `internal/workspacegc/`: conservative eligibility and target selection for automatic cleanup of completed work.
 - `internal/server/`: Unix socket API used by TUI and CLI commands.
 - `internal/collector/`: orchestrates integration collection, observation projection, and remote state resolution.
-- `internal/notification/`: detects newly actionable tasks and delivers host OS notifications.
+- `internal/notification/`: detects newly actionable tasks and delivers host OS notifications through the optional macOS notifier companion.
 - `internal/state/`: local persistent task cache/state and durable source-ref linking.
 
 ## Process model
@@ -29,9 +30,11 @@ There is one long-running daemon per user:
 TUI / CLI -> Unix socket -> radar daemon -> collectors
 ```
 
-All frontends share the same daemon and state. This avoids duplicated polling and keeps interactive and scriptable status reads fast. After each refresh, the daemon compares the previous and current filtered task views and sends a host notification for tasks that newly enter `immediate` or `attention`. macOS notifications use the built-in `osascript`; other operating systems currently use a no-op notifier.
+All frontends share the same daemon and state. This avoids duplicated polling and keeps interactive and scriptable status reads fast. After each refresh, the daemon compares the previous and current filtered task views and sends a host notification for tasks that newly enter `immediate` or `attention`. Completed garbage-collection runs also report their result through a host notification; automatic runs notify only when they delete workspaces, while explicitly triggered runs always report their result. On macOS, the optional `RadarNotifier.app` companion delivers notifications and opens the relevant task or GitHub pull-request URL when clicked. If the companion is absent, notifications are disabled without affecting the daemon. Other operating systems currently use a no-op notifier.
 
-The binary is intentionally single-file from a user perspective:
+Refresh work must scale with current active work, not accumulated history. Remote reconcilers may fetch an item that was previously active and has disappeared from active collection in order to detect its terminal transition. They must not repeatedly fetch tasks or source refs already known to be `done`; durable terminal state remains authoritative unless the source appears active again.
+
+Radar keeps one command-line entry point; the macOS installer additionally provides a noninteractive notifier companion:
 
 ```sh
 radar
@@ -67,7 +70,7 @@ Radar separates source-system facts from the user-facing task shown in the UI:
 SourceRef + TaskRecord => Task
 ```
 
-- `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, local git worktree, or tmux session. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:ABC-544`, `git:worktree:<path>`, or `tmux:session:<session_id>`.
+- `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, Datadog monitor, local git worktree, or tmux session. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:ABC-544`, `datadog:monitor:123`, `git:worktree:<path>`, or `tmux:session:<session_id>`.
 - `SourceRef.LinkingKeys`: source-owned join keys that tell Radar which refs describe the same work. Examples: `ticket:ABC-544`, `workspace:/repo/worktree`, `branch:owner/repo:feature-ABC-544`, or `github:pr:owner/repo:123`. These keys are derived inside each source provider, not in the state store.
 - `SourceRef.CanonicalKey`: the source-owned fallback identity for a standalone ref when no ticket key exists. Examples: a Git worktree uses `workspace:<path>`, while a GitHub PR uses its PR source-ref ID.
 - `SourceRef.URL`: a generic openable URL. If a source ref has a URL, frontends may offer an open-link action without source-specific URL inspection.
@@ -105,11 +108,11 @@ The high-level categorization rules are documented in [docs/attention-algorithm.
 
 Collection and durable linking are separate steps. Integration code talks to external systems and produces observations/source refs with source-owned linking keys. Core collection projects those observations into candidate tasks. The state store matches active persisted source refs by those keys, merges records that describe the same work, and then projects one user-facing task per task record.
 
-`done` is a durable task-record state. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state and emits a done transition. The state store applies that transition to the existing task record. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate. Done-task projections preserve historical remote refs, but omit inactive local worktree, tmux, and SBX refs after those resources are removed.
+`done` is a durable task-record state and is terminal for attention display. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state once and emits a done transition. The state store applies that transition to the existing task record. Already-done items are not remotely revalidated on subsequent refreshes. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate. Done-task projections preserve historical remote refs, but omit inactive local worktree, tmux, and SBX refs after those resources are removed. While a record remains done, neither cleanup state nor display filtering may move it to `immediate`, `attention`, `in_progress`, or `low_priority`.
 
 Completion and local cleanup are separate. A task becomes `done` when its remote work is complete: if both GitHub and Jira refs are linked, both must be done; if only one remote source is linked, that source is authoritative. Remaining local worktrees, tmux sessions, or sbx sandboxes do not keep the task active. The daemon garbage-collects clean linked worktrees under the configured workspace root after the task has been done for 24 hours, deleting the linked detached tmux session and sbx sandbox with the worktree. Attached tmux sessions are skipped and retried later.
 
-Manual cleanup and garbage collection both preview and execute targets through `internal/cleanup.Service`. Manual cleanup executes the confirmed preview with force enabled. `internal/workspacegc` owns automatic eligibility and filters each preview to one workspace path before executing without force. The hourly daemon run, `radar gc`, and the TUI's `X` key all use those same conservative eligibility rules. Providers exclusively remove their own resources in deterministic tmux, SBX, then Git order.
+Manual cleanup and garbage collection both preview and execute targets through `internal/cleanup.Service`. Manual cleanup executes the confirmed preview with force enabled. `internal/workspacegc` owns eligibility and filters each preview to one workspace path before executing without force. The hourly daemon run waits until a task has been done for 24 hours. `radar gc` and the TUI's `X` key include newly done tasks immediately, while preserving the same clean-worktree and detached-session safety checks. Providers exclusively remove their own resources in deterministic tmux, SBX, then Git order.
 
 Removing a tmux session only marks that source ref inactive, while removing a local worktree marks the local workspace record done when no GitHub or Jira source remains attached.
 
@@ -121,7 +124,7 @@ The daemon stores durable task records and source-ref records on disk:
 $XDG_STATE_HOME/radar/tasks.json
 ```
 
-Projected tasks are rebuilt from this state. Full refreshes reconcile all source refs; local refreshes reconcile refs from sources that declare themselves local and leave remote GitHub/Jira refs untouched. The file also stores source statuses so the TUI can show cached status immediately. User acknowledgement state lives on task records, not inside source-ref metadata.
+Projected tasks are rebuilt from this state. Done tasks remain in durable history but are included in the user-facing projection only for three days. Full refreshes reconcile all source refs; local refreshes reconcile refs from sources that declare themselves local and leave remote GitHub/Jira refs untouched. The file also stores source statuses so the TUI can show cached status immediately. User acknowledgement state lives on task records, not inside source-ref metadata.
 
 ## Config
 
@@ -133,12 +136,14 @@ $XDG_CONFIG_HOME/radar/config.json
 
 The daemon creates an example file on startup when it is missing. The TUI exposes it with `f`.
 
-The config controls repository discovery roots, the workspace root, and filters. Filters are applied when serving tasks from the daemon, so CLI and TUI see the same view. Raw collected state stays unmodified on disk.
+The config controls repository discovery roots, the workspace root, SBX settings, GitHub filters, and the Datadog monitor query. SBX enablement, kit selection, and global additional mounts live together under `sbx`; repository-local `.radar.json` files use the same shape. Filters live under `github.filters` and are applied when serving tasks from the daemon, so CLI and TUI see the same view. `datadog.monitor_query` scopes Datadog collection, while Datadog credentials are read only from environment variables. Raw collected state stays unmodified on disk.
 
 There are two filter effects:
 
 - `mute`: hide the task and remove it from counts
-- `deprioritize`: keep tracking the task, but move it to `low_priority`
+- `deprioritize`: keep tracking an active task, but move it to `low_priority`; done tasks remain `done`
+
+User filters also apply while GitHub activity is classified. Activity from a muted or deprioritized actor does not promote a PR to attention. GitHub's actor type is used only to generate equivalent bot login aliases (`name` and `name[bot]`) for configuration matching; bot identity is not itself a filtering policy.
 
 ## GitHub integration
 
@@ -151,7 +156,15 @@ Current GitHub collectors:
 
 ## Jira integration
 
-Jira access uses Jira Cloud REST APIs. Assigned non-done issues become source refs and are linked to matching GitHub/Git/tmux work through ticket keys.
+Jira access uses Jira Cloud REST APIs. Assigned non-done issues become source refs and are linked to matching GitHub/Git/tmux work through ticket keys. The optional `jira.issue_types` user config adds an issue-type allowlist to the search JQL; an omitted or empty list collects every issue type.
+
+## Datadog integration
+
+Datadog access uses the monitor search API with `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY` from the environment. The user-owned `datadog.monitor_query` config value scopes collection; Radar appends unhealthy monitor states and performs one search request during the five-minute full refresh. It does not collect Datadog logs, traces, metrics, events, or historical alert transitions.
+
+Each monitor is a standalone source ref keyed by monitor ID. `Alert` emits `immediate`; `Warn` and `No Data` emit `attention`. A previously active monitor missing from a complete search is reconciled to `done`. Failed or truncated searches preserve the previous observations and do not resolve monitors. The source is disabled unless both credentials and a non-empty query are present.
+
+The source ref URL points directly to the Datadog monitor. Existing actionable-transition notification handling therefore sends one macOS notification when the monitor first appears and opens that monitor when the notification is clicked.
 
 ## Git worktrees
 
@@ -165,7 +178,7 @@ Open the TUI in a tmux popup with `tmux display-popup -E "radar"`. Selecting a t
 
 ## Docker sbx sandboxes
 
-Docker sbx integration collects sandboxes with `sbx ls --json`. Radar attaches sandboxes to matching tasks when their name or primary workspace contains a ticket key, or when the primary workspace matches a Git worktree path. Sandboxes that do not attach to another task become standalone `in_progress` tasks. The sbx source owns its open action: pressing `o` then `s` opens `sbx run --name <sandbox>` in a new tmux window, creating the matching tmux session first when needed.
+Docker sbx integration collects sandboxes with `sbx ls --json`. Radar attaches sandboxes to matching tasks when their name or primary workspace contains a ticket key, or when the primary workspace matches a Git worktree path. Sandboxes that do not attach to another task become standalone `in_progress` tasks. The sbx source owns its open action: pressing `o` then `s` opens `sbx run --name <sandbox>` in a new tmux window, creating the matching tmux session first when needed. New sandboxes mount the workspace, the linked worktree's external common Git directory, and every directory configured in `sbx.additional_mounts`. Radar expands home-relative paths and creates missing additional mount directories before invoking SBX. Repository setup commands run through `sbx exec` after sandbox creation; without an effective sandbox configuration they run directly on the host.
 
 ## Integration development
 

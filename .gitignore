@@ -1,4 +1,5 @@
 /radar
 /dist/
+/build/
 /.radar/
 *.log

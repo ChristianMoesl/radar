@@ -23,7 +23,7 @@ Radar uses these visible categories:
 - `immediate`: urgent action is needed.
 - `attention`: you should look at this.
 - `in_progress`: active work is being tracked, but no action is currently required.
-- `done`: the work is complete.
+- `done`: the work completed within the last three days.
 - `low_priority`: the task was deprioritized by filters.
 
 `low_priority` is a display category. The underlying task still has its natural state.
@@ -34,50 +34,41 @@ For each grouped task, Radar looks at all active source signals and chooses the 
 
 1. If any active source says `immediate`, show `immediate`.
 2. Else if any active source says `attention`, show `attention`.
-3. Else if remote work is done and only local cleanup remains, show `attention`.
-4. Else if any active source says `in_progress`, show `in_progress`.
-5. Else, when no active source keeps the task alive, show `done`.
+3. Else if any active source says `in_progress`, show `in_progress`.
+4. Else, when no active source keeps the task alive, show `done`.
 
-The key rule is:
+The key rules are:
 
-> Done does not override active work.
+> Done does not override active work, and done work does not return to an attention category unless a source becomes active again.
 
-A merged PR should not hide an active Jira issue or an open local workspace. But if the remote work is finished and the only remaining thing is local cleanup, Radar should ask for attention so the workspace/session/sandbox can be cleaned up.
+A merged PR should not hide an active Jira issue. Once the authoritative remote work is complete, however, its task is `done`; display filters and leftover cleanup resources must not move it into `attention` or `low_priority`.
 
 ## Cleanup after remote completion
 
-When a remote item is done but local resources remain, Radar treats cleanup as the next action.
-
-Example:
-
-```text
-GitHub PR: merged
-Git worktree: still open
-tmux session: still open
-```
-
-Radar should show this as `attention`, with a cleanup-oriented reason.
-
-The expected flow is:
-
-1. Radar shows the task as needing cleanup attention.
-2. You clean up the task's local workspace, session, and sandbox from Radar.
-3. Radar recalculates the task.
-4. If nothing active remains, the task becomes `done`.
-
-Radar should not need a separate "mark done" action for this common cleanup path.
+Completion and local cleanup are separate. A remotely completed task remains `done` while Radar conservatively garbage-collects eligible local worktrees, tmux sessions, and sandboxes. Cleanup bookkeeping must not make completed work compete for the user's attention.
 
 ## GitHub activity
 
 GitHub signals should focus on actionable feedback:
 
 - Direct review requests need attention.
-- Relevant unresolved review threads need attention.
-- Human comments on your PR can need attention.
-- Routine bot comments should not need attention by default.
+- Unresolved review threads need attention when another human is waiting for your response.
+- Comments and reviews on your PR can need attention when their actors are not filtered.
+- `mute_users`, `deprioritize_users`, and matching repository/user rules prevent configured actors' activity from promoting a PR to attention.
+- Bot identity does not determine priority by itself; confirmed GitHub bots expose equivalent `name` and `name[bot]` aliases for configuration matching.
 - Automation failures should need attention only when they are actionable for your PR.
 - Open authored PRs without actionable activity are `in_progress`.
 - Merged or closed tracked PRs are done source facts.
+
+## Datadog monitors
+
+Datadog contributes current unhealthy monitor state during the five-minute full refresh:
+
+- `Alert` needs immediate attention.
+- `Warn` and `No Data` need attention.
+- A monitor that disappears from a complete unhealthy-monitor search is done because it recovered or otherwise stopped matching the configured query.
+
+Radar tracks one task per monitor ID, not one event per alert transition. It intentionally does not retain Datadog alert events that both start and recover between polls.
 
 ## Acknowledgements
 
@@ -85,13 +76,13 @@ Acknowledgement is for activity that you have already seen.
 
 - Acknowledging a task can suppress already-seen general comment activity.
 - New relevant comments can bring the task back to attention.
-- Unresolved review threads continue to need attention until resolved or no longer relevant.
+- An unresolved review thread stops needing attention when you are the latest person to respond, and needs attention again if another human replies.
 
 ## Filters
 
 Filters are applied last, when tasks are shown:
 
 - `mute`: hide the task and remove it from counts.
-- `deprioritize`: move the task to `low_priority`.
+- `deprioritize`: move an active task to `low_priority`; a `done` task remains `done`.
 
-Changing filters should affect the displayed view without changing the raw tracked state.
+Changing filters should affect the displayed view without changing the raw tracked state. In particular, no display filter may turn completed work back into an attention category.

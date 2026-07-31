@@ -71,6 +71,9 @@ printf 'tmux|%s|%s\n' "$PWD" "$*" >> "$RADAR_CREATE_E2E_LOG"
 if [ "$1" = "has-session" ]; then
   exit 1
 fi
+if [ "$1" = "new-session" ] || [ "$1" = "new-window" ] || [ "$1" = "split-window" ]; then
+  printf '@1 %%1\n'
+fi
 exit 0
 `
 	for _, name := range []string{"tmux", "pi", "nvim"} {

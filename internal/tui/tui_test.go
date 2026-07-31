@@ -162,6 +162,41 @@ func TestCreateRepoViewRendersFuzzySearch(t *testing.T) {
 	}
 }
 
+func TestCreateFormAllowsJAndKInFilters(t *testing.T) {
+	m := model{mode: "create_repo", create: createForm{repoList: picker{
+		cursor:  1,
+		options: []string{"alpha", "beta", "gamma"},
+	}}}
+
+	for _, key := range []rune{'j', 'k'} {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
+		m = updated.(model)
+	}
+
+	if got, want := m.create.repoList.query, "jk"; got != want {
+		t.Fatalf("filter query = %q, want %q", got, want)
+	}
+	if got, want := m.create.repoList.cursor, 0; got != want {
+		t.Fatalf("filter cursor = %d, want %d", got, want)
+	}
+}
+
+func TestCreateFormNavigatesWithCtrlPAndCtrlN(t *testing.T) {
+	m := model{mode: "create_repo", create: createForm{repoList: picker{options: []string{"alpha", "beta", "gamma"}}}}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	m = updated.(model)
+	if got, want := m.create.repoList.cursor, 1; got != want {
+		t.Fatalf("cursor after ctrl+n = %d, want %d", got, want)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = updated.(model)
+	if got, want := m.create.repoList.cursor, 0; got != want {
+		t.Fatalf("cursor after ctrl+p = %d, want %d", got, want)
+	}
+}
+
 func TestCreateNameViewRendersSelectedRepoAndBase(t *testing.T) {
 	model := model{mode: "create_name", create: createForm{repo: "/repo/radar", base: "origin/main", name: "small-fix"}}
 
@@ -276,7 +311,7 @@ func TestTaskCursorOrderFollowsRenderedGroups(t *testing.T) {
 	}}
 
 	got := model.taskCursorOrder()
-	want := []int{1, 3, 2, 0}
+	want := []int{1, 3, 0, 2}
 	if len(got) != len(want) {
 		t.Fatalf("taskCursorOrder() = %v, want %v", got, want)
 	}
@@ -300,12 +335,27 @@ func TestMoveCursorUsesRenderedTaskOrder(t *testing.T) {
 		t.Fatalf("cursor after down = %d, want 3", model.cursor)
 	}
 	model.moveCursor(1)
-	if model.cursor != 2 {
-		t.Fatalf("cursor after second down = %d, want 2", model.cursor)
+	if model.cursor != 0 {
+		t.Fatalf("cursor after second down = %d, want 0", model.cursor)
 	}
 	model.moveCursor(-1)
 	if model.cursor != 3 {
 		t.Fatalf("cursor after up = %d, want 3", model.cursor)
+	}
+}
+
+func TestTaskListRendersLowPriorityBeforeDone(t *testing.T) {
+	model := model{tasks: []protocol.Task{
+		{Title: "done", Attention: "done"},
+		{Title: "low", Attention: "low_priority"},
+	}}
+
+	lines, _, _ := model.taskLines(100)
+	view := ansi.Strip(strings.Join(lines, "\n"))
+	low := strings.Index(view, "Low priority")
+	done := strings.Index(view, "Done (last 3 days)")
+	if low < 0 || done < 0 || low > done {
+		t.Fatalf("low priority should render before done:\n%s", view)
 	}
 }
 

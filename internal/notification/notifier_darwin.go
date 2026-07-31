@@ -4,33 +4,63 @@ package notification
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
-	"strings"
-	"time"
+	"path/filepath"
 )
 
-const notificationAppleScript = `on run argv
-	display notification (item 2 of argv) with title (item 1 of argv)
-end run`
+const notifierRelativePath = "../libexec/radar/RadarNotifier.app/Contents/MacOS/radar-notifier"
 
-type platformSender struct{}
-
-func newPlatformSender() Sender {
-	return platformSender{}
+type platformSender struct {
+	executable string
 }
 
-func (platformSender) Send(ctx context.Context, title, body string) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	output, err := exec.CommandContext(ctx, "osascript", "-e", notificationAppleScript, title, body).CombinedOutput()
+func newPlatformSender() Sender {
+	executable, err := os.Executable()
 	if err != nil {
-		detail := strings.TrimSpace(string(output))
-		if detail != "" {
-			return fmt.Errorf("osascript: %w: %s", err, detail)
+		return nil
+	}
+	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
+		executable = resolved
+	}
+	return newPlatformSenderForExecutable(executable)
+}
+
+func newPlatformSenderForExecutable(radarExecutable string) Sender {
+	notifier := notifierPath(radarExecutable)
+	info, err := os.Stat(notifier)
+	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+		return nil
+	}
+	return platformSender{executable: notifier}
+}
+
+func notifierPath(radarExecutable string) string {
+	return filepath.Clean(filepath.Join(filepath.Dir(radarExecutable), notifierRelativePath))
+}
+
+func (s platformSender) Send(ctx context.Context, notification Notification) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(notification)
+	if err != nil {
+		return fmt.Errorf("encode notification: %w", err)
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(payload)
+	cmd := exec.Command(s.executable, "--notify", encoded)
+	if err := cmd.Start(); err != nil {
+		if os.IsNotExist(err) {
+			return nil
 		}
-		return fmt.Errorf("osascript: %w", err)
+		return fmt.Errorf("start radar notifier: %w", err)
+	}
+	if err := cmd.Process.Release(); err != nil {
+		return fmt.Errorf("release radar notifier: %w", err)
 	}
 	return nil
 }
