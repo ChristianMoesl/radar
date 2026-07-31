@@ -2,7 +2,7 @@
 
 ## Status
 
-Plan only. Implementation is intentionally split into three independently useful changes:
+Implemented. The work landed as three independently useful changes:
 
 1. Configurable Jira status-to-attention mapping.
 2. Radar-owned manual tasks with done/reopen and Jira attachment.

@@ -97,11 +97,12 @@ Source providers own all source-specific identity and linking rules. Adding a ne
 
 ## Task lifecycle
 
-Radar has three active categories and one historical category:
+Radar has four active categories and one historical category:
 
 - `immediate`
 - `attention`
 - `in_progress`
+- `low_priority`
 - `done`
 
 The high-level categorization rules are documented in [docs/attention-algorithm.md](docs/attention-algorithm.md).

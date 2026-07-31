@@ -451,7 +451,7 @@ Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the 
 
 ## Local state
 
-The daemon stores durable task records and source-ref records locally. Task IDs are Radar-owned integers assigned from this local state, while CLI/TUI tasks are rebuilt as disposable projections.
+The daemon stores durable task records and source-ref records locally. Task records own stable Radar IDs, optional manual intent and associations, lifecycle state, acknowledgements, and an optional urgent override. CLI/TUI tasks are rebuilt as disposable projections, including manual records that have no source refs.
 
 Radar groups work ticket-first when a Jira-style key is present, then by local workspace, then by PR/issue/source-ref identity. Done state and acknowledgement state are kept on durable task records instead of being inferred from the latest projected task.
 
