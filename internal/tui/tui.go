@@ -1118,7 +1118,7 @@ func (m model) manualTaskView(width int) string {
 		title = subtleStyle.Render("type a task title")
 	}
 	return strings.Join([]string{
-		titleStyle.Render("Create manual task"),
+		titleStyle.Render("Create task"),
 		selectedStyle.Width(width - 4).Render("› Title  " + title),
 	}, "\n")
 }
