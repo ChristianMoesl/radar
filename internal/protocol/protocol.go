@@ -81,11 +81,19 @@ type SourceStatus struct {
 	SourceRefCount int    `json:"source_ref_count,omitempty"`
 }
 
+type SourceRefRole string
+
+const (
+	SourceRefRoleAuthoritative SourceRefRole = "authoritative"
+	SourceRefRoleInformational SourceRefRole = "informational"
+)
+
 type SourceRef struct {
 	ID           string            `json:"id"`
 	Source       string            `json:"source"`
 	SourceLabel  string            `json:"source_label,omitempty"`
 	Kind         string            `json:"kind"`
+	Role         SourceRefRole     `json:"role"`
 	Title        string            `json:"title,omitempty"`
 	Repo         string            `json:"repo,omitempty"`
 	URL          string            `json:"url,omitempty"`
@@ -99,16 +107,17 @@ type SourceRef struct {
 }
 
 type Task struct {
-	ID         int               `json:"id"`
-	Kind       string            `json:"kind"`
-	Title      string            `json:"title"`
-	Repo       string            `json:"repo,omitempty"`
-	URL        string            `json:"url,omitempty"`
-	Attention  string            `json:"attention"`
-	Reason     string            `json:"reason"`
-	DoneAt     string            `json:"done_at,omitempty"`
-	SourceRefs []SourceRef       `json:"source_refs,omitempty"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
+	ID           int               `json:"id"`
+	TargetTaskID int               `json:"-"`
+	Kind         string            `json:"kind"`
+	Title        string            `json:"title"`
+	Repo         string            `json:"repo,omitempty"`
+	URL          string            `json:"url,omitempty"`
+	Attention    string            `json:"attention"`
+	Reason       string            `json:"reason"`
+	DoneAt       string            `json:"done_at,omitempty"`
+	SourceRefs   []SourceRef       `json:"source_refs,omitempty"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
 }
 
 type Response struct {

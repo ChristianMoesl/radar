@@ -110,6 +110,7 @@ func (s sandbox) SourceRef() protocol.SourceRef {
 		Source:       "sbx",
 		SourceLabel:  "Docker sbx",
 		Kind:         "sandbox",
+		Role:         protocol.SourceRefRoleAuthoritative,
 		Title:        title,
 		Path:         workspace,
 		Status:       strings.TrimSpace(s.Status),

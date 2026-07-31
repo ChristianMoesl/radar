@@ -20,6 +20,9 @@ func AssertValidSourceRefs(t *testing.T, source string, refs []protocol.SourceRe
 		if strings.TrimSpace(ref.Kind) == "" {
 			t.Fatalf("source ref has empty kind: %+v", ref)
 		}
+		if ref.Role != protocol.SourceRefRoleAuthoritative && ref.Role != protocol.SourceRefRoleInformational {
+			t.Fatalf("source ref has invalid role %q: %+v", ref.Role, ref)
+		}
 		if seen[ref.ID] {
 			t.Fatalf("duplicate source ref ID %q", ref.ID)
 		}

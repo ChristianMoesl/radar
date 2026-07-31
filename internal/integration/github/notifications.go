@@ -615,6 +615,7 @@ func githubPullRequestRef(id string, repo string, number int, title string, url 
 		Source:       "github",
 		SourceLabel:  "GitHub",
 		Kind:         "pull_request",
+		Role:         protocol.SourceRefRoleAuthoritative,
 		Title:        title,
 		Repo:         repo,
 		URL:          url,

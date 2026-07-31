@@ -183,6 +183,7 @@ func observationFromMonitor(cfg credentials, monitor monitor) (integration.Obser
 			Source:       "datadog",
 			SourceLabel:  "Datadog",
 			Kind:         "monitor",
+			Role:         protocol.SourceRefRoleAuthoritative,
 			Title:        title,
 			URL:          monitorURL,
 			Status:       monitor.Status,

@@ -18,7 +18,8 @@ func TestTaskFromObservationProjectsStandaloneSourceRef(t *testing.T) {
 			CanonicalKey: "jira:issue:RAD-123",
 			LinkingKeys:  []string{"ticket:RAD-123"},
 		},
-		Signal: integration.SignalInProgress,
+		TargetTaskID: 42,
+		Signal:       integration.SignalInProgress,
 	})
 
 	if got.Kind != "jira_issue" || got.Attention != "in_progress" || got.Reason != "jira issue" {
@@ -26,6 +27,9 @@ func TestTaskFromObservationProjectsStandaloneSourceRef(t *testing.T) {
 	}
 	if len(got.SourceRefs) != 1 || got.SourceRefs[0].ID != "jira:issue:RAD-123" {
 		t.Fatalf("source refs = %+v, want jira source ref", got.SourceRefs)
+	}
+	if got.TargetTaskID != 42 {
+		t.Fatalf("target task ID = %d, want 42", got.TargetTaskID)
 	}
 }
 

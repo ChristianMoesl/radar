@@ -127,14 +127,15 @@ func taskFromObservation(observation integration.Observation) protocol.Task {
 	}
 	sourceRef.Signal = attention
 	return protocol.Task{
-		Kind:       taskKindFromObservation(observation),
-		Title:      sourceRef.Title,
-		Repo:       sourceRef.Repo,
-		URL:        sourceRef.URL,
-		Attention:  attention,
-		Reason:     reason,
-		SourceRefs: []protocol.SourceRef{sourceRef},
-		Metadata:   taskMetadataFromObservation(observation),
+		TargetTaskID: observation.TargetTaskID,
+		Kind:         taskKindFromObservation(observation),
+		Title:        sourceRef.Title,
+		Repo:         sourceRef.Repo,
+		URL:          sourceRef.URL,
+		Attention:    attention,
+		Reason:       reason,
+		SourceRefs:   []protocol.SourceRef{sourceRef},
+		Metadata:     taskMetadataFromObservation(observation),
 	}
 }
 

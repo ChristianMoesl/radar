@@ -260,6 +260,7 @@ func (w worktree) SourceRef(ctx context.Context) protocol.SourceRef {
 		Source:       "git",
 		SourceLabel:  "git",
 		Kind:         "worktree",
+		Role:         protocol.SourceRefRoleAuthoritative,
 		Title:        title,
 		Repo:         originRepo,
 		Path:         w.Path,

@@ -122,6 +122,7 @@ func (s session) SourceRef() protocol.SourceRef {
 		Source:      "tmux",
 		SourceLabel: "tmux",
 		Kind:        "session",
+		Role:        protocol.SourceRefRoleAuthoritative,
 		Title:       s.Name,
 		Path:        s.Path,
 		Status:      status,

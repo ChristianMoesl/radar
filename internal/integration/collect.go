@@ -24,9 +24,10 @@ type CollectRequest struct {
 }
 
 type Observation struct {
-	Ref    protocol.SourceRef
-	Signal WorkSignal
-	Reason string
+	Ref          protocol.SourceRef
+	TargetTaskID int
+	Signal       WorkSignal
+	Reason       string
 }
 
 type CollectResult struct {

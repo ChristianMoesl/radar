@@ -16,7 +16,7 @@ import (
 )
 
 const maxStateFileSize = 50 * 1024 * 1024
-const stateVersion = 3
+const stateVersion = 4
 const doneTaskDisplayRetention = 3 * 24 * time.Hour
 
 type Store struct {
