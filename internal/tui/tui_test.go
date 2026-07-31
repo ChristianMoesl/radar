@@ -147,6 +147,26 @@ func TestManualTaskTitleEntry(t *testing.T) {
 	}
 }
 
+func TestTextInputsAcceptSpaceKey(t *testing.T) {
+	tests := []struct {
+		name  string
+		model model
+		want  func(model) string
+	}{
+		{name: "manual task title", model: model{mode: "manual_task", manualTitle: "Write"}, want: func(m model) string { return m.manualTitle }},
+		{name: "workspace name", model: model{mode: "create_name", create: createForm{name: "release"}}, want: func(m model) string { return m.create.name }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			updated, _ := tt.model.Update(tea.KeyMsg{Type: tea.KeySpace})
+			got := updated.(model)
+			if value := tt.want(got); !strings.HasSuffix(value, " ") {
+				t.Fatalf("input after space = %q", value)
+			}
+		})
+	}
+}
+
 func TestManualDoneAndReopenKeys(t *testing.T) {
 	for _, complete := range []string{"false", "true"} {
 		m := model{tasks: []protocol.Task{{ID: 7, Metadata: map[string]string{"manual_task": "true", "manual_lifecycle_available": "true", "manual_complete": complete}}}}

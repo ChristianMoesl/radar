@@ -232,8 +232,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.manualTitle = dropLastRune(m.manualTitle)
 				return m, nil
 			}
-			if msg.Type == tea.KeyRunes {
-				m.manualTitle += string(msg.Runes)
+			if value, ok := textInputValue(msg); ok {
+				m.manualTitle += value
 			}
 			return m, nil
 		}
@@ -789,10 +789,20 @@ func (m model) updateCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if msg.Type == tea.KeyRunes {
-		m.appendCreateQuery(string(msg.Runes))
+	if value, ok := textInputValue(msg); ok {
+		m.appendCreateQuery(value)
 	}
 	return m, nil
+}
+
+func textInputValue(msg tea.KeyMsg) (string, bool) {
+	if msg.Type == tea.KeySpace {
+		return " ", true
+	}
+	if msg.Type == tea.KeyRunes {
+		return string(msg.Runes), true
+	}
+	return "", false
 }
 
 func (m model) loadRepos() tea.Cmd {
