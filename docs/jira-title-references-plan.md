@@ -2,7 +2,7 @@
 
 ## Status
 
-Plan only. Implementation is deferred.
+Implemented. The configuration, collection model, source-ref roles, targeted reconciliation, projection rules, TUI presentation, documentation, and tests described below are complete.
 
 ## Goal
 

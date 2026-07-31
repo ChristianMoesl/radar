@@ -306,7 +306,7 @@ Radar checks GitHub rate limits before collection. When a budget is low, Radar p
 
 ## Jira
 
-Radar can collect assigned Jira Cloud issues and attach them to matching tasks by ticket key, e.g. `ABC-123`.
+Radar collects authoritative assigned Jira Cloud work and discovers Jira keys such as `ABC-123` in existing task titles. Title discovery fetches issues directly even when they are unassigned or outside the configured authoritative issue types.
 
 Configure credentials through the environment:
 
@@ -318,12 +318,12 @@ RADAR_JIRA_CLOUD_ID="..."
 # alternatively: RADAR_JIRA_API_BASE_URL="https://api.atlassian.com/ex/jira/<cloud-id>/rest/api/3"
 ```
 
-By default, Radar ingests every assigned non-done issue type. To restrict collection, set `jira.issue_types` in the user config to the Jira issue type names to ingest:
+`jira.authoritative_issue_types` controls which automatically collected or title-discovered Jira issues can control a Radar task. It defaults to `Task`, `Bug`, and `Sub-task`:
 
 ```json
 {
   "jira": {
-    "issue_types": ["Story", "Task", "Bug"],
+    "authoritative_issue_types": ["Task", "Bug", "Sub-task"],
     "status_mapping": {
       "In Progress": "in_progress",
       "In Review": "in_progress",
@@ -334,7 +334,13 @@ By default, Radar ingests every assigned non-done issue type. To restrict collec
 }
 ```
 
-Omitting `jira.issue_types` or setting it to an empty array ingests all issue types. Radar applies the configured values in its Jira search JQL. Jira status names are trimmed and matched case-insensitively. Mapping targets may be `low_priority`, `in_progress`, `attention`, or `immediate`; Jira's Done category remains authoritative. By default, `In Progress` and `In Review` are in progress and every other assigned non-done status is low priority. An explicitly empty `status_mapping` sends every issue to `unmapped_status`.
+Names are trimmed and matched case-insensitively. An explicitly empty array skips assigned Jira search and makes every automatically title-discovered issue informational. Omitting the option uses the three default types. The former `jira.issue_types` option is not supported.
+
+Authoritative Jira refs can provide the task title, identity, attention, linking, and lifecycle. An out-of-scope title discovery is shown as an informational **Jira reference** with its URL, status, issue type, priority, and status category, but it cannot rename, merge, reprioritize, complete, or reopen the task. Removing a key from all current title-bearing facts removes its derived reference on a complete refresh. `radar task attach-jira` is always authoritative regardless of issue type and remains durable when the key leaves the title.
+
+Every distinct key in a title is fetched in title order, up to 50 direct fetches per refresh. Informational refs remain independent; all authoritative refs participate in linking and lifecycle, the first authoritative key supplies the Jira title, and completion requires every authoritative remote ref to be done. Failed or inaccessible direct fetches are non-fatal, retain a previously known ref, and are reported in Jira source status.
+
+Jira status names are trimmed and matched case-insensitively. Mapping targets may be `low_priority`, `in_progress`, `attention`, or `immediate`; Jira's Done category remains authoritative only for authoritative refs. By default, `In Progress` and `In Review` are in progress and every other authoritative non-done status is low priority. An explicitly empty `status_mapping` sends every authoritative non-done issue to `unmapped_status`.
 
 ## Datadog
 
@@ -419,7 +425,7 @@ Example:
     "monitor_query": "tag:team:cap"
   },
   "jira": {
-    "issue_types": ["Story", "Task", "Bug"],
+    "authoritative_issue_types": ["Task", "Bug", "Sub-task"],
     "status_mapping": {
       "In Progress": "in_progress",
       "In Review": "in_progress"
@@ -445,7 +451,7 @@ Example:
 }
 ```
 
-`repository_dirs` controls where `radar create` discovers base repositories. `workspace_root` controls where Radar creates worktrees. When omitted, the workspace root is `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.issue_types` limits Jira ingestion to the listed issue type names; omit it or use an empty array to ingest all types. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection; secrets are accepted only from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`.
+`repository_dirs` controls where `radar create` discovers base repositories. `workspace_root` controls where Radar creates worktrees. When omitted, the workspace root is `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.authoritative_issue_types` defaults to Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection; secrets are accepted only from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`.
 
 Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the low-priority section. User filters also apply to GitHub comment and review actors: muted or deprioritized actor activity does not promote a PR to attention. Confirmed GitHub bots match both their API login and the equivalent `[bot]` alias, so `gemini-code-assist[bot]` matches the GraphQL login `gemini-code-assist`. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive.
 

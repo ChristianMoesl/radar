@@ -63,7 +63,7 @@ Extend `jira` configuration with an exact status-name mapping and an unmapped fa
 ```json
 {
   "jira": {
-    "issue_types": [],
+    "authoritative_issue_types": ["Task", "Bug", "Sub-task"],
     "status_mapping": {
       "In Progress": "in_progress",
       "In Review": "in_progress",

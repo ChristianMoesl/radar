@@ -24,11 +24,12 @@ Every emitted `protocol.SourceRef` must have:
 1. Stable source-owned `ID`.
 2. `Source` equal to the integration name.
 3. Non-empty source-owned `Kind`.
-4. `CanonicalKey` when the ref can become a standalone task.
-5. `LinkingKeys` for joins such as `ticket:<KEY>`, `workspace:<path>`, or `branch:<repo>:<branch>`.
-6. `URL` only when it is directly openable.
+4. An explicit `Role`: normally `authoritative`, or intentionally `informational` for an inspect/open-only association.
+5. `CanonicalKey` when an authoritative ref can become a standalone task.
+6. `LinkingKeys` for authoritative joins such as `ticket:<KEY>`, `workspace:<path>`, or `branch:<repo>:<branch>`.
+7. `URL` only when it is directly openable.
 
-Do not assign Radar task IDs in integrations. Do not parse another source's IDs in core state. Keep source-specific metadata behavior tested in the source package.
+Informational refs must not emit signals, canonical keys, or linking keys. An observation may set `TargetTaskID` to associate such a ref with a stable existing Radar task without turning source metadata into task identity. Do not invent Radar task IDs in integrations or parse another source's IDs in core state. Keep source-specific metadata behavior tested in the source package.
 
 ## Cleanup providers
 

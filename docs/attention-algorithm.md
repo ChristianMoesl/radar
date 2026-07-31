@@ -14,7 +14,9 @@ Radar first groups related source refs into a single task:
 2. Workspace path, for local-only work.
 3. Source identity, for standalone items such as a single GitHub PR.
 
-This means a Jira issue, GitHub PR, local worktree, tmux session, and sbx sandbox can all appear as one Radar task when they describe the same work. A Radar-owned manual task can exist without any source ref; attaching a Jira key lets matching refs join it without changing its numeric Radar ID.
+This means an authoritative Jira issue, GitHub PR, local worktree, tmux session, and sbx sandbox can all appear as one Radar task when they describe the same work. A Radar-owned manual task can exist without any source ref; attaching a Jira key lets matching refs join it without changing its numeric Radar ID.
+
+Every source ref has an explicit role. `authoritative` refs participate in grouping, title selection, attention, and lifecycle. `informational` refs are attached to a specific Radar task for inspection and opening only. They never supply identity or linking keys, replace a title, emit an attention/done signal, merge tasks, disable manual done/reopen, complete or reopen work, keep a removed task active, or bypass mute/deprioritization.
 
 ## Categories
 
@@ -69,10 +71,10 @@ GitHub signals should focus on actionable feedback:
 
 ## Jira workflow status
 
-Jira's Done status category remains authoritative for completion. Assigned non-done issues are classified by exact status name, after trimming whitespace and ignoring case. The defaults are:
+Jira's Done status category controls completion only for authoritative Jira refs. Assigned authoritative non-done issues and authoritative title discoveries are classified by exact status name, after trimming whitespace and ignoring case. Informational Jira refs expose status metadata but never participate in title, attention, or lifecycle precedence. The defaults are:
 
 - `In Progress` and `In Review` → `in_progress`.
-- Every other assigned non-done status → `low_priority`.
+- Every other authoritative non-done status → `low_priority`.
 
 Configure `jira.status_mapping` to map status names to `low_priority`, `in_progress`, `attention`, or `immediate`, and use `jira.unmapped_status` as the fallback. An explicitly empty mapping sends every non-done issue to the fallback. Linked GitHub and local refs can still promote a low-priority Jira task because the strongest active signal wins.
 

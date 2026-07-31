@@ -71,7 +71,8 @@ SourceRef(s) + TaskRecord intent => Task
 ```
 
 - `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, Datadog monitor, local git worktree, or tmux session. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:ABC-544`, `datadog:monitor:123`, `git:worktree:<path>`, or `tmux:session:<session_id>`.
-- `SourceRef.LinkingKeys`: source-owned join keys that tell Radar which refs describe the same work. Examples: `ticket:ABC-544`, `workspace:/repo/worktree`, `branch:owner/repo:feature-ABC-544`, or `github:pr:owner/repo:123`. These keys are derived inside each source provider, not in the state store.
+- `SourceRef.Role`: every ref is explicitly `authoritative` or `informational`. Authoritative refs participate in title, attention, identity, linking, lifecycle, and active-resource decisions. Informational refs are inspectable and openable only. Providers emit authoritative refs unless they intentionally collect an informational association.
+- `SourceRef.LinkingKeys`: source-owned join keys that tell Radar which authoritative refs describe the same work. Examples: `ticket:ABC-544`, `workspace:/repo/worktree`, `branch:owner/repo:feature-ABC-544`, or `github:pr:owner/repo:123`. These keys are derived inside each source provider, not in the state store. Informational refs expose no linking keys.
 - `SourceRef.CanonicalKey`: the source-owned fallback identity for a standalone ref when no ticket key exists. Examples: a Git worktree uses `workspace:<path>`, while a GitHub PR uses its PR source-ref ID.
 - `SourceRef.URL`: a generic openable URL. If a source ref has a URL, frontends may offer an open-link action without source-specific URL inspection.
 - `SourceRef.SourceLabel`: the source-owned display label for frontend link/source presentation, such as `GitHub` or `Jira`.
@@ -91,9 +92,9 @@ collect integration Observations
 
 The local state file persists explicit `TaskRecord`s and `SourceRefRecord`s. `Task`s are disposable projections for the socket protocol, CLI, and TUI. Task records own durable identity, stable numeric task IDs, optional manual intent, lifecycle state, source-ref ownership, and user acknowledgement state. Source refs remain source-system facts with first/last seen timestamps and an active flag. Manual task mutations save immediately and bump the daemon revision so watchers receive the new projection.
 
-Radar groups work ticket-first: if any linked source ref or explicit manual association exposes a `ticket:<KEY>` linking key, that ticket is the canonical work item. Without a ticket, source-provided canonical keys decide the standalone identity; for example, local workspaces and sbx sandboxes use `workspace:<path>`, GitHub PRs use `github:pr:<repo>:<number>`, and Jira issues use `jira:issue:<KEY>`. Each source ref is assigned to one task record at a time, so local and remote refs do not duplicate across multiple projected tasks.
+Radar groups authoritative work ticket-first: if any authoritative source ref or explicit manual association exposes a `ticket:<KEY>` linking key, that ticket is the canonical work item. Without a ticket, authoritative source-provided canonical keys decide the standalone identity; for example, local workspaces and sbx sandboxes use `workspace:<path>`, GitHub PRs use `github:pr:<repo>:<number>`, and Jira issues use `jira:issue:<KEY>`. Informational refs never provide canonical or linking identity. Each source ref is assigned to one task record at a time, so local and remote refs do not duplicate across multiple projected tasks.
 
-Source providers own all source-specific identity and linking rules. Adding a new source should not require editing `internal/state` to teach it about the source's IDs, branch formats, URLs, or ticket extraction. The source should populate `SourceRef.ID`, `SourceRef.CanonicalKey`, and `SourceRef.LinkingKeys`; state only persists refs, matches equal linking keys, chooses ticket keys first, and projects tasks.
+Source providers own all source-specific identity and linking rules. Adding a new source should not require editing `internal/state` to teach it about the source's IDs, branch formats, URLs, or ticket extraction. The source must populate `SourceRef.ID` and `SourceRef.Role`; authoritative standalone/linkable refs also populate `SourceRef.CanonicalKey` and `SourceRef.LinkingKeys`. State persists refs, matches targeted observations first, links only authoritative refs, chooses ticket keys first, and projects tasks.
 
 ## Task lifecycle
 
@@ -107,7 +108,7 @@ Radar has four active categories and one historical category:
 
 The high-level categorization rules are documented in [docs/attention-algorithm.md](docs/attention-algorithm.md).
 
-Collection and durable linking are separate steps. Integration code talks to external systems and produces observations/source refs with source-owned linking keys. Core collection projects those observations into candidate tasks. The state store matches active persisted source refs by those keys, merges records that describe the same work, and then projects one user-facing task per task record.
+Collection and durable linking are separate steps. Integration code talks to external systems and produces observations/source refs with source-owned linking keys. Core collection projects those observations into candidate tasks. An observation may carry a generic target Radar task ID when a ref must associate with an existing task without contributing identity. State matches this stable numeric ID before canonical/source-ref matching. This is how title-discovered informational Jira refs stay on each mentioning task, and it is available to future integrations without teaching state to parse source-specific keys. The state store links only authoritative refs, merges records that describe the same work, and then projects one user-facing task per task record.
 
 A manual-only task naturally projects as `low_priority`; it can be completed and reopened explicitly. Any active task may carry a Radar-owned `urgent` override, which projects as `immediate` until cleared. Clearing it recomputes priority from source refs rather than forcing low priority. Terminal completion wins over the override. Its original intent remains on the task record when a source title takes over. Attaching Jira adds a `ticket:<KEY>` association and merges any existing ticket record into the manual record while preserving the manual numeric ID. Once Jira or GitHub is attached, remote lifecycle is authoritative and manual completion is disabled.
 
@@ -161,7 +162,9 @@ Current GitHub collectors:
 
 ## Jira integration
 
-Jira access uses Jira Cloud REST APIs. Assigned non-done issues become source refs and are linked to matching GitHub/Git/tmux work through ticket keys. The optional `jira.issue_types` user config adds an issue-type allowlist to the search JQL; an omitted or empty list collects every issue type.
+Jira access uses Jira Cloud REST APIs with two collection inputs. Assigned non-done issues are searched only for `jira.authoritative_issue_types`, which defaults to Task, Bug, and Sub-task. An explicit empty list skips assigned search. Radar also scans projected titles, durable manual titles, and active non-Jira source-ref titles for ticket keys and directly fetches up to 50 distinct issues in deterministic title order, regardless of assignee or issue type.
+
+An assigned issue, a title discovery whose issue type matches the configured set, or an explicit `radar task attach-jira` association is authoritative. Other title discoveries use per-task `jira:mention:<radar-task-id>:<key>` identities and are informational. They retain Jira URL/status/type/priority metadata but have no signal, canonical key, or linking keys. Direct-fetch failures preserve previously known refs and report partial source status; complete refreshes remove derived refs whose keys disappeared. Explicit attachments remain durable. When a title contains multiple authoritative keys, the first supplies the Jira title and all must complete before the task completes.
 
 ## Datadog integration
 
