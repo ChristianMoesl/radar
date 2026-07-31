@@ -6,6 +6,19 @@ import (
 	"radar/internal/protocol"
 )
 
+func TestJiraIssueIgnoresInformationalReference(t *testing.T) {
+	task := protocol.Task{SourceRefs: []protocol.SourceRef{{
+		ID: "jira:mention:1:RAD-7", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleInformational,
+		Title: "RAD-7 Informational",
+	}}}
+	if _, ok := JiraIssue(task); ok {
+		t.Fatal("JiraIssue() returned informational reference")
+	}
+	if got := WorkspaceName(protocol.Task{Title: "Manual title", SourceRefs: task.SourceRefs}); got != "Manual title" {
+		t.Fatalf("WorkspaceName() = %q, want manual title", got)
+	}
+}
+
 func TestWorktreeFindsGitWorktreeSource(t *testing.T) {
 	task := protocol.Task{SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/repo/worktrees/small-fix"}}}
 

@@ -60,7 +60,7 @@ func Worktrees(task protocol.Task) []protocol.SourceRef {
 
 func JiraIssue(task protocol.Task) (protocol.SourceRef, bool) {
 	for _, ref := range task.SourceRefs {
-		if ref.Source == "jira" && ref.Kind == "issue" {
+		if ref.Role == protocol.SourceRefRoleAuthoritative && ref.Source == "jira" && ref.Kind == "issue" {
 			return ref, true
 		}
 	}

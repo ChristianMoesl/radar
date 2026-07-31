@@ -519,6 +519,7 @@ func TestActivateSelectedStartsWorkspaceCreateForJiraOnlyTask(t *testing.T) {
 			ID:     "jira:issue:ABC-123",
 			Source: "jira",
 			Kind:   "issue",
+			Role:   protocol.SourceRefRoleAuthoritative,
 			Title:  "ABC-123 Build the thing",
 		}},
 	}}}
@@ -544,6 +545,7 @@ func TestWorkspaceNameForTaskFallsBackToJiraKey(t *testing.T) {
 		ID:       "jira:issue:ABC-123",
 		Source:   "jira",
 		Kind:     "issue",
+		Role:     protocol.SourceRefRoleAuthoritative,
 		Metadata: map[string]string{"key": "ABC-123"},
 	}}}
 

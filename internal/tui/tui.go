@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -1311,9 +1312,19 @@ func (m model) detailView(width int) string {
 			}
 			appendRefDetail("source", ref.Source)
 			appendRefDetail("kind", ref.Kind)
+			appendRefDetail("role", string(ref.Role))
+			appendRefDetail("status", ref.Status)
 			appendRefDetail("repo", ref.Repo)
 			appendRefDetail("path", shortenPath(ref.Path))
 			appendRefDetail("branch", ref.Branch)
+			metadataKeys := make([]string, 0, len(ref.Metadata))
+			for key := range ref.Metadata {
+				metadataKeys = append(metadataKeys, key)
+			}
+			sort.Strings(metadataKeys)
+			for _, key := range metadataKeys {
+				appendRefDetail(key, ref.Metadata[key])
+			}
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -1963,12 +1974,16 @@ func taskLine(task protocol.Task, selected bool) string {
 }
 
 func sourceRefLabel(ref protocol.SourceRef) string {
+	prefix := ""
+	if ref.Role == protocol.SourceRefRoleInformational && ref.Source == "jira" && ref.Kind == "issue" {
+		prefix = "Jira reference: "
+	}
 	for _, value := range []string{ref.ID, ref.Title, ref.Repo, ref.Path, ref.Branch} {
 		if value != "" {
-			return value
+			return prefix + value
 		}
 	}
-	return ref.Source + ":" + ref.Kind
+	return prefix + ref.Source + ":" + ref.Kind
 }
 
 func (m model) sourceList(width int) string {
