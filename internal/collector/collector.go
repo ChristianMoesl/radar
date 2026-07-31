@@ -117,6 +117,13 @@ func observedTasks(collected Collected) []protocol.Task {
 
 func taskFromObservation(observation integration.Observation) protocol.Task {
 	sourceRef := observation.Ref
+	if sourceRef.Role == protocol.SourceRefRoleInformational {
+		return protocol.Task{
+			TargetTaskID: observation.TargetTaskID,
+			Kind:         taskKindFromObservation(observation),
+			SourceRefs:   []protocol.SourceRef{sourceRef},
+		}
+	}
 	reason := observation.Reason
 	if reason == "" {
 		reason = sourceRef.Source + " " + sourceRef.Kind
@@ -204,12 +211,15 @@ func deduplicateReconciledTasks(tasks []protocol.Task) []protocol.Task {
 
 func reconciliationIdentity(task protocol.Task) string {
 	for _, sourceRef := range task.SourceRefs {
+		if sourceRef.Role == protocol.SourceRefRoleInformational {
+			continue
+		}
 		if sourceRef.Source == "github" && sourceRef.Kind == "pull_request" && sourceRef.ID != "" {
 			return sourceRef.ID
 		}
 	}
 	for _, sourceRef := range task.SourceRefs {
-		if sourceRef.Source == "jira" && sourceRef.Kind == "issue" && sourceRef.ID != "" {
+		if sourceRef.Role != protocol.SourceRefRoleInformational && sourceRef.Source == "jira" && sourceRef.Kind == "issue" && sourceRef.ID != "" {
 			return sourceRef.ID
 		}
 	}

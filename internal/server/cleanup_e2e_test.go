@@ -37,6 +37,7 @@ func TestCleanupSbxSandboxE2EUsesForceWithoutWorkspaceCWD(t *testing.T) {
 			ID:     "sbx:sandbox:sandbox-conn-test",
 			Source: "sbx",
 			Kind:   "sandbox",
+			Role:   protocol.SourceRefRoleAuthoritative,
 			Title:  "sandbox-conn-test",
 			Path:   missingWorkspace,
 			Metadata: map[string]string{

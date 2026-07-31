@@ -46,8 +46,8 @@ func TestClearingUrgentRestoresSourceDerivedPriority(t *testing.T) {
 		reason    string
 		sourceRef protocol.SourceRef
 	}{
-		{name: "Jira", natural: "in_progress", reason: "In Progress", sourceRef: protocol.SourceRef{ID: "jira:issue:RAD-1", Source: "jira", Kind: "issue", Signal: "in_progress", Status: "In Progress"}},
-		{name: "GitHub feedback", natural: "attention", reason: "review requested", sourceRef: protocol.SourceRef{ID: "github:pr:org/repo:1", Source: "github", Kind: "pull_request", Signal: "attention", Status: "review requested"}},
+		{name: "Jira", natural: "in_progress", reason: "In Progress", sourceRef: protocol.SourceRef{ID: "jira:issue:RAD-1", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative, Signal: "in_progress", Status: "In Progress"}},
+		{name: "GitHub feedback", natural: "attention", reason: "review requested", sourceRef: protocol.SourceRef{ID: "github:pr:org/repo:1", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative, Signal: "attention", Status: "review requested"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

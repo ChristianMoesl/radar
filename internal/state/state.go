@@ -646,6 +646,7 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 	}
 
 	recordsByID := map[string]*TaskRecord{}
+	recordsByNumericID := map[int]*TaskRecord{}
 	recordsBySourceRef := map[string]*TaskRecord{}
 	recordsByKey := map[string]*TaskRecord{}
 	maxID := state.NextTaskID
@@ -655,6 +656,7 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 			maxID = record.NumericID
 		}
 		recordsByID[record.ID] = record
+		recordsByNumericID[record.NumericID] = record
 		if record.CanonicalKey != "" {
 			recordsByKey[record.CanonicalKey] = record
 		}
@@ -677,7 +679,7 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 	for _, task := range mergeObservedTasks(observed) {
 		task = taskWithSourceSignals(task)
 		key := canonicalTaskKey(task)
-		record := matchingRecord(task, key, recordsBySourceRef, recordsByKey)
+		record := matchingRecord(task, key, recordsByNumericID, recordsBySourceRef, recordsByKey)
 		if record == nil {
 			state.NextTaskID++
 			record = &TaskRecord{
@@ -691,6 +693,7 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 			state.Records = append(state.Records, *record)
 			record = &state.Records[len(state.Records)-1]
 			recordsByID[record.ID] = record
+			recordsByNumericID[record.NumericID] = record
 		} else if key != "" && record.CanonicalKey == "" {
 			record.CanonicalKey = key
 		}
@@ -700,24 +703,27 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 
 		record.LastSeen = nowText
 		record.UpdatedAt = nowText
-		if sourceScope == nil {
+		authoritative := taskHasAuthoritativeSource(task)
+		if sourceScope == nil && authoritative {
 			record.Snapshot = task
 		} else {
 			record.Snapshot = mergeTasks(record.Snapshot, task)
 		}
 		record.SourceRefIDs = mergeStringSet(record.SourceRefIDs, sourceRefIDs(task.SourceRefs))
-		if record.Intent != nil && taskHasRemoteSource(task) {
-			record.Intent.ManuallyComplete = false
-			record.Intent.UpdatedAt = nowText
-		}
-		if task.Attention == "done" {
-			record.State = "done"
-			record.DoneAt = firstNonEmpty(record.DoneAt, task.DoneAt, nowText)
-			record.Reason = task.Reason
-		} else {
-			record.State = "active"
-			record.DoneAt = ""
-			record.Reason = ""
+		if authoritative {
+			if record.Intent != nil && taskHasRemoteSource(task) {
+				record.Intent.ManuallyComplete = false
+				record.Intent.UpdatedAt = nowText
+			}
+			if task.Attention == "done" {
+				record.State = "done"
+				record.DoneAt = firstNonEmpty(record.DoneAt, task.DoneAt, nowText)
+				record.Reason = task.Reason
+			} else {
+				record.State = "active"
+				record.DoneAt = ""
+				record.Reason = ""
+			}
 		}
 
 		for _, sourceRef := range task.SourceRefs {
@@ -744,6 +750,7 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 		}
 	}
 
+	recomputeDerivedCanonicalKeys(state.Records, state.SourceRefs)
 	state = relinkState(state)
 	updateRecordLifecycles(state.Records, state.SourceRefs, nowText)
 
@@ -764,31 +771,93 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 }
 
 func relinkState(state persistedState) persistedState {
-	groups := sourceRefLinkGroups(state.SourceRefs)
-	for _, group := range groups {
-		recordIDs := uniqueTaskRecordIDs(group)
-		if len(recordIDs) < 2 {
-			continue
+	for _, group := range sourceRefLinkGroups(state.SourceRefs) {
+		state = mergeRelatedRecords(state, uniqueTaskRecordIDs(group))
+	}
+
+	byCanonicalKey := map[string][]string{}
+	for _, record := range state.Records {
+		if record.CanonicalKey != "" {
+			byCanonicalKey[record.CanonicalKey] = append(byCanonicalKey[record.CanonicalKey], record.ID)
 		}
-		winnerID := winningRecordID(state.Records, recordIDs)
-		if winnerID == "" {
-			continue
-		}
-		for i := range state.SourceRefs {
-			if containsString(recordIDs, state.SourceRefs[i].TaskRecordID) {
-				state.SourceRefs[i].TaskRecordID = winnerID
-			}
-		}
-		state.Records = mergeTaskRecords(state.Records, recordIDs, winnerID, state.SourceRefs)
+	}
+	keys := make([]string, 0, len(byCanonicalKey))
+	for key := range byCanonicalKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		state = mergeRelatedRecords(state, byCanonicalKey[key])
 	}
 	return state
+}
+
+func mergeRelatedRecords(state persistedState, recordIDs []string) persistedState {
+	if len(recordIDs) < 2 {
+		return state
+	}
+	winnerID := winningRecordID(state.Records, recordIDs)
+	if winnerID == "" {
+		return state
+	}
+	for i := range state.SourceRefs {
+		if containsString(recordIDs, state.SourceRefs[i].TaskRecordID) {
+			state.SourceRefs[i].TaskRecordID = winnerID
+		}
+	}
+	state.Records = mergeTaskRecords(state.Records, recordIDs, winnerID, state.SourceRefs)
+	return state
+}
+
+func recomputeDerivedCanonicalKeys(records []TaskRecord, refs []SourceRefRecord) {
+	for i := range records {
+		record := &records[i]
+		if record.CanonicalKey == "" || manualAssociationContains(*record, record.CanonicalKey) {
+			continue
+		}
+		active := activeSourceRefRecordsForRecord(record.ID, refs)
+		if canonicalKeyPresent(record.CanonicalKey, active) || !hasInformationalReplacement(record.ID, record.CanonicalKey, refs) {
+			continue
+		}
+		snapshots := make([]protocol.SourceRef, 0, len(active))
+		for _, ref := range active {
+			snapshots = append(snapshots, ref.Snapshot)
+		}
+		record.CanonicalKey = canonicalTaskKey(protocol.Task{SourceRefs: snapshots})
+	}
+}
+
+func hasInformationalReplacement(recordID, canonicalKey string, refs []SourceRefRecord) bool {
+	jiraKey, ok := strings.CutPrefix(canonicalKey, "ticket:")
+	if !ok {
+		return false
+	}
+	for _, ref := range refs {
+		if ref.TaskRecordID == recordID && ref.Active && ref.Snapshot.Role == protocol.SourceRefRoleInformational && strings.EqualFold(ref.Snapshot.Metadata["key"], jiraKey) {
+			return true
+		}
+	}
+	return false
+}
+
+func manualAssociationContains(record TaskRecord, key string) bool {
+	return record.Intent != nil && containsString(record.Intent.AssociationKeys, key)
+}
+
+func canonicalKeyPresent(key string, refs []SourceRefRecord) bool {
+	for _, ref := range refs {
+		if ref.Snapshot.CanonicalKey == key || containsString(ref.Snapshot.LinkingKeys, key) {
+			return true
+		}
+	}
+	return false
 }
 
 func sourceRefLinkGroups(refs []SourceRefRecord) [][]SourceRefRecord {
 	groups := make([][]SourceRefRecord, 0)
 	used := make([]bool, len(refs))
 	for i := range refs {
-		if used[i] || !refs[i].Active || refs[i].TaskRecordID == "" {
+		if used[i] || !refs[i].Active || refs[i].TaskRecordID == "" || !authoritativeRef(refs[i].Snapshot) {
 			continue
 		}
 		group := make([]SourceRefRecord, 0)
@@ -799,7 +868,7 @@ func sourceRefLinkGroups(refs []SourceRefRecord) [][]SourceRefRecord {
 			queue = queue[1:]
 			group = append(group, refs[idx])
 			for j := range refs {
-				if used[j] || !refs[j].Active || refs[j].TaskRecordID == "" {
+				if used[j] || !refs[j].Active || refs[j].TaskRecordID == "" || !authoritativeRef(refs[j].Snapshot) {
 					continue
 				}
 				if sourceRefRecordsRelated(refs[idx], refs[j]) {
@@ -818,6 +887,9 @@ func sourceRefRecordsRelated(left, right SourceRefRecord) bool {
 }
 
 func linkKeysForSourceRef(ref protocol.SourceRef) []string {
+	if !authoritativeRef(ref) {
+		return nil
+	}
 	keys := make([]string, 0, len(ref.LinkingKeys))
 	seen := map[string]bool{}
 	for _, key := range ref.LinkingKeys {
@@ -933,7 +1005,7 @@ func updateRecordLifecycles(records []TaskRecord, sourceRefs []SourceRefRecord, 
 func activeSourceRefRecordsForRecord(recordID string, refs []SourceRefRecord) []SourceRefRecord {
 	active := make([]SourceRefRecord, 0)
 	for _, ref := range refs {
-		if ref.TaskRecordID == recordID && ref.Active {
+		if ref.TaskRecordID == recordID && ref.Active && authoritativeRef(ref.Snapshot) {
 			active = append(active, ref)
 		}
 	}
@@ -997,13 +1069,21 @@ func containsString(values []string, value string) bool {
 	return false
 }
 
-func matchingRecord(task protocol.Task, key string, bySourceRef map[string]*TaskRecord, byKey map[string]*TaskRecord) *TaskRecord {
+func matchingRecord(task protocol.Task, key string, byNumericID map[int]*TaskRecord, bySourceRef map[string]*TaskRecord, byKey map[string]*TaskRecord) *TaskRecord {
+	if task.TargetTaskID != 0 {
+		if record := byNumericID[task.TargetTaskID]; record != nil {
+			return record
+		}
+	}
 	if key != "" {
 		if record := byKey[key]; record != nil {
 			return record
 		}
 	}
 	for _, sourceRef := range task.SourceRefs {
+		if !authoritativeRef(sourceRef) {
+			continue
+		}
 		if record := bySourceRef[sourceRef.ID]; record != nil {
 			return record
 		}
@@ -1045,7 +1125,7 @@ func mergeTasks(left, right protocol.Task) protocol.Task {
 
 func taskWithSourceSignals(task protocol.Task) protocol.Task {
 	for i := range task.SourceRefs {
-		if task.SourceRefs[i].Signal == "" {
+		if authoritativeRef(task.SourceRefs[i]) && task.SourceRefs[i].Signal == "" {
 			task.SourceRefs[i].Signal = task.Attention
 		}
 	}
@@ -1093,6 +1173,9 @@ func firstSignal(refs []protocol.SourceRef, want string, fallback string) (strin
 }
 
 func sourceSignal(ref protocol.SourceRef, fallback string) string {
+	if !authoritativeRef(ref) {
+		return ""
+	}
 	if ref.Signal != "" {
 		return ref.Signal
 	}
@@ -1129,6 +1212,9 @@ func remoteDoneWithOnlyLocalRefs(refs []protocol.SourceRef, fallback string) boo
 	hasRemoteDone := false
 	hasLocalCleanup := false
 	for _, ref := range refs {
+		if !authoritativeRef(ref) {
+			continue
+		}
 		signal := sourceSignal(ref, fallback)
 		if remoteSource(ref.Source) {
 			if signal == "done" {
@@ -1148,6 +1234,19 @@ func remoteDoneWithOnlyLocalRefs(refs []protocol.SourceRef, fallback string) boo
 		return false
 	}
 	return hasRemoteDone && hasLocalCleanup
+}
+
+func authoritativeRef(ref protocol.SourceRef) bool {
+	return ref.Role == protocol.SourceRefRoleAuthoritative
+}
+
+func hasAuthoritativeProtocolRef(refs []protocol.SourceRef) bool {
+	for _, ref := range refs {
+		if authoritativeRef(ref) {
+			return true
+		}
+	}
+	return false
 }
 
 func remoteSource(source string) bool {
@@ -1189,11 +1288,12 @@ func projectTasks(state persistedState) []protocol.Task {
 		if record.State == "done" {
 			refs = doneSourceRefsByRecord[record.ID]
 		}
-		if len(refs) == 0 && record.Intent == nil && record.State != "done" {
+		if !hasAuthoritativeProtocolRef(refs) && record.Intent == nil && record.State != "done" {
 			continue
 		}
+		task.TargetTaskID = 0
 		task.SourceRefs = cloneSourceRefs(sortSourceRefs(mergeSourceRefs(nil, refs)))
-		if record.Intent != nil && task.Title == "" {
+		if record.Intent != nil {
 			task.Title = record.Intent.Title
 		}
 		if title := jiraTitle(refs); title != "" {
@@ -1205,7 +1305,7 @@ func projectTasks(state persistedState) []protocol.Task {
 			if record.Reason != "" {
 				task.Reason = record.Reason
 			}
-		} else if len(refs) == 0 {
+		} else if !hasAuthoritativeProtocolRef(refs) {
 			task.Attention = "low_priority"
 			task.Reason = "manual task"
 		} else {
@@ -1246,16 +1346,20 @@ func projectTasks(state persistedState) []protocol.Task {
 
 func jiraTitle(refs []protocol.SourceRef) string {
 	for _, ref := range refs {
-		if ref.Source == "jira" && ref.Kind == "issue" && ref.Title != "" {
+		if authoritativeRef(ref) && ref.Source == "jira" && ref.Kind == "issue" && ref.Title != "" {
 			return ref.Title
 		}
 	}
 	return ""
 }
 
+func taskHasAuthoritativeSource(task protocol.Task) bool {
+	return hasAuthoritativeProtocolRef(task.SourceRefs)
+}
+
 func taskHasRemoteSource(task protocol.Task) bool {
 	for _, ref := range task.SourceRefs {
-		if remoteSource(ref.Source) {
+		if authoritativeRef(ref) && remoteSource(ref.Source) {
 			return true
 		}
 	}
@@ -1336,16 +1440,19 @@ func canonicalTaskKey(task protocol.Task) string {
 		return key
 	}
 	for _, sourceRef := range task.SourceRefs {
+		if !authoritativeRef(sourceRef) {
+			continue
+		}
 		if key := strings.TrimSpace(sourceRef.CanonicalKey); key != "" {
 			return key
 		}
 	}
 	for _, sourceRef := range task.SourceRefs {
-		if sourceRef.ID != "" {
+		if authoritativeRef(sourceRef) && sourceRef.ID != "" {
 			return sourceRef.ID
 		}
 	}
-	if task.URL != "" {
+	if task.URL != "" && hasAuthoritativeProtocolRef(task.SourceRefs) {
 		return "url:" + task.URL
 	}
 	return ""
@@ -1363,6 +1470,9 @@ func recordKind(task protocol.Task, key string) string {
 
 func firstTicketLinkKey(task protocol.Task) string {
 	for _, sourceRef := range task.SourceRefs {
+		if !authoritativeRef(sourceRef) {
+			continue
+		}
 		for _, key := range sourceRef.LinkingKeys {
 			key = strings.TrimSpace(key)
 			if strings.HasPrefix(key, "ticket:") {
@@ -1469,7 +1579,7 @@ func hasActiveSourceRef(record TaskRecord, sourceRefs []SourceRefRecord) bool {
 		ids[id] = true
 	}
 	for _, sourceRef := range sourceRefs {
-		if ids[sourceRef.ID] && sourceRef.Active {
+		if ids[sourceRef.ID] && sourceRef.Active && authoritativeRef(sourceRef.Snapshot) {
 			return true
 		}
 	}
@@ -1489,7 +1599,7 @@ func hasRemoteSource(record TaskRecord, sourceRefs []SourceRefRecord) bool {
 		if !ids[sourceRef.ID] {
 			continue
 		}
-		if sourceRef.Source == "github" || sourceRef.Source == "jira" {
+		if sourceRef.Active && authoritativeRef(sourceRef.Snapshot) && (sourceRef.Source == "github" || sourceRef.Source == "jira") {
 			return true
 		}
 	}
@@ -1502,7 +1612,7 @@ func hasRecordSource(record TaskRecord, sourceRefs []SourceRefRecord, source, ki
 		ids[id] = true
 	}
 	for _, sourceRef := range sourceRefs {
-		if ids[sourceRef.ID] && sourceRef.Source == source && sourceRef.Kind == kind {
+		if ids[sourceRef.ID] && authoritativeRef(sourceRef.Snapshot) && sourceRef.Source == source && sourceRef.Kind == kind {
 			return true
 		}
 	}

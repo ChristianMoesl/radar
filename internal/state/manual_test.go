@@ -66,7 +66,7 @@ func TestAttachJiraMergesIntoManualTaskAndPreservesID(t *testing.T) {
 	jira := protocol.Task{
 		Kind: "jira_issue", Title: "DPSCAP-123 Implement release process", Attention: "in_progress", Reason: "In Progress",
 		SourceRefs: []protocol.SourceRef{{
-			ID: "jira:issue:DPSCAP-123", Source: "jira", Kind: "issue", Title: "DPSCAP-123 Implement release process",
+			ID: "jira:issue:DPSCAP-123", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative, Title: "DPSCAP-123 Implement release process",
 			CanonicalKey: "jira:issue:DPSCAP-123", LinkingKeys: []string{"ticket:DPSCAP-123"}, Signal: "in_progress", Status: "In Progress",
 		}},
 	}
@@ -108,7 +108,7 @@ func TestAttachJiraLinksLaterTicketReferences(t *testing.T) {
 	}
 	store.SetTasks([]protocol.Task{{
 		Title: "DPSCAP-88 Planned work", Attention: "low_priority", Reason: "Selected for Development",
-		SourceRefs: []protocol.SourceRef{{ID: "jira:issue:DPSCAP-88", Source: "jira", Kind: "issue", Title: "DPSCAP-88 Planned work", LinkingKeys: []string{"ticket:DPSCAP-88"}, Signal: "low_priority"}},
+		SourceRefs: []protocol.SourceRef{{ID: "jira:issue:DPSCAP-88", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative, Title: "DPSCAP-88 Planned work", LinkingKeys: []string{"ticket:DPSCAP-88"}, Signal: "low_priority"}},
 	}})
 	got := store.Tasks()
 	if len(got) != 1 || got[0].ID != manual.ID || got[0].Metadata["association_keys"] != "ticket:DPSCAP-88" {

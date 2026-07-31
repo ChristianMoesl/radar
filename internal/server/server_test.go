@@ -24,7 +24,7 @@ func TestWatchOldRevisionReturnsTasksImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.SetTasks([]protocol.Task{{Title: "one", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/repo:1", Source: "github", Kind: "pull_request"}}}})
+	store.SetTasks([]protocol.Task{{Title: "one", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/repo:1", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative}}}})
 
 	server, client := net.Pipe()
 	done := make(chan struct{})
@@ -58,7 +58,7 @@ func TestWatchCurrentRevisionTimesOutWithoutTasks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.SetTasks([]protocol.Task{{Title: "one", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/repo:1", Source: "github", Kind: "pull_request"}}}})
+	store.SetTasks([]protocol.Task{{Title: "one", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/repo:1", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative}}}})
 
 	server, client := net.Pipe()
 	done := make(chan struct{})
@@ -163,8 +163,8 @@ func TestCleanupPreviewCollectsEveryLocalTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.SetTasks([]protocol.Task{{Title: "cleanup", SourceRefs: []protocol.SourceRef{
-		{ID: "fake-a:ref:1", Source: "fake-a", Kind: "thing", Path: "/tmp/one"},
-		{ID: "fake-b:ref:2", Source: "fake-b", Kind: "thing", Path: "/tmp/two"},
+		{ID: "fake-a:ref:1", Source: "fake-a", Kind: "thing", Role: protocol.SourceRefRoleAuthoritative, Path: "/tmp/one"},
+		{ID: "fake-b:ref:2", Source: "fake-b", Kind: "thing", Role: protocol.SourceRefRoleAuthoritative, Path: "/tmp/two"},
 	}}})
 
 	preview, err := New(store, logger, nil, nil, nil, cleanup.New([]integration.CleanupProvider{
@@ -218,8 +218,8 @@ func TestAckResponseAppliesFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.SetTasks([]protocol.Task{
-		{Repo: "org/noisy", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/noisy:1", Source: "github", Kind: "pull_request", Repo: "org/noisy"}}},
-		{Repo: "org/useful", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/useful:2", Source: "github", Kind: "pull_request", Repo: "org/useful"}}},
+		{Repo: "org/noisy", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/noisy:1", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative, Repo: "org/noisy"}}},
+		{Repo: "org/useful", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:org/useful:2", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative, Repo: "org/useful"}}},
 	})
 
 	server, client := net.Pipe()

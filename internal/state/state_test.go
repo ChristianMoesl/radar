@@ -149,7 +149,7 @@ func TestProjectTasksHidesInactiveLocalRefsFromDoneTasks(t *testing.T) {
 	remote := testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")
 	worktree := testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "CAP-7-ship")
 	session := testTmuxSessionRef("tmux:session:$7", "/work/CAP-7-ship")
-	sandbox := protocol.SourceRef{ID: "sbx:sandbox:CAP-7-ship", Source: "sbx", Kind: "sandbox", Path: "/work/CAP-7-ship"}
+	sandbox := protocol.SourceRef{ID: "sbx:sandbox:CAP-7-ship", Source: "sbx", Kind: "sandbox", Role: protocol.SourceRefRoleAuthoritative, Path: "/work/CAP-7-ship"}
 	state := persistedState{
 		Version: stateVersion,
 		Records: []TaskRecord{{
@@ -344,6 +344,7 @@ func testGitHubPRRef(id string, repo string, branch string) protocol.SourceRef {
 		ID:           id,
 		Source:       "github",
 		Kind:         "pull_request",
+		Role:         protocol.SourceRefRoleAuthoritative,
 		Repo:         repo,
 		Branch:       branch,
 		CanonicalKey: id,
@@ -357,6 +358,7 @@ func testGitWorktreeRef(id string, path string, repo string, branch string) prot
 		ID:           id,
 		Source:       "git",
 		Kind:         "worktree",
+		Role:         protocol.SourceRefRoleAuthoritative,
 		Repo:         repo,
 		Path:         path,
 		Branch:       branch,
@@ -378,6 +380,7 @@ func testTmuxSessionRef(id string, path string) protocol.SourceRef {
 		ID:          id,
 		Source:      "tmux",
 		Kind:        "session",
+		Role:        protocol.SourceRefRoleAuthoritative,
 		Path:        path,
 		LinkingKeys: linking.Keys(append(linking.TicketKeys(id, path), linking.WorkspaceKey(path))...),
 	}
@@ -389,6 +392,7 @@ func testJiraIssueRef(id string, title string) protocol.SourceRef {
 		ID:           id,
 		Source:       "jira",
 		Kind:         "issue",
+		Role:         protocol.SourceRefRoleAuthoritative,
 		Title:        title,
 		CanonicalKey: id,
 		LinkingKeys:  linking.Keys("ticket:" + key),
@@ -428,7 +432,7 @@ func TestStoreRevisionIncrementsOnMutations(t *testing.T) {
 	if got := store.Revision(); got != 1 {
 		t.Fatalf("revision after SetTasks = %d, want 1", got)
 	}
-	store.SetTasksForSources([]protocol.Task{{Title: "local", Attention: "in_progress", SourceRefs: []protocol.SourceRef{{ID: "git:worktree:/tmp/a", Source: "git", Kind: "worktree"}}}}, []string{"git"})
+	store.SetTasksForSources([]protocol.Task{{Title: "local", Attention: "in_progress", SourceRefs: []protocol.SourceRef{{ID: "git:worktree:/tmp/a", Source: "git", Kind: "worktree", Role: protocol.SourceRefRoleAuthoritative}}}}, []string{"git"})
 	store.SetSources([]protocol.SourceStatus{{Name: "git", Status: "ok"}})
 	store.Acknowledge("1")
 	if got := store.Revision(); got != 4 {
