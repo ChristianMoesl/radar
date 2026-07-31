@@ -53,6 +53,9 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	observations := make([]integration.Observation, 0, len(sourceRefs))
 	for _, ref := range sourceRefs {
 		signal := integration.WorkSignal(userConfig.Jira.SignalForStatus(ref.Status))
+		if strings.EqualFold(ref.Metadata["status_category"], "done") {
+			signal = integration.SignalDone
+		}
 		ref.Signal = string(signal)
 		observations = append(observations, integration.Observation{Ref: ref, Signal: signal, Reason: ref.Status})
 	}

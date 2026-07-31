@@ -134,6 +134,7 @@ func TestSourceCollectClassifiesEachJiraStatus(t *testing.T) {
 			jiraIssueWithStatus("RAD-2", "in review"),
 			jiraIssueWithStatus("RAD-3", "Selected for Development"),
 			jiraIssueWithStatus("RAD-4", " Blocked "),
+			jiraDoneIssue("RAD-5"),
 		}})
 	}))
 	defer server.Close()
@@ -148,12 +149,12 @@ func TestSourceCollectClassifiesEachJiraStatus(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"jira":{"status_mapping":{"In Progress":"in_progress","In Review":"in_progress","Blocked":"attention"},"unmapped_status":"low_priority"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"jira":{"status_mapping":{"In Progress":"in_progress","In Review":"in_progress","Blocked":"attention","Done":"immediate"},"unmapped_status":"low_priority"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	result := NewSource().Collect(context.Background(), integration.CollectRequest{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
-	want := []integration.WorkSignal{integration.SignalInProgress, integration.SignalInProgress, integration.SignalLowPriority, integration.SignalAttention}
+	want := []integration.WorkSignal{integration.SignalInProgress, integration.SignalInProgress, integration.SignalLowPriority, integration.SignalAttention, integration.SignalDone}
 	if len(result.Observations) != len(want) {
 		t.Fatalf("observations = %+v", result.Observations)
 	}
@@ -175,6 +176,15 @@ func jiraIssueWithStatus(key, status string) issue {
 			Name string `json:"name"`
 		} `json:"statusCategory"`
 	}{Name: status}
+	return value
+}
+
+func jiraDoneIssue(key string) issue {
+	value := jiraIssueWithStatus(key, "Done")
+	value.Fields.Status.StatusCategory = &struct {
+		Key  string `json:"key"`
+		Name string `json:"name"`
+	}{Key: "done", Name: "Done"}
 	return value
 }
 

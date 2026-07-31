@@ -105,6 +105,29 @@ func TestProjectTasksKeepsActiveWorkWhenLinkedRemoteIsDone(t *testing.T) {
 	}
 }
 
+func TestProjectTasksPromotesLowPriorityJiraWithLinkedSignals(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	jira := withSignal(withStatus(testJiraIssueRef("jira:issue:CAP-7", "CAP-7 Ship"), "Selected for Development"), "low_priority")
+	worktree := withSignal(testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "feature/CAP-7-ship"), "in_progress")
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
+		makeTask("low_priority", "Selected for Development", jira),
+		makeTask("in_progress", "git worktree", worktree),
+	}, now)
+	if got := projectTasks(state); len(got) != 1 || got[0].Attention != "in_progress" {
+		t.Fatalf("Jira + worktree tasks = %+v, want one in-progress task", got)
+	}
+
+	github := withSignal(withStatus(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship"), "review requested"), "attention")
+	state = reconcileState(state, []protocol.Task{
+		makeTask("low_priority", "Selected for Development", jira),
+		makeTask("in_progress", "git worktree", worktree),
+		makeTask("attention", "review requested", github),
+	}, now.Add(time.Hour))
+	if got := projectTasks(state); len(got) != 1 || got[0].Attention != "attention" {
+		t.Fatalf("Jira + worktree + GitHub tasks = %+v, want one attention task", got)
+	}
+}
+
 func TestProjectTasksMarksDoneWhenRemoteDoneAndOnlyLocalRemains(t *testing.T) {
 	now := time.Now().UTC()
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
