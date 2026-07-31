@@ -45,7 +45,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		status := protocol.SourceStatus{Name: "jira", Status: "error", Detail: "could not load config"}
 		return integration.CollectResult{SourceStatus: &status}
 	}
-	sourceRefs, status, err := FetchAssignedIssues(ctx, userConfig.Jira.IssueTypes, req.Logger)
+	sourceRefs, status, err := FetchAssignedIssues(ctx, userConfig.Jira.AuthoritativeIssueTypes, req.Logger)
 	if err != nil {
 		req.Logger.Warn("jira issue collection failed", "error", err)
 		return integration.CollectResult{SourceStatus: &status}

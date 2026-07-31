@@ -38,8 +38,8 @@ func TestLoadUsesDefaultsWhenConfigIsMissing(t *testing.T) {
 	if len(cfg.Tmux.Windows) != 2 || cfg.Tmux.Windows[0].Name != "pi" || cfg.Tmux.Windows[1].Name != "nvim" {
 		t.Fatalf("Tmux.Windows = %#v, want default Pi and nvim windows", cfg.Tmux.Windows)
 	}
-	if cfg.Jira.IssueTypes == nil || len(cfg.Jira.IssueTypes) != 0 {
-		t.Fatalf("Jira.IssueTypes = %#v, want all issue types", cfg.Jira.IssueTypes)
+	if !reflect.DeepEqual(cfg.Jira.AuthoritativeIssueTypes, []string{"Task", "Bug", "Sub-task"}) {
+		t.Fatalf("Jira.AuthoritativeIssueTypes = %#v, want defaults", cfg.Jira.AuthoritativeIssueTypes)
 	}
 	if cfg.Jira.SignalForStatus(" in review ") != "in_progress" || cfg.Jira.SignalForStatus("Selected for Development") != "low_priority" {
 		t.Fatalf("Jira status defaults = %#v, fallback %q", cfg.Jira.StatusMapping, cfg.Jira.UnmappedStatus)
@@ -93,7 +93,7 @@ func TestLoadReadsConfigFile(t *testing.T) {
   },
   "github": {"filters": {"mute_repos": ["org/noisy"]}},
   "jira": {
-    "issue_types": ["Story", "Bug"],
+    "authoritative_issue_types": [" Story ", "Bug"],
     "status_mapping": {"Blocked": "attention"},
     "unmapped_status": "immediate"
   },
@@ -133,8 +133,11 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	if !reflect.DeepEqual(cfg.GitHub.Filters.MuteRepos, []string{"org/noisy"}) {
 		t.Fatalf("GitHub.Filters.MuteRepos = %#v", cfg.GitHub.Filters.MuteRepos)
 	}
-	if !reflect.DeepEqual(cfg.Jira.IssueTypes, []string{"Story", "Bug"}) {
-		t.Fatalf("Jira.IssueTypes = %#v", cfg.Jira.IssueTypes)
+	if !reflect.DeepEqual(cfg.Jira.AuthoritativeIssueTypes, []string{"Story", "Bug"}) {
+		t.Fatalf("Jira.AuthoritativeIssueTypes = %#v", cfg.Jira.AuthoritativeIssueTypes)
+	}
+	if !cfg.Jira.IsAuthoritativeIssueType(" story ") || cfg.Jira.IsAuthoritativeIssueType("Epic") {
+		t.Fatalf("Jira authoritative issue type matching is incorrect: %#v", cfg.Jira.AuthoritativeIssueTypes)
 	}
 	if cfg.Jira.SignalForStatus(" blocked ") != "attention" || cfg.Jira.SignalForStatus("Open") != "immediate" {
 		t.Fatalf("Jira status config = %#v, fallback %q", cfg.Jira.StatusMapping, cfg.Jira.UnmappedStatus)
@@ -162,6 +165,50 @@ func TestLoadRejectsInvalidThinking(t *testing.T) {
 	}
 }
 
+func TestLoadPreservesExplicitlyEmptyAuthoritativeJiraIssueTypes(t *testing.T) {
+	home := t.TempDir()
+	configHome := filepath.Join(home, "config")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	path := filepath.Join(configHome, "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"jira":{"authoritative_issue_types":[]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Jira.AuthoritativeIssueTypes == nil || len(cfg.Jira.AuthoritativeIssueTypes) != 0 {
+		t.Fatalf("Jira.AuthoritativeIssueTypes = %#v, want explicit empty list", cfg.Jira.AuthoritativeIssueTypes)
+	}
+}
+
+func TestLoadDoesNotTreatRemovedIssueTypesAsAlias(t *testing.T) {
+	home := t.TempDir()
+	configHome := filepath.Join(home, "config")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	path := filepath.Join(configHome, "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"jira":{"issue_types":["Story"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.Jira.AuthoritativeIssueTypes, []string{"Task", "Bug", "Sub-task"}) {
+		t.Fatalf("legacy issue_types changed config: %#v", cfg.Jira.AuthoritativeIssueTypes)
+	}
+}
+
 func TestLoadRejectsEmptyJiraIssueType(t *testing.T) {
 	home := t.TempDir()
 	configHome := filepath.Join(home, "config")
@@ -171,11 +218,11 @@ func TestLoadRejectsEmptyJiraIssueType(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"jira":{"issue_types":["Story", " "]}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"jira":{"authoritative_issue_types":["Story", " "]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "jira.issue_types[1]") {
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "jira.authoritative_issue_types[1]") {
 		t.Fatalf("Load() error = %v, want invalid Jira issue type error", err)
 	}
 }
@@ -257,8 +304,8 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	if err := json.Unmarshal(data, &generated); err != nil {
 		t.Fatal(err)
 	}
-	if generated.Jira.IssueTypes == nil || len(generated.Jira.IssueTypes) != 0 {
-		t.Fatalf("generated Jira.IssueTypes = %#v, want all issue types", generated.Jira.IssueTypes)
+	if !reflect.DeepEqual(generated.Jira.AuthoritativeIssueTypes, []string{"Task", "Bug", "Sub-task"}) {
+		t.Fatalf("generated Jira.AuthoritativeIssueTypes = %#v, want defaults", generated.Jira.AuthoritativeIssueTypes)
 	}
 	if generated.Jira.SignalForStatus("In Progress") != "in_progress" || generated.Jira.UnmappedStatus != "low_priority" {
 		t.Fatalf("generated Jira status config = %#v, fallback %q", generated.Jira.StatusMapping, generated.Jira.UnmappedStatus)
@@ -266,7 +313,7 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	if generated.Datadog.MonitorQuery != "" {
 		t.Fatalf("generated Datadog.MonitorQuery = %q, want disabled empty query", generated.Datadog.MonitorQuery)
 	}
-	if !strings.Contains(string(data), `"jira"`) || !strings.Contains(string(data), `"issue_types"`) {
+	if !strings.Contains(string(data), `"jira"`) || !strings.Contains(string(data), `"authoritative_issue_types"`) {
 		t.Fatalf("generated config is missing Jira settings: %s", data)
 	}
 	if !strings.Contains(string(data), `"datadog"`) || !strings.Contains(string(data), `"monitor_query"`) {

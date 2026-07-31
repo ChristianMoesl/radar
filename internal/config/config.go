@@ -40,23 +40,23 @@ type GitHubConfig struct {
 }
 
 type JiraConfig struct {
-	IssueTypes        []string          `json:"issue_types"`
-	StatusMapping     map[string]string `json:"status_mapping,omitempty"`
-	UnmappedStatus    string            `json:"unmapped_status,omitempty"`
-	unmappedStatusSet bool
+	AuthoritativeIssueTypes []string          `json:"authoritative_issue_types"`
+	StatusMapping           map[string]string `json:"status_mapping,omitempty"`
+	UnmappedStatus          string            `json:"unmapped_status,omitempty"`
+	unmappedStatusSet       bool
 }
 
 func (c *JiraConfig) UnmarshalJSON(data []byte) error {
 	var raw struct {
-		IssueTypes     []string        `json:"issue_types"`
-		StatusMapping  json.RawMessage `json:"status_mapping"`
-		UnmappedStatus *string         `json:"unmapped_status"`
+		AuthoritativeIssueTypes []string        `json:"authoritative_issue_types"`
+		StatusMapping           json.RawMessage `json:"status_mapping"`
+		UnmappedStatus          *string         `json:"unmapped_status"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	if raw.IssueTypes != nil {
-		c.IssueTypes = raw.IssueTypes
+	if raw.AuthoritativeIssueTypes != nil {
+		c.AuthoritativeIssueTypes = raw.AuthoritativeIssueTypes
 	}
 	if raw.StatusMapping != nil {
 		var mapping map[string]string
@@ -80,6 +80,16 @@ func (c JiraConfig) SignalForStatus(status string) string {
 		}
 	}
 	return c.UnmappedStatus
+}
+
+func (c JiraConfig) IsAuthoritativeIssueType(issueType string) bool {
+	issueType = strings.TrimSpace(issueType)
+	for _, configured := range c.AuthoritativeIssueTypes {
+		if strings.EqualFold(configured, issueType) {
+			return true
+		}
+	}
+	return false
 }
 
 type DatadogConfig struct {
@@ -158,7 +168,7 @@ func Default() Config {
 		},
 		Tmux: tmuxlayout.Default(),
 		Jira: JiraConfig{
-			IssueTypes: []string{},
+			AuthoritativeIssueTypes: []string{"Task", "Bug", "Sub-task"},
 			StatusMapping: map[string]string{
 				"In Progress": "in_progress",
 				"In Review":   "in_progress",
@@ -206,6 +216,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.Jira.StatusMapping == nil {
 		cfg.Jira.StatusMapping = defaults.Jira.StatusMapping
 	}
+	for i := range cfg.Jira.AuthoritativeIssueTypes {
+		cfg.Jira.AuthoritativeIssueTypes[i] = strings.TrimSpace(cfg.Jira.AuthoritativeIssueTypes[i])
+	}
 	if !cfg.Jira.unmappedStatusSet && strings.TrimSpace(cfg.Jira.UnmappedStatus) == "" {
 		cfg.Jira.UnmappedStatus = defaults.Jira.UnmappedStatus
 	}
@@ -216,10 +229,16 @@ func validate(cfg Config) error {
 	if err := pi.ValidateThinking(cfg.Thinking); err != nil {
 		return err
 	}
-	for i, issueType := range cfg.Jira.IssueTypes {
-		if strings.TrimSpace(issueType) == "" {
-			return fmt.Errorf("jira.issue_types[%d] must not be empty", i)
+	issueTypes := map[string]string{}
+	for i, issueType := range cfg.Jira.AuthoritativeIssueTypes {
+		if issueType == "" {
+			return fmt.Errorf("jira.authoritative_issue_types[%d] must not be empty", i)
 		}
+		normalized := strings.ToLower(issueType)
+		if previous, exists := issueTypes[normalized]; exists {
+			return fmt.Errorf("jira.authoritative_issue_types values %q and %q match case-insensitively", previous, issueType)
+		}
+		issueTypes[normalized] = issueType
 	}
 	statusNames := map[string]string{}
 	for status, signal := range cfg.Jira.StatusMapping {
