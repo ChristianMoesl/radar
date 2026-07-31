@@ -14,6 +14,16 @@ func TestInformationalJiraReferenceLabel(t *testing.T) {
 	}
 }
 
+func TestInformationalJiraReferenceRemainsOpenable(t *testing.T) {
+	url := "https://jira.example.test/browse/RAD-7"
+	links := taskLinks(protocol.Task{SourceRefs: []protocol.SourceRef{{
+		ID: "jira:mention:4:RAD-7", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleInformational, URL: url,
+	}}})
+	if len(links) != 1 || links[0].URL != url {
+		t.Fatalf("links = %+v, want informational Jira URL", links)
+	}
+}
+
 func TestTaskInspectionShowsJiraReferenceRoleStatusAndMetadata(t *testing.T) {
 	m := model{tasks: []protocol.Task{{Title: "Review RAD-7", SourceRefs: []protocol.SourceRef{{
 		ID: "jira:mention:4:RAD-7", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleInformational,

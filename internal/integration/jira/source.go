@@ -103,8 +103,12 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		}
 	}
 	truncated := 0
+	preserveKeys := map[string]bool{}
 	if len(fetchKeys) > maxTitleDiscoveredIssues {
 		truncated = len(fetchKeys) - maxTitleDiscoveredIssues
+		for _, key := range fetchKeys[maxTitleDiscoveredIssues:] {
+			preserveKeys[key] = true
+		}
 		fetchKeys = fetchKeys[:maxTitleDiscoveredIssues]
 		complete = false
 		status.Status = "error"
@@ -117,6 +121,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 			complete = false
 			status.Status = "error"
 			failedKeys[key] = true
+			preserveKeys[key] = true
 			req.Logger.Warn("jira title reference fetch failed", "key", key, "error", fetchErr)
 			continue
 		}
@@ -151,8 +156,8 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		}
 	}
 
-	if len(failedKeys) > 0 || err != nil {
-		observations = append(observations, previousJiraObservations(req.Previous, failedKeys, err != nil)...)
+	if len(preserveKeys) > 0 || err != nil {
+		observations = append(observations, previousJiraObservations(req.Previous, preserveKeys, err != nil)...)
 	}
 	observations = deduplicateObservations(observations)
 	details = append(details, fmt.Sprintf("%d title references", len(keyOrder)))

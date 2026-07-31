@@ -53,6 +53,39 @@ func TestInformationalJiraReferenceUsesPerTaskIdentity(t *testing.T) {
 	}
 }
 
+func TestInformationalReferenceSurvivesDaemonStateReload(t *testing.T) {
+	store := newManualTestStore(t)
+	manual, err := store.CreateManualTask("Review RAD-7 rollout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetTasks([]protocol.Task{informationalJiraTask(manual.ID, "RAD-7", "RAD-7 Remote", "Open")})
+
+	reloaded, err := NewStore(store.logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := reloaded.Tasks()
+	if len(tasks) != 1 || tasks[0].ID != manual.ID || len(tasks[0].SourceRefs) != 1 || tasks[0].SourceRefs[0].Role != protocol.SourceRefRoleInformational {
+		t.Fatalf("reloaded tasks = %+v", tasks)
+	}
+}
+
+func TestRemovingTitleReferenceRetiresInformationalRef(t *testing.T) {
+	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
+	state := persistedState{Version: stateVersion, NextTaskID: 1, Records: []TaskRecord{{
+		ID: "task:1", NumericID: 1, Kind: "manual", State: "active", Intent: &ManualIntent{Title: "Review rollout"},
+		Snapshot: protocol.Task{Kind: "manual", Title: "Review rollout", Attention: "low_priority"},
+	}}}
+	state = reconcileState(state, []protocol.Task{informationalJiraTask(1, "RAD-7", "RAD-7 Remote", "Open")}, now)
+	state = reconcileState(state, nil, now.Add(time.Hour))
+
+	tasks := projectTasks(state)
+	if len(tasks) != 1 || len(tasks[0].SourceRefs) != 0 || tasks[0].ID != 1 {
+		t.Fatalf("tasks = %+v, want stable manual task without removed reference", tasks)
+	}
+}
+
 func TestAuthoritativeTitleDiscoveryTargetsAndMergesManualTask(t *testing.T) {
 	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
 	state := persistedState{Version: stateVersion, NextTaskID: 1, Records: []TaskRecord{{
