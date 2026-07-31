@@ -50,8 +50,14 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		req.Logger.Warn("jira issue collection failed", "error", err)
 		return integration.CollectResult{SourceStatus: &status}
 	}
+	observations := make([]integration.Observation, 0, len(sourceRefs))
+	for _, ref := range sourceRefs {
+		signal := integration.WorkSignal(userConfig.Jira.SignalForStatus(ref.Status))
+		ref.Signal = string(signal)
+		observations = append(observations, integration.Observation{Ref: ref, Signal: signal, Reason: ref.Status})
+	}
 	return integration.CollectResult{
-		Observations: integration.ObserveRefs(sourceRefs, integration.SignalInProgress),
+		Observations: observations,
 		Complete:     true,
 		SourceStatus: &status,
 	}

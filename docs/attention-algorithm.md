@@ -23,10 +23,8 @@ Radar uses these visible categories:
 - `immediate`: urgent action is needed.
 - `attention`: you should look at this.
 - `in_progress`: active work is being tracked, but no action is currently required.
+- `low_priority`: tracked work that is not currently active, or a task deprioritized by filters.
 - `done`: the work completed within the last three days.
-- `low_priority`: the task was deprioritized by filters.
-
-`low_priority` is a display category. The underlying task still has its natural state.
 
 ## Category decision order
 
@@ -35,7 +33,8 @@ For each grouped task, Radar looks at all active source signals and chooses the 
 1. If any active source says `immediate`, show `immediate`.
 2. Else if any active source says `attention`, show `attention`.
 3. Else if any active source says `in_progress`, show `in_progress`.
-4. Else, when no active source keeps the task alive, show `done`.
+4. Else if an active source says `low_priority`, show `low_priority`.
+5. Else, when no active source keeps the task alive, show `done`.
 
 The key rules are:
 
@@ -59,6 +58,15 @@ GitHub signals should focus on actionable feedback:
 - Automation failures should need attention only when they are actionable for your PR.
 - Open authored PRs without actionable activity are `in_progress`.
 - Merged or closed tracked PRs are done source facts.
+
+## Jira workflow status
+
+Jira's Done status category remains authoritative for completion. Assigned non-done issues are classified by exact status name, after trimming whitespace and ignoring case. The defaults are:
+
+- `In Progress` and `In Review` → `in_progress`.
+- Every other assigned non-done status → `low_priority`.
+
+Configure `jira.status_mapping` to map status names to `low_priority`, `in_progress`, `attention`, or `immediate`, and use `jira.unmapped_status` as the fallback. An explicitly empty mapping sends every non-done issue to the fallback. Linked GitHub and local refs can still promote a low-priority Jira task because the strongest active signal wins.
 
 ## Datadog monitors
 

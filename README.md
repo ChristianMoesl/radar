@@ -303,12 +303,18 @@ By default, Radar ingests every assigned non-done issue type. To restrict collec
 ```json
 {
   "jira": {
-    "issue_types": ["Story", "Task", "Bug"]
+    "issue_types": ["Story", "Task", "Bug"],
+    "status_mapping": {
+      "In Progress": "in_progress",
+      "In Review": "in_progress",
+      "Blocked": "attention"
+    },
+    "unmapped_status": "low_priority"
   }
 }
 ```
 
-Omitting `jira.issue_types` or setting it to an empty array ingests all issue types. Radar applies the configured values in its Jira search JQL.
+Omitting `jira.issue_types` or setting it to an empty array ingests all issue types. Radar applies the configured values in its Jira search JQL. Jira status names are trimmed and matched case-insensitively. Mapping targets may be `low_priority`, `in_progress`, `attention`, or `immediate`; Jira's Done category remains authoritative. By default, `In Progress` and `In Review` are in progress and every other assigned non-done status is low priority. An explicitly empty `status_mapping` sends every issue to `unmapped_status`.
 
 ## Datadog
 
@@ -393,7 +399,12 @@ Example:
     "monitor_query": "tag:team:cap"
   },
   "jira": {
-    "issue_types": ["Story", "Task", "Bug"]
+    "issue_types": ["Story", "Task", "Bug"],
+    "status_mapping": {
+      "In Progress": "in_progress",
+      "In Review": "in_progress"
+    },
+    "unmapped_status": "low_priority"
   },
   "github": {
     "filters": {

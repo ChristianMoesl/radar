@@ -8,9 +8,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
+	"radar/internal/integration"
 	"radar/internal/integration/contracttest"
 	"radar/internal/protocol"
 )
@@ -122,6 +125,57 @@ func TestAssignedIssuesJQLIncludesAllIssueTypesByDefault(t *testing.T) {
 	if got != want {
 		t.Fatalf("assignedIssuesJQL() = %q, want %q", got, want)
 	}
+}
+
+func TestSourceCollectClassifiesEachJiraStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{
+			jiraIssueWithStatus("RAD-1", "In Progress"),
+			jiraIssueWithStatus("RAD-2", "in review"),
+			jiraIssueWithStatus("RAD-3", "Selected for Development"),
+			jiraIssueWithStatus("RAD-4", " Blocked "),
+		}})
+	}))
+	defer server.Close()
+
+	t.Setenv("RADAR_JIRA_API_BASE_URL", server.URL)
+	t.Setenv("RADAR_JIRA_BASE_URL", "https://jira.example.test")
+	t.Setenv("RADAR_JIRA_EMAIL", "me@example.com")
+	t.Setenv("RADAR_JIRA_API_TOKEN", "token")
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	path := filepath.Join(configHome, "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"jira":{"status_mapping":{"In Progress":"in_progress","In Review":"in_progress","Blocked":"attention"},"unmapped_status":"low_priority"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result := NewSource().Collect(context.Background(), integration.CollectRequest{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	want := []integration.WorkSignal{integration.SignalInProgress, integration.SignalInProgress, integration.SignalLowPriority, integration.SignalAttention}
+	if len(result.Observations) != len(want) {
+		t.Fatalf("observations = %+v", result.Observations)
+	}
+	for i := range want {
+		if result.Observations[i].Signal != want[i] || result.Observations[i].Reason != result.Observations[i].Ref.Status {
+			t.Fatalf("observation[%d] = %+v, want signal %q with original status reason", i, result.Observations[i], want[i])
+		}
+	}
+}
+
+func jiraIssueWithStatus(key, status string) issue {
+	var value issue
+	value.Key = key
+	value.Fields.Summary = "Task " + key
+	value.Fields.Status = &struct {
+		Name           string `json:"name"`
+		StatusCategory *struct {
+			Key  string `json:"key"`
+			Name string `json:"name"`
+		} `json:"statusCategory"`
+	}{Name: status}
+	return value
 }
 
 func TestResolveDoneIssuesMarksMissingDoneIssueDone(t *testing.T) {

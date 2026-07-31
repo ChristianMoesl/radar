@@ -10,10 +10,11 @@ import (
 type WorkSignal string
 
 const (
-	SignalInProgress WorkSignal = "in_progress"
-	SignalAttention  WorkSignal = "attention"
-	SignalImmediate  WorkSignal = "immediate"
-	SignalDone       WorkSignal = "done"
+	SignalLowPriority WorkSignal = "low_priority"
+	SignalInProgress  WorkSignal = "in_progress"
+	SignalAttention   WorkSignal = "attention"
+	SignalImmediate   WorkSignal = "immediate"
+	SignalDone        WorkSignal = "done"
 )
 
 type CollectRequest struct {

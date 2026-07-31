@@ -41,6 +41,9 @@ func TestLoadUsesDefaultsWhenConfigIsMissing(t *testing.T) {
 	if cfg.Jira.IssueTypes == nil || len(cfg.Jira.IssueTypes) != 0 {
 		t.Fatalf("Jira.IssueTypes = %#v, want all issue types", cfg.Jira.IssueTypes)
 	}
+	if cfg.Jira.SignalForStatus(" in review ") != "in_progress" || cfg.Jira.SignalForStatus("Selected for Development") != "low_priority" {
+		t.Fatalf("Jira status defaults = %#v, fallback %q", cfg.Jira.StatusMapping, cfg.Jira.UnmappedStatus)
+	}
 }
 
 func TestDefaultWorkspaceRootUsesXDGDataFallback(t *testing.T) {
@@ -89,7 +92,11 @@ func TestLoadReadsConfigFile(t *testing.T) {
     }]
   },
   "github": {"filters": {"mute_repos": ["org/noisy"]}},
-  "jira": {"issue_types": ["Story", "Bug"]},
+  "jira": {
+    "issue_types": ["Story", "Bug"],
+    "status_mapping": {"Blocked": "attention"},
+    "unmapped_status": "immediate"
+  },
   "datadog": {"monitor_query": "tag:team:platform"}
 }`), 0o600); err != nil {
 		t.Fatal(err)
@@ -128,6 +135,9 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cfg.Jira.IssueTypes, []string{"Story", "Bug"}) {
 		t.Fatalf("Jira.IssueTypes = %#v", cfg.Jira.IssueTypes)
+	}
+	if cfg.Jira.SignalForStatus(" blocked ") != "attention" || cfg.Jira.SignalForStatus("Open") != "immediate" {
+		t.Fatalf("Jira status config = %#v, fallback %q", cfg.Jira.StatusMapping, cfg.Jira.UnmappedStatus)
 	}
 	if cfg.Datadog.MonitorQuery != "tag:team:platform" {
 		t.Fatalf("Datadog.MonitorQuery = %q", cfg.Datadog.MonitorQuery)
@@ -170,6 +180,61 @@ func TestLoadRejectsEmptyJiraIssueType(t *testing.T) {
 	}
 }
 
+func TestLoadAllowsExplicitlyEmptyJiraStatusMapping(t *testing.T) {
+	writeConfig := func(contents string) {
+		home := t.TempDir()
+		configHome := filepath.Join(home, "config")
+		t.Setenv("HOME", home)
+		t.Setenv("XDG_CONFIG_HOME", configHome)
+		path := filepath.Join(configHome, "radar", "config.json")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeConfig(`{"jira":{"status_mapping":{},"unmapped_status":"attention"}}`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Jira.StatusMapping) != 0 || cfg.Jira.SignalForStatus("In Progress") != "attention" {
+		t.Fatalf("Jira status config = %#v, fallback %q", cfg.Jira.StatusMapping, cfg.Jira.UnmappedStatus)
+	}
+}
+
+func TestLoadRejectsInvalidJiraStatusMapping(t *testing.T) {
+	tests := []struct {
+		name  string
+		jira  string
+		field string
+	}{
+		{name: "empty status", jira: `{"status_mapping":{" ":"attention"}}`, field: "jira.status_mapping"},
+		{name: "unsupported mapping", jira: `{"status_mapping":{"Blocked":"done"}}`, field: `jira.status_mapping["Blocked"]`},
+		{name: "unsupported fallback", jira: `{"unmapped_status":"done"}`, field: "jira.unmapped_status"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			configHome := filepath.Join(home, "config")
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", configHome)
+			path := filepath.Join(configHome, "radar", "config.json")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(`{"jira":`+tt.jira+`}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), tt.field) {
+				t.Fatalf("Load() error = %v, want field %s", err, tt.field)
+			}
+		})
+	}
+}
+
 func TestEnsureFileCreatesConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -192,6 +257,9 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	}
 	if generated.Jira.IssueTypes == nil || len(generated.Jira.IssueTypes) != 0 {
 		t.Fatalf("generated Jira.IssueTypes = %#v, want all issue types", generated.Jira.IssueTypes)
+	}
+	if generated.Jira.SignalForStatus("In Progress") != "in_progress" || generated.Jira.UnmappedStatus != "low_priority" {
+		t.Fatalf("generated Jira status config = %#v, fallback %q", generated.Jira.StatusMapping, generated.Jira.UnmappedStatus)
 	}
 	if generated.Datadog.MonitorQuery != "" {
 		t.Fatalf("generated Datadog.MonitorQuery = %q, want disabled empty query", generated.Datadog.MonitorQuery)
