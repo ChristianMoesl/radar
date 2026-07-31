@@ -14,7 +14,7 @@ Radar first groups related source refs into a single task:
 2. Workspace path, for local-only work.
 3. Source identity, for standalone items such as a single GitHub PR.
 
-This means a Jira issue, GitHub PR, local worktree, tmux session, and sbx sandbox can all appear as one Radar task when they describe the same work.
+This means a Jira issue, GitHub PR, local worktree, tmux session, and sbx sandbox can all appear as one Radar task when they describe the same work. A Radar-owned manual task can exist without any source ref; attaching a Jira key lets matching refs join it without changing its numeric Radar ID.
 
 ## Categories
 
@@ -41,6 +41,10 @@ The key rules are:
 > Done does not override active work, and done work does not return to an attention category unless a source becomes active again.
 
 A merged PR should not hide an active Jira issue. Once the authoritative remote work is complete, however, its task is `done`; display filters and leftover cleanup resources must not move it into `attention` or `low_priority`.
+
+## Manual lifecycle
+
+A manual-only task starts in `low_priority`. Completing it explicitly moves it to `done`; reopening restores `low_priority`. Its original title is retained as Radar-owned intent even when an attached Jira issue supplies the display title. Once Jira or GitHub is attached, that remote source controls completion and manual done/reopen is unavailable.
 
 ## Cleanup after remote completion
 

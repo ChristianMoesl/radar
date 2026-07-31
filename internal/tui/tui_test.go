@@ -127,6 +127,46 @@ func TestWatchResponseSelectsNextRenderedTaskWhenSelectedTaskDisappears(t *testi
 	}
 }
 
+func TestManualTaskTitleEntry(t *testing.T) {
+	updated, _ := (model{}).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m := updated.(model)
+	if m.mode != "manual_task" {
+		t.Fatalf("mode = %q", m.mode)
+	}
+	for _, r := range "Write notes" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(model)
+	}
+	if m.manualTitle != "Write notes" || !strings.Contains(m.View(), "Write notes") {
+		t.Fatalf("manual title = %q, view=%s", m.manualTitle, m.View())
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd == nil || m.mode != "" || !m.loading {
+		t.Fatalf("submit mode=%q loading=%v command=%v", m.mode, m.loading, cmd)
+	}
+}
+
+func TestManualDoneAndReopenKeys(t *testing.T) {
+	for _, complete := range []string{"false", "true"} {
+		m := model{tasks: []protocol.Task{{ID: 7, Metadata: map[string]string{"manual_task": "true", "manual_lifecycle_available": "true", "manual_complete": complete}}}}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+		got := updated.(model)
+		if cmd == nil || !got.loading {
+			t.Fatalf("complete=%s: command=%v loading=%v", complete, cmd, got.loading)
+		}
+	}
+}
+
+func TestManualDoneRejectsRemoteLifecycle(t *testing.T) {
+	m := model{tasks: []protocol.Task{{ID: 7, Metadata: map[string]string{"manual_task": "true", "manual_lifecycle_available": "false"}}}}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	got := updated.(model)
+	if cmd != nil || !strings.Contains(got.message, "remote source") {
+		t.Fatalf("command=%v message=%q", cmd, got.message)
+	}
+}
+
 func TestGarbageCollectionKeyStartsCollection(t *testing.T) {
 	updated, cmd := (model{}).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
 	if cmd == nil {

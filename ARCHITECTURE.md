@@ -67,7 +67,7 @@ The socket protocol is newline-delimited JSON with a tiny request model:
 Radar separates source-system facts from the user-facing task shown in the UI:
 
 ```text
-SourceRef + TaskRecord => Task
+SourceRef(s) + TaskRecord intent => Task
 ```
 
 - `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, Datadog monitor, local git worktree, or tmux session. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:ABC-544`, `datadog:monitor:123`, `git:worktree:<path>`, or `tmux:session:<session_id>`.
@@ -75,7 +75,7 @@ SourceRef + TaskRecord => Task
 - `SourceRef.CanonicalKey`: the source-owned fallback identity for a standalone ref when no ticket key exists. Examples: a Git worktree uses `workspace:<path>`, while a GitHub PR uses its PR source-ref ID.
 - `SourceRef.URL`: a generic openable URL. If a source ref has a URL, frontends may offer an open-link action without source-specific URL inspection.
 - `SourceRef.SourceLabel`: the source-owned display label for frontend link/source presentation, such as `GitHub` or `Jira`.
-- `TaskRecord`: persistent Radar-owned tracking state. It gives continuity across refreshes and will own local state such as stable numeric task IDs, known source ref IDs, first/last seen timestamps, and acknowledgements.
+- `TaskRecord`: persistent Radar-owned tracking state. It gives continuity across refreshes and owns stable numeric task IDs, optional Radar-owned manual intent, lifecycle state, association keys, known source ref IDs, first/last seen timestamps, and acknowledgements. A record with manual intent remains projectable without source refs.
 - `Task`: the current projected user-facing task served to the CLI/TUI. It has a Radar-owned integer ID and is computed from current source refs plus the matching task record.
 
 The pipeline is:
@@ -89,9 +89,9 @@ collect integration Observations
 → serve Tasks
 ```
 
-The local state file persists explicit `TaskRecord`s and `SourceRefRecord`s. `Task`s are disposable projections for the socket protocol, CLI, and TUI. Task records own durable identity, stable numeric task IDs, lifecycle state, source-ref ownership, and user acknowledgement state. Source refs remain source-system facts with first/last seen timestamps and an active flag.
+The local state file persists explicit `TaskRecord`s and `SourceRefRecord`s. `Task`s are disposable projections for the socket protocol, CLI, and TUI. Task records own durable identity, stable numeric task IDs, optional manual intent, lifecycle state, source-ref ownership, and user acknowledgement state. Source refs remain source-system facts with first/last seen timestamps and an active flag. Manual task mutations save immediately and bump the daemon revision so watchers receive the new projection.
 
-Radar groups work ticket-first: if any linked source ref exposes a `ticket:<KEY>` linking key, that ticket is the canonical work item. Without a ticket, source-provided canonical keys decide the standalone identity; for example, local workspaces and sbx sandboxes use `workspace:<path>`, GitHub PRs use `github:pr:<repo>:<number>`, and Jira issues use `jira:issue:<KEY>`. Each source ref is assigned to one task record at a time, so local and remote refs do not duplicate across multiple projected tasks.
+Radar groups work ticket-first: if any linked source ref or explicit manual association exposes a `ticket:<KEY>` linking key, that ticket is the canonical work item. Without a ticket, source-provided canonical keys decide the standalone identity; for example, local workspaces and sbx sandboxes use `workspace:<path>`, GitHub PRs use `github:pr:<repo>:<number>`, and Jira issues use `jira:issue:<KEY>`. Each source ref is assigned to one task record at a time, so local and remote refs do not duplicate across multiple projected tasks.
 
 Source providers own all source-specific identity and linking rules. Adding a new source should not require editing `internal/state` to teach it about the source's IDs, branch formats, URLs, or ticket extraction. The source should populate `SourceRef.ID`, `SourceRef.CanonicalKey`, and `SourceRef.LinkingKeys`; state only persists refs, matches equal linking keys, chooses ticket keys first, and projects tasks.
 
@@ -107,6 +107,8 @@ Radar has three active categories and one historical category:
 The high-level categorization rules are documented in [docs/attention-algorithm.md](docs/attention-algorithm.md).
 
 Collection and durable linking are separate steps. Integration code talks to external systems and produces observations/source refs with source-owned linking keys. Core collection projects those observations into candidate tasks. The state store matches active persisted source refs by those keys, merges records that describe the same work, and then projects one user-facing task per task record.
+
+A manual-only task naturally projects as `low_priority`; it can be completed and reopened explicitly. Its original intent remains on the task record when a source title takes over. Attaching Jira adds a `ticket:<KEY>` association and merges any existing ticket record into the manual record while preserving the manual numeric ID. Once Jira or GitHub is attached, remote lifecycle is authoritative and manual completion is disabled.
 
 `done` is a durable task-record state and is terminal for attention display. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state once and emits a done transition. The state store applies that transition to the existing task record. Already-done items are not remotely revalidated on subsequent refreshes. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate. Done-task projections preserve historical remote refs, but omit inactive local worktree, tmux, and SBX refs after those resources are removed. While a record remains done, neither cleanup state nor display filtering may move it to `immediate`, `attention`, `in_progress`, or `low_priority`.
 

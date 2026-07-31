@@ -16,7 +16,7 @@ import (
 )
 
 const maxStateFileSize = 50 * 1024 * 1024
-const stateVersion = 2
+const stateVersion = 3
 const doneTaskDisplayRetention = 3 * 24 * time.Hour
 
 type Store struct {
@@ -49,8 +49,17 @@ type TaskRecord struct {
 	LastSeen     string        `json:"last_seen"`
 	UpdatedAt    string        `json:"updated_at"`
 	SourceRefIDs []string      `json:"source_ref_ids"`
+	Intent       *ManualIntent `json:"intent,omitempty"`
 	Ack          TaskAckState  `json:"ack,omitempty"`
 	Snapshot     protocol.Task `json:"snapshot"`
+}
+
+type ManualIntent struct {
+	Title            string   `json:"title"`
+	CreatedAt        string   `json:"created_at"`
+	UpdatedAt        string   `json:"updated_at"`
+	ManuallyComplete bool     `json:"manually_complete"`
+	AssociationKeys  []string `json:"association_keys"`
 }
 
 type TaskAckState struct {
@@ -221,6 +230,220 @@ func (s *Store) Reset() error {
 	s.mu.Unlock()
 
 	s.logger.Info("state reset", "path", s.path)
+	return nil
+}
+
+func (s *Store) CreateManualTask(title string) (protocol.Task, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return protocol.Task{}, fmt.Errorf("task title must not be empty")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	s.mu.Lock()
+	s.state.NextTaskID++
+	record := TaskRecord{
+		ID:        fmt.Sprintf("task:%d", s.state.NextTaskID),
+		NumericID: s.state.NextTaskID,
+		Kind:      "manual",
+		State:     "active",
+		FirstSeen: now,
+		LastSeen:  now,
+		UpdatedAt: now,
+		Intent: &ManualIntent{
+			Title:           title,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+			AssociationKeys: []string{},
+		},
+		Snapshot: protocol.Task{Kind: "manual", Title: title, Attention: "low_priority", Reason: "manual task"},
+	}
+	s.state.Records = append(s.state.Records, record)
+	s.items = projectTasks(s.state)
+	s.bumpRevisionLocked()
+	task, _ := taskByNumericID(s.items, record.NumericID)
+	s.mu.Unlock()
+	if err := s.Save(); err != nil {
+		return protocol.Task{}, err
+	}
+	return task, nil
+}
+
+func (s *Store) CompleteManualTask(taskID int) (protocol.Task, error) {
+	return s.setManualCompletion(taskID, true)
+}
+
+func (s *Store) ReopenManualTask(taskID int) (protocol.Task, error) {
+	return s.setManualCompletion(taskID, false)
+}
+
+func (s *Store) setManualCompletion(taskID int, complete bool) (protocol.Task, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	s.mu.Lock()
+	record := recordByNumericID(s.state.Records, taskID)
+	if record == nil {
+		s.mu.Unlock()
+		return protocol.Task{}, fmt.Errorf("task %d not found", taskID)
+	}
+	if record.Intent == nil {
+		s.mu.Unlock()
+		return protocol.Task{}, fmt.Errorf("task %d is not a manual task", taskID)
+	}
+	if manualLifecycleIsRemote(*record, s.state.SourceRefs) {
+		s.mu.Unlock()
+		return protocol.Task{}, fmt.Errorf("task %d lifecycle is controlled by an attached remote source", taskID)
+	}
+	if complete {
+		record.State = "done"
+		record.DoneAt = now
+		record.Reason = "manually completed"
+	} else {
+		record.State = "active"
+		record.DoneAt = ""
+		record.Reason = ""
+	}
+	record.Intent.ManuallyComplete = complete
+	record.Intent.UpdatedAt = now
+	record.UpdatedAt = now
+	s.items = projectTasks(s.state)
+	s.bumpRevisionLocked()
+	task, _ := taskByNumericID(s.items, taskID)
+	s.mu.Unlock()
+	if err := s.Save(); err != nil {
+		return protocol.Task{}, err
+	}
+	return task, nil
+}
+
+func (s *Store) AttachJira(taskID int, jiraKey string) (protocol.Task, error) {
+	jiraKey = strings.ToUpper(strings.TrimSpace(jiraKey))
+	if !validJiraKey(jiraKey) {
+		return protocol.Task{}, fmt.Errorf("invalid Jira issue key %q", jiraKey)
+	}
+	key := "ticket:" + jiraKey
+	now := time.Now().UTC().Format(time.RFC3339)
+	s.mu.Lock()
+	record := recordByNumericID(s.state.Records, taskID)
+	if record == nil {
+		s.mu.Unlock()
+		return protocol.Task{}, fmt.Errorf("task %d not found", taskID)
+	}
+	if record.Intent == nil {
+		s.mu.Unlock()
+		return protocol.Task{}, fmt.Errorf("task %d is not a manual task", taskID)
+	}
+	record.CanonicalKey = key
+	record.Kind = "ticket"
+	record.State = "active"
+	record.DoneAt = ""
+	record.Reason = ""
+	record.Intent.ManuallyComplete = false
+	record.Intent.AssociationKeys = mergeStringSet(record.Intent.AssociationKeys, []string{key})
+	record.Intent.UpdatedAt = now
+	record.UpdatedAt = now
+	s.state = mergeRecordIntoManual(s.state, record.ID, key)
+	updateRecordLifecycles(s.state.Records, s.state.SourceRefs, now)
+	s.items = projectTasks(s.state)
+	s.bumpRevisionLocked()
+	task, _ := taskByNumericID(s.items, taskID)
+	s.mu.Unlock()
+	if err := s.Save(); err != nil {
+		return protocol.Task{}, err
+	}
+	return task, nil
+}
+
+func recordByNumericID(records []TaskRecord, id int) *TaskRecord {
+	for i := range records {
+		if records[i].NumericID == id {
+			return &records[i]
+		}
+	}
+	return nil
+}
+
+func taskByNumericID(tasks []protocol.Task, id int) (protocol.Task, bool) {
+	for _, task := range tasks {
+		if task.ID == id {
+			return task, true
+		}
+	}
+	return protocol.Task{}, false
+}
+
+func validJiraKey(key string) bool {
+	parts := strings.Split(key, "-")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+	for _, r := range parts[0] {
+		if (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	for _, r := range parts[1] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func manualLifecycleIsRemote(record TaskRecord, refs []SourceRefRecord) bool {
+	if record.Intent != nil {
+		for _, key := range record.Intent.AssociationKeys {
+			if strings.HasPrefix(key, "ticket:") {
+				return true
+			}
+		}
+	}
+	return hasRemoteSource(record, refs)
+}
+
+func mergeRecordIntoManual(state persistedState, manualID, canonicalKey string) persistedState {
+	manual := recordByID(state.Records, manualID)
+	if manual == nil {
+		return state
+	}
+	loserIDs := map[string]bool{}
+	for i := range state.Records {
+		record := &state.Records[i]
+		if record.ID != manualID && record.CanonicalKey == canonicalKey {
+			loserIDs[record.ID] = true
+			manual.Snapshot = mergeTasks(manual.Snapshot, record.Snapshot)
+			manual.SourceRefIDs = mergeStringSet(manual.SourceRefIDs, record.SourceRefIDs)
+			if manual.Ack.GeneralCommentsAckAt == "" {
+				manual.Ack = record.Ack
+			}
+		}
+	}
+	if len(loserIDs) == 0 {
+		return state
+	}
+	for i := range state.SourceRefs {
+		if loserIDs[state.SourceRefs[i].TaskRecordID] {
+			state.SourceRefs[i].TaskRecordID = manualID
+		}
+	}
+	kept := make([]TaskRecord, 0, len(state.Records)-len(loserIDs))
+	for _, record := range state.Records {
+		if !loserIDs[record.ID] {
+			kept = append(kept, record)
+		}
+	}
+	state.Records = kept
+	manual = recordByID(state.Records, manualID)
+	if manual != nil {
+		manual.SourceRefIDs = sourceRefIDsForRecord(manualID, state.SourceRefs)
+	}
+	return state
+}
+
+func recordByID(records []TaskRecord, id string) *TaskRecord {
+	for i := range records {
+		if records[i].ID == id {
+			return &records[i]
+		}
+	}
 	return nil
 }
 
@@ -444,6 +667,10 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 			record.Snapshot = mergeTasks(record.Snapshot, task)
 		}
 		record.SourceRefIDs = mergeStringSet(record.SourceRefIDs, sourceRefIDs(task.SourceRefs))
+		if record.Intent != nil && taskHasRemoteSource(task) {
+			record.Intent.ManuallyComplete = false
+			record.Intent.UpdatedAt = nowText
+		}
 		if task.Attention == "done" {
 			record.State = "done"
 			record.DoneAt = firstNonEmpty(record.DoneAt, task.DoneAt, nowText)
@@ -596,6 +823,8 @@ func winningRecordID(records []TaskRecord, ids []string) string {
 
 func recordMergeRank(record TaskRecord) int {
 	switch {
+	case record.Intent != nil:
+		return -1
 	case strings.HasPrefix(record.CanonicalKey, "ticket:"):
 		return 0
 	case strings.HasPrefix(record.CanonicalKey, "workspace:"):
@@ -616,6 +845,9 @@ func mergeTaskRecords(records []TaskRecord, ids []string, winnerID string, refs 
 		}
 		if containsString(ids, record.ID) {
 			loserSnapshots = append(loserSnapshots, record.Snapshot)
+			if winner.Intent == nil && record.Intent != nil {
+				winner.Intent = record.Intent
+			}
 			if winner.Ack.GeneralCommentsAckAt == "" {
 				winner.Ack = record.Ack
 			}
@@ -798,6 +1030,12 @@ func applySourceSignals(task *protocol.Task, record TaskRecord, refs []protocol.
 		}
 		return
 	}
+	if signal, reason := firstSignal(refs, "low_priority", fallback); signal != "" {
+		task.Attention = signal
+		if reason != "" {
+			task.Reason = reason
+		}
+	}
 }
 
 func firstSignal(refs []protocol.SourceRef, want string, fallback string) (string, string) {
@@ -906,21 +1144,41 @@ func projectTasks(state persistedState) []protocol.Task {
 		if record.State == "done" {
 			refs = doneSourceRefsByRecord[record.ID]
 		}
-		if len(refs) == 0 && record.State != "done" {
+		if len(refs) == 0 && record.Intent == nil && record.State != "done" {
 			continue
 		}
 		task.SourceRefs = cloneSourceRefs(sortSourceRefs(mergeSourceRefs(nil, refs)))
+		if record.Intent != nil && task.Title == "" {
+			task.Title = record.Intent.Title
+		}
+		if title := jiraTitle(refs); title != "" {
+			task.Title = title
+		}
 		if record.State == "done" {
 			task.Attention = "done"
 			task.DoneAt = record.DoneAt
 			if record.Reason != "" {
 				task.Reason = record.Reason
 			}
+		} else if len(refs) == 0 {
+			task.Attention = "low_priority"
+			task.Reason = "manual task"
 		} else {
 			applySourceSignals(&task, record, refs)
 		}
 		if task.Metadata == nil {
 			task.Metadata = map[string]string{}
+		}
+		if record.Intent != nil {
+			task.Metadata["manual_task"] = "true"
+			task.Metadata["manual_title"] = record.Intent.Title
+			task.Metadata["manual_created_at"] = record.Intent.CreatedAt
+			task.Metadata["manual_updated_at"] = record.Intent.UpdatedAt
+			task.Metadata["manual_complete"] = fmt.Sprint(record.Intent.ManuallyComplete)
+			task.Metadata["manual_lifecycle_available"] = fmt.Sprint(!manualLifecycleIsRemote(record, state.SourceRefs))
+			if len(record.Intent.AssociationKeys) > 0 {
+				task.Metadata["association_keys"] = strings.Join(record.Intent.AssociationKeys, ", ")
+			}
 		}
 		if record.Ack.GeneralCommentsAckAt != "" {
 			task.Metadata["general_comments_ack_at"] = record.Ack.GeneralCommentsAckAt
@@ -932,6 +1190,24 @@ func projectTasks(state persistedState) []protocol.Task {
 	}
 	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
 	return tasks
+}
+
+func jiraTitle(refs []protocol.SourceRef) string {
+	for _, ref := range refs {
+		if ref.Source == "jira" && ref.Kind == "issue" && ref.Title != "" {
+			return ref.Title
+		}
+	}
+	return ""
+}
+
+func taskHasRemoteSource(task protocol.Task) bool {
+	for _, ref := range task.SourceRefs {
+		if remoteSource(ref.Source) {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneTask(task protocol.Task) protocol.Task {

@@ -140,6 +140,13 @@ func (s *Server) handle(conn net.Conn) {
 				}
 			}
 			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), GarbageCollectionResult: &result})
+		case "task-create", "task-done", "task-reopen", "task-attach-jira":
+			task, err := s.mutateTask(req.Method, req.TaskMutation)
+			if err != nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
+				continue
+			}
+			_ = encoder.Encode(s.taskMutationResponse(task))
 		case "cleanup-preview":
 			preview, err := s.cleanupPreview(context.Background(), req.TaskID)
 			if err != nil {
@@ -163,6 +170,30 @@ func (s *Server) handle(conn net.Conn) {
 	if err := scanner.Err(); err != nil {
 		s.logger.Warn("client read failed", "error", err)
 	}
+}
+
+func (s *Server) mutateTask(method string, mutation *protocol.TaskMutation) (protocol.Task, error) {
+	if mutation == nil {
+		return protocol.Task{}, fmt.Errorf("task mutation is required")
+	}
+	switch method {
+	case "task-create":
+		return s.store.CreateManualTask(mutation.Title)
+	case "task-done":
+		return s.store.CompleteManualTask(mutation.TaskID)
+	case "task-reopen":
+		return s.store.ReopenManualTask(mutation.TaskID)
+	case "task-attach-jira":
+		return s.store.AttachJira(mutation.TaskID, mutation.JiraKey)
+	default:
+		return protocol.Task{}, fmt.Errorf("unknown task mutation: %s", method)
+	}
+}
+
+func (s *Server) taskMutationResponse(task protocol.Task) protocol.Response {
+	tasks := s.filteredTasks()
+	summary := filters.Summary(tasks)
+	return protocol.Response{OK: true, Revision: s.store.Revision(), Summary: &summary, Tasks: tasks, Task: &task, Sources: s.store.Sources()}
 }
 
 func (s *Server) cleanupPreview(ctx context.Context, taskID int) (protocol.CleanupPreview, error) {

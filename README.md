@@ -235,9 +235,26 @@ Cleanup shows one confirmation covering all linked Git worktrees, tmux sessions,
 
 The daemon automatically garbage-collects local workspaces for tasks that have been done for at least 24 hours. Automatic cleanup only targets clean worktrees under the configured workspace root and skips workspaces whose linked tmux session is attached. Run `radar gc`, or press `X` in the TUI, to clean eligible done-task workspaces immediately without waiting for the 24-hour retention period. Manual garbage collection keeps the same clean-worktree and detached-session safety checks. Radar sends the garbage-collection result as a host OS notification.
 
+## Manual tasks
+
+Radar can track work before it has a Jira issue, repository, or pull request:
+
+```sh
+radar task create --title "Write the release process in Notion"
+radar task done <task-id>
+radar task reopen <task-id>
+radar task attach-jira <task-id> DPSCAP-123
+```
+
+Manual tasks start in `low_priority` and keep their Radar-owned numeric ID across refreshes and restarts. Press `n` in the TUI to enter a title, and `d` to complete or reopen a selected manual-only task. Attaching Jira preserves the original intent and ID, merges an already-collected issue if needed, and lets later ticket-bearing worktrees and pull requests join the same task. Jira or GitHub lifecycle rules become authoritative after a remote reference is attached.
+
 ## Scriptable commands
 
 ```sh
+./radar task create --title <title>
+./radar task done <task-id>
+./radar task reopen <task-id>
+./radar task attach-jira <task-id> <issue-key>
 ./radar status
 ./radar tasks
 ./radar cleanup <task-id>

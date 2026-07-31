@@ -47,6 +47,8 @@ func main() {
 	switch command {
 	case "create":
 		runCreate(os.Args[2:])
+	case "task":
+		runTask(os.Args[2:])
 	case "fork":
 		runFork(os.Args[2:])
 	case "cleanup":
@@ -142,6 +144,81 @@ func runTUIWithMode(mode string) {
 	if err := tui.Run(path); err != nil {
 		fatal(err)
 	}
+}
+
+func runTask(args []string) {
+	if len(args) == 0 {
+		taskUsage()
+		os.Exit(2)
+	}
+	var request protocol.Request
+	switch args[0] {
+	case "create":
+		flags := flag.NewFlagSet("radar task create", flag.ExitOnError)
+		title := flags.String("title", "", "task title")
+		_ = flags.Parse(args[1:])
+		if flags.NArg() != 0 || strings.TrimSpace(*title) == "" {
+			taskUsage()
+			os.Exit(2)
+		}
+		request = protocol.Request{Method: "task-create", TaskMutation: &protocol.TaskMutation{Title: *title}}
+	case "done", "reopen":
+		if len(args) != 2 {
+			taskUsage()
+			os.Exit(2)
+		}
+		id := parseTaskID(args[1])
+		request = protocol.Request{Method: "task-" + args[0], TaskMutation: &protocol.TaskMutation{TaskID: id}}
+	case "attach-jira":
+		if len(args) != 3 {
+			taskUsage()
+			os.Exit(2)
+		}
+		id := parseTaskID(args[1])
+		request = protocol.Request{Method: "task-attach-jira", TaskMutation: &protocol.TaskMutation{TaskID: id, JiraKey: args[2]}}
+	default:
+		taskUsage()
+		os.Exit(2)
+	}
+
+	response := callDaemonRequest(request)
+	if response.Task == nil {
+		fatal(errors.New("task mutation response was empty"))
+	}
+	printJSON(response.Task)
+}
+
+func parseTaskID(value string) int {
+	id, err := strconv.Atoi(value)
+	if err != nil || id <= 0 {
+		taskUsage()
+		os.Exit(2)
+	}
+	return id
+}
+
+func callDaemonRequest(request protocol.Request) protocol.Response {
+	path, err := socket.Path()
+	if err != nil {
+		fatal(err)
+	}
+	if err := ensureDaemonCurrent(path); err != nil {
+		fatal(err)
+	}
+	response, err := client.CallRequest(path, request)
+	if err != nil {
+		if startErr := startDaemonAndWait(path); startErr != nil {
+			fatal(startErr)
+		}
+		response, err = client.CallRequest(path, request)
+		if err != nil {
+			fatal(err)
+		}
+	}
+	if !response.OK {
+		fatal(errors.New(response.Error))
+	}
+	return response
 }
 
 func runCreate(args []string) {
@@ -723,6 +800,12 @@ func usage() {
 Interactive:
   radar                         open the terminal UI
 
+Tasks:
+  radar task create --title <title>
+  radar task done <task-id>
+  radar task reopen <task-id>
+  radar task attach-jira <task-id> <issue-key>
+
 Workspaces:
   radar create
   radar create --repo <repo> --base <branch> --name <name>
@@ -746,6 +829,13 @@ Other:
   radar config-path
   radar rate-limit
   radar version`)
+}
+
+func taskUsage() {
+	fmt.Fprintln(os.Stderr, `usage: radar task create --title <title>
+       radar task done <task-id>
+       radar task reopen <task-id>
+       radar task attach-jira <task-id> <issue-key>`)
 }
 
 func createUsage() {

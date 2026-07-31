@@ -81,6 +81,46 @@ func TestWatchCurrentRevisionTimesOutWithoutTasks(t *testing.T) {
 	}
 }
 
+func TestStructuredTaskMutations(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverConn, clientConn := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		New(store, logger, nil, nil, nil, cleanup.New(nil)).handle(serverConn)
+	}()
+	encoder := json.NewEncoder(clientConn)
+	decoder := json.NewDecoder(clientConn)
+	requests := []protocol.Request{
+		{Method: "task-create", TaskMutation: &protocol.TaskMutation{Title: "Write release notes"}},
+		{Method: "task-done", TaskMutation: &protocol.TaskMutation{TaskID: 1}},
+		{Method: "task-reopen", TaskMutation: &protocol.TaskMutation{TaskID: 1}},
+		{Method: "task-attach-jira", TaskMutation: &protocol.TaskMutation{TaskID: 1, JiraKey: "DPSCAP-123"}},
+	}
+	for _, request := range requests {
+		if err := encoder.Encode(request); err != nil {
+			t.Fatal(err)
+		}
+		var response protocol.Response
+		if err := decoder.Decode(&response); err != nil {
+			t.Fatal(err)
+		}
+		if !response.OK || response.Task == nil || response.Task.ID != 1 {
+			t.Fatalf("response for %s = %+v", request.Method, response)
+		}
+	}
+	_ = clientConn.Close()
+	<-done
+	if got := store.Tasks(); len(got) != 1 || got[0].Metadata["association_keys"] != "ticket:DPSCAP-123" {
+		t.Fatalf("stored tasks = %+v", got)
+	}
+}
+
 func TestGarbageCollectionReturnsCallbackResult(t *testing.T) {
 	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))

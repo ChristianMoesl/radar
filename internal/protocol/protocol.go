@@ -5,9 +5,17 @@ import "encoding/json"
 const Version = "0.1.0"
 
 type Request struct {
-	Method  string          `json:"method"`
-	TaskID  int             `json:"task_id,omitempty"`
-	Cleanup *CleanupPreview `json:"cleanup,omitempty"`
+	Method       string          `json:"method"`
+	TaskID       int             `json:"task_id,omitempty"`
+	TaskMutation *TaskMutation   `json:"task_mutation,omitempty"`
+	Cleanup      *CleanupPreview `json:"cleanup,omitempty"`
+}
+
+type TaskMutation struct {
+	TaskID   int    `json:"task_id,omitempty"`
+	Title    string `json:"title,omitempty"`
+	JiraKey  string `json:"jira_key,omitempty"`
+	Priority string `json:"priority,omitempty"`
 }
 
 // CurrentContext contains client-side hints that the daemon can use when an
@@ -110,6 +118,7 @@ type Response struct {
 	Version                 string                   `json:"version,omitempty"`
 	Summary                 *Summary                 `json:"summary,omitempty"`
 	Tasks                   []Task                   `json:"tasks,omitempty"`
+	Task                    *Task                    `json:"task,omitempty"`
 	Sources                 []SourceStatus           `json:"sources,omitempty"`
 	CleanupPreview          *CleanupPreview          `json:"cleanup_preview,omitempty"`
 	CleanupResult           *CleanupResult           `json:"cleanup_result,omitempty"`
@@ -132,6 +141,9 @@ func (r Response) MarshalJSON() ([]byte, error) {
 	}
 	if r.Tasks != nil {
 		fields["tasks"] = r.Tasks
+	}
+	if r.Task != nil {
+		fields["task"] = r.Task
 	}
 	if r.Sources != nil {
 		fields["sources"] = r.Sources

@@ -108,6 +108,7 @@ type model struct {
 	worktreeTask        protocol.Task
 	worktreeCursor      int
 	message             string
+	manualTitle         string
 	scroll              int
 	revision            int64
 	watching            bool
@@ -209,6 +210,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncTaskScroll()
 		return m, nil
 	case tea.KeyMsg:
+		if m.mode == "manual_task" {
+			switch msg.String() {
+			case "esc", "ctrl+c":
+				m.mode = ""
+				m.manualTitle = ""
+				m.err = nil
+				return m, nil
+			case "enter":
+				title := strings.TrimSpace(m.manualTitle)
+				if title == "" {
+					m.err = fmt.Errorf("task title is required")
+					return m, nil
+				}
+				m.mode = ""
+				m.manualTitle = ""
+				m.loading = true
+				m.err = nil
+				return m, m.createManualTask(title)
+			case "backspace", "ctrl+h":
+				m.manualTitle = dropLastRune(m.manualTitle)
+				return m, nil
+			}
+			if msg.Type == tea.KeyRunes {
+				m.manualTitle += string(msg.Runes)
+			}
+			return m, nil
+		}
 		if strings.HasPrefix(m.mode, "create_") {
 			return m.updateCreate(msg)
 		}
@@ -298,6 +326,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			return m, tea.Quit
+		case "n":
+			m.mode = "manual_task"
+			m.manualTitle = ""
+			m.err = nil
+			m.message = ""
+		case "d":
+			if len(m.tasks) > 0 {
+				task := m.tasks[m.cursor]
+				if task.Metadata["manual_task"] != "true" {
+					m.message = "Selected task is not a manual task"
+					return m, nil
+				}
+				if task.Metadata["manual_lifecycle_available"] != "true" {
+					m.message = "Selected task lifecycle is controlled by a remote source"
+					return m, nil
+				}
+				m.loading = true
+				m.err = nil
+				return m, m.setManualTaskDone(task, task.Metadata["manual_complete"] != "true")
+			}
 		case "c":
 			m.mode = "create_repo"
 			m.err = nil
@@ -485,6 +533,12 @@ func (m model) View() string {
 	var sections []string
 	sections = append(sections, m.header(contentWidth))
 
+	if m.mode == "manual_task" {
+		sections = append(sections, m.manualTaskView(contentWidth))
+		sections = append(sections, helpStyle.Render("type a title • enter create • esc cancel"))
+		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
+	}
+
 	if m.mode == "detail" {
 		sections = append(sections, m.detailView(contentWidth))
 		sections = append(sections, helpStyle.Render("esc/backspace/h back • q quit"))
@@ -535,7 +589,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • o open link • i inspect • c create • x cleanup • X garbage collect • f config • r refresh • R reset • q quit"), width))
+	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • n new task • d done/reopen • o open link • i inspect • c create workspace • x cleanup • X garbage collect • f config • r refresh • R reset • q quit"), width))
 	return sections
 }
 
@@ -846,6 +900,40 @@ func preparingWorkspaceNotification() tea.Cmd {
 	})
 }
 
+func (m model) createManualTask(title string) tea.Cmd {
+	return func() tea.Msg {
+		response, err := client.CreateTask(m.socketPath, title)
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		if !response.OK {
+			return actionMsg{err: fmt.Errorf("%s", response.Error)}
+		}
+		return actionMsg{response: &response, message: "Task created"}
+	}
+}
+
+func (m model) setManualTaskDone(task protocol.Task, complete bool) tea.Cmd {
+	return func() tea.Msg {
+		var response protocol.Response
+		var err error
+		message := "Task reopened"
+		if complete {
+			response, err = client.CompleteTask(m.socketPath, task.ID)
+			message = "Task completed"
+		} else {
+			response, err = client.ReopenTask(m.socketPath, task.ID)
+		}
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		if !response.OK {
+			return actionMsg{err: fmt.Errorf("%s", response.Error)}
+		}
+		return actionMsg{response: &response, message: message}
+	}
+}
+
 func (m model) garbageCollect() tea.Cmd {
 	return func() tea.Msg {
 		response, err := client.Call(m.socketPath, "gc")
@@ -977,6 +1065,17 @@ func fuzzyMatch(value string, query string) bool {
 		value = value[index+len(string(r)):]
 	}
 	return true
+}
+
+func (m model) manualTaskView(width int) string {
+	title := m.manualTitle
+	if title == "" {
+		title = subtleStyle.Render("type a task title")
+	}
+	return strings.Join([]string{
+		titleStyle.Render("Create manual task"),
+		selectedStyle.Width(width - 4).Render("› Title  " + title),
+	}, "\n")
 }
 
 func (m model) createView(width int) string {
