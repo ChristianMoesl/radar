@@ -301,7 +301,8 @@ func previousJiraObservations(tasks []protocol.Task, failedKeys map[string]bool,
 				continue
 			}
 			key := normalizeIssueKey(ref.Metadata["key"])
-			if !failedKeys[key] && !(keepAllAuthoritative && ref.Role == protocol.SourceRefRoleAuthoritative) {
+			preserveAssigned := keepAllAuthoritative && ref.Role == protocol.SourceRefRoleAuthoritative && ref.Metadata["title_order"] == ""
+			if !failedKeys[key] && !preserveAssigned {
 				continue
 			}
 			seen[ref.ID] = true

@@ -115,6 +115,30 @@ func TestCollectDoesNotDirectFetchAssignedTitleDuplicate(t *testing.T) {
 	}
 }
 
+func TestAssignedSearchFailureDoesNotKeepDemotedTitleAuthority(t *testing.T) {
+	server := jiraSourceServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/search/jql" {
+			http.Error(w, "search unavailable", http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(jiraIssueWithType("RAD-7", "Epic", "Open"))
+	})
+	defer server.Close()
+	configureJiraSource(t, server.URL, `{}`)
+	previousRef := protocol.SourceRef{
+		ID: "jira:issue:RAD-7", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative,
+		Title: "RAD-7 Remote", Metadata: map[string]string{"key": "RAD-7", "title_order": "0"},
+	}
+	previous := []protocol.Task{{
+		ID: 9, Title: "RAD-7 Remote", Metadata: map[string]string{"manual_title": "Investigate RAD-7"}, SourceRefs: []protocol.SourceRef{previousRef},
+	}}
+
+	result := NewSource().Collect(context.Background(), jiraCollectRequest(previous))
+	if result.Complete || len(result.Observations) != 1 || result.Observations[0].Ref.Role != protocol.SourceRefRoleInformational {
+		t.Fatalf("observations = %+v, want only freshly demoted informational ref", result.Observations)
+	}
+}
+
 func TestCollectKeepsOtherReferencesAndPreviousFailedReference(t *testing.T) {
 	server := jiraSourceServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
