@@ -177,25 +177,26 @@ func discoverIssueMentions(tasks []protocol.Task) []issueMention {
 	mentions := make([]issueMention, 0)
 	order := 0
 	for _, task := range ordered {
-		seen := map[string]bool{}
-		for _, key := range explicitAssociationKeys(task) {
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			mentions = append(mentions, issueMention{Key: key, TaskID: task.ID, Explicit: true, Order: order})
-			order++
-		}
+		mentionIndexes := map[string]int{}
 		for _, title := range titleFacts(task) {
 			for _, ticketKey := range linking.TicketKeys(title) {
 				key := strings.TrimPrefix(ticketKey, "ticket:")
-				if seen[key] {
+				if _, seen := mentionIndexes[key]; seen {
 					continue
 				}
-				seen[key] = true
+				mentionIndexes[key] = len(mentions)
 				mentions = append(mentions, issueMention{Key: key, TaskID: task.ID, Order: order})
 				order++
 			}
+		}
+		for _, key := range explicitAssociationKeys(task) {
+			if index, seen := mentionIndexes[key]; seen {
+				mentions[index].Explicit = true
+				continue
+			}
+			mentionIndexes[key] = len(mentions)
+			mentions = append(mentions, issueMention{Key: key, TaskID: task.ID, Explicit: true, Order: order})
+			order++
 		}
 	}
 	return mentions

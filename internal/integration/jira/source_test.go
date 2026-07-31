@@ -169,6 +169,15 @@ func TestCollectBoundsTitleReferenceFetches(t *testing.T) {
 	}
 }
 
+func TestExplicitAttachmentDoesNotOverrideTitleKeyOrder(t *testing.T) {
+	mentions := discoverIssueMentions([]protocol.Task{{
+		ID: 4, Title: "RAD-1 then RAD-2", Metadata: map[string]string{"association_keys": "ticket:RAD-2"},
+	}})
+	if len(mentions) != 2 || mentions[0].Key != "RAD-1" || mentions[0].Explicit || mentions[1].Key != "RAD-2" || !mentions[1].Explicit {
+		t.Fatalf("mentions = %+v", mentions)
+	}
+}
+
 func TestDiscoverIssueMentionsUsesDurableTitlesAndStableOrder(t *testing.T) {
 	tasks := []protocol.Task{{
 		ID: 12, Title: "RAD-99 Jira supplied", Metadata: map[string]string{"manual_title": "Compare RAD-2 then RAD-1"},
