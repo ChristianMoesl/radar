@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -114,6 +115,65 @@ func TestAttachAssociationLinksLaterMarkedReferences(t *testing.T) {
 	got := store.Tasks()
 	if len(got) != 1 || got[0].ID != manual.ID || len(got[0].Associations) != 1 || got[0].Associations[0].CanonicalKey != "mark:DPSCAP-88" {
 		t.Fatalf("linked tasks = %+v", got)
+	}
+}
+
+func TestResetPreservesRadarOwnedStateAndDropsCollectedState(t *testing.T) {
+	store := newManualTestStore(t)
+	urgent, err := store.CreateManualTask("Prepare the release notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AttachAssociation(urgent.ID, testAssociation("DPSCAP-123")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetTaskPriority(urgent.ID, "urgent"); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Acknowledge(fmt.Sprint(urgent.ID)) {
+		t.Fatal("Acknowledge() = false")
+	}
+
+	completed, err := store.CreateManualTask("Archive the rollout notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, err = store.CompleteManualTask(completed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store.SetTasks([]protocol.Task{{
+		Title: "Collected task", Attention: "in_progress",
+		SourceRefs: []protocol.SourceRef{{
+			ID: "git:worktree:/tmp/collected", Source: "git", Kind: "worktree", Role: protocol.SourceRefRoleAuthoritative,
+			Lifecycle: protocol.SourceRefLifecycleWorkspace, CanonicalKey: "workspace:/tmp/collected", Signal: "in_progress",
+		}},
+	}})
+	store.SetSources([]protocol.SourceStatus{{Name: "git", Status: "ok"}})
+
+	if err := store.Reset(); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.SourceRefs()) != 0 || len(store.Sources()) != 0 {
+		t.Fatalf("collected state survived reset: refs=%+v sources=%+v", store.SourceRefs(), store.Sources())
+	}
+
+	reloaded, err := NewStore(store.logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := reloaded.Tasks()
+	if len(tasks) != 2 {
+		t.Fatalf("tasks after reset = %+v, want two manual tasks", tasks)
+	}
+	urgentTask, ok := taskByNumericID(tasks, urgent.ID)
+	if !ok || urgentTask.Title != urgent.Title || urgentTask.Attention != "immediate" || len(urgentTask.Associations) != 1 || len(urgentTask.SourceRefs) != 0 || urgentTask.Metadata["general_comments_ack_at"] == "" {
+		t.Fatalf("urgent task after reset = %+v", urgentTask)
+	}
+	completedTask, ok := taskByNumericID(tasks, completed.ID)
+	if !ok || completedTask.Attention != "done" || completedTask.DoneAt != completed.DoneAt || completedTask.Metadata["manual_complete"] != "true" {
+		t.Fatalf("completed task after reset = %+v", completedTask)
 	}
 }
 

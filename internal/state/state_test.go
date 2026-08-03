@@ -2,11 +2,13 @@ package state
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -512,5 +514,71 @@ func TestLoadRejectsHugeStateFile(t *testing.T) {
 	store := &Store{path: path, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	if err := store.Load(); err == nil {
 		t.Fatal("Load() succeeded for huge state file, want error")
+	}
+}
+
+func TestNewStoreFailsClosedWithoutChangingInvalidState(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{name: "malformed", data: []byte(`{"version":`)},
+		{name: "incompatible", data: []byte(fmt.Sprintf(`{"version":%d,"task_records":[],"source_refs":[]}`, stateVersion-1))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "tasks.json")
+			t.Setenv("RADAR_STATE", path)
+			if err := os.WriteFile(path, tt.data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil))); err == nil {
+				t.Fatal("NewStore() error = nil, want invalid state error")
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != string(tt.data) {
+				t.Fatalf("state changed from %q to %q", tt.data, got)
+			}
+		})
+	}
+}
+
+func TestConcurrentManualTaskSavesRemainLoadable(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const taskCount = 40
+	errs := make(chan error, taskCount)
+	var wg sync.WaitGroup
+	for i := range taskCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := store.CreateManualTask(fmt.Sprintf("manual task %d", i))
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	reloaded, err := NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(reloaded.Tasks()); got != taskCount {
+		t.Fatalf("reloaded task count = %d, want %d", got, taskCount)
 	}
 }

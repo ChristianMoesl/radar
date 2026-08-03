@@ -229,6 +229,18 @@ func TestPriorityResponseKeepsSelectionByTaskID(t *testing.T) {
 	}
 }
 
+func TestResetIsNotAvailableAsUnconfirmedTUIKey(t *testing.T) {
+	m := model{width: 240, height: 30}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	got := updated.(model)
+	if cmd != nil || got.loading {
+		t.Fatalf("R started an action: command=%v loading=%v", cmd, got.loading)
+	}
+	if strings.Contains(got.View(), "R reset") {
+		t.Fatalf("TUI help still advertises reset: %s", got.View())
+	}
+}
+
 func TestGarbageCollectionKeyStartsCollection(t *testing.T) {
 	updated, cmd := (model{}).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
 	if cmd == nil {

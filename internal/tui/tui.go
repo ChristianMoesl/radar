@@ -406,11 +406,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			m.message = "Garbage collecting…"
 			return m, m.garbageCollect()
-		case "R":
-			m.loading = true
-			m.err = nil
-			m.message = "Resetting…"
-			return m, m.fetch("reset")
 		case "r":
 			m.loading = true
 			m.err = nil
@@ -623,7 +618,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • n new task • d done/reopen • p urgent/normal • o open link • i inspect • c create workspace • x cleanup • X garbage collect • f config • r refresh • R reset • q quit"), width))
+	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • n new task • d done/reopen • p urgent/normal • o open link • i inspect • c create workspace • x cleanup • X garbage collect • f config • r refresh • q quit"), width))
 	return sections
 }
 

@@ -133,7 +133,6 @@ x            clean up all local resources linked to the selected task
 X            garbage-collect all eligible workspaces
 f            edit config
 r            refresh
-R            reset local state and refresh
 q / esc      quit
 ```
 
@@ -465,7 +464,7 @@ The daemon stores durable task records and source-ref records locally. Task reco
 
 Radar groups work by linking mark first, then by local workspace, then by PR/issue/source-ref identity. Done state and acknowledgement state are kept on durable task records instead of being inferred from the latest projected task.
 
-Use `./radar reset` or `R` in the TUI to delete this state and collect everything again from scratch.
+Use `./radar reset` to discard collected source observations and collect them again. Reset retains Radar-owned manual tasks, IDs, completion state, associations, acknowledgements, and priority overrides.
 
 ```sh
 ./radar state-path
@@ -474,6 +473,8 @@ Use `./radar reset` or `R` in the TUI to delete this state and collect everythin
 By default this is `$XDG_STATE_HOME/radar/tasks.json` or `~/.local/state/radar/tasks.json`.
 
 Override it with `RADAR_STATE=/path/to/tasks.json`.
+
+Radar writes state atomically through a single serialized writer. If an existing state file is malformed or has an incompatible `stateVersion`, the daemon refuses to start and leaves the file untouched. Additive persisted fields do not change `stateVersion`; a version bump is reserved for rare, intentionally incompatible format changes.
 
 ## Logs
 

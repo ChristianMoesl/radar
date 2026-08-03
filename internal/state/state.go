@@ -17,11 +17,16 @@ import (
 )
 
 const maxStateFileSize = 50 * 1024 * 1024
+
+// stateVersion changes only when the persisted format becomes intentionally
+// incompatible. Additive, backward-readable state changes must keep the
+// current version.
 const stateVersion = 5
 const doneTaskDisplayRetention = 3 * 24 * time.Hour
 
 type Store struct {
 	mu       sync.RWMutex
+	saveMu   sync.Mutex
 	state    persistedState
 	items    []protocol.Task
 	path     string
@@ -111,7 +116,7 @@ func NewStore(logger *slog.Logger) (*Store, error) {
 		notify: make(chan struct{}),
 	}
 	if err := store.Load(); err != nil {
-		logger.Warn("could not load state", "path", path, "error", err)
+		return nil, fmt.Errorf("load state %s: %w", path, err)
 	}
 	return store, nil
 }
@@ -139,7 +144,7 @@ func (s *Store) Load() error {
 		return err
 	}
 	if state.Version != stateVersion {
-		return fmt.Errorf("unsupported state version %d; run radar reset", state.Version)
+		return fmt.Errorf("incompatible state version %d, expected %d; state left untouched", state.Version, stateVersion)
 	}
 	if state.Records == nil {
 		state.Records = []TaskRecord{}
@@ -192,46 +197,107 @@ func (s *Store) setTasks(items []protocol.Task, sources map[string]bool) {
 }
 
 func (s *Store) Save() error {
-	s.mu.RLock()
-	state := s.state
-	state.Records = append([]TaskRecord(nil), s.state.Records...)
-	state.SourceRefs = append([]SourceRefRecord(nil), s.state.SourceRefs...)
-	state.Sources = append([]protocol.SourceStatus(nil), s.state.Sources...)
-	s.mu.RUnlock()
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
 	}
 
-	data, err := json.MarshalIndent(state, "", "  ")
+	// Marshal while holding the read lock so nested pointers, slices, and maps
+	// cannot change while JSON encoding is in progress. saveMu keeps snapshots
+	// and replacements ordered, preventing an older save from winning a race.
+	s.mu.RLock()
+	data, err := json.MarshalIndent(s.state, "", "  ")
+	recordCount := len(s.state.Records)
+	sourceRefCount := len(s.state.SourceRefs)
+	s.mu.RUnlock()
 	if err != nil {
 		return err
 	}
 
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".tmp-")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, s.path); err != nil {
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, s.path); err != nil {
+		return err
+	}
+	if err := syncDirectory(filepath.Dir(s.path)); err != nil {
 		return err
 	}
 
-	s.logger.Debug("state saved", "path", s.path, "records", len(state.Records), "source_refs", len(state.SourceRefs))
+	s.logger.Debug("state saved", "path", s.path, "records", recordCount, "source_refs", sourceRefCount)
 	return nil
 }
 
-func (s *Store) Reset() error {
-	if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
+func syncDirectory(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
 		return err
 	}
+	defer dir.Close()
+	return dir.Sync()
+}
 
+func (s *Store) Reset() error {
+	nowText := time.Now().UTC().Format(time.RFC3339)
 	s.mu.Lock()
-	s.state = persistedState{Version: stateVersion, Records: []TaskRecord{}, SourceRefs: []SourceRefRecord{}}
-	s.items = []protocol.Task{}
+	retained := make([]TaskRecord, 0)
+	for _, record := range s.state.Records {
+		if record.Intent == nil && record.PriorityOverride == "" && record.Ack.GeneralCommentsAckAt == "" {
+			continue
+		}
+
+		// Source observations are rebuildable. Keep only Radar-owned state and
+		// enough durable identity to let refreshed refs rejoin the record.
+		previousDoneAt := record.DoneAt
+		record.State = "active"
+		record.Reason = ""
+		record.DoneAt = ""
+		record.Snapshot = protocol.Task{}
+		if record.Intent != nil {
+			record.Snapshot = protocol.Task{Kind: "manual", Title: record.Intent.Title, Attention: "low_priority", Reason: "manual task"}
+			if record.Intent.ManuallyComplete {
+				record.State = "done"
+				record.Reason = "manually completed"
+				record.DoneAt = firstNonEmpty(previousDoneAt, nowText)
+			}
+		}
+		retained = append(retained, record)
+	}
+	s.state = persistedState{
+		Version:    stateVersion,
+		NextTaskID: s.state.NextTaskID,
+		Records:    retained,
+		SourceRefs: []SourceRefRecord{},
+		Sources:    []protocol.SourceStatus{},
+	}
+	s.items = projectTasks(s.state)
 	s.bumpRevisionLocked()
 	s.mu.Unlock()
 
-	s.logger.Info("state reset", "path", s.path)
+	if err := s.Save(); err != nil {
+		return err
+	}
+	s.logger.Info("state reset", "path", s.path, "retained_records", len(retained))
 	return nil
 }
 

@@ -133,6 +133,8 @@ $XDG_STATE_HOME/radar/tasks.json
 
 Projected tasks are rebuilt from this state. Done tasks remain in durable history but are included in the user-facing projection only for three days. Full refreshes reconcile all source refs; local refreshes reconcile refs from sources that declare themselves local and leave remote GitHub/Jira refs untouched. The file also stores source statuses so the TUI can show cached status immediately. User acknowledgement state lives on task records, not inside source-ref metadata.
 
+State writes are atomic and serialized. The daemon refuses to start when an existing file is malformed or has an incompatible state version, leaving that file untouched. Persisted state evolves additively without version bumps; `stateVersion` changes only as a last-resort marker for an intentionally incompatible format. Reset clears collected observations while preserving Radar-owned manual intent, IDs, lifecycle mutations, associations, acknowledgements, and priority overrides.
+
 ## Config
 
 Config is user-owned JSON, not daemon state:
@@ -203,7 +205,7 @@ Creation is available from the TUI and `radar create`. Task cleanup is available
 
 ## Terminal UI
 
-The Bubble Tea TUI is the default interface. It reads cached daemon state, groups tasks by attention, shows source details, switches tmux sessions, opens task URLs, edits config, refreshes/resets state, and launches step-by-step workspace creation.
+The Bubble Tea TUI is the default interface. It reads cached daemon state, groups tasks by attention, shows source details, switches tmux sessions, opens task URLs, edits config, refreshes state, and launches step-by-step workspace creation.
 
 ## Logging
 
