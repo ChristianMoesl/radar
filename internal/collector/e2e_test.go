@@ -83,6 +83,13 @@ func setupIsolatedEnvironment(t *testing.T, tmp string) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(tmp, "state"))
 	t.Setenv("TMUX", "")
+	configPath := filepath.Join(tmp, "config", "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`{"linking_mark_prefixes":["RAD"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func setupFakeGitHubCLI(t *testing.T, tmp string) {

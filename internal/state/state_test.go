@@ -14,7 +14,7 @@ import (
 	"radar/internal/protocol"
 )
 
-func TestReconcileStateUsesTicketRecordForMultiplePullRequests(t *testing.T) {
+func TestReconcileStateUsesLinkingMarkRecordForMultiplePullRequests(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
 		{Kind: "github_own_pr", Title: "CAP-7 first", Attention: "in_progress", SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:1", "acme/app", "CAP-7-a")}},
@@ -22,10 +22,10 @@ func TestReconcileStateUsesTicketRecordForMultiplePullRequests(t *testing.T) {
 	}, now)
 
 	if len(state.Records) != 1 {
-		t.Fatalf("records = %d, want one ticket record: %+v", len(state.Records), state.Records)
+		t.Fatalf("records = %d, want one linking-mark record: %+v", len(state.Records), state.Records)
 	}
-	if state.Records[0].CanonicalKey != "ticket:CAP-7" {
-		t.Fatalf("canonical key = %q, want ticket:CAP-7", state.Records[0].CanonicalKey)
+	if state.Records[0].CanonicalKey != "mark:CAP-7" {
+		t.Fatalf("canonical key = %q, want mark:CAP-7", state.Records[0].CanonicalKey)
 	}
 	if len(state.Records[0].SourceRefIDs) != 2 {
 		t.Fatalf("source refs = %+v, want both PR refs", state.Records[0].SourceRefIDs)
@@ -350,7 +350,7 @@ func testGitHubPRRef(id string, repo string, branch string) protocol.SourceRef {
 		Repo:         repo,
 		Branch:       branch,
 		CanonicalKey: id,
-		LinkingKeys:  linking.Keys(append(linking.TicketKeys(id, repo, branch), id, linking.BranchKey(repo, testBranchKey(branch)))...),
+		LinkingKeys:  linking.Keys(append(testLinkingMarks().Keys(id, repo, branch), id, linking.BranchKey(repo, testBranchKey(branch)))...),
 	}
 }
 
@@ -367,8 +367,12 @@ func testGitWorktreeRef(id string, path string, repo string, branch string) prot
 		Path:         path,
 		Branch:       branch,
 		CanonicalKey: canonicalKey,
-		LinkingKeys:  linking.Keys(append(linking.TicketKeys(id, path, repo, branch), canonicalKey, linking.BranchKey(repo, testBranchKey(branch)))...),
+		LinkingKeys:  linking.Keys(append(testLinkingMarks().Keys(id, path, repo, branch), canonicalKey, linking.BranchKey(repo, testBranchKey(branch)))...),
 	}
+}
+
+func testLinkingMarks() linking.MarkMatcher {
+	return linking.NewMarkMatcher([]string{"CAP", "DPSCAP", "RAD"})
 }
 
 func testBranchKey(branch string) string {
@@ -388,7 +392,7 @@ func testTmuxSessionRef(id string, path string) protocol.SourceRef {
 		EntityID:    id,
 		Lifecycle:   protocol.SourceRefLifecycleResource,
 		Path:        path,
-		LinkingKeys: linking.Keys(append(linking.TicketKeys(id, path), linking.WorkspaceKey(path))...),
+		LinkingKeys: linking.Keys(append(testLinkingMarks().Keys(id, path), linking.WorkspaceKey(path))...),
 	}
 }
 
@@ -404,7 +408,7 @@ func testJiraIssueRef(id string, title string) protocol.SourceRef {
 		Presentation: protocol.SourceRefPresentation{PreferTitle: true},
 		Title:        title,
 		CanonicalKey: id,
-		LinkingKeys:  linking.Keys("ticket:" + key),
+		LinkingKeys:  linking.Keys("mark:" + key),
 	}
 }
 

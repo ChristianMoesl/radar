@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"radar/internal/linking"
 	"radar/internal/protocol"
 )
 
@@ -954,7 +955,7 @@ func recordMergeRank(record TaskRecord) int {
 	switch {
 	case record.Intent != nil:
 		return -1
-	case strings.HasPrefix(record.CanonicalKey, "ticket:"):
+	case linking.IsMarkKey(record.CanonicalKey):
 		return 0
 	case strings.HasPrefix(record.CanonicalKey, "workspace:"):
 		return 1
@@ -1458,7 +1459,7 @@ func applyAck(task *protocol.Task, ack TaskAckState) bool {
 }
 
 func canonicalTaskKey(task protocol.Task) string {
-	if key := firstTicketLinkKey(task); key != "" {
+	if key := firstLinkingMarkKey(task); key != "" {
 		return key
 	}
 	for _, sourceRef := range task.SourceRefs {
@@ -1481,8 +1482,8 @@ func canonicalTaskKey(task protocol.Task) string {
 }
 
 func recordKind(task protocol.Task, key string) string {
-	if strings.HasPrefix(key, "ticket:") {
-		return "ticket"
+	if linking.IsMarkKey(key) {
+		return "linking_mark"
 	}
 	if strings.HasPrefix(key, "workspace:") {
 		return "workspace"
@@ -1490,14 +1491,14 @@ func recordKind(task protocol.Task, key string) string {
 	return task.Kind
 }
 
-func firstTicketLinkKey(task protocol.Task) string {
+func firstLinkingMarkKey(task protocol.Task) string {
 	for _, sourceRef := range task.SourceRefs {
 		if !authoritativeRef(sourceRef) {
 			continue
 		}
 		for _, key := range sourceRef.LinkingKeys {
 			key = strings.TrimSpace(key)
-			if strings.HasPrefix(key, "ticket:") {
+			if linking.IsMarkKey(key) {
 				return key
 			}
 		}

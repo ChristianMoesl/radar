@@ -119,7 +119,7 @@ func TestStructuredTaskMutations(t *testing.T) {
 	}
 	_ = clientConn.Close()
 	<-done
-	if got := store.Tasks(); len(got) != 1 || len(got[0].Associations) != 1 || got[0].Associations[0].CanonicalKey != "ticket:DPSCAP-123" {
+	if got := store.Tasks(); len(got) != 1 || len(got[0].Associations) != 1 || got[0].Associations[0].CanonicalKey != "mark:DPSCAP-123" {
 		t.Fatalf("stored tasks = %+v", got)
 	}
 }
@@ -209,7 +209,7 @@ func TestAckResponseAppliesFilters(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(configPath, []byte(`{"github":{"filters":{"mute_repos":["org/noisy"]}}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"linking_mark_prefixes":["RAD"],"github":{"filters":{"mute_repos":["org/noisy"]}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

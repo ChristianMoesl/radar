@@ -15,6 +15,7 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/integration/contracttest"
+	"radar/internal/linking"
 	"radar/internal/protocol"
 )
 
@@ -58,7 +59,7 @@ func TestSandboxSourceRef(t *testing.T) {
 		},
 	}
 
-	ref := s.SourceRef()
+	ref := s.SourceRef(linking.NewMarkMatcher([]string{"DPSCAP"}))
 	contracttest.AssertValidSourceRefs(t, "sbx", []protocol.SourceRef{ref})
 	if ref.ID != "sbx:sandbox:"+s.Name || ref.Source != "sbx" || ref.Kind != "sandbox" {
 		t.Fatalf("unexpected source ref identity: %+v", ref)
@@ -73,7 +74,7 @@ func TestSandboxSourceRef(t *testing.T) {
 	if ref.CanonicalKey != "workspace:"+wantPath {
 		t.Fatalf("canonical key = %q", ref.CanonicalKey)
 	}
-	wantKeys := []string{"ticket:DPSCAP-600", "workspace:" + wantPath}
+	wantKeys := []string{"mark:DPSCAP-600", "workspace:" + wantPath}
 	if !reflect.DeepEqual(ref.LinkingKeys, wantKeys) {
 		t.Fatalf("linking keys = %+v, want %+v", ref.LinkingKeys, wantKeys)
 	}

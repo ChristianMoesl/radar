@@ -9,17 +9,14 @@ import (
 	"testing"
 )
 
-func TestLoadUsesDefaultsWhenConfigIsMissing(t *testing.T) {
+func TestDefaultUsesProductDefaults(t *testing.T) {
 	home := t.TempDir()
 	dataHome := filepath.Join(home, "data")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("XDG_DATA_HOME", dataHome)
 
-	cfg, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := Default()
 	if !reflect.DeepEqual(cfg.RepositoryDirs, []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"}) {
 		t.Fatalf("RepositoryDirs = %#v", cfg.RepositoryDirs)
 	}
@@ -72,6 +69,7 @@ func TestLoadReadsConfigFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(`{
+  "linking_mark_prefixes": ["rad"],
   "repository_dirs": ["~/repos"],
   "workspace_root": "~/streams",
   "model": "github-copilot/claude-sonnet-4.5",
@@ -105,6 +103,9 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.LinkingMarkPrefixes, []string{"RAD"}) {
+		t.Fatalf("LinkingMarkPrefixes = %#v", cfg.LinkingMarkPrefixes)
 	}
 	if !reflect.DeepEqual(cfg.RepositoryDirs, []string{"~/repos"}) {
 		t.Fatalf("RepositoryDirs = %#v", cfg.RepositoryDirs)
@@ -147,6 +148,40 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	}
 }
 
+func TestLoadRequiresLinkingMarkPrefixes(t *testing.T) {
+	home := t.TempDir()
+	configHome := filepath.Join(home, "config")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	path := filepath.Join(configHome, "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "linking_mark_prefixes must not be empty") {
+		t.Fatalf("Load() error = %v, want required linking mark prefixes error", err)
+	}
+}
+
+func TestLoadRejectsInvalidLinkingMarkPrefix(t *testing.T) {
+	home := t.TempDir()
+	configHome := filepath.Join(home, "config")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	path := filepath.Join(configHome, "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD-"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "linking_mark_prefixes[0]") {
+		t.Fatalf("Load() error = %v, want invalid linking mark prefix error", err)
+	}
+}
+
 func TestLoadRejectsInvalidThinking(t *testing.T) {
 	home := t.TempDir()
 	configHome := filepath.Join(home, "config")
@@ -156,7 +191,7 @@ func TestLoadRejectsInvalidThinking(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"thinking":"maximum"}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"thinking":"maximum"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -174,7 +209,7 @@ func TestLoadPreservesExplicitlyEmptyAuthoritativeJiraIssueTypes(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"jira":{"authoritative_issue_types":[]}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"jira":{"authoritative_issue_types":[]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -196,7 +231,7 @@ func TestLoadDoesNotTreatRemovedIssueTypesAsAlias(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"jira":{"issue_types":["Story"]}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"jira":{"issue_types":["Story"]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -218,7 +253,7 @@ func TestLoadRejectsEmptyJiraIssueType(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"jira":{"authoritative_issue_types":["Story", " "]}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"jira":{"authoritative_issue_types":["Story", " "]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -241,7 +276,7 @@ func TestLoadAllowsExplicitlyEmptyJiraStatusMapping(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeConfig(`{"jira":{"status_mapping":{},"unmapped_status":"attention"}}`)
+	writeConfig(`{"linking_mark_prefixes":["RAD"],"jira":{"status_mapping":{},"unmapped_status":"attention"}}`)
 
 	cfg, err := Load()
 	if err != nil {
@@ -274,7 +309,7 @@ func TestLoadRejectsInvalidJiraStatusMapping(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(path, []byte(`{"jira":`+tt.jira+`}`), 0o600); err != nil {
+			if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"jira":`+tt.jira+`}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := Load(); err == nil || !strings.Contains(err.Error(), tt.field) {
@@ -309,6 +344,9 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	}
 	if generated.Jira.SignalForStatus("In Progress") != "in_progress" || generated.Jira.UnmappedStatus != "low_priority" {
 		t.Fatalf("generated Jira status config = %#v, fallback %q", generated.Jira.StatusMapping, generated.Jira.UnmappedStatus)
+	}
+	if generated.LinkingMarkPrefixes == nil || len(generated.LinkingMarkPrefixes) != 0 {
+		t.Fatalf("generated LinkingMarkPrefixes = %#v, want mandatory empty list", generated.LinkingMarkPrefixes)
 	}
 	if generated.Datadog.MonitorQuery != "" {
 		t.Fatalf("generated Datadog.MonitorQuery = %q, want disabled empty query", generated.Datadog.MonitorQuery)

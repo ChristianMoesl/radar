@@ -32,7 +32,7 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 }
 
 func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
-	sourceRefs, status := FetchSandboxes(ctx, req.Logger)
+	sourceRefs, status := FetchSandboxes(ctx, req.Logger, req.LinkingMarks)
 	result := integration.CollectResult{
 		Observations: integration.ObserveRefs(sourceRefs, integration.SignalInProgress),
 		Complete:     status.Status == "ok",

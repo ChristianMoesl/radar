@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -17,9 +16,7 @@ import (
 	"radar/internal/workspace"
 )
 
-var ticketPattern = regexp.MustCompile(`[A-Z][A-Z0-9]+-[0-9]+`)
-
-func FetchWorktrees(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.SourceStatus) {
+func FetchWorktrees(ctx context.Context, logger *slog.Logger, marks linking.MarkMatcher) ([]protocol.SourceRef, protocol.SourceStatus) {
 	roots := gitRoots()
 	workspaceRoot, rootErr := workspace.DefaultRoot()
 	source_refs := make([]protocol.SourceRef, 0)
@@ -51,7 +48,7 @@ func FetchWorktrees(ctx context.Context, logger *slog.Logger) ([]protocol.Source
 				continue
 			}
 			seen[wt.Path] = true
-			source_refs = append(source_refs, wt.SourceRef(ctx))
+			source_refs = append(source_refs, wt.SourceRef(ctx, marks))
 		}
 	}
 
@@ -147,7 +144,7 @@ func worktrees(ctx context.Context, root string) ([]worktree, error) {
 	return items, scanner.Err()
 }
 
-func (w worktree) SourceRef(ctx context.Context) protocol.SourceRef {
+func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher) protocol.SourceRef {
 	status := worktreeStatus(ctx, w.Path)
 	title := w.Branch
 	if title == "" {
@@ -158,8 +155,8 @@ func (w worktree) SourceRef(ctx context.Context) protocol.SourceRef {
 	metadata := map[string]string{
 		"head": w.Head,
 	}
-	if ticket := ticketPattern.FindString(w.Branch); ticket != "" {
-		metadata["ticket"] = ticket
+	if mark := marks.FirstValue(w.Branch); mark != "" {
+		metadata["ticket"] = mark
 	}
 	if status.DirtyFiles > 0 {
 		metadata["dirty_files"] = fmt.Sprintf("%d", status.DirtyFiles)
@@ -172,7 +169,7 @@ func (w worktree) SourceRef(ctx context.Context) protocol.SourceRef {
 	}
 
 	canonicalKey := linking.WorkspaceKey(w.Path)
-	linkingKeys := linking.Keys(append(linking.TicketKeys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, gitBranchKey(w.Branch)))...)
+	linkingKeys := linking.Keys(append(marks.Keys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, gitBranchKey(w.Branch)))...)
 
 	return protocol.SourceRef{
 		ID:           "git:worktree:" + w.Path,

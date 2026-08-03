@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"radar/internal/integration"
+	"radar/internal/linking"
 	"radar/internal/protocol"
 )
 
@@ -44,13 +45,25 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		observed = appendMissingPullRequests(observed, trackedItems)
 	}
 
+	applyLinkingMarks(observed, req.LinkingMarks)
 	result.Observations = observationsFromTasks(observed)
 	result.Complete = true
 	return result
 }
 
 func (Source) Reconcile(ctx context.Context, req integration.ReconcileRequest) []integration.Observation {
-	return observationsFromTasks(ResolveDonePullRequests(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger))
+	tasks := ResolveDonePullRequests(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger)
+	applyLinkingMarks(tasks, req.LinkingMarks)
+	return observationsFromTasks(tasks)
+}
+
+func applyLinkingMarks(tasks []protocol.Task, marks linking.MarkMatcher) {
+	for i := range tasks {
+		for j := range tasks[i].SourceRefs {
+			ref := &tasks[i].SourceRefs[j]
+			ref.LinkingKeys = linking.Keys(append(marks.Keys(ref.Title, ref.Branch, ref.Repo, ref.URL, ref.Path), ref.LinkingKeys...)...)
+		}
+	}
 }
 
 func observationsFromTasks(tasks []protocol.Task) []integration.Observation {

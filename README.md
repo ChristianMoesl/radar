@@ -315,7 +315,7 @@ Radar checks GitHub rate limits before collection. When a budget is low, Radar p
 
 ## Jira
 
-Radar collects authoritative assigned Jira Cloud work and discovers Jira keys such as `ABC-123` in existing task titles. Title discovery fetches issues directly even when they are unassigned or outside the configured authoritative issue types.
+Radar collects authoritative assigned Jira Cloud work and discovers configured linking marks such as `ABC-123` in existing task titles. Title discovery fetches issues directly even when they are unassigned or outside the configured authoritative issue types.
 
 Configure credentials through the environment:
 
@@ -385,17 +385,17 @@ A newly collected monitor produces the normal Radar macOS notification. Clicking
 
 ## Git worktrees
 
-Radar collects Git checkouts at `<workspace_root>/<repo>/<workspace>` and attaches them to matching tasks by ticket key, e.g. `ABC-123`. Regular repositories outside the configured workspace root are ignored. Branch names do not affect collection, so a workspace checked out directly on `main` remains visible.
+Radar collects Git checkouts at `<workspace_root>/<repo>/<workspace>` and attaches them to matching tasks by configured linking mark, e.g. `ABC-123`. Regular repositories outside the configured workspace root are ignored. Branch names do not affect collection, so a workspace checked out directly on `main` remains visible.
 
 ## tmux sessions
 
-Radar collects tmux sessions from the local tmux server and attaches them to matching tasks when their name contains a ticket key, or when the session working directory matches a Git worktree path. Sessions without matches are shown as standalone in-progress tasks.
+Radar collects tmux sessions from the local tmux server and attaches them to matching tasks when their name contains a configured linking mark, or when the session working directory matches a Git worktree path. Sessions without matches are shown as standalone in-progress tasks.
 
 Tmux session refs use `#{session_id}` for stable identity, so renaming a tmux session does not create a new Radar task. Selecting a tmux-backed task switches to the stable session target.
 
 ## Docker sbx sandboxes
 
-Radar collects Docker sbx sandboxes with `sbx ls --json` when `sbx` is installed. Sandboxes attach to matching tasks through ticket keys in the sandbox/workspace name and through their primary workspace path. Sandboxes without matches are shown as standalone in-progress tasks.
+Radar collects Docker sbx sandboxes with `sbx ls --json` when `sbx` is installed. Sandboxes attach to matching tasks through configured linking marks in the sandbox/workspace name and through their primary workspace path. Sandboxes without matches are shown as standalone in-progress tasks.
 
 The default sandbox kit name is `shell`. Set `sbx.kit.name` to select another kit and optionally set `sbx.kit.path` to pass its location with `--kit`. Configure `sbx.additional_mounts` to add host directories to every sandbox Radar creates.
 
@@ -415,6 +415,7 @@ Example:
 ```json
 {
   "repository_dirs": ["~/workspace", "~/code", "~/src", "~/dev", "~/projects"],
+  "linking_mark_prefixes": ["ABC"],
   "model": "github-copilot/claude-sonnet-4.5",
   "thinking": "medium",
   "sbx": {
@@ -452,6 +453,8 @@ Example:
 }
 ```
 
+`linking_mark_prefixes` is mandatory and lists the identifier prefixes Radar may use to link work across sources, for example `["DPSCAP"]` permits `DPSCAP-722`. Prefixes are normalized to uppercase, must start with a letter, and may contain only letters and numbers. Radar matches only complete `<PREFIX>-<NUMBER>` marks, so unrelated suffixes such as `Origin-096e274f` are ignored.
+
 `repository_dirs` controls where `radar create` discovers base repositories. `workspace_root` controls where Radar creates worktrees. When omitted, the workspace root is `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.authoritative_issue_types` defaults to Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection; secrets are accepted only from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`.
 
 Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the low-priority section. User filters also apply to GitHub comment and review actors: muted or deprioritized actor activity does not promote a PR to attention. Confirmed GitHub bots match both their API login and the equivalent `[bot]` alias, so `gemini-code-assist[bot]` matches the GraphQL login `gemini-code-assist`. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive.
@@ -460,7 +463,7 @@ Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the 
 
 The daemon stores durable task records and source-ref records locally. Task records own stable Radar IDs, optional manual intent and associations, lifecycle state, acknowledgements, and an optional urgent override. CLI/TUI tasks are rebuilt as disposable projections, including manual records that have no source refs.
 
-Radar groups work ticket-first when a Jira-style key is present, then by local workspace, then by PR/issue/source-ref identity. Done state and acknowledgement state are kept on durable task records instead of being inferred from the latest projected task.
+Radar groups work by linking mark first, then by local workspace, then by PR/issue/source-ref identity. Done state and acknowledgement state are kept on durable task records instead of being inferred from the latest projected task.
 
 Use `./radar reset` or `R` in the TUI to delete this state and collect everything again from scratch.
 

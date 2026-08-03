@@ -252,15 +252,15 @@ func makeTask(attention string, reason string, ref protocol.SourceRef) protocol.
 }
 
 func githubRef(id string, repo string, branch string) protocol.SourceRef {
-	return protocol.SourceRef{ID: id, EntityID: id, Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Repo: repo, Branch: branch, CanonicalKey: id, LinkingKeys: linking.Keys("ticket:CAP-7", linking.BranchKey(repo, branch))}
+	return protocol.SourceRef{ID: id, EntityID: id, Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Repo: repo, Branch: branch, CanonicalKey: id, LinkingKeys: linking.Keys("mark:CAP-7", linking.BranchKey(repo, branch))}
 }
 
 func worktreeRef(path string, repo string, branch string) protocol.SourceRef {
-	return protocol.SourceRef{ID: "git:worktree:" + path, EntityID: "git:worktree:" + path, Source: "git", Kind: "worktree", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace, Repo: repo, Path: path, Branch: branch, CanonicalKey: linking.WorkspaceKey(path), LinkingKeys: linking.Keys("ticket:CAP-7", linking.WorkspaceKey(path), linking.BranchKey(repo, branch))}
+	return protocol.SourceRef{ID: "git:worktree:" + path, EntityID: "git:worktree:" + path, Source: "git", Kind: "worktree", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace, Repo: repo, Path: path, Branch: branch, CanonicalKey: linking.WorkspaceKey(path), LinkingKeys: linking.Keys("mark:CAP-7", linking.WorkspaceKey(path), linking.BranchKey(repo, branch))}
 }
 
 func detachedSessionRef(path string, name string) protocol.SourceRef {
-	return protocol.SourceRef{ID: "tmux:session:" + name, EntityID: "tmux:session:" + name, Source: "tmux", Kind: "session", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Title: name, Path: path, Status: "detached", LinkingKeys: linking.Keys("ticket:CAP-7", linking.WorkspaceKey(path)), Metadata: map[string]string{"session": name, "attached_count": "0"}}
+	return protocol.SourceRef{ID: "tmux:session:" + name, EntityID: "tmux:session:" + name, Source: "tmux", Kind: "session", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Title: name, Path: path, Status: "detached", LinkingKeys: linking.Keys("mark:CAP-7", linking.WorkspaceKey(path)), Metadata: map[string]string{"session": name, "attached_count": "0"}}
 }
 
 func attachedSessionRef(path string, name string) protocol.SourceRef {
@@ -271,5 +271,5 @@ func attachedSessionRef(path string, name string) protocol.SourceRef {
 }
 
 func sandboxRef(path string, name string) protocol.SourceRef {
-	return protocol.SourceRef{ID: "sbx:sandbox:" + name, EntityID: "sbx:sandbox:" + name, Source: "sbx", Kind: "sandbox", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Title: name, Path: path, LinkingKeys: linking.Keys("ticket:CAP-7", linking.WorkspaceKey(path)), Metadata: map[string]string{"name": name}}
+	return protocol.SourceRef{ID: "sbx:sandbox:" + name, EntityID: "sbx:sandbox:" + name, Source: "sbx", Kind: "sandbox", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Title: name, Path: path, LinkingKeys: linking.Keys("mark:CAP-7", linking.WorkspaceKey(path)), Metadata: map[string]string{"name": name}}
 }

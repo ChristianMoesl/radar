@@ -39,7 +39,7 @@ func SourceStatus(ctx context.Context) protocol.SourceStatus {
 	return status
 }
 
-func FetchSandboxes(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.SourceStatus) {
+func FetchSandboxes(ctx context.Context, logger *slog.Logger, marks linking.MarkMatcher) ([]protocol.SourceRef, protocol.SourceStatus) {
 	status := protocol.SourceStatus{Name: "sbx", Status: "ok"}
 	output, err := sbxOutput(ctx, "ls", "--json")
 	if err != nil {
@@ -57,7 +57,7 @@ func FetchSandboxes(ctx context.Context, logger *slog.Logger) ([]protocol.Source
 
 	sourceRefs := make([]protocol.SourceRef, 0, len(sandboxes))
 	for _, s := range sandboxes {
-		if ref := s.SourceRef(); ref.ID != "" {
+		if ref := s.SourceRef(marks); ref.ID != "" {
 			sourceRefs = append(sourceRefs, ref)
 		}
 	}
@@ -75,7 +75,11 @@ func parseSandboxes(output string) ([]sandbox, error) {
 	return response.Sandboxes, nil
 }
 
-func (s sandbox) SourceRef() protocol.SourceRef {
+func (s sandbox) SourceRef(matchers ...linking.MarkMatcher) protocol.SourceRef {
+	var marks linking.MarkMatcher
+	if len(matchers) > 0 {
+		marks = matchers[0]
+	}
 	name := strings.TrimSpace(s.Name)
 	id := strings.TrimSpace(s.ID)
 	if name == "" && id == "" {
@@ -117,7 +121,7 @@ func (s sandbox) SourceRef() protocol.SourceRef {
 		Path:         workspace,
 		Status:       strings.TrimSpace(s.Status),
 		CanonicalKey: canonicalKey,
-		LinkingKeys:  linking.Keys(append(linking.TicketKeys(name, workspace), linking.WorkspaceKey(workspace))...),
+		LinkingKeys:  linking.Keys(append(marks.Keys(name, workspace), linking.WorkspaceKey(workspace))...),
 		Metadata:     metadata,
 	}
 }

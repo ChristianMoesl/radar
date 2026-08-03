@@ -81,7 +81,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		}
 	}
 
-	mentions := discoverIssueMentions(req.Previous)
+	mentions := discoverIssueMentions(req.Previous, req.LinkingMarks)
 	mentionsByKey, keyOrder := groupMentions(mentions)
 	issuesByKey := make(map[string]issue, len(assigned)+len(keyOrder))
 	assignedKeys := make(map[string]bool, len(assigned))
@@ -137,7 +137,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		}
 		projectedAssigned[key] = true
 		mention := firstMention(mentionsByKey[key])
-		observations = append(observations, authoritativeObservation(userConfig.Jira, jiraConfig, value, mention))
+		observations = append(observations, authoritativeObservation(userConfig.Jira, jiraConfig, value, mention, req.LinkingMarks))
 	}
 	for _, key := range keyOrder {
 		value, exists := issuesByKey[key]
@@ -147,7 +147,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		keyMentions := mentionsByKey[key]
 		authoritative := hasExplicitMention(keyMentions) || userConfig.Jira.IsAuthoritativeIssueType(issueTypeName(value))
 		if authoritative {
-			observations = append(observations, authoritativeObservation(userConfig.Jira, jiraConfig, value, firstMention(keyMentions)))
+			observations = append(observations, authoritativeObservation(userConfig.Jira, jiraConfig, value, firstMention(keyMentions), req.LinkingMarks))
 			continue
 		}
 		for _, mention := range keyMentions {
@@ -170,7 +170,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	return integration.CollectResult{Observations: observations, Complete: complete, SourceStatus: &status}
 }
 
-func discoverIssueMentions(tasks []protocol.Task) []issueMention {
+func discoverIssueMentions(tasks []protocol.Task, marks linking.MarkMatcher) []issueMention {
 	ordered := append([]protocol.Task(nil), tasks...)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
 	mentions := make([]issueMention, 0)
@@ -178,8 +178,7 @@ func discoverIssueMentions(tasks []protocol.Task) []issueMention {
 	for _, task := range ordered {
 		mentionIndexes := map[string]int{}
 		for _, title := range titleFacts(task) {
-			for _, ticketKey := range linking.TicketKeys(title) {
-				key := strings.TrimPrefix(ticketKey, "ticket:")
+			for _, key := range marks.Values(title) {
 				if _, seen := mentionIndexes[key]; seen {
 					continue
 				}
@@ -265,8 +264,8 @@ func hasExplicitMention(mentions []issueMention) bool {
 	return false
 }
 
-func authoritativeObservation(cfg config.JiraConfig, jiraConfig Config, value issue, mention issueMention) integration.Observation {
-	ref := sourceRefFromIssue(jiraConfig, value)
+func authoritativeObservation(cfg config.JiraConfig, jiraConfig Config, value issue, mention issueMention, marks linking.MarkMatcher) integration.Observation {
+	ref := sourceRefFromIssue(jiraConfig, value, marks)
 	ref.Role = protocol.SourceRefRoleAuthoritative
 	if mention.TaskID != 0 {
 		order := mention.Order
@@ -335,12 +334,12 @@ func (Source) NormalizeAssociation(_ context.Context, value string) (protocol.Ta
 	if key == "" {
 		return protocol.TaskAssociation{}, fmt.Errorf("invalid Jira issue key %q", strings.TrimSpace(value))
 	}
-	ticketKey := "ticket:" + key
+	markKey := linking.MarkKey(key)
 	return protocol.TaskAssociation{
 		Source:       "jira",
 		ExternalID:   key,
-		CanonicalKey: ticketKey,
-		LinkingKeys:  []string{ticketKey},
+		CanonicalKey: markKey,
+		LinkingKeys:  []string{markKey},
 		Lifecycle:    protocol.SourceRefLifecycleWorkItem,
 	}, nil
 }
@@ -372,7 +371,7 @@ func issueTypeName(value issue) string {
 }
 
 func (Source) Reconcile(ctx context.Context, req integration.ReconcileRequest) []integration.Observation {
-	tasks := ResolveDoneIssues(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger)
+	tasks := ResolveDoneIssues(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger, req.LinkingMarks)
 	observations := make([]integration.Observation, 0, len(tasks))
 	for _, task := range tasks {
 		if len(task.SourceRefs) == 0 {

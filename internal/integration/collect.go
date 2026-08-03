@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"radar/internal/filters"
+	"radar/internal/linking"
 	"radar/internal/protocol"
 )
 
@@ -18,9 +19,10 @@ const (
 )
 
 type CollectRequest struct {
-	Previous []protocol.Task
-	Filters  filters.Config
-	Logger   *slog.Logger
+	Previous     []protocol.Task
+	Filters      filters.Config
+	LinkingMarks linking.MarkMatcher
+	Logger       *slog.Logger
 }
 
 type Observation struct {

@@ -75,6 +75,7 @@ func TestDiscoverReposUsesGitDirectoriesWithoutResolvingEveryRepo(t *testing.T) 
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("XDG_DATA_HOME", dataHome)
+	writeLinkingMarkConfig(t, home)
 
 	current := filepath.Join(home, "workspace", "current")
 	currentSubdir := filepath.Join(current, "src")
@@ -186,6 +187,7 @@ func TestDiscoverReposPrefersSourceRepoForCurrentWorkspace(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("XDG_DATA_HOME", dataHome)
+	writeLinkingMarkConfig(t, home)
 
 	current := filepath.Join(dataHome, "radar", "workspaces", "radar", "small-fix")
 	currentSubdir := filepath.Join(current, "src")
@@ -218,13 +220,24 @@ func TestDiscoverReposPrefersSourceRepoForCurrentWorkspace(t *testing.T) {
 	}
 }
 
+func writeLinkingMarkConfig(t *testing.T, home string) {
+	t.Helper()
+	path := filepath.Join(home, "config", "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func writeDiscoveryConfig(t *testing.T, home string, repositoryDirs []string) {
 	t.Helper()
 	path := filepath.Join(home, "config", "radar", "config.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(config.Config{RepositoryDirs: repositoryDirs})
+	data, err := json.Marshal(config.Config{RepositoryDirs: repositoryDirs, LinkingMarkPrefixes: []string{"RAD"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +272,7 @@ func TestDefaultRootUsesConfig(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"workspace_root":"~/streams"}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"workspace_root":"~/streams"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got, err := DefaultRoot()

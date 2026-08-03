@@ -29,7 +29,7 @@ Every emitted `protocol.SourceRef` must have:
 5. An explicit `Role`: normally `authoritative`, or intentionally `informational` for an inspect/open-only association.
 6. An explicit lifecycle (`work_item`, `workspace`, or `resource`) for authoritative refs.
 7. `CanonicalKey` when an authoritative ref can become a standalone task.
-8. `LinkingKeys` for authoritative joins such as `ticket:<KEY>`, `workspace:<path>`, or `branch:<repo>:<branch>`.
+8. `LinkingKeys` for authoritative joins such as `mark:<KEY>`, `workspace:<path>`, or `branch:<repo>:<branch>`.
 9. Generic presentation hints when the source owns title precedence or workspace naming.
 10. `URL` only when it is directly openable.
 
@@ -78,7 +78,7 @@ Source refs:
 
 Linking keys:
 
-- `ticket:<KEY>` from session name/path when present
+- `mark:<KEY>` from session name/path when present
 - `workspace:<path>` when current/session path is known
 
 ### GitLab
@@ -95,5 +95,5 @@ Source refs:
 
 Linking keys:
 
-- `ticket:<KEY>` from title/branch
+- `mark:<KEY>` from title/branch
 - `branch:<host>/<group>/<project>:<branch>`

@@ -55,7 +55,7 @@ type issue struct {
 	} `json:"fields"`
 }
 
-func FetchAssignedIssues(ctx context.Context, issueTypes []string, logger *slog.Logger) ([]protocol.SourceRef, protocol.SourceStatus, error) {
+func FetchAssignedIssues(ctx context.Context, issueTypes []string, logger *slog.Logger, matchers ...linking.MarkMatcher) ([]protocol.SourceRef, protocol.SourceStatus, error) {
 	status := protocol.SourceStatus{Name: "jira", Status: "ok"}
 
 	cfg, ok, missing := configFromEnv()
@@ -77,10 +77,10 @@ func FetchAssignedIssues(ctx context.Context, issueTypes []string, logger *slog.
 		return nil, status, err
 	}
 
-	return source_refsFromIssues(cfg, issues, ""), statusWithCount(status, len(issues), ""), nil
+	return source_refsFromIssues(cfg, issues, firstMarkMatcher(matchers)), statusWithCount(status, len(issues), ""), nil
 }
 
-func ResolveDoneIssues(ctx context.Context, previous []protocol.Task, active []protocol.Task, jiraComplete bool, logger *slog.Logger) []protocol.Task {
+func ResolveDoneIssues(ctx context.Context, previous []protocol.Task, active []protocol.Task, jiraComplete bool, logger *slog.Logger, matchers ...linking.MarkMatcher) []protocol.Task {
 	if !jiraComplete {
 		logger.Debug("skipping jira done resolution; issue collection was incomplete")
 		return keepTodaysDoneIssues(nil, previous)
@@ -92,6 +92,7 @@ func ResolveDoneIssues(ctx context.Context, previous []protocol.Task, active []p
 		return keepTodaysDoneIssues(nil, previous)
 	}
 
+	marks := firstMarkMatcher(matchers)
 	activeIssues := activeJiraIssueRefs(active)
 	items := keepTodaysDoneIssues(nil, previous)
 	seenDone := doneIssueIDs(items)
@@ -130,7 +131,7 @@ func ResolveDoneIssues(ctx context.Context, previous []protocol.Task, active []p
 			Attention:  "done",
 			Reason:     reason,
 			DoneAt:     time.Now().UTC().Format(time.RFC3339),
-			SourceRefs: doneIssueSourceRefs(item.SourceRefs, cfg, issue, reason),
+			SourceRefs: doneIssueSourceRefs(item.SourceRefs, cfg, issue, reason, marks),
 		}
 		if id := doneIssueID(done); id != "" && seenDone[id] {
 			continue
@@ -145,12 +146,19 @@ func ResolveDoneIssues(ctx context.Context, previous []protocol.Task, active []p
 	return items
 }
 
-func source_refsFromIssues(cfg Config, issues []issue, suffix string) []protocol.SourceRef {
+func source_refsFromIssues(cfg Config, issues []issue, marks linking.MarkMatcher) []protocol.SourceRef {
 	sourceRefs := make([]protocol.SourceRef, 0, len(issues))
 	for _, issue := range issues {
-		sourceRefs = append(sourceRefs, sourceRefFromIssue(cfg, issue))
+		sourceRefs = append(sourceRefs, sourceRefFromIssue(cfg, issue, marks))
 	}
 	return sourceRefs
+}
+
+func firstMarkMatcher(matchers []linking.MarkMatcher) linking.MarkMatcher {
+	if len(matchers) == 0 {
+		return linking.MarkMatcher{}
+	}
+	return matchers[0]
 }
 
 func statusWithCount(status protocol.SourceStatus, count int, suffix string) protocol.SourceStatus {
@@ -340,7 +348,7 @@ func urlValues(request searchRequest) url.Values {
 	return values
 }
 
-func sourceRefFromIssue(cfg Config, issue issue) protocol.SourceRef {
+func sourceRefFromIssue(cfg Config, issue issue, matchers ...linking.MarkMatcher) protocol.SourceRef {
 	issue.Key = strings.ToUpper(strings.TrimSpace(issue.Key))
 	status := ""
 	statusCategory := ""
@@ -364,6 +372,7 @@ func sourceRefFromIssue(cfg Config, issue issue) protocol.SourceRef {
 		metadata["priority"] = issue.Fields.Priority.Name
 	}
 
+	marks := firstMarkMatcher(matchers)
 	return protocol.SourceRef{
 		ID:          "jira:issue:" + issue.Key,
 		Source:      "jira",
@@ -380,7 +389,7 @@ func sourceRefFromIssue(cfg Config, issue issue) protocol.SourceRef {
 		URL:          jiraIssueURL(cfg.BaseURL, issue.Key),
 		Status:       status,
 		CanonicalKey: "jira:issue:" + issue.Key,
-		LinkingKeys:  linking.Keys("ticket:" + strings.ToUpper(issue.Key)),
+		LinkingKeys:  marks.Keys(issue.Key),
 		Metadata:     metadata,
 	}
 }
@@ -426,8 +435,8 @@ func issueDone(issue issue) bool {
 	return issue.Fields.Status != nil && issue.Fields.Status.StatusCategory != nil && strings.EqualFold(issue.Fields.Status.StatusCategory.Key, "done")
 }
 
-func doneIssueSourceRefs(_ []protocol.SourceRef, cfg Config, issue issue, reason string) []protocol.SourceRef {
-	sourceRef := sourceRefFromIssue(cfg, issue)
+func doneIssueSourceRefs(_ []protocol.SourceRef, cfg Config, issue issue, reason string, marks linking.MarkMatcher) []protocol.SourceRef {
+	sourceRef := sourceRefFromIssue(cfg, issue, marks)
 	sourceRef.Status = reason
 	sourceRef.Signal = "done"
 	return []protocol.SourceRef{sourceRef}

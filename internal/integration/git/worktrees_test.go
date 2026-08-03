@@ -11,6 +11,7 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/integration/contracttest"
+	"radar/internal/linking"
 	"radar/internal/protocol"
 )
 
@@ -45,7 +46,7 @@ func TestWorktreesSkipsPrunableEntries(t *testing.T) {
 }
 
 func TestWorktreeSourceRefContract(t *testing.T) {
-	ref := worktree{Path: "/work/repo/RAD-123-fix", Branch: "RAD-123-fix", Head: "abc"}.SourceRef(context.Background())
+	ref := worktree{Path: "/work/repo/RAD-123-fix", Branch: "RAD-123-fix", Head: "abc"}.SourceRef(context.Background(), linking.NewMarkMatcher([]string{"RAD"}))
 	contracttest.AssertValidSourceRefs(t, "git", []protocol.SourceRef{ref})
 }
 
@@ -106,6 +107,7 @@ func TestGitRootsOnlyIncludesConfiguredWorkspaces(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("XDG_DATA_HOME", dataHome)
+	writeGitTestConfig(t, home)
 	t.Chdir(cwd)
 
 	roots := gitRoots()
@@ -120,8 +122,9 @@ func TestFetchWorktreesReturnsCompleteEmptyResultWithoutWorkspaces(t *testing.T)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	writeGitTestConfig(t, home)
 
-	refs, status := FetchWorktrees(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	refs, status := FetchWorktrees(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), linking.NewMarkMatcher([]string{"RAD"}))
 	if status.Status != "ok" || len(refs) != 0 {
 		t.Fatalf("FetchWorktrees() refs=%+v status=%+v, want complete empty result", refs, status)
 	}
@@ -169,14 +172,14 @@ func TestFetchWorktreesOnlyIncludesConfiguredWorkspaceRoot(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	configJSON := []byte(`{"workspace_root":"` + filepath.Join(home, "workspaces") + `"}`)
+	configJSON := []byte(`{"linking_mark_prefixes":["RAD"],"workspace_root":"` + filepath.Join(home, "workspaces") + `"}`)
 	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), configJSON, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 
-	refs, status := FetchWorktrees(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	refs, status := FetchWorktrees(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), linking.NewMarkMatcher([]string{"RAD"}))
 	if status.Status != "ok" {
 		t.Fatalf("FetchWorktrees() status = %+v", status)
 	}
@@ -192,6 +195,17 @@ func runGit(t *testing.T, ctx context.Context, dir string, args ...string) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, output)
+	}
+}
+
+func writeGitTestConfig(t *testing.T, home string) {
+	t.Helper()
+	path := filepath.Join(home, "config", "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"]}`), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

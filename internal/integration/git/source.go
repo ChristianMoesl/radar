@@ -35,7 +35,7 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 }
 
 func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
-	source_refs, status := FetchWorktrees(ctx, req.Logger)
+	source_refs, status := FetchWorktrees(ctx, req.Logger, req.LinkingMarks)
 	if status.Status == "error" {
 		req.Logger.Warn("git worktree collection failed", "detail", status.Detail)
 		return integration.CollectResult{Observations: integration.ObserveRefs(source_refs, integration.SignalInProgress)}

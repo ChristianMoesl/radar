@@ -16,6 +16,7 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/integration/contracttest"
+	"radar/internal/linking"
 	"radar/internal/protocol"
 )
 
@@ -24,7 +25,7 @@ func TestNormalizeAssociationOwnsJiraKeyValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if association.ExternalID != "DPSCAP-123" || association.CanonicalKey != "ticket:DPSCAP-123" || association.Lifecycle != protocol.SourceRefLifecycleWorkItem {
+	if association.ExternalID != "DPSCAP-123" || association.CanonicalKey != "mark:DPSCAP-123" || association.Lifecycle != protocol.SourceRefLifecycleWorkItem {
 		t.Fatalf("association = %+v", association)
 	}
 	if _, err := NewSource().NormalizeAssociation(context.Background(), "not-an-issue"); err == nil {
@@ -92,7 +93,7 @@ func TestCollectMakesConfiguredTitleReferenceAuthoritative(t *testing.T) {
 	if got.TargetTaskID != 3 || got.Ref.Role != protocol.SourceRefRoleAuthoritative || got.Signal != integration.SignalInProgress {
 		t.Fatalf("observation = %+v", got)
 	}
-	if got.Ref.CanonicalKey != "jira:issue:RAD-7" || len(got.Ref.LinkingKeys) != 1 || got.Ref.LinkingKeys[0] != "ticket:RAD-7" {
+	if got.Ref.CanonicalKey != "jira:issue:RAD-7" || len(got.Ref.LinkingKeys) != 1 || got.Ref.LinkingKeys[0] != "mark:RAD-7" {
 		t.Fatalf("linking = %+v", got.Ref)
 	}
 }
@@ -108,7 +109,7 @@ func TestCollectTreatsExplicitAttachmentAsAuthoritative(t *testing.T) {
 	configureJiraSource(t, server.URL, `{"authoritative_issue_types":[]}`)
 
 	previous := []protocol.Task{{ID: 8, Title: "No key remains", Associations: []protocol.TaskAssociation{{
-		Source: "jira", ExternalID: "RAD-7", CanonicalKey: "ticket:RAD-7", LinkingKeys: []string{"ticket:RAD-7"}, Lifecycle: protocol.SourceRefLifecycleWorkItem,
+		Source: "jira", ExternalID: "RAD-7", CanonicalKey: "mark:RAD-7", LinkingKeys: []string{"mark:RAD-7"}, Lifecycle: protocol.SourceRefLifecycleWorkItem,
 	}}}}
 	result := NewSource().Collect(context.Background(), jiraCollectRequest(previous))
 	if len(result.Observations) != 1 || result.Observations[0].Ref.Role != protocol.SourceRefRoleAuthoritative || result.Observations[0].Signal != integration.SignalDone {
@@ -221,7 +222,7 @@ func TestCollectBoundsTitleReferenceFetches(t *testing.T) {
 func TestExplicitAttachmentDoesNotOverrideTitleKeyOrder(t *testing.T) {
 	mentions := discoverIssueMentions([]protocol.Task{{
 		ID: 4, Title: "RAD-1 then RAD-2", Associations: []protocol.TaskAssociation{{Source: "jira", ExternalID: "RAD-2"}},
-	}})
+	}}, linking.NewMarkMatcher([]string{"RAD"}))
 	if len(mentions) != 2 || mentions[0].Key != "RAD-1" || mentions[0].Explicit || mentions[1].Key != "RAD-2" || !mentions[1].Explicit {
 		t.Fatalf("mentions = %+v", mentions)
 	}
@@ -235,7 +236,7 @@ func TestDiscoverIssueMentionsUsesDurableTitlesAndStableOrder(t *testing.T) {
 			{Source: "github", Kind: "pull_request", Title: "Also RAD-3"},
 		},
 	}}
-	mentions := discoverIssueMentions(tasks)
+	mentions := discoverIssueMentions(tasks, linking.NewMarkMatcher([]string{"RAD"}))
 	keys := make([]string, 0, len(mentions))
 	for _, mention := range mentions {
 		keys = append(keys, mention.Key)
@@ -265,13 +266,16 @@ func configureJiraSource(t *testing.T, apiURL, jiraJSON string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"jira":`+jiraJSON+`}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"jira":`+jiraJSON+`}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func jiraCollectRequest(previous []protocol.Task) integration.CollectRequest {
-	return integration.CollectRequest{Previous: previous, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	return integration.CollectRequest{
+		Previous: previous, LinkingMarks: linking.NewMarkMatcher([]string{"RAD"}),
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
 }
 
 func jiraIssueWithType(key, issueType, status string) issue {

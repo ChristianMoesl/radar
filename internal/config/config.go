@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"radar/internal/filters"
@@ -13,15 +14,16 @@ import (
 )
 
 type Config struct {
-	RepositoryDirs []string          `json:"repository_dirs,omitempty"`
-	WorkspaceRoot  string            `json:"workspace_root,omitempty"`
-	Model          string            `json:"model,omitempty"`
-	Thinking       string            `json:"thinking,omitempty"`
-	SBX            SBXConfig         `json:"sbx"`
-	Tmux           tmuxlayout.Config `json:"tmux"`
-	GitHub         GitHubConfig      `json:"github"`
-	Jira           JiraConfig        `json:"jira"`
-	Datadog        DatadogConfig     `json:"datadog"`
+	RepositoryDirs      []string          `json:"repository_dirs,omitempty"`
+	WorkspaceRoot       string            `json:"workspace_root,omitempty"`
+	Model               string            `json:"model,omitempty"`
+	Thinking            string            `json:"thinking,omitempty"`
+	LinkingMarkPrefixes []string          `json:"linking_mark_prefixes"`
+	SBX                 SBXConfig         `json:"sbx"`
+	Tmux                tmuxlayout.Config `json:"tmux"`
+	GitHub              GitHubConfig      `json:"github"`
+	Jira                JiraConfig        `json:"jira"`
+	Datadog             DatadogConfig     `json:"datadog"`
 }
 
 type SBXConfig struct {
@@ -117,7 +119,7 @@ func Load() (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg, nil
+			return cfg, validate(cfg)
 		}
 		return Config{}, err
 	}
@@ -160,8 +162,9 @@ func EnsureFile() (string, error) {
 
 func Default() Config {
 	cfg := Config{
-		RepositoryDirs: []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"},
-		WorkspaceRoot:  defaultWorkspaceRoot(),
+		RepositoryDirs:      []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"},
+		WorkspaceRoot:       defaultWorkspaceRoot(),
+		LinkingMarkPrefixes: []string{},
 		SBX: SBXConfig{
 			Kit:              SBXKitConfig{Name: "shell"},
 			AdditionalMounts: []string{},
@@ -216,6 +219,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.Jira.StatusMapping == nil {
 		cfg.Jira.StatusMapping = defaults.Jira.StatusMapping
 	}
+	for i := range cfg.LinkingMarkPrefixes {
+		cfg.LinkingMarkPrefixes[i] = strings.ToUpper(strings.TrimSpace(cfg.LinkingMarkPrefixes[i]))
+	}
 	for i := range cfg.Jira.AuthoritativeIssueTypes {
 		cfg.Jira.AuthoritativeIssueTypes[i] = strings.TrimSpace(cfg.Jira.AuthoritativeIssueTypes[i])
 	}
@@ -228,6 +234,20 @@ func applyDefaults(cfg *Config) {
 func validate(cfg Config) error {
 	if err := pi.ValidateThinking(cfg.Thinking); err != nil {
 		return err
+	}
+	if len(cfg.LinkingMarkPrefixes) == 0 {
+		return fmt.Errorf("linking_mark_prefixes must not be empty")
+	}
+	markPrefixes := map[string]string{}
+	validMarkPrefix := regexp.MustCompile(`^[A-Z][A-Z0-9]*$`)
+	for i, prefix := range cfg.LinkingMarkPrefixes {
+		if !validMarkPrefix.MatchString(prefix) {
+			return fmt.Errorf("linking_mark_prefixes[%d] must start with a letter and contain only letters and numbers", i)
+		}
+		if previous, exists := markPrefixes[prefix]; exists {
+			return fmt.Errorf("linking_mark_prefixes values %q and %q match case-insensitively", previous, prefix)
+		}
+		markPrefixes[prefix] = prefix
 	}
 	issueTypes := map[string]string{}
 	for i, issueType := range cfg.Jira.AuthoritativeIssueTypes {

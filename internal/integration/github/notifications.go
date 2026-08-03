@@ -625,7 +625,7 @@ func githubPullRequestRef(id string, repo string, number int, title string, url 
 		Branch:       branch,
 		Status:       status,
 		CanonicalKey: id,
-		LinkingKeys:  linking.Keys(append(linking.TicketKeys(title, branch, repo, url), id, linking.BranchKey(githubRepoKey(repo), githubBranchKey(branch)))...),
+		LinkingKeys:  linking.Keys(id, linking.BranchKey(githubRepoKey(repo), githubBranchKey(branch))),
 	}
 }
 

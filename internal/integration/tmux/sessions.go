@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -15,8 +14,6 @@ import (
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
-
-var ticketPattern = regexp.MustCompile(`(?i)[A-Z][A-Z0-9]+-[0-9]+`)
 
 const sessionFormat = "#{session_id}\t#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_path}"
 
@@ -42,7 +39,7 @@ func SourceStatus(ctx context.Context) protocol.SourceStatus {
 	return status
 }
 
-func FetchSessions(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.SourceStatus) {
+func FetchSessions(ctx context.Context, logger *slog.Logger, marks linking.MarkMatcher) ([]protocol.SourceRef, protocol.SourceStatus) {
 	status := protocol.SourceStatus{Name: "tmux", Status: "ok"}
 	output, err := tmuxOutput(ctx, "list-sessions", "-F", sessionFormat)
 	if err != nil {
@@ -60,7 +57,7 @@ func FetchSessions(ctx context.Context, logger *slog.Logger) ([]protocol.SourceR
 
 	sourceRefs := make([]protocol.SourceRef, 0, len(sessions))
 	for _, s := range sessions {
-		sourceRefs = append(sourceRefs, s.SourceRef())
+		sourceRefs = append(sourceRefs, s.SourceRef(marks))
 	}
 
 	logger.Debug("collected tmux sessions", "count", len(sourceRefs))
@@ -99,7 +96,7 @@ func parseSessions(output string) ([]session, error) {
 	return sessions, scanner.Err()
 }
 
-func (s session) SourceRef() protocol.SourceRef {
+func (s session) SourceRef(marks linking.MarkMatcher) protocol.SourceRef {
 	status := "detached"
 	if s.AttachedCount > 0 {
 		status = "attached"
@@ -113,8 +110,8 @@ func (s session) SourceRef() protocol.SourceRef {
 		"working_directory": s.Path,
 		"session_path":      s.Path,
 	}
-	if ticket := ticketPattern.FindString(s.Name); ticket != "" {
-		metadata["ticket"] = strings.ToUpper(ticket)
+	if mark := marks.FirstValue(s.Name); mark != "" {
+		metadata["ticket"] = mark
 	}
 
 	return protocol.SourceRef{
@@ -128,7 +125,7 @@ func (s session) SourceRef() protocol.SourceRef {
 		Title:       s.Name,
 		Path:        s.Path,
 		Status:      status,
-		LinkingKeys: linking.Keys(append(linking.TicketKeys(s.Name, s.Path), linking.WorkspaceKey(s.Path))...),
+		LinkingKeys: linking.Keys(append(marks.Keys(s.Name, s.Path), linking.WorkspaceKey(s.Path))...),
 		Metadata:    metadata,
 	}
 }

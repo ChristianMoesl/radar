@@ -181,7 +181,7 @@ The daemon protocol should use explicit structured methods and fields for these 
 
 ### Jira attachment and identity preservation
 
-Attaching `DPSCAP-123` adds the generic association key `ticket:DPSCAP-123` to the manual task. The Jira source ref and later worktrees, tmux/SBX sessions, branches, and PRs can then join through existing source-owned linking keys.
+Attaching `DPSCAP-123` adds the generic association key `mark:DPSCAP-123` to the manual task. The Jira source ref and later worktrees, tmux/SBX sessions, branches, and PRs can then join through existing source-owned linking keys.
 
 If Jira collection has already created a separate task record for that key, attachment merges the records with these rules:
 

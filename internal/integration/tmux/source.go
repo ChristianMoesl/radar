@@ -32,7 +32,7 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 }
 
 func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
-	sourceRefs, status := FetchSessions(ctx, req.Logger)
+	sourceRefs, status := FetchSessions(ctx, req.Logger, req.LinkingMarks)
 	if status.Status == "error" {
 		req.Logger.Warn("tmux session collection failed", "detail", status.Detail)
 		return integration.CollectResult{Observations: integration.ObserveRefs(sourceRefs, integration.SignalInProgress)}

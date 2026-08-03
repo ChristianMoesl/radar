@@ -15,6 +15,7 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/integration/contracttest"
+	"radar/internal/linking"
 	"radar/internal/protocol"
 )
 
@@ -22,7 +23,7 @@ func TestIssueSourceRefContract(t *testing.T) {
 	var issue issue
 	issue.Key = "RAD-123"
 	issue.Fields.Summary = "Ship integration contracts"
-	ref := sourceRefFromIssue(Config{BaseURL: "https://jira.example.test"}, issue)
+	ref := sourceRefFromIssue(Config{BaseURL: "https://jira.example.test"}, issue, linking.NewMarkMatcher([]string{"RAD"}))
 	contracttest.AssertValidSourceRefs(t, "jira", []protocol.SourceRef{ref})
 }
 
@@ -149,7 +150,7 @@ func TestSourceCollectClassifiesEachJiraStatus(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"jira":{"status_mapping":{"In Progress":"in_progress","In Review":"in_progress","Blocked":"attention","Done":"immediate"},"unmapped_status":"low_priority"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"jira":{"status_mapping":{"In Progress":"in_progress","In Review":"in_progress","Blocked":"attention","Done":"immediate"},"unmapped_status":"low_priority"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -219,7 +220,7 @@ func TestResolveDoneIssuesMarksMissingDoneIssueDone(t *testing.T) {
 		}},
 	}}
 
-	items := ResolveDoneIssues(context.Background(), previous, nil, true, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	items := ResolveDoneIssues(context.Background(), previous, nil, true, slog.New(slog.NewTextHandler(io.Discard, nil)), linking.NewMarkMatcher([]string{"RAD"}))
 
 	if len(items) != 1 {
 		t.Fatalf("done items = %d, want 1: %+v", len(items), items)
@@ -233,7 +234,7 @@ func TestResolveDoneIssuesMarksMissingDoneIssueDone(t *testing.T) {
 	if items[0].SourceRefs[0].Status != "jira done" {
 		t.Fatalf("source ref status = %q, want jira done", items[0].SourceRefs[0].Status)
 	}
-	if items[0].SourceRefs[0].CanonicalKey != "jira:issue:RAD-123" || !slices.Contains(items[0].SourceRefs[0].LinkingKeys, "ticket:RAD-123") {
+	if items[0].SourceRefs[0].CanonicalKey != "jira:issue:RAD-123" || !slices.Contains(items[0].SourceRefs[0].LinkingKeys, "mark:RAD-123") {
 		t.Fatalf("source ref linking = %+v", items[0].SourceRefs[0])
 	}
 }

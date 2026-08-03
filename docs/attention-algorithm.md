@@ -10,7 +10,7 @@ It combines signals from GitHub, Jira, git worktrees, tmux sessions, and sbx san
 
 Radar first groups related source refs into a single task:
 
-1. Ticket key, for example `ABC-123`.
+1. Configured linking mark, for example `ABC-123`.
 2. Workspace path, for local-only work.
 3. Source identity, for standalone items such as a single GitHub PR.
 

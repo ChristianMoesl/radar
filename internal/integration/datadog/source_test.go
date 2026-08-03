@@ -162,7 +162,7 @@ func configureDatadog(t *testing.T, query string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	data := []byte(`{"datadog":{"monitor_query":` + strconvQuote(query) + `}}`)
+	data := []byte(`{"linking_mark_prefixes":["RAD"],"datadog":{"monitor_query":` + strconvQuote(query) + `}}`)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}

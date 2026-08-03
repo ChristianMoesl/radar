@@ -64,6 +64,7 @@ func TestNotifyActionableTransitionsAppliesConfiguredFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(`{
+  "linking_mark_prefixes": ["RAD"],
   "github": {
     "filters": {
       "mute_repos": ["org/muted"],

@@ -6,6 +6,7 @@ import (
 
 	"radar/internal/config"
 	"radar/internal/integration"
+	"radar/internal/linking"
 	"radar/internal/protocol"
 )
 
@@ -14,6 +15,7 @@ type Collected struct {
 	Sources      []protocol.SourceStatus
 	SourceNames  []string
 	Results      map[string]integration.CollectResult
+	LinkingMarks linking.MarkMatcher
 }
 
 type Result struct {
@@ -43,10 +45,11 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger,
 		}
 		name := source.Descriptor().Name
 		reconciled := reconciler.Reconcile(ctx, integration.ReconcileRequest{
-			Previous: previous,
-			Active:   active,
-			Result:   collected.Results[name],
-			Logger:   logger,
+			Previous:     previous,
+			Active:       active,
+			Result:       collected.Results[name],
+			LinkingMarks: collected.LinkingMarks,
+			Logger:       logger,
 		})
 		for i := range reconciled {
 			reconciled[i] = describeObservation(source.Descriptor(), reconciled[i])
@@ -74,6 +77,7 @@ func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.
 		logger.Warn("could not load config for collection", "error", err)
 	}
 	filterCfg := cfg.GitHub.Filters
+	result.LinkingMarks = linking.NewMarkMatcher(cfg.LinkingMarkPrefixes)
 
 	for _, source := range sources {
 		descriptor := source.Descriptor()
@@ -91,9 +95,10 @@ func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.
 		}
 
 		collected := source.Collect(ctx, integration.CollectRequest{
-			Previous: previous,
-			Filters:  filterCfg,
-			Logger:   logger,
+			Previous:     previous,
+			Filters:      filterCfg,
+			LinkingMarks: result.LinkingMarks,
+			Logger:       logger,
 		})
 		if collected.SourceStatus != nil {
 			status.Status = *collected.SourceStatus

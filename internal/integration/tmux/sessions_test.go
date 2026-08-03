@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"radar/internal/integration/contracttest"
+	"radar/internal/linking"
 	"radar/internal/protocol"
 )
 
@@ -36,7 +37,7 @@ func TestSessionSourceRef(t *testing.T) {
 		Path:          "/home/me/repo",
 	}
 
-	sourceRef := session.SourceRef()
+	sourceRef := session.SourceRef(linking.NewMarkMatcher([]string{"ABC"}))
 	contracttest.AssertValidSourceRefs(t, "tmux", []protocol.SourceRef{sourceRef})
 	if sourceRef.ID != "tmux:session:$1" {
 		t.Fatalf("unexpected ID: %s", sourceRef.ID)
@@ -65,7 +66,7 @@ func TestSessionSourceRef(t *testing.T) {
 	if sourceRef.Metadata["window_count"] != "3" {
 		t.Fatalf("unexpected window count metadata: %#v", sourceRef.Metadata)
 	}
-	for _, want := range []string{"ticket:ABC-123", "workspace:/home/me/repo"} {
+	for _, want := range []string{"mark:ABC-123", "workspace:/home/me/repo"} {
 		if !slices.Contains(sourceRef.LinkingKeys, want) {
 			t.Fatalf("linking keys = %+v, want %s", sourceRef.LinkingKeys, want)
 		}

@@ -9,7 +9,7 @@ import (
 )
 
 func TestInformationalJiraReferenceDoesNotAffectManualTask(t *testing.T) {
-	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Add(-time.Hour)
 	state := persistedState{Version: stateVersion, NextTaskID: 1, Records: []TaskRecord{{
 		ID: "task:1", NumericID: 1, Kind: "manual", State: "done", DoneAt: now.Format(time.RFC3339),
 		Intent:   &ManualIntent{Title: "Review RAD-7 rollout", ManuallyComplete: true},
@@ -34,7 +34,7 @@ func TestInformationalJiraReferenceDoesNotAffectManualTask(t *testing.T) {
 }
 
 func TestInformationalJiraReferenceUsesPerTaskIdentity(t *testing.T) {
-	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Add(-time.Hour)
 	state := persistedState{Version: stateVersion, NextTaskID: 2, Records: []TaskRecord{
 		{ID: "task:1", NumericID: 1, Kind: "manual", State: "active", Intent: &ManualIntent{Title: "First RAD-7 mention"}, Snapshot: protocol.Task{Title: "First RAD-7 mention", Attention: "low_priority"}},
 		{ID: "task:2", NumericID: 2, Kind: "manual", State: "active", Intent: &ManualIntent{Title: "Second RAD-7 mention"}, Snapshot: protocol.Task{Title: "Second RAD-7 mention", Attention: "low_priority"}},
@@ -72,7 +72,7 @@ func TestInformationalReferenceSurvivesDaemonStateReload(t *testing.T) {
 }
 
 func TestRemovingTitleReferenceRetiresInformationalRef(t *testing.T) {
-	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Add(-time.Hour)
 	state := persistedState{Version: stateVersion, NextTaskID: 1, Records: []TaskRecord{{
 		ID: "task:1", NumericID: 1, Kind: "manual", State: "active", Intent: &ManualIntent{Title: "Review rollout"},
 		Snapshot: protocol.Task{Kind: "manual", Title: "Review rollout", Attention: "low_priority"},
@@ -87,7 +87,7 @@ func TestRemovingTitleReferenceRetiresInformationalRef(t *testing.T) {
 }
 
 func TestAuthoritativeTitleDiscoveryTargetsAndMergesManualTask(t *testing.T) {
-	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Add(-time.Hour)
 	state := persistedState{Version: stateVersion, NextTaskID: 1, Records: []TaskRecord{{
 		ID: "task:1", NumericID: 1, Kind: "manual", State: "active",
 		Intent:   &ManualIntent{Title: "Investigate RAD-7 rollout"},
@@ -99,13 +99,13 @@ func TestAuthoritativeTitleDiscoveryTargetsAndMergesManualTask(t *testing.T) {
 	if len(tasks) != 1 || tasks[0].ID != 1 || tasks[0].Title != "RAD-7 Remote title" || tasks[0].Attention != "in_progress" {
 		t.Fatalf("tasks = %+v, want authoritative projection on manual ID", tasks)
 	}
-	if state.Records[0].CanonicalKey != "ticket:RAD-7" || tasks[0].Metadata["manual_lifecycle_available"] != "false" {
+	if state.Records[0].CanonicalKey != "mark:RAD-7" || tasks[0].Metadata["manual_lifecycle_available"] != "false" {
 		t.Fatalf("record/task authority = %+v / %+v", state.Records[0], tasks[0])
 	}
 }
 
 func TestMultipleAuthoritativeJiraReferencesUseTitleOrderAndAllControlCompletion(t *testing.T) {
-	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Add(-time.Hour)
 	first := authoritativeJiraTask(1, "RAD-2", "RAD-2 First title", "Done", "done")
 	firstOrder := 0
 	first.SourceRefs[0].Presentation.TitleOrder = &firstOrder
@@ -132,7 +132,7 @@ func TestMultipleAuthoritativeJiraReferencesUseTitleOrderAndAllControlCompletion
 }
 
 func TestJiraReferenceDemotionRemovesDerivedAuthority(t *testing.T) {
-	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Add(-time.Hour)
 	state := persistedState{Version: stateVersion, NextTaskID: 1, Records: []TaskRecord{{
 		ID: "task:1", NumericID: 1, Kind: "manual", State: "active",
 		Intent:   &ManualIntent{Title: "Investigate RAD-7 rollout"},
@@ -166,6 +166,6 @@ func authoritativeJiraTask(target int, key, title, status, signal string) protoc
 		ID: "jira:issue:" + key, EntityID: "jira:issue:" + key, Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative,
 		Lifecycle: protocol.SourceRefLifecycleWorkItem, Presentation: protocol.SourceRefPresentation{PreferTitle: true},
 		Title: title, URL: "https://jira.example.test/browse/" + key, Status: status, Signal: signal,
-		CanonicalKey: "jira:issue:" + key, LinkingKeys: []string{"ticket:" + key}, Metadata: map[string]string{"key": key, "issue_type": "Task"},
+		CanonicalKey: "jira:issue:" + key, LinkingKeys: []string{"mark:" + key}, Metadata: map[string]string{"key": key, "issue_type": "Task"},
 	}}}
 }

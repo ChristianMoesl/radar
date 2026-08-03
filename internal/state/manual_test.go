@@ -68,7 +68,7 @@ func TestAttachAssociationMergesIntoManualTaskAndPreservesID(t *testing.T) {
 		SourceRefs: []protocol.SourceRef{{
 			ID: "jira:issue:DPSCAP-123", EntityID: "jira:issue:DPSCAP-123", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative,
 			Lifecycle: protocol.SourceRefLifecycleWorkItem, Presentation: protocol.SourceRefPresentation{PreferTitle: true}, Title: "DPSCAP-123 Implement release process",
-			CanonicalKey: "jira:issue:DPSCAP-123", LinkingKeys: []string{"ticket:DPSCAP-123"}, Signal: "in_progress", Status: "In Progress",
+			CanonicalKey: "jira:issue:DPSCAP-123", LinkingKeys: []string{"mark:DPSCAP-123"}, Signal: "in_progress", Status: "In Progress",
 		}},
 	}
 	store.SetTasks([]protocol.Task{jira})
@@ -98,7 +98,7 @@ func TestAttachAssociationMergesIntoManualTaskAndPreservesID(t *testing.T) {
 	}
 }
 
-func TestAttachAssociationLinksLaterTicketReferences(t *testing.T) {
+func TestAttachAssociationLinksLaterMarkedReferences(t *testing.T) {
 	store := newManualTestStore(t)
 	manual, err := store.CreateManualTask("Plan DPSCAP-88")
 	if err != nil {
@@ -109,17 +109,17 @@ func TestAttachAssociationLinksLaterTicketReferences(t *testing.T) {
 	}
 	store.SetTasks([]protocol.Task{{
 		Title: "DPSCAP-88 Planned work", Attention: "low_priority", Reason: "Selected for Development",
-		SourceRefs: []protocol.SourceRef{{ID: "jira:issue:DPSCAP-88", EntityID: "jira:issue:DPSCAP-88", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Presentation: protocol.SourceRefPresentation{PreferTitle: true}, Title: "DPSCAP-88 Planned work", LinkingKeys: []string{"ticket:DPSCAP-88"}, Signal: "low_priority"}},
+		SourceRefs: []protocol.SourceRef{{ID: "jira:issue:DPSCAP-88", EntityID: "jira:issue:DPSCAP-88", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Presentation: protocol.SourceRefPresentation{PreferTitle: true}, Title: "DPSCAP-88 Planned work", LinkingKeys: []string{"mark:DPSCAP-88"}, Signal: "low_priority"}},
 	}})
 	got := store.Tasks()
-	if len(got) != 1 || got[0].ID != manual.ID || len(got[0].Associations) != 1 || got[0].Associations[0].CanonicalKey != "ticket:DPSCAP-88" {
+	if len(got) != 1 || got[0].ID != manual.ID || len(got[0].Associations) != 1 || got[0].Associations[0].CanonicalKey != "mark:DPSCAP-88" {
 		t.Fatalf("linked tasks = %+v", got)
 	}
 }
 
 func testAssociation(key string) protocol.TaskAssociation {
 	return protocol.TaskAssociation{
-		Source: "jira", ExternalID: key, CanonicalKey: "ticket:" + key,
-		LinkingKeys: []string{"ticket:" + key}, Lifecycle: protocol.SourceRefLifecycleWorkItem,
+		Source: "jira", ExternalID: key, CanonicalKey: "mark:" + key,
+		LinkingKeys: []string{"mark:" + key}, Lifecycle: protocol.SourceRefLifecycleWorkItem,
 	}
 }

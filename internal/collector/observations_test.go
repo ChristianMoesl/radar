@@ -16,7 +16,7 @@ func TestTaskFromObservationProjectsStandaloneSourceRef(t *testing.T) {
 			Title:        "RAD-123 Ship integration boundary",
 			URL:          "https://jira.example.test/browse/RAD-123",
 			CanonicalKey: "jira:issue:RAD-123",
-			LinkingKeys:  []string{"ticket:RAD-123"},
+			LinkingKeys:  []string{"mark:RAD-123"},
 		},
 		TargetTaskID: 42,
 		Signal:       integration.SignalInProgress,
