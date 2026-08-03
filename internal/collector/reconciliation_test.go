@@ -80,6 +80,25 @@ func (fakeObservedSource) Collect(context.Context, integration.CollectRequest) i
 	}}}
 }
 
+func TestObservedTasksKeepsMainBranchWorkspace(t *testing.T) {
+	collected := Collected{Observations: []integration.Observation{{
+		Ref: protocol.SourceRef{
+			ID:     "git:worktree:/workspaces/repo/main",
+			Source: "git",
+			Kind:   "worktree",
+			Path:   "/workspaces/repo/main",
+			Branch: "main",
+			Title:  "main",
+		},
+		Signal: integration.SignalInProgress,
+	}}}
+
+	tasks := observedTasks(collected)
+	if len(tasks) != 1 || len(tasks[0].SourceRefs) != 1 || tasks[0].SourceRefs[0].Branch != "main" {
+		t.Fatalf("observedTasks() = %+v, want main workspace task", tasks)
+	}
+}
+
 func TestDeduplicateReconciledTasksKeepsOneTaskPerGitHubPullRequest(t *testing.T) {
 	tasks := []protocol.Task{
 		{

@@ -103,6 +103,7 @@ func (Source) Current(ctx context.Context, cwd string) (integration.Workspace, b
 func (Source) Create(ctx context.Context, req integration.CreateWorkspaceRequest) (integration.Workspace, error) {
 	created, err := workspace.Create(ctx, workspace.ExecRunner{}, workspace.CreateOptions{
 		Repo:                    req.Repo,
+		BranchMode:              req.BranchMode,
 		Name:                    req.Name,
 		Branch:                  req.Branch,
 		Base:                    req.Base,

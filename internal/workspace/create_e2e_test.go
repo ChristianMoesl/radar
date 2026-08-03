@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"radar/internal/integration"
 )
 
 func TestCreateWorkspaceReusesExistingLocalBranchE2E(t *testing.T) {
@@ -35,6 +37,7 @@ func TestCreateWorkspaceReusesExistingLocalBranchE2E(t *testing.T) {
 
 	root := filepath.Join(tmp, "workspaces")
 	created, err := Create(ctx, ExecRunner{}, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchExisting,
 		Repo:          repo,
 		Name:          "chore-install-helper-binaries",
 		Branch:        "chore/install-helper-binaries",
@@ -57,6 +60,48 @@ func TestCreateWorkspaceReusesExistingLocalBranchE2E(t *testing.T) {
 
 	if _, err := os.ReadFile(logPath); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCreateWorkspaceChecksOutMainFromDetachedSourceE2E(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	ctx := context.Background()
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "commands.log")
+	installCreateWorkspaceFakeTools(t, tmp, logPath)
+
+	repo := filepath.Join(tmp, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGitE2E(t, ctx, repo, "init")
+	runGitE2E(t, ctx, repo, "config", "user.email", "radar@example.test")
+	runGitE2E(t, ctx, repo, "config", "user.name", "Radar Test")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitE2E(t, ctx, repo, "add", "README.md")
+	runGitE2E(t, ctx, repo, "commit", "-m", "initial")
+	runGitE2E(t, ctx, repo, "branch", "-M", "main")
+	runGitE2E(t, ctx, repo, "switch", "--detach")
+
+	created, err := Create(ctx, ExecRunner{}, CreateOptions{
+		Repo:          repo,
+		BranchMode:    integration.WorkspaceBranchExisting,
+		Branch:        "main",
+		WorkspaceRoot: filepath.Join(tmp, "workspaces"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch := strings.TrimSpace(gitOutputE2E(t, ctx, created.Path, "branch", "--show-current")); branch != "main" {
+		t.Fatalf("workspace branch = %q, want main", branch)
+	}
+	if branch := strings.TrimSpace(gitOutputE2E(t, ctx, repo, "branch", "--show-current")); branch != "" {
+		t.Fatalf("source branch = %q, want detached", branch)
 	}
 }
 

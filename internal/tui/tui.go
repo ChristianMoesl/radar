@@ -82,11 +82,15 @@ type picker struct {
 
 type createForm struct {
 	repo           string
+	branchMode     integration.WorkspaceBranchMode
+	branch         string
 	base           string
 	name           string
 	forkPiSession  string
 	sourceRepoName string
 	repoList       picker
+	intentList     picker
+	branchList     picker
 	baseList       picker
 }
 
@@ -118,6 +122,8 @@ type model struct {
 const (
 	creatingWorkspaceMessage  = "Creating Workspace..."
 	preparingWorkspaceMessage = "Preparing workspace..."
+	createIntentExisting      = "Work on an existing branch"
+	createIntentNew           = "Create a new branch"
 )
 
 var (
@@ -182,6 +188,7 @@ func RunFork(socketPath string) error {
 	}
 	model := newModel(socketPath)
 	model.mode = "create_base"
+	form.branchMode = integration.WorkspaceBranchNew
 	model.create = form
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	_, err = program.Run()
@@ -197,7 +204,7 @@ func (m model) Init() tea.Cmd {
 	if m.mode == "create_repo" {
 		commands = append(commands, m.loadRepos())
 	}
-	if m.mode == "create_base" && m.create.repo != "" {
+	if (m.mode == "create_base" || m.mode == "create_branch") && m.create.repo != "" {
 		commands = append(commands, m.loadBranches(m.create.repo))
 	}
 	return tea.Batch(commands...)
@@ -455,10 +462,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case branchesMsg:
 		m.err = msg.err
-		m.create.baseList.loading = false
-		if msg.err == nil {
-			m.create.baseList.options = msg.branches
-			m.create.baseList.cursor = 0
+		if m.mode == "create_branch" {
+			m.create.branchList.loading = false
+			if msg.err == nil {
+				m.create.branchList.options = existingBranchNames(msg.branches)
+				m.create.branchList.cursor = 0
+			}
+		} else {
+			m.create.baseList.loading = false
+			if msg.err == nil {
+				m.create.baseList.options = msg.branches
+				m.create.baseList.cursor = 0
+			}
 		}
 	case cleanupPreviewMsg:
 		m.loading = false
@@ -718,7 +733,10 @@ func dropCells(s string, cells int) string {
 }
 
 func newCreateForm() createForm {
-	return createForm{repoList: picker{loading: true}}
+	return createForm{
+		repoList:   picker{loading: true},
+		intentList: picker{options: []string{createIntentExisting, createIntentNew}},
+	}
 }
 
 func newCreateFormForTask(task protocol.Task) createForm {
@@ -828,6 +846,20 @@ func (m model) loadBranches(repo string) tea.Cmd {
 	}
 }
 
+func existingBranchNames(refs []string) []string {
+	branches := make([]string, 0, len(refs))
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		branch := strings.TrimPrefix(strings.TrimSpace(ref), "origin/")
+		if branch == "" || seen[branch] {
+			continue
+		}
+		seen[branch] = true
+		branches = append(branches, branch)
+	}
+	return branches
+}
+
 func (m *model) moveCreateCursor(delta int) {
 	list := m.activePicker()
 	if list == nil {
@@ -850,14 +882,39 @@ func (m model) selectCreateStep() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.create.repo = selected
-		m.create.baseList = picker{loading: true}
-		m.mode = "create_base"
+		m.mode = "create_intent"
 		m.err = nil
-		return m, m.loadBranches(selected)
+		return m, nil
+	case "create_intent":
+		switch selectedPickerOption(m.create.intentList) {
+		case createIntentExisting:
+			m.create.branchMode = integration.WorkspaceBranchExisting
+			m.create.branchList = picker{loading: true}
+			m.mode = "create_branch"
+		case createIntentNew:
+			m.create.branchMode = integration.WorkspaceBranchNew
+			m.create.baseList = picker{loading: true}
+			m.mode = "create_base"
+		default:
+			m.err = fmt.Errorf("select how to create the workspace")
+			return m, nil
+		}
+		m.err = nil
+		return m, m.loadBranches(m.create.repo)
+	case "create_branch":
+		selected := selectedPickerOption(m.create.branchList)
+		if selected == "" {
+			m.err = fmt.Errorf("select an existing branch")
+			return m, nil
+		}
+		m.create.branch = selected
+		m.create.name = selected
+		m.err = nil
+		return m.submitCreate()
 	case "create_base":
 		selected := selectedPickerOption(m.create.baseList)
 		if selected == "" {
-			m.err = fmt.Errorf("select a base branch")
+			m.err = fmt.Errorf("select a starting reference")
 			return m, nil
 		}
 		m.create.base = selected
@@ -871,8 +928,23 @@ func (m model) selectCreateStep() (tea.Model, tea.Cmd) {
 }
 
 func (m model) submitCreate() (tea.Model, tea.Cmd) {
-	if strings.TrimSpace(m.create.repo) == "" || strings.TrimSpace(m.create.base) == "" || strings.TrimSpace(m.create.name) == "" {
-		m.err = fmt.Errorf("repo, base, and name are required")
+	if strings.TrimSpace(m.create.repo) == "" {
+		m.err = fmt.Errorf("repository is required")
+		return m, nil
+	}
+	switch m.create.branchMode {
+	case integration.WorkspaceBranchExisting:
+		if strings.TrimSpace(m.create.branch) == "" {
+			m.err = fmt.Errorf("existing branch is required")
+			return m, nil
+		}
+	case integration.WorkspaceBranchNew:
+		if strings.TrimSpace(m.create.base) == "" || strings.TrimSpace(m.create.name) == "" {
+			m.err = fmt.Errorf("starting reference and new branch name are required")
+			return m, nil
+		}
+	default:
+		m.err = fmt.Errorf("workspace branch mode is required")
 		return m, nil
 	}
 	form := m.create
@@ -891,6 +963,8 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 		switchAfterCreate := os.Getenv("TMUX") != ""
 		options := integration.CreateWorkspaceRequest{
 			Repo:                    form.repo,
+			BranchMode:              form.branchMode,
+			Branch:                  form.branch,
 			Base:                    form.base,
 			Name:                    form.name,
 			Model:                   cfg.Model,
@@ -1041,6 +1115,12 @@ func (m *model) appendCreateQuery(value string) {
 	case "create_repo":
 		m.create.repoList.query += value
 		m.create.repoList.cursor = 0
+	case "create_intent":
+		m.create.intentList.query += value
+		m.create.intentList.cursor = 0
+	case "create_branch":
+		m.create.branchList.query += value
+		m.create.branchList.cursor = 0
 	case "create_base":
 		m.create.baseList.query += value
 		m.create.baseList.cursor = 0
@@ -1054,6 +1134,12 @@ func (m *model) backspaceCreateQuery() {
 	case "create_repo":
 		m.create.repoList.query = dropLastRune(m.create.repoList.query)
 		m.create.repoList.cursor = 0
+	case "create_intent":
+		m.create.intentList.query = dropLastRune(m.create.intentList.query)
+		m.create.intentList.cursor = 0
+	case "create_branch":
+		m.create.branchList.query = dropLastRune(m.create.branchList.query)
+		m.create.branchList.cursor = 0
 	case "create_base":
 		m.create.baseList.query = dropLastRune(m.create.baseList.query)
 		m.create.baseList.cursor = 0
@@ -1066,6 +1152,10 @@ func (m *model) activePicker() *picker {
 	switch m.mode {
 	case "create_repo":
 		return &m.create.repoList
+	case "create_intent":
+		return &m.create.intentList
+	case "create_branch":
+		return &m.create.branchList
 	case "create_base":
 		return &m.create.baseList
 	default:
@@ -1132,6 +1222,16 @@ func (m model) createView(width int) string {
 	switch m.mode {
 	case "create_repo":
 		return m.pickerView(width, "Create workspace", "Repository", m.create.repoList)
+	case "create_intent":
+		return strings.Join([]string{
+			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
+			m.pickerView(width, "Create workspace", "Action", m.create.intentList),
+		}, "\n")
+	case "create_branch":
+		return strings.Join([]string{
+			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
+			m.pickerView(width, "Create workspace", "Existing branch", m.create.branchList),
+		}, "\n")
 	case "create_base":
 		title := "Create workspace"
 		if m.create.forkPiSession != "" {
@@ -1139,24 +1239,24 @@ func (m model) createView(width int) string {
 		}
 		return strings.Join([]string{
 			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
-			m.pickerView(width, title, "Base branch", m.create.baseList),
+			m.pickerView(width, title, "Starting reference", m.create.baseList),
 		}, "\n")
 	case "create_name":
 		name := m.create.name
 		if name == "" {
-			name = subtleStyle.Render("type a workspace name")
+			name = subtleStyle.Render("type a branch name")
 		}
 		title := "Create workspace"
 		lines := []string{
 			titleStyle.Render(title),
 			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
-			subtleStyle.Render("Base       " + m.create.base),
+			subtleStyle.Render("Start      " + m.create.base),
 		}
 		if m.create.forkPiSession != "" {
 			lines[0] = titleStyle.Render("Fork workspace")
 			lines = append(lines, subtleStyle.Render("Pi fork    "+m.create.forkPiSession))
 		}
-		lines = append(lines, selectedStyle.Width(width-4).Render("› Name       "+name))
+		lines = append(lines, selectedStyle.Width(width-4).Render("› New branch "+name))
 		return strings.Join(lines, "\n")
 	default:
 		return ""
@@ -1607,7 +1707,7 @@ func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
 		}
 		created, err := workspaceProvider.Create(context.Background(), integration.CreateWorkspaceRequest{
 			Repo:                    repo,
-			Base:                    "origin/" + name,
+			BranchMode:              integration.WorkspaceBranchExisting,
 			Name:                    name,
 			Branch:                  name,
 			Model:                   cfg.Model,

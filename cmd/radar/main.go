@@ -262,6 +262,7 @@ func runCreate(args []string) {
 	}
 	result, err := workspaceProvider.Create(context.Background(), integration.CreateWorkspaceRequest{
 		Repo:                    *repo,
+		BranchMode:              integration.WorkspaceBranchNew,
 		Base:                    *base,
 		Name:                    *name,
 		Model:                   cfg.Model,

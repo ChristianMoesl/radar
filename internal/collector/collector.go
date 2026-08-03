@@ -123,9 +123,6 @@ func describeObservation(descriptor integration.Descriptor, observation integrat
 func observedTasks(collected Collected) []protocol.Task {
 	tasks := make([]protocol.Task, 0, len(collected.Observations))
 	for _, observation := range collected.Observations {
-		if ignoredStandaloneSourceRef(observation.Ref) {
-			continue
-		}
 		tasks = append(tasks, taskFromObservation(observation))
 	}
 	return tasks
@@ -184,18 +181,6 @@ func taskMetadataFromObservation(observation integration.Observation) map[string
 		return map[string]string{"author": author}
 	}
 	return nil
-}
-
-func ignoredStandaloneSourceRef(sourceRef protocol.SourceRef) bool {
-	if sourceRef.Source != "git" || sourceRef.Kind != "worktree" {
-		return false
-	}
-	switch sourceRef.Branch {
-	case "", "main", "master", "develop", "dev":
-		return true
-	default:
-		return false
-	}
 }
 
 func sourceRefCount(sourceName string, result integration.CollectResult) int {

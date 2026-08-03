@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"radar/internal/integration"
 	"radar/internal/tmuxlayout"
 )
 
@@ -22,6 +23,8 @@ type fakeRunner struct {
 	gitCommonDir  string
 	hasSession    bool
 	sbxListOutput string
+	refs          map[string]bool
+	worktrees     string
 	calls         []call
 }
 
@@ -51,10 +54,16 @@ func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...str
 		return "@1 %1", nil
 	}
 	if name == "git" && len(args) > 0 && args[0] == "show-ref" {
+		if f.refs[args[len(args)-1]] {
+			return "", nil
+		}
 		return "", errors.New("missing")
 	}
 	if name == "git" && len(args) > 0 && strings.Join(args, " ") == "worktree list --porcelain" {
-		return "", nil
+		return f.worktrees, nil
+	}
+	if name == "git" && len(args) > 5 && args[0] == "worktree" && args[1] == "add" && args[2] == "--track" {
+		return "", os.MkdirAll(args[5], 0o755)
 	}
 	if name == "git" && len(args) > 4 && args[0] == "worktree" && args[1] == "add" && args[2] == "-b" {
 		return "", os.MkdirAll(args[4], 0o755)
@@ -109,6 +118,7 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
 		Base:          "origin/main",
@@ -136,12 +146,79 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
 }
 
+func TestCreateTracksExistingOriginBranch(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	runner := &fakeRunner{
+		repo: repo,
+		refs: map[string]bool{"refs/remotes/origin/main": true},
+	}
+
+	created, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		BranchMode:    integration.WorkspaceBranchExisting,
+		Branch:        "main",
+		WorkspaceRoot: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Name != "main" || created.Branch != "main" {
+		t.Fatalf("created workspace = %+v", created)
+	}
+	assertCalled(t, runner.calls, "git", "worktree add --track -b main "+created.Path+" origin/main")
+}
+
+func TestCreateNewBranchRejectsExistingOriginBranch(t *testing.T) {
+	repo := t.TempDir()
+	runner := &fakeRunner{
+		repo: repo,
+		refs: map[string]bool{"refs/remotes/origin/feature/existing": true},
+	}
+
+	_, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		BranchMode:    integration.WorkspaceBranchNew,
+		Name:          "feature/existing",
+		Branch:        "feature/existing",
+		Base:          "origin/main",
+		WorkspaceRoot: t.TempDir(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "choose the existing branch") {
+		t.Fatalf("Create() error = %v, want existing branch guidance", err)
+	}
+}
+
+func TestCreateExistingBranchRejectsSourceCheckout(t *testing.T) {
+	repo := t.TempDir()
+	runner := &fakeRunner{
+		repo: repo,
+		worktrees: strings.Join([]string{
+			"worktree " + repo,
+			"HEAD abc",
+			"branch refs/heads/main",
+			"",
+		}, "\n"),
+	}
+
+	_, err := Create(context.Background(), runner, CreateOptions{
+		Repo:          repo,
+		BranchMode:    integration.WorkspaceBranchExisting,
+		Branch:        "main",
+		WorkspaceRoot: t.TempDir(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "detach that checkout") {
+		t.Fatalf("Create() error = %v, want detach guidance", err)
+	}
+}
+
 func TestCreateUsesConfiguredTmuxWindowsAndHorizontalPanes(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
 	runner := &fakeRunner{repo: repo}
 
 	created, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
 		Base:          "origin/main",
@@ -183,6 +260,7 @@ func TestCreateStartsPiOnHostWithConfiguredSandbox(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:     integration.WorkspaceBranchNew,
 		Repo:           repo,
 		Name:           "small fix",
 		Base:           "origin/main",
@@ -223,6 +301,7 @@ func TestCreateRunsSetupInsideConfiguredSandbox(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	created, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
 		Base:          "origin/main",
@@ -250,6 +329,7 @@ func TestCreateStartsSandboxEnabledByUserConfig(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:              integration.WorkspaceBranchNew,
 		Repo:                    repo,
 		Name:                    "small fix",
 		Base:                    "origin/main",
@@ -312,6 +392,7 @@ func TestCreateRejectsConfiguredSandboxOutsideMacOS(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	_, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
 		Base:          "origin/main",
@@ -332,6 +413,7 @@ func TestCreateForksPiSession(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "follow up",
 		Base:          "HEAD",
@@ -355,6 +437,7 @@ func TestCreateRejectsInvalidRepoThinking(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	_, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
 		Base:          "origin/main",
@@ -371,6 +454,7 @@ func TestCreateRejectsInvalidDefaultThinking(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	_, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
 		Base:          "origin/main",
@@ -391,6 +475,7 @@ func TestCreateDoesNotCopyEnvWithoutRepoConfig(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
 		Base:          "origin/main",
@@ -413,6 +498,7 @@ func TestCreateEscapesWorktreeNamePathSegment(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "feature/nested fix",
 		Base:          "origin/main",
@@ -440,6 +526,7 @@ func TestCreatePreservesExplicitBranchName(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "feature/nested fix",
 		Branch:        "feature/nested-fix",

@@ -80,6 +80,7 @@ func setupIsolatedEnvironment(t *testing.T, tmp string) {
 	t.Helper()
 	t.Setenv("HOME", tmp)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(tmp, "state"))
 	t.Setenv("TMUX", "")
 }
@@ -150,7 +151,7 @@ func setupFakeJira(t *testing.T) *httptest.Server {
 func setupGitWorktree(t *testing.T, ctx context.Context, tmp string) {
 	t.Helper()
 	repo := filepath.Join(tmp, "repo")
-	wt := filepath.Join(tmp, "repo-rad-123")
+	wt := filepath.Join(tmp, "data", "radar", "workspaces", "repo", "linked")
 	runGit(t, ctx, tmp, "init", repo)
 	runGit(t, ctx, repo, "config", "user.email", "radar@example.test")
 	runGit(t, ctx, repo, "config", "user.name", "Radar Test")
@@ -159,8 +160,10 @@ func setupGitWorktree(t *testing.T, ctx context.Context, tmp string) {
 	}
 	runGit(t, ctx, repo, "add", "README.md")
 	runGit(t, ctx, repo, "commit", "-m", "initial")
+	if err := os.MkdirAll(filepath.Dir(wt), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	runGit(t, ctx, repo, "worktree", "add", "-b", "feature/RAD-123-linked-work", wt)
-	t.Setenv("RADAR_GIT_REPOS", repo)
 }
 
 func runGit(t *testing.T, ctx context.Context, dir string, args ...string) {

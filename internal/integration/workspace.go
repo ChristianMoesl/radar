@@ -16,8 +16,16 @@ type Workspace struct {
 	SandboxName string `json:"sandbox_name,omitempty"`
 }
 
+type WorkspaceBranchMode string
+
+const (
+	WorkspaceBranchExisting WorkspaceBranchMode = "existing"
+	WorkspaceBranchNew      WorkspaceBranchMode = "new"
+)
+
 type CreateWorkspaceRequest struct {
 	Repo                    string
+	BranchMode              WorkspaceBranchMode
 	Name                    string
 	Branch                  string
 	Base                    string

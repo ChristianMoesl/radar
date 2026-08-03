@@ -91,7 +91,7 @@ func TestPreviewCleanupReturnsWorktreeTarget(t *testing.T) {
 	}
 }
 
-func TestGitRootsDefaultsToCwdAndWorkspaces(t *testing.T) {
+func TestGitRootsOnlyIncludesConfiguredWorkspaces(t *testing.T) {
 	home := t.TempDir()
 	dataHome := filepath.Join(home, "data")
 	workspaceRoot := filepath.Join(dataHome, "radar", "workspaces")
@@ -106,36 +106,47 @@ func TestGitRootsDefaultsToCwdAndWorkspaces(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("XDG_DATA_HOME", dataHome)
-	t.Setenv("RADAR_GIT_REPOS", "")
 	t.Chdir(cwd)
 
 	roots := gitRoots()
-	assertContainsRoot(t, roots, cwd)
 	assertContainsRoot(t, roots, workspace)
 	assertContainsRoot(t, roots, otherWorkspace)
+	assertMissingRoot(t, roots, cwd)
 	assertMissingRoot(t, roots, filepath.Join(workspaceRoot, "repo"))
 }
 
-func TestPathInRepositoryDirs(t *testing.T) {
+func TestFetchWorktreesReturnsCompleteEmptyResultWithoutWorkspaces(t *testing.T) {
 	home := t.TempDir()
-	repositoryDir := filepath.Join(home, "repos")
-	inside := filepath.Join(repositoryDir, "radar")
-	outside := filepath.Join(home, "workspaces", "radar", "feature")
-	for _, path := range []string{inside, outside} {
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+
+	refs, status := FetchWorktrees(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if status.Status != "ok" || len(refs) != 0 {
+		t.Fatalf("FetchWorktrees() refs=%+v status=%+v, want complete empty result", refs, status)
+	}
+}
+
+func TestPathInWorkspaceRootRequiresRepositoryAndWorkspaceSegments(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "workspaces")
+	inside := filepath.Join(root, "radar", "feature")
+	for _, path := range []string{inside, filepath.Join(root, "radar"), filepath.Join(root, "radar", "feature", "nested")} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	if !pathInRepositoryDirs(inside, []string{repositoryDir}) {
-		t.Fatalf("pathInRepositoryDirs(%q) = false, want true", inside)
+	if !pathInWorkspaceRoot(inside, root) {
+		t.Fatalf("pathInWorkspaceRoot(%q, %q) = false, want true", inside, root)
 	}
-	if pathInRepositoryDirs(outside, []string{repositoryDir}) {
-		t.Fatalf("pathInRepositoryDirs(%q) = true, want false", outside)
+	for _, outside := range []string{filepath.Join(root, "radar"), filepath.Join(root, "radar", "feature", "nested"), filepath.Join(filepath.Dir(root), "repo")} {
+		if pathInWorkspaceRoot(outside, root) {
+			t.Fatalf("pathInWorkspaceRoot(%q, %q) = true, want false", outside, root)
+		}
 	}
 }
 
-func TestFetchWorktreesExcludesConfiguredRepositoryDirs(t *testing.T) {
+func TestFetchWorktreesOnlyIncludesConfiguredWorkspaceRoot(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
 	repositoryDir := filepath.Join(home, "repos")
@@ -158,13 +169,12 @@ func TestFetchWorktreesExcludesConfiguredRepositoryDirs(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	configJSON := []byte(`{"repository_dirs":["` + repositoryDir + `"]}`)
+	configJSON := []byte(`{"workspace_root":"` + filepath.Join(home, "workspaces") + `"}`)
 	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), configJSON, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	t.Setenv("RADAR_GIT_REPOS", repo)
 
 	refs, status := FetchWorktrees(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if status.Status != "ok" {
@@ -172,52 +182,6 @@ func TestFetchWorktreesExcludesConfiguredRepositoryDirs(t *testing.T) {
 	}
 	if len(refs) != 1 || cleanPhysicalPath(refs[0].Path) != cleanPhysicalPath(linkedWorktree) {
 		t.Fatalf("FetchWorktrees() refs = %+v, want only %q", refs, linkedWorktree)
-	}
-}
-
-func TestGitRootsIncludesTmuxSessionPaths(t *testing.T) {
-	home := t.TempDir()
-	cwd := filepath.Join(home, "cwd")
-	sessionPath := filepath.Join(home, "work", "repo")
-	bin := filepath.Join(home, "bin")
-	if err := os.MkdirAll(cwd, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(sessionPath, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(bin, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte("#!/bin/sh\nprintf '%s\\n' '"+sessionPath+"'\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
-	t.Setenv("PATH", bin)
-	t.Setenv("RADAR_GIT_REPOS", "")
-	t.Chdir(cwd)
-
-	roots := gitRoots()
-	assertContainsRoot(t, roots, cwd)
-	assertContainsRoot(t, roots, sessionPath)
-}
-
-func TestGitRootsEnvOverridesDefaults(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
-	t.Setenv("RADAR_GIT_REPOS", "~/repo:/tmp/other")
-
-	roots := gitRoots()
-	want := []string{filepath.Join(home, "repo"), "/tmp/other"}
-	if len(roots) != len(want) {
-		t.Fatalf("gitRoots() = %#v, want %#v", roots, want)
-	}
-	for i := range want {
-		if roots[i] != want[i] {
-			t.Fatalf("gitRoots() = %#v, want %#v", roots, want)
-		}
 	}
 }
 

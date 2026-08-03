@@ -16,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 
+	"radar/internal/integration"
 	"radar/internal/pi"
 	"radar/internal/sbxauth"
 	"radar/internal/tmuxlayout"
@@ -98,6 +99,7 @@ func commandError(name string, args []string, output []byte, err error) error {
 
 type CreateOptions struct {
 	Repo                    string
+	BranchMode              integration.WorkspaceBranchMode
 	Name                    string
 	Branch                  string
 	Base                    string
@@ -145,8 +147,8 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 			return Workspace{}, fmt.Errorf("workspace creation requires %q: %w", dependency, err)
 		}
 	}
-	if strings.TrimSpace(options.Name) == "" {
-		return Workspace{}, fmt.Errorf("workspace name is required")
+	if options.BranchMode != integration.WorkspaceBranchExisting && options.BranchMode != integration.WorkspaceBranchNew {
+		return Workspace{}, fmt.Errorf("workspace branch mode must be existing or new")
 	}
 
 	repo, err := runner.Run(ctx, options.Repo, "git", "rev-parse", "--show-toplevel")
@@ -173,11 +175,28 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		}
 	}
 	name := strings.TrimSpace(options.Name)
-	repoName := filepath.Base(repo)
 	branch := strings.TrimSpace(options.Branch)
-	if branch == "" {
-		branch = BranchName(name)
+	switch options.BranchMode {
+	case integration.WorkspaceBranchExisting:
+		branch = normalizeExistingBranch(branch)
+		if branch == "" {
+			return Workspace{}, fmt.Errorf("existing branch is required")
+		}
+		if name == "" {
+			name = branch
+		}
+	case integration.WorkspaceBranchNew:
+		if name == "" {
+			return Workspace{}, fmt.Errorf("new branch name is required")
+		}
+		if branch == "" {
+			branch = BranchName(name)
+		}
+		if strings.TrimSpace(options.Base) == "" {
+			return Workspace{}, fmt.Errorf("new branch base is required")
+		}
 	}
+	repoName := filepath.Base(repo)
 	root := options.WorkspaceRoot
 	if root == "" {
 		root, err = DefaultRoot()
@@ -200,12 +219,15 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	if existingPath, ok, err := worktreePathForBranch(ctx, runner, repo, branch); err != nil {
 		return Workspace{}, err
 	} else if ok {
+		if options.BranchMode == integration.WorkspaceBranchNew {
+			return Workspace{}, fmt.Errorf("branch %q already exists; choose the existing branch instead", branch)
+		}
+		if !isWorkspacePath(existingPath, root) {
+			return Workspace{}, fmt.Errorf("branch %q is checked out at %s; detach that checkout before creating a Radar workspace", branch, existingPath)
+		}
 		return openExistingWorkspace(ctx, runner, Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: existingPath, SessionName: sessionName, SandboxName: sandboxName}, options)
 	}
 	if _, err := os.Stat(path); err == nil {
-		if isGitWorktree(ctx, runner, path) {
-			return openExistingWorkspace(ctx, runner, Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName, SandboxName: sandboxName}, options)
-		}
 		return Workspace{}, fmt.Errorf("workspace already exists: %s", path)
 	} else if !os.IsNotExist(err) {
 		return Workspace{}, err
@@ -215,13 +237,21 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	}
 
 	args := []string{"worktree", "add"}
-	if branchExists(ctx, runner, repo, branch) {
-		args = append(args, path, branch)
-	} else {
-		args = append(args, "-b", branch, path)
-		if options.Base != "" {
-			args = append(args, options.Base)
+	switch options.BranchMode {
+	case integration.WorkspaceBranchExisting:
+		switch {
+		case refExists(ctx, runner, repo, "refs/heads/"+branch):
+			args = append(args, path, branch)
+		case refExists(ctx, runner, repo, "refs/remotes/origin/"+branch):
+			args = append(args, "--track", "-b", branch, path, "origin/"+branch)
+		default:
+			return Workspace{}, fmt.Errorf("branch %q does not exist locally or on origin", branch)
 		}
+	case integration.WorkspaceBranchNew:
+		if refExists(ctx, runner, repo, "refs/heads/"+branch) || refExists(ctx, runner, repo, "refs/remotes/origin/"+branch) {
+			return Workspace{}, fmt.Errorf("branch %q already exists; choose the existing branch instead", branch)
+		}
+		args = append(args, "-b", branch, path, options.Base)
 	}
 	if _, err := runner.Run(ctx, repo, "git", args...); err != nil {
 		return Workspace{}, err
@@ -334,14 +364,25 @@ func openExistingWorkspace(ctx context.Context, runner Runner, workspace Workspa
 	return workspace, nil
 }
 
-func branchExists(ctx context.Context, runner Runner, repo string, branch string) bool {
-	_, err := runner.Run(ctx, repo, "git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+func normalizeExistingBranch(branch string) string {
+	branch = strings.TrimSpace(branch)
+	branch = strings.TrimPrefix(branch, "refs/remotes/origin/")
+	branch = strings.TrimPrefix(branch, "origin/")
+	return strings.TrimPrefix(branch, "refs/heads/")
+}
+
+func refExists(ctx context.Context, runner Runner, repo string, ref string) bool {
+	_, err := runner.Run(ctx, repo, "git", "show-ref", "--verify", "--quiet", ref)
 	return err == nil
 }
 
-func isGitWorktree(ctx context.Context, runner Runner, path string) bool {
-	_, err := runner.Run(ctx, path, "git", "rev-parse", "--show-toplevel")
-	return err == nil
+func isWorkspacePath(path string, root string) bool {
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return false
+	}
+	parts := strings.Split(relative, string(os.PathSeparator))
+	return len(parts) == 2 && parts[0] != "" && parts[1] != ""
 }
 
 func worktreePathForBranch(ctx context.Context, runner Runner, repo string, branch string) (string, bool, error) {

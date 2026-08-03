@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"radar/internal/config"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 	"radar/internal/workspace"
@@ -22,16 +21,20 @@ var ticketPattern = regexp.MustCompile(`[A-Z][A-Z0-9]+-[0-9]+`)
 
 func FetchWorktrees(ctx context.Context, logger *slog.Logger) ([]protocol.SourceRef, protocol.SourceStatus) {
 	roots := gitRoots()
-	repositoryDirs := configuredRepositoryDirs()
+	workspaceRoot, rootErr := workspace.DefaultRoot()
 	source_refs := make([]protocol.SourceRef, 0)
 	seen := map[string]bool{}
 	status := protocol.SourceStatus{Name: "git", Status: "ok"}
 	collectedRoots := 0
 	failedRoots := 0
 
+	if rootErr != nil {
+		status.Status = "error"
+		status.Detail = "could not determine workspace root"
+		return source_refs, status
+	}
 	if len(roots) == 0 {
-		status.Status = "disabled"
-		status.Detail = "no git roots configured"
+		status.Detail = "0 worktrees from 0 roots"
 		return source_refs, status
 	}
 
@@ -44,7 +47,7 @@ func FetchWorktrees(ctx context.Context, logger *slog.Logger) ([]protocol.Source
 		}
 		collectedRoots++
 		for _, wt := range worktrees {
-			if seen[wt.Path] || pathInRepositoryDirs(wt.Path, repositoryDirs) {
+			if seen[wt.Path] || !pathInWorkspaceRoot(wt.Path, workspaceRoot) {
 				continue
 			}
 			seen[wt.Path] = true
@@ -67,48 +70,18 @@ func FetchWorktrees(ctx context.Context, logger *slog.Logger) ([]protocol.Source
 }
 
 func gitRoots() []string {
-	if value := os.Getenv("RADAR_GIT_REPOS"); value != "" {
-		parts := strings.Split(value, ":")
-		roots := make([]string, 0, len(parts))
-		for _, part := range parts {
-			if part != "" {
-				roots = append(roots, expandPath(part))
-			}
-		}
-		return roots
-	}
-
-	roots := make([]string, 0)
-	if cwd, err := os.Getwd(); err == nil {
-		roots = appendUniqueRoot(roots, cwd)
-	}
-	for _, root := range workspaceGitRoots() {
-		roots = appendUniqueRoot(roots, root)
-	}
-	for _, root := range tmuxSessionGitRoots() {
-		roots = appendUniqueRoot(roots, root)
-	}
-	return roots
+	return workspaceGitRoots()
 }
 
-func configuredRepositoryDirs() []string {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil
-	}
-	return workspace.RepositoryDirs(cfg)
-}
-
-func pathInRepositoryDirs(path string, roots []string) bool {
+func pathInWorkspaceRoot(path string, root string) bool {
 	path = cleanPhysicalPath(path)
-	for _, root := range roots {
-		root = cleanPhysicalPath(root)
-		relative, err := filepath.Rel(root, path)
-		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
-			return true
-		}
+	root = cleanPhysicalPath(root)
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return false
 	}
-	return false
+	parts := strings.Split(relative, string(os.PathSeparator))
+	return len(parts) == 2 && parts[0] != "" && parts[1] != ""
 }
 
 func workspaceGitRoots() []string {
@@ -128,60 +101,6 @@ func workspaceGitRoots() []string {
 		}
 	}
 	return roots
-}
-
-func tmuxSessionGitRoots() []string {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	output, err := exec.CommandContext(ctx, "tmux", "list-sessions", "-F", "#{session_path}").Output()
-	if err != nil {
-		return nil
-	}
-	roots := make([]string, 0)
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
-	for scanner.Scan() {
-		root := strings.TrimSpace(scanner.Text())
-		if root != "" {
-			roots = appendUniqueRoot(roots, root)
-		}
-	}
-	return roots
-}
-
-func appendUniqueRoot(roots []string, root string) []string {
-	root = cleanRoot(root)
-	if root == "" {
-		return roots
-	}
-	for _, existing := range roots {
-		if existing == root {
-			return roots
-		}
-	}
-	return append(roots, root)
-}
-
-func cleanRoot(root string) string {
-	root = strings.TrimSpace(root)
-	if root == "" {
-		return ""
-	}
-	if abs, err := filepath.Abs(root); err == nil {
-		return abs
-	}
-	return root
-}
-
-func expandPath(path string) string {
-	if path == "~" {
-		home, _ := os.UserHomeDir()
-		return home
-	}
-	if strings.HasPrefix(path, "~/") {
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, path[2:])
-	}
-	return path
 }
 
 type worktree struct {

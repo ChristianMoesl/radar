@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"radar/internal/integration"
 	"radar/internal/protocol"
 )
 
@@ -263,6 +264,51 @@ func TestCreateRepoViewRendersFuzzySearch(t *testing.T) {
 	}
 }
 
+func TestCreateFlowExplicitlySelectsBranchIntent(t *testing.T) {
+	m := model{mode: "create_repo", create: newCreateForm()}
+	m.create.repoList = picker{options: []string{"/repo/radar"}}
+
+	updated, cmd := m.selectCreateStep()
+	m = updated.(model)
+	if cmd != nil || m.mode != "create_intent" || m.create.repo != "/repo/radar" {
+		t.Fatalf("repository selection mode=%q repo=%q command=%v", m.mode, m.create.repo, cmd)
+	}
+	if view := m.View(); !strings.Contains(view, createIntentExisting) || !strings.Contains(view, createIntentNew) {
+		t.Fatalf("intent view missing choices:\n%s", view)
+	}
+
+	updated, cmd = m.selectCreateStep()
+	m = updated.(model)
+	if cmd == nil || m.mode != "create_branch" || m.create.branchMode != integration.WorkspaceBranchExisting {
+		t.Fatalf("intent selection mode=%q branchMode=%q command=%v", m.mode, m.create.branchMode, cmd)
+	}
+}
+
+func TestExistingBranchNamesCombineLocalAndOriginRefs(t *testing.T) {
+	got := existingBranchNames([]string{"origin/main", "origin/feature/one", "main", "feature/one", "local-only"})
+	want := []string{"main", "feature/one", "local-only"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("existingBranchNames() = %v, want %v", got, want)
+	}
+}
+
+func TestSelectingExistingBranchSubmitsWithoutNameStep(t *testing.T) {
+	m := model{
+		mode: "create_branch",
+		create: createForm{
+			repo:       "/repo/radar",
+			branchMode: integration.WorkspaceBranchExisting,
+			branchList: picker{options: []string{"main"}},
+		},
+	}
+
+	updated, cmd := m.selectCreateStep()
+	got := updated.(model)
+	if cmd == nil || got.mode != "" || !got.loading || got.create.branch != "main" || got.create.name != "main" {
+		t.Fatalf("existing selection mode=%q loading=%v branch=%q name=%q command=%v", got.mode, got.loading, got.create.branch, got.create.name, cmd)
+	}
+}
+
 func TestCreateFormAllowsJAndKInFilters(t *testing.T) {
 	m := model{mode: "create_repo", create: createForm{repoList: picker{
 		cursor:  1,
@@ -302,7 +348,7 @@ func TestCreateNameViewRendersSelectedRepoAndBase(t *testing.T) {
 	model := model{mode: "create_name", create: createForm{repo: "/repo/radar", base: "origin/main", name: "small-fix"}}
 
 	view := model.View()
-	for _, want := range []string{"Create workspace", "Repository /repo/radar", "Base       origin/main", "Name       small-fix"} {
+	for _, want := range []string{"Create workspace", "Repository /repo/radar", "Start      origin/main", "New branch small-fix"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q:\n%s", want, view)
 		}
@@ -310,7 +356,7 @@ func TestCreateNameViewRendersSelectedRepoAndBase(t *testing.T) {
 }
 
 func TestSubmitCreateShowsCreatingWorkspaceNotification(t *testing.T) {
-	m := model{mode: "create_name", create: createForm{repo: "/repo/radar", base: "origin/main", name: "small-fix"}}
+	m := model{mode: "create_name", create: createForm{repo: "/repo/radar", branchMode: integration.WorkspaceBranchNew, base: "origin/main", name: "small-fix"}}
 
 	updated, cmd := m.submitCreate()
 	if cmd == nil {

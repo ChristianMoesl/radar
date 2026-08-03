@@ -137,7 +137,7 @@ R            reset local state and refresh
 q / esc      quit
 ```
 
-The create flow is step-by-step: fuzzy search a repository, fuzzy search a base branch, then enter the workspace name. Repository paths are displayed as `~/...` when they are inside your home directory.
+The create flow is step-by-step: fuzzy search a repository, choose whether to work on an existing branch or create a new one, then select the existing branch or the new branch's starting reference. New branches also prompt for a name. Repository paths are displayed as `~/...` when they are inside your home directory.
 
 ## Workspaces
 
@@ -153,7 +153,7 @@ Create a workspace non-interactively:
 ./radar create --repo /path/to/repo --base origin/main --name my-feature
 ```
 
-Radar creates:
+For a new branch, Radar creates:
 
 - a Git worktree at `<workspace_root>/<repo>/<name>`
 - a sanitized branch named after the workspace
@@ -161,6 +161,15 @@ Radar creates:
 - setup commands run in the new worktree when configured
 - a matching tmux session
 - user-configured tmux windows and panes; by default, separate `pi` and `nvim` windows
+
+For an existing branch, Radar reuses its local branch or creates a same-named local branch that tracks `origin/<branch>`. A branch already checked out in a Radar workspace reopens that workspace. To keep a normal source checkout for `.env` files, local services, and database setup while making `main` available to a Radar worktree, park the clean source checkout on the remote-tracking commit:
+
+```sh
+git fetch
+git switch --no-overwrite-ignore --detach origin/main
+```
+
+Ignored development files remain in place. Radar refuses to move a branch that is still checked out in the source repository.
 
 Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 
@@ -376,15 +385,7 @@ A newly collected monitor produces the normal Radar macOS notification. Clicking
 
 ## Git worktrees
 
-Radar can collect Git worktree information and attach it to matching tasks by ticket key, e.g. `ABC-123`.
-
-Configure repositories with:
-
-```sh
-RADAR_GIT_REPOS=/path/to/repo:/path/to/another/repo ./radar daemon
-```
-
-If unset, Radar tries the daemon's current working directory.
+Radar collects Git checkouts at `<workspace_root>/<repo>/<workspace>` and attaches them to matching tasks by ticket key, e.g. `ABC-123`. Regular repositories outside the configured workspace root are ignored. Branch names do not affect collection, so a workspace checked out directly on `main` remains visible.
 
 ## tmux sessions
 
