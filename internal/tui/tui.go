@@ -1387,7 +1387,7 @@ func (m model) detailView(width int) string {
 		}
 	}
 	appendDetailLine("Status", task.Attention)
-	appendDetailLine("Reason", task.Reason)
+	appendDetailLine("Reason", displayTaskReason(task))
 	appendDetailLine("Repo", task.Repo)
 	appendDetailLine("URL", task.URL)
 	if len(task.Metadata) > 0 {
@@ -2073,8 +2073,7 @@ func taskLine(task protocol.Task, selected bool) string {
 		}
 		title = fmt.Sprintf("%s  %s", title, repo)
 	}
-	if task.Reason != "" {
-		reason := task.Reason
+	if reason := displayTaskReason(task); reason != "" {
 		if !selected {
 			reason = subtleStyle.Render(reason)
 		}
@@ -2083,21 +2082,20 @@ func taskLine(task protocol.Task, selected bool) string {
 	return title
 }
 
-func sourceRefLabel(ref protocol.SourceRef) string {
-	prefix := ""
-	if ref.Role == protocol.SourceRefRoleInformational {
-		label := strings.TrimSpace(ref.SourceLabel)
-		if label == "" {
-			label = ref.Source
-		}
-		prefix = label + " reference: "
+func displayTaskReason(task protocol.Task) string {
+	if task.Reason == "manual task" {
+		return ""
 	}
+	return task.Reason
+}
+
+func sourceRefLabel(ref protocol.SourceRef) string {
 	for _, value := range []string{ref.ID, ref.Title, ref.Repo, ref.Path, ref.Branch} {
 		if value != "" {
-			return prefix + value
+			return value
 		}
 	}
-	return prefix + ref.Source + ":" + ref.Kind
+	return ref.Source + ":" + ref.Kind
 }
 
 func (m model) sourceList(width int) string {

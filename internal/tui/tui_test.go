@@ -37,6 +37,29 @@ func TestViewShowsErrorsAsToastWithoutReplacingTasks(t *testing.T) {
 	}
 }
 
+func TestViewHidesManualTaskReason(t *testing.T) {
+	model := model{
+		tasks: []protocol.Task{{
+			Title:     "Plan release",
+			Reason:    "manual task",
+			Attention: "low_priority",
+		}},
+	}
+
+	view := model.View()
+	if !strings.Contains(view, "Plan release") {
+		t.Fatalf("View() missing task title:\n%s", view)
+	}
+	if strings.Contains(view, "manual task") {
+		t.Fatalf("View() exposes manual task distinction:\n%s", view)
+	}
+
+	model.mode = "detail"
+	if detail := model.View(); strings.Contains(detail, "manual task") {
+		t.Fatalf("detail View() exposes manual task distinction:\n%s", detail)
+	}
+}
+
 func TestViewRendersTasksAndSources(t *testing.T) {
 	model := model{
 		summary: protocol.Summary{Attention: 1},
