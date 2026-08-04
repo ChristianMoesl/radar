@@ -1,6 +1,6 @@
 # Radar
 
-Radar is a CLI-first tool for keeping track of engineering work that needs your attention. It combines a terminal UI, scriptable commands, a background daemon, GitHub/Jira/Datadog/Git/tmux/sbx collection, and workspace creation in one Go binary.
+Radar is a CLI-first tool for keeping track of engineering work that needs your attention. It combines a terminal UI, scriptable commands, a background daemon, Obsidian task authoring, GitHub/Jira/Datadog/Git/tmux/sbx collection, and workspace creation in one Go binary.
 
 ## Install
 
@@ -125,8 +125,8 @@ The TUI supports:
 ```text
 j / down     move down
 k / up       move up
-enter        switch tmux session when connected
-o            open task link/action, then press g for GitHub, j for Jira, or s for sbx
+enter        switch/create the selected task's tmux session
+o            open a source action or link, including Obsidian, GitHub, Jira, and sbx
 i            inspect selected task
 c            create workspace
 x            clean up all local resources linked to the selected task
@@ -243,20 +243,31 @@ Cleanup shows one confirmation covering all linked Git worktrees, tmux sessions,
 
 The daemon automatically garbage-collects local workspaces for tasks that have been done for at least 24 hours. Automatic cleanup only targets clean worktrees under the configured workspace root and skips workspaces whose linked tmux session is attached. Run `radar gc`, or press `X` in the TUI, to clean eligible done-task workspaces immediately without waiting for the 24-hour retention period. Manual garbage collection keeps the same clean-worktree and detached-session safety checks. Radar sends the garbage-collection result as a host OS notification.
 
-## Manual tasks
+## Obsidian-authored tasks
 
-Radar can track work before it has a Jira issue, repository, or pull request:
+Configure one Obsidian vault before creating tasks:
+
+```json
+{
+  "obsidian": {
+    "vault_path": "~/Documents/Obsidian/Work"
+  }
+}
+```
+
+The vault and its `.obsidian/` directory must already exist. Radar creates `Radar/Tasks/` inside it. Each task gets a source-owned UUID, `task.md`, and `artifacts/` directory:
 
 ```sh
 radar task create --title "Write the release process in Notion"
 radar task done <task-id>
 radar task reopen <task-id>
-radar task attach-jira <task-id> DPSCAP-123
 radar task priority <task-id> urgent
 radar task priority <task-id> normal
 ```
 
-Manual tasks start in `low_priority` and keep their Radar-owned numeric ID across refreshes and restarts. Press `n` in the TUI to enter a title, and `d` to complete or reopen a selected manual-only task. Press `p` on any active task to mark it manually urgent; press it again to restore the current source-derived priority. Done tasks stay done, and a source-derived immediate signal cannot be lowered with `p`. Attaching Jira preserves the original intent and ID, merges an already-collected issue if needed, and lets later ticket-bearing worktrees and pull requests join the same task. Jira or GitHub lifecycle rules become authoritative after a remote reference is attached.
+Obsidian owns title, open/done state, normal/urgent priority, timestamps, notes, and outcomes. Radar projects those facts with live Jira, GitHub, Git, tmux, and SBX activity. An open normal note is low priority, urgent is immediate, linked activity can promote open work, and a done note remains terminal. Press `n`, `d`, and `p` for the same operations in the TUI. Press `Enter` to create or resume a deterministic Pi session in the task directory, or `o` to open the note in Obsidian.
+
+Radar preserves unknown frontmatter and the complete note body during atomic mutations. It never deletes task notes or artifacts. See [the Obsidian integration contract](docs/integrations/obsidian.md) for the schema and failure behavior.
 
 ## Scriptable commands
 
@@ -264,7 +275,6 @@ Manual tasks start in `low_priority` and keep their Radar-owned numeric ID acros
 ./radar task create --title <title>
 ./radar task done <task-id>
 ./radar task reopen <task-id>
-./radar task attach-jira <task-id> <issue-key>
 ./radar task priority <task-id> urgent|normal
 ./radar status
 ./radar tasks
@@ -293,7 +303,7 @@ Radar's main executable is a single Go binary with three modes:
 TUI / CLI -> Unix socket -> radar daemon -> source-compiled integrations
 ```
 
-The daemon keeps collection centralized so UI/status reads can use cached local state instead of polling external services repeatedly. It refreshes local Git/tmux/sbx state every 15 seconds and runs a full GitHub/Jira/Datadog/Git/tmux/sbx refresh every 5 minutes.
+The daemon keeps collection centralized so UI/status reads can use cached local state instead of polling external services repeatedly. It refreshes local Obsidian/Git/tmux/sbx state every 15 seconds and runs a full Obsidian/GitHub/Jira/Datadog/Git/tmux/sbx refresh every 5 minutes.
 
 For internals, see [ARCHITECTURE.md](ARCHITECTURE.md). For how Radar decides what needs attention, see [docs/attention-algorithm.md](docs/attention-algorithm.md). To add a source-compiled integration, see [docs/integrations.md](docs/integrations.md).
 
@@ -344,7 +354,7 @@ RADAR_JIRA_CLOUD_ID="..."
 
 Names are trimmed and matched case-insensitively. An explicitly empty array skips assigned Jira search and makes every automatically title-discovered issue informational. Omitting the option uses the three default types. The former `jira.issue_types` option is not supported.
 
-Authoritative Jira refs can provide the task title, identity, attention, linking, and lifecycle. An out-of-scope title discovery is shown as an informational **Jira reference** with its URL, status, issue type, priority, and status category, but it cannot rename, merge, reprioritize, complete, or reopen the task. Removing a key from all current title-bearing facts removes its derived reference on a complete refresh. `radar task attach-jira` is always authoritative regardless of issue type and remains durable when the key leaves the title.
+Authoritative Jira refs can provide the task title, identity, attention, linking, and contributing lifecycle. An out-of-scope title discovery is shown as an informational **Jira reference** with its URL, status, issue type, priority, and status category, but it cannot rename, merge, reprioritize, complete, or reopen the task. Removing a key from all current title-bearing facts removes its derived reference on a complete refresh. When a Jira ref joins an Obsidian-authored task, Obsidian remains the primary lifecycle owner.
 
 Every distinct key in a title is fetched in title order, up to 50 direct fetches per refresh. Informational refs remain independent; all authoritative refs participate in linking and lifecycle, the first authoritative key supplies the Jira title, and completion requires every authoritative remote ref to be done. Failed or inaccessible direct fetches are non-fatal, retain a previously known ref, and are reported in Jira source status.
 
@@ -415,6 +425,7 @@ Example:
 {
   "repository_dirs": ["~/workspace", "~/code", "~/src", "~/dev", "~/projects"],
   "linking_mark_prefixes": ["ABC"],
+  "obsidian": {"vault_path": "~/Documents/Obsidian/Work"},
   "model": "github-copilot/claude-sonnet-4.5",
   "thinking": "medium",
   "sbx": {
@@ -454,17 +465,17 @@ Example:
 
 `linking_mark_prefixes` is mandatory and lists the identifier prefixes Radar may use to link work across sources, for example `["DPSCAP"]` permits `DPSCAP-722`. Prefixes are normalized to uppercase, must start with a letter, and may contain only letters and numbers. Radar matches only complete `<PREFIX>-<NUMBER>` marks, so unrelated suffixes such as `Origin-096e274f` are ignored.
 
-`repository_dirs` controls where `radar create` discovers base repositories. `workspace_root` controls where Radar creates worktrees. When omitted, the workspace root is `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.authoritative_issue_types` defaults to Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection; secrets are accepted only from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`.
+`obsidian.vault_path` is required for task authoring and must identify an existing vault containing `.obsidian/`; Radar creates its fixed `Radar/Tasks/` root. `repository_dirs` controls where `radar create` discovers base repositories. `workspace_root` controls where Radar creates worktrees. When omitted, the workspace root is `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.authoritative_issue_types` defaults to Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection; secrets are accepted only from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`.
 
 Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the low-priority section. User filters also apply to GitHub comment and review actors: muted or deprioritized actor activity does not promote a PR to attention. Confirmed GitHub bots match both their API login and the equivalent `[bot]` alias, so `gemini-code-assist[bot]` matches the GraphQL login `gemini-code-assist`. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive.
 
 ## Local state
 
-The daemon stores durable task records and source-ref records locally. Task records own stable Radar IDs, optional manual intent and associations, lifecycle state, acknowledgements, and an optional urgent override. CLI/TUI tasks are rebuilt as disposable projections, including manual records that have no source refs.
+The daemon stores rebuildable task records and source-ref observations locally. Task records provide cache-local numeric IDs, lifecycle projection, source-ref ownership, and acknowledgements. Obsidian notes—not this cache—own authored task content and lifecycle.
 
-Radar groups work by linking mark first, then by local workspace, then by PR/issue/source-ref identity. Done state and acknowledgement state are kept on durable task records instead of being inferred from the latest projected task.
+Radar groups work by linking mark, source-owned identity, and workspace keys. A primary lifecycle ref controls completion when present; otherwise contributing work-item refs retain their combined lifecycle behavior.
 
-Use `./radar reset` to discard collected source observations and collect them again. Reset retains Radar-owned manual tasks, IDs, completion state, associations, acknowledgements, and priority overrides.
+Use `./radar reset` to discard collected observations and rebuild them from integrations. Acknowledgements may be retained. An incompatible state version is intentionally discarded and recollected; malformed state still fails closed.
 
 ```sh
 ./radar state-path
@@ -474,7 +485,7 @@ By default this is `$XDG_STATE_HOME/radar/tasks.json` or `~/.local/state/radar/t
 
 Override it with `RADAR_STATE=/path/to/tasks.json`.
 
-Radar writes state atomically through a single serialized writer. If an existing state file is malformed or has an incompatible `stateVersion`, the daemon refuses to start and leaves the file untouched. Additive persisted fields do not change `stateVersion`; a version bump is reserved for rare, intentionally incompatible format changes.
+Radar writes state atomically through a single serialized writer. A malformed state file prevents startup. An incompatible `stateVersion` is treated as a disposable cache and rebuilt from source integrations.
 
 ## Logs
 

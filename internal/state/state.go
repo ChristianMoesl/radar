@@ -21,7 +21,7 @@ const maxStateFileSize = 50 * 1024 * 1024
 // stateVersion changes only when the persisted format becomes intentionally
 // incompatible. Additive, backward-readable state changes must keep the
 // current version.
-const stateVersion = 5
+const stateVersion = 6
 const doneTaskDisplayRetention = 3 * 24 * time.Hour
 
 type Store struct {
@@ -44,29 +44,19 @@ type persistedState struct {
 }
 
 type TaskRecord struct {
-	ID               string        `json:"id"`
-	NumericID        int           `json:"numeric_id"`
-	CanonicalKey     string        `json:"canonical_key"`
-	Kind             string        `json:"kind"`
-	State            string        `json:"state"`
-	Reason           string        `json:"reason,omitempty"`
-	DoneAt           string        `json:"done_at,omitempty"`
-	FirstSeen        string        `json:"first_seen"`
-	LastSeen         string        `json:"last_seen"`
-	UpdatedAt        string        `json:"updated_at"`
-	SourceRefIDs     []string      `json:"source_ref_ids"`
-	Intent           *ManualIntent `json:"intent,omitempty"`
-	PriorityOverride string        `json:"priority_override,omitempty"`
-	Ack              TaskAckState  `json:"ack,omitempty"`
-	Snapshot         protocol.Task `json:"snapshot"`
-}
-
-type ManualIntent struct {
-	Title            string                     `json:"title"`
-	CreatedAt        string                     `json:"created_at"`
-	UpdatedAt        string                     `json:"updated_at"`
-	ManuallyComplete bool                       `json:"manually_complete"`
-	Associations     []protocol.TaskAssociation `json:"associations,omitempty"`
+	ID           string        `json:"id"`
+	NumericID    int           `json:"numeric_id"`
+	CanonicalKey string        `json:"canonical_key"`
+	Kind         string        `json:"kind"`
+	State        string        `json:"state"`
+	Reason       string        `json:"reason,omitempty"`
+	DoneAt       string        `json:"done_at,omitempty"`
+	FirstSeen    string        `json:"first_seen"`
+	LastSeen     string        `json:"last_seen"`
+	UpdatedAt    string        `json:"updated_at"`
+	SourceRefIDs []string      `json:"source_ref_ids"`
+	Ack          TaskAckState  `json:"ack,omitempty"`
+	Snapshot     protocol.Task `json:"snapshot"`
 }
 
 type TaskAckState struct {
@@ -144,7 +134,12 @@ func (s *Store) Load() error {
 		return err
 	}
 	if state.Version != stateVersion {
-		return fmt.Errorf("incompatible state version %d, expected %d; state left untouched", state.Version, stateVersion)
+		s.logger.Info("discarding incompatible rebuildable state", "path", s.path, "version", state.Version, "expected", stateVersion)
+		s.mu.Lock()
+		s.state = persistedState{Version: stateVersion, Records: []TaskRecord{}, SourceRefs: []SourceRefRecord{}, Sources: []protocol.SourceStatus{}}
+		s.items = []protocol.Task{}
+		s.mu.Unlock()
+		return nil
 	}
 	if state.Records == nil {
 		state.Records = []TaskRecord{}
@@ -258,38 +253,20 @@ func syncDirectory(path string) error {
 }
 
 func (s *Store) Reset() error {
-	nowText := time.Now().UTC().Format(time.RFC3339)
 	s.mu.Lock()
 	retained := make([]TaskRecord, 0)
 	for _, record := range s.state.Records {
-		if record.Intent == nil && record.PriorityOverride == "" && record.Ack.GeneralCommentsAckAt == "" {
+		if record.Ack.GeneralCommentsAckAt == "" {
 			continue
 		}
-
-		// Source observations are rebuildable. Keep only Radar-owned state and
-		// enough durable identity to let refreshed refs rejoin the record.
-		previousDoneAt := record.DoneAt
 		record.State = "active"
 		record.Reason = ""
 		record.DoneAt = ""
+		record.SourceRefIDs = nil
 		record.Snapshot = protocol.Task{}
-		if record.Intent != nil {
-			record.Snapshot = protocol.Task{Kind: "manual", Title: record.Intent.Title, Attention: "low_priority", Reason: "manual task"}
-			if record.Intent.ManuallyComplete {
-				record.State = "done"
-				record.Reason = "manually completed"
-				record.DoneAt = firstNonEmpty(previousDoneAt, nowText)
-			}
-		}
 		retained = append(retained, record)
 	}
-	s.state = persistedState{
-		Version:    stateVersion,
-		NextTaskID: s.state.NextTaskID,
-		Records:    retained,
-		SourceRefs: []SourceRefRecord{},
-		Sources:    []protocol.SourceStatus{},
-	}
+	s.state = persistedState{Version: stateVersion, NextTaskID: s.state.NextTaskID, Records: retained, SourceRefs: []SourceRefRecord{}, Sources: []protocol.SourceStatus{}}
 	s.items = projectTasks(s.state)
 	s.bumpRevisionLocked()
 	s.mu.Unlock()
@@ -299,237 +276,6 @@ func (s *Store) Reset() error {
 	}
 	s.logger.Info("state reset", "path", s.path, "retained_records", len(retained))
 	return nil
-}
-
-func (s *Store) CreateManualTask(title string) (protocol.Task, error) {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return protocol.Task{}, fmt.Errorf("task title must not be empty")
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	s.mu.Lock()
-	s.state.NextTaskID++
-	record := TaskRecord{
-		ID:        fmt.Sprintf("task:%d", s.state.NextTaskID),
-		NumericID: s.state.NextTaskID,
-		Kind:      "manual",
-		State:     "active",
-		FirstSeen: now,
-		LastSeen:  now,
-		UpdatedAt: now,
-		Intent: &ManualIntent{
-			Title:        title,
-			CreatedAt:    now,
-			UpdatedAt:    now,
-			Associations: []protocol.TaskAssociation{},
-		},
-		Snapshot: protocol.Task{Kind: "manual", Title: title, Attention: "low_priority", Reason: "manual task"},
-	}
-	s.state.Records = append(s.state.Records, record)
-	s.items = projectTasks(s.state)
-	s.bumpRevisionLocked()
-	task, _ := taskByNumericID(s.items, record.NumericID)
-	s.mu.Unlock()
-	if err := s.Save(); err != nil {
-		return protocol.Task{}, err
-	}
-	return task, nil
-}
-
-func (s *Store) CompleteManualTask(taskID int) (protocol.Task, error) {
-	return s.setManualCompletion(taskID, true)
-}
-
-func (s *Store) ReopenManualTask(taskID int) (protocol.Task, error) {
-	return s.setManualCompletion(taskID, false)
-}
-
-func (s *Store) setManualCompletion(taskID int, complete bool) (protocol.Task, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	s.mu.Lock()
-	record := recordByNumericID(s.state.Records, taskID)
-	if record == nil {
-		s.mu.Unlock()
-		return protocol.Task{}, fmt.Errorf("task %d not found", taskID)
-	}
-	if record.Intent == nil {
-		s.mu.Unlock()
-		return protocol.Task{}, fmt.Errorf("task %d is not a manual task", taskID)
-	}
-	if manualLifecycleUsesWorkItem(*record, s.state.SourceRefs) {
-		s.mu.Unlock()
-		return protocol.Task{}, fmt.Errorf("task %d lifecycle is controlled by an attached work item", taskID)
-	}
-	if complete {
-		record.State = "done"
-		record.DoneAt = now
-		record.Reason = "manually completed"
-	} else {
-		record.State = "active"
-		record.DoneAt = ""
-		record.Reason = ""
-	}
-	record.Intent.ManuallyComplete = complete
-	record.Intent.UpdatedAt = now
-	record.UpdatedAt = now
-	s.items = projectTasks(s.state)
-	s.bumpRevisionLocked()
-	task, _ := taskByNumericID(s.items, taskID)
-	s.mu.Unlock()
-	if err := s.Save(); err != nil {
-		return protocol.Task{}, err
-	}
-	return task, nil
-}
-
-func (s *Store) SetTaskPriority(taskID int, priority string) (protocol.Task, error) {
-	priority = strings.ToLower(strings.TrimSpace(priority))
-	if priority != "urgent" && priority != "normal" {
-		return protocol.Task{}, fmt.Errorf("unsupported task priority %q; use urgent or normal", priority)
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	s.mu.Lock()
-	record := recordByNumericID(s.state.Records, taskID)
-	if record == nil {
-		s.mu.Unlock()
-		return protocol.Task{}, fmt.Errorf("task %d not found", taskID)
-	}
-	if record.State == "done" {
-		s.mu.Unlock()
-		return protocol.Task{}, fmt.Errorf("task %d is done and cannot be made urgent", taskID)
-	}
-	if priority == "urgent" {
-		record.PriorityOverride = "urgent"
-	} else {
-		record.PriorityOverride = ""
-	}
-	record.UpdatedAt = now
-	if record.Intent != nil {
-		record.Intent.UpdatedAt = now
-	}
-	s.items = projectTasks(s.state)
-	s.bumpRevisionLocked()
-	task, _ := taskByNumericID(s.items, taskID)
-	s.mu.Unlock()
-	if err := s.Save(); err != nil {
-		return protocol.Task{}, err
-	}
-	return task, nil
-}
-
-func (s *Store) AttachAssociation(taskID int, association protocol.TaskAssociation) (protocol.Task, error) {
-	association.Source = strings.TrimSpace(association.Source)
-	association.ExternalID = strings.TrimSpace(association.ExternalID)
-	association.CanonicalKey = strings.TrimSpace(association.CanonicalKey)
-	association.LinkingKeys = mergeStringSet(nil, association.LinkingKeys)
-	if association.Source == "" || association.ExternalID == "" || association.CanonicalKey == "" {
-		return protocol.Task{}, fmt.Errorf("task association source, external ID, and canonical key are required")
-	}
-	if association.Lifecycle != protocol.SourceRefLifecycleWorkItem && association.Lifecycle != protocol.SourceRefLifecycleWorkspace && association.Lifecycle != protocol.SourceRefLifecycleResource {
-		return protocol.Task{}, fmt.Errorf("task association has unsupported lifecycle %q", association.Lifecycle)
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	s.mu.Lock()
-	record := recordByNumericID(s.state.Records, taskID)
-	if record == nil {
-		s.mu.Unlock()
-		return protocol.Task{}, fmt.Errorf("task %d not found", taskID)
-	}
-	if record.Intent == nil {
-		s.mu.Unlock()
-		return protocol.Task{}, fmt.Errorf("task %d is not a manual task", taskID)
-	}
-	record.CanonicalKey = association.CanonicalKey
-	record.Kind = recordKind(protocol.Task{}, association.CanonicalKey)
-	record.State = "active"
-	record.DoneAt = ""
-	record.Reason = ""
-	record.Intent.ManuallyComplete = false
-	record.Intent.Associations = mergeAssociations(record.Intent.Associations, []protocol.TaskAssociation{association})
-	record.Intent.UpdatedAt = now
-	record.UpdatedAt = now
-	s.state = mergeRecordIntoManual(s.state, record.ID, association.CanonicalKey)
-	updateRecordLifecycles(s.state.Records, s.state.SourceRefs, now)
-	s.items = projectTasks(s.state)
-	s.bumpRevisionLocked()
-	task, _ := taskByNumericID(s.items, taskID)
-	s.mu.Unlock()
-	if err := s.Save(); err != nil {
-		return protocol.Task{}, err
-	}
-	return task, nil
-}
-
-func recordByNumericID(records []TaskRecord, id int) *TaskRecord {
-	for i := range records {
-		if records[i].NumericID == id {
-			return &records[i]
-		}
-	}
-	return nil
-}
-
-func taskByNumericID(tasks []protocol.Task, id int) (protocol.Task, bool) {
-	for _, task := range tasks {
-		if task.ID == id {
-			return task, true
-		}
-	}
-	return protocol.Task{}, false
-}
-
-func manualLifecycleUsesWorkItem(record TaskRecord, refs []SourceRefRecord) bool {
-	if record.Intent != nil {
-		for _, association := range record.Intent.Associations {
-			if association.Lifecycle == protocol.SourceRefLifecycleWorkItem {
-				return true
-			}
-		}
-	}
-	return hasLifecycleSource(record, refs, protocol.SourceRefLifecycleWorkItem)
-}
-
-func mergeRecordIntoManual(state persistedState, manualID, canonicalKey string) persistedState {
-	manual := recordByID(state.Records, manualID)
-	if manual == nil {
-		return state
-	}
-	loserIDs := map[string]bool{}
-	for i := range state.Records {
-		record := &state.Records[i]
-		if record.ID != manualID && record.CanonicalKey == canonicalKey {
-			loserIDs[record.ID] = true
-			manual.Snapshot = mergeTasks(manual.Snapshot, record.Snapshot)
-			manual.SourceRefIDs = mergeStringSet(manual.SourceRefIDs, record.SourceRefIDs)
-			if manual.PriorityOverride == "" {
-				manual.PriorityOverride = record.PriorityOverride
-			}
-			if manual.Ack.GeneralCommentsAckAt == "" {
-				manual.Ack = record.Ack
-			}
-		}
-	}
-	if len(loserIDs) == 0 {
-		return state
-	}
-	for i := range state.SourceRefs {
-		if loserIDs[state.SourceRefs[i].TaskRecordID] {
-			state.SourceRefs[i].TaskRecordID = manualID
-		}
-	}
-	kept := make([]TaskRecord, 0, len(state.Records)-len(loserIDs))
-	for _, record := range state.Records {
-		if !loserIDs[record.ID] {
-			kept = append(kept, record)
-		}
-	}
-	state.Records = kept
-	manual = recordByID(state.Records, manualID)
-	if manual != nil {
-		manual.SourceRefIDs = sourceRefIDsForRecord(manualID, state.SourceRefs)
-	}
-	return state
 }
 
 func recordByID(records []TaskRecord, id string) *TaskRecord {
@@ -766,10 +512,6 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 		}
 		record.SourceRefIDs = mergeStringSet(record.SourceRefIDs, sourceRefIDs(task.SourceRefs))
 		if authoritative {
-			if record.Intent != nil && taskHasWorkItemSource(task) {
-				record.Intent.ManuallyComplete = false
-				record.Intent.UpdatedAt = nowText
-			}
 			if task.Attention == "done" {
 				record.State = "done"
 				record.DoneAt = firstNonEmpty(record.DoneAt, task.DoneAt, nowText)
@@ -869,7 +611,7 @@ func recomputeDerivedCanonicalKeys(records []TaskRecord, refs []SourceRefRecord)
 	demoted := map[string]bool{}
 	for i := range records {
 		record := &records[i]
-		if record.CanonicalKey == "" || manualAssociationContains(*record, record.CanonicalKey) {
+		if record.CanonicalKey == "" {
 			continue
 		}
 		active := activeSourceRefRecordsForRecord(record.ID, refs)
@@ -888,17 +630,11 @@ func recomputeDerivedCanonicalKeys(records []TaskRecord, refs []SourceRefRecord)
 
 func resetDemotedRecordLifecycles(records []TaskRecord, demoted map[string]bool) {
 	for i := range records {
-		if !demoted[records[i].ID] {
-			continue
+		if demoted[records[i].ID] {
+			records[i].State = "active"
+			records[i].DoneAt = ""
+			records[i].Reason = ""
 		}
-		if records[i].Intent != nil && records[i].Intent.ManuallyComplete {
-			records[i].State = "done"
-			records[i].Reason = "manually completed"
-			continue
-		}
-		records[i].State = "active"
-		records[i].DoneAt = ""
-		records[i].Reason = ""
 	}
 }
 
@@ -911,18 +647,6 @@ func hasAuthorityDemotion(recordID string, refs []SourceRefRecord) bool {
 	}
 	for _, ref := range refs {
 		if ref.TaskRecordID == recordID && !ref.Active && authoritativeRef(ref.Snapshot) && informationalEntities[ref.Snapshot.Source+"\x00"+ref.Snapshot.EntityID] {
-			return true
-		}
-	}
-	return false
-}
-
-func manualAssociationContains(record TaskRecord, key string) bool {
-	if record.Intent == nil {
-		return false
-	}
-	for _, association := range record.Intent.Associations {
-		if association.CanonicalKey == key || containsString(association.LinkingKeys, key) {
 			return true
 		}
 	}
@@ -1019,8 +743,6 @@ func winningRecordID(records []TaskRecord, ids []string) string {
 
 func recordMergeRank(record TaskRecord) int {
 	switch {
-	case record.Intent != nil:
-		return -1
 	case linking.IsMarkKey(record.CanonicalKey):
 		return 0
 	case strings.HasPrefix(record.CanonicalKey, "workspace:"):
@@ -1044,12 +766,6 @@ func mergeTaskRecords(records []TaskRecord, ids []string, winnerID string, refs 
 		}
 		if containsString(ids, record.ID) {
 			loserSnapshots = append(loserSnapshots, record.Snapshot)
-			if winner.Intent == nil && record.Intent != nil {
-				winner.Intent = record.Intent
-			}
-			if winner.PriorityOverride == "" {
-				winner.PriorityOverride = record.PriorityOverride
-			}
 			if winner.Ack.GeneralCommentsAckAt == "" {
 				winner.Ack = record.Ack
 			}
@@ -1069,15 +785,22 @@ func mergeTaskRecords(records []TaskRecord, ids []string, winnerID string, refs 
 func updateRecordLifecycles(records []TaskRecord, sourceRefs []SourceRefRecord, nowText string) {
 	for i := range records {
 		refs := activeSourceRefRecordsForRecord(records[i].ID, sourceRefs)
-		if len(refs) == 0 {
+		workItems := lifecycleWorkItems(refs)
+		if len(workItems) == 0 {
 			continue
 		}
-		allRefs := sourceRefRecordsForRecord(records[i].ID, sourceRefs)
 		fallback := records[i].Snapshot.Attention
-		if (hasDoneSignal(refs, fallback) && !hasNonDoneSignal(refs, fallback)) || workItemsDoneWithSupportingRefs(allRefs, fallback) {
+		allDone := true
+		for _, ref := range workItems {
+			if sourceSignal(ref.Snapshot, fallback) != "done" {
+				allDone = false
+				break
+			}
+		}
+		if allDone {
 			records[i].State = "done"
-			records[i].DoneAt = firstNonEmpty(records[i].DoneAt, nowText)
-			records[i].Reason = firstDoneReason(refs, fallback)
+			records[i].DoneAt = firstNonEmpty(completionTimestamp(workItems), records[i].DoneAt, nowText)
+			records[i].Reason = firstDoneReason(workItems, fallback)
 			records[i].UpdatedAt = nowText
 			continue
 		}
@@ -1085,6 +808,39 @@ func updateRecordLifecycles(records []TaskRecord, sourceRefs []SourceRefRecord, 
 		records[i].DoneAt = ""
 		records[i].Reason = ""
 	}
+}
+
+func lifecycleWorkItems(refs []SourceRefRecord) []SourceRefRecord {
+	hasPrimary := false
+	for _, ref := range refs {
+		if ref.Snapshot.Lifecycle == protocol.SourceRefLifecycleWorkItem && ref.Snapshot.Authority == protocol.SourceRefAuthorityPrimary {
+			hasPrimary = true
+			break
+		}
+	}
+	selected := make([]SourceRefRecord, 0)
+	for _, ref := range refs {
+		if ref.Snapshot.Lifecycle != protocol.SourceRefLifecycleWorkItem {
+			continue
+		}
+		if hasPrimary && ref.Snapshot.Authority != protocol.SourceRefAuthorityPrimary {
+			continue
+		}
+		if !hasPrimary && ref.Snapshot.Authority == protocol.SourceRefAuthorityNone {
+			continue
+		}
+		selected = append(selected, ref)
+	}
+	return selected
+}
+
+func completionTimestamp(refs []SourceRefRecord) string {
+	for _, ref := range refs {
+		if value := strings.TrimSpace(ref.Snapshot.Metadata["completed_at"]); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func activeSourceRefRecordsForRecord(recordID string, refs []SourceRefRecord) []SourceRefRecord {
@@ -1095,35 +851,6 @@ func activeSourceRefRecordsForRecord(recordID string, refs []SourceRefRecord) []
 		}
 	}
 	return active
-}
-
-func sourceRefRecordsForRecord(recordID string, refs []SourceRefRecord) []SourceRefRecord {
-	matched := make([]SourceRefRecord, 0)
-	for _, ref := range refs {
-		if ref.TaskRecordID == recordID {
-			matched = append(matched, ref)
-		}
-	}
-	return matched
-}
-
-func hasDoneSignal(refs []SourceRefRecord, fallback string) bool {
-	for _, ref := range refs {
-		if sourceSignal(ref.Snapshot, fallback) == "done" {
-			return true
-		}
-	}
-	return false
-}
-
-func hasNonDoneSignal(refs []SourceRefRecord, fallback string) bool {
-	for _, ref := range refs {
-		signal := sourceSignal(ref.Snapshot, fallback)
-		if signal != "" && signal != "done" {
-			return true
-		}
-	}
-	return false
 }
 
 func firstDoneReason(refs []SourceRefRecord, fallback string) string {
@@ -1285,35 +1012,6 @@ func sourceReason(ref protocol.SourceRef, signal string) string {
 	}
 }
 
-func workItemsDoneWithSupportingRefs(refs []SourceRefRecord, fallback string) bool {
-	snapshots := make([]protocol.SourceRef, 0, len(refs))
-	for _, ref := range refs {
-		snapshots = append(snapshots, ref.Snapshot)
-	}
-	return workItemsDone(snapshots, fallback)
-}
-
-func workItemsDone(refs []protocol.SourceRef, fallback string) bool {
-	hasDoneWorkItem := false
-	hasSupportingRef := false
-	for _, ref := range refs {
-		if !authoritativeRef(ref) {
-			continue
-		}
-		if ref.Lifecycle == protocol.SourceRefLifecycleWorkItem {
-			if sourceSignal(ref, fallback) != "done" {
-				return false
-			}
-			hasDoneWorkItem = true
-			continue
-		}
-		if ref.Lifecycle == protocol.SourceRefLifecycleWorkspace || ref.Lifecycle == protocol.SourceRefLifecycleResource {
-			hasSupportingRef = true
-		}
-	}
-	return hasDoneWorkItem && hasSupportingRef
-}
-
 func authoritativeRef(ref protocol.SourceRef) bool {
 	return ref.Role == protocol.SourceRefRoleAuthoritative
 }
@@ -1327,10 +1025,6 @@ func hasAuthoritativeProtocolRef(refs []protocol.SourceRef) bool {
 	return false
 }
 
-func localCleanupSource(ref protocol.SourceRef) bool {
-	return ref.Lifecycle == protocol.SourceRefLifecycleWorkspace || ref.Lifecycle == protocol.SourceRefLifecycleResource
-}
-
 func projectTasks(state persistedState) []protocol.Task {
 	activeSourceRefsByRecord := map[string][]protocol.SourceRef{}
 	doneSourceRefsByRecord := map[string][]protocol.SourceRef{}
@@ -1341,7 +1035,7 @@ func projectTasks(state persistedState) []protocol.Task {
 		if ref.Active {
 			activeSourceRefsByRecord[ref.TaskRecordID] = append(activeSourceRefsByRecord[ref.TaskRecordID], ref.Snapshot)
 		}
-		if ref.Active || !localCleanupSource(ref.Snapshot) {
+		if ref.Active || ref.Snapshot.RetainInactive {
 			doneSourceRefsByRecord[ref.TaskRecordID] = append(doneSourceRefsByRecord[ref.TaskRecordID], ref.Snapshot)
 		}
 	}
@@ -1357,14 +1051,11 @@ func projectTasks(state persistedState) []protocol.Task {
 		if record.State == "done" {
 			refs = doneSourceRefsByRecord[record.ID]
 		}
-		if !hasAuthoritativeProtocolRef(refs) && record.Intent == nil && record.State != "done" {
+		if !hasAuthoritativeProtocolRef(refs) {
 			continue
 		}
 		task.TargetTaskID = 0
 		task.SourceRefs = cloneSourceRefs(sortSourceRefs(mergeSourceRefs(nil, refs)))
-		if record.Intent != nil {
-			task.Title = record.Intent.Title
-		}
 		if title := preferredTitle(refs); title != "" {
 			task.Title = title
 		}
@@ -1374,30 +1065,11 @@ func projectTasks(state persistedState) []protocol.Task {
 			if record.Reason != "" {
 				task.Reason = record.Reason
 			}
-		} else if !hasAuthoritativeProtocolRef(refs) {
-			task.Attention = "low_priority"
-			task.Reason = "manual task"
 		} else {
 			applySourceSignals(&task, record, refs)
 		}
-		if record.State != "done" && record.PriorityOverride == "urgent" {
-			task.Attention = "immediate"
-			task.Reason = "manually urgent"
-		}
 		if task.Metadata == nil {
 			task.Metadata = map[string]string{}
-		}
-		if record.PriorityOverride == "urgent" {
-			task.Metadata["priority_override"] = "urgent"
-		}
-		if record.Intent != nil {
-			task.Associations = cloneAssociations(record.Intent.Associations)
-			task.Metadata["manual_task"] = "true"
-			task.Metadata["manual_title"] = record.Intent.Title
-			task.Metadata["manual_created_at"] = record.Intent.CreatedAt
-			task.Metadata["manual_updated_at"] = record.Intent.UpdatedAt
-			task.Metadata["manual_complete"] = fmt.Sprint(record.Intent.ManuallyComplete)
-			task.Metadata["manual_lifecycle_available"] = fmt.Sprint(!manualLifecycleUsesWorkItem(record, state.SourceRefs))
 		}
 		if record.Ack.GeneralCommentsAckAt != "" {
 			task.Metadata["general_comments_ack_at"] = record.Ack.GeneralCommentsAckAt
@@ -1436,31 +1108,12 @@ func taskHasAuthoritativeSource(task protocol.Task) bool {
 	return hasAuthoritativeProtocolRef(task.SourceRefs)
 }
 
-func taskHasWorkItemSource(task protocol.Task) bool {
-	for _, ref := range task.SourceRefs {
-		if authoritativeRef(ref) && ref.Lifecycle == protocol.SourceRefLifecycleWorkItem {
-			return true
-		}
-	}
-	return false
-}
-
 func cloneTask(task protocol.Task) protocol.Task {
 	task.SourceRefs = cloneSourceRefs(task.SourceRefs)
-	task.Associations = cloneAssociations(task.Associations)
 	if task.Metadata != nil {
 		task.Metadata = cloneMetadata(task.Metadata)
 	}
 	return task
-}
-
-func cloneAssociations(associations []protocol.TaskAssociation) []protocol.TaskAssociation {
-	cloned := make([]protocol.TaskAssociation, len(associations))
-	for i, association := range associations {
-		cloned[i] = association
-		cloned[i].LinkingKeys = append([]string(nil), association.LinkingKeys...)
-	}
-	return cloned
 }
 
 func cloneSourceRefs(sourceRefs []protocol.SourceRef) []protocol.SourceRef {
@@ -1591,24 +1244,6 @@ func sourceRefIDs(sourceRefs []protocol.SourceRef) []string {
 		}
 	}
 	return ids
-}
-
-func mergeAssociations(left, right []protocol.TaskAssociation) []protocol.TaskAssociation {
-	merged := cloneAssociations(left)
-	indexes := map[string]int{}
-	for i, association := range merged {
-		indexes[association.Source+"\x00"+association.ExternalID] = i
-	}
-	for _, association := range right {
-		key := association.Source + "\x00" + association.ExternalID
-		if index, ok := indexes[key]; ok {
-			merged[index] = cloneAssociations([]protocol.TaskAssociation{association})[0]
-			continue
-		}
-		indexes[key] = len(merged)
-		merged = append(merged, cloneAssociations([]protocol.TaskAssociation{association})[0])
-	}
-	return merged
 }
 
 func mergeStringSet(left, right []string) []string {

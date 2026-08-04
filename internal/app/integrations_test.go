@@ -9,7 +9,7 @@ func TestDefaultIntegrationsExposeRegisteredCapabilities(t *testing.T) {
 	for _, source := range registry.Sources() {
 		sources = append(sources, source.Descriptor().Name)
 	}
-	wantSources := []string{"github", "jira", "datadog", "git", "tmux", "sbx"}
+	wantSources := []string{"obsidian", "github", "jira", "datadog", "git", "tmux", "sbx"}
 	if !equalStrings(sources, wantSources) {
 		t.Fatalf("sources = %v, want %v", sources, wantSources)
 	}
@@ -23,8 +23,8 @@ func TestDefaultIntegrationsExposeRegisteredCapabilities(t *testing.T) {
 		t.Fatalf("cleanup sources = %v, want %v", cleanupSources, wantCleanupSources)
 	}
 
-	if _, ok := registry.AssociationProvider("jira"); !ok {
-		t.Fatal("Jira association provider is not registered")
+	if _, err := registry.TaskAuthoring(); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := registry.Workspace(); err != nil {
 		t.Fatal(err)

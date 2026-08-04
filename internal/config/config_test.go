@@ -358,3 +358,38 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 		t.Fatalf("generated config is missing Datadog settings: %s", data)
 	}
 }
+
+func TestObsidianVaultValidationAndPreparation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	vault := filepath.Join(home, "Documents", "Obsidian", "Work")
+	if err := os.MkdirAll(filepath.Join(vault, ".obsidian"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := (ObsidianConfig{VaultPath: "~/Documents/Obsidian/Work"}).ValidateAndPrepare()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != vault {
+		t.Fatalf("vault = %q, want %q", got, vault)
+	}
+	if info, err := os.Stat(filepath.Join(vault, "Radar", "Tasks")); err != nil || !info.IsDir() {
+		t.Fatalf("task root was not created: info=%v err=%v", info, err)
+	}
+
+	for _, test := range []struct {
+		name string
+		path string
+	}{
+		{name: "missing", path: ""},
+		{name: "relative", path: "relative/vault"},
+		{name: "not found", path: filepath.Join(home, "missing")},
+		{name: "not vault", path: home},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := (ObsidianConfig{VaultPath: test.path}).ValidateAndPrepare(); err == nil {
+				t.Fatalf("ValidateAndPrepare(%q) error = nil", test.path)
+			}
+		})
+	}
+}

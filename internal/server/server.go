@@ -25,13 +25,14 @@ import (
 var watchTimeout = 30 * time.Second
 
 type Server struct {
-	store          *state.Store
-	logger         *slog.Logger
-	refresh        func()
-	reset          func() error
-	garbageCollect func() (protocol.GarbageCollectionResult, error)
-	integrations   integration.Registry
-	cleanupService cleanup.Service
+	store           *state.Store
+	logger          *slog.Logger
+	refresh         func()
+	mutationRefresh func()
+	reset           func() error
+	garbageCollect  func() (protocol.GarbageCollectionResult, error)
+	integrations    integration.Registry
+	cleanupService  cleanup.Service
 }
 
 func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() error, garbageCollect func() (protocol.GarbageCollectionResult, error), integrations integration.Registry, cleanupService cleanup.Service) *Server {
@@ -44,6 +45,11 @@ func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() e
 		integrations:   integrations,
 		cleanupService: cleanupService,
 	}
+}
+
+func (s *Server) SetMutationRefresh(refresh func()) *Server {
+	s.mutationRefresh = refresh
+	return s
 }
 
 func (s *Server) ListenAndServe(path string) error {
@@ -143,7 +149,7 @@ func (s *Server) handle(conn net.Conn) {
 				}
 			}
 			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), GarbageCollectionResult: &result})
-		case "task-create", "task-done", "task-reopen", "task-associate", "task-priority":
+		case "task-create", "task-done", "task-reopen", "task-priority":
 			task, err := s.mutateTask(req.Method, req.TaskMutation)
 			if err != nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
@@ -179,28 +185,66 @@ func (s *Server) mutateTask(method string, mutation *protocol.TaskMutation) (pro
 	if mutation == nil {
 		return protocol.Task{}, fmt.Errorf("task mutation is required")
 	}
+	provider, err := s.integrations.TaskAuthoring()
+	if err != nil {
+		return protocol.Task{}, err
+	}
+	ctx := context.Background()
+	var identity integration.AuthoredTaskIdentity
 	switch method {
 	case "task-create":
-		return s.store.CreateManualTask(mutation.Title)
-	case "task-done":
-		return s.store.CompleteManualTask(mutation.TaskID)
-	case "task-reopen":
-		return s.store.ReopenManualTask(mutation.TaskID)
-	case "task-associate":
-		provider, ok := s.integrations.AssociationProvider(mutation.AssociationSource)
+		identity, err = provider.Create(ctx, mutation.Title)
+	case "task-done", "task-reopen", "task-priority":
+		task, ok := taskByID(s.store.Tasks(), mutation.TaskID)
 		if !ok {
-			return protocol.Task{}, fmt.Errorf("association integration %q is not registered", mutation.AssociationSource)
+			return protocol.Task{}, fmt.Errorf("task %d not found", mutation.TaskID)
 		}
-		association, err := provider.NormalizeAssociation(context.Background(), mutation.AssociationValue)
-		if err != nil {
-			return protocol.Task{}, err
+		ref, ok := authoredRef(task, provider.Descriptor().Name)
+		if !ok {
+			return protocol.Task{}, fmt.Errorf("task %d is not authored by %s", mutation.TaskID, provider.Descriptor().Label)
 		}
-		return s.store.AttachAssociation(mutation.TaskID, association)
-	case "task-priority":
-		return s.store.SetTaskPriority(mutation.TaskID, mutation.Priority)
+		switch method {
+		case "task-done":
+			identity, err = provider.SetLifecycle(ctx, ref, "done")
+		case "task-reopen":
+			identity, err = provider.SetLifecycle(ctx, ref, "open")
+		case "task-priority":
+			if task.Attention == "done" {
+				return protocol.Task{}, fmt.Errorf("task %d is done and cannot change priority", mutation.TaskID)
+			}
+			identity, err = provider.SetPriority(ctx, ref, mutation.Priority)
+		}
 	default:
 		return protocol.Task{}, fmt.Errorf("unknown task mutation: %s", method)
 	}
+	if err != nil {
+		return protocol.Task{}, err
+	}
+	refresh := s.mutationRefresh
+	if refresh == nil {
+		refresh = s.refresh
+	}
+	if refresh == nil {
+		return protocol.Task{}, fmt.Errorf("task mutation refresh is not configured")
+	}
+	refresh()
+	for _, task := range s.store.Tasks() {
+		for _, ref := range task.SourceRefs {
+			if ref.ID == identity.SourceRefID {
+				return task, nil
+			}
+		}
+	}
+	return protocol.Task{}, fmt.Errorf("authored task %q was not collected after mutation", identity.SourceRefID)
+}
+
+func authoredRef(task protocol.Task, source string) (protocol.SourceRef, bool) {
+	for _, ref := range task.SourceRefs {
+		if ref.Source == source && ref.Lifecycle == protocol.SourceRefLifecycleWorkItem && ref.Authority == protocol.SourceRefAuthorityPrimary {
+			return ref, true
+		}
+	}
+	return protocol.SourceRef{}, false
 }
 
 func (s *Server) taskMutationResponse(task protocol.Task) protocol.Response {

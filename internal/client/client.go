@@ -25,12 +25,6 @@ func ReopenTask(socketPath string, taskID int) (protocol.Response, error) {
 	return CallRequest(socketPath, protocol.Request{Method: "task-reopen", TaskMutation: &protocol.TaskMutation{TaskID: taskID}})
 }
 
-func AssociateTask(socketPath string, taskID int, source string, value string) (protocol.Response, error) {
-	return CallRequest(socketPath, protocol.Request{Method: "task-associate", TaskMutation: &protocol.TaskMutation{
-		TaskID: taskID, AssociationSource: source, AssociationValue: value,
-	}})
-}
-
 func SetTaskPriority(socketPath string, taskID int, priority string) (protocol.Response, error) {
 	return CallRequest(socketPath, protocol.Request{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: taskID, Priority: priority}})
 }

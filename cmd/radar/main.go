@@ -169,15 +169,6 @@ func runTask(args []string) {
 		}
 		id := parseTaskID(args[1])
 		request = protocol.Request{Method: "task-" + args[0], TaskMutation: &protocol.TaskMutation{TaskID: id}}
-	case "attach-jira":
-		if len(args) != 3 {
-			taskUsage()
-			os.Exit(2)
-		}
-		id := parseTaskID(args[1])
-		request = protocol.Request{Method: "task-associate", TaskMutation: &protocol.TaskMutation{
-			TaskID: id, AssociationSource: "jira", AssociationValue: args[2],
-		}}
 	case "priority":
 		if len(args) != 3 || (args[2] != "urgent" && args[2] != "normal") {
 			taskUsage()
@@ -475,7 +466,8 @@ func runDaemon() {
 		go refreshLoop(context.Background(), refresh)
 	}
 
-	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu, integrations), garbageCollect, integrations, cleanupService).ListenAndServe(path); err != nil {
+	mutationRefresh := mutationRefresher(context.Background(), store, logger, collectionMu, integrations)
+	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu, integrations), garbageCollect, integrations, cleanupService).SetMutationRefresh(mutationRefresh).ListenAndServe(path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}
@@ -628,6 +620,16 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 		}
 		notifyActionableTransitions(ctx, previous, current, logger, notificationService)
 		logger.Debug("refresh finished", "scope", scope, "tasks", len(result.Tasks), "sources", len(result.Sources))
+	}
+}
+
+func mutationRefresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry) func() {
+	return func() {
+		mu.Lock()
+		defer mu.Unlock()
+		result := collector.CollectLocal(ctx, store.Tasks(), logger, integrations.Sources())
+		store.SetTasksForSources(result.Tasks, result.SourceNames)
+		store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
 	}
 }
 
@@ -818,7 +820,6 @@ Tasks:
   radar task create --title <title>
   radar task done <task-id>
   radar task reopen <task-id>
-  radar task attach-jira <task-id> <issue-key>
   radar task priority <task-id> urgent|normal
 
 Workspaces:
@@ -850,7 +851,6 @@ func taskUsage() {
 	fmt.Fprintln(os.Stderr, `usage: radar task create --title <title>
        radar task done <task-id>
        radar task reopen <task-id>
-       radar task attach-jira <task-id> <issue-key>
        radar task priority <task-id> urgent|normal`)
 }
 

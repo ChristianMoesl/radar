@@ -179,6 +179,7 @@ func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher) prot
 		Role:         protocol.SourceRefRoleAuthoritative,
 		EntityID:     "git:worktree:" + w.Path,
 		Lifecycle:    protocol.SourceRefLifecycleWorkspace,
+		Authority:    protocol.SourceRefAuthorityNone,
 		Title:        title,
 		Repo:         originRepo,
 		Path:         w.Path,

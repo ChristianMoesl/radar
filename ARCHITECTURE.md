@@ -7,6 +7,7 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 - `cmd/radar/`: single Go binary with TUI, CLI, and daemon modes.
 - `internal/tui/`: Bubble Tea terminal UI.
 - `internal/integration/`: integration capability interfaces, observation model, and source-compiled implementations.
+- `internal/integration/obsidian/`: Obsidian-authored task notes, mutations, status, and open action.
 - `internal/integration/github/`: GitHub source facts and remote state resolution.
 - `internal/integration/datadog/`: Datadog monitor source facts and recovery reconciliation.
 - `internal/integration/git/`: Git worktree source facts and workspace provider.
@@ -67,7 +68,7 @@ The socket protocol is newline-delimited JSON with a tiny request model:
 Radar separates source-system facts from the user-facing task shown in the UI:
 
 ```text
-SourceRef(s) + TaskRecord intent => Task
+SourceRef(s) + rebuildable TaskRecord cache => Task
 ```
 
 - `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, Datadog monitor, local git worktree, or tmux session. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:ABC-544`, `datadog:monitor:123`, `git:worktree:<path>`, or `tmux:session:<session_id>`.
@@ -77,9 +78,10 @@ SourceRef(s) + TaskRecord intent => Task
 - `SourceRef.URL`: a generic openable URL. If a source ref has a URL, frontends may offer an open-link action without source-specific URL inspection.
 - `SourceRef.SourceLabel` and `SourceRef.DisplayOrder`: generic presentation values stamped from the integration descriptor, so frontends and state never need source-name switches.
 - `SourceRef.EntityID`: an opaque source-owned external entity identity used to correlate authoritative and informational representations without contributing task identity or linking.
-- `SourceRef.Lifecycle`: classifies an authoritative ref as a remote `work_item`, local `workspace`, or supporting `resource`. Core lifecycle rules operate on these generic roles rather than lists of integration names.
+- `SourceRef.Lifecycle`: classifies an authoritative ref as a `work_item`, `workspace`, or supporting `resource`.
+- `SourceRef.Authority`: declares lifecycle ownership as `primary`, `contributing`, or `none`. Core lifecycle rules consume this generic value without source-name checks.
 - `SourceRef.Presentation`: source-compiled title preference/order and workspace-name hints consumed generically by state and frontends.
-- `TaskRecord`: persistent Radar-owned tracking state. It gives continuity across refreshes and owns stable numeric task IDs, optional Radar-owned manual intent, lifecycle state, an optional urgent priority override, association keys, known source ref IDs, first/last seen timestamps, and acknowledgements. A record with manual intent remains projectable without source refs.
+- `TaskRecord`: rebuildable Radar cache state. It provides cache-local numeric task IDs, projected lifecycle, known source ref IDs, first/last seen timestamps, and acknowledgements. A record without authoritative refs is not projectable.
 - `Task`: the current projected user-facing task served to the CLI/TUI. It has a Radar-owned integer ID and is computed from current source refs plus the matching task record.
 
 The pipeline is:
@@ -93,9 +95,9 @@ collect integration Observations
 → serve Tasks
 ```
 
-The local state file persists explicit `TaskRecord`s and `SourceRefRecord`s. `Task`s are disposable projections for the socket protocol, CLI, and TUI. Task records own durable identity, stable numeric task IDs, optional manual intent, lifecycle state, source-ref ownership, and user acknowledgement state. Source refs remain source-system facts with first/last seen timestamps and an active flag. Manual task mutations save immediately and bump the daemon revision so watchers receive the new projection.
+The local state file persists `TaskRecord`s and `SourceRefRecord`s as a rebuildable cache. `Task`s are disposable projections for the socket protocol, CLI, and TUI. Source refs remain source-system facts with first/last seen timestamps and an active flag. Authored task mutations go through `TaskAuthoringProvider`, refresh local sources immediately, and bump the daemon revision so watchers receive the new projection.
 
-Radar groups authoritative work by linking mark first: if any authoritative source ref or explicit manual association exposes a `mark:<VALUE>` linking key, that mark is the canonical work item. Without a linking mark, authoritative source-provided canonical keys decide the standalone identity; for example, local workspaces and sbx sandboxes use `workspace:<path>`, GitHub PRs use `github:pr:<repo>:<number>`, and Jira issues use `jira:issue:<KEY>`. Informational refs never provide canonical or linking identity. Each source ref is assigned to one task record at a time, so local and remote refs do not duplicate across multiple projected tasks.
+Radar groups authoritative work by linking mark and source-owned linking keys. Without a linking mark, authoritative source-provided canonical keys decide standalone identity; for example, Obsidian tasks use `obsidian:task:<uuid>`, local workspaces use `workspace:<path>`, GitHub PRs use `github:pr:<repo>:<number>`, and Jira issues use `jira:issue:<KEY>`. Informational refs never provide canonical or linking identity. Each source ref belongs to one task record at a time.
 
 Source providers own all source-specific identity, linking, lifecycle, and presentation rules. Adding a new source should not require editing `internal/state` to teach it about the source's name, IDs, branch formats, URLs, linking-mark extraction, title precedence, or remote/local behavior. The source must populate `SourceRef.ID`, `SourceRef.EntityID`, and `SourceRef.Role`; authoritative refs also declare `SourceRef.Lifecycle`, and standalone/linkable refs populate `SourceRef.CanonicalKey` and `SourceRef.LinkingKeys`. State persists refs, matches targeted observations first, links only authoritative refs, chooses linking marks first, and projects tasks.
 
@@ -113,9 +115,9 @@ The high-level categorization rules are documented in [docs/attention-algorithm.
 
 Collection and durable linking are separate steps. Integration code talks to external systems and produces observations/source refs with source-owned linking keys. Core collection projects those observations into candidate tasks. An observation may carry a generic target Radar task ID when a ref must associate with an existing task without contributing identity. State matches this stable numeric ID before canonical/source-ref matching. This is how title-discovered informational Jira refs stay on each mentioning task, and it is available to future integrations without teaching state to parse source-specific keys. The state store links only authoritative refs, merges records that describe the same work, and then projects one user-facing task per task record.
 
-A manual-only task naturally projects as `low_priority`; it can be completed and reopened explicitly. Any active task may carry a Radar-owned `urgent` override, which projects as `immediate` until cleared. Clearing it recomputes priority from source refs rather than forcing low priority. Terminal completion wins over the override. Its original intent remains on the task record when a source title takes over. Attaching Jira adds a `mark:<KEY>` association and merges any existing linking-mark record into the manual record while preserving the manual numeric ID. Once Jira or GitHub is attached, remote lifecycle is authoritative and manual completion is disabled.
+An open normal Obsidian note emits `low_priority`; urgent emits `immediate`; done emits `done`. Live supporting refs may promote an open task to `in_progress` or `attention`. If any primary work-item ref is active, only primary refs decide completion and reopening. Without a primary, contributing Jira, GitHub, and Datadog work items retain their combined lifecycle behavior. Workspace and resource refs never own completion.
 
-`done` is a durable task-record state and is terminal for attention display. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state once and emits a done transition. The state store applies that transition to the existing task record. Already-done items are not remotely revalidated on subsequent refreshes. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate. Done-task projections preserve historical remote refs, but omit inactive local worktree, tmux, and SBX refs after those resources are removed. While a record remains done, neither cleanup state nor display filtering may move it to `immediate`, `attention`, `in_progress`, or `low_priority`.
+`done` is projected into task-record cache state and is terminal for attention display. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state once and emits a done transition. The state store applies that transition to the existing task record. Already-done items are not remotely revalidated on subsequent refreshes. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate. Done-task projections preserve historical remote refs, but omit inactive local worktree, tmux, and SBX refs after those resources are removed. While a record remains done, neither cleanup state nor display filtering may move it to `immediate`, `attention`, `in_progress`, or `low_priority`.
 
 Completion and local cleanup are separate. A task becomes `done` when its remote work is complete: if both GitHub and Jira refs are linked, both must be done; if only one remote source is linked, that source is authoritative. Remaining local worktrees, tmux sessions, or sbx sandboxes do not keep the task active. The daemon garbage-collects clean linked worktrees under the configured workspace root after the task has been done for 24 hours, deleting the linked detached tmux session and sbx sandbox with the worktree. Attached tmux sessions are skipped and retried later.
 
@@ -133,7 +135,7 @@ $XDG_STATE_HOME/radar/tasks.json
 
 Projected tasks are rebuilt from this state. Done tasks remain in durable history but are included in the user-facing projection only for three days. Full refreshes reconcile all source refs; local refreshes reconcile refs from sources that declare themselves local and leave remote GitHub/Jira refs untouched. The file also stores source statuses so the TUI can show cached status immediately. User acknowledgement state lives on task records, not inside source-ref metadata.
 
-State writes are atomic and serialized. The daemon refuses to start when an existing file is malformed or has an incompatible state version, leaving that file untouched. Persisted state evolves additively without version bumps; `stateVersion` changes only as a last-resort marker for an intentionally incompatible format. Reset clears collected observations while preserving Radar-owned manual intent, IDs, lifecycle mutations, associations, acknowledgements, and priority overrides.
+State writes are atomic and serialized. The daemon refuses to start when an existing file is malformed. An incompatible state version is intentionally discarded and recollected because authored work lives in source systems. Reset clears collected observations and may retain acknowledgements; it does not need compatibility readers or migration fallbacks.
 
 ## Config
 
@@ -145,14 +147,14 @@ $XDG_CONFIG_HOME/radar/config.json
 
 The daemon creates an example file on startup when it is missing. The TUI exposes it with `f`.
 
-The config controls repository discovery roots, the workspace root, SBX settings, GitHub filters, and the Datadog monitor query. SBX enablement, kit selection, and global additional mounts live together under `sbx`; repository-local `.radar.json` files use the same shape. Filters live under `github.filters` and are applied when serving tasks from the daemon, so CLI and TUI see the same view. `datadog.monitor_query` scopes Datadog collection, while Datadog credentials are read only from environment variables. Raw collected state stays unmodified on disk.
+The config controls the required Obsidian vault, repository discovery roots, the workspace root, SBX settings, GitHub filters, and the Datadog monitor query. SBX enablement, kit selection, and global additional mounts live together under `sbx`; repository-local `.radar.json` files use the same shape. Filters live under `github.filters` and are applied when serving tasks from the daemon, so CLI and TUI see the same view. `datadog.monitor_query` scopes Datadog collection, while Datadog credentials are read only from environment variables. Raw collected state stays unmodified on disk.
 
 There are two filter effects:
 
 - `mute`: hide the task and remove it from counts
 - `deprioritize`: keep tracking an active task, but move it to `low_priority`; done tasks remain `done`
 
-Mute is applied before manual priority display, so muted tasks stay hidden. An explicit urgent override wins over deprioritization. Task mutations are handled directly by the daemon and do not run the external-transition notification path, preventing self-notification.
+Mute is applied before display, so muted tasks stay hidden. A primary urgent source signal wins over deprioritization. Task mutations are handled through the authoring provider and do not run the external-transition notification path, preventing self-notification.
 
 User filters also apply while GitHub activity is classified. Activity from a muted or deprioritized actor does not promote a PR to attention. GitHub's actor type is used only to generate equivalent bot login aliases (`name` and `name[bot]`) for configuration matching; bot identity is not itself a filtering policy.
 
@@ -167,9 +169,9 @@ Current GitHub collectors:
 
 ## Jira integration
 
-Jira access uses Jira Cloud REST APIs with two collection inputs. Assigned non-done issues are searched only for `jira.authoritative_issue_types`, which defaults to Task, Bug, and Sub-task. An explicit empty list skips assigned search. Radar also scans projected titles, durable manual titles, and active non-Jira source-ref titles for ticket keys and directly fetches up to 50 distinct issues in deterministic title order, regardless of assignee or issue type.
+Jira access uses Jira Cloud REST APIs with two collection inputs. Assigned non-done issues are searched only for `jira.authoritative_issue_types`, which defaults to Task, Bug, and Sub-task. An explicit empty list skips assigned search. Radar also scans projected titles and active non-Jira source-ref titles for ticket keys and directly fetches up to 50 distinct issues in deterministic title order, regardless of assignee or issue type.
 
-An assigned issue, a title discovery whose issue type matches the configured set, or an explicit `radar task attach-jira` association is authoritative. Other title discoveries use per-task `jira:mention:<radar-task-id>:<key>` identities and are informational. They retain Jira URL/status/type/priority metadata but have no signal, canonical key, or linking keys. Direct-fetch failures preserve previously known refs and report partial source status; complete refreshes remove derived refs whose keys disappeared. Explicit attachments remain durable. When a title contains multiple authoritative keys, the first supplies the Jira title and all must complete before the task completes.
+An assigned issue or a title discovery whose issue type matches the configured set is authoritative. Other title discoveries use per-task `jira:mention:<radar-task-id>:<key>` identities and are informational. They retain Jira URL/status/type/priority metadata but have no signal, canonical key, or linking keys. Direct-fetch failures preserve previously known refs and report partial source status; complete refreshes remove derived refs whose keys disappeared. Explicit attachments remain durable. When a title contains multiple authoritative keys, the first supplies the Jira title and all must complete before the task completes.
 
 ## Datadog integration
 
@@ -195,7 +197,7 @@ Docker sbx integration collects sandboxes with `sbx ls --json`. Radar attaches s
 
 ## Integration development
 
-New integrations are source-compiled packages under `internal/integration/<name>` and registered once in `internal/app.DefaultIntegrations`. The registry discovers collection, reconciliation, association, action, cleanup, workspace, and multiplexer capabilities through interfaces. See [docs/integrations.md](docs/integrations.md) for the capability checklist, SourceRef contract, and Zellij/GitLab examples.
+New integrations are source-compiled packages under `internal/integration/<name>` and registered once in `internal/app.DefaultIntegrations`. The registry discovers collection, reconciliation, task-authoring, action, cleanup, workspace, and multiplexer capabilities through interfaces. See [docs/integrations.md](docs/integrations.md) for the capability checklist, SourceRef contract, and Zellij/GitLab examples.
 
 ## Workspaces
 

@@ -28,7 +28,7 @@ func AssertValidSourceRefs(t *testing.T, source string, refs []protocol.SourceRe
 		}
 		seen[ref.ID] = true
 		if ref.Role == protocol.SourceRefRoleInformational {
-			if ref.CanonicalKey != "" || len(ref.LinkingKeys) != 0 || ref.Signal != "" || ref.Lifecycle != "" {
+			if ref.CanonicalKey != "" || len(ref.LinkingKeys) != 0 || ref.Signal != "" || ref.Lifecycle != "" || ref.Authority != "" || ref.RetainInactive {
 				t.Fatalf("informational source ref exposes authority: %+v", ref)
 			}
 			if ref.EntityID == "" {
@@ -43,6 +43,9 @@ func AssertValidSourceRefs(t *testing.T, source string, refs []protocol.SourceRe
 			}
 			if ref.Lifecycle != protocol.SourceRefLifecycleWorkItem && ref.Lifecycle != protocol.SourceRefLifecycleWorkspace && ref.Lifecycle != protocol.SourceRefLifecycleResource {
 				t.Fatalf("authoritative source ref has invalid lifecycle %q: %+v", ref.Lifecycle, ref)
+			}
+			if ref.Authority != protocol.SourceRefAuthorityPrimary && ref.Authority != protocol.SourceRefAuthorityContributing && ref.Authority != protocol.SourceRefAuthorityNone {
+				t.Fatalf("authoritative source ref has invalid lifecycle authority %q: %+v", ref.Authority, ref)
 			}
 		}
 		for _, key := range ref.LinkingKeys {

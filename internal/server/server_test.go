@@ -12,8 +12,9 @@ import (
 	"time"
 
 	"radar/internal/cleanup"
+	"radar/internal/collector"
 	"radar/internal/integration"
-	"radar/internal/integration/jira"
+	"radar/internal/integration/obsidian"
 	"radar/internal/protocol"
 	"radar/internal/state"
 )
@@ -84,16 +85,26 @@ func TestWatchCurrentRevisionTimesOutWithoutTasks(t *testing.T) {
 
 func TestStructuredTaskMutations(t *testing.T) {
 	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	vault := filepath.Join(t.TempDir(), "Work")
+	if err := os.MkdirAll(filepath.Join(vault, ".obsidian"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	store, err := state.NewStore(logger)
 	if err != nil {
 		t.Fatal(err)
 	}
+	source := obsidian.NewSourceAt(vault)
+	registry := integration.NewRegistry(source)
+	refresh := func() {
+		result := collector.CollectLocal(context.Background(), store.Tasks(), logger, registry.Sources())
+		store.SetTasksForSources(result.Tasks, result.SourceNames)
+	}
 	serverConn, clientConn := net.Pipe()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil, nil, integration.NewRegistry(jira.NewSource()), cleanup.New(nil)).handle(serverConn)
+		New(store, logger, nil, nil, nil, registry, cleanup.New(nil)).SetMutationRefresh(refresh).handle(serverConn)
 	}()
 	encoder := json.NewEncoder(clientConn)
 	decoder := json.NewDecoder(clientConn)
@@ -103,7 +114,6 @@ func TestStructuredTaskMutations(t *testing.T) {
 		{Method: "task-reopen", TaskMutation: &protocol.TaskMutation{TaskID: 1}},
 		{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: 1, Priority: "urgent"}},
 		{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: 1, Priority: "normal"}},
-		{Method: "task-associate", TaskMutation: &protocol.TaskMutation{TaskID: 1, AssociationSource: "jira", AssociationValue: "DPSCAP-123"}},
 	}
 	for _, request := range requests {
 		if err := encoder.Encode(request); err != nil {
@@ -119,7 +129,7 @@ func TestStructuredTaskMutations(t *testing.T) {
 	}
 	_ = clientConn.Close()
 	<-done
-	if got := store.Tasks(); len(got) != 1 || len(got[0].Associations) != 1 || got[0].Associations[0].CanonicalKey != "mark:DPSCAP-123" {
+	if got := store.Tasks(); len(got) != 1 || got[0].SourceRefs[0].Source != "obsidian" {
 		t.Fatalf("stored tasks = %+v", got)
 	}
 }

@@ -18,10 +18,9 @@ const maxTitleDiscoveredIssues = 50
 type Source struct{}
 
 type issueMention struct {
-	Key      string
-	TaskID   int
-	Explicit bool
-	Order    int
+	Key    string
+	TaskID int
+	Order  int
 }
 
 func NewSource() Source {
@@ -145,7 +144,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 			continue
 		}
 		keyMentions := mentionsByKey[key]
-		authoritative := hasExplicitMention(keyMentions) || userConfig.Jira.IsAuthoritativeIssueType(issueTypeName(value))
+		authoritative := userConfig.Jira.IsAuthoritativeIssueType(issueTypeName(value))
 		if authoritative {
 			observations = append(observations, authoritativeObservation(userConfig.Jira, jiraConfig, value, firstMention(keyMentions), req.LinkingMarks))
 			continue
@@ -187,21 +186,12 @@ func discoverIssueMentions(tasks []protocol.Task, marks linking.MarkMatcher) []i
 				order++
 			}
 		}
-		for _, key := range explicitAssociationKeys(task) {
-			if index, seen := mentionIndexes[key]; seen {
-				mentions[index].Explicit = true
-				continue
-			}
-			mentionIndexes[key] = len(mentions)
-			mentions = append(mentions, issueMention{Key: key, TaskID: task.ID, Explicit: true, Order: order})
-			order++
-		}
 	}
 	return mentions
 }
 
 func titleFacts(task protocol.Task) []string {
-	facts := make([]string, 0, len(task.SourceRefs)+2)
+	facts := make([]string, 0, len(task.SourceRefs)+1)
 	jiraTitle := false
 	for _, ref := range task.SourceRefs {
 		if ref.Source == "jira" && ref.Kind == "issue" && ref.Title == task.Title {
@@ -212,28 +202,12 @@ func titleFacts(task protocol.Task) []string {
 	if !jiraTitle && strings.TrimSpace(task.Title) != "" {
 		facts = append(facts, task.Title)
 	}
-	if manualTitle := strings.TrimSpace(task.Metadata["manual_title"]); manualTitle != "" {
-		facts = append(facts, manualTitle)
-	}
 	for _, ref := range task.SourceRefs {
 		if ref.Source != "jira" && strings.TrimSpace(ref.Title) != "" {
 			facts = append(facts, ref.Title)
 		}
 	}
 	return facts
-}
-
-func explicitAssociationKeys(task protocol.Task) []string {
-	keys := make([]string, 0)
-	for _, association := range task.Associations {
-		if association.Source != "jira" {
-			continue
-		}
-		if key := normalizeIssueKey(association.ExternalID); key != "" {
-			keys = append(keys, key)
-		}
-	}
-	return keys
 }
 
 func groupMentions(mentions []issueMention) (map[string][]issueMention, []string) {
@@ -253,15 +227,6 @@ func firstMention(mentions []issueMention) issueMention {
 		return issueMention{}
 	}
 	return mentions[0]
-}
-
-func hasExplicitMention(mentions []issueMention) bool {
-	for _, mention := range mentions {
-		if mention.Explicit {
-			return true
-		}
-	}
-	return false
 }
 
 func authoritativeObservation(cfg config.JiraConfig, jiraConfig Config, value issue, mention issueMention, marks linking.MarkMatcher) integration.Observation {
@@ -287,6 +252,8 @@ func informationalObservation(jiraConfig Config, value issue, mention issueMenti
 	ref.CanonicalKey = ""
 	ref.LinkingKeys = nil
 	ref.Lifecycle = ""
+	ref.Authority = ""
+	ref.RetainInactive = false
 	ref.Presentation = protocol.SourceRefPresentation{}
 	return integration.Observation{Ref: ref, TargetTaskID: mention.TaskID}
 }
@@ -327,21 +294,6 @@ func deduplicateObservations(observations []integration.Observation) []integrati
 		kept = append(kept, observation)
 	}
 	return kept
-}
-
-func (Source) NormalizeAssociation(_ context.Context, value string) (protocol.TaskAssociation, error) {
-	key := normalizeIssueKey(value)
-	if key == "" {
-		return protocol.TaskAssociation{}, fmt.Errorf("invalid Jira issue key %q", strings.TrimSpace(value))
-	}
-	markKey := linking.MarkKey(key)
-	return protocol.TaskAssociation{
-		Source:       "jira",
-		ExternalID:   key,
-		CanonicalKey: markKey,
-		LinkingKeys:  []string{markKey},
-		Lifecycle:    protocol.SourceRefLifecycleWorkItem,
-	}, nil
 }
 
 func normalizeIssueKey(key string) string {
@@ -389,5 +341,4 @@ func (Source) Reconcile(ctx context.Context, req integration.ReconcileRequest) [
 var _ integration.Source = Source{}
 var _ integration.StatusReporter = Source{}
 var _ integration.Reconciler = Source{}
-var _ integration.AssociationProvider = Source{}
 var _ integration.WorkTracker = Source{}

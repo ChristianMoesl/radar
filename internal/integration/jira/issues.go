@@ -374,13 +374,15 @@ func sourceRefFromIssue(cfg Config, issue issue, matchers ...linking.MarkMatcher
 
 	marks := firstMarkMatcher(matchers)
 	return protocol.SourceRef{
-		ID:          "jira:issue:" + issue.Key,
-		Source:      "jira",
-		SourceLabel: "Jira",
-		Kind:        "issue",
-		Role:        protocol.SourceRefRoleAuthoritative,
-		EntityID:    "jira:issue:" + issue.Key,
-		Lifecycle:   protocol.SourceRefLifecycleWorkItem,
+		ID:             "jira:issue:" + issue.Key,
+		Source:         "jira",
+		SourceLabel:    "Jira",
+		Kind:           "issue",
+		Role:           protocol.SourceRefRoleAuthoritative,
+		EntityID:       "jira:issue:" + issue.Key,
+		Lifecycle:      protocol.SourceRefLifecycleWorkItem,
+		Authority:      protocol.SourceRefAuthorityContributing,
+		RetainInactive: true,
 		Presentation: protocol.SourceRefPresentation{
 			PreferTitle:   true,
 			WorkspaceName: issue.Key + " " + issue.Fields.Summary,

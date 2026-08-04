@@ -4,7 +4,7 @@ Radar categorizes work by asking one question:
 
 > What should I care about next?
 
-It combines signals from GitHub, Jira, git worktrees, tmux sessions, and sbx sandboxes into one visible task per piece of work.
+It combines signals from Obsidian, GitHub, Jira, git worktrees, tmux sessions, and sbx sandboxes into one visible task per piece of work.
 
 ## One task from many sources
 
@@ -14,9 +14,9 @@ Radar first groups related source refs into a single task:
 2. Workspace path, for local-only work.
 3. Source identity, for standalone items such as a single GitHub PR.
 
-This means an authoritative Jira issue, GitHub PR, local worktree, tmux session, and sbx sandbox can all appear as one Radar task when they describe the same work. A Radar-owned manual task can exist without any source ref; attaching a Jira key lets matching refs join it without changing its numeric Radar ID.
+This means an Obsidian-authored task, Jira issue, GitHub PR, local worktree, tmux session, and sbx sandbox can appear as one Radar task when they describe the same work. There is no source-less authored task.
 
-Every source ref has an explicit role. `authoritative` refs participate in grouping, title selection, attention, and lifecycle. `informational` refs are attached to a specific Radar task for inspection and opening only. They never supply identity or linking keys, replace a title, emit an attention/done signal, merge tasks, disable manual done/reopen, complete or reopen work, keep a removed task active, or bypass mute/deprioritization.
+Every source ref has an explicit role. `authoritative` refs participate in grouping, title selection, attention, and lifecycle. `informational` refs are attached for inspection and opening only. Authoritative refs also declare lifecycle authority: `primary` owns completion, `contributing` participates when no primary exists, and `none` marks workspaces/resources that never complete a task.
 
 ## Categories
 
@@ -34,23 +34,20 @@ Radar applies lifecycle and user policy in this order:
 
 1. Terminal completion → `done`.
 2. Mute → hidden.
-3. A manual urgent override → `immediate`.
-4. Otherwise, choose the strongest active source signal: `immediate`, `attention`, `in_progress`, then `low_priority`.
-5. Deprioritization may lower naturally classified active work to `low_priority`, but never lowers a manual urgent override.
+3. Otherwise, choose the strongest active source signal: `immediate`, `attention`, `in_progress`, then `low_priority`.
+4. Deprioritization may lower naturally classified active work to `low_priority`, but never lowers an urgent primary signal.
 
 The key rules are:
 
-> Done does not override active work, and done work does not return to an attention category unless a source becomes active again.
+> Contributing completion does not override active contributing work. Primary completion is terminal for the authored task.
 
-A merged PR should not hide an active Jira issue. Once the authoritative remote work is complete, however, its task is `done`; display filters and leftover cleanup resources must not move it into `attention` or `low_priority`.
+A merged PR should not hide an active Jira issue when no primary owner exists. Once all contributing work items complete, the task is done. If a primary ref exists, only primary refs complete or reopen it; display filters and supporting resources cannot override that decision.
 
-## Manual lifecycle
+## Obsidian lifecycle and urgency
 
-A manual-only task starts in `low_priority`. Completing it explicitly moves it to `done`; reopening restores `low_priority`. Its original title is retained as Radar-owned intent even when an attached Jira issue supplies the display title. Once Jira or GitHub is attached, that remote source controls completion and manual done/reopen is unavailable.
+An open normal Obsidian note starts in `low_priority`. Linked tmux/SBX activity may promote it to `in_progress`, and actionable linked sources may promote it to `attention`. `radar-state: done` is terminal even while supporting refs remain active; reopening returns the note to its strongest active source classification.
 
-## Manual urgency
-
-Any active task can be marked manually urgent. This durable override promotes it to `immediate`; clearing the override restores its current natural classification, including new source information observed while it was urgent. It never reopens a done task, bypasses mute, or sends an OS notification for the user's own mutation. A task already naturally immediate is not lowered by the TUI priority key.
+`radar-priority: urgent` emits a primary immediate signal. Returning it to `normal` restores the current source-derived category. Priority cannot reopen done work, bypass mute, or generate an OS notification for the user's own mutation.
 
 ## Cleanup after remote completion
 
@@ -71,7 +68,7 @@ GitHub signals should focus on actionable feedback:
 
 ## Jira workflow status
 
-Jira's Done status category controls completion only for authoritative Jira refs. Assigned authoritative non-done issues and authoritative title discoveries are classified by exact status name, after trimming whitespace and ignoring case. Informational Jira refs expose status metadata but never participate in title, attention, or lifecycle precedence. The defaults are:
+Jira's Done status category controls completion for authoritative contributing Jira refs only when no primary lifecycle ref exists. Assigned authoritative non-done issues and authoritative title discoveries are classified by exact status name, after trimming whitespace and ignoring case. Informational Jira refs expose status metadata but never participate in title, attention, or lifecycle precedence. The defaults are:
 
 - `In Progress` and `In Review` → `in_progress`.
 - Every other authoritative non-done status → `low_priority`.

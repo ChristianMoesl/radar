@@ -20,19 +20,6 @@ import (
 	"radar/internal/protocol"
 )
 
-func TestNormalizeAssociationOwnsJiraKeyValidation(t *testing.T) {
-	association, err := NewSource().NormalizeAssociation(context.Background(), " dpscap-123 ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if association.ExternalID != "DPSCAP-123" || association.CanonicalKey != "mark:DPSCAP-123" || association.Lifecycle != protocol.SourceRefLifecycleWorkItem {
-		t.Fatalf("association = %+v", association)
-	}
-	if _, err := NewSource().NormalizeAssociation(context.Background(), "not-an-issue"); err == nil {
-		t.Fatal("NormalizeAssociation() accepted invalid Jira key")
-	}
-}
-
 func TestInformationalIssueSourceRefContract(t *testing.T) {
 	value := jiraIssueWithType("RAD-7", "Epic", "Open")
 	observation := informationalObservation(Config{BaseURL: "https://jira.example.test"}, value, issueMention{Key: "RAD-7", TaskID: 42})
@@ -98,28 +85,6 @@ func TestCollectMakesConfiguredTitleReferenceAuthoritative(t *testing.T) {
 	}
 }
 
-func TestCollectTreatsExplicitAttachmentAsAuthoritative(t *testing.T) {
-	server := jiraSourceServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/search/jql" {
-			t.Fatal("assigned search must be skipped for explicit empty authoritative types")
-		}
-		_ = json.NewEncoder(w).Encode(jiraIssueWithType("RAD-7", "Epic", "Done"))
-	})
-	defer server.Close()
-	configureJiraSource(t, server.URL, `{"authoritative_issue_types":[]}`)
-
-	previous := []protocol.Task{{ID: 8, Title: "No key remains", Associations: []protocol.TaskAssociation{{
-		Source: "jira", ExternalID: "RAD-7", CanonicalKey: "mark:RAD-7", LinkingKeys: []string{"mark:RAD-7"}, Lifecycle: protocol.SourceRefLifecycleWorkItem,
-	}}}}
-	result := NewSource().Collect(context.Background(), jiraCollectRequest(previous))
-	if len(result.Observations) != 1 || result.Observations[0].Ref.Role != protocol.SourceRefRoleAuthoritative || result.Observations[0].Signal != integration.SignalDone {
-		t.Fatalf("observations = %+v", result.Observations)
-	}
-	if !result.Complete || !strings.Contains(result.SourceStatus.Detail, "assigned search skipped") {
-		t.Fatalf("result status = %+v", result)
-	}
-}
-
 func TestCollectDoesNotDirectFetchAssignedTitleDuplicate(t *testing.T) {
 	var requests []string
 	server := jiraSourceServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -135,33 +100,6 @@ func TestCollectDoesNotDirectFetchAssignedTitleDuplicate(t *testing.T) {
 	}
 	if !reflect.DeepEqual(requests, []string{"POST /search/jql"}) {
 		t.Fatalf("requests = %+v, want one assigned search", requests)
-	}
-}
-
-func TestAssignedSearchFailureDoesNotKeepDemotedTitleAuthority(t *testing.T) {
-	server := jiraSourceServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/search/jql" {
-			http.Error(w, "search unavailable", http.StatusInternalServerError)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(jiraIssueWithType("RAD-7", "Epic", "Open"))
-	})
-	defer server.Close()
-	configureJiraSource(t, server.URL, `{}`)
-	order := 0
-	previousRef := protocol.SourceRef{
-		ID: "jira:issue:RAD-7", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative,
-		EntityID: "jira:issue:RAD-7", Lifecycle: protocol.SourceRefLifecycleWorkItem,
-		Title: "RAD-7 Remote", Metadata: map[string]string{"key": "RAD-7"},
-		Presentation: protocol.SourceRefPresentation{PreferTitle: true, TitleOrder: &order},
-	}
-	previous := []protocol.Task{{
-		ID: 9, Title: "RAD-7 Remote", Metadata: map[string]string{"manual_title": "Investigate RAD-7"}, SourceRefs: []protocol.SourceRef{previousRef},
-	}}
-
-	result := NewSource().Collect(context.Background(), jiraCollectRequest(previous))
-	if result.Complete || len(result.Observations) != 1 || result.Observations[0].Ref.Role != protocol.SourceRefRoleInformational {
-		t.Fatalf("observations = %+v, want only freshly demoted informational ref", result.Observations)
 	}
 }
 
@@ -219,18 +157,9 @@ func TestCollectBoundsTitleReferenceFetches(t *testing.T) {
 	}
 }
 
-func TestExplicitAttachmentDoesNotOverrideTitleKeyOrder(t *testing.T) {
-	mentions := discoverIssueMentions([]protocol.Task{{
-		ID: 4, Title: "RAD-1 then RAD-2", Associations: []protocol.TaskAssociation{{Source: "jira", ExternalID: "RAD-2"}},
-	}}, linking.NewMarkMatcher([]string{"RAD"}))
-	if len(mentions) != 2 || mentions[0].Key != "RAD-1" || mentions[0].Explicit || mentions[1].Key != "RAD-2" || !mentions[1].Explicit {
-		t.Fatalf("mentions = %+v", mentions)
-	}
-}
-
-func TestDiscoverIssueMentionsUsesDurableTitlesAndStableOrder(t *testing.T) {
+func TestDiscoverIssueMentionsUsesSourceTitlesAndStableOrder(t *testing.T) {
 	tasks := []protocol.Task{{
-		ID: 12, Title: "RAD-99 Jira supplied", Metadata: map[string]string{"manual_title": "Compare RAD-2 then RAD-1"},
+		ID: 12, Title: "Compare RAD-2 then RAD-1",
 		SourceRefs: []protocol.SourceRef{
 			{Source: "jira", Kind: "issue", Title: "RAD-99 Jira supplied"},
 			{Source: "github", Kind: "pull_request", Title: "Also RAD-3"},

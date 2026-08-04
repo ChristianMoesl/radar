@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 
@@ -130,6 +131,9 @@ type Workspace struct {
 type CreateSessionOptions struct {
 	Path                    string
 	SessionName             string
+	PiSessionID             string
+	InitialPrompt           string
+	Environment             map[string]string
 	Model                   string
 	Thinking                string
 	Sandbox                 bool
@@ -293,7 +297,7 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 			thinking = repoConfig.Thinking
 		}
 		piArgsText := piArgs(sessionName, model, thinking, options.ForkPiSession)
-		if err := createTmuxWorkspace(ctx, runner, repo, path, sessionName, options.Tmux, piArgsText); err != nil {
+		if err := createTmuxWorkspace(ctx, runner, repo, path, sessionName, options.Tmux, piArgsText, nil); err != nil {
 			rollback()
 			return Workspace{}, err
 		}
@@ -477,7 +481,11 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 		if strings.TrimSpace(repoConfig.Thinking) != "" {
 			thinking = repoConfig.Thinking
 		}
-		piArgsText := piArgs(sessionName, model, thinking, "")
+		piSessionID := strings.TrimSpace(options.PiSessionID)
+		if piSessionID == "" {
+			piSessionID = sessionName
+		}
+		piArgsText := piArgsWithPrompt(piSessionID, sessionName, model, thinking, "", options.InitialPrompt)
 		createdSandbox := false
 		if sandbox.Enabled {
 			if exists, err := sandboxExists(ctx, runner, sandboxName); err != nil {
@@ -489,7 +497,7 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 				createdSandbox = true
 			}
 		}
-		if err := createTmuxWorkspace(ctx, runner, "", path, sessionName, options.Tmux, piArgsText); err != nil {
+		if err := createTmuxWorkspace(ctx, runner, "", path, sessionName, options.Tmux, piArgsText, options.Environment); err != nil {
 			if createdSandbox {
 				_, _ = stopSandbox(ctx, runner, path, sandboxName)
 			}
@@ -752,7 +760,7 @@ func sbxCommandError(err error) error {
 	return err
 }
 
-func createTmuxWorkspace(ctx context.Context, runner Runner, cwd string, path string, sessionName string, cfg tmuxlayout.Config, piArgsText string) error {
+func createTmuxWorkspace(ctx context.Context, runner Runner, cwd string, path string, sessionName string, cfg tmuxlayout.Config, piArgsText string, environment map[string]string) error {
 	cfg = tmuxlayout.WithDefaults(cfg)
 	if err := tmuxlayout.Validate(cfg); err != nil {
 		return err
@@ -772,7 +780,17 @@ func createTmuxWorkspace(ctx context.Context, runner Runner, cwd string, path st
 		var output string
 		var err error
 		if windowIndex == 0 {
-			output, err = runner.Run(ctx, cwd, "tmux", "new-session", "-d", "-s", sessionName, "-n", window.Name, "-c", path, "-P", "-F", "#{window_id} #{pane_id}", firstCommand)
+			args := []string{"new-session", "-d", "-s", sessionName, "-n", window.Name, "-c", path, "-P", "-F", "#{window_id} #{pane_id}"}
+			keys := make([]string, 0, len(environment))
+			for key := range environment {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				args = append(args, "-e", key+"="+environment[key])
+			}
+			args = append(args, firstCommand)
+			output, err = runner.Run(ctx, cwd, "tmux", args...)
 			if err == nil {
 				createdSession = true
 			}
@@ -838,6 +856,10 @@ func expandPiArgs(command string, args string) string {
 }
 
 func piArgs(sessionName string, model string, thinking string, forkSession string) string {
+	return piArgsWithPrompt(sessionName, sessionName, model, thinking, forkSession, "")
+}
+
+func piArgsWithPrompt(sessionID string, name string, model string, thinking string, forkSession string, prompt string) string {
 	args := []string{}
 	if forkSession != "" {
 		args = append(args, "--fork", shellQuote(forkSession))
@@ -848,7 +870,10 @@ func piArgs(sessionName string, model string, thinking string, forkSession strin
 	if strings.TrimSpace(thinking) != "" {
 		args = append(args, "--thinking", shellQuote(strings.TrimSpace(thinking)))
 	}
-	args = append(args, "--session-id", shellQuote(sessionName), "--name", shellQuote(sessionName))
+	args = append(args, "--session-id", shellQuote(sessionID), "--name", shellQuote(name))
+	if strings.TrimSpace(prompt) != "" {
+		args = append(args, shellQuote(strings.TrimSpace(prompt)))
+	}
 	return strings.Join(args, " ")
 }
 

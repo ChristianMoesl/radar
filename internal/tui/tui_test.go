@@ -37,29 +37,6 @@ func TestViewShowsErrorsAsToastWithoutReplacingTasks(t *testing.T) {
 	}
 }
 
-func TestViewHidesManualTaskReason(t *testing.T) {
-	model := model{
-		tasks: []protocol.Task{{
-			Title:     "Plan release",
-			Reason:    "manual task",
-			Attention: "low_priority",
-		}},
-	}
-
-	view := model.View()
-	if !strings.Contains(view, "Plan release") {
-		t.Fatalf("View() missing task title:\n%s", view)
-	}
-	if strings.Contains(view, "manual task") {
-		t.Fatalf("View() exposes manual task distinction:\n%s", view)
-	}
-
-	model.mode = "detail"
-	if detail := model.View(); strings.Contains(detail, "manual task") {
-		t.Fatalf("detail View() exposes manual task distinction:\n%s", detail)
-	}
-}
-
 func TestViewRendersTasksAndSources(t *testing.T) {
 	model := model{
 		summary: protocol.Summary{Attention: 1},
@@ -151,18 +128,18 @@ func TestWatchResponseSelectsNextRenderedTaskWhenSelectedTaskDisappears(t *testi
 	}
 }
 
-func TestManualTaskTitleEntry(t *testing.T) {
+func TestAuthoredTaskTitleEntry(t *testing.T) {
 	updated, _ := (model{}).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
 	m := updated.(model)
-	if m.mode != "manual_task" {
+	if m.mode != "task_authoring" {
 		t.Fatalf("mode = %q", m.mode)
 	}
 	for _, r := range "Write notes" {
 		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		m = updated.(model)
 	}
-	if m.manualTitle != "Write notes" || !strings.Contains(m.View(), "Write notes") {
-		t.Fatalf("manual title = %q, view=%s", m.manualTitle, m.View())
+	if m.authoredTitle != "Write notes" || !strings.Contains(m.View(), "Write notes") {
+		t.Fatalf("manual title = %q, view=%s", m.authoredTitle, m.View())
 	}
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(model)
@@ -177,7 +154,7 @@ func TestTextInputsAcceptSpaceKey(t *testing.T) {
 		model model
 		want  func(model) string
 	}{
-		{name: "manual task title", model: model{mode: "manual_task", manualTitle: "Write"}, want: func(m model) string { return m.manualTitle }},
+		{name: "authored task title", model: model{mode: "task_authoring", authoredTitle: "Write"}, want: func(m model) string { return m.authoredTitle }},
 		{name: "workspace name", model: model{mode: "create_name", create: createForm{name: "release"}}, want: func(m model) string { return m.create.name }},
 	}
 	for _, tt := range tests {
@@ -191,32 +168,37 @@ func TestTextInputsAcceptSpaceKey(t *testing.T) {
 	}
 }
 
-func TestManualDoneAndReopenKeys(t *testing.T) {
-	for _, complete := range []string{"false", "true"} {
-		m := model{tasks: []protocol.Task{{ID: 7, Metadata: map[string]string{"manual_task": "true", "manual_lifecycle_available": "true", "manual_complete": complete}}}}
+func authoredTaskForTUITest(state, priority, attention string) protocol.Task {
+	return protocol.Task{ID: 7, Attention: attention, SourceRefs: []protocol.SourceRef{{
+		ID: "obsidian:task:test", Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
+		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
+		Metadata: map[string]string{"authoring": "true", "state": state, "priority": priority},
+	}}}
+}
+
+func TestAuthoredDoneAndReopenKeys(t *testing.T) {
+	for _, state := range []string{"open", "done"} {
+		m := model{tasks: []protocol.Task{authoredTaskForTUITest(state, "normal", "low_priority")}}
 		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
 		got := updated.(model)
 		if cmd == nil || !got.loading {
-			t.Fatalf("complete=%s: command=%v loading=%v", complete, cmd, got.loading)
+			t.Fatalf("state=%s: command=%v loading=%v", state, cmd, got.loading)
 		}
 	}
 }
 
-func TestManualDoneRejectsRemoteLifecycle(t *testing.T) {
-	m := model{tasks: []protocol.Task{{ID: 7, Metadata: map[string]string{"manual_task": "true", "manual_lifecycle_available": "false"}}}}
+func TestAuthoredDoneRejectsNonAuthoredTask(t *testing.T) {
+	m := model{tasks: []protocol.Task{{ID: 7}}}
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
 	got := updated.(model)
-	if cmd != nil || !strings.Contains(got.message, "remote source") {
+	if cmd != nil || !strings.Contains(got.message, "does not support") {
 		t.Fatalf("command=%v message=%q", cmd, got.message)
 	}
 }
 
-func TestPriorityKeyTogglesManualOverride(t *testing.T) {
-	tests := []protocol.Task{
-		{ID: 7, Attention: "low_priority"},
-		{ID: 7, Attention: "immediate", Metadata: map[string]string{"priority_override": "urgent"}},
-	}
-	for _, task := range tests {
+func TestPriorityKeyTogglesAuthoredPriority(t *testing.T) {
+	for _, priority := range []string{"normal", "urgent"} {
+		task := authoredTaskForTUITest("open", priority, "low_priority")
 		m := model{tasks: []protocol.Task{task}}
 		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
 		got := updated.(model)
@@ -226,13 +208,13 @@ func TestPriorityKeyTogglesManualOverride(t *testing.T) {
 	}
 }
 
-func TestPriorityKeyDoesNotLowerSourceImmediateOrReopenDone(t *testing.T) {
+func TestPriorityKeyRejectsUnsupportedAndDoneTasks(t *testing.T) {
 	tests := []struct {
 		task protocol.Task
 		want string
 	}{
-		{task: protocol.Task{ID: 1, Attention: "immediate"}, want: "because of a source"},
-		{task: protocol.Task{ID: 2, Attention: "done"}, want: "cannot be made urgent"},
+		{task: protocol.Task{ID: 1, Attention: "immediate"}, want: "does not support"},
+		{task: authoredTaskForTUITest("done", "normal", "done"), want: "cannot change priority"},
 	}
 	for _, tt := range tests {
 		m := model{tasks: []protocol.Task{tt.task}}
@@ -246,7 +228,7 @@ func TestPriorityKeyDoesNotLowerSourceImmediateOrReopenDone(t *testing.T) {
 
 func TestPriorityResponseKeepsSelectionByTaskID(t *testing.T) {
 	m := model{cursor: 1, tasks: []protocol.Task{{ID: 1, Attention: "attention"}, {ID: 2, Attention: "low_priority"}}}
-	m.applyResponse(protocol.Response{Tasks: []protocol.Task{{ID: 1, Attention: "attention"}, {ID: 2, Attention: "immediate", Metadata: map[string]string{"priority_override": "urgent"}}}}, false)
+	m.applyResponse(protocol.Response{Tasks: []protocol.Task{{ID: 1, Attention: "attention"}, {ID: 2, Attention: "immediate"}}}, false)
 	if m.cursor != 1 || m.tasks[m.cursor].ID != 2 {
 		t.Fatalf("cursor=%d tasks=%+v", m.cursor, m.tasks)
 	}
@@ -746,5 +728,16 @@ func TestTaskLinksUsesSourceLabels(t *testing.T) {
 	}
 	if links[1].Key != "g" || links[1].Source != "GitHub" {
 		t.Fatalf("github link = %+v, want g/GitHub", links[1])
+	}
+}
+
+func TestObsidianTaskOffersOneSourceOwnedOpenAction(t *testing.T) {
+	uri := "obsidian://open?vault=Work&file=Radar%2FTasks%2Ftask%2Ftask.md"
+	task := protocol.Task{Title: "Task", URL: uri, SourceRefs: []protocol.SourceRef{{
+		ID: "obsidian:task:1", Source: "obsidian", SourceLabel: "Obsidian", Kind: "task", URL: uri,
+	}}}
+	links := taskLinks(task)
+	if len(links) != 1 || links[0].Action != "obsidian_open" || links[0].Source != "Obsidian" {
+		t.Fatalf("links = %+v", links)
 	}
 }

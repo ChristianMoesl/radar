@@ -611,21 +611,23 @@ func githubPullRequestRef(id string, repo string, number int, title string, url 
 		id = fmt.Sprintf("github:pr:%s:%d", repo, number)
 	}
 	return protocol.SourceRef{
-		ID:           id,
-		Source:       "github",
-		SourceLabel:  "GitHub",
-		Kind:         "pull_request",
-		Role:         protocol.SourceRefRoleAuthoritative,
-		EntityID:     id,
-		Lifecycle:    protocol.SourceRefLifecycleWorkItem,
-		Presentation: protocol.SourceRefPresentation{WorkspaceName: pullRequestWorkspaceName(branch)},
-		Title:        title,
-		Repo:         repo,
-		URL:          url,
-		Branch:       branch,
-		Status:       status,
-		CanonicalKey: id,
-		LinkingKeys:  linking.Keys(id, linking.BranchKey(githubRepoKey(repo), githubBranchKey(branch))),
+		ID:             id,
+		Source:         "github",
+		SourceLabel:    "GitHub",
+		Kind:           "pull_request",
+		Role:           protocol.SourceRefRoleAuthoritative,
+		EntityID:       id,
+		Lifecycle:      protocol.SourceRefLifecycleWorkItem,
+		Authority:      protocol.SourceRefAuthorityContributing,
+		RetainInactive: true,
+		Presentation:   protocol.SourceRefPresentation{WorkspaceName: pullRequestWorkspaceName(branch)},
+		Title:          title,
+		Repo:           repo,
+		URL:            url,
+		Branch:         branch,
+		Status:         status,
+		CanonicalKey:   id,
+		LinkingKeys:    linking.Keys(id, linking.BranchKey(githubRepoKey(repo), githubBranchKey(branch))),
 	}
 }
 

@@ -86,11 +86,15 @@ func (r Registry) Multiplexer() (MultiplexerProvider, error) {
 	return nil, fmt.Errorf("multiplexer integration is not registered")
 }
 
-func (r Registry) AssociationProvider(source string) (AssociationProvider, bool) {
-	candidate, ok := r.byName[source]
-	if !ok {
-		return nil, false
+func (r Registry) TaskAuthoring() (TaskAuthoringProvider, error) {
+	providers := make([]TaskAuthoringProvider, 0, 1)
+	for _, candidate := range r.integrations {
+		if provider, ok := candidate.(TaskAuthoringProvider); ok {
+			providers = append(providers, provider)
+		}
 	}
-	provider, ok := candidate.(AssociationProvider)
-	return provider, ok
+	if len(providers) != 1 {
+		return nil, fmt.Errorf("exactly one task authoring integration is required; found %d", len(providers))
+	}
+	return providers[0], nil
 }

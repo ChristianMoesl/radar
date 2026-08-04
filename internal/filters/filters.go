@@ -36,7 +36,7 @@ func Apply(items []protocol.Task, cfg Config) []protocol.Task {
 			continue
 		}
 
-		if item.Attention != "done" && item.Metadata["priority_override"] != "urgent" && (action == actionDeprioritize || action == actionLowPriority) {
+		if item.Attention != "done" && !hasPrimaryImmediateSignal(item) && (action == actionDeprioritize || action == actionLowPriority) {
 			item.Attention = "low_priority"
 			if item.Reason != "" && !strings.HasPrefix(item.Reason, "low priority") {
 				item.Reason = "low priority: " + item.Reason
@@ -47,6 +47,15 @@ func Apply(items []protocol.Task, cfg Config) []protocol.Task {
 		filtered = append(filtered, item)
 	}
 	return filtered
+}
+
+func hasPrimaryImmediateSignal(item protocol.Task) bool {
+	for _, ref := range item.SourceRefs {
+		if ref.Authority == protocol.SourceRefAuthorityPrimary && ref.Signal == "immediate" {
+			return true
+		}
+	}
+	return false
 }
 
 func Summary(items []protocol.Task) protocol.Summary {

@@ -117,6 +117,7 @@ func (s sandbox) SourceRef(matchers ...linking.MarkMatcher) protocol.SourceRef {
 		Role:         protocol.SourceRefRoleAuthoritative,
 		EntityID:     refID,
 		Lifecycle:    protocol.SourceRefLifecycleResource,
+		Authority:    protocol.SourceRefAuthorityNone,
 		Title:        title,
 		Path:         workspace,
 		Status:       strings.TrimSpace(s.Status),

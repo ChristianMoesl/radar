@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -194,11 +193,8 @@ func TestProjectTasksClearsSnapshotRefsWhenDoneLocalResourcesAreGone(t *testing.
 	}
 
 	tasks := projectTasks(state)
-	if len(tasks) != 1 {
-		t.Fatalf("tasks = %+v, want one historical task", tasks)
-	}
-	if len(tasks[0].SourceRefs) != 0 {
-		t.Fatalf("source refs = %+v, want no deleted local refs", tasks[0].SourceRefs)
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want source-less local task to disappear", tasks)
 	}
 }
 
@@ -343,16 +339,18 @@ func TestReconcileStateMarksRemovedWorktreeDoneButNotTmuxOnly(t *testing.T) {
 
 func testGitHubPRRef(id string, repo string, branch string) protocol.SourceRef {
 	return protocol.SourceRef{
-		ID:           id,
-		Source:       "github",
-		Kind:         "pull_request",
-		Role:         protocol.SourceRefRoleAuthoritative,
-		EntityID:     id,
-		Lifecycle:    protocol.SourceRefLifecycleWorkItem,
-		Repo:         repo,
-		Branch:       branch,
-		CanonicalKey: id,
-		LinkingKeys:  linking.Keys(append(testLinkingMarks().Keys(id, repo, branch), id, linking.BranchKey(repo, testBranchKey(branch)))...),
+		ID:             id,
+		Source:         "github",
+		Kind:           "pull_request",
+		Role:           protocol.SourceRefRoleAuthoritative,
+		EntityID:       id,
+		Lifecycle:      protocol.SourceRefLifecycleWorkItem,
+		Authority:      protocol.SourceRefAuthorityContributing,
+		RetainInactive: true,
+		Repo:           repo,
+		Branch:         branch,
+		CanonicalKey:   id,
+		LinkingKeys:    linking.Keys(append(testLinkingMarks().Keys(id, repo, branch), id, linking.BranchKey(repo, testBranchKey(branch)))...),
 	}
 }
 
@@ -365,6 +363,7 @@ func testGitWorktreeRef(id string, path string, repo string, branch string) prot
 		Role:         protocol.SourceRefRoleAuthoritative,
 		EntityID:     id,
 		Lifecycle:    protocol.SourceRefLifecycleWorkspace,
+		Authority:    protocol.SourceRefAuthorityNone,
 		Repo:         repo,
 		Path:         path,
 		Branch:       branch,
@@ -393,6 +392,7 @@ func testTmuxSessionRef(id string, path string) protocol.SourceRef {
 		Role:        protocol.SourceRefRoleAuthoritative,
 		EntityID:    id,
 		Lifecycle:   protocol.SourceRefLifecycleResource,
+		Authority:   protocol.SourceRefAuthorityNone,
 		Path:        path,
 		LinkingKeys: linking.Keys(append(testLinkingMarks().Keys(id, path), linking.WorkspaceKey(path))...),
 	}
@@ -401,16 +401,18 @@ func testTmuxSessionRef(id string, path string) protocol.SourceRef {
 func testJiraIssueRef(id string, title string) protocol.SourceRef {
 	key := strings.TrimPrefix(id, "jira:issue:")
 	return protocol.SourceRef{
-		ID:           id,
-		Source:       "jira",
-		Kind:         "issue",
-		Role:         protocol.SourceRefRoleAuthoritative,
-		EntityID:     id,
-		Lifecycle:    protocol.SourceRefLifecycleWorkItem,
-		Presentation: protocol.SourceRefPresentation{PreferTitle: true},
-		Title:        title,
-		CanonicalKey: id,
-		LinkingKeys:  linking.Keys("mark:" + key),
+		ID:             id,
+		Source:         "jira",
+		Kind:           "issue",
+		Role:           protocol.SourceRefRoleAuthoritative,
+		EntityID:       id,
+		Lifecycle:      protocol.SourceRefLifecycleWorkItem,
+		Authority:      protocol.SourceRefAuthorityContributing,
+		RetainInactive: true,
+		Presentation:   protocol.SourceRefPresentation{PreferTitle: true},
+		Title:          title,
+		CanonicalKey:   id,
+		LinkingKeys:    linking.Keys("mark:" + key),
 	}
 }
 
@@ -517,68 +519,62 @@ func TestLoadRejectsHugeStateFile(t *testing.T) {
 	}
 }
 
-func TestNewStoreFailsClosedWithoutChangingInvalidState(t *testing.T) {
-	tests := []struct {
-		name string
-		data []byte
-	}{
-		{name: "malformed", data: []byte(`{"version":`)},
-		{name: "incompatible", data: []byte(fmt.Sprintf(`{"version":%d,"task_records":[],"source_refs":[]}`, stateVersion-1))},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "tasks.json")
-			t.Setenv("RADAR_STATE", path)
-			if err := os.WriteFile(path, tt.data, 0o600); err != nil {
-				t.Fatal(err)
-			}
-
-			if _, err := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil))); err == nil {
-				t.Fatal("NewStore() error = nil, want invalid state error")
-			}
-			got, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(got) != string(tt.data) {
-				t.Fatalf("state changed from %q to %q", tt.data, got)
-			}
-		})
-	}
-}
-
-func TestConcurrentManualTaskSavesRemainLoadable(t *testing.T) {
-	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+func TestNewStoreRejectsMalformedStateAndDiscardsIncompatibleCache(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	malformedPath := filepath.Join(t.TempDir(), "malformed.json")
+	t.Setenv("RADAR_STATE", malformedPath)
+	if err := os.WriteFile(malformedPath, []byte(`{"version":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewStore(logger); err == nil {
+		t.Fatal("NewStore() error = nil for malformed state")
+	}
+
+	incompatiblePath := filepath.Join(t.TempDir(), "incompatible.json")
+	t.Setenv("RADAR_STATE", incompatiblePath)
+	if err := os.WriteFile(incompatiblePath, []byte(fmt.Sprintf(`{"version":%d,"task_records":[],"source_refs":[]}`, stateVersion-1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	store, err := NewStore(logger)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(store.Tasks()) != 0 {
+		t.Fatalf("tasks = %+v, want clean rebuildable cache", store.Tasks())
+	}
+}
 
-	const taskCount = 40
-	errs := make(chan error, taskCount)
-	var wg sync.WaitGroup
-	for i := range taskCount {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, err := store.CreateManualTask(fmt.Sprintf("manual task %d", i))
-			errs <- err
-		}()
-	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		if err != nil {
-			t.Fatal(err)
-		}
+func TestPrimaryLifecycleAuthorityOverridesContributingWorkItems(t *testing.T) {
+	now := time.Now().UTC()
+	primary := protocol.SourceRef{ID: "obsidian:task:1", Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary, CanonicalKey: "obsidian:task:1", LinkingKeys: []string{"shared"}, Signal: "low_priority", Title: "Authored task", Presentation: protocol.SourceRefPresentation{PreferTitle: true}}
+	jira := protocol.SourceRef{ID: "jira:issue:RAD-1", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityContributing, CanonicalKey: "jira:issue:RAD-1", LinkingKeys: []string{"shared"}, Signal: "done", Title: "RAD-1"}
+	tmux := protocol.SourceRef{ID: "tmux:session:1", Source: "tmux", Kind: "session", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Authority: protocol.SourceRefAuthorityNone, LinkingKeys: []string{"shared"}, Signal: "in_progress"}
+
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
+		makeTask("low_priority", "open", primary), makeTask("done", "Done", jira), makeTask("in_progress", "session", tmux),
+	}, now)
+	tasks := projectTasks(state)
+	if len(tasks) != 1 || tasks[0].Attention != "in_progress" {
+		t.Fatalf("open primary task = %+v", tasks)
 	}
 
-	reloaded, err := NewStore(logger)
-	if err != nil {
-		t.Fatal(err)
+	primary.Signal = "done"
+	primary.Status = "done"
+	primary.Metadata = map[string]string{"completed_at": now.Add(-time.Hour).Format(time.RFC3339)}
+	jira.Signal = "attention"
+	state = reconcileState(state, []protocol.Task{
+		makeTask("done", "done", primary), makeTask("attention", "Jira changed", jira), makeTask("in_progress", "session", tmux),
+	}, now)
+	tasks = projectTasks(state)
+	if len(tasks) != 1 || tasks[0].Attention != "done" || tasks[0].DoneAt != primary.Metadata["completed_at"] {
+		t.Fatalf("done primary task = %+v", tasks)
 	}
-	if got := len(reloaded.Tasks()); got != taskCount {
-		t.Fatalf("reloaded task count = %d, want %d", got, taskCount)
+
+	primary.Signal = "low_priority"
+	primary.Status = "open"
+	primary.Metadata = nil
+	state = reconcileState(state, []protocol.Task{makeTask("low_priority", "open", primary), makeTask("done", "Done", jira)}, now.Add(time.Hour))
+	if tasks = projectTasks(state); len(tasks) != 1 || tasks[0].Attention != "attention" {
+		t.Fatalf("reopened primary task with actionable contributor = %+v", tasks)
 	}
 }

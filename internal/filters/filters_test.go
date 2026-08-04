@@ -33,8 +33,8 @@ func TestApplyDeprioritizesRepos(t *testing.T) {
 	}
 }
 
-func TestApplyManualUrgencyWinsOverDeprioritizationButNotMute(t *testing.T) {
-	item := protocol.Task{ID: 1, Repo: "org/noisy", Attention: "immediate", Reason: "manually urgent", Metadata: map[string]string{"priority_override": "urgent"}}
+func TestApplyPrimaryUrgencyWinsOverDeprioritizationButNotMute(t *testing.T) {
+	item := protocol.Task{ID: 1, Repo: "org/noisy", Attention: "immediate", Reason: "urgent", SourceRefs: []protocol.SourceRef{{Authority: protocol.SourceRefAuthorityPrimary, Signal: "immediate"}}}
 
 	got := Apply([]protocol.Task{item}, Config{DeprioritizeRepos: []string{"org/noisy"}})
 	if len(got) != 1 || got[0].Attention != "immediate" {

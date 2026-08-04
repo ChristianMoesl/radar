@@ -122,6 +122,7 @@ func (s session) SourceRef(marks linking.MarkMatcher) protocol.SourceRef {
 		Role:        protocol.SourceRefRoleAuthoritative,
 		EntityID:    "tmux:session:" + s.ID,
 		Lifecycle:   protocol.SourceRefLifecycleResource,
+		Authority:   protocol.SourceRefAuthorityNone,
 		Title:       s.Name,
 		Path:        s.Path,
 		Status:      status,

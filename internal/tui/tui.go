@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -20,6 +19,7 @@ import (
 	"radar/internal/client"
 	"radar/internal/config"
 	"radar/internal/integration"
+	"radar/internal/openurl"
 	"radar/internal/protocol"
 	"radar/internal/sourceactions"
 	"radar/internal/taskrefs"
@@ -113,7 +113,7 @@ type model struct {
 	worktreeTask        protocol.Task
 	worktreeCursor      int
 	message             string
-	manualTitle         string
+	authoredTitle       string
 	scroll              int
 	revision            int64
 	watching            bool
@@ -218,30 +218,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncTaskScroll()
 		return m, nil
 	case tea.KeyMsg:
-		if m.mode == "manual_task" {
+		if m.mode == "task_authoring" {
 			switch msg.String() {
 			case "esc", "ctrl+c":
 				m.mode = ""
-				m.manualTitle = ""
+				m.authoredTitle = ""
 				m.err = nil
 				return m, nil
 			case "enter":
-				title := strings.TrimSpace(m.manualTitle)
+				title := strings.TrimSpace(m.authoredTitle)
 				if title == "" {
 					m.err = fmt.Errorf("task title is required")
 					return m, nil
 				}
 				m.mode = ""
-				m.manualTitle = ""
+				m.authoredTitle = ""
 				m.loading = true
 				m.err = nil
-				return m, m.createManualTask(title)
+				return m, m.createAuthoredTask(title)
 			case "backspace", "ctrl+h":
-				m.manualTitle = dropLastRune(m.manualTitle)
+				m.authoredTitle = dropLastRune(m.authoredTitle)
 				return m, nil
 			}
 			if value, ok := textInputValue(msg); ok {
-				m.manualTitle += value
+				m.authoredTitle += value
 			}
 			return m, nil
 		}
@@ -335,38 +335,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "esc", "ctrl+c":
 			return m, tea.Quit
 		case "n":
-			m.mode = "manual_task"
-			m.manualTitle = ""
+			m.mode = "task_authoring"
+			m.authoredTitle = ""
 			m.err = nil
 			m.message = ""
 		case "d":
 			if len(m.tasks) > 0 {
 				task := m.tasks[m.cursor]
-				if task.Metadata["manual_task"] != "true" {
-					m.message = "Selected task is not a manual task"
-					return m, nil
-				}
-				if task.Metadata["manual_lifecycle_available"] != "true" {
-					m.message = "Selected task lifecycle is controlled by a remote source"
+				ref, ok := authoredTaskRef(task)
+				if !ok {
+					m.message = "Selected task does not support authored lifecycle changes"
 					return m, nil
 				}
 				m.loading = true
 				m.err = nil
-				return m, m.setManualTaskDone(task, task.Metadata["manual_complete"] != "true")
+				return m, m.setAuthoredTaskDone(task, ref.Metadata["state"] != "done")
 			}
 		case "p":
 			if len(m.tasks) > 0 {
 				task := m.tasks[m.cursor]
+				ref, ok := authoredTaskRef(task)
+				if !ok {
+					m.message = "Selected task does not support authored priority changes"
+					return m, nil
+				}
 				if task.Attention == "done" {
-					m.message = "Done tasks cannot be made urgent"
+					m.message = "Done tasks cannot change priority"
 					return m, nil
 				}
 				priority := "urgent"
-				if task.Metadata["priority_override"] == "urgent" {
+				if ref.Metadata["priority"] == "urgent" {
 					priority = "normal"
-				} else if task.Attention == "immediate" {
-					m.message = "Selected task is already immediate because of a source"
-					return m, nil
 				}
 				m.loading = true
 				m.err = nil
@@ -562,8 +561,8 @@ func (m model) View() string {
 	var sections []string
 	sections = append(sections, m.header(contentWidth))
 
-	if m.mode == "manual_task" {
-		sections = append(sections, m.manualTaskView(contentWidth))
+	if m.mode == "task_authoring" {
+		sections = append(sections, m.taskAuthoringView(contentWidth))
 		sections = append(sections, helpStyle.Render("type a title • enter create • esc cancel"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
@@ -1002,7 +1001,7 @@ func preparingWorkspaceNotification() tea.Cmd {
 	})
 }
 
-func (m model) createManualTask(title string) tea.Cmd {
+func (m model) createAuthoredTask(title string) tea.Cmd {
 	return func() tea.Msg {
 		response, err := client.CreateTask(m.socketPath, title)
 		if err != nil {
@@ -1015,7 +1014,7 @@ func (m model) createManualTask(title string) tea.Cmd {
 	}
 }
 
-func (m model) setManualTaskDone(task protocol.Task, complete bool) tea.Cmd {
+func (m model) setAuthoredTaskDone(task protocol.Task, complete bool) tea.Cmd {
 	return func() tea.Msg {
 		var response protocol.Response
 		var err error
@@ -1202,8 +1201,8 @@ func fuzzyMatch(value string, query string) bool {
 	return true
 }
 
-func (m model) manualTaskView(width int) string {
-	title := m.manualTitle
+func (m model) taskAuthoringView(width int) string {
+	title := m.authoredTitle
 	if title == "" {
 		title = subtleStyle.Render("type a task title")
 	}
@@ -1576,6 +1575,13 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 		return m, m.switchTmuxSession(target)
 	}
 
+	if ref, ok := taskrefs.TaskWorkspace(task); ok {
+		m.loading = true
+		m.err = nil
+		m.message = "Creating task session…"
+		return m, m.createSessionForAuthoredTask(task, ref)
+	}
+
 	worktrees := taskrefs.Worktrees(task)
 	switch len(worktrees) {
 	case 0:
@@ -1620,6 +1626,52 @@ func (m model) switchTmuxSession(target string) tea.Cmd {
 			return actionMsg{err: err}
 		}
 		return actionMsg{quit: true}
+	}
+}
+
+func authoredTaskRef(task protocol.Task) (protocol.SourceRef, bool) {
+	for _, ref := range task.SourceRefs {
+		if ref.Role == protocol.SourceRefRoleAuthoritative && ref.Lifecycle == protocol.SourceRefLifecycleWorkItem && ref.Authority == protocol.SourceRefAuthorityPrimary && ref.Metadata["authoring"] == "true" {
+			return ref, true
+		}
+	}
+	return protocol.SourceRef{}, false
+}
+
+func (m model) createSessionForAuthoredTask(task protocol.Task, workspaceRef protocol.SourceRef) tea.Cmd {
+	return func() tea.Msg {
+		authoredRef, ok := authoredTaskRef(task)
+		if !ok {
+			return actionMsg{err: fmt.Errorf("task has no authored source ref")}
+		}
+		id := strings.TrimSpace(authoredRef.Metadata["radar_id"])
+		if id == "" {
+			return actionMsg{err: fmt.Errorf("authored task has no stable identity")}
+		}
+		compactID := strings.ReplaceAll(strings.ToLower(id), "-", "")
+		if len(compactID) > 12 {
+			compactID = compactID[:12]
+		}
+		sessionName := workspace.WorktreeName("radar-" + compactID)
+		cfg, err := config.Load()
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		notePath := authoredRef.Metadata["note_path"]
+		prompt := "Read task.md, work toward the desired outcome, and keep Working notes and Outcome links current."
+		created, err := workspace.CreateSessionWithOptions(context.Background(), workspace.ExecRunner{}, workspace.CreateSessionOptions{
+			Path: workspaceRef.Path, SessionName: sessionName, PiSessionID: "obsidian-" + id, InitialPrompt: prompt,
+			Environment: map[string]string{"RADAR_TASK_ID": id, "RADAR_TASK_NOTE": notePath},
+			Model:       cfg.Model, Thinking: cfg.Thinking, Sandbox: cfg.SBX.Enabled,
+			SandboxKitName: cfg.SBX.Kit.Name, SandboxKitPath: cfg.SBX.Kit.Path,
+			AdditionalSandboxMounts: cfg.SBX.AdditionalMounts,
+			SandboxName:             workspace.SandboxName("obsidian", id), Tmux: cfg.Tmux, Switch: os.Getenv("TMUX") != "",
+		})
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		switchAfterCreate := os.Getenv("TMUX") != ""
+		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
 	}
 }
 
@@ -1878,14 +1930,20 @@ func taskLinks(task protocol.Task) []linkChoice {
 		if action == "" || len(links) >= 9 {
 			return
 		}
+		if ref.URL != "" {
+			seen[ref.URL] = true
+		}
 		links = append(links, linkChoice{Key: reserveKey(preferredKey, source), Source: source, Label: label, Detail: detail, Action: action, Ref: ref})
 	}
 
 	for _, ref := range task.SourceRefs {
 		label := sourceRefLabel(ref)
-		addURL(sourceRefSourceLabel(ref), label, ref.URL)
-		for _, action := range sourceactions.SourceRefActions(ref, label) {
+		actions := sourceactions.SourceRefActions(ref, label)
+		for _, action := range actions {
 			addAction(action.PreferredKey, action.Source, action.Label, action.Detail, action.ID, action.Ref)
+		}
+		if len(actions) == 0 {
+			addURL(sourceRefSourceLabel(ref), label, ref.URL)
 		}
 	}
 	addURL("link", task.Title, task.URL)
@@ -1925,11 +1983,7 @@ func sourceRefSourceLabel(ref protocol.SourceRef) string {
 }
 
 func openURL(url string) error {
-	command := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		command = "open"
-	}
-	return exec.Command(command, url).Start()
+	return openurl.Open(context.Background(), url)
 }
 
 func (m model) header(width int) string {
@@ -2083,9 +2137,6 @@ func taskLine(task protocol.Task, selected bool) string {
 }
 
 func displayTaskReason(task protocol.Task) string {
-	if task.Reason == "manual task" {
-		return ""
-	}
 	return task.Reason
 }
 
