@@ -732,7 +732,7 @@ func TestTaskLinksUsesSourceLabels(t *testing.T) {
 }
 
 func TestObsidianTaskOffersOneSourceOwnedOpenAction(t *testing.T) {
-	uri := "obsidian://open?vault=Work&file=Radar%2FTasks%2Ftask%2Ftask.md"
+	uri := "obsidian://open?vault=Work&file=Tasks%2Ftask%2Ftask.md"
 	task := protocol.Task{Title: "Task", URL: uri, SourceRefs: []protocol.SourceRef{{
 		ID: "obsidian:task:1", Source: "obsidian", SourceLabel: "Obsidian", Kind: "task", URL: uri,
 	}}}

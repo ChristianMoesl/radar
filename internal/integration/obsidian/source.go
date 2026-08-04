@@ -502,7 +502,7 @@ func (Source) RunAction(ctx context.Context, req integration.RunActionRequest) (
 	return integration.ActionResult{Message: "Opened task in Obsidian"}, nil
 }
 
-func taskRoot(vault string) string { return filepath.Join(vault, "Radar", "Tasks") }
+func taskRoot(vault string) string { return config.ObsidianTaskRoot(vault) }
 
 func validManagedNotePath(vault, path string) bool {
 	relative, err := filepath.Rel(taskRoot(vault), filepath.Clean(path))

@@ -14,7 +14,7 @@ Add the vault to `radar config-path`:
 }
 ```
 
-The path is required before authoring or collection can run. Radar expands a leading `~/`, requires the result to be absolute, requires the vault and its `.obsidian/` directory to exist, and creates the fixed task root `Radar/Tasks/`.
+The path is required before authoring or collection can run. Radar expands a leading `~/`, requires the result to be absolute, requires the vault and its `.obsidian/` directory to exist, and creates the fixed task root `Tasks/`.
 
 Obsidian Desktop is required only for **Open in Obsidian**. Collection, mutations, and agent sessions use the filesystem directly.
 
@@ -28,14 +28,14 @@ The integration implements:
 - `ActionProvider`
 - `TaskAuthoringProvider`
 
-It scans exactly one directory level under `<vault>/Radar/Tasks/` for `task.md` every local refresh. It does not scan the rest of the vault or task artifact contents.
+It scans exactly one directory level under `<vault>/Tasks/` for `task.md` every local refresh. It does not scan the rest of the vault or task artifact contents.
 
 ## Task layout and schema
 
 A created task has this layout:
 
 ```text
-<Vault>/Radar/Tasks/<title-slug>--<short-id>/
+<Vault>/Tasks/<title-slug>--<short-id>/
 ├── task.md
 └── artifacts/
 ```

@@ -27,7 +27,7 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	matches, err := filepath.Glob(filepath.Join(vault, "Radar", "Tasks", "*", "task.md"))
+	matches, err := filepath.Glob(filepath.Join(vault, "Tasks", "*", "task.md"))
 	if err != nil || len(matches) != 1 {
 		t.Fatalf("task notes = %v, err=%v", matches, err)
 	}

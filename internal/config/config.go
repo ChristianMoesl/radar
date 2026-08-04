@@ -132,11 +132,15 @@ func (c ObsidianConfig) ValidateAndPrepare() (string, error) {
 		}
 		return "", fmt.Errorf("obsidian vault %s does not contain .obsidian/: %w", path, err)
 	}
-	taskRoot := filepath.Join(path, "Radar", "Tasks")
+	taskRoot := ObsidianTaskRoot(path)
 	if err := os.MkdirAll(taskRoot, 0o755); err != nil {
 		return "", fmt.Errorf("create Obsidian task root %s: %w", taskRoot, err)
 	}
 	return path, nil
+}
+
+func ObsidianTaskRoot(vaultPath string) string {
+	return filepath.Join(vaultPath, "Tasks")
 }
 
 func Path() (string, error) {

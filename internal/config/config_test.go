@@ -373,7 +373,7 @@ func TestObsidianVaultValidationAndPreparation(t *testing.T) {
 	if got != vault {
 		t.Fatalf("vault = %q, want %q", got, vault)
 	}
-	if info, err := os.Stat(filepath.Join(vault, "Radar", "Tasks")); err != nil || !info.IsDir() {
+	if info, err := os.Stat(filepath.Join(vault, "Tasks")); err != nil || !info.IsDir() {
 		t.Fatalf("task root was not created: info=%v err=%v", info, err)
 	}
 
