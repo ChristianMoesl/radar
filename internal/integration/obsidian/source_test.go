@@ -4,10 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"radar/internal/integration"
+	"radar/internal/integration/contracttest"
+	"radar/internal/linking"
 	"radar/internal/protocol"
 )
 
@@ -36,17 +39,20 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	}
 
 	result := source.Collect(context.Background(), integration.CollectRequest{})
-	if !result.Complete || result.SourceStatus == nil || result.SourceStatus.Status != "ok" || len(result.Observations) != 2 {
+	if !result.Complete || result.SourceStatus == nil || result.SourceStatus.Status != "ok" || len(result.Observations) != 1 {
 		t.Fatalf("collection = %+v", result)
 	}
-	var taskRef protocol.SourceRef
-	for _, observation := range result.Observations {
-		if observation.Ref.ID == identity.SourceRefID {
-			taskRef = observation.Ref
-		}
-	}
-	if taskRef.Authority != protocol.SourceRefAuthorityPrimary || taskRef.Signal != "" || !strings.HasPrefix(taskRef.URL, "obsidian://open?") {
+	taskRef := result.Observations[0].Ref
+	contracttest.AssertValidSourceRefs(t, "obsidian", []protocol.SourceRef{taskRef})
+	taskDir := filepath.Dir(matches[0])
+	if taskRef.ID != identity.SourceRefID || taskRef.Authority != protocol.SourceRefAuthorityPrimary || taskRef.Lifecycle != protocol.SourceRefLifecycleWorkItem || taskRef.Signal != "" || !strings.HasPrefix(taskRef.URL, "obsidian://open?") {
 		t.Fatalf("task ref = %+v", taskRef)
+	}
+	if taskRef.Path != taskDir || !taskRef.ProvidesWorkspace || !slices.Contains(taskRef.LinkingKeys, identity.SourceRefID) || !slices.Contains(taskRef.LinkingKeys, linking.WorkspaceKey(taskDir)) {
+		t.Fatalf("task workspace capability = %+v", taskRef)
+	}
+	if result.Observations[0].Signal != integration.SignalLowPriority {
+		t.Fatalf("normal task signal = %q, want low_priority", result.Observations[0].Signal)
 	}
 	content, err := os.ReadFile(matches[0])
 	if err != nil {
@@ -60,6 +66,10 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	}
 	if _, err := source.SetPriority(context.Background(), taskRef, "urgent"); err != nil {
 		t.Fatal(err)
+	}
+	urgent := source.Collect(context.Background(), integration.CollectRequest{})
+	if len(urgent.Observations) != 1 || urgent.Observations[0].Signal != integration.SignalImmediate {
+		t.Fatalf("urgent collection = %+v", urgent)
 	}
 	if _, err := source.SetLifecycle(context.Background(), taskRef, "done"); err != nil {
 		t.Fatal(err)
@@ -114,7 +124,7 @@ func TestMalformedAndDuplicateNotesArePartialAndPreserveKnownRefs(t *testing.T) 
 	if result.Complete || result.SourceStatus.Status != "partial" || !strings.Contains(result.SourceStatus.Detail, "duplicate radar-id") {
 		t.Fatalf("duplicate collection = %+v", result)
 	}
-	if len(result.Observations) != 2 {
+	if len(result.Observations) != 1 {
 		t.Fatalf("preserved observations = %+v", result.Observations)
 	}
 
@@ -125,7 +135,7 @@ func TestMalformedAndDuplicateNotesArePartialAndPreserveKnownRefs(t *testing.T) 
 		t.Fatal(err)
 	}
 	result = source.Collect(context.Background(), integration.CollectRequest{Previous: previous})
-	if result.Complete || len(result.Observations) != 2 || strings.Contains(result.SourceStatus.Detail, "secret body") {
+	if result.Complete || len(result.Observations) != 1 || strings.Contains(result.SourceStatus.Detail, "secret body") {
 		t.Fatalf("malformed collection = %+v", result)
 	}
 	if _, err := source.SetPriority(context.Background(), previous[0].SourceRefs[0], "urgent"); err == nil {
@@ -141,25 +151,31 @@ func TestMoveKeepsIdentityAndDeletionRemovesObservations(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := source.Collect(context.Background(), integration.CollectRequest{})
-	var oldDir string
-	for _, observation := range first.Observations {
-		if observation.Ref.ID == identity.SourceRefID {
-			oldDir = observation.Ref.Metadata["task_directory"]
-		}
+	if len(first.Observations) != 1 {
+		t.Fatalf("initial observations = %+v", first.Observations)
+	}
+	oldDir := first.Observations[0].Ref.Path
+	oldURL := first.Observations[0].Ref.URL
+	previous := observationsAsTasks(first.Observations)
+	previous[0].SourceRefs = append(previous[0].SourceRefs, protocol.SourceRef{
+		ID: "obsidian:workspace:stale", Source: "obsidian", Kind: "task_workspace",
+		Metadata: map[string]string{"radar_id": first.Observations[0].Ref.Metadata["radar_id"], "note_path": first.Observations[0].Ref.Metadata["note_path"]},
+	})
+	refreshed := source.Collect(context.Background(), integration.CollectRequest{Previous: previous})
+	if !refreshed.Complete || len(refreshed.Observations) != 1 || refreshed.Observations[0].Ref.ID != identity.SourceRefID {
+		t.Fatalf("complete refresh retained stale workspace ref: %+v", refreshed)
 	}
 	newDir := filepath.Join(taskRoot(vault), "renamed-directory")
 	if err := os.Rename(oldDir, newDir); err != nil {
 		t.Fatal(err)
 	}
 	moved := source.Collect(context.Background(), integration.CollectRequest{})
-	found := false
-	for _, observation := range moved.Observations {
-		if observation.Ref.ID == identity.SourceRefID && observation.Ref.Metadata["task_directory"] == newDir {
-			found = true
-		}
-	}
-	if !found {
+	if len(moved.Observations) != 1 {
 		t.Fatalf("moved observations = %+v", moved.Observations)
+	}
+	movedRef := moved.Observations[0].Ref
+	if movedRef.ID != identity.SourceRefID || movedRef.Path != newDir || movedRef.Metadata["task_directory"] != newDir || movedRef.Metadata["note_path"] != filepath.Join(newDir, "task.md") || movedRef.URL == oldURL || !slices.Contains(movedRef.LinkingKeys, linking.WorkspaceKey(newDir)) || slices.Contains(movedRef.LinkingKeys, linking.WorkspaceKey(oldDir)) {
+		t.Fatalf("moved ref = %+v", movedRef)
 	}
 	if err := os.RemoveAll(newDir); err != nil {
 		t.Fatal(err)

@@ -6,6 +6,28 @@ import (
 	"radar/internal/protocol"
 )
 
+func TestAuthoredWorkspaceUsesGenericWorkspaceCapability(t *testing.T) {
+	task := protocol.Task{SourceRefs: []protocol.SourceRef{
+		{ID: "legacy", Role: protocol.SourceRefRoleAuthoritative, Kind: "task_workspace", Lifecycle: protocol.SourceRefLifecycleWorkspace, Path: "/old", Metadata: map[string]string{"authoring": "true"}},
+		{ID: "task:1", Role: protocol.SourceRefRoleAuthoritative, Kind: "task", Lifecycle: protocol.SourceRefLifecycleWorkItem, Path: "/tasks/one", ProvidesWorkspace: true, Metadata: map[string]string{"authoring": "true"}},
+	}}
+
+	ref, ok := AuthoredWorkspace(task)
+	if !ok || ref.ID != "task:1" || ref.Path != "/tasks/one" {
+		t.Fatalf("AuthoredWorkspace() = %+v, %v", ref, ok)
+	}
+}
+
+func TestAuthoredWorkspaceRejectsResourceConsumers(t *testing.T) {
+	task := protocol.Task{SourceRefs: []protocol.SourceRef{{
+		ID: "tmux:session:1", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource,
+		Path: "/tasks/one", Metadata: map[string]string{"authoring": "true"},
+	}}}
+	if _, ok := AuthoredWorkspace(task); ok {
+		t.Fatal("AuthoredWorkspace() returned a ref without workspace capability")
+	}
+}
+
 func TestWorkspaceCandidateIgnoresInformationalReference(t *testing.T) {
 	task := protocol.Task{SourceRefs: []protocol.SourceRef{{
 		ID: "jira:mention:1:RAD-7", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleInformational,

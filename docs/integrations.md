@@ -75,11 +75,14 @@ Every emitted `protocol.SourceRef` must have:
 7. Explicit lifecycle authority: `primary`, `contributing`, or `none`.
 8. `CanonicalKey` when an authoritative ref can become a standalone task.
 9. `LinkingKeys` for authoritative joins such as `mark:<KEY>`, `workspace:<path>`, or `branch:<repo>:<branch>`.
-10. Generic presentation hints when the source owns title precedence or workspace naming.
-11. `URL` only when it is directly openable.
-12. `RetainInactive` only when a provider's terminal source facts must remain in done-task history; local/deletable refs leave it false.
+10. `ProvidesWorkspace` when the represented entity owns a persistent local working directory. Such a ref must be authoritative, have a non-empty absolute `Path`, and include the cleaned `workspace:<path>` linking key.
+11. Generic presentation hints when the source owns title precedence or workspace naming.
+12. `URL` only when it is directly openable.
+13. `RetainInactive` only when a provider's terminal source facts must remain in done-task history; local/deletable refs leave it false.
 
-The collector stamps source label and display order from the integration descriptor. Informational refs must not emit signals, lifecycle authority, canonical keys, or linking keys. An observation may set `TargetTaskID` to associate such a ref with a stable existing Radar task without turning source metadata into task identity. Do not invent Radar task IDs in integrations or parse another source's IDs or metadata in core state. Keep source-specific behavior tested in the source package.
+Workspace capability is independent of lifecycle and lifecycle authority: a primary work item can also provide its workspace. Git worktrees and Obsidian tasks provide workspaces. tmux sessions and SBX sandboxes consume workspace paths as resources and do not provide them. Workspace capability does not emit a signal or change attention by itself.
+
+The collector stamps source label and display order from the integration descriptor. Informational refs must not emit signals, lifecycle authority, canonical keys, linking keys, or workspace capability. An observation may set `TargetTaskID` to associate such a ref with a stable existing Radar task without turning source metadata into task identity. Do not invent Radar task IDs in integrations or parse another source's IDs or metadata in core state. Keep source-specific behavior tested in the source package.
 
 ## Cleanup providers
 

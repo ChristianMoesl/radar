@@ -1575,11 +1575,11 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 		return m, m.switchTmuxSession(target)
 	}
 
-	if ref, ok := taskrefs.TaskWorkspace(task); ok {
+	if ref, ok := taskrefs.AuthoredWorkspace(task); ok {
 		m.loading = true
 		m.err = nil
 		m.message = "Creating task session…"
-		return m, m.createSessionForAuthoredTask(task, ref)
+		return m, m.createSessionForAuthoredTask(ref)
 	}
 
 	worktrees := taskrefs.Worktrees(task)
@@ -1638,13 +1638,9 @@ func authoredTaskRef(task protocol.Task) (protocol.SourceRef, bool) {
 	return protocol.SourceRef{}, false
 }
 
-func (m model) createSessionForAuthoredTask(task protocol.Task, workspaceRef protocol.SourceRef) tea.Cmd {
+func (m model) createSessionForAuthoredTask(ref protocol.SourceRef) tea.Cmd {
 	return func() tea.Msg {
-		authoredRef, ok := authoredTaskRef(task)
-		if !ok {
-			return actionMsg{err: fmt.Errorf("task has no authored source ref")}
-		}
-		id := strings.TrimSpace(authoredRef.Metadata["radar_id"])
+		id := strings.TrimSpace(ref.Metadata["radar_id"])
 		if id == "" {
 			return actionMsg{err: fmt.Errorf("authored task has no stable identity")}
 		}
@@ -1657,10 +1653,10 @@ func (m model) createSessionForAuthoredTask(task protocol.Task, workspaceRef pro
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		notePath := authoredRef.Metadata["note_path"]
+		notePath := ref.Metadata["note_path"]
 		prompt := "Read task.md, work toward the desired outcome, and keep Working notes and Outcome links current."
 		created, err := workspace.CreateSessionWithOptions(context.Background(), workspace.ExecRunner{}, workspace.CreateSessionOptions{
-			Path: workspaceRef.Path, SessionName: sessionName, PiSessionID: "obsidian-" + id, InitialPrompt: prompt,
+			Path: ref.Path, SessionName: sessionName, PiSessionID: "obsidian-" + id, InitialPrompt: prompt,
 			Environment: map[string]string{"RADAR_TASK_ID": id, "RADAR_TASK_NOTE": notePath},
 			Model:       cfg.Model, Thinking: cfg.Thinking, Sandbox: cfg.SBX.Enabled,
 			SandboxKitName: cfg.SBX.Kit.Name, SandboxKitPath: cfg.SBX.Kit.Path,

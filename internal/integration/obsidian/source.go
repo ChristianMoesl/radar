@@ -130,7 +130,7 @@ func (s Source) Collect(_ context.Context, req integration.CollectRequest) integ
 		valid = append(valid, item.note)
 	}
 	sort.Slice(valid, func(i, j int) bool { return valid[i].ID < valid[j].ID })
-	observations := make([]integration.Observation, 0, len(valid)*2)
+	observations := make([]integration.Observation, 0, len(valid))
 	for _, current := range valid {
 		observations = append(observations, observationsFor(vault, current)...)
 	}
@@ -298,19 +298,16 @@ func observationsFor(vault string, current note) []integration.Observation {
 	} else if current.Priority == "urgent" {
 		signal = integration.SignalImmediate
 	}
-	return []integration.Observation{
-		{Ref: protocol.SourceRef{
+	return []integration.Observation{{
+		Ref: protocol.SourceRef{
 			ID: identity, EntityID: identity, Source: "obsidian", SourceLabel: "Obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
 			Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
 			Presentation: protocol.SourceRefPresentation{PreferTitle: true}, Title: current.Title, URL: uri,
-			Status: current.State, CanonicalKey: identity, LinkingKeys: linking.Keys(identity), Metadata: metadata,
-		}, Signal: signal, Reason: "Obsidian task is " + current.State},
-		{Ref: protocol.SourceRef{
-			ID: "obsidian:workspace:" + current.ID, EntityID: identity, Source: "obsidian", SourceLabel: "Obsidian", Kind: "task_workspace", Role: protocol.SourceRefRoleAuthoritative,
-			Lifecycle: protocol.SourceRefLifecycleWorkspace, Authority: protocol.SourceRefAuthorityNone,
-			Title: current.Title, Path: current.TaskDir, LinkingKeys: linking.Keys(identity, workspaceKey), Metadata: metadata,
-		}, Signal: integration.WorkSignal("none")},
-	}
+			Path: current.TaskDir, ProvidesWorkspace: true, Status: current.State,
+			CanonicalKey: identity, LinkingKeys: linking.Keys(identity, workspaceKey), Metadata: metadata,
+		},
+		Signal: signal, Reason: "Obsidian task is " + current.State,
+	}}
 }
 
 func previousObservations(tasks []protocol.Task, keep func(protocol.SourceRef) bool) []integration.Observation {

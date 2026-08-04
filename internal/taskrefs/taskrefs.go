@@ -45,9 +45,9 @@ func Worktrees(task protocol.Task) []protocol.SourceRef {
 	return refs
 }
 
-func TaskWorkspace(task protocol.Task) (protocol.SourceRef, bool) {
+func AuthoredWorkspace(task protocol.Task) (protocol.SourceRef, bool) {
 	for _, ref := range task.SourceRefs {
-		if ref.Role == protocol.SourceRefRoleAuthoritative && ref.Lifecycle == protocol.SourceRefLifecycleWorkspace && ref.Path != "" && ref.Kind == "task_workspace" {
+		if ref.Role == protocol.SourceRefRoleAuthoritative && ref.ProvidesWorkspace && strings.TrimSpace(ref.Path) != "" && ref.Metadata["authoring"] == "true" {
 			return ref, true
 		}
 	}

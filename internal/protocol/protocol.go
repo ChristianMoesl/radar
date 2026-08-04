@@ -110,27 +110,28 @@ type SourceRefPresentation struct {
 }
 
 type SourceRef struct {
-	ID             string                `json:"id"`
-	Source         string                `json:"source"`
-	SourceLabel    string                `json:"source_label,omitempty"`
-	Kind           string                `json:"kind"`
-	Role           SourceRefRole         `json:"role"`
-	Title          string                `json:"title,omitempty"`
-	Repo           string                `json:"repo,omitempty"`
-	URL            string                `json:"url,omitempty"`
-	Path           string                `json:"path,omitempty"`
-	Branch         string                `json:"branch,omitempty"`
-	Status         string                `json:"status,omitempty"`
-	Signal         string                `json:"signal,omitempty"`
-	CanonicalKey   string                `json:"canonical_key,omitempty"`
-	LinkingKeys    []string              `json:"linking_keys,omitempty"`
-	Metadata       map[string]string     `json:"metadata,omitempty"`
-	EntityID       string                `json:"entity_id,omitempty"`
-	Lifecycle      SourceRefLifecycle    `json:"lifecycle,omitempty"`
-	Authority      SourceRefAuthority    `json:"authority,omitempty"`
-	RetainInactive bool                  `json:"retain_inactive,omitempty"`
-	Presentation   SourceRefPresentation `json:"presentation,omitempty"`
-	DisplayOrder   int                   `json:"display_order,omitempty"`
+	ID                string                `json:"id"`
+	Source            string                `json:"source"`
+	SourceLabel       string                `json:"source_label,omitempty"`
+	Kind              string                `json:"kind"`
+	Role              SourceRefRole         `json:"role"`
+	Title             string                `json:"title,omitempty"`
+	Repo              string                `json:"repo,omitempty"`
+	URL               string                `json:"url,omitempty"`
+	Path              string                `json:"path,omitempty"`
+	ProvidesWorkspace bool                  `json:"provides_workspace,omitempty"`
+	Branch            string                `json:"branch,omitempty"`
+	Status            string                `json:"status,omitempty"`
+	Signal            string                `json:"signal,omitempty"`
+	CanonicalKey      string                `json:"canonical_key,omitempty"`
+	LinkingKeys       []string              `json:"linking_keys,omitempty"`
+	Metadata          map[string]string     `json:"metadata,omitempty"`
+	EntityID          string                `json:"entity_id,omitempty"`
+	Lifecycle         SourceRefLifecycle    `json:"lifecycle,omitempty"`
+	Authority         SourceRefAuthority    `json:"authority,omitempty"`
+	RetainInactive    bool                  `json:"retain_inactive,omitempty"`
+	Presentation      SourceRefPresentation `json:"presentation,omitempty"`
+	DisplayOrder      int                   `json:"display_order,omitempty"`
 }
 
 type Task struct {

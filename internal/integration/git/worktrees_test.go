@@ -48,6 +48,9 @@ func TestWorktreesSkipsPrunableEntries(t *testing.T) {
 func TestWorktreeSourceRefContract(t *testing.T) {
 	ref := worktree{Path: "/work/repo/RAD-123-fix", Branch: "RAD-123-fix", Head: "abc"}.SourceRef(context.Background(), linking.NewMarkMatcher([]string{"RAD"}))
 	contracttest.AssertValidSourceRefs(t, "git", []protocol.SourceRef{ref})
+	if !ref.ProvidesWorkspace {
+		t.Fatalf("git worktree does not provide workspace: %+v", ref)
+	}
 }
 
 func TestPreviewCleanupRejectsMainWorkingTree(t *testing.T) {

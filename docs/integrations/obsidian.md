@@ -59,31 +59,27 @@ Mutations re-read and validate the note, change only managed fields, sync a temp
 
 ## Source refs
 
-A valid note emits two authoritative refs sharing `EntityID = obsidian:task:<radar-id>`:
+A valid note emits one authoritative ref:
 
 - `obsidian:task:<radar-id>`
+  - entity ID `obsidian:task:<radar-id>`
   - kind `task`
   - lifecycle `work_item`
   - lifecycle authority `primary`
-  - canonical and linking identity `obsidian:task:<radar-id>`
+  - canonical identity `obsidian:task:<radar-id>`
+  - linking identities `obsidian:task:<radar-id>` and `workspace:<absolute-task-directory>`
   - preferred title from `radar-title`
+  - path set to the absolute task directory and `ProvidesWorkspace` enabled
   - signal `low_priority`, `immediate`, or `done`
   - URL `obsidian://open?...` for the current vault-relative note path
-- `obsidian:workspace:<radar-id>`
-  - kind `task_workspace`
-  - lifecycle `workspace`
-  - lifecycle authority `none`
-  - path set to the task directory
-  - linking keys for the task identity and `workspace:<absolute-directory>`
-  - signal `none`
 
-The workspace ref does not make an idle task active. It lets tmux and SBX refs join by path.
+Workspace availability does not make an idle task active or alter its lifecycle authority. tmux sessions and SBX sandboxes join the task through its workspace linking key without requiring a second Obsidian ref.
 
 Obsidian's primary lifecycle is terminal for its authored task. Supporting Jira/GitHub completion cannot complete an open note, and supporting activity cannot reopen a done note. While the note is open, live source signals can still promote it to `in_progress` or `attention`; urgent note priority promotes it to `immediate`.
 
 ## Collection and failures
 
-Notes are deduplicated by `radar-id` and emitted in stable-ID order. Moving or renaming a task directory keeps identity. Deleting a note removes its refs on the next complete local refresh, so a task without another authoritative ref disappears. Done notes remain collected and use `radar-completed-at` for Radar's normal three-day done display.
+Notes are deduplicated by `radar-id` and emitted in stable-ID order. Moving or renaming a task directory keeps identity while updating its path, workspace linking key, note metadata, and URL. Deleting a note removes its ref on the next complete local refresh, so a task without another authoritative ref disappears. Done notes remain collected and use `radar-completed-at` for Radar's normal three-day done display.
 
 Source status is:
 
@@ -108,7 +104,7 @@ In the TUI, `n` creates a note, `d` toggles open/done, `p` toggles normal/urgent
 
 ## Agent workspace
 
-`Enter` switches to an already linked tmux session or creates a deterministic one in the task directory. Pi receives a deterministic session ID based on the Obsidian UUID, `RADAR_TASK_ID`, `RADAR_TASK_NOTE`, and an initial instruction to read `task.md` and maintain Working notes and Outcome links. Existing model, thinking, tmux layout, SBX kit, and additional-mount settings apply. When SBX is enabled, the task directory is the primary workspace mount.
+`Enter` switches to an already linked tmux session or creates a deterministic one using the task ref's workspace path. Pi receives a deterministic session ID based on the Obsidian UUID, `RADAR_TASK_ID`, `RADAR_TASK_NOTE`, and an initial instruction to read `task.md` and maintain Working notes and Outcome links. Existing model, thinking, tmux layout, SBX kit, and additional-mount settings apply. When SBX is enabled, the task directory is the primary workspace mount.
 
 Workspace garbage collection only removes Git worktrees; it never removes an Obsidian task directory or its artifacts.
 

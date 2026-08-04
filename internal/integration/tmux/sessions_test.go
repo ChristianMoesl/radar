@@ -39,6 +39,9 @@ func TestSessionSourceRef(t *testing.T) {
 
 	sourceRef := session.SourceRef(linking.NewMarkMatcher([]string{"ABC"}))
 	contracttest.AssertValidSourceRefs(t, "tmux", []protocol.SourceRef{sourceRef})
+	if sourceRef.ProvidesWorkspace {
+		t.Fatalf("tmux resource provides workspace: %+v", sourceRef)
+	}
 	if sourceRef.ID != "tmux:session:$1" {
 		t.Fatalf("unexpected ID: %s", sourceRef.ID)
 	}

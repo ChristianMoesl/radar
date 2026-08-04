@@ -256,7 +256,7 @@ func githubRef(id string, repo string, branch string) protocol.SourceRef {
 }
 
 func worktreeRef(path string, repo string, branch string) protocol.SourceRef {
-	return protocol.SourceRef{ID: "git:worktree:" + path, EntityID: "git:worktree:" + path, Source: "git", Kind: "worktree", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace, Repo: repo, Path: path, Branch: branch, CanonicalKey: linking.WorkspaceKey(path), LinkingKeys: linking.Keys("mark:CAP-7", linking.WorkspaceKey(path), linking.BranchKey(repo, branch))}
+	return protocol.SourceRef{ID: "git:worktree:" + path, EntityID: "git:worktree:" + path, Source: "git", Kind: "worktree", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace, Repo: repo, Path: path, ProvidesWorkspace: true, Branch: branch, CanonicalKey: linking.WorkspaceKey(path), LinkingKeys: linking.Keys("mark:CAP-7", linking.WorkspaceKey(path), linking.BranchKey(repo, branch))}
 }
 
 func detachedSessionRef(path string, name string) protocol.SourceRef {

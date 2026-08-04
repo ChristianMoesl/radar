@@ -61,6 +61,9 @@ func TestSandboxSourceRef(t *testing.T) {
 
 	ref := s.SourceRef(linking.NewMarkMatcher([]string{"DPSCAP"}))
 	contracttest.AssertValidSourceRefs(t, "sbx", []protocol.SourceRef{ref})
+	if ref.ProvidesWorkspace {
+		t.Fatalf("sbx resource provides workspace: %+v", ref)
+	}
 	if ref.ID != "sbx:sandbox:"+s.Name || ref.Source != "sbx" || ref.Kind != "sandbox" {
 		t.Fatalf("unexpected source ref identity: %+v", ref)
 	}
