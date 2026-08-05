@@ -135,6 +135,7 @@ func integrationWorkspace(workspace workspace.Workspace) integration.Workspace {
 		Path:        workspace.Path,
 		SessionName: workspace.SessionName,
 		SandboxName: workspace.SandboxName,
+		Warning:     workspace.Warning,
 	}
 }
 

@@ -14,6 +14,7 @@ type Workspace struct {
 	Path        string `json:"path"`
 	SessionName string `json:"session_name"`
 	SandboxName string `json:"sandbox_name,omitempty"`
+	Warning     string `json:"warning,omitempty"`
 }
 
 type WorkspaceBranchMode string

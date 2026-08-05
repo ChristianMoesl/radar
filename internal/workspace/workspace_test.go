@@ -19,13 +19,14 @@ type call struct {
 }
 
 type fakeRunner struct {
-	repo          string
-	gitCommonDir  string
-	hasSession    bool
-	sbxListOutput string
-	refs          map[string]bool
-	worktrees     string
-	calls         []call
+	repo            string
+	gitCommonDir    string
+	hasSession      bool
+	failSetupWindow bool
+	sbxListOutput   string
+	refs            map[string]bool
+	worktrees       string
+	calls           []call
 }
 
 func (f *fakeRunner) LookPath(string) error { return nil }
@@ -51,6 +52,9 @@ func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...str
 		return "", nil
 	}
 	if name == "tmux" && len(args) > 0 && (args[0] == "new-session" || args[0] == "new-window" || args[0] == "split-window") {
+		if f.failSetupWindow && args[0] == "new-window" && strings.Contains(strings.Join(args, " "), "-n setup") {
+			return "", errors.New("setup window failed")
+		}
 		return "@1 %1", nil
 	}
 	if name == "git" && len(args) > 0 && args[0] == "show-ref" {
@@ -139,10 +143,20 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 		t.Fatalf("copied .env = %q", data)
 	}
 	assertCalled(t, runner.calls, "git", "worktree add -b small-fix "+workspace.Path+" origin/main")
-	assertCalled(t, runner.calls, "sh", "-lc pnpm install --frozen-lockfile")
+	assertNotCalled(t, runner.calls, "sh")
 	assertCalledContains(t, runner.calls, "tmux", "pi --model 'anthropic/claude-sonnet-4' --thinking 'high' --session-id '"+workspace.SessionName+"'")
 	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workspace.SessionName)
 	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+":")
+	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+": -n setup -c "+workspace.Path+" -P -F #{window_id} #{pane_id}")
+	assertSetupWindowIsForeground(t, runner.calls)
+	assertCalled(t, runner.calls, "tmux", "set-option -p -t %1 remain-on-exit off")
+	assertCalledContains(t, runner.calls, "tmux", "send-keys -l -t %1 sh -lc 'pnpm install --frozen-lockfile' && exit")
+	assertCalled(t, runner.calls, "tmux", "send-keys -t %1 Enter")
+	assertNotCalledContains(t, runner.calls, "tmux", "kill-window")
+	assertCallOrder(t, runner.calls,
+		call{name: "tmux", args: []string{"select-pane", "-t"}},
+		call{name: "tmux", args: []string{"new-window", "-t", workspace.SessionName + ":", "-n", "setup"}},
+	)
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
 }
 
@@ -288,7 +302,7 @@ func TestCreateStartsPiOnHostWithConfiguredSandbox(t *testing.T) {
 	assertNotCalledContains(t, runner.calls, "tmux", "-n shell")
 }
 
-func TestCreateRunsSetupInsideConfiguredSandbox(t *testing.T) {
+func TestCreateSchedulesSetupInsideConfiguredSandbox(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
 	repo := t.TempDir()
 	root := t.TempDir()
@@ -312,13 +326,107 @@ func TestCreateRunsSetupInsideConfiguredSandbox(t *testing.T) {
 	}
 
 	assertCalled(t, runner.calls, "sbx", "create --name "+created.SandboxName)
-	assertCalled(t, runner.calls, "sbx", "exec --workdir "+created.Path+" "+created.SandboxName+" sh -lc pnpm install --frozen-lockfile")
-	assertCalled(t, runner.calls, "sbx", "exec --workdir "+created.Path+" "+created.SandboxName+" sh -lc pnpm build")
+	assertNotCalledContains(t, runner.calls, "sbx", "exec")
 	assertNotCalled(t, runner.calls, "sh")
+	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+created.SessionName+": -n setup -c "+created.Path+" -P -F #{window_id} #{pane_id} sbx exec --workdir '"+created.Path+"' '"+created.SandboxName+"' sh -i")
+	assertSetupWindowIsForeground(t, runner.calls)
+	assertCalled(t, runner.calls, "tmux", "set-option -p -t %1 remain-on-exit off")
+	assertCalledContains(t, runner.calls, "tmux", "send-keys -l -t %1 sh -lc 'pnpm install --frozen-lockfile' && sh -lc 'pnpm build' && exit")
+	assertCalled(t, runner.calls, "tmux", "send-keys -t %1 Enter")
+	assertNotCalledContains(t, runner.calls, "tmux", "remain-on-exit on")
+	assertNotCalledContains(t, runner.calls, "tmux", "kill-window")
 	assertCallOrder(t, runner.calls,
 		call{name: "sbx", args: []string{"create", "--name", created.SandboxName}},
-		call{name: "sbx", args: []string{"exec", "--workdir", created.Path, created.SandboxName, "sh", "-lc", "pnpm install --frozen-lockfile"}},
+		call{name: "tmux", args: []string{"new-session", "-d", "-s", created.SessionName}},
 	)
+}
+
+func TestCreateDoesNotScheduleSetupWithoutCommands(t *testing.T) {
+	repo := t.TempDir()
+	runner := &fakeRunner{repo: repo}
+
+	_, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchNew,
+		Repo:          repo,
+		Name:          "small fix",
+		Base:          "origin/main",
+		WorkspaceRoot: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertNotCalledContains(t, runner.calls, "tmux", "-n setup")
+}
+
+func TestCreatePreservesWorkspaceWhenSetupCannotBeScheduled(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"setup":["pnpm install"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{repo: repo, failSetupWindow: true}
+
+	created, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchNew,
+		Repo:          repo,
+		Name:          "small fix",
+		Base:          "origin/main",
+		WorkspaceRoot: t.TempDir(),
+		Switch:        true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(created.Warning, "setup window failed") {
+		t.Fatalf("workspace warning = %q, want setup scheduling failure", created.Warning)
+	}
+	if _, err := os.Stat(created.Path); err != nil {
+		t.Fatalf("workspace path was not preserved: %v", err)
+	}
+	assertNotCalledContains(t, runner.calls, "tmux", "kill-session")
+	assertNotCalledContains(t, runner.calls, "git", "worktree remove")
+	assertCalled(t, runner.calls, "tmux", "switch-client -t "+created.SessionName)
+}
+
+func TestCreateDoesNotRerunSetupWhenOpeningExistingWorkspace(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	path := filepath.Join(root, filepath.Base(repo), "existing")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"setup":["pnpm install"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{
+		repo: repo,
+		worktrees: strings.Join([]string{
+			"worktree " + path,
+			"HEAD abc",
+			"branch refs/heads/existing",
+			"",
+		}, "\n"),
+	}
+
+	_, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:    integration.WorkspaceBranchExisting,
+		Repo:          repo,
+		Branch:        "existing",
+		WorkspaceRoot: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertNotCalledContains(t, runner.calls, "tmux", "-n setup")
+}
+
+func TestSetupInteractiveCommandExitsOnlyAfterEveryCommandSucceeds(t *testing.T) {
+	command := setupInteractiveCommand([]string{"printf \"it's ready\"", "pnpm build"})
+	want := `sh -lc 'printf "it'"'"'s ready"' && sh -lc 'pnpm build' && exit`
+	if command != want {
+		t.Fatalf("setupInteractiveCommand() = %q, want %q", command, want)
+	}
 }
 
 func TestCreateStartsSandboxEnabledByUserConfig(t *testing.T) {
@@ -737,6 +845,23 @@ func TestSandboxNameTruncatesLongNames(t *testing.T) {
 	if !strings.Contains(got, "-") {
 		t.Fatalf("SandboxName() = %q, want hash suffix", got)
 	}
+}
+
+func assertSetupWindowIsForeground(t *testing.T, calls []call) {
+	t.Helper()
+	for _, call := range calls {
+		args := strings.Join(call.args, " ")
+		if call.name != "tmux" || !strings.Contains(args, "-n setup") {
+			continue
+		}
+		for _, arg := range call.args {
+			if arg == "-d" {
+				t.Fatalf("setup window was created detached; call: %#v", call)
+			}
+		}
+		return
+	}
+	t.Fatalf("setup window was not created; calls: %#v", calls)
 }
 
 func assertCallOrder(t *testing.T, calls []call, first call, second call) {

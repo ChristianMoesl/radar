@@ -987,7 +987,7 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
+		return actionMsg{message: workspaceCreationMessage(created), refresh: !switchAfterCreate, quit: switchAfterCreate}
 	}
 	if form.forkPiSession != "" {
 		return m, cmd
@@ -1765,8 +1765,16 @@ func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
+		return actionMsg{message: workspaceCreationMessage(created), refresh: !switchAfterCreate, quit: switchAfterCreate}
 	}
+}
+
+func workspaceCreationMessage(created integration.Workspace) string {
+	message := "Created " + created.SessionName
+	if created.Warning != "" {
+		message += ". Warning: " + created.Warning
+	}
+	return message
 }
 
 func localRepoForPullRequest(ref protocol.SourceRef) (string, error) {

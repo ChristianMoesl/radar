@@ -126,6 +126,7 @@ type Workspace struct {
 	Path        string `json:"path"`
 	SessionName string `json:"session_name"`
 	SandboxName string `json:"sandbox_name,omitempty"`
+	Warning     string `json:"warning,omitempty"`
 }
 
 type CreateSessionOptions struct {
@@ -283,10 +284,6 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		}
 		createdSandbox = true
 	}
-	if err := runSetupCommands(ctx, runner, path, sandboxName, repoConfig.Setup); err != nil {
-		rollback()
-		return Workspace{}, err
-	}
 	if _, err := runner.Run(ctx, repo, "tmux", "has-session", "-t", sessionName); err != nil {
 		model := options.Model
 		if strings.TrimSpace(repoConfig.Model) != "" {
@@ -303,13 +300,17 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		}
 		createdSession = true
 	}
+	warning := ""
+	if err := scheduleSetupCommands(ctx, runner, path, sessionName, sandboxName, repoConfig.Setup); err != nil {
+		warning = fmt.Sprintf("workspace setup could not be started: %v", err)
+	}
 	if options.Switch {
 		if _, err := runner.Run(ctx, repo, "tmux", "switch-client", "-t", sessionName); err != nil {
 			return Workspace{}, err
 		}
 	}
 
-	return Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName, SandboxName: sandboxName}, nil
+	return Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName, SandboxName: sandboxName, Warning: warning}, nil
 }
 
 type sandboxSettings struct {
@@ -637,19 +638,44 @@ func copyFile(source string, target string, mode os.FileMode) error {
 	return output.Close()
 }
 
-func runSetupCommands(ctx context.Context, runner Runner, path string, sandboxName string, commands []string) error {
-	for _, command := range commands {
-		if sandboxName != "" {
-			if _, err := runner.Run(ctx, path, "sbx", "exec", "--workdir", path, sandboxName, "sh", "-lc", command); err != nil {
-				return sbxCommandError(err)
-			}
-			continue
-		}
-		if _, err := runner.Run(ctx, path, "sh", "-lc", command); err != nil {
-			return err
-		}
+func scheduleSetupCommands(ctx context.Context, runner Runner, path string, sessionName string, sandboxName string, commands []string) error {
+	if len(commands) == 0 {
+		return nil
 	}
-	return nil
+	args := []string{"new-window", "-t", sessionName + ":", "-n", "setup", "-c", path, "-P", "-F", "#{window_id} #{pane_id}"}
+	if sandboxName != "" {
+		args = append(args, strings.Join([]string{
+			"sbx exec --workdir",
+			shellQuote(path),
+			shellQuote(sandboxName),
+			"sh -i",
+		}, " "))
+	}
+	output, err := runner.Run(ctx, path, "tmux", args...)
+	if err != nil {
+		return err
+	}
+	_, paneID, err := parseTmuxIDs(output)
+	if err != nil {
+		return err
+	}
+	if _, err := runner.Run(ctx, path, "tmux", "set-option", "-p", "-t", paneID, "remain-on-exit", "off"); err != nil {
+		return err
+	}
+	if _, err := runner.Run(ctx, path, "tmux", "send-keys", "-l", "-t", paneID, setupInteractiveCommand(commands)); err != nil {
+		return err
+	}
+	_, err = runner.Run(ctx, path, "tmux", "send-keys", "-t", paneID, "Enter")
+	return err
+}
+
+func setupInteractiveCommand(commands []string) string {
+	steps := make([]string, 0, len(commands)+1)
+	for _, command := range commands {
+		steps = append(steps, "sh -lc "+shellQuote(command))
+	}
+	steps = append(steps, "exit")
+	return strings.Join(steps, " && ")
 }
 
 func startSandbox(ctx context.Context, runner Runner, path string, name string, kit SandboxKitConfig, additionalMounts []string) (string, error) {

@@ -15,6 +15,17 @@ import (
 	"radar/internal/protocol"
 )
 
+func TestWorkspaceCreationMessageIncludesSetupWarning(t *testing.T) {
+	message := workspaceCreationMessage(integration.Workspace{
+		SessionName: "repo-small-fix",
+		Warning:     "workspace setup could not be started: tmux failed",
+	})
+	want := "Created repo-small-fix. Warning: workspace setup could not be started: tmux failed"
+	if message != want {
+		t.Fatalf("workspaceCreationMessage() = %q, want %q", message, want)
+	}
+}
+
 func TestViewShowsErrorsAsToastWithoutReplacingTasks(t *testing.T) {
 	model := model{
 		err:     errors.New("boom"),
