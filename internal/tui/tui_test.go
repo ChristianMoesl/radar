@@ -570,17 +570,16 @@ func TestCleanupConfirmViewShowsEveryLocalResourceAndDirtyWarning(t *testing.T) 
 	}
 }
 
-func TestActivateSelectedUsesAuthoredRefWorkspace(t *testing.T) {
+func TestActivateSelectedDoesNotTreatAuthoredNoteAsWorkspace(t *testing.T) {
 	m := model{tasks: []protocol.Task{{SourceRefs: []protocol.SourceRef{{
 		ID: "obsidian:task:1", Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
 		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
-		Path: "/vault/Tasks/one", ProvidesWorkspace: true,
-		Metadata: map[string]string{"authoring": "true", "radar_id": "1", "note_path": "/vault/Tasks/one/task.md"},
+		Metadata: map[string]string{"authoring": "true", "radar_id": "1", "note_path": "/vault/Tasks/One.md"},
 	}}}}}
 
 	updated, cmd := m.activateSelected()
 	got := updated.(model)
-	if cmd == nil || !got.loading || got.message != "Creating task session…" {
+	if cmd != nil || got.loading || got.message != "No tmux session or git worktree on selected task" {
 		t.Fatalf("activateSelected() command=%v loading=%v message=%q", cmd, got.loading, got.message)
 	}
 }
@@ -758,7 +757,7 @@ func TestTaskLinksUsesSourceLabels(t *testing.T) {
 }
 
 func TestObsidianTaskOffersOneSourceOwnedOpenAction(t *testing.T) {
-	uri := "obsidian://open?vault=Work&file=Tasks%2Ftask%2Ftask.md"
+	uri := "obsidian://open?vault=Work&file=Tasks%2FOne+task.md"
 	task := protocol.Task{Title: "Task", URL: uri, SourceRefs: []protocol.SourceRef{{
 		ID: "obsidian:task:1", Source: "obsidian", SourceLabel: "Obsidian", Kind: "task", URL: uri,
 	}}}

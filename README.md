@@ -255,7 +255,7 @@ Configure one Obsidian vault before creating tasks:
 }
 ```
 
-The vault and its `.obsidian/` directory must already exist. Radar creates `Tasks/` inside it. Each task gets a source-owned UUID, `task.md`, and `artifacts/` directory:
+The vault and its `.obsidian/` directory must already exist. Radar creates `Tasks/` inside it. Each task is one direct Markdown child named after its title, such as `Tasks/Write the release process in Notion.md`, with a source-owned UUID in its frontmatter:
 
 ```sh
 radar task create --title "Write the release process in Notion"
@@ -265,9 +265,9 @@ radar task priority <task-id> urgent
 radar task priority <task-id> normal
 ```
 
-Obsidian owns title, open/done state, normal/urgent priority, timestamps, notes, and outcomes. Radar projects those facts with live Jira, GitHub, Git, tmux, and SBX activity. An open normal note is low priority, urgent is immediate, linked activity can promote open work, and a done note remains terminal. Press `n`, `d`, and `p` for the same operations in the TUI. Press `Enter` to create or resume a deterministic Pi session in the task directory, or `o` to open the note in Obsidian.
+The note filename owns the title, while its frontmatter owns open/done state, normal/urgent priority, and timestamps. The body owns working notes and outcomes. Radar projects those facts with live Jira, GitHub, Git, tmux, and SBX activity. An open normal note is low priority, urgent is immediate, linked activity can promote open work, and a done note remains terminal. Press `n`, `d`, and `p` for the same operations in the TUI, or `o` to open the note in Obsidian.
 
-Radar preserves unknown frontmatter and the complete note body during atomic mutations. It never deletes task notes or artifacts. See [the Obsidian integration contract](docs/integrations/obsidian.md) for the schema and failure behavior.
+Obsidian notes are task records rather than workspaces. Radar preserves unknown frontmatter and the complete note body during atomic mutations and never deletes task notes. See [the Obsidian integration contract](docs/integrations/obsidian.md) for the schema and failure behavior.
 
 ## Scriptable commands
 

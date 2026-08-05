@@ -1575,13 +1575,6 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 		return m, m.switchTmuxSession(target)
 	}
 
-	if ref, ok := taskrefs.AuthoredWorkspace(task); ok {
-		m.loading = true
-		m.err = nil
-		m.message = "Creating task session…"
-		return m, m.createSessionForAuthoredTask(ref)
-	}
-
 	worktrees := taskrefs.Worktrees(task)
 	switch len(worktrees) {
 	case 0:
@@ -1636,39 +1629,6 @@ func authoredTaskRef(task protocol.Task) (protocol.SourceRef, bool) {
 		}
 	}
 	return protocol.SourceRef{}, false
-}
-
-func (m model) createSessionForAuthoredTask(ref protocol.SourceRef) tea.Cmd {
-	return func() tea.Msg {
-		id := strings.TrimSpace(ref.Metadata["radar_id"])
-		if id == "" {
-			return actionMsg{err: fmt.Errorf("authored task has no stable identity")}
-		}
-		compactID := strings.ReplaceAll(strings.ToLower(id), "-", "")
-		if len(compactID) > 12 {
-			compactID = compactID[:12]
-		}
-		sessionName := workspace.WorktreeName("radar-" + compactID)
-		cfg, err := config.Load()
-		if err != nil {
-			return actionMsg{err: err}
-		}
-		notePath := ref.Metadata["note_path"]
-		prompt := "Read task.md, work toward the desired outcome, and keep Working notes and Outcome links current."
-		created, err := workspace.CreateSessionWithOptions(context.Background(), workspace.ExecRunner{}, workspace.CreateSessionOptions{
-			Path: ref.Path, SessionName: sessionName, PiSessionID: "obsidian-" + id, InitialPrompt: prompt,
-			Environment: map[string]string{"RADAR_TASK_ID": id, "RADAR_TASK_NOTE": notePath},
-			Model:       cfg.Model, Thinking: cfg.Thinking, Sandbox: cfg.SBX.Enabled,
-			SandboxKitName: cfg.SBX.Kit.Name, SandboxKitPath: cfg.SBX.Kit.Path,
-			AdditionalSandboxMounts: cfg.SBX.AdditionalMounts,
-			SandboxName:             workspace.SandboxName("obsidian", id), Tmux: cfg.Tmux, Switch: os.Getenv("TMUX") != "",
-		})
-		if err != nil {
-			return actionMsg{err: err}
-		}
-		switchAfterCreate := os.Getenv("TMUX") != ""
-		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
-	}
 }
 
 func (m model) createSessionForWorktree(task protocol.Task, ref protocol.SourceRef) tea.Cmd {

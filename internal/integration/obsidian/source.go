@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +23,6 @@ import (
 const OpenAction = "obsidian_open"
 
 var validID = regexp.MustCompile(`^(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$`)
-var slugCharacters = regexp.MustCompile(`[^a-z0-9]+`)
 
 type Source struct {
 	vaultPath string
@@ -38,7 +36,6 @@ type note struct {
 	CreatedAt   string
 	CompletedAt string
 	Path        string
-	TaskDir     string
 	content     string
 	fields      map[string]int
 }
@@ -158,13 +155,10 @@ func discover(vault string) ([]discoveredNote, error) {
 	}
 	items := make([]discoveredNote, 0, len(entries))
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !strings.HasSuffix(entry.Name(), ".md") {
 			continue
 		}
-		path := filepath.Join(root, entry.Name(), "task.md")
-		if _, err := os.Lstat(path); os.IsNotExist(err) {
-			continue
-		}
+		path := filepath.Join(root, entry.Name())
 		current, err := readNote(path)
 		items = append(items, discoveredNote{note: current, err: err, path: path})
 	}
@@ -174,18 +168,21 @@ func discover(vault string) ([]discoveredNote, error) {
 func readNote(path string) (note, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
-		return note{Path: path, TaskDir: filepath.Dir(path)}, err
+		return note{Path: path}, err
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return note{Path: path, TaskDir: filepath.Dir(path)}, fmt.Errorf("task note must be a regular file")
+		return note{Path: path}, fmt.Errorf("task note must be a regular file")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return note{Path: path, TaskDir: filepath.Dir(path)}, err
+		return note{Path: path}, err
 	}
 	current, err := parseNote(string(data))
 	current.Path = path
-	current.TaskDir = filepath.Dir(path)
+	current.Title = strings.TrimSuffix(filepath.Base(path), ".md")
+	if err == nil && strings.TrimSpace(current.Title) == "" {
+		err = fmt.Errorf("task note filename must contain a title")
+	}
 	return current, err
 }
 
@@ -214,15 +211,6 @@ func parseNote(content string) (note, error) {
 		switch key {
 		case "radar-id":
 			current.ID = value
-		case "radar-title":
-			current.Title = value
-			if strings.HasPrefix(value, `"`) {
-				decoded, err := strconv.Unquote(value)
-				if err != nil {
-					return current, fmt.Errorf("invalid quoted radar-title")
-				}
-				current.Title = decoded
-			}
 		case "radar-state":
 			current.State = value
 		case "radar-priority":
@@ -236,16 +224,13 @@ func parseNote(content string) (note, error) {
 	if end < 0 {
 		return current, fmt.Errorf("Markdown frontmatter is not closed")
 	}
-	for _, field := range []string{"radar-id", "radar-title", "radar-state", "radar-priority", "radar-created-at", "radar-completed-at"} {
+	for _, field := range []string{"radar-id", "radar-state", "radar-priority", "radar-created-at", "radar-completed-at"} {
 		if _, ok := current.fields[field]; !ok {
 			return current, fmt.Errorf("missing required field %s", field)
 		}
 	}
 	if !validID.MatchString(current.ID) {
 		return current, fmt.Errorf("invalid radar-id %q", current.ID)
-	}
-	if strings.TrimSpace(current.Title) == "" {
-		return current, fmt.Errorf("radar-title must not be empty")
 	}
 	if current.State != "open" && current.State != "done" {
 		return current, fmt.Errorf("unsupported radar-state %q", current.State)
@@ -285,10 +270,9 @@ func validTimestamp(field, value string, allowEmpty bool) error {
 
 func observationsFor(vault string, current note) []integration.Observation {
 	identity := "obsidian:task:" + current.ID
-	workspaceKey := linking.WorkspaceKey(current.TaskDir)
 	uri := noteURI(vault, current.Path)
 	metadata := map[string]string{
-		"radar_id": current.ID, "note_path": current.Path, "task_directory": current.TaskDir,
+		"radar_id": current.ID, "note_path": current.Path,
 		"state": current.State, "priority": current.Priority, "created_at": current.CreatedAt,
 		"completed_at": current.CompletedAt, "authoring": "true",
 	}
@@ -303,8 +287,7 @@ func observationsFor(vault string, current note) []integration.Observation {
 			ID: identity, EntityID: identity, Source: "obsidian", SourceLabel: "Obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
 			Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
 			Presentation: protocol.SourceRefPresentation{PreferTitle: true}, Title: current.Title, URL: uri,
-			Path: current.TaskDir, ProvidesWorkspace: true, Status: current.State,
-			CanonicalKey: identity, LinkingKeys: linking.Keys(identity, workspaceKey), Metadata: metadata,
+			Status: current.State, CanonicalKey: identity, LinkingKeys: linking.Keys(identity), Metadata: metadata,
 		},
 		Signal: signal, Reason: "Obsidian task is " + current.State,
 	}}
@@ -348,6 +331,9 @@ func (s Source) Create(_ context.Context, title string) (integration.AuthoredTas
 	if strings.ContainsAny(title, "\r\n") {
 		return integration.AuthoredTaskIdentity{}, fmt.Errorf("task title must be one line")
 	}
+	if strings.ContainsAny(title, `/\\`) || strings.ContainsRune(title, 0) {
+		return integration.AuthoredTaskIdentity{}, fmt.Errorf("task title must be a valid filename")
+	}
 	vault, err := s.configuredVault()
 	if err != nil {
 		return integration.AuthoredTaskIdentity{}, err
@@ -356,25 +342,12 @@ func (s Source) Create(_ context.Context, title string) (integration.AuthoredTas
 	if err != nil {
 		return integration.AuthoredTaskIdentity{}, err
 	}
-	dir := filepath.Join(taskRoot(vault), taskDirName(title, id))
-	if err := os.Mkdir(dir, 0o755); err != nil {
-		return integration.AuthoredTaskIdentity{}, fmt.Errorf("create Obsidian task directory: %w", err)
-	}
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.RemoveAll(dir)
-		}
-	}()
-	if err := os.Mkdir(filepath.Join(dir, "artifacts"), 0o755); err != nil {
-		return integration.AuthoredTaskIdentity{}, err
-	}
+	path := filepath.Join(taskRoot(vault), title+".md")
 	now := time.Now().UTC().Format(time.RFC3339)
-	content := fmt.Sprintf("---\nradar-id: %s\nradar-title: %s\nradar-state: open\nradar-priority: normal\nradar-created-at: %s\nradar-completed-at:\n---\n\n# %s\n\n## Intent\n\n## Desired outcome\n\n## Context\n\n## Working notes\n\n## Outcome\n", id, yamlScalar(title), now, title)
-	if err := atomicWrite(filepath.Join(dir, "task.md"), []byte(content), 0o644); err != nil {
-		return integration.AuthoredTaskIdentity{}, err
+	content := fmt.Sprintf("---\nradar-id: %s\nradar-state: open\nradar-priority: normal\nradar-created-at: %s\nradar-completed-at:\n---\n\n## Intent\n\n## Desired outcome\n\n## Context\n\n## Working notes\n\n## Outcome\n", id, now)
+	if err := atomicCreate(path, []byte(content), 0o644); err != nil {
+		return integration.AuthoredTaskIdentity{}, fmt.Errorf("create Obsidian task note: %w", err)
 	}
-	cleanup = false
 	return integration.AuthoredTaskIdentity{SourceRefID: "obsidian:task:" + id}, nil
 }
 
@@ -449,6 +422,39 @@ func (s Source) mutate(ref protocol.SourceRef, updates map[string]string) (integ
 	return integration.AuthoredTaskIdentity{SourceRefID: ref.ID}, nil
 }
 
+func atomicCreate(path string, data []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Link(tmpPath, path); err != nil {
+		return err
+	}
+	dir, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
+}
+
 func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-")
 	if err != nil {
@@ -507,30 +513,7 @@ func validManagedNotePath(vault, path string) bool {
 		return false
 	}
 	parts := strings.Split(relative, string(filepath.Separator))
-	return len(parts) == 2 && parts[0] != "" && parts[0] != "." && parts[0] != ".." && parts[1] == "task.md"
-}
-
-func yamlScalar(value string) string {
-	if strings.TrimSpace(value) != value || strings.Contains(value, ": ") || strings.HasPrefix(value, "#") || strings.ContainsAny(value, "[]{}&*!|>'\"%@`") {
-		return strconv.Quote(value)
-	}
-	return value
-}
-
-func taskDirName(title, id string) string {
-	slug := slugCharacters.ReplaceAllString(strings.ToLower(title), "-")
-	slug = strings.Trim(slug, "-")
-	if slug == "" {
-		slug = "task"
-	}
-	if len(slug) > 60 {
-		slug = strings.Trim(slug[:60], "-")
-	}
-	short := strings.ReplaceAll(strings.ToLower(id), "-", "")
-	if len(short) > 8 {
-		short = short[:8]
-	}
-	return slug + "--" + short
+	return len(parts) == 1 && parts[0] != "" && parts[0] != "." && parts[0] != ".." && strings.HasSuffix(parts[0], ".md")
 }
 
 func newUUID() (string, error) {

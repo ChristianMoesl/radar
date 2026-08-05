@@ -106,56 +106,6 @@ func TestProjectTasksKeepsActiveWorkWhenLinkedRemoteIsDone(t *testing.T) {
 	}
 }
 
-func TestObsidianTaskWorkspaceLinksResourcesWithoutChangingIdleAttention(t *testing.T) {
-	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
-	path := "/vault/Tasks/authored"
-	obsidian := withSignal(testObsidianTaskRef("obsidian:task:1", path), "low_priority")
-	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
-		makeTask("low_priority", "Obsidian task is open", obsidian),
-	}, now)
-	if tasks := projectTasks(state); len(tasks) != 1 || tasks[0].Attention != "low_priority" || len(tasks[0].SourceRefs) != 1 {
-		t.Fatalf("idle Obsidian workspace task = %+v", tasks)
-	}
-
-	tmux := withSignal(testTmuxSessionRef("tmux:session:$1", path), "in_progress")
-	sandbox := protocol.SourceRef{
-		ID: "sbx:sandbox:authored", EntityID: "sbx:sandbox:authored", Source: "sbx", Kind: "sandbox",
-		Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Authority: protocol.SourceRefAuthorityNone,
-		Path: path, LinkingKeys: linking.Keys(linking.WorkspaceKey(path)), Signal: "in_progress",
-	}
-	state = reconcileState(state, []protocol.Task{
-		makeTask("low_priority", "Obsidian task is open", obsidian),
-		makeTask("in_progress", "tmux session", tmux),
-		makeTask("in_progress", "SBX sandbox", sandbox),
-	}, now.Add(time.Hour))
-	tasks := projectTasks(state)
-	if len(tasks) != 1 || tasks[0].Attention != "in_progress" || len(tasks[0].SourceRefs) != 3 {
-		t.Fatalf("linked Obsidian resources = %+v", tasks)
-	}
-}
-
-func TestCompleteObsidianRefreshDropsStaleWorkspaceRef(t *testing.T) {
-	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
-	path := "/vault/Tasks/authored"
-	obsidian := withSignal(testObsidianTaskRef("obsidian:task:1", path), "low_priority")
-	legacy := protocol.SourceRef{
-		ID: "obsidian:workspace:1", EntityID: obsidian.EntityID, Source: "obsidian", Kind: "task_workspace",
-		Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace, Authority: protocol.SourceRefAuthorityNone,
-		Path: path, LinkingKeys: linking.Keys(obsidian.ID, linking.WorkspaceKey(path)),
-	}
-	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
-		{Title: obsidian.Title, Attention: "low_priority", SourceRefs: []protocol.SourceRef{obsidian, legacy}},
-	}, now)
-	state = reconcileStateForSources(state, []protocol.Task{
-		makeTask("low_priority", "Obsidian task is open", obsidian),
-	}, now.Add(time.Hour), map[string]bool{"obsidian": true})
-
-	tasks := projectTasks(state)
-	if len(tasks) != 1 || len(tasks[0].SourceRefs) != 1 || tasks[0].SourceRefs[0].ID != obsidian.ID {
-		t.Fatalf("tasks after complete Obsidian refresh = %+v", tasks)
-	}
-}
-
 func TestProjectTasksPromotesLowPriorityJiraWithLinkedSignals(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	jira := withSignal(withStatus(testJiraIssueRef("jira:issue:CAP-7", "CAP-7 Ship"), "Selected for Development"), "low_priority")
@@ -420,16 +370,6 @@ func testGitWorktreeRef(id string, path string, repo string, branch string) prot
 		Branch:            branch,
 		CanonicalKey:      canonicalKey,
 		LinkingKeys:       linking.Keys(append(testLinkingMarks().Keys(id, path, repo, branch), canonicalKey, linking.BranchKey(repo, testBranchKey(branch)))...),
-	}
-}
-
-func testObsidianTaskRef(id string, path string) protocol.SourceRef {
-	return protocol.SourceRef{
-		ID: id, EntityID: id, Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
-		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
-		Title: "Authored task", Path: path, ProvidesWorkspace: true, CanonicalKey: id,
-		LinkingKeys:  linking.Keys(id, linking.WorkspaceKey(path)),
-		Presentation: protocol.SourceRefPresentation{PreferTitle: true},
 	}
 }
 

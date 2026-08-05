@@ -80,7 +80,7 @@ Every emitted `protocol.SourceRef` must have:
 12. `URL` only when it is directly openable.
 13. `RetainInactive` only when a provider's terminal source facts must remain in done-task history; local/deletable refs leave it false.
 
-Workspace capability is independent of lifecycle and lifecycle authority: a primary work item can also provide its workspace. Git worktrees and Obsidian tasks provide workspaces. tmux sessions and SBX sandboxes consume workspace paths as resources and do not provide them. Workspace capability does not emit a signal or change attention by itself.
+Workspace capability is independent of lifecycle and lifecycle authority: a primary work item can also provide its workspace. Git worktrees provide workspaces. Obsidian notes are task records without workspace capability, while tmux sessions and SBX sandboxes consume workspace paths as resources and do not provide them. Workspace capability does not emit a signal or change attention by itself.
 
 The collector stamps source label and display order from the integration descriptor. Informational refs must not emit signals, lifecycle authority, canonical keys, linking keys, or workspace capability. An observation may set `TargetTaskID` to associate such a ref with a stable existing Radar task without turning source metadata into task identity. Do not invent Radar task IDs in integrations or parse another source's IDs or metadata in core state. Keep source-specific behavior tested in the source package.
 
