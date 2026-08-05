@@ -328,7 +328,7 @@ func TestCreateSchedulesSetupInsideConfiguredSandbox(t *testing.T) {
 	assertCalled(t, runner.calls, "sbx", "create --name "+created.SandboxName)
 	assertNotCalledContains(t, runner.calls, "sbx", "exec")
 	assertNotCalled(t, runner.calls, "sh")
-	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+created.SessionName+": -n setup -c "+created.Path+" -P -F #{window_id} #{pane_id} sbx exec --workdir '"+created.Path+"' '"+created.SandboxName+"' sh -i")
+	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+created.SessionName+": -n setup -c "+created.Path+" -P -F #{window_id} #{pane_id} sbx exec -it --workdir '"+created.Path+"' '"+created.SandboxName+"' sh -i")
 	assertSetupWindowIsForeground(t, runner.calls)
 	assertCalled(t, runner.calls, "tmux", "set-option -p -t %1 remain-on-exit off")
 	assertCalledContains(t, runner.calls, "tmux", "send-keys -l -t %1 sh -lc 'pnpm install --frozen-lockfile' && sh -lc 'pnpm build' && exit")

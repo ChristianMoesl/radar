@@ -22,6 +22,7 @@ RUN set -eux; \
   corepack enable; \
   corepack prepare "pnpm@${PNPM_VERSION}" --activate; \
   pnpm --version >/dev/null; \
+  chown -R agent:agent /opt/corepack; \
   rm -rf /root/.cache /tmp/* /opt/node/include /opt/node/share/doc /opt/node/share/man
 
 USER agent

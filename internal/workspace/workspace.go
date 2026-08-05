@@ -645,7 +645,7 @@ func scheduleSetupCommands(ctx context.Context, runner Runner, path string, sess
 	args := []string{"new-window", "-t", sessionName + ":", "-n", "setup", "-c", path, "-P", "-F", "#{window_id} #{pane_id}"}
 	if sandboxName != "" {
 		args = append(args, strings.Join([]string{
-			"sbx exec --workdir",
+			"sbx exec -it --workdir",
 			shellQuote(path),
 			shellQuote(sandboxName),
 			"sh -i",
