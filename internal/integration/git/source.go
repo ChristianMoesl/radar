@@ -11,6 +11,7 @@ import (
 	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/workspace"
+	"radar/internal/workspacegroup"
 )
 
 type Source struct{}
@@ -81,6 +82,11 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
 	if _, err := workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Force); err != nil {
 		return protocol.CleanupTarget{}, err
+	}
+	if root, err := workspace.DefaultRoot(); err == nil {
+		if err := workspacegroup.RemoveMember(root, req.Target.Path); err != nil {
+			return protocol.CleanupTarget{}, err
+		}
 	}
 	return req.Target, nil
 }

@@ -152,15 +152,11 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 			return Workspace{}, fmt.Errorf("workspace creation requires %q: %w", dependency, err)
 		}
 	}
-	if options.BranchMode != integration.WorkspaceBranchExisting && options.BranchMode != integration.WorkspaceBranchNew {
-		return Workspace{}, fmt.Errorf("workspace branch mode must be existing or new")
-	}
-
-	repo, err := runner.Run(ctx, options.Repo, "git", "rev-parse", "--show-toplevel")
-	if err != nil {
-		return Workspace{}, err
-	}
-	repoConfig, err := loadRepoConfig(repo)
+	plan, err := PlanWorktree(ctx, runner, WorktreeOptions{
+		Repo: options.Repo, BranchMode: options.BranchMode, Name: options.Name,
+		Branch: options.Branch, Base: options.Base, Path: options.Path,
+		WorkspaceRoot: options.WorkspaceRoot,
+	})
 	if err != nil {
 		return Workspace{}, err
 	}
@@ -170,7 +166,7 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	if err := tmuxlayout.Validate(options.Tmux); err != nil {
 		return Workspace{}, err
 	}
-	sandbox := workspaceSandboxConfig(repoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.AdditionalSandboxMounts)
+	sandbox := workspaceSandboxConfig(plan.RepoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.AdditionalSandboxMounts)
 	if sandbox.Enabled {
 		if workspaceGOOS != "darwin" {
 			return Workspace{}, fmt.Errorf("workspace sandbox is only supported on macOS")
@@ -179,138 +175,82 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 			return Workspace{}, fmt.Errorf("workspace sandbox requires %q: %w", "sbx", err)
 		}
 	}
-	name := strings.TrimSpace(options.Name)
-	branch := strings.TrimSpace(options.Branch)
-	switch options.BranchMode {
-	case integration.WorkspaceBranchExisting:
-		branch = normalizeExistingBranch(branch)
-		if branch == "" {
-			return Workspace{}, fmt.Errorf("existing branch is required")
-		}
-		if name == "" {
-			name = branch
-		}
-	case integration.WorkspaceBranchNew:
-		if name == "" {
-			return Workspace{}, fmt.Errorf("new branch name is required")
-		}
-		if branch == "" {
-			branch = BranchName(name)
-		}
-		if strings.TrimSpace(options.Base) == "" {
-			return Workspace{}, fmt.Errorf("new branch base is required")
-		}
-	}
-	repoName := filepath.Base(repo)
-	root := options.WorkspaceRoot
-	if root == "" {
-		root, err = DefaultRoot()
-		if err != nil {
-			return Workspace{}, err
-		}
-	}
-	path := options.Path
-	if path == "" {
-		path = filepath.Join(root, repoName, WorktreeName(name))
-	}
+	repoName := filepath.Base(plan.Repo)
 	sessionName := options.SessionName
 	if sessionName == "" {
-		sessionName = SessionName(repoName, name)
+		sessionName = SessionName(repoName, plan.Name)
 	}
 	sandboxName := ""
 	if sandbox.Enabled {
-		sandboxName = SandboxName(repoName, name)
+		sandboxName = SandboxName(repoName, plan.Name)
 	}
-	if existingPath, ok, err := worktreePathForBranch(ctx, runner, repo, branch); err != nil {
-		return Workspace{}, err
-	} else if ok {
-		if options.BranchMode == integration.WorkspaceBranchNew {
-			return Workspace{}, fmt.Errorf("branch %q already exists; choose the existing branch instead", branch)
-		}
-		if !isWorkspacePath(existingPath, root) {
-			return Workspace{}, fmt.Errorf("branch %q is checked out at %s; detach that checkout before creating a Radar workspace", branch, existingPath)
-		}
-		return openExistingWorkspace(ctx, runner, Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: existingPath, SessionName: sessionName, SandboxName: sandboxName}, options)
-	}
-	if _, err := os.Stat(path); err == nil {
-		return Workspace{}, fmt.Errorf("workspace already exists: %s", path)
-	} else if !os.IsNotExist(err) {
-		return Workspace{}, err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return Workspace{}, err
+	workspaceValue := Workspace{Name: plan.Name, Branch: plan.Branch, Base: plan.Base, Repo: plan.Repo, Path: plan.Path, SessionName: sessionName, SandboxName: sandboxName}
+	if plan.Existing {
+		return openExistingWorkspace(ctx, runner, workspaceValue, options)
 	}
 
-	args := []string{"worktree", "add"}
-	switch options.BranchMode {
-	case integration.WorkspaceBranchExisting:
-		switch {
-		case refExists(ctx, runner, repo, "refs/heads/"+branch):
-			args = append(args, path, branch)
-		case refExists(ctx, runner, repo, "refs/remotes/origin/"+branch):
-			args = append(args, "--track", "-b", branch, path, "origin/"+branch)
-		default:
-			return Workspace{}, fmt.Errorf("branch %q does not exist locally or on origin", branch)
-		}
-	case integration.WorkspaceBranchNew:
-		if refExists(ctx, runner, repo, "refs/heads/"+branch) || refExists(ctx, runner, repo, "refs/remotes/origin/"+branch) {
-			return Workspace{}, fmt.Errorf("branch %q already exists; choose the existing branch instead", branch)
-		}
-		args = append(args, "-b", branch, path, options.Base)
-	}
-	if _, err := runner.Run(ctx, repo, "git", args...); err != nil {
+	prepared, err := EnsureWorktree(ctx, runner, plan)
+	if err != nil {
 		return Workspace{}, err
 	}
 	createdSession := false
 	createdSandbox := false
 	rollback := func() {
 		if createdSession {
-			_, _ = runner.Run(ctx, repo, "tmux", "kill-session", "-t", sessionName)
+			_, _ = runner.Run(ctx, plan.Repo, "tmux", "kill-session", "-t", sessionName)
 		}
 		if createdSandbox {
-			_, _ = stopSandbox(ctx, runner, path, sandboxName)
+			_, _ = stopSandbox(ctx, runner, plan.Path, sandboxName)
 		}
-		_, _ = runner.Run(ctx, repo, "git", "worktree", "remove", "--force", path)
-	}
-
-	if err := copyConfiguredFiles(repo, path, repoConfig.CopyFiles); err != nil {
-		rollback()
-		return Workspace{}, err
+		if prepared.Created {
+			_, _ = runner.Run(ctx, plan.Repo, "git", "worktree", "remove", "--force", plan.Path)
+		}
 	}
 	if sandbox.Enabled {
-		if _, err := startSandbox(ctx, runner, path, sandboxName, sandbox.Kit, sandbox.AdditionalMounts); err != nil {
+		if _, err := startSandbox(ctx, runner, plan.Path, sandboxName, sandbox.Kit, sandbox.AdditionalMounts); err != nil {
 			rollback()
 			return Workspace{}, err
 		}
 		createdSandbox = true
 	}
-	if _, err := runner.Run(ctx, repo, "tmux", "has-session", "-t", sessionName); err != nil {
+	if _, err := runner.Run(ctx, plan.Repo, "tmux", "has-session", "-t", sessionName); err != nil {
 		model := options.Model
-		if strings.TrimSpace(repoConfig.Model) != "" {
-			model = repoConfig.Model
+		if strings.TrimSpace(plan.RepoConfig.Model) != "" {
+			model = plan.RepoConfig.Model
 		}
 		thinking := options.Thinking
-		if strings.TrimSpace(repoConfig.Thinking) != "" {
-			thinking = repoConfig.Thinking
+		if strings.TrimSpace(plan.RepoConfig.Thinking) != "" {
+			thinking = plan.RepoConfig.Thinking
 		}
-		piArgsText := piArgs(sessionName, model, thinking, options.ForkPiSession)
-		if err := createTmuxWorkspace(ctx, runner, repo, path, sessionName, options.Tmux, piArgsText, nil); err != nil {
+		piArgsText, environment, err := radarPiLaunch(piArgs(sessionName, model, thinking, options.ForkPiSession), nil)
+		if err != nil {
+			rollback()
+			return Workspace{}, err
+		}
+		if err := createTmuxWorkspace(ctx, runner, plan.Repo, plan.Path, sessionName, options.Tmux, piArgsText, environment); err != nil {
 			rollback()
 			return Workspace{}, err
 		}
 		createdSession = true
 	}
 	warning := ""
-	if err := scheduleSetupCommands(ctx, runner, path, sessionName, sandboxName, repoConfig.Setup); err != nil {
+	setupScheduled := len(plan.RepoConfig.Setup) == 0
+	if err := scheduleSetupCommandsNamed(ctx, runner, plan.Path, sessionName, sandboxName, "setup", plan.RepoConfig.Setup); err != nil {
 		warning = fmt.Sprintf("workspace setup could not be started: %v", err)
+	} else {
+		setupScheduled = true
+	}
+	if err := registerPrimaryWorkspace(ctx, runner, plan, sessionName, sandboxName, sandbox, setupScheduled); err != nil {
+		rollback()
+		return Workspace{}, err
 	}
 	if options.Switch {
-		if _, err := runner.Run(ctx, repo, "tmux", "switch-client", "-t", sessionName); err != nil {
+		if _, err := runner.Run(ctx, plan.Repo, "tmux", "switch-client", "-t", sessionName); err != nil {
 			return Workspace{}, err
 		}
 	}
-
-	return Workspace{Name: name, Branch: branch, Base: options.Base, Repo: repo, Path: path, SessionName: sessionName, SandboxName: sandboxName, Warning: warning}, nil
+	workspaceValue.Warning = warning
+	return workspaceValue, nil
 }
 
 type sandboxSettings struct {
@@ -486,7 +426,10 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 		if piSessionID == "" {
 			piSessionID = sessionName
 		}
-		piArgsText := piArgsWithPrompt(piSessionID, sessionName, model, thinking, "", options.InitialPrompt)
+		piArgsText, environment, err := radarPiLaunch(piArgsWithPrompt(piSessionID, sessionName, model, thinking, "", options.InitialPrompt), options.Environment)
+		if err != nil {
+			return Workspace{}, err
+		}
 		createdSandbox := false
 		if sandbox.Enabled {
 			if exists, err := sandboxExists(ctx, runner, sandboxName); err != nil {
@@ -498,7 +441,7 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 				createdSandbox = true
 			}
 		}
-		if err := createTmuxWorkspace(ctx, runner, "", path, sessionName, options.Tmux, piArgsText, options.Environment); err != nil {
+		if err := createTmuxWorkspace(ctx, runner, "", path, sessionName, options.Tmux, piArgsText, environment); err != nil {
 			if createdSandbox {
 				_, _ = stopSandbox(ctx, runner, path, sandboxName)
 			}
@@ -639,10 +582,14 @@ func copyFile(source string, target string, mode os.FileMode) error {
 }
 
 func scheduleSetupCommands(ctx context.Context, runner Runner, path string, sessionName string, sandboxName string, commands []string) error {
+	return scheduleSetupCommandsNamed(ctx, runner, path, sessionName, sandboxName, "setup", commands)
+}
+
+func scheduleSetupCommandsNamed(ctx context.Context, runner Runner, path string, sessionName string, sandboxName string, windowName string, commands []string) error {
 	if len(commands) == 0 {
 		return nil
 	}
-	args := []string{"new-window", "-t", sessionName + ":", "-n", "setup", "-c", path, "-P", "-F", "#{window_id} #{pane_id}"}
+	args := []string{"new-window", "-t", sessionName + ":", "-n", windowName, "-c", path, "-P", "-F", "#{window_id} #{pane_id}"}
 	if sandboxName != "" {
 		args = append(args, strings.Join([]string{
 			"sbx exec -it --workdir",

@@ -45,6 +45,23 @@ func TestWorktreesSkipsPrunableEntries(t *testing.T) {
 	}
 }
 
+func TestRegisteredWorktreeSourceRefIncludesWorkspaceGroup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "repo", "work")
+	ref := (worktree{Path: path, Branch: "feature", Head: "abc"}).SourceRef(context.Background(), linking.MarkMatcher{}, "workspace-id")
+	if ref.Metadata["workspace_id"] != "workspace-id" {
+		t.Fatalf("metadata = %+v", ref.Metadata)
+	}
+	found := false
+	for _, key := range ref.LinkingKeys {
+		if key == "workspace-group:workspace-id" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("linking keys = %+v", ref.LinkingKeys)
+	}
+}
+
 func TestWorktreeSourceRefContract(t *testing.T) {
 	ref := worktree{Path: "/work/repo/RAD-123-fix", Branch: "RAD-123-fix", Head: "abc"}.SourceRef(context.Background(), linking.NewMarkMatcher([]string{"RAD"}))
 	contracttest.AssertValidSourceRefs(t, "git", []protocol.SourceRef{ref})

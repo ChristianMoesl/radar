@@ -16,7 +16,9 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 - `internal/integration/sbx/`: Docker sbx sandbox source facts, actions, and cleanup.
 - `internal/app/`: explicit assembly of the active integration set.
 - `internal/cleanup/`: shared application service for cleanup preview aggregation and ordered provider execution.
-- `internal/workspace/`: repository discovery, workspace creation, and source-specific Git worktree/tmux removal primitives.
+- `internal/workspace/`: repository discovery, shared worktree planning/creation, add-worktree reconciliation, workspace creation, Pi injection, and Git/tmux/SBX primitives.
+- `internal/workspacegroup/`: versioned logical-workspace registry, validation, lookup, locking, and atomic persistence.
+- `internal/pi/`: embedded Radar Pi extension and atomic runtime materialization.
 - `internal/workspacegc/`: conservative eligibility and target selection for automatic cleanup of completed work.
 - `internal/server/`: Unix socket API used by TUI and CLI commands.
 - `internal/collector/`: orchestrates integration collection, observation projection, and remote state resolution.
@@ -47,6 +49,8 @@ radar reset
 radar stop
 radar restart
 radar create --repo <repo> --base <branch> --name <name>
+radar add-worktree --repo <repo> --branch-mode new --name <name> --base <base> [--preview]
+radar add-worktree --repo <repo> --branch-mode existing --branch <branch> [--preview]
 radar cleanup <task-id>
 ```
 
@@ -73,7 +77,7 @@ SourceRef(s) + rebuildable TaskRecord cache => Task
 
 - `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, Datadog monitor, local git worktree, or tmux session. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:ABC-544`, `datadog:monitor:123`, `git:worktree:<path>`, or `tmux:session:<session_id>`.
 - `SourceRef.Role`: every ref is explicitly `authoritative` or `informational`. Authoritative refs participate in title, attention, identity, linking, lifecycle, and active-resource decisions. Informational refs are inspectable and openable only. Providers emit authoritative refs unless they intentionally collect an informational association.
-- `SourceRef.LinkingKeys`: source-owned join keys that tell Radar which authoritative refs describe the same work. Examples: `mark:ABC-544`, `workspace:/repo/worktree`, `branch:owner/repo:feature-ABC-544`, or `github:pr:owner/repo:123`. Configured linking marks use the mandatory `linking_mark_prefixes` allowlist and are extracted inside each source provider through the generic matcher; other keys remain source-owned. Informational refs expose no linking keys.
+- `SourceRef.LinkingKeys`: source-owned join keys that tell Radar which authoritative refs describe the same work. Examples: `mark:ABC-544`, `workspace:/repo/worktree`, `workspace-group:<id>`, `branch:owner/repo:feature-ABC-544`, or `github:pr:owner/repo:123`. Configured linking marks use the mandatory `linking_mark_prefixes` allowlist and are extracted inside each source provider through the generic matcher; other keys remain source-owned. Informational refs expose no linking keys.
 - `SourceRef.CanonicalKey`: the source-owned fallback identity for a standalone ref when no linking mark exists. Examples: a Git worktree uses `workspace:<path>`, while a GitHub PR uses its PR source-ref ID.
 - `SourceRef.URL`: a generic openable URL. If a source ref has a URL, frontends may offer an open-link action without source-specific URL inspection.
 - `SourceRef.SourceLabel` and `SourceRef.DisplayOrder`: generic presentation values stamped from the integration descriptor, so frontends and state never need source-name switches.
@@ -120,9 +124,9 @@ An open normal Obsidian note emits `low_priority`; urgent emits `immediate`; don
 
 `done` is projected into task-record cache state and is terminal for attention display. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state once and emits a done transition. The state store applies that transition to the existing task record. Already-done items are not remotely revalidated on subsequent refreshes. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate. Done-task projections preserve historical remote refs, but omit inactive local worktree, tmux, and SBX refs after those resources are removed. While a record remains done, neither cleanup state nor display filtering may move it to `immediate`, `attention`, `in_progress`, or `low_priority`.
 
-Completion and local cleanup are separate. A task becomes `done` when its remote work is complete: if both GitHub and Jira refs are linked, both must be done; if only one remote source is linked, that source is authoritative. Remaining local worktrees, tmux sessions, or sbx sandboxes do not keep the task active. The daemon garbage-collects clean linked worktrees under the configured workspace root after the task has been done for 24 hours, deleting the linked detached tmux session and sbx sandbox with the worktree. Attached tmux sessions are skipped and retried later.
+Completion and local cleanup are separate. A task becomes `done` when its remote work is complete: if both GitHub and Jira refs are linked, both must be done; if only one remote source is linked, that source is authoritative. Remaining local worktrees, tmux sessions, or sbx sandboxes do not keep the task active. The daemon garbage-collects clean linked worktrees under the configured workspace root after the task has been done for 24 hours. A registered multi-worktree workspace is one bundle: any dirty member or attached shared tmux session skips the whole bundle; successful cleanup removes all members and the shared session and sandbox once.
 
-Manual cleanup and garbage collection both preview and execute targets through `internal/cleanup.Service`. Manual cleanup executes the confirmed preview with force enabled. `internal/workspacegc` owns eligibility and filters each preview to one workspace path before executing without force. The hourly daemon run waits until a task has been done for 24 hours. `radar gc` and the TUI's `X` key include newly done tasks immediately, while preserving the same clean-worktree and detached-session safety checks. Providers exclusively remove their own resources in deterministic tmux, SBX, then Git order.
+Manual cleanup and garbage collection both preview and execute targets through `internal/cleanup.Service`. Manual cleanup executes the confirmed preview with force enabled. `internal/workspacegc` owns eligibility and filters each preview to either one standalone workspace path or one registered workspace group before executing without force. The hourly daemon run waits until a task has been done for 24 hours. `radar gc` and the TUI's `X` key include newly done tasks immediately, while preserving the same clean-worktree and detached-session safety checks. Providers exclusively remove their own resources in deterministic tmux, SBX, then Git order.
 
 Removing a tmux session only marks that source ref inactive, while removing a local worktree marks the local workspace record done when no GitHub or Jira source remains attached.
 
@@ -202,9 +206,15 @@ New integrations are source-compiled packages under `internal/integration/<name>
 
 ## Workspaces
 
-Workspaces absorb the useful workflow from `fork.nvim`. The application layer discovers repositories under configured repository directories, creates Git worktrees under the configured workspace root, applies repo-local `.radar.json` workspace setup, and creates matching tmux sessions with `pi` and `nvim` windows. Sandboxed linked worktrees mount both the workspace and its writable common Git directory so sandboxed tools can follow the worktree's absolute `.git` pointer.
+A Radar workspace is a logical resource bundle with one primary Git worktree, zero or more member worktrees from other repositories, one tmux session, one Pi session, and at most one SBX sandbox. `<workspace_root>/.radar-workspaces.json` is authoritative durable metadata rather than rebuildable task cache state. It uses stable IDs derived from primary paths, normalized absolute paths, deterministic ordering, process locking, version rejection, and atomic fsync/rename persistence. Existing workspaces enroll lazily when add-worktree first targets them.
 
-Creation is available from the TUI and `radar create`. Task cleanup is available with `x` in the TUI and `radar cleanup <task-id>`. Cleanup preflights every linked local resource, shows a consolidated dirty-worktree warning, then removes linked tmux sessions, SBX sandboxes, and Git worktrees while preserving branches and remote resources.
+The application layer discovers repositories, shares one worktree planner/creator between `radar create` and add-worktree, applies repo-local `.radar.json` copy/setup rules, and creates matching tmux sessions. Git source refs for all registered members emit `workspace-group:<id>` and workspace-ID metadata, while tmux and SBX remain linked through the primary path. This joins all resources transitively without requiring matching branch names or ticket marks.
+
+Radar embeds a TypeScript Pi extension and atomically materializes it under `$XDG_DATA_HOME/radar/pi` (or `~/.local/share`). Every Radar-started Pi command receives `--extension`, and its tmux session receives the absolute `RADAR_BINARY`. The host-side `radar_add_worktree` adapter calls JSON preview, requires `ctx.ui.confirm`, then calls JSON apply. Git, registry, tmux, and SBX rules remain in the Go application service.
+
+Add-worktree apply is an idempotent reconciliation: revalidate, ensure the worktree and copied files, save membership, reconcile the shared sandbox's desired mounts, and schedule setup once. Desired mounts include recorded mounts, all member worktrees and external Git common directories, and global/member additional mounts. A changed sandbox is recreated under the same name, interrupting in-sandbox processes. Failure keeps completed work and desired registry state and returns a retryable partial result.
+
+Creation is available from the TUI and `radar create`; member addition is available through `radar_add_worktree` and scriptable `radar add-worktree`. Task cleanup is available with `x` in the TUI and `radar cleanup <task-id>`. Cleanup preflights every linked local resource, shows consolidated dirty-worktree warnings, then removes all member worktrees and shared resources while preserving branches and remote resources.
 
 ## Terminal UI
 

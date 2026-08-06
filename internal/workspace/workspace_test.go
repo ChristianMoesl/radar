@@ -145,6 +145,8 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	assertCalled(t, runner.calls, "git", "worktree add -b small-fix "+workspace.Path+" origin/main")
 	assertNotCalled(t, runner.calls, "sh")
 	assertCalledContains(t, runner.calls, "tmux", "pi --model 'anthropic/claude-sonnet-4' --thinking 'high' --session-id '"+workspace.SessionName+"'")
+	assertCalledContains(t, runner.calls, "tmux", "--extension '")
+	assertCalledContains(t, runner.calls, "tmux", "RADAR_BINARY=")
 	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workspace.SessionName)
 	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+":")
 	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+": -n setup -c "+workspace.Path+" -P -F #{window_id} #{pane_id}")

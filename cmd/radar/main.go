@@ -34,6 +34,7 @@ import (
 	"radar/internal/state"
 	"radar/internal/tui"
 	"radar/internal/version"
+	"radar/internal/workspace"
 	"radar/internal/workspacegc"
 )
 
@@ -47,6 +48,8 @@ func main() {
 	switch command {
 	case "create":
 		runCreate(os.Args[2:])
+	case "add-worktree":
+		runAddWorktree(os.Args[2:])
 	case "task":
 		runTask(os.Args[2:])
 	case "fork":
@@ -265,6 +268,60 @@ func runCreate(args []string) {
 		Tmux:                    cfg.Tmux,
 		Switch:                  os.Getenv("TMUX") != "",
 	})
+	if err != nil {
+		fatal(err)
+	}
+	printJSON(result)
+}
+
+func runAddWorktree(args []string) {
+	flags := flag.NewFlagSet("radar add-worktree", flag.ExitOnError)
+	current := flags.String("workspace", "", "path inside the current Radar workspace")
+	repo := flags.String("repo", "", "repository path")
+	branchMode := flags.String("branch-mode", "", "branch mode: new or existing")
+	name := flags.String("name", "", "new branch/worktree name")
+	base := flags.String("base", "", "new branch base")
+	branch := flags.String("branch", "", "existing branch")
+	preview := flags.Bool("preview", false, "validate and print the plan without changes")
+	_ = flags.Parse(args)
+	if flags.NArg() != 0 || strings.TrimSpace(*repo) == "" {
+		addWorktreeUsage()
+		os.Exit(2)
+	}
+	mode := integration.WorkspaceBranchMode(*branchMode)
+	switch mode {
+	case integration.WorkspaceBranchNew:
+		if strings.TrimSpace(*name) == "" || strings.TrimSpace(*base) == "" || strings.TrimSpace(*branch) != "" {
+			addWorktreeUsage()
+			os.Exit(2)
+		}
+	case integration.WorkspaceBranchExisting:
+		if strings.TrimSpace(*branch) == "" || strings.TrimSpace(*name) != "" || strings.TrimSpace(*base) != "" {
+			addWorktreeUsage()
+			os.Exit(2)
+		}
+	default:
+		addWorktreeUsage()
+		os.Exit(2)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fatal(err)
+	}
+	request := workspace.AddWorktreeRequest{
+		Workspace: *current, Repository: *repo, BranchMode: mode, Name: *name,
+		Branch: *branch, Base: *base, WorkspaceRoot: workspace.ExpandPath(cfg.WorkspaceRoot),
+		AdditionalSandboxMounts: cfg.SBX.AdditionalMounts,
+	}
+	if *preview {
+		plan, err := workspace.PreviewAddWorktree(context.Background(), workspace.ExecRunner{}, request)
+		if err != nil {
+			fatal(err)
+		}
+		printJSON(plan)
+		return
+	}
+	result, err := workspace.ApplyAddWorktree(context.Background(), workspace.ExecRunner{}, request)
 	if err != nil {
 		fatal(err)
 	}
@@ -825,6 +882,8 @@ Tasks:
 Workspaces:
   radar create
   radar create --repo <repo> --base <branch> --name <name>
+  radar add-worktree --repo <repo> --branch-mode new --name <name> --base <base> [--preview]
+  radar add-worktree --repo <repo> --branch-mode existing --branch <branch> [--preview]
   radar fork
   radar cleanup <task-id>
   radar gc
@@ -862,6 +921,13 @@ Options:
   --repo   repository path
   --base   base branch or revision, for example origin/main
   --name   workspace name; also used to derive a sanitized branch name`)
+}
+
+func addWorktreeUsage() {
+	fmt.Fprintln(os.Stderr, `usage: radar add-worktree [--workspace <path>] --repo <repo> --branch-mode new --name <name> --base <base> [--preview]
+       radar add-worktree [--workspace <path>] --repo <repo> --branch-mode existing --branch <branch> [--preview]
+
+Preview and apply print JSON. --workspace defaults to the process working directory.`)
 }
 
 func forkUsage() {

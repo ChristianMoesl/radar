@@ -14,6 +14,7 @@ import (
 	"radar/internal/linking"
 	"radar/internal/protocol"
 	"radar/internal/state"
+	"radar/internal/workspacegroup"
 )
 
 func TestBuildPlanSelectsDoneWorkspaceAfterRetention(t *testing.T) {
@@ -147,6 +148,50 @@ func TestRunSelectsOneWorkspaceBundleAndUsesConservativeExecution(t *testing.T) 
 	}
 }
 
+func TestRunTreatsRegisteredMembersAsOneConservativeBundle(t *testing.T) {
+	store := testStore(t)
+	root := filepath.Join(t.TempDir(), "workspaces")
+	primary := filepath.Join(root, "app", "CAP-7-ship")
+	secondary := filepath.Join(root, "api", "CAP-7-ship")
+	id := workspacegroup.ID(primary)
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{{
+		ID: id, Name: "CAP-7-ship", PrimaryPath: primary,
+		Members: []workspacegroup.Member{
+			{Repository: filepath.Join(root, "sources", "app"), Path: primary, Branch: "CAP-7-ship", Primary: true, SetupScheduled: true},
+			{Repository: filepath.Join(root, "sources", "api"), Path: secondary, Branch: "CAP-7-api", SetupScheduled: true},
+		},
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	primaryRef := worktreeRef(primary, "acme/app", "CAP-7-ship")
+	primaryRef.Metadata = map[string]string{"workspace_id": id}
+	secondaryRef := worktreeRef(secondary, "acme/api", "CAP-7-api")
+	secondaryRef.Metadata = map[string]string{"workspace_id": id}
+	store.SetTasks([]protocol.Task{
+		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")),
+		makeTask("in_progress", "primary", primaryRef),
+		makeTask("in_progress", "secondary", secondaryRef),
+		makeTask("in_progress", "tmux", detachedSessionRef(primary, "session")),
+	})
+	plan, err := BuildPlan(store, time.Now().Add(time.Second), Options{WorkspaceRoot: root, Retention: time.Nanosecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Candidates) != 1 || plan.Candidates[0].WorkspaceID != id {
+		t.Fatalf("plan = %+v", plan)
+	}
+
+	calls := []cleanupCall{}
+	providers := []integration.CleanupProvider{gcProvider{name: "tmux", calls: &calls}, gcProvider{name: "git", calls: &calls, dirtyPath: secondary}}
+	result, err := Run(context.Background(), store, cleanup.New(providers), nil, time.Now().Add(time.Second), Options{WorkspaceRoot: root, Retention: time.Nanosecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Deleted) != 0 || len(result.Skipped) != 1 || len(calls) != 0 {
+		t.Fatalf("result = %+v, calls = %+v", result, calls)
+	}
+}
+
 func TestRunSkipsDirtyWorkspaceWithoutExecutingLinkedTargets(t *testing.T) {
 	store := testStore(t)
 	root := filepath.Join(t.TempDir(), "workspaces")
@@ -200,10 +245,11 @@ type cleanupCall struct {
 }
 
 type gcProvider struct {
-	name     string
-	calls    *[]cleanupCall
-	dirty    bool
-	failPath string
+	name      string
+	calls     *[]cleanupCall
+	dirty     bool
+	dirtyPath string
+	failPath  string
 }
 
 func (p gcProvider) Descriptor() integration.Descriptor {
@@ -220,7 +266,7 @@ func (p gcProvider) PreviewCleanup(_ context.Context, req integration.CleanupPre
 		}
 		target := protocol.CleanupTarget{SourceRefID: ref.ID, Source: ref.Source, Kind: ref.Kind, Path: ref.Path}
 		if p.name == "git" {
-			target.Dirty = p.dirty
+			target.Dirty = p.dirty || (p.dirtyPath != "" && ref.Path == p.dirtyPath)
 		}
 		targets = append(targets, target)
 	}

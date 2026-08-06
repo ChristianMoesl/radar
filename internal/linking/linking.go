@@ -105,6 +105,14 @@ func WorkspaceKey(path string) string {
 	return "workspace:" + path
 }
 
+func WorkspaceGroupKey(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	return "workspace-group:" + id
+}
+
 func BranchKey(repoKey string, branchKey string) string {
 	repoKey = strings.TrimSpace(repoKey)
 	branchKey = strings.TrimSpace(branchKey)

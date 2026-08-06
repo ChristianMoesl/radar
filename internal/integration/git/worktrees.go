@@ -14,6 +14,7 @@ import (
 	"radar/internal/linking"
 	"radar/internal/protocol"
 	"radar/internal/workspace"
+	"radar/internal/workspacegroup"
 )
 
 func FetchWorktrees(ctx context.Context, logger *slog.Logger, marks linking.MarkMatcher) ([]protocol.SourceRef, protocol.SourceStatus) {
@@ -21,6 +22,16 @@ func FetchWorktrees(ctx context.Context, logger *slog.Logger, marks linking.Mark
 	workspaceRoot, rootErr := workspace.DefaultRoot()
 	source_refs := make([]protocol.SourceRef, 0)
 	seen := map[string]bool{}
+	workspaceGroups := map[string]string{}
+	if registry, err := workspacegroup.Load(workspaceRoot); err == nil {
+		for _, group := range registry.Workspaces {
+			for _, member := range group.Members {
+				workspaceGroups[filepath.Clean(member.Path)] = group.ID
+			}
+		}
+	} else {
+		logger.Debug("workspace group registry unavailable", "error", err)
+	}
 	status := protocol.SourceStatus{Name: "git", Status: "ok"}
 	collectedRoots := 0
 	failedRoots := 0
@@ -48,7 +59,7 @@ func FetchWorktrees(ctx context.Context, logger *slog.Logger, marks linking.Mark
 				continue
 			}
 			seen[wt.Path] = true
-			source_refs = append(source_refs, wt.SourceRef(ctx, marks))
+			source_refs = append(source_refs, wt.SourceRef(ctx, marks, workspaceGroups[filepath.Clean(wt.Path)]))
 		}
 	}
 
@@ -144,7 +155,7 @@ func worktrees(ctx context.Context, root string) ([]worktree, error) {
 	return items, scanner.Err()
 }
 
-func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher) protocol.SourceRef {
+func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher, workspaceIDs ...string) protocol.SourceRef {
 	status := worktreeStatus(ctx, w.Path)
 	title := w.Branch
 	if title == "" {
@@ -168,8 +179,15 @@ func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher) prot
 		metadata["behind"] = status.Behind
 	}
 
+	workspaceID := ""
+	if len(workspaceIDs) > 0 {
+		workspaceID = strings.TrimSpace(workspaceIDs[0])
+	}
+	if workspaceID != "" {
+		metadata["workspace_id"] = workspaceID
+	}
 	canonicalKey := linking.WorkspaceKey(w.Path)
-	linkingKeys := linking.Keys(append(marks.Keys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, gitBranchKey(w.Branch)))...)
+	linkingKeys := linking.Keys(append(marks.Keys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, gitBranchKey(w.Branch)), linking.WorkspaceGroupKey(workspaceID))...)
 
 	return protocol.SourceRef{
 		ID:                "git:worktree:" + w.Path,

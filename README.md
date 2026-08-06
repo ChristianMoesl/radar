@@ -161,6 +161,20 @@ For a new branch, Radar creates:
 - a matching tmux session
 - user-configured tmux windows and panes; by default, separate `pi` and `nvim` windows
 
+A Radar workspace is one logical bundle: one primary Git worktree, optional member worktrees from other repositories, one tmux session, and at most one SBX sandbox. Radar stores this durable membership in `<workspace_root>/.radar-workspaces.json`; `radar reset` does not remove it.
+
+Every Pi process started by Radar receives the embedded `radar_add_worktree` tool. The tool previews and validates the exact repository, branch, destination, tmux session, and SBX changes, then fails closed unless the user confirms through Pi's UI. It supports new and existing branches and reuses the logical workspace's current tmux and Pi sessions.
+
+The same operation is scriptable without an extra prompt because invoking the CLI is already explicit:
+
+```sh
+./radar add-worktree --workspace /path/to/current/worktree --repo /path/to/other-repo --branch-mode new --name DPSCAP-123-update-cache --base origin/main --preview
+./radar add-worktree --workspace /path/to/current/worktree --repo /path/to/other-repo --branch-mode new --name DPSCAP-123-update-cache --base origin/main
+./radar add-worktree --workspace /path/to/current/worktree --repo /path/to/other-repo --branch-mode existing --branch feature/DPSCAP-123-update-cache
+```
+
+`--workspace` defaults to the process working directory. Preview and apply return JSON. Applying the same request again is safe: Radar reuses an already-correct worktree, repairs missing registry or sandbox state, and does not schedule setup twice after it has been recorded successfully.
+
 For an existing branch, Radar reuses its local branch or creates a same-named local branch that tracks `origin/<branch>`. A branch already checked out in a Radar workspace reopens that workspace. To keep a normal source checkout for `.env` files, local services, and database setup while making `main` available to a Radar worktree, park the clean source checkout on the remote-tracking commit:
 
 ```sh
@@ -186,7 +200,9 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 }
 ```
 
-`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree before tmux windows are created. Without sandboxing they run directly on the host. On macOS, when `sbx.enabled` is true, Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The sandbox mounts the workspace, any user-configured `sbx.additional_mounts`, and, for a linked Git worktree, its writable common Git directory so Git commands work inside SBX. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's tool calls through `sbx exec`. Install it with `pi install git:github.com/ChristianMoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree in a temporary setup window after tmux and any sandbox are available. Without sandboxing they run on the host. On macOS, when `sbx.enabled` is true, Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The sandbox mounts every member worktree, each external writable Git common directory, and global and repository `sbx.additional_mounts`. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's regular tools through `sbx exec`. Radar separately injects its own host-side Pi extension for `radar_add_worktree`; users do not install a Radar Pi package. Install `pi-sbx` with `pi install git:github.com/ChristianMoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
+
+Adding a member to a sandboxed workspace reconciles the complete mount set by removing and recreating the sandbox under the same name. This interrupts processes inside the sandbox, so the Pi tool warns before confirmation. If recreation fails, Radar keeps the worktree and desired registry state and returns `ok: false` with `retryable: true`; repeating the request converges instead of rolling back the completed steps.
 
 Enable sandboxes by default, select the kit, and mount additional host directories into every sandbox in the user config at `radar config-path`:
 
@@ -239,9 +255,9 @@ Clean up every local resource linked to a task:
 ./radar cleanup <task-id>
 ```
 
-Cleanup shows one confirmation covering all linked Git worktrees, tmux sessions, and SBX sandboxes. Dirty worktrees are called out explicitly and their uncommitted changes are discarded only after confirmation. Git branches, Jira issues, and GitHub pull requests are preserved. Standalone local-resource tasks are handled by the same command; for example, cleaning up a standalone tmux task removes only that session.
+Cleanup shows one confirmation covering all linked Git worktrees, tmux sessions, and SBX sandboxes. For a multi-worktree logical workspace, it includes every member but removes the shared session and sandbox once. Dirty worktrees are called out explicitly and their uncommitted changes are discarded only after confirmation. Git branches, Jira issues, and GitHub pull requests are preserved. Standalone local-resource tasks are handled by the same command; for example, cleaning up a standalone tmux task removes only that session.
 
-The daemon automatically garbage-collects local workspaces for tasks that have been done for at least 24 hours. Automatic cleanup only targets clean worktrees under the configured workspace root and skips workspaces whose linked tmux session is attached. Run `radar gc`, or press `X` in the TUI, to clean eligible done-task workspaces immediately without waiting for the 24-hour retention period. Manual garbage collection keeps the same clean-worktree and detached-session safety checks. Radar sends the garbage-collection result as a host OS notification.
+The daemon automatically garbage-collects local workspaces for tasks that have been done for at least 24 hours. A registered multi-worktree workspace is one conservative cleanup bundle: Radar skips all of it if any member is dirty or its shared tmux session is attached. Run `radar gc`, or press `X` in the TUI, to clean eligible done-task workspaces immediately without waiting for the 24-hour retention period. Manual garbage collection keeps the same clean-worktree and detached-session safety checks. Radar sends the garbage-collection result as a host OS notification.
 
 ## Obsidian-authored tasks
 
@@ -278,6 +294,8 @@ Obsidian notes are task records rather than workspaces. Radar preserves unknown 
 ./radar task priority <task-id> urgent|normal
 ./radar status
 ./radar tasks
+./radar add-worktree --repo <repo> --branch-mode new --name <name> --base <base> [--preview]
+./radar add-worktree --repo <repo> --branch-mode existing --branch <branch> [--preview]
 ./radar cleanup <task-id>
 ./radar gc
 ./radar refresh
@@ -394,7 +412,7 @@ A newly collected monitor produces the normal Radar macOS notification. Clicking
 
 ## Git worktrees
 
-Radar collects Git checkouts at `<workspace_root>/<repo>/<workspace>` and attaches them to matching tasks by configured linking mark, e.g. `ABC-123`. Regular repositories outside the configured workspace root are ignored. Branch names do not affect collection, so a workspace checked out directly on `main` remains visible.
+Radar collects Git checkouts at `<workspace_root>/<repo>/<workspace>`. Registered members emit a shared `workspace-group:<id>` linking key, so worktrees from different repositories appear in one task even without a configured linking mark. Radar also attaches worktrees by configured linking marks such as `ABC-123`. Regular repositories outside the configured workspace root are ignored. Branch names do not affect collection, so a workspace checked out directly on `main` remains visible.
 
 ## tmux sessions
 

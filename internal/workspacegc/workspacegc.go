@@ -13,6 +13,7 @@ import (
 	"radar/internal/protocol"
 	"radar/internal/state"
 	"radar/internal/workspace"
+	"radar/internal/workspacegroup"
 )
 
 const DefaultRetention = 24 * time.Hour
@@ -31,6 +32,7 @@ type Candidate struct {
 	Branch      string
 	SessionName string
 	SandboxName string
+	WorkspaceID string
 	Reason      string
 	Task        protocol.Task
 }
@@ -67,6 +69,11 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 	root = filepath.Clean(root)
 
 	refsByRecord := activeRefsByRecord(store.SourceRefs())
+	registry, _ := workspacegroup.Load(root)
+	groups := map[string]workspacegroup.Workspace{}
+	for _, group := range registry.Workspaces {
+		groups[group.ID] = group
+	}
 	plan := Plan{}
 	for _, record := range store.Records() {
 		if record.State != "done" || (!options.IgnoreRetention && !doneLongEnough(record.DoneAt, now, retention)) {
@@ -79,11 +86,20 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 		task.Reason = record.Reason
 		task.DoneAt = record.DoneAt
 		task.SourceRefs = append([]protocol.SourceRef(nil), refs...)
+		seenGroups := map[string]bool{}
 		for _, ref := range refs {
 			if ref.Source != "git" || ref.Kind != "worktree" || strings.TrimSpace(ref.Path) == "" {
 				continue
 			}
+			workspaceID := strings.TrimSpace(ref.Metadata["workspace_id"])
+			if workspaceID != "" && seenGroups[workspaceID] {
+				continue
+			}
 			path := filepath.Clean(ref.Path)
+			if group, ok := groups[workspaceID]; ok {
+				path = group.PrimaryPath
+				seenGroups[workspaceID] = true
+			}
 			if !insideRoot(path, root) {
 				plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Path: path, Reason: "workspace is outside configured workspace root"})
 				continue
@@ -101,6 +117,7 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 				Branch:      ref.Branch,
 				SessionName: sessionName,
 				SandboxName: matchingSandboxName(refs, path),
+				WorkspaceID: workspaceID,
 				Reason:      firstNonEmpty(record.Reason, "task done"),
 				Task:        task,
 			})
@@ -121,12 +138,18 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			result.skip(candidate, err, logger)
 			continue
 		}
-		selected, worktreeTarget := targetsForPath(preview, candidate.Path)
+		selected, worktreeTarget := targetsForCandidate(preview, candidate)
 		if worktreeTarget == nil {
 			result.skip(candidate, fmt.Errorf("matching worktree cleanup target was not found"), logger)
 			continue
 		}
-		if worktreeTarget.Dirty {
+		dirty := worktreeTarget.Dirty
+		for _, target := range selected.Targets {
+			if target.Source == "git" && target.Kind == "worktree" && target.Dirty {
+				dirty = true
+			}
+		}
+		if dirty {
 			result.skip(candidate, fmt.Errorf("workspace has local changes"), logger)
 			continue
 		}
@@ -142,23 +165,28 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 	return result, nil
 }
 
-func targetsForPath(preview protocol.CleanupPreview, path string) (protocol.CleanupPreview, *protocol.CleanupTarget) {
+func targetsForCandidate(preview protocol.CleanupPreview, candidate Candidate) (protocol.CleanupPreview, *protocol.CleanupTarget) {
 	selected := protocol.CleanupPreview{TaskID: preview.TaskID, TaskTitle: preview.TaskTitle}
 	var worktree *protocol.CleanupTarget
+	groupRefIDs := map[string]bool{}
+	if candidate.WorkspaceID != "" {
+		for _, ref := range candidate.Task.SourceRefs {
+			if ref.Source == "git" && ref.Kind == "worktree" && ref.Metadata["workspace_id"] == candidate.WorkspaceID {
+				groupRefIDs[ref.ID] = true
+			}
+		}
+	}
 	for _, target := range preview.Targets {
-		if !samePath(target.Path, path) {
+		groupWorktree := candidate.WorkspaceID != "" && target.Source == "git" && target.Kind == "worktree" && groupRefIDs[target.SourceRefID]
+		pathResource := samePath(target.Path, candidate.Path) && ((target.Source == "git" && target.Kind == "worktree") || (target.Source == "tmux" && target.Kind == "session") || (target.Source == "sbx" && target.Kind == "sandbox"))
+		if !groupWorktree && !pathResource {
 			continue
 		}
-		switch {
-		case target.Source == "git" && target.Kind == "worktree":
+		if target.Source == "git" && target.Kind == "worktree" && worktree == nil {
 			copy := target
 			worktree = &copy
-			selected.Targets = append(selected.Targets, target)
-		case target.Source == "tmux" && target.Kind == "session":
-			selected.Targets = append(selected.Targets, target)
-		case target.Source == "sbx" && target.Kind == "sandbox":
-			selected.Targets = append(selected.Targets, target)
 		}
+		selected.Targets = append(selected.Targets, target)
 	}
 	return selected, worktree
 }
