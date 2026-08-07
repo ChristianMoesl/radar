@@ -20,6 +20,12 @@ const Parameters = Type.Union([NewBranch, ExistingBranch], {
   description: "Choose exactly one branch mode and provide only its corresponding fields",
 });
 
+const NoParameters = Type.Object({}, { additionalProperties: false });
+
+const RepositoryParameters = Type.Object({
+  repository: Type.String({ description: "Absolute repository path returned by radar_workspace_context" }),
+}, { additionalProperties: false });
+
 type Plan = {
   workspace_name: string;
   repository: string;
@@ -44,17 +50,17 @@ function commandArgs(params: Record<string, unknown>, cwd: string, preview: bool
   return args;
 }
 
-function parseJSON<T>(stdout: string, phase: string): T {
+function parseJSON<T>(toolName: string, stdout: string, phase: string): T {
   try {
     return JSON.parse(stdout) as T;
   } catch (error) {
-    throw new Error(`radar_add_worktree ${phase} returned malformed JSON: ${error instanceof Error ? error.message : error}`);
+    throw new Error(`${toolName} ${phase} returned malformed JSON: ${error instanceof Error ? error.message : error}`);
   }
 }
 
-function commandFailure(phase: string, result: { code: number; stdout: string; stderr: string }): Error {
+function commandFailure(toolName: string, phase: string, result: { code: number; stdout: string; stderr: string }): Error {
   const detail = result.stderr.trim() || result.stdout.trim() || `exit code ${result.code}`;
-  return new Error(`radar_add_worktree ${phase} failed: ${detail}`);
+  return new Error(`${toolName} ${phase} failed: ${detail}`);
 }
 
 function confirmation(plan: Plan): string {
@@ -72,13 +78,56 @@ function confirmation(plan: Plan): string {
   return lines.join("\n");
 }
 
-async function runRadar(pi: ExtensionAPI, binary: string, args: string[], signal: AbortSignal | undefined, phase: string) {
+async function runRadar(pi: ExtensionAPI, binary: string, args: string[], signal: AbortSignal | undefined, toolName: string, phase: string) {
   const result = await pi.exec(binary, args, { signal });
-  if (result.code !== 0) throw commandFailure(phase, result);
+  if (result.code !== 0) throw commandFailure(toolName, phase, result);
   return result.stdout;
 }
 
 export default function radarExtension(pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "radar_workspace_context",
+    label: "Inspect Radar Workspace",
+    description: "Inspect the current logical Radar workspace from the host. Returns its primary and member Git worktrees, branches, tmux and SBX resources, and repositories discovered through Radar configuration. Marks repositories that already belong to the workspace.",
+    promptSnippet: "Inspect the current Radar workspace and discover host repositories before adding a worktree",
+    promptGuidelines: [
+      "Use radar_workspace_context before radar_add_worktree when the repository is not already known exactly or when you need to inspect existing workspace members.",
+      "Use the absolute repository paths returned by radar_workspace_context; do not guess host paths from sandbox-visible directories.",
+    ],
+    parameters: NoParameters,
+    executionMode: "sequential",
+
+    async execute(_toolCallId, _params, signal, _onUpdate, ctx: ExtensionContext) {
+      const toolName = "radar_workspace_context";
+      const binary = process.env.RADAR_BINARY?.trim() || "radar";
+      const text = await runRadar(pi, binary, ["workspace-context", "--workspace", resolve(ctx.cwd)], signal, toolName, "inspect");
+      const result = parseJSON<Record<string, unknown>>(toolName, text, "inspect");
+      return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+    },
+  });
+
+  pi.registerTool({
+    name: "radar_repository_refs",
+    label: "Inspect Radar Repository Refs",
+    description: "Fetch and prune origin for one host repository, then return its default branch, valid base refs, canonical local/origin branches, and paths where branches are already checked out.",
+    promptSnippet: "Inspect branches and valid base refs for a repository selected from radar_workspace_context",
+    promptGuidelines: [
+      "Use radar_repository_refs after selecting a repository from radar_workspace_context when the branch or new-branch base is not already known exactly.",
+      "Pass a canonical branch name to radar_add_worktree existing mode and one of base_refs to new mode.",
+    ],
+    parameters: RepositoryParameters,
+    executionMode: "sequential",
+
+    async execute(_toolCallId, params, signal, _onUpdate, _ctx: ExtensionContext) {
+      const toolName = "radar_repository_refs";
+      const binary = process.env.RADAR_BINARY?.trim() || "radar";
+      const repository = String((params as { repository: string }).repository);
+      const text = await runRadar(pi, binary, ["repository-refs", "--repo", repository], signal, toolName, "inspect");
+      const result = parseJSON<Record<string, unknown>>(toolName, text, "inspect");
+      return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+    },
+  });
+
   pi.registerTool({
     name: "radar_add_worktree",
     label: "Add Radar Worktree",
@@ -98,14 +147,14 @@ export default function radarExtension(pi: ExtensionAPI) {
       const binary = process.env.RADAR_BINARY?.trim() || "radar";
       const input = params as unknown as Record<string, unknown>;
       const cwd = resolve(ctx.cwd);
-      const previewText = await runRadar(pi, binary, commandArgs(input, cwd, true), signal, "preview");
-      const plan = parseJSON<Plan>(previewText, "preview");
+      const previewText = await runRadar(pi, binary, commandArgs(input, cwd, true), signal, "radar_add_worktree", "preview");
+      const plan = parseJSON<Plan>("radar_add_worktree", previewText, "preview");
       const approved = await ctx.ui.confirm("Add worktree to Radar workspace?", confirmation(plan));
       if (!approved) {
         return { content: [{ type: "text", text: JSON.stringify({ ok: false, cancelled: true }) }], details: { cancelled: true, plan } };
       }
-      const resultText = await runRadar(pi, binary, commandArgs(input, cwd, false), signal, "apply");
-      const result = parseJSON<Record<string, unknown>>(resultText, "apply");
+      const resultText = await runRadar(pi, binary, commandArgs(input, cwd, false), signal, "radar_add_worktree", "apply");
+      const result = parseJSON<Record<string, unknown>>("radar_add_worktree", resultText, "apply");
       if (result.ok !== true) {
         throw new Error(`radar_add_worktree apply did not converge: ${String(result.error ?? "unknown error")}\n${resultText.trim()}`);
       }

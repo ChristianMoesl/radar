@@ -165,7 +165,16 @@ A Radar workspace is one logical bundle: one primary Git worktree, optional memb
 
 Every Pi process started by Radar receives the embedded `radar_add_worktree` tool. The tool previews and validates the exact repository, branch, destination, tmux session, and SBX changes, then fails closed unless the user confirms through Pi's UI. It supports new and existing branches and reuses the logical workspace's current tmux and Pi sessions.
 
-The same operation is scriptable without an extra prompt because invoking the CLI is already explicit:
+Two read-oriented host tools support discovery from an SBX-isolated Pi session. `radar_workspace_context` reports the current logical workspace, all member worktrees, and repositories discovered through `repository_dirs`; `radar_repository_refs` refreshes one selected repository and reports canonical local/origin branches, valid base refs, and existing checkout paths. Pi uses these before `radar_add_worktree` when the repository or ref is not already explicit.
+
+The same operations are scriptable. Worktree apply needs no extra prompt because invoking the CLI is already explicit:
+
+```sh
+./radar workspace-context --workspace /path/to/current/worktree
+./radar repository-refs --repo /path/to/other-repo
+```
+
+Add a member worktree with:
 
 ```sh
 ./radar add-worktree --workspace /path/to/current/worktree --repo /path/to/other-repo --branch-mode new --name DPSCAP-123-update-cache --base origin/main --preview
@@ -296,6 +305,8 @@ Obsidian notes are task records rather than workspaces. Radar preserves unknown 
 ./radar tasks
 ./radar add-worktree --repo <repo> --branch-mode new --name <name> --base <base> [--preview]
 ./radar add-worktree --repo <repo> --branch-mode existing --branch <branch> [--preview]
+./radar workspace-context [--workspace <path>]
+./radar repository-refs --repo <repo>
 ./radar cleanup <task-id>
 ./radar gc
 ./radar refresh

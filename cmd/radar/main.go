@@ -50,6 +50,10 @@ func main() {
 		runCreate(os.Args[2:])
 	case "add-worktree":
 		runAddWorktree(os.Args[2:])
+	case "workspace-context":
+		runWorkspaceContext(os.Args[2:])
+	case "repository-refs":
+		runRepositoryRefs(os.Args[2:])
 	case "task":
 		runTask(os.Args[2:])
 	case "fork":
@@ -322,6 +326,42 @@ func runAddWorktree(args []string) {
 		return
 	}
 	result, err := workspace.ApplyAddWorktree(context.Background(), workspace.ExecRunner{}, request)
+	if err != nil {
+		fatal(err)
+	}
+	printJSON(result)
+}
+
+func runWorkspaceContext(args []string) {
+	flags := flag.NewFlagSet("radar workspace-context", flag.ExitOnError)
+	current := flags.String("workspace", "", "path inside the current Radar workspace")
+	_ = flags.Parse(args)
+	if flags.NArg() != 0 {
+		workspaceContextUsage()
+		os.Exit(2)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fatal(err)
+	}
+	result, err := workspace.InspectWorkspace(
+		context.Background(), workspace.ExecRunner{}, *current, workspace.ExpandPath(cfg.WorkspaceRoot),
+	)
+	if err != nil {
+		fatal(err)
+	}
+	printJSON(result)
+}
+
+func runRepositoryRefs(args []string) {
+	flags := flag.NewFlagSet("radar repository-refs", flag.ExitOnError)
+	repo := flags.String("repo", "", "repository path")
+	_ = flags.Parse(args)
+	if flags.NArg() != 0 || strings.TrimSpace(*repo) == "" {
+		repositoryRefsUsage()
+		os.Exit(2)
+	}
+	result, err := workspace.InspectRepositoryRefs(context.Background(), workspace.ExecRunner{}, *repo)
 	if err != nil {
 		fatal(err)
 	}
@@ -884,6 +924,8 @@ Workspaces:
   radar create --repo <repo> --base <branch> --name <name>
   radar add-worktree --repo <repo> --branch-mode new --name <name> --base <base> [--preview]
   radar add-worktree --repo <repo> --branch-mode existing --branch <branch> [--preview]
+  radar workspace-context [--workspace <path>]
+  radar repository-refs --repo <repo>
   radar fork
   radar cleanup <task-id>
   radar gc
@@ -928,6 +970,18 @@ func addWorktreeUsage() {
        radar add-worktree [--workspace <path>] --repo <repo> --branch-mode existing --branch <branch> [--preview]
 
 Preview and apply print JSON. --workspace defaults to the process working directory.`)
+}
+
+func workspaceContextUsage() {
+	fmt.Fprintln(os.Stderr, `usage: radar workspace-context [--workspace <path>]
+
+Print the current logical Radar workspace, its member worktrees, and discovered repositories as JSON.`)
+}
+
+func repositoryRefsUsage() {
+	fmt.Fprintln(os.Stderr, `usage: radar repository-refs --repo <repo>
+
+Fetch and prune origin, then print structured branch and checkout information as JSON.`)
 }
 
 func forkUsage() {

@@ -51,6 +51,8 @@ radar restart
 radar create --repo <repo> --base <branch> --name <name>
 radar add-worktree --repo <repo> --branch-mode new --name <name> --base <base> [--preview]
 radar add-worktree --repo <repo> --branch-mode existing --branch <branch> [--preview]
+radar workspace-context [--workspace <path>]
+radar repository-refs --repo <repo>
 radar cleanup <task-id>
 ```
 
@@ -211,6 +213,8 @@ A Radar workspace is a logical resource bundle with one primary Git worktree, ze
 The application layer discovers repositories, shares one worktree planner/creator between `radar create` and add-worktree, applies repo-local `.radar.json` copy/setup rules, and creates matching tmux sessions. Git source refs for all registered members emit `workspace-group:<id>` and workspace-ID metadata, while tmux and SBX remain linked through the primary path. This joins all resources transitively without requiring matching branch names or ticket marks.
 
 Radar embeds a TypeScript Pi extension and atomically materializes it under `$XDG_DATA_HOME/radar/pi` (or `~/.local/share`). Every Radar-started Pi command receives `--extension`, and its tmux session receives the absolute `RADAR_BINARY`. The host-side `radar_add_worktree` adapter calls JSON preview, requires `ctx.ui.confirm`, then calls JSON apply. Git, registry, tmux, and SBX rules remain in the Go application service.
+
+The embedded extension also exposes host-side `radar_workspace_context` and `radar_repository_refs` tools so an SBX-isolated model does not need to guess host paths. The first resolves Pi's working directory to the logical workspace and combines durable member metadata with configured repository discovery. The second refreshes only the selected repository and returns canonical branch capabilities, valid base refs, and checkout paths. Both are thin adapters over JSON CLI commands and make no workspace changes.
 
 Add-worktree apply is an idempotent reconciliation: revalidate, ensure the worktree and copied files, save membership, reconcile the shared sandbox's desired mounts, and schedule setup once. Desired mounts include recorded mounts, all member worktrees and external Git common directories, and global/member additional mounts. A changed sandbox is recreated under the same name, interrupting in-sandbox processes. Failure keeps completed work and desired registry state and returns a retryable partial result.
 
