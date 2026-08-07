@@ -326,13 +326,16 @@ func TestCreateFlowExplicitlySelectsBranchIntent(t *testing.T) {
 	if cmd != nil || m.mode != "create_intent" || m.create.repo != "/repo/radar" {
 		t.Fatalf("repository selection mode=%q repo=%q command=%v", m.mode, m.create.repo, cmd)
 	}
-	if view := m.View(); !strings.Contains(view, createIntentExisting) || !strings.Contains(view, createIntentNew) {
-		t.Fatalf("intent view missing choices:\n%s", view)
+	view := m.View()
+	newIndex := strings.Index(view, createIntentNew)
+	existingIndex := strings.Index(view, createIntentExisting)
+	if newIndex == -1 || existingIndex == -1 || newIndex > existingIndex {
+		t.Fatalf("intent view choices are not in the expected order:\n%s", view)
 	}
 
 	updated, cmd = m.selectCreateStep()
 	m = updated.(model)
-	if cmd == nil || m.mode != "create_branch" || m.create.branchMode != integration.WorkspaceBranchExisting {
+	if cmd == nil || m.mode != "create_base" || m.create.branchMode != integration.WorkspaceBranchNew {
 		t.Fatalf("intent selection mode=%q branchMode=%q command=%v", m.mode, m.create.branchMode, cmd)
 	}
 }

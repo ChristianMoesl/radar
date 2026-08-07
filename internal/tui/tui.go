@@ -729,7 +729,7 @@ func dropCells(s string, cells int) string {
 func newCreateForm() createForm {
 	return createForm{
 		repoList:   picker{loading: true},
-		intentList: picker{options: []string{createIntentExisting, createIntentNew}},
+		intentList: picker{options: []string{createIntentNew, createIntentExisting}},
 	}
 }
 
