@@ -1,10 +1,48 @@
 # Radar
 
-Radar is a CLI-first tool for keeping track of engineering work that needs your attention. It combines a terminal UI, scriptable commands, a background daemon, Obsidian task authoring, GitHub/Jira/Datadog/Git/tmux/sbx collection, and workspace creation in one Go binary.
+**Know what needs your attention—and jump straight into the right workspace.**
+
+![Radar terminal dashboard grouping engineering work by urgency](docs/images/radar-tui.svg)
+
+<p align="center"><sub>One prioritized view of alerts, reviews, issues, tasks, worktrees, sessions, and sandboxes.</sub></p>
+
+<p align="center"><a href="#integrations">Integrations</a> · <a href="#install">Install</a> · <a href="#quick-start">Quick start</a> · <a href="#workspaces">Workspaces</a> · <a href="#config">Configuration</a></p>
+
+Radar is a local, terminal-first command center for engineering work. It continuously gathers signals from the tools you already use, links related activity into a single task, and explains **why** each item needs attention. Select a task to open its source or switch directly into its tmux workspace.
+
+Instead of checking GitHub, Jira, Datadog, Obsidian, terminals, and worktrees one by one, Radar gives you one queue organized by urgency and current activity.
+
+## Why Radar
+
+- **Prioritize, don't just aggregate.** Work is grouped into immediate, attention, in-progress, low-priority, and recently completed sections.
+- **See the whole task.** A Jira issue, pull request, worktree, tmux session, and sandbox can appear as one linked unit rather than five disconnected entries.
+- **Resume work instantly.** Press <kbd>Enter</kbd> to switch to the task's tmux session, or create a ready-to-use worktree and session from Radar.
+- **Know what changed.** Each row includes the signal behind its state—an alert, review request, unresolved thread, active workspace, or completed source.
+- **Stay local and scriptable.** The TUI and JSON-friendly CLI share one Go binary and a lightweight background daemon.
+
+## How it fits into your day
+
+1. Open Radar directly or in a tmux popup.
+2. Scan a queue ranked by urgency, not by source.
+3. Inspect or open the linked issue, pull request, monitor, or note.
+4. Switch into an existing workspace—or create a new worktree, tmux session, and optional sandbox.
+5. Clean up linked local resources together when the work is done.
+
+## Integrations
+
+| Integration | Feature |
+| --- | --- |
+| [**GitHub**](#github) | Surfaces your pull requests, review requests, comments, and unresolved threads. |
+| [**Jira**](#jira) | Collects assigned issues and links ticket references across your work. |
+| [**Datadog**](#datadog) | Turns unhealthy monitors into tasks and completes them when they recover. |
+| [**Obsidian**](#obsidian-authored-tasks) | Uses local Markdown notes as tasks you can create, prioritize, and complete. |
+| [**Git**](#git-worktrees) | Tracks worktrees and creates or cleans up multi-repository workspaces. |
+| [**tmux**](#tmux-sessions) | Tracks sessions and lets you jump directly into the right workspace. |
+| [**Docker SBX**](#docker-sbx-sandboxes) | Tracks, opens, and cleans up sandboxes attached to workspaces. |
 
 ## Install
 
-Download the matching archive from the [latest release](https://github.com/ChristianMoesl/radar.nvim/releases/latest), verify it with `checksums.txt`, and run its installer:
+Download the matching archive from the [latest release](https://github.com/ChristianMoesl/radar/releases/latest), verify it with `checksums.txt`, and run its installer:
 
 ```sh
 archive=radar_<version>_<os>_<arch>.tar.gz
@@ -19,63 +57,6 @@ The installer uses `~/.local` by default. Set `PREFIX` to install elsewhere. mac
 ## Update
 
 Download the new release archive, verify it with `checksums.txt`, and run its installer over the existing installation. Run `radar restart` after updating if the daemon is already running.
-
-## Development setup
-
-Install the local development tools:
-
-```sh
-brew install go fd git tmux neovim
-curl -fsSL https://pi.dev/install.sh | sh
-```
-
-Linux developers also need `xdg-open`, usually provided by the system `xdg-utils` package:
-
-```sh
-sudo apt-get install xdg-utils
-```
-
-Build, test, and install a local Radar binary:
-
-```sh
-make test
-make build
-make install
-radar version
-```
-
-## Build
-
-```sh
-make build
-```
-
-Install a local build:
-
-```sh
-make install
-```
-
-## Release
-
-Releases are tag-driven. To publish versioned Linux and macOS binaries from a clean, up-to-date `main`:
-
-```sh
-make release VERSION=v0.1.0
-```
-
-The release script tests, builds the release archives, creates a signed annotated tag, and pushes it. The release workflow then publishes `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64` tarballs, plus `checksums.txt`, with generated notes from the changes since the previous tag.
-
-Release assets should not be replaced after publishing. If a release is wrong, publish a new patch version.
-
-The sandbox image is released separately because it packages frequently updated tools such as Node, pnpm, and gh. The sandbox image workflow runs weekly and can be triggered manually. It publishes:
-
-```text
-christianmoesl/radar-sandbox:YYYY.MM.DD
-christianmoesl/radar-sandbox:latest
-```
-
-Publishing the sandbox image requires the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` GitHub secrets.
 
 ## Prerequisites
 
@@ -93,63 +74,57 @@ Radar opens task URLs with the platform URL opener when you press `o` and choose
 - Linux: requires `xdg-open`, usually provided by `xdg-utils`
 - macOS: uses the built-in `open` command
 
-## Run
+## Quick start
 
-Start the daemon:
-
-```sh
-./radar daemon
-```
-
-Open the terminal UI:
+Open Radar. The background daemon starts automatically and keeps the task view up to date:
 
 ```sh
-./radar
+radar
 ```
 
-Open Radar in a tmux popup from tmux:
+The first launch creates the JSON config reported by `radar config-path`. Press <kbd>f</kbd> to edit it, set `linking_mark_prefixes` for your ticket keys, and configure only the sources you use; unavailable sources are reported in the dashboard without hiding healthy ones.
+
+For a fast, always-available dashboard, open it in a tmux popup:
 
 ```sh
 tmux display-popup -E "radar"
 ```
 
-Useful tmux bindings:
+Recommended tmux bindings:
 
 ```tmux
 bind-key R display-popup -E "radar"
 bind-key F display-popup -E "radar fork"
 ```
 
-The TUI supports:
+| Key | Action |
+| --- | --- |
+| <kbd>j</kbd> / <kbd>↓</kbd>, <kbd>k</kbd> / <kbd>↑</kbd> | Move between tasks |
+| <kbd>Enter</kbd> | Switch to or create the selected task's tmux session |
+| <kbd>o</kbd> | Open the source action or link |
+| <kbd>i</kbd> | Inspect the selected task and its linked sources |
+| <kbd>n</kbd> | Create an Obsidian-backed task |
+| <kbd>d</kbd> / <kbd>p</kbd> | Complete or reopen a task / toggle urgent priority |
+| <kbd>c</kbd> | Create a workspace |
+| <kbd>x</kbd> / <kbd>X</kbd> | Clean up the selected task / garbage-collect eligible workspaces |
+| <kbd>f</kbd> | Edit the configuration |
+| <kbd>r</kbd> | Refresh sources |
+| <kbd>q</kbd> / <kbd>Esc</kbd> | Quit |
 
-```text
-j / down     move down
-k / up       move up
-enter        switch/create the selected task's tmux session
-o            open a source action or link, including Obsidian, GitHub, Jira, and sbx
-i            inspect selected task
-c            create workspace
-x            clean up all local resources linked to the selected task
-X            garbage-collect all eligible workspaces
-f            edit config
-r            refresh
-q / esc      quit
-```
-
-The create flow is step-by-step: fuzzy search a repository, choose whether to work on an existing branch or create a new one, then select the existing branch or the new branch's starting reference. New branches also prompt for a name. Repository paths are displayed as `~/...` when they are inside your home directory.
+The workspace creator walks through repository search, branch selection, and workspace naming. Repository paths are shortened to `~/...` when they are inside your home directory.
 
 ## Workspaces
 
 Open the interactive workspace creation flow:
 
 ```sh
-./radar create
+radar create
 ```
 
 Create a workspace non-interactively:
 
 ```sh
-./radar create --repo /path/to/repo --base origin/main --name my-feature
+radar create --repo /path/to/repo --base origin/main --name my-feature
 ```
 
 For a new branch, Radar creates:
@@ -170,16 +145,16 @@ Two read-oriented host tools support discovery from an SBX-isolated Pi session. 
 The same operations are scriptable. Worktree apply needs no extra prompt because invoking the CLI is already explicit:
 
 ```sh
-./radar workspace-context --workspace /path/to/current/worktree
-./radar repository-refs --repo /path/to/other-repo
+radar workspace-context --workspace /path/to/current/worktree
+radar repository-refs --repo /path/to/other-repo
 ```
 
 Add a member worktree with:
 
 ```sh
-./radar add-worktree --workspace /path/to/current/worktree --repo /path/to/other-repo --branch-mode new --name DPSCAP-123-update-cache --base origin/main --preview
-./radar add-worktree --workspace /path/to/current/worktree --repo /path/to/other-repo --branch-mode new --name DPSCAP-123-update-cache --base origin/main
-./radar add-worktree --workspace /path/to/current/worktree --repo /path/to/other-repo --branch-mode existing --branch feature/DPSCAP-123-update-cache
+radar add-worktree --workspace /path/to/current/worktree --repo /path/to/other-repo --branch-mode new --name DPSCAP-123-update-cache --base origin/main --preview
+radar add-worktree --workspace /path/to/current/worktree --repo /path/to/other-repo --branch-mode new --name DPSCAP-123-update-cache --base origin/main
+radar add-worktree --workspace /path/to/current/worktree --repo /path/to/other-repo --branch-mode existing --branch feature/DPSCAP-123-update-cache
 ```
 
 `--workspace` defaults to the process working directory. Preview and apply return JSON. Applying the same request again is safe: Radar reuses an already-correct worktree, repairs missing registry or sandbox state, and does not schedule setup twice after it has been recorded successfully.
@@ -253,7 +228,7 @@ When run inside tmux, Radar switches to the new session.
 Fork the current tmux workspace into a sibling workspace and fork its Pi session:
 
 ```sh
-./radar fork
+radar fork
 ```
 
 `radar fork` detects the current git worktree and tmux session, asks for the base branch with the current branch prefilled, asks for the new workspace name, starts Pi with `--fork`, and switches to the new tmux session.
@@ -261,7 +236,7 @@ Fork the current tmux workspace into a sibling workspace and fork its Pi session
 Clean up every local resource linked to a task:
 
 ```sh
-./radar cleanup <task-id>
+radar cleanup <task-id>
 ```
 
 Cleanup shows one confirmation covering all linked Git worktrees, tmux sessions, and SBX sandboxes. For a multi-worktree logical workspace, it includes every member but removes the shared session and sandbox once. Dirty worktrees are called out explicitly and their uncommitted changes are discarded only after confirmation. Git branches, Jira issues, and GitHub pull requests are preserved. Standalone local-resource tasks are handled by the same command; for example, cleaning up a standalone tmux task removes only that session.
@@ -297,44 +272,28 @@ Obsidian notes are task records rather than workspaces. Radar preserves unknown 
 ## Scriptable commands
 
 ```sh
-./radar task create --title <title>
-./radar task done <task-id>
-./radar task reopen <task-id>
-./radar task priority <task-id> urgent|normal
-./radar status
-./radar tasks
-./radar add-worktree --repo <repo> --branch-mode new --name <name> --base <base> [--preview]
-./radar add-worktree --repo <repo> --branch-mode existing --branch <branch> [--preview]
-./radar workspace-context [--workspace <path>]
-./radar repository-refs --repo <repo>
-./radar cleanup <task-id>
-./radar gc
-./radar refresh
-./radar reset
-./radar stop
-./radar restart
-./radar config-path
-./radar state-path
-./radar log-path
+radar task create --title <title>
+radar task done <task-id>
+radar task reopen <task-id>
+radar task priority <task-id> urgent|normal
+radar status
+radar tasks
+radar add-worktree --repo <repo> --branch-mode new --name <name> --base <base> [--preview]
+radar add-worktree --repo <repo> --branch-mode existing --branch <branch> [--preview]
+radar workspace-context [--workspace <path>]
+radar repository-refs --repo <repo>
+radar cleanup <task-id>
+radar gc
+radar refresh
+radar reset
+radar stop
+radar restart
+radar config-path
+radar state-path
+radar log-path
 ```
 
 Task commands return JSON.
-
-## Architecture
-
-Radar's main executable is a single Go binary with three modes:
-
-- terminal UI, opened by `radar`
-- scriptable commands, such as `radar status` and `radar create`
-- daemon mode, started with `radar daemon`
-
-```text
-TUI / CLI -> Unix socket -> radar daemon -> source-compiled integrations
-```
-
-The daemon keeps collection centralized so UI/status reads can use cached local state instead of polling external services repeatedly. It refreshes local Obsidian/Git/tmux/sbx state every 15 seconds and runs a full Obsidian/GitHub/Jira/Datadog/Git/tmux/sbx refresh every 5 minutes.
-
-For internals, see [ARCHITECTURE.md](ARCHITECTURE.md). For how Radar decides what needs attention, see [docs/attention-algorithm.md](docs/attention-algorithm.md). To add a source-compiled integration, see [docs/integrations.md](docs/integrations.md).
 
 ## GitHub
 
@@ -444,7 +403,7 @@ The default sandbox kit name is `shell`. Set `sbx.kit.name` to select another ki
 Radar uses one editable JSON config file:
 
 ```sh
-./radar config-path
+radar config-path
 ```
 
 By default this is `$XDG_CONFIG_HOME/radar/config.json` or `~/.config/radar/config.json`.
@@ -506,10 +465,10 @@ The daemon stores rebuildable task records and source-ref observations locally. 
 
 Radar groups work by linking mark, source-owned identity, and workspace keys. A primary lifecycle ref controls completion when present; otherwise contributing work-item refs retain their combined lifecycle behavior.
 
-Use `./radar reset` to discard collected observations and rebuild them from integrations. Acknowledgements may be retained. An incompatible state version is intentionally discarded and recollected; malformed state still fails closed.
+Use `radar reset` to discard collected observations and rebuild them from integrations. Acknowledgements may be retained. An incompatible state version is intentionally discarded and recollected; malformed state still fails closed.
 
 ```sh
-./radar state-path
+radar state-path
 ```
 
 By default this is `$XDG_STATE_HOME/radar/tasks.json` or `~/.local/state/radar/tasks.json`.
@@ -523,7 +482,7 @@ Radar writes state atomically through a single serialized writer. A malformed st
 The daemon writes logs to:
 
 ```sh
-./radar log-path
+radar log-path
 ```
 
 By default this is `$XDG_STATE_HOME/radar/radar.log` or `~/.local/state/radar/radar.log`.
@@ -531,7 +490,7 @@ By default this is `$XDG_STATE_HOME/radar/radar.log` or `~/.local/state/radar/ra
 Follow logs with:
 
 ```sh
-tail -f "$(./radar log-path)"
+tail -f "$(radar log-path)"
 ```
 
 Override the log path with `RADAR_LOG=/path/to/radar.log`.
@@ -539,7 +498,14 @@ Override the log path with `RADAR_LOG=/path/to/radar.log`.
 Set log level with:
 
 ```sh
-RADAR_LOG_LEVEL=debug ./radar daemon
+RADAR_LOG_LEVEL=debug radar daemon
 ```
 
 Supported levels: `debug`, `info`, `warn`, `error`. Default is `info`.
+
+## Documentation
+
+- [Architecture](ARCHITECTURE.md)
+- [Attention and prioritization](docs/attention-algorithm.md)
+- [Integration internals](docs/integrations.md)
+- [Contributing, building, and releasing](CONTRIBUTING.md)
