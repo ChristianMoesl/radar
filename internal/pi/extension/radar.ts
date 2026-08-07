@@ -39,6 +39,22 @@ type Plan = {
   warnings?: string[];
 };
 
+const BusyOption = "@radar_busy";
+
+async function publishBusy(pi: ExtensionAPI, busy: boolean) {
+  const pane = process.env.TMUX_PANE?.trim();
+  if (!pane) return;
+
+  const args = busy
+    ? ["set-option", "-p", "-t", pane, BusyOption, "1"]
+    : ["set-option", "-p", "-u", "-t", pane, BusyOption];
+  try {
+    await pi.exec("tmux", args, { timeout: 5000 });
+  } catch {
+    // Busy state is informational and must never interfere with the session.
+  }
+}
+
 function commandArgs(params: Record<string, unknown>, cwd: string, preview: boolean): string[] {
   const args = ["add-worktree", "--workspace", cwd, "--repo", String(params.repository), "--branch-mode", String(params.branch_mode)];
   if (params.branch_mode === "new") {
@@ -85,6 +101,11 @@ async function runRadar(pi: ExtensionAPI, binary: string, args: string[], signal
 }
 
 export default function radarExtension(pi: ExtensionAPI) {
+  pi.on("session_start", async () => publishBusy(pi, false));
+  pi.on("agent_start", async () => publishBusy(pi, true));
+  pi.on("agent_settled", async () => publishBusy(pi, false));
+  pi.on("session_shutdown", async () => publishBusy(pi, false));
+
   pi.registerTool({
     name: "radar_workspace_context",
     label: "Inspect Radar Workspace",

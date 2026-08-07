@@ -28,6 +28,28 @@ func TestParseSessions(t *testing.T) {
 	}
 }
 
+func TestParseBusySessions(t *testing.T) {
+	output := "$1\t0\t1\n$2\t0\t\n$3\t0\t0\n$4\t1\t1\n"
+	busy, err := parseBusySessions(output)
+	if err != nil {
+		t.Fatalf("parseBusySessions returned error: %v", err)
+	}
+	if !busy["$1"] {
+		t.Fatalf("session $1 is not busy: %+v", busy)
+	}
+	for _, sessionID := range []string{"$2", "$3", "$4"} {
+		if busy[sessionID] {
+			t.Fatalf("session %s unexpectedly busy: %+v", sessionID, busy)
+		}
+	}
+}
+
+func TestParseBusySessionsRejectsMalformedOutput(t *testing.T) {
+	if _, err := parseBusySessions("$1\t0\t1\textra\n"); err == nil {
+		t.Fatal("parseBusySessions accepted malformed output")
+	}
+}
+
 func TestSessionSourceRef(t *testing.T) {
 	session := session{
 		ID:            "$1",
@@ -35,6 +57,7 @@ func TestSessionSourceRef(t *testing.T) {
 		AttachedCount: 2,
 		WindowCount:   3,
 		Path:          "/home/me/repo",
+		Busy:          true,
 	}
 
 	sourceRef := session.SourceRef(linking.NewMarkMatcher([]string{"ABC"}))
@@ -68,6 +91,9 @@ func TestSessionSourceRef(t *testing.T) {
 	}
 	if sourceRef.Metadata["window_count"] != "3" {
 		t.Fatalf("unexpected window count metadata: %#v", sourceRef.Metadata)
+	}
+	if !sourceRef.Busy {
+		t.Fatalf("tmux source ref is not busy: %#v", sourceRef)
 	}
 	for _, want := range []string{"mark:ABC-123", "workspace:/home/me/repo"} {
 		if !slices.Contains(sourceRef.LinkingKeys, want) {

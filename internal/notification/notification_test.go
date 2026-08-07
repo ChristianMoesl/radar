@@ -90,6 +90,20 @@ func TestNotifyTransitionsSendsWhenTaskStartsNeedingAttention(t *testing.T) {
 	}
 }
 
+func TestNotifyTransitionsIgnoresBusyChanges(t *testing.T) {
+	sender := &recordingSender{}
+	service := NewWithSender(discardLogger(), sender)
+
+	service.NotifyTransitions(context.Background(),
+		[]protocol.Task{{ID: 1, Attention: "in_progress"}},
+		[]protocol.Task{{ID: 1, Attention: "in_progress", Busy: true}},
+	)
+
+	if len(sender.sent) != 0 {
+		t.Fatalf("sent notifications = %#v, want none for busy change", sender.sent)
+	}
+}
+
 func TestNotifyTransitionsDoesNotRepeatActionableTask(t *testing.T) {
 	sender := &recordingSender{}
 	service := NewWithSender(discardLogger(), sender)

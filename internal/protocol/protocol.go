@@ -111,6 +111,7 @@ type SourceRefPresentation struct {
 
 type SourceRef struct {
 	ID                string                `json:"id"`
+	Busy              bool                  `json:"busy,omitempty"`
 	Source            string                `json:"source"`
 	SourceLabel       string                `json:"source_label,omitempty"`
 	Kind              string                `json:"kind"`
@@ -137,6 +138,7 @@ type SourceRef struct {
 type Task struct {
 	ID           int               `json:"id"`
 	TargetTaskID int               `json:"-"`
+	Busy         bool              `json:"busy,omitempty"`
 	Kind         string            `json:"kind"`
 	Title        string            `json:"title"`
 	Repo         string            `json:"repo,omitempty"`

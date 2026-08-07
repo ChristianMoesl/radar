@@ -129,19 +129,45 @@ func TestProjectTasksPromotesLowPriorityJiraWithLinkedSignals(t *testing.T) {
 	}
 }
 
+func TestProjectTasksProjectsBusyFromActiveSourceRefs(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	jira := testJiraIssueRef("jira:issue:CAP-7", "CAP-7 Ship")
+	worktree := testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "CAP-7-ship")
+	worktree.Busy = true
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
+		makeTask("in_progress", "jira issue", jira),
+		makeTask("in_progress", "git worktree", worktree),
+	}, now)
+
+	if tasks := projectTasks(state); len(tasks) != 1 || !tasks[0].Busy {
+		t.Fatalf("projected tasks = %+v, want one busy task", tasks)
+	}
+
+	worktree.Busy = false
+	state = reconcileState(state, []protocol.Task{
+		makeTask("in_progress", "jira issue", jira),
+		makeTask("in_progress", "git worktree", worktree),
+	}, now.Add(time.Hour))
+	if tasks := projectTasks(state); len(tasks) != 1 || tasks[0].Busy {
+		t.Fatalf("projected tasks = %+v, want busy cleared", tasks)
+	}
+}
+
 func TestProjectTasksMarksDoneWhenRemoteDoneAndOnlyLocalRemains(t *testing.T) {
 	now := time.Now().UTC()
+	worktree := testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "CAP-7-ship")
+	worktree.Busy = true
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
 		makeTask("done", "merged today", withSignal(withStatus(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship"), "merged today"), "done")),
-		makeTask("in_progress", "git worktree", testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "CAP-7-ship")),
+		makeTask("in_progress", "git worktree", worktree),
 	}, now)
 
 	tasks := projectTasks(state)
 	if len(tasks) != 1 {
 		t.Fatalf("tasks = %d, want one done task: %+v", len(tasks), tasks)
 	}
-	if tasks[0].Attention != "done" || tasks[0].Reason != "merged today" {
-		t.Fatalf("task = %s/%s, want done remote completion", tasks[0].Attention, tasks[0].Reason)
+	if tasks[0].Attention != "done" || tasks[0].Reason != "merged today" || tasks[0].Busy {
+		t.Fatalf("task = %+v, want non-busy done remote completion", tasks[0])
 	}
 }
 

@@ -23,7 +23,10 @@ func TestMaterializeRadarExtension(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, required := range []string{"radar_add_worktree", "promptSnippet", "promptGuidelines", "ctx.ui.confirm", "pi.exec", "RADAR_BINARY", "Type.Union"} {
+	for _, required := range []string{
+		"radar_add_worktree", "promptSnippet", "promptGuidelines", "ctx.ui.confirm", "pi.exec", "RADAR_BINARY", "Type.Union",
+		"@radar_busy", "publishBusy", "TMUX_PANE", "session_start", "agent_start", "agent_settled", "session_shutdown",
+	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("extension is missing %q", required)
 		}

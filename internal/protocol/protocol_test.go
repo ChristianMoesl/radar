@@ -38,6 +38,19 @@ func TestResponseIncludesGarbageCollectionResult(t *testing.T) {
 	}
 }
 
+func TestResponseIncludesProjectedBusyState(t *testing.T) {
+	data, err := json.Marshal(Response{OK: true, Tasks: []Task{{
+		ID: 7, Title: "ship", Busy: true, SourceRefs: []SourceRef{{ID: "tmux:session:$1", Busy: true}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	if strings.Count(body, `"busy":true`) != 2 {
+		t.Fatalf("response should include task and source-ref busy state, got %s", body)
+	}
+}
+
 func TestResponseIncludesEmptyTasksAndSources(t *testing.T) {
 	data, err := json.Marshal(Response{OK: true, Revision: 7, Summary: &Summary{}, Tasks: []Task{}, Sources: []SourceStatus{}})
 	if err != nil {

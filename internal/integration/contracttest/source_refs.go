@@ -38,7 +38,7 @@ func validateSourceRefs(source string, refs []protocol.SourceRef) error {
 		}
 		seen[ref.ID] = true
 		if ref.Role == protocol.SourceRefRoleInformational {
-			if ref.CanonicalKey != "" || len(ref.LinkingKeys) != 0 || ref.Signal != "" || ref.Lifecycle != "" || ref.Authority != "" || ref.RetainInactive || ref.ProvidesWorkspace {
+			if ref.CanonicalKey != "" || len(ref.LinkingKeys) != 0 || ref.Signal != "" || ref.Busy || ref.Lifecycle != "" || ref.Authority != "" || ref.RetainInactive || ref.ProvidesWorkspace {
 				return fmt.Errorf("informational source ref exposes authority: %+v", ref)
 			}
 			if ref.EntityID == "" {

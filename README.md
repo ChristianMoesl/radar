@@ -429,6 +429,8 @@ Radar collects Git checkouts at `<workspace_root>/<repo>/<workspace>`. Registere
 
 Radar collects tmux sessions from the local tmux server and attaches them to matching tasks when their name contains a configured linking mark, or when the session working directory matches a Git worktree path. Sessions without matches are shown as standalone in-progress tasks.
 
+Radar-created Pi sessions publish a generic busy signal through the embedded Radar extension while the agent is actively working. Radar projects activity from source refs onto the task, and the TUI shows `● busy` on the task row until Pi settles. Busy is independent of task attention and does not affect categorization, sorting, or notifications.
+
 Tmux session refs use `#{session_id}` for stable identity, so renaming a tmux session does not create a new Radar task. Selecting a tmux-backed task switches to the stable session target.
 
 ## Docker sbx sandboxes

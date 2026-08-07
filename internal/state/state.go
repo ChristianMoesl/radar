@@ -921,6 +921,7 @@ func mergeObservedTasks(tasks []protocol.Task) []protocol.Task {
 }
 
 func mergeTasks(left, right protocol.Task) protocol.Task {
+	left.Busy = left.Busy || right.Busy
 	if attentionRank(right.Attention) > attentionRank(left.Attention) || left.Title == "" {
 		left.Kind = right.Kind
 		left.Title = right.Title
@@ -1068,6 +1069,7 @@ func projectTasks(state persistedState) []protocol.Task {
 		} else {
 			applySourceSignals(&task, record, refs)
 		}
+		task.Busy = record.State != "done" && sourceRefsBusy(refs)
 		if task.Metadata == nil {
 			task.Metadata = map[string]string{}
 		}
@@ -1081,6 +1083,15 @@ func projectTasks(state persistedState) []protocol.Task {
 	}
 	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
 	return tasks
+}
+
+func sourceRefsBusy(refs []protocol.SourceRef) bool {
+	for _, ref := range refs {
+		if authoritativeRef(ref) && ref.Busy {
+			return true
+		}
+	}
+	return false
 }
 
 func preferredTitle(refs []protocol.SourceRef) string {

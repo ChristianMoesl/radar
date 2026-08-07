@@ -84,12 +84,13 @@ SourceRef(s) + rebuildable TaskRecord cache => Task
 - `SourceRef.URL`: a generic openable URL. If a source ref has a URL, frontends may offer an open-link action without source-specific URL inspection.
 - `SourceRef.SourceLabel` and `SourceRef.DisplayOrder`: generic presentation values stamped from the integration descriptor, so frontends and state never need source-name switches.
 - `SourceRef.EntityID`: an opaque source-owned external entity identity used to correlate authoritative and informational representations without contributing task identity or linking.
+- `SourceRef.Busy`: reports transient active processing owned by that authoritative source. Busy refs are projected onto the task independently of attention and lifecycle.
 - `SourceRef.Lifecycle`: classifies an authoritative ref as a `work_item`, `workspace`, or supporting `resource`.
 - `SourceRef.Authority`: declares lifecycle ownership as `primary`, `contributing`, or `none`. Core lifecycle rules consume this generic value without source-name checks.
 - `SourceRef.ProvidesWorkspace`: declares that an authoritative ref owns the persistent local working directory in its absolute `Path`. The ref also emits the matching cleaned `workspace:<path>` linking key. This capability is independent of lifecycle ownership: Git workspace refs provide workspaces, while Obsidian work items have no workspace and tmux and SBX resources only consume workspace paths.
 - `SourceRef.Presentation`: source-compiled title preference/order and workspace-name hints consumed generically by state and frontends.
 - `TaskRecord`: rebuildable Radar cache state. It provides cache-local numeric task IDs, projected lifecycle, known source ref IDs, first/last seen timestamps, and acknowledgements. A record without authoritative refs is not projectable.
-- `Task`: the current projected user-facing task served to the CLI/TUI. It has a Radar-owned integer ID and is computed from current source refs plus the matching task record.
+- `Task`: the current projected user-facing task served to the CLI/TUI. It has a Radar-owned integer ID, is busy when any active authoritative source ref is busy, and is computed from current source refs plus the matching task record.
 
 The pipeline is:
 
@@ -212,7 +213,7 @@ A Radar workspace is a logical resource bundle with one primary Git worktree, ze
 
 The application layer discovers repositories, shares one worktree planner/creator between `radar create` and add-worktree, applies repo-local `.radar.json` copy/setup rules, and creates matching tmux sessions. Git source refs for all registered members emit `workspace-group:<id>` and workspace-ID metadata, while tmux and SBX remain linked through the primary path. This joins all resources transitively without requiring matching branch names or ticket marks.
 
-Radar embeds a TypeScript Pi extension and atomically materializes it under `$XDG_DATA_HOME/radar/pi` (or `~/.local/share`). Every Radar-started Pi command receives `--extension`, and its tmux session receives the absolute `RADAR_BINARY`. The host-side `radar_add_worktree` adapter calls JSON preview, requires `ctx.ui.confirm`, then calls JSON apply. Git, registry, tmux, and SBX rules remain in the Go application service.
+Radar embeds a TypeScript Pi extension and atomically materializes it under `$XDG_DATA_HOME/radar/pi` (or `~/.local/share`). Every Radar-started Pi command receives `--extension`, and its tmux session receives the absolute `RADAR_BINARY`. The extension publishes a pane-scoped busy flag between Pi's `agent_start` and `agent_settled` events. The tmux source projects that activity onto its source ref, state projects busy when any active authoritative ref is busy, and the TUI renders the task-level signal independently of attention. Settling or exiting Pi removes the flag. The host-side `radar_add_worktree` adapter calls JSON preview, requires `ctx.ui.confirm`, then calls JSON apply. Git, registry, tmux, and SBX rules remain in the Go application service.
 
 The embedded extension also exposes host-side `radar_workspace_context` and `radar_repository_refs` tools so an SBX-isolated model does not need to guess host paths. The first resolves Pi's working directory to the logical workspace and combines durable member metadata with configured repository discovery. The second refreshes only the selected repository and returns canonical branch capabilities, valid base refs, and checkout paths. Both are thin adapters over JSON CLI commands and make no workspace changes.
 

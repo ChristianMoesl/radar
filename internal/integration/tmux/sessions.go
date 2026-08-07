@@ -15,7 +15,10 @@ import (
 	"radar/internal/protocol"
 )
 
-const sessionFormat = "#{session_id}\t#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_path}"
+const (
+	sessionFormat  = "#{session_id}\t#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_path}"
+	busyPaneFormat = "#{session_id}\t#{pane_dead}\t#{@radar_busy}"
+)
 
 type session struct {
 	ID            string
@@ -23,6 +26,7 @@ type session struct {
 	AttachedCount int
 	WindowCount   int
 	Path          string
+	Busy          bool
 }
 
 func SourceStatus(ctx context.Context) protocol.SourceStatus {
@@ -55,8 +59,22 @@ func FetchSessions(ctx context.Context, logger *slog.Logger, marks linking.MarkM
 		return nil, status
 	}
 
+	paneOutput, err := tmuxOutput(ctx, "list-panes", "-a", "-F", busyPaneFormat)
+	if err != nil {
+		status.Status = "error"
+		status.Detail = tmuxErrorDetail(err)
+		return nil, status
+	}
+	busySessions, err := parseBusySessions(paneOutput)
+	if err != nil {
+		status.Status = "error"
+		status.Detail = err.Error()
+		return nil, status
+	}
+
 	sourceRefs := make([]protocol.SourceRef, 0, len(sessions))
 	for _, s := range sessions {
+		s.Busy = busySessions[s.ID]
 		sourceRefs = append(sourceRefs, s.SourceRef(marks))
 	}
 
@@ -96,6 +114,25 @@ func parseSessions(output string) ([]session, error) {
 	return sessions, scanner.Err()
 }
 
+func parseBusySessions(output string) (map[string]bool, error) {
+	busy := make(map[string]bool)
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) != 3 {
+			return nil, fmt.Errorf("unexpected tmux pane busy output: got %d fields", len(fields))
+		}
+		if fields[1] == "0" && strings.TrimSpace(fields[2]) == "1" {
+			busy[fields[0]] = true
+		}
+	}
+	return busy, scanner.Err()
+}
+
 func (s session) SourceRef(marks linking.MarkMatcher) protocol.SourceRef {
 	status := "detached"
 	if s.AttachedCount > 0 {
@@ -116,6 +153,7 @@ func (s session) SourceRef(marks linking.MarkMatcher) protocol.SourceRef {
 
 	return protocol.SourceRef{
 		ID:          "tmux:session:" + s.ID,
+		Busy:        s.Busy,
 		Source:      "tmux",
 		SourceLabel: "tmux",
 		Kind:        "session",

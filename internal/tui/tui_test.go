@@ -70,6 +70,31 @@ func TestViewRendersTasksAndSources(t *testing.T) {
 	}
 }
 
+func TestTaskListShowsBusyOnTaskRow(t *testing.T) {
+	m := model{tasks: []protocol.Task{{
+		Title:     "Workspace",
+		Attention: "in_progress",
+		Busy:      true,
+		SourceRefs: []protocol.SourceRef{{
+			ID: "tmux:session:$1", Source: "tmux", Kind: "session", Busy: true,
+		}},
+	}}}
+	view := ansi.Strip(m.taskList(100, 20))
+	if !strings.Contains(view, "● busy  Workspace") {
+		t.Fatalf("taskList() does not show busy on task row:\n%s", view)
+	}
+	if strings.Contains(view, "tmux:session:$1    ● busy") {
+		t.Fatalf("taskList() shows busy on source row:\n%s", view)
+	}
+}
+
+func TestTaskListHidesBusyWhenTaskIsNotBusy(t *testing.T) {
+	m := model{tasks: []protocol.Task{{Title: "Workspace", Attention: "in_progress"}}}
+	if view := ansi.Strip(m.taskList(100, 20)); strings.Contains(view, "● busy") {
+		t.Fatalf("taskList() shows inactive busy signal:\n%s", view)
+	}
+}
+
 func TestWatchResponseDoesNotResetSelection(t *testing.T) {
 	m := model{
 		cursor:              1,

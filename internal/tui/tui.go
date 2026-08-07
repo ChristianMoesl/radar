@@ -1386,6 +1386,9 @@ func (m model) detailView(width int) string {
 		}
 	}
 	appendDetailLine("Status", task.Attention)
+	if task.Busy {
+		appendDetailLine("Activity", "busy")
+	}
 	appendDetailLine("Reason", displayTaskReason(task))
 	appendDetailLine("Repo", task.Repo)
 	appendDetailLine("URL", task.URL)
@@ -2084,6 +2087,13 @@ func truncateLine(line string, width int) string {
 
 func taskLine(task protocol.Task, selected bool) string {
 	title := task.Title
+	if task.Busy {
+		busy := "● busy"
+		if !selected {
+			busy = progressStyle.Render(busy)
+		}
+		title = fmt.Sprintf("%s  %s", busy, title)
+	}
 	if task.Repo != "" {
 		repo := task.Repo
 		if !selected {
