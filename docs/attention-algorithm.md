@@ -83,13 +83,13 @@ Configure `jira.status_mapping` to map status names to `low_priority`, `in_progr
 
 ## Datadog monitors
 
-Datadog contributes current unhealthy monitor state during the five-minute full refresh:
+Datadog contributes configured unhealthy monitor states during the five-minute full refresh:
 
-- `Alert` needs immediate attention.
-- `Warn` and `No Data` need attention.
-- A monitor that disappears from a complete unhealthy-monitor search is done because it recovered or otherwise stopped matching the configured query.
+- A configured `Alert` needs immediate attention.
+- Configured `Warn` and `No Data` states need attention.
+- A monitor that disappears from a complete unhealthy-monitor search is done because it recovered or otherwise stopped matching the configured query and statuses.
 
-Radar tracks one task per monitor ID, not one event per alert transition. It intentionally does not retain Datadog alert events that both start and recover between polls.
+`datadog.monitor_statuses` selects one or more of these states and defaults to all three. Radar tracks one task per monitor ID, not one event per alert transition. It intentionally does not retain Datadog alert events that both start and recover between polls.
 
 ## Acknowledgements
 

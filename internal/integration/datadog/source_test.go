@@ -19,10 +19,12 @@ type fakeSearcher struct {
 	response monitorSearchResponse
 	err      error
 	query    string
+	statuses []string
 }
 
-func (s *fakeSearcher) Search(_ context.Context, _ credentials, query string) (monitorSearchResponse, error) {
+func (s *fakeSearcher) Search(_ context.Context, _ credentials, query string, statuses []string) (monitorSearchResponse, error) {
 	s.query = query
+	s.statuses = statuses
 	return s.response, s.err
 }
 
@@ -43,6 +45,9 @@ func TestCollectProjectsUnhealthyMonitors(t *testing.T) {
 	}
 	if searcher.query != "tag:team:cap" {
 		t.Fatalf("query = %q", searcher.query)
+	}
+	if len(searcher.statuses) != 3 || searcher.statuses[2] != "No Data" {
+		t.Fatalf("statuses = %#v, want default unhealthy statuses", searcher.statuses)
 	}
 	if len(result.Observations) != 3 {
 		t.Fatalf("observations = %d, want 3: %+v", len(result.Observations), result.Observations)
@@ -72,8 +77,25 @@ func TestCollectProjectsUnhealthyMonitors(t *testing.T) {
 	}
 }
 
+func TestCollectOnlyProjectsConfiguredMonitorStatuses(t *testing.T) {
+	configureDatadogWithStatuses(t, "tag:team:cap", []string{"Alert", "Warn"})
+	configureDatadogCredentials(t)
+	searcher := &fakeSearcher{response: monitorSearchResponse{Monitors: []monitor{
+		{ID: 1, Name: "API errors", Status: "Alert"},
+		{ID: 2, Name: "No heartbeat", Status: "No Data"},
+	}}}
+
+	result := (Source{searcher: searcher}).Collect(context.Background(), integration.CollectRequest{Logger: testLogger()})
+	if !result.Complete || len(result.Observations) != 1 || result.Observations[0].Ref.ID != "datadog:monitor:1" {
+		t.Fatalf("result = %+v, want only configured alert", result)
+	}
+	if len(searcher.statuses) != 2 || searcher.statuses[0] != "Alert" || searcher.statuses[1] != "Warn" {
+		t.Fatalf("search statuses = %#v", searcher.statuses)
+	}
+}
+
 func TestMonitorSourceRefContract(t *testing.T) {
-	observation, ok := observationFromMonitor(credentials{AppBaseURL: "https://app.datadoghq.eu"}, monitor{ID: 42, Name: "API errors", Status: "Alert"})
+	observation, ok := observationFromMonitor(credentials{AppBaseURL: "https://app.datadoghq.eu"}, []string{"Alert"}, monitor{ID: 42, Name: "API errors", Status: "Alert"})
 	if !ok {
 		t.Fatal("observation was rejected")
 	}
@@ -156,13 +178,28 @@ func TestReconcileMarksDisappearedMonitorDone(t *testing.T) {
 
 func configureDatadog(t *testing.T, query string) {
 	t.Helper()
+	configureDatadogWithStatuses(t, query, nil)
+}
+
+func configureDatadogWithStatuses(t *testing.T, query string, statuses []string) {
+	t.Helper()
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 	path := filepath.Join(configHome, "radar", "config.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	data := []byte(`{"linking_mark_prefixes":["RAD"],"datadog":{"monitor_query":` + strconvQuote(query) + `}}`)
+	datadog := map[string]any{"monitor_query": query}
+	if statuses != nil {
+		datadog["monitor_statuses"] = statuses
+	}
+	data, err := json.Marshal(map[string]any{
+		"linking_mark_prefixes": []string{"RAD"},
+		"datadog":               datadog,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -173,11 +210,6 @@ func configureDatadogCredentials(t *testing.T) {
 	t.Setenv("RADAR_DATADOG_API_KEY", "api-secret")
 	t.Setenv("RADAR_DATADOG_APP_KEY", "app-secret")
 	t.Setenv("RADAR_DATADOG_SITE", "datadoghq.eu")
-}
-
-func strconvQuote(value string) string {
-	data, _ := json.Marshal(value)
-	return string(data)
 }
 
 func testLogger() *slog.Logger {

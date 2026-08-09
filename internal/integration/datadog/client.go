@@ -13,9 +13,8 @@ import (
 )
 
 const (
-	defaultSite      = "datadoghq.eu"
-	monitorPageSize  = 1000
-	activeStateQuery = `status:(Alert OR Warn OR "No Data")`
+	defaultSite     = "datadoghq.eu"
+	monitorPageSize = 1000
 )
 
 var supportedSites = map[string]bool{
@@ -56,19 +55,19 @@ type monitorSearchResponse struct {
 }
 
 type monitorSearcher interface {
-	Search(context.Context, credentials, string) (monitorSearchResponse, error)
+	Search(context.Context, credentials, string, []string) (monitorSearchResponse, error)
 }
 
 type apiClient struct {
 	httpClient *http.Client
 }
 
-func (c apiClient) Search(ctx context.Context, cfg credentials, userQuery string) (monitorSearchResponse, error) {
+func (c apiClient) Search(ctx context.Context, cfg credentials, userQuery string, statuses []string) (monitorSearchResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	values := url.Values{}
-	values.Set("query", combinedMonitorQuery(userQuery))
+	values.Set("query", combinedMonitorQuery(userQuery, statuses))
 	values.Set("page", "0")
 	values.Set("per_page", fmt.Sprint(monitorPageSize))
 	endpoint := cfg.APIBaseURL + "/api/v1/monitor/search?" + values.Encode()
@@ -151,6 +150,14 @@ func datadogAppBaseURL(site string) string {
 	}
 }
 
-func combinedMonitorQuery(userQuery string) string {
-	return fmt.Sprintf("(%s) %s", strings.TrimSpace(userQuery), activeStateQuery)
+func combinedMonitorQuery(userQuery string, statuses []string) string {
+	queryStatuses := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		status = strings.TrimSpace(status)
+		if strings.Contains(status, " ") {
+			status = fmt.Sprintf("%q", status)
+		}
+		queryStatuses = append(queryStatuses, status)
+	}
+	return fmt.Sprintf("(%s) status:(%s)", strings.TrimSpace(userQuery), strings.Join(queryStatuses, " OR "))
 }

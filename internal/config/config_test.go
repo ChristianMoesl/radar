@@ -41,6 +41,9 @@ func TestDefaultUsesProductDefaults(t *testing.T) {
 	if cfg.Jira.SignalForStatus(" in review ") != "in_progress" || cfg.Jira.SignalForStatus("Selected for Development") != "low_priority" {
 		t.Fatalf("Jira status defaults = %#v, fallback %q", cfg.Jira.StatusMapping, cfg.Jira.UnmappedStatus)
 	}
+	if !reflect.DeepEqual(cfg.Datadog.MonitorStatuses, []string{"Alert", "Warn", "No Data"}) {
+		t.Fatalf("Datadog.MonitorStatuses = %#v, want default unhealthy statuses", cfg.Datadog.MonitorStatuses)
+	}
 }
 
 func TestDefaultWorkspaceRootUsesXDGDataFallback(t *testing.T) {
@@ -95,7 +98,10 @@ func TestLoadReadsConfigFile(t *testing.T) {
     "status_mapping": {"Blocked": "attention"},
     "unmapped_status": "immediate"
   },
-  "datadog": {"monitor_query": "tag:team:platform"}
+  "datadog": {
+    "monitor_query": "tag:team:platform",
+    "monitor_statuses": [" alert ", "warn"]
+  }
 }`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -145,6 +151,9 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	}
 	if cfg.Datadog.MonitorQuery != "tag:team:platform" {
 		t.Fatalf("Datadog.MonitorQuery = %q", cfg.Datadog.MonitorQuery)
+	}
+	if !reflect.DeepEqual(cfg.Datadog.MonitorStatuses, []string{"Alert", "Warn"}) {
+		t.Fatalf("Datadog.MonitorStatuses = %#v", cfg.Datadog.MonitorStatuses)
 	}
 }
 
@@ -319,6 +328,37 @@ func TestLoadRejectsInvalidJiraStatusMapping(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidDatadogMonitorStatuses(t *testing.T) {
+	tests := []struct {
+		name     string
+		statuses string
+		field    string
+	}{
+		{name: "empty statuses", statuses: `[]`, field: "datadog.monitor_statuses must not be empty"},
+		{name: "unsupported status", statuses: `["OK"]`, field: `datadog.monitor_statuses[0]`},
+		{name: "duplicate normalized status", statuses: `["Warn"," warn "]`, field: "match case-insensitively"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			configHome := filepath.Join(home, "config")
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", configHome)
+			path := filepath.Join(configHome, "radar", "config.json")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			contents := `{"linking_mark_prefixes":["RAD"],"datadog":{"monitor_statuses":` + tt.statuses + `}}`
+			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), tt.field) {
+				t.Fatalf("Load() error = %v, want field %s", err, tt.field)
+			}
+		})
+	}
+}
+
 func TestEnsureFileCreatesConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -351,10 +391,13 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	if generated.Datadog.MonitorQuery != "" {
 		t.Fatalf("generated Datadog.MonitorQuery = %q, want disabled empty query", generated.Datadog.MonitorQuery)
 	}
+	if !reflect.DeepEqual(generated.Datadog.MonitorStatuses, []string{"Alert", "Warn", "No Data"}) {
+		t.Fatalf("generated Datadog.MonitorStatuses = %#v, want default unhealthy statuses", generated.Datadog.MonitorStatuses)
+	}
 	if !strings.Contains(string(data), `"jira"`) || !strings.Contains(string(data), `"authoritative_issue_types"`) {
 		t.Fatalf("generated config is missing Jira settings: %s", data)
 	}
-	if !strings.Contains(string(data), `"datadog"`) || !strings.Contains(string(data), `"monitor_query"`) {
+	if !strings.Contains(string(data), `"datadog"`) || !strings.Contains(string(data), `"monitor_query"`) || !strings.Contains(string(data), `"monitor_statuses"`) {
 		t.Fatalf("generated config is missing Datadog settings: %s", data)
 	}
 }

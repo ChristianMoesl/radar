@@ -155,7 +155,7 @@ $XDG_CONFIG_HOME/radar/config.json
 
 The daemon creates an example file on startup when it is missing. The TUI exposes it with `f`.
 
-The config controls the required Obsidian vault, repository discovery roots, the workspace root, SBX settings, GitHub filters, and the Datadog monitor query. SBX enablement, kit selection, and global additional mounts live together under `sbx`; repository-local `.radar.json` files use the same shape. Filters live under `github.filters` and are applied when serving tasks from the daemon, so CLI and TUI see the same view. `datadog.monitor_query` scopes Datadog collection, while Datadog credentials are read only from environment variables. Raw collected state stays unmodified on disk.
+The config controls the required Obsidian vault, repository discovery roots, the workspace root, SBX settings, GitHub filters, and Datadog monitor collection. SBX enablement, kit selection, and global additional mounts live together under `sbx`; repository-local `.radar.json` files use the same shape. Filters live under `github.filters` and are applied when serving tasks from the daemon, so CLI and TUI see the same view. `datadog.monitor_query` scopes Datadog collection, `datadog.monitor_statuses` selects the unhealthy states to ingest, and Datadog credentials are read only from environment variables. Raw collected state stays unmodified on disk.
 
 There are two filter effects:
 
@@ -183,9 +183,9 @@ An assigned issue or a title discovery whose issue type matches the configured s
 
 ## Datadog integration
 
-Datadog access uses the monitor search API with `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY` from the environment. The user-owned `datadog.monitor_query` config value scopes collection; Radar appends unhealthy monitor states and performs one search request during the five-minute full refresh. It does not collect Datadog logs, traces, metrics, events, or historical alert transitions.
+Datadog access uses the monitor search API with `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY` from the environment. The user-owned `datadog.monitor_query` config value scopes collection, and `datadog.monitor_statuses` selects one or more of `Alert`, `Warn`, and `No Data` to append to the query. All three statuses are selected by default. Radar performs one search request during the five-minute full refresh. It does not collect Datadog logs, traces, metrics, events, or historical alert transitions.
 
-Each monitor is a standalone source ref keyed by monitor ID. `Alert` emits `immediate`; `Warn` and `No Data` emit `attention`. A previously active monitor missing from a complete search is reconciled to `done`. Failed or truncated searches preserve the previous observations and do not resolve monitors. The source is disabled unless both credentials and a non-empty query are present.
+Each monitor is a standalone source ref keyed by monitor ID. A configured `Alert` emits `immediate`; configured `Warn` and `No Data` states emit `attention`. A previously active monitor missing from a complete search is reconciled to `done`. Failed or truncated searches preserve the previous observations and do not resolve monitors. The source is disabled unless both credentials and a non-empty query are present.
 
 The source ref URL points directly to the Datadog monitor. Existing actionable-transition notification handling therefore sends one macOS notification when the monitor first appears and opens that monitor when the notification is clicked.
 

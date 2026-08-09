@@ -32,7 +32,7 @@ func TestAPIClientSearchUsesOneScopedMonitorRequest(t *testing.T) {
 		APIKey:     "api-secret",
 		AppKey:     "app-secret",
 		APIBaseURL: server.URL,
-	}, "tag:team:cap")
+	}, "tag:team:cap", []string{"Alert", "Warn", "No Data"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +41,23 @@ func TestAPIClientSearchUsesOneScopedMonitorRequest(t *testing.T) {
 	}
 	if len(response.Monitors) != 1 || response.Monitors[0].ID != 42 {
 		t.Fatalf("response = %+v", response)
+	}
+}
+
+func TestAPIClientSearchUsesConfiguredMonitorStatuses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if got, want := req.URL.Query().Get("query"), `(tag:team:cap) status:(Alert OR Warn)`; got != want {
+			t.Fatalf("query = %q, want %q", got, want)
+		}
+		_ = json.NewEncoder(w).Encode(monitorSearchResponse{})
+	}))
+	defer server.Close()
+
+	_, err := (apiClient{httpClient: server.Client()}).Search(context.Background(), credentials{
+		APIBaseURL: server.URL,
+	}, "tag:team:cap", []string{"Alert", "Warn"})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

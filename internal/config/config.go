@@ -96,7 +96,8 @@ func (c JiraConfig) IsAuthoritativeIssueType(issueType string) bool {
 }
 
 type DatadogConfig struct {
-	MonitorQuery string `json:"monitor_query"`
+	MonitorQuery    string   `json:"monitor_query"`
+	MonitorStatuses []string `json:"monitor_statuses"`
 }
 
 type ObsidianConfig struct {
@@ -223,6 +224,9 @@ func Default() Config {
 			},
 			UnmappedStatus: "low_priority",
 		},
+		Datadog: DatadogConfig{
+			MonitorStatuses: []string{"Alert", "Warn", "No Data"},
+		},
 		GitHub: GitHubConfig{
 			Filters: filters.Config{
 				MuteRepos:         []string{},
@@ -264,11 +268,21 @@ func applyDefaults(cfg *Config) {
 	if cfg.Jira.StatusMapping == nil {
 		cfg.Jira.StatusMapping = defaults.Jira.StatusMapping
 	}
+	if cfg.Datadog.MonitorStatuses == nil {
+		cfg.Datadog.MonitorStatuses = defaults.Datadog.MonitorStatuses
+	}
 	for i := range cfg.LinkingMarkPrefixes {
 		cfg.LinkingMarkPrefixes[i] = strings.ToUpper(strings.TrimSpace(cfg.LinkingMarkPrefixes[i]))
 	}
 	for i := range cfg.Jira.AuthoritativeIssueTypes {
 		cfg.Jira.AuthoritativeIssueTypes[i] = strings.TrimSpace(cfg.Jira.AuthoritativeIssueTypes[i])
+	}
+	for i, status := range cfg.Datadog.MonitorStatuses {
+		trimmed := strings.TrimSpace(status)
+		if canonical, ok := canonicalDatadogMonitorStatus(trimmed); ok {
+			trimmed = canonical
+		}
+		cfg.Datadog.MonitorStatuses[i] = trimmed
 	}
 	if !cfg.Jira.unmappedStatusSet && strings.TrimSpace(cfg.Jira.UnmappedStatus) == "" {
 		cfg.Jira.UnmappedStatus = defaults.Jira.UnmappedStatus
@@ -323,7 +337,35 @@ func validate(cfg Config) error {
 	if !validJiraSignal(cfg.Jira.UnmappedStatus) {
 		return fmt.Errorf("jira.unmapped_status has unsupported value %q", cfg.Jira.UnmappedStatus)
 	}
+	if len(cfg.Datadog.MonitorStatuses) == 0 {
+		return fmt.Errorf("datadog.monitor_statuses must not be empty")
+	}
+	datadogStatuses := map[string]string{}
+	for i, status := range cfg.Datadog.MonitorStatuses {
+		canonical, ok := canonicalDatadogMonitorStatus(status)
+		if !ok {
+			return fmt.Errorf("datadog.monitor_statuses[%d] has unsupported value %q", i, status)
+		}
+		normalized := strings.ToLower(canonical)
+		if previous, exists := datadogStatuses[normalized]; exists {
+			return fmt.Errorf("datadog.monitor_statuses values %q and %q match case-insensitively", previous, status)
+		}
+		datadogStatuses[normalized] = status
+	}
 	return tmuxlayout.Validate(cfg.Tmux)
+}
+
+func canonicalDatadogMonitorStatus(status string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "alert":
+		return "Alert", true
+	case "warn":
+		return "Warn", true
+	case "no data":
+		return "No Data", true
+	default:
+		return "", false
+	}
 }
 
 func validJiraSignal(signal string) bool {
