@@ -76,7 +76,7 @@ Radar opens task URLs with the platform URL opener when you press `o` and choose
 
 ## Quick start
 
-Open Radar. The background daemon starts automatically and keeps the task view up to date:
+Open Radar. The background daemon starts automatically, refreshes local sources every 15 seconds and remote sources every two minutes, and keeps the task view up to date:
 
 ```sh
 radar
@@ -347,7 +347,7 @@ Jira status names are trimmed and matched case-insensitively. Mapping targets ma
 
 ## Datadog
 
-Radar collects a current snapshot of configured unhealthy Datadog monitors every five minutes. It makes one monitor-search request per full refresh and does not query logs, traces, metrics, events, or monitor history. Each matching monitor becomes one Radar task:
+Radar collects a current snapshot of configured unhealthy Datadog monitors every two minutes. It makes one monitor-search request per full refresh and does not query logs, traces, metrics, events, or monitor history. Each matching monitor becomes one Radar task:
 
 - `Alert` becomes `immediate`.
 - `Warn` and `No Data` become `attention` when included in `monitor_statuses`.

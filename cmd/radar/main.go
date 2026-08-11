@@ -644,8 +644,10 @@ func startDetached(name string, args ...string) error {
 type refreshScope string
 
 const (
-	refreshFull  refreshScope = "full"
-	refreshLocal refreshScope = "local"
+	refreshFull          refreshScope = "full"
+	refreshLocal         refreshScope = "local"
+	localRefreshInterval              = 15 * time.Second
+	fullRefreshInterval               = 2 * time.Minute
 )
 
 func collectionDisabled() bool {
@@ -663,7 +665,7 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 		}
 		mu.Lock()
 
-		if scope == refreshFull && !force && time.Since(lastFullRefresh) < 5*time.Minute {
+		if scope == refreshFull && !force && time.Since(lastFullRefresh) < fullRefreshInterval {
 			mu.Unlock()
 			logger.Debug("full refresh skipped; recently refreshed")
 			return
@@ -810,9 +812,9 @@ func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *
 
 func refreshLoop(ctx context.Context, refresh func(refreshScope, bool)) {
 	refresh(refreshFull, false)
-	localTicker := time.NewTicker(15 * time.Second)
+	localTicker := time.NewTicker(localRefreshInterval)
 	defer localTicker.Stop()
-	fullTicker := time.NewTicker(5 * time.Minute)
+	fullTicker := time.NewTicker(fullRefreshInterval)
 	defer fullTicker.Stop()
 
 	for {

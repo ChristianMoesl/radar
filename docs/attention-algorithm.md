@@ -83,7 +83,7 @@ Configure `jira.status_mapping` to map status names to `low_priority`, `in_progr
 
 ## Datadog monitors
 
-Datadog contributes configured unhealthy monitor states during the five-minute full refresh:
+Datadog contributes configured unhealthy monitor states during the two-minute full refresh:
 
 - A configured `Alert` needs immediate attention.
 - Configured `Warn` and `No Data` states need attention.
