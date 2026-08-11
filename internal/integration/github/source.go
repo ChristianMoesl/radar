@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	"radar/internal/integration"
 	"radar/internal/linking"
@@ -27,20 +28,32 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	result := integration.CollectResult{}
 
-	reviewItems, authoredItems, activityItems, err := FetchPullRequests(ctx, req.Previous, req.Filters, req.Logger)
-	if err != nil {
-		req.Logger.Warn("github pull request collection failed", "error", err)
+	var reviewItems, authoredItems, activityItems, trackedItems []protocol.Task
+	var pullRequestErr, trackedErr error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		reviewItems, authoredItems, activityItems, pullRequestErr = FetchPullRequests(ctx, req.Previous, req.Filters, req.Logger)
+	}()
+	go func() {
+		defer wg.Done()
+		trackedItems, trackedErr = FetchRulePullRequests(ctx, req.Filters, req.Logger)
+	}()
+	wg.Wait()
+
+	if pullRequestErr != nil {
+		req.Logger.Warn("github pull request collection failed", "error", pullRequestErr)
 		return result
 	}
 
-	observed := make([]protocol.Task, 0, len(reviewItems)+len(authoredItems)+len(activityItems))
+	observed := make([]protocol.Task, 0, len(reviewItems)+len(authoredItems)+len(activityItems)+len(trackedItems))
 	observed = append(observed, reviewItems...)
 	observed = append(observed, authoredItems...)
 	observed = append(observed, activityItems...)
 
-	trackedItems, err := FetchRulePullRequests(ctx, req.Filters, req.Logger)
-	if err != nil {
-		req.Logger.Warn("github rule pull request collection failed", "error", err)
+	if trackedErr != nil {
+		req.Logger.Warn("github rule pull request collection failed", "error", trackedErr)
 	} else {
 		observed = appendMissingPullRequests(observed, trackedItems)
 	}
