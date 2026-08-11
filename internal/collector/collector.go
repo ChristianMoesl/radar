@@ -3,8 +3,10 @@ package collector
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	"radar/internal/config"
+	"radar/internal/filters"
 	"radar/internal/integration"
 	"radar/internal/linking"
 	"radar/internal/protocol"
@@ -67,7 +69,7 @@ func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Lo
 func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Collected {
 	result := Collected{
 		Observations: make([]integration.Observation, 0),
-		Sources:      make([]protocol.SourceStatus, 0, 4),
+		Sources:      make([]protocol.SourceStatus, 0, len(sources)),
 		SourceNames:  make([]string, 0, len(sources)),
 		Results:      map[string]integration.CollectResult{},
 	}
@@ -76,46 +78,122 @@ func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.
 	if err != nil {
 		logger.Warn("could not load config for collection", "error", err)
 	}
-	filterCfg := cfg.GitHub.Filters
 	result.LinkingMarks = linking.NewMarkMatcher(cfg.LinkingMarkPrefixes)
 
-	for _, source := range sources {
+	collections := make([]sourceCollection, len(sources))
+	var wg sync.WaitGroup
+	wg.Add(len(sources))
+	for i, source := range sources {
 		descriptor := source.Descriptor()
-		result.SourceNames = append(result.SourceNames, descriptor.Name)
-		status := integration.StatusResult{
-			Status: protocol.SourceStatus{Name: descriptor.Name, Status: "ok"},
-			CanRun: true,
-		}
-		if reporter, ok := source.(integration.StatusReporter); ok {
-			status = reporter.Status(ctx, logger)
-		}
-		if !status.CanRun {
-			result.Sources = append(result.Sources, status.Status)
+		collections[i].descriptor = descriptor
+		go func(i int, source integration.Source, descriptor integration.Descriptor) {
+			defer wg.Done()
+			collections[i] = collectSource(ctx, source, descriptor, cloneTasks(previous), cloneFilterConfig(cfg.GitHub.Filters), result.LinkingMarks, logger)
+		}(i, source, descriptor)
+	}
+	wg.Wait()
+
+	// Aggregate in registration order so task projection, source statuses, and
+	// presentation remain deterministic regardless of completion order.
+	for _, collection := range collections {
+		result.SourceNames = append(result.SourceNames, collection.descriptor.Name)
+		result.Sources = append(result.Sources, collection.status.Status)
+		if !collection.status.CanRun {
 			continue
 		}
-
-		collected := source.Collect(ctx, integration.CollectRequest{
-			Previous:     previous,
-			Filters:      filterCfg,
-			LinkingMarks: result.LinkingMarks,
-			Logger:       logger,
-		})
-		if collected.SourceStatus != nil {
-			status.Status = *collected.SourceStatus
-			if status.Status.Name == "" {
-				status.Status.Name = descriptor.Name
-			}
-		}
-		for i := range collected.Observations {
-			collected.Observations[i] = describeObservation(descriptor, collected.Observations[i])
-		}
-		status.Status.SourceRefCount = sourceRefCount(descriptor.Name, collected)
-		result.Sources = append(result.Sources, status.Status)
-		result.Results[descriptor.Name] = collected
-		result.Observations = append(result.Observations, collected.Observations...)
+		result.Results[collection.descriptor.Name] = collection.result
+		result.Observations = append(result.Observations, collection.result.Observations...)
 	}
 
 	return result
+}
+
+type sourceCollection struct {
+	descriptor integration.Descriptor
+	status     integration.StatusResult
+	result     integration.CollectResult
+}
+
+func collectSource(ctx context.Context, source integration.Source, descriptor integration.Descriptor, previous []protocol.Task, filterCfg filters.Config, marks linking.MarkMatcher, logger *slog.Logger) sourceCollection {
+	collection := sourceCollection{
+		descriptor: descriptor,
+		status: integration.StatusResult{
+			Status: protocol.SourceStatus{Name: descriptor.Name, Status: "ok"},
+			CanRun: true,
+		},
+	}
+	if reporter, ok := source.(integration.StatusReporter); ok {
+		collection.status = reporter.Status(ctx, logger)
+	}
+	if !collection.status.CanRun {
+		return collection
+	}
+
+	collection.result = source.Collect(ctx, integration.CollectRequest{
+		Previous:     previous,
+		Filters:      filterCfg,
+		LinkingMarks: marks,
+		Logger:       logger,
+	})
+	if collection.result.SourceStatus != nil {
+		collection.status.Status = *collection.result.SourceStatus
+		if collection.status.Status.Name == "" {
+			collection.status.Status.Name = descriptor.Name
+		}
+	}
+	for i := range collection.result.Observations {
+		collection.result.Observations[i] = describeObservation(descriptor, collection.result.Observations[i])
+	}
+	collection.status.Status.SourceRefCount = sourceRefCount(descriptor.Name, collection.result)
+	return collection
+}
+
+func cloneTasks(tasks []protocol.Task) []protocol.Task {
+	if tasks == nil {
+		return nil
+	}
+	cloned := make([]protocol.Task, len(tasks))
+	for i, task := range tasks {
+		cloned[i] = task
+		cloned[i].Metadata = cloneStringMap(task.Metadata)
+		cloned[i].SourceRefs = make([]protocol.SourceRef, len(task.SourceRefs))
+		for j, ref := range task.SourceRefs {
+			cloned[i].SourceRefs[j] = ref
+			cloned[i].SourceRefs[j].LinkingKeys = append([]string(nil), ref.LinkingKeys...)
+			cloned[i].SourceRefs[j].Metadata = cloneStringMap(ref.Metadata)
+			if ref.Presentation.TitleOrder != nil {
+				titleOrder := *ref.Presentation.TitleOrder
+				cloned[i].SourceRefs[j].Presentation.TitleOrder = &titleOrder
+			}
+		}
+	}
+	return cloned
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func cloneFilterConfig(cfg filters.Config) filters.Config {
+	cloned := cfg
+	cloned.MuteRepos = append([]string(nil), cfg.MuteRepos...)
+	cloned.DeprioritizeRepos = append([]string(nil), cfg.DeprioritizeRepos...)
+	cloned.MuteUsers = append([]string(nil), cfg.MuteUsers...)
+	cloned.DeprioritizeUsers = append([]string(nil), cfg.DeprioritizeUsers...)
+	cloned.Rules = make([]filters.Rule, len(cfg.Rules))
+	for i, rule := range cfg.Rules {
+		cloned.Rules[i] = rule
+		cloned.Rules[i].Repos = append([]string(nil), rule.Repos...)
+		cloned.Rules[i].Users = append([]string(nil), rule.Users...)
+	}
+	return cloned
 }
 
 func describeObservation(descriptor integration.Descriptor, observation integration.Observation) integration.Observation {
