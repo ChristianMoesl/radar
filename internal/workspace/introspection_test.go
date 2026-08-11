@@ -110,6 +110,12 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	if !result.Registered || result.EnrollmentRequired || result.WorkspaceID != group.ID || result.CurrentPath != primaryPath {
 		t.Fatalf("workspace context = %+v", result)
 	}
+	if result.Revision == "" || !result.Capabilities.Worktrees || result.Capabilities.Sandbox || result.Capabilities.PortForwarding {
+		t.Fatalf("workspace capabilities = %+v, revision = %q", result.Capabilities, result.Revision)
+	}
+	if result.Desired.Sandbox != nil || len(result.Desired.Worktrees) != 2 {
+		t.Fatalf("desired workspace = %+v", result.Desired)
+	}
 	if len(result.Members) != 2 || len(result.Repositories) != 3 {
 		t.Fatalf("workspace context members/repositories = %+v", result)
 	}
@@ -120,6 +126,20 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	wantMembership := map[string]bool{primaryRepo: true, memberRepo: true, candidateRepo: false}
 	if !reflect.DeepEqual(membership, wantMembership) {
 		t.Fatalf("repository membership = %#v, want %#v", membership, wantMembership)
+	}
+}
+
+func TestWorkspaceContextEmptySandboxPortsMarshalAsArray(t *testing.T) {
+	context := WorkspaceContext{
+		Capabilities: WorkspaceContextCapabilities{Worktrees: true, Sandbox: true, PortForwarding: true},
+		Desired:      DesiredWorkspaceDescription{Worktrees: []DesiredWorkspaceWorktree{}, Sandbox: &DesiredWorkspaceSandbox{Ports: []workspacegroup.SandboxPort{}}},
+	}
+	data, err := json.Marshal(context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"sandbox":{"ports":[]}`) {
+		t.Fatalf("context JSON = %s", data)
 	}
 }
 

@@ -138,26 +138,24 @@ For a new branch, Radar creates:
 
 A Radar workspace is one logical bundle: one primary Git worktree, optional member worktrees from other repositories, one tmux session, and at most one SBX sandbox. Radar stores this durable membership in `<workspace_root>/.radar-workspaces.json`; `radar reset` does not remove it.
 
-Every Pi process started by Radar receives the embedded `radar_add_worktree` tool. The tool previews and validates the exact repository, branch, destination, tmux session, and SBX changes, then fails closed unless the user confirms through Pi's UI. It supports new and existing branches and reuses the logical workspace's current tmux and Pi sessions.
+Every Pi process started by Radar receives the embedded `radar_reconcile_workspace` tool. The agent first calls `radar_workspace_context`, copies its revision and complete `desired` description, changes only the requested resources, and submits the result. Radar validates the difference and fails closed unless the user confirms one consolidated plan through Pi's UI.
 
-Two read-oriented host tools support discovery from an SBX-isolated Pi session. `radar_workspace_context` reports the current logical workspace, all member worktrees, and repositories discovered through `repository_dirs`; `radar_repository_refs` refreshes one selected repository and reports canonical local/origin branches, valid base refs, and existing checkout paths. Pi uses these before `radar_add_worktree` when the repository or ref is not already explicit.
+The desired description contains the complete worktree set and either an optional sandbox port set or `sandbox: null`. Omitted member worktrees and ports are removals. The primary worktree and sandbox attachment cannot be removed through reconciliation, and dirty member worktrees fail closed. Ports are TCP, bind on host loopback through SBX, and are only accepted when the workspace already has a sandbox. Worktree reconciliation remains fully available when SBX is disabled or unavailable for that workspace.
 
-The same operations are scriptable. Worktree apply needs no extra prompt because invoking the CLI is already explicit:
+Two read-oriented host tools support discovery from an SBX-isolated Pi session. `radar_workspace_context` reports the revision, capabilities, desired state, current resources, and repositories discovered through `repository_dirs`; `radar_repository_refs` refreshes one selected repository and reports canonical local/origin branches, valid base refs, and existing checkout paths.
+
+The same operations are scriptable. Apply needs no extra prompt because invoking the CLI is already explicit:
 
 ```sh
 radar workspace-context --workspace /path/to/current/worktree
 radar repository-refs --repo /path/to/other-repo
+radar reconcile-workspace --workspace /path/to/current/worktree --request "$request" --preview
+radar reconcile-workspace --workspace /path/to/current/worktree --request "$request"
 ```
 
-Add a member worktree with:
+The request JSON has the shape `{"revision":"<context revision>","desired":<context desired state>}`. Add a worktree by appending either `{"repository":"/repo","branch_mode":"new","name":"feature","base":"origin/main"}` or `{"repository":"/repo","branch_mode":"existing","branch":"feature"}` to `desired.worktrees`. For a sandboxed workspace, replace `desired.sandbox.ports` with entries such as `{"host_port":3000,"sandbox_port":3000}`. Keep `desired.sandbox` as `null` for a workspace without SBX.
 
-```sh
-radar add-worktree --workspace /path/to/current/worktree --repo /path/to/other-repo --branch-mode new --name DPSCAP-123-update-cache --base origin/main --preview
-radar add-worktree --workspace /path/to/current/worktree --repo /path/to/other-repo --branch-mode new --name DPSCAP-123-update-cache --base origin/main
-radar add-worktree --workspace /path/to/current/worktree --repo /path/to/other-repo --branch-mode existing --branch feature/DPSCAP-123-update-cache
-```
-
-`--workspace` defaults to the process working directory. Preview and apply return JSON. Applying the same request again is safe: Radar reuses an already-correct worktree, repairs missing registry or sandbox state, and does not schedule setup twice after it has been recorded successfully.
+`--workspace` defaults to the process working directory. Preview and apply return JSON. Repeating the same desired state is safe: Radar observes current worktrees, sandbox mounts, and published ports and converges after retryable partial failures.
 
 For an existing branch, Radar reuses its local branch or creates a same-named local branch that tracks `origin/<branch>`. A branch already checked out in a Radar workspace reopens that workspace. To keep a normal source checkout for `.env` files, local services, and database setup while making `main` available to a Radar worktree, park the clean source checkout on the remote-tracking commit:
 
@@ -184,9 +182,9 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 }
 ```
 
-`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree in a temporary setup window after tmux and any sandbox are available. Without sandboxing they run on the host. On macOS, when `sbx.enabled` is true, Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The sandbox mounts every member worktree, each external writable Git common directory, and global and repository `sbx.additional_mounts`. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's regular tools through `sbx exec`. Radar separately injects its own host-side Pi extension for `radar_add_worktree`; users do not install a Radar Pi package. Install `pi-sbx` with `pi install git:github.com/ChristianMoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree in a temporary setup window after tmux and any sandbox are available. Without sandboxing they run on the host. On macOS, when `sbx.enabled` is true, Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The sandbox mounts every member worktree, each external writable Git common directory, and global and repository `sbx.additional_mounts`. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's regular tools through `sbx exec`. Radar separately injects its own host-side Pi extension for workspace reconciliation; users do not install a Radar Pi package. Install `pi-sbx` with `pi install git:github.com/ChristianMoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
 
-Adding a member to a sandboxed workspace reconciles the complete mount set by removing and recreating the sandbox under the same name. This interrupts processes inside the sandbox, so the Pi tool warns before confirmation. If recreation fails, Radar keeps the worktree and desired registry state and returns `ok: false` with `retryable: true`; repeating the request converges instead of rolling back the completed steps.
+Changing the worktree membership of a sandboxed workspace reconciles the complete mount set by removing and recreating the sandbox under the same name. This interrupts processes inside the sandbox, so the Pi tool warns before confirmation. Radar then reconciles the complete desired loopback port set with `sbx ports`. If reconciliation fails, Radar keeps completed work and desired registry state and returns `ok: false` with `retryable: true`; repeating the request converges instead of rolling back completed steps.
 
 Enable sandboxes by default, select the kit, and mount additional host directories into every sandbox in the user config at `radar config-path`:
 
@@ -278,8 +276,7 @@ radar task reopen <task-id>
 radar task priority <task-id> urgent|normal
 radar status
 radar tasks
-radar add-worktree --repo <repo> --branch-mode new --name <name> --base <base> [--preview]
-radar add-worktree --repo <repo> --branch-mode existing --branch <branch> [--preview]
+radar reconcile-workspace --request <json> [--workspace <path>] [--preview]
 radar workspace-context [--workspace <path>]
 radar repository-refs --repo <repo>
 radar cleanup <task-id>

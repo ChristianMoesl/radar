@@ -32,10 +32,16 @@ type Workspace struct {
 }
 
 type Sandbox struct {
-	Name    string   `json:"name"`
-	Agent   string   `json:"agent"`
-	KitPath string   `json:"kit_path,omitempty"`
-	Mounts  []string `json:"mounts"`
+	Name    string        `json:"name"`
+	Agent   string        `json:"agent"`
+	KitPath string        `json:"kit_path,omitempty"`
+	Mounts  []string      `json:"mounts"`
+	Ports   []SandboxPort `json:"ports"`
+}
+
+type SandboxPort struct {
+	HostPort    int `json:"host_port"`
+	SandboxPort int `json:"sandbox_port"`
 }
 
 type Member struct {
@@ -289,6 +295,28 @@ func normalizeAndValidate(registry *Registry) error {
 				}
 			}
 			workspace.Sandbox.Mounts = normalizeMounts(workspace.Sandbox.Mounts)
+			ports := make([]SandboxPort, 0, len(workspace.Sandbox.Ports))
+			hostPorts := map[int]bool{}
+			for _, port := range workspace.Sandbox.Ports {
+				if port.HostPort < 1 || port.HostPort > 65535 || port.SandboxPort < 1 || port.SandboxPort > 65535 {
+					return fmt.Errorf("workspace %q sandbox ports must be between 1 and 65535", workspace.ID)
+				}
+				if hostPorts[port.HostPort] {
+					return fmt.Errorf("workspace %q has duplicate sandbox host port %d", workspace.ID, port.HostPort)
+				}
+				hostPorts[port.HostPort] = true
+				ports = append(ports, port)
+			}
+			sort.Slice(ports, func(i, j int) bool {
+				if ports[i].HostPort != ports[j].HostPort {
+					return ports[i].HostPort < ports[j].HostPort
+				}
+				return ports[i].SandboxPort < ports[j].SandboxPort
+			})
+			if ports == nil {
+				ports = []SandboxPort{}
+			}
+			workspace.Sandbox.Ports = ports
 		}
 		sort.Slice(workspace.Members, func(i, j int) bool { return pathKey(workspace.Members[i].Path) < pathKey(workspace.Members[j].Path) })
 	}

@@ -19,9 +19,18 @@ type WorkspaceContext struct {
 	Registered         bool                         `json:"registered"`
 	EnrollmentRequired bool                         `json:"enrollment_required"`
 	SessionName        string                       `json:"session_name,omitempty"`
+	Revision           string                       `json:"revision"`
+	Capabilities       WorkspaceContextCapabilities `json:"capabilities"`
+	Desired            DesiredWorkspaceDescription  `json:"desired"`
 	Sandbox            *WorkspaceContextSandbox     `json:"sandbox,omitempty"`
 	Members            []WorkspaceContextMember     `json:"members"`
 	Repositories       []WorkspaceContextRepository `json:"repositories"`
+}
+
+type WorkspaceContextCapabilities struct {
+	Worktrees      bool `json:"worktrees"`
+	Sandbox        bool `json:"sandbox"`
+	PortForwarding bool `json:"port_forwarding"`
 }
 
 type WorkspaceContextMember struct {
@@ -32,10 +41,11 @@ type WorkspaceContextMember struct {
 }
 
 type WorkspaceContextSandbox struct {
-	Name    string   `json:"name"`
-	Agent   string   `json:"agent"`
-	KitPath string   `json:"kit_path,omitempty"`
-	Mounts  []string `json:"mounts"`
+	Name    string                       `json:"name"`
+	Agent   string                       `json:"agent"`
+	KitPath string                       `json:"kit_path,omitempty"`
+	Mounts  []string                     `json:"mounts"`
+	Ports   []workspacegroup.SandboxPort `json:"ports"`
 }
 
 type WorkspaceContextRepository struct {
@@ -104,22 +114,36 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		}
 	}
 
+	ports, _, err := observedSandboxPorts(ctx, runner, group)
+	if err != nil {
+		return WorkspaceContext{}, err
+	}
+	revision, err := workspaceRevision(group, ports)
+	if err != nil {
+		return WorkspaceContext{}, err
+	}
 	result := WorkspaceContext{
 		CurrentPath: current, WorkspaceRoot: root, WorkspaceID: group.ID,
 		WorkspaceName: group.Name, PrimaryPath: group.PrimaryPath, Registered: registered,
-		EnrollmentRequired: !registered, SessionName: group.SessionName,
+		EnrollmentRequired: !registered, SessionName: group.SessionName, Revision: revision,
+		Capabilities: WorkspaceContextCapabilities{Worktrees: true, Sandbox: group.Sandbox != nil, PortForwarding: group.Sandbox != nil},
+		Desired:      DesiredWorkspaceDescription{Worktrees: make([]DesiredWorkspaceWorktree, 0, len(group.Members))},
 		Members:      make([]WorkspaceContextMember, 0, len(group.Members)),
 		Repositories: make([]WorkspaceContextRepository, 0, len(repositories)),
 	}
 	if group.Sandbox != nil {
+		result.Desired.Sandbox = &DesiredWorkspaceSandbox{Ports: append([]workspacegroup.SandboxPort{}, ports...)}
 		result.Sandbox = &WorkspaceContextSandbox{
 			Name: group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath,
-			Mounts: append([]string(nil), group.Sandbox.Mounts...),
+			Mounts: append([]string(nil), group.Sandbox.Mounts...), Ports: append([]workspacegroup.SandboxPort{}, ports...),
 		}
 	}
 	for _, member := range group.Members {
 		result.Members = append(result.Members, WorkspaceContextMember{
 			Repository: member.Repository, Path: member.Path, Branch: member.Branch, Primary: member.Primary,
+		})
+		result.Desired.Worktrees = append(result.Desired.Worktrees, DesiredWorkspaceWorktree{
+			Repository: member.Repository, BranchMode: "existing", Branch: member.Branch,
 		})
 	}
 	for _, repository := range repositories {

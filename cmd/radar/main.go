@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	exec "os/exec"
@@ -48,8 +49,8 @@ func main() {
 	switch command {
 	case "create":
 		runCreate(os.Args[2:])
-	case "add-worktree":
-		runAddWorktree(os.Args[2:])
+	case "reconcile-workspace":
+		runReconcileWorkspace(os.Args[2:])
 	case "workspace-context":
 		runWorkspaceContext(os.Args[2:])
 	case "repository-refs":
@@ -278,54 +279,43 @@ func runCreate(args []string) {
 	printJSON(result)
 }
 
-func runAddWorktree(args []string) {
-	flags := flag.NewFlagSet("radar add-worktree", flag.ExitOnError)
+func runReconcileWorkspace(args []string) {
+	flags := flag.NewFlagSet("radar reconcile-workspace", flag.ExitOnError)
 	current := flags.String("workspace", "", "path inside the current Radar workspace")
-	repo := flags.String("repo", "", "repository path")
-	branchMode := flags.String("branch-mode", "", "branch mode: new or existing")
-	name := flags.String("name", "", "new branch/worktree name")
-	base := flags.String("base", "", "new branch base")
-	branch := flags.String("branch", "", "existing branch")
+	requestJSON := flags.String("request", "", "JSON workspace reconciliation request")
+	planID := flags.String("plan", "", "confirmed preview plan ID")
 	preview := flags.Bool("preview", false, "validate and print the plan without changes")
 	_ = flags.Parse(args)
-	if flags.NArg() != 0 || strings.TrimSpace(*repo) == "" {
-		addWorktreeUsage()
+	if flags.NArg() != 0 || strings.TrimSpace(*requestJSON) == "" {
+		reconcileWorkspaceUsage()
 		os.Exit(2)
 	}
-	mode := integration.WorkspaceBranchMode(*branchMode)
-	switch mode {
-	case integration.WorkspaceBranchNew:
-		if strings.TrimSpace(*name) == "" || strings.TrimSpace(*base) == "" || strings.TrimSpace(*branch) != "" {
-			addWorktreeUsage()
-			os.Exit(2)
-		}
-	case integration.WorkspaceBranchExisting:
-		if strings.TrimSpace(*branch) == "" || strings.TrimSpace(*name) != "" || strings.TrimSpace(*base) != "" {
-			addWorktreeUsage()
-			os.Exit(2)
-		}
-	default:
-		addWorktreeUsage()
-		os.Exit(2)
+	var request workspace.ReconcileWorkspaceRequest
+	decoder := json.NewDecoder(strings.NewReader(*requestJSON))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		fatal(fmt.Errorf("invalid workspace reconciliation request: %w", err))
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		fatal(fmt.Errorf("invalid workspace reconciliation request: expected one JSON object"))
 	}
 	cfg, err := config.Load()
 	if err != nil {
 		fatal(err)
 	}
-	request := workspace.AddWorktreeRequest{
-		Workspace: *current, Repository: *repo, BranchMode: mode, Name: *name,
-		Branch: *branch, Base: *base, WorkspaceRoot: workspace.ExpandPath(cfg.WorkspaceRoot),
-		AdditionalSandboxMounts: cfg.SBX.AdditionalMounts,
-	}
+	request.Workspace = *current
+	request.WorkspaceRoot = workspace.ExpandPath(cfg.WorkspaceRoot)
+	request.ExpectedPlanID = strings.TrimSpace(*planID)
+	request.AdditionalSandboxMounts = cfg.SBX.AdditionalMounts
 	if *preview {
-		plan, err := workspace.PreviewAddWorktree(context.Background(), workspace.ExecRunner{}, request)
+		plan, err := workspace.PreviewReconcileWorkspace(context.Background(), workspace.ExecRunner{}, request)
 		if err != nil {
 			fatal(err)
 		}
 		printJSON(plan)
 		return
 	}
-	result, err := workspace.ApplyAddWorktree(context.Background(), workspace.ExecRunner{}, request)
+	result, err := workspace.ApplyReconcileWorkspace(context.Background(), workspace.ExecRunner{}, request)
 	if err != nil {
 		fatal(err)
 	}
@@ -922,8 +912,7 @@ Tasks:
 Workspaces:
   radar create
   radar create --repo <repo> --base <branch> --name <name>
-  radar add-worktree --repo <repo> --branch-mode new --name <name> --base <base> [--preview]
-  radar add-worktree --repo <repo> --branch-mode existing --branch <branch> [--preview]
+  radar reconcile-workspace --request <json> [--workspace <path>] [--preview]
   radar workspace-context [--workspace <path>]
   radar repository-refs --repo <repo>
   radar fork
@@ -965,11 +954,10 @@ Options:
   --name   workspace name; also used to derive a sanitized branch name`)
 }
 
-func addWorktreeUsage() {
-	fmt.Fprintln(os.Stderr, `usage: radar add-worktree [--workspace <path>] --repo <repo> --branch-mode new --name <name> --base <base> [--preview]
-       radar add-worktree [--workspace <path>] --repo <repo> --branch-mode existing --branch <branch> [--preview]
+func reconcileWorkspaceUsage() {
+	fmt.Fprintln(os.Stderr, `usage: radar reconcile-workspace [--workspace <path>] --request <json> [--preview]
 
-Preview and apply print JSON. --workspace defaults to the process working directory.`)
+The request contains the revision and complete desired worktree/sandbox state. Preview and apply print JSON. --workspace defaults to the process working directory.`)
 }
 
 func workspaceContextUsage() {

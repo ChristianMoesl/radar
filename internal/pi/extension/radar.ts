@@ -3,22 +3,42 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const NewBranch = Type.Object({
-  repository: Type.String({ description: "Absolute path to the source Git repository" }),
+const NewWorktree = Type.Object({
+  repository: Type.String({ description: "Absolute source repository path returned by radar_workspace_context" }),
   branch_mode: StringEnum(["new"] as const),
   name: Type.String({ description: "Workspace and new branch name (Radar sanitizes it)" }),
-  base: Type.String({ description: "Base revision, for example origin/main" }),
+  base: Type.String({ description: "Base revision returned by radar_repository_refs, for example origin/main" }),
 }, { additionalProperties: false });
 
-const ExistingBranch = Type.Object({
-  repository: Type.String({ description: "Absolute path to the source Git repository" }),
+const ExistingWorktree = Type.Object({
+  repository: Type.String({ description: "Absolute source repository path returned by radar_workspace_context" }),
   branch_mode: StringEnum(["existing"] as const),
-  branch: Type.String({ description: "Existing local or origin branch" }),
+  branch: Type.String({ description: "Existing local or origin branch returned by radar_repository_refs" }),
 }, { additionalProperties: false });
 
-const Parameters = Type.Union([NewBranch, ExistingBranch], {
-  description: "Choose exactly one branch mode and provide only its corresponding fields",
-});
+const SandboxPort = Type.Object({
+  host_port: Type.Integer({ minimum: 1, maximum: 65535, description: "Loopback host port" }),
+  sandbox_port: Type.Integer({ minimum: 1, maximum: 65535, description: "TCP port inside the sandbox" }),
+}, { additionalProperties: false });
+
+const DesiredSandbox = Type.Object({
+  ports: Type.Array(SandboxPort, { description: "Complete desired loopback TCP port set" }),
+}, { additionalProperties: false });
+
+const DesiredWorkspace = Type.Object({
+  worktrees: Type.Array(Type.Union([NewWorktree, ExistingWorktree]), {
+    minItems: 1,
+    description: "Complete desired Git worktree membership, including every unchanged member",
+  }),
+  sandbox: Type.Union([DesiredSandbox, Type.Null()], {
+    description: "Complete desired sandbox port state, or null when this workspace has no sandbox",
+  }),
+}, { additionalProperties: false });
+
+const ReconcileParameters = Type.Object({
+  revision: Type.String({ description: "Revision returned by the latest radar_workspace_context call" }),
+  desired: DesiredWorkspace,
+}, { additionalProperties: false });
 
 const NoParameters = Type.Object({}, { additionalProperties: false });
 
@@ -26,16 +46,18 @@ const RepositoryParameters = Type.Object({
   repository: Type.String({ description: "Absolute repository path returned by radar_workspace_context" }),
 }, { additionalProperties: false });
 
+type Change = {
+  action: "add" | "remove" | "recreate";
+  resource: "worktree" | "sandbox" | "sandbox_port";
+  summary: string;
+};
+
 type Plan = {
   workspace_name: string;
-  repository: string;
-  branch_mode: "new" | "existing";
-  branch: string;
-  base?: string;
-  path: string;
-  session_name?: string;
-  sandbox_name?: string;
-  recreate_sandbox: boolean;
+  revision: string;
+  next_revision: string;
+  plan_id: string;
+  changes: Change[];
   warnings?: string[];
 };
 
@@ -55,14 +77,10 @@ async function publishBusy(pi: ExtensionAPI, busy: boolean) {
   }
 }
 
-function commandArgs(params: Record<string, unknown>, cwd: string, preview: boolean): string[] {
-  const args = ["add-worktree", "--workspace", cwd, "--repo", String(params.repository), "--branch-mode", String(params.branch_mode)];
-  if (params.branch_mode === "new") {
-    args.push("--name", String(params.name), "--base", String(params.base));
-  } else {
-    args.push("--branch", String(params.branch));
-  }
+function reconcileArgs(params: Record<string, unknown>, cwd: string, preview: boolean, planId?: string): string[] {
+  const args = ["reconcile-workspace", "--workspace", cwd, "--request", JSON.stringify(params)];
   if (preview) args.push("--preview");
+  if (planId) args.push("--plan", planId);
   return args;
 }
 
@@ -80,17 +98,13 @@ function commandFailure(toolName: string, phase: string, result: { code: number;
 }
 
 function confirmation(plan: Plan): string {
-  const lines = [
-    `Repository: ${plan.repository}`,
-    `Branch mode: ${plan.branch_mode}`,
-    `Branch: ${plan.branch}`,
-  ];
-  if (plan.base) lines.push(`Base: ${plan.base}`);
-  lines.push(`Destination: ${plan.path}`, `Radar workspace: ${plan.workspace_name}`);
-  if (plan.session_name) lines.push(`tmux session: ${plan.session_name}`);
-  if (plan.sandbox_name) lines.push(`SBX sandbox: ${plan.sandbox_name}`);
-  if (plan.recreate_sandbox) lines.push("WARNING: recreating this sandbox interrupts processes currently running inside it.");
-  for (const warning of plan.warnings ?? []) lines.push(`Warning: ${warning}`);
+  const lines = [`Radar workspace: ${plan.workspace_name}`];
+  if (plan.changes.length === 0) lines.push("No changes are required.");
+  for (const change of plan.changes) {
+    const marker = change.action === "add" ? "+" : change.action === "remove" ? "-" : "~";
+    lines.push(`${marker} ${change.summary}`);
+  }
+  for (const warning of plan.warnings ?? []) lines.push(`WARNING: ${warning}`);
   return lines.join("\n");
 }
 
@@ -109,11 +123,12 @@ export default function radarExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "radar_workspace_context",
     label: "Inspect Radar Workspace",
-    description: "Inspect the current logical Radar workspace from the host. Returns its primary and member Git worktrees, branches, tmux and SBX resources, and repositories discovered through Radar configuration. Marks repositories that already belong to the workspace.",
-    promptSnippet: "Inspect the current Radar workspace and discover host repositories before adding a worktree",
+    description: "Inspect the current logical Radar workspace from the host. Returns a revision, capabilities, the complete desired worktree and optional sandbox-port state, current host resources, and repositories discovered through Radar configuration.",
+    promptSnippet: "Inspect the current Radar workspace and obtain its revision and desired state before reconciling host resources",
     promptGuidelines: [
-      "Use radar_workspace_context before radar_add_worktree when the repository is not already known exactly or when you need to inspect existing workspace members.",
+      "Use radar_workspace_context before radar_reconcile_workspace and copy its complete desired state before modifying only the requested resources.",
       "Use the absolute repository paths returned by radar_workspace_context; do not guess host paths from sandbox-visible directories.",
+      "Respect radar_workspace_context capabilities: leave sandbox null when sandbox and port_forwarding are false.",
     ],
     parameters: NoParameters,
     executionMode: "sequential",
@@ -134,7 +149,7 @@ export default function radarExtension(pi: ExtensionAPI) {
     promptSnippet: "Inspect branches and valid base refs for a repository selected from radar_workspace_context",
     promptGuidelines: [
       "Use radar_repository_refs after selecting a repository from radar_workspace_context when the branch or new-branch base is not already known exactly.",
-      "Pass a canonical branch name to radar_add_worktree existing mode and one of base_refs to new mode.",
+      "Pass a canonical branch name or base ref from radar_repository_refs in radar_reconcile_workspace desired worktrees.",
     ],
     parameters: RepositoryParameters,
     executionMode: "sequential",
@@ -150,34 +165,38 @@ export default function radarExtension(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: "radar_add_worktree",
-    label: "Add Radar Worktree",
-    description: "Build a validated plan, ask the user for explicit confirmation, and add a Git worktree from another repository to the current logical Radar workspace. Supports either a sanitized new branch based on a revision or an existing local/origin branch. Reuses the workspace's current tmux session and SBX sandbox.",
-    promptSnippet: "Add a repository worktree to the current logical Radar workspace after user confirmation",
+    name: "radar_reconcile_workspace",
+    label: "Reconcile Radar Workspace",
+    description: "Preview, confirm, and reconcile the complete desired host workspace state. It can add or remove clean member worktrees and publish or unpublish loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace or remove the primary worktree.",
+    promptSnippet: "Reconcile typed worktree and optional sandbox-port desired state after user confirmation",
     promptGuidelines: [
-      "Use radar_add_worktree when the user asks to add another repository or Git worktree to the current Radar workspace; choose either new or existing branch mode and all required values.",
-      "Never emulate radar_add_worktree with direct git, tmux, or sbx commands because Radar must preserve workspace membership and shared resources.",
+      "Use radar_reconcile_workspace for host workspace changes instead of direct git, tmux, or sbx commands because Radar must validate and persist the complete resource bundle.",
+      "Always start from the latest radar_workspace_context revision and complete desired object; omitted worktrees and ports are removals.",
+      "Never invent a sandbox object when radar_workspace_context reports sandbox false; sandbox-less worktree reconciliation is fully supported.",
     ],
-    parameters: Parameters,
+    parameters: ReconcileParameters,
     executionMode: "sequential",
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx: ExtensionContext) {
       if (!ctx.hasUI) {
-        throw new Error("radar_add_worktree requires an interactive confirmation channel; no changes were applied");
+        throw new Error("radar_reconcile_workspace requires an interactive confirmation channel; no changes were applied");
       }
       const binary = process.env.RADAR_BINARY?.trim() || "radar";
       const input = params as unknown as Record<string, unknown>;
       const cwd = resolve(ctx.cwd);
-      const previewText = await runRadar(pi, binary, commandArgs(input, cwd, true), signal, "radar_add_worktree", "preview");
-      const plan = parseJSON<Plan>("radar_add_worktree", previewText, "preview");
-      const approved = await ctx.ui.confirm("Add worktree to Radar workspace?", confirmation(plan));
+      const previewText = await runRadar(pi, binary, reconcileArgs(input, cwd, true), signal, "radar_reconcile_workspace", "preview");
+      const plan = parseJSON<Plan>("radar_reconcile_workspace", previewText, "preview");
+      if (plan.changes.length === 0) {
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, unchanged: true, revision: plan.revision }) }], details: { plan, unchanged: true } };
+      }
+      const approved = await ctx.ui.confirm("Reconcile Radar workspace?", confirmation(plan));
       if (!approved) {
         return { content: [{ type: "text", text: JSON.stringify({ ok: false, cancelled: true }) }], details: { cancelled: true, plan } };
       }
-      const resultText = await runRadar(pi, binary, commandArgs(input, cwd, false), signal, "radar_add_worktree", "apply");
-      const result = parseJSON<Record<string, unknown>>("radar_add_worktree", resultText, "apply");
+      const resultText = await runRadar(pi, binary, reconcileArgs(input, cwd, false, plan.plan_id), signal, "radar_reconcile_workspace", "apply");
+      const result = parseJSON<Record<string, unknown>>("radar_reconcile_workspace", resultText, "apply");
       if (result.ok !== true) {
-        throw new Error(`radar_add_worktree apply did not converge: ${String(result.error ?? "unknown error")}\n${resultText.trim()}`);
+        throw new Error(`radar_reconcile_workspace apply did not converge: ${String(result.error ?? "unknown error")}\n${resultText.trim()}`);
       }
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: { plan, result } };
     },

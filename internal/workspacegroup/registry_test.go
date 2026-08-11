@@ -93,6 +93,41 @@ func TestRegistryRejectsUnsupportedVersion(t *testing.T) {
 	}
 }
 
+func TestRegistryNormalizesSandboxPorts(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "repo", "work")
+	repository := filepath.Join(root, "source")
+	registry := Registry{Version: Version, Workspaces: []Workspace{{
+		ID: "one", Name: "one", PrimaryPath: path,
+		Sandbox: &Sandbox{Name: "one", Agent: "shell", Ports: []SandboxPort{{HostPort: 8080, SandboxPort: 80}, {HostPort: 3000, SandboxPort: 3000}}},
+		Members: []Member{{Repository: repository, Path: path, Branch: "one", Primary: true}},
+	}}}
+	if err := Save(root, registry); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ports := loaded.Workspaces[0].Sandbox.Ports
+	if len(ports) != 2 || ports[0].HostPort != 3000 || ports[1].HostPort != 8080 {
+		t.Fatalf("ports = %+v", ports)
+	}
+}
+
+func TestRegistryRejectsDuplicateSandboxHostPorts(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "repo", "work")
+	err := Save(root, Registry{Version: Version, Workspaces: []Workspace{{
+		ID: "one", Name: "one", PrimaryPath: path,
+		Sandbox: &Sandbox{Name: "one", Agent: "shell", Ports: []SandboxPort{{HostPort: 3000, SandboxPort: 3000}, {HostPort: 3000, SandboxPort: 4000}}},
+		Members: []Member{{Repository: filepath.Join(root, "source"), Path: path, Branch: "one", Primary: true}},
+	}}})
+	if err == nil || !strings.Contains(err.Error(), "duplicate sandbox host port") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestRegistryRejectsDuplicateMembers(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "repo", "work")

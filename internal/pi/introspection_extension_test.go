@@ -10,8 +10,10 @@ func TestRadarExtensionRegistersWorkspaceIntrospectionTools(t *testing.T) {
 	for _, required := range []string{
 		"radar_workspace_context",
 		"radar_repository_refs",
+		"radar_reconcile_workspace",
 		`["workspace-context", "--workspace"`,
 		`["repository-refs", "--repo"`,
+		`["reconcile-workspace", "--workspace"`,
 		"NoParameters",
 		"RepositoryParameters",
 	} {
