@@ -167,7 +167,7 @@ User filters also apply while GitHub activity is classified. Activity from a mut
 
 ## GitHub integration
 
-GitHub access currently uses the `gh` CLI. Radar tracks GitHub core/search rate limits through `gh api rate_limit`. When a budget is low, Radar pauses GitHub collection until GitHub's reset time instead of repeatedly retrying.
+GitHub access currently uses the `gh` CLI. The main GraphQL request returns the viewer login together with review-requested, authored, and participated PRs. Configured tracked-PR searches run concurrently with that main request and are merged afterward in deterministic presentation order. Radar tracks GitHub core/search rate limits through `gh api rate_limit`. When a budget is low, Radar pauses GitHub collection until GitHub's reset time instead of repeatedly retrying.
 
 Current GitHub collectors:
 

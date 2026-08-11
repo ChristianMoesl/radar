@@ -294,7 +294,7 @@ Task commands return JSON.
 
 ## GitHub
 
-GitHub integration uses the GitHub CLI. Make sure this works first:
+GitHub integration uses the GitHub CLI. Its main GraphQL request includes the current viewer and runs concurrently with configured tracked-PR searches. Make sure authentication works first:
 
 ```sh
 gh auth status
