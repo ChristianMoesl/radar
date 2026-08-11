@@ -18,13 +18,11 @@ import (
 func TestFetchPullRequestsClassifiesGraphQLResults(t *testing.T) {
 	installFakeGH(t, `#!/bin/sh
 case "$*" in
-  *"api user"*)
-    echo '{"login":"me"}'
-    ;;
   *"api graphql"*)
     cat <<'JSON'
 {
   "data": {
+    "viewer": { "login": "me" },
     "reviewRequested": {
       "nodes": [
         {

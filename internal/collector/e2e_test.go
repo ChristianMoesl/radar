@@ -111,18 +111,14 @@ if [ "$1" = "api" ] && [ "$2" = "rate_limit" ]; then
 JSON
   exit 0
 fi
-if [ "$1" = "api" ] && [ "$2" = "user" ]; then
-  printf '{"login":"octo"}\n'
-  exit 0
-fi
 if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
   if [ "$mode" = "open" ]; then
     cat <<'JSON'
-{"data":{"reviewRequested":{"nodes":[]},"authored":{"nodes":[{"number":7,"title":"RAD-123 Ship linked work","url":"https://github.com/acme/app/pull/7","state":"OPEN","isDraft":false,"headRefName":"feature/RAD-123-linked-work","body":"Implements RAD-123","author":{"login":"octo"},"repository":{"nameWithOwner":"acme/app"},"comments":{"nodes":[]},"reviews":{"nodes":[]},"reviewThreads":{"nodes":[]}}]},"participated":{"nodes":[]}}}
+{"data":{"viewer":{"login":"octo"},"reviewRequested":{"nodes":[]},"authored":{"nodes":[{"number":7,"title":"RAD-123 Ship linked work","url":"https://github.com/acme/app/pull/7","state":"OPEN","isDraft":false,"headRefName":"feature/RAD-123-linked-work","body":"Implements RAD-123","author":{"login":"octo"},"repository":{"nameWithOwner":"acme/app"},"comments":{"nodes":[]},"reviews":{"nodes":[]},"reviewThreads":{"nodes":[]}}]},"participated":{"nodes":[]}}}
 JSON
   else
     cat <<'JSON'
-{"data":{"reviewRequested":{"nodes":[]},"authored":{"nodes":[]},"participated":{"nodes":[]}}}
+{"data":{"viewer":{"login":"octo"},"reviewRequested":{"nodes":[]},"authored":{"nodes":[]},"participated":{"nodes":[]}}}
 JSON
   fi
   exit 0

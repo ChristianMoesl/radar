@@ -83,6 +83,7 @@ type graphQLReviewThread struct {
 
 type graphQLPullRequestsResponse struct {
 	Data struct {
+		Viewer          user                `json:"viewer"`
 		ReviewRequested graphQLSearchResult `json:"reviewRequested"`
 		Authored        graphQLSearchResult `json:"authored"`
 		Participated    graphQLSearchResult `json:"participated"`
@@ -94,6 +95,7 @@ type graphQLSearchResult struct {
 }
 
 const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: String!, $participatedQuery: String!) {
+  viewer { login }
   reviewRequested: search(query: $reviewQuery, type: ISSUE, first: 50) {
     nodes {
       ... on PullRequest {
@@ -157,9 +159,9 @@ func FetchPullRequests(ctx context.Context, previous []protocol.Task, cfg filter
 	if err := ghJSON(ctx, args, &response); err != nil {
 		return nil, nil, nil, fmt.Errorf("fetch github pull requests: %w", err)
 	}
-	login, err := currentLogin(ctx)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("fetch github current user: %w", err)
+	login := strings.TrimSpace(response.Data.Viewer.Login)
+	if login == "" {
+		return nil, nil, nil, fmt.Errorf("fetch github pull requests: viewer login was empty")
 	}
 
 	previousActivity := activityStateFromPrevious(previous)
@@ -662,14 +664,6 @@ func githubPullRequestSourceRefs(task protocol.Task) []protocol.SourceRef {
 		}
 	}
 	return refs
-}
-
-func currentLogin(ctx context.Context) (string, error) {
-	var u user
-	if err := ghJSON(ctx, []string{"api", "user"}, &u); err != nil {
-		return "", err
-	}
-	return u.Login, nil
 }
 
 func fetchNotifications(ctx context.Context) ([]notification, error) {
