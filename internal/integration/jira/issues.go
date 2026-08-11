@@ -232,12 +232,33 @@ func fetchIssue(ctx context.Context, cfg Config, key string) (issue, error) {
 }
 
 func searchAssignedIssues(ctx context.Context, cfg Config, issueTypes []string) ([]issue, error) {
-	request := searchRequest{
+	return searchIssues(ctx, cfg, searchRequest{
 		JQL:        assignedIssuesJQL(issueTypes),
 		MaxResults: 100,
-		Fields:     []string{"summary", "status", "issuetype", "priority"},
-	}
+		Fields:     issueSearchFields(),
+	})
+}
 
+func searchIssuesByKeys(ctx context.Context, cfg Config, keys []string) ([]issue, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	quoted := make([]string, 0, len(keys))
+	for _, key := range keys {
+		quoted = append(quoted, `"`+strings.ReplaceAll(key, `"`, `\"`)+`"`)
+	}
+	return searchIssues(ctx, cfg, searchRequest{
+		JQL:        "key IN (" + strings.Join(quoted, ", ") + ")",
+		MaxResults: len(keys),
+		Fields:     issueSearchFields(),
+	})
+}
+
+func issueSearchFields() []string {
+	return []string{"summary", "status", "issuetype", "priority"}
+}
+
+func searchIssues(ctx context.Context, cfg Config, request searchRequest) ([]issue, error) {
 	body, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
@@ -254,7 +275,7 @@ func searchAssignedIssues(ctx context.Context, cfg Config, issueTypes []string) 
 
 	errors := make([]string, 0, len(endpoints))
 	for _, endpoint := range endpoints {
-		issues, retry, err := searchAssignedIssuesAt(ctx, cfg, endpoint, request, body)
+		issues, retry, err := searchIssuesAt(ctx, cfg, endpoint, request, body)
 		if err == nil {
 			return issues, nil
 		}
@@ -289,7 +310,7 @@ type searchEndpoint struct {
 	Path   string
 }
 
-func searchAssignedIssuesAt(ctx context.Context, cfg Config, endpoint searchEndpoint, request searchRequest, body []byte) ([]issue, bool, error) {
+func searchIssuesAt(ctx context.Context, cfg Config, endpoint searchEndpoint, request searchRequest, body []byte) ([]issue, bool, error) {
 	url := cfg.APIBaseURL + endpoint.Path
 	var reader io.Reader = bytes.NewReader(body)
 	if endpoint.Method == http.MethodGet {

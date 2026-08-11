@@ -27,17 +27,21 @@ func TestInformationalIssueSourceRefContract(t *testing.T) {
 }
 
 func TestCollectFetchesUnassignedTitleReferenceAsInformational(t *testing.T) {
-	var requests []string
+	var requests []searchRequest
 	server := jiraSourceServer(t, func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r.Method+" "+r.URL.Path)
-		switch r.URL.Path {
-		case "/search/jql":
-			_ = json.NewEncoder(w).Encode(searchResponse{})
-		case "/issue/RAD-7":
-			_ = json.NewEncoder(w).Encode(jiraIssueWithType("RAD-7", "Epic", "Open"))
-		default:
+		if r.Method != http.MethodPost || r.URL.Path != "/search/jql" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
+		var request searchRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		requests = append(requests, request)
+		if strings.HasPrefix(request.JQL, "key IN") {
+			_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("RAD-7", "Epic", "Open")}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(searchResponse{})
 	})
 	defer server.Close()
 	configureJiraSource(t, server.URL, `{}`)
@@ -56,18 +60,22 @@ func TestCollectFetchesUnassignedTitleReferenceAsInformational(t *testing.T) {
 	if got.Ref.Metadata["issue_type"] != "Epic" || got.Ref.EntityID != "jira:issue:RAD-7" {
 		t.Fatalf("reference = %+v", got.Ref)
 	}
-	if !reflect.DeepEqual(requests, []string{"POST /search/jql", "GET /issue/RAD-7"}) {
+	if len(requests) != 2 || requests[1].JQL != `key IN ("RAD-7")` {
 		t.Fatalf("requests = %+v", requests)
 	}
 }
 
 func TestCollectMakesConfiguredTitleReferenceAuthoritative(t *testing.T) {
 	server := jiraSourceServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/search/jql" {
-			_ = json.NewEncoder(w).Encode(searchResponse{})
+		var request searchRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasPrefix(request.JQL, "key IN") {
+			_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("RAD-7", " Service Request ", "In Progress")}})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(jiraIssueWithType("RAD-7", " Service Request ", "In Progress"))
+		_ = json.NewEncoder(w).Encode(searchResponse{})
 	})
 	defer server.Close()
 	configureJiraSource(t, server.URL, `{"authoritative_issue_types":["service request"]}`)
@@ -103,18 +111,17 @@ func TestCollectDoesNotDirectFetchAssignedTitleDuplicate(t *testing.T) {
 	}
 }
 
-func TestCollectKeepsOtherReferencesAndPreviousFailedReference(t *testing.T) {
+func TestCollectKeepsOtherReferencesAndPreviousMissingReference(t *testing.T) {
 	server := jiraSourceServer(t, func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/search/jql":
-			_ = json.NewEncoder(w).Encode(searchResponse{})
-		case "/issue/RAD-1":
-			http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
-		case "/issue/RAD-2":
-			_ = json.NewEncoder(w).Encode(jiraIssueWithType("RAD-2", "Epic", "Open"))
-		default:
-			t.Fatalf("unexpected request %s", r.URL.Path)
+		var request searchRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
 		}
+		if strings.HasPrefix(request.JQL, "key IN") {
+			_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("RAD-2", "Epic", "Open")}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(searchResponse{})
 	})
 	defer server.Close()
 	configureJiraSource(t, server.URL, `{}`)
@@ -122,7 +129,7 @@ func TestCollectKeepsOtherReferencesAndPreviousFailedReference(t *testing.T) {
 	previous := []protocol.Task{{ID: 9, Title: "Compare RAD-1 and RAD-2", SourceRefs: []protocol.SourceRef{previousRef}}}
 
 	result := NewSource().Collect(context.Background(), jiraCollectRequest(previous))
-	if result.Complete || result.SourceStatus.Status != "error" || !strings.Contains(result.SourceStatus.Detail, "1 direct fetches failed") {
+	if result.Complete || result.SourceStatus.Status != "error" || !strings.Contains(result.SourceStatus.Detail, "1 title references unavailable") {
 		t.Fatalf("result = %+v", result)
 	}
 	if len(result.Observations) != 2 {
@@ -135,11 +142,24 @@ func TestCollectKeepsOtherReferencesAndPreviousFailedReference(t *testing.T) {
 }
 
 func TestCollectBoundsTitleReferenceFetches(t *testing.T) {
-	requested := make([]string, 0)
+	requestedKeys := make([]string, 0)
 	server := jiraSourceServer(t, func(w http.ResponseWriter, r *http.Request) {
-		requested = append(requested, r.URL.Path)
-		key := strings.TrimPrefix(r.URL.Path, "/issue/")
-		_ = json.NewEncoder(w).Encode(jiraIssueWithType(key, "Epic", "Open"))
+		var request searchRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(request.JQL, "key IN") {
+			_ = json.NewEncoder(w).Encode(searchResponse{})
+			return
+		}
+		for i := 1; i <= maxTitleDiscoveredIssues; i++ {
+			requestedKeys = append(requestedKeys, "RAD-"+strconv.Itoa(i))
+		}
+		issues := make([]issue, 0, len(requestedKeys))
+		for _, key := range requestedKeys {
+			issues = append(issues, jiraIssueWithType(key, "Epic", "Open"))
+		}
+		_ = json.NewEncoder(w).Encode(searchResponse{Issues: issues})
 	})
 	defer server.Close()
 	configureJiraSource(t, server.URL, `{"authoritative_issue_types":[]}`)
@@ -149,11 +169,11 @@ func TestCollectBoundsTitleReferenceFetches(t *testing.T) {
 	}
 
 	result := NewSource().Collect(context.Background(), jiraCollectRequest([]protocol.Task{{ID: 1, Title: strings.Join(titles, " ")}}))
-	if result.Complete || len(requested) != maxTitleDiscoveredIssues || len(result.Observations) != maxTitleDiscoveredIssues {
-		t.Fatalf("requests=%d observations=%d result=%+v", len(requested), len(result.Observations), result)
+	if result.Complete || len(requestedKeys) != maxTitleDiscoveredIssues || len(result.Observations) != maxTitleDiscoveredIssues {
+		t.Fatalf("requested=%d observations=%d result=%+v", len(requestedKeys), len(result.Observations), result)
 	}
-	if requested[0] != "/issue/RAD-1" || requested[len(requested)-1] != "/issue/RAD-50" || !strings.Contains(result.SourceStatus.Detail, "truncated") {
-		t.Fatalf("request bounds/status = %+v / %+v", requested, result.SourceStatus)
+	if requestedKeys[0] != "RAD-1" || requestedKeys[len(requestedKeys)-1] != "RAD-50" || !strings.Contains(result.SourceStatus.Detail, "truncated") {
+		t.Fatalf("request bounds/status = %+v / %+v", requestedKeys, result.SourceStatus)
 	}
 }
 

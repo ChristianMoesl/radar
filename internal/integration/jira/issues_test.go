@@ -112,6 +112,28 @@ func TestSearchAssignedIssuesFallsBackToSearch(t *testing.T) {
 	}
 }
 
+func TestSearchIssuesByKeysUsesOneDeterministicSearch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request searchRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request.JQL != `key IN ("RAD-2", "RAD-1")` || request.MaxResults != 2 {
+			t.Fatalf("request = %+v", request)
+		}
+		_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{{Key: "RAD-1"}, {Key: "RAD-2"}}})
+	}))
+	defer server.Close()
+
+	issues, err := searchIssuesByKeys(context.Background(), Config{APIBaseURL: server.URL, Email: "me@example.com", APIToken: "token"}, []string{"RAD-2", "RAD-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 2 {
+		t.Fatalf("issues = %+v", issues)
+	}
+}
+
 func TestAssignedIssuesJQLFiltersConfiguredIssueTypes(t *testing.T) {
 	got := assignedIssuesJQL([]string{"Story", "Service Request", `Type "quoted"`})
 	want := `assignee = currentUser() AND statusCategory != Done AND issuetype IN ("Story", "Service Request", "Type \"quoted\"") ORDER BY updated DESC`

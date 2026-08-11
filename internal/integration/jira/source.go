@@ -113,18 +113,35 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	}
 
 	failedKeys := map[string]bool{}
-	for _, key := range fetchKeys {
-		value, fetchErr := fetchIssue(ctx, jiraConfig, key)
+	if len(fetchKeys) > 0 {
+		fetched, fetchErr := searchIssuesByKeys(ctx, jiraConfig, fetchKeys)
 		if fetchErr != nil {
 			complete = false
 			status.Status = "error"
-			failedKeys[key] = true
-			preserveKeys[key] = true
-			req.Logger.Warn("jira title reference fetch failed", "key", key, "error", fetchErr)
-			continue
+			for _, key := range fetchKeys {
+				failedKeys[key] = true
+				preserveKeys[key] = true
+			}
+			req.Logger.Warn("jira title reference batch fetch failed", "keys", len(fetchKeys), "error", fetchErr)
+		} else {
+			for _, value := range fetched {
+				key := normalizeIssueKey(value.Key)
+				if key == "" {
+					continue
+				}
+				value.Key = key
+				issuesByKey[key] = value
+			}
+			for _, key := range fetchKeys {
+				if _, found := issuesByKey[key]; found {
+					continue
+				}
+				complete = false
+				status.Status = "error"
+				failedKeys[key] = true
+				preserveKeys[key] = true
+			}
 		}
-		value.Key = key
-		issuesByKey[key] = value
 	}
 
 	observations := make([]integration.Observation, 0, len(assigned)+len(mentions))
@@ -160,7 +177,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	observations = deduplicateObservations(observations)
 	details = append(details, fmt.Sprintf("%d title references", len(keyOrder)))
 	if len(failedKeys) > 0 {
-		details = append(details, fmt.Sprintf("%d direct fetches failed", len(failedKeys)))
+		details = append(details, fmt.Sprintf("%d title references unavailable", len(failedKeys)))
 	}
 	if truncated > 0 {
 		details = append(details, fmt.Sprintf("%d title references truncated at limit %d", truncated, maxTitleDiscoveredIssues))
