@@ -104,7 +104,7 @@ func TestStructuredTaskMutations(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil, nil, registry, cleanup.New(nil)).SetMutationRefresh(refresh).handle(serverConn)
+		New(store, logger, nil, nil, nil, registry, cleanup.New(nil)).SetLocalRefresh(refresh).handle(serverConn)
 	}()
 	encoder := json.NewEncoder(clientConn)
 	decoder := json.NewDecoder(clientConn)
@@ -201,12 +201,63 @@ func TestCleanupExecutesEveryPreviewTarget(t *testing.T) {
 		{Source: "fake", SourceRefID: "fake:ref:1", Path: "/tmp/one"},
 		{Source: "fake", SourceRefID: "fake:ref:2", Path: "/tmp/two"},
 	}}
-	result, err := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake"}})).cleanup(context.Background(), &preview)
+	refreshed := false
+	server := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake"}})).SetLocalRefresh(func() {
+		refreshed = true
+	})
+	result, err := server.cleanup(context.Background(), &preview)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(result.Targets) != 2 || result.Targets[0].Path != "/tmp/one" || result.Targets[1].Path != "/tmp/two" {
 		t.Fatalf("cleanup result = %+v", result)
+	}
+	if !refreshed {
+		t.Fatal("cleanup did not refresh local sources")
+	}
+}
+
+func TestCleanupResponseIncludesLocallyRefreshedTasks(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetTasks([]protocol.Task{{
+		Title: "workspace",
+		SourceRefs: []protocol.SourceRef{{
+			ID: "fake:ref:1", Source: "fake", Kind: "worktree", Role: protocol.SourceRefRoleAuthoritative,
+		}},
+	}})
+
+	serverConn, clientConn := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake"}})).SetLocalRefresh(func() {
+			store.SetTasks([]protocol.Task{})
+		}).handle(serverConn)
+	}()
+
+	request := protocol.Request{Method: "cleanup", Cleanup: &protocol.CleanupPreview{TaskID: 1, Targets: []protocol.CleanupTarget{{
+		Source: "fake", SourceRefID: "fake:ref:1", Kind: "worktree",
+	}}}}
+	if err := json.NewEncoder(clientConn).Encode(request); err != nil {
+		t.Fatal(err)
+	}
+	var response protocol.Response
+	if err := json.NewDecoder(clientConn).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	_ = clientConn.Close()
+	<-done
+
+	if !response.OK || response.CleanupResult == nil {
+		t.Fatalf("cleanup response = %+v", response)
+	}
+	if response.Tasks == nil || len(response.Tasks) != 0 {
+		t.Fatalf("cleanup response tasks = %+v, want refreshed empty tasks", response.Tasks)
 	}
 }
 

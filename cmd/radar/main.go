@@ -553,8 +553,8 @@ func runDaemon() {
 		go refreshLoop(context.Background(), refresh)
 	}
 
-	mutationRefresh := mutationRefresher(context.Background(), store, logger, collectionMu, integrations)
-	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu, integrations), garbageCollect, integrations, cleanupService).SetMutationRefresh(mutationRefresh).ListenAndServe(path); err != nil {
+	localRefresh := localRefresher(context.Background(), store, logger, collectionMu, integrations)
+	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu, integrations), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).ListenAndServe(path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}
@@ -710,7 +710,7 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 	}
 }
 
-func mutationRefresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry) func() {
+func localRefresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry) func() {
 	return func() {
 		mu.Lock()
 		defer mu.Unlock()

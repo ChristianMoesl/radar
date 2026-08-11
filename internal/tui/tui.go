@@ -1100,7 +1100,7 @@ func (m model) cleanupSelected(preview protocol.CleanupPreview) tea.Cmd {
 		if !response.OK {
 			return actionMsg{err: fmt.Errorf("%s", response.Error)}
 		}
-		return actionMsg{message: cleanupSuccessMessage(preview), refresh: true}
+		return actionMsg{response: &response, message: cleanupSuccessMessage(preview)}
 	}
 }
 

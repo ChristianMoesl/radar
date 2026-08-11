@@ -25,14 +25,14 @@ import (
 var watchTimeout = 30 * time.Second
 
 type Server struct {
-	store           *state.Store
-	logger          *slog.Logger
-	refresh         func()
-	mutationRefresh func()
-	reset           func() error
-	garbageCollect  func() (protocol.GarbageCollectionResult, error)
-	integrations    integration.Registry
-	cleanupService  cleanup.Service
+	store          *state.Store
+	logger         *slog.Logger
+	refresh        func()
+	localRefresh   func()
+	reset          func() error
+	garbageCollect func() (protocol.GarbageCollectionResult, error)
+	integrations   integration.Registry
+	cleanupService cleanup.Service
 }
 
 func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() error, garbageCollect func() (protocol.GarbageCollectionResult, error), integrations integration.Registry, cleanupService cleanup.Service) *Server {
@@ -47,8 +47,8 @@ func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() e
 	}
 }
 
-func (s *Server) SetMutationRefresh(refresh func()) *Server {
-	s.mutationRefresh = refresh
+func (s *Server) SetLocalRefresh(refresh func()) *Server {
+	s.localRefresh = refresh
 	return s
 }
 
@@ -169,7 +169,9 @@ func (s *Server) handle(conn net.Conn) {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
 				continue
 			}
-			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), CleanupResult: &result})
+			response := s.tasksResponse()
+			response.CleanupResult = &result
+			_ = encoder.Encode(response)
 		default:
 			s.logger.Warn("unknown method", "method", req.Method)
 			_ = encoder.Encode(protocol.Response{OK: false, Error: "unknown method: " + req.Method})
@@ -220,7 +222,7 @@ func (s *Server) mutateTask(method string, mutation *protocol.TaskMutation) (pro
 	if err != nil {
 		return protocol.Task{}, err
 	}
-	refresh := s.mutationRefresh
+	refresh := s.localRefresh
 	if refresh == nil {
 		refresh = s.refresh
 	}
@@ -265,7 +267,14 @@ func (s *Server) cleanup(ctx context.Context, preview *protocol.CleanupPreview) 
 	if preview == nil {
 		return protocol.CleanupResult{}, fmt.Errorf("cleanup targets are required")
 	}
-	return s.cleanupService.Execute(ctx, *preview, cleanup.ExecuteOptions{Force: true})
+	result, err := s.cleanupService.Execute(ctx, *preview, cleanup.ExecuteOptions{Force: true})
+	if err != nil {
+		return result, err
+	}
+	if s.localRefresh != nil {
+		s.localRefresh()
+	}
+	return result, nil
 }
 
 func taskByID(tasks []protocol.Task, id int) (protocol.Task, bool) {
