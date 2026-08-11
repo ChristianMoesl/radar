@@ -176,7 +176,7 @@ Current GitHub collectors:
 
 ## Jira integration
 
-Jira access uses Jira Cloud REST APIs with two collection inputs. Assigned non-done issues are searched only for `jira.authoritative_issue_types`, which defaults to Task, Bug, and Sub-task. An explicit empty list skips assigned search. Radar also scans projected titles and active non-Jira source-ref titles for ticket keys and fetches up to 50 distinct issues through one batched Jira search, preserving deterministic title order regardless of assignee or issue type.
+Jira access uses Jira Cloud REST APIs with two collection inputs. Assigned non-done issues are searched only for `jira.authoritative_issue_types`, which defaults to Task, Bug, and Sub-task. An explicit empty list skips assigned search. Radar also scans projected titles and active non-Jira source-ref titles for ticket keys and fetches up to 50 distinct issues through one batched Jira search, preserving deterministic title order regardless of assignee or issue type. The assigned and title-reference searches run concurrently and their results are deduplicated afterward.
 
 An assigned issue or a title discovery whose issue type matches the configured set is authoritative. Other title discoveries use per-task `jira:mention:<radar-task-id>:<key>` identities and are informational. They retain Jira URL/status/type/priority metadata but have no signal, canonical key, or linking keys. Batch failures and requested keys missing from a batch preserve previously known refs and report partial source status; complete refreshes remove derived refs whose keys disappeared. Explicit attachments remain durable. When a title contains multiple authoritative keys, the first supplies the Jira title and all must complete before the task completes.
 

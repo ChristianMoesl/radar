@@ -60,7 +60,7 @@ func TestCollectFetchesUnassignedTitleReferenceAsInformational(t *testing.T) {
 	if got.Ref.Metadata["issue_type"] != "Epic" || got.Ref.EntityID != "jira:issue:RAD-7" {
 		t.Fatalf("reference = %+v", got.Ref)
 	}
-	if len(requests) != 2 || requests[1].JQL != `key IN ("RAD-7")` {
+	if len(requests) != 2 || !containsJQL(requests, `key IN ("RAD-7")`) {
 		t.Fatalf("requests = %+v", requests)
 	}
 }
@@ -93,10 +93,14 @@ func TestCollectMakesConfiguredTitleReferenceAuthoritative(t *testing.T) {
 	}
 }
 
-func TestCollectDoesNotDirectFetchAssignedTitleDuplicate(t *testing.T) {
-	var requests []string
+func TestCollectDeduplicatesAssignedTitleReference(t *testing.T) {
+	var requests []searchRequest
 	server := jiraSourceServer(t, func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r.Method+" "+r.URL.Path)
+		var request searchRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		requests = append(requests, request)
 		_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("RAD-7", "Task", "Open")}})
 	})
 	defer server.Close()
@@ -106,8 +110,8 @@ func TestCollectDoesNotDirectFetchAssignedTitleDuplicate(t *testing.T) {
 	if len(result.Observations) != 1 || result.Observations[0].TargetTaskID != 5 {
 		t.Fatalf("observations = %+v", result.Observations)
 	}
-	if !reflect.DeepEqual(requests, []string{"POST /search/jql"}) {
-		t.Fatalf("requests = %+v, want one assigned search", requests)
+	if len(requests) != 2 || !containsJQL(requests, `key IN ("RAD-7")`) {
+		t.Fatalf("requests = %+v, want assigned and batched title searches", requests)
 	}
 }
 
@@ -239,6 +243,15 @@ func jiraIssueWithType(key, issueType, status string) issue {
 		}{Key: "done", Name: "Done"}
 	}
 	return value
+}
+
+func containsJQL(requests []searchRequest, want string) bool {
+	for _, request := range requests {
+		if request.JQL == want {
+			return true
+		}
+	}
+	return false
 }
 
 func contains(values []string, want string) bool {

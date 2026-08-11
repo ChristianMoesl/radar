@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 
 	"radar/internal/config"
 	"radar/internal/integration"
@@ -64,25 +65,53 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 
 	status := protocol.SourceStatus{Name: "jira", Status: "ok"}
 	complete := true
-	assigned := []issue{}
 	details := make([]string, 0, 3)
-	if len(userConfig.Jira.AuthoritativeIssueTypes) == 0 {
-		details = append(details, "assigned search skipped")
-	} else {
-		assigned, err = searchAssignedIssues(ctx, jiraConfig, userConfig.Jira.AuthoritativeIssueTypes)
-		if err != nil {
-			complete = false
-			status.Status = "error"
-			details = append(details, "assigned search failed: "+err.Error())
-			req.Logger.Warn("jira assigned issue collection failed", "error", err)
-		} else {
-			details = append(details, fmt.Sprintf("%d assigned issues", len(assigned)))
-		}
-	}
-
 	mentions := discoverIssueMentions(req.Previous, req.LinkingMarks)
 	mentionsByKey, keyOrder := groupMentions(mentions)
-	issuesByKey := make(map[string]issue, len(assigned)+len(keyOrder))
+	batchKeys := append([]string(nil), keyOrder...)
+	truncated := 0
+	preserveKeys := map[string]bool{}
+	if len(batchKeys) > maxTitleDiscoveredIssues {
+		truncated = len(batchKeys) - maxTitleDiscoveredIssues
+		for _, key := range batchKeys[maxTitleDiscoveredIssues:] {
+			preserveKeys[key] = true
+		}
+		batchKeys = batchKeys[:maxTitleDiscoveredIssues]
+		complete = false
+		status.Status = "error"
+	}
+
+	var assigned, fetched []issue
+	var assignedErr, batchErr error
+	var wg sync.WaitGroup
+	if len(userConfig.Jira.AuthoritativeIssueTypes) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			assigned, assignedErr = searchAssignedIssues(ctx, jiraConfig, userConfig.Jira.AuthoritativeIssueTypes)
+		}()
+	}
+	if len(batchKeys) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fetched, batchErr = searchIssuesByKeys(ctx, jiraConfig, batchKeys)
+		}()
+	}
+	wg.Wait()
+
+	if len(userConfig.Jira.AuthoritativeIssueTypes) == 0 {
+		details = append(details, "assigned search skipped")
+	} else if assignedErr != nil {
+		complete = false
+		status.Status = "error"
+		details = append(details, "assigned search failed: "+assignedErr.Error())
+		req.Logger.Warn("jira assigned issue collection failed", "error", assignedErr)
+	} else {
+		details = append(details, fmt.Sprintf("%d assigned issues", len(assigned)))
+	}
+
+	issuesByKey := make(map[string]issue, len(assigned)+len(fetched))
 	assignedKeys := make(map[string]bool, len(assigned))
 	for _, value := range assigned {
 		key := normalizeIssueKey(value.Key)
@@ -93,55 +122,29 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		assignedKeys[key] = true
 		issuesByKey[key] = value
 	}
-
-	fetchKeys := make([]string, 0, len(keyOrder))
-	for _, key := range keyOrder {
-		if !assignedKeys[key] {
-			fetchKeys = append(fetchKeys, key)
+	for _, value := range fetched {
+		key := normalizeIssueKey(value.Key)
+		if key == "" || assignedKeys[key] {
+			continue
 		}
-	}
-	truncated := 0
-	preserveKeys := map[string]bool{}
-	if len(fetchKeys) > maxTitleDiscoveredIssues {
-		truncated = len(fetchKeys) - maxTitleDiscoveredIssues
-		for _, key := range fetchKeys[maxTitleDiscoveredIssues:] {
-			preserveKeys[key] = true
-		}
-		fetchKeys = fetchKeys[:maxTitleDiscoveredIssues]
-		complete = false
-		status.Status = "error"
+		value.Key = key
+		issuesByKey[key] = value
 	}
 
 	failedKeys := map[string]bool{}
-	if len(fetchKeys) > 0 {
-		fetched, fetchErr := searchIssuesByKeys(ctx, jiraConfig, fetchKeys)
-		if fetchErr != nil {
-			complete = false
-			status.Status = "error"
-			for _, key := range fetchKeys {
-				failedKeys[key] = true
-				preserveKeys[key] = true
-			}
-			req.Logger.Warn("jira title reference batch fetch failed", "keys", len(fetchKeys), "error", fetchErr)
-		} else {
-			for _, value := range fetched {
-				key := normalizeIssueKey(value.Key)
-				if key == "" {
-					continue
-				}
-				value.Key = key
-				issuesByKey[key] = value
-			}
-			for _, key := range fetchKeys {
-				if _, found := issuesByKey[key]; found {
-					continue
-				}
-				complete = false
-				status.Status = "error"
-				failedKeys[key] = true
-				preserveKeys[key] = true
-			}
+	if batchErr != nil {
+		complete = false
+		status.Status = "error"
+		req.Logger.Warn("jira title reference batch fetch failed", "keys", len(batchKeys), "error", batchErr)
+	}
+	for _, key := range batchKeys {
+		if _, found := issuesByKey[key]; found {
+			continue
 		}
+		complete = false
+		status.Status = "error"
+		failedKeys[key] = true
+		preserveKeys[key] = true
 	}
 
 	observations := make([]integration.Observation, 0, len(assigned)+len(mentions))
@@ -171,8 +174,8 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		}
 	}
 
-	if len(preserveKeys) > 0 || err != nil {
-		observations = append(observations, previousJiraObservations(req.Previous, preserveKeys, err != nil)...)
+	if len(preserveKeys) > 0 || assignedErr != nil {
+		observations = append(observations, previousJiraObservations(req.Previous, preserveKeys, assignedErr != nil)...)
 	}
 	observations = deduplicateObservations(observations)
 	details = append(details, fmt.Sprintf("%d title references", len(keyOrder)))
