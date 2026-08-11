@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
 
 	"radar/internal/config"
 	"radar/internal/filters"
@@ -46,6 +47,7 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger,
 			continue
 		}
 		name := source.Descriptor().Name
+		started := time.Now()
 		reconciled := reconciler.Reconcile(ctx, integration.ReconcileRequest{
 			Previous:     previous,
 			Active:       active,
@@ -57,6 +59,7 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger,
 			reconciled[i] = describeObservation(source.Descriptor(), reconciled[i])
 		}
 		collected.Observations = append(collected.Observations, reconciled...)
+		logger.Debug("source reconciliation finished", "source", name, "duration", time.Since(started), "observations", len(reconciled))
 	}
 	return Result{Tasks: deduplicateReconciledTasks(observedTasks(collected)), Sources: collected.Sources, SourceNames: collected.SourceNames}
 }
@@ -115,6 +118,7 @@ type sourceCollection struct {
 }
 
 func collectSource(ctx context.Context, source integration.Source, descriptor integration.Descriptor, previous []protocol.Task, filterCfg filters.Config, marks linking.MarkMatcher, logger *slog.Logger) sourceCollection {
+	started := time.Now()
 	collection := sourceCollection{
 		descriptor: descriptor,
 		status: integration.StatusResult{
@@ -122,13 +126,17 @@ func collectSource(ctx context.Context, source integration.Source, descriptor in
 			CanRun: true,
 		},
 	}
+	statusStarted := time.Now()
 	if reporter, ok := source.(integration.StatusReporter); ok {
 		collection.status = reporter.Status(ctx, logger)
 	}
+	statusDuration := time.Since(statusStarted)
 	if !collection.status.CanRun {
+		logger.Debug("source collection skipped", "source", descriptor.Name, "duration", time.Since(started), "status_duration", statusDuration, "status", collection.status.Status.Status)
 		return collection
 	}
 
+	collectStarted := time.Now()
 	collection.result = source.Collect(ctx, integration.CollectRequest{
 		Previous:     previous,
 		Filters:      filterCfg,
@@ -145,6 +153,7 @@ func collectSource(ctx context.Context, source integration.Source, descriptor in
 		collection.result.Observations[i] = describeObservation(descriptor, collection.result.Observations[i])
 	}
 	collection.status.Status.SourceRefCount = sourceRefCount(descriptor.Name, collection.result)
+	logger.Debug("source collection finished", "source", descriptor.Name, "duration", time.Since(started), "status_duration", statusDuration, "collect_duration", time.Since(collectStarted), "observations", len(collection.result.Observations), "complete", collection.result.Complete)
 	return collection
 }
 

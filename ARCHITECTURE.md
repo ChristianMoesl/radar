@@ -226,4 +226,4 @@ The Bubble Tea TUI is the default interface. It reads cached daemon state, group
 
 ## Logging
 
-Daemon logging goes through `internal/logging` and writes to the user state directory by default. Routine refresh details should stay at debug level so normal logs remain readable.
+Daemon logging goes through `internal/logging` and writes to the user state directory by default. Routine refresh details stay at debug level so normal logs remain readable. Debug logs include status, collection, and sequential reconciliation durations per source for refresh-performance diagnosis.
