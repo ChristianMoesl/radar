@@ -28,9 +28,10 @@ type WorkspaceContext struct {
 }
 
 type WorkspaceContextCapabilities struct {
-	Worktrees      bool `json:"worktrees"`
-	Sandbox        bool `json:"sandbox"`
-	PortForwarding bool `json:"port_forwarding"`
+	Worktrees        bool `json:"worktrees"`
+	Sandbox          bool `json:"sandbox"`
+	AdditionalMounts bool `json:"additional_mounts"`
+	PortForwarding   bool `json:"port_forwarding"`
 }
 
 type WorkspaceContextMember struct {
@@ -126,13 +127,18 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		CurrentPath: current, WorkspaceRoot: root, WorkspaceID: group.ID,
 		WorkspaceName: group.Name, PrimaryPath: group.PrimaryPath, Registered: registered,
 		EnrollmentRequired: !registered, SessionName: group.SessionName, Revision: revision,
-		Capabilities: WorkspaceContextCapabilities{Worktrees: true, Sandbox: group.Sandbox != nil, PortForwarding: group.Sandbox != nil},
+		Capabilities: WorkspaceContextCapabilities{Worktrees: true, Sandbox: group.Sandbox != nil, AdditionalMounts: group.Sandbox != nil, PortForwarding: group.Sandbox != nil},
 		Desired:      DesiredWorkspaceDescription{Worktrees: make([]DesiredWorkspaceWorktree, 0, len(group.Members))},
 		Members:      make([]WorkspaceContextMember, 0, len(group.Members)),
 		Repositories: make([]WorkspaceContextRepository, 0, len(repositories)),
 	}
 	if group.Sandbox != nil {
-		result.Desired.Sandbox = &DesiredWorkspaceSandbox{Ports: append([]workspacegroup.SandboxPort{}, ports...)}
+		desiredMounts := make([]DesiredSandboxMount, 0, len(group.Sandbox.AdditionalMounts))
+		for _, mount := range group.Sandbox.AdditionalMounts {
+			readOnly := mount.ReadOnly
+			desiredMounts = append(desiredMounts, DesiredSandboxMount{Path: mount.Path, ReadOnly: &readOnly})
+		}
+		result.Desired.Sandbox = &DesiredWorkspaceSandbox{AdditionalMounts: desiredMounts, Ports: append([]workspacegroup.SandboxPort{}, ports...)}
 		result.Sandbox = &WorkspaceContextSandbox{
 			Name: group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath,
 			Mounts: append([]string(nil), group.Sandbox.Mounts...), Ports: append([]workspacegroup.SandboxPort{}, ports...),

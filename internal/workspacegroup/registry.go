@@ -32,11 +32,17 @@ type Workspace struct {
 }
 
 type Sandbox struct {
-	Name    string        `json:"name"`
-	Agent   string        `json:"agent"`
-	KitPath string        `json:"kit_path,omitempty"`
-	Mounts  []string      `json:"mounts"`
-	Ports   []SandboxPort `json:"ports"`
+	Name             string         `json:"name"`
+	Agent            string         `json:"agent"`
+	KitPath          string         `json:"kit_path,omitempty"`
+	Mounts           []string       `json:"mounts"`
+	AdditionalMounts []SandboxMount `json:"additional_mounts"`
+	Ports            []SandboxPort  `json:"ports"`
+}
+
+type SandboxMount struct {
+	Path     string `json:"path"`
+	ReadOnly bool   `json:"read_only"`
 }
 
 type SandboxPort struct {
@@ -295,6 +301,25 @@ func normalizeAndValidate(registry *Registry) error {
 				}
 			}
 			workspace.Sandbox.Mounts = normalizeMounts(workspace.Sandbox.Mounts)
+			additionalMounts := make([]SandboxMount, 0, len(workspace.Sandbox.AdditionalMounts))
+			additionalMountPaths := map[string]bool{}
+			for _, mount := range workspace.Sandbox.AdditionalMounts {
+				mount.Path = cleanPath(mount.Path)
+				if !filepath.IsAbs(mount.Path) {
+					return fmt.Errorf("workspace %q sandbox additional mounts must be absolute", workspace.ID)
+				}
+				key := pathKey(mount.Path)
+				if additionalMountPaths[key] {
+					return fmt.Errorf("workspace %q has duplicate sandbox additional mount %q", workspace.ID, mount.Path)
+				}
+				additionalMountPaths[key] = true
+				additionalMounts = append(additionalMounts, mount)
+			}
+			sort.Slice(additionalMounts, func(i, j int) bool { return pathKey(additionalMounts[i].Path) < pathKey(additionalMounts[j].Path) })
+			if additionalMounts == nil {
+				additionalMounts = []SandboxMount{}
+			}
+			workspace.Sandbox.AdditionalMounts = additionalMounts
 			ports := make([]SandboxPort, 0, len(workspace.Sandbox.Ports))
 			hostPorts := map[int]bool{}
 			for _, port := range workspace.Sandbox.Ports {

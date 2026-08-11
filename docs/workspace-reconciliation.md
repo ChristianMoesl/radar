@@ -37,6 +37,9 @@ radar reconcile-workspace --workspace <path> --request <json>
       }
     ],
     "sandbox": {
+      "additional_mounts": [
+        {"path": "/absolute/host/directory", "read_only": true}
+      ],
       "ports": [
         {"host_port": 3000, "sandbox_port": 3000}
       ]
@@ -45,7 +48,7 @@ radar reconcile-workspace --workspace <path> --request <json>
 }
 ```
 
-Both worktrees and ports use replacement semantics. An omitted member or port is removed. Radar derives paths, sandbox names, mounts, tmux resources, and Git common directories rather than accepting them from the agent.
+Worktrees, agent-requested additional mounts, and ports use replacement semantics. An omitted member, requested mount, or port is removed. Radar derives worktree paths, sandbox names, tmux resources, Git common directories, and configured mounts rather than accepting them from the agent. Agent-requested mounts remain a separate typed set so they cannot remove Radar-managed mounts.
 
 ## Safety
 
@@ -54,13 +57,15 @@ Both worktrees and ports use replacement semantics. An omitted member or port is
 - Dirty member worktrees cannot be removed by reconciliation.
 - Existing member branches cannot be changed in place.
 - Host ports are validated, unique, and published by SBX on loopback.
+- Additional mounts require absolute host paths, default to read-only, and require an explicit `read_only: false` for writable host access.
+- Requested mounts cannot overlap mounts managed by worktree membership or Radar configuration.
 - Sandbox attachment is immutable through reconciliation.
-- A workspace without SBX reports `sandbox: false`, `port_forwarding: false`, and `desired.sandbox: null`.
+- A workspace without SBX reports `sandbox: false`, `additional_mounts: false`, `port_forwarding: false`, and `desired.sandbox: null`.
 - Submitting sandbox state for a sandbox-less workspace fails validation and never enables SBX implicitly.
 - The Pi adapter fails closed without an interactive confirmation channel.
 
 ## Persistence and convergence
 
-`<workspace_root>/.radar-workspaces.json` remains the durable workspace registry. Its optional sandbox record stores desired mounts and ports. Radar also observes current worktrees, SBX mounts, and SBX published ports while planning so retries repair drift instead of trusting persistence alone.
+`<workspace_root>/.radar-workspaces.json` remains the durable workspace registry. Its optional sandbox record stores agent-requested additional mounts, effective mounts, and desired ports. Radar also observes current worktrees, SBX mounts, and SBX published ports while planning so retries repair drift instead of trusting persistence alone.
 
 Apply ensures added worktrees, removes clean omitted members, persists desired membership, reconciles sandbox mounts when present, reconciles the complete port set, and schedules member setup once. Sandbox and port failures return a retryable partial result without rolling back completed work.

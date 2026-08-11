@@ -24,7 +24,7 @@ func TestMaterializeRadarExtension(t *testing.T) {
 	}
 	text := string(data)
 	for _, required := range []string{
-		"radar_reconcile_workspace", "reconcile-workspace", "promptSnippet", "promptGuidelines", "ctx.ui.confirm", "pi.exec", "RADAR_BINARY", "Type.Union",
+		"radar_reconcile_workspace", "reconcile-workspace", "additional_mounts", "read_only", "promptSnippet", "promptGuidelines", "ctx.ui.confirm", "pi.exec", "RADAR_BINARY", "Type.Union",
 		"@radar_busy", "publishBusy", "TMUX_PANE", "session_start", "agent_start", "agent_settled", "session_shutdown",
 	} {
 		if !strings.Contains(text, required) {

@@ -38,7 +38,13 @@ type DesiredWorkspaceWorktree struct {
 }
 
 type DesiredWorkspaceSandbox struct {
-	Ports []workspacegroup.SandboxPort `json:"ports"`
+	AdditionalMounts []DesiredSandboxMount        `json:"additional_mounts"`
+	Ports            []workspacegroup.SandboxPort `json:"ports"`
+}
+
+type DesiredSandboxMount struct {
+	Path     string `json:"path"`
+	ReadOnly *bool  `json:"read_only,omitempty"`
 }
 
 type WorkspaceChange struct {
@@ -50,6 +56,7 @@ type WorkspaceChange struct {
 	Branch      string `json:"branch,omitempty"`
 	HostPort    int    `json:"host_port,omitempty"`
 	SandboxPort int    `json:"sandbox_port,omitempty"`
+	ReadOnly    *bool  `json:"read_only,omitempty"`
 }
 
 type ReconcileWorkspacePlan struct {
@@ -74,6 +81,8 @@ type ReconcileWorkspaceResult struct {
 	WorktreesAdded    int    `json:"worktrees_added"`
 	WorktreesRemoved  int    `json:"worktrees_removed"`
 	SandboxReconciled bool   `json:"sandbox_reconciled"`
+	MountsAdded       int    `json:"mounts_added"`
+	MountsRemoved     int    `json:"mounts_removed"`
 	PortsPublished    int    `json:"ports_published"`
 	PortsUnpublished  int    `json:"ports_unpublished"`
 	Retryable         bool   `json:"retryable,omitempty"`
@@ -200,7 +209,7 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 	}
 
 	if group.Sandbox == nil && request.Desired.Sandbox != nil {
-		return ReconcileWorkspacePlan{}, fmt.Errorf("this workspace has no SBX sandbox; sandbox ports are unavailable")
+		return ReconcileWorkspacePlan{}, fmt.Errorf("this workspace has no SBX sandbox; sandbox mounts and ports are unavailable")
 	}
 	if group.Sandbox != nil && request.Desired.Sandbox == nil {
 		return ReconcileWorkspacePlan{}, fmt.Errorf("sandbox attachment cannot be changed through workspace reconciliation")
@@ -223,13 +232,23 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 	}
 
 	recreateSandbox := false
+	writableMountAdded := false
 	if candidate.Sandbox != nil {
+		desiredAdditionalMounts, err := normalizeDesiredSandboxMounts(request.Desired.Sandbox.AdditionalMounts)
+		if err != nil {
+			return ReconcileWorkspacePlan{}, err
+		}
+		currentAdditionalMounts, err := normalizeSandboxMounts(group.Sandbox.AdditionalMounts)
+		if err != nil {
+			return ReconcileWorkspacePlan{}, err
+		}
+		candidate.Sandbox.AdditionalMounts = desiredAdditionalMounts
 		desiredPorts, err := normalizeSandboxPorts(request.Desired.Sandbox.Ports)
 		if err != nil {
 			return ReconcileWorkspacePlan{}, err
 		}
 		candidate.Sandbox.Ports = desiredPorts
-		mounts, err := desiredReconciledSandboxMounts(ctx, runner, candidate, plansByPath, request.AdditionalSandboxMounts)
+		mounts, err := desiredReconciledSandboxMounts(ctx, runner, candidate, plansByPath, request.AdditionalSandboxMounts, desiredAdditionalMounts)
 		if err != nil {
 			return ReconcileWorkspacePlan{}, err
 		}
@@ -239,8 +258,22 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 			return ReconcileWorkspacePlan{}, err
 		}
 		recreateSandbox = !found || !sameMountSet(mounts, sandboxWorkspaceMounts(actual))
+		for _, mount := range mountDifference(desiredAdditionalMounts, currentAdditionalMounts) {
+			readOnly := mount.ReadOnly
+			mode := "writable"
+			if mount.ReadOnly {
+				mode = "read-only"
+			} else {
+				writableMountAdded = true
+			}
+			changes = append(changes, WorkspaceChange{Action: "add", Resource: "sandbox_mount", Path: mount.Path, ReadOnly: &readOnly, Summary: fmt.Sprintf("mount %s in the sandbox as %s", mount.Path, mode)})
+		}
+		for _, mount := range mountDifference(currentAdditionalMounts, desiredAdditionalMounts) {
+			readOnly := mount.ReadOnly
+			changes = append(changes, WorkspaceChange{Action: "remove", Resource: "sandbox_mount", Path: mount.Path, ReadOnly: &readOnly, Summary: fmt.Sprintf("remove sandbox mount %s", mount.Path)})
+		}
 		if recreateSandbox {
-			changes = append(changes, WorkspaceChange{Action: "recreate", Resource: "sandbox", Summary: fmt.Sprintf("recreate SBX sandbox %s with the desired worktree mounts", group.Sandbox.Name)})
+			changes = append(changes, WorkspaceChange{Action: "recreate", Resource: "sandbox", Summary: fmt.Sprintf("recreate SBX sandbox %s with the desired mounts", group.Sandbox.Name)})
 		}
 		for _, port := range portDifference(desiredPorts, actualPorts) {
 			changes = append(changes, WorkspaceChange{Action: "add", Resource: "sandbox_port", HostPort: port.HostPort, SandboxPort: port.SandboxPort, Summary: fmt.Sprintf("expose localhost:%d to sandbox port %d", port.HostPort, port.SandboxPort)})
@@ -257,6 +290,9 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 	warnings := []string{}
 	if recreateSandbox {
 		warnings = append(warnings, "recreating the sandbox interrupts processes running inside it")
+	}
+	if writableMountAdded {
+		warnings = append(warnings, "a writable sandbox mount grants the sandbox write access to that host directory")
 	}
 	planID, err := workspacePlanID(revision, changes, warnings)
 	if err != nil {
@@ -307,6 +343,16 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, request Reconci
 			return result, nil
 		}
 		result.SandboxReconciled = true
+		for _, change := range plan.Changes {
+			if change.Resource != "sandbox_mount" {
+				continue
+			}
+			if change.Action == "add" {
+				result.MountsAdded++
+			} else if change.Action == "remove" {
+				result.MountsRemoved++
+			}
+		}
 		published, unpublished, err := reconcileSandboxPorts(ctx, runner, plan.group.Sandbox.Name, plan.group.Sandbox.Ports)
 		result.PortsPublished = published
 		result.PortsUnpublished = unpublished
@@ -402,10 +448,11 @@ func workspacePlanID(revision string, changes []WorkspaceChange, warnings []stri
 
 func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.SandboxPort) (string, error) {
 	type revisionSandbox struct {
-		Name    string                       `json:"name"`
-		Agent   string                       `json:"agent"`
-		KitPath string                       `json:"kit_path"`
-		Ports   []workspacegroup.SandboxPort `json:"ports"`
+		Name             string                        `json:"name"`
+		Agent            string                        `json:"agent"`
+		KitPath          string                        `json:"kit_path"`
+		AdditionalMounts []workspacegroup.SandboxMount `json:"additional_mounts"`
+		Ports            []workspacegroup.SandboxPort  `json:"ports"`
 	}
 	type revisionState struct {
 		ID          string                  `json:"id"`
@@ -426,7 +473,11 @@ func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.Sa
 		if err != nil {
 			return "", err
 		}
-		state.Sandbox = &revisionSandbox{Name: group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath, Ports: normalizedPorts}
+		normalizedMounts, err := normalizeSandboxMounts(group.Sandbox.AdditionalMounts)
+		if err != nil {
+			return "", err
+		}
+		state.Sandbox = &revisionSandbox{Name: group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath, AdditionalMounts: normalizedMounts, Ports: normalizedPorts}
 	}
 	data, err := json.Marshal(state)
 	if err != nil {
@@ -441,6 +492,68 @@ func sandboxPorts(group workspacegroup.Workspace) []workspacegroup.SandboxPort {
 		return []workspacegroup.SandboxPort{}
 	}
 	return append([]workspacegroup.SandboxPort(nil), group.Sandbox.Ports...)
+}
+
+func normalizeDesiredSandboxMounts(mounts []DesiredSandboxMount) ([]workspacegroup.SandboxMount, error) {
+	result := make([]workspacegroup.SandboxMount, 0, len(mounts))
+	for _, mount := range mounts {
+		readOnly := true
+		if mount.ReadOnly != nil {
+			readOnly = *mount.ReadOnly
+		}
+		result = append(result, workspacegroup.SandboxMount{Path: mount.Path, ReadOnly: readOnly})
+	}
+	return normalizeSandboxMounts(result)
+}
+
+func normalizeSandboxMounts(mounts []workspacegroup.SandboxMount) ([]workspacegroup.SandboxMount, error) {
+	result := make([]workspacegroup.SandboxMount, 0, len(mounts))
+	seen := map[string]bool{}
+	for _, mount := range mounts {
+		if strings.HasSuffix(strings.TrimSpace(mount.Path), ":ro") {
+			return nil, fmt.Errorf("sandbox additional mount %q must use read_only instead of a :ro suffix", mount.Path)
+		}
+		mount.Path = filepath.Clean(ExpandPath(strings.TrimSpace(mount.Path)))
+		if !filepath.IsAbs(mount.Path) {
+			return nil, fmt.Errorf("sandbox additional mount %q must be absolute or start with ~/", mount.Path)
+		}
+		key := pathKey(mount.Path)
+		if seen[key] {
+			return nil, fmt.Errorf("sandbox additional mount %q appears more than once", mount.Path)
+		}
+		seen[key] = true
+		result = append(result, mount)
+	}
+	sort.Slice(result, func(i, j int) bool { return pathKey(result[i].Path) < pathKey(result[j].Path) })
+	if result == nil {
+		result = []workspacegroup.SandboxMount{}
+	}
+	return result, nil
+}
+
+func mountDifference(left, right []workspacegroup.SandboxMount) []workspacegroup.SandboxMount {
+	rightSet := map[string]bool{}
+	for _, mount := range right {
+		rightSet[mountKey(mount)] = true
+	}
+	result := []workspacegroup.SandboxMount{}
+	for _, mount := range left {
+		if !rightSet[mountKey(mount)] {
+			result = append(result, mount)
+		}
+	}
+	return result
+}
+
+func mountKey(mount workspacegroup.SandboxMount) string {
+	return fmt.Sprintf("%s:%t", pathKey(mount.Path), mount.ReadOnly)
+}
+
+func sandboxMountArgument(mount workspacegroup.SandboxMount) string {
+	if mount.ReadOnly {
+		return mount.Path + ":ro"
+	}
+	return mount.Path
 }
 
 func normalizeSandboxPorts(ports []workspacegroup.SandboxPort) ([]workspacegroup.SandboxPort, error) {
@@ -588,7 +701,7 @@ func reconcileSandboxPorts(ctx context.Context, runner Runner, name string, desi
 	return published, unpublished, nil
 }
 
-func desiredReconciledSandboxMounts(ctx context.Context, runner Runner, group workspacegroup.Workspace, plans map[string]WorktreePlan, global []string) ([]string, error) {
+func desiredReconciledSandboxMounts(ctx context.Context, runner Runner, group workspacegroup.Workspace, plans map[string]WorktreePlan, global []string, additional []workspacegroup.SandboxMount) ([]string, error) {
 	mounts := []string{}
 	for _, member := range group.Members {
 		mounts = append(mounts, member.Path)
@@ -613,5 +726,19 @@ func desiredReconciledSandboxMounts(ctx context.Context, runner Runner, group wo
 		}
 	}
 	mounts = append(mounts, global...)
-	return normalizeConfiguredMounts(mounts)
+	managed, err := normalizeConfiguredMounts(mounts)
+	if err != nil {
+		return nil, err
+	}
+	managedPaths := map[string]bool{}
+	for _, mount := range managed {
+		managedPaths[pathKey(strings.TrimSuffix(mount, ":ro"))] = true
+	}
+	for _, mount := range additional {
+		if managedPaths[pathKey(mount.Path)] {
+			return nil, fmt.Errorf("sandbox additional mount %q is already managed by the workspace or Radar configuration", mount.Path)
+		}
+		managed = append(managed, sandboxMountArgument(mount))
+	}
+	return normalizeConfiguredMounts(managed)
 }

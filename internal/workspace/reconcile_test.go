@@ -146,6 +146,135 @@ func (r *sbxRejectingRunner) Run(ctx context.Context, cwd, name string, args ...
 	return r.Runner.Run(ctx, cwd, name, args...)
 }
 
+func TestReconcileWorkspacePlansAdditionalSandboxMount(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "source")
+	primary := filepath.Join(root, "repo", "work")
+	common := filepath.Join(repository, ".git")
+	additional := filepath.Join(root, "shared")
+	for _, path := range []string{repository, primary, common} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	group := workspacegroup.Workspace{
+		ID: workspacegroup.ID(primary), Name: "work", PrimaryPath: primary,
+		Sandbox: &workspacegroup.Sandbox{Name: "work-sandbox", Agent: "shell", Mounts: []string{primary, common}},
+		Members: []workspacegroup.Member{{Repository: repository, Path: primary, Branch: "work", Primary: true}},
+	}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+		t.Fatal(err)
+	}
+	group = loadTestWorkspace(t, root, primary)
+	revision, err := workspaceRevision(group, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &sandboxPlanningRunner{primary: primary, common: common, sandboxName: group.Sandbox.Name, mounts: group.Sandbox.Mounts, exists: true}
+	request := ReconcileWorkspaceRequest{
+		Workspace: primary, WorkspaceRoot: root, Revision: revision,
+		Desired: DesiredWorkspaceDescription{
+			Worktrees: []DesiredWorkspaceWorktree{{Repository: repository, BranchMode: integration.WorkspaceBranchExisting, Branch: "work"}},
+			Sandbox: &DesiredWorkspaceSandbox{
+				AdditionalMounts: []DesiredSandboxMount{{Path: additional}},
+				Ports:            []workspacegroup.SandboxPort{},
+			},
+		},
+	}
+	plan, err := PreviewReconcileWorkspace(context.Background(), runner, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) != 2 || plan.Changes[0].Resource != "sandbox_mount" || plan.Changes[0].Action != "add" || plan.Changes[0].Path != additional || plan.Changes[0].ReadOnly == nil || !*plan.Changes[0].ReadOnly {
+		t.Fatalf("plan changes = %+v", plan.Changes)
+	}
+	if plan.Changes[1].Resource != "sandbox" || plan.Changes[1].Action != "recreate" {
+		t.Fatalf("plan changes = %+v", plan.Changes)
+	}
+	if len(plan.group.Sandbox.AdditionalMounts) != 1 || !plan.group.Sandbox.AdditionalMounts[0].ReadOnly {
+		t.Fatalf("desired additional mounts = %+v", plan.group.Sandbox.AdditionalMounts)
+	}
+	if !containsPath(plan.group.Sandbox.Mounts, additional+":ro") {
+		t.Fatalf("sandbox mounts = %+v", plan.group.Sandbox.Mounts)
+	}
+
+	writable := false
+	request.Desired.Sandbox.AdditionalMounts = []DesiredSandboxMount{{Path: additional, ReadOnly: &writable}}
+	writablePlan, err := PreviewReconcileWorkspace(context.Background(), runner, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(writablePlan.Warnings) != 2 || !strings.Contains(writablePlan.Warnings[1], "write access") {
+		t.Fatalf("writable mount warnings = %+v", writablePlan.Warnings)
+	}
+
+	request.Desired.Sandbox.AdditionalMounts = []DesiredSandboxMount{{Path: primary}}
+	if _, err := PreviewReconcileWorkspace(context.Background(), runner, request); err == nil || !strings.Contains(err.Error(), "already managed") {
+		t.Fatalf("managed mount collision error = %v", err)
+	}
+
+	request.Desired.Sandbox.AdditionalMounts = []DesiredSandboxMount{{Path: additional}}
+	request.ExpectedPlanID = plan.PlanID
+	result, err := ApplyReconcileWorkspace(context.Background(), runner, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK || !result.SandboxReconciled || result.MountsAdded != 1 || result.MountsRemoved != 0 {
+		t.Fatalf("result = %+v", result)
+	}
+	stored := loadTestWorkspace(t, root, primary)
+	if len(stored.Sandbox.AdditionalMounts) != 1 || stored.Sandbox.AdditionalMounts[0].Path != additional || !stored.Sandbox.AdditionalMounts[0].ReadOnly {
+		t.Fatalf("stored additional mounts = %+v", stored.Sandbox.AdditionalMounts)
+	}
+	if !containsPath(runner.mounts, additional+":ro") {
+		t.Fatalf("actual sandbox mounts = %+v", runner.mounts)
+	}
+}
+
+type sandboxPlanningRunner struct {
+	primary     string
+	common      string
+	sandboxName string
+	mounts      []string
+	exists      bool
+}
+
+func (r *sandboxPlanningRunner) LookPath(string) error { return nil }
+func (r *sandboxPlanningRunner) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
+	command := name + " " + strings.Join(args, " ")
+	if name == "sbx" && len(args) > 0 {
+		switch args[0] {
+		case "rm":
+			r.exists = false
+			return "", nil
+		case "create":
+			if len(args) < 5 || args[1] != "--name" || args[2] != r.sandboxName {
+				return "", fmt.Errorf("unexpected create command: %s", command)
+			}
+			r.mounts = append([]string(nil), args[4:]...)
+			r.exists = true
+			return "", nil
+		}
+	}
+	switch command {
+	case "git rev-parse --show-toplevel":
+		return r.primary, nil
+	case "git rev-parse --path-format=absolute --git-common-dir":
+		return r.common, nil
+	case "sbx ls --json":
+		sandboxes := []any{}
+		if r.exists {
+			sandboxes = append(sandboxes, map[string]any{"name": r.sandboxName, "agent": "shell", "status": "running", "workspaces": r.mounts})
+		}
+		data, _ := json.Marshal(map[string]any{"sandboxes": sandboxes})
+		return string(data), nil
+	case "sbx ports " + r.sandboxName + " --json":
+		return `[]`, nil
+	default:
+		return "", fmt.Errorf("unexpected command: %s", command)
+	}
+}
+
 func TestReconcileWorkspaceRejectsStaleRevision(t *testing.T) {
 	group := workspacegroup.Workspace{
 		ID: "workspace", Name: "work", PrimaryPath: "/workspaces/repo/work",

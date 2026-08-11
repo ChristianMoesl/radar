@@ -99,7 +99,7 @@ func TestRegistryNormalizesSandboxPorts(t *testing.T) {
 	repository := filepath.Join(root, "source")
 	registry := Registry{Version: Version, Workspaces: []Workspace{{
 		ID: "one", Name: "one", PrimaryPath: path,
-		Sandbox: &Sandbox{Name: "one", Agent: "shell", Ports: []SandboxPort{{HostPort: 8080, SandboxPort: 80}, {HostPort: 3000, SandboxPort: 3000}}},
+		Sandbox: &Sandbox{Name: "one", Agent: "shell", AdditionalMounts: []SandboxMount{{Path: filepath.Join(root, "z"), ReadOnly: true}, {Path: filepath.Join(root, "a")}}, Ports: []SandboxPort{{HostPort: 8080, SandboxPort: 80}, {HostPort: 3000, SandboxPort: 3000}}},
 		Members: []Member{{Repository: repository, Path: path, Branch: "one", Primary: true}},
 	}}}
 	if err := Save(root, registry); err != nil {
@@ -112,6 +112,24 @@ func TestRegistryNormalizesSandboxPorts(t *testing.T) {
 	ports := loaded.Workspaces[0].Sandbox.Ports
 	if len(ports) != 2 || ports[0].HostPort != 3000 || ports[1].HostPort != 8080 {
 		t.Fatalf("ports = %+v", ports)
+	}
+	mounts := loaded.Workspaces[0].Sandbox.AdditionalMounts
+	if len(mounts) != 2 || mounts[0].Path != filepath.Join(root, "a") || mounts[1].Path != filepath.Join(root, "z") || !mounts[1].ReadOnly {
+		t.Fatalf("additional mounts = %+v", mounts)
+	}
+}
+
+func TestRegistryRejectsDuplicateSandboxAdditionalMounts(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "repo", "work")
+	mount := filepath.Join(root, "shared")
+	err := Save(root, Registry{Version: Version, Workspaces: []Workspace{{
+		ID: "one", Name: "one", PrimaryPath: path,
+		Sandbox: &Sandbox{Name: "one", Agent: "shell", AdditionalMounts: []SandboxMount{{Path: mount, ReadOnly: true}, {Path: mount}}},
+		Members: []Member{{Repository: filepath.Join(root, "source"), Path: path, Branch: "one", Primary: true}},
+	}}})
+	if err == nil || !strings.Contains(err.Error(), "duplicate sandbox additional mount") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

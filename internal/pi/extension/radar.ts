@@ -21,7 +21,13 @@ const SandboxPort = Type.Object({
   sandbox_port: Type.Integer({ minimum: 1, maximum: 65535, description: "TCP port inside the sandbox" }),
 }, { additionalProperties: false });
 
+const SandboxMount = Type.Object({
+  path: Type.String({ description: "Absolute host directory to mount into the sandbox" }),
+  read_only: Type.Optional(Type.Boolean({ description: "Mount read-only; defaults to true when omitted", default: true })),
+}, { additionalProperties: false });
+
 const DesiredSandbox = Type.Object({
+  additional_mounts: Type.Array(SandboxMount, { description: "Complete agent-requested additional mount set; Radar-managed mounts are separate" }),
   ports: Type.Array(SandboxPort, { description: "Complete desired loopback TCP port set" }),
 }, { additionalProperties: false });
 
@@ -31,7 +37,7 @@ const DesiredWorkspace = Type.Object({
     description: "Complete desired Git worktree membership, including every unchanged member",
   }),
   sandbox: Type.Union([DesiredSandbox, Type.Null()], {
-    description: "Complete desired sandbox port state, or null when this workspace has no sandbox",
+    description: "Complete desired additional-mount and port state, or null when this workspace has no sandbox",
   }),
 }, { additionalProperties: false });
 
@@ -48,7 +54,7 @@ const RepositoryParameters = Type.Object({
 
 type Change = {
   action: "add" | "remove" | "recreate";
-  resource: "worktree" | "sandbox" | "sandbox_port";
+  resource: "worktree" | "sandbox" | "sandbox_mount" | "sandbox_port";
   summary: string;
 };
 
@@ -128,7 +134,7 @@ export default function radarExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use radar_workspace_context before radar_reconcile_workspace and copy its complete desired state before modifying only the requested resources.",
       "Use the absolute repository paths returned by radar_workspace_context; do not guess host paths from sandbox-visible directories.",
-      "Respect radar_workspace_context capabilities: leave sandbox null when sandbox and port_forwarding are false.",
+      "Respect radar_workspace_context capabilities: leave sandbox null when sandbox, additional_mounts, and port_forwarding are false.",
     ],
     parameters: NoParameters,
     executionMode: "sequential",
@@ -167,11 +173,12 @@ export default function radarExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "radar_reconcile_workspace",
     label: "Reconcile Radar Workspace",
-    description: "Preview, confirm, and reconcile the complete desired host workspace state. It can add or remove clean member worktrees and publish or unpublish loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace or remove the primary worktree.",
-    promptSnippet: "Reconcile typed worktree and optional sandbox-port desired state after user confirmation",
+    description: "Preview, confirm, and reconcile the complete desired host workspace state. It can add or remove clean member worktrees, additional host mounts, and loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace or remove the primary worktree.",
+    promptSnippet: "Reconcile typed worktree and optional sandbox mount/port desired state after user confirmation",
     promptGuidelines: [
       "Use radar_reconcile_workspace for host workspace changes instead of direct git, tmux, or sbx commands because Radar must validate and persist the complete resource bundle.",
-      "Always start from the latest radar_workspace_context revision and complete desired object; omitted worktrees and ports are removals.",
+      "Always start from the latest radar_workspace_context revision and complete desired object; omitted worktrees, additional mounts, and ports are removals.",
+      "Use read_only true for radar_reconcile_workspace additional mounts unless writable host access is necessary and explicitly intended.",
       "Never invent a sandbox object when radar_workspace_context reports sandbox false; sandbox-less worktree reconciliation is fully supported.",
     ],
     parameters: ReconcileParameters,
