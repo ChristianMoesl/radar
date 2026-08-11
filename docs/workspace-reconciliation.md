@@ -56,7 +56,7 @@ Worktrees, agent-requested additional mounts, and ports use replacement semantic
 - The primary worktree cannot be removed.
 - Dirty member worktrees cannot be removed by reconciliation.
 - Existing member branches cannot be changed in place.
-- Host ports are validated, unique, and published by SBX on loopback.
+- Host ports are validated, unique, and published by SBX as TCP4 on IPv4 loopback only; reconciliation replaces existing dual-stack bindings.
 - Additional mounts require absolute host paths, default to read-only, and require an explicit `read_only: false` for writable host access.
 - Requested mounts cannot overlap mounts managed by worktree membership or Radar configuration.
 - Sandbox attachment is immutable through reconciliation.

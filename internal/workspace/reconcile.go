@@ -99,7 +99,7 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 	if err != nil {
 		return ReconcileWorkspacePlan{}, err
 	}
-	actualPorts, _, err := observedSandboxPorts(ctx, runner, group)
+	actualPorts, incompatiblePorts, _, err := observedSandboxPortState(ctx, runner, group)
 	if err != nil {
 		return ReconcileWorkspacePlan{}, err
 	}
@@ -276,10 +276,17 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 			changes = append(changes, WorkspaceChange{Action: "recreate", Resource: "sandbox", Summary: fmt.Sprintf("recreate SBX sandbox %s with the desired mounts", group.Sandbox.Name)})
 		}
 		for _, port := range portDifference(desiredPorts, actualPorts) {
-			changes = append(changes, WorkspaceChange{Action: "add", Resource: "sandbox_port", HostPort: port.HostPort, SandboxPort: port.SandboxPort, Summary: fmt.Sprintf("expose localhost:%d to sandbox port %d", port.HostPort, port.SandboxPort)})
+			changes = append(changes, WorkspaceChange{Action: "add", Resource: "sandbox_port", HostPort: port.HostPort, SandboxPort: port.SandboxPort, Summary: fmt.Sprintf("expose IPv4 localhost:%d to sandbox port %d", port.HostPort, port.SandboxPort)})
 		}
 		for _, port := range portDifference(actualPorts, desiredPorts) {
 			changes = append(changes, WorkspaceChange{Action: "remove", Resource: "sandbox_port", HostPort: port.HostPort, SandboxPort: port.SandboxPort, Summary: fmt.Sprintf("remove localhost:%d exposure for sandbox port %d", port.HostPort, port.SandboxPort)})
+		}
+		incompatibleSet := portSet(incompatiblePorts)
+		actualSet := portSet(actualPorts)
+		for _, port := range desiredPorts {
+			if incompatibleSet[portKey(port)] && actualSet[portKey(port)] {
+				changes = append(changes, WorkspaceChange{Action: "replace", Resource: "sandbox_port", HostPort: port.HostPort, SandboxPort: port.SandboxPort, Summary: fmt.Sprintf("restrict localhost:%d exposure for sandbox port %d to IPv4", port.HostPort, port.SandboxPort)})
+			}
 		}
 	}
 
@@ -581,34 +588,60 @@ func normalizeSandboxPorts(ports []workspacegroup.SandboxPort) ([]workspacegroup
 }
 
 func observedSandboxPorts(ctx context.Context, runner Runner, group workspacegroup.Workspace) ([]workspacegroup.SandboxPort, bool, error) {
+	ports, _, found, err := observedSandboxPortState(ctx, runner, group)
+	return ports, found, err
+}
+
+func observedSandboxPortState(ctx context.Context, runner Runner, group workspacegroup.Workspace) ([]workspacegroup.SandboxPort, []workspacegroup.SandboxPort, bool, error) {
 	if group.Sandbox == nil {
-		return []workspacegroup.SandboxPort{}, false, nil
+		return []workspacegroup.SandboxPort{}, []workspacegroup.SandboxPort{}, false, nil
 	}
 	_, found, err := findSandbox(ctx, runner, group.PrimaryPath, group.Sandbox.Name)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 	if !found {
 		ports, normalizeErr := normalizeSandboxPorts(group.Sandbox.Ports)
-		return ports, false, normalizeErr
+		return ports, []workspacegroup.SandboxPort{}, false, normalizeErr
 	}
-	ports, err := listSandboxPorts(ctx, runner, group.Sandbox.Name)
-	return ports, true, err
+	bindings, err := listSandboxPortBindings(ctx, runner, group.Sandbox.Name)
+	if err != nil {
+		return nil, nil, true, err
+	}
+	ports, err := logicalSandboxPorts(bindings)
+	if err != nil {
+		return nil, nil, true, err
+	}
+	return ports, incompatibleSandboxPorts(bindings), true, nil
 }
 
 func listSandboxPorts(ctx context.Context, runner Runner, name string) ([]workspacegroup.SandboxPort, error) {
+	bindings, err := listSandboxPortBindings(ctx, runner, name)
+	if err != nil {
+		return nil, err
+	}
+	return logicalSandboxPorts(bindings)
+}
+
+type sandboxPortBinding struct {
+	Port     workspacegroup.SandboxPort
+	HostIP   string
+	Protocol string
+}
+
+func listSandboxPortBindings(ctx context.Context, runner Runner, name string) ([]sandboxPortBinding, error) {
 	output, err := runner.Run(ctx, "", "sbx", "ports", name, "--json")
 	if err != nil {
 		return nil, sbxCommandError(err)
 	}
-	ports, err := parseSandboxPortsJSON([]byte(output))
+	bindings, err := parseSandboxPortsJSON([]byte(output))
 	if err != nil {
 		return nil, fmt.Errorf("unexpected sbx ports output: %w", err)
 	}
-	return normalizeSandboxPorts(ports)
+	return bindings, nil
 }
 
-func parseSandboxPortsJSON(data []byte) ([]workspacegroup.SandboxPort, error) {
+func parseSandboxPortsJSON(data []byte) ([]sandboxPortBinding, error) {
 	var value any
 	if err := json.Unmarshal(data, &value); err != nil {
 		return nil, err
@@ -627,7 +660,7 @@ func parseSandboxPortsJSON(data []byte) ([]workspacegroup.SandboxPort, error) {
 	if !ok {
 		return nil, fmt.Errorf("expected a JSON array")
 	}
-	ports := make([]workspacegroup.SandboxPort, 0, len(items))
+	bindings := make([]sandboxPortBinding, 0, len(items))
 	for _, item := range items {
 		object, objectOK := item.(map[string]any)
 		if !objectOK {
@@ -635,12 +668,58 @@ func parseSandboxPortsJSON(data []byte) ([]workspacegroup.SandboxPort, error) {
 		}
 		host, hostOK := integerField(object, "hostport")
 		sandbox, sandboxOK := integerField(object, "sandboxport", "containerport", "targetport")
-		if !hostOK || !sandboxOK {
-			return nil, fmt.Errorf("port object does not contain host_port and sandbox_port")
+		hostIP, hostIPOK := stringField(object, "hostip")
+		protocol, protocolOK := stringField(object, "protocol")
+		if !hostOK || !sandboxOK || !hostIPOK || !protocolOK {
+			return nil, fmt.Errorf("port object does not contain host_ip, host_port, sandbox_port, and protocol")
 		}
-		ports = append(ports, workspacegroup.SandboxPort{HostPort: host, SandboxPort: sandbox})
+		bindings = append(bindings, sandboxPortBinding{
+			Port:   workspacegroup.SandboxPort{HostPort: host, SandboxPort: sandbox},
+			HostIP: strings.TrimSpace(hostIP), Protocol: strings.ToLower(strings.TrimSpace(protocol)),
+		})
 	}
-	return ports, nil
+	return bindings, nil
+}
+
+func stringField(object map[string]any, names ...string) (string, bool) {
+	for key, value := range object {
+		normalized := strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(key))
+		for _, name := range names {
+			if normalized != name {
+				continue
+			}
+			text, ok := value.(string)
+			return text, ok
+		}
+	}
+	return "", false
+}
+
+func logicalSandboxPorts(bindings []sandboxPortBinding) ([]workspacegroup.SandboxPort, error) {
+	unique := map[string]workspacegroup.SandboxPort{}
+	for _, binding := range bindings {
+		unique[portKey(binding.Port)] = binding.Port
+	}
+	ports := make([]workspacegroup.SandboxPort, 0, len(unique))
+	for _, port := range unique {
+		ports = append(ports, port)
+	}
+	return normalizeSandboxPorts(ports)
+}
+
+func incompatibleSandboxPorts(bindings []sandboxPortBinding) []workspacegroup.SandboxPort {
+	incompatible := map[string]workspacegroup.SandboxPort{}
+	for _, binding := range bindings {
+		if binding.HostIP != "127.0.0.1" || binding.Protocol != "tcp4" {
+			incompatible[portKey(binding.Port)] = binding.Port
+		}
+	}
+	ports := make([]workspacegroup.SandboxPort, 0, len(incompatible))
+	for _, port := range incompatible {
+		ports = append(ports, port)
+	}
+	ports, _ = normalizeSandboxPorts(ports)
+	return ports
 }
 
 func integerField(object map[string]any, names ...string) (int, bool) {
@@ -663,10 +742,7 @@ func integerField(object map[string]any, names ...string) (int, bool) {
 }
 
 func portDifference(left, right []workspacegroup.SandboxPort) []workspacegroup.SandboxPort {
-	rightSet := map[string]bool{}
-	for _, port := range right {
-		rightSet[portKey(port)] = true
-	}
+	rightSet := portSet(right)
 	result := []workspacegroup.SandboxPort{}
 	for _, port := range left {
 		if !rightSet[portKey(port)] {
@@ -676,24 +752,72 @@ func portDifference(left, right []workspacegroup.SandboxPort) []workspacegroup.S
 	return result
 }
 
+func portSet(ports []workspacegroup.SandboxPort) map[string]bool {
+	set := make(map[string]bool, len(ports))
+	for _, port := range ports {
+		set[portKey(port)] = true
+	}
+	return set
+}
+
 func portKey(port workspacegroup.SandboxPort) string {
 	return fmt.Sprintf("%d:%d", port.HostPort, port.SandboxPort)
 }
 
+func ipv4PortKey(port workspacegroup.SandboxPort) string {
+	return fmt.Sprintf("%d:%d/tcp4", port.HostPort, port.SandboxPort)
+}
+
+func protocolPortKey(port workspacegroup.SandboxPort, protocol string) string {
+	return fmt.Sprintf("%d:%d/%s", port.HostPort, port.SandboxPort, protocol)
+}
+
 func reconcileSandboxPorts(ctx context.Context, runner Runner, name string, desired []workspacegroup.SandboxPort) (int, int, error) {
-	actual, err := listSandboxPorts(ctx, runner, name)
+	bindings, err := listSandboxPortBindings(ctx, runner, name)
+	if err != nil {
+		return 0, 0, err
+	}
+	actual, err := logicalSandboxPorts(bindings)
 	if err != nil {
 		return 0, 0, err
 	}
 	published, unpublished := 0, 0
-	for _, port := range portDifference(actual, desired) {
-		if _, err := runner.Run(ctx, "", "sbx", "ports", name, "--unpublish", portKey(port)); err != nil {
+	incompatible := portSet(incompatibleSandboxPorts(bindings))
+	cleaned := map[string]bool{}
+	unpublishSpecs := map[string]bool{}
+	for _, binding := range bindings {
+		key := portKey(binding.Port)
+		if !incompatible[key] {
+			continue
+		}
+		unpublishSpecs[protocolPortKey(binding.Port, binding.Protocol)] = true
+		cleaned[key] = true
+	}
+	specs := make([]string, 0, len(unpublishSpecs))
+	for spec := range unpublishSpecs {
+		specs = append(specs, spec)
+	}
+	sort.Strings(specs)
+	for _, spec := range specs {
+		if _, err := runner.Run(ctx, "", "sbx", "ports", name, "--unpublish", spec); err != nil {
 			return published, unpublished, sbxCommandError(err)
 		}
 		unpublished++
 	}
-	for _, port := range portDifference(desired, actual) {
-		if _, err := runner.Run(ctx, "", "sbx", "ports", name, "--publish", portKey(port)); err != nil {
+	compatibleActual := make([]workspacegroup.SandboxPort, 0, len(actual))
+	for _, port := range actual {
+		if !cleaned[portKey(port)] {
+			compatibleActual = append(compatibleActual, port)
+		}
+	}
+	for _, port := range portDifference(compatibleActual, desired) {
+		if _, err := runner.Run(ctx, "", "sbx", "ports", name, "--unpublish", ipv4PortKey(port)); err != nil {
+			return published, unpublished, sbxCommandError(err)
+		}
+		unpublished++
+	}
+	for _, port := range portDifference(desired, compatibleActual) {
+		if _, err := runner.Run(ctx, "", "sbx", "ports", name, "--publish", ipv4PortKey(port)); err != nil {
 			return published, unpublished, sbxCommandError(err)
 		}
 		published++

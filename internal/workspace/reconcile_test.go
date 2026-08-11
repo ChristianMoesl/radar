@@ -326,7 +326,8 @@ func (r *reconcileResolveRunner) Run(_ context.Context, _ string, name string, a
 }
 
 type portStateRunner struct {
-	ports []workspacegroup.SandboxPort
+	bindings []sandboxPortBinding
+	commands []string
 }
 
 func (r *portStateRunner) LookPath(string) error { return nil }
@@ -335,51 +336,129 @@ func (r *portStateRunner) Run(_ context.Context, _ string, name string, args ...
 		return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
 	}
 	if args[2] == "--json" {
-		data, _ := json.Marshal(r.ports)
+		items := make([]map[string]any, 0, len(r.bindings))
+		for _, binding := range r.bindings {
+			items = append(items, map[string]any{
+				"host_ip": binding.HostIP, "host_port": binding.Port.HostPort,
+				"sandbox_port": binding.Port.SandboxPort, "protocol": binding.Protocol,
+			})
+		}
+		data, _ := json.Marshal(items)
 		return string(data), nil
 	}
 	if len(args) != 4 {
 		return "", fmt.Errorf("unexpected ports command: %s", strings.Join(args, " "))
 	}
-	parts := strings.Split(args[3], ":")
-	host, _ := strconv.Atoi(parts[0])
-	sandbox, _ := strconv.Atoi(parts[1])
-	port := workspacegroup.SandboxPort{HostPort: host, SandboxPort: sandbox}
+	r.commands = append(r.commands, strings.Join(args[2:], " "))
+	port, protocol, err := parseTestPortSpec(args[3])
+	if err != nil {
+		return "", err
+	}
 	switch args[2] {
 	case "--publish":
-		r.ports = append(r.ports, port)
+		r.bindings = append(r.bindings, sandboxPortBinding{Port: port, HostIP: "127.0.0.1", Protocol: protocol})
 	case "--unpublish":
-		next := r.ports[:0]
-		for _, current := range r.ports {
-			if current != port {
+		next := r.bindings[:0]
+		for _, current := range r.bindings {
+			if current.Port != port {
 				next = append(next, current)
 			}
 		}
-		r.ports = next
+		r.bindings = next
 	default:
 		return "", fmt.Errorf("unexpected action %s", args[2])
 	}
 	return "", nil
 }
 
+func parseTestPortSpec(spec string) (workspacegroup.SandboxPort, string, error) {
+	portSpec, protocol, _ := strings.Cut(spec, "/")
+	parts := strings.Split(portSpec, ":")
+	if len(parts) != 2 {
+		return workspacegroup.SandboxPort{}, "", fmt.Errorf("unexpected port spec %q", spec)
+	}
+	host, _ := strconv.Atoi(parts[0])
+	sandbox, _ := strconv.Atoi(parts[1])
+	return workspacegroup.SandboxPort{HostPort: host, SandboxPort: sandbox}, protocol, nil
+}
+
 func TestParseSandboxPortsJSONAcceptsSBXObjectShape(t *testing.T) {
-	ports, err := parseSandboxPortsJSON([]byte(`{"ports":[{"hostPort":"3000","sandboxPort":8080}]}`))
+	bindings, err := parseSandboxPortsJSON([]byte(`{"ports":[{"host_ip":"127.0.0.1","hostPort":"3000","sandboxPort":8080,"protocol":"tcp4"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ports) != 1 || ports[0].HostPort != 3000 || ports[0].SandboxPort != 8080 {
-		t.Fatalf("ports = %+v", ports)
+	if len(bindings) != 1 || bindings[0].Port.HostPort != 3000 || bindings[0].Port.SandboxPort != 8080 || bindings[0].HostIP != "127.0.0.1" || bindings[0].Protocol != "tcp4" {
+		t.Fatalf("bindings = %+v", bindings)
 	}
 }
 
-func TestReconcileSandboxPortsAppliesSetDifference(t *testing.T) {
-	runner := &portStateRunner{ports: []workspacegroup.SandboxPort{{HostPort: 8080, SandboxPort: 8080}}}
+func TestLogicalSandboxPortsCollapsesDualStackBindings(t *testing.T) {
+	bindings, err := parseSandboxPortsJSON([]byte(`[
+		{"host_ip":"127.0.0.1","host_port":3002,"sandbox_port":3002,"protocol":"tcp"},
+		{"host_ip":"::1","host_port":3002,"sandbox_port":3002,"protocol":"tcp"}
+	]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ports, err := logicalSandboxPorts(bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ports) != 1 || ports[0].HostPort != 3002 || len(incompatibleSandboxPorts(bindings)) != 1 {
+		t.Fatalf("ports=%+v incompatible=%+v", ports, incompatibleSandboxPorts(bindings))
+	}
+}
+
+func TestReconcileSandboxPortsAppliesSetDifferenceAsIPv4(t *testing.T) {
+	runner := &portStateRunner{bindings: []sandboxPortBinding{{
+		Port: workspacegroup.SandboxPort{HostPort: 8080, SandboxPort: 8080}, HostIP: "127.0.0.1", Protocol: "tcp4",
+	}}}
 	published, unpublished, err := reconcileSandboxPorts(context.Background(), runner, "sandbox", []workspacegroup.SandboxPort{{HostPort: 3000, SandboxPort: 3000}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if published != 1 || unpublished != 1 || len(runner.ports) != 1 || runner.ports[0].HostPort != 3000 {
-		t.Fatalf("published=%d unpublished=%d ports=%+v", published, unpublished, runner.ports)
+	if published != 1 || unpublished != 1 || len(runner.bindings) != 1 || runner.bindings[0].Port.HostPort != 3000 || runner.bindings[0].Protocol != "tcp4" {
+		t.Fatalf("published=%d unpublished=%d bindings=%+v", published, unpublished, runner.bindings)
+	}
+	if got := strings.Join(runner.commands, "; "); got != "--unpublish 8080:8080/tcp4; --publish 3000:3000/tcp4" {
+		t.Fatalf("commands = %q", got)
+	}
+}
+
+func TestReconcileSandboxPortsReplacesDualStackWithIPv4(t *testing.T) {
+	port := workspacegroup.SandboxPort{HostPort: 3002, SandboxPort: 3002}
+	runner := &portStateRunner{bindings: []sandboxPortBinding{
+		{Port: port, HostIP: "127.0.0.1", Protocol: "tcp"},
+		{Port: port, HostIP: "::1", Protocol: "tcp"},
+	}}
+	published, unpublished, err := reconcileSandboxPorts(context.Background(), runner, "sandbox", []workspacegroup.SandboxPort{port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published != 1 || unpublished != 1 || len(runner.bindings) != 1 || runner.bindings[0].HostIP != "127.0.0.1" || runner.bindings[0].Protocol != "tcp4" {
+		t.Fatalf("published=%d unpublished=%d bindings=%+v", published, unpublished, runner.bindings)
+	}
+	if got := strings.Join(runner.commands, "; "); got != "--unpublish 3002:3002/tcp; --publish 3002:3002/tcp4" {
+		t.Fatalf("commands = %q", got)
+	}
+}
+
+func TestReconcileSandboxPortsRemovesEveryIncompatibleProtocol(t *testing.T) {
+	port := workspacegroup.SandboxPort{HostPort: 3002, SandboxPort: 3002}
+	runner := &portStateRunner{bindings: []sandboxPortBinding{
+		{Port: port, HostIP: "127.0.0.1", Protocol: "tcp"},
+		{Port: port, HostIP: "::1", Protocol: "tcp"},
+		{Port: port, HostIP: "::1", Protocol: "tcp6"},
+	}}
+	published, unpublished, err := reconcileSandboxPorts(context.Background(), runner, "sandbox", []workspacegroup.SandboxPort{port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published != 1 || unpublished != 2 || len(runner.bindings) != 1 || runner.bindings[0].Protocol != "tcp4" {
+		t.Fatalf("published=%d unpublished=%d bindings=%+v", published, unpublished, runner.bindings)
+	}
+	if got := strings.Join(runner.commands, "; "); got != "--unpublish 3002:3002/tcp; --unpublish 3002:3002/tcp6; --publish 3002:3002/tcp4" {
+		t.Fatalf("commands = %q", got)
 	}
 }
 

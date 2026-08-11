@@ -17,7 +17,7 @@ const ExistingWorktree = Type.Object({
 }, { additionalProperties: false });
 
 const SandboxPort = Type.Object({
-  host_port: Type.Integer({ minimum: 1, maximum: 65535, description: "Loopback host port" }),
+  host_port: Type.Integer({ minimum: 1, maximum: 65535, description: "IPv4 loopback host port" }),
   sandbox_port: Type.Integer({ minimum: 1, maximum: 65535, description: "TCP port inside the sandbox" }),
 }, { additionalProperties: false });
 
@@ -28,7 +28,7 @@ const SandboxMount = Type.Object({
 
 const DesiredSandbox = Type.Object({
   additional_mounts: Type.Array(SandboxMount, { description: "Complete agent-requested additional mount set; Radar-managed mounts are separate" }),
-  ports: Type.Array(SandboxPort, { description: "Complete desired loopback TCP port set" }),
+  ports: Type.Array(SandboxPort, { description: "Complete desired IPv4-loopback TCP port set" }),
 }, { additionalProperties: false });
 
 const DesiredWorkspace = Type.Object({
@@ -173,12 +173,13 @@ export default function radarExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "radar_reconcile_workspace",
     label: "Reconcile Radar Workspace",
-    description: "Preview, confirm, and reconcile the complete desired host workspace state. It can add or remove clean member worktrees, additional host mounts, and loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace or remove the primary worktree.",
+    description: "Preview, confirm, and reconcile the complete desired host workspace state. It can add or remove clean member worktrees, additional host mounts, and IPv4-loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace or remove the primary worktree.",
     promptSnippet: "Reconcile typed worktree and optional sandbox mount/port desired state after user confirmation",
     promptGuidelines: [
       "Use radar_reconcile_workspace for host workspace changes instead of direct git, tmux, or sbx commands because Radar must validate and persist the complete resource bundle.",
       "Always start from the latest radar_workspace_context revision and complete desired object; omitted worktrees, additional mounts, and ports are removals.",
       "Use read_only true for radar_reconcile_workspace additional mounts unless writable host access is necessary and explicitly intended.",
+      "When exposing a service, first use its configured port as host_port. If apply fails because that host port is unavailable, call radar_workspace_context again and retry with a randomly selected host_port from 49152 through 65535 while keeping sandbox_port unchanged.",
       "Never invent a sandbox object when radar_workspace_context reports sandbox false; sandbox-less worktree reconciliation is fully supported.",
     ],
     parameters: ReconcileParameters,
