@@ -1,9 +1,11 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,16 +64,30 @@ func TestReconcileWorkspaceAddsAndRemovesWorktreeWithoutSandbox(t *testing.T) {
 	}
 	stalePlanRequest := request
 	stalePlanRequest.ExpectedPlanID = "different-plan"
-	if _, err := ApplyReconcileWorkspace(ctx, runner, stalePlanRequest); err == nil || !strings.Contains(err.Error(), "plan changed") {
+	if _, err := ApplyReconcileWorkspace(ctx, runner, nil, stalePlanRequest); err == nil || !strings.Contains(err.Error(), "plan changed") {
 		t.Fatalf("stale plan error = %v", err)
 	}
 	if _, err := os.Stat(plan.Changes[0].Path); !os.IsNotExist(err) {
 		t.Fatalf("stale plan mutated the worktree: %v", err)
 	}
 	request.ExpectedPlanID = plan.PlanID
-	result, err := ApplyReconcileWorkspace(ctx, runner, request)
+	var reconciliationLogs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&reconciliationLogs, nil))
+	result, err := ApplyReconcileWorkspace(ctx, runner, logger, request)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, message := range []string{
+		"workspace reconciliation started",
+		"workspace reconciliation worktrees completed",
+		"workspace reconciliation completed",
+		"workspace_id=" + plan.WorkspaceID,
+		"plan_id=" + plan.PlanID,
+		"worktrees_added=1",
+	} {
+		if !strings.Contains(reconciliationLogs.String(), message) {
+			t.Fatalf("reconciliation log is missing %q:\n%s", message, reconciliationLogs.String())
+		}
 	}
 	if !result.OK || result.WorktreesAdded != 1 || !result.SandboxReconciled || result.PortsPublished != 0 {
 		t.Fatalf("result = %+v", result)
@@ -109,7 +125,7 @@ func TestReconcileWorkspaceAddsAndRemovesWorktreeWithoutSandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	remove.ExpectedPlanID = removePlan.PlanID
-	removed, err := ApplyReconcileWorkspace(ctx, runner, remove)
+	removed, err := ApplyReconcileWorkspace(ctx, runner, nil, remove)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,9 +232,28 @@ func TestReconcileWorkspacePlansAdditionalSandboxMount(t *testing.T) {
 		t.Fatalf("managed mount collision error = %v", err)
 	}
 
+	largeMounts := make([]DesiredSandboxMount, 0, largeEffectiveMountCount-2)
+	for index := 0; index < largeEffectiveMountCount-2; index++ {
+		largeMounts = append(largeMounts, DesiredSandboxMount{Path: filepath.Join(root, fmt.Sprintf("large-mount-%d", index))})
+	}
+	request.Desired.Sandbox.AdditionalMounts = largeMounts
+	largePlan, err := PreviewReconcileWorkspace(context.Background(), runner, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if largePlan.EffectiveMountCount != largeEffectiveMountCount {
+		t.Fatalf("effective mount count = %d, want %d", largePlan.EffectiveMountCount, largeEffectiveMountCount)
+	}
+	if !strings.Contains(strings.Join(largePlan.Warnings, "\n"), "20 effective mounts") {
+		t.Fatalf("large mount warnings = %+v", largePlan.Warnings)
+	}
+	if !strings.Contains(largePlan.Changes[len(largePlan.Changes)-1].Summary, "20 effective mounts") {
+		t.Fatalf("sandbox recreate summary = %q", largePlan.Changes[len(largePlan.Changes)-1].Summary)
+	}
+
 	request.Desired.Sandbox.AdditionalMounts = []DesiredSandboxMount{{Path: additional}}
 	request.ExpectedPlanID = plan.PlanID
-	result, err := ApplyReconcileWorkspace(context.Background(), runner, request)
+	result, err := ApplyReconcileWorkspace(context.Background(), runner, nil, request)
 	if err != nil {
 		t.Fatal(err)
 	}

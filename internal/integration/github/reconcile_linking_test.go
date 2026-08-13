@@ -98,7 +98,7 @@ func TestReconciledWorktreeLinksExistingGitHubPullRequestToWorkspace(t *testing.
 		t.Fatal(err)
 	}
 	request.ExpectedPlanID = plan.PlanID
-	result, err := workspace.ApplyReconcileWorkspace(ctx, workspace.ExecRunner{}, request)
+	result, err := workspace.ApplyReconcileWorkspace(ctx, workspace.ExecRunner{}, nil, request)
 	if err != nil {
 		t.Fatal(err)
 	}

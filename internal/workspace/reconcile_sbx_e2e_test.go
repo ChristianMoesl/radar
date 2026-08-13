@@ -144,7 +144,7 @@ func reconcileAdditionalMountsE2E(t *testing.T, ctx context.Context, runner Exec
 		t.Fatalf("plan changes = %+v", plan.Changes)
 	}
 	request.ExpectedPlanID = plan.PlanID
-	result, err := ApplyReconcileWorkspace(ctx, runner, request)
+	result, err := ApplyReconcileWorkspace(ctx, runner, nil, request)
 	if err != nil {
 		t.Fatal(err)
 	}

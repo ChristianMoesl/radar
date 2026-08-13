@@ -307,15 +307,32 @@ func runReconcileWorkspace(args []string) {
 	request.WorkspaceRoot = workspace.ExpandPath(cfg.WorkspaceRoot)
 	request.ExpectedPlanID = strings.TrimSpace(*planID)
 	request.AdditionalSandboxMounts = cfg.SBX.AdditionalMounts
+	logger, logFile, _, err := logging.New()
+	if err != nil {
+		fatal(err)
+	}
+	closeLog := func() {
+		if closeErr := logFile.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "close Radar log: %v\n", closeErr)
+		}
+	}
 	if *preview {
 		plan, err := workspace.PreviewReconcileWorkspace(context.Background(), workspace.ExecRunner{}, request)
 		if err != nil {
+			logger.Error("workspace reconciliation preview failed", "workspace", request.Workspace, "error", err)
+			closeLog()
 			fatal(err)
 		}
+		logger.Info("workspace reconciliation planned",
+			"workspace_id", plan.WorkspaceID, "workspace_name", plan.WorkspaceName,
+			"plan_id", plan.PlanID, "revision", plan.Revision, "change_count", len(plan.Changes),
+			"effective_mount_count", plan.EffectiveMountCount)
+		closeLog()
 		printJSON(plan)
 		return
 	}
-	result, err := workspace.ApplyReconcileWorkspace(context.Background(), workspace.ExecRunner{}, request)
+	result, err := workspace.ApplyReconcileWorkspace(context.Background(), workspace.ExecRunner{}, logger, request)
+	closeLog()
 	if err != nil {
 		fatal(err)
 	}

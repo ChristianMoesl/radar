@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"radar/internal/workspacegroup"
 )
@@ -202,7 +204,29 @@ func sameMountSet(left, right []string) bool {
 	return strings.Join(left, "\x00") == strings.Join(right, "\x00")
 }
 
-func reconcileSandbox(ctx context.Context, runner Runner, group workspacegroup.Workspace) error {
+const sandboxCreateAttempts = 3
+
+var defaultSandboxReconcilePolicy = sandboxReconcilePolicy{
+	createAttempts:  sandboxCreateAttempts,
+	removalChecks:   20,
+	removalInterval: 250 * time.Millisecond,
+	settleDelay:     time.Second,
+	backoff:         time.Second,
+}
+
+type sandboxReconcilePolicy struct {
+	createAttempts  int
+	removalChecks   int
+	removalInterval time.Duration
+	settleDelay     time.Duration
+	backoff         time.Duration
+}
+
+func reconcileSandbox(ctx context.Context, runner Runner, group workspacegroup.Workspace, logger *slog.Logger) error {
+	return reconcileSandboxWithPolicy(ctx, runner, group, logger, defaultSandboxReconcilePolicy)
+}
+
+func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group workspacegroup.Workspace, logger *slog.Logger, policy sandboxReconcilePolicy) error {
 	sandbox := group.Sandbox
 	actual, found, err := findSandbox(ctx, runner, group.PrimaryPath, sandbox.Name)
 	if err != nil {
@@ -217,19 +241,114 @@ func reconcileSandbox(ctx context.Context, runner Runner, group workspacegroup.W
 			return err
 		}
 	}
-	if _, err := stopSandbox(ctx, runner, group.PrimaryPath, sandbox.Name); err != nil {
+	if err := removeSandboxForRecreation(ctx, runner, sandbox.Name, group.ID, "before_create", logger, policy); err != nil {
 		return err
 	}
+
 	args := []string{"create", "--name", sandbox.Name}
 	if sandbox.KitPath != "" {
 		args = append(args, "--kit", sandbox.KitPath)
 	}
 	args = append(args, sandbox.Agent)
 	args = append(args, sandbox.Mounts...)
-	if _, err := runner.Run(ctx, group.PrimaryPath, "sbx", args...); err != nil {
-		return sbxCommandError(err)
+	attempts := max(policy.createAttempts, 1)
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if logger != nil {
+			logger.Info("workspace reconciliation sandbox create attempt",
+				"workspace_id", group.ID, "sandbox", sandbox.Name, "attempt", attempt,
+				"max_attempts", attempts, "effective_mount_count", len(sandbox.Mounts))
+		}
+		if _, runErr := runner.Run(ctx, group.PrimaryPath, "sbx", args...); runErr == nil {
+			return nil
+		} else {
+			createErr := conciseSandboxCreateError(sbxCommandError(runErr))
+			if logger != nil {
+				logger.Warn("workspace reconciliation sandbox create failed",
+					"workspace_id", group.ID, "sandbox", sandbox.Name, "attempt", attempt,
+					"max_attempts", attempts, "effective_mount_count", len(sandbox.Mounts), "error", createErr)
+			}
+			if !retryableSandboxCreateError(createErr) || attempt == attempts {
+				cleanupErr := removeSandboxForRecreation(ctx, runner, sandbox.Name, group.ID, "after_failed_create", logger, policy)
+				if cleanupErr != nil {
+					return fmt.Errorf("create SBX sandbox %s after %d attempt(s): %w; failed to clean up the failed runtime: %v", sandbox.Name, attempt, createErr, cleanupErr)
+				}
+				return fmt.Errorf("create SBX sandbox %s after %d attempt(s): %w", sandbox.Name, attempt, createErr)
+			}
+			if cleanupErr := removeSandboxForRecreation(ctx, runner, sandbox.Name, group.ID, "between_create_attempts", logger, policy); cleanupErr != nil {
+				return fmt.Errorf("clean up failed SBX sandbox %s after create attempt %d: %w", sandbox.Name, attempt, cleanupErr)
+			}
+			if err := waitForContext(ctx, time.Duration(attempt)*policy.backoff); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+func removeSandboxForRecreation(ctx context.Context, runner Runner, name, workspaceID, reason string, logger *slog.Logger, policy sandboxReconcilePolicy) error {
+	if logger != nil {
+		logger.Info("workspace reconciliation sandbox remove attempt",
+			"workspace_id", workspaceID, "sandbox", name, "reason", reason)
+	}
+	if _, err := stopSandbox(ctx, runner, "", name); err != nil {
+		return err
+	}
+	checks := max(policy.removalChecks, 1)
+	for check := 0; check < checks; check++ {
+		exists, err := sandboxExists(ctx, runner, name)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if logger != nil {
+				logger.Info("workspace reconciliation sandbox removal completed",
+					"workspace_id", workspaceID, "sandbox", name, "checks", check+1)
+			}
+			return waitForContext(ctx, policy.settleDelay)
+		}
+		if check+1 < checks {
+			if err := waitForContext(ctx, policy.removalInterval); err != nil {
+				return err
+			}
+		}
+	}
+	return fmt.Errorf("SBX sandbox %s still exists after removal", name)
+}
+
+func retryableSandboxCreateError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return (strings.Contains(message, "500 internal server error") && strings.Contains(message, "sandbox container")) ||
+		strings.Contains(message, "failed to add nic") ||
+		strings.Contains(message, "failed to add virtiofs tag") ||
+		strings.Contains(message, "failed to register in-process vsock")
+}
+
+func conciseSandboxCreateError(err error) error {
+	if err == nil {
+		return nil
+	}
+	message := err.Error()
+	if _, detail, found := strings.Cut(message, " failed: "); found {
+		message = detail
+	}
+	return fmt.Errorf("%s", message)
+}
+
+func waitForContext(ctx context.Context, duration time.Duration) error {
+	if duration <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func scheduleMemberSetup(ctx context.Context, runner Runner, path, sessionName, sandboxName, repositoryName string, commands []string) error {

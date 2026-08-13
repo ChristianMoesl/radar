@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -60,13 +61,14 @@ type WorkspaceChange struct {
 }
 
 type ReconcileWorkspacePlan struct {
-	WorkspaceID   string            `json:"workspace_id"`
-	WorkspaceName string            `json:"workspace_name"`
-	Revision      string            `json:"revision"`
-	NextRevision  string            `json:"next_revision"`
-	PlanID        string            `json:"plan_id"`
-	Changes       []WorkspaceChange `json:"changes"`
-	Warnings      []string          `json:"warnings,omitempty"`
+	WorkspaceID         string            `json:"workspace_id"`
+	WorkspaceName       string            `json:"workspace_name"`
+	Revision            string            `json:"revision"`
+	NextRevision        string            `json:"next_revision"`
+	PlanID              string            `json:"plan_id"`
+	EffectiveMountCount int               `json:"effective_sandbox_mount_count,omitempty"`
+	Changes             []WorkspaceChange `json:"changes"`
+	Warnings            []string          `json:"warnings,omitempty"`
 
 	root      string
 	group     workspacegroup.Workspace
@@ -93,6 +95,8 @@ type ReconcileWorkspaceResult struct {
 type reconcileAddition struct {
 	plan WorktreePlan
 }
+
+const largeEffectiveMountCount = 20
 
 func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request ReconcileWorkspaceRequest) (ReconcileWorkspacePlan, error) {
 	root, _, group, err := resolveWorkspaceGroup(ctx, runner, request.Workspace, request.WorkspaceRoot)
@@ -233,6 +237,7 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 
 	recreateSandbox := false
 	writableMountAdded := false
+	effectiveMountCount := 0
 	if candidate.Sandbox != nil {
 		desiredAdditionalMounts, err := normalizeDesiredSandboxMounts(request.Desired.Sandbox.AdditionalMounts)
 		if err != nil {
@@ -253,6 +258,7 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 			return ReconcileWorkspacePlan{}, err
 		}
 		candidate.Sandbox.Mounts = mounts
+		effectiveMountCount = len(mounts)
 		actual, found, err := findSandbox(ctx, runner, group.PrimaryPath, group.Sandbox.Name)
 		if err != nil {
 			return ReconcileWorkspacePlan{}, err
@@ -273,7 +279,7 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 			changes = append(changes, WorkspaceChange{Action: "remove", Resource: "sandbox_mount", Path: mount.Path, ReadOnly: &readOnly, Summary: fmt.Sprintf("remove sandbox mount %s", mount.Path)})
 		}
 		if recreateSandbox {
-			changes = append(changes, WorkspaceChange{Action: "recreate", Resource: "sandbox", Summary: fmt.Sprintf("recreate SBX sandbox %s with the desired mounts", group.Sandbox.Name)})
+			changes = append(changes, WorkspaceChange{Action: "recreate", Resource: "sandbox", Summary: fmt.Sprintf("recreate SBX sandbox %s with %d effective mounts", group.Sandbox.Name, effectiveMountCount)})
 		}
 		for _, port := range portDifference(desiredPorts, actualPorts) {
 			changes = append(changes, WorkspaceChange{Action: "add", Resource: "sandbox_port", HostPort: port.HostPort, SandboxPort: port.SandboxPort, Summary: fmt.Sprintf("expose IPv4 localhost:%d to sandbox port %d", port.HostPort, port.SandboxPort)})
@@ -297,6 +303,9 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 	warnings := []string{}
 	if recreateSandbox {
 		warnings = append(warnings, "recreating the sandbox interrupts processes running inside it")
+		if effectiveMountCount >= largeEffectiveMountCount {
+			warnings = append(warnings, fmt.Sprintf("the sandbox will use %d effective mounts; unusually large mount sets may make SBX recreation less reliable", effectiveMountCount))
+		}
 	}
 	if writableMountAdded {
 		warnings = append(warnings, "a writable sandbox mount grants the sandbox write access to that host directory")
@@ -307,24 +316,35 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 	}
 	return ReconcileWorkspacePlan{
 		WorkspaceID: group.ID, WorkspaceName: group.Name, Revision: revision,
-		NextRevision: nextRevision, PlanID: planID, Changes: changes, Warnings: warnings,
+		NextRevision: nextRevision, PlanID: planID, EffectiveMountCount: effectiveMountCount,
+		Changes: changes, Warnings: warnings,
 		root: root, group: candidate, additions: additions, removals: removals,
 	}, nil
 }
 
-func ApplyReconcileWorkspace(ctx context.Context, runner Runner, request ReconcileWorkspaceRequest) (ReconcileWorkspaceResult, error) {
+func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Logger, request ReconcileWorkspaceRequest) (ReconcileWorkspaceResult, error) {
 	plan, err := PreviewReconcileWorkspace(ctx, runner, request)
 	if err != nil {
+		logReconciliationFailure(logger, request.Workspace, "plan", ReconcileWorkspaceResult{}, err)
 		return ReconcileWorkspaceResult{}, err
 	}
 	if request.ExpectedPlanID != "" && request.ExpectedPlanID != plan.PlanID {
-		return ReconcileWorkspaceResult{}, fmt.Errorf("workspace reconciliation plan changed after confirmation")
+		err := fmt.Errorf("workspace reconciliation plan changed after confirmation")
+		logReconciliationFailure(logger, plan.WorkspaceID, "confirmation", ReconcileWorkspaceResult{}, err)
+		return ReconcileWorkspaceResult{}, err
 	}
 	result := ReconcileWorkspaceResult{WorkspaceID: plan.WorkspaceID}
+	if logger != nil {
+		logger.Info("workspace reconciliation started",
+			"workspace_id", plan.WorkspaceID, "workspace_name", plan.WorkspaceName,
+			"plan_id", plan.PlanID, "revision", plan.Revision, "change_count", len(plan.Changes),
+			"effective_mount_count", plan.EffectiveMountCount)
+	}
 	prepared := make([]WorktreeResult, 0, len(plan.additions))
 	for _, addition := range plan.additions {
 		created, createErr := EnsureWorktree(ctx, runner, addition.plan)
 		if createErr != nil {
+			logReconciliationFailure(logger, plan.WorkspaceID, "worktrees", result, createErr)
 			return result, createErr
 		}
 		prepared = append(prepared, created)
@@ -332,21 +352,28 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, request Reconci
 	}
 	for _, removal := range plan.removals {
 		if _, removeErr := RemoveWorktree(ctx, runner, removal.Path, false); removeErr != nil {
+			logReconciliationFailure(logger, plan.WorkspaceID, "worktrees", result, removeErr)
 			return result, removeErr
 		}
 		result.WorktreesRemoved++
+	}
+	if logger != nil {
+		logger.Info("workspace reconciliation worktrees completed", "workspace_id", plan.WorkspaceID,
+			"worktrees_added", result.WorktreesAdded, "worktrees_removed", result.WorktreesRemoved)
 	}
 	if err := workspacegroup.Update(plan.root, func(registry *workspacegroup.Registry) error {
 		workspacegroup.Put(registry, plan.group)
 		return nil
 	}); err != nil {
+		logReconciliationFailure(logger, plan.WorkspaceID, "registry", result, err)
 		return result, err
 	}
 
 	if plan.group.Sandbox != nil {
-		if err := reconcileSandbox(ctx, runner, plan.group); err != nil {
+		if err := reconcileSandbox(ctx, runner, plan.group, logger); err != nil {
 			result.Retryable = true
 			result.Error = err.Error()
+			logRetryableReconciliationFailure(logger, plan, "sandbox", result, err)
 			return result, nil
 		}
 		result.SandboxReconciled = true
@@ -363,9 +390,15 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, request Reconci
 		published, unpublished, err := reconcileSandboxPorts(ctx, runner, plan.group.Sandbox.Name, plan.group.Sandbox.Ports)
 		result.PortsPublished = published
 		result.PortsUnpublished = unpublished
+		if logger != nil {
+			logger.Info("workspace reconciliation ports completed", "workspace_id", plan.WorkspaceID,
+				"ports_published", published, "ports_unpublished", unpublished,
+				"desired_port_count", len(plan.group.Sandbox.Ports))
+		}
 		if err != nil {
 			result.Retryable = true
 			result.Error = err.Error()
+			logRetryableReconciliationFailure(logger, plan, "ports", result, err)
 			return result, nil
 		}
 	} else {
@@ -391,21 +424,49 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, request Reconci
 	}); err != nil {
 		result.Retryable = true
 		result.Error = err.Error()
+		logRetryableReconciliationFailure(logger, plan, "registry", result, err)
 		return result, nil
 	}
 	ports, _, err := observedSandboxPorts(ctx, runner, plan.group)
 	if err != nil {
 		result.Retryable = true
 		result.Error = err.Error()
+		logRetryableReconciliationFailure(logger, plan, "revision", result, err)
 		return result, nil
 	}
 	result.Revision, err = workspaceRevision(plan.group, ports)
 	if err != nil {
+		logReconciliationFailure(logger, plan.WorkspaceID, "revision", result, err)
 		return result, err
 	}
 	result.OK = true
 	result.Warning = strings.Join(warnings, "; ")
+	if logger != nil {
+		logger.Info("workspace reconciliation completed", "workspace_id", plan.WorkspaceID,
+			"plan_id", plan.PlanID, "revision", result.Revision,
+			"worktrees_added", result.WorktreesAdded, "worktrees_removed", result.WorktreesRemoved,
+			"mounts_added", result.MountsAdded, "mounts_removed", result.MountsRemoved,
+			"ports_published", result.PortsPublished, "ports_unpublished", result.PortsUnpublished)
+	}
 	return result, nil
+}
+
+func logReconciliationFailure(logger *slog.Logger, workspaceID, phase string, result ReconcileWorkspaceResult, err error) {
+	if logger == nil {
+		return
+	}
+	logger.Error("workspace reconciliation failed", "workspace_id", workspaceID, "phase", phase,
+		"worktrees_added", result.WorktreesAdded, "worktrees_removed", result.WorktreesRemoved, "error", err)
+}
+
+func logRetryableReconciliationFailure(logger *slog.Logger, plan ReconcileWorkspacePlan, phase string, result ReconcileWorkspaceResult, err error) {
+	if logger == nil {
+		return
+	}
+	logger.Warn("workspace reconciliation needs retry", "workspace_id", plan.WorkspaceID,
+		"workspace_name", plan.WorkspaceName, "plan_id", plan.PlanID, "phase", phase,
+		"worktrees_added", result.WorktreesAdded, "worktrees_removed", result.WorktreesRemoved,
+		"ports_published", result.PortsPublished, "ports_unpublished", result.PortsUnpublished, "error", err)
 }
 
 func resolveWorkspaceGroup(ctx context.Context, runner Runner, currentDirectory, workspaceRoot string) (string, string, workspacegroup.Workspace, error) {

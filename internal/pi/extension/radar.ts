@@ -53,7 +53,7 @@ const RepositoryParameters = Type.Object({
 }, { additionalProperties: false });
 
 type Change = {
-  action: "add" | "remove" | "recreate";
+  action: "add" | "remove" | "replace" | "recreate";
   resource: "worktree" | "sandbox" | "sandbox_mount" | "sandbox_port";
   summary: string;
 };
@@ -63,8 +63,21 @@ type Plan = {
   revision: string;
   next_revision: string;
   plan_id: string;
+  effective_sandbox_mount_count?: number;
   changes: Change[];
   warnings?: string[];
+};
+
+type ReconcileResult = {
+  ok?: boolean;
+  retryable?: boolean;
+  error?: string;
+  sandbox_reconciled?: boolean;
+  worktrees_added?: number;
+  worktrees_removed?: number;
+  ports_published?: number;
+  ports_unpublished?: number;
+  [key: string]: unknown;
 };
 
 const BusyOption = "@radar_busy";
@@ -112,6 +125,27 @@ function confirmation(plan: Plan): string {
   }
   for (const warning of plan.warnings ?? []) lines.push(`WARNING: ${warning}`);
   return lines.join("\n");
+}
+
+function countLabel(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
+function retryableResultText(result: ReconcileResult): string {
+  const progress: string[] = [];
+  const added = Number(result.worktrees_added ?? 0);
+  const removed = Number(result.worktrees_removed ?? 0);
+  if (added > 0) progress.push(`${countLabel(added, "worktree")} added`);
+  if (removed > 0) progress.push(`${countLabel(removed, "worktree")} removed`);
+
+  let failure = "workspace reconciliation did not finish";
+  if (result.sandbox_reconciled !== true) {
+    failure = "sandbox recreation failed";
+  } else if (Number(result.ports_published ?? 0) > 0 || Number(result.ports_unpublished ?? 0) > 0) {
+    failure = "sandbox port reconciliation failed";
+  }
+  const prefix = progress.length > 0 ? `${progress.join(", ")}; ` : "";
+  return `${prefix}${failure}. Re-inspect and retry.\n${JSON.stringify(result)}`;
 }
 
 async function runRadar(pi: ExtensionAPI, binary: string, args: string[], signal: AbortSignal | undefined, toolName: string, phase: string) {
@@ -202,7 +236,11 @@ export default function radarExtension(pi: ExtensionAPI) {
         return { content: [{ type: "text", text: JSON.stringify({ ok: false, cancelled: true }) }], details: { cancelled: true, plan } };
       }
       const resultText = await runRadar(pi, binary, reconcileArgs(input, cwd, false, plan.plan_id), signal, "radar_reconcile_workspace", "apply");
-      const result = parseJSON<Record<string, unknown>>("radar_reconcile_workspace", resultText, "apply");
+      const result = parseJSON<ReconcileResult>("radar_reconcile_workspace", resultText, "apply");
+      if (result.ok !== true && result.retryable === true) {
+        const partial = retryableResultText(result);
+        return { content: [{ type: "text", text: partial }], details: { plan, result, partial } };
+      }
       if (result.ok !== true) {
         throw new Error(`radar_reconcile_workspace apply did not converge: ${String(result.error ?? "unknown error")}\n${resultText.trim()}`);
       }
