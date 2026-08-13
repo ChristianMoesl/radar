@@ -319,7 +319,32 @@ func runReconcileWorkspace(args []string) {
 	if err != nil {
 		fatal(err)
 	}
+	if result.OK {
+		if err := refreshLocalSourcesAfterReconcile(); err != nil {
+			warning := "workspace was reconciled, but Radar could not refresh local sources immediately: " + err.Error()
+			if result.Warning == "" {
+				result.Warning = warning
+			} else {
+				result.Warning += "; " + warning
+			}
+		}
+	}
 	printJSON(result)
+}
+
+func refreshLocalSourcesAfterReconcile() error {
+	path, err := socket.Path()
+	if err != nil {
+		return err
+	}
+	response, err := client.Call(path, "refresh-local")
+	if err != nil {
+		return err
+	}
+	if !response.OK {
+		return errors.New(response.Error)
+	}
+	return nil
 }
 
 func runWorkspaceContext(args []string) {

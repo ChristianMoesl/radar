@@ -20,7 +20,10 @@ func TestReconcileWorkspaceAddsAndRemovesWorktreeWithoutSandbox(t *testing.T) {
 		t.Skip("git not found")
 	}
 	ctx := context.Background()
-	tmp := t.TempDir()
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	root := filepath.Join(tmp, "workspaces")
 	primaryRepo := filepath.Join(tmp, "primary-source")
 	targetRepo := filepath.Join(tmp, "target-source")

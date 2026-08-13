@@ -83,6 +83,38 @@ func TestWatchCurrentRevisionTimesOutWithoutTasks(t *testing.T) {
 	}
 }
 
+func TestRefreshLocalOnlyCollectsLocalSources(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullRefreshes := 0
+	localRefreshes := 0
+	serverConn, clientConn := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		New(store, logger, func() { fullRefreshes++ }, nil, nil, integration.NewRegistry(), cleanup.New(nil)).
+			SetLocalRefresh(func() { localRefreshes++ }).
+			handle(serverConn)
+	}()
+	if _, err := clientConn.Write([]byte("{\"method\":\"refresh-local\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	var response protocol.Response
+	if err := json.NewDecoder(clientConn).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	_ = clientConn.Close()
+	<-done
+
+	if !response.OK || localRefreshes != 1 || fullRefreshes != 0 {
+		t.Fatalf("response=%+v local=%d full=%d, want one local refresh only", response, localRefreshes, fullRefreshes)
+	}
+}
+
 func TestStructuredTaskMutations(t *testing.T) {
 	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
 	vault := filepath.Join(t.TempDir(), "Work")

@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +14,49 @@ import (
 	"radar/internal/protocol"
 	"radar/internal/workspacegc"
 )
+
+func TestRefreshLocalSourcesAfterReconcileRequestsLocalRefresh(t *testing.T) {
+	temporary, err := os.CreateTemp("/tmp", "radar-test-*.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	socketPath := temporary.Name()
+	if err := temporary.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(socketPath); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RADAR_SOCKET", socketPath)
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	defer os.Remove(socketPath)
+
+	method := make(chan string, 1)
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer connection.Close()
+		var request protocol.Request
+		if decodeErr := json.NewDecoder(connection).Decode(&request); decodeErr != nil {
+			return
+		}
+		method <- request.Method
+		_ = json.NewEncoder(connection).Encode(protocol.Response{OK: true})
+	}()
+
+	if err := refreshLocalSourcesAfterReconcile(); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-method; got != "refresh-local" {
+		t.Fatalf("method = %q, want refresh-local", got)
+	}
+}
 
 func TestGarbageCollectionResultConvertsDeletedAndSkippedWorkspaces(t *testing.T) {
 	result := garbageCollectionResult(workspacegc.Result{

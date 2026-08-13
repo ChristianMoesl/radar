@@ -128,6 +128,11 @@ func (s *Server) handle(conn net.Conn) {
 				s.refresh()
 			}
 			_ = encoder.Encode(s.tasksResponse())
+		case "refresh-local":
+			if s.localRefresh != nil {
+				s.localRefresh()
+			}
+			_ = encoder.Encode(s.tasksResponse())
 		case "reset":
 			if s.reset != nil {
 				if err := s.reset(); err != nil {
