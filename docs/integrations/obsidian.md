@@ -70,7 +70,7 @@ A valid note emits one authoritative ref:
   - signal `low_priority`, `immediate`, or `done`
   - URL `obsidian://open?...` for the current vault-relative note path
 
-An Obsidian note is a task record, not a workspace. It does not provide a filesystem workspace or workspace linking key. Git worktrees remain Radar's engineering workspaces, while tmux sessions and SBX sandboxes remain resources associated with their own workspace paths.
+An Obsidian note is a task record, not a workspace. It does not provide a filesystem workspace or workspace path. Its title is the default workspace name, so activating an Obsidian-only task can start Radar's repository and branch selection flow. The resulting workspace group stores the note's stable task linking key locally, and Git emits that key to associate the worktree with the task. Git worktrees remain Radar's engineering workspaces, while tmux sessions and SBX sandboxes remain resources associated with their own workspace paths.
 
 Obsidian's primary lifecycle is terminal for its authored task. Supporting Jira/GitHub completion cannot complete an open note, and supporting activity cannot reopen a done note. While the note is open, linked source signals can still promote it to `in_progress` or `attention`; urgent note priority promotes it to `immediate`.
 

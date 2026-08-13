@@ -42,6 +42,7 @@ type CreateWorkspaceRequest struct {
 	Tmux                    tmuxlayout.Config
 	Switch                  bool
 	ForkPiSession           string
+	TaskLinkingKey          string
 }
 
 type WorkspaceProvider interface {

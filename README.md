@@ -265,7 +265,7 @@ radar task priority <task-id> normal
 
 The note filename owns the title, while its frontmatter owns open/done state, normal/urgent priority, and timestamps. The body owns working notes and outcomes. Radar projects those facts with live Jira, GitHub, Git, tmux, and SBX activity. An open normal note is low priority, urgent is immediate, linked activity can promote open work, and a done note remains terminal. Press `n`, `d`, and `p` for the same operations in the TUI, or `o` to open the note in Obsidian.
 
-Obsidian notes are task records rather than workspaces. Radar preserves unknown frontmatter and the complete note body during atomic mutations and never deletes task notes. See [the Obsidian integration contract](docs/integrations/obsidian.md) for the schema and failure behavior.
+Obsidian notes are task records rather than workspaces. Activating an Obsidian-only task can create a Git workspace using the note title as its default name; Radar stores the task association in its local workspace registry so the resulting worktree rejoins the same task. Radar preserves unknown frontmatter and the complete note body during atomic mutations and never deletes task notes. See [the Obsidian integration contract](docs/integrations/obsidian.md) for the schema and failure behavior.
 
 ## Scriptable commands
 

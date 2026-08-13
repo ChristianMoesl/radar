@@ -44,7 +44,7 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	if taskRef.ID != identity.SourceRefID || taskRef.Authority != protocol.SourceRefAuthorityPrimary || taskRef.Lifecycle != protocol.SourceRefLifecycleWorkItem || taskRef.Signal != "" || !strings.HasPrefix(taskRef.URL, "obsidian://open?") {
 		t.Fatalf("task ref = %+v", taskRef)
 	}
-	if taskRef.Title != title || taskRef.Path != "" || taskRef.ProvidesWorkspace || len(taskRef.LinkingKeys) != 1 || taskRef.LinkingKeys[0] != identity.SourceRefID || taskRef.Metadata["note_path"] != notePath {
+	if taskRef.Title != title || taskRef.Presentation.WorkspaceName != title || taskRef.Path != "" || taskRef.ProvidesWorkspace || len(taskRef.LinkingKeys) != 1 || taskRef.LinkingKeys[0] != identity.SourceRefID || taskRef.Metadata["note_path"] != notePath {
 		t.Fatalf("task note ref = %+v", taskRef)
 	}
 	if result.Observations[0].Signal != integration.SignalLowPriority {

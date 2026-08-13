@@ -23,12 +23,13 @@ type Registry struct {
 }
 
 type Workspace struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	PrimaryPath string   `json:"primary_path"`
-	SessionName string   `json:"session_name,omitempty"`
-	Sandbox     *Sandbox `json:"sandbox,omitempty"`
-	Members     []Member `json:"members"`
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	PrimaryPath    string   `json:"primary_path"`
+	SessionName    string   `json:"session_name,omitempty"`
+	TaskLinkingKey string   `json:"task_linking_key,omitempty"`
+	Sandbox        *Sandbox `json:"sandbox,omitempty"`
+	Members        []Member `json:"members"`
 }
 
 type Sandbox struct {
@@ -253,6 +254,13 @@ func normalizeAndValidate(registry *Registry) error {
 		workspace.Name = strings.TrimSpace(workspace.Name)
 		workspace.PrimaryPath = cleanPath(workspace.PrimaryPath)
 		workspace.SessionName = strings.TrimSpace(workspace.SessionName)
+		workspace.TaskLinkingKey = strings.TrimSpace(workspace.TaskLinkingKey)
+		if workspace.TaskLinkingKey != "" {
+			prefix, _, found := strings.Cut(workspace.TaskLinkingKey, ":")
+			if !found || strings.TrimSpace(prefix) == "" {
+				return fmt.Errorf("workspace %q task_linking_key requires a non-empty prefix", workspace.ID)
+			}
+		}
 		if workspace.ID == "" || workspace.Name == "" || !filepath.IsAbs(workspace.PrimaryPath) {
 			return fmt.Errorf("workspace id, name, and absolute primary_path are required")
 		}

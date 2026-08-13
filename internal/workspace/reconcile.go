@@ -462,19 +462,20 @@ func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.Sa
 		Ports            []workspacegroup.SandboxPort  `json:"ports"`
 	}
 	type revisionState struct {
-		ID          string                  `json:"id"`
-		Name        string                  `json:"name"`
-		PrimaryPath string                  `json:"primary_path"`
-		SessionName string                  `json:"session_name"`
-		Members     []workspacegroup.Member `json:"members"`
-		Sandbox     *revisionSandbox        `json:"sandbox"`
+		ID             string                  `json:"id"`
+		Name           string                  `json:"name"`
+		PrimaryPath    string                  `json:"primary_path"`
+		SessionName    string                  `json:"session_name"`
+		TaskLinkingKey string                  `json:"task_linking_key"`
+		Members        []workspacegroup.Member `json:"members"`
+		Sandbox        *revisionSandbox        `json:"sandbox"`
 	}
 	members := append([]workspacegroup.Member(nil), group.Members...)
 	for index := range members {
 		members[index].SetupScheduled = false
 	}
 	sort.Slice(members, func(i, j int) bool { return pathKey(members[i].Path) < pathKey(members[j].Path) })
-	state := revisionState{ID: group.ID, Name: group.Name, PrimaryPath: group.PrimaryPath, SessionName: group.SessionName, Members: members}
+	state := revisionState{ID: group.ID, Name: group.Name, PrimaryPath: group.PrimaryPath, SessionName: group.SessionName, TaskLinkingKey: group.TaskLinkingKey, Members: members}
 	if group.Sandbox != nil {
 		normalizedPorts, err := normalizeSandboxPorts(ports)
 		if err != nil {

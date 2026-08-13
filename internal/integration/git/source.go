@@ -125,6 +125,7 @@ func (Source) Create(ctx context.Context, req integration.CreateWorkspaceRequest
 		Tmux:                    req.Tmux,
 		Switch:                  req.Switch,
 		ForkPiSession:           req.ForkPiSession,
+		TaskLinkingKey:          req.TaskLinkingKey,
 	})
 	if err != nil {
 		return integration.Workspace{}, err

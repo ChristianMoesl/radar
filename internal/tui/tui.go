@@ -86,6 +86,7 @@ type createForm struct {
 	branch         string
 	base           string
 	name           string
+	taskLinkingKey string
 	forkPiSession  string
 	sourceRepoName string
 	repoList       picker
@@ -736,6 +737,7 @@ func newCreateForm() createForm {
 func newCreateFormForTask(task protocol.Task) createForm {
 	form := newCreateForm()
 	form.name = workspaceNameForTask(task)
+	form.taskLinkingKey = taskrefs.TaskLinkingKey(task)
 	return form
 }
 
@@ -970,6 +972,7 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 			Tmux:                    cfg.Tmux,
 			Switch:                  switchAfterCreate,
 			ForkPiSession:           form.forkPiSession,
+			TaskLinkingKey:          form.taskLinkingKey,
 		}
 		if form.forkPiSession != "" && form.sourceRepoName != "" {
 			root, err := workspace.DefaultRoot()
@@ -1586,7 +1589,7 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 				m.loading = true
 				m.err = nil
 				m.message = creatingWorkspaceMessage
-				return m, tea.Batch(preparingWorkspaceNotification(), m.createWorkspaceForPullRequest(ref))
+				return m, tea.Batch(preparingWorkspaceNotification(), m.createWorkspaceForPullRequest(task, ref))
 			}
 			m.mode = "create_repo"
 			m.create = newCreateFormForTask(task)
@@ -1682,7 +1685,7 @@ func samePath(left string, right string) bool {
 	return strings.TrimSpace(left) != "" && strings.TrimSpace(right) != "" && filepath.Clean(left) == filepath.Clean(right)
 }
 
-func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
+func (m model) createWorkspaceForPullRequest(task protocol.Task, ref protocol.SourceRef) tea.Cmd {
 	return func() tea.Msg {
 		repo, err := localRepoForPullRequest(ref)
 		if err != nil {
@@ -1724,6 +1727,7 @@ func (m model) createWorkspaceForPullRequest(ref protocol.SourceRef) tea.Cmd {
 			AdditionalSandboxMounts: cfg.SBX.AdditionalMounts,
 			Tmux:                    cfg.Tmux,
 			Switch:                  switchAfterCreate,
+			TaskLinkingKey:          taskrefs.TaskLinkingKey(task),
 		})
 		if err != nil {
 			return actionMsg{err: err}

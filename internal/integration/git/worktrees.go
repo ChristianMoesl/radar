@@ -22,11 +22,11 @@ func FetchWorktrees(ctx context.Context, logger *slog.Logger, marks linking.Mark
 	workspaceRoot, rootErr := workspace.DefaultRoot()
 	source_refs := make([]protocol.SourceRef, 0)
 	seen := map[string]bool{}
-	workspaceGroups := map[string]string{}
+	workspaceGroups := map[string]workspaceGroupLink{}
 	if registry, err := workspacegroup.Load(workspaceRoot); err == nil {
 		for _, group := range registry.Workspaces {
 			for _, member := range group.Members {
-				workspaceGroups[filepath.Clean(member.Path)] = group.ID
+				workspaceGroups[filepath.Clean(member.Path)] = workspaceGroupLink{ID: group.ID, TaskLinkingKey: group.TaskLinkingKey}
 			}
 		}
 	} else {
@@ -111,6 +111,11 @@ func workspaceGitRoots() []string {
 	return roots
 }
 
+type workspaceGroupLink struct {
+	ID             string
+	TaskLinkingKey string
+}
+
 type worktree struct {
 	Path     string
 	Branch   string
@@ -155,7 +160,7 @@ func worktrees(ctx context.Context, root string) ([]worktree, error) {
 	return items, scanner.Err()
 }
 
-func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher, workspaceIDs ...string) protocol.SourceRef {
+func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher, workspaceLinks ...workspaceGroupLink) protocol.SourceRef {
 	status := worktreeStatus(ctx, w.Path)
 	title := w.Branch
 	if title == "" {
@@ -180,14 +185,16 @@ func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher, work
 	}
 
 	workspaceID := ""
-	if len(workspaceIDs) > 0 {
-		workspaceID = strings.TrimSpace(workspaceIDs[0])
+	taskLinkingKey := ""
+	if len(workspaceLinks) > 0 {
+		workspaceID = strings.TrimSpace(workspaceLinks[0].ID)
+		taskLinkingKey = strings.TrimSpace(workspaceLinks[0].TaskLinkingKey)
 	}
 	if workspaceID != "" {
 		metadata["workspace_id"] = workspaceID
 	}
 	canonicalKey := linking.WorkspaceKey(w.Path)
-	linkingKeys := linking.Keys(append(marks.Keys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, gitBranchKey(w.Branch)), linking.WorkspaceGroupKey(workspaceID))...)
+	linkingKeys := linking.Keys(append(marks.Keys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, gitBranchKey(w.Branch)), linking.WorkspaceGroupKey(workspaceID), taskLinkingKey)...)
 
 	return protocol.SourceRef{
 		ID:                "git:worktree:" + w.Path,

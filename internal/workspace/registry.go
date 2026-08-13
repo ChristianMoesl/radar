@@ -2,15 +2,17 @@ package workspace
 
 import (
 	"context"
+	"strings"
 
 	"radar/internal/workspacegroup"
 )
 
-func registerPrimaryWorkspace(ctx context.Context, runner Runner, plan WorktreePlan, sessionName, sandboxName string, sandbox sandboxSettings, setupScheduled bool) error {
+func registerPrimaryWorkspace(ctx context.Context, runner Runner, plan WorktreePlan, sessionName, sandboxName string, sandbox sandboxSettings, setupScheduled bool, taskLinkingKey string) error {
+	taskLinkingKey = strings.TrimSpace(taskLinkingKey)
 	workspace := workspacegroup.Workspace{
 		ID: workspacegroup.ID(plan.Path), Name: plan.Name, PrimaryPath: plan.Path,
-		SessionName: sessionName,
-		Members:     []workspacegroup.Member{{Repository: plan.Repo, Path: plan.Path, Branch: plan.Branch, Primary: true, SetupScheduled: setupScheduled}},
+		SessionName: sessionName, TaskLinkingKey: taskLinkingKey,
+		Members: []workspacegroup.Member{{Repository: plan.Repo, Path: plan.Path, Branch: plan.Branch, Primary: true, SetupScheduled: setupScheduled}},
 	}
 	if sandboxName != "" {
 		mounts, err := sandboxMounts(ctx, runner, plan.Path, sandbox.AdditionalMounts)
@@ -23,6 +25,13 @@ func registerPrimaryWorkspace(ctx context.Context, runner Runner, plan WorktreeP
 		workspace.Sandbox = &workspacegroup.Sandbox{Name: sandboxName, Agent: sandbox.Kit.Name, KitPath: ExpandPath(sandbox.Kit.Path), Mounts: mounts}
 	}
 	return workspacegroup.Update(plan.Root, func(registry *workspacegroup.Registry) error {
+		if existing, found := workspacegroup.FindByMemberPath(*registry, plan.Path); found {
+			if taskLinkingKey != "" {
+				existing.TaskLinkingKey = taskLinkingKey
+			}
+			workspacegroup.Put(registry, existing)
+			return nil
+		}
 		workspacegroup.Put(registry, workspace)
 		return nil
 	})

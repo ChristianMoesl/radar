@@ -18,6 +18,45 @@ func WorkspaceName(task protocol.Task) string {
 	return strings.TrimSpace(task.Title)
 }
 
+func TaskLinkingKey(task protocol.Task) string {
+	for _, ref := range task.SourceRefs {
+		if ref.Role == protocol.SourceRefRoleAuthoritative && ref.Lifecycle == protocol.SourceRefLifecycleWorkItem && ref.Authority == protocol.SourceRefAuthorityPrimary {
+			if key := stableLinkingKey(ref); key != "" {
+				return key
+			}
+		}
+	}
+	if ref, ok := WorkspaceCandidate(task); ok {
+		if key := stableLinkingKey(ref); key != "" {
+			return key
+		}
+	}
+	for _, ref := range task.SourceRefs {
+		if ref.Role == protocol.SourceRefRoleAuthoritative {
+			if key := stableLinkingKey(ref); key != "" {
+				return key
+			}
+		}
+	}
+	return ""
+}
+
+func stableLinkingKey(ref protocol.SourceRef) string {
+	canonical := strings.TrimSpace(ref.CanonicalKey)
+	for _, key := range ref.LinkingKeys {
+		key = strings.TrimSpace(key)
+		if key != "" && key == canonical {
+			return key
+		}
+	}
+	for _, key := range ref.LinkingKeys {
+		if key = strings.TrimSpace(key); key != "" {
+			return key
+		}
+	}
+	return ""
+}
+
 func Worktree(task protocol.Task) (protocol.SourceRef, bool) {
 	refs := Worktrees(task)
 	if len(refs) == 0 {

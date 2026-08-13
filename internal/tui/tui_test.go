@@ -598,17 +598,22 @@ func TestCleanupConfirmViewShowsEveryLocalResourceAndDirtyWarning(t *testing.T) 
 	}
 }
 
-func TestActivateSelectedDoesNotTreatAuthoredNoteAsWorkspace(t *testing.T) {
-	m := model{tasks: []protocol.Task{{SourceRefs: []protocol.SourceRef{{
+func TestActivateSelectedStartsLinkedWorkspaceCreateForAuthoredTask(t *testing.T) {
+	m := model{tasks: []protocol.Task{{Title: "One task", SourceRefs: []protocol.SourceRef{{
 		ID: "obsidian:task:1", Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
 		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
-		Metadata: map[string]string{"authoring": "true", "radar_id": "1", "note_path": "/vault/Tasks/One.md"},
+		CanonicalKey: "obsidian:task:1", LinkingKeys: []string{"obsidian:task:1"},
+		Presentation: protocol.SourceRefPresentation{WorkspaceName: "One task"},
+		Metadata:     map[string]string{"authoring": "true", "radar_id": "1", "note_path": "/vault/Tasks/One.md"},
 	}}}}}
 
 	updated, cmd := m.activateSelected()
+	if cmd == nil {
+		t.Fatal("activateSelected() returned no command")
+	}
 	got := updated.(model)
-	if cmd != nil || got.loading || got.message != "No tmux session or git worktree on selected task" {
-		t.Fatalf("activateSelected() command=%v loading=%v message=%q", cmd, got.loading, got.message)
+	if got.mode != "create_repo" || got.create.name != "One task" || got.create.taskLinkingKey != "obsidian:task:1" {
+		t.Fatalf("activateSelected() mode=%q create=%+v", got.mode, got.create)
 	}
 }
 

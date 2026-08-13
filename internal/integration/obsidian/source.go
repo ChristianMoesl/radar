@@ -286,7 +286,7 @@ func observationsFor(vault string, current note) []integration.Observation {
 		Ref: protocol.SourceRef{
 			ID: identity, EntityID: identity, Source: "obsidian", SourceLabel: "Obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
 			Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
-			Presentation: protocol.SourceRefPresentation{PreferTitle: true}, Title: current.Title, URL: uri,
+			Presentation: protocol.SourceRefPresentation{PreferTitle: true, WorkspaceName: current.Title}, Title: current.Title, URL: uri,
 			Status: current.State, CanonicalKey: identity, LinkingKeys: linking.Keys(identity), Metadata: metadata,
 		},
 		Signal: signal, Reason: "Obsidian task is " + current.State,

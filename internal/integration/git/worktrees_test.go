@@ -45,20 +45,22 @@ func TestWorktreesSkipsPrunableEntries(t *testing.T) {
 	}
 }
 
-func TestRegisteredWorktreeSourceRefIncludesWorkspaceGroup(t *testing.T) {
+func TestRegisteredWorktreeSourceRefIncludesWorkspaceLinks(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "repo", "work")
-	ref := (worktree{Path: path, Branch: "feature", Head: "abc"}).SourceRef(context.Background(), linking.MarkMatcher{}, "workspace-id")
+	ref := (worktree{Path: path, Branch: "feature", Head: "abc"}).SourceRef(context.Background(), linking.MarkMatcher{}, workspaceGroupLink{
+		ID: "workspace-id", TaskLinkingKey: "obsidian:task:one",
+	})
 	if ref.Metadata["workspace_id"] != "workspace-id" {
 		t.Fatalf("metadata = %+v", ref.Metadata)
 	}
-	found := false
+	found := map[string]bool{}
 	for _, key := range ref.LinkingKeys {
-		if key == "workspace-group:workspace-id" {
-			found = true
-		}
+		found[key] = true
 	}
-	if !found {
-		t.Fatalf("linking keys = %+v", ref.LinkingKeys)
+	for _, want := range []string{"workspace-group:workspace-id", "obsidian:task:one"} {
+		if !found[want] {
+			t.Fatalf("linking keys = %+v, want %q", ref.LinkingKeys, want)
+		}
 	}
 }
 

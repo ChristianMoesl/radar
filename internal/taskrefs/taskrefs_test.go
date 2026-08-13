@@ -19,6 +19,26 @@ func TestWorkspaceCandidateIgnoresInformationalReference(t *testing.T) {
 	}
 }
 
+func TestTaskLinkingKeyPrefersPrimaryWorkItemStableLink(t *testing.T) {
+	task := protocol.Task{SourceRefs: []protocol.SourceRef{
+		{ID: "review:change:2", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, CanonicalKey: "review:change:2", LinkingKeys: []string{"review:change:2"}, Presentation: protocol.SourceRefPresentation{WorkspaceName: "feature"}},
+		{ID: "notes:task:1", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary, CanonicalKey: "notes:task:1", LinkingKeys: []string{"notes:task:1"}, Presentation: protocol.SourceRefPresentation{WorkspaceName: "One task"}},
+	}}
+	if got := TaskLinkingKey(task); got != "notes:task:1" {
+		t.Fatalf("TaskLinkingKey() = %q, want primary task key", got)
+	}
+}
+
+func TestTaskLinkingKeyFallsBackToWorkspaceCandidateLinkingMark(t *testing.T) {
+	task := protocol.Task{SourceRefs: []protocol.SourceRef{{
+		ID: "tracker:issue:1", Role: protocol.SourceRefRoleAuthoritative, CanonicalKey: "tracker:issue:1",
+		LinkingKeys: []string{"mark:ABC-1"}, Presentation: protocol.SourceRefPresentation{WorkspaceName: "ABC-1 One"},
+	}}}
+	if got := TaskLinkingKey(task); got != "mark:ABC-1" {
+		t.Fatalf("TaskLinkingKey() = %q, want linking mark", got)
+	}
+}
+
 func TestWorkspaceCandidatePrefersReadyCodeWorkspace(t *testing.T) {
 	task := protocol.Task{SourceRefs: []protocol.SourceRef{
 		{ID: "tracker:issue:1", Role: protocol.SourceRefRoleAuthoritative, Presentation: protocol.SourceRefPresentation{WorkspaceName: "Issue one"}},

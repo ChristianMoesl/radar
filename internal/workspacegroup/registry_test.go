@@ -12,7 +12,7 @@ func TestRegistryRoundTripAndLookup(t *testing.T) {
 	primary := filepath.Join(root, "repo", "work")
 	secondary := filepath.Join(root, "other", "work")
 	registry := Registry{Version: Version, Workspaces: []Workspace{{
-		ID: ID(primary), Name: "work", PrimaryPath: primary,
+		ID: ID(primary), Name: "work", PrimaryPath: primary, TaskLinkingKey: "obsidian:task:one",
 		Members: []Member{
 			{Repository: filepath.Join(root, "sources", "repo"), Path: primary, Branch: "work", Primary: true, SetupScheduled: true},
 			{Repository: filepath.Join(root, "sources", "other"), Path: secondary, Branch: "work"},
@@ -26,7 +26,7 @@ func TestRegistryRoundTripAndLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace, ok := FindByMemberPath(loaded, secondary)
-	if !ok || workspace.ID != ID(primary) {
+	if !ok || workspace.ID != ID(primary) || workspace.TaskLinkingKey != "obsidian:task:one" {
 		t.Fatalf("lookup = %+v, %v", workspace, ok)
 	}
 	info, err := os.Stat(Path(root))
@@ -79,6 +79,18 @@ func TestRemoveMemberPreservesGroupUntilPrimaryAndMembersAreGone(t *testing.T) {
 	}
 	if len(registry.Workspaces) != 0 {
 		t.Fatalf("registry after full cleanup = %+v", registry)
+	}
+}
+
+func TestRegistryRejectsTaskLinkingKeyWithoutPrefix(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "repo", "work")
+	err := Save(root, Registry{Version: Version, Workspaces: []Workspace{{
+		ID: "one", Name: "one", PrimaryPath: path, TaskLinkingKey: "invalid",
+		Members: []Member{{Repository: filepath.Join(root, "source"), Path: path, Branch: "one", Primary: true}},
+	}}})
+	if err == nil || !strings.Contains(err.Error(), "task_linking_key") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

@@ -116,6 +116,7 @@ type CreateOptions struct {
 	Tmux                    tmuxlayout.Config
 	Switch                  bool
 	ForkPiSession           string
+	TaskLinkingKey          string
 }
 
 type Workspace struct {
@@ -186,7 +187,14 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	}
 	workspaceValue := Workspace{Name: plan.Name, Branch: plan.Branch, Base: plan.Base, Repo: plan.Repo, Path: plan.Path, SessionName: sessionName, SandboxName: sandboxName}
 	if plan.Existing {
-		return openExistingWorkspace(ctx, runner, workspaceValue, options)
+		opened, err := openExistingWorkspace(ctx, runner, workspaceValue, options)
+		if err != nil {
+			return Workspace{}, err
+		}
+		if err := registerPrimaryWorkspace(ctx, runner, plan, opened.SessionName, opened.SandboxName, sandbox, true, options.TaskLinkingKey); err != nil {
+			return Workspace{}, err
+		}
+		return opened, nil
 	}
 
 	prepared, err := EnsureWorktree(ctx, runner, plan)
@@ -240,7 +248,7 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	} else {
 		setupScheduled = true
 	}
-	if err := registerPrimaryWorkspace(ctx, runner, plan, sessionName, sandboxName, sandbox, setupScheduled); err != nil {
+	if err := registerPrimaryWorkspace(ctx, runner, plan, sessionName, sandboxName, sandbox, setupScheduled, options.TaskLinkingKey); err != nil {
 		rollback()
 		return Workspace{}, err
 	}
