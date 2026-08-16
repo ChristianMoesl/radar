@@ -577,6 +577,7 @@ func relinkState(state persistedState) persistedState {
 	for _, group := range sourceRefLinkGroups(state.SourceRefs) {
 		state = mergeRelatedRecords(state, uniqueTaskRecordIDs(group))
 	}
+	state = relinkHistoricalWorkspaceBranches(state)
 
 	byCanonicalKey := map[string][]string{}
 	for _, record := range state.Records {
@@ -694,6 +695,68 @@ func sourceRefLinkGroups(refs []SourceRefRecord) [][]SourceRefRecord {
 		groups = append(groups, group)
 	}
 	return groups
+}
+
+// relinkHistoricalWorkspaceBranches lets a removed worktree preserve its
+// repository/branch association while the workspace task itself remains open.
+// Ambiguous historical branches are deliberately ignored.
+func relinkHistoricalWorkspaceBranches(state persistedState) persistedState {
+	activeWorkspaceRecords := map[string]bool{}
+	for _, ref := range state.SourceRefs {
+		if ref.Active && ref.TaskRecordID != "" && authoritativeRef(ref.Snapshot) && ref.Snapshot.Lifecycle == protocol.SourceRefLifecycleWorkspace {
+			activeWorkspaceRecords[ref.TaskRecordID] = true
+		}
+	}
+
+	targetsByBranch := map[string]map[string]bool{}
+	for _, ref := range state.SourceRefs {
+		if ref.Active || !activeWorkspaceRecords[ref.TaskRecordID] || !authoritativeRef(ref.Snapshot) || ref.Snapshot.Lifecycle != protocol.SourceRefLifecycleWorkspace {
+			continue
+		}
+		for _, key := range branchLinkKeys(ref.Snapshot) {
+			if targetsByBranch[key] == nil {
+				targetsByBranch[key] = map[string]bool{}
+			}
+			targetsByBranch[key][ref.TaskRecordID] = true
+		}
+	}
+
+	keys := make([]string, 0, len(targetsByBranch))
+	for key := range targetsByBranch {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		targets := targetsByBranch[key]
+		if len(targets) != 1 {
+			continue
+		}
+		targetID := ""
+		for id := range targets {
+			targetID = id
+		}
+		recordIDs := []string{targetID}
+		for _, ref := range state.SourceRefs {
+			if !ref.Active || ref.TaskRecordID == "" || ref.TaskRecordID == targetID || !authoritativeRef(ref.Snapshot) || ref.Snapshot.Lifecycle != protocol.SourceRefLifecycleWorkItem {
+				continue
+			}
+			if containsString(branchLinkKeys(ref.Snapshot), key) {
+				recordIDs = append(recordIDs, ref.TaskRecordID)
+			}
+		}
+		state = mergeRelatedRecords(state, recordIDs)
+	}
+	return state
+}
+
+func branchLinkKeys(ref protocol.SourceRef) []string {
+	keys := make([]string, 0)
+	for _, key := range linkKeysForSourceRef(ref) {
+		if strings.HasPrefix(key, "branch:") {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 func sourceRefRecordsRelated(left, right SourceRefRecord) bool {

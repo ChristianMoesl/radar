@@ -62,6 +62,86 @@ func TestReconcileStateDurablyLinksPullRequestAndWorktreeByOriginAndBranch(t *te
 	}
 }
 
+func TestReconcileStateLinksPullRequestThroughRemovedWorkspaceMember(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	primary := withWorkspaceGroup(testGitWorktreeRef("git:worktree:/workspaces/primary/work", "/workspaces/primary/work", "acme/primary", "work"), "group-a")
+	member := withWorkspaceGroup(testGitWorktreeRef("git:worktree:/workspaces/app/feature", "/workspaces/app/feature", "acme/app", "feature/no-ticket"), "group-a")
+	state := reconcileStateForSources(persistedState{Version: stateVersion}, []protocol.Task{
+		makeTask("in_progress", "git worktree", primary),
+		makeTask("in_progress", "git worktree", member),
+	}, now, map[string]bool{"git": true})
+
+	state = reconcileStateForSources(state, []protocol.Task{
+		makeTask("in_progress", "git worktree", primary),
+	}, now.Add(time.Hour), map[string]bool{"git": true})
+	state = reconcileStateForSources(state, []protocol.Task{
+		makeTask("in_progress", "draft PR", testGitHubPRRef("github:pr:acme/app:7", "acme/app", "feature/no-ticket")),
+	}, now.Add(2*time.Hour), map[string]bool{"github": true})
+
+	if len(state.Records) != 1 {
+		t.Fatalf("records = %d, want PR linked through removed workspace member: %+v", len(state.Records), state.Records)
+	}
+	tasks := projectTasks(state)
+	if len(tasks) != 1 {
+		t.Fatalf("tasks = %d, want one linked task: %+v", len(tasks), tasks)
+	}
+	if len(tasks[0].SourceRefs) != 2 {
+		t.Fatalf("active source refs = %+v, want primary worktree and PR only", tasks[0].SourceRefs)
+	}
+	for _, ref := range tasks[0].SourceRefs {
+		if ref.ID == member.ID {
+			t.Fatalf("removed workspace member is still projected: %+v", tasks[0].SourceRefs)
+		}
+	}
+}
+
+func TestReconcileStateDoesNotLinkThroughRemovedMemberOfClosedWorkspace(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	primary := withWorkspaceGroup(testGitWorktreeRef("git:worktree:/workspaces/primary/work", "/workspaces/primary/work", "acme/primary", "work"), "group-a")
+	member := withWorkspaceGroup(testGitWorktreeRef("git:worktree:/workspaces/app/feature", "/workspaces/app/feature", "acme/app", "feature/no-ticket"), "group-a")
+	state := reconcileStateForSources(persistedState{Version: stateVersion}, []protocol.Task{
+		makeTask("in_progress", "git worktree", primary),
+		makeTask("in_progress", "git worktree", member),
+	}, now, map[string]bool{"git": true})
+	state = reconcileStateForSources(state, nil, now.Add(time.Hour), map[string]bool{"git": true})
+	state = reconcileStateForSources(state, []protocol.Task{
+		makeTask("in_progress", "draft PR", testGitHubPRRef("github:pr:acme/app:7", "acme/app", "feature/no-ticket")),
+	}, now.Add(2*time.Hour), map[string]bool{"github": true})
+
+	if len(state.Records) != 2 {
+		t.Fatalf("records = %d, want closed workspace and PR to remain separate: %+v", len(state.Records), state.Records)
+	}
+}
+
+func TestReconcileStateDoesNotLinkAmbiguousHistoricalWorkspaceBranch(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	primaryA := withWorkspaceGroup(testGitWorktreeRef("git:worktree:/workspaces/primary-a/work", "/workspaces/primary-a/work", "acme/primary-a", "work-a"), "group-a")
+	memberA := withWorkspaceGroup(testGitWorktreeRef("git:worktree:/workspaces/app-a/feature", "/workspaces/app-a/feature", "acme/app", "feature/shared"), "group-a")
+	primaryB := withWorkspaceGroup(testGitWorktreeRef("git:worktree:/workspaces/primary-b/work", "/workspaces/primary-b/work", "acme/primary-b", "work-b"), "group-b")
+	memberB := withWorkspaceGroup(testGitWorktreeRef("git:worktree:/workspaces/app-b/feature", "/workspaces/app-b/feature", "acme/app", "feature/shared"), "group-b")
+
+	state := reconcileStateForSources(persistedState{Version: stateVersion}, []protocol.Task{
+		makeTask("in_progress", "git worktree", primaryA),
+		makeTask("in_progress", "git worktree", memberA),
+	}, now, map[string]bool{"git": true})
+	state = reconcileStateForSources(state, []protocol.Task{
+		makeTask("in_progress", "git worktree", primaryA),
+		makeTask("in_progress", "git worktree", primaryB),
+		makeTask("in_progress", "git worktree", memberB),
+	}, now.Add(time.Hour), map[string]bool{"git": true})
+	state = reconcileStateForSources(state, []protocol.Task{
+		makeTask("in_progress", "git worktree", primaryA),
+		makeTask("in_progress", "git worktree", primaryB),
+	}, now.Add(2*time.Hour), map[string]bool{"git": true})
+	state = reconcileStateForSources(state, []protocol.Task{
+		makeTask("in_progress", "draft PR", testGitHubPRRef("github:pr:acme/app:7", "acme/app", "feature/shared")),
+	}, now.Add(3*time.Hour), map[string]bool{"github": true})
+
+	if len(state.Records) != 3 {
+		t.Fatalf("records = %d, want two workspaces and ambiguous PR to remain separate: %+v", len(state.Records), state.Records)
+	}
+}
+
 func TestReconcileStateReopensDoneRecord(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{Title: "CAP-7 ship", Attention: "done", DoneAt: now.Format(time.RFC3339), SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")}}}, now)
@@ -470,6 +550,11 @@ func makeTask(attention string, reason string, ref protocol.SourceRef) protocol.
 		ref.Signal = attention
 	}
 	return protocol.Task{Title: ref.Title, Attention: attention, Reason: reason, SourceRefs: []protocol.SourceRef{ref}}
+}
+
+func withWorkspaceGroup(ref protocol.SourceRef, workspaceID string) protocol.SourceRef {
+	ref.LinkingKeys = linking.Keys(append(ref.LinkingKeys, linking.WorkspaceGroupKey(workspaceID))...)
+	return ref
 }
 
 func withMetadata(ref protocol.SourceRef, metadata map[string]string) protocol.SourceRef {
