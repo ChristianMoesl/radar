@@ -248,6 +248,7 @@ func RemoveMember(root string, memberPath string) error {
 func normalizeAndValidate(registry *Registry) error {
 	ids := map[string]bool{}
 	paths := map[string]bool{}
+	memberIdentities := map[string]bool{}
 	for workspaceIndex := range registry.Workspaces {
 		workspace := &registry.Workspaces[workspaceIndex]
 		workspace.ID = strings.TrimSpace(workspace.ID)
@@ -282,6 +283,11 @@ func normalizeAndValidate(registry *Registry) error {
 				return fmt.Errorf("duplicate workspace member path %q", member.Path)
 			}
 			paths[key] = true
+			identity := pathKey(member.Repository) + "\x00" + member.Branch
+			if memberIdentities[identity] {
+				return fmt.Errorf("duplicate workspace member repository %q and branch %q", member.Repository, member.Branch)
+			}
+			memberIdentities[identity] = true
 			if member.Primary {
 				primaryCount++
 				if !samePath(member.Path, workspace.PrimaryPath) {

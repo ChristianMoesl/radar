@@ -18,7 +18,7 @@ import (
 	"radar/internal/workspacegroup"
 )
 
-func TestReconciledWorktreeLinksExistingGitHubPullRequestToWorkspace(t *testing.T) {
+func TestReconciledSameRepositoryWorktreeLinksExistingGitHubPullRequestToWorkspace(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not found")
 	}
@@ -34,12 +34,10 @@ func TestReconciledWorktreeLinksExistingGitHubPullRequestToWorkspace(t *testing.
 	sources := filepath.Join(tmp, "sources")
 	workspaceRoot := filepath.Join(tmp, "workspaces")
 	primaryRepo := filepath.Join(sources, "primary")
-	targetRepo := filepath.Join(sources, "target")
 	primaryPath := filepath.Join(workspaceRoot, "primary", "work")
 
 	initLinkingRepository(t, ctx, primaryRepo, "https://github.com/acme/primary.git")
-	initLinkingRepository(t, ctx, targetRepo, "https://github.com/acme/target.git")
-	runLinkingGit(t, ctx, targetRepo, "branch", "feature/api")
+	runLinkingGit(t, ctx, primaryRepo, "branch", "feature/api")
 	if err := os.MkdirAll(filepath.Dir(primaryPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +67,7 @@ func TestReconciledWorktreeLinksExistingGitHubPullRequestToWorkspace(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	pr := githubPullRequestRef("github:pr:acme/target:7", "acme/target", 7, "Feature without ticket", "https://github.com/acme/target/pull/7", "open PR", "feature/api")
+	pr := githubPullRequestRef("github:pr:acme/primary:7", "acme/primary", 7, "Feature without ticket", "https://github.com/acme/primary/pull/7", "open PR", "feature/api")
 	initialWorktrees, status := gitsource.FetchWorktrees(ctx, logger, linking.NewMarkMatcher([]string{"RAD"}))
 	if status.Status != "ok" || len(initialWorktrees) != 1 {
 		t.Fatalf("initial worktrees=%+v status=%+v", initialWorktrees, status)
@@ -88,7 +86,7 @@ func TestReconciledWorktreeLinksExistingGitHubPullRequestToWorkspace(t *testing.
 	}
 	desired := inspected.Desired
 	desired.Worktrees = append(desired.Worktrees, workspace.DesiredWorkspaceWorktree{
-		Repository: targetRepo, BranchMode: integration.WorkspaceBranchExisting, Branch: "feature/api",
+		Repository: primaryRepo, BranchMode: integration.WorkspaceBranchExisting, Branch: "feature/api",
 	})
 	request := workspace.ReconcileWorkspaceRequest{
 		Workspace: primaryPath, WorkspaceRoot: workspaceRoot, Revision: inspected.Revision, Desired: desired,
@@ -111,6 +109,9 @@ func TestReconciledWorktreeLinksExistingGitHubPullRequestToWorkspace(t *testing.
 		t.Fatalf("refreshed worktrees=%+v status=%+v", refreshedWorktrees, status)
 	}
 	localTasks := make([]protocol.Task, 0, len(refreshedWorktrees))
+	if refreshedWorktrees[0].ID == refreshedWorktrees[1].ID {
+		t.Fatalf("duplicate refreshed worktrees: %+v", refreshedWorktrees)
+	}
 	for _, ref := range refreshedWorktrees {
 		localTasks = append(localTasks, taskForLinkingTest(ref))
 	}
@@ -120,7 +121,7 @@ func TestReconciledWorktreeLinksExistingGitHubPullRequestToWorkspace(t *testing.
 	if len(tasks) != 1 {
 		t.Fatalf("tasks after reconciliation=%+v, want one linked task", tasks)
 	}
-	for _, id := range []string{"github:pr:acme/target:7", "git:worktree:" + primaryPath, "git:worktree:" + plan.Changes[0].Path} {
+	for _, id := range []string{"github:pr:acme/primary:7", "git:worktree:" + primaryPath, "git:worktree:" + plan.Changes[0].Path} {
 		if !taskHasSourceRef(tasks[0], id) {
 			t.Fatalf("linked task is missing %q: %+v", id, tasks[0].SourceRefs)
 		}

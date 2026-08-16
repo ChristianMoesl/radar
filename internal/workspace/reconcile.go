@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -21,6 +22,7 @@ type ReconcileWorkspaceRequest struct {
 	WorkspaceRoot           string                      `json:"-"`
 	AdditionalSandboxMounts []string                    `json:"-"`
 	ExpectedPlanID          string                      `json:"-"`
+	ExpectedPlanChangeCount *int                        `json:"-"`
 	Revision                string                      `json:"revision"`
 	Desired                 DesiredWorkspaceDescription `json:"desired"`
 }
@@ -77,19 +79,41 @@ type ReconcileWorkspacePlan struct {
 }
 
 type ReconcileWorkspaceResult struct {
-	OK                bool   `json:"ok"`
-	WorkspaceID       string `json:"workspace_id"`
-	Revision          string `json:"revision,omitempty"`
-	WorktreesAdded    int    `json:"worktrees_added"`
-	WorktreesRemoved  int    `json:"worktrees_removed"`
-	SandboxReconciled bool   `json:"sandbox_reconciled"`
-	MountsAdded       int    `json:"mounts_added"`
-	MountsRemoved     int    `json:"mounts_removed"`
-	PortsPublished    int    `json:"ports_published"`
-	PortsUnpublished  int    `json:"ports_unpublished"`
-	Retryable         bool   `json:"retryable,omitempty"`
-	Warning           string `json:"warning,omitempty"`
-	Error             string `json:"error,omitempty"`
+	OK                bool                    `json:"ok"`
+	WorkspaceID       string                  `json:"workspace_id"`
+	Revision          string                  `json:"revision,omitempty"`
+	WorktreesAdded    int                     `json:"worktrees_added"`
+	WorktreesRemoved  int                     `json:"worktrees_removed"`
+	SandboxReconciled bool                    `json:"sandbox_reconciled"`
+	MountsAdded       int                     `json:"mounts_added"`
+	MountsRemoved     int                     `json:"mounts_removed"`
+	PortsPublished    int                     `json:"ports_published"`
+	PortsUnpublished  int                     `json:"ports_unpublished"`
+	Retryable         bool                    `json:"retryable,omitempty"`
+	ReconfirmRequired bool                    `json:"reconfirm_required,omitempty"`
+	Reason            string                  `json:"reason,omitempty"`
+	Plan              *ReconcileWorkspacePlan `json:"plan,omitempty"`
+	Warning           string                  `json:"warning,omitempty"`
+	Error             string                  `json:"error,omitempty"`
+}
+
+type ReconcileWorkspaceError struct {
+	Reason      string `json:"reason"`
+	Message     string `json:"error"`
+	Repository  string `json:"repository,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	ChangeCount int    `json:"change_count,omitempty"`
+}
+
+func (e *ReconcileWorkspaceError) Error() string { return e.Message }
+
+func ReconcileWorkspaceErrorDetails(err error) (*ReconcileWorkspaceError, bool) {
+	var problem *ReconcileWorkspaceError
+	if errors.As(err, &problem) {
+		return problem, true
+	}
+	return nil, false
 }
 
 type reconcileAddition struct {
@@ -100,6 +124,10 @@ const largeEffectiveMountCount = 20
 
 func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request ReconcileWorkspaceRequest) (ReconcileWorkspacePlan, error) {
 	root, _, group, err := resolveWorkspaceGroup(ctx, runner, request.Workspace, request.WorkspaceRoot)
+	if err != nil {
+		return ReconcileWorkspacePlan{}, err
+	}
+	registry, err := workspacegroup.Load(root)
 	if err != nil {
 		return ReconcileWorkspacePlan{}, err
 	}
@@ -115,20 +143,23 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 		return ReconcileWorkspacePlan{}, fmt.Errorf("workspace revision is required")
 	}
 	if request.Revision != revision {
-		return ReconcileWorkspacePlan{}, fmt.Errorf("workspace changed since it was inspected: expected revision %s, current revision is %s", request.Revision, revision)
+		return ReconcileWorkspacePlan{}, &ReconcileWorkspaceError{
+			Reason:  "stale_revision",
+			Message: fmt.Sprintf("workspace changed since it was inspected: expected revision %s, current revision is %s", request.Revision, revision),
+		}
 	}
 	if len(request.Desired.Worktrees) == 0 {
 		return ReconcileWorkspacePlan{}, fmt.Errorf("desired workspace must contain its primary worktree")
 	}
 
-	existingByRepository := make(map[string]workspacegroup.Member, len(group.Members))
+	existingByIdentity := make(map[string]workspacegroup.Member, len(group.Members))
 	for _, member := range group.Members {
-		existingByRepository[pathKey(member.Repository)] = member
+		existingByIdentity[workspaceMemberKey(member.Repository, member.Branch)] = member
 	}
 	candidate := group
 	candidate.Members = nil
 	additions := []reconcileAddition{}
-	desiredRepositories := map[string]bool{}
+	desiredIdentities := map[string]bool{}
 	plansByPath := map[string]WorktreePlan{}
 
 	for _, desired := range request.Desired.Worktrees {
@@ -149,19 +180,22 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 			return ReconcileWorkspacePlan{}, fmt.Errorf("every desired worktree requires an absolute repository path")
 		}
 		repository = filepath.Clean(repository)
-		key := pathKey(repository)
-		if desiredRepositories[key] {
-			return ReconcileWorkspacePlan{}, fmt.Errorf("repository %s appears more than once in desired worktrees", repository)
+		branch := normalizeExistingBranch(desired.Branch)
+		if desired.BranchMode == integration.WorkspaceBranchNew {
+			branch = BranchName(desired.Name)
 		}
-		desiredRepositories[key] = true
-
-		if member, ok := existingByRepository[key]; ok {
-			if desired.BranchMode != integration.WorkspaceBranchExisting || strings.TrimSpace(desired.Name) != "" || strings.TrimSpace(desired.Base) != "" {
-				return ReconcileWorkspacePlan{}, fmt.Errorf("existing workspace member %s must use existing branch mode", repository)
+		identity := workspaceMemberKey(repository, branch)
+		if desiredIdentities[identity] {
+			return ReconcileWorkspacePlan{}, &ReconcileWorkspaceError{
+				Reason: "duplicate_member", Repository: repository, Branch: branch,
+				Message: fmt.Sprintf("repository %s branch %q appears more than once in desired worktrees", repository, branch),
 			}
-			branch := normalizeExistingBranch(desired.Branch)
-			if branch != member.Branch {
-				return ReconcileWorkspacePlan{}, fmt.Errorf("repository %s already belongs to the workspace on branch %q; changing a member branch is not supported", repository, member.Branch)
+		}
+		desiredIdentities[identity] = true
+
+		if member, ok := existingByIdentity[identity]; ok {
+			if desired.BranchMode != integration.WorkspaceBranchExisting {
+				return ReconcileWorkspacePlan{}, fmt.Errorf("repository %s branch %q already belongs to the workspace; use existing branch mode", repository, branch)
 			}
 			candidate.Members = append(candidate.Members, member)
 			continue
@@ -180,10 +214,10 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 		if err != nil {
 			return ReconcileWorkspacePlan{}, err
 		}
+		if owner, found := workspacegroup.FindByMemberPath(registry, plan.Path); found && owner.ID != group.ID {
+			return ReconcileWorkspacePlan{}, fmt.Errorf("repository %s branch %q already belongs to Radar workspace %q", plan.Repo, plan.Branch, owner.Name)
+		}
 		for _, member := range candidate.Members {
-			if sameCleanPath(member.Repository, plan.Repo) {
-				return ReconcileWorkspacePlan{}, fmt.Errorf("repository %s already belongs to Radar workspace %q", plan.Repo, group.Name)
-			}
 			if sameCleanPath(member.Path, plan.Path) {
 				return ReconcileWorkspacePlan{}, fmt.Errorf("repository basename/path collision at %s", plan.Path)
 			}
@@ -196,18 +230,21 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 
 	removals := []workspacegroup.Member{}
 	for _, member := range group.Members {
-		if desiredRepositories[pathKey(member.Repository)] {
+		if desiredIdentities[workspaceMemberKey(member.Repository, member.Branch)] {
 			continue
 		}
 		if member.Primary {
 			return ReconcileWorkspacePlan{}, fmt.Errorf("the primary worktree cannot be removed from its workspace")
 		}
-		status, statusErr := runner.Run(ctx, "", "git", "-C", member.Path, "status", "--porcelain")
+		changeCount, statusErr := worktreeChangeCount(ctx, runner, member.Path)
 		if statusErr != nil {
 			return ReconcileWorkspacePlan{}, statusErr
 		}
-		if strings.TrimSpace(status) != "" {
-			return ReconcileWorkspacePlan{}, fmt.Errorf("workspace member %s has local changes and cannot be removed", member.Path)
+		if changeCount > 0 {
+			return ReconcileWorkspacePlan{}, &ReconcileWorkspaceError{
+				Reason: "dirty_removal", Repository: member.Repository, Path: member.Path, Branch: member.Branch, ChangeCount: changeCount,
+				Message: fmt.Sprintf("cannot remove dirty workspace member %s (%d changed entries); to retain it, include repository %s and branch %q unchanged in desired.worktrees; to remove it, commit, stash, or discard its changes, then inspect the workspace again", member.Path, changeCount, member.Repository, member.Branch),
+			}
 		}
 		removals = append(removals, member)
 	}
@@ -329,9 +366,21 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 		return ReconcileWorkspaceResult{}, err
 	}
 	if request.ExpectedPlanID != "" && request.ExpectedPlanID != plan.PlanID {
-		err := fmt.Errorf("workspace reconciliation plan changed after confirmation")
-		logReconciliationFailure(logger, plan.WorkspaceID, "confirmation", ReconcileWorkspaceResult{}, err)
-		return ReconcileWorkspaceResult{}, err
+		result := ReconcileWorkspaceResult{
+			WorkspaceID: plan.WorkspaceID, ReconfirmRequired: true, Reason: "plan_changed",
+			Plan: &plan, Error: "workspace reconciliation plan changed after confirmation",
+		}
+		if logger != nil {
+			attributes := []any{
+				"workspace_id", plan.WorkspaceID, "expected_plan_id", request.ExpectedPlanID,
+				"actual_plan_id", plan.PlanID, "new_change_count", len(plan.Changes),
+			}
+			if request.ExpectedPlanChangeCount != nil {
+				attributes = append(attributes, "old_change_count", *request.ExpectedPlanChangeCount)
+			}
+			logger.Warn("workspace reconciliation requires reconfirmation", attributes...)
+		}
+		return result, nil
 	}
 	result := ReconcileWorkspaceResult{WorkspaceID: plan.WorkspaceID}
 	if logger != nil {
@@ -455,8 +504,14 @@ func logReconciliationFailure(logger *slog.Logger, workspaceID, phase string, re
 	if logger == nil {
 		return
 	}
-	logger.Error("workspace reconciliation failed", "workspace_id", workspaceID, "phase", phase,
-		"worktrees_added", result.WorktreesAdded, "worktrees_removed", result.WorktreesRemoved, "error", err)
+	attributes := []any{
+		"workspace_id", workspaceID, "phase", phase,
+		"worktrees_added", result.WorktreesAdded, "worktrees_removed", result.WorktreesRemoved, "error", err,
+	}
+	if problem, ok := ReconcileWorkspaceErrorDetails(err); ok {
+		attributes = append(attributes, "reason", problem.Reason, "path", problem.Path, "change_count", problem.ChangeCount)
+	}
+	logger.Error("workspace reconciliation failed", attributes...)
 }
 
 func logRetryableReconciliationFailure(logger *slog.Logger, plan ReconcileWorkspacePlan, phase string, result ReconcileWorkspaceResult, err error) {
@@ -499,6 +554,22 @@ func resolveWorkspaceGroup(ctx context.Context, runner Runner, currentDirectory,
 		}
 	}
 	return root, current, group, nil
+}
+
+func workspaceMemberKey(repository, branch string) string {
+	return pathKey(repository) + "\x00" + strings.TrimSpace(branch)
+}
+
+func worktreeChangeCount(ctx context.Context, runner Runner, path string) (int, error) {
+	status, err := runner.Run(ctx, "", "git", "-C", path, "status", "--porcelain")
+	if err != nil {
+		return 0, err
+	}
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return 0, nil
+	}
+	return len(strings.Split(status, "\n")), nil
 }
 
 func workspacePlanID(revision string, changes []WorkspaceChange, warnings []string) (string, error) {

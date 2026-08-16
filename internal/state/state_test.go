@@ -153,6 +153,28 @@ func TestProjectTasksProjectsBusyFromActiveSourceRefs(t *testing.T) {
 	}
 }
 
+func TestSourceScopedRefreshKeepsExistingRefActiveWhenNewRefComesFirst(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	existing := testGitWorktreeRef("git:worktree:/work/existing", "/work/existing", "acme/app", "existing")
+	added := testGitWorktreeRef("git:worktree:/work/added", "/work/added", "acme/app", "added")
+	state := reconcileStateForSources(persistedState{Version: stateVersion}, []protocol.Task{
+		makeTask("in_progress", "existing", existing),
+	}, now, map[string]bool{"git": true})
+
+	state = reconcileStateForSources(state, []protocol.Task{
+		makeTask("in_progress", "added", added),
+		makeTask("in_progress", "existing", existing),
+	}, now.Add(time.Hour), map[string]bool{"git": true})
+
+	active := map[string]bool{}
+	for _, ref := range state.SourceRefs {
+		active[ref.ID] = ref.Active
+	}
+	if !active[existing.ID] || !active[added.ID] {
+		t.Fatalf("source refs = %+v", state.SourceRefs)
+	}
+}
+
 func TestProjectTasksMarksDoneWhenRemoteDoneAndOnlyLocalRemains(t *testing.T) {
 	now := time.Now().UTC()
 	worktree := testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "CAP-7-ship")

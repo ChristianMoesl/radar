@@ -39,6 +39,7 @@ type WorkspaceContextMember struct {
 	Path       string `json:"path"`
 	Branch     string `json:"branch"`
 	Primary    bool   `json:"primary"`
+	Dirty      bool   `json:"dirty"`
 }
 
 type WorkspaceContextSandbox struct {
@@ -53,7 +54,6 @@ type WorkspaceContextRepository struct {
 	Name          string `json:"name"`
 	Path          string `json:"path"`
 	AlreadyMember bool   `json:"already_member"`
-	MemberPath    string `json:"member_path,omitempty"`
 }
 
 type RepositoryRefs struct {
@@ -107,9 +107,9 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 	if err != nil {
 		return WorkspaceContext{}, err
 	}
-	memberByRepository := make(map[string]workspacegroup.Member, len(group.Members))
+	memberRepositories := make(map[string]bool, len(group.Members))
 	for _, member := range group.Members {
-		memberByRepository[pathKey(member.Repository)] = member
+		memberRepositories[pathKey(member.Repository)] = true
 		if !containsRepositoryPath(repositories, member.Repository) {
 			repositories = append(repositories, member.Repository)
 		}
@@ -145,20 +145,21 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		}
 	}
 	for _, member := range group.Members {
+		changeCount, err := worktreeChangeCount(ctx, runner, member.Path)
+		if err != nil {
+			return WorkspaceContext{}, err
+		}
 		result.Members = append(result.Members, WorkspaceContextMember{
-			Repository: member.Repository, Path: member.Path, Branch: member.Branch, Primary: member.Primary,
+			Repository: member.Repository, Path: member.Path, Branch: member.Branch, Primary: member.Primary, Dirty: changeCount > 0,
 		})
 		result.Desired.Worktrees = append(result.Desired.Worktrees, DesiredWorkspaceWorktree{
 			Repository: member.Repository, BranchMode: "existing", Branch: member.Branch,
 		})
 	}
 	for _, repository := range repositories {
-		summary := WorkspaceContextRepository{Name: filepath.Base(repository), Path: repository}
-		if member, ok := memberByRepository[pathKey(repository)]; ok {
-			summary.AlreadyMember = true
-			summary.MemberPath = member.Path
-		}
-		result.Repositories = append(result.Repositories, summary)
+		result.Repositories = append(result.Repositories, WorkspaceContextRepository{
+			Name: filepath.Base(repository), Path: repository, AlreadyMember: memberRepositories[pathKey(repository)],
+		})
 	}
 	return result, nil
 }

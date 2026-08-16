@@ -450,31 +450,36 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 	recordsByNumericID := map[int]*TaskRecord{}
 	recordsBySourceRef := map[string]*TaskRecord{}
 	recordsByKey := map[string]*TaskRecord{}
-	maxID := state.NextTaskID
-	for i := range state.Records {
-		record := &state.Records[i]
-		if record.NumericID > maxID {
-			maxID = record.NumericID
-		}
-		recordsByID[record.ID] = record
-		recordsByNumericID[record.NumericID] = record
-		if record.CanonicalKey != "" {
-			recordsByKey[record.CanonicalKey] = record
-		}
-		for _, id := range record.SourceRefIDs {
-			recordsBySourceRef[id] = record
+	indexRecords := func() {
+		recordsByID = map[string]*TaskRecord{}
+		recordsByNumericID = map[int]*TaskRecord{}
+		recordsBySourceRef = map[string]*TaskRecord{}
+		recordsByKey = map[string]*TaskRecord{}
+		for i := range state.Records {
+			record := &state.Records[i]
+			if record.NumericID > state.NextTaskID {
+				state.NextTaskID = record.NumericID
+			}
+			recordsByID[record.ID] = record
+			recordsByNumericID[record.NumericID] = record
+			if record.CanonicalKey != "" {
+				recordsByKey[record.CanonicalKey] = record
+			}
+			for _, id := range record.SourceRefIDs {
+				recordsBySourceRef[id] = record
+			}
 		}
 	}
-	state.NextTaskID = maxID
+	indexRecords()
 
 	for i := range state.SourceRefs {
 		if sourceScope == nil || sourceScope[state.SourceRefs[i].Source] {
 			state.SourceRefs[i].Active = false
 		}
 	}
-	sourceRefsByID := map[string]*SourceRefRecord{}
+	sourceRefsByID := map[string]int{}
 	for i := range state.SourceRefs {
-		sourceRefsByID[state.SourceRefs[i].ID] = &state.SourceRefs[i]
+		sourceRefsByID[state.SourceRefs[i].ID] = i
 	}
 
 	for _, task := range mergeObservedTasks(observed) {
@@ -492,9 +497,8 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 				FirstSeen:    nowText,
 			}
 			state.Records = append(state.Records, *record)
+			indexRecords()
 			record = &state.Records[len(state.Records)-1]
-			recordsByID[record.ID] = record
-			recordsByNumericID[record.NumericID] = record
 		} else if key != "" && record.CanonicalKey == "" {
 			record.CanonicalKey = key
 		}
@@ -527,12 +531,13 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 			if sourceRef.ID == "" {
 				continue
 			}
-			refRecord := sourceRefsByID[sourceRef.ID]
-			if refRecord == nil {
+			refIndex, found := sourceRefsByID[sourceRef.ID]
+			if !found {
 				state.SourceRefs = append(state.SourceRefs, SourceRefRecord{ID: sourceRef.ID, FirstSeen: nowText})
-				refRecord = &state.SourceRefs[len(state.SourceRefs)-1]
-				sourceRefsByID[sourceRef.ID] = refRecord
+				refIndex = len(state.SourceRefs) - 1
+				sourceRefsByID[sourceRef.ID] = refIndex
 			}
+			refRecord := &state.SourceRefs[refIndex]
 			if sourceRef.Signal == "" {
 				sourceRef.Signal = task.Attention
 			}

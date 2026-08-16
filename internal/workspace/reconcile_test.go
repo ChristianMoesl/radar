@@ -64,8 +64,20 @@ func TestReconcileWorkspaceAddsAndRemovesWorktreeWithoutSandbox(t *testing.T) {
 	}
 	stalePlanRequest := request
 	stalePlanRequest.ExpectedPlanID = "different-plan"
-	if _, err := ApplyReconcileWorkspace(ctx, runner, nil, stalePlanRequest); err == nil || !strings.Contains(err.Error(), "plan changed") {
-		t.Fatalf("stale plan error = %v", err)
+	expectedChangeCount := len(plan.Changes)
+	stalePlanRequest.ExpectedPlanChangeCount = &expectedChangeCount
+	var reconfirmLogs bytes.Buffer
+	reconfirmResult, err := ApplyReconcileWorkspace(ctx, runner, slog.New(slog.NewTextHandler(&reconfirmLogs, nil)), stalePlanRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconfirmResult.OK || !reconfirmResult.ReconfirmRequired || reconfirmResult.Reason != "plan_changed" || reconfirmResult.Plan == nil || reconfirmResult.Plan.PlanID != plan.PlanID {
+		t.Fatalf("reconfirm result = %+v", reconfirmResult)
+	}
+	for _, message := range []string{"workspace reconciliation requires reconfirmation", "expected_plan_id=different-plan", "actual_plan_id=" + plan.PlanID, "new_change_count=1", "old_change_count=1"} {
+		if !strings.Contains(reconfirmLogs.String(), message) {
+			t.Fatalf("reconfirmation log is missing %q:\n%s", message, reconfirmLogs.String())
+		}
 	}
 	if _, err := os.Stat(plan.Changes[0].Path); !os.IsNotExist(err) {
 		t.Fatalf("stale plan mutated the worktree: %v", err)
@@ -114,8 +126,10 @@ func TestReconcileWorkspaceAddsAndRemovesWorktreeWithoutSandbox(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(memberPath, "dirty.txt"), []byte("dirty\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PreviewReconcileWorkspace(ctx, runner, remove); err == nil || !strings.Contains(err.Error(), "local changes") {
-		t.Fatalf("dirty removal error = %v", err)
+	if _, err := PreviewReconcileWorkspace(ctx, runner, remove); err == nil {
+		t.Fatal("dirty removal unexpectedly succeeded")
+	} else if problem, ok := ReconcileWorkspaceErrorDetails(err); !ok || problem.Reason != "dirty_removal" || problem.ChangeCount != 1 || !strings.Contains(problem.Message, "include repository") {
+		t.Fatalf("dirty removal error = %#v, %v", problem, err)
 	}
 	if err := os.Remove(filepath.Join(memberPath, "dirty.txt")); err != nil {
 		t.Fatal(err)
@@ -141,6 +155,87 @@ func TestReconcileWorkspaceAddsAndRemovesWorktreeWithoutSandbox(t *testing.T) {
 	}
 	if runner.sbxCalls != 0 {
 		t.Fatalf("sandbox-less reconciliation made %d sbx calls", runner.sbxCalls)
+	}
+}
+
+func TestReconcileWorkspaceSupportsMultipleBranchesFromOneRepository(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+	ctx := context.Background()
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(tmp, "workspaces")
+	repository := filepath.Join(tmp, "source")
+	initRepository(t, ctx, repository)
+	primaryPath := filepath.Join(root, "source", "primary")
+	runGitE2E(t, ctx, repository, "worktree", "add", "-b", "primary", primaryPath, "HEAD")
+	group := workspacegroup.Workspace{
+		ID: workspacegroup.ID(primaryPath), Name: "primary", PrimaryPath: primaryPath,
+		Members: []workspacegroup.Member{{Repository: repository, Path: primaryPath, Branch: "primary", Primary: true, SetupScheduled: true}},
+	}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+		t.Fatal(err)
+	}
+	revision, err := workspaceRevision(group, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary := DesiredWorkspaceWorktree{Repository: repository, BranchMode: integration.WorkspaceBranchExisting, Branch: "primary"}
+	second := DesiredWorkspaceWorktree{Repository: repository, BranchMode: integration.WorkspaceBranchNew, Name: "feature/second", Base: "HEAD"}
+	request := ReconcileWorkspaceRequest{
+		Workspace: primaryPath, WorkspaceRoot: root, Revision: revision,
+		Desired: DesiredWorkspaceDescription{Worktrees: []DesiredWorkspaceWorktree{primary, second}},
+	}
+	runner := &sbxRejectingRunner{Runner: ExecRunner{}}
+	plan, err := PreviewReconcileWorkspace(ctx, runner, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) != 1 || plan.Changes[0].Branch != "feature-second" {
+		t.Fatalf("plan = %+v", plan)
+	}
+	request.ExpectedPlanID = plan.PlanID
+	result, err := ApplyReconcileWorkspace(ctx, runner, nil, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK || result.WorktreesAdded != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	stored := loadTestWorkspace(t, root, primaryPath)
+	if len(stored.Members) != 2 || stored.Members[0].Repository != stored.Members[1].Repository || stored.Members[0].Branch == stored.Members[1].Branch {
+		t.Fatalf("stored workspace = %+v", stored)
+	}
+
+	existingSecond := DesiredWorkspaceWorktree{Repository: repository, BranchMode: integration.WorkspaceBranchExisting, Branch: "feature-second"}
+	duplicate := request
+	duplicate.Revision = result.Revision
+	duplicate.ExpectedPlanID = ""
+	duplicate.Desired.Worktrees = []DesiredWorkspaceWorktree{primary, existingSecond, existingSecond}
+	if _, err := PreviewReconcileWorkspace(ctx, runner, duplicate); err == nil {
+		t.Fatal("duplicate repository branch unexpectedly succeeded")
+	} else if problem, ok := ReconcileWorkspaceErrorDetails(err); !ok || problem.Reason != "duplicate_member" {
+		t.Fatalf("duplicate member error = %#v, %v", problem, err)
+	}
+
+	remove := ReconcileWorkspaceRequest{
+		Workspace: primaryPath, WorkspaceRoot: root, Revision: result.Revision,
+		Desired: DesiredWorkspaceDescription{Worktrees: []DesiredWorkspaceWorktree{primary}},
+	}
+	removePlan, err := PreviewReconcileWorkspace(ctx, runner, remove)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remove.ExpectedPlanID = removePlan.PlanID
+	removed, err := ApplyReconcileWorkspace(ctx, runner, nil, remove)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !removed.OK || removed.WorktreesRemoved != 1 || len(loadTestWorkspace(t, root, primaryPath).Members) != 1 {
+		t.Fatalf("removed = %+v", removed)
 	}
 }
 
@@ -269,6 +364,42 @@ func TestReconcileWorkspacePlansAdditionalSandboxMount(t *testing.T) {
 	}
 }
 
+func TestDesiredSandboxMountsDeduplicateCommonGitDirectoryForSameRepository(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "source")
+	common := filepath.Join(repository, ".git")
+	primary := filepath.Join(root, "workspaces", "source", "primary")
+	second := filepath.Join(root, "workspaces", "source", "second")
+	for _, path := range []string{repository, common, primary, second} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	group := workspacegroup.Workspace{
+		ID: workspacegroup.ID(primary), Name: "work", PrimaryPath: primary,
+		Members: []workspacegroup.Member{
+			{Repository: repository, Path: primary, Branch: "primary", Primary: true},
+			{Repository: repository, Path: second, Branch: "second"},
+		},
+	}
+	runner := &sandboxPlanningRunner{primary: primary, common: common}
+	mounts, err := desiredReconciledSandboxMounts(context.Background(), runner, group, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{primary, second, common} {
+		count := 0
+		for _, mount := range mounts {
+			if mount == path {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("mount %s occurs %d times in %+v", path, count, mounts)
+		}
+	}
+}
+
 type sandboxPlanningRunner struct {
 	primary     string
 	common      string
@@ -325,6 +456,9 @@ func TestReconcileWorkspaceRejectsStaleRevision(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "workspace changed") {
 		t.Fatalf("error = %v", err)
+	}
+	if problem, ok := ReconcileWorkspaceErrorDetails(err); !ok || problem.Reason != "stale_revision" {
+		t.Fatalf("stale revision problem = %#v", problem)
 	}
 }
 

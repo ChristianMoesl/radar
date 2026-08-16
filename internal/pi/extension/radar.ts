@@ -71,6 +71,9 @@ type Plan = {
 type ReconcileResult = {
   ok?: boolean;
   retryable?: boolean;
+  reconfirm_required?: boolean;
+  reason?: string;
+  plan?: Plan;
   error?: string;
   sandbox_reconciled?: boolean;
   worktrees_added?: number;
@@ -81,6 +84,7 @@ type ReconcileResult = {
 };
 
 const BusyOption = "@radar_busy";
+const MaxReconcileConfirmations = 3;
 
 async function publishBusy(pi: ExtensionAPI, busy: boolean) {
   const pane = process.env.TMUX_PANE?.trim();
@@ -96,10 +100,10 @@ async function publishBusy(pi: ExtensionAPI, busy: boolean) {
   }
 }
 
-function reconcileArgs(params: Record<string, unknown>, cwd: string, preview: boolean, planId?: string): string[] {
+function reconcileArgs(params: Record<string, unknown>, cwd: string, preview: boolean, plan?: Plan): string[] {
   const args = ["reconcile-workspace", "--workspace", cwd, "--request", JSON.stringify(params)];
   if (preview) args.push("--preview");
-  if (planId) args.push("--plan", planId);
+  if (plan) args.push("--plan", plan.plan_id, "--plan-changes", String(plan.changes.length));
   return args;
 }
 
@@ -163,7 +167,7 @@ export default function radarExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "radar_workspace_context",
     label: "Inspect Radar Workspace",
-    description: "Inspect the current logical Radar workspace from the host. Returns a revision, capabilities, the complete desired worktree and optional sandbox-port state, current host resources, and repositories discovered through Radar configuration.",
+    description: "Inspect the current logical Radar workspace from the host. Returns a revision, capabilities, complete desired state, member branches and dirty status, current host resources, and repositories discovered through Radar configuration.",
     promptSnippet: "Inspect the current Radar workspace and obtain its revision and desired state before reconciling host resources",
     promptGuidelines: [
       "Use radar_workspace_context before radar_reconcile_workspace and copy its complete desired state before modifying only the requested resources.",
@@ -212,6 +216,8 @@ export default function radarExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use radar_reconcile_workspace for host workspace changes instead of direct git, tmux, or sbx commands because Radar must validate and persist the complete resource bundle.",
       "Always start from the latest radar_workspace_context revision and complete desired object; omitted worktrees, additional mounts, and ports are removals.",
+      "radar_reconcile_workspace supports multiple branches from one repository, but each repository-and-branch pair must be unique.",
+      "Before omitting a worktree, check its dirty status from radar_workspace_context; dirty worktrees cannot be removed until their changes are committed, stashed, or discarded.",
       "Use read_only true for radar_reconcile_workspace additional mounts unless writable host access is necessary and explicitly intended.",
       "When exposing a service, first use its configured port as host_port. If apply fails because that host port is unavailable, call radar_workspace_context again and retry with a randomly selected host_port from 49152 through 65535 while keeping sandbox_port unchanged.",
       "Never invent a sandbox object when radar_workspace_context reports sandbox false; sandbox-less worktree reconciliation is fully supported.",
@@ -227,24 +233,38 @@ export default function radarExtension(pi: ExtensionAPI) {
       const input = params as unknown as Record<string, unknown>;
       const cwd = resolve(ctx.cwd);
       const previewText = await runRadar(pi, binary, reconcileArgs(input, cwd, true), signal, "radar_reconcile_workspace", "preview");
-      const plan = parseJSON<Plan>("radar_reconcile_workspace", previewText, "preview");
-      if (plan.changes.length === 0) {
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, unchanged: true, revision: plan.revision }) }], details: { plan, unchanged: true } };
+      let plan = parseJSON<Plan>("radar_reconcile_workspace", previewText, "preview");
+      const plans: Plan[] = [plan];
+
+      for (let confirmationAttempt = 0; confirmationAttempt < MaxReconcileConfirmations; confirmationAttempt++) {
+        if (plan.changes.length === 0) {
+          return { content: [{ type: "text", text: JSON.stringify({ ok: true, unchanged: true, revision: plan.revision }) }], details: { plans, unchanged: true } };
+        }
+        const title = confirmationAttempt === 0 ? "Reconcile Radar workspace?" : "Workspace plan changed. Reconcile updated plan?";
+        const approved = await ctx.ui.confirm(title, confirmation(plan));
+        if (!approved) {
+          return { content: [{ type: "text", text: JSON.stringify({ ok: false, cancelled: true }) }], details: { cancelled: true, plans } };
+        }
+        const resultText = await runRadar(pi, binary, reconcileArgs(input, cwd, false, plan), signal, "radar_reconcile_workspace", "apply");
+        const result = parseJSON<ReconcileResult>("radar_reconcile_workspace", resultText, "apply");
+        if (result.ok !== true && result.reconfirm_required === true && result.reason === "plan_changed") {
+          if (!result.plan) {
+            throw new Error(`radar_reconcile_workspace requested reconfirmation without an updated plan\n${resultText.trim()}`);
+          }
+          plan = result.plan;
+          plans.push(plan);
+          continue;
+        }
+        if (result.ok !== true && result.retryable === true) {
+          const partial = retryableResultText(result);
+          return { content: [{ type: "text", text: partial }], details: { plans, result, partial } };
+        }
+        if (result.ok !== true) {
+          throw new Error(`radar_reconcile_workspace apply did not converge: ${String(result.error ?? "unknown error")}\n${resultText.trim()}`);
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result) }], details: { plans, result } };
       }
-      const approved = await ctx.ui.confirm("Reconcile Radar workspace?", confirmation(plan));
-      if (!approved) {
-        return { content: [{ type: "text", text: JSON.stringify({ ok: false, cancelled: true }) }], details: { cancelled: true, plan } };
-      }
-      const resultText = await runRadar(pi, binary, reconcileArgs(input, cwd, false, plan.plan_id), signal, "radar_reconcile_workspace", "apply");
-      const result = parseJSON<ReconcileResult>("radar_reconcile_workspace", resultText, "apply");
-      if (result.ok !== true && result.retryable === true) {
-        const partial = retryableResultText(result);
-        return { content: [{ type: "text", text: partial }], details: { plan, result, partial } };
-      }
-      if (result.ok !== true) {
-        throw new Error(`radar_reconcile_workspace apply did not converge: ${String(result.error ?? "unknown error")}\n${resultText.trim()}`);
-      }
-      return { content: [{ type: "text", text: JSON.stringify(result) }], details: { plan, result } };
+      throw new Error(`radar_reconcile_workspace plan changed after ${MaxReconcileConfirmations} confirmations; call radar_workspace_context and retry`);
     },
   });
 }

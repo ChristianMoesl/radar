@@ -18,6 +18,7 @@ type introspectionRunner struct {
 	fdOutput    string
 	refsOutput  string
 	worktrees   string
+	status      map[string]string
 	fetchCalled bool
 }
 
@@ -32,6 +33,9 @@ func (r *introspectionRunner) Run(_ context.Context, cwd string, name string, ar
 	command := name + " " + strings.Join(args, " ")
 	if name == "fd" {
 		return r.fdOutput, nil
+	}
+	if name == "git" && len(args) == 4 && args[0] == "-C" && args[2] == "status" && args[3] == "--porcelain" {
+		return r.status[args[1]], nil
 	}
 	switch command {
 	case "git rev-parse --show-toplevel":
@@ -61,6 +65,7 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	candidateRepo := filepath.Join(sources, "candidate")
 	primaryPath := filepath.Join(root, "primary", "RAD-10-work")
 	memberPath := filepath.Join(root, "member", "RAD-10-work")
+	secondPrimaryRepoPath := filepath.Join(root, "primary", "feature-second")
 	for _, path := range []string{root, sources} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)
@@ -88,6 +93,7 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 		SessionName: "primary-RAD-10-work",
 		Members: []workspacegroup.Member{
 			{Repository: primaryRepo, Path: primaryPath, Branch: "RAD-10-work", Primary: true, SetupScheduled: true},
+			{Repository: primaryRepo, Path: secondPrimaryRepoPath, Branch: "feature/second", SetupScheduled: true},
 			{Repository: memberRepo, Path: memberPath, Branch: "feature/api", SetupScheduled: true},
 		},
 	}
@@ -96,6 +102,7 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	}
 	runner := &introspectionRunner{
 		current: primaryPath,
+		status:  map[string]string{secondPrimaryRepoPath: " M changed.go\n?? new.go\n"},
 		fdOutput: strings.Join([]string{
 			filepath.Join(primaryRepo, ".git"),
 			filepath.Join(memberRepo, ".git"),
@@ -113,11 +120,20 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	if result.Revision == "" || !result.Capabilities.Worktrees || result.Capabilities.Sandbox || result.Capabilities.AdditionalMounts || result.Capabilities.PortForwarding {
 		t.Fatalf("workspace capabilities = %+v, revision = %q", result.Capabilities, result.Revision)
 	}
-	if result.Desired.Sandbox != nil || len(result.Desired.Worktrees) != 2 {
+	if result.Desired.Sandbox != nil || len(result.Desired.Worktrees) != 3 {
 		t.Fatalf("desired workspace = %+v", result.Desired)
 	}
-	if len(result.Members) != 2 || len(result.Repositories) != 3 {
+	if len(result.Members) != 3 || len(result.Repositories) != 3 {
 		t.Fatalf("workspace context members/repositories = %+v", result)
+	}
+	dirtyMembers := 0
+	for _, member := range result.Members {
+		if member.Dirty {
+			dirtyMembers++
+		}
+	}
+	if dirtyMembers != 1 {
+		t.Fatalf("dirty members = %+v", result.Members)
 	}
 	membership := map[string]bool{}
 	for _, repository := range result.Repositories {

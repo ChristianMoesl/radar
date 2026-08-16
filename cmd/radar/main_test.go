@@ -12,8 +12,22 @@ import (
 
 	"radar/internal/notification"
 	"radar/internal/protocol"
+	"radar/internal/workspace"
 	"radar/internal/workspacegc"
 )
+
+func TestFatalMessageSerializesWorkspaceReconciliationProblem(t *testing.T) {
+	message := fatalMessage(&workspace.ReconcileWorkspaceError{
+		Reason: "dirty_removal", Message: "cannot remove dirty member", Path: "/work/member", ChangeCount: 2,
+	})
+	var problem workspace.ReconcileWorkspaceError
+	if err := json.Unmarshal([]byte(message), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if problem.Reason != "dirty_removal" || problem.Path != "/work/member" || problem.ChangeCount != 2 {
+		t.Fatalf("problem = %+v", problem)
+	}
+}
 
 func TestRefreshLocalSourcesAfterReconcileRequestsLocalRefresh(t *testing.T) {
 	temporary, err := os.CreateTemp("/tmp", "radar-test-*.sock")

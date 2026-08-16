@@ -158,6 +158,20 @@ func TestRegistryRejectsDuplicateSandboxHostPorts(t *testing.T) {
 	}
 }
 
+func TestRegistryRejectsDuplicateRepositoryBranchMembers(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "repo", "one")
+	second := filepath.Join(root, "repo", "two")
+	repository := filepath.Join(root, "source")
+	err := Save(root, Registry{Version: Version, Workspaces: []Workspace{
+		{ID: "one", Name: "one", PrimaryPath: first, Members: []Member{{Repository: repository, Path: first, Branch: "shared", Primary: true}}},
+		{ID: "two", Name: "two", PrimaryPath: second, Members: []Member{{Repository: repository, Path: second, Branch: "shared", Primary: true}}},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "duplicate workspace member repository") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestRegistryRejectsDuplicateMembers(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "repo", "work")

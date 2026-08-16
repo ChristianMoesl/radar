@@ -284,6 +284,7 @@ func runReconcileWorkspace(args []string) {
 	current := flags.String("workspace", "", "path inside the current Radar workspace")
 	requestJSON := flags.String("request", "", "JSON workspace reconciliation request")
 	planID := flags.String("plan", "", "confirmed preview plan ID")
+	planChanges := flags.Int("plan-changes", -1, "confirmed preview change count for diagnostics")
 	preview := flags.Bool("preview", false, "validate and print the plan without changes")
 	_ = flags.Parse(args)
 	if flags.NArg() != 0 || strings.TrimSpace(*requestJSON) == "" {
@@ -306,6 +307,9 @@ func runReconcileWorkspace(args []string) {
 	request.Workspace = *current
 	request.WorkspaceRoot = workspace.ExpandPath(cfg.WorkspaceRoot)
 	request.ExpectedPlanID = strings.TrimSpace(*planID)
+	if *planChanges >= 0 {
+		request.ExpectedPlanChangeCount = planChanges
+	}
 	request.AdditionalSandboxMounts = cfg.SBX.AdditionalMounts
 	logger, logFile, _, err := logging.New()
 	if err != nil {
@@ -319,7 +323,11 @@ func runReconcileWorkspace(args []string) {
 	if *preview {
 		plan, err := workspace.PreviewReconcileWorkspace(context.Background(), workspace.ExecRunner{}, request)
 		if err != nil {
-			logger.Error("workspace reconciliation preview failed", "workspace", request.Workspace, "error", err)
+			attributes := []any{"workspace", request.Workspace, "error", err}
+			if problem, ok := workspace.ReconcileWorkspaceErrorDetails(err); ok {
+				attributes = append(attributes, "reason", problem.Reason, "path", problem.Path, "change_count", problem.ChangeCount)
+			}
+			logger.Error("workspace reconciliation preview failed", attributes...)
 			closeLog()
 			fatal(err)
 		}
@@ -1052,6 +1060,15 @@ Garbage-collect eligible local workspaces using the conservative automatic clean
 }
 
 func fatal(err error) {
-	fmt.Fprintln(os.Stderr, "radar:", err)
+	fmt.Fprintln(os.Stderr, fatalMessage(err))
 	os.Exit(1)
+}
+
+func fatalMessage(err error) string {
+	if problem, ok := workspace.ReconcileWorkspaceErrorDetails(err); ok {
+		if data, marshalErr := json.Marshal(problem); marshalErr == nil {
+			return string(data)
+		}
+	}
+	return "radar: " + err.Error()
 }

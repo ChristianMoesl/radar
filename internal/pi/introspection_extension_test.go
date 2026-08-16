@@ -16,6 +16,9 @@ func TestRadarExtensionRegistersWorkspaceIntrospectionTools(t *testing.T) {
 		`["reconcile-workspace", "--workspace"`,
 		"NoParameters",
 		"RepositoryParameters",
+		"MaxReconcileConfirmations",
+		"reconfirm_required",
+		"Workspace plan changed. Reconcile updated plan?",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("extension is missing %q", required)
