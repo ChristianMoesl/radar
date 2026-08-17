@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"radar/internal/workspacegroup"
@@ -34,6 +35,32 @@ func TestRegisterPrimaryWorkspaceBindsExistingGroupWithoutReplacingMembers(t *te
 	}
 	if len(loaded.Workspaces) != 1 || len(loaded.Workspaces[0].Members) != 2 || loaded.Workspaces[0].TaskLinkingKey != "obsidian:task:one" {
 		t.Fatalf("registry = %+v", loaded)
+	}
+}
+
+func TestRegisterPrimaryWorkspaceRejectsDifferentTaskLink(t *testing.T) {
+	root := t.TempDir()
+	primary := filepath.Join(root, "repo", "work")
+	group := workspacegroup.Workspace{
+		ID: workspacegroup.ID(primary), Name: "work", PrimaryPath: primary, TaskLinkingKey: "obsidian:task:one",
+		Members: []workspacegroup.Member{{Repository: filepath.Join(root, "sources", "repo"), Path: primary, Branch: "main", Primary: true}},
+	}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := WorktreePlan{Root: root, Repo: group.Members[0].Repository, Path: primary, Name: "work", Branch: "main"}
+	err := registerPrimaryWorkspace(context.Background(), unusedRegistryRunner{}, plan, "repo-work", "", sandboxSettings{}, true, "obsidian:task:two")
+	if err == nil || !strings.Contains(err.Error(), "already linked to another task") {
+		t.Fatalf("registerPrimaryWorkspace() error = %v", err)
+	}
+
+	loaded, err := workspacegroup.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Workspaces[0].TaskLinkingKey; got != "obsidian:task:one" {
+		t.Fatalf("task linking key = %q, want original key", got)
 	}
 }
 

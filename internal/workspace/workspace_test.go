@@ -10,6 +10,7 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/tmuxlayout"
+	"radar/internal/workspacegroup"
 )
 
 type call struct {
@@ -162,6 +163,30 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
 }
 
+func TestCreateUsesStableTaskIdentityForPiSession(t *testing.T) {
+	repo := t.TempDir()
+	runner := &fakeRunner{repo: repo}
+	linkingKey := "obsidian:task:550e8400-e29b-41d4-a716-446655440000"
+
+	created, err := Create(context.Background(), runner, CreateOptions{
+		BranchMode:     integration.WorkspaceBranchNew,
+		Repo:           repo,
+		Name:           "Readable task title",
+		Base:           "origin/main",
+		WorkspaceRoot:  t.TempDir(),
+		TaskLinkingKey: linkingKey,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	piSessionID := taskPiSessionID(created.SessionName, linkingKey)
+	assertCalledContains(t, runner.calls, "tmux", "pi --session-id '"+piSessionID+"' --name '"+created.SessionName+"'")
+	if renamed := taskPiSessionID(filepath.Base(repo)+"-Renamed-task", linkingKey); renamed != piSessionID {
+		t.Fatalf("Pi session ID changed after title rename: %q != %q", renamed, piSessionID)
+	}
+}
+
 func TestCreateTracksExistingOriginBranch(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
@@ -183,6 +208,39 @@ func TestCreateTracksExistingOriginBranch(t *testing.T) {
 		t.Fatalf("created workspace = %+v", created)
 	}
 	assertCalled(t, runner.calls, "git", "worktree add --track -b main "+created.Path+" origin/main")
+}
+
+func TestCreateExistingWorkspaceRejectsDifferentTaskBeforeStartingSession(t *testing.T) {
+	repo := t.TempDir()
+	root := t.TempDir()
+	path := filepath.Join(root, filepath.Base(repo), "first-task")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{{
+		ID: workspacegroup.ID(path), Name: "first-task", PrimaryPath: path, SessionName: "repo-first-task", TaskLinkingKey: "obsidian:task:one",
+		Members: []workspacegroup.Member{{Repository: repo, Path: path, Branch: "main", Primary: true}},
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{
+		repo: repo,
+		worktrees: strings.Join([]string{
+			"worktree " + path,
+			"HEAD abc",
+			"branch refs/heads/main",
+			"",
+		}, "\n"),
+	}
+
+	_, err := Create(context.Background(), runner, CreateOptions{
+		Repo: repo, BranchMode: integration.WorkspaceBranchExisting, Name: "second-task", Branch: "main",
+		WorkspaceRoot: root, TaskLinkingKey: "obsidian:task:two",
+	})
+	if err == nil || !strings.Contains(err.Error(), "already linked to another task") {
+		t.Fatalf("Create() error = %v, want task-link conflict", err)
+	}
+	assertNotCalledContains(t, runner.calls, "tmux", "new-session")
 }
 
 func TestCreateNewBranchRejectsExistingOriginBranch(t *testing.T) {

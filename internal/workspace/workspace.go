@@ -133,7 +133,7 @@ type Workspace struct {
 type CreateSessionOptions struct {
 	Path                    string
 	SessionName             string
-	PiSessionID             string
+	TaskLinkingKey          string
 	InitialPrompt           string
 	Environment             map[string]string
 	Model                   string
@@ -187,6 +187,9 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	}
 	workspaceValue := Workspace{Name: plan.Name, Branch: plan.Branch, Base: plan.Base, Repo: plan.Repo, Path: plan.Path, SessionName: sessionName, SandboxName: sandboxName}
 	if plan.Existing {
+		if err := validatePrimaryWorkspaceTaskLink(plan.Root, plan.Path, options.TaskLinkingKey); err != nil {
+			return Workspace{}, err
+		}
 		opened, err := openExistingWorkspace(ctx, runner, workspaceValue, options)
 		if err != nil {
 			return Workspace{}, err
@@ -230,7 +233,7 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		if strings.TrimSpace(plan.RepoConfig.Thinking) != "" {
 			thinking = plan.RepoConfig.Thinking
 		}
-		piArgsText, environment, err := radarPiLaunch(piArgs(sessionName, model, thinking, options.ForkPiSession), nil)
+		piArgsText, environment, err := radarPiLaunch(piArgsWithPrompt(taskPiSessionID(sessionName, options.TaskLinkingKey), sessionName, model, thinking, options.ForkPiSession, ""), nil)
 		if err != nil {
 			rollback()
 			return Workspace{}, err
@@ -299,6 +302,7 @@ func openExistingWorkspace(ctx context.Context, runner Runner, workspace Workspa
 	created, err := CreateSessionWithOptions(ctx, runner, CreateSessionOptions{
 		Path:                    workspace.Path,
 		SessionName:             workspace.SessionName,
+		TaskLinkingKey:          options.TaskLinkingKey,
 		Model:                   options.Model,
 		Thinking:                options.Thinking,
 		Sandbox:                 options.Sandbox,
@@ -430,10 +434,7 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 		if strings.TrimSpace(repoConfig.Thinking) != "" {
 			thinking = repoConfig.Thinking
 		}
-		piSessionID := strings.TrimSpace(options.PiSessionID)
-		if piSessionID == "" {
-			piSessionID = sessionName
-		}
+		piSessionID := taskPiSessionID(sessionName, options.TaskLinkingKey)
 		piArgsText, environment, err := radarPiLaunch(piArgsWithPrompt(piSessionID, sessionName, model, thinking, "", options.InitialPrompt), options.Environment)
 		if err != nil {
 			return Workspace{}, err
@@ -836,8 +837,13 @@ func expandPiArgs(command string, args string) string {
 	return strings.ReplaceAll(command, tmuxlayout.PiArgsPlaceholder, args)
 }
 
-func piArgs(sessionName string, model string, thinking string, forkSession string) string {
-	return piArgsWithPrompt(sessionName, sessionName, model, thinking, forkSession, "")
+func taskPiSessionID(sessionName string, taskLinkingKey string) string {
+	taskLinkingKey = strings.TrimSpace(taskLinkingKey)
+	if taskLinkingKey == "" {
+		return sessionName
+	}
+	sum := sha1.Sum([]byte(taskLinkingKey))
+	return "radar-task-" + hex.EncodeToString(sum[:])[:16]
 }
 
 func piArgsWithPrompt(sessionID string, name string, model string, thinking string, forkSession string, prompt string) string {

@@ -904,7 +904,9 @@ func (m model) selectCreateStep() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.create.branch = selected
-		m.create.name = selected
+		if strings.TrimSpace(m.create.name) == "" {
+			m.create.name = selected
+		}
 		m.err = nil
 		return m.submitCreate()
 	case "create_base":
@@ -1648,6 +1650,7 @@ func (m model) createSessionForWorktree(task protocol.Task, ref protocol.SourceR
 		created, err := workspace.CreateSessionWithOptions(context.Background(), workspace.ExecRunner{}, workspace.CreateSessionOptions{
 			Path:                    ref.Path,
 			SessionName:             sessionName,
+			TaskLinkingKey:          taskrefs.TaskLinkingKey(task),
 			Model:                   cfg.Model,
 			Thinking:                cfg.Thinking,
 			Sandbox:                 cfg.SBX.Enabled,

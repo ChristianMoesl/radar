@@ -365,6 +365,25 @@ func TestSelectingExistingBranchSubmitsWithoutNameStep(t *testing.T) {
 	}
 }
 
+func TestSelectingExistingBranchPreservesTaskWorkspaceName(t *testing.T) {
+	m := model{
+		mode: "create_branch",
+		create: createForm{
+			repo:           "/repo/radar",
+			branchMode:     integration.WorkspaceBranchExisting,
+			branchList:     picker{options: []string{"main"}},
+			name:           "Investigate workspace identity",
+			taskLinkingKey: "obsidian:task:one",
+		},
+	}
+
+	updated, cmd := m.selectCreateStep()
+	got := updated.(model)
+	if cmd == nil || got.create.branch != "main" || got.create.name != "Investigate workspace identity" {
+		t.Fatalf("existing task selection branch=%q name=%q command=%v", got.create.branch, got.create.name, cmd)
+	}
+}
+
 func TestCreateFormAllowsJAndKInFilters(t *testing.T) {
 	m := model{mode: "create_repo", create: createForm{repoList: picker{
 		cursor:  1,
