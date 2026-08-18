@@ -24,6 +24,10 @@ This project prefers clean model changes over compatibility layers. When renamin
 
 If a compatibility concern comes up, ask before implementing it.
 
+## Test and documentation data
+
+Use neutral identifiers such as `ABC-123` in tests, documentation, and examples. Do not embed organization-specific ticket prefixes.
+
 ## Local instructions
 
 If `AGENTS.local.md` exists, read and follow it.

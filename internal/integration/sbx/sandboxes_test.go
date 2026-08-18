@@ -17,18 +17,19 @@ import (
 	"radar/internal/integration/contracttest"
 	"radar/internal/linking"
 	"radar/internal/protocol"
+	"radar/internal/workspacegroup"
 )
 
 func TestParseSandboxes(t *testing.T) {
 	sandboxes, err := parseSandboxes(`{
   "sandboxes": [
     {
-      "name": "radar-rb3ca-experience-center-DPSCAP-600-Integrate-generated-links",
+      "name": "radar-rb3ca-experience-center-ABC-600-Integrate-generated-links",
       "id": "c048feba-a578-492b-baf0-895b04b6e1b3",
       "agent": "shell",
       "status": "running",
       "workspaces": [
-        "/Users/me/radar/rb3ca-experience-center/DPSCAP-600-Integrate-generated-links",
+        "/Users/me/radar/rb3ca-experience-center/ABC-600-Integrate-generated-links",
         "/Users/me/.pi/agent",
         "/Users/me/.pi/agent/sessions"
       ]
@@ -41,25 +42,59 @@ func TestParseSandboxes(t *testing.T) {
 	if len(sandboxes) != 1 {
 		t.Fatalf("sandboxes = %d, want 1", len(sandboxes))
 	}
-	if sandboxes[0].Name != "radar-rb3ca-experience-center-DPSCAP-600-Integrate-generated-links" {
+	if sandboxes[0].Name != "radar-rb3ca-experience-center-ABC-600-Integrate-generated-links" {
 		t.Fatalf("sandbox name = %q", sandboxes[0].Name)
+	}
+}
+
+func TestFetchSandboxesUsesRegisteredPrimaryWorkspace(t *testing.T) {
+	tmp := t.TempDir()
+	configHome := filepath.Join(tmp, "config")
+	root := filepath.Join(tmp, "workspaces")
+	primary := filepath.Join(root, "repo", "feature")
+	commonDir := filepath.Join(tmp, "source", ".git")
+	sandboxName := "feature-sandbox"
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configJSON := fmt.Sprintf(`{"workspace_root":%q,"linking_mark_prefixes":["ABC"]}`, root)
+	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), []byte(configJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{{
+		ID: workspacegroup.ID(primary), Name: "feature", PrimaryPath: primary,
+		Sandbox: &workspacegroup.Sandbox{Name: sandboxName, Agent: "shell", Mounts: []string{commonDir, primary}},
+		Members: []workspacegroup.Member{{Repository: filepath.Join(tmp, "source"), Path: primary, Branch: "feature", Primary: true}},
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	output := fmt.Sprintf(`{"sandboxes":[{"name":%q,"id":"sandbox-id","agent":"shell","status":"running","workspaces":[%q,%q]}]}`, sandboxName, commonDir, primary)
+	installFakeSBX(t, tmp, "cat <<'JSON'\n"+output+"\nJSON\n")
+
+	refs, status := FetchSandboxes(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), linking.MarkMatcher{})
+	if status.Status != "ok" || len(refs) != 1 {
+		t.Fatalf("FetchSandboxes() refs=%+v status=%+v", refs, status)
+	}
+	if refs[0].Path != primary || refs[0].CanonicalKey != "workspace:"+primary {
+		t.Fatalf("sandbox ref = %+v, want registered primary workspace %s", refs[0], primary)
 	}
 }
 
 func TestSandboxSourceRef(t *testing.T) {
 	s := sandbox{
-		Name:   "radar-rb3ca-experience-center-DPSCAP-600-Integrate-generated-links",
+		Name:   "radar-rb3ca-experience-center-ABC-600-Integrate-generated-links",
 		ID:     "c048feba-a578-492b-baf0-895b04b6e1b3",
 		Agent:  "shell",
 		Status: "running",
 		Workspaces: []string{
-			"/Users/me/radar/rb3ca-experience-center/DPSCAP-600-Integrate-generated-links",
+			"/Users/me/radar/rb3ca-experience-center/ABC-600-Integrate-generated-links",
 			"/Users/me/.pi/agent",
 			"/Users/me/.pi/agent/sessions",
 		},
 	}
 
-	ref := s.SourceRef(linking.NewMarkMatcher([]string{"DPSCAP"}))
+	ref := s.SourceRef(linking.NewMarkMatcher([]string{"ABC"}), "")
 	contracttest.AssertValidSourceRefs(t, "sbx", []protocol.SourceRef{ref})
 	if ref.ProvidesWorkspace {
 		t.Fatalf("sbx resource provides workspace: %+v", ref)
@@ -70,14 +105,14 @@ func TestSandboxSourceRef(t *testing.T) {
 	if ref.SourceLabel != "Docker sbx" || ref.Title != s.Name || ref.Status != "running" {
 		t.Fatalf("unexpected source ref display fields: %+v", ref)
 	}
-	wantPath := "/Users/me/radar/rb3ca-experience-center/DPSCAP-600-Integrate-generated-links"
+	wantPath := "/Users/me/radar/rb3ca-experience-center/ABC-600-Integrate-generated-links"
 	if ref.Path != wantPath {
 		t.Fatalf("path = %q, want %q", ref.Path, wantPath)
 	}
 	if ref.CanonicalKey != "workspace:"+wantPath {
 		t.Fatalf("canonical key = %q", ref.CanonicalKey)
 	}
-	wantKeys := []string{"mark:DPSCAP-600", "workspace:" + wantPath}
+	wantKeys := []string{"mark:ABC-600", "workspace:" + wantPath}
 	if !reflect.DeepEqual(ref.LinkingKeys, wantKeys) {
 		t.Fatalf("linking keys = %+v, want %+v", ref.LinkingKeys, wantKeys)
 	}
@@ -87,8 +122,8 @@ func TestSandboxSourceRef(t *testing.T) {
 }
 
 func TestSourcePreviewCleanupReturnsEverySandboxTarget(t *testing.T) {
-	one := sandbox{Name: "radar-repo-one", Workspaces: []string{"/work/repo/one"}}.SourceRef()
-	two := sandbox{Name: "radar-repo-two", Workspaces: []string{"/work/repo/two"}}.SourceRef()
+	one := sandbox{Name: "radar-repo-one", Workspaces: []string{"/work/repo/one"}}.SourceRef(linking.MarkMatcher{}, "")
+	two := sandbox{Name: "radar-repo-two", Workspaces: []string{"/work/repo/two"}}.SourceRef(linking.MarkMatcher{}, "")
 	targets, err := Source{}.PreviewCleanup(context.Background(), integration.CleanupPreviewRequest{
 		Task: protocol.Task{ID: 7, SourceRefs: []protocol.SourceRef{one, two}},
 	})
@@ -123,7 +158,7 @@ func TestPrimarySandboxWorkspaceSkipsPiAgentMount(t *testing.T) {
 }
 
 func TestSandboxWithoutWorkspaceUsesSourceRefCanonicalKey(t *testing.T) {
-	ref := sandbox{Name: "sandbox-conn-test", ID: "f263b19b"}.SourceRef()
+	ref := sandbox{Name: "sandbox-conn-test", ID: "f263b19b"}.SourceRef(linking.MarkMatcher{}, "")
 	if ref.CanonicalKey != "sbx:sandbox:sandbox-conn-test" {
 		t.Fatalf("canonical key = %q", ref.CanonicalKey)
 	}

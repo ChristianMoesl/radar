@@ -502,7 +502,7 @@ func testGitWorktreeRef(id string, path string, repo string, branch string) prot
 }
 
 func testLinkingMarks() linking.MarkMatcher {
-	return linking.NewMarkMatcher([]string{"CAP", "DPSCAP", "RAD"})
+	return linking.NewMarkMatcher([]string{"CAP", "ABC", "RAD"})
 }
 
 func testBranchKey(branch string) string {

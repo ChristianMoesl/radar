@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"radar/internal/linking"
 )
 
 type fakeRunner struct {
@@ -37,24 +39,24 @@ func (r *fakeRunner) Run(ctx context.Context, cwd string, name string, args ...s
 func TestOpenShellCreatesSessionWhenMissing(t *testing.T) {
 	runner := &fakeRunner{hasSessionErr: fmt.Errorf("no session")}
 	ref := sandbox{
-		Name:       "radar-repo-DPSCAP-600-shell",
-		Workspaces: []string{"/work/repo/DPSCAP-600-shell"},
-	}.SourceRef()
+		Name:       "radar-repo-ABC-600-shell",
+		Workspaces: []string{"/work/repo/ABC-600-shell"},
+	}.SourceRef(linking.MarkMatcher{}, "")
 
 	result, err := OpenShell(context.Background(), runner, ref, OpenShellOptions{SwitchClient: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.CreatedSession || result.SessionName != "repo-DPSCAP-600-shell" {
+	if !result.CreatedSession || result.SessionName != "repo-ABC-600-shell" {
 		t.Fatalf("result = %+v", result)
 	}
-	assertCallContains(t, runner.calls, "tmux", "new-session -d -s repo-DPSCAP-600-shell -n sbx -c /work/repo/DPSCAP-600-shell sbx run --name 'radar-repo-DPSCAP-600-shell'")
-	assertCallContains(t, runner.calls, "tmux", "switch-client -t repo-DPSCAP-600-shell")
+	assertCallContains(t, runner.calls, "tmux", "new-session -d -s repo-ABC-600-shell -n sbx -c /work/repo/ABC-600-shell sbx run --name 'radar-repo-ABC-600-shell'")
+	assertCallContains(t, runner.calls, "tmux", "switch-client -t repo-ABC-600-shell")
 }
 
 func TestOpenShellOpensWindowInExistingSession(t *testing.T) {
 	runner := &fakeRunner{}
-	ref := sandbox{Name: "radar-repo-shell", Workspaces: []string{"/work/repo/shell"}}.SourceRef()
+	ref := sandbox{Name: "radar-repo-shell", Workspaces: []string{"/work/repo/shell"}}.SourceRef(linking.MarkMatcher{}, "")
 
 	result, err := OpenShell(context.Background(), runner, ref, OpenShellOptions{SessionTarget: "$3"})
 	if err != nil {

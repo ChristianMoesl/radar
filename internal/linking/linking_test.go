@@ -6,12 +6,12 @@ import (
 )
 
 func TestMarkMatcherOnlyMatchesConfiguredPrefixes(t *testing.T) {
-	matcher := NewMarkMatcher([]string{" dpscap ", "RAD"})
+	matcher := NewMarkMatcher([]string{" abc ", "RAD"})
 	got := matcher.Values(
-		"DPSCAP-722 XC Service to inspect Translations Origin-096e274f",
+		"ABC-722 XC Service to inspect Translations Origin-096e274f",
 		"preview-deploy-96724c48 workflow-8f23 RAD-9",
 	)
-	want := []string{"DPSCAP-722", "RAD-9"}
+	want := []string{"ABC-722", "RAD-9"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Values() = %#v, want %#v", got, want)
 	}

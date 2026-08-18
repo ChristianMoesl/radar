@@ -15,6 +15,8 @@ import (
 	"radar/internal/linking"
 	"radar/internal/protocol"
 	"radar/internal/sbxauth"
+	"radar/internal/workspace"
+	"radar/internal/workspacegroup"
 )
 
 type listResponse struct {
@@ -55,9 +57,10 @@ func FetchSandboxes(ctx context.Context, logger *slog.Logger, marks linking.Mark
 		return nil, status
 	}
 
+	registeredWorkspaces := registeredSandboxWorkspaces(logger)
 	sourceRefs := make([]protocol.SourceRef, 0, len(sandboxes))
 	for _, s := range sandboxes {
-		if ref := s.SourceRef(marks); ref.ID != "" {
+		if ref := s.SourceRef(marks, registeredWorkspaces[strings.TrimSpace(s.Name)]); ref.ID != "" {
 			sourceRefs = append(sourceRefs, ref)
 		}
 	}
@@ -75,11 +78,7 @@ func parseSandboxes(output string) ([]sandbox, error) {
 	return response.Sandboxes, nil
 }
 
-func (s sandbox) SourceRef(matchers ...linking.MarkMatcher) protocol.SourceRef {
-	var marks linking.MarkMatcher
-	if len(matchers) > 0 {
-		marks = matchers[0]
-	}
+func (s sandbox) SourceRef(marks linking.MarkMatcher, registeredWorkspace string) protocol.SourceRef {
 	name := strings.TrimSpace(s.Name)
 	id := strings.TrimSpace(s.ID)
 	if name == "" && id == "" {
@@ -96,7 +95,10 @@ func (s sandbox) SourceRef(matchers ...linking.MarkMatcher) protocol.SourceRef {
 		refID = "sbx:sandbox:" + id
 	}
 
-	workspace := primarySandboxWorkspace(s.Workspaces)
+	workspace := linking.CleanPath(registeredWorkspace)
+	if workspace == "" {
+		workspace = primarySandboxWorkspace(s.Workspaces)
+	}
 	canonicalKey := linking.WorkspaceKey(workspace)
 	if canonicalKey == "" {
 		canonicalKey = refID
@@ -125,6 +127,30 @@ func (s sandbox) SourceRef(matchers ...linking.MarkMatcher) protocol.SourceRef {
 		LinkingKeys:  linking.Keys(append(marks.Keys(name, workspace), linking.WorkspaceKey(workspace))...),
 		Metadata:     metadata,
 	}
+}
+
+func registeredSandboxWorkspaces(logger *slog.Logger) map[string]string {
+	workspaces := map[string]string{}
+	root, err := workspace.DefaultRoot()
+	if err != nil {
+		logger.Debug("workspace root unavailable for sbx linking", "error", err)
+		return workspaces
+	}
+	registry, err := workspacegroup.Load(root)
+	if err != nil {
+		logger.Debug("workspace group registry unavailable for sbx linking", "error", err)
+		return workspaces
+	}
+	for _, group := range registry.Workspaces {
+		if group.Sandbox == nil {
+			continue
+		}
+		name := strings.TrimSpace(group.Sandbox.Name)
+		if name != "" {
+			workspaces[name] = group.PrimaryPath
+		}
+	}
+	return workspaces
 }
 
 func primarySandboxWorkspace(workspaces []string) string {

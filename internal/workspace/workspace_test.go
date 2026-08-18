@@ -895,11 +895,11 @@ func TestSandboxNameSanitizesNames(t *testing.T) {
 }
 
 func TestSandboxNameTruncatesLongNames(t *testing.T) {
-	got := SandboxName("rb3ca-experience-center", "DPSCAP-602 Page Asset variables displayed incorrectly for none asset based configurations")
+	got := SandboxName("rb3ca-experience-center", "ABC-602 Page Asset variables displayed incorrectly for none asset based configurations")
 	if len(got) > maxSandboxNameLength {
 		t.Fatalf("SandboxName() length = %d, want <= %d: %q", len(got), maxSandboxNameLength, got)
 	}
-	if !strings.HasPrefix(got, "DPSCAP-602-Page-Asset-variables-displayed-incorrectly") {
+	if !strings.HasPrefix(got, "ABC-602-Page-Asset-variables-displayed-incorrectly") {
 		t.Fatalf("SandboxName() = %q, want readable workspace prefix", got)
 	}
 	if !strings.Contains(got, "-") {
