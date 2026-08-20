@@ -61,6 +61,7 @@ type RepositoryRefs struct {
 	DefaultBranch string             `json:"default_branch,omitempty"`
 	BaseRefs      []string           `json:"base_refs"`
 	Branches      []RepositoryBranch `json:"branches"`
+	Warning       string             `json:"warning,omitempty"`
 }
 
 type RepositoryBranch struct {
@@ -164,8 +165,8 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 	return result, nil
 }
 
-// InspectRepositoryRefs refreshes origin using the same behavior as the create
-// flow and returns canonical branch capabilities for one repository.
+// InspectRepositoryRefs attempts to refresh origin, then returns canonical
+// branch capabilities from the refs available in the local repository.
 func InspectRepositoryRefs(ctx context.Context, runner Runner, repository string) (RepositoryRefs, error) {
 	repository = strings.TrimSpace(repository)
 	if repository == "" {
@@ -180,9 +181,7 @@ func InspectRepositoryRefs(ctx context.Context, runner Runner, repository string
 		return RepositoryRefs{}, err
 	}
 	root = filepath.Clean(root)
-	if err := FetchBranches(ctx, runner, root); err != nil {
-		return RepositoryRefs{}, err
-	}
+	fetchErr := FetchBranches(ctx, runner, root)
 
 	output, err := runner.Run(ctx, root, "git", "for-each-ref", "--format=%(refname)\t%(refname:short)\t%(symref)", "refs/heads", "refs/remotes/origin")
 	if err != nil {
@@ -257,6 +256,9 @@ func InspectRepositoryRefs(ctx context.Context, runner Runner, repository string
 		Repository: root, DefaultBranch: defaultBranch,
 		BaseRefs: append(remoteBases, localBases...),
 		Branches: make([]RepositoryBranch, 0, len(branches)),
+	}
+	if fetchErr != nil {
+		result.Warning = fmt.Sprintf("origin refresh failed; using cached refs: %v", fetchErr)
 	}
 	for _, branch := range branches {
 		sort.Strings(branch.CheckedOutPaths)

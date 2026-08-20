@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -13,7 +14,43 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/protocol"
+	"radar/internal/workspace"
 )
+
+type branchOptionsRunner struct{}
+
+func (branchOptionsRunner) LookPath(string) error { return nil }
+
+func (branchOptionsRunner) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
+	command := name + " " + strings.Join(args, " ")
+	switch command {
+	case "git fetch --prune origin":
+		return "", errors.New("network is offline")
+	case "git for-each-ref --format=%(refname)\t%(refname:short)\t%(symref) refs/heads refs/remotes/origin":
+		return strings.Join([]string{
+			"refs/remotes/origin/main\torigin/main\t",
+			"refs/heads/main\tmain\t",
+		}, "\n"), nil
+	default:
+		return "", fmt.Errorf("unexpected command %q", command)
+	}
+}
+
+func TestLoadBranchOptionsUsesCachedBranchesWhenFetchFails(t *testing.T) {
+	msg := loadBranchOptions(context.Background(), branchOptionsRunner{}, "/repo")
+	if msg.err != nil {
+		t.Fatal(msg.err)
+	}
+	want := []string{"origin/main", "main"}
+	if fmt.Sprint(msg.branches) != fmt.Sprint(want) {
+		t.Fatalf("branches = %#v, want %#v", msg.branches, want)
+	}
+	if !strings.Contains(msg.warning, "using cached branches") {
+		t.Fatalf("warning = %q, want cached-branch warning", msg.warning)
+	}
+}
+
+var _ workspace.Runner = branchOptionsRunner{}
 
 func TestWorkspaceCreationMessageIncludesSetupWarning(t *testing.T) {
 	message := workspaceCreationMessage(integration.Workspace{

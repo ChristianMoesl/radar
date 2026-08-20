@@ -111,7 +111,7 @@ bind-key F display-popup -E "radar fork"
 | <kbd>r</kbd> | Refresh sources |
 | <kbd>q</kbd> / <kbd>Esc</kbd> | Quit |
 
-The workspace creator walks through repository search, branch selection, and workspace naming. Repository paths are shortened to `~/...` when they are inside your home directory.
+The workspace creator walks through repository search, branch selection, and workspace naming. It tries to refresh origin before listing branches. If that fetch fails, Radar shows a warning and continues with locally cached refs, so previously fetched branches remain available offline. Repository paths are shortened to `~/...` when they are inside your home directory.
 
 ## Workspaces
 
@@ -142,7 +142,7 @@ Every Pi process started by Radar receives the embedded `radar_reconcile_workspa
 
 The desired description contains the complete worktree set and either optional sandbox additional-mount and port sets or `sandbox: null`. Omitted member worktrees, requested mounts, and ports are removals. Radar-managed mounts for worktrees, Git metadata, and configured `sbx.additional_mounts` remain derived and cannot be removed through this API. The primary worktree and sandbox attachment cannot be removed through reconciliation, and dirty member worktrees fail closed. Ports are TCP4 and bind only on host IPv4 loopback through SBX; existing dual-stack bindings are replaced during reconciliation. Mounts default to read-only when `read_only` is omitted. Sandbox resources are only accepted when the workspace already has a sandbox. Worktree reconciliation remains fully available when SBX is disabled or unavailable for that workspace.
 
-Two read-oriented host tools support discovery from an SBX-isolated Pi session. `radar_workspace_context` reports the revision, capabilities, desired state, current resources, and repositories discovered through `repository_dirs`; `radar_repository_refs` refreshes one selected repository and reports canonical local/origin branches, valid base refs, and existing checkout paths.
+Two read-oriented host tools support discovery from an SBX-isolated Pi session. `radar_workspace_context` reports the revision, capabilities, desired state, current resources, and repositories discovered through `repository_dirs`; `radar_repository_refs` tries to refresh one selected repository and reports canonical local/origin branches, valid base refs, and existing checkout paths. When the fetch fails, it returns cached refs and a warning.
 
 The same operations are scriptable. Apply needs no extra prompt because invoking the CLI is already explicit:
 

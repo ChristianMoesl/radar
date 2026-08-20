@@ -1021,7 +1021,8 @@ Print the current logical Radar workspace, its member worktrees, and discovered 
 func repositoryRefsUsage() {
 	fmt.Fprintln(os.Stderr, `usage: radar repository-refs --repo <repo>
 
-Fetch and prune origin, then print structured branch and checkout information as JSON.`)
+Try to fetch and prune origin, then print structured branch and checkout information as JSON.
+If the fetch fails, locally cached refs are returned with a warning.`)
 }
 
 func forkUsage() {

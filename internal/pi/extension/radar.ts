@@ -189,7 +189,7 @@ export default function radarExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "radar_repository_refs",
     label: "Inspect Radar Repository Refs",
-    description: "Fetch and prune origin for one host repository, then return its default branch, valid base refs, canonical local/origin branches, and paths where branches are already checked out.",
+    description: "Try to fetch and prune origin for one host repository, then return its default branch, valid base refs, canonical local/origin branches, and checkout paths. If the fetch fails, return locally cached refs with a warning.",
     promptSnippet: "Inspect branches and valid base refs for a repository selected from radar_workspace_context",
     promptGuidelines: [
       "Use radar_repository_refs after selecting a repository from radar_workspace_context when the branch or new-branch base is not already known exactly.",

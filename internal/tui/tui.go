@@ -53,6 +53,7 @@ type reposMsg struct {
 
 type branchesMsg struct {
 	branches []string
+	warning  string
 	err      error
 }
 
@@ -457,6 +458,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case branchesMsg:
 		m.err = msg.err
+		if msg.err == nil {
+			m.message = msg.warning
+		}
 		if m.mode == "create_branch" {
 			m.create.branchList.loading = false
 			if msg.err == nil {
@@ -833,13 +837,21 @@ func (m model) loadRepos() tea.Cmd {
 
 func (m model) loadBranches(repo string) tea.Cmd {
 	return func() tea.Msg {
-		runner := workspace.ExecRunner{}
-		if err := workspace.FetchBranches(context.Background(), runner, repo); err != nil {
-			return branchesMsg{err: err}
-		}
-		branches, err := workspace.Branches(context.Background(), runner, repo)
-		return branchesMsg{branches: branches, err: err}
+		return loadBranchOptions(context.Background(), workspace.ExecRunner{}, repo)
 	}
+}
+
+func loadBranchOptions(ctx context.Context, runner workspace.Runner, repo string) branchesMsg {
+	fetchErr := workspace.FetchBranches(ctx, runner, repo)
+	branches, err := workspace.Branches(ctx, runner, repo)
+	if err != nil {
+		return branchesMsg{err: err}
+	}
+	warning := ""
+	if fetchErr != nil {
+		warning = fmt.Sprintf("Could not refresh origin; using cached branches: %v", fetchErr)
+	}
+	return branchesMsg{branches: branches, warning: warning}
 }
 
 func existingBranchNames(refs []string) []string {
@@ -1705,8 +1717,9 @@ func (m model) createWorkspaceForPullRequest(task protocol.Task, ref protocol.So
 		if name == "" {
 			return actionMsg{err: fmt.Errorf("github pull request has no origin branch")}
 		}
+		fetchWarning := ""
 		if err := workspace.FetchBranches(context.Background(), runner, repo); err != nil {
-			return actionMsg{err: err}
+			fetchWarning = fmt.Sprintf("origin refresh failed; used cached refs: %v", err)
 		}
 		cfg, err := config.Load()
 		if err != nil {
@@ -1734,6 +1747,13 @@ func (m model) createWorkspaceForPullRequest(task protocol.Task, ref protocol.So
 		})
 		if err != nil {
 			return actionMsg{err: err}
+		}
+		if fetchWarning != "" {
+			if created.Warning == "" {
+				created.Warning = fetchWarning
+			} else {
+				created.Warning += "; " + fetchWarning
+			}
 		}
 		return actionMsg{message: workspaceCreationMessage(created), refresh: !switchAfterCreate, quit: switchAfterCreate}
 	}

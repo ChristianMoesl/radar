@@ -20,6 +20,7 @@ type introspectionRunner struct {
 	worktrees   string
 	status      map[string]string
 	fetchCalled bool
+	fetchErr    error
 }
 
 func (r *introspectionRunner) LookPath(name string) error {
@@ -45,7 +46,7 @@ func (r *introspectionRunner) Run(_ context.Context, cwd string, name string, ar
 		return cwd, nil
 	case "git fetch --prune origin":
 		r.fetchCalled = true
-		return "", nil
+		return "", r.fetchErr
 	case "git for-each-ref --format=%(refname)\t%(refname:short)\t%(symref) refs/heads refs/remotes/origin":
 		return r.refsOutput, nil
 	case "git worktree list --porcelain":
@@ -156,6 +157,33 @@ func TestWorkspaceContextEmptySandboxPortsMarshalAsArray(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"sandbox":{"additional_mounts":[],"ports":[]}`) {
 		t.Fatalf("context JSON = %s", data)
+	}
+}
+
+func TestInspectRepositoryRefsUsesCachedRefsWhenFetchFails(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	runner := &introspectionRunner{
+		current:  repo,
+		fetchErr: os.ErrDeadlineExceeded,
+		refsOutput: strings.Join([]string{
+			"refs/remotes/origin/HEAD\torigin/HEAD\trefs/remotes/origin/main",
+			"refs/remotes/origin/main\torigin/main\t",
+			"refs/heads/main\tmain\t",
+		}, "\n"),
+	}
+
+	result, err := InspectRepositoryRefs(context.Background(), runner, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runner.fetchCalled {
+		t.Fatal("origin fetch was not attempted")
+	}
+	if result.DefaultBranch != "main" || !reflect.DeepEqual(result.BaseRefs, []string{"origin/main", "main"}) {
+		t.Fatalf("repository refs = %+v", result)
+	}
+	if !strings.Contains(result.Warning, "using cached refs") {
+		t.Fatalf("warning = %q, want cached-ref warning", result.Warning)
 	}
 }
 
