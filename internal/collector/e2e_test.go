@@ -28,7 +28,7 @@ func TestCollectEndToEndKeepsLinkedWorkActiveWhenGitHubPRIsDone(t *testing.T) {
 	setupGitWorktree(t, ctx, tmp)
 
 	t.Setenv("RADAR_JIRA_API_BASE_URL", jiraServer.URL)
-	t.Setenv("RADAR_JIRA_BASE_URL", "https://jira.example.test")
+	t.Setenv("RADAR_JIRA_BASE_URL", jiraServer.URL)
 	t.Setenv("RADAR_JIRA_EMAIL", "radar@example.test")
 	t.Setenv("RADAR_JIRA_API_TOKEN", "token")
 
@@ -45,8 +45,8 @@ func TestCollectEndToEndKeepsLinkedWorkActiveWhenGitHubPRIsDone(t *testing.T) {
 	if active == nil {
 		t.Fatalf("first collect did not include GitHub PR; tasks=%+v", firstTasks)
 	}
-	if active.Kind != "github_own_pr" || active.Attention != "in_progress" {
-		t.Fatalf("github task = %s/%s, want github_own_pr/in_progress", active.Kind, active.Attention)
+	if active.Attention != "in_progress" {
+		t.Fatalf("linked task = %s/%s, want in_progress", active.Kind, active.Attention)
 	}
 	assertHasSourceRef(t, *active, "github:pr:acme/app:7")
 	assertHasSourceRef(t, *active, "jira:issue:RAD-123")
@@ -114,7 +114,7 @@ fi
 if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
   if [ "$mode" = "open" ]; then
     cat <<'JSON'
-{"data":{"viewer":{"login":"octo"},"reviewRequested":{"nodes":[]},"authored":{"nodes":[{"number":7,"title":"RAD-123 Ship linked work","url":"https://github.com/acme/app/pull/7","state":"OPEN","isDraft":false,"headRefName":"feature/RAD-123-linked-work","body":"Implements RAD-123","author":{"login":"octo"},"repository":{"nameWithOwner":"acme/app"},"comments":{"nodes":[]},"reviews":{"nodes":[]},"reviewThreads":{"nodes":[]}}]},"participated":{"nodes":[]}}}
+{"data":{"viewer":{"login":"octo"},"reviewRequested":{"nodes":[]},"authored":{"nodes":[{"number":7,"title":"Ship linked work","url":"https://github.com/acme/app/pull/7","state":"OPEN","isDraft":false,"headRefName":"feature/linked-work","body":"No issue key in this body","author":{"login":"octo"},"repository":{"nameWithOwner":"acme/app"},"comments":{"nodes":[]},"reviews":{"nodes":[]},"reviewThreads":{"nodes":[]}}]},"participated":{"nodes":[]}}}
 JSON
   else
     cat <<'JSON'
@@ -140,12 +140,17 @@ exit 1
 func setupFakeJira(t *testing.T) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/search/jql" {
-			http.NotFound(w, r)
-			return
-		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"issues":[{"id":"10001","key":"RAD-123","fields":{"summary":"Ship linked work","issuetype":{"name":"Story"},"priority":{"name":"High"},"status":{"name":"In Progress","statusCategory":{"key":"indeterminate","name":"In Progress"}}}}]}`))
+		switch r.URL.Path {
+		case "/search/jql":
+			_, _ = w.Write([]byte(`{"issues":[{"id":"10001","key":"RAD-123","fields":{"summary":"Ship linked work","issuetype":{"name":"Story"},"priority":{"name":"High"},"status":{"name":"In Progress","statusCategory":{"key":"indeterminate","name":"In Progress"}}}}]}`))
+		case "/rest/dev-status/1.0/issue/summary":
+			_, _ = w.Write([]byte(`{"errors":[],"summary":{"pullrequest":{"byInstanceType":{"github-app":{"count":1,"name":"GitHub"}}}}}`))
+		case "/rest/dev-status/1.0/issue/detail":
+			_, _ = w.Write([]byte(`{"errors":[],"detail":[{"pullRequests":[{"id":"#7","url":"https://github.com/acme/app/pull/7","repositoryName":"acme/app","source":{"branch":"feature/linked-work"}}]}]}`))
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	t.Cleanup(server.Close)
 	return server
@@ -158,6 +163,7 @@ func setupGitWorktree(t *testing.T, ctx context.Context, tmp string) {
 	runGit(t, ctx, tmp, "init", repo)
 	runGit(t, ctx, repo, "config", "user.email", "radar@example.test")
 	runGit(t, ctx, repo, "config", "user.name", "Radar Test")
+	runGit(t, ctx, repo, "remote", "add", "origin", "https://github.com/acme/app.git")
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("test\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +172,7 @@ func setupGitWorktree(t *testing.T, ctx context.Context, tmp string) {
 	if err := os.MkdirAll(filepath.Dir(wt), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	runGit(t, ctx, repo, "worktree", "add", "-b", "feature/RAD-123-linked-work", wt)
+	runGit(t, ctx, repo, "worktree", "add", "-b", "feature/linked-work", wt)
 }
 
 func runGit(t *testing.T, ctx context.Context, dir string, args ...string) {

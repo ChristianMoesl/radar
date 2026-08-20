@@ -131,6 +131,30 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		issuesByKey[key] = value
 	}
 
+	authoritativeIssues := make([]issue, 0, len(issuesByKey))
+	for _, key := range sortedIssueKeys(issuesByKey) {
+		value := issuesByKey[key]
+		if assignedKeys[key] || userConfig.Jira.IsAuthoritativeIssueType(issueTypeName(value)) {
+			authoritativeIssues = append(authoritativeIssues, value)
+		}
+	}
+	development := collectDevelopmentLinks(ctx, jiraConfig, authoritativeIssues, req.Previous, req.Logger)
+	if development.PullRequests > 0 {
+		details = append(details, fmt.Sprintf("%d development pull requests", development.PullRequests))
+	}
+	if development.Invalid > 0 {
+		status.Status = "error"
+		details = append(details, fmt.Sprintf("%d invalid development pull requests", development.Invalid))
+		req.Logger.Warn("jira development links contained invalid pull requests", "count", development.Invalid)
+	}
+	if development.Failed > 0 {
+		status.Status = "error"
+		details = append(details, fmt.Sprintf("%d development lookups failed", development.Failed))
+	}
+	if development.Unavailable > 0 {
+		details = append(details, "development links unavailable")
+	}
+
 	failedKeys := map[string]bool{}
 	if batchErr != nil {
 		complete = false
@@ -156,7 +180,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		}
 		projectedAssigned[key] = true
 		mention := firstMention(mentionsByKey[key])
-		observations = append(observations, authoritativeObservation(userConfig.Jira, jiraConfig, value, mention, req.LinkingMarks))
+		observations = append(observations, authoritativeObservation(userConfig.Jira, jiraConfig, value, mention, req.LinkingMarks, development.LinkingKeysByIssue[key]))
 	}
 	for _, key := range keyOrder {
 		value, exists := issuesByKey[key]
@@ -166,7 +190,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		keyMentions := mentionsByKey[key]
 		authoritative := userConfig.Jira.IsAuthoritativeIssueType(issueTypeName(value))
 		if authoritative {
-			observations = append(observations, authoritativeObservation(userConfig.Jira, jiraConfig, value, firstMention(keyMentions), req.LinkingMarks))
+			observations = append(observations, authoritativeObservation(userConfig.Jira, jiraConfig, value, firstMention(keyMentions), req.LinkingMarks, development.LinkingKeysByIssue[key]))
 			continue
 		}
 		for _, mention := range keyMentions {
@@ -249,8 +273,9 @@ func firstMention(mentions []issueMention) issueMention {
 	return mentions[0]
 }
 
-func authoritativeObservation(cfg config.JiraConfig, jiraConfig Config, value issue, mention issueMention, marks linking.MarkMatcher) integration.Observation {
+func authoritativeObservation(cfg config.JiraConfig, jiraConfig Config, value issue, mention issueMention, marks linking.MarkMatcher, developmentKeys []string) integration.Observation {
 	ref := sourceRefFromIssue(jiraConfig, value, marks)
+	ref.LinkingKeys = linking.Keys(append(ref.LinkingKeys, developmentKeys...)...)
 	ref.Role = protocol.SourceRefRoleAuthoritative
 	if mention.TaskID != 0 {
 		order := mention.Order
@@ -314,6 +339,15 @@ func deduplicateObservations(observations []integration.Observation) []integrati
 		kept = append(kept, observation)
 	}
 	return kept
+}
+
+func sortedIssueKeys(issues map[string]issue) []string {
+	keys := make([]string, 0, len(issues))
+	for key := range issues {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func normalizeIssueKey(key string) string {

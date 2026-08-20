@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"radar/internal/githubidentity"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 	"radar/internal/workspace"
@@ -194,7 +195,7 @@ func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher, work
 		metadata["workspace_id"] = workspaceID
 	}
 	canonicalKey := linking.WorkspaceKey(w.Path)
-	linkingKeys := linking.Keys(append(marks.Keys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, gitBranchKey(w.Branch)), linking.WorkspaceGroupKey(workspaceID), taskLinkingKey)...)
+	linkingKeys := linking.Keys(append(marks.Keys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, githubidentity.Branch(w.Branch)), linking.WorkspaceGroupKey(workspaceID), taskLinkingKey)...)
 
 	return protocol.SourceRef{
 		ID:                "git:worktree:" + w.Path,
@@ -245,27 +246,7 @@ func worktreeOriginRepo(ctx context.Context, path string) string {
 	if err != nil {
 		return ""
 	}
-	return normalizeGitHubRepo(output)
-}
-
-func gitBranchKey(branch string) string {
-	branch = strings.TrimSpace(branch)
-	branch = strings.TrimPrefix(branch, "refs/remotes/")
-	branch = strings.TrimPrefix(branch, "origin/")
-	branch = strings.TrimPrefix(branch, "refs/heads/")
-	return strings.ReplaceAll(branch, "/", "-")
-}
-
-func normalizeGitHubRepo(value string) string {
-	value = strings.TrimSpace(value)
-	value = strings.TrimSuffix(value, ".git")
-	value = strings.TrimPrefix(value, "https://github.com/")
-	value = strings.TrimPrefix(value, "http://github.com/")
-	value = strings.TrimPrefix(value, "git@github.com:")
-	if strings.Contains(value, "://") || strings.Contains(value, "@") {
-		return ""
-	}
-	return value
+	return githubidentity.Repository(output)
 }
 
 func worktreeStatus(ctx context.Context, path string) status {

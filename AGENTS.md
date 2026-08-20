@@ -4,6 +4,8 @@
 
 Use conventional commits for commit messages, for example `feat: add tmux source` or `fix: collect tmux panes without ticket keys`.
 
+For non-trivial changes, add a commit body that explains the motivation and the important behavior or design decisions. Do not merely restate the subject or list changed files. A subject-only message is acceptable only for a small, self-explanatory change.
+
 After making a commit, make sure it lands on remote `main` immediately.
 
 After the committed work has been pushed to `origin/main`, run `make install` so the local `radar` binary is up to date.

@@ -311,6 +311,8 @@ Radar checks GitHub rate limits before collection. When a budget is low, Radar p
 
 Radar collects authoritative assigned Jira Cloud work and discovers configured linking marks such as `ABC-123` in existing task titles. Title discovery fetches issues directly even when they are unassigned or outside the configured authoritative issue types.
 
+For authoritative issues, Radar also reads Jira's structured Development pull-request relationships. A valid GitHub relationship contributes the PR identity and its exact repository and source branch as linking keys. This joins the Jira issue to the GitHub PR and matching worktree even when their titles and branch names omit the Jira key. Radar does not inspect PR bodies, Jira descriptions, comments, or commit messages for this link. Jira installations without the Development endpoints keep the normal issue collection behavior.
+
 Configure credentials through the environment:
 
 ```sh

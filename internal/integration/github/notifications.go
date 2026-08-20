@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"radar/internal/filters"
+	"radar/internal/githubidentity"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
@@ -598,7 +599,7 @@ func doneTaskID(item protocol.Task) string {
 }
 
 func newGitHubPullRequestSourceRef(item protocol.Task, repo string, number int, kind string, branch string, body string) protocol.SourceRef {
-	sourceRef := githubPullRequestRef(fmt.Sprintf("github:pr:%s:%d", repo, number), repo, number, item.Title, item.URL, item.Reason, branch)
+	sourceRef := githubPullRequestRef(githubidentity.PullRequestKey(repo, number), repo, number, item.Title, item.URL, item.Reason, branch)
 	if kind != "" {
 		sourceRef.Kind = kind
 	}
@@ -609,8 +610,8 @@ func newGitHubPullRequestSourceRef(item protocol.Task, repo string, number int, 
 }
 
 func githubPullRequestRef(id string, repo string, number int, title string, url string, status string, branch string) protocol.SourceRef {
-	if id == "" && repo != "" && number != 0 {
-		id = fmt.Sprintf("github:pr:%s:%d", repo, number)
+	if id == "" {
+		id = githubidentity.PullRequestKey(repo, number)
 	}
 	return protocol.SourceRef{
 		ID:             id,
@@ -634,15 +635,7 @@ func githubPullRequestRef(id string, repo string, number int, title string, url 
 }
 
 func githubRepoKey(repo string) string {
-	repo = strings.TrimSpace(repo)
-	repo = strings.TrimSuffix(repo, ".git")
-	repo = strings.TrimPrefix(repo, "https://github.com/")
-	repo = strings.TrimPrefix(repo, "http://github.com/")
-	repo = strings.TrimPrefix(repo, "git@github.com:")
-	if strings.Contains(repo, "://") || strings.Contains(repo, "@") {
-		return ""
-	}
-	return repo
+	return githubidentity.Repository(repo)
 }
 
 func pullRequestWorkspaceName(branch string) string {
@@ -653,7 +646,7 @@ func pullRequestWorkspaceName(branch string) string {
 }
 
 func githubBranchKey(branch string) string {
-	return strings.ReplaceAll(pullRequestWorkspaceName(branch), "/", "-")
+	return githubidentity.Branch(branch)
 }
 
 func githubPullRequestSourceRefs(task protocol.Task) []protocol.SourceRef {
