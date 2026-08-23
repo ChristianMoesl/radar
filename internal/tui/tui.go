@@ -417,6 +417,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveCursor(1)
 		case "k", "up", "ctrl+p":
 			m.moveCursor(-1)
+		case "ctrl+d":
+			if m.mode == "" {
+				m.moveCursorPage(1)
+			}
+		case "ctrl+u":
+			if m.mode == "" {
+				m.moveCursorPage(-1)
+			}
 		case "g", "home":
 			m.moveCursorToEdge(false)
 		case "G", "end":
@@ -549,6 +557,43 @@ func (m *model) moveCursorToEdge(last bool) {
 	m.syncTaskScroll()
 }
 
+func (m *model) moveCursorPage(direction int) {
+	order := m.taskCursorOrder()
+	positions, lineCount := m.taskRowPositions()
+	currentLine, ok := positions[m.cursor]
+	if len(order) == 0 || !ok || direction == 0 {
+		m.syncTaskScroll()
+		return
+	}
+
+	width := m.contentWidth()
+	height := m.taskListHeight(width)
+	targetLine := max(0, min(currentLine+direction*height, lineCount-1))
+	bestCursor := m.cursor
+	bestDistance := lineCount + height
+	for _, cursor := range order {
+		line := positions[cursor]
+		if (direction < 0 && line >= currentLine) || (direction > 0 && line <= currentLine) {
+			continue
+		}
+		distance := line - targetLine
+		if distance < 0 {
+			distance = -distance
+		}
+		if distance < bestDistance {
+			bestCursor = cursor
+			bestDistance = distance
+		}
+	}
+	if bestCursor == m.cursor {
+		return
+	}
+
+	m.cursor = bestCursor
+	m.scroll = max(0, min(m.scroll+direction*height, max(0, lineCount-height)))
+	m.syncTaskScroll()
+}
+
 func (m model) taskCursorOrder() []int {
 	order := make([]int, 0, len(m.tasks))
 	for _, key := range taskGroupKeys {
@@ -559,6 +604,29 @@ func (m model) taskCursorOrder() []int {
 		}
 	}
 	return order
+}
+
+func (m model) taskRowPositions() (map[int]int, int) {
+	positions := make(map[int]int, len(m.tasks))
+	line := 0
+	for _, key := range taskGroupKeys {
+		groupStarted := false
+		for i, task := range m.tasks {
+			if task.Attention != key {
+				continue
+			}
+			if !groupStarted {
+				if line > 0 {
+					line++
+				}
+				line++
+				groupStarted = true
+			}
+			positions[i] = line
+			line += 1 + len(task.SourceRefs)
+		}
+	}
+	return positions, line
 }
 
 func (m model) View() string {
@@ -623,7 +691,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • enter switch tmux • n new task • d done/reopen • p urgent/normal • o open link • i inspect • c create workspace • x cleanup • X garbage collect • f config • r refresh • q quit"), width))
+	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • ctrl+u/d page • enter switch tmux • n new task • d done/reopen • p urgent/normal • o open link • i inspect • c create workspace • x cleanup • X garbage collect • f config • r refresh • q quit"), width))
 	return sections
 }
 

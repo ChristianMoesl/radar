@@ -672,6 +672,53 @@ func TestMoveCursorUsesRenderedTaskOrder(t *testing.T) {
 	}
 }
 
+func TestCtrlDAndCtrlUMoveByOnePage(t *testing.T) {
+	t.Setenv("TMUX", "")
+	tasks := make([]protocol.Task, 30)
+	for i := range tasks {
+		tasks[i] = protocol.Task{Title: fmt.Sprintf("task %d", i), Attention: "attention"}
+	}
+	m := model{width: 100, height: 20, tasks: tasks}
+	pageHeight := m.taskListHeight(m.contentWidth())
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	m = updated.(model)
+	if m.cursor != pageHeight || m.scroll != pageHeight {
+		t.Fatalf("after ctrl+d cursor=%d scroll=%d, want %d for both", m.cursor, m.scroll, pageHeight)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = updated.(model)
+	if m.cursor != 0 || m.scroll != 0 {
+		t.Fatalf("after ctrl+u cursor=%d scroll=%d, want 0 for both", m.cursor, m.scroll)
+	}
+}
+
+func TestCtrlDAndCtrlUOnlyMoveInMainView(t *testing.T) {
+	tasks := make([]protocol.Task, 30)
+	for i := range tasks {
+		tasks[i] = protocol.Task{Title: fmt.Sprintf("task %d", i), Attention: "attention"}
+	}
+
+	for _, mode := range []string{"detail", "open_link", "worktree_session", "cleanup_confirm", "task_authoring", "create_repo"} {
+		t.Run(mode, func(t *testing.T) {
+			for _, key := range []tea.KeyType{tea.KeyCtrlD, tea.KeyCtrlU} {
+				m := model{width: 100, height: 20, mode: mode, tasks: tasks}
+				if key == tea.KeyCtrlU {
+					m.cursor = 10
+					m.scroll = 10
+				}
+				wantCursor, wantScroll := m.cursor, m.scroll
+				updated, _ := m.Update(tea.KeyMsg{Type: key})
+				got := updated.(model)
+				if got.cursor != wantCursor || got.scroll != wantScroll {
+					t.Fatalf("key %s moved cursor=%d scroll=%d, want %d and %d", tea.KeyMsg{Type: key}.String(), got.cursor, got.scroll, wantCursor, wantScroll)
+				}
+			}
+		})
+	}
+}
+
 func TestTaskListRendersLowPriorityBeforeDone(t *testing.T) {
 	model := model{tasks: []protocol.Task{
 		{Title: "done", Attention: "done"},
