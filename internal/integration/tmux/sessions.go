@@ -16,11 +16,13 @@ import (
 )
 
 const (
-	sessionFormat  = "#{session_id}\t#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_path}"
+	sessionFormat  = "#{pid}\t#{session_created}\t#{session_id}\t#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_path}"
 	busyPaneFormat = "#{session_id}\t#{pane_dead}\t#{@radar_busy}"
 )
 
 type session struct {
+	ServerPID     string
+	CreatedAt     string
 	ID            string
 	Name          string
 	AttachedCount int
@@ -92,23 +94,28 @@ func parseSessions(output string) ([]session, error) {
 			continue
 		}
 		fields := strings.Split(line, "\t")
-		if len(fields) != 5 {
+		if len(fields) != 7 {
 			return nil, fmt.Errorf("unexpected tmux session output: got %d fields", len(fields))
 		}
-		attachedCount, err := strconv.Atoi(fields[2])
-		if err != nil {
-			return nil, fmt.Errorf("unexpected tmux session attached count %q", fields[2])
+		if fields[0] == "" || fields[1] == "" || fields[2] == "" {
+			return nil, fmt.Errorf("unexpected tmux session identity: server pid, creation time, and id are required")
 		}
-		windowCount, err := strconv.Atoi(fields[3])
+		attachedCount, err := strconv.Atoi(fields[4])
 		if err != nil {
-			return nil, fmt.Errorf("unexpected tmux session window count %q", fields[3])
+			return nil, fmt.Errorf("unexpected tmux session attached count %q", fields[4])
+		}
+		windowCount, err := strconv.Atoi(fields[5])
+		if err != nil {
+			return nil, fmt.Errorf("unexpected tmux session window count %q", fields[5])
 		}
 		sessions = append(sessions, session{
-			ID:            fields[0],
-			Name:          fields[1],
+			ServerPID:     fields[0],
+			CreatedAt:     fields[1],
+			ID:            fields[2],
+			Name:          fields[3],
 			AttachedCount: attachedCount,
 			WindowCount:   windowCount,
-			Path:          fields[4],
+			Path:          fields[6],
 		})
 	}
 	return sessions, scanner.Err()
@@ -133,12 +140,18 @@ func parseBusySessions(output string) (map[string]bool, error) {
 	return busy, scanner.Err()
 }
 
+func (s session) sourceRefID() string {
+	return strings.Join([]string{"tmux:session", s.ServerPID, s.CreatedAt, s.ID}, ":")
+}
+
 func (s session) SourceRef(marks linking.MarkMatcher) protocol.SourceRef {
 	status := "detached"
 	if s.AttachedCount > 0 {
 		status = "attached"
 	}
 	metadata := map[string]string{
+		"server_pid":        s.ServerPID,
+		"session_created":   s.CreatedAt,
 		"session_id":        s.ID,
 		"session":           s.Name,
 		"attached_count":    strconv.Itoa(s.AttachedCount),
@@ -152,13 +165,13 @@ func (s session) SourceRef(marks linking.MarkMatcher) protocol.SourceRef {
 	}
 
 	return protocol.SourceRef{
-		ID:          "tmux:session:" + s.ID,
+		ID:          s.sourceRefID(),
 		Busy:        s.Busy,
 		Source:      "tmux",
 		SourceLabel: "tmux",
 		Kind:        "session",
 		Role:        protocol.SourceRefRoleAuthoritative,
-		EntityID:    "tmux:session:" + s.ID,
+		EntityID:    s.sourceRefID(),
 		Lifecycle:   protocol.SourceRefLifecycleResource,
 		Authority:   protocol.SourceRefAuthorityNone,
 		Title:       s.Name,

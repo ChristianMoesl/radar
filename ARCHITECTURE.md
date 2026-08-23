@@ -76,7 +76,7 @@ Radar separates source-system facts from the user-facing task shown in the UI:
 SourceRef(s) + rebuildable TaskRecord cache => Task
 ```
 
-- `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, Datadog monitor, local git worktree, or tmux session. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:ABC-544`, `datadog:monitor:123`, `git:worktree:<path>`, or `tmux:session:<session_id>`.
+- `SourceRef`: a normalized reference/fact from a source system, such as a GitHub PR, Jira issue, Datadog monitor, local git worktree, or tmux session. Source refs have source-stable IDs like `github:pr:owner/repo:123`, `jira:issue:ABC-544`, `datadog:monitor:123`, `git:worktree:<path>`, or `tmux:session:<server_pid>:<session_created>:<session_id>`.
 - `SourceRef.Role`: every ref is explicitly `authoritative` or `informational`. Authoritative refs participate in title, attention, identity, linking, lifecycle, and active-resource decisions. Informational refs are inspectable and openable only. Providers emit authoritative refs unless they intentionally collect an informational association.
 - `SourceRef.LinkingKeys`: source-owned join keys that tell Radar which authoritative refs describe the same work. Examples: `mark:ABC-544`, `workspace:/repo/worktree`, `workspace-group:<id>`, `branch:owner/repo:feature-ABC-544`, or `github:pr:owner/repo:123`. Configured linking marks use the mandatory `linking_mark_prefixes` allowlist and are extracted inside each source provider through the generic matcher; other keys remain source-owned. Jira's structured Development pull-request relationships contribute exact GitHub PR and repository-branch keys without parsing free text. Informational refs expose no linking keys.
 - `SourceRef.CanonicalKey`: the source-owned fallback identity for a standalone ref when no linking mark exists. Examples: a Git worktree uses `workspace:<path>`, while a GitHub PR uses its PR source-ref ID.
@@ -194,7 +194,7 @@ Git worktree integration collects configured local repositories and attaches wor
 
 ## tmux integration
 
-Tmux integration collects sessions from the local tmux server. Radar attaches sessions to matching tasks when their name contains a configured linking mark or when the session working directory matches a Git worktree path. Sessions that do not attach to another task become standalone `in_progress` tasks.
+Tmux integration collects sessions from the local tmux server. A source ref combines the server PID, session creation time, and server-local session ID so a restarted tmux server cannot reuse a historical Radar identity. Radar attaches sessions to matching tasks when their name contains a configured linking mark or when the session working directory matches a Git worktree path. Sessions that do not attach to another task become standalone `in_progress` tasks.
 
 Open the TUI in a tmux popup with `tmux display-popup -E "radar"`. Selecting a tmux-backed task switches the current client by stable session ID.
 
