@@ -1805,6 +1805,11 @@ func (m model) createWorkspaceForPullRequest(task protocol.Task, ref protocol.So
 		if err := workspace.FetchBranches(context.Background(), runner, repo); err != nil {
 			fetchWarning = fmt.Sprintf("origin refresh failed; used cached refs: %v", err)
 		}
+		recoveryWarning, err := ensurePullRequestHeadBranch(context.Background(), runner, repo, name, githubPullRequestNumber(ref.ID))
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		fetchWarning = appendWarning(fetchWarning, recoveryWarning)
 		cfg, err := config.Load()
 		if err != nil {
 			return actionMsg{err: err}
@@ -1841,6 +1846,56 @@ func (m model) createWorkspaceForPullRequest(task protocol.Task, ref protocol.So
 		}
 		return actionMsg{message: workspaceCreationMessage(created), refresh: !switchAfterCreate, quit: switchAfterCreate}
 	}
+}
+
+func appendWarning(current string, warning string) string {
+	if strings.TrimSpace(current) == "" {
+		return warning
+	}
+	if strings.TrimSpace(warning) == "" {
+		return current
+	}
+	return current + "; " + warning
+}
+
+func ensurePullRequestHeadBranch(ctx context.Context, runner workspace.Runner, repo string, branch string, number string) (string, error) {
+	branch = strings.TrimSpace(branch)
+	number = strings.TrimSpace(number)
+	if branch == "" || number == "" {
+		return "", fmt.Errorf("github pull request has no origin branch or number")
+	}
+	if gitRefExists(ctx, runner, repo, "refs/heads/"+branch) {
+		return "", nil
+	}
+
+	originRef := "refs/remotes/origin/" + branch
+	originExists := gitRefExists(ctx, runner, repo, originRef)
+	if _, err := runner.Run(ctx, repo, "git", "fetch", "--no-tags", "origin", "refs/pull/"+number+"/head"); err != nil {
+		if originExists {
+			return fmt.Sprintf("pull request head refresh failed; used origin branch: %v", err), nil
+		}
+		return "", fmt.Errorf("branch %q is unavailable on origin and pull request #%s could not be fetched: %w", branch, number, err)
+	}
+	pullCommit, err := runner.Run(ctx, repo, "git", "rev-parse", "--verify", "FETCH_HEAD^{commit}")
+	if err != nil {
+		return "", fmt.Errorf("resolve pull request #%s head: %w", number, err)
+	}
+	pullCommit = strings.TrimSpace(pullCommit)
+	if originExists {
+		originCommit, originErr := runner.Run(ctx, repo, "git", "rev-parse", "--verify", originRef+"^{commit}")
+		if originErr == nil && strings.TrimSpace(originCommit) == pullCommit {
+			return "", nil
+		}
+	}
+	if _, err := runner.Run(ctx, repo, "git", "branch", "--", branch, pullCommit); err != nil {
+		return "", fmt.Errorf("create local branch %q from pull request #%s: %w", branch, number, err)
+	}
+	return "", nil
+}
+
+func gitRefExists(ctx context.Context, runner workspace.Runner, repo string, ref string) bool {
+	_, err := runner.Run(ctx, repo, "git", "show-ref", "--verify", "--quiet", ref)
+	return err == nil
 }
 
 func workspaceCreationMessage(created integration.Workspace) string {
