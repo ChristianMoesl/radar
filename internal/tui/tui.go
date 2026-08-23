@@ -252,7 +252,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == "detail" {
 			switch msg.String() {
-			case "esc", "backspace", "h":
+			case "esc", "backspace":
 				m.mode = ""
 				return m, nil
 			case "q", "ctrl+c":
@@ -261,7 +261,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == "open_link" {
 			switch msg.String() {
-			case "esc", "backspace", "h":
+			case "esc", "backspace":
 				m.mode = ""
 				m.links = nil
 				return m, nil
@@ -281,7 +281,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == "worktree_session" {
 			switch msg.String() {
-			case "esc", "backspace", "h":
+			case "esc", "backspace":
 				m.mode = ""
 				m.worktrees = nil
 				m.worktreeCursor = 0
@@ -325,7 +325,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = nil
 				m.message = "Cleaning up…"
 				return m, m.cleanupSelected(preview)
-			case "esc", "backspace", "h", "n", "N":
+			case "esc", "backspace", "n", "N":
 				m.mode = ""
 				m.err = nil
 				return m, nil
@@ -381,7 +381,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadRepos()
 		case "f":
 			return m, m.openConfig()
-		case "i", "right", "l":
+		case "i", "right":
 			if len(m.tasks) > 0 {
 				m.mode = "detail"
 			}
@@ -574,7 +574,7 @@ func (m model) View() string {
 
 	if m.mode == "detail" {
 		sections = append(sections, m.detailView(contentWidth))
-		sections = append(sections, helpStyle.Render("esc/backspace/h back • q quit"))
+		sections = append(sections, helpStyle.Render("esc/backspace back • q quit"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
@@ -1899,7 +1899,7 @@ func currentTaskCursor(tasks []protocol.Task) (int, bool) {
 func taskLinks(task protocol.Task) []linkChoice {
 	seen := map[string]bool{}
 	var links []linkChoice
-	usedKeys := map[string]bool{}
+	usedKeys := map[string]bool{"q": true}
 	reserveKey := func(preferred string, source string) string {
 		key := strings.ToLower(strings.TrimSpace(preferred))
 		if key != "" && !usedKeys[key] {

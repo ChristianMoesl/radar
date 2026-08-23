@@ -319,6 +319,38 @@ func TestResetIsNotAvailableAsUnconfirmedTUIKey(t *testing.T) {
 	}
 }
 
+func TestHAndLDoNotNavigateTaskDetails(t *testing.T) {
+	m := model{tasks: []protocol.Task{{Title: "Task"}}}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	got := updated.(model)
+	if cmd != nil || got.mode != "" {
+		t.Fatalf("l command=%v mode=%q, want no navigation", cmd, got.mode)
+	}
+
+	m.mode = "detail"
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	got = updated.(model)
+	if cmd != nil || got.mode != "detail" {
+		t.Fatalf("h command=%v mode=%q, want detail mode unchanged", cmd, got.mode)
+	}
+	if strings.Contains(got.View(), "/h back") {
+		t.Fatalf("detail help still advertises h as back: %s", got.View())
+	}
+}
+
+func TestHIsNotABackKeyInDialogs(t *testing.T) {
+	for _, mode := range []string{"open_link", "worktree_session", "cleanup_confirm"} {
+		t.Run(mode, func(t *testing.T) {
+			m := model{mode: mode}
+			updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+			got := updated.(model)
+			if cmd != nil || got.mode != mode {
+				t.Fatalf("h command=%v mode=%q, want %q unchanged", cmd, got.mode, mode)
+			}
+		})
+	}
+}
+
 func TestGarbageCollectionKeyStartsCollection(t *testing.T) {
 	updated, cmd := (model{}).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
 	if cmd == nil {
@@ -805,6 +837,29 @@ func TestTaskLinksUsesMnemonicFallbackForDuplicateSourceLabels(t *testing.T) {
 	}
 	if links[0].Key != "g" || links[1].Key != "i" {
 		t.Fatalf("links = %+v, want first available mnemonic per label", links)
+	}
+}
+
+func TestTaskLinksDoesNotAssignQuitKey(t *testing.T) {
+	links := taskLinks(protocol.Task{SourceRefs: []protocol.SourceRef{{
+		Source: "queue", SourceLabel: "Queue", URL: "https://example.test/queue",
+	}}})
+	if len(links) != 1 || links[0].Key != "u" {
+		t.Fatalf("links = %+v, want u because q quits the dialog", links)
+	}
+}
+
+func TestOpenLinkHActivatesDisplayedChoice(t *testing.T) {
+	m := model{
+		mode:  "open_link",
+		tasks: []protocol.Task{{Title: "Task"}},
+		links: []linkChoice{{Key: "h", URL: "https://example.test/task"}},
+	}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	got := updated.(model)
+	if cmd == nil || !got.loading || got.mode != "" || got.links != nil {
+		t.Fatalf("h command=%v loading=%v mode=%q links=%+v", cmd, got.loading, got.mode, got.links)
 	}
 }
 
