@@ -25,7 +25,7 @@ type listedSandbox struct {
 
 func enrollmentPlan(ctx context.Context, runner Runner, root, current string) (workspacegroup.Workspace, error) {
 	if !isWorkspacePath(current, root) {
-		return workspacegroup.Workspace{}, fmt.Errorf("current directory is not a two-level Radar worktree under %s", root)
+		return workspacegroup.Workspace{}, fmt.Errorf("current directory is not a flat Radar worktree under %s", root)
 	}
 	branch, err := runner.Run(ctx, current, "git", "branch", "--show-current")
 	if err != nil {

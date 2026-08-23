@@ -30,6 +30,8 @@ var workspaceGOOS = runtime.GOOS
 const defaultSandboxKitName = "shell"
 const maxSandboxNameLength = 63
 const sandboxNameHashLength = 8
+const maxWorktreeDirectoryNameLength = 120
+const worktreeDirectoryHashLength = 8
 
 type Runner interface {
 	LookPath(name string) error
@@ -338,8 +340,7 @@ func isWorkspacePath(path string, root string) bool {
 	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
 		return false
 	}
-	parts := strings.Split(relative, string(os.PathSeparator))
-	return len(parts) == 2 && parts[0] != "" && parts[1] != ""
+	return !strings.Contains(relative, string(os.PathSeparator))
 }
 
 func worktreePathForBranch(ctx context.Context, runner Runner, repo string, branch string) (string, bool, error) {
@@ -511,6 +512,18 @@ func WorktreeName(workspaceName string) string {
 		return "workspace"
 	}
 	return name
+}
+
+func WorktreeDirectoryName(repository string, workspaceName string) string {
+	name := WorktreeName(filepath.Base(filepath.Clean(repository)) + "--" + workspaceName)
+	if len(name) <= maxWorktreeDirectoryNameLength {
+		return name
+	}
+	sum := sha1.Sum([]byte(name))
+	hash := hex.EncodeToString(sum[:])[:worktreeDirectoryHashLength]
+	prefixLength := maxWorktreeDirectoryNameLength - len(hash) - 2
+	prefix := strings.TrimRight(name[:prefixLength], "-_")
+	return prefix + "--" + hash
 }
 
 func BranchName(workspaceName string) string {

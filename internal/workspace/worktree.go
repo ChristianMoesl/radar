@@ -96,7 +96,7 @@ func PlanWorktree(ctx context.Context, runner Runner, options WorktreeOptions) (
 	root = filepath.Clean(root)
 	path := strings.TrimSpace(options.Path)
 	if path == "" {
-		path = filepath.Join(root, filepath.Base(repo), WorktreeName(name))
+		path = filepath.Join(root, WorktreeDirectoryName(repo, name))
 	}
 	path, err = filepath.Abs(path)
 	if err != nil {

@@ -32,7 +32,7 @@ func TestReconcileWorkspaceAddsAndRemovesWorktreeWithoutSandbox(t *testing.T) {
 	initRepository(t, ctx, primaryRepo)
 	initRepository(t, ctx, targetRepo)
 	runGitE2E(t, ctx, targetRepo, "branch", "feature/api")
-	primaryPath := filepath.Join(root, "primary", "RAD-20-work")
+	primaryPath := filepath.Join(root, "primary-source--RAD-20-work")
 	runGitE2E(t, ctx, primaryRepo, "worktree", "add", "-b", "RAD-20-work", primaryPath, "HEAD")
 	group := workspacegroup.Workspace{
 		ID: workspacegroup.ID(primaryPath), Name: "RAD-20-work", PrimaryPath: primaryPath,
@@ -170,7 +170,7 @@ func TestReconcileWorkspaceSupportsMultipleBranchesFromOneRepository(t *testing.
 	root := filepath.Join(tmp, "workspaces")
 	repository := filepath.Join(tmp, "source")
 	initRepository(t, ctx, repository)
-	primaryPath := filepath.Join(root, "source", "primary")
+	primaryPath := filepath.Join(root, "source--primary")
 	runGitE2E(t, ctx, repository, "worktree", "add", "-b", "primary", primaryPath, "HEAD")
 	group := workspacegroup.Workspace{
 		ID: workspacegroup.ID(primaryPath), Name: "primary", PrimaryPath: primaryPath,

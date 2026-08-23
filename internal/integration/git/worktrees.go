@@ -89,8 +89,7 @@ func pathInWorkspaceRoot(path string, root string) bool {
 	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
 		return false
 	}
-	parts := strings.Split(relative, string(os.PathSeparator))
-	return len(parts) == 2 && parts[0] != "" && parts[1] != ""
+	return !strings.Contains(relative, string(os.PathSeparator))
 }
 
 func workspaceGitRoots() []string {
@@ -98,7 +97,7 @@ func workspaceGitRoots() []string {
 	if err != nil || root == "" {
 		return nil
 	}
-	matches, err := filepath.Glob(filepath.Join(root, "*", "*"))
+	matches, err := filepath.Glob(filepath.Join(root, "*"))
 	if err != nil {
 		return nil
 	}

@@ -205,7 +205,7 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 		if desired.BranchMode == integration.WorkspaceBranchExisting {
 			name = desired.Branch
 		}
-		destination := filepath.Join(root, filepath.Base(repository), WorktreeName(name))
+		destination := filepath.Join(root, WorktreeDirectoryName(repository, name))
 		plan, err := PlanWorktree(ctx, runner, WorktreeOptions{
 			Repo: repository, BranchMode: desired.BranchMode, Name: desired.Name,
 			Branch: desired.Branch, Base: desired.Base, Path: destination,

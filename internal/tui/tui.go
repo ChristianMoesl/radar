@@ -1062,7 +1062,7 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 			if err != nil {
 				return actionMsg{err: err}
 			}
-			options.Path = filepath.Join(root, form.sourceRepoName, workspace.WorktreeName(form.name))
+			options.Path = filepath.Join(root, workspace.WorktreeDirectoryName(form.sourceRepoName, form.name))
 			options.SessionName = workspace.SessionName(form.sourceRepoName, form.name)
 		}
 		workspaceProvider, err := app.DefaultIntegrations().Workspace()

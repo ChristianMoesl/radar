@@ -129,7 +129,7 @@ radar create --repo /path/to/repo --base origin/main --name my-feature
 
 For a new branch, Radar creates:
 
-- a Git worktree at `<workspace_root>/<repo>/<name>`
+- a Git worktree at `<workspace_root>/<repo>--<name>`
 - a sanitized branch named after the workspace
 - files copied from the source repo when configured
 - setup commands run in the new worktree when configured
@@ -384,7 +384,7 @@ A newly collected monitor produces the normal Radar macOS notification. Clicking
 
 ## Git worktrees
 
-Radar collects Git checkouts at `<workspace_root>/<repo>/<workspace>`. Registered members emit a shared `workspace-group:<id>` linking key, so worktrees from different repositories appear in one task even without a configured linking mark. Radar also attaches worktrees by configured linking marks such as `ABC-123`. Regular repositories outside the configured workspace root are ignored. Branch names do not affect collection, so a workspace checked out directly on `main` remains visible.
+Radar stores and collects Git checkouts in a flat workspace directory using `<workspace_root>/<repo>--<workspace>`. It sanitizes the repository and workspace names as one path component. Names longer than 120 characters are truncated and receive a deterministic eight-character hash suffix. Registered members emit a shared `workspace-group:<id>` linking key, so worktrees from different repositories appear in one task even without a configured linking mark. Radar also attaches worktrees by configured linking marks such as `ABC-123`. Regular repositories outside the configured workspace root are ignored. Branch names do not affect collection, so a workspace checked out directly on `main` remains visible.
 
 ## tmux sessions
 

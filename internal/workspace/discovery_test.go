@@ -31,13 +31,14 @@ func (d discoveryRunner) Run(_ context.Context, cwd string, name string, args ..
 }
 
 type countingDiscoveryRunner struct {
-	repos    map[string]string
-	fdOutput string
-	fdByRoot map[string]string
-	fdErrors map[string]error
-	fdArgs   []string
-	gitCalls int
-	fdCalls  int
+	repos      map[string]string
+	commonDirs map[string]string
+	fdOutput   string
+	fdByRoot   map[string]string
+	fdErrors   map[string]error
+	fdArgs     []string
+	gitCalls   int
+	fdCalls    int
 }
 
 func (d *countingDiscoveryRunner) LookPath(name string) error {
@@ -48,10 +49,17 @@ func (d *countingDiscoveryRunner) LookPath(name string) error {
 }
 
 func (d *countingDiscoveryRunner) Run(_ context.Context, cwd string, name string, args ...string) (string, error) {
-	if name == "git" && strings.Join(args, " ") == "rev-parse --show-toplevel" {
+	if name == "git" {
 		d.gitCalls++
-		if repo := d.repos[cwd]; repo != "" {
-			return repo, nil
+		switch strings.Join(args, " ") {
+		case "rev-parse --show-toplevel":
+			if repo := d.repos[cwd]; repo != "" {
+				return repo, nil
+			}
+		case "rev-parse --path-format=absolute --git-common-dir":
+			if commonDir := d.commonDirs[cwd]; commonDir != "" {
+				return commonDir, nil
+			}
 		}
 	}
 	if name == "fd" {
@@ -81,7 +89,7 @@ func TestDiscoverReposUsesGitDirectoriesWithoutResolvingEveryRepo(t *testing.T) 
 	currentSubdir := filepath.Join(current, "src")
 	repo := filepath.Join(home, "workspace", "repo")
 	worktree := filepath.Join(home, "workspace", "worktree")
-	generatedWorkspace := filepath.Join(dataHome, "radar", "workspaces", "repo", "feature")
+	generatedWorkspace := filepath.Join(dataHome, "radar", "workspaces", "repo--feature")
 	for _, path := range []string{
 		filepath.Join(current, ".git"),
 		currentSubdir,
@@ -189,7 +197,7 @@ func TestDiscoverReposPrefersSourceRepoForCurrentWorkspace(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", dataHome)
 	writeLinkingMarkConfig(t, home)
 
-	current := filepath.Join(dataHome, "radar", "workspaces", "radar", "small-fix")
+	current := filepath.Join(dataHome, "radar", "workspaces", "radar--small-fix")
 	currentSubdir := filepath.Join(current, "src")
 	radar := filepath.Join(home, "workspace", "radar")
 	alpha := filepath.Join(home, "workspace", "alpha")
@@ -204,7 +212,8 @@ func TestDiscoverReposPrefersSourceRepoForCurrentWorkspace(t *testing.T) {
 	}
 
 	runner := &countingDiscoveryRunner{
-		repos: map[string]string{currentSubdir: current},
+		repos:      map[string]string{currentSubdir: current},
+		commonDirs: map[string]string{current: filepath.Join(radar, ".git")},
 		fdOutput: strings.Join([]string{
 			filepath.Join(alpha, ".git"),
 			filepath.Join(radar, ".git"),
@@ -332,8 +341,8 @@ func TestBranchesOrdersOriginBeforeLocal(t *testing.T) {
 func TestPathsListsWorkspaces(t *testing.T) {
 	root := t.TempDir()
 	for _, path := range []string{
-		filepath.Join(root, "repo-b", "two"),
-		filepath.Join(root, "repo-a", "one"),
+		filepath.Join(root, "repo-b--two"),
+		filepath.Join(root, "repo-a--one"),
 	} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)
@@ -343,7 +352,7 @@ func TestPathsListsWorkspaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{filepath.Join(root, "repo-a", "one"), filepath.Join(root, "repo-b", "two")}
+	want := []string{filepath.Join(root, "repo-a--one"), filepath.Join(root, "repo-b--two")}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Paths() = %#v, want %#v", got, want)
 	}

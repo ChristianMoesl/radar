@@ -136,6 +136,9 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	if workspace.Branch != "small-fix" || workspace.SessionName != filepath.Base(repo)+"-small-fix" {
 		t.Fatalf("unexpected workspace: %#v", workspace)
 	}
+	if want := filepath.Join(root, filepath.Base(repo)+"--small-fix"); workspace.Path != want {
+		t.Fatalf("workspace path = %q, want %q", workspace.Path, want)
+	}
 	data, err := os.ReadFile(filepath.Join(workspace.Path, ".env"))
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +216,7 @@ func TestCreateTracksExistingOriginBranch(t *testing.T) {
 func TestCreateExistingWorkspaceRejectsDifferentTaskBeforeStartingSession(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
-	path := filepath.Join(root, filepath.Base(repo), "first-task")
+	path := filepath.Join(root, filepath.Base(repo)+"--first-task")
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +454,7 @@ func TestCreatePreservesWorkspaceWhenSetupCannotBeScheduled(t *testing.T) {
 func TestCreateDoesNotRerunSetupWhenOpeningExistingWorkspace(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
-	path := filepath.Join(root, filepath.Base(repo), "existing")
+	path := filepath.Join(root, filepath.Base(repo)+"--existing")
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -676,12 +679,12 @@ func TestCreateEscapesWorktreeNamePathSegment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantPath := filepath.Join(root, filepath.Base(repo), "feature-nested-fix")
+	wantPath := filepath.Join(root, filepath.Base(repo)+"--feature-nested-fix")
 	if workspace.Path != wantPath {
 		t.Fatalf("workspace path = %q, want %q", workspace.Path, wantPath)
 	}
-	if filepath.Dir(workspace.Path) != filepath.Join(root, filepath.Base(repo)) {
-		t.Fatalf("workspace path created nested directories: %q", workspace.Path)
+	if filepath.Dir(workspace.Path) != root {
+		t.Fatalf("workspace path is not flat: %q", workspace.Path)
 	}
 	if workspace.Branch != "feature-nested-fix" {
 		t.Fatalf("workspace branch = %q, want sanitized name", workspace.Branch)
@@ -866,6 +869,29 @@ func TestRemoveWorktreeForceRemovesDirtyWorktree(t *testing.T) {
 func TestWorktreeNameSanitizesNames(t *testing.T) {
 	if got, want := WorktreeName("feature/nested fix"), "feature-nested-fix"; got != want {
 		t.Fatalf("WorktreeName() = %q, want %q", got, want)
+	}
+}
+
+func TestWorktreeDirectoryNameIncludesRepository(t *testing.T) {
+	if got, want := WorktreeDirectoryName("/repos/my.repo", "feature/nested fix"), "my-repo--feature-nested-fix"; got != want {
+		t.Fatalf("WorktreeDirectoryName() = %q, want %q", got, want)
+	}
+}
+
+func TestWorktreeDirectoryNameTruncatesWithStableHash(t *testing.T) {
+	workspaceName := strings.Repeat("long-workspace-", 12)
+	got := WorktreeDirectoryName("/repos/radar", workspaceName)
+	if len(got) > maxWorktreeDirectoryNameLength {
+		t.Fatalf("WorktreeDirectoryName() length = %d, want <= %d: %q", len(got), maxWorktreeDirectoryNameLength, got)
+	}
+	if !strings.HasPrefix(got, "radar--long-workspace-") {
+		t.Fatalf("WorktreeDirectoryName() = %q, want readable prefix", got)
+	}
+	if got == WorktreeDirectoryName("/repos/radar", workspaceName+"other") {
+		t.Fatalf("different long names produced the same directory name %q", got)
+	}
+	if got != WorktreeDirectoryName("/repos/radar", workspaceName) {
+		t.Fatalf("WorktreeDirectoryName() is not deterministic")
 	}
 }
 

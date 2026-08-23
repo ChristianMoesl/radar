@@ -159,7 +159,7 @@ func setupFakeJira(t *testing.T) *httptest.Server {
 func setupGitWorktree(t *testing.T, ctx context.Context, tmp string) {
 	t.Helper()
 	repo := filepath.Join(tmp, "repo")
-	wt := filepath.Join(tmp, "data", "radar", "workspaces", "repo", "linked")
+	wt := filepath.Join(tmp, "data", "radar", "workspaces", "repo--linked")
 	runGit(t, ctx, tmp, "init", repo)
 	runGit(t, ctx, repo, "config", "user.email", "radar@example.test")
 	runGit(t, ctx, repo, "config", "user.name", "Radar Test")

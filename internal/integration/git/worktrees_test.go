@@ -119,9 +119,9 @@ func TestGitRootsOnlyIncludesConfiguredWorkspaces(t *testing.T) {
 	dataHome := filepath.Join(home, "data")
 	workspaceRoot := filepath.Join(dataHome, "radar", "workspaces")
 	cwd := filepath.Join(home, "not-a-workspace")
-	workspace := filepath.Join(workspaceRoot, "repo", "feature")
-	otherWorkspace := filepath.Join(workspaceRoot, "other", "fix")
-	for _, dir := range []string{cwd, workspace, otherWorkspace, filepath.Join(workspaceRoot, "repo")} {
+	workspace := filepath.Join(workspaceRoot, "repo--feature")
+	otherWorkspace := filepath.Join(workspaceRoot, "other--fix")
+	for _, dir := range []string{cwd, workspace, otherWorkspace} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -136,7 +136,6 @@ func TestGitRootsOnlyIncludesConfiguredWorkspaces(t *testing.T) {
 	assertContainsRoot(t, roots, workspace)
 	assertContainsRoot(t, roots, otherWorkspace)
 	assertMissingRoot(t, roots, cwd)
-	assertMissingRoot(t, roots, filepath.Join(workspaceRoot, "repo"))
 }
 
 func TestFetchWorktreesReturnsCompleteEmptyResultWithoutWorkspaces(t *testing.T) {
@@ -152,10 +151,11 @@ func TestFetchWorktreesReturnsCompleteEmptyResultWithoutWorkspaces(t *testing.T)
 	}
 }
 
-func TestPathInWorkspaceRootRequiresRepositoryAndWorkspaceSegments(t *testing.T) {
+func TestPathInWorkspaceRootRequiresFlatWorkspace(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "workspaces")
-	inside := filepath.Join(root, "radar", "feature")
-	for _, path := range []string{inside, filepath.Join(root, "radar"), filepath.Join(root, "radar", "feature", "nested")} {
+	inside := filepath.Join(root, "radar--feature")
+	nested := filepath.Join(inside, "nested")
+	for _, path := range []string{inside, nested} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -164,7 +164,7 @@ func TestPathInWorkspaceRootRequiresRepositoryAndWorkspaceSegments(t *testing.T)
 	if !pathInWorkspaceRoot(inside, root) {
 		t.Fatalf("pathInWorkspaceRoot(%q, %q) = false, want true", inside, root)
 	}
-	for _, outside := range []string{filepath.Join(root, "radar"), filepath.Join(root, "radar", "feature", "nested"), filepath.Join(filepath.Dir(root), "repo")} {
+	for _, outside := range []string{nested, filepath.Join(filepath.Dir(root), "repo")} {
 		if pathInWorkspaceRoot(outside, root) {
 			t.Fatalf("pathInWorkspaceRoot(%q, %q) = true, want false", outside, root)
 		}
@@ -176,7 +176,7 @@ func TestFetchWorktreesOnlyIncludesConfiguredWorkspaceRoot(t *testing.T) {
 	home := t.TempDir()
 	repositoryDir := filepath.Join(home, "repos")
 	repo := filepath.Join(repositoryDir, "radar")
-	linkedWorktree := filepath.Join(home, "workspaces", "radar", "feature")
+	linkedWorktree := filepath.Join(home, "workspaces", "radar--feature")
 	if err := os.MkdirAll(repositoryDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

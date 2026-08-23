@@ -66,8 +66,8 @@ func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) 
 	sort.Strings(repos)
 	if currentErr == nil {
 		preferred := current
-		if sourceRepoName, ok := workspaceSourceRepoName(current, workspaces); ok {
-			preferred = sourceRepoName
+		if sourceRepository, ok := workspaceSourceRepository(ctx, runner, current, workspaces); ok {
+			preferred = sourceRepository
 		}
 		preferRepo(repos, preferred)
 	}
@@ -113,7 +113,7 @@ func Paths(workspaceRoot string) ([]string, error) {
 		}
 		workspaceRoot = root
 	}
-	repos, err := os.ReadDir(workspaceRoot)
+	entries, err := os.ReadDir(workspaceRoot)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -121,18 +121,9 @@ func Paths(workspaceRoot string) ([]string, error) {
 		return nil, err
 	}
 	paths := make([]string, 0)
-	for _, repo := range repos {
-		if !repo.IsDir() {
-			continue
-		}
-		streams, err := os.ReadDir(filepath.Join(workspaceRoot, repo.Name()))
-		if err != nil {
-			return nil, err
-		}
-		for _, stream := range streams {
-			if stream.IsDir() {
-				paths = append(paths, filepath.Join(workspaceRoot, repo.Name(), stream.Name()))
-			}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			paths = append(paths, filepath.Join(workspaceRoot, entry.Name()))
 		}
 	}
 	sort.Strings(paths)
@@ -205,16 +196,19 @@ func branchSortKey(branch string) string {
 	}
 }
 
-func workspaceSourceRepoName(path string, root string) (string, bool) {
-	relative, err := filepath.Rel(root, path)
-	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+func workspaceSourceRepository(ctx context.Context, runner Runner, path string, root string) (string, bool) {
+	if !isSubpath(path, root) {
 		return "", false
 	}
-	parts := strings.Split(relative, string(os.PathSeparator))
-	if len(parts) < 2 || parts[0] == "" || parts[0] == "." {
+	commonDir, err := runner.Run(ctx, path, "git", "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
 		return "", false
 	}
-	return parts[0], true
+	commonDir = strings.TrimSpace(commonDir)
+	if commonDir == "" || !filepath.IsAbs(commonDir) {
+		return "", false
+	}
+	return filepath.Dir(filepath.Clean(commonDir)), true
 }
 
 func preferRepo(repos []string, preferred string) {

@@ -64,9 +64,9 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	primaryRepo := filepath.Join(sources, "primary")
 	memberRepo := filepath.Join(sources, "member")
 	candidateRepo := filepath.Join(sources, "candidate")
-	primaryPath := filepath.Join(root, "primary", "RAD-10-work")
-	memberPath := filepath.Join(root, "member", "RAD-10-work")
-	secondPrimaryRepoPath := filepath.Join(root, "primary", "feature-second")
+	primaryPath := filepath.Join(root, "primary--RAD-10-work")
+	memberPath := filepath.Join(root, "member--RAD-10-work")
+	secondPrimaryRepoPath := filepath.Join(root, "primary--feature-second")
 	for _, path := range []string{root, sources} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)

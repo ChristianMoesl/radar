@@ -95,7 +95,7 @@ func setupSandboxMountE2E(t *testing.T) (context.Context, ExecRunner, string, st
 	root := filepath.Join(tmp, "workspaces")
 	repository := filepath.Join(tmp, "source")
 	initRepository(t, ctx, repository)
-	primary := filepath.Join(root, "repo", "work")
+	primary := filepath.Join(root, "repo--work")
 	runGitE2E(t, ctx, repository, "worktree", "add", "-b", "sbx-e2e", primary, "HEAD")
 	common := filepath.Join(repository, ".git")
 	sandboxName := fmt.Sprintf("radar-mount-e2e-%d-%d", os.Getpid(), time.Now().UnixNano())

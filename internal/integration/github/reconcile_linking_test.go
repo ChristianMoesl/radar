@@ -34,7 +34,7 @@ func TestReconciledSameRepositoryWorktreeLinksExistingGitHubPullRequestToWorkspa
 	sources := filepath.Join(tmp, "sources")
 	workspaceRoot := filepath.Join(tmp, "workspaces")
 	primaryRepo := filepath.Join(sources, "primary")
-	primaryPath := filepath.Join(workspaceRoot, "primary", "work")
+	primaryPath := filepath.Join(workspaceRoot, "primary--work")
 
 	initLinkingRepository(t, ctx, primaryRepo, "https://github.com/acme/primary.git")
 	runLinkingGit(t, ctx, primaryRepo, "branch", "feature/api")
