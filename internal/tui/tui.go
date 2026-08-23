@@ -2133,6 +2133,9 @@ func displayTaskReason(task protocol.Task) string {
 }
 
 func sourceRefLabel(ref protocol.SourceRef) string {
+	if ref.Presentation.Label != "" {
+		return ref.Presentation.Label
+	}
 	if ref.ID != "" {
 		return pathdisplay.HomeRelativeSuffix(ref.ID, ref.Path)
 	}

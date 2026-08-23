@@ -104,6 +104,7 @@ const (
 )
 
 type SourceRefPresentation struct {
+	Label         string `json:"label,omitempty"`
 	PreferTitle   bool   `json:"prefer_title,omitempty"`
 	TitleOrder    *int   `json:"title_order,omitempty"`
 	WorkspaceName string `json:"workspace_name,omitempty"`

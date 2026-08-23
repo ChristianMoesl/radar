@@ -74,6 +74,9 @@ func TestSessionSourceRef(t *testing.T) {
 	if sourceRef.Title != "ABC-123-feature" {
 		t.Fatalf("unexpected title: %s", sourceRef.Title)
 	}
+	if sourceRef.Presentation.Label != "tmux:session:ABC-123-feature" {
+		t.Fatalf("unexpected presentation label: %s", sourceRef.Presentation.Label)
+	}
 	if sourceRef.Status != "attached" {
 		t.Fatalf("unexpected status: %s", sourceRef.Status)
 	}

@@ -163,6 +163,9 @@ func (s session) SourceRef(marks linking.MarkMatcher) protocol.SourceRef {
 		Authority:   protocol.SourceRefAuthorityNone,
 		Title:       s.Name,
 		Path:        s.Path,
+		Presentation: protocol.SourceRefPresentation{
+			Label: "tmux:session:" + s.Name,
+		},
 		Status:      status,
 		LinkingKeys: linking.Keys(append(marks.Keys(s.Name, s.Path), linking.WorkspaceKey(s.Path))...),
 		Metadata:    metadata,
