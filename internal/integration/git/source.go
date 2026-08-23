@@ -84,16 +84,19 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 			Dirty:       strings.TrimSpace(status) != "",
 		}
 		if member, managed := workspacegroup.FindMemberByPath(registry, ref.Path); managed {
-			if err := workspace.ValidateManagedWorktreeRemoval(ctx, workspace.ExecRunner{}, member); err != nil {
+			removal, err := workspace.PlanManagedWorktreeRemoval(ctx, workspace.ExecRunner{}, member)
+			if err != nil {
 				return nil, err
 			}
-			target.DeleteBranch = true
+			target.DeleteBranch = removal.DeleteBranch
 			target.Branch = member.Branch
-			published, publicationErr := workspace.BranchPublished(ctx, workspace.ExecRunner{}, member.Repository, member.Branch)
-			if publicationErr != nil {
-				target.PublicationUnknown = true
-			} else {
-				target.Unpublished = !published
+			if removal.DeleteBranch {
+				published, publicationErr := workspace.BranchPublished(ctx, workspace.ExecRunner{}, member.Repository, member.Branch)
+				if publicationErr != nil {
+					target.PublicationUnknown = true
+				} else {
+					target.Unpublished = !published
+				}
 			}
 		}
 		targets = append(targets, target)

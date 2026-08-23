@@ -170,6 +170,61 @@ func TestManagedWorktreeCleanupDeletesItsLocalBranch(t *testing.T) {
 	}
 }
 
+func TestManagedWorktreeCleanupPreservesProtectedBranch(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	writeGitTestConfig(t, home)
+	root, err := workspace.DefaultRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(home, "repo")
+	worktreePath := filepath.Join(root, "repo--main")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, ctx, home, "init", "repo")
+	runGit(t, ctx, repo, "config", "user.email", "radar@example.com")
+	runGit(t, ctx, repo, "config", "user.name", "Radar")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, ctx, repo, "add", "README.md")
+	runGit(t, ctx, repo, "commit", "-m", "init")
+	runGit(t, ctx, repo, "branch", "-M", "main")
+	runGit(t, ctx, repo, "switch", "--detach")
+	runGit(t, ctx, repo, "worktree", "add", worktreePath, "main")
+	group := workspacegroup.Workspace{
+		ID: workspacegroup.ID(worktreePath), Name: "main", PrimaryPath: worktreePath,
+		Members: []workspacegroup.Member{{Repository: repo, Path: worktreePath, Branch: "main", Primary: true}},
+	}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+		t.Fatal(err)
+	}
+	ref := protocol.SourceRef{ID: "git:worktree:" + worktreePath, Source: "git", Kind: "worktree", Path: worktreePath, Branch: "main", Title: "main"}
+	targets, err := Source{}.PreviewCleanup(ctx, integration.CleanupPreviewRequest{Task: protocol.Task{ID: 1, SourceRefs: []protocol.SourceRef{ref}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].DeleteBranch || targets[0].Unpublished || targets[0].PublicationUnknown {
+		t.Fatalf("cleanup target = %+v, want protected branch preservation", targets)
+	}
+	if _, err := (Source{}).Cleanup(ctx, integration.CleanupRequest{Target: targets[0]}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
+		t.Fatalf("worktree still exists: %v", err)
+	}
+	command := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/heads/main")
+	command.Dir = repo
+	if err := command.Run(); err != nil {
+		t.Fatalf("protected branch was deleted: %v", err)
+	}
+}
+
 func TestGitRootsOnlyIncludesConfiguredWorkspaces(t *testing.T) {
 	home := t.TempDir()
 	dataHome := filepath.Join(home, "data")

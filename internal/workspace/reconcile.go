@@ -75,7 +75,7 @@ type ReconcileWorkspacePlan struct {
 	root      string
 	group     workspacegroup.Workspace
 	additions []reconcileAddition
-	removals  []workspacegroup.Member
+	removals  []reconcileRemoval
 }
 
 type ReconcileWorkspaceResult struct {
@@ -118,6 +118,11 @@ func ReconcileWorkspaceErrorDetails(err error) (*ReconcileWorkspaceError, bool) 
 
 type reconcileAddition struct {
 	plan WorktreePlan
+}
+
+type reconcileRemoval struct {
+	member       workspacegroup.Member
+	deleteBranch bool
 }
 
 const largeEffectiveMountCount = 20
@@ -228,7 +233,7 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 		plansByPath[pathKey(plan.Path)] = plan
 	}
 
-	removals := []workspacegroup.Member{}
+	removals := []reconcileRemoval{}
 	removalWarnings := []string{}
 	for _, member := range group.Members {
 		if desiredIdentities[workspaceMemberKey(member.Repository, member.Branch)] {
@@ -247,17 +252,20 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 				Message: fmt.Sprintf("cannot remove dirty workspace member %s (%d changed entries); to retain it, include repository %s and branch %q unchanged in desired.worktrees; to remove it, commit, stash, or discard its changes, then inspect the workspace again", member.Path, changeCount, member.Repository, member.Branch),
 			}
 		}
-		if err := ValidateManagedWorktreeRemoval(ctx, runner, member); err != nil {
+		removal, err := PlanManagedWorktreeRemoval(ctx, runner, member)
+		if err != nil {
 			return ReconcileWorkspacePlan{}, err
 		}
-		published, publicationErr := BranchPublished(ctx, runner, member.Repository, member.Branch)
-		switch {
-		case publicationErr != nil:
-			removalWarnings = append(removalWarnings, fmt.Sprintf("origin could not be refreshed for %s; removing the worktree will delete local branch %q without verifying that its commits exist remotely", member.Repository, member.Branch))
-		case !published:
-			removalWarnings = append(removalWarnings, fmt.Sprintf("local branch %q has commits not found on a remote-tracking branch; removing the worktree will delete them", member.Branch))
+		if removal.DeleteBranch {
+			published, publicationErr := BranchPublished(ctx, runner, member.Repository, member.Branch)
+			switch {
+			case publicationErr != nil:
+				removalWarnings = append(removalWarnings, fmt.Sprintf("origin could not be refreshed for %s; removing the worktree will delete local branch %q without verifying that its commits exist remotely", member.Repository, member.Branch))
+			case !published:
+				removalWarnings = append(removalWarnings, fmt.Sprintf("local branch %q has commits not found on a remote-tracking branch; removing the worktree will delete them", member.Branch))
+			}
 		}
-		removals = append(removals, member)
+		removals = append(removals, reconcileRemoval{member: member, deleteBranch: removal.DeleteBranch})
 	}
 
 	if group.Sandbox == nil && request.Desired.Sandbox != nil {
@@ -276,10 +284,13 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 		})
 	}
 	for _, removal := range removals {
+		summary := fmt.Sprintf("remove clean worktree %s and local branch %s", removal.member.Path, removal.member.Branch)
+		if !removal.deleteBranch {
+			summary = fmt.Sprintf("remove clean worktree %s and preserve protected branch %s", removal.member.Path, removal.member.Branch)
+		}
 		changes = append(changes, WorkspaceChange{
-			Action: "remove", Resource: "worktree", Repository: removal.Repository,
-			Path: removal.Path, Branch: removal.Branch,
-			Summary: fmt.Sprintf("remove clean worktree %s and local branch %s", removal.Path, removal.Branch),
+			Action: "remove", Resource: "worktree", Repository: removal.member.Repository,
+			Path: removal.member.Path, Branch: removal.member.Branch, Summary: summary,
 		})
 	}
 
@@ -411,7 +422,7 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 		result.WorktreesAdded++
 	}
 	for _, removal := range plan.removals {
-		if _, removeErr := RemoveManagedWorktree(ctx, runner, removal, false); removeErr != nil {
+		if _, removeErr := RemoveManagedWorktree(ctx, runner, removal.member, false); removeErr != nil {
 			logReconciliationFailure(logger, plan.WorkspaceID, "worktrees", result, removeErr)
 			return result, removeErr
 		}

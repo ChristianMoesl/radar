@@ -57,7 +57,7 @@ Worktrees, agent-requested additional mounts, and ports use replacement semantic
 - The primary worktree cannot be removed.
 - `radar_workspace_context` reports `dirty` for every member worktree.
 - Dirty member worktrees cannot be removed by reconciliation. A blocked removal returns the `dirty_removal` reason, member identity, and changed-entry count, and explains whether to retain or clean the member.
-- Removing a clean non-primary member also deletes its local branch. The confirmed plan warns when the branch has commits not found on a remote-tracking ref or origin cannot be refreshed. Remote branches are untouched.
+- Removing a clean non-primary member also deletes its local branch unless it is a protected default branch. Protected branches are preserved, and the plan says so explicitly. For deletable branches, the confirmed plan warns when commits are not found on a remote-tracking ref or origin cannot be refreshed. Remote branches are untouched.
 - Existing members are retained by repository-and-branch identity; replacing a clean non-primary branch is planned as a worktree removal and addition rather than an in-place branch switch.
 - Host ports are validated, unique, and published by SBX as TCP4 on IPv4 loopback only; reconciliation replaces existing dual-stack bindings.
 - Additional mounts require absolute host paths, default to read-only, and require an explicit `read_only: false` for writable host access.

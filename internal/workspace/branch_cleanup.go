@@ -31,32 +31,43 @@ func BranchPublished(ctx context.Context, runner Runner, repository, branch stri
 	return strings.TrimSpace(output) != "", nil
 }
 
-// ValidateManagedWorktreeRemoval rejects protected branches and branches that
-// another worktree also uses.
-func ValidateManagedWorktreeRemoval(ctx context.Context, runner Runner, member workspacegroup.Member) error {
-	branch := strings.TrimSpace(member.Branch)
-	if branch == "" {
-		return fmt.Errorf("managed worktree branch is required")
-	}
-	if protected, err := protectedRepositoryBranch(ctx, runner, member.Repository, branch); err != nil {
-		return err
-	} else if protected {
-		return fmt.Errorf("repository branch %q cannot be deleted by worktree cleanup", branch)
-	}
-	if otherPath, err := branchCheckoutOutside(ctx, runner, member.Repository, branch, member.Path); err != nil {
-		return err
-	} else if otherPath != "" {
-		return fmt.Errorf("local branch %q is also checked out at %s", branch, otherPath)
-	}
-	return nil
+type ManagedWorktreeRemovalPlan struct {
+	DeleteBranch bool
 }
 
-// RemoveManagedWorktree removes a registered worktree and its local branch.
-// The expected old object ID makes branch deletion fail if another process
-// moved the branch while cleanup was running.
+// PlanManagedWorktreeRemoval preserves protected repository branches. Other
+// managed branches are deleted with their worktree when no other worktree uses
+// them.
+func PlanManagedWorktreeRemoval(ctx context.Context, runner Runner, member workspacegroup.Member) (ManagedWorktreeRemovalPlan, error) {
+	branch := strings.TrimSpace(member.Branch)
+	if branch == "" {
+		return ManagedWorktreeRemovalPlan{}, fmt.Errorf("managed worktree branch is required")
+	}
+	protected, err := protectedRepositoryBranch(ctx, runner, member.Repository, branch)
+	if err != nil {
+		return ManagedWorktreeRemovalPlan{}, err
+	}
+	if protected {
+		return ManagedWorktreeRemovalPlan{}, nil
+	}
+	if otherPath, err := branchCheckoutOutside(ctx, runner, member.Repository, branch, member.Path); err != nil {
+		return ManagedWorktreeRemovalPlan{}, err
+	} else if otherPath != "" {
+		return ManagedWorktreeRemovalPlan{}, fmt.Errorf("local branch %q is also checked out at %s", branch, otherPath)
+	}
+	return ManagedWorktreeRemovalPlan{DeleteBranch: true}, nil
+}
+
+// RemoveManagedWorktree removes a registered worktree. Non-protected local
+// branches are deleted using their expected old object ID so branch movement
+// during cleanup fails safely.
 func RemoveManagedWorktree(ctx context.Context, runner Runner, member workspacegroup.Member, force bool) (Workspace, error) {
-	if err := ValidateManagedWorktreeRemoval(ctx, runner, member); err != nil {
+	plan, err := PlanManagedWorktreeRemoval(ctx, runner, member)
+	if err != nil {
 		return Workspace{}, err
+	}
+	if !plan.DeleteBranch {
+		return RemoveWorktree(ctx, runner, member.Path, force)
 	}
 	branch := strings.TrimSpace(member.Branch)
 	ref := "refs/heads/" + branch
