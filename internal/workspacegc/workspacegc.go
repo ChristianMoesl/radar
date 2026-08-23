@@ -153,6 +153,26 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			result.skip(candidate, fmt.Errorf("workspace has local changes"), logger)
 			continue
 		}
+		unsafeBranch := false
+		for _, target := range selected.Targets {
+			if target.Source != "git" || target.Kind != "worktree" || !target.DeleteBranch {
+				continue
+			}
+			switch {
+			case target.PublicationUnknown:
+				result.skip(candidate, fmt.Errorf("branch publication could not be verified"), logger)
+				unsafeBranch = true
+			case target.Unpublished:
+				result.skip(candidate, fmt.Errorf("branch has commits not found on a remote-tracking branch"), logger)
+				unsafeBranch = true
+			}
+			if unsafeBranch {
+				break
+			}
+		}
+		if unsafeBranch {
+			continue
+		}
 		if _, err := cleanupService.Execute(ctx, selected, cleanup.ExecuteOptions{Force: false}); err != nil {
 			result.skip(candidate, err, logger)
 			continue

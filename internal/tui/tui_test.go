@@ -759,11 +759,11 @@ func TestCleanupConfirmViewShowsEveryLocalResourceAndDirtyWarning(t *testing.T) 
 	model := model{mode: "cleanup_confirm", cleanup: protocol.CleanupPreview{Targets: []protocol.CleanupTarget{
 		{Source: "tmux", Kind: "session", SessionName: "repo-small-fix"},
 		{Source: "sbx", Kind: "sandbox", SandboxName: "small-fix-12345678"},
-		{Source: "git", Kind: "worktree", Path: "/repo/worktrees/small-fix", Dirty: true},
+		{Source: "git", Kind: "worktree", Path: "/repo/worktrees/small-fix", Branch: "small-fix", Dirty: true, DeleteBranch: true, Unpublished: true},
 	}}}
 
 	view := model.View()
-	for _, want := range []string{"Clean up local resources?", "discard uncommitted changes", "repo-small-fix", "small-fix-12345678", "/repo/worktrees/small-fix", "(dirty)", "Press y to clean up"} {
+	for _, want := range []string{"Clean up local resources?", "Uncommitted changes will be discarded", "Radar-managed worktrees", "may exist only locally", "repo-small-fix", "small-fix-12345678", "/repo/worktrees/small-fix", "deletes branch small-fix", "unpublished", "Press y to clean up"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q:\n%s", want, view)
 		}

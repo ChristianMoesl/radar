@@ -178,6 +178,18 @@ func FindByMemberPath(registry Registry, path string) (Workspace, bool) {
 	return Workspace{}, false
 }
 
+func FindMemberByPath(registry Registry, path string) (Member, bool) {
+	path = cleanPath(path)
+	for _, workspace := range registry.Workspaces {
+		for _, member := range workspace.Members {
+			if samePath(member.Path, path) {
+				return member, true
+			}
+		}
+	}
+	return Member{}, false
+}
+
 func FindByID(registry Registry, id string) (Workspace, bool) {
 	for _, workspace := range registry.Workspaces {
 		if workspace.ID == id {

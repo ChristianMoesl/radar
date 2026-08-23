@@ -76,10 +76,10 @@ func TestCleanupTargetDescriptionShortensHomePath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	path := filepath.Join(home, "workspaces", "radar", "small-fix")
-	target := protocol.CleanupTarget{Kind: "worktree", Path: path, Dirty: true}
+	target := protocol.CleanupTarget{Kind: "worktree", Path: path, Branch: "small-fix", Dirty: true, DeleteBranch: true, Unpublished: true}
 
 	got := cleanupTargetDescription(target)
-	want := "worktree " + filepath.Join("~", "workspaces", "radar", "small-fix") + " (dirty; uncommitted changes will be discarded)"
+	want := "worktree " + filepath.Join("~", "workspaces", "radar", "small-fix") + " (dirty; uncommitted changes will be discarded; deletes local branch small-fix; branch commits were not found remotely)"
 	if got != want {
 		t.Fatalf("cleanupTargetDescription() = %q, want %q", got, want)
 	}

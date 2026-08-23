@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -216,6 +217,37 @@ func TestRunSkipsDirtyWorkspaceWithoutExecutingLinkedTargets(t *testing.T) {
 	}
 }
 
+func TestRunSkipsManagedBranchThatMayContainLocalOnlyCommits(t *testing.T) {
+	for _, test := range []struct {
+		name               string
+		unpublished        bool
+		publicationUnknown bool
+		wantReason         string
+	}{
+		{name: "unpublished", unpublished: true, wantReason: "not found on a remote-tracking branch"},
+		{name: "unknown", publicationUnknown: true, wantReason: "could not be verified"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := testStore(t)
+			root := filepath.Join(t.TempDir(), "workspaces")
+			path := filepath.Join(root, "app", "ABC-7-ship")
+			store.SetTasks([]protocol.Task{
+				makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship")),
+				makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "ABC-7-ship")),
+			})
+			calls := []cleanupCall{}
+			provider := gcProvider{name: "git", calls: &calls, deleteBranch: true, unpublished: test.unpublished, publicationUnknown: test.publicationUnknown}
+			result, err := Run(context.Background(), store, cleanup.New([]integration.CleanupProvider{provider}), nil, time.Now().Add(time.Second), Options{WorkspaceRoot: root, Retention: time.Nanosecond})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Deleted) != 0 || len(result.Skipped) != 1 || len(calls) != 0 || !strings.Contains(result.Skipped[0].Reason, test.wantReason) {
+				t.Fatalf("result = %+v, calls = %+v", result, calls)
+			}
+		})
+	}
+}
+
 func TestRunContinuesAfterCandidateFailure(t *testing.T) {
 	store := testStore(t)
 	root := filepath.Join(t.TempDir(), "workspaces")
@@ -245,11 +277,14 @@ type cleanupCall struct {
 }
 
 type gcProvider struct {
-	name      string
-	calls     *[]cleanupCall
-	dirty     bool
-	dirtyPath string
-	failPath  string
+	name               string
+	calls              *[]cleanupCall
+	dirty              bool
+	dirtyPath          string
+	deleteBranch       bool
+	unpublished        bool
+	publicationUnknown bool
+	failPath           string
 }
 
 func (p gcProvider) Descriptor() integration.Descriptor {
@@ -267,6 +302,9 @@ func (p gcProvider) PreviewCleanup(_ context.Context, req integration.CleanupPre
 		target := protocol.CleanupTarget{SourceRefID: ref.ID, Source: ref.Source, Kind: ref.Kind, Path: ref.Path}
 		if p.name == "git" {
 			target.Dirty = p.dirty || (p.dirtyPath != "" && ref.Path == p.dirtyPath)
+			target.DeleteBranch = p.deleteBranch
+			target.Unpublished = p.unpublished
+			target.PublicationUnknown = p.publicationUnknown
 		}
 		targets = append(targets, target)
 	}

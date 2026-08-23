@@ -46,6 +46,14 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 
 func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
 	targets := make([]protocol.CleanupTarget, 0)
+	root, err := workspace.DefaultRoot()
+	if err != nil {
+		return nil, err
+	}
+	registry, err := workspacegroup.Load(root)
+	if err != nil {
+		return nil, err
+	}
 	for _, ref := range req.Task.SourceRefs {
 		if ref.Source != "git" || ref.Kind != "worktree" || ref.Path == "" {
 			continue
@@ -66,7 +74,7 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 		if err != nil {
 			return nil, err
 		}
-		targets = append(targets, protocol.CleanupTarget{
+		target := protocol.CleanupTarget{
 			SourceRefID: ref.ID,
 			Source:      "git",
 			Kind:        "worktree",
@@ -74,19 +82,45 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 			Path:        ref.Path,
 			Branch:      ref.Branch,
 			Dirty:       strings.TrimSpace(status) != "",
-		})
+		}
+		if member, managed := workspacegroup.FindMemberByPath(registry, ref.Path); managed {
+			if err := workspace.ValidateManagedWorktreeRemoval(ctx, workspace.ExecRunner{}, member); err != nil {
+				return nil, err
+			}
+			target.DeleteBranch = true
+			target.Branch = member.Branch
+			published, publicationErr := workspace.BranchPublished(ctx, workspace.ExecRunner{}, member.Repository, member.Branch)
+			if publicationErr != nil {
+				target.PublicationUnknown = true
+			} else {
+				target.Unpublished = !published
+			}
+		}
+		targets = append(targets, target)
 	}
 	return targets, nil
 }
 
 func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
-	if _, err := workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Force); err != nil {
+	root, err := workspace.DefaultRoot()
+	if err != nil {
 		return protocol.CleanupTarget{}, err
 	}
-	if root, err := workspace.DefaultRoot(); err == nil {
-		if err := workspacegroup.RemoveMember(root, req.Target.Path); err != nil {
-			return protocol.CleanupTarget{}, err
-		}
+	registry, err := workspacegroup.Load(root)
+	if err != nil {
+		return protocol.CleanupTarget{}, err
+	}
+	member, managed := workspacegroup.FindMemberByPath(registry, req.Target.Path)
+	if managed {
+		_, err = workspace.RemoveManagedWorktree(ctx, workspace.ExecRunner{}, member, req.Force)
+	} else {
+		_, err = workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Force)
+	}
+	if err != nil {
+		return protocol.CleanupTarget{}, err
+	}
+	if err := workspacegroup.RemoveMember(root, req.Target.Path); err != nil {
+		return protocol.CleanupTarget{}, err
 	}
 	return req.Target, nil
 }

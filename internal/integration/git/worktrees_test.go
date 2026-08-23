@@ -13,6 +13,8 @@ import (
 	"radar/internal/integration/contracttest"
 	"radar/internal/linking"
 	"radar/internal/protocol"
+	"radar/internal/workspace"
+	"radar/internal/workspacegroup"
 )
 
 func TestWorktreesSkipsPrunableEntries(t *testing.T) {
@@ -86,6 +88,10 @@ func TestPreviewCleanupRejectsMainWorkingTree(t *testing.T) {
 func TestPreviewCleanupReturnsWorktreeTarget(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	writeGitTestConfig(t, home)
 	repo := filepath.Join(home, "repo")
 	worktree := filepath.Join(home, "worktrees", "small-fix")
 	runGit(t, ctx, home, "init", "repo")
@@ -109,8 +115,58 @@ func TestPreviewCleanupReturnsWorktreeTarget(t *testing.T) {
 	if len(targets) != 1 {
 		t.Fatalf("cleanup targets = %+v, want one worktree", targets)
 	}
-	if targets[0].Source != "git" || targets[0].Kind != "worktree" || targets[0].Path != worktree {
-		t.Fatalf("cleanup target = %+v", targets[0])
+	if targets[0].Source != "git" || targets[0].Kind != "worktree" || targets[0].Path != worktree || targets[0].DeleteBranch {
+		t.Fatalf("cleanup target = %+v, want observed worktree without branch deletion", targets[0])
+	}
+}
+
+func TestManagedWorktreeCleanupDeletesItsLocalBranch(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	writeGitTestConfig(t, home)
+	root, err := workspace.DefaultRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(home, "repo")
+	worktreePath := filepath.Join(root, "repo--small-fix")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, ctx, home, "init", "repo")
+	runGit(t, ctx, repo, "config", "user.email", "radar@example.com")
+	runGit(t, ctx, repo, "config", "user.name", "Radar")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, ctx, repo, "add", "README.md")
+	runGit(t, ctx, repo, "commit", "-m", "init")
+	runGit(t, ctx, repo, "worktree", "add", "-b", "small-fix", worktreePath)
+	group := workspacegroup.Workspace{
+		ID: workspacegroup.ID(worktreePath), Name: "small-fix", PrimaryPath: worktreePath,
+		Members: []workspacegroup.Member{{Repository: repo, Path: worktreePath, Branch: "small-fix", Primary: true}},
+	}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+		t.Fatal(err)
+	}
+	ref := protocol.SourceRef{ID: "git:worktree:" + worktreePath, Source: "git", Kind: "worktree", Path: worktreePath, Branch: "small-fix", Title: "small-fix"}
+	targets, err := Source{}.PreviewCleanup(ctx, integration.CleanupPreviewRequest{Task: protocol.Task{ID: 1, SourceRefs: []protocol.SourceRef{ref}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || !targets[0].DeleteBranch || !targets[0].PublicationUnknown {
+		t.Fatalf("cleanup target = %+v, want managed branch with unknown publication", targets)
+	}
+	if _, err := (Source{}).Cleanup(ctx, integration.CleanupRequest{Target: targets[0]}); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/heads/small-fix")
+	command.Dir = repo
+	if err := command.Run(); err == nil {
+		t.Fatal("managed branch still exists")
 	}
 }
 

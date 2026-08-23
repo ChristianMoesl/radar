@@ -138,6 +138,9 @@ func TestReconcileWorkspaceAddsAndRemovesWorktreeWithoutSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(removePlan.Warnings) != 1 || !strings.Contains(removePlan.Warnings[0], "without verifying that its commits exist remotely") {
+		t.Fatalf("removal warnings = %#v", removePlan.Warnings)
+	}
 	remove.ExpectedPlanID = removePlan.PlanID
 	removed, err := ApplyReconcileWorkspace(ctx, runner, nil, remove)
 	if err != nil {
@@ -152,6 +155,11 @@ func TestReconcileWorkspaceAddsAndRemovesWorktreeWithoutSandbox(t *testing.T) {
 	}
 	if _, err := os.Stat(plan.Changes[0].Path); !os.IsNotExist(err) {
 		t.Fatalf("removed worktree still exists: %v", err)
+	}
+	branchCheck := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/heads/feature/api")
+	branchCheck.Dir = targetRepo
+	if err := branchCheck.Run(); err == nil {
+		t.Fatal("removed worktree branch still exists")
 	}
 	if runner.sbxCalls != 0 {
 		t.Fatalf("sandbox-less reconciliation made %d sbx calls", runner.sbxCalls)

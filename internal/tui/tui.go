@@ -1346,23 +1346,48 @@ func (m model) createView(width int) string {
 func (m model) cleanupConfirmView(width int) string {
 	preview := m.cleanup
 	dirty := false
+	deleteBranch := false
+	unpublished := false
+	publicationUnknown := false
 	for _, target := range preview.Targets {
-		if target.Dirty {
-			dirty = true
-			break
-		}
+		dirty = dirty || target.Dirty
+		deleteBranch = deleteBranch || target.DeleteBranch
+		unpublished = unpublished || target.Unpublished
+		publicationUnknown = publicationUnknown || target.PublicationUnknown
 	}
-	warning := "This will remove every local resource linked to the task. Git branches and remote resources are preserved."
+	warning := "This will remove every local resource linked to the task. Remote resources are preserved."
+	if deleteBranch {
+		warning += " Local branches belonging to Radar-managed worktrees will also be deleted."
+	}
 	if dirty {
-		warning = "This will discard uncommitted changes and remove every local resource linked to the task."
+		warning += " Uncommitted changes will be discarded."
+	}
+	if unpublished {
+		warning += " Some branch commits were not found on a remote-tracking branch and may exist only locally."
+	}
+	if publicationUnknown {
+		warning += " Radar could not verify whether some branch commits exist remotely."
 	}
 	lines := []string{titleStyle.Render("Clean up local resources?"), warning, ""}
 	for _, target := range preview.Targets {
 		switch target.Kind {
 		case "worktree":
 			label := "Worktree " + shortenPath(target.Path)
+			details := []string{}
 			if target.Dirty {
-				label += " (dirty)"
+				details = append(details, "dirty")
+			}
+			if target.DeleteBranch && target.Branch != "" {
+				details = append(details, "deletes branch "+target.Branch)
+			}
+			if target.Unpublished {
+				details = append(details, "unpublished commits")
+			}
+			if target.PublicationUnknown {
+				details = append(details, "publication unknown")
+			}
+			if len(details) > 0 {
+				label += " (" + strings.Join(details, ", ") + ")"
 			}
 			lines = append(lines, label)
 		case "session":

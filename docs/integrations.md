@@ -98,7 +98,7 @@ type CleanupRequest struct {
 }
 ```
 
-The provider owns removal of only its resource type. tmux removes sessions, SBX removes sandboxes, and Git removes worktrees while preserving branches. Manual cleanup passes `Force: true` after user confirmation; automatic workspace garbage collection passes `Force: false`. Providers that do not have a force concept ignore the option and should treat already-missing resources as cleaned.
+The provider owns removal of only its resource type. tmux removes sessions, SBX removes sandboxes, and Git removes worktrees. When the workspace registry proves that Radar manages a worktree, the Git provider also deletes its local branch. Merely observed worktrees keep their branches, and remote branches are never deleted. Manual cleanup passes `Force: true` after user confirmation; automatic workspace garbage collection passes `Force: false` and skips managed branches with unpublished commits or an unavailable publication check. Providers that do not have a force concept ignore the option and should treat already-missing resources as cleaned.
 
 The active provider order is tmux, SBX, then Git so processes stop before their sandbox and worktree are removed. Do not orchestrate another integration's resources from a provider or from `internal/workspace`.
 

@@ -1036,8 +1036,21 @@ func cleanupTargetDescription(target protocol.CleanupTarget) string {
 	switch target.Kind {
 	case "worktree":
 		description := "worktree " + pathdisplay.HomeRelative(target.Path)
+		details := []string{}
 		if target.Dirty {
-			description += " (dirty; uncommitted changes will be discarded)"
+			details = append(details, "dirty; uncommitted changes will be discarded")
+		}
+		if target.DeleteBranch && target.Branch != "" {
+			details = append(details, "deletes local branch "+target.Branch)
+		}
+		if target.Unpublished {
+			details = append(details, "branch commits were not found remotely")
+		}
+		if target.PublicationUnknown {
+			details = append(details, "branch publication could not be verified")
+		}
+		if len(details) > 0 {
+			description += " (" + strings.Join(details, "; ") + ")"
 		}
 		return description
 	case "session":

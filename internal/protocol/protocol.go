@@ -32,15 +32,18 @@ func (c CurrentContext) Empty() bool {
 }
 
 type CleanupTarget struct {
-	SourceRefID string `json:"source_ref_id"`
-	Source      string `json:"source"`
-	Kind        string `json:"kind"`
-	Title       string `json:"title,omitempty"`
-	Path        string `json:"path,omitempty"`
-	Branch      string `json:"branch,omitempty"`
-	SessionName string `json:"session_name,omitempty"`
-	SandboxName string `json:"sandbox_name,omitempty"`
-	Dirty       bool   `json:"dirty,omitempty"`
+	SourceRefID        string `json:"source_ref_id"`
+	Source             string `json:"source"`
+	Kind               string `json:"kind"`
+	Title              string `json:"title,omitempty"`
+	Path               string `json:"path,omitempty"`
+	Branch             string `json:"branch,omitempty"`
+	SessionName        string `json:"session_name,omitempty"`
+	SandboxName        string `json:"sandbox_name,omitempty"`
+	Dirty              bool   `json:"dirty,omitempty"`
+	DeleteBranch       bool   `json:"delete_branch,omitempty"`
+	Unpublished        bool   `json:"unpublished,omitempty"`
+	PublicationUnknown bool   `json:"publication_unknown,omitempty"`
 }
 
 type CleanupPreview struct {
