@@ -60,7 +60,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 
 	applyLinkingMarks(observed, req.LinkingMarks)
 	result.Observations = observationsFromTasks(observed)
-	result.Complete = true
+	result.Complete = trackedErr == nil
 	return result
 }
 

@@ -34,7 +34,7 @@ case "$*" in
     done
     echo '{"data":{"viewer":{"login":"me"},"reviewRequested":{"nodes":[]},"authored":{"nodes":[]},"participated":{"nodes":[]}}}'
     ;;
-  "search prs --owner acme --author renovate[bot] --state open --limit 100 --json number,title,url,repository,isDraft,state,body,author")
+  "search prs --owner acme --author renovate[bot] --state open --limit 100 --json id,number,title,url,repository,isDraft,state,body,author")
     touch "`+started+`.tracked"
     i=0
     while [ ! -f "`+release+`" ]; do

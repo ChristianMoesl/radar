@@ -45,6 +45,7 @@ type pullRequest struct {
 }
 
 type searchPullRequest struct {
+	NodeID        string               `json:"id"`
 	Number        int                  `json:"number"`
 	Title         string               `json:"title"`
 	URL           string               `json:"url"`

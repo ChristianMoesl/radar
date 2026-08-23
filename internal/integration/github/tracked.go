@@ -297,9 +297,12 @@ func cachedSearchPullRequestsByOwnerAndAuthor(ctx context.Context, owner string,
 	}
 
 	prs, err := searchPullRequestsByOwnerAndAuthor(ctx, owner, author)
+	if err == nil {
+		err = enrichTrackedPullRequestBranches(ctx, prs, logger)
+	}
 	if err != nil {
 		if hasEntry {
-			logger.Warn("using stale github tracked pull request cache after search failure", "owner", owner, "user", author, "error", err)
+			logger.Warn("using stale github tracked pull request cache after refresh failure", "owner", owner, "user", author, "error", err)
 			return entry.PRs, false, nil
 		}
 		return nil, false, err
@@ -351,6 +354,24 @@ func writeTrackedPullRequestCache(cache trackedPullRequestCacheFile) error {
 	return os.WriteFile(path, append(data, '\n'), 0o600)
 }
 
+const trackedPullRequestBranchesQuery = `query($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on PullRequest {
+      id
+      headRefName
+    }
+  }
+}`
+
+type trackedPullRequestBranchesResponse struct {
+	Data struct {
+		Nodes []struct {
+			NodeID      string `json:"id"`
+			HeadRefName string `json:"headRefName"`
+		} `json:"nodes"`
+	} `json:"data"`
+}
+
 func searchPullRequestsByOwnerAndAuthor(ctx context.Context, owner string, author string) ([]searchPullRequest, error) {
 	var prs []searchPullRequest
 	args := []string{
@@ -359,12 +380,42 @@ func searchPullRequestsByOwnerAndAuthor(ctx context.Context, owner string, autho
 		"--author", author,
 		"--state", "open",
 		"--limit", "100",
-		"--json", "number,title,url,repository,isDraft,state,body,author",
+		"--json", "id,number,title,url,repository,isDraft,state,body,author",
 	}
 	if err := ghJSON(ctx, args, &prs); err != nil {
 		return nil, err
 	}
 	return prs, nil
+}
+
+func enrichTrackedPullRequestBranches(ctx context.Context, prs []searchPullRequest, logger *slog.Logger) error {
+	indexesByNodeID := map[string][]int{}
+	args := []string{"api", "graphql", "-f", "query=" + trackedPullRequestBranchesQuery}
+	for index, pr := range prs {
+		if strings.TrimSpace(pr.HeadRefName) != "" || strings.TrimSpace(pr.NodeID) == "" {
+			continue
+		}
+		if _, found := indexesByNodeID[pr.NodeID]; !found {
+			args = append(args, "-F", "ids[]="+pr.NodeID)
+		}
+		indexesByNodeID[pr.NodeID] = append(indexesByNodeID[pr.NodeID], index)
+	}
+	if len(indexesByNodeID) == 0 {
+		return nil
+	}
+	if !EnsureGraphQLBudget(ctx, logger) {
+		return fmt.Errorf("github graphql budget is unavailable for tracked pull request branch lookup")
+	}
+	var response trackedPullRequestBranchesResponse
+	if err := ghJSON(ctx, args, &response); err != nil {
+		return fmt.Errorf("fetch tracked pull request branches: %w", err)
+	}
+	for _, node := range response.Data.Nodes {
+		for _, index := range indexesByNodeID[node.NodeID] {
+			prs[index].HeadRefName = node.HeadRefName
+		}
+	}
+	return nil
 }
 
 func trackedPullRequestTask(pr searchPullRequest) protocol.Task {
