@@ -42,7 +42,11 @@ func TestReserveDoesNotGoBelowZero(t *testing.T) {
 func resetRateStateForTest(t *testing.T) {
 	t.Helper()
 	rateState.mu.Lock()
-	previous := rateState
+	previousFetched := rateState.fetched
+	previousResponse := rateState.response
+	previousCoreUntil := rateState.coreUntil
+	previousSearchUntil := rateState.searchUntil
+	previousGraphQLUntil := rateState.graphqlUntil
 	rateState.fetched = time.Time{}
 	rateState.response = rateLimitResponse{}
 	rateState.coreUntil = time.Time{}
@@ -52,11 +56,11 @@ func resetRateStateForTest(t *testing.T) {
 
 	t.Cleanup(func() {
 		rateState.mu.Lock()
-		rateState.fetched = previous.fetched
-		rateState.response = previous.response
-		rateState.coreUntil = previous.coreUntil
-		rateState.searchUntil = previous.searchUntil
-		rateState.graphqlUntil = previous.graphqlUntil
+		rateState.fetched = previousFetched
+		rateState.response = previousResponse
+		rateState.coreUntil = previousCoreUntil
+		rateState.searchUntil = previousSearchUntil
+		rateState.graphqlUntil = previousGraphQLUntil
 		rateState.mu.Unlock()
 	})
 }
