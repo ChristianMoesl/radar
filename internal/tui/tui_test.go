@@ -537,6 +537,39 @@ func TestCreateRepoViewShortensHomePaths(t *testing.T) {
 	}
 }
 
+func TestTaskDetailsShortenHomePathsWithoutChangingSourceRefs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(home, "workspaces", "radar", "small-fix")
+	notePath := filepath.Join(home, "Documents", "Tasks", "Small fix.md")
+	id := "git:worktree:" + path
+	model := model{tasks: []protocol.Task{{
+		Title:    "small fix",
+		Metadata: map[string]string{"task_path": notePath},
+		SourceRefs: []protocol.SourceRef{{
+			ID: id, Source: "git", Kind: "worktree", Path: path,
+			Metadata: map[string]string{"working_directory": path},
+		}},
+	}}}
+
+	view := model.detailView(120)
+	for _, want := range []string{
+		"git:worktree:" + filepath.Join("~", "workspaces", "radar", "small-fix"),
+		filepath.Join("~", "Documents", "Tasks", "Small fix.md"),
+		filepath.Join("~", "workspaces", "radar", "small-fix"),
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("detailView() missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, home) {
+		t.Fatalf("detailView() contains absolute home path:\n%s", view)
+	}
+	if got := model.tasks[0].SourceRefs[0]; got.ID != id || got.Path != path || got.Metadata["working_directory"] != path {
+		t.Fatalf("detailView() changed source ref: %+v", got)
+	}
+}
+
 func TestTaskListKeepsSelectedSourceRefsVisible(t *testing.T) {
 	model := model{cursor: 1, tasks: []protocol.Task{
 		{Title: "first", Attention: "attention"},

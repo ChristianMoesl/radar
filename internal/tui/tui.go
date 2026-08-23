@@ -20,6 +20,7 @@ import (
 	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/openurl"
+	"radar/internal/pathdisplay"
 	"radar/internal/protocol"
 	"radar/internal/sourceactions"
 	"radar/internal/taskrefs"
@@ -1364,17 +1365,7 @@ func (m model) pickerView(width int, title string, label string, list picker) st
 }
 
 func shortenPath(path string) string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return path
-	}
-	if path == home {
-		return "~"
-	}
-	if strings.HasPrefix(path, home+string(os.PathSeparator)) {
-		return "~" + strings.TrimPrefix(path, home)
-	}
-	return path
+	return pathdisplay.HomeRelative(path)
 }
 
 func (m model) openLinkView(width int) string {
@@ -1412,7 +1403,7 @@ func (m model) detailView(width int) string {
 	if len(task.Metadata) > 0 {
 		lines = append(lines, "", titleStyle.Render("Metadata"))
 		for key, value := range task.Metadata {
-			appendDetailLine(key, value)
+			appendDetailLine(key, shortenPath(value))
 		}
 	}
 	if len(task.SourceRefs) > 0 {
@@ -1441,7 +1432,7 @@ func (m model) detailView(width int) string {
 			}
 			sort.Strings(metadataKeys)
 			for _, key := range metadataKeys {
-				appendRefDetail(key, ref.Metadata[key])
+				appendRefDetail(key, shortenPath(ref.Metadata[key]))
 			}
 		}
 	}
@@ -2142,10 +2133,19 @@ func displayTaskReason(task protocol.Task) string {
 }
 
 func sourceRefLabel(ref protocol.SourceRef) string {
-	for _, value := range []string{ref.ID, ref.Title, ref.Repo, ref.Path, ref.Branch} {
+	if ref.ID != "" {
+		return pathdisplay.HomeRelativeSuffix(ref.ID, ref.Path)
+	}
+	for _, value := range []string{ref.Title, ref.Repo} {
 		if value != "" {
 			return value
 		}
+	}
+	if ref.Path != "" {
+		return shortenPath(ref.Path)
+	}
+	if ref.Branch != "" {
+		return ref.Branch
 	}
 	return ref.Source + ":" + ref.Kind
 }

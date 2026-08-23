@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { homedir } from "node:os";
+import { resolve, sep } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -56,6 +57,7 @@ type Change = {
   action: "add" | "remove" | "replace" | "recreate";
   resource: "worktree" | "sandbox" | "sandbox_mount" | "sandbox_port";
   summary: string;
+  path?: string;
 };
 
 type Plan = {
@@ -120,12 +122,27 @@ function commandFailure(toolName: string, phase: string, result: { code: number;
   return new Error(`${toolName} ${phase} failed: ${detail}`);
 }
 
+function homeRelativePath(path: string): string {
+  const home = homedir();
+  if (!home) return path;
+  if (path === home) return "~";
+  if (path.startsWith(home + sep)) return `~${path.slice(home.length)}`;
+  return path;
+}
+
+function displayChangeSummary(change: Change): string {
+  if (!change.path) return change.summary;
+  const shortened = homeRelativePath(change.path);
+  if (shortened === change.path) return change.summary;
+  return change.summary.replace(change.path, shortened);
+}
+
 function confirmation(plan: Plan): string {
   const lines = [`Radar workspace: ${plan.workspace_name}`];
   if (plan.changes.length === 0) lines.push("No changes are required.");
   for (const change of plan.changes) {
     const marker = change.action === "add" ? "+" : change.action === "remove" ? "-" : "~";
-    lines.push(`${marker} ${change.summary}`);
+    lines.push(`${marker} ${displayChangeSummary(change)}`);
   }
   for (const warning of plan.warnings ?? []) lines.push(`WARNING: ${warning}`);
   return lines.join("\n");

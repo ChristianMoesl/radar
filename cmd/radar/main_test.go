@@ -72,6 +72,22 @@ func TestRefreshLocalSourcesAfterReconcileRequestsLocalRefresh(t *testing.T) {
 	}
 }
 
+func TestCleanupTargetDescriptionShortensHomePath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(home, "workspaces", "radar", "small-fix")
+	target := protocol.CleanupTarget{Kind: "worktree", Path: path, Dirty: true}
+
+	got := cleanupTargetDescription(target)
+	want := "worktree " + filepath.Join("~", "workspaces", "radar", "small-fix") + " (dirty; uncommitted changes will be discarded)"
+	if got != want {
+		t.Fatalf("cleanupTargetDescription() = %q, want %q", got, want)
+	}
+	if target.Path != path {
+		t.Fatalf("cleanupTargetDescription() changed target path to %q", target.Path)
+	}
+}
+
 func TestGarbageCollectionResultConvertsDeletedAndSkippedWorkspaces(t *testing.T) {
 	result := garbageCollectionResult(workspacegc.Result{
 		Deleted: []workspacegc.Candidate{{TaskID: 7, Path: "/workspaces/deleted"}},

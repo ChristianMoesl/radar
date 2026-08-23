@@ -27,6 +27,7 @@ import (
 	"radar/internal/integration/github"
 	"radar/internal/logging"
 	"radar/internal/notification"
+	"radar/internal/pathdisplay"
 	"radar/internal/process"
 	"radar/internal/protocol"
 	"radar/internal/sbxauth"
@@ -1034,7 +1035,7 @@ Fork the current tmux workspace into a sibling workspace and fork its Pi session
 func cleanupTargetDescription(target protocol.CleanupTarget) string {
 	switch target.Kind {
 	case "worktree":
-		description := "worktree " + target.Path
+		description := "worktree " + pathdisplay.HomeRelative(target.Path)
 		if target.Dirty {
 			description += " (dirty; uncommitted changes will be discarded)"
 		}
