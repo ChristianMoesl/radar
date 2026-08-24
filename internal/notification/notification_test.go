@@ -48,7 +48,7 @@ func TestNotifyTransitionsUsesRelevantGitHubPullRequestURL(t *testing.T) {
 	service := NewWithSender(discardLogger(), sender)
 
 	service.NotifyTransitions(context.Background(), nil, []protocol.Task{{
-		ID: 1, Title: "CAP-42", URL: "https://jira.example/browse/CAP-42", Attention: "immediate", Reason: "checks failed",
+		ID: 1, Title: "ABC-42", URL: "https://jira.example/browse/ABC-42", Attention: "immediate", Reason: "checks failed",
 		SourceRefs: []protocol.SourceRef{
 			{ID: "github:pr:acme/app:41", Source: "github", Kind: "pull_request", URL: "https://github.com/acme/app/pull/41", Signal: "attention", Status: "review requested"},
 			{ID: "github:pr:acme/app:42", Source: "github", Kind: "pull_request", Signal: "immediate", Status: "checks failed", Repo: "acme/app"},

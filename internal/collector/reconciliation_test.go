@@ -57,7 +57,7 @@ func TestCollectReturnsRawTasksWithoutDisplayFilters(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(configPath, []byte(`{"linking_mark_prefixes":["RAD"],"github":{"filters":{"mute_repos":["org/noisy"]}}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"linking_mark_prefixes":["XYZ"],"github":{"filters":{"mute_repos":["org/noisy"]}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -114,7 +114,7 @@ func TestDeduplicateReconciledTasksKeepsOneTaskPerGitHubPullRequest(t *testing.T
 			Attention: "done",
 			SourceRefs: []protocol.SourceRef{
 				{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative},
-				{ID: "jira:issue:CAP-7", Source: "jira", Kind: "issue"},
+				{ID: "jira:issue:ABC-7", Source: "jira", Kind: "issue"},
 			},
 		},
 	}
@@ -125,13 +125,13 @@ func TestDeduplicateReconciledTasksKeepsOneTaskPerGitHubPullRequest(t *testing.T
 	}
 	assertSourceRef(t, got[0], "github:pr:acme/app:7")
 	assertSourceRef(t, got[0], "git:worktree:/repo/feature")
-	assertSourceRef(t, got[0], "jira:issue:CAP-7")
+	assertSourceRef(t, got[0], "jira:issue:ABC-7")
 }
 
 func TestDeduplicateReconciledTasksKeepsDifferentGitHubPullRequestsOnSameIssue(t *testing.T) {
 	tasks := []protocol.Task{
-		{Title: "first", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative}, {ID: "jira:issue:CAP-7", Source: "jira", Kind: "issue"}}},
-		{Title: "second", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:8", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative}, {ID: "jira:issue:CAP-7", Source: "jira", Kind: "issue"}}},
+		{Title: "first", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:7", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative}, {ID: "jira:issue:ABC-7", Source: "jira", Kind: "issue"}}},
+		{Title: "second", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:8", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative}, {ID: "jira:issue:ABC-7", Source: "jira", Kind: "issue"}}},
 	}
 
 	got := deduplicateReconciledTasks(tasks)

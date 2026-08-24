@@ -64,9 +64,10 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	primaryRepo := filepath.Join(sources, "primary")
 	memberRepo := filepath.Join(sources, "member")
 	candidateRepo := filepath.Join(sources, "candidate")
-	primaryPath := filepath.Join(root, "primary--RAD-10-work")
-	memberPath := filepath.Join(root, "member--RAD-10-work")
-	secondPrimaryRepoPath := filepath.Join(root, "primary--feature-second")
+	anchor := filepath.Join(root, "XYZ-10-work")
+	primaryPath := filepath.Join(anchor, "primary--XYZ-10-work")
+	memberPath := filepath.Join(anchor, "member--feature-api")
+	secondPrimaryRepoPath := filepath.Join(anchor, "primary--feature-second")
 	for _, path := range []string{root, sources} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)
@@ -81,7 +82,7 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	data, err := json.Marshal(config.Config{
 		RepositoryDirs:      []string{sources},
 		WorkspaceRoot:       root,
-		LinkingMarkPrefixes: []string{"RAD"},
+		LinkingMarkPrefixes: []string{"XYZ"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -90,10 +91,10 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 		t.Fatal(err)
 	}
 	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(primaryPath), Name: "RAD-10-work", PrimaryPath: primaryPath,
-		SessionName: "primary-RAD-10-work",
+		ID: workspacegroup.ID(anchor), Name: "XYZ-10-work", Path: anchor,
+		SessionName: "primary-XYZ-10-work",
 		Members: []workspacegroup.Member{
-			{Repository: primaryRepo, Path: primaryPath, Branch: "RAD-10-work", Primary: true, SetupScheduled: true},
+			{Repository: primaryRepo, Path: primaryPath, Branch: "XYZ-10-work", SetupScheduled: true},
 			{Repository: primaryRepo, Path: secondPrimaryRepoPath, Branch: "feature/second", SetupScheduled: true},
 			{Repository: memberRepo, Path: memberPath, Branch: "feature/api", SetupScheduled: true},
 		},
@@ -115,7 +116,7 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Registered || result.EnrollmentRequired || result.WorkspaceID != group.ID || result.CurrentPath != primaryPath {
+	if !result.Registered || result.EnrollmentRequired || result.WorkspaceID != group.ID || result.CurrentPath != anchor || result.WorkspacePath != anchor {
 		t.Fatalf("workspace context = %+v", result)
 	}
 	if result.Revision == "" || !result.Capabilities.Worktrees || result.Capabilities.Sandbox || result.Capabilities.AdditionalMounts || result.Capabilities.PortForwarding {
@@ -136,6 +137,13 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	if dirtyMembers != 1 {
 		t.Fatalf("dirty members = %+v", result.Members)
 	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "primary_path") || strings.Contains(string(encoded), `"primary":`) {
+		t.Fatalf("workspace context contains removed primary fields: %s", encoded)
+	}
 	membership := map[string]bool{}
 	for _, repository := range result.Repositories {
 		membership[repository.Path] = repository.AlreadyMember
@@ -143,6 +151,43 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	wantMembership := map[string]bool{primaryRepo: true, memberRepo: true, candidateRepo: false}
 	if !reflect.DeepEqual(membership, wantMembership) {
 		t.Fatalf("repository membership = %#v, want %#v", membership, wantMembership)
+	}
+}
+
+func TestInspectNoteOnlyWorkspaceFromAnchor(t *testing.T) {
+	home := t.TempDir()
+	configHome := filepath.Join(home, "config")
+	root := filepath.Join(home, "workspaces")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(config.Config{WorkspaceRoot: root, LinkingMarkPrefixes: []string{"ABC"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	anchor := filepath.Join(root, "plan")
+	note := filepath.Join(t.TempDir(), "Plan--12345678", "Plan.md")
+	if err := os.MkdirAll(anchor, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	group := workspacegroup.Workspace{
+		ID: workspacegroup.ID(anchor), Name: "Plan", Path: anchor, NotePath: note,
+		TaskLinkingKey: "obsidian:task:12345678-1234-4123-8123-123456789abc", Members: []workspacegroup.Member{},
+	}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := InspectWorkspace(context.Background(), &introspectionRunner{}, anchor, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Registered || result.WorkspacePath != anchor || result.Note == nil || result.Note.Path != note || len(result.Members) != 0 || len(result.Desired.Worktrees) != 0 {
+		t.Fatalf("context = %+v", result)
 	}
 }
 

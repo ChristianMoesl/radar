@@ -7,27 +7,34 @@ import (
 	"testing"
 )
 
-func TestRegistryRoundTripAndLookup(t *testing.T) {
+func testWorkspace(root, name string) Workspace {
+	anchor := filepath.Join(root, name)
+	return Workspace{
+		ID: ID(anchor), Name: name, Path: anchor, Members: []Member{},
+	}
+}
+
+func TestRegistryRoundTripAndContainingPathLookup(t *testing.T) {
 	root := t.TempDir()
-	primary := filepath.Join(root, "repo", "work")
-	secondary := filepath.Join(root, "other", "work")
-	registry := Registry{Version: Version, Workspaces: []Workspace{{
-		ID: ID(primary), Name: "work", PrimaryPath: primary, TaskLinkingKey: "obsidian:task:one",
-		Members: []Member{
-			{Repository: filepath.Join(root, "sources", "repo"), Path: primary, Branch: "work", Primary: true, SetupScheduled: true},
-			{Repository: filepath.Join(root, "sources", "other"), Path: secondary, Branch: "work"},
-		},
-	}}}
-	if err := Save(root, registry); err != nil {
+	workspace := testWorkspace(root, "work")
+	workspace.TaskLinkingKey = "obsidian:task:one"
+	workspace.NotePath = filepath.Join(root, "vault", "Tasks", "Work--12345678", "Work.md")
+	workspace.Members = []Member{
+		{Repository: filepath.Join(root, "sources", "repo"), Path: filepath.Join(workspace.Path, "repo--work"), Branch: "work", SetupScheduled: true},
+		{Repository: filepath.Join(root, "sources", "other"), Path: filepath.Join(workspace.Path, "other--work"), Branch: "work"},
+	}
+	if err := Save(root, Registry{Version: Version, Workspaces: []Workspace{workspace}}); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, ok := FindByMemberPath(loaded, secondary)
-	if !ok || workspace.ID != ID(primary) || workspace.TaskLinkingKey != "obsidian:task:one" {
-		t.Fatalf("lookup = %+v, %v", workspace, ok)
+	for _, path := range []string{workspace.Path, filepath.Join(workspace.Path, "note.md"), filepath.Join(workspace.Members[1].Path, "src", "main.go")} {
+		found, ok := FindByContainingPath(loaded, path)
+		if !ok || found.ID != workspace.ID {
+			t.Fatalf("FindByContainingPath(%q) = %+v, %v", path, found, ok)
+		}
 	}
 	info, err := os.Stat(Path(root))
 	if err != nil {
@@ -38,83 +45,66 @@ func TestRegistryRoundTripAndLookup(t *testing.T) {
 	}
 }
 
-func TestRemoveMemberPreservesGroupUntilPrimaryAndMembersAreGone(t *testing.T) {
+func TestRegistryAcceptsZeroMembersAndRemoveMemberKeepsWorkspace(t *testing.T) {
 	root := t.TempDir()
-	primary := filepath.Join(root, "repo", "work")
-	secondary := filepath.Join(root, "other", "work")
-	for _, path := range []string{primary, secondary} {
-		if err := os.MkdirAll(path, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	workspace := Workspace{ID: ID(primary), Name: "work", PrimaryPath: primary, Members: []Member{
-		{Repository: filepath.Join(root, "sources", "repo"), Path: primary, Branch: "work", Primary: true},
-		{Repository: filepath.Join(root, "sources", "other"), Path: secondary, Branch: "other"},
-	}}
+	workspace := testWorkspace(root, "work")
+	member := Member{Repository: filepath.Join(root, "source"), Path: filepath.Join(workspace.Path, "repo--work"), Branch: "work"}
+	workspace.Members = []Member{member}
 	if err := Save(root, Registry{Version: Version, Workspaces: []Workspace{workspace}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.RemoveAll(primary); err != nil {
+	if err := RemoveMember(root, member.Path); err != nil {
 		t.Fatal(err)
 	}
-	if err := RemoveMember(root, primary); err != nil {
-		t.Fatal(err)
-	}
-	registry, err := Load(root)
+	loaded, err := Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(registry.Workspaces) != 1 || len(registry.Workspaces[0].Members) != 2 {
-		t.Fatalf("registry after primary cleanup = %+v", registry)
+	if len(loaded.Workspaces) != 1 || len(loaded.Workspaces[0].Members) != 0 {
+		t.Fatalf("registry = %+v", loaded)
 	}
-	if err := os.RemoveAll(secondary); err != nil {
-		t.Fatal(err)
-	}
-	if err := RemoveMember(root, secondary); err != nil {
-		t.Fatal(err)
-	}
-	registry, err = Load(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(registry.Workspaces) != 0 {
-		t.Fatalf("registry after full cleanup = %+v", registry)
+}
+
+func TestRegistryRejectsMemberOutsideAnchor(t *testing.T) {
+	root := t.TempDir()
+	workspace := testWorkspace(root, "work")
+	workspace.Members = []Member{{Repository: filepath.Join(root, "source"), Path: filepath.Join(root, "outside"), Branch: "work"}}
+	err := Save(root, Registry{Version: Version, Workspaces: []Workspace{workspace}})
+	if err == nil || !strings.Contains(err.Error(), "direct child of its anchor") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
 func TestRegistryRejectsTaskLinkingKeyWithoutPrefix(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "repo", "work")
-	err := Save(root, Registry{Version: Version, Workspaces: []Workspace{{
-		ID: "one", Name: "one", PrimaryPath: path, TaskLinkingKey: "invalid",
-		Members: []Member{{Repository: filepath.Join(root, "source"), Path: path, Branch: "one", Primary: true}},
-	}}})
+	workspace := testWorkspace(root, "work")
+	workspace.TaskLinkingKey = "invalid"
+	err := Save(root, Registry{Version: Version, Workspaces: []Workspace{workspace}})
 	if err == nil || !strings.Contains(err.Error(), "task_linking_key") {
 		t.Fatalf("error = %v", err)
 	}
 }
 
-func TestRegistryRejectsUnsupportedVersion(t *testing.T) {
+func TestRegistryRejectsOldVersion(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(Path(root), []byte(`{"version":2,"workspaces":[]}`), 0o600); err != nil {
+	if err := os.WriteFile(Path(root), []byte(`{"version":1,"workspaces":[]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Load(root)
-	if err == nil || !strings.Contains(err.Error(), "unsupported") {
+	if err == nil || !strings.Contains(err.Error(), "unsupported Radar workspace registry version 1") {
 		t.Fatalf("error = %v", err)
 	}
 }
 
-func TestRegistryNormalizesSandboxPorts(t *testing.T) {
+func TestRegistryNormalizesSandboxPortsAndMounts(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "repo", "work")
-	repository := filepath.Join(root, "source")
-	registry := Registry{Version: Version, Workspaces: []Workspace{{
-		ID: "one", Name: "one", PrimaryPath: path,
-		Sandbox: &Sandbox{Name: "one", Agent: "shell", AdditionalMounts: []SandboxMount{{Path: filepath.Join(root, "z"), ReadOnly: true}, {Path: filepath.Join(root, "a")}}, Ports: []SandboxPort{{HostPort: 8080, SandboxPort: 80}, {HostPort: 3000, SandboxPort: 3000}}},
-		Members: []Member{{Repository: repository, Path: path, Branch: "one", Primary: true}},
-	}}}
-	if err := Save(root, registry); err != nil {
+	workspace := testWorkspace(root, "work")
+	workspace.Sandbox = &Sandbox{
+		Name: "work", Agent: "shell",
+		AdditionalMounts: []SandboxMount{{Path: filepath.Join(root, "z"), ReadOnly: true}, {Path: filepath.Join(root, "a")}},
+		Ports:            []SandboxPort{{HostPort: 8080, SandboxPort: 80}, {HostPort: 3000, SandboxPort: 3000}},
+	}
+	if err := Save(root, Registry{Version: Version, Workspaces: []Workspace{workspace}}); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := Load(root)
@@ -122,65 +112,36 @@ func TestRegistryNormalizesSandboxPorts(t *testing.T) {
 		t.Fatal(err)
 	}
 	ports := loaded.Workspaces[0].Sandbox.Ports
+	mounts := loaded.Workspaces[0].Sandbox.AdditionalMounts
 	if len(ports) != 2 || ports[0].HostPort != 3000 || ports[1].HostPort != 8080 {
 		t.Fatalf("ports = %+v", ports)
 	}
-	mounts := loaded.Workspaces[0].Sandbox.AdditionalMounts
-	if len(mounts) != 2 || mounts[0].Path != filepath.Join(root, "a") || mounts[1].Path != filepath.Join(root, "z") || !mounts[1].ReadOnly {
-		t.Fatalf("additional mounts = %+v", mounts)
+	if len(mounts) != 2 || mounts[0].Path != filepath.Join(root, "a") || mounts[1].Path != filepath.Join(root, "z") {
+		t.Fatalf("mounts = %+v", mounts)
 	}
 }
 
-func TestRegistryRejectsDuplicateSandboxAdditionalMounts(t *testing.T) {
+func TestRegistryRejectsDuplicateRepositoryBranchAcrossWorkspaces(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "repo", "work")
-	mount := filepath.Join(root, "shared")
-	err := Save(root, Registry{Version: Version, Workspaces: []Workspace{{
-		ID: "one", Name: "one", PrimaryPath: path,
-		Sandbox: &Sandbox{Name: "one", Agent: "shell", AdditionalMounts: []SandboxMount{{Path: mount, ReadOnly: true}, {Path: mount}}},
-		Members: []Member{{Repository: filepath.Join(root, "source"), Path: path, Branch: "one", Primary: true}},
-	}}})
-	if err == nil || !strings.Contains(err.Error(), "duplicate sandbox additional mount") {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestRegistryRejectsDuplicateSandboxHostPorts(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "repo", "work")
-	err := Save(root, Registry{Version: Version, Workspaces: []Workspace{{
-		ID: "one", Name: "one", PrimaryPath: path,
-		Sandbox: &Sandbox{Name: "one", Agent: "shell", Ports: []SandboxPort{{HostPort: 3000, SandboxPort: 3000}, {HostPort: 3000, SandboxPort: 4000}}},
-		Members: []Member{{Repository: filepath.Join(root, "source"), Path: path, Branch: "one", Primary: true}},
-	}}})
-	if err == nil || !strings.Contains(err.Error(), "duplicate sandbox host port") {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestRegistryRejectsDuplicateRepositoryBranchMembers(t *testing.T) {
-	root := t.TempDir()
-	first := filepath.Join(root, "repo", "one")
-	second := filepath.Join(root, "repo", "two")
+	first := testWorkspace(root, "one")
+	second := testWorkspace(root, "two")
 	repository := filepath.Join(root, "source")
-	err := Save(root, Registry{Version: Version, Workspaces: []Workspace{
-		{ID: "one", Name: "one", PrimaryPath: first, Members: []Member{{Repository: repository, Path: first, Branch: "shared", Primary: true}}},
-		{ID: "two", Name: "two", PrimaryPath: second, Members: []Member{{Repository: repository, Path: second, Branch: "shared", Primary: true}}},
-	}})
+	first.Members = []Member{{Repository: repository, Path: filepath.Join(first.Path, "repo--shared"), Branch: "shared"}}
+	second.Members = []Member{{Repository: repository, Path: filepath.Join(second.Path, "repo--shared"), Branch: "shared"}}
+	err := Save(root, Registry{Version: Version, Workspaces: []Workspace{first, second}})
 	if err == nil || !strings.Contains(err.Error(), "duplicate workspace member repository") {
 		t.Fatalf("error = %v", err)
 	}
 }
 
-func TestRegistryRejectsDuplicateMembers(t *testing.T) {
+func TestRegistryRejectsDuplicateTaskLinkingKey(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "repo", "work")
-	repository := filepath.Join(root, "source")
-	err := Save(root, Registry{Version: Version, Workspaces: []Workspace{
-		{ID: "one", Name: "one", PrimaryPath: path, Members: []Member{{Repository: repository, Path: path, Branch: "one", Primary: true}}},
-		{ID: "two", Name: "two", PrimaryPath: path, Members: []Member{{Repository: repository, Path: path, Branch: "two", Primary: true}}},
-	}})
-	if err == nil || !strings.Contains(err.Error(), "duplicate") {
+	first := testWorkspace(root, "one")
+	second := testWorkspace(root, "two")
+	first.TaskLinkingKey = "obsidian:task:one"
+	second.TaskLinkingKey = first.TaskLinkingKey
+	err := Save(root, Registry{Version: Version, Workspaces: []Workspace{first, second}})
+	if err == nil || !strings.Contains(err.Error(), "duplicate workspace task_linking_key") {
 		t.Fatalf("error = %v", err)
 	}
 }

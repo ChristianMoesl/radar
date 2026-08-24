@@ -128,7 +128,8 @@ func TaskCursorForCurrent(tasks []protocol.Task, current protocol.CurrentContext
 	if current.Worktree != "" || current.CWD != "" {
 		for i, task := range tasks {
 			for _, ref := range task.SourceRefs {
-				if ref.Source == "git" && ref.Kind == "worktree" && ref.Path != "" && CurrentPathMatches(ref.Path, current) {
+				workspacePath := ref.Path != "" && (ref.ProvidesWorkspace || (ref.Source == "git" && ref.Kind == "worktree"))
+				if workspacePath && CurrentPathMatches(ref.Path, current) {
 					return i, true
 				}
 			}

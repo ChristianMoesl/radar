@@ -235,7 +235,7 @@ func writeLinkingMarkConfig(t *testing.T, home string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"]}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -246,7 +246,7 @@ func writeDiscoveryConfig(t *testing.T, home string, repositoryDirs []string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(config.Config{RepositoryDirs: repositoryDirs, LinkingMarkPrefixes: []string{"RAD"}})
+	data, err := json.Marshal(config.Config{RepositoryDirs: repositoryDirs, LinkingMarkPrefixes: []string{"XYZ"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestDefaultRootUsesConfig(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"workspace_root":"~/streams"}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"workspace_root":"~/streams"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got, err := DefaultRoot()

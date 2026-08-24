@@ -21,13 +21,13 @@ import (
 func TestBuildPlanSelectsDoneWorkspaceAfterRetention(t *testing.T) {
 	store := testStore(t)
 	root := filepath.Join(t.TempDir(), "workspaces")
-	path := filepath.Join(root, "app", "CAP-7-ship")
+	path := filepath.Join(root, "app", "ABC-7-ship")
 
 	store.SetTasks([]protocol.Task{
-		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")),
-		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "CAP-7-ship")),
-		makeTask("in_progress", "tmux", detachedSessionRef(path, "radar-app-CAP-7-ship")),
-		makeTask("in_progress", "sbx", sandboxRef(path, "radar-app-CAP-7-ship")),
+		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship")),
+		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "ABC-7-ship")),
+		makeTask("in_progress", "tmux", detachedSessionRef(path, "radar-app-ABC-7-ship")),
+		makeTask("in_progress", "sbx", sandboxRef(path, "radar-app-ABC-7-ship")),
 	})
 
 	plan, err := BuildPlan(store, time.Now().Add(time.Second), Options{WorkspaceRoot: root, Retention: time.Nanosecond})
@@ -38,20 +38,49 @@ func TestBuildPlanSelectsDoneWorkspaceAfterRetention(t *testing.T) {
 		t.Fatalf("candidates = %+v, want one", plan.Candidates)
 	}
 	candidate := plan.Candidates[0]
-	if candidate.Path != path || candidate.SessionName != "radar-app-CAP-7-ship" || candidate.SandboxName != "radar-app-CAP-7-ship" {
+	if candidate.Path != path || candidate.SessionName != "radar-app-ABC-7-ship" || candidate.SandboxName != "radar-app-ABC-7-ship" {
 		t.Fatalf("candidate = %+v", candidate)
+	}
+}
+
+func TestRunGarbageCollectsNoteOnlyWorkspace(t *testing.T) {
+	store := testStore(t)
+	root := filepath.Join(t.TempDir(), "workspaces")
+	anchor := filepath.Join(root, "plan")
+	key := "obsidian:task:12345678-1234-4123-8123-123456789abc"
+	workItem := protocol.SourceRef{
+		ID: key, EntityID: key, Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
+		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
+		CanonicalKey: key, LinkingKeys: []string{key}, Signal: "done", Title: "Plan",
+	}
+	workspaceID := workspacegroup.ID(anchor)
+	workspaceRef := protocol.SourceRef{
+		ID: "workspace:" + workspaceID, EntityID: "workspace:" + workspaceID, Source: "workspace", Kind: "workspace",
+		Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace, Authority: protocol.SourceRefAuthorityNone,
+		Path: anchor, CanonicalKey: linking.WorkspaceKey(anchor), LinkingKeys: linking.Keys(key, linking.WorkspaceGroupKey(workspaceID)),
+		Metadata: map[string]string{"workspace_id": workspaceID},
+	}
+	store.SetTasks([]protocol.Task{makeTask("done", "completed", workItem), makeTask("in_progress", "workspace", workspaceRef)})
+	calls := []cleanupCall{}
+	provider := gcProvider{name: "workspace", calls: &calls}
+	result, err := Run(context.Background(), store, cleanup.New([]integration.CleanupProvider{provider}), nil, time.Now().Add(time.Second), Options{WorkspaceRoot: root, Retention: time.Nanosecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Deleted) != 1 || len(calls) != 1 || calls[0].path != anchor {
+		t.Fatalf("result = %+v, calls = %+v", result, calls)
 	}
 }
 
 func TestBuildPlanSkipsAttachedSession(t *testing.T) {
 	store := testStore(t)
 	root := filepath.Join(t.TempDir(), "workspaces")
-	path := filepath.Join(root, "app", "CAP-7-ship")
+	path := filepath.Join(root, "app", "ABC-7-ship")
 
 	store.SetTasks([]protocol.Task{
-		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")),
-		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "CAP-7-ship")),
-		makeTask("in_progress", "tmux", attachedSessionRef(path, "radar-app-CAP-7-ship")),
+		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship")),
+		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "ABC-7-ship")),
+		makeTask("in_progress", "tmux", attachedSessionRef(path, "radar-app-ABC-7-ship")),
 	})
 
 	plan, err := BuildPlan(store, time.Now().Add(time.Second), Options{WorkspaceRoot: root, Retention: time.Nanosecond})
@@ -66,11 +95,11 @@ func TestBuildPlanSkipsAttachedSession(t *testing.T) {
 func TestBuildPlanWaitsForRetention(t *testing.T) {
 	store := testStore(t)
 	root := filepath.Join(t.TempDir(), "workspaces")
-	path := filepath.Join(root, "app", "CAP-7-ship")
+	path := filepath.Join(root, "app", "ABC-7-ship")
 
 	store.SetTasks([]protocol.Task{
-		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")),
-		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "CAP-7-ship")),
+		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship")),
+		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "ABC-7-ship")),
 	})
 
 	plan, err := BuildPlan(store, time.Now().Add(time.Second), Options{WorkspaceRoot: root, Retention: 48 * time.Hour})
@@ -85,19 +114,19 @@ func TestBuildPlanWaitsForRetention(t *testing.T) {
 func TestBuildPlanIncludesNewlyDoneWorkspaceWhenRetentionIsIgnored(t *testing.T) {
 	store := testStore(t)
 	root := filepath.Join(t.TempDir(), "workspaces")
-	path := filepath.Join(root, "app", "CAP-7-ship")
+	path := filepath.Join(root, "app", "ABC-7-ship")
 
 	store.SetTasks([]protocol.Task{
-		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")),
-		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "CAP-7-ship")),
-		makeTask("in_progress", "sbx", sandboxRef(path, "radar-app-CAP-7-ship")),
+		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship")),
+		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "ABC-7-ship")),
+		makeTask("in_progress", "sbx", sandboxRef(path, "radar-app-ABC-7-ship")),
 	})
 
 	plan, err := BuildPlan(store, time.Now(), Options{WorkspaceRoot: root, Retention: 48 * time.Hour, IgnoreRetention: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Candidates) != 1 || plan.Candidates[0].SandboxName != "radar-app-CAP-7-ship" {
+	if len(plan.Candidates) != 1 || plan.Candidates[0].SandboxName != "radar-app-ABC-7-ship" {
 		t.Fatalf("candidates = %+v, want newly done workspace bundle", plan.Candidates)
 	}
 }
@@ -105,14 +134,14 @@ func TestBuildPlanIncludesNewlyDoneWorkspaceWhenRetentionIsIgnored(t *testing.T)
 func TestRunSelectsOneWorkspaceBundleAndUsesConservativeExecution(t *testing.T) {
 	store := testStore(t)
 	root := filepath.Join(t.TempDir(), "workspaces")
-	firstPath := filepath.Join(root, "app", "CAP-7-first")
-	secondPath := filepath.Join(root, "app", "CAP-7-second")
+	firstPath := filepath.Join(root, "app", "ABC-7-first")
+	secondPath := filepath.Join(root, "app", "ABC-7-second")
 	store.SetTasks([]protocol.Task{
-		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "CAP-7-first")),
-		makeTask("in_progress", "git worktree", worktreeRef(firstPath, "acme/app", "CAP-7-first")),
+		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "ABC-7-first")),
+		makeTask("in_progress", "git worktree", worktreeRef(firstPath, "acme/app", "ABC-7-first")),
 		makeTask("in_progress", "tmux", detachedSessionRef(firstPath, "first")),
 		makeTask("in_progress", "sbx", sandboxRef(firstPath, "first")),
-		makeTask("in_progress", "git worktree", worktreeRef(secondPath, "acme/app", "CAP-7-second")),
+		makeTask("in_progress", "git worktree", worktreeRef(secondPath, "acme/app", "ABC-7-second")),
 		makeTask("in_progress", "tmux", detachedSessionRef(secondPath, "second")),
 	})
 
@@ -152,27 +181,28 @@ func TestRunSelectsOneWorkspaceBundleAndUsesConservativeExecution(t *testing.T) 
 func TestRunTreatsRegisteredMembersAsOneConservativeBundle(t *testing.T) {
 	store := testStore(t)
 	root := filepath.Join(t.TempDir(), "workspaces")
-	primary := filepath.Join(root, "app", "CAP-7-ship")
-	secondary := filepath.Join(root, "api", "CAP-7-ship")
-	id := workspacegroup.ID(primary)
+	anchor := filepath.Join(root, "ABC-7-ship")
+	primary := filepath.Join(anchor, "app--ABC-7-ship")
+	secondary := filepath.Join(anchor, "api--ABC-7-api")
+	id := workspacegroup.ID(anchor)
 	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{{
-		ID: id, Name: "CAP-7-ship", PrimaryPath: primary,
+		ID: id, Name: "ABC-7-ship", Path: anchor,
 		Members: []workspacegroup.Member{
-			{Repository: filepath.Join(root, "sources", "app"), Path: primary, Branch: "CAP-7-ship", Primary: true, SetupScheduled: true},
-			{Repository: filepath.Join(root, "sources", "api"), Path: secondary, Branch: "CAP-7-api", SetupScheduled: true},
+			{Repository: filepath.Join(root, "sources", "app"), Path: primary, Branch: "ABC-7-ship", SetupScheduled: true},
+			{Repository: filepath.Join(root, "sources", "api"), Path: secondary, Branch: "ABC-7-api", SetupScheduled: true},
 		},
 	}}}); err != nil {
 		t.Fatal(err)
 	}
-	primaryRef := worktreeRef(primary, "acme/app", "CAP-7-ship")
+	primaryRef := worktreeRef(primary, "acme/app", "ABC-7-ship")
 	primaryRef.Metadata = map[string]string{"workspace_id": id}
-	secondaryRef := worktreeRef(secondary, "acme/api", "CAP-7-api")
+	secondaryRef := worktreeRef(secondary, "acme/api", "ABC-7-api")
 	secondaryRef.Metadata = map[string]string{"workspace_id": id}
 	store.SetTasks([]protocol.Task{
-		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")),
+		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship")),
 		makeTask("in_progress", "primary", primaryRef),
 		makeTask("in_progress", "secondary", secondaryRef),
-		makeTask("in_progress", "tmux", detachedSessionRef(primary, "session")),
+		makeTask("in_progress", "tmux", detachedSessionRef(anchor, "session")),
 	})
 	plan, err := BuildPlan(store, time.Now().Add(time.Second), Options{WorkspaceRoot: root, Retention: time.Nanosecond})
 	if err != nil {
@@ -196,10 +226,10 @@ func TestRunTreatsRegisteredMembersAsOneConservativeBundle(t *testing.T) {
 func TestRunSkipsDirtyWorkspaceWithoutExecutingLinkedTargets(t *testing.T) {
 	store := testStore(t)
 	root := filepath.Join(t.TempDir(), "workspaces")
-	path := filepath.Join(root, "app", "CAP-7-ship")
+	path := filepath.Join(root, "app", "ABC-7-ship")
 	store.SetTasks([]protocol.Task{
-		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")),
-		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "CAP-7-ship")),
+		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship")),
+		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "ABC-7-ship")),
 		makeTask("in_progress", "tmux", detachedSessionRef(path, "session")),
 	})
 
@@ -251,12 +281,12 @@ func TestRunSkipsManagedBranchThatMayContainLocalOnlyCommits(t *testing.T) {
 func TestRunContinuesAfterCandidateFailure(t *testing.T) {
 	store := testStore(t)
 	root := filepath.Join(t.TempDir(), "workspaces")
-	firstPath := filepath.Join(root, "app", "CAP-7-first")
-	secondPath := filepath.Join(root, "app", "CAP-7-second")
+	firstPath := filepath.Join(root, "app", "ABC-7-first")
+	secondPath := filepath.Join(root, "app", "ABC-7-second")
 	store.SetTasks([]protocol.Task{
-		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "CAP-7-first")),
-		makeTask("in_progress", "git worktree", worktreeRef(firstPath, "acme/app", "CAP-7-first")),
-		makeTask("in_progress", "git worktree", worktreeRef(secondPath, "acme/app", "CAP-7-second")),
+		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "ABC-7-first")),
+		makeTask("in_progress", "git worktree", worktreeRef(firstPath, "acme/app", "ABC-7-first")),
+		makeTask("in_progress", "git worktree", worktreeRef(secondPath, "acme/app", "ABC-7-second")),
 	})
 
 	calls := []cleanupCall{}
@@ -336,15 +366,15 @@ func makeTask(attention string, reason string, ref protocol.SourceRef) protocol.
 }
 
 func githubRef(id string, repo string, branch string) protocol.SourceRef {
-	return protocol.SourceRef{ID: id, EntityID: id, Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Repo: repo, Branch: branch, CanonicalKey: id, LinkingKeys: linking.Keys("mark:CAP-7", linking.BranchKey(repo, branch))}
+	return protocol.SourceRef{ID: id, EntityID: id, Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Repo: repo, Branch: branch, CanonicalKey: id, LinkingKeys: linking.Keys("mark:ABC-7", linking.BranchKey(repo, branch))}
 }
 
 func worktreeRef(path string, repo string, branch string) protocol.SourceRef {
-	return protocol.SourceRef{ID: "git:worktree:" + path, EntityID: "git:worktree:" + path, Source: "git", Kind: "worktree", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace, Repo: repo, Path: path, ProvidesWorkspace: true, Branch: branch, CanonicalKey: linking.WorkspaceKey(path), LinkingKeys: linking.Keys("mark:CAP-7", linking.WorkspaceKey(path), linking.BranchKey(repo, branch))}
+	return protocol.SourceRef{ID: "git:worktree:" + path, EntityID: "git:worktree:" + path, Source: "git", Kind: "worktree", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace, Repo: repo, Path: path, ProvidesWorkspace: true, Branch: branch, CanonicalKey: linking.WorkspaceKey(path), LinkingKeys: linking.Keys("mark:ABC-7", linking.WorkspaceKey(path), linking.BranchKey(repo, branch))}
 }
 
 func detachedSessionRef(path string, name string) protocol.SourceRef {
-	return protocol.SourceRef{ID: "tmux:session:" + name, EntityID: "tmux:session:" + name, Source: "tmux", Kind: "session", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Title: name, Path: path, Status: "detached", LinkingKeys: linking.Keys("mark:CAP-7", linking.WorkspaceKey(path)), Metadata: map[string]string{"session": name, "attached_count": "0"}}
+	return protocol.SourceRef{ID: "tmux:session:" + name, EntityID: "tmux:session:" + name, Source: "tmux", Kind: "session", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Title: name, Path: path, Status: "detached", LinkingKeys: linking.Keys("mark:ABC-7", linking.WorkspaceKey(path)), Metadata: map[string]string{"session": name, "attached_count": "0"}}
 }
 
 func attachedSessionRef(path string, name string) protocol.SourceRef {
@@ -355,5 +385,5 @@ func attachedSessionRef(path string, name string) protocol.SourceRef {
 }
 
 func sandboxRef(path string, name string) protocol.SourceRef {
-	return protocol.SourceRef{ID: "sbx:sandbox:" + name, EntityID: "sbx:sandbox:" + name, Source: "sbx", Kind: "sandbox", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Title: name, Path: path, LinkingKeys: linking.Keys("mark:CAP-7", linking.WorkspaceKey(path)), Metadata: map[string]string{"name": name}}
+	return protocol.SourceRef{ID: "sbx:sandbox:" + name, EntityID: "sbx:sandbox:" + name, Source: "sbx", Kind: "sandbox", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Title: name, Path: path, LinkingKeys: linking.Keys("mark:ABC-7", linking.WorkspaceKey(path)), Metadata: map[string]string{"name": name}}
 }

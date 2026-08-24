@@ -18,15 +18,15 @@ import (
 func TestReconcileStateUsesLinkingMarkRecordForMultiplePullRequests(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
-		{Kind: "github_own_pr", Title: "CAP-7 first", Attention: "in_progress", SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:1", "acme/app", "CAP-7-a")}},
-		{Kind: "github_own_pr", Title: "CAP-7 second", Attention: "in_progress", SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:2", "acme/app", "CAP-7-b")}},
+		{Kind: "github_own_pr", Title: "ABC-7 first", Attention: "in_progress", SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:1", "acme/app", "ABC-7-a")}},
+		{Kind: "github_own_pr", Title: "ABC-7 second", Attention: "in_progress", SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:2", "acme/app", "ABC-7-b")}},
 	}, now)
 
 	if len(state.Records) != 1 {
 		t.Fatalf("records = %d, want one linking-mark record: %+v", len(state.Records), state.Records)
 	}
-	if state.Records[0].CanonicalKey != "mark:CAP-7" {
-		t.Fatalf("canonical key = %q, want mark:CAP-7", state.Records[0].CanonicalKey)
+	if state.Records[0].CanonicalKey != "mark:ABC-7" {
+		t.Fatalf("canonical key = %q, want mark:ABC-7", state.Records[0].CanonicalKey)
 	}
 	if len(state.Records[0].SourceRefIDs) != 2 {
 		t.Fatalf("source refs = %+v, want both PR refs", state.Records[0].SourceRefIDs)
@@ -86,7 +86,7 @@ func TestReconcileStateLinksPullRequestThroughRemovedWorkspaceMember(t *testing.
 		t.Fatalf("tasks = %d, want one linked task: %+v", len(tasks), tasks)
 	}
 	if len(tasks[0].SourceRefs) != 2 {
-		t.Fatalf("active source refs = %+v, want primary worktree and PR only", tasks[0].SourceRefs)
+		t.Fatalf("active source refs = %+v, want worktree and PR only", tasks[0].SourceRefs)
 	}
 	for _, ref := range tasks[0].SourceRefs {
 		if ref.ID == member.ID {
@@ -144,8 +144,8 @@ func TestReconcileStateDoesNotLinkAmbiguousHistoricalWorkspaceBranch(t *testing.
 
 func TestReconcileStateReopensDoneRecord(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
-	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{Title: "CAP-7 ship", Attention: "done", DoneAt: now.Format(time.RFC3339), SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")}}}, now)
-	state = reconcileState(state, []protocol.Task{{Title: "CAP-7 ship", Attention: "in_progress", SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")}}}, now.Add(time.Hour))
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{Title: "ABC-7 ship", Attention: "done", DoneAt: now.Format(time.RFC3339), SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship")}}}, now)
+	state = reconcileState(state, []protocol.Task{{Title: "ABC-7 ship", Attention: "in_progress", SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship")}}}, now.Add(time.Hour))
 
 	if len(state.Records) != 1 {
 		t.Fatalf("records = %d, want one reused record", len(state.Records))
@@ -157,7 +157,7 @@ func TestReconcileStateReopensDoneRecord(t *testing.T) {
 
 func TestReconcileStatePreservesDoneAtAcrossRepeatedDoneObservations(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
-	task := protocol.Task{Title: "CAP-7 ship", Attention: "done", SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")}}
+	task := protocol.Task{Title: "ABC-7 ship", Attention: "done", SourceRefs: []protocol.SourceRef{testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship")}}
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{task}, now)
 	state = reconcileState(state, []protocol.Task{task}, now.Add(time.Hour))
 
@@ -171,10 +171,10 @@ func TestReconcileStatePreservesDoneAtAcrossRepeatedDoneObservations(t *testing.
 
 func TestProjectTasksKeepsActiveWorkWhenLinkedRemoteIsDone(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
-	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{makeTask("in_progress", "jira issue", testJiraIssueRef("jira:issue:CAP-7", "CAP-7 Ship"))}, now)
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{makeTask("in_progress", "jira issue", testJiraIssueRef("jira:issue:ABC-7", "ABC-7 Ship"))}, now)
 	state = reconcileState(state, []protocol.Task{
-		makeTask("in_progress", "jira issue", testJiraIssueRef("jira:issue:CAP-7", "CAP-7 Ship")),
-		makeTask("done", "merged today", withSignal(withStatus(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship"), "merged today"), "done")),
+		makeTask("in_progress", "jira issue", testJiraIssueRef("jira:issue:ABC-7", "ABC-7 Ship")),
+		makeTask("done", "merged today", withSignal(withStatus(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship"), "merged today"), "done")),
 	}, now.Add(time.Hour))
 
 	tasks := projectTasks(state)
@@ -188,8 +188,8 @@ func TestProjectTasksKeepsActiveWorkWhenLinkedRemoteIsDone(t *testing.T) {
 
 func TestProjectTasksPromotesLowPriorityJiraWithLinkedSignals(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
-	jira := withSignal(withStatus(testJiraIssueRef("jira:issue:CAP-7", "CAP-7 Ship"), "Selected for Development"), "low_priority")
-	worktree := withSignal(testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "feature/CAP-7-ship"), "in_progress")
+	jira := withSignal(withStatus(testJiraIssueRef("jira:issue:ABC-7", "ABC-7 Ship"), "Selected for Development"), "low_priority")
+	worktree := withSignal(testGitWorktreeRef("git:worktree:/work/ABC-7-ship", "/work/ABC-7-ship", "acme/app", "feature/ABC-7-ship"), "in_progress")
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
 		makeTask("low_priority", "Selected for Development", jira),
 		makeTask("in_progress", "git worktree", worktree),
@@ -198,7 +198,7 @@ func TestProjectTasksPromotesLowPriorityJiraWithLinkedSignals(t *testing.T) {
 		t.Fatalf("Jira + worktree tasks = %+v, want one in-progress task", got)
 	}
 
-	github := withSignal(withStatus(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship"), "review requested"), "attention")
+	github := withSignal(withStatus(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship"), "review requested"), "attention")
 	state = reconcileState(state, []protocol.Task{
 		makeTask("low_priority", "Selected for Development", jira),
 		makeTask("in_progress", "git worktree", worktree),
@@ -211,8 +211,8 @@ func TestProjectTasksPromotesLowPriorityJiraWithLinkedSignals(t *testing.T) {
 
 func TestProjectTasksProjectsBusyFromActiveSourceRefs(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
-	jira := testJiraIssueRef("jira:issue:CAP-7", "CAP-7 Ship")
-	worktree := testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "CAP-7-ship")
+	jira := testJiraIssueRef("jira:issue:ABC-7", "ABC-7 Ship")
+	worktree := testGitWorktreeRef("git:worktree:/work/ABC-7-ship", "/work/ABC-7-ship", "acme/app", "ABC-7-ship")
 	worktree.Busy = true
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
 		makeTask("in_progress", "jira issue", jira),
@@ -257,10 +257,10 @@ func TestSourceScopedRefreshKeepsExistingRefActiveWhenNewRefComesFirst(t *testin
 
 func TestProjectTasksMarksDoneWhenRemoteDoneAndOnlyLocalRemains(t *testing.T) {
 	now := time.Now().UTC()
-	worktree := testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "CAP-7-ship")
+	worktree := testGitWorktreeRef("git:worktree:/work/ABC-7-ship", "/work/ABC-7-ship", "acme/app", "ABC-7-ship")
 	worktree.Busy = true
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
-		makeTask("done", "merged today", withSignal(withStatus(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship"), "merged today"), "done")),
+		makeTask("done", "merged today", withSignal(withStatus(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship"), "merged today"), "done")),
 		makeTask("in_progress", "git worktree", worktree),
 	}, now)
 
@@ -275,10 +275,10 @@ func TestProjectTasksMarksDoneWhenRemoteDoneAndOnlyLocalRemains(t *testing.T) {
 
 func TestProjectTasksHidesInactiveLocalRefsFromDoneTasks(t *testing.T) {
 	now := time.Now().UTC()
-	remote := testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship")
-	worktree := testGitWorktreeRef("git:worktree:/work/CAP-7-ship", "/work/CAP-7-ship", "acme/app", "CAP-7-ship")
-	session := testTmuxSessionRef("tmux:session:$7", "/work/CAP-7-ship")
-	sandbox := protocol.SourceRef{ID: "sbx:sandbox:CAP-7-ship", EntityID: "sbx:sandbox:CAP-7-ship", Source: "sbx", Kind: "sandbox", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Path: "/work/CAP-7-ship"}
+	remote := testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship")
+	worktree := testGitWorktreeRef("git:worktree:/work/ABC-7-ship", "/work/ABC-7-ship", "acme/app", "ABC-7-ship")
+	session := testTmuxSessionRef("tmux:session:$7", "/work/ABC-7-ship")
+	sandbox := protocol.SourceRef{ID: "sbx:sandbox:ABC-7-ship", EntityID: "sbx:sandbox:ABC-7-ship", Source: "sbx", Kind: "sandbox", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Path: "/work/ABC-7-ship"}
 	state := persistedState{
 		Version: stateVersion,
 		Records: []TaskRecord{{
@@ -286,7 +286,7 @@ func TestProjectTasksHidesInactiveLocalRefsFromDoneTasks(t *testing.T) {
 			NumericID: 7,
 			State:     "done",
 			DoneAt:    now.Format(time.RFC3339),
-			Snapshot:  protocol.Task{Title: "CAP-7 ship", Attention: "done", SourceRefs: []protocol.SourceRef{remote, worktree, session, sandbox}},
+			Snapshot:  protocol.Task{Title: "ABC-7 ship", Attention: "done", SourceRefs: []protocol.SourceRef{remote, worktree, session, sandbox}},
 		}},
 		SourceRefs: []SourceRefRecord{
 			{ID: remote.ID, Source: remote.Source, Kind: remote.Kind, TaskRecordID: "task:7", Active: false, Snapshot: remote},
@@ -330,10 +330,10 @@ func TestProjectTasksAppliesAcknowledgementOutsideSourceMetadata(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{
 		Kind:      "github_own_pr",
-		Title:     "CAP-7 ship",
+		Title:     "ABC-7 ship",
 		Attention: "attention",
 		Reason:    "1 new PR comment(s)",
-		SourceRefs: []protocol.SourceRef{withMetadata(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship"), map[string]string{
+		SourceRefs: []protocol.SourceRef{withMetadata(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship"), map[string]string{
 			"base_reason":               "open PR",
 			"new_general_comments":      "1",
 			"latest_general_comment_at": "2026-06-15T11:00:00Z",
@@ -358,15 +358,15 @@ func TestProjectTasksAppliesAcknowledgementOutsideSourceMetadata(t *testing.T) {
 
 func TestProjectTasksKeepsLinkedActiveWorkAfterAcknowledgingPRActivity(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
-	githubRef := withSignal(withStatus(withMetadata(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "CAP-7-ship"), map[string]string{
+	githubRef := withSignal(withStatus(withMetadata(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship"), map[string]string{
 		"base_reason":               "draft PR",
 		"new_general_comments":      "1",
 		"latest_general_comment_at": "2026-06-15T11:00:00Z",
 	}), "1 new PR comment(s)"), "attention")
-	jiraRef := withSignal(withStatus(testJiraIssueRef("jira:issue:CAP-7", "CAP-7 Ship"), "In Progress"), "in_progress")
+	jiraRef := withSignal(withStatus(testJiraIssueRef("jira:issue:ABC-7", "ABC-7 Ship"), "In Progress"), "in_progress")
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{
 		Kind:       "github_pr_activity",
-		Title:      "CAP-7 ship",
+		Title:      "ABC-7 ship",
 		Attention:  "attention",
 		Reason:     "1 new PR comment(s)",
 		SourceRefs: []protocol.SourceRef{githubRef, jiraRef},
@@ -404,18 +404,18 @@ func TestProjectTasksHidesStandaloneAcknowledgedPRActivity(t *testing.T) {
 func TestLocalReconcilePreservesRemoteRefsAndUpdatesLocalRefs(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{
-		Title:     "CAP-7 ship",
+		Title:     "ABC-7 ship",
 		Attention: "in_progress",
 		SourceRefs: []protocol.SourceRef{
-			testGitHubPRRef("github:pr:acme/app:7", "acme/app", "feature/CAP-7-ship"),
-			testGitWorktreeRef("git:worktree:/old", "/old", "acme/app", "feature/CAP-7-ship"),
+			testGitHubPRRef("github:pr:acme/app:7", "acme/app", "feature/ABC-7-ship"),
+			testGitWorktreeRef("git:worktree:/old", "/old", "acme/app", "feature/ABC-7-ship"),
 		},
 	}}, now)
 
 	state = reconcileStateForSources(state, []protocol.Task{{
-		Title:      "feature/CAP-7-ship",
+		Title:      "feature/ABC-7-ship",
 		Attention:  "in_progress",
-		SourceRefs: []protocol.SourceRef{testGitWorktreeRef("git:worktree:/new", "/new", "acme/app", "feature/CAP-7-ship")},
+		SourceRefs: []protocol.SourceRef{testGitWorktreeRef("git:worktree:/new", "/new", "acme/app", "feature/ABC-7-ship")},
 	}}, now.Add(time.Hour), map[string]bool{"git": true, "tmux": true})
 
 	var githubActive, oldGitActive, newGitActive bool
@@ -502,7 +502,7 @@ func testGitWorktreeRef(id string, path string, repo string, branch string) prot
 }
 
 func testLinkingMarks() linking.MarkMatcher {
-	return linking.NewMarkMatcher([]string{"CAP", "ABC", "RAD"})
+	return linking.NewMarkMatcher([]string{"ABC", "ABC", "XYZ"})
 }
 
 func testBranchKey(branch string) string {
@@ -681,7 +681,7 @@ func TestNewStoreRejectsMalformedStateAndDiscardsIncompatibleCache(t *testing.T)
 func TestPrimaryLifecycleAuthorityOverridesContributingWorkItems(t *testing.T) {
 	now := time.Now().UTC()
 	primary := protocol.SourceRef{ID: "obsidian:task:1", Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary, CanonicalKey: "obsidian:task:1", LinkingKeys: []string{"shared"}, Signal: "low_priority", Title: "Authored task", Presentation: protocol.SourceRefPresentation{PreferTitle: true}}
-	jira := protocol.SourceRef{ID: "jira:issue:RAD-1", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityContributing, CanonicalKey: "jira:issue:RAD-1", LinkingKeys: []string{"shared"}, Signal: "done", Title: "RAD-1"}
+	jira := protocol.SourceRef{ID: "jira:issue:XYZ-1", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityContributing, CanonicalKey: "jira:issue:XYZ-1", LinkingKeys: []string{"shared"}, Signal: "done", Title: "XYZ-1"}
 	tmux := protocol.SourceRef{ID: "tmux:session:1", Source: "tmux", Kind: "session", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Authority: protocol.SourceRefAuthorityNone, LinkingKeys: []string{"shared"}, Signal: "in_progress"}
 
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{

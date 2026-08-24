@@ -842,14 +842,14 @@ func TestCleanupConfirmViewShowsEveryLocalResourceAndDirtyWarning(t *testing.T) 
 	}}}
 
 	view := model.View()
-	for _, want := range []string{"Clean up local resources?", "Uncommitted changes will be discarded", "Radar-managed worktrees", "may exist only locally", "repo-small-fix", "small-fix-12345678", "/repo/worktrees/small-fix", "deletes branch small-fix", "unpublished", "Press y to clean up"} {
+	for _, want := range []string{"Clean up local resources?", "Uncommitted changes will be discarded", "Radar-managed", "may exist only locally", "repo-small-fix", "small-fix-12345678", "/repo/worktrees/small-fix", "deletes branch small-fix", "unpublished", "Press y to clean up"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q:\n%s", want, view)
 		}
 	}
 }
 
-func TestActivateSelectedStartsLinkedWorkspaceCreateForAuthoredTask(t *testing.T) {
+func TestActivateSelectedStartsNoteWorkspaceForAuthoredTask(t *testing.T) {
 	m := model{tasks: []protocol.Task{{Title: "One task", SourceRefs: []protocol.SourceRef{{
 		ID: "obsidian:task:1", Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
 		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
@@ -863,8 +863,42 @@ func TestActivateSelectedStartsLinkedWorkspaceCreateForAuthoredTask(t *testing.T
 		t.Fatal("activateSelected() returned no command")
 	}
 	got := updated.(model)
-	if got.mode != "create_repo" || got.create.name != "One task" || got.create.taskLinkingKey != "obsidian:task:1" {
-		t.Fatalf("activateSelected() mode=%q create=%+v", got.mode, got.create)
+	if got.mode != "" || !got.loading || got.message != creatingWorkspaceMessage {
+		t.Fatalf("activateSelected() mode=%q loading=%v message=%q", got.mode, got.loading, got.message)
+	}
+}
+
+func TestForkPromptsForMemberWhenWorkspaceHasMultipleMembers(t *testing.T) {
+	m := model{mode: "fork_member", create: createForm{
+		forkPiSession: "plan", memberList: picker{options: []string{"/work/one", "/work/two"}},
+		forkMembers: []forkMember{
+			{repository: "/repos/one", path: "/work/one", branch: "main"},
+			{repository: "/repos/two", path: "/work/two", branch: "feature"},
+		},
+	}}
+	m.create.memberList.cursor = 1
+	updated, cmd := m.selectCreateStep()
+	if cmd == nil {
+		t.Fatal("selectCreateStep() returned no branch-loading command")
+	}
+	got := updated.(model)
+	if got.mode != "create_base" || got.create.repo != "/repos/two" || got.create.baseList.query != "feature" {
+		t.Fatalf("fork selection = mode %q form %+v", got.mode, got.create)
+	}
+}
+
+func TestActivateSelectedPrefersRegisteredWorkspaceAnchor(t *testing.T) {
+	m := model{tasks: []protocol.Task{{SourceRefs: []protocol.SourceRef{
+		{ID: "workspace:one", Source: "workspace", Kind: "workspace", Path: "/work/plan", ProvidesWorkspace: true},
+		{ID: "git:worktree:/work/plan/repo--feature", Source: "git", Kind: "worktree", Path: "/work/plan/repo--feature"},
+	}}}}
+	updated, cmd := m.activateSelected()
+	if cmd == nil {
+		t.Fatal("activateSelected() returned no anchor command")
+	}
+	got := updated.(model)
+	if !got.loading || got.mode != "" || got.message != "Creating tmux session…" {
+		t.Fatalf("activation = %+v", got)
 	}
 }
 
@@ -1047,7 +1081,7 @@ func TestTaskLinksIncludesSbxSandboxAction(t *testing.T) {
 
 func TestTaskLinksUsesSourceLabels(t *testing.T) {
 	task := protocol.Task{SourceRefs: []protocol.SourceRef{
-		{ID: "jira:issue:RAD-123", Source: "jira", SourceLabel: "Jira", Kind: "issue", URL: "https://jira.example.test/browse/RAD-123"},
+		{ID: "jira:issue:XYZ-123", Source: "jira", SourceLabel: "Jira", Kind: "issue", URL: "https://jira.example.test/browse/XYZ-123"},
 		{ID: "github:pr:owner/repo:7", Source: "github", SourceLabel: "GitHub", Kind: "pull_request", URL: "https://github.com/owner/repo/pull/7"},
 	}}
 

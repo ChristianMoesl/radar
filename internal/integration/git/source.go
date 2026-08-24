@@ -39,9 +39,9 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	source_refs, status := FetchWorktrees(ctx, req.Logger, req.LinkingMarks)
 	if status.Status == "error" {
 		req.Logger.Warn("git worktree collection failed", "detail", status.Detail)
-		return integration.CollectResult{Observations: integration.ObserveRefs(source_refs, integration.SignalInProgress)}
+		return integration.CollectResult{Observations: integration.ObserveRefs(source_refs, integration.SignalInProgress), SourceStatus: &status}
 	}
-	return integration.CollectResult{Observations: integration.ObserveRefs(source_refs, integration.SignalInProgress), Complete: status.Status == "ok"}
+	return integration.CollectResult{Observations: integration.ObserveRefs(source_refs, integration.SignalInProgress), Complete: status.Status == "ok", SourceStatus: &status}
 }
 
 func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
@@ -163,6 +163,7 @@ func (Source) Create(ctx context.Context, req integration.CreateWorkspaceRequest
 		Switch:                  req.Switch,
 		ForkPiSession:           req.ForkPiSession,
 		TaskLinkingKey:          req.TaskLinkingKey,
+		NotePath:                req.NotePath,
 	})
 	if err != nil {
 		return integration.Workspace{}, err

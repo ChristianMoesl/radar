@@ -24,6 +24,7 @@ func FetchWorktrees(ctx context.Context, logger *slog.Logger, marks linking.Mark
 	source_refs := make([]protocol.SourceRef, 0)
 	seen := map[string]bool{}
 	workspaceGroups := map[string]workspaceGroupLink{}
+	var registryErr error
 	if registry, err := workspacegroup.Load(workspaceRoot); err == nil {
 		for _, group := range registry.Workspaces {
 			for _, member := range group.Members {
@@ -31,6 +32,7 @@ func FetchWorktrees(ctx context.Context, logger *slog.Logger, marks linking.Mark
 			}
 		}
 	} else {
+		registryErr = err
 		logger.Debug("workspace group registry unavailable", "error", err)
 	}
 	status := protocol.SourceStatus{Name: "git", Status: "ok"}
@@ -72,6 +74,10 @@ func FetchWorktrees(ctx context.Context, logger *slog.Logger, marks linking.Mark
 	}
 
 	status.Detail = fmt.Sprintf("%d worktrees from %d roots", len(source_refs), collectedRoots)
+	if registryErr != nil {
+		status.Status = "partial"
+		status.Detail += "; workspace registry unavailable: " + registryErr.Error()
+	}
 	if failedRoots > 0 {
 		status.Detail = fmt.Sprintf("%s, %d skipped", status.Detail, failedRoots)
 	}
@@ -89,7 +95,7 @@ func pathInWorkspaceRoot(path string, root string) bool {
 	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
 		return false
 	}
-	return !strings.Contains(relative, string(os.PathSeparator))
+	return true
 }
 
 func workspaceGitRoots() []string {
@@ -104,8 +110,19 @@ func workspaceGitRoots() []string {
 	roots := make([]string, 0, len(matches))
 	for _, match := range matches {
 		info, err := os.Stat(match)
-		if err == nil && info.IsDir() {
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(match, ".git")); err == nil {
 			roots = append(roots, match)
+		}
+		children, _ := filepath.Glob(filepath.Join(match, "*"))
+		for _, child := range children {
+			if info, err := os.Stat(child); err == nil && info.IsDir() {
+				if _, err := os.Stat(filepath.Join(child, ".git")); err == nil {
+					roots = append(roots, child)
+				}
+			}
 		}
 	}
 	return roots
@@ -196,6 +213,7 @@ func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher, work
 	canonicalKey := linking.WorkspaceKey(w.Path)
 	linkingKeys := linking.Keys(append(marks.Keys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, githubidentity.Branch(w.Branch)), linking.WorkspaceGroupKey(workspaceID), taskLinkingKey)...)
 
+	providesWorkspace := workspaceID == ""
 	return protocol.SourceRef{
 		ID:                "git:worktree:" + w.Path,
 		Source:            "git",
@@ -208,7 +226,7 @@ func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher, work
 		Title:             title,
 		Repo:              originRepo,
 		Path:              w.Path,
-		ProvidesWorkspace: true,
+		ProvidesWorkspace: providesWorkspace,
 		Branch:            w.Branch,
 		Status:            status.Label(),
 		CanonicalKey:      canonicalKey,

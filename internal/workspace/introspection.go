@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,13 +16,14 @@ type WorkspaceContext struct {
 	WorkspaceRoot      string                       `json:"workspace_root"`
 	WorkspaceID        string                       `json:"workspace_id"`
 	WorkspaceName      string                       `json:"workspace_name"`
-	PrimaryPath        string                       `json:"primary_path"`
+	WorkspacePath      string                       `json:"workspace_path"`
 	Registered         bool                         `json:"registered"`
 	EnrollmentRequired bool                         `json:"enrollment_required"`
 	SessionName        string                       `json:"session_name,omitempty"`
 	Revision           string                       `json:"revision"`
 	Capabilities       WorkspaceContextCapabilities `json:"capabilities"`
 	Desired            DesiredWorkspaceDescription  `json:"desired"`
+	Note               *WorkspaceContextNote        `json:"note,omitempty"`
 	Sandbox            *WorkspaceContextSandbox     `json:"sandbox,omitempty"`
 	Members            []WorkspaceContextMember     `json:"members"`
 	Repositories       []WorkspaceContextRepository `json:"repositories"`
@@ -35,11 +37,17 @@ type WorkspaceContextCapabilities struct {
 }
 
 type WorkspaceContextMember struct {
-	Repository string `json:"repository"`
-	Path       string `json:"path"`
-	Branch     string `json:"branch"`
-	Primary    bool   `json:"primary"`
-	Dirty      bool   `json:"dirty"`
+	Repository       string   `json:"repository"`
+	Path             string   `json:"path"`
+	Branch           string   `json:"branch"`
+	Dirty            bool     `json:"dirty"`
+	InstructionFiles []string `json:"instruction_files"`
+	SkillPaths       []string `json:"skill_paths"`
+}
+
+type WorkspaceContextNote struct {
+	Path          string `json:"path"`
+	WorkspacePath string `json:"workspace_path"`
 }
 
 type WorkspaceContextSandbox struct {
@@ -88,16 +96,24 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 	}
 	root = filepath.Clean(root)
 
-	current, err := currentGitTopLevel(ctx, runner, currentDirectory)
-	if err != nil {
-		return WorkspaceContext{}, fmt.Errorf("current workspace: %w", err)
-	}
 	registry, err := workspacegroup.Load(root)
 	if err != nil {
 		return WorkspaceContext{}, err
 	}
-	group, registered := workspacegroup.FindByMemberPath(registry, current)
+	current, err := filepath.Abs(strings.TrimSpace(currentDirectory))
+	if err != nil {
+		return WorkspaceContext{}, err
+	}
+	current = filepath.Clean(current)
+	group, registered := workspacegroup.FindByContainingPath(registry, current)
+	if registered {
+		current = group.Path
+	}
 	if !registered {
+		current, err = currentGitTopLevel(ctx, runner, current)
+		if err != nil {
+			return WorkspaceContext{}, fmt.Errorf("current workspace: %w", err)
+		}
 		group, err = enrollmentPlan(ctx, runner, root, current)
 		if err != nil {
 			return WorkspaceContext{}, err
@@ -126,12 +142,15 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 	}
 	result := WorkspaceContext{
 		CurrentPath: current, WorkspaceRoot: root, WorkspaceID: group.ID,
-		WorkspaceName: group.Name, PrimaryPath: group.PrimaryPath, Registered: registered,
+		WorkspaceName: group.Name, WorkspacePath: group.Path, Registered: registered,
 		EnrollmentRequired: !registered, SessionName: group.SessionName, Revision: revision,
 		Capabilities: WorkspaceContextCapabilities{Worktrees: true, Sandbox: group.Sandbox != nil, AdditionalMounts: group.Sandbox != nil, PortForwarding: group.Sandbox != nil},
 		Desired:      DesiredWorkspaceDescription{Worktrees: make([]DesiredWorkspaceWorktree, 0, len(group.Members))},
 		Members:      make([]WorkspaceContextMember, 0, len(group.Members)),
 		Repositories: make([]WorkspaceContextRepository, 0, len(repositories)),
+	}
+	if group.NotePath != "" {
+		result.Note = &WorkspaceContextNote{Path: group.NotePath, WorkspacePath: filepath.Join(group.Path, "note.md")}
 	}
 	if group.Sandbox != nil {
 		desiredMounts := make([]DesiredSandboxMount, 0, len(group.Sandbox.AdditionalMounts))
@@ -151,7 +170,8 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 			return WorkspaceContext{}, err
 		}
 		result.Members = append(result.Members, WorkspaceContextMember{
-			Repository: member.Repository, Path: member.Path, Branch: member.Branch, Primary: member.Primary, Dirty: changeCount > 0,
+			Repository: member.Repository, Path: member.Path, Branch: member.Branch, Dirty: changeCount > 0,
+			InstructionFiles: memberInstructionFiles(member.Path), SkillPaths: memberSkillPaths(member.Path),
 		})
 		result.Desired.Worktrees = append(result.Desired.Worktrees, DesiredWorkspaceWorktree{
 			Repository: member.Repository, BranchMode: "existing", Branch: member.Branch,
@@ -163,6 +183,32 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		})
 	}
 	return result, nil
+}
+
+func memberInstructionFiles(root string) []string {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return []string{}
+	}
+	for _, wanted := range []string{"AGENTS.override.md", "AGENTS.md", "CLAUDE.md"} {
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.EqualFold(entry.Name(), wanted) {
+				return []string{filepath.Join(root, entry.Name())}
+			}
+		}
+	}
+	return []string{}
+}
+
+func memberSkillPaths(root string) []string {
+	paths := make([]string, 0, 2)
+	for _, relative := range []string{filepath.Join(".pi", "skills"), filepath.Join(".agents", "skills")} {
+		path := filepath.Join(root, relative)
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			paths = append(paths, path)
+		}
+	}
+	return paths
 }
 
 // InspectRepositoryRefs attempts to refresh origin, then returns canonical

@@ -1,8 +1,8 @@
 # Obsidian planning workspace plan
 
-Status: proposed
+Status: implemented
 
-This document describes a note-first Radar workspace. It is an implementation plan, not the current behavior. The permanent Obsidian and workspace documentation must replace the relevant parts of this plan when the feature ships.
+This document records the implementation plan. Current behavior is documented in [Obsidian task authoring](integrations/obsidian.md), [workspace reconciliation](workspace-reconciliation.md), `README.md`, and `ARCHITECTURE.md`.
 
 ## Summary
 

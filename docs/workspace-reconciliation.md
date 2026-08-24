@@ -1,22 +1,37 @@
 # Workspace reconciliation
 
-Radar exposes one declarative host mutation path for an agent: `radar_reconcile_workspace`.
+Radar exposes one declarative agent mutation path: `radar_reconcile_workspace`.
 
 ## Contract
 
-1. Call `radar_workspace_context` to obtain the current revision, capabilities, and complete `desired` state.
-2. Copy the complete desired state and change only the requested resources.
-3. Submit the original revision and modified desired state to `radar_reconcile_workspace`.
-4. Radar previews the exact difference and requires interactive confirmation before apply.
-5. If volatile host observations change the plan between preview and apply, the Pi adapter presents the updated plan and asks again, up to three confirmations. It never applies an unconfirmed plan.
-6. Repeating the same request converges after partial failures or returns a stale-revision error when another durable workspace change won.
+1. Call `radar_workspace_context` from the workspace anchor or any member directory.
+2. Copy its revision and complete `desired` state.
+3. Change only the requested resources.
+4. Submit the original revision and modified state to `radar_reconcile_workspace`.
+5. Radar previews the exact difference and asks for interactive confirmation.
+6. If host observations change the plan before apply, the Pi adapter shows the replacement plan and asks again.
 
-The scriptable equivalent is:
+The CLI equivalent is:
 
 ```sh
 radar reconcile-workspace --workspace <path> --request <json> --preview
 radar reconcile-workspace --workspace <path> --request <json>
 ```
+
+## Workspace model
+
+Every managed workspace has a stable anchor below `workspace_root`:
+
+```text
+<workspace_root>/plan-authentication/
+├── note.md
+├── frontend--feature-auth/
+└── api--feature-auth/
+```
+
+The anchor is Pi, tmux, nvim, and SBX's working directory. Members are real Git worktrees and direct children named from repository and branch. A workspace may contain zero members. No member is primary or protected because it was added first.
+
+`<workspace_root>/.radar-workspaces.json` remains the single authoritative registry file. It stores every anchor, optional note path, runtime settings, sandbox intent, and worktree member. The registry is versioned and rejects the former primary-worktree schema rather than interpreting or migrating it implicitly.
 
 ## Desired state
 
@@ -49,32 +64,57 @@ radar reconcile-workspace --workspace <path> --request <json>
 }
 ```
 
-Worktrees, agent-requested additional mounts, and ports use replacement semantics. An omitted member, requested mount, or port is removed. Worktree membership is identified by repository and branch, so one logical workspace may contain multiple branches from the same repository; each repository-and-branch pair must be unique. Radar derives worktree paths, sandbox names, tmux resources, Git common directories, and configured mounts rather than accepting them from the agent. Agent-requested mounts remain a separate typed set so they cannot remove Radar-managed mounts.
+Worktrees, requested mounts, and ports use replacement semantics. Omitting a member removes it. `worktrees: []` is valid and returns the workspace to planning without removing its anchor or note.
+
+Members use repository-and-branch identity. One workspace may contain several repositories or several branches from one repository, while a repository-and-branch pair may belong to only one registered workspace.
+
+The note is not part of desired state. Radar owns `note.md` and the canonical note association, so the agent cannot remove either through reconciliation.
+
+## Inspection
+
+`radar_workspace_context` resolves the registry before trying Git. Calls from the anchor, `note.md`, a member root, or a nested member path return the same workspace ID. The result includes:
+
+- `workspace_path` and workspace identity
+- optional canonical and workspace note paths, without note contents
+- revision and typed capabilities
+- complete desired state
+- every member's repository, path, branch, dirty status, instruction files, and skill paths
+- current sandbox mounts and observed ports
+- repositories discovered through Radar configuration
+
+The tool returns only the current logical workspace, not every record in `.radar-workspaces.json`.
 
 ## Safety
 
-- Revisions are compare-and-swap hashes over durable workspace membership and observed sandbox ports.
-- The primary worktree cannot be removed.
-- `radar_workspace_context` reports `dirty` for every member worktree.
-- Dirty member worktrees cannot be removed by reconciliation. A blocked removal returns the `dirty_removal` reason, member identity, and changed-entry count, and explains whether to retain or clean the member.
-- Removing a clean non-primary member also deletes its local branch unless it is a protected default branch. Protected branches are preserved, and the plan says so explicitly. For deletable branches, the confirmed plan warns when commits are not found on a remote-tracking ref or origin cannot be refreshed. Remote branches are untouched.
-- Existing members are retained by repository-and-branch identity; replacing a clean non-primary branch is planned as a worktree removal and addition rather than an in-place branch switch.
-- Host ports are validated, unique, and published by SBX as TCP4 on IPv4 loopback only; reconciliation replaces existing dual-stack bindings.
-- Additional mounts require absolute host paths, default to read-only, and require an explicit `read_only: false` for writable host access.
-- Requested mounts cannot overlap mounts managed by worktree membership or Radar configuration.
-- Sandbox attachment is immutable through reconciliation.
-- A workspace without SBX reports `sandbox: false`, `additional_mounts: false`, `port_forwarding: false`, and `desired.sandbox: null`.
-- Submitting sandbox state for a sandbox-less workspace fails validation and never enables SBX implicitly.
-- The Pi adapter fails closed without an interactive confirmation channel.
+- Revisions cover workspace, note, member, runtime, sandbox intent, and observed port state.
+- Dirty worktrees cannot be removed.
+- Removing a clean member deletes its local branch unless it is a protected default branch.
+- Plans warn when publication cannot be checked or commits are absent from remote-tracking refs.
+- Remote branches are never deleted.
+- Additional mounts require absolute paths, default to read-only, and cannot replace Radar-managed mounts.
+- Host ports are unique and published as TCP4 on IPv4 loopback.
+- Sandbox attachment cannot be enabled or removed through reconciliation.
+- A sandbox-less workspace requires `desired.sandbox: null`.
+- Apply fails closed without an interactive confirmation channel.
 
-## Persistence and convergence
+## SBX mounts
 
-`<workspace_root>/.radar-workspaces.json` remains the durable workspace registry. Its optional sandbox record stores agent-requested additional mounts, effective mounts, and desired ports. Radar also observes current worktrees, SBX mounts, and SBX published ports while planning so retries repair drift instead of trusting persistence alone.
+Radar derives the effective managed mount set from:
 
-Apply ensures added worktrees, removes clean omitted members, persists desired membership, reconciles sandbox mounts when present, reconciles the complete port set, and schedules member setup once. After a successful command apply, Radar asks the running daemon to refresh local sources immediately so newly added worktrees are linked without waiting for the periodic refresh. If the daemon cannot be reached, reconciliation remains successful and returns a warning.
+1. the workspace anchor
+2. the private canonical task directory, when present
+3. one external Git common directory per repository represented by a member
+4. global and member repository configured mounts
+5. agent-requested mounts
 
-Sandbox recreation waits for the removed runtime to disappear, allows a short cleanup interval, and retries transient SBX container-start failures up to three times with bounded backoff. Failed runtime remnants are removed between attempts. Sandbox and port failures return a structured retryable partial result without rolling back completed work; the Pi tool summarizes completed work and asks the agent to re-inspect before retrying.
+Nested members are already visible through the anchor and are not mounted separately. Parent and duplicate mounts are reduced when their access mode is equivalent.
 
-Plans report the effective sandbox mount count. Plans that recreate a sandbox with 20 or more effective mounts warn that unusually large mount sets can make SBX recreation less reliable, but Radar does not impose a mount limit.
+Changing the effective set removes and recreates the sandbox under the same name. This interrupts sandbox processes and discards private VM state. Radar retries transient create failures with bounded cleanup and backoff. It does not roll back completed note or worktree changes when SBX or port reconciliation fails.
 
-Reconciliation previews and apply phases are appended to `radar log-path`. Records include workspace and plan identifiers, completed worktree and port counts, sandbox creation attempts, effective mount counts, structured failure reasons, and retryable failure phases. Reconfirmation records include the expected and current plan IDs plus the confirmed and current change counts. Radar does not log the complete desired request, dirty filenames, diffs, or SBX create command, avoiding sensitive or oversized output.
+## Pi resources
+
+The embedded Radar extension contributes member `.pi/skills/` and `.agents/skills/` paths, injects path-labelled repository instruction files with repository-only scope, and reloads resources after membership changes without losing conversation history. It reports additions, removals, duplicate skill names, and refresh failures. Member `.pi/settings.json`, extensions, prompts, and themes are not loaded.
+
+## Cleanup
+
+Cleanup order is tmux, SBX, Git members, then the workspace anchor. The anchor provider removes only Radar-owned entries and refuses unknown files. It never removes the canonical Obsidian note.

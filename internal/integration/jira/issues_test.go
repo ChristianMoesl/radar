@@ -21,9 +21,9 @@ import (
 
 func TestIssueSourceRefContract(t *testing.T) {
 	var issue issue
-	issue.Key = "RAD-123"
+	issue.Key = "XYZ-123"
 	issue.Fields.Summary = "Ship integration contracts"
-	ref := sourceRefFromIssue(Config{BaseURL: "https://jira.example.test"}, issue, linking.NewMarkMatcher([]string{"RAD"}))
+	ref := sourceRefFromIssue(Config{BaseURL: "https://jira.example.test"}, issue, linking.NewMarkMatcher([]string{"XYZ"}))
 	contracttest.AssertValidSourceRefs(t, "jira", []protocol.SourceRef{ref})
 }
 
@@ -118,14 +118,14 @@ func TestSearchIssuesByKeysUsesOneDeterministicSearch(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatal(err)
 		}
-		if request.JQL != `key IN ("RAD-2", "RAD-1")` || request.MaxResults != 2 {
+		if request.JQL != `key IN ("XYZ-2", "XYZ-1")` || request.MaxResults != 2 {
 			t.Fatalf("request = %+v", request)
 		}
-		_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{{Key: "RAD-1"}, {Key: "RAD-2"}}})
+		_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{{Key: "XYZ-1"}, {Key: "XYZ-2"}}})
 	}))
 	defer server.Close()
 
-	issues, err := searchIssuesByKeys(context.Background(), Config{APIBaseURL: server.URL, Email: "me@example.com", APIToken: "token"}, []string{"RAD-2", "RAD-1"})
+	issues, err := searchIssuesByKeys(context.Background(), Config{APIBaseURL: server.URL, Email: "me@example.com", APIToken: "token"}, []string{"XYZ-2", "XYZ-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,11 +153,11 @@ func TestAssignedIssuesJQLIncludesAllIssueTypesByDefault(t *testing.T) {
 func TestSourceCollectClassifiesEachJiraStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{
-			jiraIssueWithStatus("RAD-1", "In Progress"),
-			jiraIssueWithStatus("RAD-2", "in review"),
-			jiraIssueWithStatus("RAD-3", "Selected for Development"),
-			jiraIssueWithStatus("RAD-4", " Blocked "),
-			jiraDoneIssue("RAD-5"),
+			jiraIssueWithStatus("XYZ-1", "In Progress"),
+			jiraIssueWithStatus("XYZ-2", "in review"),
+			jiraIssueWithStatus("XYZ-3", "Selected for Development"),
+			jiraIssueWithStatus("XYZ-4", " Blocked "),
+			jiraDoneIssue("XYZ-5"),
 		}})
 	}))
 	defer server.Close()
@@ -172,7 +172,7 @@ func TestSourceCollectClassifiesEachJiraStatus(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"jira":{"status_mapping":{"In Progress":"in_progress","In Review":"in_progress","Blocked":"attention","Done":"immediate"},"unmapped_status":"low_priority"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"jira":{"status_mapping":{"In Progress":"in_progress","In Review":"in_progress","Blocked":"attention","Done":"immediate"},"unmapped_status":"low_priority"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -213,11 +213,11 @@ func jiraDoneIssue(key string) issue {
 
 func TestResolveDoneIssuesMarksMissingDoneIssueDone(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/issue/RAD-123" {
-			t.Fatalf("request = %s %s, want GET /issue/RAD-123", r.Method, r.URL.Path)
+		if r.Method != http.MethodGet || r.URL.Path != "/issue/XYZ-123" {
+			t.Fatalf("request = %s %s, want GET /issue/XYZ-123", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"10001","key":"RAD-123","fields":{"summary":"Ship reconciliation","status":{"name":"Done","statusCategory":{"key":"done","name":"Done"}}}}`))
+		_, _ = w.Write([]byte(`{"id":"10001","key":"XYZ-123","fields":{"summary":"Ship reconciliation","status":{"name":"Done","statusCategory":{"key":"done","name":"Done"}}}}`))
 	}))
 	defer server.Close()
 
@@ -229,20 +229,20 @@ func TestResolveDoneIssuesMarksMissingDoneIssueDone(t *testing.T) {
 	previous := []protocol.Task{{
 		ID:        42,
 		Kind:      "jira_issue",
-		Title:     "RAD-123 Ship reconciliation",
-		URL:       "https://jira.example.test/browse/RAD-123",
+		Title:     "XYZ-123 Ship reconciliation",
+		URL:       "https://jira.example.test/browse/XYZ-123",
 		Attention: "in_progress",
 		Reason:    "jira issue",
 		SourceRefs: []protocol.SourceRef{{
-			ID:     "jira:issue:RAD-123",
+			ID:     "jira:issue:XYZ-123",
 			Source: "jira",
 			Kind:   "issue",
 			Role:   protocol.SourceRefRoleAuthoritative,
-			Title:  "RAD-123 Ship reconciliation",
+			Title:  "XYZ-123 Ship reconciliation",
 		}},
 	}}
 
-	items := ResolveDoneIssues(context.Background(), previous, nil, true, slog.New(slog.NewTextHandler(io.Discard, nil)), linking.NewMarkMatcher([]string{"RAD"}))
+	items := ResolveDoneIssues(context.Background(), previous, nil, true, slog.New(slog.NewTextHandler(io.Discard, nil)), linking.NewMarkMatcher([]string{"XYZ"}))
 
 	if len(items) != 1 {
 		t.Fatalf("done items = %d, want 1: %+v", len(items), items)
@@ -256,7 +256,7 @@ func TestResolveDoneIssuesMarksMissingDoneIssueDone(t *testing.T) {
 	if items[0].SourceRefs[0].Status != "jira done" {
 		t.Fatalf("source ref status = %q, want jira done", items[0].SourceRefs[0].Status)
 	}
-	if items[0].SourceRefs[0].CanonicalKey != "jira:issue:RAD-123" || !slices.Contains(items[0].SourceRefs[0].LinkingKeys, "mark:RAD-123") {
+	if items[0].SourceRefs[0].CanonicalKey != "jira:issue:XYZ-123" || !slices.Contains(items[0].SourceRefs[0].LinkingKeys, "mark:XYZ-123") {
 		t.Fatalf("source ref linking = %+v", items[0].SourceRefs[0])
 	}
 }

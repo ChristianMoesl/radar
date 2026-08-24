@@ -12,10 +12,15 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"golang.org/x/sys/unix"
+
+	"radar/internal/tmuxlayout"
 )
 
-const Version = 1
+const Version = 2
 const FileName = ".radar-workspaces.json"
+const lockFileName = ".radar-workspaces.lock"
 
 type Registry struct {
 	Version    int         `json:"version"`
@@ -23,13 +28,17 @@ type Registry struct {
 }
 
 type Workspace struct {
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	PrimaryPath    string   `json:"primary_path"`
-	SessionName    string   `json:"session_name,omitempty"`
-	TaskLinkingKey string   `json:"task_linking_key,omitempty"`
-	Sandbox        *Sandbox `json:"sandbox,omitempty"`
-	Members        []Member `json:"members"`
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	Path           string            `json:"path"`
+	SessionName    string            `json:"session_name,omitempty"`
+	TaskLinkingKey string            `json:"task_linking_key,omitempty"`
+	NotePath       string            `json:"note_path,omitempty"`
+	Model          string            `json:"model,omitempty"`
+	Thinking       string            `json:"thinking,omitempty"`
+	Tmux           tmuxlayout.Config `json:"tmux"`
+	Sandbox        *Sandbox          `json:"sandbox,omitempty"`
+	Members        []Member          `json:"members"`
 }
 
 type Sandbox struct {
@@ -55,7 +64,6 @@ type Member struct {
 	Repository     string `json:"repository"`
 	Path           string `json:"path"`
 	Branch         string `json:"branch"`
-	Primary        bool   `json:"primary,omitempty"`
 	SetupScheduled bool   `json:"setup_scheduled"`
 }
 
@@ -63,15 +71,21 @@ var registryMu sync.Mutex
 
 func Path(root string) string { return filepath.Join(filepath.Clean(root), FileName) }
 
-func ID(primaryPath string) string {
-	sum := sha256.Sum256([]byte(cleanPath(primaryPath)))
+func ID(workspacePath string) string {
+	sum := sha256.Sum256([]byte(cleanPath(workspacePath)))
 	return hex.EncodeToString(sum[:16])
 }
 
 func Load(root string) (Registry, error) {
 	registryMu.Lock()
 	defer registryMu.Unlock()
-	return load(root)
+	var registry Registry
+	err := withRegistryLock(root, false, func() error {
+		var err error
+		registry, err = load(root)
+		return err
+	})
+	return registry, err
 }
 
 func load(root string) (Registry, error) {
@@ -98,20 +112,43 @@ func load(root string) (Registry, error) {
 func Save(root string, registry Registry) error {
 	registryMu.Lock()
 	defer registryMu.Unlock()
-	return save(root, registry)
+	return withRegistryLock(root, true, func() error { return save(root, registry) })
 }
 
 func Update(root string, update func(*Registry) error) error {
 	registryMu.Lock()
 	defer registryMu.Unlock()
-	registry, err := load(root)
+	return withRegistryLock(root, true, func() error {
+		registry, err := load(root)
+		if err != nil {
+			return err
+		}
+		if err := update(&registry); err != nil {
+			return err
+		}
+		return save(root, registry)
+	})
+}
+
+func withRegistryLock(root string, exclusive bool, run func() error) error {
+	root = filepath.Clean(root)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(filepath.Join(root, lockFileName), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return err
 	}
-	if err := update(&registry); err != nil {
+	defer lock.Close()
+	operation := unix.LOCK_SH
+	if exclusive {
+		operation = unix.LOCK_EX
+	}
+	if err := unix.Flock(int(lock.Fd()), operation); err != nil {
 		return err
 	}
-	return save(root, registry)
+	defer unix.Flock(int(lock.Fd()), unix.LOCK_UN)
+	return run()
 }
 
 func save(root string, registry Registry) error {
@@ -166,6 +203,28 @@ func save(root string, registry Registry) error {
 	return directory.Sync()
 }
 
+// FindByContainingPath resolves an anchor, note link, member, or any nested
+// path to its registered logical workspace. The most specific anchor wins.
+func FindByContainingPath(registry Registry, path string) (Workspace, bool) {
+	path = cleanPath(path)
+	var found Workspace
+	foundLength := -1
+	for _, workspace := range registry.Workspaces {
+		if sameOrDescendant(path, workspace.Path) && len(workspace.Path) > foundLength {
+			found = workspace
+			foundLength = len(workspace.Path)
+			continue
+		}
+		for _, member := range workspace.Members {
+			if sameOrDescendant(path, member.Path) && len(member.Path) > foundLength {
+				found = workspace
+				foundLength = len(member.Path)
+			}
+		}
+	}
+	return found, foundLength >= 0
+}
+
 func FindByMemberPath(registry Registry, path string) (Workspace, bool) {
 	path = cleanPath(path)
 	for _, workspace := range registry.Workspaces {
@@ -173,6 +232,19 @@ func FindByMemberPath(registry Registry, path string) (Workspace, bool) {
 			if samePath(member.Path, path) {
 				return workspace, true
 			}
+		}
+	}
+	return Workspace{}, false
+}
+
+func FindByTaskLinkingKey(registry Registry, key string) (Workspace, bool) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return Workspace{}, false
+	}
+	for _, workspace := range registry.Workspaces {
+		if workspace.TaskLinkingKey == key {
+			return workspace, true
 		}
 	}
 	return Workspace{}, false
@@ -210,48 +282,29 @@ func Put(registry *Registry, workspace Workspace) {
 }
 
 func RemoveMember(root string, memberPath string) error {
-	registry, err := Load(root)
-	if err != nil {
-		return err
-	}
-	if _, found := FindByMemberPath(registry, memberPath); !found {
-		return nil
-	}
 	return Update(root, func(registry *Registry) error {
 		memberPath = cleanPath(memberPath)
-		for workspaceIndex := 0; workspaceIndex < len(registry.Workspaces); workspaceIndex++ {
+		for workspaceIndex := range registry.Workspaces {
 			workspace := &registry.Workspaces[workspaceIndex]
-			matched := false
-			removedPrimary := false
 			members := make([]Member, 0, len(workspace.Members))
 			for _, member := range workspace.Members {
-				if samePath(member.Path, memberPath) {
-					matched = true
-					removedPrimary = member.Primary
-					continue
-				}
-				members = append(members, member)
-			}
-			if !matched {
-				continue
-			}
-			if removedPrimary && len(members) > 0 {
-				// Keep the primary metadata until the remaining members have also
-				// been cleaned; the registry invariant requires one primary.
-				return nil
-			}
-			alive := members[:0]
-			for _, member := range members {
-				if _, statErr := os.Stat(member.Path); statErr == nil || !os.IsNotExist(statErr) {
-					alive = append(alive, member)
+				if !samePath(member.Path, memberPath) {
+					members = append(members, member)
 				}
 			}
-			workspace.Members = alive
-			if len(alive) == 0 {
-				registry.Workspaces = append(registry.Workspaces[:workspaceIndex], registry.Workspaces[workspaceIndex+1:]...)
-				return nil
+			workspace.Members = members
+		}
+		return nil
+	})
+}
+
+func RemoveWorkspace(root, id string) error {
+	return Update(root, func(registry *Registry) error {
+		for index, workspace := range registry.Workspaces {
+			if workspace.ID == id {
+				registry.Workspaces = append(registry.Workspaces[:index], registry.Workspaces[index+1:]...)
+				break
 			}
-			return nil
 		}
 		return nil
 	})
@@ -261,27 +314,44 @@ func normalizeAndValidate(registry *Registry) error {
 	ids := map[string]bool{}
 	paths := map[string]bool{}
 	memberIdentities := map[string]bool{}
+	taskLinks := map[string]bool{}
 	for workspaceIndex := range registry.Workspaces {
 		workspace := &registry.Workspaces[workspaceIndex]
 		workspace.ID = strings.TrimSpace(workspace.ID)
 		workspace.Name = strings.TrimSpace(workspace.Name)
-		workspace.PrimaryPath = cleanPath(workspace.PrimaryPath)
+		workspace.Path = cleanPath(workspace.Path)
 		workspace.SessionName = strings.TrimSpace(workspace.SessionName)
 		workspace.TaskLinkingKey = strings.TrimSpace(workspace.TaskLinkingKey)
+		workspace.NotePath = cleanOptionalPath(workspace.NotePath)
+		workspace.Model = strings.TrimSpace(workspace.Model)
+		workspace.Thinking = strings.TrimSpace(workspace.Thinking)
 		if workspace.TaskLinkingKey != "" {
 			prefix, _, found := strings.Cut(workspace.TaskLinkingKey, ":")
 			if !found || strings.TrimSpace(prefix) == "" {
 				return fmt.Errorf("workspace %q task_linking_key requires a non-empty prefix", workspace.ID)
 			}
+			if taskLinks[workspace.TaskLinkingKey] {
+				return fmt.Errorf("duplicate workspace task_linking_key %q", workspace.TaskLinkingKey)
+			}
+			taskLinks[workspace.TaskLinkingKey] = true
 		}
-		if workspace.ID == "" || workspace.Name == "" || !filepath.IsAbs(workspace.PrimaryPath) {
-			return fmt.Errorf("workspace id, name, and absolute primary_path are required")
+		if workspace.ID == "" || workspace.Name == "" || !filepath.IsAbs(workspace.Path) {
+			return fmt.Errorf("workspace id, name, and absolute path are required")
+		}
+		if workspace.ID != ID(workspace.Path) {
+			return fmt.Errorf("workspace %q id does not match anchor path %s", workspace.ID, workspace.Path)
+		}
+		if workspace.NotePath != "" && !filepath.IsAbs(workspace.NotePath) {
+			return fmt.Errorf("workspace %q note_path must be absolute", workspace.ID)
 		}
 		if ids[workspace.ID] {
 			return fmt.Errorf("duplicate workspace id %q", workspace.ID)
 		}
+		if paths[pathKey(workspace.Path)] {
+			return fmt.Errorf("duplicate workspace path %q", workspace.Path)
+		}
 		ids[workspace.ID] = true
-		primaryCount := 0
+		paths[pathKey(workspace.Path)] = true
 		for memberIndex := range workspace.Members {
 			member := &workspace.Members[memberIndex]
 			member.Repository = cleanPath(member.Repository)
@@ -289,6 +359,12 @@ func normalizeAndValidate(registry *Registry) error {
 			member.Branch = strings.TrimSpace(member.Branch)
 			if !filepath.IsAbs(member.Repository) || !filepath.IsAbs(member.Path) || member.Branch == "" {
 				return fmt.Errorf("workspace %q members require absolute repository and path plus branch", workspace.ID)
+			}
+			if !samePath(filepath.Dir(member.Path), workspace.Path) {
+				return fmt.Errorf("workspace %q member %q must be a direct child of its anchor", workspace.ID, member.Path)
+			}
+			if strings.EqualFold(filepath.Base(member.Path), "note.md") {
+				return fmt.Errorf("workspace %q member path uses reserved name note.md", workspace.ID)
 			}
 			key := pathKey(member.Path)
 			if paths[key] {
@@ -300,15 +376,6 @@ func normalizeAndValidate(registry *Registry) error {
 				return fmt.Errorf("duplicate workspace member repository %q and branch %q", member.Repository, member.Branch)
 			}
 			memberIdentities[identity] = true
-			if member.Primary {
-				primaryCount++
-				if !samePath(member.Path, workspace.PrimaryPath) {
-					return fmt.Errorf("workspace %q primary member does not match primary_path", workspace.ID)
-				}
-			}
-		}
-		if primaryCount != 1 {
-			return fmt.Errorf("workspace %q must contain exactly one primary member", workspace.ID)
 		}
 		if workspace.Sandbox != nil {
 			workspace.Sandbox.Name = strings.TrimSpace(workspace.Sandbox.Name)
@@ -370,6 +437,9 @@ func normalizeAndValidate(registry *Registry) error {
 			workspace.Sandbox.Ports = ports
 		}
 		sort.Slice(workspace.Members, func(i, j int) bool { return pathKey(workspace.Members[i].Path) < pathKey(workspace.Members[j].Path) })
+		if workspace.Members == nil {
+			workspace.Members = []Member{}
+		}
 	}
 	sort.Slice(registry.Workspaces, func(i, j int) bool { return registry.Workspaces[i].ID < registry.Workspaces[j].ID })
 	if registry.Workspaces == nil {
@@ -415,6 +485,18 @@ func cleanOptionalPath(path string) string {
 
 func cleanPath(path string) string     { return filepath.Clean(strings.TrimSpace(path)) }
 func samePath(left, right string) bool { return pathKey(left) == pathKey(right) }
+func sameOrDescendant(path, root string) bool {
+	if strings.TrimSpace(path) == "" || strings.TrimSpace(root) == "" {
+		return false
+	}
+	path = cleanPath(path)
+	root = cleanPath(root)
+	if samePath(path, root) {
+		return true
+	}
+	relative, err := filepath.Rel(root, path)
+	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
 func pathKey(path string) string {
 	path = cleanPath(path)
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {

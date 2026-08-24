@@ -12,6 +12,13 @@ import (
 	"radar/internal/workspacegroup"
 )
 
+func TestNormalizeMountSetRemovesRedundantChildrenWithSameMode(t *testing.T) {
+	mounts := normalizeMountSet([]string{"/work", "/work/member", "/work/read-only:ro"})
+	if strings.Join(mounts, "\n") != "/work\n/work/read-only:ro" {
+		t.Fatalf("mounts = %+v", mounts)
+	}
+}
+
 func TestReconcileSandboxRetriesTransientCreateFailuresWithCleanup(t *testing.T) {
 	mount := t.TempDir()
 	runner := &sandboxRetryRunner{
@@ -22,7 +29,7 @@ func TestReconcileSandboxRetriesTransientCreateFailuresWithCleanup(t *testing.T)
 		lingerChecks:   2,
 	}
 	group := workspacegroup.Workspace{
-		ID: "workspace-id", PrimaryPath: mount,
+		ID: "workspace-id", Path: mount,
 		Sandbox: &workspacegroup.Sandbox{Name: runner.name, Agent: "shell", Mounts: []string{mount}},
 	}
 	var logs bytes.Buffer
@@ -55,7 +62,7 @@ func TestReconcileSandboxStopsAfterBoundedTransientFailures(t *testing.T) {
 	mount := t.TempDir()
 	runner := &sandboxRetryRunner{name: "retry-sandbox", mounts: []string{"/old-mount"}, createFailures: 4}
 	group := workspacegroup.Workspace{
-		ID: "workspace-id", PrimaryPath: mount,
+		ID: "workspace-id", Path: mount,
 		Sandbox: &workspacegroup.Sandbox{Name: runner.name, Agent: "shell", Mounts: []string{mount}},
 	}
 	policy := sandboxReconcilePolicy{createAttempts: 3, removalChecks: 1}
@@ -79,7 +86,7 @@ func TestReconcileSandboxDoesNotRetryPermanentCreateFailure(t *testing.T) {
 	mount := t.TempDir()
 	runner := &sandboxRetryRunner{name: "retry-sandbox", mounts: []string{"/old-mount"}, permanentFailure: true}
 	group := workspacegroup.Workspace{
-		ID: "workspace-id", PrimaryPath: mount,
+		ID: "workspace-id", Path: mount,
 		Sandbox: &workspacegroup.Sandbox{Name: runner.name, Agent: "shell", Mounts: []string{mount}},
 	}
 	policy := sandboxReconcilePolicy{createAttempts: 3, removalChecks: 1}

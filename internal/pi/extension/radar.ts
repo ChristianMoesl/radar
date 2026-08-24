@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
-import { resolve, sep } from "node:path";
+import { readdir, readFile } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -34,8 +35,7 @@ const DesiredSandbox = Type.Object({
 
 const DesiredWorkspace = Type.Object({
   worktrees: Type.Array(Type.Union([NewWorktree, ExistingWorktree]), {
-    minItems: 1,
-    description: "Complete desired Git worktree membership, including every unchanged member",
+    description: "Complete desired Git worktree membership, including every unchanged member; an empty list is valid",
   }),
   sandbox: Type.Union([DesiredSandbox, Type.Null()], {
     description: "Complete desired additional-mount and port state, or null when this workspace has no sandbox",
@@ -70,6 +70,22 @@ type Plan = {
   warnings?: string[];
 };
 
+type WorkspaceMember = {
+  repository: string;
+  path: string;
+  instruction_files?: string[];
+  skill_paths?: string[];
+};
+
+type WorkspaceContextResult = {
+  workspace_path?: string;
+  note?: { path: string; workspace_path: string };
+  members?: WorkspaceMember[];
+  [key: string]: unknown;
+};
+
+type ResourceSnapshot = { contextPaths: string[]; skillPaths: string[] };
+
 type ReconcileResult = {
   ok?: boolean;
   retryable?: boolean;
@@ -87,6 +103,7 @@ type ReconcileResult = {
 
 const BusyOption = "@radar_busy";
 const MaxReconcileConfirmations = 3;
+const ResourceEntry = "radar-workspace-resources";
 
 async function publishBusy(pi: ExtensionAPI, busy: boolean) {
   const pane = process.env.TMUX_PANE?.trim();
@@ -175,8 +192,126 @@ async function runRadar(pi: ExtensionAPI, binary: string, args: string[], signal
   return result.stdout;
 }
 
+async function inspectWorkspace(pi: ExtensionAPI, cwd: string, signal?: AbortSignal): Promise<WorkspaceContextResult> {
+  const binary = process.env.RADAR_BINARY?.trim() || "radar";
+  const text = await runRadar(pi, binary, ["workspace-context", "--workspace", resolve(cwd)], signal, "radar_workspace_context", "inspect");
+  return parseJSON<WorkspaceContextResult>("radar_workspace_context", text, "inspect");
+}
+
+async function skillFiles(root: string): Promise<string[]> {
+  const found: string[] = [];
+  async function visit(directory: string) {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else if (entry.isFile() && (entry.name === "SKILL.md" || (directory === root && root.includes(`${sep}.pi${sep}`) && entry.name.endsWith(".md")))) found.push(path);
+    }
+  }
+  await visit(root);
+  return found.sort();
+}
+
+async function skillName(path: string): Promise<string | undefined> {
+  try {
+    const text = await readFile(path, "utf8");
+    if (!text.startsWith("---\n")) return undefined;
+    const end = text.indexOf("\n---", 4);
+    if (end < 0) return undefined;
+    const match = text.slice(4, end).match(/^name:\s*['\"]?([^'\"\n]+)['\"]?\s*$/m);
+    return match?.[1]?.trim();
+  } catch {
+    return undefined;
+  }
+}
+
+async function discoverResources(context: WorkspaceContextResult, notify?: (message: string, level: "info" | "warning" | "error") => void): Promise<ResourceSnapshot> {
+  const contextPaths = [...new Set((context.members ?? []).flatMap((member) => member.instruction_files ?? []))].sort();
+  const candidates = (await Promise.all([...new Set((context.members ?? []).flatMap((member) => member.skill_paths ?? []))].map(skillFiles))).flat();
+  const byName = new Map<string, string[]>();
+  for (const path of candidates) {
+    const name = await skillName(path);
+    if (!name) continue;
+    byName.set(name, [...(byName.get(name) ?? []), path]);
+  }
+  const duplicates = [...byName.entries()].filter(([, paths]) => paths.length > 1);
+  for (const [name, paths] of duplicates) notify?.(`Radar did not load duplicate skill ${name}: ${paths.join(", ")}`, "warning");
+  const duplicatePaths = new Set(duplicates.flatMap(([, paths]) => paths));
+  const skillPaths = candidates.filter((path) => !duplicatePaths.has(path)).sort();
+  return { contextPaths, skillPaths };
+}
+
+function resourceChanges(previous: ResourceSnapshot, next: ResourceSnapshot): string[] {
+  const lines: string[] = [];
+  for (const path of next.contextPaths.filter((path) => !previous.contextPaths.includes(path))) lines.push(`added context ${path}`);
+  for (const path of previous.contextPaths.filter((path) => !next.contextPaths.includes(path))) lines.push(`removed context ${path}`);
+  for (const path of next.skillPaths.filter((path) => !previous.skillPaths.includes(path))) lines.push(`added skill ${path}`);
+  for (const path of previous.skillPaths.filter((path) => !next.skillPaths.includes(path))) lines.push(`removed skill ${path}`);
+  return lines;
+}
+
 export default function radarExtension(pi: ExtensionAPI) {
-  pi.on("session_start", async () => publishBusy(pi, false));
+  let previousResources: ResourceSnapshot = { contextPaths: [], skillPaths: [] };
+  let knownContext: WorkspaceContextResult | undefined;
+  pi.on("session_start", async (_event, ctx) => {
+    await publishBusy(pi, false);
+    for (const entry of ctx.sessionManager.getEntries()) {
+      if (entry.type === "custom" && entry.customType === ResourceEntry) {
+        previousResources = entry.data as ResourceSnapshot;
+      }
+    }
+  });
+  pi.on("resources_discover", async (event, ctx) => {
+    try {
+      knownContext = await inspectWorkspace(pi, event.cwd);
+      const discovered = await discoverResources(knownContext, (message, level) => ctx.ui.notify(message, level));
+      const resources = ctx.isProjectTrusted() ? discovered : { ...discovered, skillPaths: [] };
+      if (!ctx.isProjectTrusted() && discovered.skillPaths.length > 0) ctx.ui.notify("Radar did not load member skills because the workspace is not trusted", "warning");
+      const changes = resourceChanges(previousResources, resources);
+      if (event.reason === "reload" && changes.length > 0) ctx.ui.notify(`Radar workspace resources refreshed: ${changes.join("; ")}`, "info");
+      previousResources = resources;
+      pi.appendEntry(ResourceEntry, resources);
+      return { skillPaths: resources.skillPaths };
+    } catch (error) {
+      if (event.reason === "reload") ctx.ui.notify(`Radar workspace resource refresh failed; keeping the previous resource set: ${error instanceof Error ? error.message : error}`, "warning");
+      return { skillPaths: previousResources.skillPaths };
+    }
+  });
+  pi.on("before_agent_start", async (event, ctx) => {
+    try {
+      knownContext = await inspectWorkspace(pi, ctx.cwd, ctx.signal);
+      const resources = await discoverResources(knownContext);
+      const blocks: string[] = [];
+      for (const path of resources.contextPaths) {
+        try {
+          blocks.push(`<project_instructions path="${path}">\n${await readFile(path, "utf8")}\n</project_instructions>`);
+        } catch {
+          // A later reload will report files that disappeared during the turn.
+        }
+      }
+      const guidelines = [
+        "Radar workspace instructions:",
+        knownContext.note ? `- note.md is the canonical Obsidian task note at ${knownContext.note.path}. Its body may be empty. Do not invent a template unless the user asks or the work requires one.` : "",
+        "- Member worktrees are direct children of the workspace. Use Radar's typed tools for membership, sandbox mount, and port changes.",
+        "- Instructions from a member repository context file apply only to files under that repository. Nested context files apply to their containing subtree. The most specific applicable directory wins. Global and workspace instructions apply to every member.",
+      ].filter(Boolean).join("\n");
+      return { systemPrompt: [event.systemPrompt, guidelines, ...blocks].join("\n\n") };
+    } catch {
+      return undefined;
+    }
+  });
+  pi.registerCommand("radar-reload-workspace-resources", {
+    description: "Reload member repository context and skills after workspace reconciliation",
+    handler: async (_args, ctx) => {
+      await ctx.reload();
+      return;
+    },
+  });
   pi.on("agent_start", async () => publishBusy(pi, true));
   pi.on("agent_settled", async () => publishBusy(pi, false));
   pi.on("session_shutdown", async () => publishBusy(pi, false));
@@ -228,7 +363,7 @@ export default function radarExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "radar_reconcile_workspace",
     label: "Reconcile Radar Workspace",
-    description: "Preview, confirm, and reconcile the complete desired host workspace state. It can add or remove clean member worktrees, additional host mounts, and IPv4-loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace or remove the primary worktree.",
+    description: "Preview, confirm, and reconcile the complete desired host workspace state. It can add or remove clean member worktrees, including the last one, plus additional host mounts and IPv4-loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace.",
     promptSnippet: "Reconcile typed worktree and optional sandbox mount/port desired state after user confirmation",
     promptGuidelines: [
       "Use radar_reconcile_workspace for host workspace changes instead of direct git, tmux, or sbx commands because Radar must validate and persist the complete resource bundle.",
@@ -273,11 +408,17 @@ export default function radarExtension(pi: ExtensionAPI) {
           continue;
         }
         if (result.ok !== true && result.retryable === true) {
+          if (Number(result.worktrees_added ?? 0) > 0 || Number(result.worktrees_removed ?? 0) > 0) {
+            pi.sendUserMessage("/radar-reload-workspace-resources", { deliverAs: "followUp", expandPromptTemplates: true });
+          }
           const partial = retryableResultText(result);
           return { content: [{ type: "text", text: partial }], details: { plans, result, partial } };
         }
         if (result.ok !== true) {
           throw new Error(`radar_reconcile_workspace apply did not converge: ${String(result.error ?? "unknown error")}\n${resultText.trim()}`);
+        }
+        if (Number(result.worktrees_added ?? 0) > 0 || Number(result.worktrees_removed ?? 0) > 0) {
+          pi.sendUserMessage("/radar-reload-workspace-resources", { deliverAs: "followUp", expandPromptTemplates: true });
         }
         return { content: [{ type: "text", text: JSON.stringify(result) }], details: { plans, result } };
       }

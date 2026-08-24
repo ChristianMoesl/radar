@@ -194,7 +194,7 @@ func configureDatadogWithStatuses(t *testing.T, query string, statuses []string)
 		datadog["monitor_statuses"] = statuses
 	}
 	data, err := json.Marshal(map[string]any{
-		"linking_mark_prefixes": []string{"RAD"},
+		"linking_mark_prefixes": []string{"XYZ"},
 		"datadog":               datadog,
 	})
 	if err != nil {

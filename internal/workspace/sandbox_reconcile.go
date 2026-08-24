@@ -41,8 +41,8 @@ func enrollmentPlan(ctx context.Context, runner Runner, root, current string) (w
 	}
 	repository := filepath.Dir(filepath.Clean(strings.TrimSpace(commonDir)))
 	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(current), Name: filepath.Base(current), PrimaryPath: current,
-		Members: []workspacegroup.Member{{Repository: repository, Path: current, Branch: branch, Primary: true, SetupScheduled: true}},
+		ID: workspacegroup.ID(current), Name: filepath.Base(current), Path: current,
+		Members: []workspacegroup.Member{{Repository: repository, Path: current, Branch: branch, SetupScheduled: true}},
 	}
 	group.SessionName = discoverSession(ctx, runner, current)
 	if sandbox, found, err := findSandbox(ctx, runner, current, ""); err != nil {
@@ -74,7 +74,7 @@ func currentGitTopLevel(ctx context.Context, runner Runner, cwd string) (string,
 	return filepath.Clean(strings.TrimSpace(path)), nil
 }
 
-func discoverSession(ctx context.Context, runner Runner, primaryPath string) string {
+func discoverSession(ctx context.Context, runner Runner, workspacePath string) string {
 	output, err := runner.Run(ctx, "", "tmux", "list-sessions", "-F", "#{session_name}\t#{session_path}")
 	if err != nil {
 		return ""
@@ -82,7 +82,7 @@ func discoverSession(ctx context.Context, runner Runner, primaryPath string) str
 	matches := []string{}
 	for _, line := range strings.Split(output, "\n") {
 		name, path, ok := strings.Cut(line, "\t")
-		if ok && sameCleanPath(path, primaryPath) {
+		if ok && sameCleanPath(path, workspacePath) {
 			matches = append(matches, name)
 		}
 	}
@@ -107,7 +107,7 @@ func listSandboxes(ctx context.Context, runner Runner) ([]listedSandbox, error) 
 	return response.Sandboxes, nil
 }
 
-func findSandbox(ctx context.Context, runner Runner, primaryPath, preferredName string) (listedSandbox, bool, error) {
+func findSandbox(ctx context.Context, runner Runner, workspacePath, preferredName string) (listedSandbox, bool, error) {
 	if err := runner.LookPath("sbx"); err != nil {
 		return listedSandbox{}, false, nil
 	}
@@ -126,7 +126,7 @@ func findSandbox(ctx context.Context, runner Runner, primaryPath, preferredName 
 	matches := []listedSandbox{}
 	for _, sandbox := range sandboxes {
 		for _, mount := range sandboxWorkspaceMounts(sandbox) {
-			if sameCleanPath(strings.TrimSuffix(mount, ":ro"), primaryPath) {
+			if sameCleanPath(strings.TrimSuffix(mount, ":ro"), workspacePath) {
 				matches = append(matches, sandbox)
 				break
 			}
@@ -176,8 +176,12 @@ func normalizeConfiguredMounts(mounts []string) ([]string, error) {
 }
 
 func normalizeMountSet(mounts []string) []string {
+	type candidate struct {
+		path   string
+		suffix string
+	}
 	seen := map[string]bool{}
-	result := []string{}
+	candidates := make([]candidate, 0, len(mounts))
 	for _, mount := range mounts {
 		mount = strings.TrimSpace(mount)
 		if mount == "" {
@@ -188,11 +192,37 @@ func normalizeMountSet(mounts []string) []string {
 			mount = strings.TrimSuffix(mount, ":ro")
 			suffix = ":ro"
 		}
-		mount = filepath.Clean(mount) + suffix
-		if !seen[mount] {
-			seen[mount] = true
-			result = append(result, mount)
+		mount = filepath.Clean(mount)
+		key := mount + suffix
+		if !seen[key] {
+			seen[key] = true
+			candidates = append(candidates, candidate{path: mount, suffix: suffix})
 		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		iDepth := strings.Count(filepath.Clean(candidates[i].path), string(filepath.Separator))
+		jDepth := strings.Count(filepath.Clean(candidates[j].path), string(filepath.Separator))
+		if iDepth != jDepth {
+			return iDepth < jDepth
+		}
+		return candidates[i].path+candidates[i].suffix < candidates[j].path+candidates[j].suffix
+	})
+	kept := make([]candidate, 0, len(candidates))
+	for _, current := range candidates {
+		redundant := false
+		for _, parent := range kept {
+			if parent.suffix == current.suffix && pathContains(parent.path, current.path) {
+				redundant = true
+				break
+			}
+		}
+		if !redundant {
+			kept = append(kept, current)
+		}
+	}
+	result := make([]string, 0, len(kept))
+	for _, mount := range kept {
+		result = append(result, mount.path+mount.suffix)
 	}
 	sort.Strings(result)
 	return result
@@ -228,7 +258,7 @@ func reconcileSandbox(ctx context.Context, runner Runner, group workspacegroup.W
 
 func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group workspacegroup.Workspace, logger *slog.Logger, policy sandboxReconcilePolicy) error {
 	sandbox := group.Sandbox
-	actual, found, err := findSandbox(ctx, runner, group.PrimaryPath, sandbox.Name)
+	actual, found, err := findSandbox(ctx, runner, group.Path, sandbox.Name)
 	if err != nil {
 		return err
 	}
@@ -258,7 +288,7 @@ func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group worksp
 				"workspace_id", group.ID, "sandbox", sandbox.Name, "attempt", attempt,
 				"max_attempts", attempts, "effective_mount_count", len(sandbox.Mounts))
 		}
-		if _, runErr := runner.Run(ctx, group.PrimaryPath, "sbx", args...); runErr == nil {
+		if _, runErr := runner.Run(ctx, group.Path, "sbx", args...); runErr == nil {
 			return nil
 		} else {
 			createErr := conciseSandboxCreateError(sbxCommandError(runErr))

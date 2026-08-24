@@ -72,7 +72,7 @@ func TestLoadReadsConfigFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(`{
-  "linking_mark_prefixes": ["rad"],
+  "linking_mark_prefixes": ["xyz"],
   "repository_dirs": ["~/repos"],
   "workspace_root": "~/streams",
   "model": "github-copilot/claude-sonnet-4.5",
@@ -110,7 +110,7 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(cfg.LinkingMarkPrefixes, []string{"RAD"}) {
+	if !reflect.DeepEqual(cfg.LinkingMarkPrefixes, []string{"XYZ"}) {
 		t.Fatalf("LinkingMarkPrefixes = %#v", cfg.LinkingMarkPrefixes)
 	}
 	if !reflect.DeepEqual(cfg.RepositoryDirs, []string{"~/repos"}) {
@@ -183,7 +183,7 @@ func TestLoadRejectsInvalidLinkingMarkPrefix(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD-"]}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ-"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "linking_mark_prefixes[0]") {
@@ -200,7 +200,7 @@ func TestLoadRejectsInvalidThinking(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"thinking":"maximum"}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"thinking":"maximum"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -218,7 +218,7 @@ func TestLoadPreservesExplicitlyEmptyAuthoritativeJiraIssueTypes(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"jira":{"authoritative_issue_types":[]}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"jira":{"authoritative_issue_types":[]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -240,7 +240,7 @@ func TestLoadDoesNotTreatRemovedIssueTypesAsAlias(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"jira":{"issue_types":["Story"]}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"jira":{"issue_types":["Story"]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -262,7 +262,7 @@ func TestLoadRejectsEmptyJiraIssueType(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"jira":{"authoritative_issue_types":["Story", " "]}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"jira":{"authoritative_issue_types":["Story", " "]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -285,7 +285,7 @@ func TestLoadAllowsExplicitlyEmptyJiraStatusMapping(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeConfig(`{"linking_mark_prefixes":["RAD"],"jira":{"status_mapping":{},"unmapped_status":"attention"}}`)
+	writeConfig(`{"linking_mark_prefixes":["XYZ"],"jira":{"status_mapping":{},"unmapped_status":"attention"}}`)
 
 	cfg, err := Load()
 	if err != nil {
@@ -318,7 +318,7 @@ func TestLoadRejectsInvalidJiraStatusMapping(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"jira":`+tt.jira+`}`), 0o600); err != nil {
+			if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"jira":`+tt.jira+`}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := Load(); err == nil || !strings.Contains(err.Error(), tt.field) {
@@ -348,7 +348,7 @@ func TestLoadRejectsInvalidDatadogMonitorStatuses(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			contents := `{"linking_mark_prefixes":["RAD"],"datadog":{"monitor_statuses":` + tt.statuses + `}}`
+			contents := `{"linking_mark_prefixes":["XYZ"],"datadog":{"monitor_statuses":` + tt.statuses + `}}`
 			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 				t.Fatal(err)
 			}

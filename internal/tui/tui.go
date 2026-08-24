@@ -82,6 +82,12 @@ type picker struct {
 	loading bool
 }
 
+type forkMember struct {
+	repository string
+	path       string
+	branch     string
+}
+
 type createForm struct {
 	repo           string
 	branchMode     integration.WorkspaceBranchMode
@@ -89,12 +95,15 @@ type createForm struct {
 	base           string
 	name           string
 	taskLinkingKey string
+	notePath       string
 	forkPiSession  string
 	sourceRepoName string
 	repoList       picker
 	intentList     picker
 	branchList     picker
 	baseList       picker
+	memberList     picker
+	forkMembers    []forkMember
 }
 
 type model struct {
@@ -191,6 +200,9 @@ func RunFork(socketPath string) error {
 	}
 	model := newModel(socketPath)
 	model.mode = "create_base"
+	if len(form.forkMembers) > 1 {
+		model.mode = "fork_member"
+	}
 	form.branchMode = integration.WorkspaceBranchNew
 	model.create = form
 	program := tea.NewProgram(model, tea.WithAltScreen())
@@ -206,6 +218,9 @@ func (m model) Init() tea.Cmd {
 	commands := []tea.Cmd{m.fetch("tasks")}
 	if m.mode == "create_repo" {
 		commands = append(commands, m.loadRepos())
+	}
+	if m.mode == "create_base" && m.create.forkPiSession != "" {
+		commands = append(commands, m.loadBranches(m.create.repo))
 	}
 	if (m.mode == "create_base" || m.mode == "create_branch") && m.create.repo != "" {
 		commands = append(commands, m.loadBranches(m.create.repo))
@@ -811,6 +826,7 @@ func newCreateFormForTask(task protocol.Task) createForm {
 	form := newCreateForm()
 	form.name = workspaceNameForTask(task)
 	form.taskLinkingKey = taskrefs.TaskLinkingKey(task)
+	form.notePath = notePathForTask(task)
 	return form
 }
 
@@ -827,10 +843,6 @@ func newForkCreateForm() (createForm, error) {
 		return createForm{}, err
 	}
 	runner := workspace.ExecRunner{}
-	repo, err := runner.Run(context.Background(), cwd, "git", "rev-parse", "--show-toplevel")
-	if err != nil {
-		return createForm{}, err
-	}
 	sessionName, err := runner.Run(context.Background(), cwd, "tmux", "display-message", "-p", "#{session_name}")
 	if err != nil {
 		return createForm{}, err
@@ -839,23 +851,37 @@ func newForkCreateForm() (createForm, error) {
 	if sessionName == "" {
 		return createForm{}, fmt.Errorf("could not detect current tmux session")
 	}
-	currentBranch, _ := runner.Run(context.Background(), repo, "git", "branch", "--show-current")
-	currentBranch = strings.TrimSpace(currentBranch)
-	sourceRepoName := filepath.Base(repo)
-	if root, err := workspace.DefaultRoot(); err == nil {
-		if rel, err := filepath.Rel(root, repo); err == nil && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != ".." {
-			parts := strings.Split(rel, string(os.PathSeparator))
-			if len(parts) >= 2 && parts[0] != "." && parts[0] != "" {
-				sourceRepoName = parts[0]
-			}
-		}
+	_, group, registered, err := workspace.RegisteredWorkspace(cwd, "")
+	if err != nil {
+		return createForm{}, err
 	}
-	return createForm{
-		repo:           repo,
-		forkPiSession:  sessionName,
-		sourceRepoName: sourceRepoName,
-		baseList:       picker{loading: true, query: currentBranch},
-	}, nil
+	form := createForm{forkPiSession: sessionName}
+	if registered {
+		if len(group.Members) == 0 {
+			return createForm{}, fmt.Errorf("workspace has no Git member to fork")
+		}
+		for _, member := range group.Members {
+			form.forkMembers = append(form.forkMembers, forkMember{repository: member.Repository, path: member.Path, branch: member.Branch})
+			form.memberList.options = append(form.memberList.options, member.Path)
+		}
+		if len(form.forkMembers) == 1 {
+			configureForkMember(&form, form.forkMembers[0])
+		}
+		return form, nil
+	}
+	repo, err := runner.Run(context.Background(), cwd, "git", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return createForm{}, err
+	}
+	currentBranch, _ := runner.Run(context.Background(), repo, "git", "branch", "--show-current")
+	configureForkMember(&form, forkMember{repository: strings.TrimSpace(repo), path: strings.TrimSpace(repo), branch: strings.TrimSpace(currentBranch)})
+	return form, nil
+}
+
+func configureForkMember(form *createForm, member forkMember) {
+	form.repo = member.repository
+	form.sourceRepoName = filepath.Base(member.repository)
+	form.baseList = picker{loading: true, query: member.branch}
 }
 
 func (m model) updateCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -952,6 +978,18 @@ func (m *model) moveCreateCursor(delta int) {
 
 func (m model) selectCreateStep() (tea.Model, tea.Cmd) {
 	switch m.mode {
+	case "fork_member":
+		selected := selectedPickerOption(m.create.memberList)
+		for _, member := range m.create.forkMembers {
+			if member.path == selected {
+				configureForkMember(&m.create, member)
+				m.mode = "create_base"
+				m.err = nil
+				return m, m.loadBranches(member.repository)
+			}
+		}
+		m.err = fmt.Errorf("select a workspace member")
+		return m, nil
 	case "create_repo":
 		selected := selectedPickerOption(m.create.repoList)
 		if selected == "" {
@@ -1056,13 +1094,9 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 			Switch:                  switchAfterCreate,
 			ForkPiSession:           form.forkPiSession,
 			TaskLinkingKey:          form.taskLinkingKey,
+			NotePath:                form.notePath,
 		}
 		if form.forkPiSession != "" && form.sourceRepoName != "" {
-			root, err := workspace.DefaultRoot()
-			if err != nil {
-				return actionMsg{err: err}
-			}
-			options.Path = filepath.Join(root, workspace.WorktreeDirectoryName(form.sourceRepoName, form.name))
 			options.SessionName = workspace.SessionName(form.sourceRepoName, form.name)
 		}
 		workspaceProvider, err := app.DefaultIntegrations().Workspace()
@@ -1192,6 +1226,9 @@ func (m model) cleanupSelected(preview protocol.CleanupPreview) tea.Cmd {
 
 func (m *model) appendCreateQuery(value string) {
 	switch m.mode {
+	case "fork_member":
+		m.create.memberList.query += value
+		m.create.memberList.cursor = 0
 	case "create_repo":
 		m.create.repoList.query += value
 		m.create.repoList.cursor = 0
@@ -1211,6 +1248,9 @@ func (m *model) appendCreateQuery(value string) {
 
 func (m *model) backspaceCreateQuery() {
 	switch m.mode {
+	case "fork_member":
+		m.create.memberList.query = dropLastRune(m.create.memberList.query)
+		m.create.memberList.cursor = 0
 	case "create_repo":
 		m.create.repoList.query = dropLastRune(m.create.repoList.query)
 		m.create.repoList.cursor = 0
@@ -1230,6 +1270,8 @@ func (m *model) backspaceCreateQuery() {
 
 func (m *model) activePicker() *picker {
 	switch m.mode {
+	case "fork_member":
+		return &m.create.memberList
 	case "create_repo":
 		return &m.create.repoList
 	case "create_intent":
@@ -1300,6 +1342,8 @@ func (m model) taskAuthoringView(width int) string {
 
 func (m model) createView(width int) string {
 	switch m.mode {
+	case "fork_member":
+		return m.pickerView(width, "Fork workspace", "Member worktree", m.create.memberList)
 	case "create_repo":
 		return m.pickerView(width, "Create workspace", "Repository", m.create.repoList)
 	case "create_intent":
@@ -1371,6 +1415,8 @@ func (m model) cleanupConfirmView(width int) string {
 	lines := []string{titleStyle.Render("Clean up local resources?"), warning, ""}
 	for _, target := range preview.Targets {
 		switch target.Kind {
+		case "workspace":
+			lines = append(lines, "Workspace "+shortenPath(target.Path))
 		case "worktree":
 			label := "Worktree " + shortenPath(target.Path)
 			details := []string{}
@@ -1679,10 +1725,23 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 		return m, m.switchTmuxSession(target)
 	}
 
+	if anchor, ok := workspaceAnchorRef(task); ok {
+		m.loading = true
+		m.err = nil
+		m.message = "Creating tmux session…"
+		return m, m.openRegisteredWorkspace(anchor)
+	}
+
 	worktrees := taskrefs.Worktrees(task)
 	switch len(worktrees) {
 	case 0:
 		if ref, ok := taskrefs.WorkspaceCandidate(task); ok {
+			if ref.Source == "obsidian" && strings.TrimSpace(ref.Metadata["note_path"]) != "" {
+				m.loading = true
+				m.err = nil
+				m.message = creatingWorkspaceMessage
+				return m, tea.Batch(preparingWorkspaceNotification(), m.createWorkspaceForNote(task, ref))
+			}
 			if ref.Repo != "" && ref.Branch != "" {
 				m.loading = true
 				m.err = nil
@@ -1726,6 +1785,26 @@ func (m model) switchTmuxSession(target string) tea.Cmd {
 	}
 }
 
+func workspaceAnchorRef(task protocol.Task) (protocol.SourceRef, bool) {
+	for _, ref := range task.SourceRefs {
+		if ref.Source == "workspace" && ref.Kind == "workspace" && strings.TrimSpace(ref.Path) != "" {
+			return ref, true
+		}
+	}
+	return protocol.SourceRef{}, false
+}
+
+func (m model) openRegisteredWorkspace(ref protocol.SourceRef) tea.Cmd {
+	return func() tea.Msg {
+		switchAfterCreate := os.Getenv("TMUX") != ""
+		created, err := workspace.OpenRegisteredWorkspace(context.Background(), workspace.ExecRunner{}, ref.Path, switchAfterCreate)
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
+	}
+}
+
 func authoredTaskRef(task protocol.Task) (protocol.SourceRef, bool) {
 	for _, ref := range task.SourceRefs {
 		if ref.Role == protocol.SourceRefRoleAuthoritative && ref.Lifecycle == protocol.SourceRefLifecycleWorkItem && ref.Authority == protocol.SourceRefAuthorityPrimary && ref.Metadata["authoring"] == "true" {
@@ -1733,6 +1812,38 @@ func authoredTaskRef(task protocol.Task) (protocol.SourceRef, bool) {
 		}
 	}
 	return protocol.SourceRef{}, false
+}
+
+func notePathForTask(task protocol.Task) string {
+	if ref, ok := authoredTaskRef(task); ok && ref.Source == "obsidian" {
+		return strings.TrimSpace(ref.Metadata["note_path"])
+	}
+	return ""
+}
+
+func (m model) createWorkspaceForNote(task protocol.Task, ref protocol.SourceRef) tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := config.Load()
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		switchAfterCreate := os.Getenv("TMUX") != ""
+		provider, err := app.DefaultIntegrations().Workspace()
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		created, err := provider.Create(context.Background(), integration.CreateWorkspaceRequest{
+			Name: strings.TrimSpace(ref.Presentation.WorkspaceName), NotePath: strings.TrimSpace(ref.Metadata["note_path"]),
+			Model: cfg.Model, Thinking: cfg.Thinking, Sandbox: cfg.SBX.Enabled,
+			SandboxKitName: cfg.SBX.Kit.Name, SandboxKitPath: cfg.SBX.Kit.Path,
+			AdditionalSandboxMounts: cfg.SBX.AdditionalMounts, Tmux: cfg.Tmux,
+			Switch: switchAfterCreate, TaskLinkingKey: taskrefs.TaskLinkingKey(task),
+		})
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		return actionMsg{message: workspaceCreationMessage(created), refresh: !switchAfterCreate, quit: switchAfterCreate}
+	}
 }
 
 func (m model) createSessionForWorktree(task protocol.Task, ref protocol.SourceRef) tea.Cmd {
@@ -1833,6 +1944,7 @@ func (m model) createWorkspaceForPullRequest(task protocol.Task, ref protocol.So
 			Tmux:                    cfg.Tmux,
 			Switch:                  switchAfterCreate,
 			TaskLinkingKey:          taskrefs.TaskLinkingKey(task),
+			NotePath:                notePathForTask(task),
 		})
 		if err != nil {
 			return actionMsg{err: err}

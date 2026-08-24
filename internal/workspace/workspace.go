@@ -21,6 +21,7 @@ import (
 	"radar/internal/pi"
 	"radar/internal/sbxauth"
 	"radar/internal/tmuxlayout"
+	"radar/internal/workspacegroup"
 )
 
 var invalidWorkspaceNameCharacters = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
@@ -119,6 +120,7 @@ type CreateOptions struct {
 	Switch                  bool
 	ForkPiSession           string
 	TaskLinkingKey          string
+	NotePath                string
 }
 
 type Workspace struct {
@@ -150,18 +152,13 @@ type CreateSessionOptions struct {
 }
 
 func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
+	if strings.TrimSpace(options.Repo) == "" {
+		return createNoteWorkspace(ctx, runner, options)
+	}
 	for _, dependency := range []string{"git", "tmux"} {
 		if err := runner.LookPath(dependency); err != nil {
 			return Workspace{}, fmt.Errorf("workspace creation requires %q: %w", dependency, err)
 		}
-	}
-	plan, err := PlanWorktree(ctx, runner, WorktreeOptions{
-		Repo: options.Repo, BranchMode: options.BranchMode, Name: options.Name,
-		Branch: options.Branch, Base: options.Base, Path: options.Path,
-		WorkspaceRoot: options.WorkspaceRoot,
-	})
-	if err != nil {
-		return Workspace{}, err
 	}
 	if err := pi.ValidateThinking(options.Thinking); err != nil {
 		return Workspace{}, err
@@ -169,101 +166,482 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	if err := tmuxlayout.Validate(options.Tmux); err != nil {
 		return Workspace{}, err
 	}
-	sandbox := workspaceSandboxConfig(plan.RepoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.AdditionalSandboxMounts)
-	if sandbox.Enabled {
-		if workspaceGOOS != "darwin" {
-			return Workspace{}, fmt.Errorf("workspace sandbox is only supported on macOS")
-		}
-		if err := runner.LookPath("sbx"); err != nil {
-			return Workspace{}, fmt.Errorf("workspace sandbox requires %q: %w", "sbx", err)
-		}
-	}
-	repoName := filepath.Base(plan.Repo)
-	sessionName := options.SessionName
-	if sessionName == "" {
-		sessionName = SessionName(repoName, plan.Name)
-	}
-	sandboxName := ""
-	if sandbox.Enabled {
-		sandboxName = SandboxName(repoName, plan.Name)
-	}
-	workspaceValue := Workspace{Name: plan.Name, Branch: plan.Branch, Base: plan.Base, Repo: plan.Repo, Path: plan.Path, SessionName: sessionName, SandboxName: sandboxName}
-	if plan.Existing {
-		if err := validatePrimaryWorkspaceTaskLink(plan.Root, plan.Path, options.TaskLinkingKey); err != nil {
-			return Workspace{}, err
-		}
-		opened, err := openExistingWorkspace(ctx, runner, workspaceValue, options)
-		if err != nil {
-			return Workspace{}, err
-		}
-		if err := registerPrimaryWorkspace(ctx, runner, plan, opened.SessionName, opened.SandboxName, sandbox, true, options.TaskLinkingKey); err != nil {
-			return Workspace{}, err
-		}
-		return opened, nil
-	}
-
-	prepared, err := EnsureWorktree(ctx, runner, plan)
+	root, err := workspaceRoot(options.WorkspaceRoot)
 	if err != nil {
 		return Workspace{}, err
 	}
-	createdSession := false
-	createdSandbox := false
-	rollback := func() {
-		if createdSession {
-			_, _ = runner.Run(ctx, plan.Repo, "tmux", "kill-session", "-t", sessionName)
+	repository, err := canonicalRepository(ctx, runner, options.Repo)
+	if err != nil {
+		return Workspace{}, err
+	}
+	name := strings.TrimSpace(options.Name)
+	branch := normalizeExistingBranch(options.Branch)
+	if options.BranchMode == integration.WorkspaceBranchExisting && name == "" {
+		name = branch
+	}
+	if options.BranchMode == integration.WorkspaceBranchNew {
+		if name == "" {
+			return Workspace{}, fmt.Errorf("new branch name is required")
 		}
-		if createdSandbox {
-			_, _ = stopSandbox(ctx, runner, plan.Path, sandboxName)
+		if branch == "" {
+			branch = BranchName(name)
 		}
-		if prepared.Created {
-			_, _ = runner.Run(ctx, plan.Repo, "git", "worktree", "remove", "--force", plan.Path)
+	}
+	if existing, found, err := existingWorkspaceForTask(root, options.TaskLinkingKey); err != nil {
+		return Workspace{}, err
+	} else if found {
+		return openRegisteredWorkspace(ctx, runner, root, existing, options, repository, branch)
+	}
+	if existing, _, found, err := existingWorkspaceForMember(root, repository, branch); err != nil {
+		return Workspace{}, err
+	} else if found {
+		if err := validateTaskLink(existing.Path, existing.TaskLinkingKey, options.TaskLinkingKey); err != nil {
+			return Workspace{}, err
 		}
+		return openRegisteredWorkspace(ctx, runner, root, existing, options, repository, branch)
+	}
+
+	anchor := strings.TrimSpace(options.Path)
+	if anchor == "" {
+		anchor, err = workspaceAnchorPath(root, name, options.TaskLinkingKey)
+	} else {
+		anchor, err = filepath.Abs(anchor)
+	}
+	if err != nil {
+		return Workspace{}, err
+	}
+	anchor = filepath.Clean(anchor)
+	if !isWorkspacePath(anchor, root) {
+		return Workspace{}, fmt.Errorf("workspace anchor must be a direct child of %s", root)
+	}
+	destination := filepath.Join(anchor, WorktreeDirectoryName(repository, branch))
+	plan, err := PlanWorktree(ctx, runner, WorktreeOptions{
+		Repo: repository, BranchMode: options.BranchMode, Name: name, Branch: options.Branch,
+		Base: options.Base, Path: destination, WorkspaceRoot: anchor,
+	})
+	if err != nil {
+		return Workspace{}, err
+	}
+	sandbox := workspaceSandboxConfig(plan.RepoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.AdditionalSandboxMounts)
+	if err := validateSandboxDependencies(runner, sandbox.Enabled); err != nil {
+		return Workspace{}, err
+	}
+	if err := createAnchorDirectory(root, anchor); err != nil {
+		return Workspace{}, err
+	}
+	if options.NotePath != "" {
+		if err := ensureNoteLink(anchor, options.NotePath); err != nil {
+			removeEmptyAnchor(anchor)
+			return Workspace{}, err
+		}
+	}
+	prepared, err := EnsureWorktree(ctx, runner, plan)
+	if err != nil {
+		removeManagedNoteLink(anchor)
+		removeEmptyAnchor(anchor)
+		return Workspace{}, err
+	}
+
+	sessionName := strings.TrimSpace(options.SessionName)
+	if sessionName == "" {
+		sessionName = SessionName(filepath.Base(repository), name)
+	}
+	sandboxName := ""
+	if sandbox.Enabled {
+		sandboxName = SandboxName(filepath.Base(repository), name)
+	}
+	model := options.Model
+	if strings.TrimSpace(plan.RepoConfig.Model) != "" {
+		model = plan.RepoConfig.Model
+	}
+	thinking := options.Thinking
+	if strings.TrimSpace(plan.RepoConfig.Thinking) != "" {
+		thinking = plan.RepoConfig.Thinking
+	}
+	group := workspacegroup.Workspace{
+		ID: workspacegroup.ID(anchor), Name: name, Path: anchor, SessionName: sessionName,
+		TaskLinkingKey: strings.TrimSpace(options.TaskLinkingKey), NotePath: cleanOptionalAbsolutePath(options.NotePath),
+		Model: strings.TrimSpace(model), Thinking: strings.TrimSpace(thinking), Tmux: options.Tmux,
+		Members: []workspacegroup.Member{{Repository: plan.Repo, Path: plan.Path, Branch: plan.Branch}},
 	}
 	if sandbox.Enabled {
-		if _, err := startSandbox(ctx, runner, plan.Path, sandboxName, sandbox.Kit, sandbox.AdditionalMounts); err != nil {
-			rollback()
-			return Workspace{}, err
+		group.Sandbox = &workspacegroup.Sandbox{Name: sandboxName, Agent: sandbox.Kit.Name, KitPath: ExpandPath(sandbox.Kit.Path), AdditionalMounts: []workspacegroup.SandboxMount{}, Ports: []workspacegroup.SandboxPort{}}
+		mounts, mountErr := desiredReconciledSandboxMounts(ctx, runner, group, nil, options.AdditionalSandboxMounts, nil)
+		if mountErr != nil {
+			rollbackCreatedWorktree(ctx, runner, prepared, anchor)
+			return Workspace{}, mountErr
 		}
-		createdSandbox = true
+		group.Sandbox.Mounts = mounts
 	}
-	if _, err := runner.Run(ctx, plan.Repo, "tmux", "has-session", "-t", sessionName); err != nil {
-		model := options.Model
-		if strings.TrimSpace(plan.RepoConfig.Model) != "" {
-			model = plan.RepoConfig.Model
-		}
-		thinking := options.Thinking
-		if strings.TrimSpace(plan.RepoConfig.Thinking) != "" {
-			thinking = plan.RepoConfig.Thinking
-		}
-		piArgsText, environment, err := radarPiLaunch(piArgsWithPrompt(taskPiSessionID(sessionName, options.TaskLinkingKey), sessionName, model, thinking, options.ForkPiSession, ""), nil)
-		if err != nil {
-			rollback()
-			return Workspace{}, err
-		}
-		if err := createTmuxWorkspace(ctx, runner, plan.Repo, plan.Path, sessionName, options.Tmux, piArgsText, environment); err != nil {
-			rollback()
-			return Workspace{}, err
-		}
-		createdSession = true
+	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, options.ForkPiSession)
+	if err != nil {
+		rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
+		rollbackCreatedWorktree(ctx, runner, prepared, anchor)
+		return Workspace{}, err
 	}
-	warning := ""
 	setupScheduled := len(plan.RepoConfig.Setup) == 0
+	warning := ""
 	if err := scheduleSetupCommandsNamed(ctx, runner, plan.Path, sessionName, sandboxName, "setup", plan.RepoConfig.Setup); err != nil {
 		warning = fmt.Sprintf("workspace setup could not be started: %v", err)
 	} else {
 		setupScheduled = true
 	}
-	if err := registerPrimaryWorkspace(ctx, runner, plan, sessionName, sandboxName, sandbox, setupScheduled, options.TaskLinkingKey); err != nil {
-		rollback()
+	group.Members[0].SetupScheduled = setupScheduled
+	if err := registerWorkspace(root, group); err != nil {
+		rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
+		rollbackCreatedWorktree(ctx, runner, prepared, anchor)
 		return Workspace{}, err
 	}
 	if options.Switch {
-		if _, err := runner.Run(ctx, plan.Repo, "tmux", "switch-client", "-t", sessionName); err != nil {
+		if _, err := runner.Run(ctx, anchor, "tmux", "switch-client", "-t", sessionName); err != nil {
 			return Workspace{}, err
 		}
 	}
-	workspaceValue.Warning = warning
-	return workspaceValue, nil
+	return Workspace{Name: name, Branch: plan.Branch, Base: plan.Base, Repo: plan.Repo, Path: anchor, SessionName: sessionName, SandboxName: sandboxName, Warning: warning}, nil
+}
+
+func createNoteWorkspace(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
+	if strings.TrimSpace(options.NotePath) == "" {
+		return Workspace{}, fmt.Errorf("workspace repository or note path is required")
+	}
+	if strings.TrimSpace(options.TaskLinkingKey) == "" {
+		return Workspace{}, fmt.Errorf("note workspace task linking key is required")
+	}
+	if err := runner.LookPath("tmux"); err != nil {
+		return Workspace{}, fmt.Errorf("workspace creation requires %q: %w", "tmux", err)
+	}
+	if err := pi.ValidateThinking(options.Thinking); err != nil {
+		return Workspace{}, err
+	}
+	if err := tmuxlayout.Validate(options.Tmux); err != nil {
+		return Workspace{}, err
+	}
+	root, err := workspaceRoot(options.WorkspaceRoot)
+	if err != nil {
+		return Workspace{}, err
+	}
+	name := strings.TrimSpace(options.Name)
+	if name == "" {
+		name = strings.TrimSuffix(filepath.Base(options.NotePath), filepath.Ext(options.NotePath))
+	}
+	if existing, found, err := existingWorkspaceForTask(root, options.TaskLinkingKey); err != nil {
+		return Workspace{}, err
+	} else if found {
+		return openRegisteredWorkspace(ctx, runner, root, existing, options, "", "")
+	}
+	anchor := strings.TrimSpace(options.Path)
+	if anchor == "" {
+		anchor, err = workspaceAnchorPath(root, name, options.TaskLinkingKey)
+	} else {
+		anchor, err = filepath.Abs(anchor)
+	}
+	if err != nil {
+		return Workspace{}, err
+	}
+	anchor = filepath.Clean(anchor)
+	if !isWorkspacePath(anchor, root) {
+		return Workspace{}, fmt.Errorf("workspace anchor must be a direct child of %s", root)
+	}
+	sandbox := workspaceSandboxConfig(RepoConfig{}, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.AdditionalSandboxMounts)
+	if err := validateSandboxDependencies(runner, sandbox.Enabled); err != nil {
+		return Workspace{}, err
+	}
+	if err := createAnchorDirectory(root, anchor); err != nil {
+		return Workspace{}, err
+	}
+	if err := ensureNoteLink(anchor, options.NotePath); err != nil {
+		removeEmptyAnchor(anchor)
+		return Workspace{}, err
+	}
+	sessionName := strings.TrimSpace(options.SessionName)
+	if sessionName == "" {
+		sessionName = WorktreeName(name)
+	}
+	group := workspacegroup.Workspace{
+		ID: workspacegroup.ID(anchor), Name: name, Path: anchor, SessionName: sessionName,
+		TaskLinkingKey: strings.TrimSpace(options.TaskLinkingKey), NotePath: cleanOptionalAbsolutePath(options.NotePath),
+		Model: strings.TrimSpace(options.Model), Thinking: strings.TrimSpace(options.Thinking), Tmux: options.Tmux,
+		Members: []workspacegroup.Member{},
+	}
+	if sandbox.Enabled {
+		group.Sandbox = &workspacegroup.Sandbox{Name: SandboxName("workspace", name), Agent: sandbox.Kit.Name, KitPath: ExpandPath(sandbox.Kit.Path), AdditionalMounts: []workspacegroup.SandboxMount{}, Ports: []workspacegroup.SandboxPort{}}
+		mounts, mountErr := desiredReconciledSandboxMounts(ctx, runner, group, nil, options.AdditionalSandboxMounts, nil)
+		if mountErr != nil {
+			removeManagedNoteLink(anchor)
+			removeEmptyAnchor(anchor)
+			return Workspace{}, mountErr
+		}
+		group.Sandbox.Mounts = mounts
+	}
+	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, "")
+	if err != nil {
+		rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
+		removeManagedNoteLink(anchor)
+		removeEmptyAnchor(anchor)
+		return Workspace{}, err
+	}
+	if err := registerWorkspace(root, group); err != nil {
+		rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
+		removeManagedNoteLink(anchor)
+		removeEmptyAnchor(anchor)
+		return Workspace{}, err
+	}
+	if options.Switch {
+		if _, err := runner.Run(ctx, anchor, "tmux", "switch-client", "-t", sessionName); err != nil {
+			return Workspace{}, err
+		}
+	}
+	return Workspace{Name: name, Path: anchor, SessionName: sessionName, SandboxName: sandboxName(group)}, nil
+}
+
+func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string, switchClient bool) (Workspace, error) {
+	_, group, found, err := RegisteredWorkspace(current, "")
+	if err != nil {
+		return Workspace{}, err
+	}
+	if !found {
+		return Workspace{}, fmt.Errorf("no registered Radar workspace contains %s", current)
+	}
+	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, "")
+	if err != nil {
+		rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
+		return Workspace{}, err
+	}
+	if switchClient {
+		if _, err := runner.Run(ctx, group.Path, "tmux", "switch-client", "-t", group.SessionName); err != nil {
+			return Workspace{}, err
+		}
+	}
+	return Workspace{Name: group.Name, Path: group.Path, SessionName: group.SessionName, SandboxName: sandboxName(group)}, nil
+}
+
+func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, group workspacegroup.Workspace, options CreateOptions, repository, branch string) (Workspace, error) {
+	if options.NotePath != "" {
+		if err := ensureNoteLink(group.Path, options.NotePath); err != nil {
+			return Workspace{}, err
+		}
+		group.NotePath = cleanOptionalAbsolutePath(options.NotePath)
+	}
+	if options.TaskLinkingKey != "" {
+		if err := validateTaskLink(group.Path, group.TaskLinkingKey, options.TaskLinkingKey); err != nil {
+			return Workspace{}, err
+		}
+		group.TaskLinkingKey = strings.TrimSpace(options.TaskLinkingKey)
+	}
+	if err := registerWorkspace(root, group); err != nil {
+		return Workspace{}, err
+	}
+	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, options.ForkPiSession)
+	if err != nil {
+		rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
+		return Workspace{}, err
+	}
+	if options.Switch {
+		if _, err := runner.Run(ctx, group.Path, "tmux", "switch-client", "-t", group.SessionName); err != nil {
+			return Workspace{}, err
+		}
+	}
+	return Workspace{Name: group.Name, Branch: branch, Repo: repository, Path: group.Path, SessionName: group.SessionName, SandboxName: sandboxName(group)}, nil
+}
+
+func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string) (bool, bool, error) {
+	createdSandbox := false
+	if group.Sandbox != nil {
+		exists, err := sandboxExists(ctx, runner, group.Sandbox.Name)
+		if err != nil {
+			return false, false, err
+		}
+		if !exists {
+			if _, err := startSandboxWithMounts(ctx, runner, group.Path, group.Sandbox.Name, SandboxKitConfig{Name: group.Sandbox.Agent, Path: group.Sandbox.KitPath}, group.Sandbox.Mounts); err != nil {
+				return false, false, err
+			}
+			createdSandbox = true
+		}
+	}
+	if _, err := runner.Run(ctx, group.Path, "tmux", "has-session", "-t", group.SessionName); err == nil {
+		return false, createdSandbox, nil
+	}
+	piArgsText, environment, err := radarPiLaunch(piArgsWithPrompt(taskPiSessionID(group.SessionName, group.TaskLinkingKey), group.SessionName, group.Model, group.Thinking, forkSession, ""), nil)
+	if err != nil {
+		return false, createdSandbox, err
+	}
+	if err := createTmuxWorkspace(ctx, runner, group.Path, group.Path, group.SessionName, group.Tmux, piArgsText, environment); err != nil {
+		return false, createdSandbox, err
+	}
+	return true, createdSandbox, nil
+}
+
+func rollbackWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, session, sandbox bool) {
+	if session {
+		_, _ = runner.Run(ctx, group.Path, "tmux", "kill-session", "-t", group.SessionName)
+	}
+	if sandbox && group.Sandbox != nil {
+		_, _ = stopSandbox(ctx, runner, group.Path, group.Sandbox.Name)
+	}
+}
+
+func rollbackCreatedWorktree(ctx context.Context, runner Runner, prepared WorktreeResult, anchor string) {
+	if prepared.Created {
+		_, _ = runner.Run(ctx, prepared.Plan.Repo, "git", "worktree", "remove", "--force", prepared.Plan.Path)
+	}
+	removeManagedNoteLink(anchor)
+	removeEmptyAnchor(anchor)
+}
+
+func createAnchorDirectory(root, anchor string) error {
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return err
+	}
+	if err := os.Mkdir(anchor, 0o755); err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("workspace anchor is occupied by unrelated content: %s", anchor)
+		}
+		return err
+	}
+	return nil
+}
+
+func removeManagedNoteLink(anchor string) {
+	path := filepath.Join(anchor, "note.md")
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(path)
+	}
+}
+
+func removeEmptyAnchor(anchor string) { _ = os.Remove(anchor) }
+
+func workspaceRoot(configured string) (string, error) {
+	root := strings.TrimSpace(configured)
+	var err error
+	if root == "" {
+		root, err = DefaultRoot()
+		if err != nil {
+			return "", err
+		}
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(root), nil
+}
+
+func canonicalRepository(ctx context.Context, runner Runner, repository string) (string, error) {
+	path, err := runner.Run(ctx, repository, "git", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	path, err = filepath.Abs(strings.TrimSpace(path))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(path), nil
+}
+
+func cleanOptionalAbsolutePath(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(absolute)
+}
+
+func ensureNoteLink(anchor, notePath string) error {
+	notePath = cleanOptionalAbsolutePath(notePath)
+	info, err := os.Lstat(notePath)
+	if err != nil {
+		return fmt.Errorf("canonical task note %s: %w", notePath, err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("canonical task note must be a regular file: %s", notePath)
+	}
+	link := filepath.Join(anchor, "note.md")
+	if current, err := os.Readlink(link); err == nil {
+		if filepath.Clean(current) == notePath {
+			return nil
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("Radar managed note path is occupied: %s", link)
+	}
+	temporary := filepath.Join(anchor, fmt.Sprintf(".note-%d.tmp", os.Getpid()))
+	_ = os.Remove(temporary)
+	if err := os.Symlink(notePath, temporary); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, link); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
+	return nil
+}
+
+// RefreshWorkspaceNote repairs the managed note link after an Obsidian file
+// rename. It never searches outside the note's stable task directory.
+func RefreshWorkspaceNote(root string, group workspacegroup.Workspace) (workspacegroup.Workspace, error) {
+	if group.NotePath == "" {
+		return group, nil
+	}
+	if info, err := os.Lstat(group.NotePath); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+		return group, ensureNoteLink(group.Path, group.NotePath)
+	} else if err != nil && !os.IsNotExist(err) {
+		return group, err
+	}
+	directory := filepath.Dir(group.NotePath)
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return group, err
+	}
+	candidates := make([]string, 0, 1)
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
+			candidates = append(candidates, filepath.Join(directory, entry.Name()))
+		}
+	}
+	if len(candidates) != 1 {
+		return group, fmt.Errorf("canonical task directory %s contains %d Markdown notes", directory, len(candidates))
+	}
+	expectedID := strings.TrimPrefix(group.TaskLinkingKey, "obsidian:task:")
+	if expectedID == group.TaskLinkingKey || expectedID == "" {
+		return group, fmt.Errorf("workspace %s has no Obsidian task identity", group.Path)
+	}
+	data, err := os.ReadFile(candidates[0])
+	if err != nil {
+		return group, err
+	}
+	foundID := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		if key, value, ok := strings.Cut(line, ":"); ok && strings.TrimSpace(key) == "radar-id" {
+			foundID = strings.TrimSpace(value)
+			break
+		}
+	}
+	if foundID != expectedID {
+		return group, fmt.Errorf("task identity changed in %s", candidates[0])
+	}
+	group.NotePath = filepath.Clean(candidates[0])
+	if err := ensureNoteLink(group.Path, group.NotePath); err != nil {
+		return group, err
+	}
+	if err := registerWorkspace(root, group); err != nil {
+		return group, err
+	}
+	return group, nil
+}
+
+func validateSandboxDependencies(runner Runner, enabled bool) error {
+	if !enabled {
+		return nil
+	}
+	if workspaceGOOS != "darwin" {
+		return fmt.Errorf("workspace sandbox is only supported on macOS")
+	}
+	if err := runner.LookPath("sbx"); err != nil {
+		return fmt.Errorf("workspace sandbox requires %q: %w", "sbx", err)
+	}
+	return nil
 }
 
 type sandboxSettings struct {
@@ -514,6 +892,18 @@ func WorktreeName(workspaceName string) string {
 	return name
 }
 
+func WorkspaceDirectoryName(workspaceName string) string {
+	name := WorktreeName(workspaceName)
+	if len(name) <= maxWorktreeDirectoryNameLength {
+		return name
+	}
+	sum := sha1.Sum([]byte(name))
+	hash := hex.EncodeToString(sum[:])[:worktreeDirectoryHashLength]
+	prefixLength := maxWorktreeDirectoryNameLength - len(hash) - 2
+	prefix := strings.TrimRight(name[:prefixLength], "-_")
+	return prefix + "--" + hash
+}
+
 func WorktreeDirectoryName(repository string, workspaceName string) string {
 	name := WorktreeName(filepath.Base(filepath.Clean(repository)) + "--" + workspaceName)
 	if len(name) <= maxWorktreeDirectoryNameLength {
@@ -652,6 +1042,10 @@ func startSandbox(ctx context.Context, runner Runner, path string, name string, 
 	if err != nil {
 		return "", err
 	}
+	return startSandboxWithMounts(ctx, runner, path, name, kit, mounts)
+}
+
+func startSandboxWithMounts(ctx context.Context, runner Runner, path string, name string, kit SandboxKitConfig, mounts []string) (string, error) {
 	args := []string{"create", "--name", name}
 	if kit.Path != "" {
 		args = append(args, "--kit", ExpandPath(kit.Path))

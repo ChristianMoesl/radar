@@ -302,7 +302,7 @@ func TestAckResponseAppliesFilters(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(configPath, []byte(`{"linking_mark_prefixes":["RAD"],"github":{"filters":{"mute_repos":["org/noisy"]}}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"linking_mark_prefixes":["XYZ"],"github":{"filters":{"mute_repos":["org/noisy"]}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

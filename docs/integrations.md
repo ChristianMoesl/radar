@@ -28,6 +28,7 @@ Each implemented integration document should answer:
 Implemented integrations:
 
 - [Obsidian task authoring](integrations/obsidian.md)
+- [Workspace reconciliation](workspace-reconciliation.md)
 
 ## Integration boundary
 
@@ -54,6 +55,7 @@ Every integration implements `Integration` by returning a descriptor with its st
 | GitHub | yes | yes | no | yes | no | no | no | no | no | code review |
 | Jira | yes | yes | no | yes | no | no | no | no | no | work tracker |
 | Datadog | yes | yes | no | yes | no | no | no | no | no | — |
+| Workspace | yes | yes | yes | no | no | no | yes | no | no | managed anchor |
 | Git | yes | yes | yes | no | no | no | yes | yes | no | — |
 | tmux | yes | yes | yes | no | no | no | yes | no | yes | — |
 | SBX | yes | yes | yes | no | no | yes | yes | no | no | runtime |
@@ -81,7 +83,7 @@ Every emitted `protocol.SourceRef` must have:
 13. `URL` only when it is directly openable.
 14. `RetainInactive` only when a provider's terminal source facts must remain in done-task history; local/deletable refs leave it false.
 
-Informational refs cannot be busy because their facts do not participate in task projection. Workspace capability is independent of lifecycle and lifecycle authority: a primary work item can also provide its workspace. Git worktrees provide workspaces. Obsidian notes are task records without workspace capability, while tmux sessions and SBX sandboxes consume workspace paths as resources and do not provide them. When Radar creates a workspace from a selected task, the workspace-group registry stores one stable task linking key and Git emits it on the worktree ref. Workspace capability does not emit a signal or change attention by itself.
+Informational refs cannot be busy because their facts do not participate in task projection. Workspace capability is independent of lifecycle and lifecycle authority. A registered Radar anchor provides the logical workspace, including when it has no Git members. Registered Git members link through `workspace-group:<id>` and the persisted task key but do not compete with the anchor as the preferred workspace. Unmanaged Git worktrees continue to provide their own workspace paths. Obsidian notes own work-item lifecycle, while tmux sessions and SBX sandboxes consume anchor paths as resources. Workspace capability does not emit a signal or change attention by itself.
 
 The collector stamps source label and display order from the integration descriptor. Informational refs must not emit signals, busy activity, lifecycle authority, canonical keys, linking keys, or workspace capability. An observation may set `TargetTaskID` to associate such a ref with a stable existing Radar task without turning source metadata into task identity. Do not invent Radar task IDs in integrations or parse another source's IDs or metadata in core state. Keep source-specific behavior tested in the source package.
 
@@ -98,9 +100,9 @@ type CleanupRequest struct {
 }
 ```
 
-The provider owns removal of only its resource type. tmux removes sessions, SBX removes sandboxes, and Git removes worktrees. When the workspace registry proves that Radar manages a worktree, the Git provider also deletes its local branch unless it is a protected default branch. Merely observed worktrees and protected branches are preserved, and remote branches are never deleted. Manual cleanup passes `Force: true` after user confirmation; automatic workspace garbage collection passes `Force: false` and skips managed branches with unpublished commits or an unavailable publication check. Providers that do not have a force concept ignore the option and should treat already-missing resources as cleaned.
+The provider owns removal of only its resource type. tmux removes sessions, SBX removes sandboxes, Git removes worktrees and eligible local branches, and Workspace removes an empty managed anchor. Merely observed worktrees, protected branches, remote branches, and canonical Obsidian notes are preserved. Manual cleanup passes `Force: true` after user confirmation. Automatic garbage collection passes `Force: false` and skips managed branches with unpublished commits or an unavailable publication check.
 
-The active provider order is tmux, SBX, then Git so processes stop before their sandbox and worktree are removed. Do not orchestrate another integration's resources from a provider or from `internal/workspace`.
+The active provider order is tmux, SBX, Git, then Workspace. Processes stop first, members disappear before the anchor, and unknown anchor contents block removal. Do not orchestrate another integration's resources from a provider.
 
 ## Checklist
 

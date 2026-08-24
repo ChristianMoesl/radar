@@ -60,11 +60,11 @@ func TestCollectDevelopmentLinksPreservesPreviousKeysOnFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	value := jiraIssueWithType("RAD-7", "Task", "In Progress")
+	value := jiraIssueWithType("XYZ-7", "Task", "In Progress")
 	value.ID = "10007"
 	previous := []protocol.Task{{SourceRefs: []protocol.SourceRef{{
-		ID: "jira:issue:RAD-7", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative,
-		LinkingKeys: []string{"mark:RAD-7", "github:pr:acme/app:7", "branch:acme/app:feature-work"}, Metadata: map[string]string{"key": "RAD-7"},
+		ID: "jira:issue:XYZ-7", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative,
+		LinkingKeys: []string{"mark:XYZ-7", "github:pr:acme/app:7", "branch:acme/app:feature-work"}, Metadata: map[string]string{"key": "XYZ-7"},
 	}}}}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	result := collectDevelopmentLinks(context.Background(), Config{BaseURL: server.URL}, []issue{value}, previous, logger)
@@ -72,8 +72,8 @@ func TestCollectDevelopmentLinksPreservesPreviousKeysOnFailure(t *testing.T) {
 		t.Fatalf("result = %+v", result)
 	}
 	for _, key := range []string{"github:pr:acme/app:7", "branch:acme/app:feature-work"} {
-		if !slices.Contains(result.LinkingKeysByIssue["RAD-7"], key) {
-			t.Fatalf("linking keys = %+v, want %q", result.LinkingKeysByIssue["RAD-7"], key)
+		if !slices.Contains(result.LinkingKeysByIssue["XYZ-7"], key) {
+			t.Fatalf("linking keys = %+v, want %q", result.LinkingKeysByIssue["XYZ-7"], key)
 		}
 	}
 }

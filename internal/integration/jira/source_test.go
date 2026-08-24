@@ -21,8 +21,8 @@ import (
 )
 
 func TestInformationalIssueSourceRefContract(t *testing.T) {
-	value := jiraIssueWithType("RAD-7", "Epic", "Open")
-	observation := informationalObservation(Config{BaseURL: "https://jira.example.test"}, value, issueMention{Key: "RAD-7", TaskID: 42})
+	value := jiraIssueWithType("XYZ-7", "Epic", "Open")
+	observation := informationalObservation(Config{BaseURL: "https://jira.example.test"}, value, issueMention{Key: "XYZ-7", TaskID: 42})
 	contracttest.AssertValidSourceRefs(t, "jira", []protocol.SourceRef{observation.Ref})
 }
 
@@ -38,7 +38,7 @@ func TestCollectFetchesUnassignedTitleReferenceAsInformational(t *testing.T) {
 		}
 		requests = append(requests, request)
 		if strings.HasPrefix(request.JQL, "key IN") {
-			_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("RAD-7", "Epic", "Open")}})
+			_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("XYZ-7", "Epic", "Open")}})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(searchResponse{})
@@ -46,21 +46,21 @@ func TestCollectFetchesUnassignedTitleReferenceAsInformational(t *testing.T) {
 	defer server.Close()
 	configureJiraSource(t, server.URL, `{}`)
 
-	result := NewSource().Collect(context.Background(), jiraCollectRequest([]protocol.Task{{ID: 42, Title: "Investigate rad-7 rollout"}}))
+	result := NewSource().Collect(context.Background(), jiraCollectRequest([]protocol.Task{{ID: 42, Title: "Investigate xyz-7 rollout"}}))
 	if !result.Complete || len(result.Observations) != 1 {
 		t.Fatalf("result = %+v", result)
 	}
 	got := result.Observations[0]
-	if got.TargetTaskID != 42 || got.Ref.Role != protocol.SourceRefRoleInformational || got.Ref.ID != "jira:mention:42:RAD-7" {
+	if got.TargetTaskID != 42 || got.Ref.Role != protocol.SourceRefRoleInformational || got.Ref.ID != "jira:mention:42:XYZ-7" {
 		t.Fatalf("observation = %+v", got)
 	}
 	if got.Signal != "" || got.Ref.Signal != "" || got.Ref.CanonicalKey != "" || len(got.Ref.LinkingKeys) != 0 {
 		t.Fatalf("informational authority leaked: %+v", got)
 	}
-	if got.Ref.Metadata["issue_type"] != "Epic" || got.Ref.EntityID != "jira:issue:RAD-7" {
+	if got.Ref.Metadata["issue_type"] != "Epic" || got.Ref.EntityID != "jira:issue:XYZ-7" {
 		t.Fatalf("reference = %+v", got.Ref)
 	}
-	if len(requests) != 2 || !containsJQL(requests, `key IN ("RAD-7")`) {
+	if len(requests) != 2 || !containsJQL(requests, `key IN ("XYZ-7")`) {
 		t.Fatalf("requests = %+v", requests)
 	}
 }
@@ -72,7 +72,7 @@ func TestCollectMakesConfiguredTitleReferenceAuthoritative(t *testing.T) {
 			t.Fatal(err)
 		}
 		if strings.HasPrefix(request.JQL, "key IN") {
-			_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("RAD-7", " Service Request ", "In Progress")}})
+			_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("XYZ-7", " Service Request ", "In Progress")}})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(searchResponse{})
@@ -80,7 +80,7 @@ func TestCollectMakesConfiguredTitleReferenceAuthoritative(t *testing.T) {
 	defer server.Close()
 	configureJiraSource(t, server.URL, `{"authoritative_issue_types":["service request"]}`)
 
-	result := NewSource().Collect(context.Background(), jiraCollectRequest([]protocol.Task{{ID: 3, Title: "RAD-7 rollout"}}))
+	result := NewSource().Collect(context.Background(), jiraCollectRequest([]protocol.Task{{ID: 3, Title: "XYZ-7 rollout"}}))
 	if len(result.Observations) != 1 {
 		t.Fatalf("observations = %+v", result.Observations)
 	}
@@ -88,7 +88,7 @@ func TestCollectMakesConfiguredTitleReferenceAuthoritative(t *testing.T) {
 	if got.TargetTaskID != 3 || got.Ref.Role != protocol.SourceRefRoleAuthoritative || got.Signal != integration.SignalInProgress {
 		t.Fatalf("observation = %+v", got)
 	}
-	if got.Ref.CanonicalKey != "jira:issue:RAD-7" || len(got.Ref.LinkingKeys) != 1 || got.Ref.LinkingKeys[0] != "mark:RAD-7" {
+	if got.Ref.CanonicalKey != "jira:issue:XYZ-7" || len(got.Ref.LinkingKeys) != 1 || got.Ref.LinkingKeys[0] != "mark:XYZ-7" {
 		t.Fatalf("linking = %+v", got.Ref)
 	}
 }
@@ -101,16 +101,16 @@ func TestCollectDeduplicatesAssignedTitleReference(t *testing.T) {
 			t.Fatal(err)
 		}
 		requests = append(requests, request)
-		_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("RAD-7", "Task", "Open")}})
+		_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("XYZ-7", "Task", "Open")}})
 	})
 	defer server.Close()
 	configureJiraSource(t, server.URL, `{}`)
 
-	result := NewSource().Collect(context.Background(), jiraCollectRequest([]protocol.Task{{ID: 5, Title: "RAD-7 rollout"}}))
+	result := NewSource().Collect(context.Background(), jiraCollectRequest([]protocol.Task{{ID: 5, Title: "XYZ-7 rollout"}}))
 	if len(result.Observations) != 1 || result.Observations[0].TargetTaskID != 5 {
 		t.Fatalf("observations = %+v", result.Observations)
 	}
-	if len(requests) != 2 || !containsJQL(requests, `key IN ("RAD-7")`) {
+	if len(requests) != 2 || !containsJQL(requests, `key IN ("XYZ-7")`) {
 		t.Fatalf("requests = %+v, want assigned and batched title searches", requests)
 	}
 }
@@ -122,25 +122,25 @@ func TestCollectKeepsOtherReferencesAndPreviousMissingReference(t *testing.T) {
 			t.Fatal(err)
 		}
 		if strings.HasPrefix(request.JQL, "key IN") {
-			_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("RAD-2", "Epic", "Open")}})
+			_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("XYZ-2", "Epic", "Open")}})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(searchResponse{})
 	})
 	defer server.Close()
 	configureJiraSource(t, server.URL, `{}`)
-	previousRef := protocol.SourceRef{ID: "jira:mention:9:RAD-1", EntityID: "jira:issue:RAD-1", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleInformational, Title: "RAD-1 Existing", Metadata: map[string]string{"key": "RAD-1"}}
-	previous := []protocol.Task{{ID: 9, Title: "Compare RAD-1 and RAD-2", SourceRefs: []protocol.SourceRef{previousRef}}}
+	previousRef := protocol.SourceRef{ID: "jira:mention:9:XYZ-1", EntityID: "jira:issue:XYZ-1", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleInformational, Title: "XYZ-1 Existing", Metadata: map[string]string{"key": "XYZ-1"}}
+	previous := []protocol.Task{{ID: 9, Title: "Compare XYZ-1 and XYZ-2", SourceRefs: []protocol.SourceRef{previousRef}}}
 
 	result := NewSource().Collect(context.Background(), jiraCollectRequest(previous))
 	if result.Complete || result.SourceStatus.Status != "error" || !strings.Contains(result.SourceStatus.Detail, "1 title references unavailable") {
 		t.Fatalf("result = %+v", result)
 	}
 	if len(result.Observations) != 2 {
-		t.Fatalf("observations = %+v, want RAD-2 and preserved RAD-1", result.Observations)
+		t.Fatalf("observations = %+v, want XYZ-2 and preserved XYZ-1", result.Observations)
 	}
 	ids := []string{result.Observations[0].Ref.ID, result.Observations[1].Ref.ID}
-	if !contains(ids, "jira:mention:9:RAD-1") || !contains(ids, "jira:mention:9:RAD-2") {
+	if !contains(ids, "jira:mention:9:XYZ-1") || !contains(ids, "jira:mention:9:XYZ-2") {
 		t.Fatalf("observation IDs = %+v", ids)
 	}
 }
@@ -157,7 +157,7 @@ func TestCollectBoundsTitleReferenceFetches(t *testing.T) {
 			return
 		}
 		for i := 1; i <= maxTitleDiscoveredIssues; i++ {
-			requestedKeys = append(requestedKeys, "RAD-"+strconv.Itoa(i))
+			requestedKeys = append(requestedKeys, "XYZ-"+strconv.Itoa(i))
 		}
 		issues := make([]issue, 0, len(requestedKeys))
 		for _, key := range requestedKeys {
@@ -169,32 +169,32 @@ func TestCollectBoundsTitleReferenceFetches(t *testing.T) {
 	configureJiraSource(t, server.URL, `{"authoritative_issue_types":[]}`)
 	titles := make([]string, 0, maxTitleDiscoveredIssues+1)
 	for i := 1; i <= maxTitleDiscoveredIssues+1; i++ {
-		titles = append(titles, "RAD-"+strconv.Itoa(i))
+		titles = append(titles, "XYZ-"+strconv.Itoa(i))
 	}
 
 	result := NewSource().Collect(context.Background(), jiraCollectRequest([]protocol.Task{{ID: 1, Title: strings.Join(titles, " ")}}))
 	if result.Complete || len(requestedKeys) != maxTitleDiscoveredIssues || len(result.Observations) != maxTitleDiscoveredIssues {
 		t.Fatalf("requested=%d observations=%d result=%+v", len(requestedKeys), len(result.Observations), result)
 	}
-	if requestedKeys[0] != "RAD-1" || requestedKeys[len(requestedKeys)-1] != "RAD-50" || !strings.Contains(result.SourceStatus.Detail, "truncated") {
+	if requestedKeys[0] != "XYZ-1" || requestedKeys[len(requestedKeys)-1] != "XYZ-50" || !strings.Contains(result.SourceStatus.Detail, "truncated") {
 		t.Fatalf("request bounds/status = %+v / %+v", requestedKeys, result.SourceStatus)
 	}
 }
 
 func TestDiscoverIssueMentionsUsesSourceTitlesAndStableOrder(t *testing.T) {
 	tasks := []protocol.Task{{
-		ID: 12, Title: "Compare RAD-2 then RAD-1",
+		ID: 12, Title: "Compare XYZ-2 then XYZ-1",
 		SourceRefs: []protocol.SourceRef{
-			{Source: "jira", Kind: "issue", Title: "RAD-99 Jira supplied"},
-			{Source: "github", Kind: "pull_request", Title: "Also RAD-3"},
+			{Source: "jira", Kind: "issue", Title: "XYZ-99 Jira supplied"},
+			{Source: "github", Kind: "pull_request", Title: "Also XYZ-3"},
 		},
 	}}
-	mentions := discoverIssueMentions(tasks, linking.NewMarkMatcher([]string{"RAD"}))
+	mentions := discoverIssueMentions(tasks, linking.NewMarkMatcher([]string{"XYZ"}))
 	keys := make([]string, 0, len(mentions))
 	for _, mention := range mentions {
 		keys = append(keys, mention.Key)
 	}
-	if !reflect.DeepEqual(keys, []string{"RAD-2", "RAD-1", "RAD-3"}) {
+	if !reflect.DeepEqual(keys, []string{"XYZ-2", "XYZ-1", "XYZ-3"}) {
 		t.Fatalf("keys = %+v", keys)
 	}
 }
@@ -219,14 +219,14 @@ func configureJiraSource(t *testing.T, apiURL, jiraJSON string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"],"jira":`+jiraJSON+`}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"jira":`+jiraJSON+`}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func jiraCollectRequest(previous []protocol.Task) integration.CollectRequest {
 	return integration.CollectRequest{
-		Previous: previous, LinkingMarks: linking.NewMarkMatcher([]string{"RAD"}),
+		Previous: previous, LinkingMarks: linking.NewMarkMatcher([]string{"XYZ"}),
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }

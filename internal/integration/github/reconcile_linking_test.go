@@ -34,7 +34,8 @@ func TestReconciledSameRepositoryWorktreeLinksExistingGitHubPullRequestToWorkspa
 	sources := filepath.Join(tmp, "sources")
 	workspaceRoot := filepath.Join(tmp, "workspaces")
 	primaryRepo := filepath.Join(sources, "primary")
-	primaryPath := filepath.Join(workspaceRoot, "primary--work")
+	anchor := filepath.Join(workspaceRoot, "work")
+	primaryPath := filepath.Join(anchor, "primary--work")
 
 	initLinkingRepository(t, ctx, primaryRepo, "https://github.com/acme/primary.git")
 	runLinkingGit(t, ctx, primaryRepo, "branch", "feature/api")
@@ -44,8 +45,8 @@ func TestReconciledSameRepositoryWorktreeLinksExistingGitHubPullRequestToWorkspa
 	runLinkingGit(t, ctx, primaryRepo, "worktree", "add", "-b", "work", primaryPath, "HEAD")
 
 	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(primaryPath), Name: "work", PrimaryPath: primaryPath,
-		Members: []workspacegroup.Member{{Repository: primaryRepo, Path: primaryPath, Branch: "work", Primary: true, SetupScheduled: true}},
+		ID: workspacegroup.ID(anchor), Name: "work", Path: anchor,
+		Members: []workspacegroup.Member{{Repository: primaryRepo, Path: primaryPath, Branch: "work", SetupScheduled: true}},
 	}
 	if err := workspacegroup.Save(workspaceRoot, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
 		t.Fatal(err)
@@ -55,7 +56,7 @@ func TestReconciledSameRepositoryWorktreeLinksExistingGitHubPullRequestToWorkspa
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	config := `{"linking_mark_prefixes":["RAD"],"workspace_root":"` + workspaceRoot + `","repository_dirs":["` + sources + `"]}`
+	config := `{"linking_mark_prefixes":["XYZ"],"workspace_root":"` + workspaceRoot + `","repository_dirs":["` + sources + `"]}`
 	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestReconciledSameRepositoryWorktreeLinksExistingGitHubPullRequestToWorkspa
 		t.Fatal(err)
 	}
 	pr := githubPullRequestRef("github:pr:acme/primary:7", "acme/primary", 7, "Feature without ticket", "https://github.com/acme/primary/pull/7", "open PR", "feature/api")
-	initialWorktrees, status := gitsource.FetchWorktrees(ctx, logger, linking.NewMarkMatcher([]string{"RAD"}))
+	initialWorktrees, status := gitsource.FetchWorktrees(ctx, logger, linking.NewMarkMatcher([]string{"XYZ"}))
 	if status.Status != "ok" || len(initialWorktrees) != 1 {
 		t.Fatalf("initial worktrees=%+v status=%+v", initialWorktrees, status)
 	}
@@ -104,7 +105,7 @@ func TestReconciledSameRepositoryWorktreeLinksExistingGitHubPullRequestToWorkspa
 		t.Fatalf("reconciliation result=%+v", result)
 	}
 
-	refreshedWorktrees, status := gitsource.FetchWorktrees(ctx, logger, linking.NewMarkMatcher([]string{"RAD"}))
+	refreshedWorktrees, status := gitsource.FetchWorktrees(ctx, logger, linking.NewMarkMatcher([]string{"XYZ"}))
 	if status.Status != "ok" || len(refreshedWorktrees) != 2 {
 		t.Fatalf("refreshed worktrees=%+v status=%+v", refreshedWorktrees, status)
 	}
@@ -130,13 +131,13 @@ func TestReconciledSameRepositoryWorktreeLinksExistingGitHubPullRequestToWorkspa
 
 func TestApplyLinkingMarksDoesNotInspectPullRequestBody(t *testing.T) {
 	ref := githubPullRequestRef("github:pr:acme/app:7", "acme/app", 7, "Update documentation", "https://github.com/acme/app/pull/7", "open PR", "docs")
-	ref.Metadata = map[string]string{"body": "Related to PR RAD-123"}
+	ref.Metadata = map[string]string{"body": "Related to PR XYZ-123"}
 	tasks := []protocol.Task{{SourceRefs: []protocol.SourceRef{ref}}}
 
-	applyLinkingMarks(tasks, linking.NewMarkMatcher([]string{"RAD"}))
+	applyLinkingMarks(tasks, linking.NewMarkMatcher([]string{"XYZ"}))
 
 	for _, key := range tasks[0].SourceRefs[0].LinkingKeys {
-		if key == "mark:RAD-123" {
+		if key == "mark:XYZ-123" {
 			t.Fatalf("PR body unexpectedly contributed linking key: %+v", tasks[0].SourceRefs[0].LinkingKeys)
 		}
 	}

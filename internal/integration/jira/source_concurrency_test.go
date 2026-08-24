@@ -25,7 +25,7 @@ func TestCollectRunsAssignedAndTitleSearchesConcurrently(t *testing.T) {
 
 	resultCh := make(chan struct{}, 1)
 	go func() {
-		NewSource().Collect(context.Background(), jiraCollectRequest([]protocol.Task{{ID: 1, Title: "RAD-7 rollout"}}))
+		NewSource().Collect(context.Background(), jiraCollectRequest([]protocol.Task{{ID: 1, Title: "XYZ-7 rollout"}}))
 		resultCh <- struct{}{}
 	}()
 

@@ -8,14 +8,24 @@ import (
 
 func TestWorkspaceCandidateIgnoresInformationalReference(t *testing.T) {
 	task := protocol.Task{SourceRefs: []protocol.SourceRef{{
-		ID: "jira:mention:1:RAD-7", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleInformational,
-		Title: "RAD-7 Informational",
+		ID: "jira:mention:1:XYZ-7", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleInformational,
+		Title: "XYZ-7 Informational",
 	}}}
 	if _, ok := WorkspaceCandidate(task); ok {
 		t.Fatal("WorkspaceCandidate() returned informational reference")
 	}
 	if got := WorkspaceName(protocol.Task{Title: "Manual title", SourceRefs: task.SourceRefs}); got != "Manual title" {
 		t.Fatalf("WorkspaceName() = %q, want manual title", got)
+	}
+}
+
+func TestTaskCursorMatchesRegisteredWorkspaceAnchor(t *testing.T) {
+	tasks := []protocol.Task{{SourceRefs: []protocol.SourceRef{{
+		ID: "workspace:one", Source: "workspace", Kind: "workspace", Path: "/work/plan", ProvidesWorkspace: true,
+	}}}}
+	index, found := TaskCursorForCurrent(tasks, protocol.CurrentContext{CWD: "/work/plan"})
+	if !found || index != 0 {
+		t.Fatalf("TaskCursorForCurrent() = %d, %v", index, found)
 	}
 }
 

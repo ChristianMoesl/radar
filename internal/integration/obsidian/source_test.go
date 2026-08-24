@@ -29,12 +29,6 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	notePath := filepath.Join(vault, "Tasks", title+".md")
-	info, err := os.Stat(notePath)
-	if err != nil || !info.Mode().IsRegular() {
-		t.Fatalf("task note info = %+v, err=%v", info, err)
-	}
-
 	result := source.Collect(context.Background(), integration.CollectRequest{})
 	if !result.Complete || result.SourceStatus == nil || result.SourceStatus.Status != "ok" || len(result.Observations) != 1 {
 		t.Fatalf("collection = %+v", result)
@@ -44,7 +38,12 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	if taskRef.ID != identity.SourceRefID || taskRef.Authority != protocol.SourceRefAuthorityPrimary || taskRef.Lifecycle != protocol.SourceRefLifecycleWorkItem || taskRef.Signal != "" || !strings.HasPrefix(taskRef.URL, "obsidian://open?") {
 		t.Fatalf("task ref = %+v", taskRef)
 	}
-	if taskRef.Title != title || taskRef.Presentation.WorkspaceName != title || taskRef.Path != "" || taskRef.ProvidesWorkspace || len(taskRef.LinkingKeys) != 1 || taskRef.LinkingKeys[0] != identity.SourceRefID || taskRef.Metadata["note_path"] != notePath {
+	notePath := taskRef.Metadata["note_path"]
+	info, err := os.Stat(notePath)
+	if err != nil || !info.Mode().IsRegular() || filepath.Base(filepath.Dir(notePath)) != taskDirectoryName(title, taskRef.Metadata["radar_id"]) {
+		t.Fatalf("task note info = %+v, path=%s, err=%v", info, notePath, err)
+	}
+	if taskRef.Title != title || taskRef.Presentation.WorkspaceName != title || taskRef.Path != "" || taskRef.ProvidesWorkspace || len(taskRef.LinkingKeys) != 1 || taskRef.LinkingKeys[0] != identity.SourceRefID || taskRef.Metadata["task_directory"] != filepath.Dir(notePath) {
 		t.Fatalf("task note ref = %+v", taskRef)
 	}
 	if result.Observations[0].Signal != integration.SignalLowPriority {
@@ -54,8 +53,8 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(content), "radar-title:") {
-		t.Fatalf("task note contains redundant title frontmatter:\n%s", content)
+	if strings.Contains(string(content), "radar-title:") || !strings.HasSuffix(string(content), "radar-completed-at:\n---\n") {
+		t.Fatalf("task note must contain managed frontmatter and an empty body:\n%s", content)
 	}
 	updated := strings.Replace(string(content), "radar-completed-at:\n---", "radar-completed-at:\ncustom-owner: Christian\n---", 1) + "\nUser body stays.\n"
 	if err := os.WriteFile(notePath, []byte(updated), 0o644); err != nil {
@@ -128,7 +127,11 @@ func TestMalformedAndDuplicateNotesArePartialAndPreserveKnownRefs(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	duplicatePath := filepath.Join(taskRoot(vault), "Duplicate title.md")
+	duplicateDirectory := filepath.Join(taskRoot(vault), "Duplicate title--"+shortID(strings.TrimPrefix(identity.SourceRefID, "obsidian:task:")))
+	if err := os.Mkdir(duplicateDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	duplicatePath := filepath.Join(duplicateDirectory, "Duplicate title.md")
 	if err := os.WriteFile(duplicatePath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +143,7 @@ func TestMalformedAndDuplicateNotesArePartialAndPreserveKnownRefs(t *testing.T) 
 		t.Fatalf("preserved observations = %+v", result.Observations)
 	}
 
-	if err := os.Remove(duplicatePath); err != nil {
+	if err := os.RemoveAll(duplicateDirectory); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(notePath, []byte("---\nradar-id: broken\n---\nsecret body"), 0o644); err != nil {
@@ -168,7 +171,7 @@ func TestRenameKeepsIdentityAndChangesTitle(t *testing.T) {
 	}
 	oldPath := first.Observations[0].Ref.Metadata["note_path"]
 	oldURL := first.Observations[0].Ref.URL
-	newPath := filepath.Join(taskRoot(vault), "Renamed task.md")
+	newPath := filepath.Join(filepath.Dir(oldPath), "Renamed task.md")
 	if err := os.Rename(oldPath, newPath); err != nil {
 		t.Fatal(err)
 	}
@@ -184,12 +187,12 @@ func TestRenameKeepsIdentityAndChangesTitle(t *testing.T) {
 		t.Fatal(err)
 	}
 	deleted := source.Collect(context.Background(), integration.CollectRequest{Previous: observationsAsTasks(moved.Observations)})
-	if !deleted.Complete || len(deleted.Observations) != 0 {
+	if deleted.Complete || deleted.SourceStatus.Status != "partial" || len(deleted.Observations) != 1 {
 		t.Fatalf("deleted collection = %+v", deleted)
 	}
 }
 
-func TestNestedTaskNotesAreIgnored(t *testing.T) {
+func TestMalformedTaskDirectoriesArePartial(t *testing.T) {
 	vault := testVault(t)
 	source := NewSourceAt(vault)
 	nested := filepath.Join(taskRoot(vault), "legacy")
@@ -200,8 +203,8 @@ func TestNestedTaskNotesAreIgnored(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := source.Collect(context.Background(), integration.CollectRequest{})
-	if !result.Complete || len(result.Observations) != 0 {
-		t.Fatalf("nested note collection = %+v", result)
+	if result.Complete || result.SourceStatus.Status != "partial" || len(result.Observations) != 0 {
+		t.Fatalf("malformed directory collection = %+v", result)
 	}
 }
 

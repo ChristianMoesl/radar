@@ -10,14 +10,14 @@ import (
 func TestTaskFromObservationProjectsStandaloneSourceRef(t *testing.T) {
 	got := taskFromObservation(integration.Observation{
 		Ref: protocol.SourceRef{
-			ID:           "jira:issue:RAD-123",
+			ID:           "jira:issue:XYZ-123",
 			Busy:         true,
 			Source:       "jira",
 			Kind:         "issue",
-			Title:        "RAD-123 Ship integration boundary",
-			URL:          "https://jira.example.test/browse/RAD-123",
-			CanonicalKey: "jira:issue:RAD-123",
-			LinkingKeys:  []string{"mark:RAD-123"},
+			Title:        "XYZ-123 Ship integration boundary",
+			URL:          "https://jira.example.test/browse/XYZ-123",
+			CanonicalKey: "jira:issue:XYZ-123",
+			LinkingKeys:  []string{"mark:XYZ-123"},
 		},
 		TargetTaskID: 42,
 		Signal:       integration.SignalInProgress,
@@ -26,7 +26,7 @@ func TestTaskFromObservationProjectsStandaloneSourceRef(t *testing.T) {
 	if got.Kind != "jira_issue" || got.Attention != "in_progress" || got.Reason != "jira issue" {
 		t.Fatalf("task = %+v, want jira in-progress projection", got)
 	}
-	if len(got.SourceRefs) != 1 || got.SourceRefs[0].ID != "jira:issue:RAD-123" {
+	if len(got.SourceRefs) != 1 || got.SourceRefs[0].ID != "jira:issue:XYZ-123" {
 		t.Fatalf("source refs = %+v, want jira source ref", got.SourceRefs)
 	}
 	if got.TargetTaskID != 42 {

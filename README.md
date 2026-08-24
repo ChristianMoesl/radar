@@ -121,41 +121,52 @@ Open the interactive workspace creation flow:
 radar create
 ```
 
-Create a workspace non-interactively:
+Create a Git-first workspace non-interactively:
 
 ```sh
 radar create --repo /path/to/repo --base origin/main --name my-feature
 ```
 
-For a new branch, Radar creates:
+Radar creates one stable anchor with nested worktree members:
 
-- a Git worktree at `<workspace_root>/<repo>--<name>`
-- a sanitized branch named after the workspace
-- files copied from the source repo when configured
-- setup commands run in the new worktree when configured
-- a matching tmux session
-- user-configured tmux windows and panes; by default, separate `pi` and `nvim` windows
-
-A Radar workspace is one logical bundle: one primary Git worktree, optional member worktrees from other repositories, one tmux session, and at most one SBX sandbox. Radar stores this durable membership in `<workspace_root>/.radar-workspaces.json`; `radar reset` does not remove it.
-
-Every Pi process started by Radar receives the embedded `radar_reconcile_workspace` tool. The agent first calls `radar_workspace_context`, copies its revision and complete `desired` description, changes only the requested resources, and submits the result. Radar validates the difference and fails closed unless the user confirms one consolidated plan through Pi's UI.
-
-The desired description contains the complete worktree set and either optional sandbox additional-mount and port sets or `sandbox: null`. Omitted member worktrees, requested mounts, and ports are removals. Removing a clean member worktree also deletes its local branch after the confirmation plan warns about unpublished commits or a failed origin refresh. Protected default branches are preserved. Remote branches remain untouched. Radar-managed mounts for worktrees, Git metadata, and configured `sbx.additional_mounts` remain derived and cannot be removed through this API. The primary worktree and sandbox attachment cannot be removed through reconciliation, and dirty member worktrees fail closed. Ports are TCP4 and bind only on host IPv4 loopback through SBX; existing dual-stack bindings are replaced during reconciliation. Mounts default to read-only when `read_only` is omitted. Sandbox resources are only accepted when the workspace already has a sandbox. Worktree reconciliation remains fully available when SBX is disabled or unavailable for that workspace.
-
-Two read-oriented host tools support discovery from an SBX-isolated Pi session. `radar_workspace_context` reports the revision, capabilities, desired state, current resources, and repositories discovered through `repository_dirs`; `radar_repository_refs` tries to refresh one selected repository and reports canonical local/origin branches, valid base refs, and existing checkout paths. When the fetch fails, it returns cached refs and a warning.
-
-The same operations are scriptable. Apply needs no extra prompt because invoking the CLI is already explicit:
-
-```sh
-radar workspace-context --workspace /path/to/current/worktree
-radar repository-refs --repo /path/to/other-repo
-radar reconcile-workspace --workspace /path/to/current/worktree --request "$request" --preview
-radar reconcile-workspace --workspace /path/to/current/worktree --request "$request"
+```text
+<workspace_root>/my-feature/
+└── repository--my-feature/
 ```
 
-The request JSON has the shape `{"revision":"<context revision>","desired":<context desired state>}`. Add a worktree by appending either `{"repository":"/repo","branch_mode":"new","name":"feature","base":"origin/main"}` or `{"repository":"/repo","branch_mode":"existing","branch":"feature"}` to `desired.worktrees`. For a sandboxed workspace, replace `desired.sandbox.additional_mounts` with entries such as `{"path":"/absolute/host/path","read_only":true}` and `desired.sandbox.ports` with entries such as `{"host_port":3000,"sandbox_port":3000}`. Keep `desired.sandbox` as `null` for a workspace without SBX.
+Pi, tmux, nvim, and optional SBX start in the anchor. Repo-specific copy and setup rules run in the member. Additional members become siblings and no member is primary.
 
-`--workspace` defaults to the process working directory. Preview and apply return JSON. Repeating the same desired state is safe: Radar observes current worktrees, sandbox mounts, and published ports and converges after retryable partial failures.
+An Obsidian-only task opens without repository selection:
+
+```text
+<workspace_root>/plan-authentication/
+└── note.md -> <vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
+```
+
+The note body starts empty. The same Pi session remains active while the task moves between planning and zero or more Git members.
+
+Radar stores every workspace record in the single `<workspace_root>/.radar-workspaces.json` registry. `radar reset` does not remove it. The current registry schema rejects old primary-worktree records rather than migrating them implicitly.
+
+Every Radar-started Pi receives three host tools:
+
+- `radar_workspace_context` resolves the current anchor or member and returns its revision, complete desired state, note metadata, member status, sandbox resources, and discovered repositories.
+- `radar_repository_refs` refreshes one selected repository when possible and returns canonical branches, base refs, and checkout paths.
+- `radar_reconcile_workspace` previews, confirms, and applies complete worktree, requested-mount, and port state.
+
+The context tool returns only the current logical workspace, not all registry records. It never returns note contents.
+
+Desired worktrees use replacement semantics. `worktrees: []` is valid. Omitting a clean member removes its worktree and eligible local branch while leaving the anchor, note, and Pi session intact. Dirty removals fail closed. Protected default branches and all remote branches remain untouched. Sandbox state must stay `null` for a sandbox-less workspace, and ordinary reconciliation cannot enable or remove SBX.
+
+The same operations are scriptable:
+
+```sh
+radar workspace-context --workspace /path/to/workspace-or-member
+radar repository-refs --repo /path/to/source-repository
+radar reconcile-workspace --workspace /path/to/workspace-or-member --request "$request" --preview
+radar reconcile-workspace --workspace /path/to/workspace-or-member --request "$request"
+```
+
+The request is `{"revision":"<context revision>","desired":<context desired state>}`. Append either `{"repository":"/repo","branch_mode":"new","name":"feature","base":"origin/main"}` or `{"repository":"/repo","branch_mode":"existing","branch":"feature"}` to add a member. Requested mounts default to read-only. Ports bind TCP4 on host IPv4 loopback.
 
 For an existing branch, Radar reuses its local branch or creates a same-named local branch that tracks `origin/<branch>`. Standalone workspace creation defaults the workspace name to the branch. Creation from a selected task keeps the task-derived workspace name, so sequential tasks can each use a shared branch such as `main` after the previous workspace is cleaned up. A branch already checked out in a Radar workspace reopens that workspace; Radar rejects attaching it to a different task until the existing workspace is cleaned up. To keep a normal source checkout for `.env` files, local services, and database setup while making `main` available to a Radar worktree, park the clean source checkout on the remote-tracking commit:
 
@@ -182,7 +193,7 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 }
 ```
 
-`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree in a temporary setup window after tmux and any sandbox are available. Without sandboxing they run on the host. On macOS, when `sbx.enabled` is true, Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The sandbox mounts every member worktree, each external writable Git common directory, and global and repository `sbx.additional_mounts`. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's regular tools through `sbx exec`. Radar separately injects its own host-side Pi extension for workspace reconciliation; users do not install a Radar Pi package. Install `pi-sbx` with `pi install git:github.com/ChristianMoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree in a temporary setup window after tmux and any sandbox are available. Without sandboxing they run on the host. On macOS, when `sbx.enabled` is true, Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The sandbox mounts the anchor, the private task directory when present, each distinct external writable Git common directory, and global and repository `sbx.additional_mounts`. Nested members are already visible through the anchor. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's regular tools through `sbx exec`. Radar separately injects its own host-side Pi extension for workspace reconciliation; users do not install a Radar Pi package. Install `pi-sbx` with `pi install git:github.com/ChristianMoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
 
 Changing the worktree membership or requested additional mounts of a sandboxed workspace reconciles the complete mount set by removing and recreating the sandbox under the same name. This interrupts processes inside the sandbox, so the Pi tool warns before confirmation. Radar waits for removal to converge and retries transient SBX container-start failures up to three times with bounded backoff and cleanup between attempts. Plans show the effective mount count and warn at 20 or more mounts without enforcing a limit. Radar then reconciles the complete desired loopback port set with `sbx ports`. If reconciliation fails, Radar keeps completed work and desired registry state and returns `ok: false` with `retryable: true`; the Pi tool reports completed work and asks the agent to re-inspect before retrying. Reconciliation phases and counts are recorded at `radar log-path` without logging complete mount commands.
 
@@ -198,7 +209,7 @@ Enable sandboxes by default, select the kit, and mount additional host directori
 }
 ```
 
-A repository's `.radar.json` can use the same `sbx` fields. Repository `enabled` and `kit` values override the user settings; repository additional mounts are appended to the global list. `kit.name` defaults to `shell`; when optional `kit.path` is set, Radar expands a leading `~/` and passes it as `--kit <path>`. Additional-mount paths must be absolute or start with `~/`; Radar expands `~` and creates missing directories before starting SBX. Empty entries and duplicate paths are ignored, and the workspace remains the primary mount.
+A repository's `.radar.json` can use the same `sbx` fields. Repository `enabled` and `kit` values override the user settings; repository additional mounts are appended to the global list. `kit.name` defaults to `shell`; when optional `kit.path` is set, Radar expands a leading `~/` and passes it as `--kit <path>`. Additional-mount paths must be absolute or start with `~/`; Radar expands `~` and creates missing directories before starting SBX. Empty, duplicate, and redundant child entries are ignored, and the anchor remains the primary mount.
 
 Configure workspace windows, panes, layouts, and commands in the user config:
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"radar/internal/integration"
+	"radar/internal/workspacegroup"
 )
 
 func TestCreateWorkspaceReusesExistingLocalBranchE2E(t *testing.T) {
@@ -53,7 +54,7 @@ func TestCreateWorkspaceReusesExistingLocalBranchE2E(t *testing.T) {
 	if _, err := os.Stat(created.Path); err != nil {
 		t.Fatalf("created path missing: %v", err)
 	}
-	branch := strings.TrimSpace(gitOutputE2E(t, ctx, created.Path, "branch", "--show-current"))
+	branch := strings.TrimSpace(gitOutputE2E(t, ctx, createdMemberPath(t, root, created.Path), "branch", "--show-current"))
 	if branch != "chore/install-helper-binaries" {
 		t.Fatalf("worktree branch = %q", branch)
 	}
@@ -88,21 +89,35 @@ func TestCreateWorkspaceChecksOutMainFromDetachedSourceE2E(t *testing.T) {
 	runGitE2E(t, ctx, repo, "branch", "-M", "main")
 	runGitE2E(t, ctx, repo, "switch", "--detach")
 
+	root := filepath.Join(tmp, "workspaces")
 	created, err := Create(ctx, ExecRunner{}, CreateOptions{
 		Repo:          repo,
 		BranchMode:    integration.WorkspaceBranchExisting,
 		Branch:        "main",
-		WorkspaceRoot: filepath.Join(tmp, "workspaces"),
+		WorkspaceRoot: root,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if branch := strings.TrimSpace(gitOutputE2E(t, ctx, created.Path, "branch", "--show-current")); branch != "main" {
+	if branch := strings.TrimSpace(gitOutputE2E(t, ctx, createdMemberPath(t, root, created.Path), "branch", "--show-current")); branch != "main" {
 		t.Fatalf("workspace branch = %q, want main", branch)
 	}
 	if branch := strings.TrimSpace(gitOutputE2E(t, ctx, repo, "branch", "--show-current")); branch != "" {
 		t.Fatalf("source branch = %q, want detached", branch)
 	}
+}
+
+func createdMemberPath(t *testing.T, root, anchor string) string {
+	t.Helper()
+	registry, err := workspacegroup.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, found := workspacegroup.FindByContainingPath(registry, anchor)
+	if !found || len(group.Members) != 1 {
+		t.Fatalf("workspace = %+v, found=%v", group, found)
+	}
+	return group.Members[0].Path
 }
 
 func installCreateWorkspaceFakeTools(t *testing.T, tmp string, logPath string) {

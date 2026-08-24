@@ -14,6 +14,59 @@ import (
 	"radar/internal/workspacegroup"
 )
 
+func TestNoteWorkspaceSandboxSymlinkE2E(t *testing.T) {
+	if os.Getenv("RADAR_SBX_E2E") != "1" {
+		t.Skip("set RADAR_SBX_E2E=1 to run SBX E2E tests")
+	}
+	if runtime.GOOS != "darwin" {
+		t.Skip("SBX workspace tests require macOS")
+	}
+	if _, err := exec.LookPath("sbx"); err != nil {
+		t.Skip("sbx not found")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	runner := ExecRunner{}
+	root := t.TempDir()
+	anchor := filepath.Join(root, "workspace")
+	vaultTasks := filepath.Join(root, "vault", "Tasks")
+	taskDirectory := filepath.Join(vaultTasks, "Plan--12345678")
+	siblingDirectory := filepath.Join(vaultTasks, "Other--87654321")
+	for _, directory := range []string{anchor, taskDirectory, siblingDirectory} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	note := filepath.Join(taskDirectory, "Plan.md")
+	sibling := filepath.Join(siblingDirectory, "Other.md")
+	if err := os.WriteFile(note, []byte("original\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sibling, []byte("private\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(note, filepath.Join(anchor, "note.md")); err != nil {
+		t.Fatal(err)
+	}
+	name := fmt.Sprintf("radar-note-e2e-%d-%d", os.Getpid(), time.Now().UnixNano())
+	if _, err := startSandboxWithMounts(ctx, runner, anchor, name, SandboxKitConfig{Name: "shell"}, []string{anchor, taskDirectory}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cleanupCancel()
+		_, _ = stopSandbox(cleanupCtx, runner, anchor, name)
+	})
+	if output := runSbxE2E(t, ctx, runner, name, "cat", filepath.Join(anchor, "note.md")); output != "original" {
+		t.Fatalf("sandbox note = %q", output)
+	}
+	runSbxE2E(t, ctx, runner, name, "sh", "-lc", "printf 'changed\\n' > "+shellQuote(filepath.Join(anchor, "note.md")))
+	if data, err := os.ReadFile(note); err != nil || string(data) != "changed\n" {
+		t.Fatalf("host note = %q, err=%v", data, err)
+	}
+	runSbxE2E(t, ctx, runner, name, "sh", "-lc", "test ! -e "+shellQuote(sibling))
+}
+
 func TestReconcileAdditionalSandboxMountReadOnlyE2E(t *testing.T) {
 	ctx, runner, root, primary, sandboxName := setupSandboxMountE2E(t)
 	mount := filepath.Join(t.TempDir(), "read-only")
@@ -95,26 +148,27 @@ func setupSandboxMountE2E(t *testing.T) (context.Context, ExecRunner, string, st
 	root := filepath.Join(tmp, "workspaces")
 	repository := filepath.Join(tmp, "source")
 	initRepository(t, ctx, repository)
-	primary := filepath.Join(root, "repo--work")
+	anchor := filepath.Join(root, "work")
+	primary := filepath.Join(anchor, "repo--sbx-e2e")
 	runGitE2E(t, ctx, repository, "worktree", "add", "-b", "sbx-e2e", primary, "HEAD")
 	common := filepath.Join(repository, ".git")
 	sandboxName := fmt.Sprintf("radar-mount-e2e-%d-%d", os.Getpid(), time.Now().UnixNano())
 
-	if _, err := runner.Run(ctx, primary, "sbx", "create", "--name", sandboxName, "shell", primary, common); err != nil {
+	if _, err := runner.Run(ctx, anchor, "sbx", "create", "--name", sandboxName, "shell", anchor, common); err != nil {
 		t.Fatalf("create SBX sandbox: %v", err)
 	}
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cleanupCancel()
-		if _, err := stopSandbox(cleanupCtx, runner, primary, sandboxName); err != nil {
+		if _, err := stopSandbox(cleanupCtx, runner, anchor, sandboxName); err != nil {
 			t.Errorf("remove SBX sandbox %s: %v", sandboxName, err)
 		}
 	})
 
 	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(primary), Name: "work", PrimaryPath: primary,
-		Sandbox: &workspacegroup.Sandbox{Name: sandboxName, Agent: "shell", Mounts: []string{primary, common}},
-		Members: []workspacegroup.Member{{Repository: repository, Path: primary, Branch: "sbx-e2e", Primary: true, SetupScheduled: true}},
+		ID: workspacegroup.ID(anchor), Name: "work", Path: anchor,
+		Sandbox: &workspacegroup.Sandbox{Name: sandboxName, Agent: "shell", Mounts: []string{anchor, common}},
+		Members: []workspacegroup.Member{{Repository: repository, Path: primary, Branch: "sbx-e2e", SetupScheduled: true}},
 	}
 	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
 		t.Fatal(err)

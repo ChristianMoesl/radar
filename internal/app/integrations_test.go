@@ -9,7 +9,7 @@ func TestDefaultIntegrationsExposeRegisteredCapabilities(t *testing.T) {
 	for _, source := range registry.Sources() {
 		sources = append(sources, source.Descriptor().Name)
 	}
-	wantSources := []string{"obsidian", "github", "jira", "datadog", "git", "tmux", "sbx"}
+	wantSources := []string{"obsidian", "github", "jira", "datadog", "workspace", "git", "tmux", "sbx"}
 	if !equalStrings(sources, wantSources) {
 		t.Fatalf("sources = %v, want %v", sources, wantSources)
 	}
@@ -18,7 +18,7 @@ func TestDefaultIntegrationsExposeRegisteredCapabilities(t *testing.T) {
 	for _, provider := range registry.CleanupProviders() {
 		cleanupSources = append(cleanupSources, provider.Descriptor().Name)
 	}
-	wantCleanupSources := []string{"tmux", "sbx", "git"}
+	wantCleanupSources := []string{"tmux", "sbx", "git", "workspace"}
 	if !equalStrings(cleanupSources, wantCleanupSources) {
 		t.Fatalf("cleanup sources = %v, want %v", cleanupSources, wantCleanupSources)
 	}

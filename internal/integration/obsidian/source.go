@@ -92,23 +92,18 @@ func (s Source) Collect(_ context.Context, req integration.CollectRequest) integ
 	}
 
 	byID := map[string][]int{}
+	byTitle := map[string][]int{}
 	for i := range discovered {
 		if discovered[i].err == nil {
 			byID[discovered[i].note.ID] = append(byID[discovered[i].note.ID], i)
+			byTitle[discovered[i].note.Title] = append(byTitle[discovered[i].note.Title], i)
 		}
 	}
 	for id, indexes := range byID {
-		if len(indexes) < 2 {
-			continue
-		}
-		paths := make([]string, 0, len(indexes))
-		for _, index := range indexes {
-			paths = append(paths, discovered[index].path)
-		}
-		sort.Strings(paths)
-		for _, index := range indexes {
-			discovered[index].err = fmt.Errorf("duplicate radar-id %s in %s", id, strings.Join(paths, ", "))
-		}
+		markDuplicates(discovered, indexes, fmt.Sprintf("duplicate radar-id %s", id))
+	}
+	for title, indexes := range byTitle {
+		markDuplicates(discovered, indexes, fmt.Sprintf("duplicate task title %q", title))
 	}
 
 	valid := make([]note, 0, len(discovered))
@@ -133,7 +128,8 @@ func (s Source) Collect(_ context.Context, req integration.CollectRequest) integ
 	}
 	if len(invalidPaths) > 0 {
 		observations = append(observations, previousObservations(req.Previous, func(ref protocol.SourceRef) bool {
-			return invalidIDs[ref.Metadata["radar_id"]] || invalidPaths[filepath.Clean(ref.Metadata["note_path"])]
+			notePath := filepath.Clean(ref.Metadata["note_path"])
+			return invalidIDs[ref.Metadata["radar_id"]] || invalidPaths[notePath] || invalidPaths[filepath.Dir(notePath)]
 		})...)
 	}
 	status := protocol.SourceStatus{Name: "obsidian", Status: "ok"}
@@ -155,14 +151,48 @@ func discover(vault string) ([]discoveredNote, error) {
 	}
 	items := make([]discoveredNote, 0, len(entries))
 	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".md") {
+		if !entry.IsDir() {
 			continue
 		}
-		path := filepath.Join(root, entry.Name())
-		current, err := readNote(path)
-		items = append(items, discoveredNote{note: current, err: err, path: path})
+		directory := filepath.Join(root, entry.Name())
+		children, readErr := os.ReadDir(directory)
+		if readErr != nil {
+			items = append(items, discoveredNote{err: readErr, path: directory})
+			continue
+		}
+		notes := make([]string, 0, 1)
+		for _, child := range children {
+			if !child.IsDir() && strings.EqualFold(filepath.Ext(child.Name()), ".md") {
+				notes = append(notes, filepath.Join(directory, child.Name()))
+			}
+		}
+		if len(notes) != 1 {
+			items = append(items, discoveredNote{err: fmt.Errorf("task directory must contain exactly one Markdown note"), path: directory})
+			continue
+		}
+		path := notes[0]
+		current, noteErr := readNote(path)
+		directorySuffix := "--" + shortID(current.ID)
+		if noteErr == nil && (!strings.HasSuffix(filepath.Base(directory), directorySuffix) || strings.TrimSuffix(filepath.Base(directory), directorySuffix) == "") {
+			noteErr = fmt.Errorf("task directory must end with %s", directorySuffix)
+		}
+		items = append(items, discoveredNote{note: current, err: noteErr, path: path})
 	}
 	return items, nil
+}
+
+func markDuplicates(items []discoveredNote, indexes []int, reason string) {
+	if len(indexes) < 2 {
+		return
+	}
+	paths := make([]string, 0, len(indexes))
+	for _, index := range indexes {
+		paths = append(paths, items[index].path)
+	}
+	sort.Strings(paths)
+	for _, index := range indexes {
+		items[index].err = fmt.Errorf("%s in %s", reason, strings.Join(paths, ", "))
+	}
 }
 
 func readNote(path string) (note, error) {
@@ -272,7 +302,7 @@ func observationsFor(vault string, current note) []integration.Observation {
 	identity := "obsidian:task:" + current.ID
 	uri := noteURI(vault, current.Path)
 	metadata := map[string]string{
-		"radar_id": current.ID, "note_path": current.Path,
+		"radar_id": current.ID, "note_path": current.Path, "task_directory": filepath.Dir(current.Path),
 		"state": current.State, "priority": current.Priority, "created_at": current.CreatedAt,
 		"completed_at": current.CompletedAt, "authoring": "true",
 	}
@@ -342,10 +372,24 @@ func (s Source) Create(_ context.Context, title string) (integration.AuthoredTas
 	if err != nil {
 		return integration.AuthoredTaskIdentity{}, err
 	}
-	path := filepath.Join(taskRoot(vault), title+".md")
+	discovered, err := discover(vault)
+	if err != nil {
+		return integration.AuthoredTaskIdentity{}, err
+	}
+	for _, item := range discovered {
+		if item.note.Title == title {
+			return integration.AuthoredTaskIdentity{}, fmt.Errorf("task title %q already exists", title)
+		}
+	}
+	directory := filepath.Join(taskRoot(vault), taskDirectoryName(title, id))
+	if err := os.Mkdir(directory, 0o755); err != nil {
+		return integration.AuthoredTaskIdentity{}, fmt.Errorf("create Obsidian task directory: %w", err)
+	}
+	path := filepath.Join(directory, title+".md")
 	now := time.Now().UTC().Format(time.RFC3339)
-	content := fmt.Sprintf("---\nradar-id: %s\nradar-state: open\nradar-priority: normal\nradar-created-at: %s\nradar-completed-at:\n---\n\n## Intent\n\n## Desired outcome\n\n## Context\n\n## Working notes\n\n## Outcome\n", id, now)
+	content := fmt.Sprintf("---\nradar-id: %s\nradar-state: open\nradar-priority: normal\nradar-created-at: %s\nradar-completed-at:\n---\n", id, now)
 	if err := atomicCreate(path, []byte(content), 0o644); err != nil {
+		_ = os.Remove(directory)
 		return integration.AuthoredTaskIdentity{}, fmt.Errorf("create Obsidian task note: %w", err)
 	}
 	return integration.AuthoredTaskIdentity{SourceRefID: "obsidian:task:" + id}, nil
@@ -387,6 +431,9 @@ func (s Source) mutate(ref protocol.SourceRef, updates map[string]string) (integ
 	current, err := readNote(path)
 	if err != nil {
 		return integration.AuthoredTaskIdentity{}, fmt.Errorf("validate Obsidian task note %s: %w", path, err)
+	}
+	if !strings.HasSuffix(filepath.Base(filepath.Dir(path)), "--"+shortID(current.ID)) {
+		return integration.AuthoredTaskIdentity{}, fmt.Errorf("Obsidian task note is outside its stable task directory: %s", path)
 	}
 	if ref.ID != "obsidian:task:"+current.ID || (ref.Metadata["radar_id"] != "" && ref.Metadata["radar_id"] != current.ID) {
 		return integration.AuthoredTaskIdentity{}, fmt.Errorf("Obsidian task identity changed at %s", path)
@@ -513,7 +560,17 @@ func validManagedNotePath(vault, path string) bool {
 		return false
 	}
 	parts := strings.Split(relative, string(filepath.Separator))
-	return len(parts) == 1 && parts[0] != "" && parts[0] != "." && parts[0] != ".." && strings.HasSuffix(parts[0], ".md")
+	return len(parts) == 2 && parts[0] != "" && parts[0] != "." && parts[0] != ".." && parts[1] != "" && strings.EqualFold(filepath.Ext(parts[1]), ".md")
+}
+
+func taskDirectoryName(title, id string) string { return title + "--" + shortID(id) }
+
+func shortID(id string) string {
+	id = strings.ReplaceAll(strings.ToLower(strings.TrimSpace(id)), "-", "")
+	if len(id) < 8 {
+		return id
+	}
+	return id[:8]
 }
 
 func newUUID() (string, error) {

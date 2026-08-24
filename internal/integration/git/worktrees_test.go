@@ -31,7 +31,7 @@ func TestWorktreesSkipsPrunableEntries(t *testing.T) {
 	}
 	runGit(t, ctx, repo, "add", "README.md")
 	runGit(t, ctx, repo, "commit", "-m", "init")
-	runGit(t, ctx, repo, "worktree", "add", "-b", "feature/RAD-123-stale", stale)
+	runGit(t, ctx, repo, "worktree", "add", "-b", "feature/XYZ-123-stale", stale)
 	if err := os.RemoveAll(stale); err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +52,9 @@ func TestRegisteredWorktreeSourceRefIncludesWorkspaceLinks(t *testing.T) {
 	ref := (worktree{Path: path, Branch: "feature", Head: "abc"}).SourceRef(context.Background(), linking.MarkMatcher{}, workspaceGroupLink{
 		ID: "workspace-id", TaskLinkingKey: "obsidian:task:one",
 	})
+	if ref.ProvidesWorkspace {
+		t.Fatalf("registered member should defer workspace capability to its anchor: %+v", ref)
+	}
 	if ref.Metadata["workspace_id"] != "workspace-id" {
 		t.Fatalf("metadata = %+v", ref.Metadata)
 	}
@@ -67,7 +70,7 @@ func TestRegisteredWorktreeSourceRefIncludesWorkspaceLinks(t *testing.T) {
 }
 
 func TestWorktreeSourceRefContract(t *testing.T) {
-	ref := worktree{Path: "/work/repo/RAD-123-fix", Branch: "RAD-123-fix", Head: "abc"}.SourceRef(context.Background(), linking.NewMarkMatcher([]string{"RAD"}))
+	ref := worktree{Path: "/work/repo/XYZ-123-fix", Branch: "XYZ-123-fix", Head: "abc"}.SourceRef(context.Background(), linking.NewMarkMatcher([]string{"XYZ"}))
 	contracttest.AssertValidSourceRefs(t, "git", []protocol.SourceRef{ref})
 	if !ref.ProvidesWorkspace {
 		t.Fatalf("git worktree does not provide workspace: %+v", ref)
@@ -132,7 +135,8 @@ func TestManagedWorktreeCleanupDeletesItsLocalBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := filepath.Join(home, "repo")
-	worktreePath := filepath.Join(root, "repo--small-fix")
+	anchor := filepath.Join(root, "small-fix")
+	worktreePath := filepath.Join(anchor, "repo--small-fix")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -146,8 +150,8 @@ func TestManagedWorktreeCleanupDeletesItsLocalBranch(t *testing.T) {
 	runGit(t, ctx, repo, "commit", "-m", "init")
 	runGit(t, ctx, repo, "worktree", "add", "-b", "small-fix", worktreePath)
 	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(worktreePath), Name: "small-fix", PrimaryPath: worktreePath,
-		Members: []workspacegroup.Member{{Repository: repo, Path: worktreePath, Branch: "small-fix", Primary: true}},
+		ID: workspacegroup.ID(anchor), Name: "small-fix", Path: anchor,
+		Members: []workspacegroup.Member{{Repository: repo, Path: worktreePath, Branch: "small-fix"}},
 	}
 	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
 		t.Fatal(err)
@@ -182,7 +186,8 @@ func TestManagedWorktreeCleanupPreservesProtectedBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := filepath.Join(home, "repo")
-	worktreePath := filepath.Join(root, "repo--main")
+	anchor := filepath.Join(root, "main")
+	worktreePath := filepath.Join(anchor, "repo--main")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -198,8 +203,8 @@ func TestManagedWorktreeCleanupPreservesProtectedBranch(t *testing.T) {
 	runGit(t, ctx, repo, "switch", "--detach")
 	runGit(t, ctx, repo, "worktree", "add", worktreePath, "main")
 	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(worktreePath), Name: "main", PrimaryPath: worktreePath,
-		Members: []workspacegroup.Member{{Repository: repo, Path: worktreePath, Branch: "main", Primary: true}},
+		ID: workspacegroup.ID(anchor), Name: "main", Path: anchor,
+		Members: []workspacegroup.Member{{Repository: repo, Path: worktreePath, Branch: "main"}},
 	}
 	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
 		t.Fatal(err)
@@ -237,6 +242,11 @@ func TestGitRootsOnlyIncludesConfiguredWorkspaces(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, dir := range []string{workspace, otherWorkspace} {
+		if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: /tmp/test\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("XDG_DATA_HOME", dataHome)
@@ -256,13 +266,13 @@ func TestFetchWorktreesReturnsCompleteEmptyResultWithoutWorkspaces(t *testing.T)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
 	writeGitTestConfig(t, home)
 
-	refs, status := FetchWorktrees(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), linking.NewMarkMatcher([]string{"RAD"}))
+	refs, status := FetchWorktrees(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), linking.NewMarkMatcher([]string{"XYZ"}))
 	if status.Status != "ok" || len(refs) != 0 {
 		t.Fatalf("FetchWorktrees() refs=%+v status=%+v, want complete empty result", refs, status)
 	}
 }
 
-func TestPathInWorkspaceRootRequiresFlatWorkspace(t *testing.T) {
+func TestPathInWorkspaceRootAcceptsNestedMembers(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "workspaces")
 	inside := filepath.Join(root, "radar--feature")
 	nested := filepath.Join(inside, "nested")
@@ -275,7 +285,10 @@ func TestPathInWorkspaceRootRequiresFlatWorkspace(t *testing.T) {
 	if !pathInWorkspaceRoot(inside, root) {
 		t.Fatalf("pathInWorkspaceRoot(%q, %q) = false, want true", inside, root)
 	}
-	for _, outside := range []string{nested, filepath.Join(filepath.Dir(root), "repo")} {
+	if !pathInWorkspaceRoot(nested, root) {
+		t.Fatalf("pathInWorkspaceRoot(%q, %q) = false, want true", nested, root)
+	}
+	for _, outside := range []string{filepath.Join(filepath.Dir(root), "repo")} {
 		if pathInWorkspaceRoot(outside, root) {
 			t.Fatalf("pathInWorkspaceRoot(%q, %q) = true, want false", outside, root)
 		}
@@ -299,20 +312,20 @@ func TestFetchWorktreesOnlyIncludesConfiguredWorkspaceRoot(t *testing.T) {
 	}
 	runGit(t, ctx, repo, "add", "README.md")
 	runGit(t, ctx, repo, "commit", "-m", "init")
-	runGit(t, ctx, repo, "worktree", "add", "-b", "feature/RAD-123", linkedWorktree)
+	runGit(t, ctx, repo, "worktree", "add", "-b", "feature/XYZ-123", linkedWorktree)
 
 	configHome := filepath.Join(home, "config")
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	configJSON := []byte(`{"linking_mark_prefixes":["RAD"],"workspace_root":"` + filepath.Join(home, "workspaces") + `"}`)
+	configJSON := []byte(`{"linking_mark_prefixes":["XYZ"],"workspace_root":"` + filepath.Join(home, "workspaces") + `"}`)
 	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), configJSON, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 
-	refs, status := FetchWorktrees(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), linking.NewMarkMatcher([]string{"RAD"}))
+	refs, status := FetchWorktrees(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), linking.NewMarkMatcher([]string{"XYZ"}))
 	if status.Status != "ok" {
 		t.Fatalf("FetchWorktrees() status = %+v", status)
 	}
@@ -337,7 +350,7 @@ func writeGitTestConfig(t *testing.T, home string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["RAD"]}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -147,7 +147,7 @@ func registeredSandboxWorkspaces(logger *slog.Logger) map[string]string {
 		}
 		name := strings.TrimSpace(group.Sandbox.Name)
 		if name != "" {
-			workspaces[name] = group.PrimaryPath
+			workspaces[name] = group.Path
 		}
 	}
 	return workspaces

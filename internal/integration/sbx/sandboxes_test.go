@@ -47,11 +47,12 @@ func TestParseSandboxes(t *testing.T) {
 	}
 }
 
-func TestFetchSandboxesUsesRegisteredPrimaryWorkspace(t *testing.T) {
+func TestFetchSandboxesUsesRegisteredWorkspaceAnchor(t *testing.T) {
 	tmp := t.TempDir()
 	configHome := filepath.Join(tmp, "config")
 	root := filepath.Join(tmp, "workspaces")
-	primary := filepath.Join(root, "repo", "feature")
+	primary := filepath.Join(root, "feature")
+	member := filepath.Join(primary, "repo--feature")
 	commonDir := filepath.Join(tmp, "source", ".git")
 	sandboxName := "feature-sandbox"
 	t.Setenv("XDG_CONFIG_HOME", configHome)
@@ -63,9 +64,9 @@ func TestFetchSandboxesUsesRegisteredPrimaryWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{{
-		ID: workspacegroup.ID(primary), Name: "feature", PrimaryPath: primary,
+		ID: workspacegroup.ID(primary), Name: "feature", Path: primary,
 		Sandbox: &workspacegroup.Sandbox{Name: sandboxName, Agent: "shell", Mounts: []string{commonDir, primary}},
-		Members: []workspacegroup.Member{{Repository: filepath.Join(tmp, "source"), Path: primary, Branch: "feature", Primary: true}},
+		Members: []workspacegroup.Member{{Repository: filepath.Join(tmp, "source"), Path: member, Branch: "feature"}},
 	}}}); err != nil {
 		t.Fatal(err)
 	}

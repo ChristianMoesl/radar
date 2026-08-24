@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -69,7 +70,10 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 	root = filepath.Clean(root)
 
 	refsByRecord := activeRefsByRecord(store.SourceRefs())
-	registry, _ := workspacegroup.Load(root)
+	registry, err := workspacegroup.Load(root)
+	if err != nil {
+		return Plan{}, err
+	}
 	groups := map[string]workspacegroup.Workspace{}
 	for _, group := range registry.Workspaces {
 		groups[group.ID] = group
@@ -87,17 +91,26 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 		task.DoneAt = record.DoneAt
 		task.SourceRefs = append([]protocol.SourceRef(nil), refs...)
 		seenGroups := map[string]bool{}
-		for _, ref := range refs {
-			if ref.Source != "git" || ref.Kind != "worktree" || strings.TrimSpace(ref.Path) == "" {
+		orderedRefs := append([]protocol.SourceRef(nil), refs...)
+		sort.SliceStable(orderedRefs, func(i, j int) bool {
+			return orderedRefs[i].Source == "workspace" && orderedRefs[j].Source != "workspace"
+		})
+		for _, ref := range orderedRefs {
+			managedWorkspace := ref.Source == "workspace" && ref.Kind == "workspace"
+			gitWorkspace := ref.Source == "git" && ref.Kind == "worktree"
+			if (!managedWorkspace && !gitWorkspace) || strings.TrimSpace(ref.Path) == "" {
 				continue
 			}
 			workspaceID := strings.TrimSpace(ref.Metadata["workspace_id"])
+			if managedWorkspace && workspaceID == "" {
+				workspaceID = strings.TrimPrefix(ref.ID, "workspace:")
+			}
 			if workspaceID != "" && seenGroups[workspaceID] {
 				continue
 			}
 			path := filepath.Clean(ref.Path)
 			if group, ok := groups[workspaceID]; ok {
-				path = group.PrimaryPath
+				path = group.Path
 				seenGroups[workspaceID] = true
 			}
 			if !insideRoot(path, root) {
@@ -139,11 +152,11 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			continue
 		}
 		selected, worktreeTarget := targetsForCandidate(preview, candidate)
-		if worktreeTarget == nil {
+		if worktreeTarget == nil && candidate.WorkspaceID == "" {
 			result.skip(candidate, fmt.Errorf("matching worktree cleanup target was not found"), logger)
 			continue
 		}
-		dirty := worktreeTarget.Dirty
+		dirty := worktreeTarget != nil && worktreeTarget.Dirty
 		for _, target := range selected.Targets {
 			if target.Source == "git" && target.Kind == "worktree" && target.Dirty {
 				dirty = true
@@ -198,7 +211,7 @@ func targetsForCandidate(preview protocol.CleanupPreview, candidate Candidate) (
 	}
 	for _, target := range preview.Targets {
 		groupWorktree := candidate.WorkspaceID != "" && target.Source == "git" && target.Kind == "worktree" && groupRefIDs[target.SourceRefID]
-		pathResource := samePath(target.Path, candidate.Path) && ((target.Source == "git" && target.Kind == "worktree") || (target.Source == "tmux" && target.Kind == "session") || (target.Source == "sbx" && target.Kind == "sandbox"))
+		pathResource := samePath(target.Path, candidate.Path) && ((target.Source == "git" && target.Kind == "worktree") || (target.Source == "tmux" && target.Kind == "session") || (target.Source == "sbx" && target.Kind == "sandbox") || (target.Source == "workspace" && target.Kind == "workspace"))
 		if !groupWorktree && !pathResource {
 			continue
 		}

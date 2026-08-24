@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"radar/internal/integration"
+	"radar/internal/tmuxlayout"
 	"radar/internal/workspacegroup"
 )
 
@@ -153,10 +154,6 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 			Message: fmt.Sprintf("workspace changed since it was inspected: expected revision %s, current revision is %s", request.Revision, revision),
 		}
 	}
-	if len(request.Desired.Worktrees) == 0 {
-		return ReconcileWorkspacePlan{}, fmt.Errorf("desired workspace must contain its primary worktree")
-	}
-
 	existingByIdentity := make(map[string]workspacegroup.Member, len(group.Members))
 	for _, member := range group.Members {
 		existingByIdentity[workspaceMemberKey(member.Repository, member.Branch)] = member
@@ -206,15 +203,11 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 			continue
 		}
 
-		name := desired.Name
-		if desired.BranchMode == integration.WorkspaceBranchExisting {
-			name = desired.Branch
-		}
-		destination := filepath.Join(root, WorktreeDirectoryName(repository, name))
+		destination := filepath.Join(group.Path, WorktreeDirectoryName(repository, branch))
 		plan, err := PlanWorktree(ctx, runner, WorktreeOptions{
 			Repo: repository, BranchMode: desired.BranchMode, Name: desired.Name,
 			Branch: desired.Branch, Base: desired.Base, Path: destination,
-			WorkspaceRoot: root, AllowExisting: true,
+			WorkspaceRoot: group.Path, AllowExisting: true,
 		})
 		if err != nil {
 			return ReconcileWorkspacePlan{}, err
@@ -238,9 +231,6 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 	for _, member := range group.Members {
 		if desiredIdentities[workspaceMemberKey(member.Repository, member.Branch)] {
 			continue
-		}
-		if member.Primary {
-			return ReconcileWorkspacePlan{}, fmt.Errorf("the primary worktree cannot be removed from its workspace")
 		}
 		changeCount, statusErr := worktreeChangeCount(ctx, runner, member.Path)
 		if statusErr != nil {
@@ -318,7 +308,7 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 		}
 		candidate.Sandbox.Mounts = mounts
 		effectiveMountCount = len(mounts)
-		actual, found, err := findSandbox(ctx, runner, group.PrimaryPath, group.Sandbox.Name)
+		actual, found, err := findSandbox(ctx, runner, group.Path, group.Sandbox.Name)
 		if err != nil {
 			return ReconcileWorkspacePlan{}, err
 		}
@@ -419,7 +409,15 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 			return result, createErr
 		}
 		prepared = append(prepared, created)
+		memberIndex := memberIndexByPath(plan.group.Members, addition.plan.Path)
+		if memberIndex < 0 {
+			return result, fmt.Errorf("created worktree %s is missing from planned workspace members", addition.plan.Path)
+		}
 		result.WorktreesAdded++
+		if persistErr := persistAddedMember(plan.root, plan.WorkspaceID, plan.group.Members[memberIndex]); persistErr != nil {
+			logReconciliationFailure(logger, plan.WorkspaceID, "registry", result, persistErr)
+			return result, persistErr
+		}
 	}
 	for _, removal := range plan.removals {
 		if _, removeErr := RemoveManagedWorktree(ctx, runner, removal.member, false); removeErr != nil {
@@ -427,6 +425,10 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 			return result, removeErr
 		}
 		result.WorktreesRemoved++
+		if persistErr := persistRemovedMember(plan.root, plan.WorkspaceID, removal.member.Path); persistErr != nil {
+			logReconciliationFailure(logger, plan.WorkspaceID, "registry", result, persistErr)
+			return result, persistErr
+		}
 	}
 	if logger != nil {
 		logger.Info("workspace reconciliation worktrees completed", "workspace_id", plan.WorkspaceID,
@@ -522,6 +524,38 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 	return result, nil
 }
 
+func persistAddedMember(root, workspaceID string, member workspacegroup.Member) error {
+	return workspacegroup.Update(root, func(registry *workspacegroup.Registry) error {
+		group, found := workspacegroup.FindByID(*registry, workspaceID)
+		if !found {
+			return fmt.Errorf("workspace %s disappeared while applying worktree addition", workspaceID)
+		}
+		if memberIndexByPath(group.Members, member.Path) < 0 {
+			group.Members = append(group.Members, member)
+		}
+		workspacegroup.Put(registry, group)
+		return nil
+	})
+}
+
+func persistRemovedMember(root, workspaceID, memberPath string) error {
+	return workspacegroup.Update(root, func(registry *workspacegroup.Registry) error {
+		group, found := workspacegroup.FindByID(*registry, workspaceID)
+		if !found {
+			return fmt.Errorf("workspace %s disappeared while applying worktree removal", workspaceID)
+		}
+		members := make([]workspacegroup.Member, 0, len(group.Members))
+		for _, member := range group.Members {
+			if !sameCleanPath(member.Path, memberPath) {
+				members = append(members, member)
+			}
+		}
+		group.Members = members
+		workspacegroup.Put(registry, group)
+		return nil
+	})
+}
+
 func logReconciliationFailure(logger *slog.Logger, workspaceID, phase string, result ReconcileWorkspaceResult, err error) {
 	if logger == nil {
 		return
@@ -560,16 +594,21 @@ func resolveWorkspaceGroup(ctx context.Context, runner Runner, currentDirectory,
 		return "", "", workspacegroup.Workspace{}, err
 	}
 	root = filepath.Clean(root)
-	current, err := currentGitTopLevel(ctx, runner, currentDirectory)
-	if err != nil {
-		return "", "", workspacegroup.Workspace{}, fmt.Errorf("current workspace: %w", err)
-	}
 	registry, err := workspacegroup.Load(root)
 	if err != nil {
 		return "", "", workspacegroup.Workspace{}, err
 	}
-	group, found := workspacegroup.FindByMemberPath(registry, current)
+	current, err := filepath.Abs(strings.TrimSpace(currentDirectory))
+	if err != nil {
+		return "", "", workspacegroup.Workspace{}, err
+	}
+	current = filepath.Clean(current)
+	group, found := workspacegroup.FindByContainingPath(registry, current)
 	if !found {
+		current, err = currentGitTopLevel(ctx, runner, current)
+		if err != nil {
+			return "", "", workspacegroup.Workspace{}, fmt.Errorf("current workspace: %w", err)
+		}
 		group, err = enrollmentPlan(ctx, runner, root, current)
 		if err != nil {
 			return "", "", workspacegroup.Workspace{}, err
@@ -618,7 +657,11 @@ func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.Sa
 	type revisionState struct {
 		ID             string                  `json:"id"`
 		Name           string                  `json:"name"`
-		PrimaryPath    string                  `json:"primary_path"`
+		Path           string                  `json:"path"`
+		NotePath       string                  `json:"note_path"`
+		Model          string                  `json:"model"`
+		Thinking       string                  `json:"thinking"`
+		Tmux           tmuxlayout.Config       `json:"tmux"`
 		SessionName    string                  `json:"session_name"`
 		TaskLinkingKey string                  `json:"task_linking_key"`
 		Members        []workspacegroup.Member `json:"members"`
@@ -629,7 +672,7 @@ func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.Sa
 		members[index].SetupScheduled = false
 	}
 	sort.Slice(members, func(i, j int) bool { return pathKey(members[i].Path) < pathKey(members[j].Path) })
-	state := revisionState{ID: group.ID, Name: group.Name, PrimaryPath: group.PrimaryPath, SessionName: group.SessionName, TaskLinkingKey: group.TaskLinkingKey, Members: members}
+	state := revisionState{ID: group.ID, Name: group.Name, Path: group.Path, NotePath: group.NotePath, Model: group.Model, Thinking: group.Thinking, Tmux: group.Tmux, SessionName: group.SessionName, TaskLinkingKey: group.TaskLinkingKey, Members: members}
 	if group.Sandbox != nil {
 		normalizedPorts, err := normalizeSandboxPorts(ports)
 		if err != nil {
@@ -751,7 +794,7 @@ func observedSandboxPortState(ctx context.Context, runner Runner, group workspac
 	if group.Sandbox == nil {
 		return []workspacegroup.SandboxPort{}, []workspacegroup.SandboxPort{}, false, nil
 	}
-	_, found, err := findSandbox(ctx, runner, group.PrimaryPath, group.Sandbox.Name)
+	_, found, err := findSandbox(ctx, runner, group.Path, group.Sandbox.Name)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -981,9 +1024,11 @@ func reconcileSandboxPorts(ctx context.Context, runner Runner, name string, desi
 }
 
 func desiredReconciledSandboxMounts(ctx context.Context, runner Runner, group workspacegroup.Workspace, plans map[string]WorktreePlan, global []string, additional []workspacegroup.SandboxMount) ([]string, error) {
-	mounts := []string{}
+	mounts := []string{group.Path}
+	if group.NotePath != "" {
+		mounts = append(mounts, filepath.Dir(group.NotePath))
+	}
 	for _, member := range group.Members {
-		mounts = append(mounts, member.Path)
 		lookupPath := member.Path
 		if plan, ok := plans[pathKey(member.Path)]; ok && !plan.Existing {
 			lookupPath = plan.Repo
@@ -1009,13 +1054,15 @@ func desiredReconciledSandboxMounts(ctx context.Context, runner Runner, group wo
 	if err != nil {
 		return nil, err
 	}
-	managedPaths := map[string]bool{}
+	managedPaths := make([]string, 0, len(managed))
 	for _, mount := range managed {
-		managedPaths[pathKey(strings.TrimSuffix(mount, ":ro"))] = true
+		managedPaths = append(managedPaths, filepath.Clean(strings.TrimSuffix(mount, ":ro")))
 	}
 	for _, mount := range additional {
-		if managedPaths[pathKey(mount.Path)] {
-			return nil, fmt.Errorf("sandbox additional mount %q is already managed by the workspace or Radar configuration", mount.Path)
+		for _, managedPath := range managedPaths {
+			if pathContains(managedPath, mount.Path) || pathContains(mount.Path, managedPath) {
+				return nil, fmt.Errorf("sandbox additional mount %q is already managed by or overlaps workspace-managed path %s", mount.Path, managedPath)
+			}
 		}
 		managed = append(managed, sandboxMountArgument(mount))
 	}

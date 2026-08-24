@@ -49,7 +49,7 @@ func TestCollectEndToEndKeepsLinkedWorkActiveWhenGitHubPRIsDone(t *testing.T) {
 		t.Fatalf("linked task = %s/%s, want in_progress", active.Kind, active.Attention)
 	}
 	assertHasSourceRef(t, *active, "github:pr:acme/app:7")
-	assertHasSourceRef(t, *active, "jira:issue:RAD-123")
+	assertHasSourceRef(t, *active, "jira:issue:XYZ-123")
 	assertHasSourceRefPrefix(t, *active, "git:worktree:")
 
 	if sourceStatus(first.Sources, "jira").SourceRefCount != 1 {
@@ -72,7 +72,7 @@ func TestCollectEndToEndKeepsLinkedWorkActiveWhenGitHubPRIsDone(t *testing.T) {
 	if activeLinked.Attention != "in_progress" {
 		t.Fatalf("linked task = %s/%s/%s, want active work to remain in_progress", activeLinked.Kind, activeLinked.Attention, activeLinked.Reason)
 	}
-	assertHasSourceRef(t, *activeLinked, "jira:issue:RAD-123")
+	assertHasSourceRef(t, *activeLinked, "jira:issue:XYZ-123")
 	assertHasSourceRefPrefix(t, *activeLinked, "git:worktree:")
 }
 
@@ -87,7 +87,7 @@ func setupIsolatedEnvironment(t *testing.T, tmp string) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(configPath, []byte(`{"linking_mark_prefixes":["RAD"]}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"linking_mark_prefixes":["XYZ"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -143,7 +143,7 @@ func setupFakeJira(t *testing.T) *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/search/jql":
-			_, _ = w.Write([]byte(`{"issues":[{"id":"10001","key":"RAD-123","fields":{"summary":"Ship linked work","issuetype":{"name":"Story"},"priority":{"name":"High"},"status":{"name":"In Progress","statusCategory":{"key":"indeterminate","name":"In Progress"}}}}]}`))
+			_, _ = w.Write([]byte(`{"issues":[{"id":"10001","key":"XYZ-123","fields":{"summary":"Ship linked work","issuetype":{"name":"Story"},"priority":{"name":"High"},"status":{"name":"In Progress","statusCategory":{"key":"indeterminate","name":"In Progress"}}}}]}`))
 		case "/rest/dev-status/1.0/issue/summary":
 			_, _ = w.Write([]byte(`{"errors":[],"summary":{"pullrequest":{"byInstanceType":{"github-app":{"count":1,"name":"GitHub"}}}}}`))
 		case "/rest/dev-status/1.0/issue/detail":

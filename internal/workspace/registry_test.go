@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,65 +8,42 @@ import (
 	"radar/internal/workspacegroup"
 )
 
-func TestRegisterPrimaryWorkspaceBindsExistingGroupWithoutReplacingMembers(t *testing.T) {
+func TestRegisterWorkspaceUpdatesExistingAnchorWithoutReplacingMembers(t *testing.T) {
 	root := t.TempDir()
-	primary := filepath.Join(root, "repo", "work")
-	secondary := filepath.Join(root, "other", "work")
+	anchor := filepath.Join(root, "work")
 	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(primary), Name: "work", PrimaryPath: primary,
+		ID: workspacegroup.ID(anchor), Name: "work", Path: anchor,
 		Members: []workspacegroup.Member{
-			{Repository: filepath.Join(root, "sources", "repo"), Path: primary, Branch: "work", Primary: true},
-			{Repository: filepath.Join(root, "sources", "other"), Path: secondary, Branch: "work"},
+			{Repository: filepath.Join(root, "sources", "repo"), Path: filepath.Join(anchor, "repo--work"), Branch: "work"},
+			{Repository: filepath.Join(root, "sources", "other"), Path: filepath.Join(anchor, "other--work"), Branch: "work"},
 		},
 	}
-	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+	if err := registerWorkspace(root, group); err != nil {
 		t.Fatal(err)
 	}
-
-	plan := WorktreePlan{Root: root, Repo: group.Members[0].Repository, Path: primary, Name: "work", Branch: "work"}
-	if err := registerPrimaryWorkspace(context.Background(), unusedRegistryRunner{}, plan, "repo-work", "", sandboxSettings{}, true, "obsidian:task:one"); err != nil {
+	group.TaskLinkingKey = "obsidian:task:one"
+	if err := registerWorkspace(root, group); err != nil {
 		t.Fatal(err)
 	}
-
 	loaded, err := workspacegroup.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded.Workspaces) != 1 || len(loaded.Workspaces[0].Members) != 2 || loaded.Workspaces[0].TaskLinkingKey != "obsidian:task:one" {
+	if len(loaded.Workspaces) != 1 || len(loaded.Workspaces[0].Members) != 2 || loaded.Workspaces[0].TaskLinkingKey != group.TaskLinkingKey {
 		t.Fatalf("registry = %+v", loaded)
 	}
 }
 
-func TestRegisterPrimaryWorkspaceRejectsDifferentTaskLink(t *testing.T) {
+func TestRegisterWorkspaceRejectsDifferentTaskLink(t *testing.T) {
 	root := t.TempDir()
-	primary := filepath.Join(root, "repo", "work")
-	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(primary), Name: "work", PrimaryPath: primary, TaskLinkingKey: "obsidian:task:one",
-		Members: []workspacegroup.Member{{Repository: filepath.Join(root, "sources", "repo"), Path: primary, Branch: "main", Primary: true}},
-	}
-	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+	anchor := filepath.Join(root, "work")
+	group := workspacegroup.Workspace{ID: workspacegroup.ID(anchor), Name: "work", Path: anchor, TaskLinkingKey: "obsidian:task:one", Members: []workspacegroup.Member{}}
+	if err := registerWorkspace(root, group); err != nil {
 		t.Fatal(err)
 	}
-
-	plan := WorktreePlan{Root: root, Repo: group.Members[0].Repository, Path: primary, Name: "work", Branch: "main"}
-	err := registerPrimaryWorkspace(context.Background(), unusedRegistryRunner{}, plan, "repo-work", "", sandboxSettings{}, true, "obsidian:task:two")
+	group.TaskLinkingKey = "obsidian:task:two"
+	err := registerWorkspace(root, group)
 	if err == nil || !strings.Contains(err.Error(), "already linked to another task") {
-		t.Fatalf("registerPrimaryWorkspace() error = %v", err)
+		t.Fatalf("registerWorkspace() error = %v", err)
 	}
-
-	loaded, err := workspacegroup.Load(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := loaded.Workspaces[0].TaskLinkingKey; got != "obsidian:task:one" {
-		t.Fatalf("task linking key = %q, want original key", got)
-	}
-}
-
-type unusedRegistryRunner struct{}
-
-func (unusedRegistryRunner) LookPath(string) error { return nil }
-
-func (unusedRegistryRunner) Run(context.Context, string, string, ...string) (string, error) {
-	return "", nil
 }

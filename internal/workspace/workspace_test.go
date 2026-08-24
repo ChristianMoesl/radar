@@ -136,24 +136,25 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	if workspace.Branch != "small-fix" || workspace.SessionName != filepath.Base(repo)+"-small-fix" {
 		t.Fatalf("unexpected workspace: %#v", workspace)
 	}
-	if want := filepath.Join(root, filepath.Base(repo)+"--small-fix"); workspace.Path != want {
+	if want := filepath.Join(root, "small-fix"); workspace.Path != want {
 		t.Fatalf("workspace path = %q, want %q", workspace.Path, want)
 	}
-	data, err := os.ReadFile(filepath.Join(workspace.Path, ".env"))
+	memberPath := registeredMemberPath(t, root, workspace.Path)
+	data, err := os.ReadFile(filepath.Join(memberPath, ".env"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(data) != "SECRET=local\n" {
 		t.Fatalf("copied .env = %q", data)
 	}
-	assertCalled(t, runner.calls, "git", "worktree add -b small-fix "+workspace.Path+" origin/main")
+	assertCalled(t, runner.calls, "git", "worktree add -b small-fix "+memberPath+" origin/main")
 	assertNotCalled(t, runner.calls, "sh")
 	assertCalledContains(t, runner.calls, "tmux", "pi --model 'anthropic/claude-sonnet-4' --thinking 'high' --session-id '"+workspace.SessionName+"'")
 	assertCalledContains(t, runner.calls, "tmux", "--extension '")
 	assertCalledContains(t, runner.calls, "tmux", "RADAR_BINARY=")
 	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workspace.SessionName)
 	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+":")
-	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+": -n setup -c "+workspace.Path+" -P -F #{window_id} #{pane_id}")
+	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+": -n setup -c "+memberPath+" -P -F #{window_id} #{pane_id}")
 	assertSetupWindowIsForeground(t, runner.calls)
 	assertCalled(t, runner.calls, "tmux", "set-option -p -t %1 remain-on-exit off")
 	assertCalledContains(t, runner.calls, "tmux", "send-keys -l -t %1 sh -lc 'pnpm install --frozen-lockfile' && exit")
@@ -164,6 +165,68 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 		call{name: "tmux", args: []string{"new-window", "-t", workspace.SessionName + ":", "-n", "setup"}},
 	)
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
+}
+
+func TestCreateNoteWorkspaceStartsAtAnchorWithOnlyNoteLink(t *testing.T) {
+	root := t.TempDir()
+	taskDirectory := filepath.Join(t.TempDir(), "Plan authentication--2c965c99")
+	notePath := filepath.Join(taskDirectory, "Plan authentication.md")
+	if err := os.MkdirAll(taskDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(notePath, []byte("---\nradar-id: 2c965c99-6a50-446e-834a-72656fbc056a\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	created, err := Create(context.Background(), runner, CreateOptions{
+		Name: "Plan authentication", NotePath: notePath, WorkspaceRoot: root,
+		TaskLinkingKey: "obsidian:task:2c965c99-6a50-446e-834a-72656fbc056a",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(created.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "note.md" || entries[0].Type()&os.ModeSymlink == 0 {
+		t.Fatalf("anchor entries = %+v", entries)
+	}
+	target, err := os.Readlink(filepath.Join(created.Path, "note.md"))
+	if err != nil || target != notePath {
+		t.Fatalf("note target = %q, err=%v", target, err)
+	}
+	registry, err := workspacegroup.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(registry.Workspaces) != 1 || len(registry.Workspaces[0].Members) != 0 || registry.Workspaces[0].Path != created.Path {
+		t.Fatalf("registry = %+v", registry)
+	}
+	assertCalledContains(t, runner.calls, "tmux", "-c "+created.Path)
+	assertNotCalledContains(t, runner.calls, "tmux", "Plan the")
+}
+
+func TestCreateNoteWorkspaceMountsOnlyAnchorAndPrivateTaskDirectory(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
+	root := t.TempDir()
+	taskDirectory := filepath.Join(t.TempDir(), "Plan--12345678")
+	notePath := filepath.Join(taskDirectory, "Plan.md")
+	if err := os.MkdirAll(taskDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(notePath, []byte("---\nradar-id: 12345678-1234-4123-8123-123456789abc\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	created, err := Create(context.Background(), runner, CreateOptions{
+		Name: "Plan", NotePath: notePath, WorkspaceRoot: root, Sandbox: true,
+		TaskLinkingKey: "obsidian:task:12345678-1234-4123-8123-123456789abc",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCalled(t, runner.calls, "sbx", "create --name "+created.SandboxName+" shell "+created.Path+" "+taskDirectory)
 }
 
 func TestCreateUsesStableTaskIdentityForPiSession(t *testing.T) {
@@ -210,26 +273,27 @@ func TestCreateTracksExistingOriginBranch(t *testing.T) {
 	if created.Name != "main" || created.Branch != "main" {
 		t.Fatalf("created workspace = %+v", created)
 	}
-	assertCalled(t, runner.calls, "git", "worktree add --track -b main "+created.Path+" origin/main")
+	assertCalled(t, runner.calls, "git", "worktree add --track -b main "+registeredMemberPath(t, root, created.Path)+" origin/main")
 }
 
 func TestCreateExistingWorkspaceRejectsDifferentTaskBeforeStartingSession(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
-	path := filepath.Join(root, filepath.Base(repo)+"--first-task")
-	if err := os.MkdirAll(path, 0o755); err != nil {
+	path := filepath.Join(root, "first-task")
+	memberPath := filepath.Join(path, WorktreeDirectoryName(repo, "main"))
+	if err := os.MkdirAll(memberPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{{
-		ID: workspacegroup.ID(path), Name: "first-task", PrimaryPath: path, SessionName: "repo-first-task", TaskLinkingKey: "obsidian:task:one",
-		Members: []workspacegroup.Member{{Repository: repo, Path: path, Branch: "main", Primary: true}},
+		ID: workspacegroup.ID(path), Name: "first-task", Path: path, SessionName: "repo-first-task", TaskLinkingKey: "obsidian:task:one",
+		Members: []workspacegroup.Member{{Repository: repo, Path: memberPath, Branch: "main"}},
 	}}}); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{
 		repo: repo,
 		worktrees: strings.Join([]string{
-			"worktree " + path,
+			"worktree " + memberPath,
 			"HEAD abc",
 			"branch refs/heads/main",
 			"",
@@ -352,7 +416,7 @@ func TestCreateStartsPiOnHostWithConfiguredSandbox(t *testing.T) {
 	if want := SandboxName(filepath.Base(repo), "small fix"); workspace.SandboxName != want {
 		t.Fatalf("sandbox name = %q, want %q", workspace.SandboxName, want)
 	}
-	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --kit "+filepath.Join(home, "kits", "radar")+" radar "+workspace.Path+" "+filepath.Join(repo, ".git"))
+	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --kit "+filepath.Join(home, "kits", "radar")+" radar "+filepath.Join(repo, ".git")+" "+workspace.Path)
 	assertCalledContains(t, runner.calls, "tmux", "pi --session-id")
 	assertNotCalledContains(t, runner.calls, "tmux", "sbx exec")
 	assertNotCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_DIR=")
@@ -391,7 +455,8 @@ func TestCreateSchedulesSetupInsideConfiguredSandbox(t *testing.T) {
 	assertCalled(t, runner.calls, "sbx", "create --name "+created.SandboxName)
 	assertNotCalledContains(t, runner.calls, "sbx", "exec")
 	assertNotCalled(t, runner.calls, "sh")
-	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+created.SessionName+": -n setup -c "+created.Path+" -P -F #{window_id} #{pane_id} sbx exec -it --workdir '"+created.Path+"' '"+created.SandboxName+"' sh -i")
+	memberPath := registeredMemberPath(t, root, created.Path)
+	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+created.SessionName+": -n setup -c "+memberPath+" -P -F #{window_id} #{pane_id} sbx exec -it --workdir '"+memberPath+"' '"+created.SandboxName+"' sh -i")
 	assertSetupWindowIsForeground(t, runner.calls)
 	assertCalled(t, runner.calls, "tmux", "set-option -p -t %1 remain-on-exit off")
 	assertCalledContains(t, runner.calls, "tmux", "send-keys -l -t %1 sh -lc 'pnpm install --frozen-lockfile' && sh -lc 'pnpm build' && exit")
@@ -454,17 +519,24 @@ func TestCreatePreservesWorkspaceWhenSetupCannotBeScheduled(t *testing.T) {
 func TestCreateDoesNotRerunSetupWhenOpeningExistingWorkspace(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
-	path := filepath.Join(root, filepath.Base(repo)+"--existing")
-	if err := os.MkdirAll(path, 0o755); err != nil {
+	path := filepath.Join(root, "existing")
+	memberPath := filepath.Join(path, WorktreeDirectoryName(repo, "existing"))
+	if err := os.MkdirAll(memberPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"setup":["pnpm install"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{{
+		ID: workspacegroup.ID(path), Name: "existing", Path: path, SessionName: SessionName(filepath.Base(repo), "existing"),
+		Members: []workspacegroup.Member{{Repository: repo, Path: memberPath, Branch: "existing", SetupScheduled: true}},
+	}}}); err != nil {
+		t.Fatal(err)
+	}
 	runner := &fakeRunner{
 		repo: repo,
 		worktrees: strings.Join([]string{
-			"worktree " + path,
+			"worktree " + memberPath,
 			"HEAD abc",
 			"branch refs/heads/existing",
 			"",
@@ -516,7 +588,7 @@ func TestCreateStartsSandboxEnabledByUserConfig(t *testing.T) {
 	if want := SandboxName(filepath.Base(repo), "small fix"); workspace.SandboxName != want {
 		t.Fatalf("sandbox name = %q, want %q", workspace.SandboxName, want)
 	}
-	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" radar "+workspace.Path+" "+filepath.Join(repo, ".git")+" "+shared)
+	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" radar "+filepath.Join(repo, ".git")+" "+workspace.Path+" "+shared)
 	assertCalledContains(t, runner.calls, "tmux", "pi --session-id")
 	assertNotCalledContains(t, runner.calls, "tmux", "sbx exec")
 	assertNotCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_SESSION_DIR=")
@@ -657,7 +729,7 @@ func TestCreateDoesNotCopyEnvWithoutRepoConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(workspace.Path, ".env")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(registeredMemberPath(t, root, workspace.Path), ".env")); !os.IsNotExist(err) {
 		t.Fatalf(".env was copied without .radar.json config: %v", err)
 	}
 	assertCalledContains(t, runner.calls, "tmux", "pi --model 'github-copilot/claude-sonnet-4.5' --thinking 'low' --session-id '"+workspace.SessionName+"'")
@@ -679,7 +751,7 @@ func TestCreateEscapesWorktreeNamePathSegment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantPath := filepath.Join(root, filepath.Base(repo)+"--feature-nested-fix")
+	wantPath := filepath.Join(root, "feature-nested-fix")
 	if workspace.Path != wantPath {
 		t.Fatalf("workspace path = %q, want %q", workspace.Path, wantPath)
 	}
@@ -711,7 +783,7 @@ func TestCreatePreservesExplicitBranchName(t *testing.T) {
 	if workspace.Branch != "feature/nested-fix" {
 		t.Fatalf("workspace branch = %q, want explicit branch", workspace.Branch)
 	}
-	assertCalled(t, runner.calls, "git", "worktree add -b feature/nested-fix "+workspace.Path+" origin/feature/nested-fix")
+	assertCalled(t, runner.calls, "git", "worktree add -b feature/nested-fix "+registeredMemberPath(t, root, workspace.Path)+" origin/feature/nested-fix")
 }
 
 func TestCreateSessionCreatesTmuxSessionForWorktree(t *testing.T) {
@@ -966,6 +1038,19 @@ func assertCallOrder(t *testing.T, calls []call, first call, second call) {
 	if firstIndex == -1 || secondIndex == -1 || firstIndex >= secondIndex {
 		t.Fatalf("expected %#v before %#v; calls: %#v", first, second, calls)
 	}
+}
+
+func registeredMemberPath(t *testing.T, root, anchor string) string {
+	t.Helper()
+	registry, err := workspacegroup.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, found := workspacegroup.FindByContainingPath(registry, anchor)
+	if !found || len(group.Members) == 0 {
+		t.Fatalf("registered member for %s was not found: %+v", anchor, registry)
+	}
+	return group.Members[0].Path
 }
 
 func assertCalled(t *testing.T, calls []call, name string, argsPrefix string) {

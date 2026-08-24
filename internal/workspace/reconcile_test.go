@@ -32,11 +32,12 @@ func TestReconcileWorkspaceAddsAndRemovesWorktreeWithoutSandbox(t *testing.T) {
 	initRepository(t, ctx, primaryRepo)
 	initRepository(t, ctx, targetRepo)
 	runGitE2E(t, ctx, targetRepo, "branch", "feature/api")
-	primaryPath := filepath.Join(root, "primary-source--RAD-20-work")
-	runGitE2E(t, ctx, primaryRepo, "worktree", "add", "-b", "RAD-20-work", primaryPath, "HEAD")
+	anchor := filepath.Join(root, "XYZ-20-work")
+	primaryPath := filepath.Join(anchor, "primary-source--XYZ-20-work")
+	runGitE2E(t, ctx, primaryRepo, "worktree", "add", "-b", "XYZ-20-work", primaryPath, "HEAD")
 	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(primaryPath), Name: "RAD-20-work", PrimaryPath: primaryPath,
-		Members: []workspacegroup.Member{{Repository: primaryRepo, Path: primaryPath, Branch: "RAD-20-work", Primary: true, SetupScheduled: true}},
+		ID: workspacegroup.ID(anchor), Name: "XYZ-20-work", Path: anchor,
+		Members: []workspacegroup.Member{{Repository: primaryRepo, Path: primaryPath, Branch: "XYZ-20-work", SetupScheduled: true}},
 	}
 	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
 		t.Fatal(err)
@@ -114,12 +115,12 @@ func TestReconcileWorkspaceAddsAndRemovesWorktreeWithoutSandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	remove := ReconcileWorkspaceRequest{
-		Workspace: primaryPath, WorkspaceRoot: root, Revision: revision,
+		Workspace: anchor, WorkspaceRoot: root, Revision: revision,
 		Desired: DesiredWorkspaceDescription{Worktrees: []DesiredWorkspaceWorktree{primary}},
 	}
 	memberPath := ""
 	for _, member := range loaded.Members {
-		if !member.Primary {
+		if sameCleanPath(member.Repository, targetRepo) {
 			memberPath = member.Path
 		}
 	}
@@ -161,6 +162,34 @@ func TestReconcileWorkspaceAddsAndRemovesWorktreeWithoutSandbox(t *testing.T) {
 	if err := branchCheck.Run(); err == nil {
 		t.Fatal("removed worktree branch still exists")
 	}
+	revision, err = workspaceRevision(loaded, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty := ReconcileWorkspaceRequest{
+		Workspace: anchor, WorkspaceRoot: root, Revision: revision,
+		Desired: DesiredWorkspaceDescription{Worktrees: []DesiredWorkspaceWorktree{}, Sandbox: nil},
+	}
+	emptyPlan, err := PreviewReconcileWorkspace(ctx, runner, empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty.ExpectedPlanID = emptyPlan.PlanID
+	emptied, err := ApplyReconcileWorkspace(ctx, runner, nil, empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := workspacegroup.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remaining, found := workspacegroup.FindByID(registry, group.ID)
+	if !emptied.OK || emptied.WorktreesRemoved != 1 || !found || len(remaining.Members) != 0 {
+		t.Fatalf("empty result = %+v, workspace = %+v, found=%v", emptied, remaining, found)
+	}
+	if _, err := os.Stat(anchor); err != nil {
+		t.Fatalf("anchor was removed with last worktree: %v", err)
+	}
 	if runner.sbxCalls != 0 {
 		t.Fatalf("sandbox-less reconciliation made %d sbx calls", runner.sbxCalls)
 	}
@@ -178,11 +207,12 @@ func TestReconcileWorkspaceSupportsMultipleBranchesFromOneRepository(t *testing.
 	root := filepath.Join(tmp, "workspaces")
 	repository := filepath.Join(tmp, "source")
 	initRepository(t, ctx, repository)
-	primaryPath := filepath.Join(root, "source--primary")
+	anchor := filepath.Join(root, "primary")
+	primaryPath := filepath.Join(anchor, "source--primary")
 	runGitE2E(t, ctx, repository, "worktree", "add", "-b", "primary", primaryPath, "HEAD")
 	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(primaryPath), Name: "primary", PrimaryPath: primaryPath,
-		Members: []workspacegroup.Member{{Repository: repository, Path: primaryPath, Branch: "primary", Primary: true, SetupScheduled: true}},
+		ID: workspacegroup.ID(anchor), Name: "primary", Path: anchor,
+		Members: []workspacegroup.Member{{Repository: repository, Path: primaryPath, Branch: "primary", SetupScheduled: true}},
 	}
 	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
 		t.Fatal(err)
@@ -271,7 +301,8 @@ func (r *sbxRejectingRunner) Run(ctx context.Context, cwd, name string, args ...
 func TestReconcileWorkspacePlansAdditionalSandboxMount(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "source")
-	primary := filepath.Join(root, "repo", "work")
+	anchor := filepath.Join(root, "work")
+	primary := filepath.Join(anchor, "repo--work")
 	common := filepath.Join(repository, ".git")
 	additional := filepath.Join(root, "shared")
 	for _, path := range []string{repository, primary, common} {
@@ -280,9 +311,9 @@ func TestReconcileWorkspacePlansAdditionalSandboxMount(t *testing.T) {
 		}
 	}
 	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(primary), Name: "work", PrimaryPath: primary,
-		Sandbox: &workspacegroup.Sandbox{Name: "work-sandbox", Agent: "shell", Mounts: []string{primary, common}},
-		Members: []workspacegroup.Member{{Repository: repository, Path: primary, Branch: "work", Primary: true}},
+		ID: workspacegroup.ID(anchor), Name: "work", Path: anchor,
+		Sandbox: &workspacegroup.Sandbox{Name: "work-sandbox", Agent: "shell", Mounts: []string{anchor, common}},
+		Members: []workspacegroup.Member{{Repository: repository, Path: primary, Branch: "work"}},
 	}
 	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
 		t.Fatal(err)
@@ -330,9 +361,13 @@ func TestReconcileWorkspacePlansAdditionalSandboxMount(t *testing.T) {
 		t.Fatalf("writable mount warnings = %+v", writablePlan.Warnings)
 	}
 
-	request.Desired.Sandbox.AdditionalMounts = []DesiredSandboxMount{{Path: primary}}
+	request.Desired.Sandbox.AdditionalMounts = []DesiredSandboxMount{{Path: anchor}}
 	if _, err := PreviewReconcileWorkspace(context.Background(), runner, request); err == nil || !strings.Contains(err.Error(), "already managed") {
 		t.Fatalf("managed mount collision error = %v", err)
+	}
+	request.Desired.Sandbox.AdditionalMounts = []DesiredSandboxMount{{Path: root}}
+	if _, err := PreviewReconcileWorkspace(context.Background(), runner, request); err == nil || !strings.Contains(err.Error(), "overlaps") {
+		t.Fatalf("managed mount parent overlap error = %v", err)
 	}
 
 	largeMounts := make([]DesiredSandboxMount, 0, largeEffectiveMountCount-2)
@@ -376,17 +411,18 @@ func TestDesiredSandboxMountsDeduplicateCommonGitDirectoryForSameRepository(t *t
 	root := t.TempDir()
 	repository := filepath.Join(root, "source")
 	common := filepath.Join(repository, ".git")
-	primary := filepath.Join(root, "workspaces", "source", "primary")
-	second := filepath.Join(root, "workspaces", "source", "second")
+	anchor := filepath.Join(root, "workspaces", "work")
+	primary := filepath.Join(anchor, "source--primary")
+	second := filepath.Join(anchor, "source--second")
 	for _, path := range []string{repository, common, primary, second} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(primary), Name: "work", PrimaryPath: primary,
+		ID: workspacegroup.ID(anchor), Name: "work", Path: anchor,
 		Members: []workspacegroup.Member{
-			{Repository: repository, Path: primary, Branch: "primary", Primary: true},
+			{Repository: repository, Path: primary, Branch: "primary"},
 			{Repository: repository, Path: second, Branch: "second"},
 		},
 	}
@@ -395,7 +431,7 @@ func TestDesiredSandboxMountsDeduplicateCommonGitDirectoryForSameRepository(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{primary, second, common} {
+	for _, path := range []string{anchor, common} {
 		count := 0
 		for _, mount := range mounts {
 			if mount == path {
@@ -454,12 +490,13 @@ func (r *sandboxPlanningRunner) Run(_ context.Context, _ string, name string, ar
 
 func TestReconcileWorkspaceRejectsStaleRevision(t *testing.T) {
 	group := workspacegroup.Workspace{
-		ID: "workspace", Name: "work", PrimaryPath: "/workspaces/repo/work",
-		Members: []workspacegroup.Member{{Repository: "/repos/repo", Path: "/workspaces/repo/work", Branch: "work", Primary: true}},
+		ID: "workspace", Name: "work", Path: "/workspaces/work",
+		Members: []workspacegroup.Member{{Repository: "/repos/repo", Path: "/workspaces/work/repo--work", Branch: "work"}},
 	}
 	runner := &reconcileResolveRunner{group: group}
+	root := runner.root(t)
 	_, err := PreviewReconcileWorkspace(context.Background(), runner, ReconcileWorkspaceRequest{
-		Workspace: group.PrimaryPath, WorkspaceRoot: runner.root(t), Revision: "stale",
+		Workspace: runner.group.Path, WorkspaceRoot: root, Revision: "stale",
 		Desired: DesiredWorkspaceDescription{Worktrees: []DesiredWorkspaceWorktree{{Repository: group.Members[0].Repository, BranchMode: integration.WorkspaceBranchExisting, Branch: "work"}}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "workspace changed") {
@@ -479,10 +516,10 @@ func (r *reconcileResolveRunner) root(t *testing.T) string {
 	t.Helper()
 	if r.base == "" {
 		r.base = t.TempDir()
-		r.group.PrimaryPath = filepath.Join(r.base, "repo", "work")
-		r.group.Members[0].Path = r.group.PrimaryPath
-		r.group.ID = workspacegroup.ID(r.group.PrimaryPath)
-		if err := os.MkdirAll(r.group.PrimaryPath, 0o755); err != nil {
+		r.group.Path = filepath.Join(r.base, "work")
+		r.group.Members[0].Path = filepath.Join(r.group.Path, "repo--work")
+		r.group.ID = workspacegroup.ID(r.group.Path)
+		if err := os.MkdirAll(r.group.Path, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := workspacegroup.Save(r.base, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{r.group}}); err != nil {
@@ -500,7 +537,7 @@ func (r *reconcileResolveRunner) root(t *testing.T) string {
 func (r *reconcileResolveRunner) LookPath(string) error { return nil }
 func (r *reconcileResolveRunner) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
 	if name == "git" && strings.Join(args, " ") == "rev-parse --show-toplevel" {
-		return r.group.PrimaryPath, nil
+		return r.group.Path, nil
 	}
 	return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
 }

@@ -1,6 +1,6 @@
 # Obsidian task authoring
 
-Obsidian is Radar's only task-authoring provider. Each authored task is one Markdown note in one configured Obsidian vault. Radar state is only a rebuildable projection/cache; the note owns identity, lifecycle, priority, timestamps, working notes, and outcome links, while its filename owns the title.
+Obsidian is Radar's task-authoring provider. A note owns task identity, title, lifecycle, priority, timestamps, and user content. Radar's task state remains a rebuildable projection.
 
 ## Configuration
 
@@ -14,77 +14,73 @@ Add the vault to `radar config-path`:
 }
 ```
 
-The path is required before authoring or collection can run. Radar expands a leading `~/`, requires the result to be absolute, requires the vault and its `.obsidian/` directory to exist, and creates the fixed task root `Tasks/`.
+Radar expands `~/`, requires an absolute vault containing `.obsidian/`, and creates `<vault>/Tasks/`. Obsidian Desktop is needed only for the **Open in Obsidian** action.
 
-Obsidian Desktop is required only for **Open in Obsidian**. Collection and mutations use the filesystem directly.
+## Task layout
 
-## Capabilities
-
-The integration implements:
-
-- `Source`
-- `StatusReporter`
-- `LocalSource`
-- `ActionProvider`
-- `TaskAuthoringProvider`
-
-It scans direct Markdown children of `<vault>/Tasks/` on every local refresh. It does not scan nested directories or the rest of the vault.
-
-## Task layout and schema
-
-Each task is one file named after its title:
+Radar gives every task a private stable directory:
 
 ```text
-<Vault>/Tasks/Refine the authentication epic.md
+<Vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
 ```
 
-The note starts with:
+The directory name combines the creation title with the first eight hexadecimal characters of `radar-id`. It never changes. Renaming the Markdown file changes the task title but leaves task and workspace identity unchanged. A task directory must contain exactly one Markdown task note. Attachments may share the directory.
+
+Collection scans one directory level below `Tasks/`. Titles remain unique across all task directories. Moving a note out of its stable directory is invalid.
+
+A new note contains only managed frontmatter and a final newline:
 
 ```md
 ---
-radar-id: <UUID>
+radar-id: 2c965c99-6a50-446e-834a-72656fbc056a
 radar-state: open
 radar-priority: normal
-radar-created-at: 2025-08-04T10:30:00Z
+radar-created-at: 2026-08-25T10:30:00Z
 radar-completed-at:
 ---
 ```
 
-The body contains Intent, Desired outcome, Context, Working notes, and Outcome sections. The filename without `.md` is the task title, so renaming the note renames the task. `radar-id` is immutable. State is exactly `open` or `done`; priority is exactly `normal` or `urgent`; timestamps are UTC RFC 3339. Unknown frontmatter and the entire Markdown body are user-owned and survive Radar mutations. Checkboxes do not control lifecycle.
+Radar does not generate headings or body text. The filename without `.md` is the title. State is `open` or `done`; priority is `normal` or `urgent`; timestamps use UTC RFC 3339. Unknown frontmatter and the complete body belong to the user and survive Radar mutations. Markdown checkboxes do not control lifecycle.
 
-Task titles must be valid single-file names and unique within `Tasks/`. Radar rejects titles containing path separators and never overwrites an existing note.
+Task creation rejects multiline titles, path separators, and duplicate titles. Mutations re-read and validate the note, modify only managed fields, and replace it atomically. Radar never overwrites malformed notes.
 
-Mutations re-read and validate the note, change only managed fields, sync a temporary file beside the note, and atomically rename it over the original. Radar never overwrites a malformed note and never deletes or archives task notes.
+## Source refs and lifecycle
 
-## Source refs
+A valid note emits one authoritative `obsidian:task:<radar-id>` ref with:
 
-A valid note emits one authoritative ref:
+- lifecycle `work_item` and authority `primary`
+- canonical and linking key `obsidian:task:<radar-id>`
+- preferred title from the current filename
+- signal `low_priority`, `immediate`, or `done`
+- an `obsidian://open` URL for the nested note path
+- canonical note and task-directory metadata
 
-- `obsidian:task:<radar-id>`
-  - entity ID `obsidian:task:<radar-id>`
-  - kind `task`
-  - lifecycle `work_item`
-  - lifecycle authority `primary`
-  - canonical and linking identity `obsidian:task:<radar-id>`
-  - preferred title from the note filename
-  - signal `low_priority`, `immediate`, or `done`
-  - URL `obsidian://open?...` for the current vault-relative note path
+The note owns task completion. Supporting GitHub, Git, tmux, Pi, or SBX activity can promote an open task's attention, but cannot complete it or reopen a done note.
 
-An Obsidian note is a task record, not a workspace. It does not provide a filesystem workspace or workspace path. Its title is the default workspace name, so activating an Obsidian-only task can start Radar's repository and branch selection flow. The resulting workspace group stores the note's stable task linking key locally, and Git emits that key to associate the worktree with the task. Git worktrees remain Radar's engineering workspaces, while tmux sessions and SBX sandboxes remain resources associated with their own workspace paths.
+## Planning workspaces
 
-Obsidian's primary lifecycle is terminal for its authored task. Supporting Jira/GitHub completion cannot complete an open note, and supporting activity cannot reopen a done note. While the note is open, linked source signals can still promote it to `in_progress` or `attention`; urgent note priority promotes it to `immediate`.
+Pressing `Enter` on an Obsidian-only task creates or reopens a stable Radar workspace immediately. Repository selection is not part of this step.
 
-## Collection and failures
+```text
+<workspace_root>/plan-authentication/
+└── note.md -> <Vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
+```
 
-Notes are deduplicated by `radar-id` and emitted in stable-ID order. Renaming a note keeps identity while updating its title, note metadata, and URL. Deleting a note removes its ref on the next complete local refresh, so a task without another authoritative ref disappears. Done notes remain collected and use `radar-completed-at` for Radar's normal three-day done display.
+`note.md` is an absolute symlink to the canonical note. Pi, tmux, and nvim start in the workspace directory without an automatic prompt. The same Pi session remains active when Git worktrees are later added as child directories through workspace reconciliation.
+
+When SBX is enabled, Radar mounts the workspace and only the task's private directory. The sandbox can edit `note.md` without seeing sibling task directories or the rest of the vault. A note rename repairs the symlink during local workspace refresh.
+
+Completing or cleaning the workspace never deletes the canonical task directory or note. Cleanup removes the tmux session, sandbox, managed worktrees, `note.md`, and the empty workspace anchor.
+
+## Collection failures
 
 Source status is:
 
-- `ok`: vault/root readable and all discovered notes valid
-- `partial`: one or more notes malformed, duplicated, or unreadable; valid notes are collected and previous observations for known failed notes are preserved
-- `error`: configuration, vault, or task root cannot be used safely
+- `ok` when every discovered task directory and note is valid
+- `partial` when a task directory is malformed, duplicated, unreadable, or missing its note
+- `error` when configuration, the vault, or `Tasks/` cannot be used
 
-Status details include paths and validation reasons, never note bodies.
+Valid tasks remain available during partial collection. Radar preserves previous observations for known failed notes. Status details include paths and validation reasons, never note contents.
 
 ## Commands and TUI
 
@@ -95,17 +91,11 @@ radar task reopen <task-id>
 radar task priority <task-id> urgent|normal
 ```
 
-The daemon validates the protocol, delegates to the sole authoring provider, performs an immediate local refresh, and returns the projected task. These user mutations do not run actionable-transition notifications.
-
-In the TUI, `n` creates a note, `d` toggles open/done, `p` toggles normal/urgent, and `o` offers **Open in Obsidian**. Lifecycle and priority keys reject tasks not owned by the authoring provider.
-
-Because the note is not a workspace, `Enter` does not create a note-specific Pi session. It continues to switch to or create sessions for actual linked tmux and Git workspace resources when those are present.
+In the TUI, `n` creates a note, `Enter` opens its planning workspace, `d` changes lifecycle, `p` changes priority, and `o` opens the canonical note in Obsidian.
 
 ## Validation
 
-Run the integration and full suites with:
-
 ```sh
-go test ./internal/integration/obsidian ./internal/state ./internal/server ./internal/tui
+go test ./internal/integration/obsidian ./internal/workspacegroup ./internal/workspace ./internal/tui
 make test
 ```

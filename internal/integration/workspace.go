@@ -43,6 +43,7 @@ type CreateWorkspaceRequest struct {
 	Switch                  bool
 	ForkPiSession           string
 	TaskLinkingKey          string
+	NotePath                string
 }
 
 type WorkspaceProvider interface {
