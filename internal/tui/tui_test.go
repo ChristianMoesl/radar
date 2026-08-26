@@ -136,6 +136,31 @@ func TestTaskListHidesBusyWhenTaskIsNotBusy(t *testing.T) {
 	}
 }
 
+func TestTaskListShowsNonCleanWorkspaceStatusesOnSourceRows(t *testing.T) {
+	m := model{tasks: []protocol.Task{{
+		Title:     "Workspace",
+		Attention: "in_progress",
+		SourceRefs: []protocol.SourceRef{
+			{ProvidesWorkspace: true, Status: "2 dirty, ahead 1", Presentation: protocol.SourceRefPresentation{Label: "workspace-one"}},
+			{ProvidesWorkspace: true, Status: "1 dirty", Presentation: protocol.SourceRefPresentation{Label: "workspace-two"}},
+			{ProvidesWorkspace: true, Status: "clean", Presentation: protocol.SourceRefPresentation{Label: "workspace-clean"}},
+			{Status: "detached", Presentation: protocol.SourceRefPresentation{Label: "session-one"}},
+		},
+	}}}
+
+	view := ansi.Strip(m.taskList(100, 20))
+	for _, want := range []string{"workspace-one  2 dirty, ahead 1", "workspace-two  1 dirty"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("taskList() missing workspace status %q:\n%s", want, view)
+		}
+	}
+	for _, unwanted := range []string{"workspace-clean  clean", "session-one  detached"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("taskList() shows suppressed status %q:\n%s", unwanted, view)
+		}
+	}
+}
+
 func TestWatchResponseDoesNotResetSelection(t *testing.T) {
 	m := model{
 		cursor:              1,
@@ -615,14 +640,19 @@ func TestTaskListTruncatesLongRows(t *testing.T) {
 		Reason:    "2 unresolved review thread(s), 1 new PR comment(s)",
 		Attention: "attention",
 		SourceRefs: []protocol.SourceRef{{
-			ID:     "git:worktree:/very/very/very/very/very/very/very/long/path/that/would/wrap",
-			Source: "git",
-			Kind:   "worktree",
-			Path:   "/very/very/very/very/very/very/very/long/path/that/would/wrap",
+			ID:                "git:worktree:/very/very/very/very/very/very/very/long/path/that/would/wrap",
+			Source:            "git",
+			Kind:              "worktree",
+			Path:              "/very/very/very/very/very/very/very/long/path/that/would/wrap",
+			ProvidesWorkspace: true,
+			Status:            "12 dirty, ahead 3",
 		}},
 	}}}
 
 	view := model.taskList(60, 20)
+	if !strings.Contains(ansi.Strip(view), "12 dirty, ahead 3") {
+		t.Fatalf("taskList() truncated workspace status before its label:\n%s", view)
+	}
 	for _, line := range strings.Split(view, "\n") {
 		if got := lipgloss.Width(ansi.Strip(line)); got > 60 {
 			t.Fatalf("taskList() line width = %d, want <= 60 for %q:\n%s", got, ansi.Strip(line), view)
