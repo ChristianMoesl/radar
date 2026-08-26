@@ -397,6 +397,8 @@ A newly collected monitor produces the normal Radar macOS notification. Clicking
 
 Radar stores and collects Git checkouts in a flat workspace directory using `<workspace_root>/<repo>--<workspace>`. It sanitizes the repository and workspace names as one path component. Names longer than 120 characters are truncated and receive a deterministic eight-character hash suffix. Registered members emit a shared `workspace-group:<id>` linking key, so worktrees from different repositories appear in one task even without a configured linking mark. Radar also attaches worktrees by configured linking marks such as `ABC-123`. Regular repositories outside the configured workspace root are ignored. Branch names do not affect collection, so a workspace checked out directly on `main` remains visible.
 
+The TUI shows non-clean worktree status, such as `2 dirty, ahead 1`, on the corresponding workspace source row. Clean worktrees have no status label, and worktree status does not change task priority.
+
 ## tmux sessions
 
 Radar collects tmux sessions from the local tmux server and attaches them to matching tasks when their name contains a configured linking mark, or when the session working directory matches a Git worktree path. Sessions without matches are shown as standalone in-progress tasks.

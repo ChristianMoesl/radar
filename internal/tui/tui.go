@@ -2332,7 +2332,7 @@ func (m model) taskLines(width int) ([]string, int, int) {
 			lineWidth := max(20, width-20)
 			block := []string{truncateLine(line, lineWidth)}
 			for _, ref := range task.SourceRefs {
-				block = append(block, truncateLine(subtleStyle.Render("    ↳ "+sourceRefLabel(ref)), lineWidth))
+				block = append(block, taskSourceRefLine(ref, lineWidth))
 			}
 			if i == m.cursor {
 				groupStart := groupHeaderIndex
@@ -2390,6 +2390,24 @@ func taskLine(task protocol.Task, selected bool) string {
 
 func displayTaskReason(task protocol.Task) string {
 	return task.Reason
+}
+
+func taskSourceRefLine(ref protocol.SourceRef, width int) string {
+	const prefix = "    ↳ "
+	label := sourceRefLabel(ref)
+	status := ""
+	if ref.ProvidesWorkspace && ref.Status != "" && ref.Status != "clean" {
+		status = ref.Status
+	}
+	if status == "" {
+		return truncateLine(subtleStyle.Render(prefix+label), width)
+	}
+
+	separator := "  "
+	labelWidth := max(1, width-lipgloss.Width(prefix)-lipgloss.Width(separator)-lipgloss.Width(status))
+	label = truncateLine(label, labelWidth)
+	line := subtleStyle.Render(prefix+label) + separator + attentionStyle.Render(status)
+	return truncateLine(line, width)
 }
 
 func sourceRefLabel(ref protocol.SourceRef) string {
