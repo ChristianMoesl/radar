@@ -69,6 +69,7 @@ type ReconcileWorkspacePlan struct {
 	Revision            string            `json:"revision"`
 	NextRevision        string            `json:"next_revision"`
 	PlanID              string            `json:"plan_id"`
+	AutoConfirm         bool              `json:"auto_confirm,omitempty"`
 	EffectiveMountCount int               `json:"effective_sandbox_mount_count,omitempty"`
 	Changes             []WorkspaceChange `json:"changes"`
 	Warnings            []string          `json:"warnings,omitempty"`

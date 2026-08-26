@@ -20,8 +20,11 @@ func TestDefaultUsesProductDefaults(t *testing.T) {
 	if !reflect.DeepEqual(cfg.RepositoryDirs, []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"}) {
 		t.Fatalf("RepositoryDirs = %#v", cfg.RepositoryDirs)
 	}
-	if cfg.WorkspaceRoot != filepath.Join(dataHome, "radar", "workspaces") {
-		t.Fatalf("WorkspaceRoot = %q", cfg.WorkspaceRoot)
+	if cfg.Workspace.RootDir != filepath.Join(dataHome, "radar", "workspaces") {
+		t.Fatalf("Workspace.RootDir = %q", cfg.Workspace.RootDir)
+	}
+	if cfg.Workspace.AutoConfirm {
+		t.Fatal("Workspace.AutoConfirm = true, want disabled default")
 	}
 	if cfg.SBX.Enabled {
 		t.Fatal("SBX.Enabled = true, want disabled default")
@@ -46,19 +49,19 @@ func TestDefaultUsesProductDefaults(t *testing.T) {
 	}
 }
 
-func TestDefaultWorkspaceRootUsesXDGDataFallback(t *testing.T) {
+func TestDefaultWorkspaceRootDirUsesXDGDataFallback(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "")
 
-	if got := Default().WorkspaceRoot; got != "~/.local/share/radar/workspaces" {
-		t.Fatalf("WorkspaceRoot = %q", got)
+	if got := Default().Workspace.RootDir; got != "~/.local/share/radar/workspaces" {
+		t.Fatalf("Workspace.RootDir = %q", got)
 	}
 }
 
-func TestDefaultWorkspaceRootIgnoresRelativeXDGDataHome(t *testing.T) {
+func TestDefaultWorkspaceRootDirIgnoresRelativeXDGDataHome(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "relative/data")
 
-	if got := Default().WorkspaceRoot; got != "~/.local/share/radar/workspaces" {
-		t.Fatalf("WorkspaceRoot = %q", got)
+	if got := Default().Workspace.RootDir; got != "~/.local/share/radar/workspaces" {
+		t.Fatalf("Workspace.RootDir = %q", got)
 	}
 }
 
@@ -74,7 +77,7 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{
   "linking_mark_prefixes": ["xyz"],
   "repository_dirs": ["~/repos"],
-  "workspace_root": "~/streams",
+  "workspace": {"root_dir": "~/streams", "auto_confirm": true},
   "model": "github-copilot/claude-sonnet-4.5",
   "thinking": "high",
   "sbx": {
@@ -116,8 +119,8 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	if !reflect.DeepEqual(cfg.RepositoryDirs, []string{"~/repos"}) {
 		t.Fatalf("RepositoryDirs = %#v", cfg.RepositoryDirs)
 	}
-	if cfg.WorkspaceRoot != "~/streams" {
-		t.Fatalf("WorkspaceRoot = %q", cfg.WorkspaceRoot)
+	if cfg.Workspace.RootDir != "~/streams" || !cfg.Workspace.AutoConfirm {
+		t.Fatalf("Workspace = %#v", cfg.Workspace)
 	}
 	if cfg.Model != "github-copilot/claude-sonnet-4.5" {
 		t.Fatalf("Model = %q", cfg.Model)
@@ -154,6 +157,29 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cfg.Datadog.MonitorStatuses, []string{"Alert", "Warn"}) {
 		t.Fatalf("Datadog.MonitorStatuses = %#v", cfg.Datadog.MonitorStatuses)
+	}
+}
+
+func TestLoadDoesNotTreatWorkspaceRootAsAlias(t *testing.T) {
+	home := t.TempDir()
+	configHome := filepath.Join(home, "config")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("XDG_DATA_HOME", "")
+	path := filepath.Join(configHome, "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"workspace_root":"~/old-workspaces"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Workspace.RootDir != "~/.local/share/radar/workspaces" {
+		t.Fatalf("legacy workspace_root changed config: %#v", cfg.Workspace)
 	}
 }
 
@@ -363,6 +389,7 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_DATA_HOME", "")
 
 	path, err := EnsureFile()
 	if err != nil {
@@ -388,6 +415,9 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	if generated.LinkingMarkPrefixes == nil || len(generated.LinkingMarkPrefixes) != 0 {
 		t.Fatalf("generated LinkingMarkPrefixes = %#v, want mandatory empty list", generated.LinkingMarkPrefixes)
 	}
+	if generated.Workspace.RootDir != "~/.local/share/radar/workspaces" || generated.Workspace.AutoConfirm {
+		t.Fatalf("generated Workspace = %#v", generated.Workspace)
+	}
 	if generated.Datadog.MonitorQuery != "" {
 		t.Fatalf("generated Datadog.MonitorQuery = %q, want disabled empty query", generated.Datadog.MonitorQuery)
 	}
@@ -399,6 +429,9 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"datadog"`) || !strings.Contains(string(data), `"monitor_query"`) || !strings.Contains(string(data), `"monitor_statuses"`) {
 		t.Fatalf("generated config is missing Datadog settings: %s", data)
+	}
+	if !strings.Contains(string(data), `"workspace"`) || !strings.Contains(string(data), `"root_dir"`) || !strings.Contains(string(data), `"auto_confirm"`) {
+		t.Fatalf("generated config is missing workspace settings: %s", data)
 	}
 }
 

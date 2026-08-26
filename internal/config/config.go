@@ -15,7 +15,7 @@ import (
 
 type Config struct {
 	RepositoryDirs      []string          `json:"repository_dirs,omitempty"`
-	WorkspaceRoot       string            `json:"workspace_root,omitempty"`
+	Workspace           WorkspaceConfig   `json:"workspace"`
 	Model               string            `json:"model,omitempty"`
 	Thinking            string            `json:"thinking,omitempty"`
 	LinkingMarkPrefixes []string          `json:"linking_mark_prefixes"`
@@ -25,6 +25,11 @@ type Config struct {
 	Jira                JiraConfig        `json:"jira"`
 	Datadog             DatadogConfig     `json:"datadog"`
 	Obsidian            ObsidianConfig    `json:"obsidian"`
+}
+
+type WorkspaceConfig struct {
+	RootDir     string `json:"root_dir"`
+	AutoConfirm bool   `json:"auto_confirm"`
 }
 
 type SBXConfig struct {
@@ -209,7 +214,7 @@ func EnsureFile() (string, error) {
 func Default() Config {
 	cfg := Config{
 		RepositoryDirs:      []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"},
-		WorkspaceRoot:       defaultWorkspaceRoot(),
+		Workspace:           WorkspaceConfig{RootDir: defaultWorkspaceRoot()},
 		LinkingMarkPrefixes: []string{},
 		SBX: SBXConfig{
 			Kit:              SBXKitConfig{Name: "shell"},
@@ -259,8 +264,8 @@ func applyDefaults(cfg *Config) {
 	if len(cfg.RepositoryDirs) == 0 {
 		cfg.RepositoryDirs = defaults.RepositoryDirs
 	}
-	if strings.TrimSpace(cfg.WorkspaceRoot) == "" {
-		cfg.WorkspaceRoot = defaults.WorkspaceRoot
+	if strings.TrimSpace(cfg.Workspace.RootDir) == "" {
+		cfg.Workspace.RootDir = defaults.Workspace.RootDir
 	}
 	if strings.TrimSpace(cfg.SBX.Kit.Name) == "" {
 		cfg.SBX.Kit.Name = defaults.SBX.Kit.Name

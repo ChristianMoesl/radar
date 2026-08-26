@@ -306,7 +306,7 @@ func runReconcileWorkspace(args []string) {
 		fatal(err)
 	}
 	request.Workspace = *current
-	request.WorkspaceRoot = workspace.ExpandPath(cfg.WorkspaceRoot)
+	request.WorkspaceRoot = workspace.ExpandPath(cfg.Workspace.RootDir)
 	request.ExpectedPlanID = strings.TrimSpace(*planID)
 	if *planChanges >= 0 {
 		request.ExpectedPlanChangeCount = planChanges
@@ -332,15 +332,19 @@ func runReconcileWorkspace(args []string) {
 			closeLog()
 			fatal(err)
 		}
+		plan.AutoConfirm = cfg.Workspace.AutoConfirm
 		logger.Info("workspace reconciliation planned",
 			"workspace_id", plan.WorkspaceID, "workspace_name", plan.WorkspaceName,
-			"plan_id", plan.PlanID, "revision", plan.Revision, "change_count", len(plan.Changes),
+			"plan_id", plan.PlanID, "revision", plan.Revision, "change_count", len(plan.Changes), "auto_confirm", plan.AutoConfirm,
 			"effective_mount_count", plan.EffectiveMountCount)
 		closeLog()
 		printJSON(plan)
 		return
 	}
 	result, err := workspace.ApplyReconcileWorkspace(context.Background(), workspace.ExecRunner{}, logger, request)
+	if result.Plan != nil {
+		result.Plan.AutoConfirm = cfg.Workspace.AutoConfirm
+	}
 	closeLog()
 	if err != nil {
 		fatal(err)
@@ -386,7 +390,7 @@ func runWorkspaceContext(args []string) {
 		fatal(err)
 	}
 	result, err := workspace.InspectWorkspace(
-		context.Background(), workspace.ExecRunner{}, *current, workspace.ExpandPath(cfg.WorkspaceRoot),
+		context.Background(), workspace.ExecRunner{}, *current, workspace.ExpandPath(cfg.Workspace.RootDir),
 	)
 	if err != nil {
 		fatal(err)

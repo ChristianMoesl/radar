@@ -151,7 +151,7 @@ Every Radar-started Pi receives three host tools:
 
 - `radar_workspace_context` resolves the current anchor or member and returns its revision, complete desired state, note metadata, member status, sandbox resources, and discovered repositories.
 - `radar_repository_refs` refreshes one selected repository when possible and returns canonical branches, base refs, and checkout paths.
-- `radar_reconcile_workspace` previews, confirms, and applies complete worktree, requested-mount, and port state.
+- `radar_reconcile_workspace` previews and applies complete worktree, requested-mount, and port state. It asks for confirmation unless `workspace.auto_confirm` is enabled.
 
 The context tool returns only the current logical workspace, not all registry records. It never returns note contents.
 
@@ -429,6 +429,10 @@ Example:
 ```json
 {
   "repository_dirs": ["~/workspace", "~/code", "~/src", "~/dev", "~/projects"],
+  "workspace": {
+    "root_dir": "~/.local/share/radar/workspaces",
+    "auto_confirm": false
+  },
   "linking_mark_prefixes": ["ABC"],
   "obsidian": {"vault_path": "~/Documents/Obsidian/Work"},
   "model": "github-copilot/claude-sonnet-4.5",
@@ -471,7 +475,7 @@ Example:
 
 `linking_mark_prefixes` is mandatory and lists the identifier prefixes Radar may use to link work across sources, for example `["ABC"]` permits `ABC-722`. Prefixes are normalized to uppercase, must start with a letter, and may contain only letters and numbers. Radar matches only complete `<PREFIX>-<NUMBER>` marks, so unrelated suffixes such as `Origin-096e274f` are ignored.
 
-`obsidian.vault_path` is required for task authoring and must identify an existing vault containing `.obsidian/`; Radar creates its fixed `Tasks/` root. `repository_dirs` controls where `radar create` discovers base repositories. `workspace_root` controls where Radar creates worktrees. When omitted, the workspace root is `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.authoritative_issue_types` defaults to Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection, while `datadog.monitor_statuses` selects the unhealthy states to ingest and defaults to Alert, Warn, and No Data. Secrets are accepted only from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`.
+`obsidian.vault_path` is required for task authoring and must identify an existing vault containing `.obsidian/`; Radar creates its fixed `Tasks/` root. `repository_dirs` controls where `radar create` discovers base repositories. `workspace.root_dir` controls where Radar creates worktrees. When omitted, it defaults to `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. Existing configs must move the former `workspace_root` value manually; Radar does not read legacy user-config keys. `workspace.auto_confirm` defaults to `false`; when enabled, Radar's Pi tool still previews and validates workspace reconciliation but applies the plan without asking for confirmation. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.authoritative_issue_types` defaults to Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection, while `datadog.monitor_statuses` selects the unhealthy states to ingest and defaults to Alert, Warn, and No Data. Secrets are accepted only from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`.
 
 Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the low-priority section. User filters also apply to GitHub comment and review actors: muted or deprioritized actor activity does not promote a PR to attention. Confirmed GitHub bots match both their API login and the equivalent `[bot]` alias, so `gemini-code-assist[bot]` matches the GraphQL login `gemini-code-assist`. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive.
 

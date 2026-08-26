@@ -26,6 +26,8 @@ This project prefers clean model changes over compatibility layers. When renamin
 
 If a compatibility concern comes up, ask before implementing it.
 
+Apply the same rule to user configuration. Update its schema directly and require users to edit existing configuration themselves. Do not add legacy keys, aliases, or automatic user-config migrations.
+
 ## Persisted data rollouts
 
 When changing an on-disk schema or integration-owned file layout, treat rollout validation separately from code tests. Before declaring the change install-ready:

@@ -65,6 +65,7 @@ type Plan = {
   revision: string;
   next_revision: string;
   plan_id: string;
+  auto_confirm?: boolean;
   effective_sandbox_mount_count?: number;
   changes: Change[];
   warnings?: string[];
@@ -363,8 +364,8 @@ export default function radarExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "radar_reconcile_workspace",
     label: "Reconcile Radar Workspace",
-    description: "Preview, confirm, and reconcile the complete desired host workspace state. It can add or remove clean member worktrees, including the last one, plus additional host mounts and IPv4-loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace.",
-    promptSnippet: "Reconcile typed worktree and optional sandbox mount/port desired state after user confirmation",
+    description: "Preview and reconcile the complete desired host workspace state, asking for confirmation unless workspace.auto_confirm is enabled in Radar's user config. It can add or remove clean member worktrees, including the last one, plus additional host mounts and IPv4-loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace.",
+    promptSnippet: "Reconcile typed worktree and optional sandbox mount/port desired state with configured confirmation behavior",
     promptGuidelines: [
       "Use radar_reconcile_workspace for host workspace changes instead of direct git, tmux, or sbx commands because Radar must validate and persist the complete resource bundle.",
       "Always start from the latest radar_workspace_context revision and complete desired object; omitted worktrees, additional mounts, and ports are removals.",
@@ -378,24 +379,27 @@ export default function radarExtension(pi: ExtensionAPI) {
     executionMode: "sequential",
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx: ExtensionContext) {
-      if (!ctx.hasUI) {
-        throw new Error("radar_reconcile_workspace requires an interactive confirmation channel; no changes were applied");
-      }
       const binary = process.env.RADAR_BINARY?.trim() || "radar";
       const input = params as unknown as Record<string, unknown>;
       const cwd = resolve(ctx.cwd);
       const previewText = await runRadar(pi, binary, reconcileArgs(input, cwd, true), signal, "radar_reconcile_workspace", "preview");
       let plan = parseJSON<Plan>("radar_reconcile_workspace", previewText, "preview");
       const plans: Plan[] = [plan];
+      const autoConfirm = plan.auto_confirm === true;
+      if (!autoConfirm && !ctx.hasUI) {
+        throw new Error("radar_reconcile_workspace requires an interactive confirmation channel unless workspace.auto_confirm is enabled; no changes were applied");
+      }
 
       for (let confirmationAttempt = 0; confirmationAttempt < MaxReconcileConfirmations; confirmationAttempt++) {
         if (plan.changes.length === 0) {
           return { content: [{ type: "text", text: JSON.stringify({ ok: true, unchanged: true, revision: plan.revision }) }], details: { plans, unchanged: true } };
         }
-        const title = confirmationAttempt === 0 ? "Reconcile Radar workspace?" : "Workspace plan changed. Reconcile updated plan?";
-        const approved = await ctx.ui.confirm(title, confirmation(plan));
-        if (!approved) {
-          return { content: [{ type: "text", text: JSON.stringify({ ok: false, cancelled: true }) }], details: { cancelled: true, plans } };
+        if (!autoConfirm) {
+          const title = confirmationAttempt === 0 ? "Reconcile Radar workspace?" : "Workspace plan changed. Reconcile updated plan?";
+          const approved = await ctx.ui.confirm(title, confirmation(plan));
+          if (!approved) {
+            return { content: [{ type: "text", text: JSON.stringify({ ok: false, cancelled: true }) }], details: { cancelled: true, plans } };
+          }
         }
         const resultText = await runRadar(pi, binary, reconcileArgs(input, cwd, false, plan), signal, "radar_reconcile_workspace", "apply");
         const result = parseJSON<ReconcileResult>("radar_reconcile_workspace", resultText, "apply");

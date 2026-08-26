@@ -56,7 +56,7 @@ func TestReconciledSameRepositoryWorktreeLinksExistingGitHubPullRequestToWorkspa
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	config := `{"linking_mark_prefixes":["XYZ"],"workspace_root":"` + workspaceRoot + `","repository_dirs":["` + sources + `"]}`
+	config := `{"linking_mark_prefixes":["XYZ"],"workspace":{"root_dir":"` + workspaceRoot + `"},"repository_dirs":["` + sources + `"]}`
 	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}

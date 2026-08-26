@@ -59,7 +59,7 @@ func TestFetchSandboxesUsesRegisteredWorkspaceAnchor(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	configJSON := fmt.Sprintf(`{"workspace_root":%q,"linking_mark_prefixes":["ABC"]}`, root)
+	configJSON := fmt.Sprintf(`{"workspace":{"root_dir":%q},"linking_mark_prefixes":["ABC"]}`, root)
 	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), []byte(configJSON), 0o600); err != nil {
 		t.Fatal(err)
 	}

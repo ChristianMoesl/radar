@@ -318,7 +318,7 @@ func TestFetchWorktreesOnlyIncludesConfiguredWorkspaceRoot(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	configJSON := []byte(`{"linking_mark_prefixes":["XYZ"],"workspace_root":"` + filepath.Join(home, "workspaces") + `"}`)
+	configJSON := []byte(`{"linking_mark_prefixes":["XYZ"],"workspace":{"root_dir":"` + filepath.Join(home, "workspaces") + `"}}`)
 	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), configJSON, 0o600); err != nil {
 		t.Fatal(err)
 	}

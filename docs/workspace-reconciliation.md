@@ -8,8 +8,8 @@ Radar exposes one declarative agent mutation path: `radar_reconcile_workspace`.
 2. Copy its revision and complete `desired` state.
 3. Change only the requested resources.
 4. Submit the original revision and modified state to `radar_reconcile_workspace`.
-5. Radar previews the exact difference and asks for interactive confirmation.
-6. If host observations change the plan before apply, the Pi adapter shows the replacement plan and asks again.
+5. Radar previews the exact difference. The Pi adapter asks for interactive confirmation unless `workspace.auto_confirm` is enabled in the user config.
+6. If host observations change the plan before apply, the Pi adapter applies the same confirmation policy to the replacement plan.
 
 The CLI equivalent is:
 
@@ -95,7 +95,7 @@ The tool returns only the current logical workspace, not every record in `.radar
 - Host ports are unique and published as TCP4 on IPv4 loopback.
 - Sandbox attachment cannot be enabled or removed through reconciliation.
 - A sandbox-less workspace requires `desired.sandbox: null`.
-- Apply fails closed without an interactive confirmation channel.
+- Apply fails closed without an interactive confirmation channel unless `workspace.auto_confirm` is enabled.
 
 ## SBX mounts
 

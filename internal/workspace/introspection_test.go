@@ -81,7 +81,7 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	}
 	data, err := json.Marshal(config.Config{
 		RepositoryDirs:      []string{sources},
-		WorkspaceRoot:       root,
+		Workspace:           config.WorkspaceConfig{RootDir: root},
 		LinkingMarkPrefixes: []string{"XYZ"},
 	})
 	if err != nil {
@@ -163,7 +163,7 @@ func TestInspectNoteOnlyWorkspaceFromAnchor(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(config.Config{WorkspaceRoot: root, LinkingMarkPrefixes: []string{"ABC"}})
+	data, err := json.Marshal(config.Config{Workspace: config.WorkspaceConfig{RootDir: root}, LinkingMarkPrefixes: []string{"ABC"}})
 	if err != nil {
 		t.Fatal(err)
 	}

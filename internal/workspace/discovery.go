@@ -18,7 +18,7 @@ func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) 
 	if err != nil {
 		return nil, err
 	}
-	workspaces := ExpandPath(cfg.WorkspaceRoot)
+	workspaces := ExpandPath(cfg.Workspace.RootDir)
 	repos := make([]string, 0)
 	seen := map[string]bool{}
 	addRepo := func(repo string) {
@@ -147,7 +147,7 @@ func DefaultRoot() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Clean(ExpandPath(cfg.WorkspaceRoot)), nil
+	return filepath.Clean(ExpandPath(cfg.Workspace.RootDir)), nil
 }
 
 func existingDirs(paths []string) []string {
