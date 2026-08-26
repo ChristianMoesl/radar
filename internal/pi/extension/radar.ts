@@ -142,6 +142,22 @@ function homeRelativePath(path: string): string {
   return path;
 }
 
+function radarInstructionsPath(): string {
+  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+  return join(configHome, "radar", "AGENTS.md");
+}
+
+async function loadRadarInstructions(): Promise<string | undefined> {
+  const path = radarInstructionsPath();
+  try {
+    const instructions = await readFile(path, "utf8");
+    return `<radar_instructions path="${path}">\n${instructions}\n</radar_instructions>`;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
 function displayChangeSummary(change: Change): string {
   if (!change.path) return change.summary;
   const shortened = homeRelativePath(change.path);
@@ -278,6 +294,13 @@ export default function radarExtension(pi: ExtensionAPI) {
     }
   });
   pi.on("before_agent_start", async (event, ctx) => {
+    let radarInstructions: string | undefined;
+    try {
+      radarInstructions = await loadRadarInstructions();
+    } catch (error) {
+      ctx.ui.notify(`Radar could not load ${radarInstructionsPath()}: ${error instanceof Error ? error.message : error}`, "warning");
+    }
+
     try {
       knownContext = await inspectWorkspace(pi, ctx.cwd, ctx.signal);
       const resources = await discoverResources(knownContext);
@@ -293,10 +316,12 @@ export default function radarExtension(pi: ExtensionAPI) {
         "Radar workspace instructions:",
         knownContext.note ? `- note.md is the canonical Obsidian task note at ${knownContext.note.path}. Its body may be empty. Do not invent a template unless the user asks or the work requires one.` : "",
         "- Member worktrees are direct children of the workspace. Use Radar's typed tools for membership, sandbox mount, and port changes.",
+        "- Instructions from Radar's user AGENTS.md apply to workspace and resource management across every member repository.",
         "- Instructions from a member repository context file apply only to files under that repository. Nested context files apply to their containing subtree. The most specific applicable directory wins. Global and workspace instructions apply to every member.",
       ].filter(Boolean).join("\n");
-      return { systemPrompt: [event.systemPrompt, guidelines, ...blocks].join("\n\n") };
+      return { systemPrompt: [event.systemPrompt, guidelines, radarInstructions, ...blocks].filter(Boolean).join("\n\n") };
     } catch {
+      if (radarInstructions) return { systemPrompt: [event.systemPrompt, radarInstructions].join("\n\n") };
       return undefined;
     }
   });

@@ -13,6 +13,7 @@ fi
 
 install -d "$bindir"
 install -m 0755 "$root/bin/radar" "$bindir/radar"
+"$root/install-agent-instructions.sh" "$root/share/radar/AGENTS.md"
 
 notifier="$root/libexec/radar/RadarNotifier.app"
 if [[ -d "$notifier" ]]; then
@@ -30,6 +31,7 @@ if [[ -d "$notifier" ]]; then
 fi
 
 printf 'Installed Radar at %s\n' "$bindir/radar"
+printf 'Radar agent instructions are available at %s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/radar/AGENTS.md"
 if [[ -d "$libexecdir/RadarNotifier.app" ]]; then
   printf 'Installed Radar notifier at %s\n' "$libexecdir/RadarNotifier.app"
 fi

@@ -5,6 +5,7 @@ BINARY := radar
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 LIBEXECDIR ?= $(PREFIX)/libexec/radar
+AGENT_INSTRUCTIONS_TEMPLATE := internal/pi/default-AGENTS.md
 BUILD_DIR ?= build
 NOTIFIER_APP := $(BUILD_DIR)/RadarNotifier.app
 DIST_DIR ?= dist
@@ -32,6 +33,7 @@ notifier:
 install: build
 	install -d $(BINDIR)
 	install -m 0755 $(BINARY) $(BINDIR)/$(BINARY)
+	scripts/install-agent-instructions.sh $(AGENT_INSTRUCTIONS_TEMPLATE)
 	@if [ "$(HOST_OS)" = "Darwin" ]; then \
 		rm -rf "$(LIBEXECDIR)/RadarNotifier.app"; \
 		install -d "$(LIBEXECDIR)"; \
@@ -50,7 +52,7 @@ dist: clean-dist
 		goarch=$${target#*/}; \
 		name="$(BINARY)_$(VERSION)_$${goos}_$${goarch}"; \
 		dir="$(DIST_DIR)/$${name}"; \
-		mkdir -p "$${dir}/bin"; \
+		mkdir -p "$${dir}/bin" "$${dir}/share/radar"; \
 		echo "building $${name}"; \
 		GOOS=$${goos} GOARCH=$${goarch} CGO_ENABLED=0 $(GO) build -trimpath -buildvcs=false -ldflags "$(LDFLAGS)" -o "$${dir}/bin/$(BINARY)" ./cmd/radar; \
 		if [ "$${goos}" = darwin ]; then \
@@ -61,8 +63,10 @@ dist: clean-dist
 			scripts/build-notifier-app.sh "$${dir}/libexec/radar/RadarNotifier.app" "$(VERSION)" "$${goarch}"; \
 		fi; \
 		cp README.md "$${dir}/README.md"; \
+		cp $(AGENT_INSTRUCTIONS_TEMPLATE) "$${dir}/share/radar/AGENTS.md"; \
 		cp scripts/install.sh "$${dir}/install.sh"; \
-		chmod 0755 "$${dir}/install.sh"; \
+		cp scripts/install-agent-instructions.sh "$${dir}/install-agent-instructions.sh"; \
+		chmod 0755 "$${dir}/install.sh" "$${dir}/install-agent-instructions.sh"; \
 		tar -C "$(DIST_DIR)" -czf "$(DIST_DIR)/$${name}.tar.gz" "$${name}"; \
 		rm -rf "$${dir}"; \
 	done; \

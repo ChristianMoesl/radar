@@ -157,6 +157,8 @@ The daemon creates an example file on startup when it is missing. The TUI expose
 
 The config controls the required Obsidian vault, repository discovery roots, the workspace root, SBX settings, GitHub filters, and Datadog monitor collection. SBX enablement, kit selection, and global additional mounts live together under `sbx`; repository-local `.radar.json` files use the same shape. Filters live under `github.filters` and are applied when serving tasks from the daemon, so CLI and TUI see the same view. `datadog.monitor_query` scopes Datadog collection, `datadog.monitor_statuses` selects the unhealthy states to ingest, and Datadog credentials are read only from environment variables. Raw collected state stays unmodified on disk.
 
+`$XDG_CONFIG_HOME/radar/AGENTS.md`, falling back to `~/.config/radar/AGENTS.md`, is the user-owned instruction file for Radar-managed Pi sessions. Installers copy the committed default only when the file does not exist and never update an existing file.
+
 There are two filter effects:
 
 - `mute`: hide the task and remove it from counts
@@ -219,7 +221,7 @@ Obsidian activation creates a note-only anchor with `note.md` as an absolute sym
 
 SBX uses the anchor as its primary workspace. Radar adds the private note directory, distinct external Git common directories, configured mounts, and requested mounts. Nested worktrees need no separate mount because the anchor already contains them. Effective mount changes recreate SBX and may interrupt processes, while failed recreation never rolls back completed filesystem or Git changes.
 
-Radar embeds a TypeScript Pi extension under `$XDG_DATA_HOME/radar/pi`. Radar-started Pi processes receive it through `--extension` and run in the anchor. The extension provides workspace inspection, repository-ref inspection, and confirmed reconciliation tools. It also contributes member skills, injects path-labelled repository instructions with repository-only scope, reports duplicate skills, and reloads resources after membership changes without replacing conversation history. Member settings and extensions are not loaded.
+Radar embeds a TypeScript Pi extension under `$XDG_DATA_HOME/radar/pi`. Radar-started Pi processes receive it through `--extension` and run in the anchor. The extension provides workspace inspection, repository-ref inspection, and confirmed reconciliation tools. Before every agent turn it loads Radar's user instruction file and scopes those instructions to workspace and resource management across all members. It also contributes member skills, injects path-labelled repository instructions with repository-only scope, reports duplicate skills, and reloads resources after membership changes without replacing conversation history. Member settings and extensions are not loaded.
 
 Workspace resolution is registry-first. The anchor, `note.md`, member roots, and nested member paths resolve to the same workspace and compare-and-swap revision. The context result exposes only that workspace, including note metadata without note contents, rather than every registry record.
 

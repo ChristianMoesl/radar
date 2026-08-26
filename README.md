@@ -52,7 +52,7 @@ tar -xzf "$archive"
 radar version
 ```
 
-The installer uses `~/.local` by default. Set `PREFIX` to install elsewhere. macOS archives also install the `RadarNotifier.app` companion under `libexec/radar` and register it with Launch Services.
+The installer uses `~/.local` by default. Set `PREFIX` to install elsewhere. It also creates `$XDG_CONFIG_HOME/radar/AGENTS.md`, falling back to `~/.config/radar/AGENTS.md`, with default instructions for Radar-managed agent sessions. An existing instruction file is never changed. macOS archives also install the `RadarNotifier.app` companion under `libexec/radar` and register it with Launch Services.
 
 ## Update
 
@@ -423,6 +423,8 @@ radar config-path
 
 By default this is `$XDG_CONFIG_HOME/radar/config.json` or `~/.config/radar/config.json`.
 The daemon creates an example file on startup if it does not exist yet.
+
+Radar-managed Pi sessions also load `$XDG_CONFIG_HOME/radar/AGENTS.md`, falling back to `~/.config/radar/AGENTS.md`. The installer creates the default file only when it is missing. Edit it to change agent behavior specific to Radar workspace and resource management. Radar reads it before every agent turn, so changes apply without restarting Pi.
 
 Example:
 
