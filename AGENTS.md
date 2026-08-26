@@ -26,6 +26,17 @@ This project prefers clean model changes over compatibility layers. When renamin
 
 If a compatibility concern comes up, ask before implementing it.
 
+## Persisted data rollouts
+
+When changing an on-disk schema or integration-owned file layout, treat rollout validation separately from code tests. Before declaring the change install-ready:
+
+- inventory existing local data for every affected format;
+- identify whether each format is migrated, reset, or intentionally rejected;
+- perform a read-only preflight against the configured local state;
+- do not install an incompatible binary until the user has chosen the handling for existing data.
+
+This does not require backwards-compatibility code. Prefer an explicit one-time migration or documented reset when compatibility shims are not wanted.
+
 ## Test and documentation data
 
 Use neutral identifiers such as `ABC-123` in tests, documentation, and examples. Do not embed organization-specific ticket prefixes.
