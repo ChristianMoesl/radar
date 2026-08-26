@@ -1,10 +1,6 @@
 package integration
 
-import (
-	"context"
-
-	"radar/internal/tmuxlayout"
-)
+import "context"
 
 type Workspace struct {
 	Name        string `json:"name,omitempty"`
@@ -24,30 +20,7 @@ const (
 	WorkspaceBranchNew      WorkspaceBranchMode = "new"
 )
 
-type CreateWorkspaceRequest struct {
-	Repo                    string
-	BranchMode              WorkspaceBranchMode
-	Name                    string
-	Branch                  string
-	Base                    string
-	Path                    string
-	SessionName             string
-	WorkspaceRoot           string
-	Model                   string
-	Thinking                string
-	Sandbox                 bool
-	SandboxKitName          string
-	SandboxKitPath          string
-	AdditionalSandboxMounts []string
-	Tmux                    tmuxlayout.Config
-	Switch                  bool
-	ForkPiSession           string
-	TaskLinkingKey          string
-	NotePath                string
-}
-
 type WorkspaceProvider interface {
 	Source
 	Current(ctx context.Context, cwd string) (Workspace, bool, error)
-	Create(ctx context.Context, req CreateWorkspaceRequest) (Workspace, error)
 }

@@ -21,7 +21,7 @@ const maxStateFileSize = 50 * 1024 * 1024
 // stateVersion changes only when the persisted format becomes intentionally
 // incompatible. Additive, backward-readable state changes must keep the
 // current version.
-const stateVersion = 6
+const stateVersion = 7
 const doneTaskDisplayRetention = 3 * 24 * time.Hour
 
 type Store struct {
@@ -60,7 +60,7 @@ type TaskRecord struct {
 }
 
 type TaskAckState struct {
-	GeneralCommentsAckAt string `json:"general_comments_ack_at,omitempty"`
+	Cursor string `json:"cursor,omitempty"`
 }
 
 type SourceRefRecord struct {
@@ -256,7 +256,7 @@ func (s *Store) Reset() error {
 	s.mu.Lock()
 	retained := make([]TaskRecord, 0)
 	for _, record := range s.state.Records {
-		if record.Ack.GeneralCommentsAckAt == "" {
+		if record.Ack.Cursor == "" {
 			continue
 		}
 		record.State = "active"
@@ -287,6 +287,13 @@ func recordByID(records []TaskRecord, id string) *TaskRecord {
 	return nil
 }
 
+func sourceRefAcknowledgementCursor(ref protocol.SourceRef) string {
+	if ref.Acknowledgement == nil {
+		return ""
+	}
+	return ref.Acknowledgement.Cursor
+}
+
 func (s *Store) Acknowledge(itemID string) bool {
 	s.mu.Lock()
 	changed := false
@@ -296,14 +303,11 @@ func (s *Store) Acknowledge(itemID string) bool {
 			continue
 		}
 		for _, sourceRef := range s.state.Records[i].Snapshot.SourceRefs {
-			if sourceRef.Metadata == nil {
-				continue
-			}
-			if latest := sourceRef.Metadata["latest_general_comment_at"]; latest != "" && latest > ackAt {
+			if latest := sourceRefAcknowledgementCursor(sourceRef); latest != "" && latest > ackAt {
 				ackAt = latest
 			}
 		}
-		s.state.Records[i].Ack.GeneralCommentsAckAt = ackAt
+		s.state.Records[i].Ack.Cursor = ackAt
 		s.state.Records[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 		changed = true
 		break
@@ -834,7 +838,7 @@ func mergeTaskRecords(records []TaskRecord, ids []string, winnerID string, refs 
 		}
 		if containsString(ids, record.ID) {
 			loserSnapshots = append(loserSnapshots, record.Snapshot)
-			if winner.Ack.GeneralCommentsAckAt == "" {
+			if winner.Ack.Cursor == "" {
 				winner.Ack = record.Ack
 			}
 			continue
@@ -1138,11 +1142,8 @@ func projectTasks(state persistedState) []protocol.Task {
 			applySourceSignals(&task, record, refs)
 		}
 		task.Busy = record.State != "done" && sourceRefsBusy(refs)
-		if task.Metadata == nil {
-			task.Metadata = map[string]string{}
-		}
-		if record.Ack.GeneralCommentsAckAt != "" {
-			task.Metadata["general_comments_ack_at"] = record.Ack.GeneralCommentsAckAt
+		if record.Ack.Cursor != "" {
+			task.AcknowledgementCursor = record.Ack.Cursor
 		}
 		if !applyAck(&task, record.Ack) {
 			continue
@@ -1202,6 +1203,10 @@ func cloneSourceRefs(sourceRefs []protocol.SourceRef) []protocol.SourceRef {
 		if sourceRef.Metadata != nil {
 			cloned[i].Metadata = cloneMetadata(sourceRef.Metadata)
 		}
+		if sourceRef.Acknowledgement != nil {
+			acknowledgement := *sourceRef.Acknowledgement
+			cloned[i].Acknowledgement = &acknowledgement
+		}
 	}
 	return cloned
 }
@@ -1215,45 +1220,45 @@ func cloneMetadata(metadata map[string]string) map[string]string {
 }
 
 func applyAck(task *protocol.Task, ack TaskAckState) bool {
-	if ack.GeneralCommentsAckAt == "" || task.Attention == "done" {
+	if ack.Cursor == "" || task.Attention == "done" {
 		return true
 	}
-	hasUnresolved := false
-	hasNewComments := false
-	for i := range task.SourceRefs {
-		metadata := task.SourceRefs[i].Metadata
-		if metadata == nil {
+	hasContract := false
+	hideWhenAcknowledged := false
+	fallbackSignal := ""
+	fallbackReason := ""
+	for _, ref := range task.SourceRefs {
+		contract := ref.Acknowledgement
+		if contract == nil {
 			continue
 		}
-		if metadata["unresolved_review_threads"] != "" {
-			hasUnresolved = true
-		}
-		if latest := metadata["latest_general_comment_at"]; latest != "" && latest <= ack.GeneralCommentsAckAt {
-			delete(metadata, "new_general_comments")
-		}
-		if metadata["new_general_comments"] != "" {
-			hasNewComments = true
-		}
-	}
-	if hasUnresolved || hasNewComments {
-		return true
-	}
-	if task.Kind == "github_pr_activity" {
-		if signal, reason := firstSignal(task.SourceRefs, "in_progress", ""); signal != "" {
-			task.Attention = signal
-			task.Reason = reason
+		hasContract = true
+		if contract.Blocking || (contract.Cursor != "" && contract.Cursor > ack.Cursor) {
 			return true
 		}
-		return false
-	}
-	if task.Kind == "github_own_pr" {
-		task.Attention = "in_progress"
-		task.Reason = baseReason(*task)
-		for i := range task.SourceRefs {
-			task.SourceRefs[i].Status = task.Reason
+		if fallbackSignal == "" && contract.FallbackSignal != "" {
+			fallbackSignal = contract.FallbackSignal
+			fallbackReason = contract.FallbackReason
 		}
+		hideWhenAcknowledged = hideWhenAcknowledged || contract.HideWhenAcknowledged
 	}
-	return true
+	if !hasContract {
+		return true
+	}
+	if fallbackSignal == "" && hideWhenAcknowledged {
+		fallbackSignal, fallbackReason = firstSignal(task.SourceRefs, "in_progress", "")
+	}
+	if fallbackSignal != "" {
+		task.Attention = fallbackSignal
+		task.Reason = fallbackReason
+		for i := range task.SourceRefs {
+			if task.SourceRefs[i].Acknowledgement != nil {
+				task.SourceRefs[i].Status = fallbackReason
+			}
+		}
+		return true
+	}
+	return !hideWhenAcknowledged
 }
 
 func canonicalTaskKey(task protocol.Task) string {
@@ -1425,15 +1430,6 @@ func olderThan(value string, age time.Duration) bool {
 		return false
 	}
 	return time.Since(parsed) > age
-}
-
-func baseReason(item protocol.Task) string {
-	for _, sourceRef := range item.SourceRefs {
-		if sourceRef.Metadata != nil && sourceRef.Metadata["base_reason"] != "" {
-			return sourceRef.Metadata["base_reason"]
-		}
-	}
-	return "open PR"
 }
 
 func firstNonEmpty(values ...string) string {

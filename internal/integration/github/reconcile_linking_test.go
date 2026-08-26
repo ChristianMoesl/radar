@@ -11,11 +11,11 @@ import (
 
 	"radar/internal/integration"
 	gitsource "radar/internal/integration/git"
+	"radar/internal/integration/workspace"
+	"radar/internal/integration/workspace/group"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 	"radar/internal/state"
-	"radar/internal/workspace"
-	"radar/internal/workspacegroup"
 )
 
 func TestReconciledSameRepositoryWorktreeLinksExistingGitHubPullRequestToWorkspace(t *testing.T) {

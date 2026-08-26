@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"radar/internal/filters"
-	"radar/internal/githubidentity"
+	"radar/internal/integration/github/filters"
+	"radar/internal/integration/github/identity"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
@@ -279,7 +279,7 @@ func activityPullRequestItems(prs []searchPullRequest, login string, previous ma
 			Reason:    activity.reason(),
 		}
 		item.SourceRefs = []protocol.SourceRef{newGitHubPullRequestSourceRef(item, repo, pr.Number, "pull_request", pr.HeadRefName, pr.Body)}
-		setActivityMetadata(&item.SourceRefs[0], activity, previous[prKey(repo, pr.Number)])
+		setActivityMetadata(&item.SourceRefs[0], activity, "", "", true)
 		items = append(items, item)
 	}
 	return items
@@ -299,9 +299,11 @@ func applyActivity(items []protocol.Task, prs []searchPullRequest, login string,
 		number := prs[i].Number
 		key := prKey(repo, number)
 		activity := activityByKey[key]
+		fallbackSignal := items[i].Attention
+		fallbackReason := items[i].Reason
 		if !activity.needsAttention() {
 			if previous[key].generalCommentsAckAt != "" {
-				setActivityMetadata(&items[i].SourceRefs[0], activity, previous[key])
+				setActivityMetadata(&items[i].SourceRefs[0], activity, fallbackSignal, fallbackReason, false)
 			}
 			continue
 		}
@@ -312,7 +314,7 @@ func applyActivity(items []protocol.Task, prs []searchPullRequest, login string,
 		items[i].Attention = "attention"
 		items[i].Reason = activity.reason()
 		items[i].SourceRefs[0].Status = items[i].Reason
-		setActivityMetadata(&items[i].SourceRefs[0], activity, previous[key])
+		setActivityMetadata(&items[i].SourceRefs[0], activity, fallbackSignal, fallbackReason, false)
 	}
 }
 
@@ -399,7 +401,7 @@ func (activity pullRequestActivity) reason() string {
 	return strings.Join(parts, ", ")
 }
 
-func setActivityMetadata(sourceRef *protocol.SourceRef, activity pullRequestActivity, previous previousPullRequestActivity) {
+func setActivityMetadata(sourceRef *protocol.SourceRef, activity pullRequestActivity, fallbackSignal string, fallbackReason string, hideWhenAcknowledged bool) {
 	if sourceRef.Metadata == nil {
 		sourceRef.Metadata = map[string]string{}
 	}
@@ -409,6 +411,10 @@ func setActivityMetadata(sourceRef *protocol.SourceRef, activity pullRequestActi
 	if activity.newGeneralComments > 0 {
 		sourceRef.Metadata["new_general_comments"] = strconv.Itoa(activity.newGeneralComments)
 		sourceRef.Metadata["latest_general_comment_at"] = activity.latestGeneralCommentAt
+	}
+	sourceRef.Acknowledgement = &protocol.SourceRefAcknowledgement{
+		Cursor: activity.latestGeneralCommentAt, Blocking: activity.unresolvedReviewThreads > 0,
+		FallbackSignal: fallbackSignal, FallbackReason: fallbackReason, HideWhenAcknowledged: hideWhenAcknowledged,
 	}
 }
 
@@ -429,10 +435,7 @@ func pullRequestMetadata(pr searchPullRequest) map[string]string {
 func activityStateFromPrevious(previous []protocol.Task) map[string]previousPullRequestActivity {
 	state := map[string]previousPullRequestActivity{}
 	for _, item := range previous {
-		ack := ""
-		if item.Metadata != nil {
-			ack = item.Metadata["general_comments_ack_at"]
-		}
+		ack := item.AcknowledgementCursor
 		if ack == "" {
 			continue
 		}
@@ -600,7 +603,7 @@ func doneTaskID(item protocol.Task) string {
 }
 
 func newGitHubPullRequestSourceRef(item protocol.Task, repo string, number int, kind string, branch string, body string) protocol.SourceRef {
-	sourceRef := githubPullRequestRef(githubidentity.PullRequestKey(repo, number), repo, number, item.Title, item.URL, item.Reason, branch)
+	sourceRef := githubPullRequestRef(identity.PullRequestKey(repo, number), repo, number, item.Title, item.URL, item.Reason, branch)
 	if kind != "" {
 		sourceRef.Kind = kind
 	}
@@ -612,7 +615,7 @@ func newGitHubPullRequestSourceRef(item protocol.Task, repo string, number int, 
 
 func githubPullRequestRef(id string, repo string, number int, title string, url string, status string, branch string) protocol.SourceRef {
 	if id == "" {
-		id = githubidentity.PullRequestKey(repo, number)
+		id = identity.PullRequestKey(repo, number)
 	}
 	return protocol.SourceRef{
 		ID:             id,
@@ -636,7 +639,7 @@ func githubPullRequestRef(id string, repo string, number int, title string, url 
 }
 
 func githubRepoKey(repo string) string {
-	return githubidentity.Repository(repo)
+	return identity.Repository(repo)
 }
 
 func pullRequestWorkspaceName(branch string) string {
@@ -647,7 +650,7 @@ func pullRequestWorkspaceName(branch string) string {
 }
 
 func githubBranchKey(branch string) string {
-	return githubidentity.Branch(branch)
+	return identity.Branch(branch)
 }
 
 func githubPullRequestSourceRefs(task protocol.Task) []protocol.SourceRef {

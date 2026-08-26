@@ -10,7 +10,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	exec "os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,21 +21,16 @@ import (
 	"radar/internal/client"
 	"radar/internal/collector"
 	"radar/internal/config"
-	"radar/internal/filters"
 	"radar/internal/integration"
-	"radar/internal/integration/github"
 	"radar/internal/logging"
 	"radar/internal/notification"
-	"radar/internal/pathdisplay"
 	"radar/internal/process"
 	"radar/internal/protocol"
-	"radar/internal/sbxauth"
 	"radar/internal/server"
 	"radar/internal/socket"
 	"radar/internal/state"
 	"radar/internal/tui"
 	"radar/internal/version"
-	"radar/internal/workspace"
 	"radar/internal/workspacegc"
 )
 
@@ -92,6 +86,8 @@ func main() {
 		printConfigPath()
 	case "rate-limit", "rate-limits":
 		printRateLimit()
+	case "activity":
+		runActivity(os.Args[2:])
 	case "version":
 		printVersion()
 	case "help", "-h", "--help":
@@ -124,14 +120,16 @@ func runTUIWithMode(mode string) {
 			fatal(err)
 		}
 	}
-	sbxLoggedIn := false
-	if shouldEnsureSBXLogin(mode, response.Sources) {
-		sbxLoggedIn, err = ensureSBXLogin(context.Background())
-		if err != nil {
-			fatal(err)
-		}
+	integrations := app.DefaultIntegrations()
+	operation := "startup"
+	if mode == "create" || mode == "fork" {
+		operation = mode
 	}
-	if sbxLoggedIn {
+	authentication, err := integrations.EnsureAuthentication(context.Background(), integration.AuthenticationRequest{Operation: operation, SourceStatuses: response.Sources})
+	if err != nil {
+		fatal(err)
+	}
+	if authentication.Changed {
 		if res, err := client.Call(path, "refresh"); err != nil {
 			fatal(err)
 		} else if !res.OK {
@@ -153,6 +151,21 @@ func runTUIWithMode(mode string) {
 	if err := tui.Run(path); err != nil {
 		fatal(err)
 	}
+}
+
+func runActivity(args []string) {
+	if len(args) != 1 || (args[0] != "busy" && args[0] != "idle") {
+		fmt.Fprintln(os.Stderr, "usage: radar activity <busy|idle>")
+		os.Exit(2)
+	}
+	if err := app.DefaultIntegrations().PublishActivity(context.Background(), args[0] == "busy"); err != nil {
+		fatal(err)
+	}
+}
+
+func multiplexerClientActive(integrations integration.Registry) bool {
+	multiplexer, err := integrations.Multiplexer()
+	return err == nil && multiplexer.ClientActive()
 }
 
 func runTask(args []string) {
@@ -246,33 +259,17 @@ func runCreate(args []string) {
 		os.Exit(2)
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		fatal(err)
-	}
-	if cfg.SBX.Enabled {
-		if _, err := ensureSBXLogin(context.Background()); err != nil {
-			fatal(err)
-		}
-	}
 	integrations := app.DefaultIntegrations()
-	workspaceProvider, err := integrations.Workspace()
+	if _, err := integrations.EnsureAuthentication(context.Background(), integration.AuthenticationRequest{Operation: "create"}); err != nil {
+		fatal(err)
+	}
+	manager, err := integrations.WorkspaceManager()
 	if err != nil {
 		fatal(err)
 	}
-	result, err := workspaceProvider.Create(context.Background(), integration.CreateWorkspaceRequest{
-		Repo:                    *repo,
-		BranchMode:              integration.WorkspaceBranchNew,
-		Base:                    *base,
-		Name:                    *name,
-		Model:                   cfg.Model,
-		Thinking:                cfg.Thinking,
-		Sandbox:                 cfg.SBX.Enabled,
-		SandboxKitName:          cfg.SBX.Kit.Name,
-		SandboxKitPath:          cfg.SBX.Kit.Path,
-		AdditionalSandboxMounts: cfg.SBX.AdditionalMounts,
-		Tmux:                    cfg.Tmux,
-		Switch:                  os.Getenv("TMUX") != "",
+	result, err := manager.CreateWorkspace(context.Background(), integration.ManagedWorkspaceRequest{
+		Repo: *repo, BranchMode: integration.WorkspaceBranchNew, Base: *base, Name: *name,
+		Switch: multiplexerClientActive(integrations),
 	})
 	if err != nil {
 		fatal(err)
@@ -292,7 +289,7 @@ func runReconcileWorkspace(args []string) {
 		reconcileWorkspaceUsage()
 		os.Exit(2)
 	}
-	var request workspace.ReconcileWorkspaceRequest
+	var request integration.WorkspaceReconcileRequest
 	decoder := json.NewDecoder(strings.NewReader(*requestJSON))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
@@ -305,8 +302,12 @@ func runReconcileWorkspace(args []string) {
 	if err != nil {
 		fatal(err)
 	}
+	manager, err := app.DefaultIntegrations().WorkspaceManager()
+	if err != nil {
+		fatal(err)
+	}
 	request.Workspace = *current
-	request.WorkspaceRoot = workspace.ExpandPath(cfg.Workspace.RootDir)
+	request.WorkspaceRoot = manager.ExpandPath(cfg.Workspace.RootDir)
 	request.ExpectedPlanID = strings.TrimSpace(*planID)
 	if *planChanges >= 0 {
 		request.ExpectedPlanChangeCount = planChanges
@@ -322,10 +323,10 @@ func runReconcileWorkspace(args []string) {
 		}
 	}
 	if *preview {
-		plan, err := workspace.PreviewReconcileWorkspace(context.Background(), workspace.ExecRunner{}, request)
+		plan, err := manager.PreviewReconcile(context.Background(), request)
 		if err != nil {
 			attributes := []any{"workspace", request.Workspace, "error", err}
-			if problem, ok := workspace.ReconcileWorkspaceErrorDetails(err); ok {
+			if problem, ok := manager.ReconcileErrorDetails(err); ok {
 				attributes = append(attributes, "reason", problem.Reason, "path", problem.Path, "change_count", problem.ChangeCount)
 			}
 			logger.Error("workspace reconciliation preview failed", attributes...)
@@ -341,7 +342,7 @@ func runReconcileWorkspace(args []string) {
 		printJSON(plan)
 		return
 	}
-	result, err := workspace.ApplyReconcileWorkspace(context.Background(), workspace.ExecRunner{}, logger, request)
+	result, err := manager.ApplyReconcile(context.Background(), logger, request)
 	if result.Plan != nil {
 		result.Plan.AutoConfirm = cfg.Workspace.AutoConfirm
 	}
@@ -389,9 +390,11 @@ func runWorkspaceContext(args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	result, err := workspace.InspectWorkspace(
-		context.Background(), workspace.ExecRunner{}, *current, workspace.ExpandPath(cfg.Workspace.RootDir),
-	)
+	manager, err := app.DefaultIntegrations().WorkspaceManager()
+	if err != nil {
+		fatal(err)
+	}
+	result, err := manager.InspectWorkspace(context.Background(), *current, manager.ExpandPath(cfg.Workspace.RootDir))
 	if err != nil {
 		fatal(err)
 	}
@@ -406,7 +409,11 @@ func runRepositoryRefs(args []string) {
 		repositoryRefsUsage()
 		os.Exit(2)
 	}
-	result, err := workspace.InspectRepositoryRefs(context.Background(), workspace.ExecRunner{}, *repo)
+	manager, err := app.DefaultIntegrations().WorkspaceManager()
+	if err != nil {
+		fatal(err)
+	}
+	result, err := manager.InspectRepositoryRefs(context.Background(), *repo)
 	if err != nil {
 		fatal(err)
 	}
@@ -421,43 +428,6 @@ func runFork(args []string) {
 		os.Exit(2)
 	}
 	runTUIWithMode("fork")
-}
-
-func shouldEnsureSBXLogin(mode string, sources []protocol.SourceStatus) bool {
-	if mode == "create" || mode == "fork" {
-		return true
-	}
-	for _, source := range sources {
-		if source.Name == "sbx" && source.Status == "error" && sbxauth.IsRequired(source.Detail) {
-			return true
-		}
-	}
-	return false
-}
-
-func ensureSBXLogin(ctx context.Context) (bool, error) {
-	if _, err := exec.LookPath("sbx"); err != nil {
-		return false, nil
-	}
-	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	check := exec.CommandContext(checkCtx, "sbx", "ls", "--json")
-	output, err := check.CombinedOutput()
-	if err == nil {
-		return false, nil
-	}
-	if !sbxauth.IsRequired(string(output) + "\n" + err.Error()) {
-		return false, nil
-	}
-	fmt.Fprintln(os.Stderr, "radar: sbx is not signed in; starting sbx login")
-	login := exec.CommandContext(ctx, "sbx", "login")
-	login.Stdin = os.Stdin
-	login.Stdout = os.Stdout
-	login.Stderr = os.Stderr
-	if err := login.Run(); err != nil {
-		return false, fmt.Errorf("sbx login failed: %w", err)
-	}
-	return true, nil
 }
 
 func runCleanup(args []string) {
@@ -494,13 +464,8 @@ func runCleanup(args []string) {
 		fatal(errors.New("cleanup preview response was empty"))
 	}
 	preview := response.CleanupPreview
-	for _, target := range preview.Targets {
-		if target.Source == "sbx" {
-			if _, err := ensureSBXLogin(context.Background()); err != nil {
-				fatal(err)
-			}
-			break
-		}
+	if _, err := app.DefaultIntegrations().EnsureAuthentication(context.Background(), integration.AuthenticationRequest{Operation: "cleanup", CleanupTargets: preview.Targets}); err != nil {
+		fatal(err)
 	}
 	fmt.Fprintf(os.Stderr, "Local resources linked to %q:\n", preview.TaskTitle)
 	for _, target := range preview.Targets {
@@ -744,16 +709,23 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 		var gcNotification *protocol.GarbageCollectionResult
 		if time.Since(lastWorkspaceGC) >= time.Hour {
 			lastWorkspaceGC = time.Now()
-			gcResult, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{})
-			if err != nil {
-				logger.Warn("workspace gc failed", "error", err)
-			} else if len(gcResult.Deleted) > 0 {
-				converted := garbageCollectionResult(gcResult)
-				gcNotification = &converted
-				result = collector.CollectLocal(ctx, store.Tasks(), logger, integrations.Sources())
-				store.SetTasksForSources(result.Tasks, result.SourceNames)
-				store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
-				logger.Debug("workspace gc refresh finished", "deleted", len(gcResult.Deleted), "tasks", len(result.Tasks))
+			manager, managerErr := integrations.WorkspaceManager()
+			if managerErr != nil {
+				logger.Warn("workspace gc failed", "error", managerErr)
+			} else if root, rootErr := manager.DefaultRoot(); rootErr != nil {
+				logger.Warn("workspace gc failed", "error", rootErr)
+			} else {
+				gcResult, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root})
+				if err != nil {
+					logger.Warn("workspace gc failed", "error", err)
+				} else if len(gcResult.Deleted) > 0 {
+					converted := garbageCollectionResult(gcResult)
+					gcNotification = &converted
+					result = collector.CollectLocal(ctx, store.Tasks(), logger, integrations.Sources())
+					store.SetTasksForSources(result.Tasks, result.SourceNames)
+					store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
+					logger.Debug("workspace gc refresh finished", "deleted", len(gcResult.Deleted), "tasks", len(result.Tasks))
+				}
 			}
 		}
 		current := store.Tasks()
@@ -762,7 +734,7 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 		if gcNotification != nil {
 			notificationService.NotifyGarbageCollection(ctx, *gcNotification)
 		}
-		notifyActionableTransitions(ctx, previous, current, logger, notificationService)
+		notifyActionableTransitions(ctx, previous, current, logger, integrations, notificationService)
 		logger.Debug("refresh finished", "scope", scope, "tasks", len(result.Tasks), "sources", len(result.Sources))
 	}
 }
@@ -781,7 +753,17 @@ func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logg
 	return func() (protocol.GarbageCollectionResult, error) {
 		mu.Lock()
 
-		result, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{IgnoreRetention: true})
+		manager, err := integrations.WorkspaceManager()
+		if err != nil {
+			mu.Unlock()
+			return protocol.GarbageCollectionResult{}, err
+		}
+		root, err := manager.DefaultRoot()
+		if err != nil {
+			mu.Unlock()
+			return protocol.GarbageCollectionResult{}, err
+		}
+		result, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, IgnoreRetention: true})
 		if err != nil {
 			mu.Unlock()
 			return protocol.GarbageCollectionResult{}, err
@@ -813,13 +795,8 @@ func garbageCollectionResult(result workspacegc.Result) protocol.GarbageCollecti
 	return converted
 }
 
-func notifyActionableTransitions(ctx context.Context, previous, current []protocol.Task, logger *slog.Logger, notificationService notification.Service) {
-	cfg, err := config.Load()
-	if err != nil {
-		logger.Warn("notifications skipped; could not load config", "error", err)
-		return
-	}
-	notificationService.NotifyTransitions(ctx, filters.Apply(previous, cfg.GitHub.Filters), filters.Apply(current, cfg.GitHub.Filters))
+func notifyActionableTransitions(ctx context.Context, previous, current []protocol.Task, logger *slog.Logger, integrations integration.Registry, notificationService notification.Service) {
+	notificationService.NotifyTransitions(ctx, integrations.FilterTasks(previous, logger), integrations.FilterTasks(current, logger))
 }
 
 func mergeSourceStatuses(previous []protocol.SourceStatus, updates []protocol.SourceStatus) []protocol.SourceStatus {
@@ -943,7 +920,11 @@ func printConfigPath() {
 
 func printRateLimit() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	summary, err := github.RateLimitSummary(context.Background(), logger)
+	reporter, err := app.DefaultIntegrations().RateLimitReporter()
+	if err != nil {
+		fatal(err)
+	}
+	summary, err := reporter.RateLimitSummary(context.Background(), logger)
 	if err != nil {
 		fatal(err)
 	}
@@ -1037,33 +1018,13 @@ Fork the current tmux workspace into a sibling workspace and fork its Pi session
 }
 
 func cleanupTargetDescription(target protocol.CleanupTarget) string {
-	switch target.Kind {
-	case "worktree":
-		description := "worktree " + pathdisplay.HomeRelative(target.Path)
-		details := []string{}
-		if target.Dirty {
-			details = append(details, "dirty; uncommitted changes will be discarded")
-		}
-		if target.DeleteBranch && target.Branch != "" {
-			details = append(details, "deletes local branch "+target.Branch)
-		}
-		if target.Unpublished {
-			details = append(details, "branch commits were not found remotely")
-		}
-		if target.PublicationUnknown {
-			details = append(details, "branch publication could not be verified")
-		}
-		if len(details) > 0 {
-			description += " (" + strings.Join(details, "; ") + ")"
-		}
-		return description
-	case "session":
-		return "tmux session " + target.SessionName
-	case "sandbox":
-		return "SBX sandbox " + target.SandboxName
-	default:
-		return target.Source + " " + target.Title
+	if target.Description != "" {
+		return target.Description
 	}
+	if target.Title != "" {
+		return target.Title
+	}
+	return target.Source
 }
 
 func cleanupUsage() {
@@ -1084,9 +1045,11 @@ func fatal(err error) {
 }
 
 func fatalMessage(err error) string {
-	if problem, ok := workspace.ReconcileWorkspaceErrorDetails(err); ok {
-		if data, marshalErr := json.Marshal(problem); marshalErr == nil {
-			return string(data)
+	if manager, managerErr := app.DefaultIntegrations().WorkspaceManager(); managerErr == nil {
+		if problem, ok := manager.ReconcileErrorDetails(err); ok {
+			if data, marshalErr := json.Marshal(problem); marshalErr == nil {
+				return string(data)
+			}
 		}
 	}
 	return "radar: " + err.Error()

@@ -14,6 +14,7 @@ import (
 	"radar/internal/cleanup"
 	"radar/internal/collector"
 	"radar/internal/integration"
+	"radar/internal/integration/github"
 	"radar/internal/integration/obsidian"
 	"radar/internal/protocol"
 	"radar/internal/state"
@@ -320,7 +321,7 @@ func TestAckResponseAppliesFilters(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New(nil)).handle(server)
+		New(store, logger, nil, nil, nil, integration.NewRegistry(github.NewSource()), cleanup.New(nil)).handle(server)
 	}()
 
 	if _, err := client.Write([]byte("{\"method\":\"ack:2\"}\n")); err != nil {

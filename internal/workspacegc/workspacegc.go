@@ -2,19 +2,17 @@ package workspacegc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"radar/internal/cleanup"
 	"radar/internal/protocol"
 	"radar/internal/state"
-	"radar/internal/workspace"
-	"radar/internal/workspacegroup"
 )
 
 const DefaultRetention = 24 * time.Hour
@@ -30,9 +28,6 @@ type Candidate struct {
 	RecordID    string
 	DoneAt      string
 	Path        string
-	Branch      string
-	SessionName string
-	SandboxName string
 	WorkspaceID string
 	Reason      string
 	Task        protocol.Task
@@ -61,23 +56,11 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 	}
 	root := strings.TrimSpace(options.WorkspaceRoot)
 	if root == "" {
-		var err error
-		root, err = workspace.DefaultRoot()
-		if err != nil {
-			return Plan{}, err
-		}
+		return Plan{}, fmt.Errorf("workspace root is required")
 	}
 	root = filepath.Clean(root)
 
 	refsByRecord := activeRefsByRecord(store.SourceRefs())
-	registry, err := workspacegroup.Load(root)
-	if err != nil {
-		return Plan{}, err
-	}
-	groups := map[string]workspacegroup.Workspace{}
-	for _, group := range registry.Workspaces {
-		groups[group.ID] = group
-	}
 	plan := Plan{}
 	for _, record := range store.Records() {
 		if record.State != "done" || (!options.IgnoreRetention && !doneLongEnough(record.DoneAt, now, retention)) {
@@ -93,33 +76,26 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 		seenGroups := map[string]bool{}
 		orderedRefs := append([]protocol.SourceRef(nil), refs...)
 		sort.SliceStable(orderedRefs, func(i, j int) bool {
-			return orderedRefs[i].Source == "workspace" && orderedRefs[j].Source != "workspace"
+			return orderedRefs[i].WorkspaceEntry && !orderedRefs[j].WorkspaceEntry
 		})
 		for _, ref := range orderedRefs {
-			managedWorkspace := ref.Source == "workspace" && ref.Kind == "workspace"
-			gitWorkspace := ref.Source == "git" && ref.Kind == "worktree"
-			if (!managedWorkspace && !gitWorkspace) || strings.TrimSpace(ref.Path) == "" {
+			if !ref.ProvidesWorkspace || strings.TrimSpace(ref.Path) == "" {
 				continue
 			}
-			workspaceID := strings.TrimSpace(ref.Metadata["workspace_id"])
-			if managedWorkspace && workspaceID == "" {
-				workspaceID = strings.TrimPrefix(ref.ID, "workspace:")
-			}
+			workspaceID := strings.TrimSpace(ref.WorkspaceID)
 			if workspaceID != "" && seenGroups[workspaceID] {
 				continue
 			}
 			path := filepath.Clean(ref.Path)
-			if group, ok := groups[workspaceID]; ok {
-				path = group.Path
+			if workspaceID != "" {
 				seenGroups[workspaceID] = true
 			}
 			if !insideRoot(path, root) {
 				plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Path: path, Reason: "workspace is outside configured workspace root"})
 				continue
 			}
-			sessionName, attached := matchingSession(refs, path)
-			if attached {
-				plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Path: path, Reason: "tmux session is attached"})
+			if relatedResourceInUse(refs, path) {
+				plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Path: path, Reason: "a related local resource is in use"})
 				continue
 			}
 			plan.Candidates = append(plan.Candidates, Candidate{
@@ -127,9 +103,6 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 				RecordID:    record.ID,
 				DoneAt:      record.DoneAt,
 				Path:        path,
-				Branch:      ref.Branch,
-				SessionName: sessionName,
-				SandboxName: matchingSandboxName(refs, path),
 				WorkspaceID: workspaceID,
 				Reason:      firstNonEmpty(record.Reason, "task done"),
 				Task:        task,
@@ -151,39 +124,26 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			result.skip(candidate, err, logger)
 			continue
 		}
-		selected, worktreeTarget := targetsForCandidate(preview, candidate)
-		if worktreeTarget == nil && candidate.WorkspaceID == "" {
-			result.skip(candidate, fmt.Errorf("matching worktree cleanup target was not found"), logger)
+		selected, workspaceTarget := targetsForCandidate(preview, candidate)
+		if workspaceTarget == nil && candidate.WorkspaceID == "" {
+			result.skip(candidate, fmt.Errorf("matching workspace cleanup target was not found"), logger)
 			continue
 		}
-		dirty := worktreeTarget != nil && worktreeTarget.Dirty
+		blocked := false
 		for _, target := range selected.Targets {
-			if target.Source == "git" && target.Kind == "worktree" && target.Dirty {
-				dirty = true
+			for _, safety := range target.Safety {
+				if !safety.BlocksAutomatic {
+					continue
+				}
+				result.skip(candidate, errors.New(safety.Message), logger)
+				blocked = true
+				break
 			}
-		}
-		if dirty {
-			result.skip(candidate, fmt.Errorf("workspace has local changes"), logger)
-			continue
-		}
-		unsafeBranch := false
-		for _, target := range selected.Targets {
-			if target.Source != "git" || target.Kind != "worktree" || !target.DeleteBranch {
-				continue
-			}
-			switch {
-			case target.PublicationUnknown:
-				result.skip(candidate, fmt.Errorf("branch publication could not be verified"), logger)
-				unsafeBranch = true
-			case target.Unpublished:
-				result.skip(candidate, fmt.Errorf("branch has commits not found on a remote-tracking branch"), logger)
-				unsafeBranch = true
-			}
-			if unsafeBranch {
+			if blocked {
 				break
 			}
 		}
-		if unsafeBranch {
+		if blocked {
 			continue
 		}
 		if _, err := cleanupService.Execute(ctx, selected, cleanup.ExecuteOptions{Force: false}); err != nil {
@@ -200,28 +160,20 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 
 func targetsForCandidate(preview protocol.CleanupPreview, candidate Candidate) (protocol.CleanupPreview, *protocol.CleanupTarget) {
 	selected := protocol.CleanupPreview{TaskID: preview.TaskID, TaskTitle: preview.TaskTitle}
-	var worktree *protocol.CleanupTarget
-	groupRefIDs := map[string]bool{}
-	if candidate.WorkspaceID != "" {
-		for _, ref := range candidate.Task.SourceRefs {
-			if ref.Source == "git" && ref.Kind == "worktree" && ref.Metadata["workspace_id"] == candidate.WorkspaceID {
-				groupRefIDs[ref.ID] = true
-			}
-		}
-	}
+	var workspaceTarget *protocol.CleanupTarget
 	for _, target := range preview.Targets {
-		groupWorktree := candidate.WorkspaceID != "" && target.Source == "git" && target.Kind == "worktree" && groupRefIDs[target.SourceRefID]
-		pathResource := samePath(target.Path, candidate.Path) && ((target.Source == "git" && target.Kind == "worktree") || (target.Source == "tmux" && target.Kind == "session") || (target.Source == "sbx" && target.Kind == "sandbox") || (target.Source == "workspace" && target.Kind == "workspace"))
-		if !groupWorktree && !pathResource {
+		groupResource := candidate.WorkspaceID != "" && target.WorkspaceID == candidate.WorkspaceID
+		pathResource := samePath(target.Path, candidate.Path)
+		if !groupResource && !pathResource {
 			continue
 		}
-		if target.Source == "git" && target.Kind == "worktree" && worktree == nil {
+		if target.ProvidesWorkspace && workspaceTarget == nil {
 			copy := target
-			worktree = &copy
+			workspaceTarget = &copy
 		}
 		selected.Targets = append(selected.Targets, target)
 	}
-	return selected, worktree
+	return selected, workspaceTarget
 }
 
 func (r *Result) skip(candidate Candidate, err error, logger *slog.Logger) {
@@ -263,41 +215,13 @@ func insideRoot(path string, root string) bool {
 	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func matchingSession(refs []protocol.SourceRef, path string) (string, bool) {
-	var sessionName string
+func relatedResourceInUse(refs []protocol.SourceRef, path string) bool {
 	for _, ref := range refs {
-		if ref.Source != "tmux" || ref.Kind != "session" || !samePath(ref.Path, path) {
-			continue
+		if ref.InUse && samePath(ref.Path, path) {
+			return true
 		}
-		if sessionAttached(ref) {
-			return "", true
-		}
-		if sessionName == "" {
-			sessionName = firstNonEmpty(ref.Metadata["switch_target"], ref.Metadata["session_id"], ref.Metadata["session"], ref.Title)
-		}
-	}
-	return sessionName, false
-}
-
-func sessionAttached(ref protocol.SourceRef) bool {
-	if strings.EqualFold(ref.Status, "attached") {
-		return true
-	}
-	if countText := strings.TrimSpace(ref.Metadata["attached_count"]); countText != "" {
-		count, err := strconv.Atoi(countText)
-		return err == nil && count > 0
 	}
 	return false
-}
-
-func matchingSandboxName(refs []protocol.SourceRef, path string) string {
-	for _, ref := range refs {
-		if ref.Source != "sbx" || ref.Kind != "sandbox" || !samePath(ref.Path, path) {
-			continue
-		}
-		return firstNonEmpty(ref.Metadata["name"], ref.Title, strings.TrimPrefix(ref.ID, "sbx:sandbox:"))
-	}
-	return ""
 }
 
 func samePath(left string, right string) bool {

@@ -15,7 +15,6 @@ import (
 	"radar/internal/linking"
 	"radar/internal/protocol"
 	"radar/internal/state"
-	"radar/internal/workspacegroup"
 )
 
 func TestBuildPlanSelectsDoneWorkspaceAfterRetention(t *testing.T) {
@@ -38,7 +37,7 @@ func TestBuildPlanSelectsDoneWorkspaceAfterRetention(t *testing.T) {
 		t.Fatalf("candidates = %+v, want one", plan.Candidates)
 	}
 	candidate := plan.Candidates[0]
-	if candidate.Path != path || candidate.SessionName != "radar-app-ABC-7-ship" || candidate.SandboxName != "radar-app-ABC-7-ship" {
+	if candidate.Path != path {
 		t.Fatalf("candidate = %+v", candidate)
 	}
 }
@@ -53,11 +52,12 @@ func TestRunGarbageCollectsNoteOnlyWorkspace(t *testing.T) {
 		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
 		CanonicalKey: key, LinkingKeys: []string{key}, Signal: "done", Title: "Plan",
 	}
-	workspaceID := workspacegroup.ID(anchor)
+	workspaceID := "note-workspace"
 	workspaceRef := protocol.SourceRef{
 		ID: "workspace:" + workspaceID, EntityID: "workspace:" + workspaceID, Source: "workspace", Kind: "workspace",
 		Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace, Authority: protocol.SourceRefAuthorityNone,
-		Path: anchor, CanonicalKey: linking.WorkspaceKey(anchor), LinkingKeys: linking.Keys(key, linking.WorkspaceGroupKey(workspaceID)),
+		Path: anchor, ProvidesWorkspace: true, WorkspaceEntry: true, WorkspaceID: workspaceID,
+		CanonicalKey: linking.WorkspaceKey(anchor), LinkingKeys: linking.Keys(key, linking.WorkspaceGroupKey(workspaceID)),
 		Metadata: map[string]string{"workspace_id": workspaceID},
 	}
 	store.SetTasks([]protocol.Task{makeTask("done", "completed", workItem), makeTask("in_progress", "workspace", workspaceRef)})
@@ -126,7 +126,7 @@ func TestBuildPlanIncludesNewlyDoneWorkspaceWhenRetentionIsIgnored(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Candidates) != 1 || plan.Candidates[0].SandboxName != "radar-app-ABC-7-ship" {
+	if len(plan.Candidates) != 1 {
 		t.Fatalf("candidates = %+v, want newly done workspace bundle", plan.Candidates)
 	}
 }
@@ -184,22 +184,18 @@ func TestRunTreatsRegisteredMembersAsOneConservativeBundle(t *testing.T) {
 	anchor := filepath.Join(root, "ABC-7-ship")
 	primary := filepath.Join(anchor, "app--ABC-7-ship")
 	secondary := filepath.Join(anchor, "api--ABC-7-api")
-	id := workspacegroup.ID(anchor)
-	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{{
-		ID: id, Name: "ABC-7-ship", Path: anchor,
-		Members: []workspacegroup.Member{
-			{Repository: filepath.Join(root, "sources", "app"), Path: primary, Branch: "ABC-7-ship", SetupScheduled: true},
-			{Repository: filepath.Join(root, "sources", "api"), Path: secondary, Branch: "ABC-7-api", SetupScheduled: true},
-		},
-	}}}); err != nil {
-		t.Fatal(err)
-	}
+	id := "registered-workspace"
 	primaryRef := worktreeRef(primary, "acme/app", "ABC-7-ship")
 	primaryRef.Metadata = map[string]string{"workspace_id": id}
+	primaryRef.WorkspaceID = id
+	primaryRef.ProvidesWorkspace = false
 	secondaryRef := worktreeRef(secondary, "acme/api", "ABC-7-api")
 	secondaryRef.Metadata = map[string]string{"workspace_id": id}
+	secondaryRef.WorkspaceID = id
+	secondaryRef.ProvidesWorkspace = false
 	store.SetTasks([]protocol.Task{
 		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship")),
+		makeTask("in_progress", "workspace", workspaceAnchorRef(anchor, id)),
 		makeTask("in_progress", "primary", primaryRef),
 		makeTask("in_progress", "secondary", secondaryRef),
 		makeTask("in_progress", "tmux", detachedSessionRef(anchor, "session")),
@@ -329,12 +325,23 @@ func (p gcProvider) PreviewCleanup(_ context.Context, req integration.CleanupPre
 		if ref.Source != p.name {
 			continue
 		}
-		target := protocol.CleanupTarget{SourceRefID: ref.ID, Source: ref.Source, Kind: ref.Kind, Path: ref.Path}
+		target := protocol.CleanupTarget{
+			SourceRefID: ref.ID, Source: ref.Source, Kind: ref.Kind, Path: ref.Path,
+			ProvidesWorkspace: ref.ProvidesWorkspace, WorkspaceID: ref.WorkspaceID,
+		}
 		if p.name == "git" {
-			target.Dirty = p.dirty || (p.dirtyPath != "" && ref.Path == p.dirtyPath)
-			target.DeleteBranch = p.deleteBranch
-			target.Unpublished = p.unpublished
-			target.PublicationUnknown = p.publicationUnknown
+			if p.dirty || (p.dirtyPath != "" && ref.Path == p.dirtyPath) {
+				target.Safety = append(target.Safety, protocol.CleanupSafety{Kind: "local_changes", Message: "workspace has local changes", BlocksAutomatic: true})
+			}
+			if p.deleteBranch {
+				target.Operation = map[string]string{"delete_branch": ref.Branch}
+			}
+			if p.unpublished {
+				target.Safety = append(target.Safety, protocol.CleanupSafety{Kind: "unpublished_data", Message: "branch has commits not found on a remote-tracking branch", BlocksAutomatic: true})
+			}
+			if p.publicationUnknown {
+				target.Safety = append(target.Safety, protocol.CleanupSafety{Kind: "safety_check_unavailable", Message: "branch publication could not be verified", BlocksAutomatic: true})
+			}
 		}
 		targets = append(targets, target)
 	}
@@ -373,6 +380,15 @@ func worktreeRef(path string, repo string, branch string) protocol.SourceRef {
 	return protocol.SourceRef{ID: "git:worktree:" + path, EntityID: "git:worktree:" + path, Source: "git", Kind: "worktree", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace, Repo: repo, Path: path, ProvidesWorkspace: true, Branch: branch, CanonicalKey: linking.WorkspaceKey(path), LinkingKeys: linking.Keys("mark:ABC-7", linking.WorkspaceKey(path), linking.BranchKey(repo, branch))}
 }
 
+func workspaceAnchorRef(path string, id string) protocol.SourceRef {
+	return protocol.SourceRef{
+		ID: "workspace:" + id, EntityID: "workspace:" + id, Source: "workspace", Kind: "workspace",
+		Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace,
+		Path: path, ProvidesWorkspace: true, WorkspaceEntry: true, WorkspaceID: id,
+		CanonicalKey: linking.WorkspaceKey(path), LinkingKeys: linking.Keys("mark:ABC-7", linking.WorkspaceKey(path), linking.WorkspaceGroupKey(id)),
+	}
+}
+
 func detachedSessionRef(path string, name string) protocol.SourceRef {
 	return protocol.SourceRef{ID: "tmux:session:" + name, EntityID: "tmux:session:" + name, Source: "tmux", Kind: "session", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Title: name, Path: path, Status: "detached", LinkingKeys: linking.Keys("mark:ABC-7", linking.WorkspaceKey(path)), Metadata: map[string]string{"session": name, "attached_count": "0"}}
 }
@@ -380,6 +396,7 @@ func detachedSessionRef(path string, name string) protocol.SourceRef {
 func attachedSessionRef(path string, name string) protocol.SourceRef {
 	ref := detachedSessionRef(path, name)
 	ref.Status = "attached"
+	ref.InUse = true
 	ref.Metadata["attached_count"] = "1"
 	return ref
 }

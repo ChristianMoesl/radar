@@ -24,7 +24,6 @@ import (
 	"radar/internal/protocol"
 	"radar/internal/sourceactions"
 	"radar/internal/taskrefs"
-	"radar/internal/workspace"
 )
 
 type fetchMsg struct {
@@ -726,14 +725,14 @@ func (m model) availableTaskRows(before []string, after []string) int {
 }
 
 func (m model) frameHeight() int {
-	if os.Getenv("TMUX") != "" {
+	if canSwitchMultiplexer() {
 		return 2
 	}
 	return 6
 }
 
 func (m model) contentWidth() int {
-	if os.Getenv("TMUX") != "" {
+	if canSwitchMultiplexer() {
 		width := m.width - 4
 		if width <= 0 {
 			width = 80
@@ -751,7 +750,7 @@ func (m model) contentWidth() int {
 
 func (m model) renderFrame(content string, width int) string {
 	frame := appStyle.Width(width).Render(content)
-	if os.Getenv("TMUX") == "" {
+	if !canSwitchMultiplexer() {
 		frame = appStyle.Render(panelStyle.Width(width).Render(content))
 	}
 	return m.overlayNotification(frame)
@@ -835,27 +834,31 @@ func workspaceNameForTask(task protocol.Task) string {
 }
 
 func newForkCreateForm() (createForm, error) {
-	if os.Getenv("TMUX") == "" {
-		return createForm{}, fmt.Errorf("radar fork must run inside tmux")
+	integrations := app.DefaultIntegrations()
+	multiplexer, err := integrations.Multiplexer()
+	if err != nil {
+		return createForm{}, err
+	}
+	session, active, err := multiplexer.Current(context.Background())
+	if err != nil {
+		return createForm{}, err
+	}
+	if !active || strings.TrimSpace(session.Name) == "" {
+		return createForm{}, fmt.Errorf("radar fork requires an active multiplexer session")
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return createForm{}, err
 	}
-	runner := workspace.ExecRunner{}
-	sessionName, err := runner.Run(context.Background(), cwd, "tmux", "display-message", "-p", "#{session_name}")
+	manager, err := integrations.WorkspaceManager()
 	if err != nil {
 		return createForm{}, err
 	}
-	sessionName = strings.TrimSpace(sessionName)
-	if sessionName == "" {
-		return createForm{}, fmt.Errorf("could not detect current tmux session")
-	}
-	_, group, registered, err := workspace.RegisteredWorkspace(cwd, "")
+	group, registered, err := manager.RegisteredWorkspace(cwd)
 	if err != nil {
 		return createForm{}, err
 	}
-	form := createForm{forkPiSession: sessionName}
+	form := createForm{forkPiSession: session.Name}
 	if registered {
 		if len(group.Members) == 0 {
 			return createForm{}, fmt.Errorf("workspace has no Git member to fork")
@@ -869,12 +872,18 @@ func newForkCreateForm() (createForm, error) {
 		}
 		return form, nil
 	}
-	repo, err := runner.Run(context.Background(), cwd, "git", "rev-parse", "--show-toplevel")
+	workspaceProvider, err := integrations.Workspace()
 	if err != nil {
 		return createForm{}, err
 	}
-	currentBranch, _ := runner.Run(context.Background(), repo, "git", "branch", "--show-current")
-	configureForkMember(&form, forkMember{repository: strings.TrimSpace(repo), path: strings.TrimSpace(repo), branch: strings.TrimSpace(currentBranch)})
+	current, found, err := workspaceProvider.Current(context.Background(), cwd)
+	if err != nil {
+		return createForm{}, err
+	}
+	if !found {
+		return createForm{}, fmt.Errorf("current directory is not a code workspace")
+	}
+	configureForkMember(&form, forkMember{repository: current.Repo, path: current.Path, branch: current.Branch})
 	return form, nil
 }
 
@@ -925,28 +934,32 @@ func (m model) loadRepos() tea.Cmd {
 		if err != nil {
 			return reposMsg{err: err}
 		}
-		repos, err := workspace.DiscoverRepos(context.Background(), workspace.ExecRunner{}, cwd)
+		manager, err := app.DefaultIntegrations().WorkspaceManager()
+		if err != nil {
+			return reposMsg{err: err}
+		}
+		repos, err := manager.DiscoverRepositories(context.Background(), cwd)
 		return reposMsg{repos: repos, err: err}
 	}
 }
 
 func (m model) loadBranches(repo string) tea.Cmd {
 	return func() tea.Msg {
-		return loadBranchOptions(context.Background(), workspace.ExecRunner{}, repo)
+		manager, err := app.DefaultIntegrations().WorkspaceManager()
+		if err != nil {
+			return branchesMsg{err: err}
+		}
+		return loadBranchOptions(context.Background(), manager, repo)
 	}
 }
 
-func loadBranchOptions(ctx context.Context, runner workspace.Runner, repo string) branchesMsg {
-	fetchErr := workspace.FetchBranches(ctx, runner, repo)
-	branches, err := workspace.Branches(ctx, runner, repo)
-	if err != nil {
-		return branchesMsg{err: err}
-	}
-	warning := ""
-	if fetchErr != nil {
-		warning = fmt.Sprintf("Could not refresh origin; using cached branches: %v", fetchErr)
-	}
-	return branchesMsg{branches: branches, warning: warning}
+type repositoryBranchProvider interface {
+	RepositoryBranches(ctx context.Context, repository string) ([]string, string, error)
+}
+
+func loadBranchOptions(ctx context.Context, manager repositoryBranchProvider, repo string) branchesMsg {
+	branches, warning, err := manager.RepositoryBranches(ctx, repo)
+	return branchesMsg{branches: branches, warning: warning, err: err}
 }
 
 func existingBranchNames(refs []string) []string {
@@ -1073,37 +1086,20 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 		m.message = "Forking workspace…"
 	}
 	cmd := func() tea.Msg {
-		cfg, err := config.Load()
+		switchAfterCreate := canSwitchMultiplexer()
+		manager, err := app.DefaultIntegrations().WorkspaceManager()
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		switchAfterCreate := os.Getenv("TMUX") != ""
-		options := integration.CreateWorkspaceRequest{
-			Repo:                    form.repo,
-			BranchMode:              form.branchMode,
-			Branch:                  form.branch,
-			Base:                    form.base,
-			Name:                    form.name,
-			Model:                   cfg.Model,
-			Thinking:                cfg.Thinking,
-			Sandbox:                 cfg.SBX.Enabled,
-			SandboxKitName:          cfg.SBX.Kit.Name,
-			SandboxKitPath:          cfg.SBX.Kit.Path,
-			AdditionalSandboxMounts: cfg.SBX.AdditionalMounts,
-			Tmux:                    cfg.Tmux,
-			Switch:                  switchAfterCreate,
-			ForkPiSession:           form.forkPiSession,
-			TaskLinkingKey:          form.taskLinkingKey,
-			NotePath:                form.notePath,
+		options := integration.ManagedWorkspaceRequest{
+			Repo: form.repo, BranchMode: form.branchMode, Branch: form.branch, Base: form.base, Name: form.name,
+			Switch: switchAfterCreate, ForkPiSession: form.forkPiSession,
+			TaskLinkingKey: form.taskLinkingKey, NotePath: form.notePath,
 		}
 		if form.forkPiSession != "" && form.sourceRepoName != "" {
-			options.SessionName = workspace.SessionName(form.sourceRepoName, form.name)
+			options.SessionName = manager.SessionName(form.sourceRepoName, form.name)
 		}
-		workspaceProvider, err := app.DefaultIntegrations().Workspace()
-		if err != nil {
-			return actionMsg{err: err}
-		}
-		created, err := workspaceProvider.Create(context.Background(), options)
+		created, err := manager.CreateWorkspace(context.Background(), options)
 		if err != nil {
 			return actionMsg{err: err}
 		}
@@ -1389,63 +1385,43 @@ func (m model) createView(width int) string {
 
 func (m model) cleanupConfirmView(width int) string {
 	preview := m.cleanup
-	dirty := false
-	deleteBranch := false
-	unpublished := false
-	publicationUnknown := false
-	for _, target := range preview.Targets {
-		dirty = dirty || target.Dirty
-		deleteBranch = deleteBranch || target.DeleteBranch
-		unpublished = unpublished || target.Unpublished
-		publicationUnknown = publicationUnknown || target.PublicationUnknown
-	}
 	warning := "This will remove every local resource linked to the task. Remote resources are preserved."
-	if deleteBranch {
-		warning += " Local branches belonging to Radar-managed worktrees will also be deleted."
-	}
-	if dirty {
-		warning += " Uncommitted changes will be discarded."
-	}
-	if unpublished {
-		warning += " Some branch commits were not found on a remote-tracking branch and may exist only locally."
-	}
-	if publicationUnknown {
-		warning += " Radar could not verify whether some branch commits exist remotely."
+	seenSafety := map[string]bool{}
+	for _, target := range preview.Targets {
+		for _, safety := range target.Safety {
+			message := cleanupSafetyMessage(safety.Message)
+			if message == "" || seenSafety[message] {
+				continue
+			}
+			seenSafety[message] = true
+			warning += " " + message
+		}
 	}
 	lines := []string{titleStyle.Render("Clean up local resources?"), warning, ""}
 	for _, target := range preview.Targets {
-		switch target.Kind {
-		case "workspace":
-			lines = append(lines, "Workspace "+shortenPath(target.Path))
-		case "worktree":
-			label := "Worktree " + shortenPath(target.Path)
-			details := []string{}
-			if target.Dirty {
-				details = append(details, "dirty")
-			}
-			if target.DeleteBranch && target.Branch != "" {
-				details = append(details, "deletes branch "+target.Branch)
-			}
-			if target.Unpublished {
-				details = append(details, "unpublished commits")
-			}
-			if target.PublicationUnknown {
-				details = append(details, "publication unknown")
-			}
-			if len(details) > 0 {
-				label += " (" + strings.Join(details, ", ") + ")"
-			}
-			lines = append(lines, label)
-		case "session":
-			lines = append(lines, "Session  "+target.SessionName)
-		case "sandbox":
-			lines = append(lines, "Sandbox  "+target.SandboxName)
-		default:
-			lines = append(lines, target.Source+" "+target.Title)
+		label := strings.TrimSpace(target.Description)
+		if label == "" {
+			label = strings.TrimSpace(target.Title)
 		}
+		if label == "" {
+			label = target.Source
+		}
+		lines = append(lines, label)
 	}
 	lines = append(lines, "", errorStyle.Render("Press y to clean up."))
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func cleanupSafetyMessage(message string) string {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return ""
+	}
+	message = strings.ToUpper(message[:1]) + message[1:]
+	if !strings.HasSuffix(message, ".") {
+		message += "."
+	}
+	return message
 }
 
 func cleanupSuccessMessage(preview protocol.CleanupPreview) string {
@@ -1719,7 +1695,8 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	task := m.tasks[m.cursor]
-	if target := taskrefs.SessionTarget(task); target != "" {
+	multiplexer, _ := app.DefaultIntegrations().Multiplexer()
+	if target := taskrefs.SessionTarget(task, multiplexer); target != "" {
 		m.loading = true
 		m.err = nil
 		return m, m.switchTmuxSession(target)
@@ -1736,17 +1713,11 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 	switch len(worktrees) {
 	case 0:
 		if ref, ok := taskrefs.WorkspaceCandidate(task); ok {
-			if ref.Source == "obsidian" && strings.TrimSpace(ref.Metadata["note_path"]) != "" {
+			if seeder, found := app.DefaultIntegrations().WorkspaceSeeder(ref); found {
 				m.loading = true
 				m.err = nil
 				m.message = creatingWorkspaceMessage
-				return m, tea.Batch(preparingWorkspaceNotification(), m.createWorkspaceForNote(task, ref))
-			}
-			if ref.Repo != "" && ref.Branch != "" {
-				m.loading = true
-				m.err = nil
-				m.message = creatingWorkspaceMessage
-				return m, tea.Batch(preparingWorkspaceNotification(), m.createWorkspaceForPullRequest(task, ref))
+				return m, tea.Batch(preparingWorkspaceNotification(), m.createWorkspaceFromSeed(task, ref, seeder))
 			}
 			m.mode = "create_repo"
 			m.create = newCreateFormForTask(task)
@@ -1787,7 +1758,7 @@ func (m model) switchTmuxSession(target string) tea.Cmd {
 
 func workspaceAnchorRef(task protocol.Task) (protocol.SourceRef, bool) {
 	for _, ref := range task.SourceRefs {
-		if ref.Source == "workspace" && ref.Kind == "workspace" && strings.TrimSpace(ref.Path) != "" {
+		if ref.WorkspaceEntry && strings.TrimSpace(ref.Path) != "" {
 			return ref, true
 		}
 	}
@@ -1796,8 +1767,12 @@ func workspaceAnchorRef(task protocol.Task) (protocol.SourceRef, bool) {
 
 func (m model) openRegisteredWorkspace(ref protocol.SourceRef) tea.Cmd {
 	return func() tea.Msg {
-		switchAfterCreate := os.Getenv("TMUX") != ""
-		created, err := workspace.OpenRegisteredWorkspace(context.Background(), workspace.ExecRunner{}, ref.Path, switchAfterCreate)
+		switchAfterCreate := canSwitchMultiplexer()
+		manager, err := app.DefaultIntegrations().WorkspaceManager()
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		created, err := manager.OpenWorkspace(context.Background(), ref.Path, switchAfterCreate)
 		if err != nil {
 			return actionMsg{err: err}
 		}
@@ -1807,7 +1782,7 @@ func (m model) openRegisteredWorkspace(ref protocol.SourceRef) tea.Cmd {
 
 func authoredTaskRef(task protocol.Task) (protocol.SourceRef, bool) {
 	for _, ref := range task.SourceRefs {
-		if ref.Role == protocol.SourceRefRoleAuthoritative && ref.Lifecycle == protocol.SourceRefLifecycleWorkItem && ref.Authority == protocol.SourceRefAuthorityPrimary && ref.Metadata["authoring"] == "true" {
+		if ref.Authored {
 			return ref, true
 		}
 	}
@@ -1815,58 +1790,25 @@ func authoredTaskRef(task protocol.Task) (protocol.SourceRef, bool) {
 }
 
 func notePathForTask(task protocol.Task) string {
-	if ref, ok := authoredTaskRef(task); ok && ref.Source == "obsidian" {
-		return strings.TrimSpace(ref.Metadata["note_path"])
+	for _, ref := range task.SourceRefs {
+		if path := strings.TrimSpace(ref.WorkspaceAnchorPath); path != "" {
+			return path
+		}
 	}
 	return ""
 }
 
-func (m model) createWorkspaceForNote(task protocol.Task, ref protocol.SourceRef) tea.Cmd {
-	return func() tea.Msg {
-		cfg, err := config.Load()
-		if err != nil {
-			return actionMsg{err: err}
-		}
-		switchAfterCreate := os.Getenv("TMUX") != ""
-		provider, err := app.DefaultIntegrations().Workspace()
-		if err != nil {
-			return actionMsg{err: err}
-		}
-		created, err := provider.Create(context.Background(), integration.CreateWorkspaceRequest{
-			Name: strings.TrimSpace(ref.Presentation.WorkspaceName), NotePath: strings.TrimSpace(ref.Metadata["note_path"]),
-			Model: cfg.Model, Thinking: cfg.Thinking, Sandbox: cfg.SBX.Enabled,
-			SandboxKitName: cfg.SBX.Kit.Name, SandboxKitPath: cfg.SBX.Kit.Path,
-			AdditionalSandboxMounts: cfg.SBX.AdditionalMounts, Tmux: cfg.Tmux,
-			Switch: switchAfterCreate, TaskLinkingKey: taskrefs.TaskLinkingKey(task),
-		})
-		if err != nil {
-			return actionMsg{err: err}
-		}
-		return actionMsg{message: workspaceCreationMessage(created), refresh: !switchAfterCreate, quit: switchAfterCreate}
-	}
-}
-
 func (m model) createSessionForWorktree(task protocol.Task, ref protocol.SourceRef) tea.Cmd {
 	return func() tea.Msg {
-		switchAfterCreate := os.Getenv("TMUX") != ""
-		sessionName := workspace.SessionName(filepath.Base(filepath.Dir(ref.Path)), filepath.Base(ref.Path))
-		cfg, err := config.Load()
+		switchAfterCreate := canSwitchMultiplexer()
+		manager, err := app.DefaultIntegrations().WorkspaceManager()
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		created, err := workspace.CreateSessionWithOptions(context.Background(), workspace.ExecRunner{}, workspace.CreateSessionOptions{
-			Path:                    ref.Path,
-			SessionName:             sessionName,
-			TaskLinkingKey:          taskrefs.TaskLinkingKey(task),
-			Model:                   cfg.Model,
-			Thinking:                cfg.Thinking,
-			Sandbox:                 cfg.SBX.Enabled,
-			SandboxKitName:          cfg.SBX.Kit.Name,
-			SandboxKitPath:          cfg.SBX.Kit.Path,
-			AdditionalSandboxMounts: cfg.SBX.AdditionalMounts,
-			SandboxName:             sandboxNameForWorktree(task, ref.Path),
-			Tmux:                    cfg.Tmux,
-			Switch:                  switchAfterCreate,
+		sessionName := manager.SessionName(filepath.Base(filepath.Dir(ref.Path)), filepath.Base(ref.Path))
+		created, err := manager.CreateSession(context.Background(), integration.CreateSessionRequest{
+			Path: ref.Path, SessionName: sessionName, TaskLinkingKey: taskrefs.TaskLinkingKey(task),
+			RuntimeResourceID: sandboxNameForWorktree(task, ref.Path), Switch: switchAfterCreate,
 		})
 		if err != nil {
 			return actionMsg{err: err}
@@ -1876,17 +1818,14 @@ func (m model) createSessionForWorktree(task protocol.Task, ref protocol.SourceR
 }
 
 func sandboxNameForWorktree(task protocol.Task, path string) string {
+	integrations := app.DefaultIntegrations()
 	for _, ref := range task.SourceRefs {
-		if ref.Source != "sbx" || ref.Kind != "sandbox" || !samePath(ref.Path, path) {
+		if !samePath(ref.Path, path) {
 			continue
 		}
-		if ref.Metadata != nil && strings.TrimSpace(ref.Metadata["name"]) != "" {
-			return ref.Metadata["name"]
+		if name, ok := integrations.RuntimeResourceName(ref); ok {
+			return name
 		}
-		if strings.TrimSpace(ref.Title) != "" {
-			return ref.Title
-		}
-		return strings.TrimPrefix(ref.ID, "sbx:sandbox:")
 	}
 	return ""
 }
@@ -1895,119 +1834,37 @@ func samePath(left string, right string) bool {
 	return strings.TrimSpace(left) != "" && strings.TrimSpace(right) != "" && filepath.Clean(left) == filepath.Clean(right)
 }
 
-func (m model) createWorkspaceForPullRequest(task protocol.Task, ref protocol.SourceRef) tea.Cmd {
+func (m model) createWorkspaceFromSeed(task protocol.Task, ref protocol.SourceRef, seeder integration.WorkspaceSeedProvider) tea.Cmd {
 	return func() tea.Msg {
-		repo, err := localRepoForPullRequest(ref)
+		seed, err := seeder.PrepareWorkspaceSeed(context.Background(), ref)
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		runner := workspace.ExecRunner{}
-		name := strings.TrimSpace(ref.Presentation.WorkspaceName)
-		if name == "" {
-			name, err = fetchPullRequestHeadBranch(context.Background(), runner, ref)
-			if err != nil {
-				return actionMsg{err: err}
-			}
-		}
-		if name == "" {
-			return actionMsg{err: fmt.Errorf("github pull request has no origin branch")}
-		}
-		fetchWarning := ""
-		if err := workspace.FetchBranches(context.Background(), runner, repo); err != nil {
-			fetchWarning = fmt.Sprintf("origin refresh failed; used cached refs: %v", err)
-		}
-		recoveryWarning, err := ensurePullRequestHeadBranch(context.Background(), runner, repo, name, githubPullRequestNumber(ref.ID))
+		switchAfterCreate := canSwitchMultiplexer()
+		manager, err := app.DefaultIntegrations().WorkspaceManager()
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		fetchWarning = appendWarning(fetchWarning, recoveryWarning)
-		cfg, err := config.Load()
-		if err != nil {
-			return actionMsg{err: err}
+		notePath := seed.NotePath
+		if notePath == "" {
+			notePath = notePathForTask(task)
 		}
-		switchAfterCreate := os.Getenv("TMUX") != ""
-		workspaceProvider, err := app.DefaultIntegrations().Workspace()
-		if err != nil {
-			return actionMsg{err: err}
-		}
-		created, err := workspaceProvider.Create(context.Background(), integration.CreateWorkspaceRequest{
-			Repo:                    repo,
-			BranchMode:              integration.WorkspaceBranchExisting,
-			Name:                    name,
-			Branch:                  name,
-			Model:                   cfg.Model,
-			Thinking:                cfg.Thinking,
-			Sandbox:                 cfg.SBX.Enabled,
-			SandboxKitName:          cfg.SBX.Kit.Name,
-			SandboxKitPath:          cfg.SBX.Kit.Path,
-			AdditionalSandboxMounts: cfg.SBX.AdditionalMounts,
-			Tmux:                    cfg.Tmux,
-			Switch:                  switchAfterCreate,
-			TaskLinkingKey:          taskrefs.TaskLinkingKey(task),
-			NotePath:                notePathForTask(task),
+		created, err := manager.CreateWorkspace(context.Background(), integration.ManagedWorkspaceRequest{
+			Repo: seed.Repo, BranchMode: seed.BranchMode, Name: seed.Name, Branch: seed.Branch,
+			Switch: switchAfterCreate, TaskLinkingKey: taskrefs.TaskLinkingKey(task), NotePath: notePath,
 		})
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		if fetchWarning != "" {
+		if seed.Warning != "" {
 			if created.Warning == "" {
-				created.Warning = fetchWarning
+				created.Warning = seed.Warning
 			} else {
-				created.Warning += "; " + fetchWarning
+				created.Warning += "; " + seed.Warning
 			}
 		}
 		return actionMsg{message: workspaceCreationMessage(created), refresh: !switchAfterCreate, quit: switchAfterCreate}
 	}
-}
-
-func appendWarning(current string, warning string) string {
-	if strings.TrimSpace(current) == "" {
-		return warning
-	}
-	if strings.TrimSpace(warning) == "" {
-		return current
-	}
-	return current + "; " + warning
-}
-
-func ensurePullRequestHeadBranch(ctx context.Context, runner workspace.Runner, repo string, branch string, number string) (string, error) {
-	branch = strings.TrimSpace(branch)
-	number = strings.TrimSpace(number)
-	if branch == "" || number == "" {
-		return "", fmt.Errorf("github pull request has no origin branch or number")
-	}
-	if gitRefExists(ctx, runner, repo, "refs/heads/"+branch) {
-		return "", nil
-	}
-
-	originRef := "refs/remotes/origin/" + branch
-	originExists := gitRefExists(ctx, runner, repo, originRef)
-	if _, err := runner.Run(ctx, repo, "git", "fetch", "--no-tags", "origin", "refs/pull/"+number+"/head"); err != nil {
-		if originExists {
-			return fmt.Sprintf("pull request head refresh failed; used origin branch: %v", err), nil
-		}
-		return "", fmt.Errorf("branch %q is unavailable on origin and pull request #%s could not be fetched: %w", branch, number, err)
-	}
-	pullCommit, err := runner.Run(ctx, repo, "git", "rev-parse", "--verify", "FETCH_HEAD^{commit}")
-	if err != nil {
-		return "", fmt.Errorf("resolve pull request #%s head: %w", number, err)
-	}
-	pullCommit = strings.TrimSpace(pullCommit)
-	if originExists {
-		originCommit, originErr := runner.Run(ctx, repo, "git", "rev-parse", "--verify", originRef+"^{commit}")
-		if originErr == nil && strings.TrimSpace(originCommit) == pullCommit {
-			return "", nil
-		}
-	}
-	if _, err := runner.Run(ctx, repo, "git", "branch", "--", branch, pullCommit); err != nil {
-		return "", fmt.Errorf("create local branch %q from pull request #%s: %w", branch, number, err)
-	}
-	return "", nil
-}
-
-func gitRefExists(ctx context.Context, runner workspace.Runner, repo string, ref string) bool {
-	_, err := runner.Run(ctx, repo, "git", "show-ref", "--verify", "--quiet", ref)
-	return err == nil
 }
 
 func workspaceCreationMessage(created integration.Workspace) string {
@@ -2016,93 +1873,6 @@ func workspaceCreationMessage(created integration.Workspace) string {
 		message += ". Warning: " + created.Warning
 	}
 	return message
-}
-
-func localRepoForPullRequest(ref protocol.SourceRef) (string, error) {
-	repos, err := workspace.DiscoverRepos(context.Background(), workspace.ExecRunner{}, "")
-	if err != nil {
-		return "", err
-	}
-	wantRepo := githubPullRequestRepo(ref)
-	if wantRepo == "" {
-		return "", fmt.Errorf("github pull request has no repository")
-	}
-	matches := make([]string, 0)
-	for _, repo := range repos {
-		if localRepoMatchesGitHubRepo(repo, wantRepo) {
-			matches = append(matches, repo)
-		}
-	}
-	if len(matches) == 0 {
-		return "", fmt.Errorf("no local repository found for %s", wantRepo)
-	}
-	if len(matches) > 1 {
-		return "", fmt.Errorf("multiple local repositories found for %s", wantRepo)
-	}
-	return matches[0], nil
-}
-
-func localRepoMatchesGitHubRepo(repo string, wantRepo string) bool {
-	remote, err := workspace.ExecRunner{}.Run(context.Background(), repo, "git", "remote", "get-url", "origin")
-	if err == nil {
-		return normalizeGitHubRepo(remote) == normalizeGitHubRepo(wantRepo)
-	}
-	return filepath.Base(repo) == filepath.Base(wantRepo)
-}
-
-func fetchPullRequestHeadBranch(ctx context.Context, runner workspace.Runner, ref protocol.SourceRef) (string, error) {
-	if err := runner.LookPath("gh"); err != nil {
-		return "", fmt.Errorf("github pull request branch lookup requires %q: %w", "gh", err)
-	}
-	repo := githubPullRequestRepo(ref)
-	number := githubPullRequestNumber(ref.ID)
-	if repo == "" || number == "" {
-		return "", fmt.Errorf("github pull request has no repository or number")
-	}
-	branch, err := runner.Run(ctx, "", "gh", "pr", "view", number, "--repo", repo, "--json", "headRefName", "--jq", ".headRefName")
-	if err != nil {
-		return "", err
-	}
-	branch = strings.TrimSpace(branch)
-	branch = strings.TrimPrefix(branch, "refs/remotes/")
-	branch = strings.TrimPrefix(branch, "origin/")
-	return strings.TrimPrefix(branch, "refs/heads/"), nil
-}
-
-func githubPullRequestRepo(ref protocol.SourceRef) string {
-	if repo := strings.TrimSpace(ref.Repo); repo != "" {
-		return repo
-	}
-	value, ok := strings.CutPrefix(ref.ID, "github:pr:")
-	if !ok {
-		return ""
-	}
-	index := strings.LastIndex(value, ":")
-	if index <= 0 {
-		return ""
-	}
-	return value[:index]
-}
-
-func githubPullRequestNumber(id string) string {
-	value, ok := strings.CutPrefix(id, "github:pr:")
-	if !ok {
-		return ""
-	}
-	index := strings.LastIndex(value, ":")
-	if index < 0 || index == len(value)-1 {
-		return ""
-	}
-	return value[index+1:]
-}
-
-func normalizeGitHubRepo(value string) string {
-	value = strings.TrimSpace(value)
-	value = strings.TrimSuffix(value, ".git")
-	value = strings.TrimPrefix(value, "https://github.com/")
-	value = strings.TrimPrefix(value, "http://github.com/")
-	value = strings.TrimPrefix(value, "git@github.com:")
-	return value
 }
 
 func (m model) openTask(task protocol.Task, choice linkChoice) tea.Cmd {
@@ -2143,8 +1913,17 @@ func (m model) openSourceAction(task protocol.Task, choice linkChoice) tea.Cmd {
 	}
 }
 
+func canSwitchMultiplexer() bool {
+	multiplexer, err := app.DefaultIntegrations().Multiplexer()
+	return err == nil && multiplexer.ClientActive()
+}
+
 func currentTaskCursor(tasks []protocol.Task) (int, bool) {
-	return taskrefs.TaskCursorForCurrent(tasks, taskrefs.DetectCurrentContext())
+	integrations := app.DefaultIntegrations()
+	workspaceProvider, _ := integrations.Workspace()
+	multiplexer, _ := integrations.Multiplexer()
+	current := taskrefs.DetectCurrentContext(context.Background(), workspaceProvider, multiplexer)
+	return taskrefs.TaskCursorForCurrent(tasks, current, multiplexer)
 }
 
 func taskLinks(task protocol.Task) []linkChoice {

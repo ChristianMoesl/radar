@@ -3,7 +3,6 @@ package integration
 import (
 	"log/slog"
 
-	"radar/internal/filters"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
@@ -20,7 +19,6 @@ const (
 
 type CollectRequest struct {
 	Previous     []protocol.Task
-	Filters      filters.Config
 	LinkingMarks linking.MarkMatcher
 	Logger       *slog.Logger
 }
@@ -30,6 +28,8 @@ type Observation struct {
 	TargetTaskID int
 	Signal       WorkSignal
 	Reason       string
+	TaskKind     string
+	TaskMetadata map[string]string
 }
 
 type CollectResult struct {

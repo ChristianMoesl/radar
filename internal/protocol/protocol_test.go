@@ -7,14 +7,14 @@ import (
 )
 
 func TestResponseIncludesCleanupPayloads(t *testing.T) {
-	preview := CleanupPreview{TaskID: 7, TaskTitle: "ship", Targets: []CleanupTarget{{SourceRefID: "tmux:session:$1", Source: "tmux", Kind: "session", SessionName: "$1"}}}
+	preview := CleanupPreview{TaskID: 7, TaskTitle: "ship", Targets: []CleanupTarget{{SourceRefID: "tmux:session:$1", Source: "tmux", Kind: "session", ResourceID: "$1"}}}
 	result := CleanupResult{TaskID: 7, Targets: preview.Targets}
 	data, err := json.Marshal(Response{OK: true, CleanupPreview: &preview, CleanupResult: &result})
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := string(data)
-	for _, want := range []string{`"cleanup_preview"`, `"cleanup_result"`, `"targets"`, `"session_name":"$1"`} {
+	for _, want := range []string{`"cleanup_preview"`, `"cleanup_result"`, `"targets"`, `"resource_id":"$1"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("response should include %s, got %s", want, body)
 		}

@@ -167,6 +167,7 @@ func (s session) SourceRef(marks linking.MarkMatcher) protocol.SourceRef {
 	return protocol.SourceRef{
 		ID:          s.sourceRefID(),
 		Busy:        s.Busy,
+		InUse:       s.AttachedCount > 0,
 		Source:      "tmux",
 		SourceLabel: "tmux",
 		Kind:        "session",

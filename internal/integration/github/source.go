@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"sync"
 
+	"radar/internal/config"
 	"radar/internal/integration"
+	"radar/internal/integration/github/filters"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
@@ -27,6 +29,12 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 
 func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	result := integration.CollectResult{}
+	filterConfig := filters.Config{}
+	if cfg, err := config.Load(); err != nil {
+		req.Logger.Warn("could not load github filters", "error", err)
+	} else {
+		filterConfig = cfg.GitHub.Filters
+	}
 
 	var reviewItems, authoredItems, activityItems, trackedItems []protocol.Task
 	var pullRequestErr, trackedErr error
@@ -34,11 +42,11 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		reviewItems, authoredItems, activityItems, pullRequestErr = FetchPullRequests(ctx, req.Previous, req.Filters, req.Logger)
+		reviewItems, authoredItems, activityItems, pullRequestErr = FetchPullRequests(ctx, req.Previous, filterConfig, req.Logger)
 	}()
 	go func() {
 		defer wg.Done()
-		trackedItems, trackedErr = FetchRulePullRequests(ctx, req.Filters, req.Logger)
+		trackedItems, trackedErr = FetchRulePullRequests(ctx, filterConfig, req.Logger)
 	}()
 	wg.Wait()
 
@@ -62,6 +70,19 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	result.Observations = observationsFromTasks(observed)
 	result.Complete = trackedErr == nil
 	return result
+}
+
+func (Source) RateLimitSummary(ctx context.Context, logger *slog.Logger) (string, error) {
+	return RateLimitSummary(ctx, logger)
+}
+
+func (Source) FilterTasks(tasks []protocol.Task, logger *slog.Logger) []protocol.Task {
+	cfg, err := config.Load()
+	if err != nil {
+		logger.Warn("could not load github filters", "error", err)
+		return tasks
+	}
+	return filters.Apply(tasks, cfg.GitHub.Filters)
 }
 
 func (Source) Reconcile(ctx context.Context, req integration.ReconcileRequest) []integration.Observation {
@@ -95,9 +116,23 @@ func observationsFromTasks(tasks []protocol.Task) []integration.Observation {
 				ref.Metadata[key] = value
 			}
 		}
-		observations = append(observations, integration.Observation{Ref: ref, Signal: integration.WorkSignal(task.Attention), Reason: task.Reason})
+		observations = append(observations, integration.Observation{
+			Ref: ref, Signal: integration.WorkSignal(task.Attention), Reason: task.Reason,
+			TaskKind: task.Kind, TaskMetadata: cloneMetadata(task.Metadata),
+		})
 	}
 	return observations
+}
+
+func cloneMetadata(metadata map[string]string) map[string]string {
+	if metadata == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(metadata))
+	for key, value := range metadata {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func appendMissingPullRequests(tasks []protocol.Task, candidates []protocol.Task) []protocol.Task {
@@ -122,4 +157,6 @@ func appendMissingPullRequests(tasks []protocol.Task, candidates []protocol.Task
 var _ integration.Source = Source{}
 var _ integration.StatusReporter = Source{}
 var _ integration.Reconciler = Source{}
+var _ integration.TaskFilterProvider = Source{}
+var _ integration.RateLimitReporter = Source{}
 var _ integration.CodeReviewProvider = Source{}

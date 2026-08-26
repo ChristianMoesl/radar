@@ -102,19 +102,13 @@ type ReconcileResult = {
   [key: string]: unknown;
 };
 
-const BusyOption = "@radar_busy";
 const MaxReconcileConfirmations = 3;
 const ResourceEntry = "radar-workspace-resources";
 
 async function publishBusy(pi: ExtensionAPI, busy: boolean) {
-  const pane = process.env.TMUX_PANE?.trim();
-  if (!pane) return;
-
-  const args = busy
-    ? ["set-option", "-p", "-t", pane, BusyOption, "1"]
-    : ["set-option", "-p", "-u", "-t", pane, BusyOption];
+  const binary = process.env.RADAR_BINARY?.trim() || "radar";
   try {
-    await pi.exec("tmux", args, { timeout: 5000 });
+    await pi.exec(binary, ["activity", busy ? "busy" : "idle"], { timeout: 5000 });
   } catch {
     // Busy state is informational and must never interfere with the session.
   }

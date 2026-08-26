@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"radar/internal/filters"
+	"radar/internal/integration/github/filters"
 	"radar/internal/protocol"
 )
 

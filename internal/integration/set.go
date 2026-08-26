@@ -1,8 +1,12 @@
 package integration
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"sort"
+
+	"radar/internal/protocol"
 )
 
 type Integration interface {
@@ -55,6 +59,67 @@ func (r Registry) ActionProviders() []ActionProvider {
 	return providers
 }
 
+func (r Registry) PublishActivity(ctx context.Context, busy bool) error {
+	for _, candidate := range r.integrations {
+		provider, ok := candidate.(ActivityPublisher)
+		if !ok {
+			continue
+		}
+		if err := provider.PublishActivity(ctx, busy); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r Registry) Authenticators() []InteractiveAuthenticator {
+	providers := make([]InteractiveAuthenticator, 0)
+	for _, candidate := range r.integrations {
+		if provider, ok := candidate.(InteractiveAuthenticator); ok {
+			providers = append(providers, provider)
+		}
+	}
+	return providers
+}
+
+func (r Registry) EnsureAuthentication(ctx context.Context, req AuthenticationRequest) (AuthenticationResult, error) {
+	result := AuthenticationResult{}
+	for _, provider := range r.Authenticators() {
+		providerResult, err := provider.EnsureAuthentication(ctx, req)
+		if err != nil {
+			return result, err
+		}
+		result.Changed = result.Changed || providerResult.Changed
+	}
+	return result, nil
+}
+
+func (r Registry) RateLimitReporter() (RateLimitReporter, error) {
+	for _, candidate := range r.integrations {
+		if provider, ok := candidate.(RateLimitReporter); ok {
+			return provider, nil
+		}
+	}
+	return nil, fmt.Errorf("rate-limit integration is not registered")
+}
+
+func (r Registry) TaskFilterProviders() []TaskFilterProvider {
+	providers := make([]TaskFilterProvider, 0)
+	for _, candidate := range r.integrations {
+		if provider, ok := candidate.(TaskFilterProvider); ok {
+			providers = append(providers, provider)
+		}
+	}
+	return providers
+}
+
+func (r Registry) FilterTasks(tasks []protocol.Task, logger *slog.Logger) []protocol.Task {
+	for _, provider := range r.TaskFilterProviders() {
+		tasks = provider.FilterTasks(tasks, logger)
+	}
+	return tasks
+}
+
 func (r Registry) CleanupProviders() []CleanupProvider {
 	providers := make([]CleanupProvider, 0)
 	for _, candidate := range r.integrations {
@@ -66,6 +131,42 @@ func (r Registry) CleanupProviders() []CleanupProvider {
 		return providers[i].Descriptor().CleanupOrder < providers[j].Descriptor().CleanupOrder
 	})
 	return providers
+}
+
+func (r Registry) RuntimeResourceName(ref protocol.SourceRef) (string, bool) {
+	for _, candidate := range r.integrations {
+		provider, ok := candidate.(RuntimeProvider)
+		if !ok {
+			continue
+		}
+		if name, handled := provider.ResourceName(ref); handled {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+func (r Registry) WorkspaceSeeder(ref protocol.SourceRef) (WorkspaceSeedProvider, bool) {
+	for _, candidate := range r.integrations {
+		provider, ok := candidate.(WorkspaceSeedProvider)
+		if ok && provider.CanSeedWorkspace(ref) {
+			return provider, true
+		}
+	}
+	return nil, false
+}
+
+func (r Registry) WorkspaceManager() (WorkspaceManager, error) {
+	providers := make([]WorkspaceManager, 0, 1)
+	for _, candidate := range r.integrations {
+		if provider, ok := candidate.(WorkspaceManager); ok {
+			providers = append(providers, provider)
+		}
+	}
+	if len(providers) != 1 {
+		return nil, fmt.Errorf("expected exactly one workspace manager, found %d", len(providers))
+	}
+	return providers[0], nil
 }
 
 func (r Registry) Workspace() (WorkspaceProvider, error) {

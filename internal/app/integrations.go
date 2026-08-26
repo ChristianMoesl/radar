@@ -9,16 +9,17 @@ import (
 	"radar/internal/integration/obsidian"
 	"radar/internal/integration/sbx"
 	"radar/internal/integration/tmux"
-	"radar/internal/integration/workspaceanchor"
+	workspace "radar/internal/integration/workspace"
 )
 
 func DefaultIntegrations() integration.Registry {
+	githubSource := github.NewSource()
 	return integration.NewRegistry(
 		obsidian.NewSource(),
-		github.NewSource(),
-		jira.NewSource(),
+		githubSource,
+		jira.NewSource(githubSource),
 		datadog.NewSource(),
-		workspaceanchor.NewSource(),
+		workspace.NewSource(),
 		git.NewSource(),
 		tmux.NewSource(),
 		sbx.NewSource(),

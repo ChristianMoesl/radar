@@ -11,11 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"radar/internal/githubidentity"
+	"radar/internal/integration/workspace"
+	"radar/internal/integration/workspace/group"
 	"radar/internal/linking"
 	"radar/internal/protocol"
-	"radar/internal/workspace"
-	"radar/internal/workspacegroup"
 )
 
 func FetchWorktrees(ctx context.Context, logger *slog.Logger, marks linking.MarkMatcher) ([]protocol.SourceRef, protocol.SourceStatus) {
@@ -211,7 +210,7 @@ func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher, work
 		metadata["workspace_id"] = workspaceID
 	}
 	canonicalKey := linking.WorkspaceKey(w.Path)
-	linkingKeys := linking.Keys(append(marks.Keys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, githubidentity.Branch(w.Branch)), linking.WorkspaceGroupKey(workspaceID), taskLinkingKey)...)
+	linkingKeys := linking.Keys(append(marks.Keys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, linking.BranchName(w.Branch)), linking.WorkspaceGroupKey(workspaceID), taskLinkingKey)...)
 
 	providesWorkspace := workspaceID == ""
 	return protocol.SourceRef{
@@ -227,6 +226,7 @@ func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher, work
 		Repo:              originRepo,
 		Path:              w.Path,
 		ProvidesWorkspace: providesWorkspace,
+		WorkspaceID:       workspaceID,
 		Branch:            w.Branch,
 		Status:            status.Label(),
 		CanonicalKey:      canonicalKey,
@@ -263,7 +263,7 @@ func worktreeOriginRepo(ctx context.Context, path string) string {
 	if err != nil {
 		return ""
 	}
-	return githubidentity.Repository(output)
+	return linking.RepositoryPath(output)
 }
 
 func worktreeStatus(ctx context.Context, path string) status {

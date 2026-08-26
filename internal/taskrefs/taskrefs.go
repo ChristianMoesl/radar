@@ -6,9 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"radar/internal/integration/tmux"
+	"radar/internal/integration"
 	"radar/internal/protocol"
-	"radar/internal/workspace"
 )
 
 func WorkspaceName(task protocol.Task) string {
@@ -77,7 +76,7 @@ func CurrentWorktree(task protocol.Task, current protocol.CurrentContext) (proto
 func Worktrees(task protocol.Task) []protocol.SourceRef {
 	refs := make([]protocol.SourceRef, 0)
 	for _, ref := range task.SourceRefs {
-		if ref.Source == "git" && ref.Kind == "worktree" && ref.Path != "" {
+		if ref.ProvidesWorkspace && ref.Path != "" {
 			refs = append(refs, ref)
 		}
 	}
@@ -100,48 +99,39 @@ func WorkspaceCandidate(task protocol.Task) (protocol.SourceRef, bool) {
 	return fallback, fallback.ID != ""
 }
 
-func DetectCurrentContext() protocol.CurrentContext {
+func DetectCurrentContext(ctx context.Context, workspaceProvider integration.WorkspaceProvider, multiplexer integration.MultiplexerProvider) protocol.CurrentContext {
 	current := protocol.CurrentContext{}
 	if cwd, err := os.Getwd(); err == nil {
 		current.CWD = filepath.Clean(cwd)
-		runner := workspace.ExecRunner{}
-		if worktree, err := runner.Run(context.Background(), cwd, "git", "rev-parse", "--show-toplevel"); err == nil {
-			current.Worktree = filepath.Clean(worktree)
+		if workspaceProvider != nil {
+			if workspace, ok, err := workspaceProvider.Current(ctx, cwd); err == nil && ok {
+				current.Worktree = filepath.Clean(workspace.Path)
+			}
 		}
 	}
-	if os.Getenv("TMUX") != "" {
-		runner := workspace.ExecRunner{}
-		if output, err := runner.Run(context.Background(), current.CWD, "tmux", "display-message", "-p", "#{session_name}\t#{session_id}"); err == nil {
-			fields := strings.Split(output, "\t")
-			if len(fields) > 0 {
-				current.SessionName = strings.TrimSpace(fields[0])
-			}
-			if len(fields) > 1 {
-				current.SessionID = strings.TrimSpace(fields[1])
-			}
+	if multiplexer != nil {
+		if session, ok, err := multiplexer.Current(ctx); err == nil && ok {
+			current.SessionName = session.Name
+			current.SessionID = session.ID
 		}
 	}
 	return current
 }
 
-func TaskCursorForCurrent(tasks []protocol.Task, current protocol.CurrentContext) (int, bool) {
+func TaskCursorForCurrent(tasks []protocol.Task, current protocol.CurrentContext, multiplexer integration.MultiplexerProvider) (int, bool) {
 	if current.Worktree != "" || current.CWD != "" {
 		for i, task := range tasks {
 			for _, ref := range task.SourceRefs {
-				workspacePath := ref.Path != "" && (ref.ProvidesWorkspace || (ref.Source == "git" && ref.Kind == "worktree"))
-				if workspacePath && CurrentPathMatches(ref.Path, current) {
+				if ref.ProvidesWorkspace && ref.Path != "" && CurrentPathMatches(ref.Path, current) {
 					return i, true
 				}
 			}
 		}
 	}
-	if current.SessionName != "" || current.SessionID != "" {
+	if multiplexer != nil && (current.SessionName != "" || current.SessionID != "") {
 		for i, task := range tasks {
-			if task.Kind == "session" && metadataMatchesSession(task.Metadata, current) {
-				return i, true
-			}
 			for _, ref := range task.SourceRefs {
-				if ref.Source == "tmux" && ref.Kind == "session" && tmux.SessionRefMatchesCurrent(ref, current) {
+				if multiplexer.MatchesCurrent(ref, current) {
 					return i, true
 				}
 			}
@@ -155,8 +145,11 @@ func CurrentPathMatches(refPath string, current protocol.CurrentContext) bool {
 	return samePath(current.Worktree, refPath) || sameOrDescendant(current.CWD, refPath)
 }
 
-func SessionTarget(task protocol.Task) string {
-	return tmux.SessionTarget(task)
+func SessionTarget(task protocol.Task, multiplexer integration.MultiplexerProvider) string {
+	if multiplexer == nil {
+		return ""
+	}
+	return multiplexer.Target(task)
 }
 
 func MetadataValue(metadata map[string]string, keys ...string) string {
@@ -166,16 +159,6 @@ func MetadataValue(metadata map[string]string, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func metadataMatchesSession(metadata map[string]string, current protocol.CurrentContext) bool {
-	for _, key := range []string{"switch_target", "session_id", "session"} {
-		value := metadata[key]
-		if value != "" && (value == current.SessionID || value == current.SessionName) {
-			return true
-		}
-	}
-	return false
 }
 
 func samePath(left string, right string) bool {

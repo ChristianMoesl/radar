@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"radar/internal/config"
-	"radar/internal/filters"
 	"radar/internal/integration"
 	"radar/internal/linking"
 	"radar/internal/protocol"
@@ -91,7 +90,7 @@ func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.
 		collections[i].descriptor = descriptor
 		go func(i int, source integration.Source, descriptor integration.Descriptor) {
 			defer wg.Done()
-			collections[i] = collectSource(ctx, source, descriptor, cloneTasks(previous), cloneFilterConfig(cfg.GitHub.Filters), result.LinkingMarks, logger)
+			collections[i] = collectSource(ctx, source, descriptor, cloneTasks(previous), result.LinkingMarks, logger)
 		}(i, source, descriptor)
 	}
 	wg.Wait()
@@ -117,7 +116,7 @@ type sourceCollection struct {
 	result     integration.CollectResult
 }
 
-func collectSource(ctx context.Context, source integration.Source, descriptor integration.Descriptor, previous []protocol.Task, filterCfg filters.Config, marks linking.MarkMatcher, logger *slog.Logger) sourceCollection {
+func collectSource(ctx context.Context, source integration.Source, descriptor integration.Descriptor, previous []protocol.Task, marks linking.MarkMatcher, logger *slog.Logger) sourceCollection {
 	started := time.Now()
 	collection := sourceCollection{
 		descriptor: descriptor,
@@ -139,7 +138,6 @@ func collectSource(ctx context.Context, source integration.Source, descriptor in
 	collectStarted := time.Now()
 	collection.result = source.Collect(ctx, integration.CollectRequest{
 		Previous:     previous,
-		Filters:      filterCfg,
 		LinkingMarks: marks,
 		Logger:       logger,
 	})
@@ -174,6 +172,10 @@ func cloneTasks(tasks []protocol.Task) []protocol.Task {
 				titleOrder := *ref.Presentation.TitleOrder
 				cloned[i].SourceRefs[j].Presentation.TitleOrder = &titleOrder
 			}
+			if ref.Acknowledgement != nil {
+				acknowledgement := *ref.Acknowledgement
+				cloned[i].SourceRefs[j].Acknowledgement = &acknowledgement
+			}
 		}
 	}
 	return cloned
@@ -186,21 +188,6 @@ func cloneStringMap(values map[string]string) map[string]string {
 	cloned := make(map[string]string, len(values))
 	for key, value := range values {
 		cloned[key] = value
-	}
-	return cloned
-}
-
-func cloneFilterConfig(cfg filters.Config) filters.Config {
-	cloned := cfg
-	cloned.MuteRepos = append([]string(nil), cfg.MuteRepos...)
-	cloned.DeprioritizeRepos = append([]string(nil), cfg.DeprioritizeRepos...)
-	cloned.MuteUsers = append([]string(nil), cfg.MuteUsers...)
-	cloned.DeprioritizeUsers = append([]string(nil), cfg.DeprioritizeUsers...)
-	cloned.Rules = make([]filters.Rule, len(cfg.Rules))
-	for i, rule := range cfg.Rules {
-		cloned.Rules[i] = rule
-		cloned.Rules[i].Repos = append([]string(nil), rule.Repos...)
-		cloned.Rules[i].Users = append([]string(nil), rule.Users...)
 	}
 	return cloned
 }
@@ -253,27 +240,14 @@ func taskFromObservation(observation integration.Observation) protocol.Task {
 }
 
 func taskKindFromObservation(observation integration.Observation) string {
-	ref := observation.Ref
-	if ref.Source == "github" && ref.Kind == "pull_request" {
-		if observation.Signal == integration.SignalAttention && observation.Reason == "review requested" {
-			return "github_review_request"
-		}
-		if observation.Signal == integration.SignalAttention {
-			return "github_pr_activity"
-		}
-		return "github_own_pr"
+	if observation.TaskKind != "" {
+		return observation.TaskKind
 	}
-	return ref.Source + "_" + ref.Kind
+	return observation.Ref.Source + "_" + observation.Ref.Kind
 }
 
 func taskMetadataFromObservation(observation integration.Observation) map[string]string {
-	if observation.Ref.Source != "github" || observation.Ref.Metadata == nil {
-		return nil
-	}
-	if author := observation.Ref.Metadata["author"]; author != "" {
-		return map[string]string{"author": author}
-	}
-	return nil
+	return cloneStringMap(observation.TaskMetadata)
 }
 
 func sourceRefCount(sourceName string, result integration.CollectResult) int {

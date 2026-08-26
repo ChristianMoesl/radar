@@ -32,18 +32,25 @@ func (c CurrentContext) Empty() bool {
 }
 
 type CleanupTarget struct {
-	SourceRefID        string `json:"source_ref_id"`
-	Source             string `json:"source"`
-	Kind               string `json:"kind"`
-	Title              string `json:"title,omitempty"`
-	Path               string `json:"path,omitempty"`
-	Branch             string `json:"branch,omitempty"`
-	SessionName        string `json:"session_name,omitempty"`
-	SandboxName        string `json:"sandbox_name,omitempty"`
-	Dirty              bool   `json:"dirty,omitempty"`
-	DeleteBranch       bool   `json:"delete_branch,omitempty"`
-	Unpublished        bool   `json:"unpublished,omitempty"`
-	PublicationUnknown bool   `json:"publication_unknown,omitempty"`
+	SourceRefID       string            `json:"source_ref_id"`
+	Source            string            `json:"source"`
+	Kind              string            `json:"kind"`
+	Title             string            `json:"title,omitempty"`
+	Description       string            `json:"description,omitempty"`
+	ResourceRole      string            `json:"resource_role,omitempty"`
+	ResourceID        string            `json:"resource_id,omitempty"`
+	Path              string            `json:"path,omitempty"`
+	ProvidesWorkspace bool              `json:"provides_workspace,omitempty"`
+	WorkspaceID       string            `json:"workspace_id,omitempty"`
+	Branch            string            `json:"branch,omitempty"`
+	Safety            []CleanupSafety   `json:"safety,omitempty"`
+	Operation         map[string]string `json:"operation,omitempty"`
+}
+
+type CleanupSafety struct {
+	Kind            string `json:"kind"`
+	Message         string `json:"message"`
+	BlocksAutomatic bool   `json:"blocks_automatic,omitempty"`
 }
 
 type CleanupPreview struct {
@@ -113,45 +120,60 @@ type SourceRefPresentation struct {
 	WorkspaceName string `json:"workspace_name,omitempty"`
 }
 
+type SourceRefAcknowledgement struct {
+	Cursor               string `json:"cursor,omitempty"`
+	Blocking             bool   `json:"blocking,omitempty"`
+	FallbackSignal       string `json:"fallback_signal,omitempty"`
+	FallbackReason       string `json:"fallback_reason,omitempty"`
+	HideWhenAcknowledged bool   `json:"hide_when_acknowledged,omitempty"`
+}
+
 type SourceRef struct {
-	ID                string                `json:"id"`
-	Busy              bool                  `json:"busy,omitempty"`
-	Source            string                `json:"source"`
-	SourceLabel       string                `json:"source_label,omitempty"`
-	Kind              string                `json:"kind"`
-	Role              SourceRefRole         `json:"role"`
-	Title             string                `json:"title,omitempty"`
-	Repo              string                `json:"repo,omitempty"`
-	URL               string                `json:"url,omitempty"`
-	Path              string                `json:"path,omitempty"`
-	ProvidesWorkspace bool                  `json:"provides_workspace,omitempty"`
-	Branch            string                `json:"branch,omitempty"`
-	Status            string                `json:"status,omitempty"`
-	Signal            string                `json:"signal,omitempty"`
-	CanonicalKey      string                `json:"canonical_key,omitempty"`
-	LinkingKeys       []string              `json:"linking_keys,omitempty"`
-	Metadata          map[string]string     `json:"metadata,omitempty"`
-	EntityID          string                `json:"entity_id,omitempty"`
-	Lifecycle         SourceRefLifecycle    `json:"lifecycle,omitempty"`
-	Authority         SourceRefAuthority    `json:"authority,omitempty"`
-	RetainInactive    bool                  `json:"retain_inactive,omitempty"`
-	Presentation      SourceRefPresentation `json:"presentation,omitempty"`
-	DisplayOrder      int                   `json:"display_order,omitempty"`
+	ID                  string                    `json:"id"`
+	Busy                bool                      `json:"busy,omitempty"`
+	InUse               bool                      `json:"in_use,omitempty"`
+	Authored            bool                      `json:"authored,omitempty"`
+	Source              string                    `json:"source"`
+	SourceLabel         string                    `json:"source_label,omitempty"`
+	Kind                string                    `json:"kind"`
+	Role                SourceRefRole             `json:"role"`
+	Title               string                    `json:"title,omitempty"`
+	Repo                string                    `json:"repo,omitempty"`
+	URL                 string                    `json:"url,omitempty"`
+	Path                string                    `json:"path,omitempty"`
+	ProvidesWorkspace   bool                      `json:"provides_workspace,omitempty"`
+	WorkspaceAnchorPath string                    `json:"workspace_anchor_path,omitempty"`
+	WorkspaceEntry      bool                      `json:"workspace_entry,omitempty"`
+	WorkspaceID         string                    `json:"workspace_id,omitempty"`
+	Branch              string                    `json:"branch,omitempty"`
+	Status              string                    `json:"status,omitempty"`
+	Signal              string                    `json:"signal,omitempty"`
+	CanonicalKey        string                    `json:"canonical_key,omitempty"`
+	LinkingKeys         []string                  `json:"linking_keys,omitempty"`
+	Metadata            map[string]string         `json:"metadata,omitempty"`
+	EntityID            string                    `json:"entity_id,omitempty"`
+	Lifecycle           SourceRefLifecycle        `json:"lifecycle,omitempty"`
+	Authority           SourceRefAuthority        `json:"authority,omitempty"`
+	RetainInactive      bool                      `json:"retain_inactive,omitempty"`
+	Presentation        SourceRefPresentation     `json:"presentation,omitempty"`
+	DisplayOrder        int                       `json:"display_order,omitempty"`
+	Acknowledgement     *SourceRefAcknowledgement `json:"acknowledgement,omitempty"`
 }
 
 type Task struct {
-	ID           int               `json:"id"`
-	TargetTaskID int               `json:"-"`
-	Busy         bool              `json:"busy,omitempty"`
-	Kind         string            `json:"kind"`
-	Title        string            `json:"title"`
-	Repo         string            `json:"repo,omitempty"`
-	URL          string            `json:"url,omitempty"`
-	Attention    string            `json:"attention"`
-	Reason       string            `json:"reason"`
-	DoneAt       string            `json:"done_at,omitempty"`
-	SourceRefs   []SourceRef       `json:"source_refs,omitempty"`
-	Metadata     map[string]string `json:"metadata,omitempty"`
+	ID                    int               `json:"id"`
+	TargetTaskID          int               `json:"-"`
+	Busy                  bool              `json:"busy,omitempty"`
+	Kind                  string            `json:"kind"`
+	Title                 string            `json:"title"`
+	Repo                  string            `json:"repo,omitempty"`
+	URL                   string            `json:"url,omitempty"`
+	Attention             string            `json:"attention"`
+	Reason                string            `json:"reason"`
+	DoneAt                string            `json:"done_at,omitempty"`
+	SourceRefs            []SourceRef       `json:"source_refs,omitempty"`
+	Metadata              map[string]string `json:"metadata,omitempty"`
+	AcknowledgementCursor string            `json:"acknowledgement_cursor,omitempty"`
 }
 
 type Response struct {

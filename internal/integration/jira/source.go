@@ -16,7 +16,9 @@ import (
 
 const maxTitleDiscoveredIssues = 50
 
-type Source struct{}
+type Source struct {
+	developmentResolvers []integration.DevelopmentLinkResolver
+}
 
 type issueMention struct {
 	Key    string
@@ -24,8 +26,8 @@ type issueMention struct {
 	Order  int
 }
 
-func NewSource() Source {
-	return Source{}
+func NewSource(resolvers ...integration.DevelopmentLinkResolver) Source {
+	return Source{developmentResolvers: append([]integration.DevelopmentLinkResolver(nil), resolvers...)}
 }
 
 func (Source) Descriptor() integration.Descriptor {
@@ -50,7 +52,7 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 	return integration.StatusResult{Status: status, CanRun: true}
 }
 
-func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
+func (source Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	userConfig, err := config.Load()
 	if err != nil {
 		req.Logger.Warn("jira user configuration is invalid", "error", err)
@@ -138,7 +140,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 			authoritativeIssues = append(authoritativeIssues, value)
 		}
 	}
-	development := collectDevelopmentLinks(ctx, jiraConfig, authoritativeIssues, req.Previous, req.Logger)
+	development := collectDevelopmentLinks(ctx, jiraConfig, authoritativeIssues, req.Previous, req.Logger, source.developmentResolvers)
 	if development.PullRequests > 0 {
 		details = append(details, fmt.Sprintf("%d development pull requests", development.PullRequests))
 	}

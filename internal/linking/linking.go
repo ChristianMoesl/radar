@@ -1,6 +1,7 @@
 package linking
 
 import (
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -111,6 +112,37 @@ func WorkspaceGroupKey(id string) string {
 		return ""
 	}
 	return "workspace-group:" + id
+}
+
+func RepositoryPath(value string) string {
+	value = strings.TrimSpace(strings.TrimSuffix(value, ".git"))
+	if value == "" {
+		return ""
+	}
+	if parsed, err := url.Parse(value); err == nil && parsed.Scheme != "" {
+		if parsed.Host == "" {
+			return ""
+		}
+		return strings.Trim(strings.TrimSuffix(parsed.Path, ".git"), "/")
+	}
+	if at := strings.IndexByte(value, '@'); at >= 0 {
+		value = value[at+1:]
+	}
+	if colon := strings.IndexByte(value, ':'); colon >= 0 {
+		value = value[colon+1:]
+	}
+	if strings.ContainsAny(value, "@:") {
+		return ""
+	}
+	return strings.Trim(value, "/")
+}
+
+func BranchName(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "refs/remotes/")
+	value = strings.TrimPrefix(value, "origin/")
+	value = strings.TrimPrefix(value, "refs/heads/")
+	return strings.ReplaceAll(value, "/", "-")
 }
 
 func BranchKey(repoKey string, branchKey string) string {

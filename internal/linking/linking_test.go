@@ -35,3 +35,19 @@ func TestMarkKeyRoundTrip(t *testing.T) {
 		t.Fatalf("MarkValue() = %q, %v", value, ok)
 	}
 }
+
+func TestRepositoryPathAndBranchName(t *testing.T) {
+	for input, want := range map[string]string{
+		"https://github.com/acme/app.git": "acme/app",
+		"git@github.com:acme/app.git":     "acme/app",
+		"ssh://git@gitlab.test/acme/app":  "acme/app",
+		"acme/app":                        "acme/app",
+	} {
+		if got := RepositoryPath(input); got != want {
+			t.Fatalf("RepositoryPath(%q) = %q, want %q", input, got, want)
+		}
+	}
+	if got := BranchName("refs/remotes/origin/feature/work"); got != "feature-work" {
+		t.Fatalf("BranchName() = %q, want feature-work", got)
+	}
+}

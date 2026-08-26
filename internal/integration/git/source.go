@@ -9,9 +9,10 @@ import (
 	"strings"
 
 	"radar/internal/integration"
+	"radar/internal/integration/workspace"
+	"radar/internal/integration/workspace/group"
+	"radar/internal/pathdisplay"
 	"radar/internal/protocol"
-	"radar/internal/workspace"
-	"radar/internal/workspacegroup"
 )
 
 type Source struct{}
@@ -75,33 +76,58 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 			return nil, err
 		}
 		target := protocol.CleanupTarget{
-			SourceRefID: ref.ID,
-			Source:      "git",
-			Kind:        "worktree",
-			Title:       ref.Title,
-			Path:        ref.Path,
-			Branch:      ref.Branch,
-			Dirty:       strings.TrimSpace(status) != "",
+			SourceRefID: ref.ID, Source: "git", Kind: "worktree", Title: ref.Title,
+			ResourceRole: "workspace", ResourceID: ref.Path, Path: ref.Path, Branch: ref.Branch,
+			ProvidesWorkspace: ref.ProvidesWorkspace, WorkspaceID: strings.TrimSpace(ref.WorkspaceID),
+		}
+		if strings.TrimSpace(status) != "" {
+			target.Safety = append(target.Safety, protocol.CleanupSafety{
+				Kind: "local_changes", Message: "uncommitted changes will be discarded", BlocksAutomatic: true,
+			})
 		}
 		if member, managed := workspacegroup.FindMemberByPath(registry, ref.Path); managed {
 			removal, err := workspace.PlanManagedWorktreeRemoval(ctx, workspace.ExecRunner{}, member)
 			if err != nil {
 				return nil, err
 			}
-			target.DeleteBranch = removal.DeleteBranch
 			target.Branch = member.Branch
 			if removal.DeleteBranch {
+				target.Operation = map[string]string{"delete_branch": member.Branch}
+				target.Safety = append(target.Safety, protocol.CleanupSafety{
+					Kind: "deletes_local_data", Message: "deletes local branch " + member.Branch,
+				})
 				published, publicationErr := workspace.BranchPublished(ctx, workspace.ExecRunner{}, member.Repository, member.Branch)
 				if publicationErr != nil {
-					target.PublicationUnknown = true
-				} else {
-					target.Unpublished = !published
+					target.Safety = append(target.Safety, protocol.CleanupSafety{
+						Kind: "safety_check_unavailable", Message: "branch publication could not be verified", BlocksAutomatic: true,
+					})
+				} else if !published {
+					target.Safety = append(target.Safety, protocol.CleanupSafety{
+						Kind: "unpublished_data", Message: "branch commits were not found remotely", BlocksAutomatic: true,
+					})
 				}
 			}
 		}
+		target.Description = cleanupDescription(target)
 		targets = append(targets, target)
 	}
 	return targets, nil
+}
+
+func cleanupDescription(target protocol.CleanupTarget) string {
+	description := "worktree " + pathdisplay.HomeRelative(target.Path)
+	details := make([]string, 0, len(target.Safety))
+	for _, safety := range target.Safety {
+		detail := safety.Message
+		if safety.Kind == "local_changes" {
+			detail = "dirty; " + detail
+		}
+		details = append(details, detail)
+	}
+	if len(details) > 0 {
+		description += " (" + strings.Join(details, "; ") + ")"
+	}
+	return description
 }
 
 func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
@@ -140,48 +166,8 @@ func (Source) Current(ctx context.Context, cwd string) (integration.Workspace, b
 	if path == "" {
 		return integration.Workspace{}, false, nil
 	}
-	return integration.Workspace{Path: path}, true, nil
-}
-
-func (Source) Create(ctx context.Context, req integration.CreateWorkspaceRequest) (integration.Workspace, error) {
-	created, err := workspace.Create(ctx, workspace.ExecRunner{}, workspace.CreateOptions{
-		Repo:                    req.Repo,
-		BranchMode:              req.BranchMode,
-		Name:                    req.Name,
-		Branch:                  req.Branch,
-		Base:                    req.Base,
-		Path:                    req.Path,
-		SessionName:             req.SessionName,
-		WorkspaceRoot:           req.WorkspaceRoot,
-		Model:                   req.Model,
-		Thinking:                req.Thinking,
-		Sandbox:                 req.Sandbox,
-		SandboxKitName:          req.SandboxKitName,
-		SandboxKitPath:          req.SandboxKitPath,
-		AdditionalSandboxMounts: req.AdditionalSandboxMounts,
-		Tmux:                    req.Tmux,
-		Switch:                  req.Switch,
-		ForkPiSession:           req.ForkPiSession,
-		TaskLinkingKey:          req.TaskLinkingKey,
-		NotePath:                req.NotePath,
-	})
-	if err != nil {
-		return integration.Workspace{}, err
-	}
-	return integrationWorkspace(created), nil
-}
-
-func integrationWorkspace(workspace workspace.Workspace) integration.Workspace {
-	return integration.Workspace{
-		Name:        workspace.Name,
-		Branch:      workspace.Branch,
-		Base:        workspace.Base,
-		Repo:        workspace.Repo,
-		Path:        workspace.Path,
-		SessionName: workspace.SessionName,
-		SandboxName: workspace.SandboxName,
-		Warning:     workspace.Warning,
-	}
+	branch, _ := workspace.ExecRunner{}.Run(ctx, path, "git", "branch", "--show-current")
+	return integration.Workspace{Repo: path, Path: path, Branch: strings.TrimSpace(branch)}, true, nil
 }
 
 func mainWorkingTree(ctx context.Context, path string) (bool, error) {

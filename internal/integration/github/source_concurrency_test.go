@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"radar/internal/filters"
 	"radar/internal/integration"
 )
 
@@ -21,6 +20,15 @@ func TestSourceCollectFetchesMainAndTrackedPullRequestsConcurrently(t *testing.T
 	rateState.mu.Unlock()
 
 	dir := t.TempDir()
+	configHome := filepath.Join(dir, "config")
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	configPath := filepath.Join(configHome, "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`{"linking_mark_prefixes":["ABC"],"github":{"filters":{"rules":[{"repos":["acme/*"],"users":["renovate[bot]"],"action":"deprioritize"}]}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	started := filepath.Join(dir, "started")
 	release := filepath.Join(dir, "release")
 	installFakeGH(t, `#!/bin/sh
@@ -52,9 +60,6 @@ esac
 	resultCh := make(chan integration.CollectResult, 1)
 	go func() {
 		resultCh <- (Source{}).Collect(context.Background(), integration.CollectRequest{
-			Filters: filters.Config{Rules: []filters.Rule{{
-				Repos: []string{"acme/*"}, Users: []string{"renovate[bot]"}, Action: "deprioritize",
-			}}},
 			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		})
 	}()

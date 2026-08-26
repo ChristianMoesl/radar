@@ -11,10 +11,10 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/integration/contracttest"
+	"radar/internal/integration/workspace"
+	"radar/internal/integration/workspace/group"
 	"radar/internal/linking"
 	"radar/internal/protocol"
-	"radar/internal/workspace"
-	"radar/internal/workspacegroup"
 )
 
 func TestWorktreesSkipsPrunableEntries(t *testing.T) {
@@ -118,7 +118,7 @@ func TestPreviewCleanupReturnsWorktreeTarget(t *testing.T) {
 	if len(targets) != 1 {
 		t.Fatalf("cleanup targets = %+v, want one worktree", targets)
 	}
-	if targets[0].Source != "git" || targets[0].Kind != "worktree" || targets[0].Path != worktree || targets[0].DeleteBranch {
+	if targets[0].Source != "git" || targets[0].Kind != "worktree" || targets[0].Path != worktree || targets[0].Operation["delete_branch"] != "" {
 		t.Fatalf("cleanup target = %+v, want observed worktree without branch deletion", targets[0])
 	}
 }
@@ -161,7 +161,7 @@ func TestManagedWorktreeCleanupDeletesItsLocalBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(targets) != 1 || !targets[0].DeleteBranch || !targets[0].PublicationUnknown {
+	if len(targets) != 1 || targets[0].Operation["delete_branch"] != "small-fix" || !hasCleanupSafety(targets[0], "safety_check_unavailable") {
 		t.Fatalf("cleanup target = %+v, want managed branch with unknown publication", targets)
 	}
 	if _, err := (Source{}).Cleanup(ctx, integration.CleanupRequest{Target: targets[0]}); err != nil {
@@ -214,7 +214,7 @@ func TestManagedWorktreeCleanupPreservesProtectedBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(targets) != 1 || targets[0].DeleteBranch || targets[0].Unpublished || targets[0].PublicationUnknown {
+	if len(targets) != 1 || targets[0].Operation["delete_branch"] != "" || len(targets[0].Safety) != 0 {
 		t.Fatalf("cleanup target = %+v, want protected branch preservation", targets)
 	}
 	if _, err := (Source{}).Cleanup(ctx, integration.CleanupRequest{Target: targets[0]}); err != nil {
@@ -342,6 +342,15 @@ func runGit(t *testing.T, ctx context.Context, dir string, args ...string) {
 	if err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, output)
 	}
+}
+
+func hasCleanupSafety(target protocol.CleanupTarget, kind string) bool {
+	for _, safety := range target.Safety {
+		if safety.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func writeGitTestConfig(t *testing.T, home string) {

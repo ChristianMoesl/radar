@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"radar/internal/integration"
+	"radar/internal/integration/workspace"
 	"radar/internal/protocol"
-	"radar/internal/workspace"
 )
 
 type Source struct{}
@@ -55,23 +55,39 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 			SourceRefID: ref.ID,
 			Source:      "tmux",
 			Kind:        "session",
-			Title:       ref.Title,
-			Path:        ref.Path,
-			SessionName: session,
+			Title:       ref.Title, Path: ref.Path, ResourceRole: "multiplexer", ResourceID: session,
+			Description: "tmux session " + session,
 		})
 	}
 	return targets, nil
 }
 
 func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
-	if _, err := workspace.RemoveSession(ctx, workspace.ExecRunner{}, req.Target.SessionName); err != nil {
+	if _, err := workspace.RemoveSession(ctx, workspace.ExecRunner{}, req.Target.ResourceID); err != nil {
 		return protocol.CleanupTarget{}, err
 	}
 	return req.Target, nil
 }
 
+func (Source) ClientActive() bool {
+	return os.Getenv("TMUX") != ""
+}
+
+func (Source) PublishActivity(ctx context.Context, busy bool) error {
+	pane := strings.TrimSpace(os.Getenv("TMUX_PANE"))
+	if pane == "" {
+		return nil
+	}
+	args := []string{"set-option", "-p", "-t", pane, "@radar_busy", "1"}
+	if !busy {
+		args = []string{"set-option", "-p", "-u", "-t", pane, "@radar_busy"}
+	}
+	_, err := workspace.ExecRunner{}.Run(ctx, "", "tmux", args...)
+	return err
+}
+
 func (Source) Current(ctx context.Context) (integration.SessionContext, bool, error) {
-	if os.Getenv("TMUX") == "" {
+	if !(Source{}).ClientActive() {
 		return integration.SessionContext{}, false, nil
 	}
 	output, err := workspace.ExecRunner{}.Run(ctx, "", "tmux", "display-message", "-p", "#{session_name}\t#{session_id}\t#{pane_current_path}")
@@ -138,6 +154,14 @@ func (Source) OpenWindow(ctx context.Context, req integration.OpenWindowRequest)
 	}
 	_, err := workspace.ExecRunner{}.Run(ctx, "", "tmux", args...)
 	return err
+}
+
+func (Source) Target(task protocol.Task) string {
+	return SessionTarget(task)
+}
+
+func (Source) MatchesCurrent(ref protocol.SourceRef, current protocol.CurrentContext) bool {
+	return SessionRefMatchesCurrent(ref, current)
 }
 
 func (Source) Switch(ctx context.Context, target integration.SessionTarget) error {

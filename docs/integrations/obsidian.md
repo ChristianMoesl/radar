@@ -96,6 +96,6 @@ In the TUI, `n` creates a note, `Enter` opens its planning workspace, `d` change
 ## Validation
 
 ```sh
-go test ./internal/integration/obsidian ./internal/workspacegroup ./internal/workspace ./internal/tui
+go test ./internal/integration/obsidian ./internal/integration/workspace/... ./internal/tui
 make test
 ```

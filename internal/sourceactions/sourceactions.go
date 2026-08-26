@@ -3,7 +3,6 @@ package sourceactions
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"radar/internal/app"
 	"radar/internal/integration"
@@ -40,7 +39,7 @@ func OpenWithProviders(ctx context.Context, providers []integration.ActionProvid
 }
 
 func open(ctx context.Context, providers []integration.ActionProvider, multiplexer integration.MultiplexerProvider, task protocol.Task, actionID string, ref protocol.SourceRef) (Result, error) {
-	switchClient := os.Getenv("TMUX") != ""
+	switchClient := multiplexer != nil && multiplexer.ClientActive()
 	for _, provider := range providers {
 		actions := provider.Actions(ctx, integration.ActionRequest{Task: task, Ref: ref})
 		for _, action := range actions {

@@ -333,13 +333,11 @@ func TestProjectTasksAppliesAcknowledgementOutsideSourceMetadata(t *testing.T) {
 		Title:     "ABC-7 ship",
 		Attention: "attention",
 		Reason:    "1 new PR comment(s)",
-		SourceRefs: []protocol.SourceRef{withMetadata(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship"), map[string]string{
-			"base_reason":               "open PR",
-			"new_general_comments":      "1",
-			"latest_general_comment_at": "2026-06-15T11:00:00Z",
+		SourceRefs: []protocol.SourceRef{withAcknowledgement(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship"), protocol.SourceRefAcknowledgement{
+			Cursor: "2026-06-15T11:00:00Z", FallbackSignal: "in_progress", FallbackReason: "open PR",
 		})},
 	}}, now)
-	state.Records[0].Ack.GeneralCommentsAckAt = "2026-06-15T11:00:00Z"
+	state.Records[0].Ack.Cursor = "2026-06-15T11:00:00Z"
 
 	tasks := projectTasks(state)
 	if len(tasks) != 1 {
@@ -348,20 +346,15 @@ func TestProjectTasksAppliesAcknowledgementOutsideSourceMetadata(t *testing.T) {
 	if tasks[0].Attention != "in_progress" || tasks[0].Reason != "open PR" {
 		t.Fatalf("task = %s/%s, want in_progress/open PR", tasks[0].Attention, tasks[0].Reason)
 	}
-	if tasks[0].SourceRefs[0].Metadata["general_comments_ack_at"] != "" {
-		t.Fatalf("ack leaked into source metadata: %+v", tasks[0].SourceRefs[0].Metadata)
-	}
-	if tasks[0].Metadata["general_comments_ack_at"] == "" {
-		t.Fatalf("ack missing from task metadata: %+v", tasks[0].Metadata)
+	if tasks[0].AcknowledgementCursor == "" {
+		t.Fatalf("ack cursor missing from task: %+v", tasks[0])
 	}
 }
 
 func TestProjectTasksKeepsLinkedActiveWorkAfterAcknowledgingPRActivity(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
-	githubRef := withSignal(withStatus(withMetadata(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship"), map[string]string{
-		"base_reason":               "draft PR",
-		"new_general_comments":      "1",
-		"latest_general_comment_at": "2026-06-15T11:00:00Z",
+	githubRef := withSignal(withStatus(withAcknowledgement(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship"), protocol.SourceRefAcknowledgement{
+		Cursor: "2026-06-15T11:00:00Z", HideWhenAcknowledged: true,
 	}), "1 new PR comment(s)"), "attention")
 	jiraRef := withSignal(withStatus(testJiraIssueRef("jira:issue:ABC-7", "ABC-7 Ship"), "In Progress"), "in_progress")
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{{
@@ -371,7 +364,7 @@ func TestProjectTasksKeepsLinkedActiveWorkAfterAcknowledgingPRActivity(t *testin
 		Reason:     "1 new PR comment(s)",
 		SourceRefs: []protocol.SourceRef{githubRef, jiraRef},
 	}}, now)
-	state.Records[0].Ack.GeneralCommentsAckAt = "2026-06-15T11:00:00Z"
+	state.Records[0].Ack.Cursor = "2026-06-15T11:00:00Z"
 
 	tasks := projectTasks(state)
 	if len(tasks) != 1 {
@@ -389,12 +382,11 @@ func TestProjectTasksHidesStandaloneAcknowledgedPRActivity(t *testing.T) {
 		Title:     "Unlinked activity",
 		Attention: "attention",
 		Reason:    "1 new PR comment(s)",
-		SourceRefs: []protocol.SourceRef{withMetadata(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "unlinked"), map[string]string{
-			"new_general_comments":      "1",
-			"latest_general_comment_at": "2026-06-15T11:00:00Z",
+		SourceRefs: []protocol.SourceRef{withAcknowledgement(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "unlinked"), protocol.SourceRefAcknowledgement{
+			Cursor: "2026-06-15T11:00:00Z", HideWhenAcknowledged: true,
 		})},
 	}}, now)
-	state.Records[0].Ack.GeneralCommentsAckAt = "2026-06-15T11:00:00Z"
+	state.Records[0].Ack.Cursor = "2026-06-15T11:00:00Z"
 
 	if tasks := projectTasks(state); len(tasks) != 0 {
 		t.Fatalf("tasks = %+v, want standalone acknowledged activity hidden", tasks)
@@ -559,6 +551,11 @@ func withWorkspaceGroup(ref protocol.SourceRef, workspaceID string) protocol.Sou
 
 func withMetadata(ref protocol.SourceRef, metadata map[string]string) protocol.SourceRef {
 	ref.Metadata = metadata
+	return ref
+}
+
+func withAcknowledgement(ref protocol.SourceRef, acknowledgement protocol.SourceRefAcknowledgement) protocol.SourceRef {
+	ref.Acknowledgement = &acknowledgement
 	return ref
 }
 

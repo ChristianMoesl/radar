@@ -1,0 +1,280 @@
+package workspace
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"radar/internal/config"
+	"radar/internal/integration/workspace/group"
+)
+
+type introspectionRunner struct {
+	current     string
+	fdOutput    string
+	refsOutput  string
+	worktrees   string
+	status      map[string]string
+	fetchCalled bool
+	fetchErr    error
+}
+
+func (r *introspectionRunner) LookPath(name string) error {
+	if name == "fd" {
+		return nil
+	}
+	return os.ErrNotExist
+}
+
+func (r *introspectionRunner) Run(_ context.Context, cwd string, name string, args ...string) (string, error) {
+	command := name + " " + strings.Join(args, " ")
+	if name == "fd" {
+		return r.fdOutput, nil
+	}
+	if name == "git" && len(args) == 4 && args[0] == "-C" && args[2] == "status" && args[3] == "--porcelain" {
+		return r.status[args[1]], nil
+	}
+	switch command {
+	case "git rev-parse --show-toplevel":
+		if r.current != "" {
+			return r.current, nil
+		}
+		return cwd, nil
+	case "git fetch --prune origin":
+		r.fetchCalled = true
+		return "", r.fetchErr
+	case "git for-each-ref --format=%(refname)\t%(refname:short)\t%(symref) refs/heads refs/remotes/origin":
+		return r.refsOutput, nil
+	case "git worktree list --porcelain":
+		return r.worktrees, nil
+	default:
+		return "", os.ErrNotExist
+	}
+}
+
+func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
+	home := t.TempDir()
+	configHome := filepath.Join(home, "config")
+	root := filepath.Join(home, "workspaces")
+	sources := filepath.Join(home, "sources")
+	primaryRepo := filepath.Join(sources, "primary")
+	memberRepo := filepath.Join(sources, "member")
+	candidateRepo := filepath.Join(sources, "candidate")
+	anchor := filepath.Join(root, "XYZ-10-work")
+	primaryPath := filepath.Join(anchor, "primary--XYZ-10-work")
+	memberPath := filepath.Join(anchor, "member--feature-api")
+	secondPrimaryRepoPath := filepath.Join(anchor, "primary--feature-second")
+	for _, path := range []string{root, sources} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	configPath := filepath.Join(configHome, "radar", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(config.Config{
+		RepositoryDirs:      []string{sources},
+		Workspace:           config.WorkspaceConfig{RootDir: root},
+		LinkingMarkPrefixes: []string{"XYZ"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	group := workspacegroup.Workspace{
+		ID: workspacegroup.ID(anchor), Name: "XYZ-10-work", Path: anchor,
+		SessionName: "primary-XYZ-10-work",
+		Members: []workspacegroup.Member{
+			{Repository: primaryRepo, Path: primaryPath, Branch: "XYZ-10-work", SetupScheduled: true},
+			{Repository: primaryRepo, Path: secondPrimaryRepoPath, Branch: "feature/second", SetupScheduled: true},
+			{Repository: memberRepo, Path: memberPath, Branch: "feature/api", SetupScheduled: true},
+		},
+	}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &introspectionRunner{
+		current: primaryPath,
+		status:  map[string]string{secondPrimaryRepoPath: " M changed.go\n?? new.go\n"},
+		fdOutput: strings.Join([]string{
+			filepath.Join(primaryRepo, ".git"),
+			filepath.Join(memberRepo, ".git"),
+			filepath.Join(candidateRepo, ".git"),
+		}, "\n"),
+	}
+
+	result, err := InspectWorkspace(context.Background(), runner, filepath.Join(primaryPath, "src"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Registered || result.EnrollmentRequired || result.WorkspaceID != group.ID || result.CurrentPath != anchor || result.WorkspacePath != anchor {
+		t.Fatalf("workspace context = %+v", result)
+	}
+	if result.Revision == "" || !result.Capabilities.Worktrees || result.Capabilities.Sandbox || result.Capabilities.AdditionalMounts || result.Capabilities.PortForwarding {
+		t.Fatalf("workspace capabilities = %+v, revision = %q", result.Capabilities, result.Revision)
+	}
+	if result.Desired.Sandbox != nil || len(result.Desired.Worktrees) != 3 {
+		t.Fatalf("desired workspace = %+v", result.Desired)
+	}
+	if len(result.Members) != 3 || len(result.Repositories) != 3 {
+		t.Fatalf("workspace context members/repositories = %+v", result)
+	}
+	dirtyMembers := 0
+	for _, member := range result.Members {
+		if member.Dirty {
+			dirtyMembers++
+		}
+	}
+	if dirtyMembers != 1 {
+		t.Fatalf("dirty members = %+v", result.Members)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "primary_path") || strings.Contains(string(encoded), `"primary":`) {
+		t.Fatalf("workspace context contains removed primary fields: %s", encoded)
+	}
+	membership := map[string]bool{}
+	for _, repository := range result.Repositories {
+		membership[repository.Path] = repository.AlreadyMember
+	}
+	wantMembership := map[string]bool{primaryRepo: true, memberRepo: true, candidateRepo: false}
+	if !reflect.DeepEqual(membership, wantMembership) {
+		t.Fatalf("repository membership = %#v, want %#v", membership, wantMembership)
+	}
+}
+
+func TestInspectNoteOnlyWorkspaceFromAnchor(t *testing.T) {
+	home := t.TempDir()
+	configHome := filepath.Join(home, "config")
+	root := filepath.Join(home, "workspaces")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(config.Config{Workspace: config.WorkspaceConfig{RootDir: root}, LinkingMarkPrefixes: []string{"ABC"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	anchor := filepath.Join(root, "plan")
+	note := filepath.Join(t.TempDir(), "Plan--12345678", "Plan.md")
+	if err := os.MkdirAll(anchor, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	group := workspacegroup.Workspace{
+		ID: workspacegroup.ID(anchor), Name: "Plan", Path: anchor, NotePath: note,
+		TaskLinkingKey: "obsidian:task:12345678-1234-4123-8123-123456789abc", Members: []workspacegroup.Member{},
+	}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := InspectWorkspace(context.Background(), &introspectionRunner{}, anchor, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Registered || result.WorkspacePath != anchor || result.Note == nil || result.Note.Path != note || len(result.Members) != 0 || len(result.Desired.Worktrees) != 0 {
+		t.Fatalf("context = %+v", result)
+	}
+}
+
+func TestWorkspaceContextEmptySandboxPortsMarshalAsArray(t *testing.T) {
+	context := WorkspaceContext{
+		Capabilities: WorkspaceContextCapabilities{Worktrees: true, Sandbox: true, AdditionalMounts: true, PortForwarding: true},
+		Desired:      DesiredWorkspaceDescription{Worktrees: []DesiredWorkspaceWorktree{}, Sandbox: &DesiredWorkspaceSandbox{AdditionalMounts: []DesiredSandboxMount{}, Ports: []workspacegroup.SandboxPort{}}},
+	}
+	data, err := json.Marshal(context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"sandbox":{"additional_mounts":[],"ports":[]}`) {
+		t.Fatalf("context JSON = %s", data)
+	}
+}
+
+func TestInspectRepositoryRefsUsesCachedRefsWhenFetchFails(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	runner := &introspectionRunner{
+		current:  repo,
+		fetchErr: os.ErrDeadlineExceeded,
+		refsOutput: strings.Join([]string{
+			"refs/remotes/origin/HEAD\torigin/HEAD\trefs/remotes/origin/main",
+			"refs/remotes/origin/main\torigin/main\t",
+			"refs/heads/main\tmain\t",
+		}, "\n"),
+	}
+
+	result, err := InspectRepositoryRefs(context.Background(), runner, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runner.fetchCalled {
+		t.Fatal("origin fetch was not attempted")
+	}
+	if result.DefaultBranch != "main" || !reflect.DeepEqual(result.BaseRefs, []string{"origin/main", "main"}) {
+		t.Fatalf("repository refs = %+v", result)
+	}
+	if !strings.Contains(result.Warning, "using cached refs") {
+		t.Fatalf("warning = %q, want cached-ref warning", result.Warning)
+	}
+}
+
+func TestInspectRepositoryRefsReturnsCanonicalBranchesAndCheckouts(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	featurePath := filepath.Join(t.TempDir(), "feature")
+	runner := &introspectionRunner{
+		current: repo,
+		refsOutput: strings.Join([]string{
+			"refs/remotes/origin/HEAD\torigin/HEAD\trefs/remotes/origin/main",
+			"refs/remotes/origin/main\torigin/main\t",
+			"refs/heads/main\tmain\t",
+			"refs/remotes/origin/feature/api\torigin/feature/api\t",
+			"refs/heads/feature/api\tfeature/api\t",
+		}, "\n"),
+		worktrees: strings.Join([]string{
+			"worktree " + repo,
+			"HEAD aaaaaaa",
+			"branch refs/heads/main",
+			"",
+			"worktree " + featurePath,
+			"HEAD bbbbbbb",
+			"branch refs/heads/feature/api",
+			"",
+		}, "\n"),
+	}
+
+	result, err := InspectRepositoryRefs(context.Background(), runner, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runner.fetchCalled {
+		t.Fatal("origin was not fetched")
+	}
+	if result.Repository != repo || result.DefaultBranch != "main" {
+		t.Fatalf("repository refs = %+v", result)
+	}
+	wantBases := []string{"origin/main", "origin/feature/api", "main", "feature/api"}
+	if !reflect.DeepEqual(result.BaseRefs, wantBases) {
+		t.Fatalf("base refs = %#v, want %#v", result.BaseRefs, wantBases)
+	}
+	wantBranches := []RepositoryBranch{
+		{Name: "main", Local: true, Origin: true, CheckedOutPaths: []string{repo}},
+		{Name: "feature/api", Local: true, Origin: true, CheckedOutPaths: []string{featurePath}},
+	}
+	if !reflect.DeepEqual(result.Branches, wantBranches) {
+		t.Fatalf("branches = %#v, want %#v", result.Branches, wantBranches)
+	}
+}

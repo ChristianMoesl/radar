@@ -15,9 +15,9 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/integration/contracttest"
+	"radar/internal/integration/workspace/group"
 	"radar/internal/linking"
 	"radar/internal/protocol"
-	"radar/internal/workspacegroup"
 )
 
 func TestParseSandboxes(t *testing.T) {
@@ -131,14 +131,14 @@ func TestSourcePreviewCleanupReturnsEverySandboxTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(targets) != 2 || targets[0].SandboxName != "radar-repo-one" || targets[1].SandboxName != "radar-repo-two" {
+	if len(targets) != 2 || targets[0].ResourceID != "radar-repo-one" || targets[1].ResourceID != "radar-repo-two" {
 		t.Fatalf("cleanup targets = %+v", targets)
 	}
 }
 
 func TestCleanupSandboxRemovesNamedSandbox(t *testing.T) {
 	runner := &fakeRunner{}
-	result, err := cleanupSandbox(context.Background(), runner, protocol.CleanupTarget{SourceRefID: "sbx:sandbox:radar-repo-small-fix", Source: "sbx", Kind: "sandbox", Title: "radar-repo-small-fix", SandboxName: "radar-repo-small-fix", Path: "/work/repo/small-fix"})
+	result, err := cleanupSandbox(context.Background(), runner, protocol.CleanupTarget{SourceRefID: "sbx:sandbox:radar-repo-small-fix", Source: "sbx", Kind: "sandbox", Title: "radar-repo-small-fix", ResourceID: "radar-repo-small-fix", Path: "/work/repo/small-fix"})
 	if err != nil {
 		t.Fatal(err)
 	}

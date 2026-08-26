@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"radar/internal/filters"
 	"radar/internal/integration/contracttest"
+	"radar/internal/integration/github/filters"
 	"radar/internal/protocol"
 )
 

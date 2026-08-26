@@ -14,30 +14,16 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/protocol"
-	"radar/internal/workspace"
 )
 
-type branchOptionsRunner struct{}
+type branchOptionsProvider struct{}
 
-func (branchOptionsRunner) LookPath(string) error { return nil }
-
-func (branchOptionsRunner) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
-	command := name + " " + strings.Join(args, " ")
-	switch command {
-	case "git fetch --prune origin":
-		return "", errors.New("network is offline")
-	case "git for-each-ref --format=%(refname)\t%(refname:short)\t%(symref) refs/heads refs/remotes/origin":
-		return strings.Join([]string{
-			"refs/remotes/origin/main\torigin/main\t",
-			"refs/heads/main\tmain\t",
-		}, "\n"), nil
-	default:
-		return "", fmt.Errorf("unexpected command %q", command)
-	}
+func (branchOptionsProvider) RepositoryBranches(context.Context, string) ([]string, string, error) {
+	return []string{"origin/main", "main"}, "Could not refresh origin; using cached branches: network is offline", nil
 }
 
 func TestLoadBranchOptionsUsesCachedBranchesWhenFetchFails(t *testing.T) {
-	msg := loadBranchOptions(context.Background(), branchOptionsRunner{}, "/repo")
+	msg := loadBranchOptions(context.Background(), branchOptionsProvider{}, "/repo")
 	if msg.err != nil {
 		t.Fatal(msg.err)
 	}
@@ -49,87 +35,6 @@ func TestLoadBranchOptionsUsesCachedBranchesWhenFetchFails(t *testing.T) {
 		t.Fatalf("warning = %q, want cached-branch warning", msg.warning)
 	}
 }
-
-var _ workspace.Runner = branchOptionsRunner{}
-
-type pullRequestHeadResult struct {
-	output string
-	err    error
-}
-
-type pullRequestHeadRunner struct {
-	results map[string]pullRequestHeadResult
-	calls   []string
-}
-
-func (runner *pullRequestHeadRunner) LookPath(string) error { return nil }
-
-func (runner *pullRequestHeadRunner) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
-	command := name + " " + strings.Join(args, " ")
-	runner.calls = append(runner.calls, command)
-	result, ok := runner.results[command]
-	if !ok {
-		return "", fmt.Errorf("unexpected command %q", command)
-	}
-	return result.output, result.err
-}
-
-func TestEnsurePullRequestHeadBranchCreatesLocalBranchForFork(t *testing.T) {
-	notFound := errors.New("not found")
-	runner := &pullRequestHeadRunner{results: map[string]pullRequestHeadResult{
-		"git show-ref --verify --quiet refs/heads/feature":            {err: notFound},
-		"git show-ref --verify --quiet refs/remotes/origin/feature":   {},
-		"git fetch --no-tags origin refs/pull/7/head":                 {},
-		"git rev-parse --verify FETCH_HEAD^{commit}":                  {output: "fork-commit\n"},
-		"git rev-parse --verify refs/remotes/origin/feature^{commit}": {output: "origin-commit\n"},
-		"git branch -- feature fork-commit":                           {},
-	}}
-
-	warning, err := ensurePullRequestHeadBranch(context.Background(), runner, "/repo", "feature", "7")
-	if err != nil || warning != "" {
-		t.Fatalf("ensurePullRequestHeadBranch() warning=%q error=%v", warning, err)
-	}
-	if got := runner.calls[len(runner.calls)-1]; got != "git branch -- feature fork-commit" {
-		t.Fatalf("last command = %q, want local branch creation", got)
-	}
-}
-
-func TestEnsurePullRequestHeadBranchUsesMatchingOriginBranch(t *testing.T) {
-	notFound := errors.New("not found")
-	runner := &pullRequestHeadRunner{results: map[string]pullRequestHeadResult{
-		"git show-ref --verify --quiet refs/heads/feature":            {err: notFound},
-		"git show-ref --verify --quiet refs/remotes/origin/feature":   {},
-		"git fetch --no-tags origin refs/pull/7/head":                 {},
-		"git rev-parse --verify FETCH_HEAD^{commit}":                  {output: "same-commit\n"},
-		"git rev-parse --verify refs/remotes/origin/feature^{commit}": {output: "same-commit\n"},
-	}}
-
-	if warning, err := ensurePullRequestHeadBranch(context.Background(), runner, "/repo", "feature", "7"); err != nil || warning != "" {
-		t.Fatalf("ensurePullRequestHeadBranch() warning=%q error=%v", warning, err)
-	}
-	for _, call := range runner.calls {
-		if strings.HasPrefix(call, "git branch ") {
-			t.Fatalf("matching origin branch unexpectedly created local branch: %q", call)
-		}
-	}
-}
-
-func TestEnsurePullRequestHeadBranchRejectsUnavailableHead(t *testing.T) {
-	notFound := errors.New("not found")
-	offline := errors.New("network is offline")
-	runner := &pullRequestHeadRunner{results: map[string]pullRequestHeadResult{
-		"git show-ref --verify --quiet refs/heads/feature":          {err: notFound},
-		"git show-ref --verify --quiet refs/remotes/origin/feature": {err: notFound},
-		"git fetch --no-tags origin refs/pull/7/head":               {err: offline},
-	}}
-
-	_, err := ensurePullRequestHeadBranch(context.Background(), runner, "/repo", "feature", "7")
-	if err == nil || !strings.Contains(err.Error(), "unavailable on origin") {
-		t.Fatalf("ensurePullRequestHeadBranch() error=%v, want unavailable branch error", err)
-	}
-}
-
-var _ workspace.Runner = (*pullRequestHeadRunner)(nil)
 
 func TestWorkspaceCreationMessageIncludesSetupWarning(t *testing.T) {
 	message := workspaceCreationMessage(integration.Workspace{
@@ -353,7 +258,7 @@ func authoredTaskForTUITest(state, priority, attention string) protocol.Task {
 	return protocol.Task{ID: 7, Attention: attention, SourceRefs: []protocol.SourceRef{{
 		ID: "obsidian:task:test", Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
 		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
-		Metadata: map[string]string{"authoring": "true", "state": state, "priority": priority},
+		Authored: true, Metadata: map[string]string{"state": state, "priority": priority},
 	}}}
 }
 
@@ -866,13 +771,21 @@ func TestScrollDoesNotMoveUpUntilCursorHitsTop(t *testing.T) {
 
 func TestCleanupConfirmViewShowsEveryLocalResourceAndDirtyWarning(t *testing.T) {
 	model := model{mode: "cleanup_confirm", cleanup: protocol.CleanupPreview{Targets: []protocol.CleanupTarget{
-		{Source: "tmux", Kind: "session", SessionName: "repo-small-fix"},
-		{Source: "sbx", Kind: "sandbox", SandboxName: "small-fix-12345678"},
-		{Source: "git", Kind: "worktree", Path: "/repo/worktrees/small-fix", Branch: "small-fix", Dirty: true, DeleteBranch: true, Unpublished: true},
+		{Source: "tmux", Kind: "session", ResourceID: "repo-small-fix", Description: "tmux session repo-small-fix"},
+		{Source: "sbx", Kind: "sandbox", ResourceID: "small-fix-12345678", Description: "SBX sandbox small-fix-12345678"},
+		{
+			Source: "git", Kind: "worktree", Path: "/repo/worktrees/small-fix", Branch: "small-fix",
+			Description: "worktree /repo/worktrees/small-fix (deletes branch small-fix; unpublished commits)",
+			Safety: []protocol.CleanupSafety{
+				{Kind: "local_changes", Message: "uncommitted changes will be discarded", BlocksAutomatic: true},
+				{Kind: "deletes_local_data", Message: "local branches belonging to Radar-managed worktrees will also be deleted"},
+				{Kind: "unpublished_data", Message: "some branch commits were not found on a remote-tracking branch and may exist only locally", BlocksAutomatic: true},
+			},
+		},
 	}}}
 
 	view := model.View()
-	for _, want := range []string{"Clean up local resources?", "Uncommitted changes will be discarded", "Radar-managed", "may exist only locally", "repo-small-fix", "small-fix-12345678", "/repo/worktrees/small-fix", "deletes branch small-fix", "unpublished", "Press y to clean up"} {
+	for _, want := range []string{"Clean up local resources?", "Uncommitted changes will be discarded", "Radar-managed", "Some branch commits", "exist only locally", "repo-small-fix", "small-fix-12345678", "/repo/worktrees/small-fix", "deletes branch small-fix", "unpublished", "Press y to clean up"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q:\n%s", want, view)
 		}
@@ -884,8 +797,10 @@ func TestActivateSelectedStartsNoteWorkspaceForAuthoredTask(t *testing.T) {
 		ID: "obsidian:task:1", Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
 		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
 		CanonicalKey: "obsidian:task:1", LinkingKeys: []string{"obsidian:task:1"},
-		Presentation: protocol.SourceRefPresentation{WorkspaceName: "One task"},
-		Metadata:     map[string]string{"authoring": "true", "radar_id": "1", "note_path": "/vault/Tasks/One.md"},
+		Presentation:        protocol.SourceRefPresentation{WorkspaceName: "One task"},
+		Authored:            true,
+		Metadata:            map[string]string{"radar_id": "1", "note_path": "/vault/Tasks/One.md"},
+		WorkspaceAnchorPath: "/vault/Tasks/One.md",
 	}}}}}
 
 	updated, cmd := m.activateSelected()
@@ -919,7 +834,7 @@ func TestForkPromptsForMemberWhenWorkspaceHasMultipleMembers(t *testing.T) {
 
 func TestActivateSelectedPrefersRegisteredWorkspaceAnchor(t *testing.T) {
 	m := model{tasks: []protocol.Task{{SourceRefs: []protocol.SourceRef{
-		{ID: "workspace:one", Source: "workspace", Kind: "workspace", Path: "/work/plan", ProvidesWorkspace: true},
+		{ID: "workspace:one", Source: "workspace", Kind: "workspace", Path: "/work/plan", ProvidesWorkspace: true, WorkspaceEntry: true},
 		{ID: "git:worktree:/work/plan/repo--feature", Source: "git", Kind: "worktree", Path: "/work/plan/repo--feature"},
 	}}}}
 	updated, cmd := m.activateSelected()
@@ -934,8 +849,8 @@ func TestActivateSelectedPrefersRegisteredWorkspaceAnchor(t *testing.T) {
 
 func TestActivateSelectedAsksForWorktreeWhenTaskHasMultipleWorktrees(t *testing.T) {
 	m := model{tasks: []protocol.Task{{SourceRefs: []protocol.SourceRef{
-		{Source: "git", Kind: "worktree", Path: "/repo/one"},
-		{Source: "git", Kind: "worktree", Path: "/repo/two"},
+		{Source: "git", Kind: "worktree", ProvidesWorkspace: true, Path: "/repo/one"},
+		{Source: "git", Kind: "worktree", ProvidesWorkspace: true, Path: "/repo/two"},
 	}}}}
 
 	updated, cmd := m.activateSelected()
@@ -1027,19 +942,6 @@ func TestActivateSelectedCreatesWorkspaceForPullRequestOnlyTask(t *testing.T) {
 	got := updated.(model)
 	if !got.loading || got.message != creatingWorkspaceMessage {
 		t.Fatalf("activateSelected() loading=%v message=%q, want workspace creation", got.loading, got.message)
-	}
-}
-
-func TestGitHubPullRequestRepoKeepsRepositoryColons(t *testing.T) {
-	ref := protocol.SourceRef{ID: "github:pr:enterprise:owner/repo:7"}
-	if got := githubPullRequestRepo(ref); got != "enterprise:owner/repo" {
-		t.Fatalf("githubPullRequestRepo() = %q, want repo with colon", got)
-	}
-}
-
-func TestGitHubPullRequestNumber(t *testing.T) {
-	if got := githubPullRequestNumber("github:pr:enterprise:owner/repo:7"); got != "7" {
-		t.Fatalf("githubPullRequestNumber() = %q, want PR number", got)
 	}
 }
 

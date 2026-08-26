@@ -54,6 +54,19 @@ func (Source) Descriptor() integration.Descriptor {
 	return integration.Descriptor{Name: "obsidian", Label: "Obsidian", DisplayOrder: 0}
 }
 
+func (Source) CanSeedWorkspace(ref protocol.SourceRef) bool {
+	return ref.Source == "obsidian" && ref.Kind == "task" && strings.TrimSpace(ref.WorkspaceAnchorPath) != ""
+}
+
+func (Source) PrepareWorkspaceSeed(_ context.Context, ref protocol.SourceRef) (integration.WorkspaceSeed, error) {
+	if !(Source{}).CanSeedWorkspace(ref) {
+		return integration.WorkspaceSeed{}, fmt.Errorf("source ref %q cannot seed an Obsidian workspace", ref.ID)
+	}
+	return integration.WorkspaceSeed{
+		Name: strings.TrimSpace(ref.Presentation.WorkspaceName), NotePath: strings.TrimSpace(ref.WorkspaceAnchorPath),
+	}, nil
+}
+
 func (Source) Local() bool { return true }
 
 func (s Source) configuredVault() (string, error) {
@@ -304,7 +317,7 @@ func observationsFor(vault string, current note) []integration.Observation {
 	metadata := map[string]string{
 		"radar_id": current.ID, "note_path": current.Path, "task_directory": filepath.Dir(current.Path),
 		"state": current.State, "priority": current.Priority, "created_at": current.CreatedAt,
-		"completed_at": current.CompletedAt, "authoring": "true",
+		"completed_at": current.CompletedAt,
 	}
 	signal := integration.SignalLowPriority
 	if current.State == "done" {
@@ -318,6 +331,7 @@ func observationsFor(vault string, current note) []integration.Observation {
 			Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
 			Presentation: protocol.SourceRefPresentation{PreferTitle: true, WorkspaceName: current.Title}, Title: current.Title, URL: uri,
 			Status: current.State, CanonicalKey: identity, LinkingKeys: linking.Keys(identity), Metadata: metadata,
+			WorkspaceAnchorPath: current.Path, Authored: true,
 		},
 		Signal: signal, Reason: "Obsidian task is " + current.State,
 	}}
@@ -599,3 +613,4 @@ var _ integration.LocalSource = Source{}
 var _ integration.StatusReporter = Source{}
 var _ integration.ActionProvider = Source{}
 var _ integration.TaskAuthoringProvider = Source{}
+var _ integration.WorkspaceSeedProvider = Source{}

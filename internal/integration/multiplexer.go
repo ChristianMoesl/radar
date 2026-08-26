@@ -1,6 +1,10 @@
 package integration
 
-import "context"
+import (
+	"context"
+
+	"radar/internal/protocol"
+)
 
 type SessionContext struct {
 	Name string
@@ -38,8 +42,11 @@ type SessionTarget struct {
 
 type MultiplexerProvider interface {
 	Source
+	ClientActive() bool
 	Current(ctx context.Context) (SessionContext, bool, error)
 	EnsureSession(ctx context.Context, req EnsureSessionRequest) (Session, error)
 	OpenWindow(ctx context.Context, req OpenWindowRequest) error
 	Switch(ctx context.Context, target SessionTarget) error
+	Target(task protocol.Task) string
+	MatchesCurrent(ref protocol.SourceRef, current protocol.CurrentContext) bool
 }

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"testing"
 
+	"radar/internal/integration"
+	"radar/internal/integration/github"
 	"radar/internal/protocol"
 )
 
@@ -35,7 +37,7 @@ func TestFetchIssueDevelopmentLinksDiscoversGitHubApplicationType(t *testing.T) 
 	}))
 	defer server.Close()
 
-	result := fetchIssueDevelopmentLinks(context.Background(), Config{BaseURL: server.URL, Email: "me@example.com", APIToken: "token"}, "10001")
+	result := fetchIssueDevelopmentLinks(context.Background(), Config{BaseURL: server.URL, Email: "me@example.com", APIToken: "token"}, "10001", []integration.DevelopmentLinkResolver{github.NewSource()})
 	if result.Err != nil || result.Invalid != 0 {
 		t.Fatalf("result = %+v", result)
 	}
@@ -49,8 +51,8 @@ func TestFetchIssueDevelopmentLinksDiscoversGitHubApplicationType(t *testing.T) 
 func TestDevelopmentPullRequestLinkingKeysRejectsContradictoryIdentity(t *testing.T) {
 	pullRequest := developmentPullRequest{ID: "#42", URL: "https://github.com/acme/app/pull/42", RepositoryName: "acme/other"}
 	pullRequest.Source.Branch = "feature/work"
-	if _, _, err := developmentPullRequestLinkingKeys(pullRequest); err == nil {
-		t.Fatal("developmentPullRequestLinkingKeys() succeeded")
+	if _, err := resolveDevelopmentPullRequest(pullRequest, []integration.DevelopmentLinkResolver{github.NewSource()}); err == nil {
+		t.Fatal("resolveDevelopmentPullRequest() succeeded")
 	}
 }
 
@@ -67,7 +69,7 @@ func TestCollectDevelopmentLinksPreservesPreviousKeysOnFailure(t *testing.T) {
 		LinkingKeys: []string{"mark:XYZ-7", "github:pr:acme/app:7", "branch:acme/app:feature-work"}, Metadata: map[string]string{"key": "XYZ-7"},
 	}}}}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	result := collectDevelopmentLinks(context.Background(), Config{BaseURL: server.URL}, []issue{value}, previous, logger)
+	result := collectDevelopmentLinks(context.Background(), Config{BaseURL: server.URL}, []issue{value}, previous, logger, []integration.DevelopmentLinkResolver{github.NewSource()})
 	if result.Failed != 1 {
 		t.Fatalf("result = %+v", result)
 	}

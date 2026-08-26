@@ -65,7 +65,7 @@ func TestCleanupSbxSandboxE2EUsesForceWithoutWorkspaceCWD(t *testing.T) {
 	if !previewResponse.OK || previewResponse.CleanupPreview == nil {
 		t.Fatalf("preview response = %+v", previewResponse)
 	}
-	if len(previewResponse.CleanupPreview.Targets) != 1 || previewResponse.CleanupPreview.Targets[0].SandboxName != "sandbox-conn-test" {
+	if len(previewResponse.CleanupPreview.Targets) != 1 || previewResponse.CleanupPreview.Targets[0].ResourceID != "sandbox-conn-test" {
 		t.Fatalf("cleanup preview = %+v", previewResponse.CleanupPreview)
 	}
 
@@ -85,7 +85,7 @@ func TestCleanupSbxSandboxE2EUsesForceWithoutWorkspaceCWD(t *testing.T) {
 	if !cleanupResponse.OK {
 		t.Fatalf("cleanup response error = %s", cleanupResponse.Error)
 	}
-	if cleanupResponse.CleanupResult == nil || len(cleanupResponse.CleanupResult.Targets) != 1 || cleanupResponse.CleanupResult.Targets[0].SandboxName != "sandbox-conn-test" {
+	if cleanupResponse.CleanupResult == nil || len(cleanupResponse.CleanupResult.Targets) != 1 || cleanupResponse.CleanupResult.Targets[0].ResourceID != "sandbox-conn-test" {
 		t.Fatalf("cleanup result = %+v", cleanupResponse.CleanupResult)
 	}
 

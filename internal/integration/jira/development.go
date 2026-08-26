@@ -9,12 +9,11 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"radar/internal/githubidentity"
+	"radar/internal/integration"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
@@ -80,7 +79,7 @@ type developmentCollection struct {
 	Unavailable        int
 }
 
-func collectDevelopmentLinks(ctx context.Context, cfg Config, issues []issue, previous []protocol.Task, logger *slog.Logger) developmentCollection {
+func collectDevelopmentLinks(ctx context.Context, cfg Config, issues []issue, previous []protocol.Task, logger *slog.Logger, resolvers []integration.DevelopmentLinkResolver) developmentCollection {
 	collection := developmentCollection{LinkingKeysByIssue: map[string][]string{}}
 	if len(issues) == 0 {
 		return collection
@@ -106,7 +105,7 @@ func collectDevelopmentLinks(ctx context.Context, cfg Config, issues []issue, pr
 				results <- developmentIssueResult{IssueKey: key, Err: ctx.Err()}
 				return
 			}
-			result := fetchIssueDevelopmentLinks(ctx, cfg, value.ID)
+			result := fetchIssueDevelopmentLinks(ctx, cfg, value.ID, resolvers)
 			result.IssueKey = key
 			results <- result
 		}()
@@ -139,7 +138,7 @@ func collectDevelopmentLinks(ctx context.Context, cfg Config, issues []issue, pr
 	return collection
 }
 
-func fetchIssueDevelopmentLinks(ctx context.Context, cfg Config, issueID string) developmentIssueResult {
+func fetchIssueDevelopmentLinks(ctx context.Context, cfg Config, issueID string, resolvers []integration.DevelopmentLinkResolver) developmentIssueResult {
 	var summary developmentSummaryResponse
 	err := getDevelopmentJSON(ctx, cfg, "/rest/dev-status/1.0/issue/summary", url.Values{"issueId": []string{issueID}}, &summary)
 	if err != nil {
@@ -176,37 +175,31 @@ func fetchIssueDevelopmentLinks(ctx context.Context, cfg Config, issueID string)
 		}
 		for _, group := range detail.Detail {
 			for _, pullRequest := range group.PullRequests {
-				pullRequestKey, branchKey, err := developmentPullRequestLinkingKeys(pullRequest)
+				resolution, err := resolveDevelopmentPullRequest(pullRequest, resolvers)
 				if err != nil {
 					result.Invalid++
 					continue
 				}
-				result.PullRequestKeys = linking.Keys(append(result.PullRequestKeys, pullRequestKey)...)
-				result.LinkingKeys = linking.Keys(append(result.LinkingKeys, pullRequestKey, branchKey)...)
+				result.PullRequestKeys = linking.Keys(append(result.PullRequestKeys, resolution.EntityKey)...)
+				result.LinkingKeys = linking.Keys(append(result.LinkingKeys, resolution.LinkingKeys...)...)
 			}
 		}
 	}
 	return result
 }
 
-func developmentPullRequestLinkingKeys(pullRequest developmentPullRequest) (string, string, error) {
-	urlRepository, urlNumber, ok := githubidentity.ParsePullRequestURL(pullRequest.URL)
-	if !ok {
-		return "", "", fmt.Errorf("invalid GitHub pull request URL")
+func resolveDevelopmentPullRequest(pullRequest developmentPullRequest, resolvers []integration.DevelopmentLinkResolver) (integration.DevelopmentLinkResolution, error) {
+	link := integration.DevelopmentLink{
+		URL: pullRequest.URL, Repository: pullRequest.RepositoryName,
+		ExternalID: pullRequest.ID, Branch: pullRequest.Source.Branch,
 	}
-	repository := githubidentity.Repository(pullRequest.RepositoryName)
-	if repository == "" || !strings.EqualFold(repository, urlRepository) {
-		return "", "", fmt.Errorf("GitHub pull request repository does not match URL")
+	for _, resolver := range resolvers {
+		resolution, handled, err := resolver.ResolveDevelopmentLink(link)
+		if handled {
+			return resolution, err
+		}
 	}
-	number, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(pullRequest.ID), "#"))
-	if err != nil || number <= 0 || number != urlNumber {
-		return "", "", fmt.Errorf("GitHub pull request number does not match URL")
-	}
-	branch := githubidentity.Branch(pullRequest.Source.Branch)
-	if branch == "" {
-		return "", "", fmt.Errorf("GitHub pull request source branch is empty")
-	}
-	return githubidentity.PullRequestKey(repository, number), linking.BranchKey(repository, branch), nil
+	return integration.DevelopmentLinkResolution{}, fmt.Errorf("development pull request provider is not registered")
 }
 
 func getDevelopmentJSON(ctx context.Context, cfg Config, path string, query url.Values, target any) error {

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
-	"strings"
 
 	"radar/internal/protocol"
 )
@@ -72,57 +70,22 @@ func (s Service) NotifyGarbageCollection(ctx context.Context, result protocol.Ga
 }
 
 func notificationURL(task protocol.Task) string {
-	refs := make([]protocol.SourceRef, 0)
 	for _, ref := range task.SourceRefs {
-		if ref.Source == "github" && ref.Kind == "pull_request" {
-			refs = append(refs, ref)
+		if ref.URL != "" && ref.Signal == task.Attention && ref.Status == task.Reason {
+			return ref.URL
 		}
 	}
-	for _, ref := range refs {
-		if ref.Signal == task.Attention && ref.Status == task.Reason {
-			if url := pullRequestURL(ref); url != "" {
-				return url
-			}
+	for _, ref := range task.SourceRefs {
+		if ref.URL != "" && ref.Signal == task.Attention {
+			return ref.URL
 		}
 	}
-	for _, ref := range refs {
-		if ref.Signal == task.Attention {
-			if url := pullRequestURL(ref); url != "" {
-				return url
-			}
-		}
-	}
-	for _, ref := range refs {
-		if url := pullRequestURL(ref); url != "" {
-			return url
+	for _, ref := range task.SourceRefs {
+		if ref.URL != "" {
+			return ref.URL
 		}
 	}
 	return task.URL
-}
-
-func pullRequestURL(ref protocol.SourceRef) string {
-	if strings.HasPrefix(ref.URL, "https://github.com/") || strings.HasPrefix(ref.URL, "http://github.com/") {
-		return ref.URL
-	}
-
-	const prefix = "github:pr:"
-	if !strings.HasPrefix(ref.ID, prefix) {
-		return ""
-	}
-	id := strings.TrimPrefix(ref.ID, prefix)
-	separator := strings.LastIndexByte(id, ':')
-	if separator <= 0 || separator == len(id)-1 {
-		return ""
-	}
-	repo := strings.TrimSpace(ref.Repo)
-	if repo == "" {
-		repo = id[:separator]
-	}
-	number, err := strconv.Atoi(id[separator+1:])
-	if err != nil || number <= 0 || strings.Count(repo, "/") != 1 {
-		return ""
-	}
-	return fmt.Sprintf("https://github.com/%s/pull/%d", repo, number)
 }
 
 func newlyActionable(previous, current []protocol.Task) []protocol.Task {

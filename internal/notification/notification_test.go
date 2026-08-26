@@ -43,7 +43,7 @@ func TestNotifyTransitionsSendsForNewActionableTasks(t *testing.T) {
 	}
 }
 
-func TestNotifyTransitionsUsesRelevantGitHubPullRequestURL(t *testing.T) {
+func TestNotifyTransitionsUsesRelevantSourceRefURL(t *testing.T) {
 	sender := &recordingSender{}
 	service := NewWithSender(discardLogger(), sender)
 
@@ -51,12 +51,12 @@ func TestNotifyTransitionsUsesRelevantGitHubPullRequestURL(t *testing.T) {
 		ID: 1, Title: "ABC-42", URL: "https://jira.example/browse/ABC-42", Attention: "immediate", Reason: "checks failed",
 		SourceRefs: []protocol.SourceRef{
 			{ID: "github:pr:acme/app:41", Source: "github", Kind: "pull_request", URL: "https://github.com/acme/app/pull/41", Signal: "attention", Status: "review requested"},
-			{ID: "github:pr:acme/app:42", Source: "github", Kind: "pull_request", Signal: "immediate", Status: "checks failed", Repo: "acme/app"},
+			{ID: "github:pr:acme/app:42", Source: "github", Kind: "pull_request", URL: "https://github.com/acme/app/pull/42", Signal: "immediate", Status: "checks failed", Repo: "acme/app"},
 		},
 	}})
 
 	if len(sender.sent) != 1 || sender.sent[0].URL != "https://github.com/acme/app/pull/42" {
-		t.Fatalf("sent notifications = %#v, want relevant GitHub PR URL", sender.sent)
+		t.Fatalf("sent notifications = %#v, want relevant source ref URL", sender.sent)
 	}
 }
 

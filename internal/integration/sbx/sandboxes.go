@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"radar/internal/integration/sbx/auth"
+	"radar/internal/integration/workspace"
+	"radar/internal/integration/workspace/group"
 	"radar/internal/linking"
 	"radar/internal/protocol"
-	"radar/internal/sbxauth"
-	"radar/internal/workspace"
-	"radar/internal/workspacegroup"
 )
 
 type listResponse struct {
@@ -200,7 +200,7 @@ func sbxErrorDetail(err error) string {
 		return "sbx not found"
 	}
 	detail := err.Error()
-	if sbxauth.IsRequired(detail) {
+	if auth.IsRequired(detail) {
 		return "not signed in; run sbx login"
 	}
 	return detail

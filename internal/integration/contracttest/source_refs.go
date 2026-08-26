@@ -38,7 +38,7 @@ func validateSourceRefs(source string, refs []protocol.SourceRef) error {
 		}
 		seen[ref.ID] = true
 		if ref.Role == protocol.SourceRefRoleInformational {
-			if ref.CanonicalKey != "" || len(ref.LinkingKeys) != 0 || ref.Signal != "" || ref.Busy || ref.Lifecycle != "" || ref.Authority != "" || ref.RetainInactive || ref.ProvidesWorkspace {
+			if ref.CanonicalKey != "" || len(ref.LinkingKeys) != 0 || ref.Signal != "" || ref.Busy || ref.InUse || ref.Authored || ref.Lifecycle != "" || ref.Authority != "" || ref.RetainInactive || ref.ProvidesWorkspace || ref.WorkspaceEntry || ref.WorkspaceID != "" || ref.WorkspaceAnchorPath != "" || ref.Acknowledgement != nil {
 				return fmt.Errorf("informational source ref exposes authority: %+v", ref)
 			}
 			if ref.EntityID == "" {
@@ -57,6 +57,15 @@ func validateSourceRefs(source string, refs []protocol.SourceRef) error {
 			if ref.Authority != protocol.SourceRefAuthorityPrimary && ref.Authority != protocol.SourceRefAuthorityContributing && ref.Authority != protocol.SourceRefAuthorityNone {
 				return fmt.Errorf("authoritative source ref has invalid lifecycle authority %q: %+v", ref.Authority, ref)
 			}
+		}
+		if ref.Authored && (ref.Role != protocol.SourceRefRoleAuthoritative || ref.Lifecycle != protocol.SourceRefLifecycleWorkItem) {
+			return fmt.Errorf("authored source ref is not an authoritative work item: %+v", ref)
+		}
+		if ref.InUse && ref.Lifecycle != protocol.SourceRefLifecycleResource {
+			return fmt.Errorf("in-use source ref is not a resource: %+v", ref)
+		}
+		if ref.WorkspaceEntry && !ref.ProvidesWorkspace {
+			return fmt.Errorf("workspace entry does not provide a workspace: %+v", ref)
 		}
 		for _, key := range ref.LinkingKeys {
 			if !strings.Contains(key, ":") {

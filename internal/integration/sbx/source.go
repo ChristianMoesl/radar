@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"radar/internal/integration"
+	"radar/internal/integration/workspace"
 	"radar/internal/protocol"
 	"radar/internal/taskrefs"
-	"radar/internal/workspace"
 )
 
 type Source struct{}
@@ -44,6 +44,13 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	return result
 }
 
+func (Source) ResourceName(ref protocol.SourceRef) (string, bool) {
+	if !IsSandboxRef(ref) {
+		return "", false
+	}
+	return SandboxName(ref), true
+}
+
 func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
 	_ = ctx
 	targets := make([]protocol.CleanupTarget, 0)
@@ -59,9 +66,8 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 			SourceRefID: ref.ID,
 			Source:      "sbx",
 			Kind:        "sandbox",
-			Title:       name,
-			Path:        ref.Path,
-			SandboxName: name,
+			Title:       name, Path: ref.Path, ResourceRole: "runtime", ResourceID: name,
+			Description: "SBX sandbox " + name,
 		})
 	}
 	return targets, nil
@@ -94,7 +100,7 @@ func (Source) RunAction(ctx context.Context, req integration.RunActionRequest) (
 		return integration.ActionResult{}, fmt.Errorf("open sbx sandbox requires an active multiplexer provider")
 	}
 	result, err := openShellWithMultiplexer(ctx, req.Multiplexer, req.Ref, OpenShellOptions{
-		SessionTarget: taskrefs.SessionTarget(req.Task),
+		SessionTarget: taskrefs.SessionTarget(req.Task, req.Multiplexer),
 		SwitchClient:  req.SwitchClient,
 	})
 	if err != nil {
@@ -108,11 +114,14 @@ func (Source) RunAction(ctx context.Context, req integration.RunActionRequest) (
 }
 
 func openShellWithMultiplexer(ctx context.Context, multiplexer integration.MultiplexerProvider, ref protocol.SourceRef, options OpenShellOptions) (OpenShellResult, error) {
+	return openShell(ctx, workspace.ExecRunner{}, multiplexer, ref, options)
+}
+
+func openShell(ctx context.Context, runner workspace.Runner, multiplexer integration.MultiplexerProvider, ref protocol.SourceRef, options OpenShellOptions) (OpenShellResult, error) {
 	name := SandboxName(ref)
 	if name == "" {
 		return OpenShellResult{}, fmt.Errorf("sbx sandbox name is required")
 	}
-	runner := workspace.ExecRunner{}
 	if err := runner.LookPath("sbx"); err != nil {
 		return OpenShellResult{}, fmt.Errorf("open sbx sandbox requires %q: %w", "sbx", err)
 	}
@@ -145,7 +154,7 @@ func openShellWithMultiplexer(ctx context.Context, multiplexer integration.Multi
 }
 
 func cleanupSandbox(ctx context.Context, runner workspace.Runner, target protocol.CleanupTarget) (protocol.CleanupTarget, error) {
-	name := strings.TrimSpace(target.SandboxName)
+	name := strings.TrimSpace(target.ResourceID)
 	if name == "" {
 		return protocol.CleanupTarget{}, fmt.Errorf("sbx sandbox name is required")
 	}

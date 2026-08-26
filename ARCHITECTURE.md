@@ -6,18 +6,17 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 
 - `cmd/radar/`: single Go binary with TUI, CLI, and daemon modes.
 - `internal/tui/`: Bubble Tea terminal UI.
-- `internal/integration/`: integration capability interfaces, observation model, and source-compiled implementations.
+- `internal/integration/`: source-neutral capability interfaces, observation model, and source-compiled implementations. Provider commands, parsers, identities, settings, and workspace drivers stay below this boundary.
 - `internal/integration/obsidian/`: Obsidian-authored task notes, mutations, status, and open action.
 - `internal/integration/github/`: GitHub source facts and remote state resolution.
 - `internal/integration/datadog/`: Datadog monitor source facts and recovery reconciliation.
-- `internal/integration/git/`: Git worktree source facts and workspace provider.
+- `internal/integration/git/`: Git worktree source facts, repository identity, cleanup, and code-workspace provider.
 - `internal/integration/jira/`: Jira Cloud issue source facts and remote state resolution.
 - `internal/integration/tmux/`: tmux session source facts and active multiplexer provider.
-- `internal/integration/sbx/`: Docker sbx sandbox source facts, actions, and cleanup.
+- `internal/integration/sbx/`: Docker sbx sandbox source facts, authentication, actions, runtime naming, and cleanup.
 - `internal/app/`: explicit assembly of the active integration set.
 - `internal/cleanup/`: shared application service for cleanup preview aggregation and ordered provider execution.
-- `internal/workspace/`: repository discovery, declarative workspace reconciliation, shared worktree planning/creation, workspace creation, Pi injection, and Git/tmux/SBX primitives.
-- `internal/workspacegroup/`: versioned logical-workspace registry, validation, lookup, locking, and atomic persistence.
+- `internal/integration/workspace/`: managed-workspace source, workspace manager, declarative reconciliation, Pi injection, provider command orchestration, and the versioned workspace-group registry.
 - `internal/pi/`: embedded Radar Pi extension and atomic runtime materialization.
 - `internal/workspacegc/`: conservative eligibility and target selection for automatic cleanup of completed work.
 - `internal/server/`: Unix socket API used by TUI and CLI commands.
@@ -84,9 +83,11 @@ SourceRef(s) + rebuildable TaskRecord cache => Task
 - `SourceRef.SourceLabel` and `SourceRef.DisplayOrder`: generic presentation values stamped from the integration descriptor, so frontends and state never need source-name switches.
 - `SourceRef.EntityID`: an opaque source-owned external entity identity used to correlate authoritative and informational representations without contributing task identity or linking.
 - `SourceRef.Busy`: reports transient active processing owned by that authoritative source. Busy refs are projected onto the task independently of attention and lifecycle.
+- `SourceRef.InUse`: reports that a local resource is currently occupied and therefore blocks automatic cleanup, without requiring core to understand provider status metadata.
+- `SourceRef.Authored`: marks the ref handled by the task-authoring capability, so frontends can offer mutations without checking a source name or metadata key.
 - `SourceRef.Lifecycle`: classifies an authoritative ref as a `work_item`, `workspace`, or supporting `resource`.
 - `SourceRef.Authority`: declares lifecycle ownership as `primary`, `contributing`, or `none`. Core lifecycle rules consume this generic value without source-name checks.
-- `SourceRef.ProvidesWorkspace`: declares that an authoritative ref owns the persistent local working directory in its absolute `Path`. The ref also emits the matching cleaned `workspace:<path>` linking key. This capability is independent of lifecycle ownership: Git workspace refs provide workspaces, while Obsidian work items have no workspace and tmux and SBX resources only consume workspace paths. A workspace created from a selected task persists one stable task linking key in the local workspace-group registry; Git emits that opaque key so the workspace rejoins its originating task without making the work item a workspace provider.
+- `SourceRef.ProvidesWorkspace`: declares that an authoritative ref owns the persistent local working directory in its absolute `Path`. `WorkspaceEntry` selects the anchor to open, `WorkspaceID` groups related resources, and `WorkspaceAnchorPath` carries a source-owned canonical artifact such as an authored note. These fields let frontends and cleanup operate without source-name checks. The ref also emits the matching cleaned `workspace:<path>` linking key.
 - `SourceRef.Presentation`: source-compiled title preference/order and workspace-name hints consumed generically by state and frontends.
 - `TaskRecord`: rebuildable Radar cache state. It provides cache-local numeric task IDs, projected lifecycle, known source ref IDs, first/last seen timestamps, and acknowledgements. A record without authoritative refs is not projectable.
 - `Task`: the current projected user-facing task served to the CLI/TUI. It has a Radar-owned integer ID, is busy when any active authoritative source ref is busy, and is computed from current source refs plus the matching task record.
@@ -204,7 +205,7 @@ Docker sbx integration collects sandboxes with `sbx ls --json`. Radar attaches s
 
 ## Integration development
 
-New integrations are source-compiled packages under `internal/integration/<name>` and registered once in `internal/app.DefaultIntegrations`. The registry discovers collection, reconciliation, task-authoring, action, cleanup, workspace, and multiplexer capabilities through interfaces. See [docs/integrations.md](docs/integrations.md) for the capability checklist, SourceRef contract, and Zellij/GitLab examples.
+New integrations are source-compiled packages under `internal/integration/<name>` and registered once in `internal/app.DefaultIntegrations`. Core packages consume registry capabilities and may not import concrete providers or invoke provider commands. Boundary tests enforce both rules. See [docs/integrations.md](docs/integrations.md) for the capability checklist, SourceRef contract, and Zellij/GitLab examples.
 
 ## Workspaces
 

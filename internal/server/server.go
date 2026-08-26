@@ -13,8 +13,6 @@ import (
 	"time"
 
 	"radar/internal/cleanup"
-	"radar/internal/config"
-	"radar/internal/filters"
 	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/socket"
@@ -119,7 +117,7 @@ func (s *Server) handle(conn net.Conn) {
 			_ = encoder.Encode(protocol.Response{OK: true, Version: version.Current(), Revision: s.store.Revision()})
 		case "summary":
 			tasks := s.filteredTasks()
-			summary := filters.Summary(tasks)
+			summary := protocol.SummarizeTasks(tasks)
 			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), Summary: &summary, Sources: s.store.Sources()})
 		case "tasks":
 			_ = encoder.Encode(s.tasksResponse())
@@ -256,7 +254,7 @@ func authoredRef(task protocol.Task, source string) (protocol.SourceRef, bool) {
 
 func (s *Server) taskMutationResponse(task protocol.Task) protocol.Response {
 	tasks := s.filteredTasks()
-	summary := filters.Summary(tasks)
+	summary := protocol.SummarizeTasks(tasks)
 	return protocol.Response{OK: true, Revision: s.store.Revision(), Summary: &summary, Tasks: tasks, Task: &task, Sources: s.store.Sources()}
 }
 
@@ -293,16 +291,10 @@ func taskByID(tasks []protocol.Task, id int) (protocol.Task, bool) {
 
 func (s *Server) tasksResponse() protocol.Response {
 	tasks := s.filteredTasks()
-	summary := filters.Summary(tasks)
+	summary := protocol.SummarizeTasks(tasks)
 	return protocol.Response{OK: true, Revision: s.store.Revision(), Summary: &summary, Tasks: tasks, Sources: s.store.Sources()}
 }
 
 func (s *Server) filteredTasks() []protocol.Task {
-	tasks := s.store.Tasks()
-	cfg, err := config.Load()
-	if err != nil {
-		s.logger.Warn("could not load config", "error", err)
-		return tasks
-	}
-	return filters.Apply(tasks, cfg.GitHub.Filters)
+	return s.integrations.FilterTasks(s.store.Tasks(), s.logger)
 }
