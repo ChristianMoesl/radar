@@ -113,7 +113,7 @@ Changing the effective set removes and recreates the sandbox under the same name
 
 ## Pi resources
 
-The embedded Radar extension contributes member `.pi/skills/` and `.agents/skills/` paths, injects path-labelled repository instruction files with repository-only scope, and reloads resources after membership changes without losing conversation history. It reports additions, removals, duplicate skill names, and refresh failures. Member `.pi/settings.json`, extensions, prompts, and themes are not loaded.
+The embedded Radar extension contributes member `.pi/skills/` and `.agents/skills/` paths, injects path-labelled repository instruction files with repository-only scope, and reloads resources after membership changes without losing conversation history. Root instruction discovery is case-insensitive and selects the first available file in this order: `AGENTS.override.md`, `AGENTS.md`, `AGENT.md`, then `CLAUDE.md`. Generic documents such as `STYLEGUIDE.md` are loaded only when an instruction file tells the agent to read them. The extension reports additions, removals, duplicate skill names, and refresh failures. Member `.pi/settings.json`, extensions, prompts, and themes are not loaded.
 
 ## Cleanup
 

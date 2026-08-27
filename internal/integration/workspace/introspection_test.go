@@ -154,6 +154,59 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	}
 }
 
+func TestMemberInstructionFilesUsesPiPrecedenceWithSingularCompatibility(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []string
+		want  string
+	}{
+		{
+			name:  "override wins",
+			files: []string{"claude.md", "agent.md", "agents.md", "agents.OVERRIDE.MD"},
+			want:  "agents.OVERRIDE.MD",
+		},
+		{
+			name:  "plural agents wins over singular",
+			files: []string{"agent.md", "Agents.Md"},
+			want:  "Agents.Md",
+		},
+		{
+			name:  "singular agent is a fallback",
+			files: []string{"aGeNt.Md", "CLAUDE.md"},
+			want:  "aGeNt.Md",
+		},
+		{
+			name:  "claude remains a fallback",
+			files: []string{"claude.md", "STYLEGUIDE.md"},
+			want:  "claude.md",
+		},
+		{
+			name:  "generic style guide is ignored",
+			files: []string{"STYLEGUIDE.md"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			for _, name := range test.files {
+				if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			got := memberInstructionFiles(root)
+			want := []string{}
+			if test.want != "" {
+				want = []string{filepath.Join(root, test.want)}
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("memberInstructionFiles() = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
 func TestInspectNoteOnlyWorkspaceFromAnchor(t *testing.T) {
 	home := t.TempDir()
 	configHome := filepath.Join(home, "config")
