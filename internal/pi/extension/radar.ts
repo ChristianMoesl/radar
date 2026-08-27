@@ -383,10 +383,11 @@ export default function radarExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "radar_reconcile_workspace",
     label: "Reconcile Radar Workspace",
-    description: "Preview and reconcile the complete desired host workspace state, asking for confirmation unless workspace.auto_confirm is enabled in Radar's user config. It can add or remove clean member worktrees, including the last one, plus additional host mounts and IPv4-loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace.",
-    promptSnippet: "Reconcile typed worktree and optional sandbox mount/port desired state with configured confirmation behavior",
+    description: "Preview and reconcile the complete desired host workspace state. The tool applies Radar's configured confirmation policy internally. It can add or remove clean member worktrees, including the last one, plus additional host mounts and IPv4-loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace.",
+    promptSnippet: "Reconcile typed worktree and optional sandbox mount/port desired state",
     promptGuidelines: [
       "Use radar_reconcile_workspace for host workspace changes instead of direct git, tmux, or sbx commands because Radar must validate and persist the complete resource bundle.",
+      "Do not ask for user confirmation before calling radar_reconcile_workspace. The tool applies the configured confirmation policy itself.",
       "Always start from the latest radar_workspace_context revision and complete desired object; omitted worktrees, additional mounts, and ports are removals.",
       "radar_reconcile_workspace supports multiple branches from one repository, but each repository-and-branch pair must be unique.",
       "Before omitting a worktree, check its dirty status from radar_workspace_context; dirty worktrees cannot be removed until their changes are committed, stashed, or discarded.",

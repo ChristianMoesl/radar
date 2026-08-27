@@ -10,6 +10,14 @@ func TestRadarExtensionRegistersWorkspaceIntrospectionTools(t *testing.T) {
 	if strings.Contains(text, "minItems: 1") {
 		t.Fatal("workspace reconciliation schema still requires one worktree")
 	}
+	for _, forbidden := range []string{
+		"asking for confirmation unless workspace.auto_confirm is enabled",
+		"with configured confirmation behavior",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("extension still tells the agent about an explicit confirmation step: %q", forbidden)
+		}
+	}
 	for _, required := range []string{
 		"radar_workspace_context",
 		"radar_repository_refs",
@@ -22,6 +30,7 @@ func TestRadarExtensionRegistersWorkspaceIntrospectionTools(t *testing.T) {
 		"MaxReconcileConfirmations",
 		"auto_confirm",
 		"const autoConfirm = plan.auto_confirm === true",
+		"Do not ask for user confirmation before calling radar_reconcile_workspace",
 		"if (!autoConfirm && !ctx.hasUI)",
 		"if (!autoConfirm)",
 		"reconfirm_required",
