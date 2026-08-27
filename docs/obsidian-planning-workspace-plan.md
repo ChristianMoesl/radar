@@ -372,14 +372,11 @@ Pi starts without an automatic user message. Radar adds a compact system guideli
 
 Pi normally discovers `AGENTS.md` and `CLAUDE.md` only from its working directory and parents. Member worktrees are children, so Radar must provide them as explicit resource roots.
 
-For each member, follow Pi's root-context precedence while accepting the singular convention used by some repositories. Match every filename case-insensitively:
+For each member, discover the same root context choice Pi would make in that repository directory:
 
 1. `AGENTS.override.md`
-2. `AGENTS.md`
-3. `AGENT.md`
-4. `CLAUDE.md`
-
-Radar loads only the first match. Generic contributor documents such as `STYLEGUIDE.md` must be referenced by an instruction file rather than loaded implicitly.
+2. `AGENTS.md` or case variant
+3. `CLAUDE.md` or case variant
 
 Radar must retain each absolute source path. Pi already places context files in path-labelled `<project_instructions>` blocks. The Radar extension must add this scoping contract:
 

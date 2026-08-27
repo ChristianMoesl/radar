@@ -190,7 +190,7 @@ func memberInstructionFiles(root string) []string {
 	if err != nil {
 		return []string{}
 	}
-	for _, wanted := range []string{"AGENTS.override.md", "AGENTS.md", "AGENT.md", "CLAUDE.md"} {
+	for _, wanted := range []string{"AGENTS.override.md", "AGENTS.md", "CLAUDE.md"} {
 		for _, entry := range entries {
 			if !entry.IsDir() && strings.EqualFold(entry.Name(), wanted) {
 				return []string{filepath.Join(root, entry.Name())}
