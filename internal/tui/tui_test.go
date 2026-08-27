@@ -1029,6 +1029,27 @@ func TestTaskLinksUsesSourceLabels(t *testing.T) {
 	}
 }
 
+func TestTaskLinksPreferSourceTitlesOverStableIDs(t *testing.T) {
+	task := protocol.Task{SourceRefs: []protocol.SourceRef{
+		{ID: "jira:issue:XYZ-123", Source: "jira", SourceLabel: "Jira", Kind: "issue", Title: "XYZ-123 Fix login", URL: "https://jira.example.test/browse/XYZ-123"},
+		{ID: "github:pr:owner/repo:7", Source: "github", SourceLabel: "GitHub", Kind: "pull_request", Title: "Add session timeout handling", URL: "https://github.com/owner/repo/pull/7"},
+	}}
+
+	links := taskLinks(task)
+	if len(links) != 2 {
+		t.Fatalf("taskLinks() returned %d links, want 2: %+v", len(links), links)
+	}
+	if links[0].Label != "XYZ-123 Fix login" {
+		t.Fatalf("jira link label = %q", links[0].Label)
+	}
+	if links[1].Label != "Add session timeout handling" {
+		t.Fatalf("github link label = %q", links[1].Label)
+	}
+	if got := sourceRefLabel(task.SourceRefs[0]); got != "jira:issue:XYZ-123" {
+		t.Fatalf("sourceRefLabel() = %q, want stable ID outside the open dialog", got)
+	}
+}
+
 func TestObsidianTaskOffersOneSourceOwnedOpenAction(t *testing.T) {
 	uri := "obsidian://open?vault=Work&file=Tasks%2FOne+task.md"
 	task := protocol.Task{Title: "Task", URL: uri, SourceRefs: []protocol.SourceRef{{

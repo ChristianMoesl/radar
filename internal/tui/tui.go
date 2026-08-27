@@ -1961,7 +1961,7 @@ func taskLinks(task protocol.Task) []linkChoice {
 	}
 
 	for _, ref := range task.SourceRefs {
-		label := sourceRefLabel(ref)
+		label := sourceRefOpenLabel(ref)
 		actions := sourceactions.SourceRefActions(ref, label)
 		for _, action := range actions {
 			addAction(action.PreferredKey, action.Source, action.Label, action.Detail, action.ID, action.Ref)
@@ -2187,6 +2187,13 @@ func taskSourceRefLine(ref protocol.SourceRef, width int) string {
 	label = truncateLine(label, labelWidth)
 	line := subtleStyle.Render(prefix+label) + separator + attentionStyle.Render(status)
 	return truncateLine(line, width)
+}
+
+func sourceRefOpenLabel(ref protocol.SourceRef) string {
+	if title := strings.TrimSpace(ref.Title); title != "" {
+		return title
+	}
+	return sourceRefLabel(ref)
 }
 
 func sourceRefLabel(ref protocol.SourceRef) string {
