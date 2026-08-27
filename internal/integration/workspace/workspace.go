@@ -1001,7 +1001,7 @@ func scheduleSetupCommandsNamed(ctx context.Context, runner Runner, path string,
 	if len(commands) == 0 {
 		return nil
 	}
-	args := []string{"new-window", "-t", sessionName + ":", "-n", windowName, "-c", path, "-P", "-F", "#{window_id} #{pane_id}"}
+	args := []string{"new-window", "-t", sessionName + ":", "-d", "-n", windowName, "-c", path, "-P", "-F", "#{window_id} #{pane_id}"}
 	if sandboxName != "" {
 		args = append(args, strings.Join([]string{
 			"sbx exec -it --workdir",

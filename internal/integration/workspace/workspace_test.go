@@ -154,15 +154,15 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	assertCalledContains(t, runner.calls, "tmux", "RADAR_BINARY=")
 	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workspace.SessionName)
 	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+":")
-	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+": -n setup -c "+memberPath+" -P -F #{window_id} #{pane_id}")
-	assertSetupWindowIsForeground(t, runner.calls)
+	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+": -d -n setup -c "+memberPath+" -P -F #{window_id} #{pane_id}")
+	assertSetupWindowIsDetached(t, runner.calls)
 	assertCalled(t, runner.calls, "tmux", "set-option -p -t %1 remain-on-exit off")
 	assertCalledContains(t, runner.calls, "tmux", "send-keys -l -t %1 sh -lc 'pnpm install --frozen-lockfile' && exit")
 	assertCalled(t, runner.calls, "tmux", "send-keys -t %1 Enter")
 	assertNotCalledContains(t, runner.calls, "tmux", "kill-window")
 	assertCallOrder(t, runner.calls,
 		call{name: "tmux", args: []string{"select-pane", "-t"}},
-		call{name: "tmux", args: []string{"new-window", "-t", workspace.SessionName + ":", "-n", "setup"}},
+		call{name: "tmux", args: []string{"new-window", "-t", workspace.SessionName + ":", "-d", "-n", "setup"}},
 	)
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
 }
@@ -456,8 +456,8 @@ func TestCreateSchedulesSetupInsideConfiguredSandbox(t *testing.T) {
 	assertNotCalledContains(t, runner.calls, "sbx", "exec")
 	assertNotCalled(t, runner.calls, "sh")
 	memberPath := registeredMemberPath(t, root, created.Path)
-	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+created.SessionName+": -n setup -c "+memberPath+" -P -F #{window_id} #{pane_id} sbx exec -it --workdir '"+memberPath+"' '"+created.SandboxName+"' sh -i")
-	assertSetupWindowIsForeground(t, runner.calls)
+	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+created.SessionName+": -d -n setup -c "+memberPath+" -P -F #{window_id} #{pane_id} sbx exec -it --workdir '"+memberPath+"' '"+created.SandboxName+"' sh -i")
+	assertSetupWindowIsDetached(t, runner.calls)
 	assertCalled(t, runner.calls, "tmux", "set-option -p -t %1 remain-on-exit off")
 	assertCalledContains(t, runner.calls, "tmux", "send-keys -l -t %1 sh -lc 'pnpm install --frozen-lockfile' && sh -lc 'pnpm build' && exit")
 	assertCalled(t, runner.calls, "tmux", "send-keys -t %1 Enter")
@@ -562,6 +562,18 @@ func TestSetupInteractiveCommandExitsOnlyAfterEveryCommandSucceeds(t *testing.T)
 	if command != want {
 		t.Fatalf("setupInteractiveCommand() = %q, want %q", command, want)
 	}
+}
+
+func TestScheduleMemberSetupCreatesDetachedTmuxWindow(t *testing.T) {
+	runner := &fakeRunner{}
+	path := filepath.Join(t.TempDir(), "member")
+
+	if err := scheduleMemberSetup(context.Background(), runner, path, "workspace", "", "repository", []string{"pnpm install"}); err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalledContains(t, runner.calls, "tmux", "new-window -t workspace: -d -n setup-repository -c "+path)
+	assertSetupWindowIsDetached(t, runner.calls)
 }
 
 func TestCreateStartsSandboxEnabledByUserConfig(t *testing.T) {
@@ -1005,7 +1017,7 @@ func TestSandboxNameTruncatesLongNames(t *testing.T) {
 	}
 }
 
-func assertSetupWindowIsForeground(t *testing.T, calls []call) {
+func assertSetupWindowIsDetached(t *testing.T, calls []call) {
 	t.Helper()
 	for _, call := range calls {
 		args := strings.Join(call.args, " ")
@@ -1014,10 +1026,10 @@ func assertSetupWindowIsForeground(t *testing.T, calls []call) {
 		}
 		for _, arg := range call.args {
 			if arg == "-d" {
-				t.Fatalf("setup window was created detached; call: %#v", call)
+				return
 			}
 		}
-		return
+		t.Fatalf("setup window was created in the foreground; call: %#v", call)
 	}
 	t.Fatalf("setup window was not created; calls: %#v", calls)
 }
