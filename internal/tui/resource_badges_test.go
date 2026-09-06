@@ -22,6 +22,7 @@ func resourceBadgeFixture() protocol.Task {
 			{ID: "jira:issue:ABC-123", Source: "jira", Kind: "issue"},
 			{ID: "github:pr:owner/repo:42", Source: "github", Kind: "pull_request"},
 			{ID: "obsidian:task:note", Source: "obsidian", Kind: "task"},
+			{ID: "workspace:dev", Source: "workspace", Kind: "workspace", Path: "/workspaces/dev", ProvidesWorkspace: true, WorkspaceEntry: true},
 		},
 	}
 }
@@ -42,7 +43,7 @@ func TestTaskResourceBadges(t *testing.T) {
 				t.Fatalf("cursor %d: missing %q:\n%s", cursor, want, view)
 			}
 		}
-		for _, hidden := range []string{"git:worktree:", "sbx:sandbox:", "tmux:session:", "obsidian:task:", "ahead 1"} {
+		for _, hidden := range []string{"git:worktree:", "sbx:sandbox:", "tmux:session:", "obsidian:task:", "workspace:dev", "/workspaces/dev", "ahead 1"} {
 			if strings.Contains(view, hidden) {
 				t.Fatalf("overview contains %q:\n%s", hidden, view)
 			}
@@ -106,8 +107,31 @@ func TestResourceBadgesOmitZeroCountsAndKeepOtherKinds(t *testing.T) {
 	if got := taskResourceBadges(task); got != gitWorktreeIcon+" 1" {
 		t.Fatalf("badges = %q", got)
 	}
-	if got := overviewSourceRefs(task); !reflect.DeepEqual(got, task.SourceRefs[1:]) {
+	if got := overviewSourceRefs(task); !reflect.DeepEqual(got, task.SourceRefs[1:3]) {
 		t.Fatalf("filtered refs = %+v", got)
+	}
+}
+
+func TestWorkspaceOnlyTaskHasNoReferenceRowOrBadge(t *testing.T) {
+	ref := protocol.SourceRef{ID: "workspace:dev", Source: "workspace", Kind: "workspace", Path: "/workspaces/dev", ProvidesWorkspace: true, WorkspaceEntry: true}
+	task := protocol.Task{Title: "Empty workspace", Attention: "in_progress", SourceRefs: []protocol.SourceRef{ref}}
+	m := model{tasks: []protocol.Task{task}}
+	view := ansi.Strip(m.taskList(100, 20))
+	if !strings.Contains(view, "Empty workspace") || strings.Contains(view, "↳") || strings.Contains(view, ref.ID) {
+		t.Fatalf("unexpected workspace-only task rendering:\n%s", view)
+	}
+	if badges := taskResourceBadges(task); badges != "" {
+		t.Fatalf("workspace anchor must not add a resource badge: %q", badges)
+	}
+	_, count := m.taskRowPositions()
+	if count != 2 {
+		t.Fatalf("workspace-only task occupies %d rows including header, want 2", count)
+	}
+	if view := m.detailView(100); !strings.Contains(view, ref.ID) || !strings.Contains(view, ref.Path) {
+		t.Fatalf("inspect lost the workspace anchor:\n%s", view)
+	}
+	if !reflect.DeepEqual(m.tasks[0].SourceRefs, []protocol.SourceRef{ref}) {
+		t.Fatal("rendering modified the workspace ref used by actions")
 	}
 }
 

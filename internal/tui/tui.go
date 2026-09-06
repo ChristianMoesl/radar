@@ -2186,6 +2186,9 @@ func resourceIcon(ref protocol.SourceRef) string {
 func overviewSourceRefs(task protocol.Task) []protocol.SourceRef {
 	var refs []protocol.SourceRef
 	for _, ref := range task.SourceRefs {
+		if ref.Source == "workspace" && ref.Kind == "workspace" {
+			continue
+		}
 		if resourceIcon(ref) == "" {
 			refs = append(refs, ref)
 		}

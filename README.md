@@ -412,7 +412,7 @@ Radar stores and collects Git checkouts in a flat workspace directory using `<wo
 
 The TUI summarizes local resources on each task row with emoji and counts: `🌿 2` for Git worktrees, `🐳 1` for Docker SBX sandboxes, `📟 1` for tmux sessions, and `📝 1` for Obsidian notes. These use the same emoji style as the attention indicators and do not require a Nerd Font. Zero counts are omitted. A `⚠️ dirty` warning appears if any linked worktree has uncommitted changes, including members of a Radar workspace. Counts and the warning remain visible when long task text is truncated.
 
-Local resource references no longer occupy separate overview rows. Other references remain underneath the task. Press `i` to inspect resource names, paths, and per-worktree status such as `2 dirty, ahead 1`. Resource actions, the task's busy indicator, and task priority are unchanged.
+Local resource references no longer occupy separate overview rows. The logical `workspace` reference is also hidden from the overview, without adding a badge or increasing worktree counts. Other references remain underneath the task. Press `i` to inspect resource names, paths, and per-worktree status such as `2 dirty, ahead 1`. Resource actions, the task's busy indicator, and task priority are unchanged.
 
 ## tmux sessions
 
