@@ -49,7 +49,7 @@ func TestCollectEmitsNoteOnlyWorkspaceAndRepairsRenamedNote(t *testing.T) {
 	if err := os.WriteFile(oldNote, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(oldNote, filepath.Join(anchor, "note.md")); err != nil {
+	if err := os.Symlink(oldNote, filepath.Join(anchor, "notes.md")); err != nil {
 		t.Fatal(err)
 	}
 	group := workspacegroup.Workspace{
@@ -76,7 +76,7 @@ func TestCollectEmitsNoteOnlyWorkspaceAndRepairsRenamedNote(t *testing.T) {
 	if !contains(ref.LinkingKeys, group.TaskLinkingKey) || !contains(ref.LinkingKeys, linking.WorkspaceGroupKey(group.ID)) {
 		t.Fatalf("linking keys = %+v", ref.LinkingKeys)
 	}
-	target, err := os.Readlink(filepath.Join(anchor, "note.md"))
+	target, err := os.Readlink(filepath.Join(anchor, "notes.md"))
 	if err != nil || target != newNote {
 		t.Fatalf("note link = %q, err=%v", target, err)
 	}
@@ -95,7 +95,14 @@ func TestCleanupRemovesOnlyAnchorAndRefusesUnknownFiles(t *testing.T) {
 	if err := os.MkdirAll(anchor, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	group := workspacegroup.Workspace{ID: workspacegroup.ID(anchor), Name: "Plan", Path: anchor, Members: []workspacegroup.Member{}}
+	note := filepath.Join(t.TempDir(), "Plan.md")
+	if err := os.WriteFile(note, []byte("keep canonical note"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureNoteLink(anchor, note); err != nil {
+		t.Fatal(err)
+	}
+	group := workspacegroup.Workspace{ID: workspacegroup.ID(anchor), Name: "Plan", Path: anchor, NotePath: note, Members: []workspacegroup.Member{}}
 	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
 		t.Fatal(err)
 	}
@@ -119,6 +126,9 @@ func TestCleanupRemovesOnlyAnchorAndRefusesUnknownFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(anchor); !os.IsNotExist(err) {
 		t.Fatalf("anchor still exists: %v", err)
+	}
+	if content, err := os.ReadFile(note); err != nil || string(content) != "keep canonical note" {
+		t.Fatalf("canonical note changed: %q, err=%v", content, err)
 	}
 }
 

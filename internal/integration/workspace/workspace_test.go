@@ -189,10 +189,10 @@ func TestCreateNoteWorkspaceStartsAtAnchorWithOnlyNoteLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != "note.md" || entries[0].Type()&os.ModeSymlink == 0 {
+	if len(entries) != 1 || entries[0].Name() != "notes.md" || entries[0].Type()&os.ModeSymlink == 0 {
 		t.Fatalf("anchor entries = %+v", entries)
 	}
-	target, err := os.Readlink(filepath.Join(created.Path, "note.md"))
+	target, err := os.Readlink(filepath.Join(created.Path, "notes.md"))
 	if err != nil || target != notePath {
 		t.Fatalf("note target = %q, err=%v", target, err)
 	}

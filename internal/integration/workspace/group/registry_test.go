@@ -30,7 +30,7 @@ func TestRegistryRoundTripAndContainingPathLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{workspace.Path, filepath.Join(workspace.Path, "note.md"), filepath.Join(workspace.Members[1].Path, "src", "main.go")} {
+	for _, path := range []string{workspace.Path, filepath.Join(workspace.Path, "notes.md"), filepath.Join(workspace.Members[1].Path, "src", "main.go")} {
 		found, ok := FindByContainingPath(loaded, path)
 		if !ok || found.ID != workspace.ID {
 			t.Fatalf("FindByContainingPath(%q) = %+v, %v", path, found, ok)

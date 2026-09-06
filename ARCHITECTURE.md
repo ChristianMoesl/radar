@@ -217,15 +217,15 @@ A managed Radar workspace is a stable anchor directory with zero or more nested 
 
 The local `workspace` source emits one no-signal workspace ref per registered anchor. It links through the clean anchor path, `workspace-group:<id>`, and the persisted task key. Registered Git members emit the group and task keys but do not provide a competing logical workspace. Unmanaged external Git worktrees continue to provide their own paths.
 
-Obsidian activation creates a note-only anchor with `note.md` as an absolute symlink to the canonical note in its private task directory. Git-first creation creates an anchor and its first nested member in one operation. Reconciliation can add or remove any member, including the first or last. Dirty checks, branch publication warnings, protected branches, and complete desired-state replacement semantics remain unchanged.
+Obsidian activation creates a note-only anchor with `notes.md` as an absolute symlink to the canonical note in its private task directory. Git-first creation creates an anchor and its first nested member in one operation. Reconciliation can add or remove any member, including the first or last. Dirty checks, branch publication warnings, protected branches, and complete desired-state replacement semantics remain unchanged.
 
 SBX uses the anchor as its primary workspace. Radar adds the private note directory, distinct external Git common directories, configured mounts, and requested mounts. Nested worktrees need no separate mount because the anchor already contains them. Effective mount changes recreate SBX and may interrupt processes, while failed recreation never rolls back completed filesystem or Git changes.
 
 Radar embeds a TypeScript Pi extension under `$XDG_DATA_HOME/radar/pi`. Radar-started Pi processes receive it through `--extension` and run in the anchor. The extension provides workspace inspection, repository-ref inspection, and confirmed reconciliation tools. Before every agent turn it loads Radar's user instruction file and scopes those instructions to workspace and resource management across all members. It also contributes member skills, injects path-labelled repository instructions with repository-only scope, reports duplicate skills, and reloads resources after membership changes without replacing conversation history. Member settings and extensions are not loaded.
 
-Workspace resolution is registry-first. The anchor, `note.md`, member roots, and nested member paths resolve to the same workspace and compare-and-swap revision. The context result exposes only that workspace, including note metadata without note contents, rather than every registry record.
+Workspace resolution is registry-first. The anchor, `notes.md`, member roots, and nested member paths resolve to the same workspace and compare-and-swap revision. The context result exposes only that workspace, including note metadata without note contents, rather than every registry record.
 
-Cleanup runs tmux, SBX, Git, then Workspace providers. The final provider removes `note.md` and the empty anchor only when no unknown content remains. It never deletes the canonical Obsidian note. Garbage collection applies the same bundle checks to note-only and multi-member workspaces.
+Cleanup runs tmux, SBX, Git, then Workspace providers. The final provider removes `notes.md` and the empty anchor only when no unknown content remains. It never deletes the canonical Obsidian note. Garbage collection applies the same bundle checks to note-only and multi-member workspaces.
 
 ## Terminal UI
 

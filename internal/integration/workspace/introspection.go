@@ -150,7 +150,7 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		Repositories: make([]WorkspaceContextRepository, 0, len(repositories)),
 	}
 	if group.NotePath != "" {
-		result.Note = &WorkspaceContextNote{Path: group.NotePath, WorkspacePath: filepath.Join(group.Path, "note.md")}
+		result.Note = &WorkspaceContextNote{Path: group.NotePath, WorkspacePath: filepath.Join(group.Path, "notes.md")}
 	}
 	if group.Sandbox != nil {
 		desiredMounts := make([]DesiredSandboxMount, 0, len(group.Sandbox.AdditionalMounts))

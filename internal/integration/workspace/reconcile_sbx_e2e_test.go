@@ -45,7 +45,7 @@ func TestNoteWorkspaceSandboxSymlinkE2E(t *testing.T) {
 	if err := os.WriteFile(sibling, []byte("private\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(note, filepath.Join(anchor, "note.md")); err != nil {
+	if err := os.Symlink(note, filepath.Join(anchor, "notes.md")); err != nil {
 		t.Fatal(err)
 	}
 	name := fmt.Sprintf("radar-note-e2e-%d-%d", os.Getpid(), time.Now().UnixNano())
@@ -57,10 +57,10 @@ func TestNoteWorkspaceSandboxSymlinkE2E(t *testing.T) {
 		defer cleanupCancel()
 		_, _ = stopSandbox(cleanupCtx, runner, anchor, name)
 	})
-	if output := runSbxE2E(t, ctx, runner, name, "cat", filepath.Join(anchor, "note.md")); output != "original" {
+	if output := runSbxE2E(t, ctx, runner, name, "cat", filepath.Join(anchor, "notes.md")); output != "original" {
 		t.Fatalf("sandbox note = %q", output)
 	}
-	runSbxE2E(t, ctx, runner, name, "sh", "-lc", "printf 'changed\\n' > "+shellQuote(filepath.Join(anchor, "note.md")))
+	runSbxE2E(t, ctx, runner, name, "sh", "-lc", "printf 'changed\\n' > "+shellQuote(filepath.Join(anchor, "notes.md")))
 	if data, err := os.ReadFile(note); err != nil || string(data) != "changed\n" {
 		t.Fatalf("host note = %q, err=%v", data, err)
 	}

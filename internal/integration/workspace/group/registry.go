@@ -363,8 +363,8 @@ func normalizeAndValidate(registry *Registry) error {
 			if !samePath(filepath.Dir(member.Path), workspace.Path) {
 				return fmt.Errorf("workspace %q member %q must be a direct child of its anchor", workspace.ID, member.Path)
 			}
-			if strings.EqualFold(filepath.Base(member.Path), "note.md") {
-				return fmt.Errorf("workspace %q member path uses reserved name note.md", workspace.ID)
+			if strings.EqualFold(filepath.Base(member.Path), "notes.md") {
+				return fmt.Errorf("workspace %q member path uses reserved name notes.md", workspace.ID)
 			}
 			key := pathKey(member.Path)
 			if paths[key] {

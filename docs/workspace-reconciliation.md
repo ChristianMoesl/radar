@@ -24,7 +24,7 @@ Every managed workspace has a stable anchor below `workspace_root`:
 
 ```text
 <workspace_root>/plan-authentication/
-├── note.md
+├── notes.md
 ├── frontend--feature-auth/
 └── api--feature-auth/
 ```
@@ -32,6 +32,12 @@ Every managed workspace has a stable anchor below `workspace_root`:
 The anchor is Pi, tmux, nvim, and SBX's working directory. Members are real Git worktrees and direct children named from repository and branch. A workspace may contain zero members. No member is primary or protected because it was added first.
 
 `<workspace_root>/.radar-workspaces.json` remains the single authoritative registry file. It stores every anchor, optional note path, runtime settings, sandbox intent, and worktree member. The registry is versioned and rejects the former primary-worktree schema rather than interpreting or migrating it implicitly.
+
+## Filename rollout
+
+The managed note link is named `notes.md`. Before upgrading an existing installation, stop the old daemon and rename each registered workspace's `note.md` symlink to `notes.md`. Verify that the old link targets the registry's canonical note and that the destination does not exist. Do not rename the canonical Obsidian file or overwrite user content. Update user-owned instructions that mention the old workspace filename.
+
+This change does not alter the registry schema or migrate existing links automatically. An old link left behind is unknown anchor content and blocks cleanup.
 
 ## Desired state
 
@@ -68,11 +74,11 @@ Worktrees, requested mounts, and ports use replacement semantics. Omitting a mem
 
 Members use repository-and-branch identity. One workspace may contain several repositories or several branches from one repository, while a repository-and-branch pair may belong to only one registered workspace.
 
-The note is not part of desired state. Radar owns `note.md` and the canonical note association, so the agent cannot remove either through reconciliation.
+The note is not part of desired state. Radar owns `notes.md` and the canonical note association, so the agent cannot remove either through reconciliation.
 
 ## Inspection
 
-`radar_workspace_context` resolves the registry before trying Git. Calls from the anchor, `note.md`, a member root, or a nested member path return the same workspace ID. The result includes:
+`radar_workspace_context` resolves the registry before trying Git. Calls from the anchor, `notes.md`, a member root, or a nested member path return the same workspace ID. The result includes:
 
 - `workspace_path` and workspace identity
 - optional canonical and workspace note paths, without note contents

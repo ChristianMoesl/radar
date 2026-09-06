@@ -63,14 +63,14 @@ Pressing `Enter` on an Obsidian-only task creates or reopens a stable Radar work
 
 ```text
 <workspace_root>/plan-authentication/
-└── note.md -> <Vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
+└── notes.md -> <Vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
 ```
 
-`note.md` is an absolute symlink to the canonical note. Pi, tmux, and nvim start in the workspace directory without an automatic prompt. The same Pi session remains active when Git worktrees are later added as child directories through workspace reconciliation.
+`notes.md` is an absolute symlink to the canonical note. Pi, tmux, and nvim start in the workspace directory without an automatic prompt. The same Pi session remains active when Git worktrees are later added as child directories through workspace reconciliation.
 
-When SBX is enabled, Radar mounts the workspace and only the task's private directory. The sandbox can edit `note.md` without seeing sibling task directories or the rest of the vault. A note rename repairs the symlink during local workspace refresh.
+When SBX is enabled, Radar mounts the workspace and only the task's private directory. The sandbox can edit `notes.md` without seeing sibling task directories or the rest of the vault. A note rename repairs the symlink during local workspace refresh.
 
-Completing or cleaning the workspace never deletes the canonical task directory or note. Cleanup removes the tmux session, sandbox, managed worktrees, `note.md`, and the empty workspace anchor.
+Completing or cleaning the workspace never deletes the canonical task directory or note. Cleanup removes the tmux session, sandbox, managed worktrees, `notes.md`, and the empty workspace anchor.
 
 ## Collection failures
 

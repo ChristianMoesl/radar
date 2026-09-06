@@ -314,7 +314,7 @@ export default function radarExtension(pi: ExtensionAPI) {
       }
       const guidelines = [
         "Radar workspace instructions:",
-        knownContext.note ? `- note.md is the canonical Obsidian task note at ${knownContext.note.path}. Its body may be empty. Do not invent a template unless the user asks or the work requires one.` : "",
+        knownContext.note ? `- notes.md is the canonical Obsidian task note at ${knownContext.note.path}. Its body may be empty. Do not invent a template unless the user asks or the work requires one.` : "",
         "- Member worktrees are direct children of the workspace. Use Radar's typed tools for membership, sandbox mount, and port changes.",
         "- Instructions from Radar's user AGENTS.md apply to workspace and resource management across every member repository.",
         "- Instructions from a member repository context file apply only to files under that repository. Nested context files apply to their containing subtree. The most specific applicable directory wins. Global and workspace instructions apply to every member.",

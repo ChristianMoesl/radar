@@ -186,7 +186,7 @@ func TestInspectNoteOnlyWorkspaceFromAnchor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Registered || result.WorkspacePath != anchor || result.Note == nil || result.Note.Path != note || len(result.Members) != 0 || len(result.Desired.Worktrees) != 0 {
+	if !result.Registered || result.WorkspacePath != anchor || result.Note == nil || result.Note.Path != note || result.Note.WorkspacePath != filepath.Join(anchor, "notes.md") || len(result.Members) != 0 || len(result.Desired.Worktrees) != 0 {
 		t.Fatalf("context = %+v", result)
 	}
 }

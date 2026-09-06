@@ -502,7 +502,7 @@ func createAnchorDirectory(root, anchor string) error {
 }
 
 func removeManagedNoteLink(anchor string) {
-	path := filepath.Join(anchor, "note.md")
+	path := filepath.Join(anchor, "notes.md")
 	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		_ = os.Remove(path)
 	}
@@ -558,7 +558,7 @@ func ensureNoteLink(anchor, notePath string) error {
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("canonical task note must be a regular file: %s", notePath)
 	}
-	link := filepath.Join(anchor, "note.md")
+	link := filepath.Join(anchor, "notes.md")
 	if current, err := os.Readlink(link); err == nil {
 		if filepath.Clean(current) == notePath {
 			return nil

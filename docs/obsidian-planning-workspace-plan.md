@@ -12,14 +12,14 @@ The workspace starts like this:
 
 ```text
 <workspace-root>/plan-authentication/
-└── note.md -> <vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
+└── notes.md -> <vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
 ```
 
 After implementation starts:
 
 ```text
 <workspace-root>/plan-authentication/
-├── note.md -> <vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
+├── notes.md -> <vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
 ├── frontend--feature-auth/
 └── api--feature-auth/
 ```
@@ -57,7 +57,7 @@ After implementation starts:
 2. Radar creates a task directory and a Markdown note with managed frontmatter and an empty body.
 3. The task appears in Radar as it does today.
 4. The user presses `Enter` on the task.
-5. Radar creates a stable workspace directory, adds `note.md`, creates tmux and Pi, and creates SBX when the resolved workspace configuration enables it.
+5. Radar creates a stable workspace directory, adds `notes.md`, creates tmux and Pi, and creates SBX when the resolved workspace configuration enables it.
 6. Radar switches to the tmux session.
 
 `Enter` must not open repository selection for an Obsidian-only task. Repository selection becomes a later workspace mutation.
@@ -69,14 +69,14 @@ $ pwd
 /Users/me/.local/share/radar/workspaces/plan-authentication
 
 $ ls
-note.md
+notes.md
 ```
 
-Pi starts interactively without sending an automatic planning prompt. The embedded Radar extension tells the model that `note.md` is the canonical task note and that the body may be empty. The agent must not invent a template unless the user asks for one.
+Pi starts interactively without sending an automatic planning prompt. The embedded Radar extension tells the model that `notes.md` is the canonical task note and that the body may be empty. The agent must not invent a template unless the user asks for one.
 
 ### Plan the work
 
-The user can discuss the task with Pi and edit `note.md` from Pi, nvim, or Obsidian. Every edit reaches the same canonical file. There is no copy and no synchronization step.
+The user can discuss the task with Pi and edit `notes.md` from Pi, nvim, or Obsidian. Every edit reaches the same canonical file. There is no copy and no synchronization step.
 
 The note can contain any structure the user or agent chooses. Radar owns only its frontmatter fields.
 
@@ -95,7 +95,7 @@ Radar creates the worktree directly below the workspace root:
 
 ```text
 plan-authentication/
-├── note.md
+├── notes.md
 └── frontend--feature-auth/
 ```
 
@@ -105,7 +105,7 @@ Additional repositories appear as siblings:
 
 ```text
 plan-authentication/
-├── note.md
+├── notes.md
 ├── frontend--feature-auth/
 └── api--feature-auth/
 ```
@@ -116,14 +116,14 @@ Every clean member worktree can be removed through workspace reconciliation. Rem
 
 ```text
 plan-authentication/
-└── note.md
+└── notes.md
 ```
 
 Dirty-worktree checks, unpublished-commit warnings, protected-branch handling, and confirmation remain in force. No worktree is protected merely because it was added first.
 
 ### Finish and clean up
 
-Completing the Obsidian note remains an explicit task mutation. Cleanup removes the tmux session, sandbox, managed worktrees, managed local branches when safe or confirmed, the `note.md` link, and the empty workspace directory. Cleanup never deletes the canonical Obsidian task directory or note.
+Completing the Obsidian note remains an explicit task mutation. Cleanup removes the tmux session, sandbox, managed worktrees, managed local branches when safe or confirmed, the `notes.md` link, and the empty workspace directory. Cleanup never deletes the canonical Obsidian task directory or note.
 
 Automatic garbage collection uses the same rule after the completed-task retention period.
 
@@ -191,15 +191,15 @@ A Radar-managed workspace has one stable anchor directory:
 
 The path is chosen at workspace creation and does not change when the task title or note filename changes. Name collisions receive the existing deterministic hash treatment.
 
-For an Obsidian task, Radar creates an absolute symlink named `note.md`:
+For an Obsidian task, Radar creates an absolute symlink named `notes.md`:
 
 ```text
-note.md -> <absolute-canonical-note-path>
+notes.md -> <absolute-canonical-note-path>
 ```
 
 An absolute link is intentional. SBX exposes every managed workspace at its host absolute path, so the same link resolves on the host and in the sandbox when the canonical task directory is mounted.
 
-Radar owns `note.md` and repairs it when the canonical filename changes. The link is not part of agent-requested additional mounts and cannot be removed through desired state.
+Radar owns `notes.md` and repairs it when the canonical filename changes. The link is not part of agent-requested additional mounts and cannot be removed through desired state.
 
 ### Worktree directories
 
@@ -209,7 +209,7 @@ Managed worktrees are direct children of the anchor. To support multiple branche
 <workspace>/<sanitized-repository>--<sanitized-branch>/
 ```
 
-Long names use the existing deterministic truncation and hash rules. Radar reserves `note.md` and any internal names it introduces later.
+Long names use the existing deterministic truncation and hash rules. Radar reserves `notes.md` and any internal names it introduces later.
 
 A member record stores its actual path. Existing members never move because naming rules change or because another member is added.
 
@@ -294,9 +294,9 @@ $ pwd
 <workspace-anchor>
 
 $ ls
-note.md
+notes.md
 
-$ readlink note.md
+$ readlink notes.md
 <canonical-task-directory>/<current-title>.md
 ```
 
@@ -362,7 +362,7 @@ The task linking key continues to derive Pi's stable session identity. The reada
 
 Pi starts without an automatic user message. Radar adds a compact system guideline explaining:
 
-- `note.md` is the canonical Obsidian task note.
+- `notes.md` is the canonical Obsidian task note.
 - The note body may be empty.
 - The agent may structure the note only when the user asks or the work requires it.
 - Member worktrees are direct child directories.
@@ -454,7 +454,7 @@ Resolution must become registry-first:
 3. Resolve to the anchor.
 4. Use Git discovery only for unmanaged external worktrees and lazy enrollment paths that remain supported.
 
-Calling the tools from the anchor, `note.md`, or any nested member must resolve the same workspace ID and desired state.
+Calling the tools from the anchor, `notes.md`, or any nested member must resolve the same workspace ID and desired state.
 
 ### Desired state
 
@@ -489,7 +489,7 @@ Changes required:
   "workspace_path": "/.../plan-authentication",
   "note": {
     "path": "/.../Tasks/Plan authentication--2c965c99/Plan authentication.md",
-    "workspace_path": "/.../plan-authentication/note.md"
+    "workspace_path": "/.../plan-authentication/notes.md"
   }
 }
 ```
@@ -564,7 +564,7 @@ Cleanup order becomes:
 
 The workspace cleanup provider removes only Radar-owned anchor contents:
 
-- `note.md`
+- `notes.md`
 - empty managed directories
 - the anchor itself
 - the registry record
@@ -580,8 +580,8 @@ A note-only completed workspace has no Git checks and becomes eligible after the
 ### Note link failures
 
 - Missing canonical note: mark the workspace source partial and show the missing path. Do not recreate or delete note content.
-- Stale `note.md` target after a filename rename: repair the link atomically during local refresh.
-- Occupied `note.md`: fail closed and report that Radar's managed path is occupied.
+- Stale `notes.md` target after a filename rename: repair the link atomically during local refresh.
+- Occupied `notes.md`: fail closed and report that Radar's managed path is occupied.
 - Note moved outside its task directory: mark the Obsidian source partial and require the user to move it back.
 
 ### Worktree failures
@@ -638,7 +638,7 @@ Refactor `internal/workspace` and the Git workspace provider to:
 
 - create an anchor before creating members
 - place all managed worktrees under the anchor
-- create and repair `note.md`
+- create and repair `notes.md`
 - create note-only sessions
 - resolve runtime configuration once
 - run member copy/setup logic from each worktree
@@ -756,7 +756,7 @@ Use neutral identifiers such as `ABC-123` in examples and tests.
 ### SBX
 
 - Starts with a non-Git anchor.
-- Resolves and edits `note.md` through the mounted task directory.
+- Resolves and edits `notes.md` through the mounted task directory.
 - Does not expose sibling task directories.
 - Sees nested worktrees through the anchor mount.
 - Runs Git successfully through mounted common directories.
@@ -796,7 +796,7 @@ The feature is complete when all of the following are true:
 
 1. A new Obsidian task has managed frontmatter and no generated body content.
 2. Pressing `Enter` opens a Pi workspace without selecting a repository.
-3. The initial workspace visibly contains only `note.md`.
+3. The initial workspace visibly contains only `notes.md`.
 4. Pi and nvim start in the stable anchor.
 5. SBX can read and write the note without access to unrelated notes.
 6. Reconciliation can move between zero and many nested worktrees.

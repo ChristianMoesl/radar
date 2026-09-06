@@ -140,7 +140,7 @@ An Obsidian-only task opens without repository selection:
 
 ```text
 <workspace_root>/plan-authentication/
-└── note.md -> <vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
+└── notes.md -> <vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
 ```
 
 The note body starts empty. The same Pi session remains active while the task moves between planning and zero or more Git members.

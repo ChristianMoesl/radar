@@ -144,7 +144,7 @@ func (Source) Cleanup(_ context.Context, req integration.CleanupRequest) (protoc
 	if len(unknown) > 0 {
 		return protocol.CleanupTarget{}, fmt.Errorf("workspace anchor contains unknown files: %s", strings.Join(unknown, ", "))
 	}
-	link := filepath.Join(group.Path, "note.md")
+	link := filepath.Join(group.Path, "notes.md")
 	if info, statErr := os.Lstat(link); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
 		if err := os.Remove(link); err != nil {
 			return protocol.CleanupTarget{}, err
@@ -167,14 +167,14 @@ func unknownAnchorEntries(group workspacegroup.Workspace) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	managed := map[string]bool{"note.md": group.NotePath != ""}
+	managed := map[string]bool{"notes.md": group.NotePath != ""}
 	for _, member := range group.Members {
 		managed[filepath.Base(member.Path)] = true
 	}
 	unknown := make([]string, 0)
 	for _, entry := range entries {
 		path := filepath.Join(group.Path, entry.Name())
-		if !managed[entry.Name()] || (entry.Name() == "note.md" && entry.Type()&os.ModeSymlink == 0) {
+		if !managed[entry.Name()] || (entry.Name() == "notes.md" && entry.Type()&os.ModeSymlink == 0) {
 			unknown = append(unknown, path)
 		}
 	}
