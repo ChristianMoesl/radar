@@ -2,9 +2,9 @@
 
 **Know what needs your attention—and jump straight into the right workspace.**
 
-![Radar terminal dashboard grouping engineering work by urgency](docs/images/radar-tui.svg)
+![Radar's Catppuccin Mocha dashboard with grouped tasks, inline resource badges, and bottom-aligned source status and shortcuts](docs/images/radar-tui.png)
 
-<p align="center"><sub>One prioritized view of alerts, reviews, issues, tasks, worktrees, sessions, and sandboxes.</sub></p>
+<p align="center"><sub>Rendered from Radar's TUI with example data, using Catppuccin Mocha colors.</sub></p>
 
 <p align="center"><a href="#integrations">Integrations</a> · <a href="#install">Install</a> · <a href="#quick-start">Quick start</a> · <a href="#workspaces">Workspaces</a> · <a href="#config">Configuration</a></p>
 
@@ -90,7 +90,7 @@ For a fast, always-available dashboard, open it in a tmux popup:
 tmux display-popup -E "radar"
 ```
 
-The dashboard uses [Catppuccin Mocha](https://catppuccin.com/palette/) colors while keeping your terminal background. Tasks remain a flowing list with inline metadata and resource badges. A blank line separates tasks without separating their source references. Outer padding shrinks on smaller terminals, and the footer wraps between shortcuts so every action stays visible.
+The dashboard uses [Catppuccin Mocha](https://catppuccin.com/palette/) colors while keeping your terminal background. Tasks remain a flowing list with inline metadata and resource badges. A blank line separates tasks without separating their source references. The task area fills the available popup height, keeping Sources and shortcuts at the bottom even when the list is short. Outer padding shrinks on smaller terminals, and the footer wraps between shortcuts so every action stays visible.
 
 Recommended tmux bindings:
 

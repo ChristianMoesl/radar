@@ -196,3 +196,73 @@ func TestNotificationPreservesColorsOutsideTheToast(t *testing.T) {
 	}
 	assertNoWideLines(t, view, m.width)
 }
+
+func TestDashboardUsesFullHeightRegardlessOfTaskCount(t *testing.T) {
+	for _, tmux := range []bool{true, false} {
+		for _, size := range []struct{ width, height int }{{180, 49}, {100, 35}, {80, 28}} {
+			for _, withSources := range []bool{true, false} {
+				t.Run(fmt.Sprintf("%dx%d/tmux=%v/sources=%v", size.width, size.height, tmux, withSources), func(t *testing.T) {
+					t.Setenv("TMUX", "")
+					if tmux {
+						t.Setenv("TMUX", "test")
+					}
+					m := model{width: size.width, height: size.height, tasks: longTaskListFixture()}
+					if withSources {
+						m.sources = allSourceStatusesFixture()
+					}
+					full := m.View()
+					for _, count := range []int{0, 1, 3, len(m.tasks)} {
+						for _, loading := range []bool{false, true} {
+							short := m
+							short.tasks = m.tasks[:count]
+							short.loading = loading
+							view := short.View()
+							if got := lipgloss.Height(view); got != size.height {
+								t.Fatalf("count=%d loading=%v: height=%d, want %d:\n%s", count, loading, got, size.height, ansi.Strip(view))
+							}
+							assertNoWideLines(t, view, size.width)
+							for _, anchor := range []string{"Radar", "Sources", "↑/k/ctrl+p"} {
+								if renderedLineIndex(view, anchor) != renderedLineIndex(full, anchor) {
+									t.Fatalf("count=%d loading=%v: %s moved:\n%s", count, loading, anchor, ansi.Strip(view))
+								}
+							}
+							if count == 0 {
+								want := "No tasks need your attention."
+								if loading {
+									want = "Loading tasks…"
+								}
+								if !strings.Contains(ansi.Strip(view), want) {
+									t.Fatalf("empty/loading state missing %q", want)
+								}
+							}
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestTallerPopupGivesExtraRowsToTasks(t *testing.T) {
+	t.Setenv("TMUX", "test")
+	m := model{width: 160, height: 35, tasks: longTaskListFixture(), sources: allSourceStatusesFixture()}
+	before := ansi.Strip(m.View())
+	beforeRows := m.taskListHeight(m.contentWidth())
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 50})
+	m = updated.(model)
+	after := ansi.Strip(m.View())
+	if rows := m.taskListHeight(m.contentWidth()); rows != beforeRows+15 {
+		t.Fatalf("task area grew by %d rows, want 15", rows-beforeRows)
+	}
+	if strings.Count(after, "attention task") <= strings.Count(before, "attention task") {
+		t.Fatalf("taller popup did not display more tasks:\n%s", after)
+	}
+	for _, anchor := range []string{"Sources", "↑/k/ctrl+p"} {
+		if renderedLineIndex(after, anchor) != renderedLineIndex(before, anchor)+15 {
+			t.Fatalf("%s did not follow the bottom of the resized popup", anchor)
+		}
+	}
+	if lipgloss.Height(after) != 50 {
+		t.Fatalf("resized frame height = %d, want 50", lipgloss.Height(after))
+	}
+}

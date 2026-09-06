@@ -701,18 +701,23 @@ func (m model) View() string {
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
+	afterTaskSections := m.afterTaskSections(contentWidth)
+	taskRows := m.availableTaskRows(sections, afterTaskSections)
+	var tasks string
 	if m.loading && len(m.tasks) == 0 {
-		sections = append(sections, subtleStyle.Render("Loading tasks…"))
+		tasks = subtleStyle.Render("Loading tasks…")
 	} else if len(m.tasks) == 0 {
-		sections = append(sections, subtleStyle.Render("No tasks need your attention."))
+		tasks = subtleStyle.Render("No tasks need your attention.")
 	} else {
-		afterTaskSections := m.afterTaskSections(contentWidth)
-		sections = append(sections, m.taskList(contentWidth, m.availableTaskRows(sections, afterTaskSections)))
-		sections = append(sections, afterTaskSections...)
-		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
+		tasks = m.taskList(contentWidth, taskRows)
 	}
-
-	sections = append(sections, m.afterTaskSections(contentWidth)...)
+	if m.height > 0 {
+		// Reserve the whole list viewport even for short or empty lists. Sources
+		// and shortcuts stay at the bottom rather than following the last task.
+		tasks = lipgloss.NewStyle().Height(taskRows).Render(tasks)
+	}
+	sections = append(sections, tasks)
+	sections = append(sections, afterTaskSections...)
 	return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 }
 
