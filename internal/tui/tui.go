@@ -134,46 +134,6 @@ const (
 	createIntentNew      = "Create a new branch"
 )
 
-var (
-	appStyle = lipgloss.NewStyle().Padding(1, 2)
-
-	panelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("63")).
-			Padding(1, 2)
-
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("228"))
-
-	subtleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
-	helpStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-
-	urgentStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
-	attentionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
-	progressStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("75")).Bold(true)
-	doneStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("120")).Bold(true)
-	lowStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Bold(true)
-
-	selectedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("230")).
-			Background(lipgloss.Color("63")).
-			Bold(true)
-
-	notificationStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("120")).
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("36")).
-				Padding(0, 1)
-
-	errorNotificationStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("203")).
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("203")).
-				Padding(0, 1)
-)
-
 func Run(socketPath string) error {
 	program := tea.NewProgram(newModel(socketPath), tea.WithAltScreen())
 	_, err := program.Run()
@@ -685,6 +645,8 @@ func (m model) taskRowPositions() (map[int]int, int) {
 				}
 				line++
 				groupStarted = true
+			} else {
+				line++ // One blank row between task blocks, not between their refs.
 			}
 			positions[i] = line
 			line += 1 + len(overviewSourceRefs(task))
@@ -759,7 +721,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • ctrl+u/d page • enter switch tmux • n new task • d done/reopen • p urgent/normal • o open link • i inspect • c create workspace • w workspace resources • x cleanup • X garbage collect • f config • r refresh • q quit"), width))
+	sections = append(sections, mainHelp(width))
 	return sections
 }
 
@@ -774,39 +736,58 @@ func (m model) availableTaskRows(before []string, after []string) int {
 	for _, section := range after {
 		used += lipgloss.Height(section)
 	}
-	used += max(0, len(before)+len(after))
+	// Joining sections with two newlines adds one blank row per boundary;
+	// each section's own rows are already included in its height above.
+	used += len(before) + len(after)
 	return max(3, m.height-used)
 }
 
-func (m model) frameHeight() int {
-	if canSwitchMultiplexer() {
-		return 2
+// Reduce the outer padding on small terminals without changing task spacing.
+func (m model) frameStyle() lipgloss.Style {
+	style := appStyle
+	if m.width > 0 && m.width < 100 {
+		style = style.PaddingLeft(2).PaddingRight(2)
 	}
-	return 6
+	if m.height > 0 && m.height < 30 {
+		style = style.PaddingTop(1).PaddingBottom(1)
+	}
+	return style
+}
+
+func (m model) frameHeight() int {
+	height := m.frameStyle().GetVerticalFrameSize()
+	if !canSwitchMultiplexer() {
+		height += panelStyle.GetVerticalFrameSize()
+	}
+	return height
 }
 
 func (m model) contentWidth() int {
-	if canSwitchMultiplexer() {
-		width := m.width - 4
-		if width <= 0 {
-			width = 80
+	if m.width <= 0 {
+		if canSwitchMultiplexer() {
+			return 80
 		}
-		return max(width, 60)
+		return maxContentWidth
 	}
-
-	width := m.width - 8
-	if width <= 0 {
-		width = maxContentWidth
+	frameWidth := m.frameStyle().GetHorizontalFrameSize()
+	if !canSwitchMultiplexer() {
+		frameWidth += panelStyle.GetHorizontalFrameSize()
 	}
-	width = min(width, maxContentWidth)
-	return max(width, 60)
+	width := max(1, m.width-frameWidth)
+	if !canSwitchMultiplexer() {
+		width = min(width, maxContentWidth)
+	}
+	return width
 }
 
 func (m model) renderFrame(content string, width int) string {
-	frame := appStyle.Width(width).Render(content)
+	style := m.frameStyle()
 	if !canSwitchMultiplexer() {
-		frame = appStyle.Render(panelStyle.Width(width).Render(content))
+		content = panelStyle.Width(width + panelStyle.GetHorizontalPadding()).Render(content)
+		width += panelStyle.GetHorizontalFrameSize()
 	}
+	// Lip Gloss Width includes padding, but not borders.
+	frame := style.Width(width + style.GetHorizontalPadding()).Render(content)
 	return m.overlayNotification(frame)
 }
 
@@ -833,39 +814,13 @@ func (m model) overlayNotification(frame string) string {
 		if target >= len(lines) {
 			break
 		}
-		plainLine := ansi.Strip(lines[target])
-		col := max(0, lipgloss.Width(plainLine)-popupWidth-2)
-		prefix := takeCells(plainLine, col)
-		rest := dropCells(plainLine, col+lipgloss.Width(popupLine))
+		lineWidth := lipgloss.Width(lines[target])
+		col := max(0, lineWidth-popupWidth-2)
+		prefix := ansi.Cut(lines[target], 0, col)
+		rest := ansi.Cut(lines[target], col+lipgloss.Width(popupLine), lineWidth)
 		lines[target] = prefix + popupLine + rest
 	}
 	return strings.Join(lines, "\n")
-}
-
-func takeCells(s string, cells int) string {
-	var out strings.Builder
-	used := 0
-	for _, r := range s {
-		w := lipgloss.Width(string(r))
-		if used+w > cells {
-			break
-		}
-		out.WriteRune(r)
-		used += w
-	}
-	return out.String()
-}
-
-func dropCells(s string, cells int) string {
-	used := 0
-	for i, r := range s {
-		w := lipgloss.Width(string(r))
-		if used+w > cells {
-			return s[i:]
-		}
-		used += w
-	}
-	return ""
 }
 
 func newCreateForm() createForm {
@@ -2089,7 +2044,10 @@ func (m model) taskLines(width int) ([]string, int, int) {
 			if task.Attention != group.key {
 				continue
 			}
-			lineWidth := max(20, width-20)
+			if len(groupLines) > 0 {
+				groupLines = append(groupLines, "")
+			}
+			lineWidth := max(1, width)
 			line := taskLine(task, i == m.cursor, lineWidth-2)
 			if i == m.cursor {
 				line = selectedStyle.Render("› " + line)
@@ -2130,26 +2088,21 @@ func truncateLine(line string, width int) string {
 }
 
 func taskLine(task protocol.Task, selected bool, width int) string {
-	title := task.Title
+	titleStyle, metadataStyle, busyStyle := textStyle, subtleStyle, progressStyle
+	if selected {
+		titleStyle = selectedStyle.Bold(true)
+		metadataStyle = metadataStyle.Background(mochaSurface0)
+		busyStyle = busyStyle.Background(mochaSurface0)
+	}
+	title := titleStyle.Render(task.Title)
 	if task.Busy {
-		busy := "● busy"
-		if !selected {
-			busy = progressStyle.Render(busy)
-		}
-		title = fmt.Sprintf("%s  %s", busy, title)
+		title = busyStyle.Render("● busy  ") + title
 	}
 	if task.Repo != "" {
-		repo := task.Repo
-		if !selected {
-			repo = subtleStyle.Render(repo)
-		}
-		title = fmt.Sprintf("%s  %s", title, repo)
+		title += metadataStyle.Render("  " + task.Repo)
 	}
 	if reason := displayTaskReason(task); reason != "" {
-		if !selected {
-			reason = subtleStyle.Render(reason)
-		}
-		title = fmt.Sprintf("%s  %s", title, reason)
+		title += metadataStyle.Render("  " + reason)
 	}
 	badges := taskResourceBadges(task)
 	if badges == "" {
@@ -2157,7 +2110,11 @@ func taskLine(task protocol.Task, selected bool, width int) string {
 	}
 	// Keep resource counts and the dirty warning visible even for long titles.
 	title = truncateLine(title, max(1, width-lipgloss.Width(badges)-2))
-	return title + "  " + badges
+	badgeStyle := textStyle
+	if selected {
+		badgeStyle = selectedStyle
+	}
+	return title + badgeStyle.Render("  "+badges)
 }
 
 const (
@@ -2234,13 +2191,13 @@ func taskSourceRefLine(ref protocol.SourceRef, width int) string {
 		status = ref.Status
 	}
 	if status == "" {
-		return truncateLine(subtleStyle.Render(prefix+label), width)
+		return truncateLine(referenceStyle.Render(prefix+label), width)
 	}
 
 	separator := "  "
 	labelWidth := max(1, width-lipgloss.Width(prefix)-lipgloss.Width(separator)-lipgloss.Width(status))
 	label = truncateLine(label, labelWidth)
-	line := subtleStyle.Render(prefix+label) + separator + attentionStyle.Render(status)
+	line := referenceStyle.Render(prefix+label) + separator + attentionStyle.Render(status)
 	return truncateLine(line, width)
 }
 
@@ -2277,7 +2234,9 @@ func (m model) sourceList(width int) string {
 	lines = append(lines, titleStyle.Render("Sources"))
 	for _, source := range m.sources {
 		statusStyle := sourceStatusStyle(source.Status)
-		line := fmt.Sprintf("  %-8s %s  %4d refs", source.Name, statusStyle.Render(fmt.Sprintf("%-8s", source.Status)), source.SourceRefCount)
+		line := textStyle.Render(fmt.Sprintf("  %-8s ", source.Name)) +
+			statusStyle.Render(fmt.Sprintf("%-8s", source.Status)) +
+			subtleStyle.Render(fmt.Sprintf("  %4d refs", source.SourceRefCount))
 		if source.Detail != "" {
 			line += "  " + subtleStyle.Render(source.Detail)
 		}

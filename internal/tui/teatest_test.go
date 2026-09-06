@@ -92,7 +92,7 @@ func TestLongTaskListScrollRoundTripWithTeatest(t *testing.T) {
 			t.Fatalf("final view missing %q:\n%s", want, view)
 		}
 	}
-	assertNoWideLines(t, view, final.contentWidth())
+	assertNoWideLines(t, view, final.width)
 }
 
 func renderedViewAfterKeys(t *testing.T, keys []rune) string {

@@ -90,6 +90,8 @@ For a fast, always-available dashboard, open it in a tmux popup:
 tmux display-popup -E "radar"
 ```
 
+The dashboard uses [Catppuccin Mocha](https://catppuccin.com/palette/) colors while keeping your terminal background. Tasks remain a flowing list with inline metadata and resource badges. A blank line separates tasks without separating their source references. Outer padding shrinks on smaller terminals, and the footer wraps between shortcuts so every action stays visible.
+
 Recommended tmux bindings:
 
 ```tmux

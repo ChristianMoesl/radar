@@ -185,7 +185,7 @@ func TestResourceBadgeRowPositionsMatchRendering(t *testing.T) {
 			t.Fatalf("task %q at wrong row %d", task.Title, positions[i])
 		}
 	}
-	if positions[2] != positions[1]+1 {
-		t.Fatalf("local-only task occupies extra rows: %v", positions)
+	if positions[2] != positions[1]+2 {
+		t.Fatalf("local-only task should occupy one row followed by one blank row: %v", positions)
 	}
 }

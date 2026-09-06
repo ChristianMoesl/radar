@@ -687,8 +687,9 @@ func TestCtrlDAndCtrlUMoveByOnePage(t *testing.T) {
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
 	m = updated.(model)
-	if m.cursor != pageHeight || m.scroll != pageHeight {
-		t.Fatalf("after ctrl+d cursor=%d scroll=%d, want %d for both", m.cursor, m.scroll, pageHeight)
+	// Each task now occupies its title row and one separating blank row.
+	if m.cursor != pageHeight/2 || m.scroll != pageHeight {
+		t.Fatalf("after ctrl+d cursor=%d scroll=%d, want cursor=%d scroll=%d", m.cursor, m.scroll, pageHeight/2, pageHeight)
 	}
 
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
