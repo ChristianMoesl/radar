@@ -2235,11 +2235,16 @@ func sourceRefLabel(ref protocol.SourceRef) string {
 }
 
 func (m model) sourceList(width int) string {
+	nameWidth := 8
+	for _, source := range m.sources {
+		nameWidth = max(nameWidth, lipgloss.Width(source.Name))
+	}
 	var lines []string
 	lines = append(lines, titleStyle.Render("Sources"))
 	for _, source := range m.sources {
 		statusStyle := sourceStatusStyle(source.Status)
-		line := textStyle.Render(fmt.Sprintf("  %-8s ", source.Name)) +
+		name := source.Name + strings.Repeat(" ", nameWidth-lipgloss.Width(source.Name))
+		line := textStyle.Render("  "+name+" ") +
 			statusStyle.Render(fmt.Sprintf("%-8s", source.Status)) +
 			subtleStyle.Render(fmt.Sprintf("  %4d refs", source.SourceRefCount))
 		if source.Detail != "" {

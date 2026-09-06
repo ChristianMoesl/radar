@@ -266,3 +266,29 @@ func TestTallerPopupGivesExtraRowsToTasks(t *testing.T) {
 		t.Fatalf("resized frame height = %d, want 50", lipgloss.Height(after))
 	}
 }
+
+func TestSourceColumnsAlignAfterTheLongestName(t *testing.T) {
+	for _, names := range [][]string{
+		{"obsidian", "github", "jira", "datadog", "workspace", "git", "tmux", "sbx"},
+		{"git", "workspace", "custom-provider", "日本語"},
+	} {
+		m := model{}
+		nameWidth := 8
+		for _, name := range names {
+			nameWidth = max(nameWidth, lipgloss.Width(name))
+			m.sources = append(m.sources, protocol.SourceStatus{Name: name, Status: "ok", SourceRefCount: 1, Detail: "source details"})
+		}
+		lines := strings.Split(m.sourceList(100), "\n")[1:]
+		for _, line := range lines {
+			if column := renderedColumnIndex(line, "ok"); column != 2+nameWidth+1 {
+				t.Fatalf("status column = %d, want %d: %q", column, 2+nameWidth+1, ansi.Strip(line))
+			}
+			for _, anchor := range []string{"1 refs", "source details"} {
+				if column := renderedColumnIndex(line, anchor); column != renderedColumnIndex(lines[0], anchor) {
+					t.Fatalf("%q columns do not align: %q", anchor, ansi.Strip(line))
+				}
+			}
+		}
+		assertNoWideLines(t, m.sourceList(40), 40)
+	}
+}
