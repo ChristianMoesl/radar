@@ -14,9 +14,10 @@ import (
 // PrepareWorkspaceNote chooses a stable identity without creating a task file.
 func (s Source) PrepareWorkspaceNote(ctx context.Context, title string) (integration.DesiredWorkspaceNote, error) {
 	title = strings.TrimSpace(title)
-	if title == "" || strings.ContainsAny(title, "\r\n/\\\x00") {
-		return integration.DesiredWorkspaceNote{}, fmt.Errorf("task title must be a valid filename")
+	if title == "" {
+		return integration.DesiredWorkspaceNote{}, fmt.Errorf("task title must not be empty")
 	}
+	title = taskFilename(title)
 	vault, err := s.configuredVault()
 	if err != nil {
 		return integration.DesiredWorkspaceNote{}, err
@@ -60,7 +61,7 @@ func (s Source) ValidateWorkspaceNote(_ context.Context, desired integration.Des
 		return err
 	}
 	title := strings.TrimSuffix(filepath.Base(desired.Path), ".md")
-	if title == "" || strings.ContainsAny(title, "\r\n/\\\x00") || filepath.Base(filepath.Dir(desired.Path)) != taskDirectoryName(title, id) {
+	if title == "" || title != taskFilename(title) || filepath.Base(filepath.Dir(desired.Path)) != taskDirectoryName(title, id) {
 		return fmt.Errorf("invalid planned task note path")
 	}
 	if _, err := os.Lstat(filepath.Dir(desired.Path)); err == nil {

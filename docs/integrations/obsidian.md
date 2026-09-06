@@ -42,7 +42,9 @@ radar-completed-at:
 
 Radar does not generate headings or body text. The filename without `.md` is the title. State is `open` or `done`; priority is `normal` or `urgent`; timestamps use UTC RFC 3339. Unknown frontmatter and the complete body belong to the user and survive Radar mutations. Markdown checkboxes do not control lifecycle.
 
-Task creation rejects multiline titles, path separators, and duplicate titles. Mutations re-read and validate the note, modify only managed fields, and replace it atomically. Radar never overwrites malformed notes.
+Task creation sanitizes the title before using it for the directory and filename. Filesystem-reserved characters, control characters, and Obsidian link characters `[]#^` become hyphens. Leading and trailing spaces and dots are trimmed, Windows device names get an underscore prefix, and names are capped at 200 UTF-8 bytes without splitting characters. Dot-only names become `Untitled`; empty or whitespace-only titles are rejected. The sanitized filename becomes the task title. Duplicate titles are rejected after sanitization, so creation never overwrites another task. Existing notes are not renamed and remain readable and editable.
+
+Mutations re-read and validate the note, modify only managed fields, and replace it atomically. Radar never overwrites malformed notes.
 
 ## Source refs and lifecycle
 

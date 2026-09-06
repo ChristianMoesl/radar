@@ -24,8 +24,8 @@ func testVault(t *testing.T) string {
 func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	vault := testVault(t)
 	source := NewSourceAt(vault)
-	title := "Refine authentication: epic"
-	identity, err := source.Create(context.Background(), title)
+	title := "Refine authentication- epic"
+	identity, err := source.Create(context.Background(), "Refine authentication: epic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	}
 }
 
-func TestCreateRejectsDuplicateAndInvalidFilenames(t *testing.T) {
+func TestCreateRejectsDuplicateAndEmptyTitles(t *testing.T) {
 	vault := testVault(t)
 	source := NewSourceAt(vault)
 	if _, err := source.Create(context.Background(), "One task"); err != nil {
@@ -95,7 +95,7 @@ func TestCreateRejectsDuplicateAndInvalidFilenames(t *testing.T) {
 	if _, err := source.Create(context.Background(), "One task"); err == nil {
 		t.Fatal("duplicate task title succeeded")
 	}
-	for _, title := range []string{"nested/task", `nested\task`} {
+	for _, title := range []string{"", " \t\r\n "} {
 		if _, err := source.Create(context.Background(), title); err == nil {
 			t.Fatalf("invalid title %q succeeded", title)
 		}
