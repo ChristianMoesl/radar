@@ -105,11 +105,8 @@ func TestTaskListShowsBusyOnTaskRow(t *testing.T) {
 	if !strings.Contains(view, "● busy  Workspace") {
 		t.Fatalf("taskList() does not show busy on task row:\n%s", view)
 	}
-	if !strings.Contains(view, "tmux:session:repo-workspace") || strings.Contains(view, "tmux:session:$1") {
-		t.Fatalf("taskList() does not use the tmux presentation label:\n%s", view)
-	}
-	if strings.Contains(view, "tmux:session:repo-workspace    ● busy") {
-		t.Fatalf("taskList() shows busy on source row:\n%s", view)
+	if !strings.Contains(view, tmuxIcon+" 1") || strings.Contains(view, "tmux:session:") {
+		t.Fatalf("taskList() does not replace the tmux reference with a badge:\n%s", view)
 	}
 }
 
@@ -583,7 +580,7 @@ func TestTaskListKeepsSelectedSourceRefsVisible(t *testing.T) {
 	}}
 
 	view := model.taskList(100, 4)
-	for _, want := range []string{"selected", "/repo/selected", "ABC-1"} {
+	for _, want := range []string{"selected", gitWorktreeIcon + " 1", "ABC-1"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("taskList() missing %q:\n%s", want, view)
 		}
@@ -610,7 +607,7 @@ func TestTaskListCanReturnToTopOfLargeSelectedBlock(t *testing.T) {
 func TestTaskListTruncatesLongRows(t *testing.T) {
 	model := model{tasks: []protocol.Task{{
 		Title:     "selected task with a very very very long title that should not wrap",
-		Repo:      "redbullmediahouse/rb3ca-experience-center",
+		Repo:      "owner/repo",
 		Reason:    "2 unresolved review thread(s), 1 new PR comment(s)",
 		Attention: "attention",
 		SourceRefs: []protocol.SourceRef{{
@@ -620,12 +617,15 @@ func TestTaskListTruncatesLongRows(t *testing.T) {
 			Path:              "/very/very/very/very/very/very/very/long/path/that/would/wrap",
 			ProvidesWorkspace: true,
 			Status:            "12 dirty, ahead 3",
+			Metadata:          map[string]string{"dirty_files": "12", "ahead": "3"},
 		}},
 	}}}
 
 	view := model.taskList(60, 20)
-	if !strings.Contains(ansi.Strip(view), "12 dirty, ahead 3") {
-		t.Fatalf("taskList() truncated workspace status before its label:\n%s", view)
+	for _, want := range []string{gitWorktreeIcon + " 1", dirtyIcon + " dirty"} {
+		if !strings.Contains(ansi.Strip(view), want) {
+			t.Fatalf("taskList() truncated resource badge %q:\n%s", want, view)
+		}
 	}
 	for _, line := range strings.Split(view, "\n") {
 		if got := lipgloss.Width(ansi.Strip(line)); got > 60 {

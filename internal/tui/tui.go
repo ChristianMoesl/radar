@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -686,7 +687,7 @@ func (m model) taskRowPositions() (map[int]int, int) {
 				groupStarted = true
 			}
 			positions[i] = line
-			line += 1 + len(task.SourceRefs)
+			line += 1 + len(overviewSourceRefs(task))
 		}
 	}
 	return positions, line
@@ -2088,15 +2089,15 @@ func (m model) taskLines(width int) ([]string, int, int) {
 			if task.Attention != group.key {
 				continue
 			}
-			line := taskLine(task, i == m.cursor)
+			lineWidth := max(20, width-20)
+			line := taskLine(task, i == m.cursor, lineWidth-2)
 			if i == m.cursor {
 				line = selectedStyle.Render("› " + line)
 			} else {
 				line = "  " + line
 			}
-			lineWidth := max(20, width-20)
 			block := []string{truncateLine(line, lineWidth)}
-			for _, ref := range task.SourceRefs {
+			for _, ref := range overviewSourceRefs(task) {
 				block = append(block, taskSourceRefLine(ref, lineWidth))
 			}
 			if i == m.cursor {
@@ -2128,7 +2129,7 @@ func truncateLine(line string, width int) string {
 	return ansi.Truncate(line, width, "…")
 }
 
-func taskLine(task protocol.Task, selected bool) string {
+func taskLine(task protocol.Task, selected bool, width int) string {
 	title := task.Title
 	if task.Busy {
 		busy := "● busy"
@@ -2150,7 +2151,70 @@ func taskLine(task protocol.Task, selected bool) string {
 		}
 		title = fmt.Sprintf("%s  %s", title, reason)
 	}
-	return title
+	badges := taskResourceBadges(task)
+	if badges == "" {
+		return truncateLine(title, width)
+	}
+	// Keep resource counts and the dirty warning visible even for long titles.
+	title = truncateLine(title, max(1, width-lipgloss.Width(badges)-2))
+	return title + "  " + badges
+}
+
+// Nerd Fonts: dev-git, dev-docker, dev-tmux, fa-warning.
+const (
+	gitWorktreeIcon = "\ue702"
+	sandboxIcon     = "\ue7b0"
+	tmuxIcon        = "\ue94c"
+	dirtyIcon       = "\uf071"
+)
+
+func resourceIcon(ref protocol.SourceRef) string {
+	switch {
+	case ref.Source == "git" && ref.Kind == "worktree":
+		return gitWorktreeIcon
+	case ref.Source == "sbx" && ref.Kind == "sandbox":
+		return sandboxIcon
+	case ref.Source == "tmux" && ref.Kind == "session":
+		return tmuxIcon
+	default:
+		return ""
+	}
+}
+
+func overviewSourceRefs(task protocol.Task) []protocol.SourceRef {
+	var refs []protocol.SourceRef
+	for _, ref := range task.SourceRefs {
+		if resourceIcon(ref) == "" {
+			refs = append(refs, ref)
+		}
+	}
+	return refs
+}
+
+func taskResourceBadges(task protocol.Task) string {
+	counts := make(map[string]int)
+	dirty := false
+	for _, ref := range task.SourceRefs {
+		icon := resourceIcon(ref)
+		if icon == "" {
+			continue
+		}
+		counts[icon]++
+		if icon == gitWorktreeIcon {
+			files, _ := strconv.Atoi(ref.Metadata["dirty_files"])
+			dirty = dirty || files > 0
+		}
+	}
+	var badges []string
+	for _, icon := range []string{gitWorktreeIcon, sandboxIcon, tmuxIcon} {
+		if count := counts[icon]; count > 0 {
+			badges = append(badges, fmt.Sprintf("%s %d", icon, count))
+		}
+	}
+	if dirty {
+		badges = append(badges, attentionStyle.Render(dirtyIcon+" dirty"))
+	}
+	return strings.Join(badges, "  ")
 }
 
 func displayTaskReason(task protocol.Task) string {
