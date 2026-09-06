@@ -16,7 +16,7 @@ Radar first groups related source refs into a single task:
 
 This means an Obsidian-authored task, Jira issue, GitHub PR, local worktree, tmux session, and sbx sandbox can appear as one Radar task when they describe the same work. There is no source-less authored task.
 
-Every source ref has an explicit role. `authoritative` refs participate in grouping, title selection, attention, and lifecycle. `informational` refs are attached for inspection and opening only. Authoritative refs also declare lifecycle authority: `primary` owns completion, `contributing` participates when no primary exists, and `none` marks workspaces/resources that never complete a task.
+Every source ref has an explicit role. `authoritative` refs participate in grouping, title selection, attention, and lifecycle. `informational` refs are attached for inspection and opening only. Authoritative refs also declare lifecycle authority: `primary` owns completion, `contributing` participates directly when no primary exists and can trigger completion through the primary source, and `none` marks workspaces/resources that never complete a task.
 
 ## Categories
 
@@ -47,11 +47,11 @@ The key rules are:
 
 > Contributing completion does not override active contributing work. Primary completion is terminal for the authored task.
 
-A merged PR should not hide an active Jira issue when no primary owner exists. Once all contributing work items complete, the task is done. If a primary ref exists, only primary refs complete or reopen it; display filters and supporting resources cannot override that decision.
+A merged PR should not hide an active Jira issue when no primary owner exists. Once all contributing work items complete, the task is done. If a primary ref exists, it owns the projected lifecycle. A full refresh can automatically complete its authored task through the source provider when every linked authoritative contributor is confirmed done. At least one contributor is required, and every involved source must have completed collection. Display filters and supporting resources cannot override the primary lifecycle.
 
 ## Obsidian lifecycle and urgency
 
-An open normal Obsidian note starts in `low_priority`. Linked tmux/SBX activity may promote it to `in_progress`, and actionable linked sources may promote it to `attention`. `radar-state: done` is terminal even while supporting refs remain active; reopening returns the note to its strongest active source classification.
+An open normal Obsidian note starts in `low_priority`. Linked tmux/SBX activity may promote it to `in_progress`, and actionable linked sources may promote it to `attention`. `radar-state: done` is terminal even while supporting refs remain active; reopening returns the note to its strongest active source classification. Automatic completion persists this state and its timestamp in the canonical note before projecting done. An explicit reopen records already-completed work on the next successful full refresh, so unchanged historical completion cannot immediately close it again. Observing active work or newly linked work allows later automatic completion. The note stores this baseline across restarts and cache resets.
 
 `radar-priority: urgent` emits a primary immediate signal. Returning it to `normal` restores the current source-derived category. Priority cannot reopen done work, bypass mute, or generate an OS notification for the user's own mutation.
 
@@ -74,7 +74,7 @@ GitHub signals should focus on actionable feedback:
 
 ## Jira workflow status
 
-Jira's Done status category controls completion for authoritative contributing Jira refs only when no primary lifecycle ref exists. Assigned authoritative non-done issues and authoritative title discoveries are classified by exact status name, after trimming whitespace and ignoring case. Informational Jira refs expose status metadata but never participate in title, attention, or lifecycle precedence. The defaults are:
+Jira's Done status category supplies the completion signal for authoritative contributing Jira refs. It participates directly in task lifecycle without a primary, or in the all-contributors-done check that completes an authored note. Assigned authoritative non-done issues and authoritative title discoveries are classified by exact status name, after trimming whitespace and ignoring case. Informational Jira refs expose status metadata but never participate in title, attention, or lifecycle precedence. The defaults are:
 
 - `In Progress` and `In Review` → `in_progress`.
 - Every other authoritative non-done status → `low_priority`.

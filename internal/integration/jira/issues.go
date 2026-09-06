@@ -102,44 +102,45 @@ func ResolveDoneIssues(ctx context.Context, previous []protocol.Task, active []p
 			continue
 		}
 
-		issueRef, ok := jiraIssueSourceRef(item)
-		if !ok || activeIssues[issueRef.ID] || checked[issueRef.ID] {
-			continue
-		}
-		checked[issueRef.ID] = true
+		for _, issueRef := range jiraIssueSourceRefs(item) {
+			if issueRef.Signal == "done" || activeIssues[issueRef.ID] || checked[issueRef.ID] {
+				continue
+			}
+			checked[issueRef.ID] = true
 
-		key, ok := issueKeyFromSourceRefID(issueRef.ID)
-		if !ok {
-			logger.Warn("could not parse jira issue source ref id", "id", issueRef.ID)
-			continue
-		}
-		issue, err := fetchIssue(ctx, cfg, key)
-		if err != nil {
-			logger.Warn("could not resolve previous jira issue", "id", item.ID, "error", err)
-			continue
-		}
-		if !issueDone(issue) {
-			continue
-		}
+			key, ok := issueKeyFromSourceRefID(issueRef.ID)
+			if !ok {
+				logger.Warn("could not parse jira issue source ref id", "id", issueRef.ID)
+				continue
+			}
+			issue, err := fetchIssue(ctx, cfg, key)
+			if err != nil {
+				logger.Warn("could not resolve previous jira issue", "id", item.ID, "error", err)
+				continue
+			}
+			if !issueDone(issue) {
+				continue
+			}
 
-		reason := "jira done"
-		done := protocol.Task{
-			Kind:       "jira_done_issue",
-			Title:      item.Title,
-			Repo:       item.Repo,
-			URL:        item.URL,
-			Attention:  "done",
-			Reason:     reason,
-			DoneAt:     time.Now().UTC().Format(time.RFC3339),
-			SourceRefs: doneIssueSourceRefs(item.SourceRefs, cfg, issue, reason, marks),
+			reason := "jira done"
+			done := protocol.Task{
+				Kind:       "jira_done_issue",
+				Title:      item.Title,
+				Repo:       item.Repo,
+				URL:        item.URL,
+				Attention:  "done",
+				Reason:     reason,
+				DoneAt:     time.Now().UTC().Format(time.RFC3339),
+				SourceRefs: doneIssueSourceRefs(item.SourceRefs, cfg, issue, reason, marks),
+			}
+			if id := doneIssueID(done); id != "" && seenDone[id] {
+				continue
+			}
+			if id := doneIssueID(done); id != "" {
+				seenDone[id] = true
+			}
+			items = append(items, done)
 		}
-		if id := doneIssueID(done); id != "" && seenDone[id] {
-			continue
-		}
-		if id := doneIssueID(done); id != "" {
-			seenDone[id] = true
-		}
-		items = append(items, done)
 	}
 
 	logger.Debug("resolved done jira issues", "count", len(items))
@@ -440,13 +441,14 @@ func activeJiraIssueRefs(tasks []protocol.Task) map[string]bool {
 	return active
 }
 
-func jiraIssueSourceRef(task protocol.Task) (protocol.SourceRef, bool) {
-	for _, sourceRef := range task.SourceRefs {
-		if sourceRef.Role == protocol.SourceRefRoleAuthoritative && sourceRef.Source == "jira" && sourceRef.Kind == "issue" {
-			return sourceRef, true
+func jiraIssueSourceRefs(task protocol.Task) []protocol.SourceRef {
+	var refs []protocol.SourceRef
+	for _, ref := range task.SourceRefs {
+		if ref.Role == protocol.SourceRefRoleAuthoritative && ref.Source == "jira" && ref.Kind == "issue" {
+			refs = append(refs, ref)
 		}
 	}
-	return protocol.SourceRef{}, false
+	return refs
 }
 
 func issueKeyFromSourceRefID(id string) (string, bool) {
@@ -471,14 +473,15 @@ func keepTodaysDoneIssues(items []protocol.Task, previous []protocol.Task) []pro
 		if item.Attention != "done" || !isToday(item.DoneAt) || !hasSource(item, "jira") {
 			continue
 		}
-		id := doneIssueID(item)
-		if id != "" && seen[id] {
-			continue
+		for _, ref := range jiraIssueSourceRefs(item) {
+			if (ref.Signal != "" && ref.Signal != "done") || seen[ref.ID] {
+				continue
+			}
+			done := item
+			done.SourceRefs = []protocol.SourceRef{ref}
+			seen[ref.ID] = true
+			items = append(items, done)
 		}
-		if id != "" {
-			seen[id] = true
-		}
-		items = append(items, item)
 	}
 	return items
 }

@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"radar/internal/integration"
@@ -28,6 +29,7 @@ func TestInformationalIssueSourceRefContract(t *testing.T) {
 
 func TestCollectFetchesUnassignedTitleReferenceAsInformational(t *testing.T) {
 	var requests []searchRequest
+	var requestsMu sync.Mutex
 	server := jiraSourceServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/search/jql" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -36,7 +38,9 @@ func TestCollectFetchesUnassignedTitleReferenceAsInformational(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatal(err)
 		}
+		requestsMu.Lock()
 		requests = append(requests, request)
+		requestsMu.Unlock()
 		if strings.HasPrefix(request.JQL, "key IN") {
 			_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("XYZ-7", "Epic", "Open")}})
 			return
@@ -60,6 +64,8 @@ func TestCollectFetchesUnassignedTitleReferenceAsInformational(t *testing.T) {
 	if got.Ref.Metadata["issue_type"] != "Epic" || got.Ref.EntityID != "jira:issue:XYZ-7" {
 		t.Fatalf("reference = %+v", got.Ref)
 	}
+	requestsMu.Lock()
+	defer requestsMu.Unlock()
 	if len(requests) != 2 || !containsJQL(requests, `key IN ("XYZ-7")`) {
 		t.Fatalf("requests = %+v", requests)
 	}
@@ -95,12 +101,15 @@ func TestCollectMakesConfiguredTitleReferenceAuthoritative(t *testing.T) {
 
 func TestCollectDeduplicatesAssignedTitleReference(t *testing.T) {
 	var requests []searchRequest
+	var requestsMu sync.Mutex
 	server := jiraSourceServer(t, func(w http.ResponseWriter, r *http.Request) {
 		var request searchRequest
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatal(err)
 		}
+		requestsMu.Lock()
 		requests = append(requests, request)
+		requestsMu.Unlock()
 		_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("XYZ-7", "Task", "Open")}})
 	})
 	defer server.Close()
@@ -110,6 +119,8 @@ func TestCollectDeduplicatesAssignedTitleReference(t *testing.T) {
 	if len(result.Observations) != 1 || result.Observations[0].TargetTaskID != 5 {
 		t.Fatalf("observations = %+v", result.Observations)
 	}
+	requestsMu.Lock()
+	defer requestsMu.Unlock()
 	if len(requests) != 2 || !containsJQL(requests, `key IN ("XYZ-7")`) {
 		t.Fatalf("requests = %+v, want assigned and batched title searches", requests)
 	}

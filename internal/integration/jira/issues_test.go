@@ -11,7 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"radar/internal/integration"
 	"radar/internal/integration/contracttest"
@@ -263,4 +265,53 @@ func TestResolveDoneIssuesMarksMissingDoneIssueDone(t *testing.T) {
 
 func basicAuth(user string, password string) string {
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+password))
+}
+
+func TestResolveDoneIssuesChecksEveryMissingIssueInGroupedTask(t *testing.T) {
+	var checked []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := strings.TrimPrefix(r.URL.Path, "/issue/")
+		checked = append(checked, key)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(jiraDoneIssue(key))
+	}))
+	defer server.Close()
+	t.Setenv("RADAR_JIRA_API_BASE_URL", server.URL)
+	t.Setenv("RADAR_JIRA_BASE_URL", server.URL)
+	t.Setenv("RADAR_JIRA_EMAIL", "radar@example.test")
+	t.Setenv("RADAR_JIRA_API_TOKEN", "token")
+	var refs []protocol.SourceRef
+	for _, key := range []string{"ABC-1", "ABC-2", "ABC-3"} {
+		ref := sourceRefFromIssue(Config{BaseURL: server.URL}, jiraIssueWithStatus(key, "In Progress"))
+		ref.Signal = "in_progress"
+		refs = append(refs, ref)
+	}
+	refs[0].Signal = "done"
+	previous := []protocol.Task{{ID: 1, Attention: "in_progress", SourceRefs: refs}}
+	items := ResolveDoneIssues(context.Background(), previous, nil, true, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if !slices.Equal(checked, []string{"ABC-2", "ABC-3"}) || len(items) != 2 {
+		t.Fatalf("checked=%v items=%+v, want both missing non-terminal issues resolved", checked, items)
+	}
+}
+
+func TestDoneAuthoredTaskRetainsOnlyCompletedJiraRefs(t *testing.T) {
+	primary := protocol.SourceRef{ID: "obsidian:task:1", Source: "obsidian", Signal: "done"}
+	first := sourceRefFromIssue(Config{}, jiraDoneIssue("ABC-1"))
+	first.Signal = "done"
+	second := sourceRefFromIssue(Config{}, jiraDoneIssue("ABC-2"))
+	second.Signal = "done"
+	active := sourceRefFromIssue(Config{}, jiraIssueWithStatus("ABC-3", "In Progress"))
+	active.Signal = "in_progress"
+	previous := []protocol.Task{{Attention: "done", DoneAt: time.Now().UTC().Format(time.RFC3339), SourceRefs: []protocol.SourceRef{primary, first, second, active}}}
+	observations := NewSource().Reconcile(context.Background(), integration.ReconcileRequest{
+		Previous: previous, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if len(observations) != 2 {
+		t.Fatalf("observations = %+v", observations)
+	}
+	for i, want := range []string{first.ID, second.ID} {
+		if observations[i].Ref.ID != want || observations[i].Ref.Source != "jira" || observations[i].Signal != integration.SignalDone {
+			t.Fatalf("observation = %+v, want only completed Jira ref %s", observations[i], want)
+		}
+	}
 }

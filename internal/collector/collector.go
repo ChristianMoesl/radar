@@ -24,6 +24,7 @@ type Result struct {
 	Tasks       []protocol.Task
 	Sources     []protocol.SourceStatus
 	SourceNames []string
+	Complete    map[string]bool
 }
 
 func LocalSources(sources []integration.Source) []integration.Source {
@@ -60,7 +61,11 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger,
 		collected.Observations = append(collected.Observations, reconciled...)
 		logger.Debug("source reconciliation finished", "source", name, "duration", time.Since(started), "observations", len(reconciled))
 	}
-	return Result{Tasks: deduplicateReconciledTasks(observedTasks(collected)), Sources: collected.Sources, SourceNames: collected.SourceNames}
+	complete := make(map[string]bool, len(collected.Results))
+	for name, result := range collected.Results {
+		complete[name] = result.Complete
+	}
+	return Result{Tasks: deduplicateReconciledTasks(observedTasks(collected)), Sources: collected.Sources, SourceNames: collected.SourceNames, Complete: complete}
 }
 
 func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Result {

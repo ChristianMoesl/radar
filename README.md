@@ -283,7 +283,11 @@ radar task priority <task-id> urgent
 radar task priority <task-id> normal
 ```
 
-The note filename owns the title, while its frontmatter owns open/done state, normal/urgent priority, and timestamps. The body owns working notes and outcomes. Radar projects those facts with live Jira, GitHub, Git, tmux, and SBX activity. An open normal note is low priority, urgent is immediate, linked activity can promote open work, and a done note remains terminal. Press `n`, `d`, and `p` for the same operations in the TUI, or `o` to open the note in Obsidian.
+The note filename owns the title, while its frontmatter owns open/done state, normal/urgent priority, and timestamps. The body owns working notes and outcomes. Radar projects those facts with live Jira, GitHub, Git, tmux, and SBX activity. An open normal note is low priority, urgent is immediate, linked activity can promote open work, and a done note remains terminal. After a successful full refresh, Radar automatically completes an open note when all linked authoritative contributing work items are confirmed done. At least one such work item is required; informational refs and local resources do not decide completion. Press `n`, `d`, and `p` for the same operations in the TUI, or `o` to open the note in Obsidian.
+
+Automatic completion writes `radar-state: done` and `radar-completed-at` to the canonical note, preserving its body and unrelated frontmatter. Radar also maintains an optional `radar-completion-baseline` field. This records already-completed remote work, not a user configuration switch. Explicit reopening sets it to `pending`; the next successful full refresh records the completed work without closing the note. Subsequent active work or newly linked work can lead to automatic completion again. This protection survives daemon restarts and cache resets. Manual completion remains terminal even with active remote work.
+
+Notes without `radar-completion-baseline` need no migration. Radar adds it when a lifecycle mutation needs it. Failed or incomplete source collection cannot trigger automatic completion, and a failed note write leaves the task open with an Obsidian source error. Local-only refreshes do not run automatic completion.
 
 Obsidian notes are task records rather than workspaces. Activating an Obsidian task prefills a note-only workspace draft; repositories are optional. Adding a note to an existing Jira or GitHub workspace preserves its original association and Pi session identity. The note becomes the primary owner of task title, priority, and completion. Radar preserves unknown frontmatter and the complete note body during atomic mutations and never deletes task notes. See [the Obsidian integration contract](docs/integrations/obsidian.md) for the schema and failure behavior.
 
@@ -361,7 +365,7 @@ RADAR_JIRA_CLOUD_ID="..."
 
 Names are trimmed and matched case-insensitively. An explicitly empty array skips assigned Jira search and makes every automatically title-discovered issue informational. Omitting the option uses the three default types. The former `jira.issue_types` option is not supported.
 
-Authoritative Jira refs can provide the task title, identity, attention, linking, and contributing lifecycle. An out-of-scope title discovery is shown as an informational **Jira reference** with its URL, status, issue type, priority, and status category, but it cannot rename, merge, reprioritize, complete, or reopen the task. Removing a key from all current title-bearing facts removes its derived reference on a complete refresh. When a Jira ref joins an Obsidian-authored task, Obsidian remains the primary lifecycle owner.
+Authoritative Jira refs can provide the task title, identity, attention, linking, and contributing lifecycle. An out-of-scope title discovery is shown as an informational **Jira reference** with its URL, status, issue type, priority, and status category, but it cannot rename, merge, reprioritize, complete, or reopen the task. Removing a key from all current title-bearing facts removes its derived reference on a complete refresh. When a Jira ref joins an Obsidian-authored task, Obsidian remains the primary lifecycle owner. Confirmed completion of all contributing work items is written back to that note before Radar projects it as done.
 
 Every distinct key in a title is collected in deterministic title order, with up to 50 keys fetched through one batched Jira search per refresh. Radar runs that batch concurrently with the assigned-issue search and deduplicates their results. Informational refs remain independent; all authoritative refs participate in linking and lifecycle, the first authoritative key supplies the Jira title, and completion requires every authoritative remote ref to be done. A failed batch or requested keys missing from its result are non-fatal, retain previously known refs, and are reported in Jira source status.
 
@@ -494,7 +498,7 @@ Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the 
 
 The daemon stores rebuildable task records and source-ref observations locally. Task records provide cache-local numeric IDs, lifecycle projection, source-ref ownership, and acknowledgements. Obsidian notes—not this cache—own authored task content and lifecycle.
 
-Radar groups work by linking mark, source-owned identity, and workspace keys. A primary lifecycle ref controls completion when present; otherwise contributing work-item refs retain their combined lifecycle behavior.
+Radar groups work by linking mark, source-owned identity, and workspace keys. A primary lifecycle ref controls the projected lifecycle when present. Full refreshes write confirmed completion of all contributing work items back to an open authored task through its source provider. Without a primary, contributing work-item refs retain their combined lifecycle behavior.
 
 Use `radar reset` to discard collected observations and rebuild them from integrations. Acknowledgements may be retained. An incompatible state version is intentionally discarded and recollected; malformed state still fails closed.
 

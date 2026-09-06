@@ -3,6 +3,7 @@ package obsidian
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"radar/internal/config"
@@ -22,6 +24,8 @@ import (
 
 const OpenAction = "obsidian_open"
 
+var mutationMu sync.Mutex
+
 var validID = regexp.MustCompile(`^(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$`)
 
 type Source struct {
@@ -29,15 +33,16 @@ type Source struct {
 }
 
 type note struct {
-	ID          string
-	Title       string
-	State       string
-	Priority    string
-	CreatedAt   string
-	CompletedAt string
-	Path        string
-	content     string
-	fields      map[string]int
+	ID                 string
+	Title              string
+	State              string
+	Priority           string
+	CreatedAt          string
+	CompletedAt        string
+	CompletionBaseline string
+	Path               string
+	content            string
+	fields             map[string]int
 }
 
 type discoveredNote struct {
@@ -262,6 +267,8 @@ func parseNote(content string) (note, error) {
 			current.CreatedAt = value
 		case "radar-completed-at":
 			current.CompletedAt = value
+		case "radar-completion-baseline":
+			current.CompletionBaseline = value
 		}
 	}
 	if end < 0 {
@@ -293,6 +300,9 @@ func parseNote(content string) (note, error) {
 	if current.State == "open" && current.CompletedAt != "" {
 		return current, fmt.Errorf("radar-completed-at must be empty when radar-state is open")
 	}
+	if value := current.CompletionBaseline; value != "" && value != "pending" && !validCompletionBaseline.MatchString(value) {
+		return current, fmt.Errorf("invalid radar-completion-baseline %q", value)
+	}
 	return current, nil
 }
 
@@ -318,6 +328,7 @@ func observationsFor(vault string, current note) []integration.Observation {
 		"radar_id": current.ID, "note_path": current.Path, "task_directory": filepath.Dir(current.Path),
 		"state": current.State, "priority": current.Priority, "created_at": current.CreatedAt,
 		"completed_at": current.CompletedAt,
+		"content_hash": fmt.Sprintf("%x", sha256.Sum256([]byte(current.content))),
 	}
 	signal := integration.SignalLowPriority
 	if current.State == "done" {
@@ -382,7 +393,7 @@ func (s Source) SetLifecycle(_ context.Context, ref protocol.SourceRef, state st
 	if state != "open" && state != "done" {
 		return integration.AuthoredTaskIdentity{}, fmt.Errorf("unsupported Obsidian lifecycle %q", state)
 	}
-	updates := map[string]string{"radar-state": state, "radar-completed-at": ""}
+	updates := map[string]string{"radar-state": state, "radar-completed-at": "", "radar-completion-baseline": "pending"}
 	if state == "done" {
 		updates["radar-completed-at"] = "__now_if_empty__"
 	}
@@ -397,29 +408,47 @@ func (s Source) SetPriority(_ context.Context, ref protocol.SourceRef, priority 
 }
 
 func (s Source) mutate(ref protocol.SourceRef, updates map[string]string) (integration.AuthoredTaskIdentity, error) {
-	if ref.Source != "obsidian" || ref.Kind != "task" || ref.Authority != protocol.SourceRefAuthorityPrimary {
-		return integration.AuthoredTaskIdentity{}, fmt.Errorf("source ref %q is not an Obsidian-authored task", ref.ID)
-	}
-	vault, err := s.configuredVault()
+	_, err := s.mutateNote(ref, func(note) (map[string]string, error) { return updates, nil })
 	if err != nil {
 		return integration.AuthoredTaskIdentity{}, err
 	}
+	return integration.AuthoredTaskIdentity{SourceRefID: ref.ID}, nil
+}
+
+func (s Source) mutateNote(ref protocol.SourceRef, update func(note) (map[string]string, error)) (note, error) {
+	mutationMu.Lock()
+	defer mutationMu.Unlock()
+
+	if ref.Source != "obsidian" || ref.Kind != "task" || ref.Authority != protocol.SourceRefAuthorityPrimary {
+		return note{}, fmt.Errorf("source ref %q is not an Obsidian-authored task", ref.ID)
+	}
+	vault, err := s.configuredVault()
+	if err != nil {
+		return note{}, err
+	}
 	path := strings.TrimSpace(ref.Metadata["note_path"])
 	if path == "" {
-		return integration.AuthoredTaskIdentity{}, fmt.Errorf("Obsidian task ref %q has no note path", ref.ID)
+		return note{}, fmt.Errorf("Obsidian task ref %q has no note path", ref.ID)
 	}
 	if !validManagedNotePath(vault, path) {
-		return integration.AuthoredTaskIdentity{}, fmt.Errorf("Obsidian task note is outside the managed task root: %s", path)
+		return note{}, fmt.Errorf("Obsidian task note is outside the managed task root: %s", path)
 	}
 	current, err := readNote(path)
 	if err != nil {
-		return integration.AuthoredTaskIdentity{}, fmt.Errorf("validate Obsidian task note %s: %w", path, err)
+		return note{}, fmt.Errorf("validate Obsidian task note %s: %w", path, err)
 	}
 	if !strings.HasSuffix(filepath.Base(filepath.Dir(path)), "--"+shortID(current.ID)) {
-		return integration.AuthoredTaskIdentity{}, fmt.Errorf("Obsidian task note is outside its stable task directory: %s", path)
+		return note{}, fmt.Errorf("Obsidian task note is outside its stable task directory: %s", path)
 	}
 	if ref.ID != "obsidian:task:"+current.ID || (ref.Metadata["radar_id"] != "" && ref.Metadata["radar_id"] != current.ID) {
-		return integration.AuthoredTaskIdentity{}, fmt.Errorf("Obsidian task identity changed at %s", path)
+		return note{}, fmt.Errorf("Obsidian task identity changed at %s", path)
+	}
+	updates, err := update(current)
+	if err != nil {
+		return note{}, err
+	}
+	if len(updates) == 0 {
+		return current, nil
 	}
 	if updates["radar-completed-at"] == "__now_if_empty__" {
 		updates["radar-completed-at"] = current.CompletedAt
@@ -431,7 +460,16 @@ func (s Source) mutate(ref protocol.SourceRef, updates map[string]string) (integ
 	for field, value := range updates {
 		index, ok := current.fields[field]
 		if !ok {
-			return integration.AuthoredTaskIdentity{}, fmt.Errorf("managed field %s is missing from %s", field, path)
+			if field != "radar-completion-baseline" {
+				return note{}, fmt.Errorf("managed field %s is missing from %s", field, path)
+			}
+			// Optional lifecycle bookkeeping is inserted without touching the body
+			// or requiring edits to existing notes.
+			index = 1
+			for strings.TrimSpace(lines[index]) != "---" {
+				index++
+			}
+			lines = append(lines[:index], append([]string{""}, lines[index:]...)...)
 		}
 		lines[index] = field + ": " + value
 		if value == "" {
@@ -439,17 +477,19 @@ func (s Source) mutate(ref protocol.SourceRef, updates map[string]string) (integ
 		}
 	}
 	content := strings.Join(lines, "\n")
-	if _, err := parseNote(content); err != nil {
-		return integration.AuthoredTaskIdentity{}, fmt.Errorf("updated Obsidian task note is invalid: %w", err)
+	updated, err := parseNote(content)
+	if err != nil {
+		return note{}, fmt.Errorf("updated Obsidian task note is invalid: %w", err)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return integration.AuthoredTaskIdentity{}, err
+		return note{}, err
 	}
 	if err := atomicWrite(path, []byte(content), info.Mode().Perm()); err != nil {
-		return integration.AuthoredTaskIdentity{}, err
+		return note{}, err
 	}
-	return integration.AuthoredTaskIdentity{SourceRefID: ref.ID}, nil
+	updated.Path, updated.Title = current.Path, current.Title
+	return updated, nil
 }
 
 func atomicCreate(path string, data []byte, mode os.FileMode) error {

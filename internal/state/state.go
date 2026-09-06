@@ -335,6 +335,35 @@ func (s *Store) Tasks() []protocol.Task {
 	return items
 }
 
+// CollectionTasks includes retained work items even when they disappeared from
+// collection. Providers must still resolve them, and missing active work must
+// not silently stop blocking automatic completion of an authored task.
+func (s *Store) CollectionTasks() []protocol.Task {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]protocol.Task, len(s.items))
+	byTaskID := map[int]int{}
+	for i, task := range s.items {
+		items[i] = cloneTask(task)
+		byTaskID[task.ID] = i
+	}
+	byRecord := map[string]int{}
+	for _, record := range s.state.Records {
+		if i, ok := byTaskID[record.NumericID]; ok {
+			byRecord[record.ID] = i
+		}
+	}
+	for _, ref := range s.state.SourceRefs {
+		i, ok := byRecord[ref.TaskRecordID]
+		if !ok || ref.Active || !ref.Snapshot.RetainInactive || !authoritativeRef(ref.Snapshot) || ref.Snapshot.Lifecycle != protocol.SourceRefLifecycleWorkItem {
+			continue
+		}
+		items[i].SourceRefs = mergeSourceRefs(items[i].SourceRefs, cloneSourceRefs([]protocol.SourceRef{ref.Snapshot}))
+	}
+	return items
+}
+
 func (s *Store) SetSources(sources []protocol.SourceStatus) {
 	s.mu.Lock()
 	s.state.Sources = make([]protocol.SourceStatus, len(sources))

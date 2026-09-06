@@ -702,9 +702,8 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 			store.SetTasksForSources(result.Tasks, result.SourceNames)
 			store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
 		} else {
-			result = collector.Collect(ctx, previous, logger, integrations.Sources())
-			store.SetTasks(result.Tasks)
-			store.SetSources(result.Sources)
+			result = collector.Collect(ctx, store.CollectionTasks(), logger, integrations.Sources())
+			applyFullCollection(ctx, store, &result, integrations, logger)
 		}
 		var gcNotification *protocol.GarbageCollectionResult
 		if time.Since(lastWorkspaceGC) >= time.Hour {
@@ -737,6 +736,14 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 		notifyActionableTransitions(ctx, previous, current, logger, integrations, notificationService)
 		logger.Debug("refresh finished", "scope", scope, "tasks", len(result.Tasks), "sources", len(result.Sources))
 	}
+}
+
+func applyFullCollection(ctx context.Context, store *state.Store, result *collector.Result, integrations integration.Registry, logger *slog.Logger) {
+	store.SetTasks(result.Tasks)
+	if collector.CompleteAuthoredTasks(ctx, store.CollectionTasks(), result, integrations.Sources(), logger) {
+		store.SetTasks(result.Tasks)
+	}
+	store.SetSources(result.Sources)
 }
 
 func localRefresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry) func() {
@@ -835,8 +842,7 @@ func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *
 			return nil
 		}
 		result := collector.Collect(ctx, nil, logger, integrations.Sources())
-		store.SetTasks(result.Tasks)
-		store.SetSources(result.Sources)
+		applyFullCollection(ctx, store, &result, integrations, logger)
 		logger.Debug("reset finished", "tasks", len(result.Tasks), "sources", len(result.Sources))
 		return nil
 	}

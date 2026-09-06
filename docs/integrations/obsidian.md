@@ -57,7 +57,13 @@ A valid note emits one authoritative `obsidian:task:<radar-id>` ref with:
 - an `obsidian://open` URL for the nested note path
 - canonical note and task-directory metadata
 
-The note owns task completion. Supporting GitHub, Git, tmux, Pi, or SBX activity can promote an open task's attention, but cannot complete it or reopen a done note.
+The note owns the projected lifecycle. A successful full refresh automatically completes an open note when every linked authoritative contributing work item is confirmed done. At least one contributor is required. Informational refs and Git, tmux, Pi, or SBX resources do not decide completion. They can promote an open task's attention, but cannot reopen a done note.
+
+Automatic completion writes `radar-state: done` and `radar-completed-at` before returning a done observation. A failed write or a note edited since collection leaves the cached task open and reports an Obsidian source error. Missing unresolved remote refs and incomplete collections block automatic completion; previously confirmed terminal refs remain valid.
+
+Radar maintains optional `radar-completion-baseline` bookkeeping in frontmatter. A manual lifecycle change sets it to `pending`. After reopening, the next successful full refresh replaces that marker with a SHA-256 hash of the sorted completed contributor IDs, joined with newlines, without closing the note. When active work is observed, Radar updates the baseline. Completion becomes eligible again when all contributors are done and their completed set differs from the baseline. Automatic completion also saves the baseline, so directly reopening that note preserves the same protection. Neither restart nor cache reset discards it. Manual completion remains terminal.
+
+The baseline is not a configuration option. It is absent from new notes until a lifecycle mutation needs it, so existing notes require no migration and keep their bodies and unrelated frontmatter unchanged.
 
 ## Planning workspaces
 
@@ -80,7 +86,7 @@ Source status is:
 
 - `ok` when every discovered task directory and note is valid
 - `partial` when a task directory is malformed, duplicated, unreadable, or missing its note
-- `error` when configuration, the vault, or `Tasks/` cannot be used
+- `error` when configuration, the vault, or `Tasks/` cannot be used, or automatic lifecycle persistence fails
 
 Valid tasks remain available during partial collection. Radar preserves previous observations for known failed notes. Status details include paths and validation reasons, never note contents.
 
