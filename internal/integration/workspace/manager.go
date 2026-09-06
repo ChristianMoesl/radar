@@ -42,6 +42,10 @@ func (Source) RepositoryBranches(ctx context.Context, repository string) ([]stri
 	return branches, warning, nil
 }
 
+func (Source) BranchName(workspaceName string) string {
+	return BranchName(workspaceName)
+}
+
 func (Source) SessionName(repositoryName, workspaceName string) string {
 	return SessionName(repositoryName, workspaceName)
 }

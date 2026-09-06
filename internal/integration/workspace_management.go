@@ -23,6 +23,7 @@ type WorkspaceCatalog interface {
 type ManagedWorkspaceLifecycle interface {
 	PrepareWorkspaceNote(ctx context.Context, title string) (DesiredWorkspaceNote, error)
 	PreviewCreate(ctx context.Context, req ManagedWorkspaceRequest) (WorkspaceReconcilePlan, error)
+	BranchName(workspaceName string) string
 	SessionName(repositoryName, workspaceName string) string
 	OpenWorkspace(ctx context.Context, path string, switchClient bool) (Workspace, error)
 	CreateWorkspace(ctx context.Context, req ManagedWorkspaceRequest) (Workspace, error)

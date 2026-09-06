@@ -172,3 +172,101 @@ func TestWorkspaceNoteReusesSelectedTasksAuthoredNote(t *testing.T) {
 		t.Fatal("existing authored note was not reused")
 	}
 }
+
+func TestWorkspaceNewBranchPrefill(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		draftName string
+		state     integration.WorkspaceState
+		want      string
+	}{
+		{name: "manual workspace", draftName: "Fix login", want: "Fix-login"},
+		{name: "task workspace", draftName: "ABC-123 Fix login", want: "ABC-123-Fix-login"},
+		{name: "existing workspace", draftName: "Ignored draft", state: integration.WorkspaceState{Path: "/work/plan", Name: "Existing plan"}, want: "Existing-plan"},
+		{name: "punctuation", draftName: " Fix: login / redirect! ", want: "Fix-login-redirect"},
+		{name: "reserved name", draftName: "HEAD", want: "workspace-HEAD"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := model{mode: "workspace_edit", editor: workspaceEditor{active: true, state: tc.state, create: integration.ManagedWorkspaceRequest{Name: tc.draftName}}}
+			m = selectNewWorkspaceRepository(t, m, "/repos/app")
+			if m.create.name != tc.want || !strings.Contains(m.View(), tc.want) {
+				t.Fatalf("branch = %q, want visible suggestion %q", m.create.name, tc.want)
+			}
+			updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			got := updated.(model)
+			if cmd != nil || got.err != nil || got.mode != "workspace_edit" || len(got.editor.desired.Worktrees) != 1 {
+				t.Fatalf("submit = mode %q, error %v, draft %+v", got.mode, got.err, got.editor.desired)
+			}
+			if got.editor.desired.Worktrees[0].Name != tc.want || got.editor.create.Name != tc.draftName || got.editor.state.Name != tc.state.Name {
+				t.Fatal("branch suggestion was not staged independently of workspace name")
+			}
+		})
+	}
+}
+
+func selectNewWorkspaceRepository(t *testing.T, m model, repo string) model {
+	t.Helper()
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = updated.(model)
+	if cmd == nil || m.mode != "create_repo" {
+		t.Fatal("add repository did not open repository picker")
+	}
+	updated, _ = m.Update(reposMsg{repos: []string{repo}})
+	updated, _ = updated.(model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = updated.(model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = updated.(model).Update(branchesMsg{branches: []string{"origin/main"}})
+	updated, cmd = updated.(model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd != nil || m.mode != "create_name" || m.create.base != "origin/main" {
+		t.Fatalf("new branch step = mode %q, form %+v", m.mode, m.create)
+	}
+	return m
+}
+
+func TestWorkspaceBranchPrefillKeepsEditsAndClearing(t *testing.T) {
+	m := selectNewWorkspaceRepository(t, editorModel(), "/repos/api")
+	for m.create.name != "" {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		m = updated.(model)
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd != nil || m.err == nil || m.mode != "create_name" || m.create.name != "" {
+		t.Fatal("cleared field was refilled or accepted")
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("custom-branch")})
+	updated, _ = updated.(model).Update(branchesMsg{branches: []string{"origin/main", "origin/other"}})
+	updated, cmd = updated.(model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd != nil || m.err != nil || m.editor.desired.Worktrees[1].Name != "custom-branch" || m.editor.state.Name != "Plan" {
+		t.Fatal("manual branch edit was not preserved independently of workspace name")
+	}
+	m = selectNewWorkspaceRepository(t, m, "/repos/web")
+	if m.create.name != "Plan" {
+		t.Fatalf("next repository inherited previous override: %q", m.create.name)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = selectNewWorkspaceRepository(t, updated.(model), "/repos/web")
+	if m.create.name != "Plan" {
+		t.Fatal("new addition after cancellation did not prefill")
+	}
+}
+
+func TestWorkspaceBranchPrefillDoesNotChangeExistingBranchSelection(t *testing.T) {
+	m := editorModel()
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	updated, _ = updated.(model).Update(reposMsg{repos: []string{"/repos/api"}})
+	updated, _ = updated.(model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = updated.(model).Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = updated.(model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = updated.(model).Update(branchesMsg{branches: []string{"origin/release"}})
+	updated, cmd := updated.(model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd != nil || m.err != nil || m.mode != "workspace_edit" || len(m.editor.desired.Worktrees) != 2 {
+		t.Fatalf("existing branch selection failed: mode %q, error %v", m.mode, m.err)
+	}
+	member := m.editor.desired.Worktrees[1]
+	if member.BranchMode != integration.WorkspaceBranchExisting || member.Branch != "release" || member.Name != "" {
+		t.Fatalf("suggestion changed existing branch selection: %+v", member)
+	}
+}

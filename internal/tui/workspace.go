@@ -153,7 +153,17 @@ func (m model) updateWorkspace(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.editor.cursor--
 		}
 	case "a":
+		manager, err := app.DefaultIntegrations().WorkspaceManager()
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
 		m.create = newCreateForm()
+		name := m.editor.create.Name
+		if m.editor.state.Path != "" {
+			name = m.editor.state.Name
+		}
+		m.create.name = manager.BranchName(name)
 		m.mode, m.err, m.message = "create_repo", nil, ""
 		return m, m.loadRepos()
 	case "x":

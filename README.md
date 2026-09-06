@@ -112,7 +112,7 @@ bind-key F display-popup -E "radar fork"
 | <kbd>r</kbd> | Refresh sources |
 | <kbd>q</kbd> / <kbd>Esc</kbd> | Quit |
 
-The workspace editor starts with a name and a draft. Add an optional note and zero or more repositories, then review the complete change plan before applying it. Press `w` to edit an existing workspace, `a` to add a repository, `x` to remove the selected repository, and `n` to add a note. Repository addition uses repository search and branch selection. It tries to refresh origin before listing branches. If that fetch fails, Radar shows a warning and continues with locally cached refs, so previously fetched branches remain available offline. Repository paths are shortened to `~/...` when they are inside your home directory.
+The workspace editor starts with a name and a draft. Add an optional note and zero or more repositories, then review the complete change plan before applying it. Press `w` to edit an existing workspace, `a` to add a repository, `x` to remove the selected repository, and `n` to add a note. Repository addition uses repository search and branch selection. New branch names are prefilled once from the workspace name using Radar's branch-name sanitization. You can edit or clear the suggestion without changing the workspace name; Radar does not overwrite your edits. Each added repository starts with its own suggestion. It tries to refresh origin before listing branches. If that fetch fails, Radar shows a warning and continues with locally cached refs, so previously fetched branches remain available offline. Repository paths are shortened to `~/...` when they are inside your home directory.
 
 ## Workspaces
 
