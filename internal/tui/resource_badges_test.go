@@ -26,16 +26,23 @@ func resourceBadgeFixture() protocol.Task {
 	}
 }
 
+func TestResourceBadgesUseEmoji(t *testing.T) {
+	got := ansi.Strip(taskResourceBadges(resourceBadgeFixture()))
+	if want := "🌿 2 🐳 1 📟 1 📝 1 ⚠️ dirty"; got != want {
+		t.Fatalf("badges = %q, want %q", got, want)
+	}
+}
+
 func TestTaskResourceBadges(t *testing.T) {
 	for _, cursor := range []int{0, 1} {
 		m := model{cursor: cursor, tasks: []protocol.Task{resourceBadgeFixture(), {Title: "Other", Attention: "attention"}}}
 		view := ansi.Strip(m.taskList(140, 20))
-		for _, want := range []string{"● busy  Resource badges", gitWorktreeIcon + " 2  " + sandboxIcon + " 1  " + tmuxIcon + " 1", dirtyIcon + " dirty", "jira:issue:ABC-123", "github:pr:owner/repo:42", "obsidian:task:note"} {
+		for _, want := range []string{"● busy  Resource badges", gitWorktreeIcon + " 2 " + sandboxIcon + " 1 " + tmuxIcon + " 1", dirtyIcon + " dirty", "jira:issue:ABC-123", "github:pr:owner/repo:42", obsidianIcon + " 1"} {
 			if !strings.Contains(view, want) {
 				t.Fatalf("cursor %d: missing %q:\n%s", cursor, want, view)
 			}
 		}
-		for _, hidden := range []string{"git:worktree:", "sbx:sandbox:", "tmux:session:", "ahead 1"} {
+		for _, hidden := range []string{"git:worktree:", "sbx:sandbox:", "tmux:session:", "obsidian:task:", "ahead 1"} {
 			if strings.Contains(view, hidden) {
 				t.Fatalf("overview contains %q:\n%s", hidden, view)
 			}
@@ -104,13 +111,31 @@ func TestResourceBadgesOmitZeroCountsAndKeepOtherKinds(t *testing.T) {
 	}
 }
 
+func TestObsidianOnlyTaskUsesNoteBadge(t *testing.T) {
+	m := model{tasks: []protocol.Task{{
+		Title: "Draft release notes", Attention: "attention",
+		SourceRefs: []protocol.SourceRef{
+			{ID: "obsidian:task:one", Source: "obsidian", Kind: "task"},
+			{ID: "obsidian:task:two", Source: "obsidian", Kind: "task"},
+		},
+	}}}
+	view := ansi.Strip(m.taskList(100, 20))
+	if !strings.Contains(view, "Draft release notes  📝 2") || strings.Contains(view, "↳") {
+		t.Fatalf("unexpected note-only task rendering:\n%s", view)
+	}
+	_, count := m.taskRowPositions()
+	if count != 2 {
+		t.Fatalf("note-only task occupies %d rows including header, want 2", count)
+	}
+}
+
 func TestResourceBadgesStayVisibleOnNarrowRows(t *testing.T) {
 	task := resourceBadgeFixture()
 	task.Title = strings.Repeat("Long title 界 ", 20)
 	for _, width := range []int{60, 80, 100} {
 		m := model{tasks: []protocol.Task{task}}
 		view := ansi.Strip(m.taskList(width, 20))
-		for _, want := range []string{gitWorktreeIcon + " 2", sandboxIcon + " 1", tmuxIcon + " 1", dirtyIcon + " dirty", "● busy"} {
+		for _, want := range []string{gitWorktreeIcon + " 2", sandboxIcon + " 1", tmuxIcon + " 1", obsidianIcon + " 1", dirtyIcon + " dirty", "● busy"} {
 			if !strings.Contains(strings.Split(view, "\n")[1], want) {
 				t.Fatalf("width %d: task row missing %q:\n%s", width, want, view)
 			}

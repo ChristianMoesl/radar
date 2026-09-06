@@ -2160,12 +2160,12 @@ func taskLine(task protocol.Task, selected bool, width int) string {
 	return title + "  " + badges
 }
 
-// Nerd Fonts: dev-git, dev-docker, dev-tmux, fa-warning.
 const (
-	gitWorktreeIcon = "\ue702"
-	sandboxIcon     = "\ue7b0"
-	tmuxIcon        = "\ue94c"
-	dirtyIcon       = "\uf071"
+	gitWorktreeIcon = "🌿"
+	sandboxIcon     = "🐳"
+	tmuxIcon        = "📟"
+	obsidianIcon    = "📝"
+	dirtyIcon       = "⚠️"
 )
 
 func resourceIcon(ref protocol.SourceRef) string {
@@ -2176,6 +2176,8 @@ func resourceIcon(ref protocol.SourceRef) string {
 		return sandboxIcon
 	case ref.Source == "tmux" && ref.Kind == "session":
 		return tmuxIcon
+	case ref.Source == "obsidian" && ref.Kind == "task":
+		return obsidianIcon
 	default:
 		return ""
 	}
@@ -2206,7 +2208,7 @@ func taskResourceBadges(task protocol.Task) string {
 		}
 	}
 	var badges []string
-	for _, icon := range []string{gitWorktreeIcon, sandboxIcon, tmuxIcon} {
+	for _, icon := range []string{gitWorktreeIcon, sandboxIcon, tmuxIcon, obsidianIcon} {
 		if count := counts[icon]; count > 0 {
 			badges = append(badges, fmt.Sprintf("%s %d", icon, count))
 		}
@@ -2214,7 +2216,7 @@ func taskResourceBadges(task protocol.Task) string {
 	if dirty {
 		badges = append(badges, attentionStyle.Render(dirtyIcon+" dirty"))
 	}
-	return strings.Join(badges, "  ")
+	return strings.Join(badges, " ")
 }
 
 func displayTaskReason(task protocol.Task) string {
