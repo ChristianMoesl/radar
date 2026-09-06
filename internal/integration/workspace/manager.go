@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"radar/internal/config"
@@ -50,12 +51,20 @@ func (Source) OpenWorkspace(ctx context.Context, path string, switchClient bool)
 	return integrationWorkspace(created), err
 }
 
-func (Source) CreateWorkspace(ctx context.Context, req integration.ManagedWorkspaceRequest) (integration.Workspace, error) {
+func (s Source) PrepareWorkspaceNote(ctx context.Context, title string) (integration.DesiredWorkspaceNote, error) {
+	if s.noteAuthor == nil {
+		return integration.DesiredWorkspaceNote{}, fmt.Errorf("note authoring is unavailable")
+	}
+	return s.noteAuthor.PrepareWorkspaceNote(ctx, title)
+}
+
+func (s Source) createOptions(req integration.ManagedWorkspaceRequest) (CreateOptions, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return integration.Workspace{}, err
+		return CreateOptions{}, err
 	}
-	created, err := Create(ctx, ExecRunner{}, CreateOptions{
+	desired := reconcileRequest(integration.WorkspaceReconcileRequest{Desired: integration.DesiredWorkspaceDescription{Note: req.Note, Worktrees: req.Worktrees}}).Desired
+	return CreateOptions{
 		Repo: req.Repo, BranchMode: req.BranchMode, Name: req.Name, Branch: req.Branch,
 		Base: req.Base, Path: req.Path, SessionName: req.SessionName, WorkspaceRoot: req.WorkspaceRoot,
 		Model: cfg.Model, Thinking: cfg.Thinking, Sandbox: cfg.SBX.Enabled,
@@ -63,7 +72,25 @@ func (Source) CreateWorkspace(ctx context.Context, req integration.ManagedWorksp
 		AdditionalSandboxMounts: cfg.SBX.AdditionalMounts, Tmux: cfg.Tmux,
 		Switch: req.Switch, ForkPiSession: req.ForkPiSession,
 		TaskLinkingKey: req.TaskLinkingKey, NotePath: req.NotePath,
-	})
+		Note: desired.Note, Worktrees: desired.Worktrees, NoteAuthor: s.noteAuthor, ExpectedPlanID: req.ExpectedPlanID,
+	}, nil
+}
+
+func (s Source) PreviewCreate(ctx context.Context, req integration.ManagedWorkspaceRequest) (integration.WorkspaceReconcilePlan, error) {
+	options, err := s.createOptions(req)
+	if err != nil {
+		return integration.WorkspaceReconcilePlan{}, err
+	}
+	plan, _, err := planCreate(ctx, ExecRunner{}, options)
+	return integrationPlan(plan), err
+}
+
+func (s Source) CreateWorkspace(ctx context.Context, req integration.ManagedWorkspaceRequest) (integration.Workspace, error) {
+	options, err := s.createOptions(req)
+	if err != nil {
+		return integration.Workspace{}, err
+	}
+	created, err := Create(ctx, ExecRunner{}, options)
 	return integrationWorkspace(created), err
 }
 
@@ -82,14 +109,45 @@ func (Source) CreateSession(ctx context.Context, req integration.CreateSessionRe
 	return integrationWorkspace(created), err
 }
 
-func (Source) PreviewReconcile(ctx context.Context, req integration.WorkspaceReconcileRequest) (integration.WorkspaceReconcilePlan, error) {
-	plan, err := PreviewReconcileWorkspace(ctx, ExecRunner{}, reconcileRequest(req))
+func (s Source) PreviewReconcile(ctx context.Context, req integration.WorkspaceReconcileRequest) (integration.WorkspaceReconcilePlan, error) {
+	request := reconcileRequest(req)
+	request.NoteAuthor = s.noteAuthor
+	plan, err := PreviewReconcileWorkspace(ctx, ExecRunner{}, request)
 	return integrationPlan(plan), err
 }
 
-func (Source) ApplyReconcile(ctx context.Context, logger *slog.Logger, req integration.WorkspaceReconcileRequest) (integration.WorkspaceReconcileResult, error) {
-	result, err := ApplyReconcileWorkspace(ctx, ExecRunner{}, logger, reconcileRequest(req))
+func (s Source) ApplyReconcile(ctx context.Context, logger *slog.Logger, req integration.WorkspaceReconcileRequest) (integration.WorkspaceReconcileResult, error) {
+	request := reconcileRequest(req)
+	request.NoteAuthor = s.noteAuthor
+	result, err := ApplyReconcileWorkspace(ctx, ExecRunner{}, logger, request)
 	return integrationResult(result), err
+}
+
+func (Source) WorkspaceState(ctx context.Context, currentDirectory string) (integration.WorkspaceState, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return integration.WorkspaceState{}, err
+	}
+	inspected, err := InspectWorkspace(ctx, ExecRunner{}, currentDirectory, ExpandPath(cfg.Workspace.RootDir))
+	if err != nil {
+		return integration.WorkspaceState{}, err
+	}
+	state := integration.WorkspaceState{
+		ID: inspected.WorkspaceID, Name: inspected.WorkspaceName, Path: inspected.WorkspacePath,
+		Revision: inspected.Revision, Desired: integrationDesired(inspected.Desired),
+		Members:      make([]integration.WorkspaceStateMember, 0, len(inspected.Members)),
+		Repositories: make([]string, 0, len(inspected.Repositories)),
+	}
+	if inspected.Note != nil {
+		state.Note = &integration.DesiredWorkspaceNote{Path: inspected.Note.Path, LinkingKey: inspected.Note.LinkingKey}
+	}
+	for _, member := range inspected.Members {
+		state.Members = append(state.Members, integration.WorkspaceStateMember{Repository: member.Repository, Path: member.Path, Branch: member.Branch, Dirty: member.Dirty})
+	}
+	for _, repository := range inspected.Repositories {
+		state.Repositories = append(state.Repositories, repository.Path)
+	}
+	return state, nil
 }
 
 func (Source) ReconcileErrorDetails(err error) (integration.WorkspaceReconcileError, bool) {
@@ -138,12 +196,45 @@ func reconcileRequest(req integration.WorkspaceReconcileRequest) ReconcileWorksp
 		}
 		sandbox = &DesiredWorkspaceSandbox{AdditionalMounts: mounts, Ports: ports}
 	}
+	var note *DesiredWorkspaceNote
+	if req.Desired.Note != nil {
+		value := *req.Desired.Note
+		note = &value
+	}
 	return ReconcileWorkspaceRequest{
 		Workspace: req.Workspace, WorkspaceRoot: req.WorkspaceRoot,
 		AdditionalSandboxMounts: req.AdditionalSandboxMounts,
 		ExpectedPlanID:          req.ExpectedPlanID, ExpectedPlanChangeCount: req.ExpectedPlanChangeCount,
-		Revision: req.Revision, Desired: DesiredWorkspaceDescription{Worktrees: worktrees, Sandbox: sandbox},
+		Revision: req.Revision, Desired: DesiredWorkspaceDescription{Note: note, Worktrees: worktrees, Sandbox: sandbox},
 	}
+}
+
+func integrationDesired(value DesiredWorkspaceDescription) integration.DesiredWorkspaceDescription {
+	worktrees := make([]integration.DesiredWorkspaceWorktree, 0, len(value.Worktrees))
+	for _, worktree := range value.Worktrees {
+		worktrees = append(worktrees, integration.DesiredWorkspaceWorktree{
+			Repository: worktree.Repository, BranchMode: worktree.BranchMode,
+			Name: worktree.Name, Branch: worktree.Branch, Base: worktree.Base,
+		})
+	}
+	var note *integration.DesiredWorkspaceNote
+	if value.Note != nil {
+		copy := *value.Note
+		note = &copy
+	}
+	var sandbox *integration.DesiredWorkspaceSandbox
+	if value.Sandbox != nil {
+		mounts := make([]integration.DesiredSandboxMount, 0, len(value.Sandbox.AdditionalMounts))
+		for _, mount := range value.Sandbox.AdditionalMounts {
+			mounts = append(mounts, integration.DesiredSandboxMount{Path: mount.Path, ReadOnly: mount.ReadOnly})
+		}
+		ports := make([]integration.SandboxPort, 0, len(value.Sandbox.Ports))
+		for _, port := range value.Sandbox.Ports {
+			ports = append(ports, integration.SandboxPort{HostPort: port.HostPort, SandboxPort: port.SandboxPort})
+		}
+		sandbox = &integration.DesiredWorkspaceSandbox{AdditionalMounts: mounts, Ports: ports}
+	}
+	return integration.DesiredWorkspaceDescription{Note: note, Worktrees: worktrees, Sandbox: sandbox}
 }
 
 func integrationPlan(value ReconcileWorkspacePlan) integration.WorkspaceReconcilePlan {
@@ -165,7 +256,7 @@ func integrationPlan(value ReconcileWorkspacePlan) integration.WorkspaceReconcil
 
 func integrationResult(value ReconcileWorkspaceResult) integration.WorkspaceReconcileResult {
 	result := integration.WorkspaceReconcileResult{
-		OK: value.OK, WorkspaceID: value.WorkspaceID, Revision: value.Revision,
+		OK: value.OK, NoteAdded: value.NoteAdded, WorkspaceID: value.WorkspaceID, Revision: value.Revision,
 		WorktreesAdded: value.WorktreesAdded, WorktreesRemoved: value.WorktreesRemoved,
 		SandboxReconciled: value.SandboxReconciled, MountsAdded: value.MountsAdded,
 		MountsRemoved: value.MountsRemoved, PortsPublished: value.PortsPublished,

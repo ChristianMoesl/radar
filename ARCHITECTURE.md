@@ -217,7 +217,9 @@ A managed Radar workspace is a stable anchor directory with zero or more nested 
 
 The local `workspace` source emits one no-signal workspace ref per registered anchor. It links through the clean anchor path, `workspace-group:<id>`, and the persisted task key. Registered Git members emit the group and task keys but do not provide a competing logical workspace. Unmanaged external Git worktrees continue to provide their own paths.
 
-Obsidian activation creates a note-only anchor with `notes.md` as an absolute symlink to the canonical note in its private task directory. Git-first creation creates an anchor and its first nested member in one operation. Reconciliation can add or remove any member, including the first or last. Dirty checks, branch publication warnings, protected branches, and complete desired-state replacement semantics remain unchanged.
+Obsidian activation prefills a note-only workspace draft. After confirmation, Radar creates a note-only anchor with `notes.md` as an absolute symlink to the canonical note in its private task directory. Git-first creation uses the same resource planner and apply engine as note-only creation and later edits. It supports several initial members or none. Reconciliation can add or remove any member, including the first or last. Dirty checks, branch publication warnings, protected branches, and complete desired-state replacement semantics remain unchanged.
+
+The optional `note_linking_key` adds an authored note to a workspace without replacing its original `task_linking_key` or Pi session identity. A note can be attached but never detached or replaced through normal controls. Obsidian prepares stable note identities before preview and writes empty canonical notes only during apply.
 
 SBX uses the anchor as its primary workspace. Radar adds the private note directory, distinct external Git common directories, configured mounts, and requested mounts. Nested worktrees need no separate mount because the anchor already contains them. Effective mount changes recreate SBX and may interrupt processes, while failed recreation never rolls back completed filesystem or Git changes.
 
@@ -229,7 +231,7 @@ Cleanup runs tmux, SBX, Git, then Workspace providers. The final provider remove
 
 ## Terminal UI
 
-The Bubble Tea TUI is the default interface. It reads cached daemon state, groups tasks by attention, shows source details, switches tmux sessions, opens task URLs, edits config, refreshes state, and launches step-by-step workspace creation.
+The Bubble Tea TUI is the default interface. It reads cached daemon state, groups tasks by attention, shows source details, switches tmux sessions, opens task URLs, edits config, refreshes state, and provides a workspace draft editor for creation and modification. `c` starts a new draft; `w` edits the selected task's workspace. Repository pickers only stage changes. One preview and confirmation applies the draft through workspace reconciliation.
 
 ## Logging
 

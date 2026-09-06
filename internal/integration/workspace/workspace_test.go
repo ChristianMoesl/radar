@@ -76,6 +76,9 @@ func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...str
 	if name == "git" && len(args) > 3 && args[0] == "worktree" && args[1] == "add" {
 		return "", os.MkdirAll(args[2], 0o755)
 	}
+	if name == "sbx" && len(args) > 0 && args[0] == "ports" {
+		return "[]", nil
+	}
 	if name == "sbx" && strings.Join(args, " ") == "ls --json" {
 		if f.sbxListOutput != "" {
 			return f.sbxListOutput, nil
@@ -154,7 +157,7 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	assertCalledContains(t, runner.calls, "tmux", "RADAR_BINARY=")
 	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workspace.SessionName)
 	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+":")
-	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+": -d -n setup -c "+memberPath+" -P -F #{window_id} #{pane_id}")
+	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+": -d -n setup-"+filepath.Base(repo)+" -c "+memberPath+" -P -F #{window_id} #{pane_id}")
 	assertSetupWindowIsDetached(t, runner.calls)
 	assertCalled(t, runner.calls, "tmux", "set-option -p -t %1 remain-on-exit off")
 	assertCalledContains(t, runner.calls, "tmux", "send-keys -l -t %1 sh -lc 'pnpm install --frozen-lockfile' && exit")
@@ -162,7 +165,7 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	assertNotCalledContains(t, runner.calls, "tmux", "kill-window")
 	assertCallOrder(t, runner.calls,
 		call{name: "tmux", args: []string{"select-pane", "-t"}},
-		call{name: "tmux", args: []string{"new-window", "-t", workspace.SessionName + ":", "-d", "-n", "setup"}},
+		call{name: "tmux", args: []string{"new-window", "-t", workspace.SessionName + ":", "-d", "-n", "setup-" + filepath.Base(repo)}},
 	)
 	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
 }
@@ -456,7 +459,7 @@ func TestCreateSchedulesSetupInsideConfiguredSandbox(t *testing.T) {
 	assertNotCalledContains(t, runner.calls, "sbx", "exec")
 	assertNotCalled(t, runner.calls, "sh")
 	memberPath := registeredMemberPath(t, root, created.Path)
-	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+created.SessionName+": -d -n setup -c "+memberPath+" -P -F #{window_id} #{pane_id} sbx exec -it --workdir '"+memberPath+"' '"+created.SandboxName+"' sh -i")
+	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+created.SessionName+": -d -n setup-"+filepath.Base(repo)+" -c "+memberPath+" -P -F #{window_id} #{pane_id} sbx exec -it --workdir '"+memberPath+"' '"+created.SandboxName+"' sh -i")
 	assertSetupWindowIsDetached(t, runner.calls)
 	assertCalled(t, runner.calls, "tmux", "set-option -p -t %1 remain-on-exit off")
 	assertCalledContains(t, runner.calls, "tmux", "send-keys -l -t %1 sh -lc 'pnpm install --frozen-lockfile' && sh -lc 'pnpm build' && exit")

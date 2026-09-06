@@ -102,6 +102,10 @@ func commandError(name string, args []string, output []byte, err error) error {
 }
 
 type CreateOptions struct {
+	Worktrees               []DesiredWorkspaceWorktree
+	Note                    *DesiredWorkspaceNote
+	NoteAuthor              integration.WorkspaceNoteAuthor
+	ExpectedPlanID          string
 	Repo                    string
 	BranchMode              integration.WorkspaceBranchMode
 	Name                    string
@@ -151,249 +155,6 @@ type CreateSessionOptions struct {
 	Switch                  bool
 }
 
-func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
-	if strings.TrimSpace(options.Repo) == "" {
-		return createNoteWorkspace(ctx, runner, options)
-	}
-	for _, dependency := range []string{"git", "tmux"} {
-		if err := runner.LookPath(dependency); err != nil {
-			return Workspace{}, fmt.Errorf("workspace creation requires %q: %w", dependency, err)
-		}
-	}
-	if err := pi.ValidateThinking(options.Thinking); err != nil {
-		return Workspace{}, err
-	}
-	if err := sessionlayout.Validate(options.Tmux); err != nil {
-		return Workspace{}, err
-	}
-	root, err := workspaceRoot(options.WorkspaceRoot)
-	if err != nil {
-		return Workspace{}, err
-	}
-	repository, err := canonicalRepository(ctx, runner, options.Repo)
-	if err != nil {
-		return Workspace{}, err
-	}
-	name := strings.TrimSpace(options.Name)
-	branch := normalizeExistingBranch(options.Branch)
-	if options.BranchMode == integration.WorkspaceBranchExisting && name == "" {
-		name = branch
-	}
-	if options.BranchMode == integration.WorkspaceBranchNew {
-		if name == "" {
-			return Workspace{}, fmt.Errorf("new branch name is required")
-		}
-		if branch == "" {
-			branch = BranchName(name)
-		}
-	}
-	if existing, found, err := existingWorkspaceForTask(root, options.TaskLinkingKey); err != nil {
-		return Workspace{}, err
-	} else if found {
-		return openRegisteredWorkspace(ctx, runner, root, existing, options, repository, branch)
-	}
-	if existing, _, found, err := existingWorkspaceForMember(root, repository, branch); err != nil {
-		return Workspace{}, err
-	} else if found {
-		if err := validateTaskLink(existing.Path, existing.TaskLinkingKey, options.TaskLinkingKey); err != nil {
-			return Workspace{}, err
-		}
-		return openRegisteredWorkspace(ctx, runner, root, existing, options, repository, branch)
-	}
-
-	anchor := strings.TrimSpace(options.Path)
-	if anchor == "" {
-		anchor, err = workspaceAnchorPath(root, name, options.TaskLinkingKey)
-	} else {
-		anchor, err = filepath.Abs(anchor)
-	}
-	if err != nil {
-		return Workspace{}, err
-	}
-	anchor = filepath.Clean(anchor)
-	if !isWorkspacePath(anchor, root) {
-		return Workspace{}, fmt.Errorf("workspace anchor must be a direct child of %s", root)
-	}
-	destination := filepath.Join(anchor, WorktreeDirectoryName(repository, branch))
-	plan, err := PlanWorktree(ctx, runner, WorktreeOptions{
-		Repo: repository, BranchMode: options.BranchMode, Name: name, Branch: options.Branch,
-		Base: options.Base, Path: destination, WorkspaceRoot: anchor,
-	})
-	if err != nil {
-		return Workspace{}, err
-	}
-	sandbox := workspaceSandboxConfig(plan.RepoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.AdditionalSandboxMounts)
-	if err := validateSandboxDependencies(runner, sandbox.Enabled); err != nil {
-		return Workspace{}, err
-	}
-	if err := createAnchorDirectory(root, anchor); err != nil {
-		return Workspace{}, err
-	}
-	if options.NotePath != "" {
-		if err := ensureNoteLink(anchor, options.NotePath); err != nil {
-			removeEmptyAnchor(anchor)
-			return Workspace{}, err
-		}
-	}
-	prepared, err := EnsureWorktree(ctx, runner, plan)
-	if err != nil {
-		removeManagedNoteLink(anchor)
-		removeEmptyAnchor(anchor)
-		return Workspace{}, err
-	}
-
-	sessionName := strings.TrimSpace(options.SessionName)
-	if sessionName == "" {
-		sessionName = SessionName(filepath.Base(repository), name)
-	}
-	sandboxName := ""
-	if sandbox.Enabled {
-		sandboxName = SandboxName(filepath.Base(repository), name)
-	}
-	model := options.Model
-	if strings.TrimSpace(plan.RepoConfig.Model) != "" {
-		model = plan.RepoConfig.Model
-	}
-	thinking := options.Thinking
-	if strings.TrimSpace(plan.RepoConfig.Thinking) != "" {
-		thinking = plan.RepoConfig.Thinking
-	}
-	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(anchor), Name: name, Path: anchor, SessionName: sessionName,
-		TaskLinkingKey: strings.TrimSpace(options.TaskLinkingKey), NotePath: cleanOptionalAbsolutePath(options.NotePath),
-		Model: strings.TrimSpace(model), Thinking: strings.TrimSpace(thinking), Tmux: options.Tmux,
-		Members: []workspacegroup.Member{{Repository: plan.Repo, Path: plan.Path, Branch: plan.Branch}},
-	}
-	if sandbox.Enabled {
-		group.Sandbox = &workspacegroup.Sandbox{Name: sandboxName, Agent: sandbox.Kit.Name, KitPath: ExpandPath(sandbox.Kit.Path), AdditionalMounts: []workspacegroup.SandboxMount{}, Ports: []workspacegroup.SandboxPort{}}
-		mounts, mountErr := desiredReconciledSandboxMounts(ctx, runner, group, nil, options.AdditionalSandboxMounts, nil)
-		if mountErr != nil {
-			rollbackCreatedWorktree(ctx, runner, prepared, anchor)
-			return Workspace{}, mountErr
-		}
-		group.Sandbox.Mounts = mounts
-	}
-	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, options.ForkPiSession)
-	if err != nil {
-		rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
-		rollbackCreatedWorktree(ctx, runner, prepared, anchor)
-		return Workspace{}, err
-	}
-	setupScheduled := len(plan.RepoConfig.Setup) == 0
-	warning := ""
-	if err := scheduleSetupCommandsNamed(ctx, runner, plan.Path, sessionName, sandboxName, "setup", plan.RepoConfig.Setup); err != nil {
-		warning = fmt.Sprintf("workspace setup could not be started: %v", err)
-	} else {
-		setupScheduled = true
-	}
-	group.Members[0].SetupScheduled = setupScheduled
-	if err := registerWorkspace(root, group); err != nil {
-		rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
-		rollbackCreatedWorktree(ctx, runner, prepared, anchor)
-		return Workspace{}, err
-	}
-	if options.Switch {
-		if _, err := runner.Run(ctx, anchor, "tmux", "switch-client", "-t", sessionName); err != nil {
-			return Workspace{}, err
-		}
-	}
-	return Workspace{Name: name, Branch: plan.Branch, Base: plan.Base, Repo: plan.Repo, Path: anchor, SessionName: sessionName, SandboxName: sandboxName, Warning: warning}, nil
-}
-
-func createNoteWorkspace(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
-	if strings.TrimSpace(options.NotePath) == "" {
-		return Workspace{}, fmt.Errorf("workspace repository or note path is required")
-	}
-	if strings.TrimSpace(options.TaskLinkingKey) == "" {
-		return Workspace{}, fmt.Errorf("note workspace task linking key is required")
-	}
-	if err := runner.LookPath("tmux"); err != nil {
-		return Workspace{}, fmt.Errorf("workspace creation requires %q: %w", "tmux", err)
-	}
-	if err := pi.ValidateThinking(options.Thinking); err != nil {
-		return Workspace{}, err
-	}
-	if err := sessionlayout.Validate(options.Tmux); err != nil {
-		return Workspace{}, err
-	}
-	root, err := workspaceRoot(options.WorkspaceRoot)
-	if err != nil {
-		return Workspace{}, err
-	}
-	name := strings.TrimSpace(options.Name)
-	if name == "" {
-		name = strings.TrimSuffix(filepath.Base(options.NotePath), filepath.Ext(options.NotePath))
-	}
-	if existing, found, err := existingWorkspaceForTask(root, options.TaskLinkingKey); err != nil {
-		return Workspace{}, err
-	} else if found {
-		return openRegisteredWorkspace(ctx, runner, root, existing, options, "", "")
-	}
-	anchor := strings.TrimSpace(options.Path)
-	if anchor == "" {
-		anchor, err = workspaceAnchorPath(root, name, options.TaskLinkingKey)
-	} else {
-		anchor, err = filepath.Abs(anchor)
-	}
-	if err != nil {
-		return Workspace{}, err
-	}
-	anchor = filepath.Clean(anchor)
-	if !isWorkspacePath(anchor, root) {
-		return Workspace{}, fmt.Errorf("workspace anchor must be a direct child of %s", root)
-	}
-	sandbox := workspaceSandboxConfig(RepoConfig{}, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.AdditionalSandboxMounts)
-	if err := validateSandboxDependencies(runner, sandbox.Enabled); err != nil {
-		return Workspace{}, err
-	}
-	if err := createAnchorDirectory(root, anchor); err != nil {
-		return Workspace{}, err
-	}
-	if err := ensureNoteLink(anchor, options.NotePath); err != nil {
-		removeEmptyAnchor(anchor)
-		return Workspace{}, err
-	}
-	sessionName := strings.TrimSpace(options.SessionName)
-	if sessionName == "" {
-		sessionName = WorktreeName(name)
-	}
-	group := workspacegroup.Workspace{
-		ID: workspacegroup.ID(anchor), Name: name, Path: anchor, SessionName: sessionName,
-		TaskLinkingKey: strings.TrimSpace(options.TaskLinkingKey), NotePath: cleanOptionalAbsolutePath(options.NotePath),
-		Model: strings.TrimSpace(options.Model), Thinking: strings.TrimSpace(options.Thinking), Tmux: options.Tmux,
-		Members: []workspacegroup.Member{},
-	}
-	if sandbox.Enabled {
-		group.Sandbox = &workspacegroup.Sandbox{Name: SandboxName("workspace", name), Agent: sandbox.Kit.Name, KitPath: ExpandPath(sandbox.Kit.Path), AdditionalMounts: []workspacegroup.SandboxMount{}, Ports: []workspacegroup.SandboxPort{}}
-		mounts, mountErr := desiredReconciledSandboxMounts(ctx, runner, group, nil, options.AdditionalSandboxMounts, nil)
-		if mountErr != nil {
-			removeManagedNoteLink(anchor)
-			removeEmptyAnchor(anchor)
-			return Workspace{}, mountErr
-		}
-		group.Sandbox.Mounts = mounts
-	}
-	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, "")
-	if err != nil {
-		rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
-		removeManagedNoteLink(anchor)
-		removeEmptyAnchor(anchor)
-		return Workspace{}, err
-	}
-	if err := registerWorkspace(root, group); err != nil {
-		rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
-		removeManagedNoteLink(anchor)
-		removeEmptyAnchor(anchor)
-		return Workspace{}, err
-	}
-	if options.Switch {
-		if _, err := runner.Run(ctx, anchor, "tmux", "switch-client", "-t", sessionName); err != nil {
-			return Workspace{}, err
-		}
-	}
-	return Workspace{Name: name, Path: anchor, SessionName: sessionName, SandboxName: sandboxName(group)}, nil
-}
-
 func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string, switchClient bool) (Workspace, error) {
 	_, group, found, err := RegisteredWorkspace(current, "")
 	if err != nil {
@@ -416,17 +177,19 @@ func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string,
 }
 
 func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, group workspacegroup.Workspace, options CreateOptions, repository, branch string) (Workspace, error) {
-	if options.NotePath != "" {
-		if err := ensureNoteLink(group.Path, options.NotePath); err != nil {
-			return Workspace{}, err
-		}
-		group.NotePath = cleanOptionalAbsolutePath(options.NotePath)
+	if options.NotePath != "" && group.NotePath != "" && !sameCleanPath(options.NotePath, group.NotePath) {
+		return Workspace{}, fmt.Errorf("workspace note cannot be replaced")
 	}
-	if options.TaskLinkingKey != "" {
+	if options.TaskLinkingKey != "" && options.TaskLinkingKey != group.NoteKey() {
 		if err := validateTaskLink(group.Path, group.TaskLinkingKey, options.TaskLinkingKey); err != nil {
 			return Workspace{}, err
 		}
+	}
+	if group.TaskLinkingKey == "" && group.NotePath == "" {
 		group.TaskLinkingKey = strings.TrimSpace(options.TaskLinkingKey)
+	}
+	if options.NotePath != "" && group.NotePath == "" {
+		return Workspace{}, fmt.Errorf("attach the note through workspace reconciliation")
 	}
 	if err := registerWorkspace(root, group); err != nil {
 		return Workspace{}, err
@@ -478,14 +241,6 @@ func rollbackWorkspaceRuntime(ctx context.Context, runner Runner, group workspac
 	if sandbox && group.Sandbox != nil {
 		_, _ = stopSandbox(ctx, runner, group.Path, group.Sandbox.Name)
 	}
-}
-
-func rollbackCreatedWorktree(ctx context.Context, runner Runner, prepared WorktreeResult, anchor string) {
-	if prepared.Created {
-		_, _ = runner.Run(ctx, prepared.Plan.Repo, "git", "worktree", "remove", "--force", prepared.Plan.Path)
-	}
-	removeManagedNoteLink(anchor)
-	removeEmptyAnchor(anchor)
 }
 
 func createAnchorDirectory(root, anchor string) error {
@@ -603,8 +358,8 @@ func RefreshWorkspaceNote(root string, group workspacegroup.Workspace) (workspac
 	if len(candidates) != 1 {
 		return group, fmt.Errorf("canonical task directory %s contains %d Markdown notes", directory, len(candidates))
 	}
-	expectedID := strings.TrimPrefix(group.TaskLinkingKey, "obsidian:task:")
-	if expectedID == group.TaskLinkingKey || expectedID == "" {
+	expectedID := strings.TrimPrefix(group.NoteKey(), "obsidian:task:")
+	if expectedID == group.NoteKey() || expectedID == "" {
 		return group, fmt.Errorf("workspace %s has no Obsidian task identity", group.Path)
 	}
 	data, err := os.ReadFile(candidates[0])
@@ -676,29 +431,6 @@ func workspaceSandboxConfig(repoConfig RepoConfig, enabled bool, kitName string,
 	}
 	settings.AdditionalMounts = append(settings.AdditionalMounts, repoConfig.SBX.AdditionalMounts...)
 	return settings
-}
-
-func openExistingWorkspace(ctx context.Context, runner Runner, workspace Workspace, options CreateOptions) (Workspace, error) {
-	created, err := CreateSessionWithOptions(ctx, runner, CreateSessionOptions{
-		Path:                    workspace.Path,
-		SessionName:             workspace.SessionName,
-		TaskLinkingKey:          options.TaskLinkingKey,
-		Model:                   options.Model,
-		Thinking:                options.Thinking,
-		Sandbox:                 options.Sandbox,
-		SandboxKitName:          options.SandboxKitName,
-		SandboxKitPath:          options.SandboxKitPath,
-		AdditionalSandboxMounts: options.AdditionalSandboxMounts,
-		SandboxName:             workspace.SandboxName,
-		Tmux:                    options.Tmux,
-		Switch:                  options.Switch,
-	})
-	if err != nil {
-		return Workspace{}, err
-	}
-	workspace.Path = created.Path
-	workspace.SessionName = created.SessionName
-	return workspace, nil
 }
 
 func normalizeExistingBranch(branch string) string {

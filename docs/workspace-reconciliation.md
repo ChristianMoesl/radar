@@ -39,12 +39,29 @@ The managed note link is named `notes.md`. Before upgrading an existing installa
 
 This change does not alter the registry schema or migrate existing links automatically. An old link left behind is unknown anchor content and blocks cleanup.
 
+## Manual workspace editor
+
+Press `w` on a task to edit its workspace, or `c` to create a new workspace. Both use a draft containing an optional note and zero or more Git worktrees. The editor uses the same planner as the CLI and agent tools.
+
+- `a`: add a repository and choose a new or existing branch.
+- `x`: stage removal of the selected worktree. Dirty worktrees are blocked.
+- `n`: stage an existing authored task note or prepare a new empty Obsidian note.
+- `Enter`: review the full plan, then confirm once with `y` or `Enter`.
+- `Esc`: return from confirmation or cancel the draft without applying it.
+
+Notes are one-way additions. Neither the editor nor reconciliation can replace or detach an attached note. The canonical file is never deleted. The preview warns that an added Obsidian note becomes the primary owner of task lifecycle and may require SBX recreation. Creating its private directory and note happens only during apply.
+
+The editor preserves requested mounts and ports. Its first version does not edit those resources or change sandbox enablement. Initial runtime settings use the first selected repository's overrides, if any; adding repositories to an existing workspace does not replace persisted runtime settings.
+
+Task activation prefills this editor from Obsidian, GitHub, or task metadata. `radar create`, fork, and activation all use the same resource planner and apply engine. Unmanaged external worktrees retain their direct session-opening behavior.
+
 ## Desired state
 
 ```json
 {
   "revision": "workspace-state-hash",
   "desired": {
+    "note": null,
     "worktrees": [
       {
         "repository": "/absolute/source/repository",
@@ -74,7 +91,9 @@ Worktrees, requested mounts, and ports use replacement semantics. Omitting a mem
 
 Members use repository-and-branch identity. One workspace may contain several repositories or several branches from one repository, while a repository-and-branch pair may belong to only one registered workspace.
 
-The note is not part of desired state. Radar owns `notes.md` and the canonical note association, so the agent cannot remove either through reconciliation.
+`note: null` leaves the current note unchanged. To attach an existing note, provide `{"path":"/absolute/canonical/note.md","linking_key":"obsidian:task:<uuid>"}`. The Obsidian provider validates the path and identity. Retaining an attached note uses the same object returned by workspace inspection. A different note is rejected. The manual editor can also prepare a new note with a stable identity and `create: true`; it is not written during preview.
+
+The original `task_linking_key` remains stable, including Pi session identity. An optional `note_linking_key` records a secondary authored-note association without replacing a Jira or GitHub task link. Notes that are already the workspace's task use that task key. This adds an optional registry field without changing existing records; it does not migrate or rename files. Do not run an older Radar binary after writing secondary note associations because it would not preserve the new field.
 
 ## Inspection
 
@@ -120,6 +139,10 @@ Changing the effective set removes and recreates the sandbox under the same name
 ## Pi resources
 
 The embedded Radar extension contributes member `.pi/skills/` and `.agents/skills/` paths, injects path-labelled repository instruction files with repository-only scope, and reloads resources after membership changes without losing conversation history. It reports additions, removals, duplicate skill names, and refresh failures. Member `.pi/settings.json`, extensions, prompts, and themes are not loaded.
+
+## Partial apply
+
+Creation registers the anchor before applying its resources. A failed apply keeps completed notes and worktrees. Inspect the workspace again and stage the remaining changes instead of blindly resubmitting the old draft. The editor discards a failed apply's stale draft and refreshes local task state. Sandbox and port failures remain retryable, and pending member setup can be retried through reconciliation.
 
 ## Cleanup
 

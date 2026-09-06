@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -19,19 +20,24 @@ import (
 )
 
 type ReconcileWorkspaceRequest struct {
-	Workspace               string                      `json:"-"`
-	WorkspaceRoot           string                      `json:"-"`
-	AdditionalSandboxMounts []string                    `json:"-"`
-	ExpectedPlanID          string                      `json:"-"`
-	ExpectedPlanChangeCount *int                        `json:"-"`
-	Revision                string                      `json:"revision"`
-	Desired                 DesiredWorkspaceDescription `json:"desired"`
+	creating                bool
+	NoteAuthor              integration.WorkspaceNoteAuthor `json:"-"`
+	Workspace               string                          `json:"-"`
+	WorkspaceRoot           string                          `json:"-"`
+	AdditionalSandboxMounts []string                        `json:"-"`
+	ExpectedPlanID          string                          `json:"-"`
+	ExpectedPlanChangeCount *int                            `json:"-"`
+	Revision                string                          `json:"revision"`
+	Desired                 DesiredWorkspaceDescription     `json:"desired"`
 }
 
 type DesiredWorkspaceDescription struct {
+	Note      *DesiredWorkspaceNote      `json:"note"`
 	Worktrees []DesiredWorkspaceWorktree `json:"worktrees"`
 	Sandbox   *DesiredWorkspaceSandbox   `json:"sandbox"`
 }
+
+type DesiredWorkspaceNote = integration.DesiredWorkspaceNote
 
 type DesiredWorkspaceWorktree struct {
 	Repository string                          `json:"repository"`
@@ -74,14 +80,20 @@ type ReconcileWorkspacePlan struct {
 	Changes             []WorkspaceChange `json:"changes"`
 	Warnings            []string          `json:"warnings,omitempty"`
 
-	root      string
-	group     workspacegroup.Workspace
-	additions []reconcileAddition
-	removals  []reconcileRemoval
+	root         string
+	group        workspacegroup.Workspace
+	additions    []reconcileAddition
+	removals     []reconcileRemoval
+	noteAdded    bool
+	create       bool
+	openExisting bool
+	startSession bool
+	forkSession  string
 }
 
 type ReconcileWorkspaceResult struct {
 	OK                bool                    `json:"ok"`
+	NoteAdded         bool                    `json:"note_added,omitempty"`
 	WorkspaceID       string                  `json:"workspace_id"`
 	Revision          string                  `json:"revision,omitempty"`
 	WorktreesAdded    int                     `json:"worktrees_added"`
@@ -134,6 +146,10 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 	if err != nil {
 		return ReconcileWorkspacePlan{}, err
 	}
+	return planWorkspace(ctx, runner, root, group, request)
+}
+
+func planWorkspace(ctx context.Context, runner Runner, root string, group workspacegroup.Workspace, request ReconcileWorkspaceRequest) (ReconcileWorkspacePlan, error) {
 	registry, err := workspacegroup.Load(root)
 	if err != nil {
 		return ReconcileWorkspacePlan{}, err
@@ -155,11 +171,55 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 			Message: fmt.Sprintf("workspace changed since it was inspected: expected revision %s, current revision is %s", request.Revision, revision),
 		}
 	}
+	candidate := group
+	if group.Sandbox != nil {
+		sandbox := *group.Sandbox
+		candidate.Sandbox = &sandbox
+	}
+	noteAdded := false
+	changes := []WorkspaceChange{}
+	if request.Desired.Note != nil {
+		desiredNote, err := normalizeDesiredWorkspaceNote(*request.Desired.Note)
+		if err != nil {
+			return ReconcileWorkspacePlan{}, err
+		}
+		if group.NotePath != "" {
+			currentKey := group.NoteKey()
+			if !sameCleanPath(group.NotePath, desiredNote.Path) || currentKey != desiredNote.LinkingKey {
+				return ReconcileWorkspacePlan{}, fmt.Errorf("workspace note cannot be replaced or detached")
+			}
+		} else {
+			if request.NoteAuthor != nil {
+				if err := request.NoteAuthor.ValidateWorkspaceNote(ctx, desiredNote); err != nil {
+					return ReconcileWorkspacePlan{}, err
+				}
+			} else if desiredNote.Create {
+				return ReconcileWorkspacePlan{}, fmt.Errorf("note creation is unavailable")
+			}
+			if err := validateWorkspaceNoteAddition(group.Path, desiredNote); err != nil {
+				return ReconcileWorkspacePlan{}, err
+			}
+			if owner, found := workspacegroup.FindByTaskLinkingKey(registry, desiredNote.LinkingKey); found && owner.ID != group.ID {
+				return ReconcileWorkspacePlan{}, fmt.Errorf("note already belongs to workspace %s", owner.Path)
+			}
+			candidate.NotePath = desiredNote.Path
+			candidate.NoteLinkingKey = desiredNote.LinkingKey
+			if candidate.NoteLinkingKey == candidate.TaskLinkingKey {
+				candidate.NoteLinkingKey = ""
+			}
+			noteAdded = true
+			action := "attach"
+			if desiredNote.Create {
+				action = "create and attach"
+			}
+			changes = append(changes, WorkspaceChange{Action: "add", Resource: "note", Path: desiredNote.Path, Summary: fmt.Sprintf("%s canonical note %s as notes.md", action, desiredNote.Path)})
+		}
+	}
+
 	existingByIdentity := make(map[string]workspacegroup.Member, len(group.Members))
 	for _, member := range group.Members {
 		existingByIdentity[workspaceMemberKey(member.Repository, member.Branch)] = member
 	}
-	candidate := group
 	candidate.Members = nil
 	additions := []reconcileAddition{}
 	desiredIdentities := map[string]bool{}
@@ -168,7 +228,7 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 	for _, desired := range request.Desired.Worktrees {
 		switch desired.BranchMode {
 		case integration.WorkspaceBranchNew:
-			if strings.TrimSpace(desired.Name) == "" || strings.TrimSpace(desired.Base) == "" || strings.TrimSpace(desired.Branch) != "" {
+			if strings.TrimSpace(desired.Name) == "" || strings.TrimSpace(desired.Base) == "" || (strings.TrimSpace(desired.Branch) != "" && !request.creating) {
 				return ReconcileWorkspacePlan{}, fmt.Errorf("new desired worktrees require name and base only")
 			}
 		case integration.WorkspaceBranchExisting:
@@ -184,7 +244,7 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 		}
 		repository = filepath.Clean(repository)
 		branch := normalizeExistingBranch(desired.Branch)
-		if desired.BranchMode == integration.WorkspaceBranchNew {
+		if desired.BranchMode == integration.WorkspaceBranchNew && branch == "" {
 			branch = BranchName(desired.Name)
 		}
 		identity := workspaceMemberKey(repository, branch)
@@ -266,7 +326,6 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 		return ReconcileWorkspacePlan{}, fmt.Errorf("sandbox attachment cannot be changed through workspace reconciliation")
 	}
 
-	changes := []WorkspaceChange{}
 	for _, addition := range additions {
 		changes = append(changes, WorkspaceChange{
 			Action: "add", Resource: "worktree", Repository: addition.plan.Repo,
@@ -346,11 +405,36 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 		}
 	}
 
+	startSession := false
+	for _, member := range candidate.Members {
+		if member.SetupScheduled {
+			continue
+		}
+		config, err := loadRepoConfig(member.Repository)
+		if err != nil {
+			return ReconcileWorkspacePlan{}, err
+		}
+		if len(config.Setup) == 0 {
+			continue
+		}
+		changes = append(changes, WorkspaceChange{Action: "setup", Resource: "worktree", Path: member.Path, Summary: "run repository setup for " + member.Path})
+		if group.SessionName != "" && !request.creating {
+			if _, err := runner.Run(ctx, group.Path, "tmux", "has-session", "-t", group.SessionName); err != nil {
+				startSession = true
+			}
+		}
+	}
+	if startSession {
+		changes = append(changes, WorkspaceChange{Action: "open", Resource: "session", Summary: "start workspace session for repository setup"})
+	}
 	nextRevision, err := workspaceRevision(candidate, sandboxPorts(candidate))
 	if err != nil {
 		return ReconcileWorkspacePlan{}, err
 	}
 	warnings := append([]string(nil), removalWarnings...)
+	if noteAdded {
+		warnings = append(warnings, "The Obsidian note will own task title, priority, and completion. It cannot be detached through workspace controls.")
+	}
 	if recreateSandbox {
 		warnings = append(warnings, "recreating the sandbox interrupts processes running inside it")
 		if effectiveMountCount >= largeEffectiveMountCount {
@@ -368,7 +452,7 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 		WorkspaceID: group.ID, WorkspaceName: group.Name, Revision: revision,
 		NextRevision: nextRevision, PlanID: planID, EffectiveMountCount: effectiveMountCount,
 		Changes: changes, Warnings: warnings,
-		root: root, group: candidate, additions: additions, removals: removals,
+		root: root, group: candidate, additions: additions, removals: removals, noteAdded: noteAdded, startSession: startSession,
 	}, nil
 }
 
@@ -395,6 +479,10 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 		}
 		return result, nil
 	}
+	return applyWorkspacePlan(ctx, runner, logger, request, plan)
+}
+
+func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger, request ReconcileWorkspaceRequest, plan ReconcileWorkspacePlan) (ReconcileWorkspaceResult, error) {
 	result := ReconcileWorkspaceResult{WorkspaceID: plan.WorkspaceID}
 	if logger != nil {
 		logger.Info("workspace reconciliation started",
@@ -402,14 +490,29 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 			"plan_id", plan.PlanID, "revision", plan.Revision, "change_count", len(plan.Changes),
 			"effective_mount_count", plan.EffectiveMountCount)
 	}
-	prepared := make([]WorktreeResult, 0, len(plan.additions))
+	if plan.noteAdded {
+		if request.Desired.Note.Create {
+			if err := request.NoteAuthor.EnsureWorkspaceNote(ctx, *request.Desired.Note); err != nil {
+				return result, err
+			}
+		}
+		if attachErr := ensureNoteLink(plan.group.Path, plan.group.NotePath); attachErr != nil {
+			logReconciliationFailure(logger, plan.WorkspaceID, "note", result, attachErr)
+			return result, attachErr
+		}
+		if persistErr := persistAddedNote(plan.root, plan.WorkspaceID, plan.group.NotePath, plan.group.NoteLinkingKey); persistErr != nil {
+			removeManagedNoteLink(plan.group.Path)
+			logReconciliationFailure(logger, plan.WorkspaceID, "registry", result, persistErr)
+			return result, persistErr
+		}
+		result.NoteAdded = true
+	}
 	for _, addition := range plan.additions {
-		created, createErr := EnsureWorktree(ctx, runner, addition.plan)
+		_, createErr := EnsureWorktree(ctx, runner, addition.plan)
 		if createErr != nil {
 			logReconciliationFailure(logger, plan.WorkspaceID, "worktrees", result, createErr)
 			return result, createErr
 		}
-		prepared = append(prepared, created)
 		memberIndex := memberIndexByPath(plan.group.Members, addition.plan.Path)
 		if memberIndex < 0 {
 			return result, fmt.Errorf("created worktree %s is missing from planned workspace members", addition.plan.Path)
@@ -443,12 +546,21 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 		return result, err
 	}
 
-	if plan.group.Sandbox != nil {
-		if err := reconcileSandbox(ctx, runner, plan.group, logger); err != nil {
+	if plan.create {
+		if _, _, err := startWorkspaceRuntime(ctx, runner, plan.group, plan.forkSession); err != nil {
 			result.Retryable = true
 			result.Error = err.Error()
-			logRetryableReconciliationFailure(logger, plan, "sandbox", result, err)
 			return result, nil
+		}
+	}
+	if plan.group.Sandbox != nil {
+		if !plan.create {
+			if err := reconcileSandbox(ctx, runner, plan.group, logger); err != nil {
+				result.Retryable = true
+				result.Error = err.Error()
+				logRetryableReconciliationFailure(logger, plan, "sandbox", result, err)
+				return result, nil
+			}
 		}
 		result.SandboxReconciled = true
 		for _, change := range plan.Changes {
@@ -479,15 +591,25 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 		result.SandboxReconciled = true
 	}
 
+	if plan.startSession && !plan.create {
+		if _, _, err := startWorkspaceRuntime(ctx, runner, plan.group, ""); err != nil {
+			result.Retryable = true
+			result.Error = err.Error()
+			return result, nil
+		}
+	}
 	warnings := []string{}
-	for index, addition := range plan.additions {
-		memberIndex := memberIndexByPath(plan.group.Members, addition.plan.Path)
-		if memberIndex < 0 || plan.group.Members[memberIndex].SetupScheduled {
+	for memberIndex, member := range plan.group.Members {
+		if member.SetupScheduled {
 			continue
 		}
-		commands := prepared[index].Plan.RepoConfig.Setup
-		if setupErr := scheduleMemberSetup(ctx, runner, addition.plan.Path, plan.group.SessionName, sandboxName(plan.group), filepath.Base(addition.plan.Repo), commands); setupErr != nil {
-			warnings = append(warnings, fmt.Sprintf("workspace setup for %s could not be started: %v", addition.plan.Path, setupErr))
+		config, configErr := loadRepoConfig(member.Repository)
+		if configErr != nil {
+			warnings = append(warnings, fmt.Sprintf("workspace setup for %s could not be read: %v", member.Path, configErr))
+			continue
+		}
+		if setupErr := scheduleMemberSetup(ctx, runner, member.Path, plan.group.SessionName, sandboxName(plan.group), filepath.Base(member.Repository), config.Setup); setupErr != nil {
+			warnings = append(warnings, fmt.Sprintf("workspace setup for %s could not be started: %v", member.Path, setupErr))
 			continue
 		}
 		plan.group.Members[memberIndex].SetupScheduled = true
@@ -523,6 +645,19 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 			"ports_published", result.PortsPublished, "ports_unpublished", result.PortsUnpublished)
 	}
 	return result, nil
+}
+
+func persistAddedNote(root, workspaceID, notePath, linkingKey string) error {
+	return workspacegroup.Update(root, func(registry *workspacegroup.Registry) error {
+		group, found := workspacegroup.FindByID(*registry, workspaceID)
+		if !found {
+			return fmt.Errorf("workspace %s disappeared while attaching its note", workspaceID)
+		}
+		group.NotePath = notePath
+		group.NoteLinkingKey = linkingKey
+		workspacegroup.Put(registry, group)
+		return nil
+	})
 }
 
 func persistAddedMember(root, workspaceID string, member workspacegroup.Member) error {
@@ -618,6 +753,39 @@ func resolveWorkspaceGroup(ctx context.Context, runner Runner, currentDirectory,
 	return root, current, group, nil
 }
 
+func normalizeDesiredWorkspaceNote(note DesiredWorkspaceNote) (DesiredWorkspaceNote, error) {
+	note.Path = strings.TrimSpace(note.Path)
+	note.LinkingKey = strings.TrimSpace(note.LinkingKey)
+	if note.Path == "" || !filepath.IsAbs(note.Path) {
+		return DesiredWorkspaceNote{}, fmt.Errorf("desired note requires an absolute path")
+	}
+	note.Path = filepath.Clean(note.Path)
+	prefix, _, found := strings.Cut(note.LinkingKey, ":")
+	if !found || strings.TrimSpace(prefix) == "" {
+		return DesiredWorkspaceNote{}, fmt.Errorf("desired note requires a source linking key")
+	}
+	return note, nil
+}
+
+func validateWorkspaceNoteAddition(anchor string, note DesiredWorkspaceNote) error {
+	info, err := os.Lstat(note.Path)
+	if os.IsNotExist(err) && note.Create {
+		// The note author validates the planned canonical path before apply.
+	} else if err != nil {
+		return fmt.Errorf("canonical task note %s: %w", note.Path, err)
+	}
+	if info != nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
+		return fmt.Errorf("canonical task note must be a regular file: %s", note.Path)
+	}
+	link := filepath.Join(anchor, "notes.md")
+	if _, err := os.Lstat(link); err == nil {
+		return fmt.Errorf("Radar managed note path is occupied: %s", link)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func workspaceMemberKey(repository, branch string) string {
 	return pathKey(repository) + "\x00" + strings.TrimSpace(branch)
 }
@@ -660,6 +828,7 @@ func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.Sa
 		Name           string                  `json:"name"`
 		Path           string                  `json:"path"`
 		NotePath       string                  `json:"note_path"`
+		NoteLinkingKey string                  `json:"note_linking_key"`
 		Model          string                  `json:"model"`
 		Thinking       string                  `json:"thinking"`
 		Tmux           sessionlayout.Config    `json:"tmux"`
@@ -673,7 +842,7 @@ func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.Sa
 		members[index].SetupScheduled = false
 	}
 	sort.Slice(members, func(i, j int) bool { return pathKey(members[i].Path) < pathKey(members[j].Path) })
-	state := revisionState{ID: group.ID, Name: group.Name, Path: group.Path, NotePath: group.NotePath, Model: group.Model, Thinking: group.Thinking, Tmux: group.Tmux, SessionName: group.SessionName, TaskLinkingKey: group.TaskLinkingKey, Members: members}
+	state := revisionState{ID: group.ID, Name: group.Name, Path: group.Path, NotePath: group.NotePath, NoteLinkingKey: group.NoteLinkingKey, Model: group.Model, Thinking: group.Thinking, Tmux: group.Tmux, SessionName: group.SessionName, TaskLinkingKey: group.TaskLinkingKey, Members: members}
 	if group.Sandbox != nil {
 		normalizedPorts, err := normalizeSandboxPorts(ports)
 		if err != nil {

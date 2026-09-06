@@ -106,12 +106,13 @@ bind-key F display-popup -E "radar fork"
 | <kbd>n</kbd> | Create an Obsidian-backed task |
 | <kbd>d</kbd> / <kbd>p</kbd> | Complete or reopen a task / toggle urgent priority |
 | <kbd>c</kbd> | Create a workspace |
+| <kbd>w</kbd> | Edit the selected task's workspace resources |
 | <kbd>x</kbd> / <kbd>X</kbd> | Clean up the selected task / garbage-collect eligible workspaces |
 | <kbd>f</kbd> | Edit the configuration |
 | <kbd>r</kbd> | Refresh sources |
 | <kbd>q</kbd> / <kbd>Esc</kbd> | Quit |
 
-The workspace creator walks through repository search, branch selection, and workspace naming. It tries to refresh origin before listing branches. If that fetch fails, Radar shows a warning and continues with locally cached refs, so previously fetched branches remain available offline. Repository paths are shortened to `~/...` when they are inside your home directory.
+The workspace editor starts with a name and a draft. Add an optional note and zero or more repositories, then review the complete change plan before applying it. Press `w` to edit an existing workspace, `a` to add a repository, `x` to remove the selected repository, and `n` to add a note. Repository addition uses repository search and branch selection. It tries to refresh origin before listing branches. If that fetch fails, Radar shows a warning and continues with locally cached refs, so previously fetched branches remain available offline. Repository paths are shortened to `~/...` when they are inside your home directory.
 
 ## Workspaces
 
@@ -119,6 +120,12 @@ Open the interactive workspace creation flow:
 
 ```sh
 radar create
+```
+
+Create an empty workspace non-interactively:
+
+```sh
+radar create --name investigation
 ```
 
 Create a Git-first workspace non-interactively:
@@ -136,14 +143,14 @@ Radar creates one stable anchor with nested worktree members:
 
 Pi, tmux, nvim, and optional SBX start in the anchor. Repo-specific copy and setup rules run in the member. Additional members become siblings and no member is primary.
 
-An Obsidian-only task opens without repository selection:
+Activating an Obsidian-only task prefills its note in the same workspace editor, without requiring repository selection:
 
 ```text
 <workspace_root>/plan-authentication/
 └── notes.md -> <vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
 ```
 
-The note body starts empty. The same Pi session remains active while the task moves between planning and zero or more Git members.
+A note added from the editor starts with an empty body. Note creation happens only after confirmation. If the task already has an authored note, Radar reuses it. Attached notes cannot be replaced or detached through workspace controls. The same Pi session remains active while the task moves between planning and zero or more Git members.
 
 Radar stores every workspace record in the single `<workspace_root>/.radar-workspaces.json` registry. `radar reset` does not remove it. The current registry schema rejects old primary-worktree records rather than migrating them implicitly.
 
@@ -154,6 +161,8 @@ Every Radar-started Pi receives three host tools:
 - `radar_reconcile_workspace` previews and applies complete worktree, requested-mount, and port state. It asks for confirmation unless `workspace.auto_confirm` is enabled.
 
 The context tool returns only the current logical workspace, not all registry records. It never returns note contents.
+
+Creation and edits share the resource planner and apply engine. Interactive changes show one preview and confirmation, including dirty-worktree protection, unpublished-commit warnings, and sandbox recreation. A changed plan requires confirmation again. The editor preserves mounts and ports; edit those through the existing agent tools or CLI. After manual membership changes, use `/radar-reload-workspace-resources` in an active Pi session to refresh member skills without restarting it.
 
 Desired worktrees use replacement semantics. `worktrees: []` is valid. Omitting a clean member removes its worktree and eligible local branch while leaving the anchor, note, and Pi session intact. Dirty removals fail closed. Protected default branches and all remote branches remain untouched. Sandbox state must stay `null` for a sandbox-less workspace, and ordinary reconciliation cannot enable or remove SBX.
 
@@ -276,7 +285,7 @@ radar task priority <task-id> normal
 
 The note filename owns the title, while its frontmatter owns open/done state, normal/urgent priority, and timestamps. The body owns working notes and outcomes. Radar projects those facts with live Jira, GitHub, Git, tmux, and SBX activity. An open normal note is low priority, urgent is immediate, linked activity can promote open work, and a done note remains terminal. Press `n`, `d`, and `p` for the same operations in the TUI, or `o` to open the note in Obsidian.
 
-Obsidian notes are task records rather than workspaces. Activating an Obsidian-only task can create a Git workspace using the note title as its default name; Radar stores the task association in its local workspace registry so the resulting worktree rejoins the same task. Radar preserves unknown frontmatter and the complete note body during atomic mutations and never deletes task notes. See [the Obsidian integration contract](docs/integrations/obsidian.md) for the schema and failure behavior.
+Obsidian notes are task records rather than workspaces. Activating an Obsidian task prefills a note-only workspace draft; repositories are optional. Adding a note to an existing Jira or GitHub workspace preserves its original association and Pi session identity. The note becomes the primary owner of task title, priority, and completion. Radar preserves unknown frontmatter and the complete note body during atomic mutations and never deletes task notes. See [the Obsidian integration contract](docs/integrations/obsidian.md) for the schema and failure behavior.
 
 ## Scriptable commands
 

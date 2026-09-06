@@ -14,12 +14,13 @@ import (
 
 func DefaultIntegrations() integration.Registry {
 	githubSource := github.NewSource()
+	noteAuthor := obsidian.NewSource()
 	return integration.NewRegistry(
-		obsidian.NewSource(),
+		noteAuthor,
 		githubSource,
 		jira.NewSource(githubSource),
 		datadog.NewSource(),
-		workspace.NewSource(),
+		workspace.NewSource(noteAuthor),
 		git.NewSource(),
 		tmux.NewSource(),
 		sbx.NewSource(),

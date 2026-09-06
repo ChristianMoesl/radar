@@ -62,8 +62,6 @@ type cleanupPreviewMsg struct {
 	err     error
 }
 
-type preparingWorkspaceMsg struct{}
-
 type linkChoice struct {
 	Key    string
 	Source string
@@ -96,7 +94,6 @@ type createForm struct {
 	taskLinkingKey string
 	notePath       string
 	forkPiSession  string
-	sourceRepoName string
 	repoList       picker
 	intentList     picker
 	branchList     picker
@@ -106,6 +103,7 @@ type createForm struct {
 }
 
 type model struct {
+	editor              workspaceEditor
 	socketPath          string
 	width               int
 	height              int
@@ -131,10 +129,8 @@ type model struct {
 }
 
 const (
-	creatingWorkspaceMessage  = "Creating Workspace..."
-	preparingWorkspaceMessage = "Preparing workspace..."
-	createIntentExisting      = "Work on an existing branch"
-	createIntentNew           = "Create a new branch"
+	createIntentExisting = "Work on an existing branch"
+	createIntentNew      = "Create a new branch"
 )
 
 var (
@@ -185,8 +181,8 @@ func Run(socketPath string) error {
 
 func RunCreate(socketPath string) error {
 	model := newModel(socketPath)
-	model.mode = "create_repo"
-	model.create = newCreateForm()
+	model.mode = "workspace_name"
+	model.editor = workspaceEditor{active: true, desired: integration.DesiredWorkspaceDescription{Worktrees: []integration.DesiredWorkspaceWorktree{}}}
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := program.Run()
 	return err
@@ -218,9 +214,6 @@ func (m model) Init() tea.Cmd {
 	if m.mode == "create_repo" {
 		commands = append(commands, m.loadRepos())
 	}
-	if m.mode == "create_base" && m.create.forkPiSession != "" {
-		commands = append(commands, m.loadBranches(m.create.repo))
-	}
 	if (m.mode == "create_base" || m.mode == "create_branch") && m.create.repo != "" {
 		commands = append(commands, m.loadBranches(m.create.repo))
 	}
@@ -235,6 +228,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncTaskScroll()
 		return m, nil
 	case tea.KeyMsg:
+		if strings.HasPrefix(m.mode, "workspace_") {
+			return m.updateWorkspace(msg)
+		}
 		if m.mode == "task_authoring" {
 			switch msg.String() {
 			case "esc", "ctrl+c":
@@ -262,7 +258,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if strings.HasPrefix(m.mode, "create_") {
+		if strings.HasPrefix(m.mode, "create_") || m.mode == "fork_member" {
 			return m.updateCreate(msg)
 		}
 		if m.mode == "detail" {
@@ -389,11 +385,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.setTaskPriority(task, priority)
 			}
 		case "c":
-			m.mode = "create_repo"
-			m.err = nil
-			m.message = ""
-			m.create = newCreateForm()
-			return m, m.loadRepos()
+			return m.newWorkspace()
+		case "w":
+			if len(m.tasks) > 0 {
+				return m.editWorkspace(m.tasks[m.cursor])
+			}
 		case "f":
 			return m, m.openConfig()
 		case "i", "right":
@@ -446,6 +442,63 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m.activateSelected()
 		}
+	case workspaceStateMsg:
+		m.message, m.err = "", msg.err
+		if msg.err != nil {
+			m.mode = ""
+			m.editor = workspaceEditor{}
+			return m, nil
+		}
+		m.editor, m.mode = msg.editor, "workspace_edit"
+		if m.editor.state.Path == "" && m.editor.create.Name == "" {
+			m.mode = "workspace_name"
+		}
+	case workspaceNoteMsg:
+		m.mode, m.message, m.err = "workspace_edit", "", msg.err
+		if msg.err == nil {
+			m.editor.desired.Note = &msg.note
+		}
+	case workspacePlanMsg:
+		m.mode, m.message, m.err = "workspace_edit", "", msg.err
+		if msg.err == nil {
+			m.editor.plan = msg.plan
+			m.editor.scroll = 0
+			if len(msg.plan.Changes) == 0 {
+				m.message = "No workspace changes"
+			} else {
+				m.mode = "workspace_confirm"
+			}
+		}
+	case workspaceAppliedMsg:
+		m.message, m.err = "", msg.err
+		if msg.err == nil && msg.result.ReconfirmRequired && msg.result.Plan != nil {
+			m.editor.plan, m.mode = *msg.result.Plan, "workspace_confirm"
+			m.editor.scroll = 0
+			m.message = "Workspace plan changed; review it again"
+			return m, nil
+		}
+		if msg.err == nil && msg.created.Path == "" && !msg.result.OK {
+			m.err = fmt.Errorf("workspace changes did not finish: %s; reopen the editor to inspect completed work", msg.result.Error)
+		}
+		// Never keep submitting a stale draft after a partial apply.
+		m.mode, m.editor = "", workspaceEditor{}
+		if m.err == nil && msg.created.Path != "" && canSwitchMultiplexer() {
+			return m, tea.Quit
+		}
+		message := "Workspace updated"
+		if msg.result.WorktreesAdded > 0 || msg.result.WorktreesRemoved > 0 {
+			message += ". Run /radar-reload-workspace-resources in Pi to refresh member skills"
+		}
+		if msg.result.Warning != "" {
+			message += ". " + msg.result.Warning
+		}
+		if msg.created.Warning != "" {
+			message += ". " + msg.created.Warning
+		}
+		if m.err != nil {
+			message = ""
+		}
+		return m, m.refreshWorkspaceResult(message, m.err)
 	case fetchMsg:
 		m.loading = false
 		m.err = msg.err
@@ -504,10 +557,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.cleanup = msg.preview
 			m.mode = "cleanup_confirm"
-		}
-	case preparingWorkspaceMsg:
-		if m.loading && m.message == creatingWorkspaceMessage {
-			m.message = preparingWorkspaceMessage
 		}
 	case actionMsg:
 		m.loading = false
@@ -649,6 +698,10 @@ func (m model) View() string {
 	var sections []string
 	sections = append(sections, m.header(contentWidth))
 
+	if strings.HasPrefix(m.mode, "workspace_") {
+		sections = append(sections, m.workspaceView(contentWidth))
+		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
+	}
 	if m.mode == "task_authoring" {
 		sections = append(sections, m.taskAuthoringView(contentWidth))
 		sections = append(sections, helpStyle.Render("type a title • enter create • esc cancel"))
@@ -679,7 +732,7 @@ func (m model) View() string {
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
-	if strings.HasPrefix(m.mode, "create_") {
+	if strings.HasPrefix(m.mode, "create_") || m.mode == "fork_member" {
 		sections = append(sections, m.createView(contentWidth))
 		sections = append(sections, helpStyle.Render("type to filter • ↑/ctrl+p ↓/ctrl+n move • enter select/submit • esc cancel"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
@@ -705,7 +758,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • ctrl+u/d page • enter switch tmux • n new task • d done/reopen • p urgent/normal • o open link • i inspect • c create workspace • x cleanup • X garbage collect • f config • r refresh • q quit"), width))
+	sections = append(sections, truncateLine(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n select • ctrl+u/d page • enter switch tmux • n new task • d done/reopen • p urgent/normal • o open link • i inspect • c create workspace • w workspace resources • x cleanup • X garbage collect • f config • r refresh • q quit"), width))
 	return sections
 }
 
@@ -821,14 +874,6 @@ func newCreateForm() createForm {
 	}
 }
 
-func newCreateFormForTask(task protocol.Task) createForm {
-	form := newCreateForm()
-	form.name = workspaceNameForTask(task)
-	form.taskLinkingKey = taskrefs.TaskLinkingKey(task)
-	form.notePath = notePathForTask(task)
-	return form
-}
-
 func workspaceNameForTask(task protocol.Task) string {
 	return taskrefs.WorkspaceName(task)
 }
@@ -889,7 +934,6 @@ func newForkCreateForm() (createForm, error) {
 
 func configureForkMember(form *createForm, member forkMember) {
 	form.repo = member.repository
-	form.sourceRepoName = filepath.Base(member.repository)
 	form.baseList = picker{loading: true, query: member.branch}
 }
 
@@ -897,6 +941,9 @@ func (m model) updateCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "ctrl+c":
 		m.mode = ""
+		if m.editor.active {
+			m.mode = "workspace_edit"
+		}
 		m.err = nil
 		return m, nil
 	case "up", "ctrl+p":
@@ -1077,44 +1124,30 @@ func (m model) submitCreate() (tea.Model, tea.Cmd) {
 		m.err = fmt.Errorf("workspace branch mode is required")
 		return m, nil
 	}
+	if m.editor.active {
+		member := integration.DesiredWorkspaceWorktree{Repository: m.create.repo, BranchMode: m.create.branchMode}
+		if member.BranchMode == integration.WorkspaceBranchNew {
+			member.Name, member.Base = m.create.name, m.create.base
+		} else {
+			member.Branch = m.create.branch
+		}
+		for _, current := range m.editor.desired.Worktrees {
+			if current.Repository == member.Repository && current.BranchMode == member.BranchMode && current.Branch == member.Branch && current.Name == member.Name {
+				m.err = fmt.Errorf("repository branch is already in this workspace draft")
+				return m, nil
+			}
+		}
+		m.editor.desired.Worktrees = append(m.editor.desired.Worktrees, member)
+		m.editor.cursor = len(m.editor.desired.Worktrees) - 1
+		m.mode, m.err = "workspace_edit", nil
+		return m, nil
+	}
 	form := m.create
-	m.mode = ""
-	m.loading = true
-	m.err = nil
-	m.message = creatingWorkspaceMessage
-	if form.forkPiSession != "" {
-		m.message = "Forking workspace…"
-	}
-	cmd := func() tea.Msg {
-		switchAfterCreate := canSwitchMultiplexer()
-		manager, err := app.DefaultIntegrations().WorkspaceManager()
-		if err != nil {
-			return actionMsg{err: err}
-		}
-		options := integration.ManagedWorkspaceRequest{
-			Repo: form.repo, BranchMode: form.branchMode, Branch: form.branch, Base: form.base, Name: form.name,
-			Switch: switchAfterCreate, ForkPiSession: form.forkPiSession,
-			TaskLinkingKey: form.taskLinkingKey, NotePath: form.notePath,
-		}
-		if form.forkPiSession != "" && form.sourceRepoName != "" {
-			options.SessionName = manager.SessionName(form.sourceRepoName, form.name)
-		}
-		created, err := manager.CreateWorkspace(context.Background(), options)
-		if err != nil {
-			return actionMsg{err: err}
-		}
-		return actionMsg{message: workspaceCreationMessage(created), refresh: !switchAfterCreate, quit: switchAfterCreate}
-	}
-	if form.forkPiSession != "" {
-		return m, cmd
-	}
-	return m, tea.Batch(preparingWorkspaceNotification(), cmd)
-}
-
-func preparingWorkspaceNotification() tea.Cmd {
-	return tea.Tick(800*time.Millisecond, func(time.Time) tea.Msg {
-		return preparingWorkspaceMsg{}
-	})
+	m.editor = workspaceEditor{active: true, create: integration.ManagedWorkspaceRequest{
+		Repo: form.repo, BranchMode: form.branchMode, Branch: form.branch, Base: form.base, Name: form.name,
+		ForkPiSession: form.forkPiSession, TaskLinkingKey: form.taskLinkingKey, NotePath: form.notePath,
+	}}
+	return m.previewWorkspace()
 }
 
 func (m model) createAuthoredTask(title string) tea.Cmd {
@@ -1712,21 +1745,7 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 	worktrees := taskrefs.Worktrees(task)
 	switch len(worktrees) {
 	case 0:
-		if ref, ok := taskrefs.WorkspaceCandidate(task); ok {
-			if seeder, found := app.DefaultIntegrations().WorkspaceSeeder(ref); found {
-				m.loading = true
-				m.err = nil
-				m.message = creatingWorkspaceMessage
-				return m, tea.Batch(preparingWorkspaceNotification(), m.createWorkspaceFromSeed(task, ref, seeder))
-			}
-			m.mode = "create_repo"
-			m.create = newCreateFormForTask(task)
-			m.message = ""
-			m.err = nil
-			return m, m.loadRepos()
-		}
-		m.message = "No tmux session or git worktree on selected task"
-		return m, nil
+		return m.editWorkspace(task)
 	case 1:
 		m.loading = true
 		m.err = nil
@@ -1832,39 +1851,6 @@ func sandboxNameForWorktree(task protocol.Task, path string) string {
 
 func samePath(left string, right string) bool {
 	return strings.TrimSpace(left) != "" && strings.TrimSpace(right) != "" && filepath.Clean(left) == filepath.Clean(right)
-}
-
-func (m model) createWorkspaceFromSeed(task protocol.Task, ref protocol.SourceRef, seeder integration.WorkspaceSeedProvider) tea.Cmd {
-	return func() tea.Msg {
-		seed, err := seeder.PrepareWorkspaceSeed(context.Background(), ref)
-		if err != nil {
-			return actionMsg{err: err}
-		}
-		switchAfterCreate := canSwitchMultiplexer()
-		manager, err := app.DefaultIntegrations().WorkspaceManager()
-		if err != nil {
-			return actionMsg{err: err}
-		}
-		notePath := seed.NotePath
-		if notePath == "" {
-			notePath = notePathForTask(task)
-		}
-		created, err := manager.CreateWorkspace(context.Background(), integration.ManagedWorkspaceRequest{
-			Repo: seed.Repo, BranchMode: seed.BranchMode, Name: seed.Name, Branch: seed.Branch,
-			Switch: switchAfterCreate, TaskLinkingKey: taskrefs.TaskLinkingKey(task), NotePath: notePath,
-		})
-		if err != nil {
-			return actionMsg{err: err}
-		}
-		if seed.Warning != "" {
-			if created.Warning == "" {
-				created.Warning = seed.Warning
-			} else {
-				created.Warning += "; " + seed.Warning
-			}
-		}
-		return actionMsg{message: workspaceCreationMessage(created), refresh: !switchAfterCreate, quit: switchAfterCreate}
-	}
 }
 
 func workspaceCreationMessage(created integration.Workspace) string {

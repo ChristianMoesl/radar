@@ -34,6 +34,7 @@ type Workspace struct {
 	SessionName    string               `json:"session_name,omitempty"`
 	TaskLinkingKey string               `json:"task_linking_key,omitempty"`
 	NotePath       string               `json:"note_path,omitempty"`
+	NoteLinkingKey string               `json:"note_linking_key,omitempty"`
 	Model          string               `json:"model,omitempty"`
 	Thinking       string               `json:"thinking,omitempty"`
 	Tmux           sessionlayout.Config `json:"tmux"`
@@ -65,6 +66,18 @@ type Member struct {
 	Path           string `json:"path"`
 	Branch         string `json:"branch"`
 	SetupScheduled bool   `json:"setup_scheduled"`
+}
+
+// NoteKey returns the note association. A secondary note does not replace the
+// workspace's original task or Pi session identity.
+func (w Workspace) NoteKey() string {
+	if w.NotePath == "" {
+		return ""
+	}
+	if w.NoteLinkingKey != "" {
+		return w.NoteLinkingKey
+	}
+	return w.TaskLinkingKey
 }
 
 var registryMu sync.Mutex
@@ -243,7 +256,7 @@ func FindByTaskLinkingKey(registry Registry, key string) (Workspace, bool) {
 		return Workspace{}, false
 	}
 	for _, workspace := range registry.Workspaces {
-		if workspace.TaskLinkingKey == key {
+		if workspace.TaskLinkingKey == key || workspace.NoteKey() == key {
 			return workspace, true
 		}
 	}
@@ -315,6 +328,7 @@ func normalizeAndValidate(registry *Registry) error {
 	paths := map[string]bool{}
 	memberIdentities := map[string]bool{}
 	taskLinks := map[string]bool{}
+	notePaths := map[string]bool{}
 	for workspaceIndex := range registry.Workspaces {
 		workspace := &registry.Workspaces[workspaceIndex]
 		workspace.ID = strings.TrimSpace(workspace.ID)
@@ -323,6 +337,7 @@ func normalizeAndValidate(registry *Registry) error {
 		workspace.SessionName = strings.TrimSpace(workspace.SessionName)
 		workspace.TaskLinkingKey = strings.TrimSpace(workspace.TaskLinkingKey)
 		workspace.NotePath = cleanOptionalPath(workspace.NotePath)
+		workspace.NoteLinkingKey = strings.TrimSpace(workspace.NoteLinkingKey)
 		workspace.Model = strings.TrimSpace(workspace.Model)
 		workspace.Thinking = strings.TrimSpace(workspace.Thinking)
 		if workspace.TaskLinkingKey != "" {
@@ -343,6 +358,27 @@ func normalizeAndValidate(registry *Registry) error {
 		}
 		if workspace.NotePath != "" && !filepath.IsAbs(workspace.NotePath) {
 			return fmt.Errorf("workspace %q note_path must be absolute", workspace.ID)
+		}
+		if workspace.NotePath == "" && workspace.NoteLinkingKey != "" {
+			return fmt.Errorf("workspace %q note_linking_key requires note_path", workspace.ID)
+		}
+		if workspace.NotePath != "" {
+			if notePaths[pathKey(workspace.NotePath)] {
+				return fmt.Errorf("duplicate workspace note_path %q", workspace.NotePath)
+			}
+			notePaths[pathKey(workspace.NotePath)] = true
+		}
+		if workspace.NoteLinkingKey != "" && workspace.NoteLinkingKey != workspace.TaskLinkingKey {
+			if taskLinks[workspace.NoteLinkingKey] {
+				return fmt.Errorf("duplicate workspace note_linking_key %q", workspace.NoteLinkingKey)
+			}
+			taskLinks[workspace.NoteLinkingKey] = true
+		}
+		if workspace.NoteLinkingKey != "" {
+			prefix, _, found := strings.Cut(workspace.NoteLinkingKey, ":")
+			if !found || strings.TrimSpace(prefix) == "" {
+				return fmt.Errorf("workspace %q note_linking_key requires a non-empty prefix", workspace.ID)
+			}
 		}
 		if ids[workspace.ID] {
 			return fmt.Errorf("duplicate workspace id %q", workspace.ID)

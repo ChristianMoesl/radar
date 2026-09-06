@@ -15,9 +15,11 @@ import (
 	"radar/internal/protocol"
 )
 
-type Source struct{}
+type Source struct {
+	noteAuthor integration.WorkspaceNoteAuthor
+}
 
-func NewSource() Source { return Source{} }
+func NewSource(author integration.WorkspaceNoteAuthor) Source { return Source{noteAuthor: author} }
 
 func (Source) Descriptor() integration.Descriptor {
 	return integration.Descriptor{Name: "workspace", Label: "Radar workspace", DisplayOrder: 2, CleanupOrder: 3}
@@ -66,7 +68,7 @@ func (Source) Collect(_ context.Context, req integration.CollectRequest) integra
 			Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace,
 			Authority: protocol.SourceRefAuthorityNone, Title: group.Name, Path: group.Path,
 			ProvidesWorkspace: true, WorkspaceEntry: true, WorkspaceID: group.ID, CanonicalKey: canonical,
-			LinkingKeys:  linking.Keys(canonical, linking.WorkspaceGroupKey(group.ID), group.TaskLinkingKey),
+			LinkingKeys:  linking.Keys(canonical, linking.WorkspaceGroupKey(group.ID), group.TaskLinkingKey, group.NoteLinkingKey),
 			Presentation: protocol.SourceRefPresentation{WorkspaceName: group.Name},
 			Metadata:     map[string]string{"workspace_id": group.ID},
 		}

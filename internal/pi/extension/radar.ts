@@ -34,6 +34,12 @@ const DesiredSandbox = Type.Object({
 }, { additionalProperties: false });
 
 const DesiredWorkspace = Type.Object({
+  note: Type.Union([Type.Object({
+    path: Type.String({ description: "Absolute canonical Obsidian task note path" }),
+    linking_key: Type.String({ description: "The note's source identity, such as obsidian:task:<uuid>" }),
+  }, { additionalProperties: false }), Type.Null()], {
+    description: "Existing note to retain or attach; null leaves the note unchanged. Notes cannot be replaced or detached.",
+  }),
   worktrees: Type.Array(Type.Union([NewWorktree, ExistingWorktree]), {
     description: "Complete desired Git worktree membership, including every unchanged member; an empty list is valid",
   }),
@@ -383,13 +389,14 @@ export default function radarExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "radar_reconcile_workspace",
     label: "Reconcile Radar Workspace",
-    description: "Preview and reconcile the complete desired host workspace state. The tool applies Radar's configured confirmation policy internally. It can add or remove clean member worktrees, including the last one, plus additional host mounts and IPv4-loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace.",
+    description: "Preview and reconcile the complete desired host workspace state. The tool applies Radar's configured confirmation policy internally. It can attach an existing canonical Obsidian note, add or remove clean member worktrees, including the last one, plus additional host mounts and IPv4-loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace.",
     promptSnippet: "Reconcile typed worktree and optional sandbox mount/port desired state",
     promptGuidelines: [
       "Use radar_reconcile_workspace for host workspace changes instead of direct git, tmux, or sbx commands because Radar must validate and persist the complete resource bundle.",
       "Do not ask for user confirmation before calling radar_reconcile_workspace. The tool applies the configured confirmation policy itself.",
       "Always start from the latest radar_workspace_context revision and complete desired object; omitted worktrees, additional mounts, and ports are removals.",
       "radar_reconcile_workspace supports multiple branches from one repository, but each repository-and-branch pair must be unique.",
+      "radar_reconcile_workspace cannot replace or detach notes. Use the note's source identity when attaching an existing Obsidian task note; never invent one.",
       "Before omitting a worktree, check its dirty status from radar_workspace_context; dirty worktrees cannot be removed until their changes are committed, stashed, or discarded.",
       "Use read_only true for radar_reconcile_workspace additional mounts unless writable host access is necessary and explicitly intended.",
       "When exposing a service, first use its configured port as host_port. If apply fails because that host port is unavailable, call radar_workspace_context again and retry with a randomly selected host_port from 49152 through 65535 while keeping sandbox_port unchanged.",

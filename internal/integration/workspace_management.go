@@ -21,6 +21,8 @@ type WorkspaceCatalog interface {
 }
 
 type ManagedWorkspaceLifecycle interface {
+	PrepareWorkspaceNote(ctx context.Context, title string) (DesiredWorkspaceNote, error)
+	PreviewCreate(ctx context.Context, req ManagedWorkspaceRequest) (WorkspaceReconcilePlan, error)
 	SessionName(repositoryName, workspaceName string) string
 	OpenWorkspace(ctx context.Context, path string, switchClient bool) (Workspace, error)
 	CreateWorkspace(ctx context.Context, req ManagedWorkspaceRequest) (Workspace, error)
@@ -31,6 +33,7 @@ type WorkspaceReconciler interface {
 	PreviewReconcile(ctx context.Context, req WorkspaceReconcileRequest) (WorkspaceReconcilePlan, error)
 	ApplyReconcile(ctx context.Context, logger *slog.Logger, req WorkspaceReconcileRequest) (WorkspaceReconcileResult, error)
 	ReconcileErrorDetails(err error) (WorkspaceReconcileError, bool)
+	WorkspaceState(ctx context.Context, currentDirectory string) (WorkspaceState, error)
 	InspectWorkspace(ctx context.Context, currentDirectory, workspaceRoot string) (any, error)
 	InspectRepositoryRefs(ctx context.Context, repository string) (any, error)
 }
@@ -49,6 +52,9 @@ type WorkspaceMember struct {
 }
 
 type ManagedWorkspaceRequest struct {
+	Worktrees      []DesiredWorkspaceWorktree
+	Note           *DesiredWorkspaceNote
+	ExpectedPlanID string
 	Repo           string
 	BranchMode     WorkspaceBranchMode
 	Name           string
@@ -82,8 +88,21 @@ type WorkspaceReconcileRequest struct {
 }
 
 type DesiredWorkspaceDescription struct {
+	Note      *DesiredWorkspaceNote      `json:"note"`
 	Worktrees []DesiredWorkspaceWorktree `json:"worktrees"`
 	Sandbox   *DesiredWorkspaceSandbox   `json:"sandbox"`
+}
+
+type WorkspaceNoteAuthor interface {
+	PrepareWorkspaceNote(ctx context.Context, title string) (DesiredWorkspaceNote, error)
+	ValidateWorkspaceNote(ctx context.Context, note DesiredWorkspaceNote) error
+	EnsureWorkspaceNote(ctx context.Context, note DesiredWorkspaceNote) error
+}
+
+type DesiredWorkspaceNote struct {
+	Create     bool   `json:"create,omitempty"`
+	Path       string `json:"path"`
+	LinkingKey string `json:"linking_key"`
 }
 
 type DesiredWorkspaceWorktree struct {
@@ -135,6 +154,7 @@ type WorkspaceReconcilePlan struct {
 
 type WorkspaceReconcileResult struct {
 	OK                bool                    `json:"ok"`
+	NoteAdded         bool                    `json:"note_added,omitempty"`
 	WorkspaceID       string                  `json:"workspace_id"`
 	Revision          string                  `json:"revision,omitempty"`
 	WorktreesAdded    int                     `json:"worktrees_added"`
@@ -150,6 +170,24 @@ type WorkspaceReconcileResult struct {
 	Plan              *WorkspaceReconcilePlan `json:"plan,omitempty"`
 	Warning           string                  `json:"warning,omitempty"`
 	Error             string                  `json:"error,omitempty"`
+}
+
+type WorkspaceState struct {
+	ID           string
+	Name         string
+	Path         string
+	Revision     string
+	Note         *DesiredWorkspaceNote
+	Desired      DesiredWorkspaceDescription
+	Members      []WorkspaceStateMember
+	Repositories []string
+}
+
+type WorkspaceStateMember struct {
+	Repository string
+	Path       string
+	Branch     string
+	Dirty      bool
 }
 
 type WorkspaceReconcileError struct {

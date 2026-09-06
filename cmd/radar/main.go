@@ -254,7 +254,7 @@ func runCreate(args []string) {
 		runTUIWithMode("create")
 		return
 	}
-	if *repo == "" || *base == "" || *name == "" {
+	if *name == "" || (*repo == "") != (*base == "") {
 		createUsage()
 		os.Exit(2)
 	}
@@ -984,6 +984,7 @@ func taskUsage() {
 
 func createUsage() {
 	fmt.Fprintln(os.Stderr, `usage: radar create
+       radar create --name <name>
        radar create --repo <repo> --base <branch> --name <name>
 
 Options:

@@ -48,6 +48,7 @@ type WorkspaceContextMember struct {
 type WorkspaceContextNote struct {
 	Path          string `json:"path"`
 	WorkspacePath string `json:"workspace_path"`
+	LinkingKey    string `json:"linking_key"`
 }
 
 type WorkspaceContextSandbox struct {
@@ -150,7 +151,9 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		Repositories: make([]WorkspaceContextRepository, 0, len(repositories)),
 	}
 	if group.NotePath != "" {
-		result.Note = &WorkspaceContextNote{Path: group.NotePath, WorkspacePath: filepath.Join(group.Path, "notes.md")}
+		linkingKey := group.NoteKey()
+		result.Note = &WorkspaceContextNote{Path: group.NotePath, WorkspacePath: filepath.Join(group.Path, "notes.md"), LinkingKey: linkingKey}
+		result.Desired.Note = &DesiredWorkspaceNote{Path: group.NotePath, LinkingKey: linkingKey}
 	}
 	if group.Sandbox != nil {
 		desiredMounts := make([]DesiredSandboxMount, 0, len(group.Sandbox.AdditionalMounts))

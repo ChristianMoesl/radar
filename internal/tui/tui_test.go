@@ -442,7 +442,7 @@ func TestSelectingExistingBranchSubmitsWithoutNameStep(t *testing.T) {
 
 	updated, cmd := m.selectCreateStep()
 	got := updated.(model)
-	if cmd == nil || got.mode != "" || !got.loading || got.create.branch != "main" || got.create.name != "main" {
+	if cmd == nil || got.mode != "workspace_loading" || got.create.branch != "main" || got.create.name != "main" {
 		t.Fatalf("existing selection mode=%q loading=%v branch=%q name=%q command=%v", got.mode, got.loading, got.create.branch, got.create.name, cmd)
 	}
 }
@@ -520,18 +520,8 @@ func TestSubmitCreateShowsCreatingWorkspaceNotification(t *testing.T) {
 		t.Fatal("submitCreate() command = nil")
 	}
 	got := updated.(model)
-	if !got.loading || got.message != creatingWorkspaceMessage {
+	if got.mode != "workspace_loading" {
 		t.Fatalf("submitCreate() loading=%v message=%q, want loading with creating notification", got.loading, got.message)
-	}
-}
-
-func TestPreparingWorkspaceNotificationUpdatesCreateMessage(t *testing.T) {
-	m := model{loading: true, message: creatingWorkspaceMessage}
-
-	updated, _ := m.Update(preparingWorkspaceMsg{})
-	got := updated.(model)
-	if got.message != preparingWorkspaceMessage {
-		t.Fatalf("message = %q, want %q", got.message, preparingWorkspaceMessage)
 	}
 }
 
@@ -808,7 +798,7 @@ func TestActivateSelectedStartsNoteWorkspaceForAuthoredTask(t *testing.T) {
 		t.Fatal("activateSelected() returned no command")
 	}
 	got := updated.(model)
-	if got.mode != "" || !got.loading || got.message != creatingWorkspaceMessage {
+	if got.mode != "workspace_loading" {
 		t.Fatalf("activateSelected() mode=%q loading=%v message=%q", got.mode, got.loading, got.message)
 	}
 }
@@ -881,14 +871,11 @@ func TestActivateSelectedStartsWorkspaceCreateForJiraOnlyTask(t *testing.T) {
 		t.Fatal("activateSelected() returned no command")
 	}
 	got := updated.(model)
-	if got.mode != "create_repo" {
-		t.Fatalf("activateSelected() mode = %q, want create_repo", got.mode)
+	if got.mode != "workspace_loading" {
+		t.Fatalf("activation mode = %q", got.mode)
 	}
-	if got.create.name != "ABC-123 Build the thing" {
-		t.Fatalf("create name = %q, want task title", got.create.name)
-	}
-	if !got.create.repoList.loading {
-		t.Fatal("repo picker is not loading")
+	if got.editor.task.Title != "ABC-123 Build the thing" {
+		t.Fatal("task context was lost")
 	}
 }
 
@@ -940,7 +927,7 @@ func TestActivateSelectedCreatesWorkspaceForPullRequestOnlyTask(t *testing.T) {
 		t.Fatal("activateSelected() returned no command")
 	}
 	got := updated.(model)
-	if !got.loading || got.message != creatingWorkspaceMessage {
+	if got.mode != "workspace_loading" {
 		t.Fatalf("activateSelected() loading=%v message=%q, want workspace creation", got.loading, got.message)
 	}
 }

@@ -367,46 +367,15 @@ func deduplicateObservations(items []integration.Observation) []integration.Obse
 	return result
 }
 
-func (s Source) Create(_ context.Context, title string) (integration.AuthoredTaskIdentity, error) {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return integration.AuthoredTaskIdentity{}, fmt.Errorf("task title must not be empty")
-	}
-	if strings.ContainsAny(title, "\r\n") {
-		return integration.AuthoredTaskIdentity{}, fmt.Errorf("task title must be one line")
-	}
-	if strings.ContainsAny(title, `/\\`) || strings.ContainsRune(title, 0) {
-		return integration.AuthoredTaskIdentity{}, fmt.Errorf("task title must be a valid filename")
-	}
-	vault, err := s.configuredVault()
+func (s Source) Create(ctx context.Context, title string) (integration.AuthoredTaskIdentity, error) {
+	note, err := s.PrepareWorkspaceNote(ctx, title)
 	if err != nil {
 		return integration.AuthoredTaskIdentity{}, err
 	}
-	id, err := newUUID()
-	if err != nil {
+	if err := s.EnsureWorkspaceNote(ctx, note); err != nil {
 		return integration.AuthoredTaskIdentity{}, err
 	}
-	discovered, err := discover(vault)
-	if err != nil {
-		return integration.AuthoredTaskIdentity{}, err
-	}
-	for _, item := range discovered {
-		if item.note.Title == title {
-			return integration.AuthoredTaskIdentity{}, fmt.Errorf("task title %q already exists", title)
-		}
-	}
-	directory := filepath.Join(taskRoot(vault), taskDirectoryName(title, id))
-	if err := os.Mkdir(directory, 0o755); err != nil {
-		return integration.AuthoredTaskIdentity{}, fmt.Errorf("create Obsidian task directory: %w", err)
-	}
-	path := filepath.Join(directory, title+".md")
-	now := time.Now().UTC().Format(time.RFC3339)
-	content := fmt.Sprintf("---\nradar-id: %s\nradar-state: open\nradar-priority: normal\nradar-created-at: %s\nradar-completed-at:\n---\n", id, now)
-	if err := atomicCreate(path, []byte(content), 0o644); err != nil {
-		_ = os.Remove(directory)
-		return integration.AuthoredTaskIdentity{}, fmt.Errorf("create Obsidian task note: %w", err)
-	}
-	return integration.AuthoredTaskIdentity{SourceRefID: "obsidian:task:" + id}, nil
+	return integration.AuthoredTaskIdentity{SourceRefID: note.LinkingKey}, nil
 }
 
 func (s Source) SetLifecycle(_ context.Context, ref protocol.SourceRef, state string) (integration.AuthoredTaskIdentity, error) {
