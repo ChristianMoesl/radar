@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"radar/internal/config"
+	"radar/internal/integration/workspace/group"
 )
 
 func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) ([]string, error) {
@@ -143,11 +144,7 @@ func RepositoryDirs(cfg config.Config) []string {
 }
 
 func DefaultRoot() (string, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Clean(ExpandPath(cfg.Workspace.RootDir)), nil
+	return workspacegroup.DefaultRoot()
 }
 
 func existingDirs(paths []string) []string {

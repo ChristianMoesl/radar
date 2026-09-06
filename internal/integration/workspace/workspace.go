@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	"radar/internal/integration"
+	obsidiansettings "radar/internal/integration/obsidian/settings"
 	"radar/internal/integration/sbx/auth"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
@@ -208,6 +209,9 @@ func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, gr
 }
 
 func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string) (bool, bool, error) {
+	if err := obsidiansettings.ValidateWorkspaceNote(group.NotePath); err != nil {
+		return false, false, err
+	}
 	createdSandbox := false
 	if group.Sandbox != nil {
 		exists, err := sandboxExists(ctx, runner, group.Sandbox.Name)
@@ -306,6 +310,9 @@ func cleanOptionalAbsolutePath(path string) string {
 
 func ensureNoteLink(anchor, notePath string) error {
 	notePath = cleanOptionalAbsolutePath(notePath)
+	if err := obsidiansettings.ValidateWorkspaceNote(notePath); err != nil {
+		return err
+	}
 	info, err := os.Lstat(notePath)
 	if err != nil {
 		return fmt.Errorf("canonical task note %s: %w", notePath, err)

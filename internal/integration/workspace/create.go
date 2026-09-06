@@ -147,6 +147,20 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 }
 
 func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
+	root, err := workspaceRoot(options.WorkspaceRoot)
+	if err != nil {
+		return Workspace{}, err
+	}
+	var result Workspace
+	err = workspacegroup.WithNoteLock(root, func() error {
+		var err error
+		result, err = createWorkspace(ctx, runner, options)
+		return err
+	})
+	return result, err
+}
+
+func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
 	plan, request, err := planCreate(ctx, runner, options)
 	if err != nil {
 		return Workspace{}, err

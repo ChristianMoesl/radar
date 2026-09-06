@@ -2,6 +2,7 @@ package obsidian
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,16 @@ import (
 
 func testVault(t *testing.T) string {
 	t.Helper()
-	vault := filepath.Join(t.TempDir(), "Work Vault")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	if err := os.MkdirAll(filepath.Join(home, "config", "radar"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "radar", "config.json"), []byte(fmt.Sprintf(`{"workspace":{"root_dir":%q},"linking_mark_prefixes":["ABC"]}`, filepath.Join(home, "workspaces"))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	vault := filepath.Join(home, "Work Vault")
 	if err := os.MkdirAll(filepath.Join(vault, ".obsidian"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +80,7 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	if _, err := source.SetLifecycle(context.Background(), taskRef, "done"); err != nil {
 		t.Fatal(err)
 	}
+	notePath = filepath.Join(taskRoot(vault), "Archived", filepath.Base(notePath))
 	mutated, err := os.ReadFile(notePath)
 	if err != nil {
 		t.Fatal(err)

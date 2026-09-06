@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"radar/internal/integration"
+	obsidiansettings "radar/internal/integration/obsidian/settings"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
 )
@@ -457,6 +458,20 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 }
 
 func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Logger, request ReconcileWorkspaceRequest) (ReconcileWorkspaceResult, error) {
+	root, err := workspaceRoot(request.WorkspaceRoot)
+	if err != nil {
+		return ReconcileWorkspaceResult{}, err
+	}
+	var result ReconcileWorkspaceResult
+	err = workspacegroup.WithNoteLock(root, func() error {
+		var err error
+		result, err = applyReconcileWorkspace(ctx, runner, logger, request)
+		return err
+	})
+	return result, err
+}
+
+func applyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Logger, request ReconcileWorkspaceRequest) (ReconcileWorkspaceResult, error) {
 	plan, err := PreviewReconcileWorkspace(ctx, runner, request)
 	if err != nil {
 		logReconciliationFailure(logger, request.Workspace, "plan", ReconcileWorkspaceResult{}, err)
@@ -768,6 +783,9 @@ func normalizeDesiredWorkspaceNote(note DesiredWorkspaceNote) (DesiredWorkspaceN
 }
 
 func validateWorkspaceNoteAddition(anchor string, note DesiredWorkspaceNote) error {
+	if err := obsidiansettings.ValidateWorkspaceNote(note.Path); err != nil {
+		return err
+	}
 	info, err := os.Lstat(note.Path)
 	if os.IsNotExist(err) && note.Create {
 		// The note author validates the planned canonical path before apply.
@@ -1196,6 +1214,9 @@ func reconcileSandboxPorts(ctx context.Context, runner Runner, name string, desi
 func desiredReconciledSandboxMounts(ctx context.Context, runner Runner, group workspacegroup.Workspace, plans map[string]WorktreePlan, global []string, additional []workspacegroup.SandboxMount) ([]string, error) {
 	mounts := []string{group.Path}
 	if group.NotePath != "" {
+		if err := obsidiansettings.ValidateWorkspaceNote(group.NotePath); err != nil {
+			return nil, err
+		}
 		mounts = append(mounts, filepath.Dir(group.NotePath))
 	}
 	for _, member := range group.Members {

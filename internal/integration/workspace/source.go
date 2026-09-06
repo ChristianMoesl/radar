@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"radar/internal/integration"
+	"radar/internal/integration/obsidian"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/linking"
 	"radar/internal/protocol"
@@ -127,38 +128,56 @@ func (Source) Cleanup(_ context.Context, req integration.CleanupRequest) (protoc
 	if err != nil {
 		return protocol.CleanupTarget{}, err
 	}
-	registry, err := workspacegroup.Load(root)
+	var removed workspacegroup.Workspace
+	err = workspacegroup.WithNoteLock(root, func() error {
+		var err error
+		removed, err = removeWorkspaceAnchor(root, req.Target)
+		return err
+	})
 	if err != nil {
 		return protocol.CleanupTarget{}, err
 	}
-	id := strings.TrimPrefix(req.Target.SourceRefID, "workspace:")
+	if removed.NotePath != "" && strings.HasPrefix(removed.NoteKey(), "obsidian:task:") {
+		if err := obsidian.NewSource().ArchiveCompletedNote(root, removed.NotePath, removed.NoteKey()); err != nil {
+			return req.Target, fmt.Errorf("workspace removed, but note archiving failed: %w", err)
+		}
+	}
+	return req.Target, nil
+}
+
+func removeWorkspaceAnchor(root string, target protocol.CleanupTarget) (workspacegroup.Workspace, error) {
+	registry, err := workspacegroup.Load(root)
+	if err != nil {
+		return workspacegroup.Workspace{}, err
+	}
+	id := strings.TrimPrefix(target.SourceRefID, "workspace:")
 	group, found := workspacegroup.FindByID(registry, id)
 	if !found {
-		return req.Target, nil
+		return workspacegroup.Workspace{}, nil
 	}
 	if len(group.Members) > 0 {
-		return protocol.CleanupTarget{}, fmt.Errorf("workspace still contains %d managed worktree(s)", len(group.Members))
+		return workspacegroup.Workspace{}, fmt.Errorf("workspace still contains %d managed worktree(s)", len(group.Members))
 	}
 	unknown, err := unknownAnchorEntries(group)
 	if err != nil {
-		return protocol.CleanupTarget{}, err
+		return workspacegroup.Workspace{}, err
 	}
 	if len(unknown) > 0 {
-		return protocol.CleanupTarget{}, fmt.Errorf("workspace anchor contains unknown files: %s", strings.Join(unknown, ", "))
+		return workspacegroup.Workspace{}, fmt.Errorf("workspace anchor contains unknown files: %s", strings.Join(unknown, ", "))
 	}
 	link := filepath.Join(group.Path, "notes.md")
 	if info, statErr := os.Lstat(link); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
 		if err := os.Remove(link); err != nil {
-			return protocol.CleanupTarget{}, err
+			return workspacegroup.Workspace{}, err
 		}
 	}
 	if err := os.Remove(group.Path); err != nil && !os.IsNotExist(err) {
-		return protocol.CleanupTarget{}, err
+		return workspacegroup.Workspace{}, err
 	}
 	if err := workspacegroup.RemoveWorkspace(root, group.ID); err != nil {
-		return protocol.CleanupTarget{}, err
+		return workspacegroup.Workspace{}, err
 	}
-	return req.Target, nil
+	return group, nil
 }
 
 func unknownAnchorEntries(group workspacegroup.Workspace) ([]string, error) {

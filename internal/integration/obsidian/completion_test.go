@@ -31,6 +31,7 @@ func TestCompletionPreservesNoteContentAndIsIdempotent(t *testing.T) {
 	if err != nil || observation == nil || observation.Signal != integration.SignalDone {
 		t.Fatalf("completion=%+v err=%v", observation, err)
 	}
+	path = observation.Ref.Metadata["note_path"]
 	updated, err := readNote(path)
 	if err != nil {
 		t.Fatal(err)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"radar/internal/integration"
+	"radar/internal/integration/obsidian/settings"
 )
 
 // PrepareWorkspaceNote chooses a stable identity without creating a task file.
@@ -31,6 +32,9 @@ func (s Source) PrepareWorkspaceNote(ctx context.Context, title string) (integra
 }
 
 func (s Source) ValidateWorkspaceNote(_ context.Context, desired integration.DesiredWorkspaceNote) error {
+	if err := settings.ValidateWorkspaceNote(desired.Path); err != nil {
+		return err
+	}
 	vault, err := s.configuredVault()
 	if err != nil {
 		return err

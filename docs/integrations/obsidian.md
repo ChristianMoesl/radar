@@ -18,15 +18,21 @@ Radar expands `~/`, requires an absolute vault containing `.obsidian/`, and crea
 
 ## Task layout
 
-Radar gives every task a private stable directory:
+Radar gives every normal task a private directory:
 
 ```text
 <Vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
 ```
 
-The directory name combines the creation title with the first eight hexadecimal characters of `radar-id`. It never changes. Renaming the Markdown file changes the task title but leaves task and workspace identity unchanged. A task directory must contain exactly one Markdown task note. Attachments may share the directory.
+The directory name combines the creation title with the first eight hexadecimal characters of `radar-id`. It stays in place for the lifetime of an attached workspace. Renaming the Markdown file changes the task title but leaves task and workspace identity unchanged. A task directory must contain exactly one Markdown task note. Attachments may share the directory.
 
-Collection scans one directory level below `Tasks/`. Titles remain unique across all task directories. Moving a note out of its stable directory is invalid.
+Completed tasks without a workspace use a flat archive:
+
+```text
+<Vault>/Tasks/Archived/Plan authentication.md
+```
+
+Collection reads private task directories and direct Markdown files in `Tasks/Archived/`. Titles and IDs remain unique across both locations. State comes from frontmatter, not the directory: a completed task can remain in its private directory while its workspace exists. Other note layouts are invalid.
 
 A new note contains only managed frontmatter and a final newline:
 
@@ -54,7 +60,7 @@ A valid note emits one authoritative `obsidian:task:<radar-id>` ref with:
 - canonical and linking key `obsidian:task:<radar-id>`
 - preferred title from the current filename
 - signal `low_priority`, `immediate`, or `done`
-- an `obsidian://open` URL for the nested note path
+- an `obsidian://open` URL for its current note path
 - canonical note and task-directory metadata
 
 The note owns the projected lifecycle. A successful full refresh automatically completes an open note when every linked authoritative contributing work item is confirmed done. At least one contributor is required. Informational refs and Git, tmux, Pi, or SBX resources do not decide completion. They can promote an open task's attention, but cannot reopen a done note.
@@ -78,7 +84,23 @@ Pressing `Enter` on an Obsidian-only task creates or reopens a stable Radar work
 
 When SBX is enabled, Radar mounts the workspace and only the task's private directory. The sandbox can edit `notes.md` without seeing sibling task directories or the rest of the vault. A note rename repairs the symlink during local workspace refresh.
 
-Completing or cleaning the workspace never deletes the canonical task directory or note. Cleanup removes the tmux session, sandbox, managed worktrees, `notes.md`, and the empty workspace anchor.
+Cleanup removes the tmux session, sandbox, managed worktrees, `notes.md`, and the empty workspace anchor. Only after successful workspace removal does Radar archive its completed note. Removing a member worktree or closing a session does not archive the note. Incomplete notes stay in their private directories.
+
+## Archiving and reopening
+
+Manual and automatic completion mark the note done immediately. If the workspace registry still references its ID or path, Radar leaves the note in place. Otherwise it moves the note to `Tasks/Archived/<filename>.md` and removes the empty private directory. A shared filesystem lock serializes note mutations, workspace creation, attachment, and anchor removal so an archive move cannot race a new workspace link.
+
+Reopening an archived task restores a private directory using its current title and stable ID before changing its state to open. The title, ID, body, unknown frontmatter, and file permissions survive relocation. Direct workspace creation or attachment to an archived note is rejected with a request to reopen it first. Radar never mounts the shared archive or `Tasks/` to make an archived note accessible.
+
+Moves use the operating system's atomic no-replace rename on Linux and macOS. Existing destination files, directories, or symlinks are never overwritten. If archiving fails, the completed note remains available at its original path and Radar reports the error. If removal of the former empty directory fails after a successful move, the error reports the new note path instead. There is no recursive deletion or relocation journal.
+
+Notes with accompanying files or detected relative links remain in their private directory with an error rather than separating attachments or rewriting user Markdown. Resolve the reported obstacle, then retry `radar task done <task-id>` after refreshing. Vault-relative wikilinks and absolute URLs do not need rewriting. Radar does not repair arbitrary external symlinks or incoming path-based links; these require explicit handling before relocation.
+
+## Rollout
+
+No frontmatter, configuration, workspace-registry, or cache schema changes are required. Existing nested notes remain supported as the normal task layout. Collection alone does not move existing completed notes or notes manually marked done in Obsidian. They archive on a subsequent Radar completion operation or workspace cleanup. A manually reopened archived note must still go through `radar task reopen` to restore its private directory before activation.
+
+Before installation or bulk archival, inventory the configured `Tasks/` tree and workspace registry, check live `notes.md` links, and inspect destination collisions, accompanying files, and path-based links. Do not move referenced notes. Existing completed notes can be archived explicitly with `radar task done` after reviewing those checks. There is no automatic bulk migration. Cache paths refresh from collection; workspace paths are never retargeted for archiving.
 
 ## Collection failures
 

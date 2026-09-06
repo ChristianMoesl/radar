@@ -12,19 +12,18 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"radar/internal/config"
 	"radar/internal/integration"
+	"radar/internal/integration/obsidian/settings"
+	"radar/internal/integration/workspace/group"
 	"radar/internal/linking"
 	"radar/internal/openurl"
 	"radar/internal/protocol"
 )
 
 const OpenAction = "obsidian_open"
-
-var mutationMu sync.Mutex
 
 var validID = regexp.MustCompile(`^(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$`)
 
@@ -66,6 +65,9 @@ func (Source) CanSeedWorkspace(ref protocol.SourceRef) bool {
 func (Source) PrepareWorkspaceSeed(_ context.Context, ref protocol.SourceRef) (integration.WorkspaceSeed, error) {
 	if !(Source{}).CanSeedWorkspace(ref) {
 		return integration.WorkspaceSeed{}, fmt.Errorf("source ref %q cannot seed an Obsidian workspace", ref.ID)
+	}
+	if err := settings.ValidateWorkspaceNote(ref.WorkspaceAnchorPath); err != nil {
+		return integration.WorkspaceSeed{}, err
 	}
 	return integration.WorkspaceSeed{
 		Name: strings.TrimSpace(ref.Presentation.WorkspaceName), NotePath: strings.TrimSpace(ref.WorkspaceAnchorPath),
@@ -170,9 +172,29 @@ func discover(vault string) ([]discoveredNote, error) {
 	items := make([]discoveredNote, 0, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() {
+			if entry.Name() == settings.ArchiveDirectory {
+				items = append(items, discoveredNote{err: fmt.Errorf("archive must be a real directory"), path: filepath.Join(root, entry.Name())})
+			}
 			continue
 		}
 		directory := filepath.Join(root, entry.Name())
+		if entry.Name() == settings.ArchiveDirectory {
+			children, readErr := os.ReadDir(directory)
+			if readErr != nil {
+				items = append(items, discoveredNote{err: readErr, path: directory})
+				continue
+			}
+			for _, child := range children {
+				path := filepath.Join(directory, child.Name())
+				if child.IsDir() {
+					items = append(items, discoveredNote{err: fmt.Errorf("archive must contain flat Markdown notes"), path: path})
+				} else if strings.EqualFold(filepath.Ext(child.Name()), ".md") {
+					current, noteErr := readNote(path)
+					items = append(items, discoveredNote{note: current, err: noteErr, path: path})
+				}
+			}
+			continue
+		}
 		children, readErr := os.ReadDir(directory)
 		if readErr != nil {
 			items = append(items, discoveredNote{err: readErr, path: directory})
@@ -416,33 +438,34 @@ func (s Source) mutate(ref protocol.SourceRef, updates map[string]string) (integ
 }
 
 func (s Source) mutateNote(ref protocol.SourceRef, update func(note) (map[string]string, error)) (note, error) {
-	mutationMu.Lock()
-	defer mutationMu.Unlock()
-
-	if ref.Source != "obsidian" || ref.Kind != "task" || ref.Authority != protocol.SourceRefAuthorityPrimary {
-		return note{}, fmt.Errorf("source ref %q is not an Obsidian-authored task", ref.ID)
-	}
-	vault, err := s.configuredVault()
+	root, err := workspacegroup.DefaultRoot()
 	if err != nil {
 		return note{}, err
 	}
-	path := strings.TrimSpace(ref.Metadata["note_path"])
-	if path == "" {
-		return note{}, fmt.Errorf("Obsidian task ref %q has no note path", ref.ID)
-	}
-	if !validManagedNotePath(vault, path) {
-		return note{}, fmt.Errorf("Obsidian task note is outside the managed task root: %s", path)
-	}
-	current, err := readNote(path)
+	var current note
+	err = workspacegroup.WithNoteLock(root, func() error {
+		var err error
+		changed := false
+		current, err = s.mutateNoteLocked(root, ref, func(current note) (map[string]string, error) {
+			updates, err := update(current)
+			changed = len(updates) > 0
+			return updates, err
+		})
+		if err != nil || !changed {
+			return err
+		}
+		current, err = archiveCompleted(root, current)
+		return err
+	})
+	return current, err
+}
+
+func (s Source) mutateNoteLocked(root string, ref protocol.SourceRef, update func(note) (map[string]string, error)) (note, error) {
+	current, err := s.noteForRef(ref)
 	if err != nil {
-		return note{}, fmt.Errorf("validate Obsidian task note %s: %w", path, err)
+		return note{}, err
 	}
-	if !strings.HasSuffix(filepath.Base(filepath.Dir(path)), "--"+shortID(current.ID)) {
-		return note{}, fmt.Errorf("Obsidian task note is outside its stable task directory: %s", path)
-	}
-	if ref.ID != "obsidian:task:"+current.ID || (ref.Metadata["radar_id"] != "" && ref.Metadata["radar_id"] != current.ID) {
-		return note{}, fmt.Errorf("Obsidian task identity changed at %s", path)
-	}
+	path := current.Path
 	updates, err := update(current)
 	if err != nil {
 		return note{}, err
@@ -485,11 +508,50 @@ func (s Source) mutateNote(ref protocol.SourceRef, update func(note) (map[string
 	if err != nil {
 		return note{}, err
 	}
+
+	if updated.State == "open" && settings.IsArchivedNote(path) {
+		path, err = s.restoreNote(root, current)
+		if err != nil {
+			return note{}, err
+		}
+		current.Path = path
+	}
 	if err := atomicWrite(path, []byte(content), info.Mode().Perm()); err != nil {
 		return note{}, err
 	}
 	updated.Path, updated.Title = current.Path, current.Title
 	return updated, nil
+}
+
+func (s Source) noteForRef(ref protocol.SourceRef) (note, error) {
+	if ref.Source != "obsidian" || ref.Kind != "task" || ref.Authority != protocol.SourceRefAuthorityPrimary {
+		return note{}, fmt.Errorf("source ref %q is not an Obsidian-authored task", ref.ID)
+	}
+	vault, err := s.configuredVault()
+	if err != nil {
+		return note{}, err
+	}
+	path := strings.TrimSpace(ref.Metadata["note_path"])
+	if path == "" {
+		return note{}, fmt.Errorf("Obsidian task ref %q has no note path", ref.ID)
+	}
+	if !validManagedNotePath(vault, path) {
+		return note{}, fmt.Errorf("Obsidian task note is outside the managed task root: %s", path)
+	}
+	if info, err := os.Lstat(filepath.Dir(path)); err != nil || !info.IsDir() {
+		return note{}, fmt.Errorf("task note parent must be a real directory: %s", path)
+	}
+	current, err := readNote(path)
+	if err != nil {
+		return note{}, fmt.Errorf("validate Obsidian task note %s: %w", path, err)
+	}
+	if !settings.IsArchivedNote(path) && !strings.HasSuffix(filepath.Base(filepath.Dir(path)), "--"+shortID(current.ID)) {
+		return note{}, fmt.Errorf("Obsidian task note is outside its stable task directory: %s", path)
+	}
+	if ref.ID != "obsidian:task:"+current.ID || (ref.Metadata["radar_id"] != "" && ref.Metadata["radar_id"] != current.ID) {
+		return note{}, fmt.Errorf("Obsidian task identity changed at %s", path)
+	}
+	return current, nil
 }
 
 func atomicCreate(path string, data []byte, mode os.FileMode) error {

@@ -231,7 +231,7 @@ Radar embeds a TypeScript Pi extension under `$XDG_DATA_HOME/radar/pi`. Radar-st
 
 Workspace resolution is registry-first. The anchor, `notes.md`, member roots, and nested member paths resolve to the same workspace and compare-and-swap revision. The context result exposes only that workspace, including note metadata without note contents, rather than every registry record.
 
-Cleanup runs tmux, SBX, Git, then Workspace providers. The final provider removes `notes.md` and the empty anchor only when no unknown content remains. It never deletes the canonical Obsidian note. Garbage collection applies the same bundle checks to note-only and multi-member workspaces.
+Cleanup runs tmux, SBX, Git, then Workspace providers. The final provider removes `notes.md` and the empty anchor only when no unknown content remains. It never deletes the canonical Obsidian note. After successful anchor and registry removal, it archives a completed note to `Tasks/Archived/<filename>.md` only if no workspace references the note's identity or path. Completion without a workspace uses the same check; reopening restores a private directory before activation. Obsidian collection reads both layouts without moving files. A separate workspace-root note lock coordinates mutations and relocation with creation, attachment, and anchor removal. Atomic no-replace renames avoid destination overwrites; notes with accompanying files or detected relative links remain in place with an error. Shared archive notes cannot seed, attach to, or become implicit mounts of a workspace. Garbage collection applies the same bundle checks to note-only and multi-member workspaces.
 
 ## Terminal UI
 

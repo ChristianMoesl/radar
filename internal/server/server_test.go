@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -117,6 +118,15 @@ func TestRefreshLocalOnlyCollectsLocalSources(t *testing.T) {
 }
 
 func TestStructuredTaskMutations(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), []byte(fmt.Sprintf(`{"workspace":{"root_dir":%q},"linking_mark_prefixes":["ABC"]}`, filepath.Join(t.TempDir(), "workspaces"))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
 	vault := filepath.Join(t.TempDir(), "Work")
 	if err := os.MkdirAll(filepath.Join(vault, ".obsidian"), 0o755); err != nil {

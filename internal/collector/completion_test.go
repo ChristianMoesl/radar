@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -48,7 +49,15 @@ type completionFixture struct {
 
 func newCompletionFixture(t *testing.T) *completionFixture {
 	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), []byte(fmt.Sprintf(`{"workspace":{"root_dir":%q},"linking_mark_prefixes":["ABC"]}`, filepath.Join(t.TempDir(), "workspaces"))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
 	vault := t.TempDir()
 	if err := os.Mkdir(filepath.Join(vault, ".obsidian"), 0o755); err != nil {
@@ -94,6 +103,7 @@ func (f *completionFixture) assertState(t *testing.T, want string) {
 	if !collected.Complete || len(collected.Observations) != 1 || collected.Observations[0].Ref.Status != want {
 		t.Fatalf("note collection = %+v, want %s", collected, want)
 	}
+	f.note = collected.Observations[0].Ref
 	tasks := f.store.Tasks()
 	if len(tasks) != 1 || (tasks[0].Attention == "done") != (want == "done") {
 		t.Fatalf("projected tasks = %+v, want %s", tasks, want)
