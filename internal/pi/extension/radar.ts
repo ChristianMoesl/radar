@@ -321,6 +321,8 @@ export default function radarExtension(pi: ExtensionAPI) {
       const guidelines = [
         "Radar workspace instructions:",
         knownContext.note ? `- notes.md is the canonical Obsidian task note at ${knownContext.note.path}. Its body may be empty. Do not invent a template unless the user asks or the work requires one.` : "",
+        knownContext.note ? "- The leading YAML frontmatter in notes.md is operational Radar data, not disposable template text: radar-* fields own task identity, title, lifecycle, priority, and timestamps. Before editing, read the existing note and preserve the entire frontmatter block, including its --- delimiters and unknown fields, byte-for-byte unless the user explicitly requests a specific metadata change. Edit only the Markdown body after the closing ---; never replace the whole note with a summary or template." : "",
+        knownContext.note ? "- If notes.md frontmatter is missing or malformed, stop and ask before repairing it. Do not invent or reset Radar identity or lifecycle fields." : "",
         "- Member worktrees are direct children of the workspace. Use Radar's typed tools for membership, sandbox mount, and port changes.",
         "- Instructions from Radar's user AGENTS.md apply to workspace and resource management across every member repository.",
         "- Instructions from a member repository context file apply only to files under that repository. Nested context files apply to their containing subtree. The most specific applicable directory wins. Global and workspace instructions apply to every member.",
