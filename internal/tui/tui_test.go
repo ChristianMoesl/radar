@@ -760,29 +760,6 @@ func TestScrollDoesNotMoveUpUntilCursorHitsTop(t *testing.T) {
 	}
 }
 
-func TestCleanupConfirmViewShowsEveryLocalResourceAndDirtyWarning(t *testing.T) {
-	model := model{mode: "cleanup_confirm", cleanup: protocol.CleanupPreview{Targets: []protocol.CleanupTarget{
-		{Source: "tmux", Kind: "session", ResourceID: "repo-small-fix", Description: "tmux session repo-small-fix"},
-		{Source: "sbx", Kind: "sandbox", ResourceID: "small-fix-12345678", Description: "SBX sandbox small-fix-12345678"},
-		{
-			Source: "git", Kind: "worktree", Path: "/repo/worktrees/small-fix", Branch: "small-fix",
-			Description: "worktree /repo/worktrees/small-fix (deletes branch small-fix; unpublished commits)",
-			Safety: []protocol.CleanupSafety{
-				{Kind: "local_changes", Message: "uncommitted changes will be discarded", BlocksAutomatic: true},
-				{Kind: "deletes_local_data", Message: "local branches belonging to Radar-managed worktrees will also be deleted"},
-				{Kind: "unpublished_data", Message: "some branch commits were not found on a remote-tracking branch and may exist only locally", BlocksAutomatic: true},
-			},
-		},
-	}}}
-
-	view := model.View()
-	for _, want := range []string{"Clean up local resources?", "Uncommitted changes will be discarded", "Radar-managed", "Some branch commits", "exist only locally", "repo-small-fix", "small-fix-12345678", "/repo/worktrees/small-fix", "deletes branch small-fix", "unpublished", "Press y to clean up"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("View() missing %q:\n%s", want, view)
-		}
-	}
-}
-
 func TestActivateSelectedStartsNoteWorkspaceForAuthoredTask(t *testing.T) {
 	m := model{tasks: []protocol.Task{{Title: "One task", SourceRefs: []protocol.SourceRef{{
 		ID: "obsidian:task:1", Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,

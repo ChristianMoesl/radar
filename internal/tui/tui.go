@@ -118,6 +118,8 @@ type model struct {
 	mode                string
 	create              createForm
 	cleanup             protocol.CleanupPreview
+	cleanupDetails      bool
+	cleanupScroll       int
 	links               []linkChoice
 	worktrees           []protocol.SourceRef
 	worktreeTask        protocol.Task
@@ -290,7 +292,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == "cleanup_confirm" {
 			switch msg.String() {
+			case "d":
+				m.cleanupDetails = !m.cleanupDetails
+				m.cleanupScroll = 0
+				return m, nil
+			case "j", "down", "ctrl+n", "k", "up", "ctrl+p", "pgdown", "pgup", "ctrl+d", "ctrl+u", "home", "end":
+				m.scrollCleanup(msg.String())
+				return m, nil
 			case "y", "Y":
+				if len(m.cleanup.Targets) == 0 {
+					return m, nil
+				}
 				preview := m.cleanup
 				m.mode = ""
 				m.loading = true
@@ -304,6 +316,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "q", "ctrl+c":
 				return m, tea.Quit
 			}
+			// A confirmation is modal: Enter and main-view shortcuts do nothing.
+			return m, nil
 		}
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
@@ -517,6 +531,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.message = ""
 		if msg.err == nil {
 			m.cleanup = msg.preview
+			m.cleanupDetails = false
+			m.cleanupScroll = 0
 			m.mode = "cleanup_confirm"
 		}
 	case actionMsg:
@@ -656,6 +672,9 @@ func (m model) taskRowPositions() (map[int]int, int) {
 }
 
 func (m model) View() string {
+	if m.mode == "cleanup_confirm" {
+		return m.cleanupScreen()
+	}
 	contentWidth := m.contentWidth()
 
 	var sections []string
@@ -680,12 +699,6 @@ func (m model) View() string {
 	if m.mode == "open_link" {
 		sections = append(sections, m.openLinkView(contentWidth))
 		sections = append(sections, helpStyle.Render("press key to open • esc cancel • q quit"))
-		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
-	}
-
-	if m.mode == "cleanup_confirm" {
-		sections = append(sections, m.cleanupConfirmView(contentWidth))
-		sections = append(sections, helpStyle.Render("y clean up • esc/n cancel • q quit"))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
@@ -1375,35 +1388,6 @@ func (m model) createView(width int) string {
 	default:
 		return ""
 	}
-}
-
-func (m model) cleanupConfirmView(width int) string {
-	preview := m.cleanup
-	warning := "This will remove every local resource linked to the task. Remote resources are preserved."
-	seenSafety := map[string]bool{}
-	for _, target := range preview.Targets {
-		for _, safety := range target.Safety {
-			message := cleanupSafetyMessage(safety.Message)
-			if message == "" || seenSafety[message] {
-				continue
-			}
-			seenSafety[message] = true
-			warning += " " + message
-		}
-	}
-	lines := []string{titleStyle.Render("Clean up local resources?"), warning, ""}
-	for _, target := range preview.Targets {
-		label := strings.TrimSpace(target.Description)
-		if label == "" {
-			label = strings.TrimSpace(target.Title)
-		}
-		if label == "" {
-			label = target.Source
-		}
-		lines = append(lines, label)
-	}
-	lines = append(lines, "", errorStyle.Render("Press y to clean up."))
-	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
 }
 
 func cleanupSafetyMessage(message string) string {

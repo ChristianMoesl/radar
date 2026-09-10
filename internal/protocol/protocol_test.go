@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -62,5 +63,25 @@ func TestResponseIncludesEmptyTasksAndSources(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("response should include %s for GUI clearing, got %s", want, body)
 		}
+	}
+}
+
+func TestCleanupPresentationRoundTrip(t *testing.T) {
+	preview := CleanupPreview{TaskID: 7, TaskTitle: "ABC-123 · Small fix", Targets: []CleanupTarget{{
+		Source: "git", Kind: "worktree", Path: "/work/repo--fix", Branch: "fix",
+		Presentation: CleanupPresentation{Singular: "worktree", Plural: "worktrees", Label: "repo", Detail: "fix"},
+		Safety:       []CleanupSafety{{Kind: "deletes_local_data", Summary: "deletes local branch", Message: "deletes local branch fix"}},
+		Operation:    map[string]string{"delete_branch": "fix"},
+	}}}
+	data, err := json.Marshal(preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got CleanupPreview
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, preview) {
+		t.Fatalf("presentation or execution plan changed during round trip: %+v", got)
 	}
 }

@@ -121,6 +121,9 @@ func TestCleanupRemovesOnlyAnchorAndRefusesUnknownFiles(t *testing.T) {
 	if err != nil || len(targets) != 1 {
 		t.Fatalf("targets = %+v, err=%v", targets, err)
 	}
+	if got := targets[0].Presentation; got != (protocol.CleanupPresentation{Singular: "workspace directory", Plural: "workspace directories"}) {
+		t.Fatalf("workspace cleanup presentation = %+v", got)
+	}
 	if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: targets[0]}); err != nil {
 		t.Fatal(err)
 	}

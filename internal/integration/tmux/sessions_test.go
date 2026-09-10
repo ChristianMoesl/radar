@@ -1,6 +1,8 @@
 package tmux
 
 import (
+	"context"
+	"radar/internal/integration"
 	"slices"
 	"testing"
 
@@ -121,5 +123,17 @@ func TestSessionSourceRefIDDistinguishesReusedTmuxIDs(t *testing.T) {
 		if first.sourceRefID() == reused.sourceRefID() {
 			t.Fatalf("reused tmux ID produced the same source ref ID: %q", first.sourceRefID())
 		}
+	}
+}
+
+func TestCleanupPreviewUsesCompactTerminalSessionPresentation(t *testing.T) {
+	targets, err := (Source{}).PreviewCleanup(context.Background(), integration.CleanupPreviewRequest{Task: protocol.Task{SourceRefs: []protocol.SourceRef{
+		{Source: "tmux", Kind: "session", Title: "ABC-123-feature", Metadata: map[string]string{"session_id": "$11"}},
+	}}})
+	if err != nil || len(targets) != 1 {
+		t.Fatalf("cleanup targets = %+v, error = %v", targets, err)
+	}
+	if got := targets[0].Presentation; got != (protocol.CleanupPresentation{Singular: "terminal session", Plural: "terminal sessions"}) {
+		t.Fatalf("session cleanup presentation = %+v", got)
 	}
 }

@@ -63,10 +63,11 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 			return nil, fmt.Errorf("sbx sandbox name is required")
 		}
 		targets = append(targets, protocol.CleanupTarget{
-			SourceRefID: ref.ID,
-			Source:      "sbx",
-			Kind:        "sandbox",
-			Title:       name, Path: ref.Path, ResourceRole: "runtime", ResourceID: name,
+			SourceRefID:  ref.ID,
+			Source:       "sbx",
+			Presentation: protocol.CleanupPresentation{Singular: "sandbox", Plural: "sandboxes"},
+			Kind:         "sandbox",
+			Title:        name, Path: ref.Path, ResourceRole: "runtime", ResourceID: name,
 			Description: "SBX sandbox " + name,
 		})
 	}

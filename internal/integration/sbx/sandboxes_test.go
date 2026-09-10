@@ -131,6 +131,11 @@ func TestSourcePreviewCleanupReturnsEverySandboxTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, target := range targets {
+		if got := target.Presentation; got != (protocol.CleanupPresentation{Singular: "sandbox", Plural: "sandboxes"}) {
+			t.Fatalf("sandbox cleanup presentation = %+v", got)
+		}
+	}
 	if len(targets) != 2 || targets[0].ResourceID != "radar-repo-one" || targets[1].ResourceID != "radar-repo-two" {
 		t.Fatalf("cleanup targets = %+v", targets)
 	}

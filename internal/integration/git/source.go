@@ -77,6 +77,9 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 		}
 		target := protocol.CleanupTarget{
 			SourceRefID: ref.ID, Source: "git", Kind: "worktree", Title: ref.Title,
+			Presentation: protocol.CleanupPresentation{
+				Singular: "worktree", Plural: "worktrees", Label: filepath.Base(ref.Repo), Detail: ref.Branch,
+			},
 			ResourceRole: "workspace", ResourceID: ref.Path, Path: ref.Path, Branch: ref.Branch,
 			ProvidesWorkspace: ref.ProvidesWorkspace, WorkspaceID: strings.TrimSpace(ref.WorkspaceID),
 		}
@@ -86,6 +89,8 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 			})
 		}
 		if member, managed := workspacegroup.FindMemberByPath(registry, ref.Path); managed {
+			target.Presentation.Label = filepath.Base(member.Repository)
+			target.Presentation.Detail = member.Branch
 			removal, err := workspace.PlanManagedWorktreeRemoval(ctx, workspace.ExecRunner{}, member)
 			if err != nil {
 				return nil, err
@@ -94,7 +99,7 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 			if removal.DeleteBranch {
 				target.Operation = map[string]string{"delete_branch": member.Branch}
 				target.Safety = append(target.Safety, protocol.CleanupSafety{
-					Kind: "deletes_local_data", Message: "deletes local branch " + member.Branch,
+					Kind: "deletes_local_data", Summary: "deletes local branch", Message: "deletes local branch " + member.Branch,
 				})
 				published, publicationErr := workspace.BranchPublished(ctx, workspace.ExecRunner{}, member.Repository, member.Branch)
 				if publicationErr != nil {
@@ -107,6 +112,22 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 					})
 				}
 			}
+		}
+		if target.Presentation.Label == "." || target.Presentation.Label == "" {
+			commonDir, err := gitOutput(ctx, ref.Path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+			if err != nil {
+				return nil, err
+			}
+			commonDir = strings.TrimSpace(commonDir)
+			target.Presentation.Label = filepath.Base(commonDir)
+			if target.Presentation.Label == ".git" {
+				target.Presentation.Label = filepath.Base(filepath.Dir(commonDir))
+			}
+		}
+		if target.Branch == "" {
+			target.Presentation.Detail = "detached HEAD"
+		} else if target.Operation["delete_branch"] == "" {
+			target.Presentation.Detail += " (branch kept)"
 		}
 		target.Description = cleanupDescription(target)
 		targets = append(targets, target)

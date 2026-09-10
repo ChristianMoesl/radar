@@ -116,7 +116,8 @@ func (Source) PreviewCleanup(_ context.Context, req integration.CleanupPreviewRe
 		}
 		targets = append(targets, protocol.CleanupTarget{
 			SourceRefID: ref.ID, Source: "workspace", Kind: "workspace", Title: group.Name, Path: group.Path,
-			Description: "workspace anchor " + group.Path, ResourceRole: "workspace", ResourceID: group.ID,
+			Presentation: protocol.CleanupPresentation{Singular: "workspace directory", Plural: "workspace directories"},
+			Description:  "workspace anchor " + group.Path, ResourceRole: "workspace", ResourceID: group.ID,
 			ProvidesWorkspace: true, WorkspaceID: group.ID,
 		})
 	}

@@ -32,22 +32,35 @@ func (c CurrentContext) Empty() bool {
 }
 
 type CleanupTarget struct {
-	SourceRefID       string            `json:"source_ref_id"`
-	Source            string            `json:"source"`
-	Kind              string            `json:"kind"`
-	Title             string            `json:"title,omitempty"`
-	Description       string            `json:"description,omitempty"`
-	ResourceRole      string            `json:"resource_role,omitempty"`
-	ResourceID        string            `json:"resource_id,omitempty"`
-	Path              string            `json:"path,omitempty"`
-	ProvidesWorkspace bool              `json:"provides_workspace,omitempty"`
-	WorkspaceID       string            `json:"workspace_id,omitempty"`
-	Branch            string            `json:"branch,omitempty"`
-	Safety            []CleanupSafety   `json:"safety,omitempty"`
-	Operation         map[string]string `json:"operation,omitempty"`
+	Presentation      CleanupPresentation `json:"presentation"`
+	SourceRefID       string              `json:"source_ref_id"`
+	Source            string              `json:"source"`
+	Kind              string              `json:"kind"`
+	Title             string              `json:"title,omitempty"`
+	Description       string              `json:"description,omitempty"`
+	ResourceRole      string              `json:"resource_role,omitempty"`
+	ResourceID        string              `json:"resource_id,omitempty"`
+	Path              string              `json:"path,omitempty"`
+	ProvidesWorkspace bool                `json:"provides_workspace,omitempty"`
+	WorkspaceID       string              `json:"workspace_id,omitempty"`
+	Branch            string              `json:"branch,omitempty"`
+	Safety            []CleanupSafety     `json:"safety,omitempty"`
+	Operation         map[string]string   `json:"operation,omitempty"`
+}
+
+// CleanupPresentation is provider-owned display metadata, not an execution plan.
+// Label and Detail identify resources that deserve individual rows in the summary.
+// Resources without a Label are counted together, unless they carry safety notices.
+type CleanupPresentation struct {
+	Singular string `json:"singular"`
+	Plural   string `json:"plural"`
+	Label    string `json:"label,omitempty"`
+	Detail   string `json:"detail,omitempty"`
 }
 
 type CleanupSafety struct {
+	// Summary is a short effect label; Message retains the full explanation for details.
+	Summary         string `json:"summary,omitempty"`
 	Kind            string `json:"kind"`
 	Message         string `json:"message"`
 	BlocksAutomatic bool   `json:"blocks_automatic,omitempty"`

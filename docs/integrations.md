@@ -109,6 +109,10 @@ The collector stamps source label and display order from the integration descrip
 
 `internal/cleanup.Service` asks registered providers for targets in registration order and executes a confirmed or automatically selected preview sequentially in that same order. Every target's `Source` must match the provider's source name. Providers also emit a user-facing `Description`, opaque `ResourceID`, generic workspace path/group traits, provider-owned `Operation` values, and typed `Safety` messages. Core cleanup and garbage collection never interpret session names, sandbox names, branch-publication fields, or provider metadata.
 
+Providers also supply `CleanupTarget.Presentation`: `Singular` and `Plural` name the resource for grouped counts, while optional `Label` and `Detail` identify resources that need individual summary rows. Git emits the repository and branch here; runtime resources and workspace directories are counted together. Any target carrying safety notices gets an individual row regardless of its label. The TUI consumes this presentation without parsing provider-owned operation maps or resource names.
+
+`CleanupSafety.Summary` optionally supplies a short label for a nonblocking effect (for example, “deletes local branch”); the full `Message` remains available in details and CLI output. Blocking safety messages are always shown in full above the summary, deduplicated by message, with markers on affected resources. Presentation fields are transient socket payloads, not a change to the persisted workspace or task schema.
+
 Providers receive an explicit `integration.CleanupRequest`:
 
 ```go

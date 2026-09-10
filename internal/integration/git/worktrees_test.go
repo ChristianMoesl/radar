@@ -118,6 +118,9 @@ func TestPreviewCleanupReturnsWorktreeTarget(t *testing.T) {
 	if len(targets) != 1 {
 		t.Fatalf("cleanup targets = %+v, want one worktree", targets)
 	}
+	if got := targets[0].Presentation; got != (protocol.CleanupPresentation{Singular: "worktree", Plural: "worktrees", Label: "repo", Detail: "small-fix (branch kept)"}) {
+		t.Fatalf("observed worktree presentation = %+v", got)
+	}
 	if targets[0].Source != "git" || targets[0].Kind != "worktree" || targets[0].Path != worktree || targets[0].Operation["delete_branch"] != "" {
 		t.Fatalf("cleanup target = %+v, want observed worktree without branch deletion", targets[0])
 	}
@@ -163,6 +166,14 @@ func TestManagedWorktreeCleanupDeletesItsLocalBranch(t *testing.T) {
 	}
 	if len(targets) != 1 || targets[0].Operation["delete_branch"] != "small-fix" || !hasCleanupSafety(targets[0], "safety_check_unavailable") {
 		t.Fatalf("cleanup target = %+v, want managed branch with unknown publication", targets)
+	}
+	if got := targets[0].Presentation; got != (protocol.CleanupPresentation{Singular: "worktree", Plural: "worktrees", Label: "repo", Detail: "small-fix"}) {
+		t.Fatalf("managed worktree presentation = %+v", got)
+	}
+	for _, safety := range targets[0].Safety {
+		if safety.Kind == "deletes_local_data" && (safety.Summary != "deletes local branch" || safety.Message != "deletes local branch small-fix") {
+			t.Fatalf("branch deletion effect = %+v", safety)
+		}
 	}
 	if _, err := (Source{}).Cleanup(ctx, integration.CleanupRequest{Target: targets[0]}); err != nil {
 		t.Fatal(err)
@@ -213,6 +224,9 @@ func TestManagedWorktreeCleanupPreservesProtectedBranch(t *testing.T) {
 	targets, err := Source{}.PreviewCleanup(ctx, integration.CleanupPreviewRequest{Task: protocol.Task{ID: 1, SourceRefs: []protocol.SourceRef{ref}}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got := targets[0].Presentation.Detail; got != "main (branch kept)" {
+		t.Fatalf("protected branch presentation = %q", got)
 	}
 	if len(targets) != 1 || targets[0].Operation["delete_branch"] != "" || len(targets[0].Safety) != 0 {
 		t.Fatalf("cleanup target = %+v, want protected branch preservation", targets)

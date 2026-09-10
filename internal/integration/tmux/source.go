@@ -52,10 +52,11 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 			return nil, fmt.Errorf("tmux session has no cleanup target")
 		}
 		targets = append(targets, protocol.CleanupTarget{
-			SourceRefID: ref.ID,
-			Source:      "tmux",
-			Kind:        "session",
-			Title:       ref.Title, Path: ref.Path, ResourceRole: "multiplexer", ResourceID: session,
+			SourceRefID:  ref.ID,
+			Source:       "tmux",
+			Presentation: protocol.CleanupPresentation{Singular: "terminal session", Plural: "terminal sessions"},
+			Kind:         "session",
+			Title:        ref.Title, Path: ref.Path, ResourceRole: "multiplexer", ResourceID: session,
 			Description: "tmux session " + session,
 		})
 	}
