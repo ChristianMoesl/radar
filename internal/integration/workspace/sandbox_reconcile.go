@@ -257,6 +257,9 @@ func reconcileSandbox(ctx context.Context, runner Runner, group workspacegroup.W
 }
 
 func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group workspacegroup.Workspace, logger *slog.Logger, policy sandboxReconcilePolicy) error {
+	if err := ensureSharedDirectory(group); err != nil {
+		return err
+	}
 	sandbox := group.Sandbox
 	actual, found, err := findSandbox(ctx, runner, group.Path, sandbox.Name)
 	if err != nil {

@@ -1,4 +1,4 @@
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -87,9 +87,22 @@ type WorkspaceMember = {
 type WorkspaceContextResult = {
   workspace_path?: string;
   note?: { path: string; workspace_path: string };
+  sandbox?: { shared_directory?: string; shared_directory_ready: boolean };
   members?: WorkspaceMember[];
   [key: string]: unknown;
 };
+
+// Change only Pi's host process, not tmux's environment or Linux tools in SBX.
+// Preserve the original root for Radar subprocesses allocating other workspaces.
+function configureSharedDirectory(context: WorkspaceContextResult | undefined) {
+  const directory = context?.sandbox?.shared_directory_ready ? context.sandbox.shared_directory : undefined;
+  if (directory) {
+    process.env.RADAR_HOST_TMPDIR ||= tmpdir();
+    process.env.TMPDIR = directory;
+  } else if (process.env.RADAR_HOST_TMPDIR) {
+    process.env.TMPDIR = process.env.RADAR_HOST_TMPDIR;
+  }
+}
 
 type ResourceSnapshot = { contextPaths: string[]; skillPaths: string[] };
 
@@ -286,6 +299,7 @@ export default function radarExtension(pi: ExtensionAPI) {
   pi.on("resources_discover", async (event, ctx) => {
     try {
       knownContext = await inspectWorkspace(pi, event.cwd);
+      configureSharedDirectory(knownContext);
       const discovered = await discoverResources(knownContext, (message, level) => ctx.ui.notify(message, level));
       const resources = ctx.isProjectTrusted() ? discovered : { ...discovered, skillPaths: [] };
       if (!ctx.isProjectTrusted() && discovered.skillPaths.length > 0) ctx.ui.notify("Radar did not load member skills because the workspace is not trusted", "warning");
@@ -295,6 +309,7 @@ export default function radarExtension(pi: ExtensionAPI) {
       pi.appendEntry(ResourceEntry, resources);
       return { skillPaths: resources.skillPaths };
     } catch (error) {
+      configureSharedDirectory(undefined);
       if (event.reason === "reload") ctx.ui.notify(`Radar workspace resource refresh failed; keeping the previous resource set: ${error instanceof Error ? error.message : error}`, "warning");
       return { skillPaths: previousResources.skillPaths };
     }
@@ -309,6 +324,7 @@ export default function radarExtension(pi: ExtensionAPI) {
 
     try {
       knownContext = await inspectWorkspace(pi, ctx.cwd, ctx.signal);
+      configureSharedDirectory(knownContext);
       const resources = await discoverResources(knownContext);
       const blocks: string[] = [];
       for (const path of resources.contextPaths) {
@@ -320,6 +336,8 @@ export default function radarExtension(pi: ExtensionAPI) {
       }
       const guidelines = [
         "Radar workspace instructions:",
+        knownContext.sandbox?.shared_directory_ready ? `- Shared host/sandbox directory: ${knownContext.sandbox.shared_directory}. It is mounted read/write at the same absolute path in both environments. Save and share screenshots here (use unique filenames), not /tmp/screenshots. Pi saves pasted clipboard images here. Keep the sandbox's TMPDIR and /tmp local; pass the shared output path explicitly to screenshot tools. These files are temporary and are removed during workspace cleanup; copy anything worth retaining into the workspace.` : "",
+        knownContext.sandbox && !knownContext.sandbox.shared_directory_ready ? "- The workspace shared screenshot directory is not ready. Reconcile the workspace and reload Pi before using it; do not assume host temporary paths are accessible in the sandbox." : "",
         knownContext.note ? `- notes.md is the canonical Obsidian task note at ${knownContext.note.path}. Its body may be empty. Do not invent a template unless the user asks or the work requires one.` : "",
         knownContext.note ? "- The leading YAML frontmatter in notes.md is operational Radar data, not disposable template text: radar-* fields own task identity, title, lifecycle, priority, and timestamps. Before editing, read the existing note and preserve the entire frontmatter block, including its --- delimiters and unknown fields, byte-for-byte unless the user explicitly requests a specific metadata change. Edit only the Markdown body after the closing ---; never replace the whole note with a summary or template." : "",
         knownContext.note ? "- If notes.md frontmatter is missing or malformed, stop and ask before repairing it. Do not invent or reset Radar identity or lifecycle fields." : "",
@@ -329,6 +347,7 @@ export default function radarExtension(pi: ExtensionAPI) {
       ].filter(Boolean).join("\n");
       return { systemPrompt: [event.systemPrompt, guidelines, radarInstructions, ...blocks].filter(Boolean).join("\n\n") };
     } catch {
+      configureSharedDirectory(undefined);
       if (radarInstructions) return { systemPrompt: [event.systemPrompt, radarInstructions].join("\n\n") };
       return undefined;
     }

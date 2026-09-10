@@ -213,6 +213,9 @@ func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegr
 		return false, false, err
 	}
 	createdSandbox := false
+	if err := ensureSharedDirectory(group); err != nil {
+		return false, false, err
+	}
 	if group.Sandbox != nil {
 		exists, err := sandboxExists(ctx, runner, group.Sandbox.Name)
 		if err != nil {

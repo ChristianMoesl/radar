@@ -114,10 +114,14 @@ func (Source) PreviewCleanup(_ context.Context, req integration.CleanupPreviewRe
 		} else if len(unknown) > 0 {
 			return nil, fmt.Errorf("workspace anchor contains unknown files: %s", strings.Join(unknown, ", "))
 		}
+		description := "workspace anchor " + group.Path
+		if group.Sandbox != nil && group.Sandbox.SharedDirectory != "" {
+			description += " and shared temporary files (including screenshots) in " + group.Sandbox.SharedDirectory
+		}
 		targets = append(targets, protocol.CleanupTarget{
 			SourceRefID: ref.ID, Source: "workspace", Kind: "workspace", Title: group.Name, Path: group.Path,
 			Presentation: protocol.CleanupPresentation{Singular: "workspace directory", Plural: "workspace directories"},
-			Description:  "workspace anchor " + group.Path, ResourceRole: "workspace", ResourceID: group.ID,
+			Description:  description, ResourceRole: "workspace", ResourceID: group.ID,
 			ProvidesWorkspace: true, WorkspaceID: group.ID,
 		})
 	}
@@ -173,6 +177,9 @@ func removeWorkspaceAnchor(root string, target protocol.CleanupTarget) (workspac
 		}
 	}
 	if err := os.Remove(group.Path); err != nil && !os.IsNotExist(err) {
+		return workspacegroup.Workspace{}, err
+	}
+	if err := removeSharedDirectory(group); err != nil {
 		return workspacegroup.Workspace{}, err
 	}
 	if err := workspacegroup.RemoveWorkspace(root, group.ID); err != nil {

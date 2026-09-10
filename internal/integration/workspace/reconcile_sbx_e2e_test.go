@@ -154,7 +154,15 @@ func setupSandboxMountE2E(t *testing.T) (context.Context, ExecRunner, string, st
 	common := filepath.Join(repository, ".git")
 	sandboxName := fmt.Sprintf("radar-mount-e2e-%d-%d", os.Getpid(), time.Now().UnixNano())
 
-	if _, err := runner.Run(ctx, anchor, "sbx", "create", "--name", sandboxName, "shell", anchor, common); err != nil {
+	t.Setenv(hostTempDirEnv, tmp)
+	shared, err := newSharedDirectory(anchor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureSharedDirectory(workspacegroup.Workspace{Path: anchor, Sandbox: &workspacegroup.Sandbox{SharedDirectory: shared}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(ctx, anchor, "sbx", "create", "--name", sandboxName, "shell", anchor, common, shared); err != nil {
 		t.Fatalf("create SBX sandbox: %v", err)
 	}
 	t.Cleanup(func() {
@@ -167,7 +175,7 @@ func setupSandboxMountE2E(t *testing.T) (context.Context, ExecRunner, string, st
 
 	group := workspacegroup.Workspace{
 		ID: workspacegroup.ID(anchor), Name: "work", Path: anchor,
-		Sandbox: &workspacegroup.Sandbox{Name: sandboxName, Agent: "shell", Mounts: []string{anchor, common}},
+		Sandbox: &workspacegroup.Sandbox{Name: sandboxName, Agent: "shell", SharedDirectory: shared, Mounts: []string{anchor, common, shared}},
 		Members: []workspacegroup.Member{{Repository: repository, Path: primary, Branch: "sbx-e2e", SetupScheduled: true}},
 	}
 	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
@@ -225,4 +233,39 @@ func runSbxE2E(t *testing.T, ctx context.Context, runner ExecRunner, sandboxName
 		t.Fatalf("sbx %s failed: %v", strings.Join(command, " "), err)
 	}
 	return output
+}
+
+func TestSharedDirectoryRoundTripE2E(t *testing.T) {
+	ctx, runner, root, primary, name := setupSandboxMountE2E(t)
+	group := loadTestWorkspace(t, root, primary)
+	shared := group.Sandbox.SharedDirectory
+	incoming := filepath.Join(shared, "incoming.txt")
+	if err := os.WriteFile(incoming, []byte("from host\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := runSbxE2E(t, ctx, runner, name, "cat", incoming); got != "from host" {
+		t.Fatalf("incoming = %q", got)
+	}
+	outgoing := filepath.Join(shared, "outgoing.txt")
+	runSbxE2E(t, ctx, runner, name, "sh", "-lc", "printf 'from sandbox' > "+shellQuote(outgoing))
+	if data, err := os.ReadFile(outgoing); err != nil || string(data) != "from sandbox" {
+		t.Fatalf("outgoing = %q, %v", data, err)
+	}
+	sibling := filepath.Join(filepath.Dir(shared), "other-workspace")
+	if err := os.Mkdir(sibling, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sibling, "private"), []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runSbxE2E(t, ctx, runner, name, "sh", "-lc", "test ! -e "+shellQuote(filepath.Join(sibling, "private")))
+	// Linux temporary files must stay Linux-local, not inherit the host Pi path.
+	runSbxE2E(t, ctx, runner, name, "sh", "-lc", "test \"${TMPDIR:-/tmp}\" != "+shellQuote(shared))
+	inspected, err := InspectWorkspace(ctx, runner, primary, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inspected.Sandbox.SharedDirectoryReady || inspected.Sandbox.SharedDirectory != shared {
+		t.Fatalf("context = %+v", inspected.Sandbox)
+	}
 }

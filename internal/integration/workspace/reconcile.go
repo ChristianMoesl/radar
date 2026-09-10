@@ -349,6 +349,15 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 	writableMountAdded := false
 	effectiveMountCount := 0
 	if candidate.Sandbox != nil {
+		if candidate.Sandbox.SharedDirectory == "" {
+			path, err := newSharedDirectory(candidate.Path)
+			if err != nil {
+				return ReconcileWorkspacePlan{}, err
+			}
+			candidate.Sandbox.SharedDirectory = path
+			readOnly := false
+			changes = append(changes, WorkspaceChange{Action: "add", Resource: "sandbox_mount", Path: path, ReadOnly: &readOnly, Summary: fmt.Sprintf("create private shared directory %s and mount it read/write for clipboard images and screenshots", path)})
+		}
 		desiredAdditionalMounts, err := normalizeDesiredSandboxMounts(request.Desired.Sandbox.AdditionalMounts)
 		if err != nil {
 			return ReconcileWorkspacePlan{}, err
@@ -835,6 +844,7 @@ func workspacePlanID(revision string, changes []WorkspaceChange, warnings []stri
 
 func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.SandboxPort) (string, error) {
 	type revisionSandbox struct {
+		SharedDirectory  string                        `json:"shared_directory,omitempty"`
 		Name             string                        `json:"name"`
 		Agent            string                        `json:"agent"`
 		KitPath          string                        `json:"kit_path"`
@@ -870,7 +880,7 @@ func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.Sa
 		if err != nil {
 			return "", err
 		}
-		state.Sandbox = &revisionSandbox{Name: group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath, AdditionalMounts: normalizedMounts, Ports: normalizedPorts}
+		state.Sandbox = &revisionSandbox{SharedDirectory: group.Sandbox.SharedDirectory, Name: group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath, AdditionalMounts: normalizedMounts, Ports: normalizedPorts}
 	}
 	data, err := json.Marshal(state)
 	if err != nil {
@@ -1213,6 +1223,9 @@ func reconcileSandboxPorts(ctx context.Context, runner Runner, name string, desi
 
 func desiredReconciledSandboxMounts(ctx context.Context, runner Runner, group workspacegroup.Workspace, plans map[string]WorktreePlan, global []string, additional []workspacegroup.SandboxMount) ([]string, error) {
 	mounts := []string{group.Path}
+	if group.Sandbox != nil && group.Sandbox.SharedDirectory != "" {
+		mounts = append(mounts, group.Sandbox.SharedDirectory)
+	}
 	if group.NotePath != "" {
 		if err := obsidiansettings.ValidateWorkspaceNote(group.NotePath); err != nil {
 			return nil, err
@@ -1257,5 +1270,12 @@ func desiredReconciledSandboxMounts(ctx context.Context, runner Runner, group wo
 		}
 		managed = append(managed, sandboxMountArgument(mount))
 	}
-	return normalizeConfiguredMounts(managed)
+	result, err := normalizeConfiguredMounts(managed)
+	if err != nil {
+		return nil, err
+	}
+	if group.Sandbox != nil && group.Sandbox.SharedDirectory != "" && !sharedDirectoryWritable(group.Sandbox.SharedDirectory, result) {
+		return nil, fmt.Errorf("configured mounts make shared directory %s read-only", group.Sandbox.SharedDirectory)
+	}
+	return result, nil
 }

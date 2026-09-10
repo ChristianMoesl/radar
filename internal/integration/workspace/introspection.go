@@ -52,11 +52,13 @@ type WorkspaceContextNote struct {
 }
 
 type WorkspaceContextSandbox struct {
-	Name    string                       `json:"name"`
-	Agent   string                       `json:"agent"`
-	KitPath string                       `json:"kit_path,omitempty"`
-	Mounts  []string                     `json:"mounts"`
-	Ports   []workspacegroup.SandboxPort `json:"ports"`
+	SharedDirectory      string                       `json:"shared_directory,omitempty"`
+	SharedDirectoryReady bool                         `json:"shared_directory_ready"`
+	Name                 string                       `json:"name"`
+	Agent                string                       `json:"agent"`
+	KitPath              string                       `json:"kit_path,omitempty"`
+	Mounts               []string                     `json:"mounts"`
+	Ports                []workspacegroup.SandboxPort `json:"ports"`
 }
 
 type WorkspaceContextRepository struct {
@@ -162,8 +164,14 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 			desiredMounts = append(desiredMounts, DesiredSandboxMount{Path: mount.Path, ReadOnly: &readOnly})
 		}
 		result.Desired.Sandbox = &DesiredWorkspaceSandbox{AdditionalMounts: desiredMounts, Ports: append([]workspacegroup.SandboxPort{}, ports...)}
+		actual, found, err := findSandbox(ctx, runner, group.Path, group.Sandbox.Name)
+		if err != nil {
+			return WorkspaceContext{}, err
+		}
 		result.Sandbox = &WorkspaceContextSandbox{
-			Name: group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath,
+			SharedDirectory:      group.Sandbox.SharedDirectory,
+			SharedDirectoryReady: found && sharedDirectoryReady(group.Sandbox.SharedDirectory, sandboxWorkspaceMounts(actual)),
+			Name:                 group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath,
 			Mounts: append([]string(nil), group.Sandbox.Mounts...), Ports: append([]workspacegroup.SandboxPort{}, ports...),
 		}
 	}

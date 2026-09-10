@@ -199,7 +199,7 @@ func TestNoteAttachmentChangesSandboxMountPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !contains(plan.group.Sandbox.Mounts, filepath.Dir(note)) || len(plan.group.Sandbox.Mounts) != 2 {
+	if !contains(plan.group.Sandbox.Mounts, filepath.Dir(note)) || !contains(plan.group.Sandbox.Mounts, plan.group.Sandbox.SharedDirectory) || len(plan.group.Sandbox.Mounts) != 3 {
 		t.Fatalf("mounts = %v", plan.group.Sandbox.Mounts)
 	}
 	if !strings.Contains(strings.Join(plan.Warnings, " "), "interrupts processes") {

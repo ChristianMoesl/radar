@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+
+	"radar/internal/hosttemp"
 )
 
 func Path() (string, error) {
@@ -13,7 +15,7 @@ func Path() (string, error) {
 
 	base := os.Getenv("XDG_RUNTIME_DIR")
 	if base == "" {
-		base = filepath.Join(os.TempDir(), "radar-"+os.Getenv("USER"))
+		base = filepath.Join(hosttemp.Dir(), "radar-"+os.Getenv("USER"))
 	}
 	if base == "" {
 		return "", errors.New("could not determine runtime directory")

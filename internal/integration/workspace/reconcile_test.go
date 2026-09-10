@@ -338,10 +338,16 @@ func TestReconcileWorkspacePlansAdditionalSandboxMount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Changes) != 2 || plan.Changes[0].Resource != "sandbox_mount" || plan.Changes[0].Action != "add" || plan.Changes[0].Path != additional || plan.Changes[0].ReadOnly == nil || !*plan.Changes[0].ReadOnly {
+	if len(plan.Changes) != 3 || plan.Changes[1].Resource != "sandbox_mount" || plan.Changes[1].Action != "add" || plan.Changes[1].Path != additional || plan.Changes[1].ReadOnly == nil || !*plan.Changes[1].ReadOnly {
 		t.Fatalf("plan changes = %+v", plan.Changes)
 	}
-	if plan.Changes[1].Resource != "sandbox" || plan.Changes[1].Action != "recreate" {
+	if shared := plan.Changes[0]; shared.Resource != "sandbox_mount" || shared.Path != plan.group.Sandbox.SharedDirectory || shared.ReadOnly == nil || *shared.ReadOnly {
+		t.Fatalf("shared directory change = %+v", shared)
+	}
+	if _, err := os.Stat(plan.group.Sandbox.SharedDirectory); !os.IsNotExist(err) {
+		t.Fatalf("preview created the shared directory: %v", err)
+	}
+	if plan.Changes[2].Resource != "sandbox" || plan.Changes[2].Action != "recreate" {
 		t.Fatalf("plan changes = %+v", plan.Changes)
 	}
 	if len(plan.group.Sandbox.AdditionalMounts) != 1 || !plan.group.Sandbox.AdditionalMounts[0].ReadOnly {
@@ -370,8 +376,8 @@ func TestReconcileWorkspacePlansAdditionalSandboxMount(t *testing.T) {
 		t.Fatalf("managed mount parent overlap error = %v", err)
 	}
 
-	largeMounts := make([]DesiredSandboxMount, 0, largeEffectiveMountCount-2)
-	for index := 0; index < largeEffectiveMountCount-2; index++ {
+	largeMounts := make([]DesiredSandboxMount, 0, largeEffectiveMountCount-3)
+	for index := 0; index < largeEffectiveMountCount-3; index++ {
 		largeMounts = append(largeMounts, DesiredSandboxMount{Path: filepath.Join(root, fmt.Sprintf("large-mount-%d", index))})
 	}
 	request.Desired.Sandbox.AdditionalMounts = largeMounts
@@ -395,7 +401,7 @@ func TestReconcileWorkspacePlansAdditionalSandboxMount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.OK || !result.SandboxReconciled || result.MountsAdded != 1 || result.MountsRemoved != 0 {
+	if !result.OK || !result.SandboxReconciled || result.MountsAdded != 2 || result.MountsRemoved != 0 {
 		t.Fatalf("result = %+v", result)
 	}
 	stored := loadTestWorkspace(t, root, primary)
@@ -404,6 +410,19 @@ func TestReconcileWorkspacePlansAdditionalSandboxMount(t *testing.T) {
 	}
 	if !containsPath(runner.mounts, additional+":ro") {
 		t.Fatalf("actual sandbox mounts = %+v", runner.mounts)
+	}
+	if stored.Sandbox.SharedDirectory != plan.group.Sandbox.SharedDirectory || !sharedDirectoryReady(stored.Sandbox.SharedDirectory, runner.mounts) {
+		t.Fatalf("shared directory was not persisted and mounted: %+v", stored.Sandbox)
+	}
+	t.Cleanup(func() { _ = removeSharedDirectory(stored) })
+	// Once provisioned, reconciliation reuses the recorded directory even if
+	// Radar is called from Pi with a different TMPDIR or host root.
+	t.Setenv(hostTempDirEnv, t.TempDir())
+	request.Revision = result.Revision
+	request.ExpectedPlanID = ""
+	again, err := PreviewReconcileWorkspace(context.Background(), runner, request)
+	if err != nil || len(again.Changes) != 0 || again.group.Sandbox.SharedDirectory != stored.Sandbox.SharedDirectory {
+		t.Fatalf("unchanged reconciliation = %+v, %v", again, err)
 	}
 }
 

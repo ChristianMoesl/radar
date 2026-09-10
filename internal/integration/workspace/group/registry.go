@@ -43,6 +43,7 @@ type Workspace struct {
 }
 
 type Sandbox struct {
+	SharedDirectory  string         `json:"shared_directory,omitempty"`
 	Name             string         `json:"name"`
 	Agent            string         `json:"agent"`
 	KitPath          string         `json:"kit_path,omitempty"`
@@ -414,6 +415,9 @@ func normalizeAndValidate(registry *Registry) error {
 			memberIdentities[identity] = true
 		}
 		if workspace.Sandbox != nil {
+			if err := ValidateSharedDirectory(workspace.Path, workspace.Sandbox.SharedDirectory); err != nil {
+				return err
+			}
 			workspace.Sandbox.Name = strings.TrimSpace(workspace.Sandbox.Name)
 			workspace.Sandbox.Agent = strings.TrimSpace(workspace.Sandbox.Agent)
 			workspace.Sandbox.KitPath = cleanOptionalPath(workspace.Sandbox.KitPath)

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"radar/internal/hosttemp"
 )
 
 func PIDPath() (string, error) {
@@ -18,7 +20,7 @@ func PIDPath() (string, error) {
 
 	base := os.Getenv("XDG_RUNTIME_DIR")
 	if base == "" {
-		base = filepath.Join(os.TempDir(), "radar-"+os.Getenv("USER"))
+		base = filepath.Join(hosttemp.Dir(), "radar-"+os.Getenv("USER"))
 	}
 	return filepath.Join(base, "radar", "radar.pid"), nil
 }
