@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"go.yaml.in/yaml/v3"
+
 	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/integration/obsidian/settings"
@@ -249,10 +251,6 @@ func readNote(path string) (note, error) {
 	}
 	current, err := parseNote(string(data))
 	current.Path = path
-	current.Title = strings.TrimSuffix(filepath.Base(path), ".md")
-	if err == nil && strings.TrimSpace(current.Title) == "" {
-		err = fmt.Errorf("task note filename must contain a title")
-	}
 	return current, err
 }
 
@@ -267,6 +265,11 @@ func parseNote(content string) (note, error) {
 		if strings.TrimSpace(lines[i]) == "---" {
 			end = i
 			break
+		}
+		// Only top-level keys are managed; nested user metadata and title block
+		// scalar contents must not become field indexes.
+		if strings.HasPrefix(lines[i], " ") || strings.HasPrefix(lines[i], "\t") {
+			continue
 		}
 		key, value, ok := strings.Cut(lines[i], ":")
 		if !ok {
@@ -296,11 +299,20 @@ func parseNote(content string) (note, error) {
 	if end < 0 {
 		return current, fmt.Errorf("Markdown frontmatter is not closed")
 	}
-	for _, field := range []string{"radar-id", "radar-state", "radar-priority", "radar-created-at", "radar-completed-at"} {
+	for _, field := range []string{"radar-id", "radar-title", "radar-state", "radar-priority", "radar-created-at", "radar-completed-at"} {
 		if _, ok := current.fields[field]; !ok {
 			return current, fmt.Errorf("missing required field %s", field)
 		}
 	}
+	var frontmatter map[string]yaml.Node
+	if err := yaml.Unmarshal([]byte(strings.Join(lines[1:end], "\n")), &frontmatter); err != nil {
+		return current, fmt.Errorf("invalid YAML frontmatter")
+	}
+	title := frontmatter["radar-title"]
+	if title.Kind != yaml.ScalarNode || title.Tag != "!!str" || strings.TrimSpace(title.Value) == "" {
+		return current, fmt.Errorf("radar-title must be a non-empty YAML string")
+	}
+	current.Title = strings.TrimSpace(title.Value)
 	if !validID.MatchString(current.ID) {
 		return current, fmt.Errorf("invalid radar-id %q", current.ID)
 	}
@@ -519,7 +531,7 @@ func (s Source) mutateNoteLocked(root string, ref protocol.SourceRef, update fun
 	if err := atomicWrite(path, []byte(content), info.Mode().Perm()); err != nil {
 		return note{}, err
 	}
-	updated.Path, updated.Title = current.Path, current.Title
+	updated.Path = current.Path
 	return updated, nil
 }
 

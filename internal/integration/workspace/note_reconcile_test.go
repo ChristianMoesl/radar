@@ -27,7 +27,7 @@ func TestAttachNotePreservesWorkspaceAndOriginalTaskIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	author := obsidian.NewSourceAt(vault)
-	note, err := author.PrepareWorkspaceNote(context.Background(), "Investigation notes")
+	note, err := author.PrepareWorkspaceNote(context.Background(), "Investigation: notes")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +46,16 @@ func TestAttachNotePreservesWorkspaceAndOriginalTaskIdentity(t *testing.T) {
 	}
 	if _, err := os.Lstat(note.Path); !os.IsNotExist(err) {
 		t.Fatal("preview created note")
+	}
+	// A different display title with the same sanitized path still needs a new
+	// confirmation; otherwise the original title was lost from the plan hash.
+	changedNote := note
+	changedNote.Title = "Investigation- notes"
+	changedRequest := request
+	changedRequest.Desired.Note = &changedNote
+	changedPlan, err := PreviewReconcileWorkspace(context.Background(), runner, changedRequest)
+	if err != nil || changedPlan.PlanID == plan.PlanID {
+		t.Fatalf("title change did not invalidate confirmation: %v", err)
 	}
 	request.ExpectedPlanID = "wrong"
 	rejected, err := ApplyReconcileWorkspace(context.Background(), runner, nil, request)
@@ -73,6 +83,10 @@ func TestAttachNotePreservesWorkspaceAndOriginalTaskIdentity(t *testing.T) {
 	}
 	if target, err := os.Readlink(filepath.Join(anchor, "notes.md")); err != nil || target != note.Path {
 		t.Fatalf("link = %q, %v", target, err)
+	}
+	notes := author.Collect(context.Background(), integration.CollectRequest{})
+	if !notes.Complete || len(notes.Observations) != 1 || notes.Observations[0].Ref.Title != "Investigation: notes" {
+		t.Fatalf("note title lost during reconciliation: %+v", notes)
 	}
 	collected := (Source{}).Collect(context.Background(), integration.CollectRequest{})
 	if len(collected.Observations) != 1 || !contains(collected.Observations[0].Ref.LinkingKeys, initial.TaskLinkingKey) || !contains(collected.Observations[0].Ref.LinkingKeys, note.LinkingKey) {

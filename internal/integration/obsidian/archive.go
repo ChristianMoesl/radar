@@ -82,7 +82,7 @@ func (s Source) restoreNote(root string, current note) (string, error) {
 	if hasRelativeLinks(current.content) {
 		return "", fmt.Errorf("cannot restore %s with relative links; note left in place", current.Path)
 	}
-	directory := filepath.Join(filepath.Dir(filepath.Dir(current.Path)), taskDirectoryName(current.Title, current.ID))
+	directory := filepath.Join(filepath.Dir(filepath.Dir(current.Path)), taskDirectoryName(taskFilename(current.Title), current.ID))
 	if err := os.Mkdir(directory, 0o755); err != nil {
 		return "", fmt.Errorf("restore private task directory: %w", err)
 	}

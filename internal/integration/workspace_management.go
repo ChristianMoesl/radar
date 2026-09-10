@@ -101,7 +101,9 @@ type WorkspaceNoteAuthor interface {
 }
 
 type DesiredWorkspaceNote struct {
-	Create     bool   `json:"create,omitempty"`
+	Create bool `json:"create,omitempty"`
+	// Title is required only when creating a note; attachments use its stored title.
+	Title      string `json:"title,omitempty"`
 	Path       string `json:"path"`
 	LinkingKey string `json:"linking_key"`
 }

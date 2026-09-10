@@ -34,7 +34,7 @@ func testVault(t *testing.T) string {
 func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	vault := testVault(t)
 	source := NewSourceAt(vault)
-	title := "Refine authentication- epic"
+	title := "Refine authentication: epic"
 	identity, err := source.Create(context.Background(), "Refine authentication: epic")
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	}
 	notePath := taskRef.Metadata["note_path"]
 	info, err := os.Stat(notePath)
-	if err != nil || !info.Mode().IsRegular() || filepath.Base(filepath.Dir(notePath)) != taskDirectoryName(title, taskRef.Metadata["radar_id"]) {
+	if err != nil || !info.Mode().IsRegular() || filepath.Base(filepath.Dir(notePath)) != taskDirectoryName(taskFilename(title), taskRef.Metadata["radar_id"]) {
 		t.Fatalf("task note info = %+v, path=%s, err=%v", info, notePath, err)
 	}
 	if taskRef.Title != title || taskRef.Presentation.WorkspaceName != title || taskRef.Path != "" || taskRef.ProvidesWorkspace || len(taskRef.LinkingKeys) != 1 || taskRef.LinkingKeys[0] != identity.SourceRefID || taskRef.Metadata["task_directory"] != filepath.Dir(notePath) {
@@ -63,7 +63,7 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(content), "radar-title:") || !strings.HasSuffix(string(content), "radar-completed-at:\n---\n") {
+	if !strings.Contains(string(content), `radar-title: "Refine authentication: epic"`) || !strings.HasSuffix(string(content), "radar-completed-at:\n---\n") {
 		t.Fatalf("task note must contain managed frontmatter and an empty body:\n%s", content)
 	}
 	updated := strings.Replace(string(content), "radar-completed-at:\n---", "radar-completed-at:\ncustom-owner: Christian\n---", 1) + "\nUser body stays.\n"
@@ -143,7 +143,7 @@ func TestMalformedAndDuplicateNotesArePartialAndPreserveKnownRefs(t *testing.T) 
 		t.Fatal(err)
 	}
 	duplicatePath := filepath.Join(duplicateDirectory, "Duplicate title.md")
-	if err := os.WriteFile(duplicatePath, data, 0o644); err != nil {
+	if err := os.WriteFile(duplicatePath, []byte(strings.Replace(string(data), `radar-title: "Known task"`, `radar-title: "Duplicate title"`, 1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	result := source.Collect(context.Background(), integration.CollectRequest{Previous: previous})
@@ -169,7 +169,7 @@ func TestMalformedAndDuplicateNotesArePartialAndPreserveKnownRefs(t *testing.T) 
 	}
 }
 
-func TestRenameKeepsIdentityAndChangesTitle(t *testing.T) {
+func TestFilenameRenameKeepsIdentityAndTitle(t *testing.T) {
 	vault := testVault(t)
 	source := NewSourceAt(vault)
 	identity, err := source.Create(context.Background(), "Move me")
@@ -191,7 +191,7 @@ func TestRenameKeepsIdentityAndChangesTitle(t *testing.T) {
 		t.Fatalf("moved observations = %+v", moved.Observations)
 	}
 	movedRef := moved.Observations[0].Ref
-	if movedRef.ID != identity.SourceRefID || movedRef.Title != "Renamed task" || movedRef.Metadata["note_path"] != newPath || movedRef.URL == oldURL || movedRef.Path != "" || movedRef.ProvidesWorkspace {
+	if movedRef.ID != identity.SourceRefID || movedRef.Title != "Move me" || movedRef.Metadata["note_path"] != newPath || movedRef.URL == oldURL || movedRef.Path != "" || movedRef.ProvidesWorkspace {
 		t.Fatalf("moved ref = %+v", movedRef)
 	}
 	if err := os.Remove(newPath); err != nil {

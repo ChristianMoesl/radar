@@ -211,7 +211,7 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 			noteAdded = true
 			action := "attach"
 			if desiredNote.Create {
-				action = "create and attach"
+				action = fmt.Sprintf("create and attach %q", desiredNote.Title)
 			}
 			changes = append(changes, WorkspaceChange{Action: "add", Resource: "note", Path: desiredNote.Path, Summary: fmt.Sprintf("%s canonical note %s as notes.md", action, desiredNote.Path)})
 		}

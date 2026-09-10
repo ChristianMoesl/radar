@@ -2,6 +2,7 @@ package obsidian
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,7 +72,7 @@ func TestWorkspaceNoteRejectsSymlinkedPrivateDirectory(t *testing.T) {
 }
 
 func TestWorkspaceNoteSanitizesBeforePlanningAndCollects(t *testing.T) {
-	for _, title := range []string{`Fix CI/CD\build: "why?"`, "../outside", "line\nbreak\x00", "...", "CON", strings.Repeat("界", 150)} {
+	for _, title := range []string{`Fix CI/CD\build: "why?"`, "../outside", "line\nbreak\x00", "...", "CON", "  Setup: screenshots  ", "true", "007", "a: b # c [d]", strings.Repeat("界", 150)} {
 		t.Run(title, func(t *testing.T) {
 			vault := testVault(t)
 			source := NewSourceAt(vault)
@@ -82,8 +83,16 @@ func TestWorkspaceNoteSanitizesBeforePlanningAndCollects(t *testing.T) {
 			}
 			want := taskFilename(title)
 			id := strings.TrimPrefix(desired.LinkingKey, "obsidian:task:")
-			if desired.Path != filepath.Join(taskRoot(vault), taskDirectoryName(want, id), want+".md") {
+			if desired.Title != strings.TrimSpace(title) || desired.Path != filepath.Join(taskRoot(vault), taskDirectoryName(want, id), want+".md") {
 				t.Fatalf("planned path = %q", desired.Path)
+			}
+			// The title must survive the preview/apply JSON boundary.
+			encoded, err := json.Marshal(desired)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(encoded, &desired); err != nil {
+				t.Fatal(err)
 			}
 			if _, err := os.Lstat(filepath.Dir(desired.Path)); !os.IsNotExist(err) {
 				t.Fatal("preparation created a directory")
@@ -99,7 +108,7 @@ func TestWorkspaceNoteSanitizesBeforePlanningAndCollects(t *testing.T) {
 				t.Fatalf("collection = %+v", result)
 			}
 			ref := result.Observations[0].Ref
-			if ref.Title != want || ref.ID != desired.LinkingKey || ref.WorkspaceAnchorPath != desired.Path {
+			if ref.Title != strings.TrimSpace(title) || ref.Presentation.WorkspaceName != strings.TrimSpace(title) || ref.ID != desired.LinkingKey || ref.WorkspaceAnchorPath != desired.Path {
 				t.Fatalf("collected ref = %+v", ref)
 			}
 			if _, err := source.SetPriority(ctx, ref, "urgent"); err != nil {
@@ -180,7 +189,7 @@ func TestExistingNoteWithUnsanitizedNameRemainsUsable(t *testing.T) {
 		}
 	}
 	result := source.Collect(ctx, integration.CollectRequest{})
-	if !result.Complete || len(result.Observations) != 1 || result.Observations[0].Ref.Title != "Plan: why?" {
+	if !result.Complete || len(result.Observations) != 1 || result.Observations[0].Ref.Title != "Plan" {
 		t.Fatalf("existing note collection = %+v", result)
 	}
 	if _, err := source.SetPriority(ctx, result.Observations[0].Ref, "urgent"); err != nil {

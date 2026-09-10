@@ -24,7 +24,7 @@ Radar gives every normal task a private directory:
 <Vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
 ```
 
-The directory name combines the creation title with the first eight hexadecimal characters of `radar-id`. It stays in place for the lifetime of an attached workspace. Renaming the Markdown file changes the task title but leaves task and workspace identity unchanged. A task directory must contain exactly one Markdown task note. Attachments may share the directory.
+The directory name combines the sanitized creation title with the first eight hexadecimal characters of `radar-id`. It stays in place for the lifetime of an attached workspace. Editing `radar-title` changes the task title without moving the note. Renaming the Markdown file changes only its path and Obsidian URL; task title and identity stay unchanged. A task directory must contain exactly one Markdown task note. Attachments may share the directory.
 
 Completed tasks without a workspace use a flat archive:
 
@@ -39,6 +39,7 @@ A new note contains only managed frontmatter and a final newline:
 ```md
 ---
 radar-id: 2c965c99-6a50-446e-834a-72656fbc056a
+radar-title: "Plan authentication"
 radar-state: open
 radar-priority: normal
 radar-created-at: 2026-08-25T10:30:00Z
@@ -46,9 +47,9 @@ radar-completed-at:
 ---
 ```
 
-Radar does not generate headings or body text. The filename without `.md` is the title. State is `open` or `done`; priority is `normal` or `urgent`; timestamps use UTC RFC 3339. Unknown frontmatter and the complete body belong to the user and survive Radar mutations. Markdown checkboxes do not control lifecycle.
+Radar does not generate headings or body text. The required `radar-title` YAML string is the display title. Radar writes it as a quoted string so colons, quotes, hashes, and other punctuation round-trip safely. Plain, single-quoted, double-quoted, and block-scalar YAML strings are readable; blank or non-string titles are invalid. State is `open` or `done`; priority is `normal` or `urgent`; timestamps use UTC RFC 3339. Unknown frontmatter and the complete body belong to the user and survive Radar mutations. Markdown checkboxes do not control lifecycle.
 
-Task creation sanitizes the title before using it for the directory and filename. Filesystem-reserved characters, control characters, and Obsidian link characters `[]#^` become hyphens. Leading and trailing spaces and dots are trimmed, Windows device names get an underscore prefix, and names are capped at 200 UTF-8 bytes without splitting characters. Dot-only names become `Untitled`; empty or whitespace-only titles are rejected. The sanitized filename becomes the task title. Duplicate titles are rejected after sanitization, so creation never overwrites another task. Existing notes are not renamed and remain readable and editable.
+Task creation preserves the original title (apart from surrounding whitespace) in `radar-title` and sanitizes only its directory and filename. Filesystem-reserved characters, control characters, and Obsidian link characters `[]#^` become hyphens. Leading and trailing spaces and dots are trimmed, Windows device names get an underscore prefix, and names are capped at 200 UTF-8 bytes without splitting characters. Dot-only names become `Untitled`; empty or whitespace-only titles are rejected. The display title is neither sanitized nor truncated. Duplicate display titles are rejected. Filename collisions are also rejected because the flat archive shares one filename namespace. Existing paths are not renamed by this change.
 
 Mutations re-read and validate the note, modify only managed fields, and replace it atomically. Radar never overwrites malformed notes.
 
@@ -58,7 +59,7 @@ A valid note emits one authoritative `obsidian:task:<radar-id>` ref with:
 
 - lifecycle `work_item` and authority `primary`
 - canonical and linking key `obsidian:task:<radar-id>`
-- preferred title from the current filename
+- preferred title from `radar-title`
 - signal `low_priority`, `immediate`, or `done`
 - an `obsidian://open` URL for its current note path
 - canonical note and task-directory metadata
@@ -90,7 +91,7 @@ Cleanup removes the tmux session, sandbox, managed worktrees, `notes.md`, and th
 
 Manual and automatic completion mark the note done immediately. If the workspace registry still references its ID or path, Radar leaves the note in place. Otherwise it moves the note to `Tasks/Archived/<filename>.md` and removes the empty private directory. A shared filesystem lock serializes note mutations, workspace creation, attachment, and anchor removal so an archive move cannot race a new workspace link.
 
-Reopening an archived task restores a private directory using its current title and stable ID before changing its state to open. The title, ID, body, unknown frontmatter, and file permissions survive relocation. Direct workspace creation or attachment to an archived note is rejected with a request to reopen it first. Radar never mounts the shared archive or `Tasks/` to make an archived note accessible.
+Reopening an archived task restores a private directory using its sanitized current title and stable ID before changing its state to open. The title, ID, body, unknown frontmatter, and file permissions survive relocation. Direct workspace creation or attachment to an archived note is rejected with a request to reopen it first. Radar never mounts the shared archive or `Tasks/` to make an archived note accessible.
 
 Moves use the operating system's atomic no-replace rename on Linux and macOS. Existing destination files, directories, or symlinks are never overwritten. If archiving fails, the completed note remains available at its original path and Radar reports the error. If removal of the former empty directory fails after a successful move, the error reports the new note path instead. There is no recursive deletion or relocation journal.
 
@@ -98,7 +99,29 @@ Notes with accompanying files or detected relative links remain in their private
 
 ## Rollout
 
-No frontmatter, configuration, workspace-registry, or cache schema changes are required. Existing nested notes remain supported as the normal task layout. Collection alone does not move existing completed notes or notes manually marked done in Obsidian. They archive on a subsequent Radar completion operation or workspace cleanup. A manually reopened archived note must still go through `radar task reopen` to restore its private directory before activation.
+`radar-title` is a required frontmatter field. There is no filename fallback and collection does not migrate notes automatically. Before installing this version, migrate **both private and archived notes** with the explicit one-time tool:
+
+```sh
+# Read-only preflight: stage candidate notes in a temporary vault and validate
+# them with the production reader, including title/identity collisions.
+go run ./scripts/migrate-note-titles -vault /absolute/path/to/vault
+
+# Apply only after reviewing the preflight. Use the configured workspace root.
+# A new backup directory outside the vault is mandatory.
+go run ./scripts/migrate-note-titles \
+  -vault /absolute/path/to/vault \
+  -workspace-root /absolute/path/to/workspaces \
+  -apply -backup /absolute/path/to/new-backup \
+  -archive-done
+```
+
+The tool inserts only `radar-title`, preserving all existing bytes, paths, and file permissions. It guesses a colon for a word-ending hyphen followed by whitespace (`Setup- screenshots` → `Setup: screenshots`), leaving ticket keys, hyphenated words, arrows, and spaced dash separators alone. Existing title metadata is never replaced. Guesses are approximate; edit the frontmatter if needed. Malformed notes or colliding guesses abort preflight before live writes. Apply backs up every note, checks for concurrent edits, and uses the shared note lock and atomic replacement. Close note editors and pause task creation during rollout, then install and refresh Radar. If the old binary creates more notes before installation, rerun preflight/apply with a new backup directory.
+
+`-archive-done` optionally archives completed private notes **after** title migration using the normal no-overwrite and workspace-reference checks. Referenced notes and unsafe relocations remain in place and are reported. It does not clean up workspaces or rewrite links. The backup preserves notes at their pre-migration/pre-archive paths.
+
+Configuration, workspace-registry, and cache schemas are unchanged. Creation plans now carry `title` when `create` is true; recreate any pending pre-upgrade plans instead of inferring titles from paths. Attachments still use path and linking key only. Cached titles refresh from collection; workspace identities, paths, and links stay stable.
+
+Existing nested notes remain supported as the normal task layout. Collection alone does not move existing completed notes or notes manually marked done in Obsidian. They archive on a subsequent Radar completion operation or workspace cleanup. A manually reopened archived note must still go through `radar task reopen` to restore its private directory before activation.
 
 Before installation or bulk archival, inventory the configured `Tasks/` tree and workspace registry, check live `notes.md` links, and inspect destination collisions, accompanying files, and path-based links. Do not move referenced notes. Existing completed notes can be archived explicitly with `radar task done` after reviewing those checks. There is no automatic bulk migration. Cache paths refresh from collection; workspace paths are never retargeted for archiving.
 

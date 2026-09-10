@@ -67,7 +67,7 @@ func TestCompletionPreservesNoteContentAndIsIdempotent(t *testing.T) {
 }
 
 func TestOptionalCompletionBaselineValidation(t *testing.T) {
-	content := "---\nradar-id: 12345678-1234-4234-8234-123456789abc\nradar-state: open\nradar-priority: normal\nradar-created-at: 2026-08-01T10:00:00Z\nradar-completed-at:\n"
+	content := "---\nradar-id: 12345678-1234-4234-8234-123456789abc\nradar-title: Plan\nradar-state: open\nradar-priority: normal\nradar-created-at: 2026-08-01T10:00:00Z\nradar-completed-at:\n"
 	for _, value := range []string{"", "pending", strings.Repeat("a", 64)} {
 		if _, err := parseNote(content + "radar-completion-baseline: " + value + "\n---\n"); err != nil {
 			t.Fatal(err)

@@ -158,7 +158,7 @@ Rules:
 
 - The directory is created once and remains stable.
 - The directory name uses the creation title plus the first eight hexadecimal characters of `radar-id`.
-- Renaming the Markdown file renames the task but does not rename the containing directory.
+- Editing `radar-title` renames the task without moving the Markdown file or containing directory.
 - The task directory may contain attachments later, but Radar creates only the note.
 - The note must remain in its task directory. Moving it elsewhere is invalid rather than silently changing the active SBX mount.
 - Titles remain unique across task notes.
@@ -170,6 +170,7 @@ A new note contains managed frontmatter followed by a blank body:
 ```md
 ---
 radar-id: 2c965c99-6a50-446e-834a-72656fbc056a
+radar-title: "Plan authentication"
 radar-state: open
 radar-priority: normal
 radar-created-at: 2026-08-25T10:30:00Z
@@ -551,7 +552,7 @@ Git members, tmux session, Pi activity, SBX sandbox
 
 An open note-only task with no tmux or SBX remains low priority or immediate according to note priority. Opening its tmux session and sandbox promotes it through the existing supporting-resource behavior. Pi busy state remains independent of attention.
 
-Renaming the note changes the task title and Obsidian URL. It does not change workspace ID, anchor path, tmux session identity, Pi session identity, or sandbox name.
+Editing `radar-title` changes the task title. Renaming the file changes only its Obsidian URL. It does not change workspace ID, anchor path, tmux session identity, Pi session identity, or sandbox name.
 
 ## Cleanup and garbage collection
 
@@ -722,7 +723,7 @@ Use neutral identifiers such as `ABC-123` in examples and tests.
 - Creates a task directory with a stable readable name and short ID.
 - Creates managed frontmatter and an empty body.
 - Collects nested notes and rejects malformed task directories.
-- Renaming the note changes title but not task or workspace identity.
+- Editing `radar-title` changes title but not note paths, task identity, or workspace identity.
 - Mutations preserve an empty or arbitrary body.
 - Open URI targets the nested note.
 
