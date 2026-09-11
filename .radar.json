@@ -1,4 +1,7 @@
 {
+  "model": "openai-codex/gpt-6-astra",
+  "thinking": "high",
   "setup": ["go mod download"],
-  "sbx": {"enabled": true}
+  "copy_files": ["AGENTS.local.md"],
+  "sbx": { "enabled": true }
 }
