@@ -91,6 +91,14 @@ func RegisteredWorkspace(current, configuredRoot string) (string, workspacegroup
 	if err != nil {
 		return "", workspacegroup.Workspace{}, false, err
 	}
+	// Global Pi discovery must not create a workspace root or lock file merely
+	// because a user starts Pi outside Radar with no registered workspaces.
+	if _, err := os.Stat(workspacegroup.Path(root)); err != nil {
+		if os.IsNotExist(err) {
+			return root, workspacegroup.Workspace{}, false, nil
+		}
+		return "", workspacegroup.Workspace{}, false, err
+	}
 	registry, err := workspacegroup.Load(root)
 	if err != nil {
 		return "", workspacegroup.Workspace{}, false, err

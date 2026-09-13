@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -45,5 +46,16 @@ func TestRegisterWorkspaceRejectsDifferentTaskLink(t *testing.T) {
 	err := registerWorkspace(root, group)
 	if err == nil || !strings.Contains(err.Error(), "already linked to another task") {
 		t.Fatalf("registerWorkspace() error = %v", err)
+	}
+}
+
+func TestRegisteredWorkspaceDoesNotCreateMissingRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "missing")
+	_, _, found, err := RegisteredWorkspace(t.TempDir(), root)
+	if err != nil || found {
+		t.Fatalf("registration = %t, %v", found, err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("discovery created workspace root: %v", err)
 	}
 }

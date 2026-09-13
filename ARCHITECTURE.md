@@ -16,8 +16,9 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 - `internal/integration/sbx/`: Docker sbx sandbox source facts, authentication, actions, runtime naming, and cleanup.
 - `internal/app/`: explicit assembly of the active integration set.
 - `internal/cleanup/`: shared application service for cleanup preview aggregation and ordered provider execution.
-- `internal/integration/workspace/`: managed-workspace source, workspace manager, declarative reconciliation, Pi injection, provider command orchestration, and the versioned workspace-group registry.
-- `internal/pi/`: embedded Radar Pi extension and atomic runtime materialization.
+- `internal/integration/workspace/`: managed-workspace source, workspace manager, declarative reconciliation, Pi launch arguments, provider command orchestration, and the versioned workspace-group registry.
+- `internal/pi/`: Pi option validation, default agent instructions, and extension contract tests.
+- `extensions/pi-radar/`: normally installed Pi package for registered-workspace tools, instructions, skills, and activity.
 - `internal/workspacegc/`: conservative eligibility and target selection for automatic cleanup of completed work.
 - `internal/server/`: Unix socket API used by TUI and CLI commands.
 - `internal/collector/`: orchestrates integration collection, observation projection, and remote state resolution.
@@ -227,7 +228,7 @@ The optional `note_linking_key` adds an authored note to a workspace without rep
 
 SBX uses the anchor as its primary workspace. Radar adds the private note directory, distinct external Git common directories, configured mounts, and requested mounts. Nested worktrees need no separate mount because the anchor already contains them. Effective mount changes recreate SBX and may interrupt processes, while failed recreation never rolls back completed filesystem or Git changes.
 
-Radar embeds a TypeScript Pi extension under `$XDG_DATA_HOME/radar/pi`. Radar-started Pi processes receive it through `--extension` and run in the anchor. The extension provides workspace inspection, repository-ref inspection, and confirmed reconciliation tools. Before every agent turn it loads Radar's user instruction file and scopes those instructions to workspace and resource management across all members. It also contributes member skills, injects path-labelled repository instructions with repository-only scope, reports duplicate skills, and reloads resources after membership changes without replacing conversation history. Member settings and extensions are not loaded.
+Radar distributes `extensions/pi-radar/index.ts` as the `@christianmoesl/pi-radar` Pi package, installable from this Git repository. No extension is embedded, materialized, or injected by the launcher. On `session_start`, the package checks `radar workspace-context --registration-only --workspace <cwd>` with a bounded timeout. Only a positive registration result installs workspace hooks, tools and commands. This registry-only check avoids Git/SBX discovery, so missing runtime resources cannot hide repair tools. Pi recreates extension instances on reload and session replacement; shutdown restores the host temporary directory. Outside registered anchors and member directories the package remains inactive. The active extension provides workspace inspection, repository-ref inspection, and confirmed reconciliation tools. Before every agent turn it loads Radar's user instruction file and scopes those instructions to workspace and resource management across all members. It also contributes member skills, injects path-labelled repository instructions with repository-only scope, reports duplicate skills, and reloads resources after membership changes without replacing conversation history. Member settings and extensions are not loaded.
 
 Workspace resolution is registry-first. The anchor, `notes.md`, member roots, and nested member paths resolve to the same workspace and compare-and-swap revision. The context result exposes only that workspace, including note metadata without note contents, rather than every registry record.
 

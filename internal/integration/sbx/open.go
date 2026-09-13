@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"radar/internal/protocol"
 	"radar/internal/integration/workspace"
+	"radar/internal/protocol"
 )
 
 const OpenShellAction = "sbx_shell"

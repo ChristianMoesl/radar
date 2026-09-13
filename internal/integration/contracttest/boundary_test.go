@@ -116,7 +116,7 @@ func TestProviderCommandsStayInsideIntegrationPackages(t *testing.T) {
 		}
 	}
 
-	extension, err := os.ReadFile(filepath.Join(root, "internal", "pi", "extension", "radar.ts"))
+	extension, err := os.ReadFile(filepath.Join(root, "extensions", "pi-radar", "index.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}

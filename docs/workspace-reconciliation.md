@@ -138,7 +138,9 @@ Changing the effective set removes and recreates the sandbox under the same name
 
 ## Pi resources
 
-The embedded Radar extension contributes member `.pi/skills/` and `.agents/skills/` paths, injects path-labelled repository instruction files with repository-only scope, and reloads resources after membership changes without losing conversation history. It reports additions, removals, duplicate skill names, and refresh failures. Member `.pi/settings.json`, extensions, prompts, and themes are not loaded.
+Install the package with `pi install git:github.com/ChristianMoesl/radar`. Manual `pi` and `pi -c` launches from the anchor use the same integration as Radar-launched Pi. `radar workspace-context --registration-only [--workspace <path>]` returns `registered` and, for registered paths, `workspace_path` without inspecting Git, sandbox resources, or discoverable repositories. This is the startup activation check, not a replacement for the full context required before reconciliation. Unregistered paths return `{"registered":false}`; invalid configuration or registry data remains an error.
+
+The installed `pi-radar` extension activates only inside registered workspace anchors or member directories and contributes member `.pi/skills/` and `.agents/skills/` paths, injects path-labelled repository instruction files with repository-only scope, and reloads resources after membership changes without losing conversation history. It reports additions, removals, duplicate skill names, and refresh failures. Member `.pi/settings.json`, extensions, prompts, and themes are not loaded.
 
 ## Partial apply
 

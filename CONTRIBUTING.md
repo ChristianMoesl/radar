@@ -1,6 +1,6 @@
 # Contributing to Radar
 
-Radar is a Go project. Contributions should include relevant tests and follow the existing project conventions.
+Radar has a Go CLI and an installable TypeScript Pi extension. Contributions should include relevant tests and follow the existing project conventions.
 
 ## Development setup
 
@@ -25,6 +25,21 @@ make build
 make install
 radar version
 ```
+
+## Pi extension
+
+Use Node.js 24+ and install the development dependencies:
+
+```sh
+npm ci
+npm run check
+npm pack --dry-run
+pi install /absolute/path/to/radar
+```
+
+The package manifest points to `extensions/pi-radar/index.ts`; Pi loads the TypeScript directly. `npm run check` typechecks it and runs unit tests plus an isolated installed-package startup/reload/session-switch test. The latter uses fake Radar commands, separate Pi settings and no model calls. `make test` remains the Go test suite. Run both suites before delivery.
+
+For sandbox development, keep dependencies on the sandbox's local filesystem if the host-mounted filesystem cannot reliably extract npm packages. Do not commit environment-specific dependency paths or registry URLs.
 
 ## Build
 

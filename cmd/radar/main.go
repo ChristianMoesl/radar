@@ -381,16 +381,28 @@ func refreshLocalSourcesAfterReconcile() error {
 func runWorkspaceContext(args []string) {
 	flags := flag.NewFlagSet("radar workspace-context", flag.ExitOnError)
 	current := flags.String("workspace", "", "path inside the current Radar workspace")
+	registrationOnly := flags.Bool("registration-only", false, "only check registered workspace membership, without inspecting Git or sandbox resources")
 	_ = flags.Parse(args)
 	if flags.NArg() != 0 {
 		workspaceContextUsage()
 		os.Exit(2)
 	}
-	cfg, err := config.Load()
+	manager, err := app.DefaultIntegrations().WorkspaceManager()
 	if err != nil {
 		fatal(err)
 	}
-	manager, err := app.DefaultIntegrations().WorkspaceManager()
+	if *registrationOnly {
+		registration, found, err := manager.RegisteredWorkspace(*current)
+		if err != nil {
+			fatal(err)
+		}
+		printJSON(struct {
+			Registered    bool   `json:"registered"`
+			WorkspacePath string `json:"workspace_path,omitempty"`
+		}{Registered: found, WorkspacePath: registration.Path})
+		return
+	}
+	cfg, err := config.Load()
 	if err != nil {
 		fatal(err)
 	}
@@ -1006,9 +1018,10 @@ The request contains the revision and complete desired worktree/sandbox state. P
 }
 
 func workspaceContextUsage() {
-	fmt.Fprintln(os.Stderr, `usage: radar workspace-context [--workspace <path>]
+	fmt.Fprintln(os.Stderr, `usage: radar workspace-context [--workspace <path>] [--registration-only]
 
-Print the current logical Radar workspace, its member worktrees, and discovered repositories as JSON.`)
+Print the current logical Radar workspace, its member worktrees, and discovered repositories as JSON.
+With --registration-only, only report registered and workspace_path without inspecting host resources.`)
 }
 
 func repositoryRefsUsage() {

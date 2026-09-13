@@ -8,8 +8,8 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/integration/github/identity"
-	"radar/internal/protocol"
 	"radar/internal/integration/workspace"
+	"radar/internal/protocol"
 )
 
 func (Source) CanSeedWorkspace(ref protocol.SourceRef) bool {

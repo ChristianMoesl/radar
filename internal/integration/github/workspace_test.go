@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"radar/internal/protocol"
 	"radar/internal/integration/workspace"
+	"radar/internal/protocol"
 )
 
 type pullRequestHeadResult struct {

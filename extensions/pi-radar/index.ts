@@ -1,20 +1,19 @@
 import { homedir, tmpdir } from "node:os";
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
-import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const NewWorktree = Type.Object({
   repository: Type.String({ description: "Absolute source repository path returned by radar_workspace_context" }),
-  branch_mode: StringEnum(["new"] as const),
+  branch_mode: Type.Unsafe<"new">({ type: "string", enum: ["new"] }),
   name: Type.String({ description: "Workspace and new branch name (Radar sanitizes it)" }),
   base: Type.String({ description: "Base revision returned by radar_repository_refs, for example origin/main" }),
 }, { additionalProperties: false });
 
 const ExistingWorktree = Type.Object({
   repository: Type.String({ description: "Absolute source repository path returned by radar_workspace_context" }),
-  branch_mode: StringEnum(["existing"] as const),
+  branch_mode: Type.Unsafe<"existing">({ type: "string", enum: ["existing"] }),
   branch: Type.String({ description: "Existing local or origin branch returned by radar_repository_refs" }),
 }, { additionalProperties: false });
 
@@ -286,16 +285,36 @@ function resourceChanges(previous: ResourceSnapshot, next: ResourceSnapshot): st
 }
 
 export default function radarExtension(pi: ExtensionAPI) {
+  let activated = false;
+  pi.on("session_start", async (_event, ctx) => {
+    if (activated) return;
+    // Query only the registry: broken Git/SBX resources must not prevent loading
+    // the tools used to inspect and repair an otherwise registered workspace.
+    const binary = process.env.RADAR_BINARY?.trim() || "radar";
+    try {
+      const result = await pi.exec(binary, ["workspace-context", "--registration-only", "--workspace", resolve(ctx.cwd)], { timeout: 5000 });
+      if (result.code !== 0 || JSON.parse(result.stdout)?.registered !== true) return;
+    } catch {
+      // A global installation is inert when Radar is absent or cannot establish
+      // membership. No instructions, skills, tools or activity are installed.
+      return;
+    }
+    activated = true;
+    activateRadar(pi, ctx);
+    await publishBusy(pi, false);
+  });
+}
+
+// Pi recreates extension instances on reload and session replacement. Register
+// workspace-only resources after session_start supplies the actual session cwd.
+function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
   let previousResources: ResourceSnapshot = { contextPaths: [], skillPaths: [] };
   let knownContext: WorkspaceContextResult | undefined;
-  pi.on("session_start", async (_event, ctx) => {
-    await publishBusy(pi, false);
-    for (const entry of ctx.sessionManager.getEntries()) {
-      if (entry.type === "custom" && entry.customType === ResourceEntry) {
-        previousResources = entry.data as ResourceSnapshot;
-      }
+  for (const entry of ctx.sessionManager.getEntries()) {
+    if (entry.type === "custom" && entry.customType === ResourceEntry) {
+      previousResources = entry.data as ResourceSnapshot;
     }
-  });
+  }
   pi.on("resources_discover", async (event, ctx) => {
     try {
       knownContext = await inspectWorkspace(pi, event.cwd);
@@ -361,7 +380,10 @@ export default function radarExtension(pi: ExtensionAPI) {
   });
   pi.on("agent_start", async () => publishBusy(pi, true));
   pi.on("agent_settled", async () => publishBusy(pi, false));
-  pi.on("session_shutdown", async () => publishBusy(pi, false));
+  pi.on("session_shutdown", async () => {
+    configureSharedDirectory(undefined);
+    await publishBusy(pi, false);
+  });
 
   pi.registerTool({
     name: "radar_workspace_context",

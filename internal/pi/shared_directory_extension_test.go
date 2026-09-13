@@ -16,8 +16,7 @@ func TestRadarExtensionConfiguresSharedDirectoryOnStartupReloadAndSwitch(t *test
 		t.Skip("node is required for the extension runtime test")
 	}
 	dir := t.TempDir()
-	text := strings.ReplaceAll(string(radarExtension), `import { StringEnum } from "@earendil-works/pi-ai";`, `const StringEnum = (values) => values;`)
-	text = strings.ReplaceAll(text, `import { Type } from "typebox";`, `const Type = new Proxy({}, { get: () => () => ({}) });`)
+	text := strings.ReplaceAll(extensionSource(t), `import { Type } from "typebox";`, `const Type = new Proxy({}, { get: () => () => ({}) });`)
 	if err := os.WriteFile(filepath.Join(dir, "radar.ts"), []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +32,7 @@ delete process.env.RADAR_HOST_TMPDIR;
 process.env.XDG_CONFIG_HOME = join(root, 'config');
 const first = join(root, 'first'), second = join(root, 'second');
 mkdirSync(first); mkdirSync(second);
-let context = { workspace_path: root, members: [], sandbox: { shared_directory: first, shared_directory_ready: true } };
+let context = { registered: true, workspace_path: root, members: [], sandbox: { shared_directory: first, shared_directory_ready: true } };
 let fail = false;
 const hooks = new Map();
 const pi = {
@@ -41,7 +40,8 @@ const pi = {
  exec: async () => { if (fail) throw Error('unavailable'); return { code: 0, stdout: JSON.stringify(context) }; },
 };
 radar(pi);
-const ctx = { cwd: root, isProjectTrusted: () => true, ui: { notify() {} } };
+const ctx = { cwd: root, sessionManager: { getEntries: () => [] }, isProjectTrusted: () => true, ui: { notify() {} } };
+await hooks.get('session_start')({}, ctx);
 await hooks.get('resources_discover')({ cwd: root, reason: 'startup' }, ctx);
 assert.equal(tmpdir(), first);
 assert.equal(process.env.RADAR_HOST_TMPDIR, root);

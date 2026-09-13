@@ -1,0 +1,41 @@
+{
+  "name": "@christianmoesl/pi-radar",
+  "version": "0.1.0",
+  "description": "Radar workspace tools and context for Pi coding agent",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "radar"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChristianMoesl/radar.git"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "extensions"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/pi-radar/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3",
+    "typebox": "1.3.8"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/pi-radar/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test"
+  }
+}

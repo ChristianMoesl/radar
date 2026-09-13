@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	"radar/internal/app"
+	"radar/internal/integration/workspace"
 	"radar/internal/notification"
 	"radar/internal/protocol"
-	"radar/internal/integration/workspace"
 	"radar/internal/workspacegc"
 )
 

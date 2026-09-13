@@ -7,22 +7,18 @@ import (
 	"testing"
 )
 
-func TestMaterializeRadarExtension(t *testing.T) {
-	dataHome := t.TempDir()
-	t.Setenv("XDG_DATA_HOME", dataHome)
-	path, err := MaterializeRadarExtension()
+// The extension is distributed as a Pi package, not embedded in the Go binary.
+func extensionSource(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "extensions", "pi-radar", "index.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantPath := filepath.Join(dataHome, "radar", "pi", "radar.ts")
-	if path != wantPath {
-		t.Fatalf("path = %q, want %q", path, wantPath)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(data)
+	return string(data)
+}
+
+func TestRadarExtensionContract(t *testing.T) {
+	text := extensionSource(t)
 	for _, required := range []string{
 		"radar_reconcile_workspace", "reconcile-workspace", "additional_mounts", "read_only", "promptSnippet", "promptGuidelines", "ctx.ui.confirm", "pi.exec", "RADAR_BINARY", "Type.Union",
 		"retryableResultText", "Re-inspect and retry", "details: { plans, result, partial }", "effective_sandbox_mount_count", "workspace.auto_confirm", "const autoConfirm = plan.auto_confirm === true",
@@ -31,18 +27,5 @@ func TestMaterializeRadarExtension(t *testing.T) {
 		if !strings.Contains(text, required) {
 			t.Fatalf("extension is missing %q", required)
 		}
-	}
-	if err := os.WriteFile(path, []byte("stale"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := MaterializeRadarExtension(); err != nil {
-		t.Fatal(err)
-	}
-	updated, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(updated) != text {
-		t.Fatal("stale extension was not atomically replaced")
 	}
 }

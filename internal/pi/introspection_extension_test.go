@@ -6,7 +6,7 @@ import (
 )
 
 func TestRadarExtensionRegistersWorkspaceIntrospectionTools(t *testing.T) {
-	text := string(radarExtension)
+	text := extensionSource(t)
 	if strings.Contains(text, "minItems: 1") {
 		t.Fatal("workspace reconciliation schema still requires one worktree")
 	}

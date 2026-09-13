@@ -231,11 +231,8 @@ func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegr
 	if _, err := runner.Run(ctx, group.Path, "tmux", "has-session", "-t", group.SessionName); err == nil {
 		return false, createdSandbox, nil
 	}
-	piArgsText, environment, err := radarPiLaunch(piArgsWithPrompt(taskPiSessionID(group.SessionName, group.TaskLinkingKey), group.SessionName, group.Model, group.Thinking, forkSession, ""), nil)
-	if err != nil {
-		return false, createdSandbox, err
-	}
-	if err := createTmuxWorkspace(ctx, runner, group.Path, group.Path, group.SessionName, group.Tmux, piArgsText, environment); err != nil {
+	piArgsText := piArgsWithPrompt(taskPiSessionID(group.SessionName, group.TaskLinkingKey), group.SessionName, group.Model, group.Thinking, forkSession, "")
+	if err := createTmuxWorkspace(ctx, runner, group.Path, group.Path, group.SessionName, group.Tmux, piArgsText, nil); err != nil {
 		return false, createdSandbox, err
 	}
 	return true, createdSandbox, nil
@@ -556,10 +553,7 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 			thinking = repoConfig.Thinking
 		}
 		piSessionID := taskPiSessionID(sessionName, options.TaskLinkingKey)
-		piArgsText, environment, err := radarPiLaunch(piArgsWithPrompt(piSessionID, sessionName, model, thinking, "", options.InitialPrompt), options.Environment)
-		if err != nil {
-			return Workspace{}, err
-		}
+		piArgsText := piArgsWithPrompt(piSessionID, sessionName, model, thinking, "", options.InitialPrompt)
 		createdSandbox := false
 		if sandbox.Enabled {
 			if exists, err := sandboxExists(ctx, runner, sandboxName); err != nil {
@@ -571,7 +565,7 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 				createdSandbox = true
 			}
 		}
-		if err := createTmuxWorkspace(ctx, runner, "", path, sessionName, options.Tmux, piArgsText, environment); err != nil {
+		if err := createTmuxWorkspace(ctx, runner, "", path, sessionName, options.Tmux, piArgsText, options.Environment); err != nil {
 			if createdSandbox {
 				_, _ = stopSandbox(ctx, runner, path, sandboxName)
 			}

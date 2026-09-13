@@ -3,3 +3,5 @@
 /build/
 /.radar/
 *.log
+
+/node_modules
