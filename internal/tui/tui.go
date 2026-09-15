@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -116,6 +115,7 @@ type model struct {
 	cursor              int
 	selectedCurrentTask bool
 	mode                string
+	detail              detailState
 	create              createForm
 	cleanup             protocol.CleanupPreview
 	cleanupDetails      bool
@@ -189,6 +189,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.syncTaskScroll()
+		m.clampDetailScroll()
 		return m, nil
 	case tea.KeyMsg:
 		if strings.HasPrefix(m.mode, "workspace_") {
@@ -225,13 +226,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCreate(msg)
 		}
 		if m.mode == "detail" {
-			switch msg.String() {
-			case "esc", "backspace":
-				m.mode = ""
-				return m, nil
-			case "q", "ctrl+c":
-				return m, tea.Quit
-			}
+			return m.updateDetail(msg)
 		}
 		if m.mode == "open_link" {
 			switch msg.String() {
@@ -370,6 +365,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "i", "right":
 			if len(m.tasks) > 0 {
 				m.mode = "detail"
+				m.detail = detailState{task: m.tasks[m.cursor], available: true}
 			}
 		case "o":
 			if len(m.tasks) > 0 {
@@ -691,9 +687,7 @@ func (m model) View() string {
 	}
 
 	if m.mode == "detail" {
-		sections = append(sections, m.detailView(contentWidth))
-		sections = append(sections, helpStyle.Render("esc/backspace back • q quit"))
-		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
+		return m.detailScreen()
 	}
 
 	if m.mode == "open_link" {
@@ -1475,63 +1469,6 @@ func (m model) openLinkView(width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m model) detailView(width int) string {
-	if len(m.tasks) == 0 {
-		return subtleStyle.Render("No task selected.")
-	}
-	task := m.tasks[m.cursor]
-	lines := []string{titleStyle.Render(task.Title)}
-	appendDetailLine := func(label string, value string) {
-		if value != "" {
-			lines = append(lines, fmt.Sprintf("%-10s %s", label, value))
-		}
-	}
-	appendDetailLine("Status", task.Attention)
-	if activity := taskActivity(task); activity != protocol.ActivityIdle {
-		appendDetailLine("Activity", activity.String())
-	}
-	appendDetailLine("Reason", displayTaskReason(task))
-	appendDetailLine("Repo", task.Repo)
-	appendDetailLine("URL", task.URL)
-	if len(task.Metadata) > 0 {
-		lines = append(lines, "", titleStyle.Render("Metadata"))
-		for key, value := range task.Metadata {
-			appendDetailLine(key, shortenPath(value))
-		}
-	}
-	if len(task.SourceRefs) > 0 {
-		lines = append(lines, "", titleStyle.Render("Source refs"))
-		for _, ref := range task.SourceRefs {
-			line := "  " + sourceRefLabel(ref)
-			if ref.URL != "" {
-				line += "  " + subtleStyle.Render(ref.URL)
-			}
-			lines = append(lines, line)
-			appendRefDetail := func(label string, value string) {
-				if value != "" {
-					lines = append(lines, subtleStyle.Render(fmt.Sprintf("    %-8s %s", label, value)))
-				}
-			}
-			appendRefDetail("source", ref.Source)
-			appendRefDetail("kind", ref.Kind)
-			appendRefDetail("role", string(ref.Role))
-			appendRefDetail("status", ref.Status)
-			appendRefDetail("repo", ref.Repo)
-			appendRefDetail("path", shortenPath(ref.Path))
-			appendRefDetail("branch", ref.Branch)
-			metadataKeys := make([]string, 0, len(ref.Metadata))
-			for key := range ref.Metadata {
-				metadataKeys = append(metadataKeys, key)
-			}
-			sort.Strings(metadataKeys)
-			for _, key := range metadataKeys {
-				appendRefDetail(key, shortenPath(ref.Metadata[key]))
-			}
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
 func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool) {
 	var selectedTask *protocol.Task
 	selectedPosition := -1
@@ -1550,11 +1487,19 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 	if response.Tasks != nil {
 		m.tasks = response.Tasks
 		m.restoreCursor(selectedTask, selectedPosition)
+		if m.mode == "detail" {
+			cursor, ok := matchingTaskCursor(m.tasks, m.detail.task)
+			m.detail.available = ok
+			if ok {
+				m.detail.task = m.tasks[cursor]
+				m.cursor = cursor
+			}
+		}
 	}
 	if response.Sources != nil {
 		m.sources = response.Sources
 	}
-	if selectCurrentTask && !m.selectedCurrentTask {
+	if selectCurrentTask && !m.selectedCurrentTask && m.mode != "detail" {
 		if cursor, ok := currentTaskCursor(m.tasks); ok {
 			m.cursor = cursor
 		}
@@ -1564,6 +1509,7 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 		m.cursor = max(0, len(m.tasks)-1)
 	}
 	m.syncTaskScroll()
+	m.clampDetailScroll()
 }
 
 func (m model) cursorPosition() int {

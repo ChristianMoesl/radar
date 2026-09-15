@@ -552,7 +552,7 @@ func TestTaskDetailsShortenHomePathsWithoutChangingSourceRefs(t *testing.T) {
 		}},
 	}}}
 
-	view := model.detailView(120)
+	view := taskDetailView(model.tasks[model.cursor], 120)
 	for _, want := range []string{
 		"git:worktree:" + filepath.Join("~", "workspaces", "radar", "small-fix"),
 		filepath.Join("~", "Documents", "Tasks", "Small fix.md"),
@@ -1040,7 +1040,7 @@ func TestWaitingReplacesBusyAndAppearsInDetails(t *testing.T) {
 		}
 	}
 	m := model{tasks: []protocol.Task{task}}
-	details := ansi.Strip(m.detailView(100))
+	details := ansi.Strip(taskDetailView(m.tasks[m.cursor], 100))
 	if !strings.Contains(details, "Activity") || !strings.Contains(details, "waiting") {
 		t.Fatalf("details: %s", details)
 	}

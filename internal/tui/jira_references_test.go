@@ -29,7 +29,7 @@ func TestTaskInspectionShowsJiraReferenceRoleStatusAndMetadata(t *testing.T) {
 		ID: "jira:mention:4:XYZ-7", Source: "jira", SourceLabel: "Jira", Kind: "issue", Role: protocol.SourceRefRoleInformational,
 		Status: "Open", Metadata: map[string]string{"key": "XYZ-7", "issue_type": "Epic", "priority": "Medium", "status_category": "new"},
 	}}}}}
-	got := m.detailView(100)
+	got := taskDetailView(m.tasks[m.cursor], 100)
 	for _, want := range []string{"jira:mention:4:XYZ-7", "informational", "Open", "XYZ-7", "Epic", "Medium", "new"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("task detail missing %q: %s", want, got)

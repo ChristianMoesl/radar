@@ -55,7 +55,7 @@ func TestResourceBadgesRetainInspectDetailsAndSourceRefs(t *testing.T) {
 	task := resourceBadgeFixture()
 	m := model{tasks: []protocol.Task{task}}
 	m.taskList(100, 20)
-	view := ansi.Strip(m.detailView(100))
+	view := ansi.Strip(taskDetailView(m.tasks[m.cursor], 100))
 	for _, ref := range task.SourceRefs {
 		if !strings.Contains(view, ref.ID) {
 			t.Fatalf("inspect lost %q:\n%s", ref.ID, view)
@@ -127,7 +127,7 @@ func TestWorkspaceOnlyTaskHasNoReferenceRowOrBadge(t *testing.T) {
 	if count != 2 {
 		t.Fatalf("workspace-only task occupies %d rows including header, want 2", count)
 	}
-	if view := m.detailView(100); !strings.Contains(view, ref.ID) || !strings.Contains(view, ref.Path) {
+	if view := taskDetailView(m.tasks[m.cursor], 100); !strings.Contains(view, ref.ID) || !strings.Contains(view, ref.Path) {
 		t.Fatalf("inspect lost the workspace anchor:\n%s", view)
 	}
 	if !reflect.DeepEqual(m.tasks[0].SourceRefs, []protocol.SourceRef{ref}) {
