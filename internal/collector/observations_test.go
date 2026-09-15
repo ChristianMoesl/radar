@@ -11,7 +11,7 @@ func TestTaskFromObservationProjectsStandaloneSourceRef(t *testing.T) {
 	got := taskFromObservation(integration.Observation{
 		Ref: protocol.SourceRef{
 			ID:           "jira:issue:XYZ-123",
-			Busy:         true,
+			Activity:     protocol.ActivityBusy,
 			Source:       "jira",
 			Kind:         "issue",
 			Title:        "XYZ-123 Ship integration boundary",
@@ -32,7 +32,7 @@ func TestTaskFromObservationProjectsStandaloneSourceRef(t *testing.T) {
 	if got.TargetTaskID != 42 {
 		t.Fatalf("target task ID = %d, want 42", got.TargetTaskID)
 	}
-	if !got.Busy {
+	if got.Activity != protocol.ActivityBusy {
 		t.Fatalf("task = %+v, want busy source activity projected", got)
 	}
 }

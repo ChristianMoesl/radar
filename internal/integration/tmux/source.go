@@ -74,14 +74,17 @@ func (Source) ClientActive() bool {
 	return os.Getenv("TMUX") != ""
 }
 
-func (Source) PublishActivity(ctx context.Context, busy bool) error {
+func (Source) PublishActivity(ctx context.Context, activity protocol.Activity) error {
+	if !activity.Valid() {
+		return fmt.Errorf("invalid activity %q", activity)
+	}
 	pane := strings.TrimSpace(os.Getenv("TMUX_PANE"))
 	if pane == "" {
 		return nil
 	}
-	args := []string{"set-option", "-p", "-t", pane, "@radar_busy", "1"}
-	if !busy {
-		args = []string{"set-option", "-p", "-u", "-t", pane, "@radar_busy"}
+	args := []string{"set-option", "-p", "-t", pane, "@radar_activity", activity.String()}
+	if activity == protocol.ActivityIdle {
+		args = []string{"set-option", "-p", "-u", "-t", pane, "@radar_activity"}
 	}
 	_, err := workspace.ExecRunner{}.Run(ctx, "", "tmux", args...)
 	return err

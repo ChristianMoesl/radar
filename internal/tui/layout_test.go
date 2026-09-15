@@ -172,6 +172,11 @@ func TestCatppuccinStylesAndSelectedTaskHierarchy(t *testing.T) {
 			t.Fatalf("selected task is missing styled segment %q: %q", segment, line)
 		}
 	}
+	task.Activity = protocol.ActivityWaiting
+	line = taskLine(task, true, 140)
+	if !strings.Contains(line, attentionStyle.Background(mochaSurface0).Render("! waiting  ")) {
+		t.Fatalf("selected waiting badge loses warning style/background: %q", line)
+	}
 	for _, profile := range []termenv.Profile{termenv.ANSI256, termenv.Ascii} {
 		lipgloss.SetColorProfile(profile)
 		line := taskLine(task, true, 140)

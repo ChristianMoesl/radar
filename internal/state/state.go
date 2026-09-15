@@ -1022,7 +1022,7 @@ func mergeObservedTasks(tasks []protocol.Task) []protocol.Task {
 }
 
 func mergeTasks(left, right protocol.Task) protocol.Task {
-	left.Busy = left.Busy || right.Busy
+	left.Activity = protocol.MergeActivity(left.Activity, right.Activity)
 	if attentionRank(right.Attention) > attentionRank(left.Attention) || left.Title == "" {
 		left.Kind = right.Kind
 		left.Title = right.Title
@@ -1170,7 +1170,10 @@ func projectTasks(state persistedState) []protocol.Task {
 		} else {
 			applySourceSignals(&task, record, refs)
 		}
-		task.Busy = record.State != "done" && sourceRefsBusy(refs)
+		task.Activity = protocol.ActivityIdle
+		if record.State != "done" {
+			task.Activity = sourceRefsActivity(refs)
+		}
 		if record.Ack.Cursor != "" {
 			task.AcknowledgementCursor = record.Ack.Cursor
 		}
@@ -1183,13 +1186,14 @@ func projectTasks(state persistedState) []protocol.Task {
 	return tasks
 }
 
-func sourceRefsBusy(refs []protocol.SourceRef) bool {
+func sourceRefsActivity(refs []protocol.SourceRef) protocol.Activity {
+	activity := protocol.ActivityIdle
 	for _, ref := range refs {
-		if authoritativeRef(ref) && ref.Busy {
-			return true
+		if authoritativeRef(ref) {
+			activity = protocol.MergeActivity(activity, ref.Activity)
 		}
 	}
-	return false
+	return activity
 }
 
 func preferredTitle(refs []protocol.SourceRef) string {

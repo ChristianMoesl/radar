@@ -8,7 +8,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"radar/internal/app"
 	"radar/internal/integration/workspace"
@@ -140,4 +142,59 @@ func TestNotifyActionableTransitionsAppliesConfiguredFilters(t *testing.T) {
 	if len(sender.titles) != 1 || sender.titles[0] != "Radar: Useful" {
 		t.Fatalf("notification titles = %#v, want only useful task", sender.titles)
 	}
+}
+
+func TestActivityPublishesAndRequestsOnlyLocalRefresh(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "radar-activity-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "s")
+	output := filepath.Join(dir, "args")
+	t.Setenv("RADAR_SOCKET", path)
+	t.Setenv("TMUX_PANE", "%12")
+	t.Setenv("ACTIVITY_TEST_OUTPUT", output)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := os.WriteFile(filepath.Join(dir, "tmux"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$ACTIVITY_TEST_OUTPUT\"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	requests := make(chan protocol.Request, 3)
+	go func() {
+		for range 3 {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			var req protocol.Request
+			if json.NewDecoder(conn).Decode(&req) == nil {
+				requests <- req
+			}
+			_ = json.NewEncoder(conn).Encode(protocol.Response{OK: true})
+			_ = conn.Close()
+		}
+	}()
+	for _, activity := range []string{"busy", "waiting", "idle"} {
+		runActivity([]string{activity})
+		select {
+		case request := <-requests:
+			if request.Method != "refresh-local" {
+				t.Fatalf("unexpected request: %+v", request)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("activity did not request refresh")
+		}
+		data, err := os.ReadFile(output)
+		if err != nil || !strings.Contains(string(data), "@radar_activity") {
+			t.Fatalf("pane publication = %q, %v", data, err)
+		}
+	}
+	// An absent daemon must not make a successful pane publication fail.
+	_ = listener.Close()
+	runActivity([]string{"waiting"})
 }

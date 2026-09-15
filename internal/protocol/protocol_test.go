@@ -41,13 +41,13 @@ func TestResponseIncludesGarbageCollectionResult(t *testing.T) {
 
 func TestResponseIncludesProjectedBusyState(t *testing.T) {
 	data, err := json.Marshal(Response{OK: true, Tasks: []Task{{
-		ID: 7, Title: "ship", Busy: true, SourceRefs: []SourceRef{{ID: "tmux:session:$1", Busy: true}},
+		ID: 7, Title: "ship", Activity: ActivityBusy, SourceRefs: []SourceRef{{ID: "tmux:session:$1", Activity: ActivityBusy}},
 	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := string(data)
-	if strings.Count(body, `"busy":true`) != 2 {
+	if strings.Count(body, `"activity":"busy"`) != 2 {
 		t.Fatalf("response should include task and source-ref busy state, got %s", body)
 	}
 }

@@ -42,3 +42,16 @@ func TestWorkspaceProvidingSourceRefContract(t *testing.T) {
 		})
 	}
 }
+
+func TestInformationalRefsCannotPublishActivity(t *testing.T) {
+	ref := protocol.SourceRef{ID: "fake:item:1", EntityID: "fake:item:1", Source: "fake", Kind: "item", Role: protocol.SourceRefRoleInformational}
+	if err := validateSourceRefs("fake", []protocol.SourceRef{ref}); err != nil {
+		t.Fatal(err)
+	}
+	for _, activity := range []protocol.Activity{protocol.ActivityBusy, protocol.ActivityWaiting, protocol.Activity("invalid")} {
+		ref.Activity = activity
+		if err := validateSourceRefs("fake", []protocol.SourceRef{ref}); err == nil {
+			t.Fatalf("accepted informational activity %q", activity)
+		}
+	}
+}

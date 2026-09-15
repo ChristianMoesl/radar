@@ -37,8 +37,11 @@ func validateSourceRefs(source string, refs []protocol.SourceRef) error {
 			return fmt.Errorf("duplicate source ref ID %q", ref.ID)
 		}
 		seen[ref.ID] = true
+		if !ref.Activity.Valid() {
+			return fmt.Errorf("invalid source activity %q", ref.Activity)
+		}
 		if ref.Role == protocol.SourceRefRoleInformational {
-			if ref.CanonicalKey != "" || len(ref.LinkingKeys) != 0 || ref.Signal != "" || ref.Busy || ref.InUse || ref.Authored || ref.Lifecycle != "" || ref.Authority != "" || ref.RetainInactive || ref.ProvidesWorkspace || ref.WorkspaceEntry || ref.WorkspaceID != "" || ref.WorkspaceAnchorPath != "" || ref.Acknowledgement != nil {
+			if ref.CanonicalKey != "" || len(ref.LinkingKeys) != 0 || ref.Signal != "" || ref.Activity != protocol.ActivityIdle || ref.InUse || ref.Authored || ref.Lifecycle != "" || ref.Authority != "" || ref.RetainInactive || ref.ProvidesWorkspace || ref.WorkspaceEntry || ref.WorkspaceID != "" || ref.WorkspaceAnchorPath != "" || ref.Acknowledgement != nil {
 				return fmt.Errorf("informational source ref exposes authority: %+v", ref)
 			}
 			if ref.EntityID == "" {

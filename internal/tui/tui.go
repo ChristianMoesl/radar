@@ -1487,8 +1487,8 @@ func (m model) detailView(width int) string {
 		}
 	}
 	appendDetailLine("Status", task.Attention)
-	if task.Busy {
-		appendDetailLine("Activity", "busy")
+	if activity := taskActivity(task); activity != protocol.ActivityIdle {
+		appendDetailLine("Activity", activity.String())
 	}
 	appendDetailLine("Reason", displayTaskReason(task))
 	appendDetailLine("Repo", task.Repo)
@@ -2076,16 +2076,28 @@ func truncateLine(line string, width int) string {
 	return ansi.Truncate(line, width, "…")
 }
 
+func taskActivity(task protocol.Task) protocol.Activity {
+	if task.Attention == "done" {
+		return protocol.ActivityIdle
+	}
+	return protocol.MergeActivity(protocol.ActivityIdle, task.Activity)
+}
+
 func taskLine(task protocol.Task, selected bool, width int) string {
-	titleStyle, metadataStyle, busyStyle := textStyle, subtleStyle, progressStyle
+	activity := taskActivity(task)
+	activityStyle, activityMarker := progressStyle, "● "
+	if activity == protocol.ActivityWaiting {
+		activityStyle, activityMarker = attentionStyle, "! "
+	}
+	titleStyle, metadataStyle := textStyle, subtleStyle
 	if selected {
 		titleStyle = selectedStyle.Bold(true)
 		metadataStyle = metadataStyle.Background(mochaSurface0)
-		busyStyle = busyStyle.Background(mochaSurface0)
+		activityStyle = activityStyle.Background(mochaSurface0)
 	}
 	title := titleStyle.Render(task.Title)
-	if task.Busy {
-		title = busyStyle.Render("● busy  ") + title
+	if activity != protocol.ActivityIdle {
+		title = activityStyle.Render(activityMarker+activity.String()+"  ") + title
 	}
 	if task.Repo != "" {
 		title += metadataStyle.Render("  " + task.Repo)

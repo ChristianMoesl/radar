@@ -154,12 +154,24 @@ func runTUIWithMode(mode string) {
 }
 
 func runActivity(args []string) {
-	if len(args) != 1 || (args[0] != "busy" && args[0] != "idle") {
-		fmt.Fprintln(os.Stderr, "usage: radar activity <busy|idle>")
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: radar activity <idle|busy|waiting>")
 		os.Exit(2)
 	}
-	if err := app.DefaultIntegrations().PublishActivity(context.Background(), args[0] == "busy"); err != nil {
+	activity, err := protocol.ParseActivity(args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := app.DefaultIntegrations().PublishActivity(ctx, activity); err != nil {
 		fatal(err)
+	}
+	// Publication remains useful without a daemon. The normal local poll can
+	// recover a missed refresh; never delay an approval on stalled collection.
+	if path, err := socket.Path(); err == nil {
+		_, _ = client.CallWithTimeout(path, "refresh-local", time.Second)
 	}
 }
 

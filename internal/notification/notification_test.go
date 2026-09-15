@@ -90,17 +90,21 @@ func TestNotifyTransitionsSendsWhenTaskStartsNeedingAttention(t *testing.T) {
 	}
 }
 
-func TestNotifyTransitionsIgnoresBusyChanges(t *testing.T) {
+func TestNotifyTransitionsIgnoresActivityChanges(t *testing.T) {
 	sender := &recordingSender{}
 	service := NewWithSender(discardLogger(), sender)
-
-	service.NotifyTransitions(context.Background(),
-		[]protocol.Task{{ID: 1, Attention: "in_progress"}},
-		[]protocol.Task{{ID: 1, Attention: "in_progress", Busy: true}},
-	)
-
+	for _, attention := range []string{"in_progress", "attention"} {
+		for _, previous := range []protocol.Activity{protocol.ActivityIdle, protocol.ActivityBusy, protocol.ActivityWaiting} {
+			for _, current := range []protocol.Activity{protocol.ActivityIdle, protocol.ActivityBusy, protocol.ActivityWaiting} {
+				service.NotifyTransitions(context.Background(),
+					[]protocol.Task{{ID: 1, Attention: attention, Activity: previous}},
+					[]protocol.Task{{ID: 1, Attention: attention, Activity: current}},
+				)
+			}
+		}
+	}
 	if len(sender.sent) != 0 {
-		t.Fatalf("sent notifications = %#v, want none for busy change", sender.sent)
+		t.Fatalf("notifications on activity changes: %#v", sender.sent)
 	}
 }
 

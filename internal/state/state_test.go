@@ -213,22 +213,22 @@ func TestProjectTasksProjectsBusyFromActiveSourceRefs(t *testing.T) {
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	jira := testJiraIssueRef("jira:issue:ABC-7", "ABC-7 Ship")
 	worktree := testGitWorktreeRef("git:worktree:/work/ABC-7-ship", "/work/ABC-7-ship", "acme/app", "ABC-7-ship")
-	worktree.Busy = true
+	worktree.Activity = protocol.ActivityBusy
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
 		makeTask("in_progress", "jira issue", jira),
 		makeTask("in_progress", "git worktree", worktree),
 	}, now)
 
-	if tasks := projectTasks(state); len(tasks) != 1 || !tasks[0].Busy {
+	if tasks := projectTasks(state); len(tasks) != 1 || tasks[0].Activity != protocol.ActivityBusy {
 		t.Fatalf("projected tasks = %+v, want one busy task", tasks)
 	}
 
-	worktree.Busy = false
+	worktree.Activity = protocol.ActivityIdle
 	state = reconcileState(state, []protocol.Task{
 		makeTask("in_progress", "jira issue", jira),
 		makeTask("in_progress", "git worktree", worktree),
 	}, now.Add(time.Hour))
-	if tasks := projectTasks(state); len(tasks) != 1 || tasks[0].Busy {
+	if tasks := projectTasks(state); len(tasks) != 1 || tasks[0].Activity != protocol.ActivityIdle {
 		t.Fatalf("projected tasks = %+v, want busy cleared", tasks)
 	}
 }
@@ -258,7 +258,7 @@ func TestSourceScopedRefreshKeepsExistingRefActiveWhenNewRefComesFirst(t *testin
 func TestProjectTasksMarksDoneWhenRemoteDoneAndOnlyLocalRemains(t *testing.T) {
 	now := time.Now().UTC()
 	worktree := testGitWorktreeRef("git:worktree:/work/ABC-7-ship", "/work/ABC-7-ship", "acme/app", "ABC-7-ship")
-	worktree.Busy = true
+	worktree.Activity = protocol.ActivityBusy
 	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{
 		makeTask("done", "merged today", withSignal(withStatus(testGitHubPRRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship"), "merged today"), "done")),
 		makeTask("in_progress", "git worktree", worktree),
@@ -268,7 +268,7 @@ func TestProjectTasksMarksDoneWhenRemoteDoneAndOnlyLocalRemains(t *testing.T) {
 	if len(tasks) != 1 {
 		t.Fatalf("tasks = %d, want one done task: %+v", len(tasks), tasks)
 	}
-	if tasks[0].Attention != "done" || tasks[0].Reason != "merged today" || tasks[0].Busy {
+	if tasks[0].Attention != "done" || tasks[0].Reason != "merged today" || tasks[0].Activity != protocol.ActivityIdle {
 		t.Fatalf("task = %+v, want non-busy done remote completion", tasks[0])
 	}
 }

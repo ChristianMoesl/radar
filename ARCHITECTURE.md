@@ -33,6 +33,8 @@ There is one long-running daemon per user:
 TUI / CLI -> Unix socket -> radar daemon -> collectors
 ```
 
+Activity producers publish through the generic `ActivityPublisher` capability using `radar activity <idle|busy|waiting>`. The tmux provider owns pane state; core never parses Pi events or tmux options. Activity publication has a two-second deadline and then requests a best-effort one-second `refresh-local` socket round trip. The normal local poll recovers a missed refresh.
+
 All frontends share the same daemon and state. This avoids duplicated polling and keeps interactive and scriptable status reads fast. The daemon refreshes local sources every 15 seconds and performs a full refresh, including remote sources, every two minutes. After each refresh, it compares the previous and current filtered task views and sends a host notification for tasks that newly enter `immediate` or `attention`. Completed garbage-collection runs also report their result through a host notification; automatic runs notify only when they delete workspaces, while explicitly triggered runs always report their result. On macOS, the optional `RadarNotifier.app` companion delivers notifications and opens the relevant task or GitHub pull-request URL when clicked. If the companion is absent, notifications are disabled without affecting the daemon. Other operating systems currently use a no-op notifier.
 
 Refresh work must scale with current active work, not accumulated history. Sources collect concurrently from isolated copies of the previous task projection, then Radar aggregates their observations in integration registration order. Remote reconciliation remains sequential and deterministic because reconcilers may perform follow-up API requests for disappeared items. They must not repeatedly fetch tasks or source refs already known to be `done`; durable terminal state remains authoritative unless the source appears active again.
@@ -83,7 +85,7 @@ SourceRef(s) + rebuildable TaskRecord cache => Task
 - `SourceRef.URL`: a generic openable URL. If a source ref has a URL, frontends may offer an open-link action without source-specific URL inspection.
 - `SourceRef.SourceLabel` and `SourceRef.DisplayOrder`: generic presentation values stamped from the integration descriptor, so frontends and state never need source-name switches.
 - `SourceRef.EntityID`: an opaque source-owned external entity identity used to correlate authoritative and informational representations without contributing task identity or linking.
-- `SourceRef.Busy`: reports transient active processing owned by that authoritative source. Busy refs are projected onto the task independently of attention and lifecycle.
+- `SourceRef.Activity`: reports transient `busy` or `waiting` activity owned by that authoritative source; the zero value is idle. Active authoritative refs reduce with waiting above busy above idle, independently of attention and lifecycle.
 - `SourceRef.InUse`: reports that a local resource is currently occupied and therefore blocks automatic cleanup, without requiring core to understand provider status metadata.
 - `SourceRef.Authored`: marks the ref handled by the task-authoring capability, so frontends can offer mutations without checking a source name or metadata key.
 - `SourceRef.Lifecycle`: classifies an authoritative ref as a `work_item`, `workspace`, or supporting `resource`.
@@ -91,7 +93,7 @@ SourceRef(s) + rebuildable TaskRecord cache => Task
 - `SourceRef.ProvidesWorkspace`: declares that an authoritative ref owns the persistent local working directory in its absolute `Path`. `WorkspaceEntry` selects the anchor to open, `WorkspaceID` groups related resources, and `WorkspaceAnchorPath` carries a source-owned canonical artifact such as an authored note. These fields let frontends and cleanup operate without source-name checks. The ref also emits the matching cleaned `workspace:<path>` linking key.
 - `SourceRef.Presentation`: source-compiled title preference/order and workspace-name hints consumed generically by state and frontends.
 - `TaskRecord`: rebuildable Radar cache state. It provides cache-local numeric task IDs, projected lifecycle, known source ref IDs, first/last seen timestamps, and acknowledgements. A record without authoritative refs is not projectable.
-- `Task`: the current projected user-facing task served to the CLI/TUI. It has a Radar-owned integer ID, is busy when any active authoritative source ref is busy, and is computed from current source refs plus the matching task record.
+- `Task`: the current projected user-facing task served to the CLI/TUI. It has a Radar-owned integer ID, projects the strongest current activity from active authoritative source refs (waiting before busy), and is computed from current source refs plus the matching task record.
 
 The pipeline is:
 

@@ -95,9 +95,9 @@ func TestTaskListShowsBusyOnTaskRow(t *testing.T) {
 	m := model{tasks: []protocol.Task{{
 		Title:     "Workspace",
 		Attention: "in_progress",
-		Busy:      true,
+		Activity:  protocol.ActivityBusy,
 		SourceRefs: []protocol.SourceRef{{
-			ID: "tmux:session:$1", Source: "tmux", Kind: "session", Busy: true,
+			ID: "tmux:session:$1", Source: "tmux", Kind: "session", Activity: protocol.ActivityBusy,
 			Presentation: protocol.SourceRefPresentation{Label: "tmux:session:repo-workspace"},
 		}},
 	}}}
@@ -1023,5 +1023,29 @@ func TestObsidianTaskOffersOneSourceOwnedOpenAction(t *testing.T) {
 	links := taskLinks(task)
 	if len(links) != 1 || links[0].Action != "obsidian_open" || links[0].Source != "Obsidian" {
 		t.Fatalf("links = %+v", links)
+	}
+}
+
+func TestWaitingReplacesBusyAndAppearsInDetails(t *testing.T) {
+	task := protocol.Task{Title: "Workspace", Attention: "in_progress", Activity: protocol.ActivityWaiting}
+	for _, selected := range []bool{false, true} {
+		for _, width := range []int{16, 40, 100} {
+			line := ansi.Strip(taskLine(task, selected, width))
+			if !strings.Contains(line, "! waiting") || strings.Contains(line, "busy") {
+				t.Fatalf("waiting badge: %q", line)
+			}
+			if ansi.StringWidth(line) > width {
+				t.Fatalf("row exceeds width %d: %q", width, line)
+			}
+		}
+	}
+	m := model{tasks: []protocol.Task{task}}
+	details := ansi.Strip(m.detailView(100))
+	if !strings.Contains(details, "Activity") || !strings.Contains(details, "waiting") {
+		t.Fatalf("details: %s", details)
+	}
+	task.Attention = "done"
+	if line := ansi.Strip(taskLine(task, false, 100)); strings.Contains(line, "waiting") {
+		t.Fatalf("completed badge: %q", line)
 	}
 }

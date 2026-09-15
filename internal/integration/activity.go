@@ -1,8 +1,11 @@
 package integration
 
-import "context"
+import (
+	"context"
+	"radar/internal/protocol"
+)
 
 type ActivityPublisher interface {
 	Integration
-	PublishActivity(ctx context.Context, busy bool) error
+	PublishActivity(ctx context.Context, activity protocol.Activity) error
 }

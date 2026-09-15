@@ -143,7 +143,7 @@ type SourceRefAcknowledgement struct {
 
 type SourceRef struct {
 	ID                  string                    `json:"id"`
-	Busy                bool                      `json:"busy,omitempty"`
+	Activity            Activity                  `json:"activity,omitempty"`
 	InUse               bool                      `json:"in_use,omitempty"`
 	Authored            bool                      `json:"authored,omitempty"`
 	Source              string                    `json:"source"`
@@ -176,7 +176,7 @@ type SourceRef struct {
 type Task struct {
 	ID                    int               `json:"id"`
 	TargetTaskID          int               `json:"-"`
-	Busy                  bool              `json:"busy,omitempty"`
+	Activity              Activity          `json:"activity,omitempty"`
 	Kind                  string            `json:"kind"`
 	Title                 string            `json:"title"`
 	Repo                  string            `json:"repo,omitempty"`

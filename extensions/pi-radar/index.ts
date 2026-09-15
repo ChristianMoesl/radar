@@ -123,13 +123,52 @@ type ReconcileResult = {
 const MaxReconcileConfirmations = 3;
 const ResourceEntry = "radar-workspace-resources";
 
-async function publishBusy(pi: ExtensionAPI, busy: boolean) {
-  const binary = process.env.RADAR_BINARY?.trim() || "radar";
-  try {
-    await pi.exec(binary, ["activity", busy ? "busy" : "idle"], { timeout: 5000 });
-  } catch {
-    // Busy state is informational and must never interfere with the session.
+type Activity = "idle" | "busy" | "waiting";
+
+function activityTracker(pi: ExtensionAPI) {
+  let running = false;
+  let promptOpen = false;
+  let stopped = false;
+  let published: Activity | undefined;
+  let pending = Promise.resolve();
+
+  function publish(force = false) {
+    const activity: Activity = promptOpen ? "waiting" : running ? "busy" : "idle";
+    // Pi does not await prompt hooks. Order writes so a slow waiting update
+    // cannot overwrite a newer prompt-end or shutdown update.
+    pending = pending.then(async () => {
+      if (!force && activity === published) return;
+      const binary = process.env.RADAR_BINARY?.trim() || "radar";
+      try {
+        const result = await pi.exec(binary, ["activity", activity], { timeout: 5000 });
+        published = result.code === 0 ? activity : undefined;
+      } catch {
+        published = undefined;
+        // Activity is informational: never interfere with prompts or tools.
+      }
+    });
+    return pending;
   }
+
+  return {
+    start: () => publish(true),
+    running(value: boolean) {
+      if (stopped) return pending;
+      running = value;
+      return publish();
+    },
+    prompt(value: boolean) {
+      if (stopped) return pending;
+      // Pi coalesces nested/overlapping prompts into one outer span.
+      promptOpen = value;
+      return publish();
+    },
+    shutdown() {
+      stopped = true;
+      running = promptOpen = false;
+      return publish(true);
+    },
+  };
 }
 
 function reconcileArgs(params: Record<string, unknown>, cwd: string, preview: boolean, plan?: Plan): string[] {
@@ -300,14 +339,14 @@ export default function radarExtension(pi: ExtensionAPI) {
       return;
     }
     activated = true;
-    activateRadar(pi, ctx);
-    await publishBusy(pi, false);
+    await activateRadar(pi, ctx);
   });
 }
 
 // Pi recreates extension instances on reload and session replacement. Register
 // workspace-only resources after session_start supplies the actual session cwd.
 function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
+  const activity = activityTracker(pi);
   let previousResources: ResourceSnapshot = { contextPaths: [], skillPaths: [] };
   let knownContext: WorkspaceContextResult | undefined;
   for (const entry of ctx.sessionManager.getEntries()) {
@@ -378,11 +417,13 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
       return;
     },
   });
-  pi.on("agent_start", async () => publishBusy(pi, true));
-  pi.on("agent_settled", async () => publishBusy(pi, false));
+  pi.on("agent_start", () => activity.running(true));
+  pi.on("agent_settled", () => activity.running(false));
+  pi.on("ui_prompt_start", () => activity.prompt(true));
+  pi.on("ui_prompt_end", () => activity.prompt(false));
   pi.on("session_shutdown", async () => {
     configureSharedDirectory(undefined);
-    await publishBusy(pi, false);
+    await activity.shutdown();
   });
 
   pi.registerTool({
@@ -499,4 +540,5 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
       throw new Error(`radar_reconcile_workspace plan changed after ${MaxReconcileConfirmations} confirmations; call radar_workspace_context and retry`);
     },
   });
+  return activity.start();
 }

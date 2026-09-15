@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	sessionFormat  = "#{pid}\t#{session_created}\t#{session_id}\t#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_path}"
-	busyPaneFormat = "#{session_id}\t#{pane_dead}\t#{@radar_busy}"
+	sessionFormat      = "#{pid}\t#{session_created}\t#{session_id}\t#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_path}"
+	activityPaneFormat = "#{session_id}\t#{pane_dead}\t#{@radar_activity}"
 )
 
 type session struct {
@@ -28,7 +28,7 @@ type session struct {
 	AttachedCount int
 	WindowCount   int
 	Path          string
-	Busy          bool
+	Activity      protocol.Activity
 }
 
 func SourceStatus(ctx context.Context) protocol.SourceStatus {
@@ -61,13 +61,13 @@ func FetchSessions(ctx context.Context, logger *slog.Logger, marks linking.MarkM
 		return nil, status
 	}
 
-	paneOutput, err := tmuxOutput(ctx, "list-panes", "-a", "-F", busyPaneFormat)
+	paneOutput, err := tmuxOutput(ctx, "list-panes", "-a", "-F", activityPaneFormat)
 	if err != nil {
 		status.Status = "error"
 		status.Detail = tmuxErrorDetail(err)
 		return nil, status
 	}
-	busySessions, err := parseBusySessions(paneOutput)
+	sessionActivities, err := parseSessionActivities(paneOutput)
 	if err != nil {
 		status.Status = "error"
 		status.Detail = err.Error()
@@ -76,7 +76,7 @@ func FetchSessions(ctx context.Context, logger *slog.Logger, marks linking.MarkM
 
 	sourceRefs := make([]protocol.SourceRef, 0, len(sessions))
 	for _, s := range sessions {
-		s.Busy = busySessions[s.ID]
+		s.Activity = sessionActivities[s.ID]
 		sourceRefs = append(sourceRefs, s.SourceRef(marks))
 	}
 
@@ -121,8 +121,8 @@ func parseSessions(output string) ([]session, error) {
 	return sessions, scanner.Err()
 }
 
-func parseBusySessions(output string) (map[string]bool, error) {
-	busy := make(map[string]bool)
+func parseSessionActivities(output string) (map[string]protocol.Activity, error) {
+	activities := make(map[string]protocol.Activity)
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -131,13 +131,22 @@ func parseBusySessions(output string) (map[string]bool, error) {
 		}
 		fields := strings.Split(line, "\t")
 		if len(fields) != 3 {
-			return nil, fmt.Errorf("unexpected tmux pane busy output: got %d fields", len(fields))
+			return nil, fmt.Errorf("unexpected tmux pane activity output: got %d fields", len(fields))
 		}
-		if fields[1] == "0" && strings.TrimSpace(fields[2]) == "1" {
-			busy[fields[0]] = true
+		if fields[1] != "0" {
+			continue
 		}
+		value := strings.TrimSpace(fields[2])
+		if value == "" {
+			continue
+		}
+		activity, err := protocol.ParseActivity(value)
+		if err != nil {
+			return nil, err
+		}
+		activities[fields[0]] = protocol.MergeActivity(activities[fields[0]], activity)
 	}
-	return busy, scanner.Err()
+	return activities, scanner.Err()
 }
 
 func (s session) sourceRefID() string {
@@ -166,7 +175,7 @@ func (s session) SourceRef(marks linking.MarkMatcher) protocol.SourceRef {
 
 	return protocol.SourceRef{
 		ID:          s.sourceRefID(),
-		Busy:        s.Busy,
+		Activity:    s.Activity,
 		InUse:       s.AttachedCount > 0,
 		Source:      "tmux",
 		SourceLabel: "tmux",

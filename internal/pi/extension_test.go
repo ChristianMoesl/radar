@@ -22,7 +22,7 @@ func TestRadarExtensionContract(t *testing.T) {
 	for _, required := range []string{
 		"radar_reconcile_workspace", "reconcile-workspace", "additional_mounts", "read_only", "promptSnippet", "promptGuidelines", "ctx.ui.confirm", "pi.exec", "RADAR_BINARY", "Type.Union",
 		"retryableResultText", "Re-inspect and retry", "details: { plans, result, partial }", "effective_sandbox_mount_count", "workspace.auto_confirm", "const autoConfirm = plan.auto_confirm === true",
-		"activity", "publishBusy", "\"busy\"", "\"idle\"", "session_start", "agent_start", "agent_settled", "session_shutdown",
+		"activity", "activityTracker", "ui_prompt_start", "ui_prompt_end", "\"waiting\"", "\"busy\"", "\"idle\"", "session_start", "agent_start", "agent_settled", "session_shutdown",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("extension is missing %q", required)

@@ -28,11 +28,11 @@ Radar uses these visible categories:
 - `low_priority`: tracked work that is not currently active, or a task deprioritized by filters.
 - `done`: the work completed within the last three days.
 
-## Busy activity
+## Runtime activity
 
-Busy is independent of attention. It answers whether an active source is currently processing work for the task, not whether the user needs to act. Radar projects a task as busy when any active authoritative source ref is busy and suppresses busy on done tasks. The TUI shows this transient task-level activity without changing categorization, sorting, acknowledgements, or notifications.
+Activity is independent of attention and lifecycle. It describes an active source as idle, busy processing, or waiting for interaction. Radar projects the strongest current activity from active authoritative refs: `waiting > busy > idle`. Informational refs do not contribute; done tasks show no activity. This does not change categorization, sorting, acknowledgements, filters, or notifications.
 
-Radar-created Pi sessions are the first busy producer. Pi marks its tmux pane busy from `agent_start` until `agent_settled`; idle, stopped, and dead panes contribute no busy activity.
+Pi sessions in registered Radar workspaces are the first producer. Pi reports busy from `agent_start` until `agent_settled`, including automatic retries and queued follow-ups. An extension UI prompt temporarily takes precedence as waiting. Closing the last overlapping prompt restores busy or idle. Startup and shutdown clear state, and dead panes contribute nothing. The TUI replaces `● busy` with amber `! waiting` for an open prompt. Waiting means a reported prompt lifetime, not an inference from inactivity or the agent's final answer.
 
 ## Category decision order
 

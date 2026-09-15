@@ -51,7 +51,7 @@ Every integration implements `Integration` by returning a descriptor with its st
 - `WorkspaceSeedProvider`: translates a source ref into a provider-owned workspace creation seed. GitHub and Obsidian implement it.
 - `MultiplexerProvider`: owns interactive sessions, current-client detection, task targeting, and session matching. tmux is the active provider.
 - `RuntimeProvider`: resolves provider-owned runtime resource names. SBX is the active provider.
-- `ActivityPublisher`: receives generic busy/idle events. tmux publishes those events as pane state.
+- `ActivityPublisher`: receives typed generic idle/busy/waiting states. tmux publishes those events as pane state.
 - `TaskFilterProvider`: filters projected tasks using provider-owned configuration and semantics. GitHub implements it.
 - `InteractiveAuthenticator`: performs provider-owned interactive startup authentication. SBX implements it.
 - `RateLimitReporter`: exposes provider diagnostics without concrete CLI imports. GitHub implements it.
@@ -92,7 +92,7 @@ Every emitted `protocol.SourceRef` must have:
 8. `CanonicalKey` when an authoritative ref can become a standalone task.
 9. `LinkingKeys` for authoritative joins such as `mark:<KEY>`, `workspace:<path>`, or `branch:<repo>:<branch>`.
 10. `ProvidesWorkspace` when the represented entity owns a persistent local working directory. Such a ref must be authoritative, have a non-empty absolute `Path`, and include the cleaned `workspace:<path>` linking key.
-11. `Busy` while the authoritative source is actively processing work. Busy is transient task activity and does not change attention or lifecycle.
+11. `Activity` reports `busy` processing or `waiting` for interaction; its zero value is idle. Task/session reducers use `waiting > busy > idle`. Activity does not change attention or lifecycle and is suppressed on done tasks.
 12. `InUse` when an occupied local resource must block automatic cleanup.
 13. `Authored` when the task-authoring provider owns mutations for the ref.
 14. `WorkspaceEntry`, `WorkspaceID`, and `WorkspaceAnchorPath` when a provider owns workspace entry, grouping, or a canonical source artifact.
@@ -101,9 +101,9 @@ Every emitted `protocol.SourceRef` must have:
 17. `Acknowledgement` only when the provider exposes a cursor-based activity acknowledgement contract.
 18. `RetainInactive` only when a provider's terminal source facts must remain in done-task history; local/deletable refs leave it false.
 
-Informational refs cannot be busy because their facts do not participate in task projection. Workspace capability is independent of lifecycle and lifecycle authority. A registered Radar anchor provides the logical workspace, including when it has no Git members. Registered Git members link through `workspace-group:<id>` and the persisted task key but do not compete with the anchor as the preferred workspace. Unmanaged Git worktrees continue to provide their own workspace paths. Obsidian notes own work-item lifecycle, while tmux sessions and SBX sandboxes consume anchor paths as resources. Workspace capability does not emit a signal or change attention by itself.
+Informational refs cannot emit activity because their facts do not participate in task projection. Workspace capability is independent of lifecycle and lifecycle authority. A registered Radar anchor provides the logical workspace, including when it has no Git members. Registered Git members link through `workspace-group:<id>` and the persisted task key but do not compete with the anchor as the preferred workspace. Unmanaged Git worktrees continue to provide their own workspace paths. Obsidian notes own work-item lifecycle, while tmux sessions and SBX sandboxes consume anchor paths as resources. Workspace capability does not emit a signal or change attention by itself.
 
-The collector stamps source label and display order from the integration descriptor. Informational refs must not emit signals, busy activity, lifecycle authority, canonical keys, linking keys, or workspace capability. An observation may set `TargetTaskID` to associate such a ref with a stable existing Radar task without turning source metadata into task identity. Do not invent Radar task IDs in integrations or parse another source's IDs or metadata in core state. Keep source-specific behavior tested in the source package. Core packages consume only interfaces and generic protocol fields. `internal/integration/contracttest` rejects concrete provider imports and direct `gh`, `git`, `tmux`, or `sbx` command execution outside the integration boundary.
+The collector stamps source label and display order from the integration descriptor. Informational refs must not emit signals, runtime activity, lifecycle authority, canonical keys, linking keys, or workspace capability. An observation may set `TargetTaskID` to associate such a ref with a stable existing Radar task without turning source metadata into task identity. Do not invent Radar task IDs in integrations or parse another source's IDs or metadata in core state. Keep source-specific behavior tested in the source package. Core packages consume only interfaces and generic protocol fields. `internal/integration/contracttest` rejects concrete provider imports and direct `gh`, `git`, `tmux`, or `sbx` command execution outside the integration boundary.
 
 ## Cleanup providers
 

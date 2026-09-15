@@ -232,7 +232,7 @@ func taskFromObservation(observation integration.Observation) protocol.Task {
 	sourceRef.Signal = attention
 	return protocol.Task{
 		TargetTaskID: observation.TargetTaskID,
-		Busy:         sourceRef.Busy,
+		Activity:     sourceRef.Activity,
 		Kind:         taskKindFromObservation(observation),
 		Title:        sourceRef.Title,
 		Repo:         sourceRef.Repo,

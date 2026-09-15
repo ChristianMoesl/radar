@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { ExtensionRunner, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import radar from "../../extensions/pi-radar/index.ts";
 
 type Handler = (event: any, ctx: any) => any;
@@ -38,6 +38,7 @@ async function harness(t: TestContext, registered: unknown = true) {
   let registrationCode = 0;
   let registrationOutput = JSON.stringify({ registered });
   let reloads = 0;
+  let activityExec: ((state: string) => Promise<any>) | undefined;
   const ctx = {
     cwd: root,
     signal: undefined,
@@ -73,6 +74,7 @@ async function harness(t: TestContext, registered: unknown = true) {
         assert.ok(responses.length, "unexpected reconciliation operation");
         return { code: 0, stdout: JSON.stringify(responses.shift()), stderr: "" };
       }
+      if (args[0] === "activity" && activityExec) return activityExec(args[1]);
       return { code: 0, stdout: "{}", stderr: "" };
     },
   };
@@ -94,6 +96,8 @@ async function harness(t: TestContext, registered: unknown = true) {
     registrationExitCode: (value: number) => { registrationCode = value; },
     registrationOutput: (value: string) => { registrationOutput = value; },
     reloads: () => reloads,
+    activityExec: (handler: (state: string) => Promise<any>) => { activityExec = handler; },
+    activities: () => calls.filter(call => call.args[0] === "activity").map(call => call.args[1]),
     reconcile: () => tools.get("radar_reconcile_workspace").execute("call", {
       revision: "revision", desired: { note: null, worktrees: [], sandbox: null },
     }, undefined, undefined, ctx),
@@ -108,6 +112,8 @@ for (const registered of [false, undefined, "true"]) {
     await h.resources();
     assert.equal(await h.prompt(), undefined);
     await h.emit("agent_start");
+    await h.emit("ui_prompt_start");
+    await h.emit("ui_prompt_end");
     await h.emit("agent_settled");
     await h.emit("session_shutdown");
     assert.equal(h.tools.size, 0);
@@ -247,4 +253,161 @@ test("partial reconciliation retains progress and queues a resource reload", asy
   assert.ok(result.content[0].text.includes("1 worktree added"));
   assert.ok(result.content[0].text.includes("Re-inspect and retry"));
   assert.deepEqual(h.messages, ["/radar-reload-workspace-resources"]);
+});
+
+// Exercise the installed Pi runtime's real UI wrapper, not a hand-written
+// approximation of its prompt lifecycle. No model, terminal, or host access.
+function promptUI(h: Awaited<ReturnType<typeof harness>>, ui: Record<string, any>) {
+  const runner = new ExtensionRunner(
+    [{ path: "radar-fixture", handlers: h.hooks } as any],
+    {} as any, h.root, h.ctx.sessionManager as any, {} as any,
+  );
+  runner.setUIContext(ui as any, "tui");
+  return runner.getUIContext();
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+const success = { code: 0, stdout: "", stderr: "" };
+
+for (const running of [false, true]) {
+  test(`prompt close restores ${running ? "busy" : "idle"}`, async t => {
+    const h = await harness(t);
+    await h.start();
+    if (running) await h.emit("agent_start");
+    await h.emit("ui_prompt_start", { title: "Sensitive title", kind: "confirm" });
+    assert.equal(h.activities().at(-1), "waiting");
+    await h.emit("ui_prompt_end");
+    assert.equal(h.activities().at(-1), running ? "busy" : "idle");
+    assert.ok(h.calls.every(call => !call.args.includes("Sensitive title")));
+  });
+}
+
+test("settlement and new runs cannot overwrite an open prompt", async t => {
+  const h = await harness(t);
+  await h.start();
+  await h.emit("agent_start");
+  await h.emit("ui_prompt_start");
+  await h.emit("agent_settled");
+  await h.emit("agent_start");
+  await h.emit("agent_settled");
+  assert.deepEqual(h.activities(), ["idle", "busy", "waiting"]);
+  await h.emit("ui_prompt_end");
+  assert.equal(h.activities().at(-1), "idle");
+});
+
+for (const reason of ["quit", "reload", "new", "resume", "fork"]) {
+  test(`shutdown (${reason}) clears waiting and ignores late events`, async t => {
+    const h = await harness(t);
+    await h.start();
+    await h.emit("agent_start");
+    await h.emit("ui_prompt_start");
+    await h.emit("session_shutdown", { reason });
+    await h.emit("ui_prompt_end");
+    await h.emit("ui_prompt_start");
+    await h.emit("agent_start");
+    assert.deepEqual(h.activities(), ["idle", "busy", "waiting", "idle"]);
+  });
+}
+
+test("concurrent prompt notifications publish in order without blocking prompt UI", async t => {
+  const h = await harness(t);
+  await h.start();
+  await h.emit("agent_start");
+  const release = deferred<typeof success>();
+  h.activityExec(async state => state === "waiting" ? release.promise : success);
+  const ui = promptUI(h, { confirm: async () => true });
+  // Native prompt lifecycle is fire-and-forget even while publication stalls.
+  assert.equal(await ui.confirm("Approve?", "Fixture"), true);
+  await tick();
+  assert.equal(h.activities().at(-1), "waiting");
+  const settled = h.emit("agent_settled");
+  release.resolve(success);
+  await settled;
+  assert.deepEqual(h.activities(), ["idle", "busy", "waiting", "busy", "idle"]);
+});
+
+for (const failure of ["throw", "nonzero"]) {
+  test(`activity ${failure} failure does not break prompts and can retry`, async t => {
+    const h = await harness(t);
+    await h.start();
+    h.activityExec(async () => {
+      if (failure === "throw") throw Error("unavailable");
+      return { ...success, code: 1 };
+    });
+    await h.emit("ui_prompt_start");
+    h.activityExec(async () => success);
+    await h.emit("ui_prompt_start");
+    await h.emit("ui_prompt_end");
+    assert.deepEqual(h.activities(), ["idle", "waiting", "waiting", "idle"]);
+    for (const call of h.calls.filter(call => call.args[0] === "activity")) {
+      assert.equal(call.options.timeout, 5000);
+      assert.equal(call.options.signal, undefined);
+    }
+  });
+}
+
+for (const kind of ["confirm", "select", "input", "editor", "custom"]) {
+  for (const outcome of ["accepted", "cancelled", "timeout", "error"]) {
+    test(`Pi ${kind} ${outcome} closes waiting`, async t => {
+      const h = await harness(t);
+      await h.start();
+      await h.emit("agent_start");
+      const prompt = deferred<any>();
+      const ui = promptUI(h, { [kind]: () => prompt.promise });
+      const result = (ui as any)[kind]("Fixture", "Fixture");
+      // Install rejection handling before rejecting the fake UI operation.
+      const checked = outcome === "error" ? assert.rejects(result, /prompt failed/) : result;
+      await tick();
+      assert.equal(h.activities().at(-1), "waiting");
+      if (outcome === "error") prompt.reject(Error("prompt failed"));
+      else prompt.resolve(outcome === "accepted" ? true : undefined);
+      await checked;
+      await tick();
+      assert.equal(h.activities().at(-1), "busy");
+    });
+  }
+}
+
+test("Pi coalesces overlapping prompts until the last one closes", async t => {
+  const h = await harness(t);
+  await h.start();
+  const first = deferred<boolean>();
+  const second = deferred<string | undefined>();
+  const ui = promptUI(h, { confirm: () => first.promise, input: () => second.promise });
+  const a = ui.confirm("First", "Fixture");
+  const b = ui.input("Second");
+  await tick();
+  assert.deepEqual(h.activities(), ["idle", "waiting"]);
+  first.resolve(true);
+  await a;
+  await tick();
+  assert.deepEqual(h.activities(), ["idle", "waiting"]);
+  second.resolve(undefined);
+  await b;
+  await tick();
+  assert.deepEqual(h.activities(), ["idle", "waiting", "idle"]);
+});
+
+test("Radar's reconciliation confirmation is observed through native Pi hooks", async t => {
+  const h = await harness(t);
+  await h.start();
+  await h.emit("agent_start");
+  const approval = deferred<boolean>();
+  const ui = promptUI(h, { ...h.ctx.ui, confirm: () => approval.promise });
+  h.ctx.ui = ui as any;
+  h.responses.push({ workspace_name: "fixture", changes: [{ action: "add", resource: "worktree", summary: "Add worktree" }] });
+  const result = h.reconcile();
+  await tick();
+  assert.equal(h.activities().at(-1), "waiting");
+  approval.resolve(false);
+  assert.equal((await result).details.cancelled, true);
+  await tick();
+  assert.equal(h.activities().at(-1), "busy");
 });

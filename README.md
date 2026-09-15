@@ -440,13 +440,15 @@ Radar stores and collects Git checkouts in a flat workspace directory using `<wo
 
 The TUI summarizes local resources on each task row with emoji and counts: `🌿 2` for Git worktrees, `🐳 1` for Docker SBX sandboxes, `📟 1` for tmux sessions, and `📝 1` for Obsidian notes. These use the same emoji style as the attention indicators and do not require a Nerd Font. Zero counts are omitted. A `⚠️ dirty` warning appears if any linked worktree has uncommitted changes, including members of a Radar workspace. Counts and the warning remain visible when long task text is truncated.
 
-Local resource references no longer occupy separate overview rows. The logical `workspace` reference is also hidden from the overview, without adding a badge or increasing worktree counts. Other references remain underneath the task. Press `i` to inspect resource names, paths, and per-worktree status such as `2 dirty, ahead 1`. Resource actions, the task's busy indicator, and task priority are unchanged.
+Local resource references no longer occupy separate overview rows. The logical `workspace` reference is also hidden from the overview, without adding a badge or increasing worktree counts. Other references remain underneath the task. Press `i` to inspect resource names, paths, and per-worktree status such as `2 dirty, ahead 1`. Resource actions, the task's activity indicator, and task priority are unchanged.
 
 ## tmux sessions
 
 Radar collects tmux sessions from the local tmux server and attaches them to matching tasks when their name contains a configured linking mark, or when the session working directory matches a Git worktree path. Sessions without matches are shown as standalone in-progress tasks.
 
-Pi sessions inside registered Radar workspaces publish a generic busy signal through the installed `pi-radar` extension while the agent is actively working. Radar projects activity from source refs onto the task, and the TUI shows `● busy` on the task row until Pi settles. Busy is independent of task attention and does not affect categorization, sorting, or notifications.
+Pi sessions inside registered Radar workspaces publish generic activity through the installed `pi-radar` extension (Pi 0.85.1 or newer). The task row shows `● busy` while the agent works and amber `! waiting` instead while an extension UI prompt is open. Closing the prompt restores busy or idle; idle has no badge. Waiting takes precedence when other panes or linked sessions are still busy. Task details expose the same activity, and existing workspace navigation takes you back to the agent to respond.
+
+Activity is independent of task attention: it does not change categorization, sorting, acknowledgements, notifications, or approval policy. Prompt titles and answers are not published. Transitions request a bounded local refresh rather than waiting for the regular 15-second poll. Native Pi prompt hooks cover confirmations, selections, input, editors, and custom UI across extensions—not arbitrary shell stdin, external browser approvals, or conversational questions. Custom UI may also include automatically completing loaders. See [tmux integration](docs/integrations/tmux.md#activity) for lifecycle limits and coordinated upgrade steps.
 
 Tmux session refs use `#{session_id}` for stable identity, so renaming a tmux session does not create a new Radar task. Selecting a tmux-backed task switches to the stable session target.
 

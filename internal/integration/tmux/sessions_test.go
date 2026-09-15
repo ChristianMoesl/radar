@@ -30,25 +30,33 @@ func TestParseSessions(t *testing.T) {
 	}
 }
 
-func TestParseBusySessions(t *testing.T) {
-	output := "$1\t0\t1\n$2\t0\t\n$3\t0\t0\n$4\t1\t1\n"
-	busy, err := parseBusySessions(output)
+func TestParseSessionActivities(t *testing.T) {
+	output := "$1\t0\tbusy\n$1\t0\twaiting\n$1\t0\tbusy\n$2\t0\t\n$3\t0\tidle\n$4\t1\twaiting\n$5\t0\tbusy\n$6\t0\twaiting\n$6\t0\tidle\n"
+	activities, err := parseSessionActivities(output)
 	if err != nil {
-		t.Fatalf("parseBusySessions returned error: %v", err)
+		t.Fatal(err)
 	}
-	if !busy["$1"] {
-		t.Fatalf("session $1 is not busy: %+v", busy)
-	}
-	for _, sessionID := range []string{"$2", "$3", "$4"} {
-		if busy[sessionID] {
-			t.Fatalf("session %s unexpectedly busy: %+v", sessionID, busy)
+	for id, want := range map[string]protocol.Activity{
+		"$1": protocol.ActivityWaiting, "$2": protocol.ActivityIdle,
+		"$3": protocol.ActivityIdle, "$4": protocol.ActivityIdle,
+		"$5": protocol.ActivityBusy, "$6": protocol.ActivityWaiting,
+	} {
+		if activities[id] != want {
+			t.Fatalf("session %s activity = %q, want %q", id, activities[id], want)
 		}
+	}
+	// Collection is a fresh snapshot, not a latch of previous waiting state.
+	activities, err = parseSessionActivities("$1\t0\tbusy\n")
+	if err != nil || activities["$1"] != protocol.ActivityBusy {
+		t.Fatalf("activities = %v, error = %v", activities, err)
 	}
 }
 
-func TestParseBusySessionsRejectsMalformedOutput(t *testing.T) {
-	if _, err := parseBusySessions("$1\t0\t1\textra\n"); err == nil {
-		t.Fatal("parseBusySessions accepted malformed output")
+func TestParseSessionActivitiesRejectsMalformedOutput(t *testing.T) {
+	for _, output := range []string{"$1\t0\twaiting\textra\n", "$1\t0\tinvalid\n"} {
+		if _, err := parseSessionActivities(output); err == nil {
+			t.Fatalf("accepted malformed output %q", output)
+		}
 	}
 }
 
@@ -61,7 +69,7 @@ func TestSessionSourceRef(t *testing.T) {
 		AttachedCount: 2,
 		WindowCount:   3,
 		Path:          "/home/me/repo",
-		Busy:          true,
+		Activity:      protocol.ActivityBusy,
 	}
 
 	sourceRef := session.SourceRef(linking.NewMarkMatcher([]string{"ABC"}))
@@ -99,7 +107,7 @@ func TestSessionSourceRef(t *testing.T) {
 	if sourceRef.Metadata["window_count"] != "3" {
 		t.Fatalf("unexpected window count metadata: %#v", sourceRef.Metadata)
 	}
-	if !sourceRef.Busy {
+	if sourceRef.Activity != protocol.ActivityBusy {
 		t.Fatalf("tmux source ref is not busy: %#v", sourceRef)
 	}
 	for _, want := range []string{"mark:ABC-123", "workspace:/home/me/repo"} {

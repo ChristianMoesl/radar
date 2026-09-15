@@ -13,7 +13,7 @@ import (
 
 func resourceBadgeFixture() protocol.Task {
 	return protocol.Task{
-		Title: "Resource badges", Attention: "attention", Busy: true,
+		Title: "Resource badges", Attention: "attention", Activity: protocol.ActivityBusy,
 		SourceRefs: []protocol.SourceRef{
 			{ID: "git:worktree:/repo/one", Source: "git", Kind: "worktree", Path: "/repo/one", Status: "2 dirty, ahead 1", Metadata: map[string]string{"dirty_files": "2", "ahead": "1"}},
 			{ID: "git:worktree:/repo/two", Source: "git", Kind: "worktree", Path: "/repo/two", Status: "clean"},
