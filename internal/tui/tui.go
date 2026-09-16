@@ -120,6 +120,8 @@ type model struct {
 	cleanup             protocol.CleanupPreview
 	cleanupDetails      bool
 	cleanupScroll       int
+	gcResult            protocol.GarbageCollectionResult
+	gcScroll            int
 	links               []linkChoice
 	linkCursor          int
 	linkScroll          int
@@ -197,6 +199,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
+		if m.mode == "gc_result" {
+			return m.updateGarbageCollectionResult(msg)
+		}
 		if strings.HasPrefix(m.mode, "workspace_") {
 			return m.updateWorkspace(msg)
 		}
@@ -526,6 +531,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.message = msg.message
 		if msg.response != nil {
 			m.applyResponse(*msg.response, false)
+			if msg.err == nil && msg.response.GarbageCollectionResult != nil {
+				m.gcResult = *msg.response.GarbageCollectionResult
+				m.gcScroll = 0
+				m.message = ""
+				m.mode = "gc_result"
+			}
 		}
 		if msg.quit && msg.err == nil {
 			return m, tea.Quit
@@ -657,6 +668,9 @@ func (m model) taskRowPositions() (map[int]int, int) {
 }
 
 func (m model) View() string {
+	if m.mode == "gc_result" {
+		return m.garbageCollectionScreen()
+	}
 	if m.mode == "cleanup_confirm" {
 		return m.cleanupScreen()
 	}
