@@ -13,12 +13,12 @@ import (
 	"time"
 
 	"radar/internal/cleanup"
-	"radar/internal/collector"
 	"radar/internal/integration"
 	"radar/internal/integration/github"
 	"radar/internal/integration/obsidian"
 	"radar/internal/protocol"
 	"radar/internal/state"
+	"radar/internal/taskservice"
 )
 
 func TestWatchOldRevisionReturnsTasksImmediately(t *testing.T) {
@@ -139,15 +139,12 @@ func TestStructuredTaskMutations(t *testing.T) {
 	}
 	source := obsidian.NewSourceAt(vault)
 	registry := integration.NewRegistry(source)
-	refresh := func() {
-		result := collector.CollectLocal(context.Background(), store.Tasks(), logger, registry.Sources())
-		store.SetTasksForSources(result.Tasks, result.SourceNames)
-	}
+	tasks := taskservice.New(store, logger, registry)
 	serverConn, clientConn := net.Pipe()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil, nil, registry, cleanup.New(nil)).SetLocalRefresh(refresh).handle(serverConn)
+		New(store, logger, nil, nil, nil, registry, cleanup.New(nil)).SetTaskMutation(tasks.MutateTask).handle(serverConn)
 	}()
 	encoder := json.NewEncoder(clientConn)
 	decoder := json.NewDecoder(clientConn)
@@ -158,6 +155,7 @@ func TestStructuredTaskMutations(t *testing.T) {
 		{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: 1, Priority: "urgent"}},
 		{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: 1, Priority: "normal"}},
 	}
+	var revision int64
 	for _, request := range requests {
 		if err := encoder.Encode(request); err != nil {
 			t.Fatal(err)
@@ -168,6 +166,16 @@ func TestStructuredTaskMutations(t *testing.T) {
 		}
 		if !response.OK || response.Task == nil || response.Task.ID != 1 {
 			t.Fatalf("response for %s = %+v", request.Method, response)
+		}
+		if len(response.Tasks) != 1 || response.Summary == nil || response.Revision <= revision {
+			t.Fatalf("mutation did not return a fresh task projection: %+v", response)
+		}
+		revision = response.Revision
+		if (response.Task.Attention == "done") != (request.Method == "task-done") {
+			t.Fatalf("incorrect lifecycle in mutation response: %+v", response.Task)
+		}
+		if request.Method == "task-priority" && response.Task.SourceRefs[0].Metadata["priority"] != request.TaskMutation.Priority {
+			t.Fatalf("incorrect priority in mutation response: %+v", response.Task)
 		}
 	}
 	_ = clientConn.Close()

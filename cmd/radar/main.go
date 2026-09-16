@@ -19,7 +19,6 @@ import (
 	"radar/internal/app"
 	"radar/internal/cleanup"
 	"radar/internal/client"
-	"radar/internal/collector"
 	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/logging"
@@ -29,6 +28,7 @@ import (
 	"radar/internal/server"
 	"radar/internal/socket"
 	"radar/internal/state"
+	"radar/internal/taskservice"
 	"radar/internal/tui"
 	"radar/internal/version"
 	"radar/internal/workspacegc"
@@ -589,16 +589,17 @@ func runDaemon() {
 	cleanupService := cleanup.New(integrations.CleanupProviders())
 	notificationService := notification.New(logger)
 	collectionMu := &sync.Mutex{}
-	refresh := refresher(context.Background(), store, logger, collectionMu, integrations, cleanupService, notificationService)
-	garbageCollect := garbageCollector(context.Background(), store, logger, collectionMu, integrations, cleanupService, notificationService)
+	tasks := taskservice.New(store, logger, integrations)
+	refresh := refresher(context.Background(), store, logger, collectionMu, integrations, cleanupService, notificationService, tasks)
+	garbageCollect := garbageCollector(context.Background(), store, logger, collectionMu, integrations, cleanupService, notificationService, tasks)
 	if collectionDisabled() {
 		logger.Info("source collection disabled", "env", "RADAR_DISABLE_COLLECTION")
 	} else {
 		go refreshLoop(context.Background(), refresh)
 	}
 
-	localRefresh := localRefresher(context.Background(), store, logger, collectionMu, integrations)
-	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), store, logger, collectionMu, integrations), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).ListenAndServe(path); err != nil {
+	localRefresh := localRefresher(context.Background(), collectionMu, tasks)
+	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), logger, collectionMu, tasks), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).SetTaskMutation(tasks.MutateTask).ListenAndServe(path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}
@@ -698,7 +699,7 @@ func collectionDisabled() bool {
 	return os.Getenv("RADAR_DISABLE_COLLECTION") == "1"
 }
 
-func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry, cleanupService cleanup.Service, notificationService notification.Service) func(refreshScope, bool) {
+func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry, cleanupService cleanup.Service, notificationService notification.Service, tasks *taskservice.Service) func(refreshScope, bool) {
 	var lastFullRefresh time.Time
 	var lastWorkspaceGC time.Time
 
@@ -720,15 +721,7 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 
 		logger.Debug("refresh started", "scope", scope, "force", force)
 		previous := store.Tasks()
-		var result collector.Result
-		if scope == refreshLocal {
-			result = collector.CollectLocal(ctx, previous, logger, integrations.Sources())
-			store.SetTasksForSources(result.Tasks, result.SourceNames)
-			store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
-		} else {
-			result = collector.Collect(ctx, store.CollectionTasks(), logger, integrations.Sources())
-			applyFullCollection(ctx, store, &result, integrations, logger)
-		}
+		result := tasks.Refresh(ctx, scope == refreshLocal)
 		var gcNotification *protocol.GarbageCollectionResult
 		if time.Since(lastWorkspaceGC) >= time.Hour {
 			lastWorkspaceGC = time.Now()
@@ -744,9 +737,7 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 				} else if len(gcResult.Deleted) > 0 {
 					converted := garbageCollectionResult(gcResult)
 					gcNotification = &converted
-					result = collector.CollectLocal(ctx, store.Tasks(), logger, integrations.Sources())
-					store.SetTasksForSources(result.Tasks, result.SourceNames)
-					store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
+					result = tasks.Refresh(ctx, true)
 					logger.Debug("workspace gc refresh finished", "deleted", len(gcResult.Deleted), "tasks", len(result.Tasks))
 				}
 			}
@@ -762,25 +753,15 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 	}
 }
 
-func applyFullCollection(ctx context.Context, store *state.Store, result *collector.Result, integrations integration.Registry, logger *slog.Logger) {
-	store.SetTasks(result.Tasks)
-	if collector.CompleteAuthoredTasks(ctx, store.CollectionTasks(), result, integrations.Sources(), logger) {
-		store.SetTasks(result.Tasks)
-	}
-	store.SetSources(result.Sources)
-}
-
-func localRefresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry) func() {
+func localRefresher(ctx context.Context, mu *sync.Mutex, tasks *taskservice.Service) func() {
 	return func() {
 		mu.Lock()
 		defer mu.Unlock()
-		result := collector.CollectLocal(ctx, store.Tasks(), logger, integrations.Sources())
-		store.SetTasksForSources(result.Tasks, result.SourceNames)
-		store.SetSources(mergeSourceStatuses(store.Sources(), result.Sources))
+		tasks.Refresh(ctx, true)
 	}
 }
 
-func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry, cleanupService cleanup.Service, notificationService notification.Service) func() (protocol.GarbageCollectionResult, error) {
+func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry, cleanupService cleanup.Service, notificationService notification.Service, tasks *taskservice.Service) func() (protocol.GarbageCollectionResult, error) {
 	return func() (protocol.GarbageCollectionResult, error) {
 		mu.Lock()
 
@@ -800,9 +781,7 @@ func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logg
 			return protocol.GarbageCollectionResult{}, err
 		}
 		if len(result.Deleted) > 0 {
-			collected := collector.CollectLocal(ctx, store.Tasks(), logger, integrations.Sources())
-			store.SetTasksForSources(collected.Tasks, collected.SourceNames)
-			store.SetSources(mergeSourceStatuses(store.Sources(), collected.Sources))
+			collected := tasks.Refresh(ctx, true)
 			logger.Debug("manual workspace gc refresh finished", "deleted", len(result.Deleted), "tasks", len(collected.Tasks))
 		}
 		converted := garbageCollectionResult(result)
@@ -830,43 +809,20 @@ func notifyActionableTransitions(ctx context.Context, previous, current []protoc
 	notificationService.NotifyTransitions(ctx, integrations.FilterTasks(previous, logger), integrations.FilterTasks(current, logger))
 }
 
-func mergeSourceStatuses(previous []protocol.SourceStatus, updates []protocol.SourceStatus) []protocol.SourceStatus {
-	byName := map[string]protocol.SourceStatus{}
-	order := make([]string, 0, len(previous)+len(updates))
-	for _, source := range previous {
-		if _, ok := byName[source.Name]; !ok {
-			order = append(order, source.Name)
-		}
-		byName[source.Name] = source
-	}
-	for _, source := range updates {
-		if _, ok := byName[source.Name]; !ok {
-			order = append(order, source.Name)
-		}
-		byName[source.Name] = source
-	}
-	merged := make([]protocol.SourceStatus, 0, len(order))
-	for _, name := range order {
-		merged = append(merged, byName[name])
-	}
-	return merged
-}
-
-func resetter(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry) func() error {
+func resetter(ctx context.Context, logger *slog.Logger, mu *sync.Mutex, tasks *taskservice.Service) func() error {
 	return func() error {
 		mu.Lock()
 		defer mu.Unlock()
 
 		logger.Debug("reset started")
-		if err := store.Reset(); err != nil {
+		if err := tasks.Reset(); err != nil {
 			return err
 		}
 		if collectionDisabled() {
 			logger.Debug("reset finished without collection; source collection disabled")
 			return nil
 		}
-		result := collector.Collect(ctx, nil, logger, integrations.Sources())
-		applyFullCollection(ctx, store, &result, integrations, logger)
+		result := tasks.Refresh(ctx, false)
 		logger.Debug("reset finished", "tasks", len(result.Tasks), "sources", len(result.Sources))
 		return nil
 	}

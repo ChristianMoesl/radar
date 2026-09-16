@@ -27,6 +27,7 @@ type Server struct {
 	logger         *slog.Logger
 	refresh        func()
 	localRefresh   func()
+	taskMutation   func(context.Context, string, *protocol.TaskMutation) (protocol.Task, error)
 	reset          func() error
 	garbageCollect func() (protocol.GarbageCollectionResult, error)
 	integrations   integration.Registry
@@ -47,6 +48,11 @@ func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() e
 
 func (s *Server) SetLocalRefresh(refresh func()) *Server {
 	s.localRefresh = refresh
+	return s
+}
+
+func (s *Server) SetTaskMutation(mutate func(context.Context, string, *protocol.TaskMutation) (protocol.Task, error)) *Server {
+	s.taskMutation = mutate
 	return s
 }
 
@@ -153,7 +159,11 @@ func (s *Server) handle(conn net.Conn) {
 			}
 			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), GarbageCollectionResult: &result})
 		case "task-create", "task-done", "task-reopen", "task-priority":
-			task, err := s.mutateTask(req.Method, req.TaskMutation)
+			if s.taskMutation == nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "task mutations are not configured", Revision: s.store.Revision()})
+				continue
+			}
+			task, err := s.taskMutation(context.Background(), req.Method, req.TaskMutation)
 			if err != nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
 				continue
@@ -184,72 +194,6 @@ func (s *Server) handle(conn net.Conn) {
 	if err := scanner.Err(); err != nil {
 		s.logger.Warn("client read failed", "error", err)
 	}
-}
-
-func (s *Server) mutateTask(method string, mutation *protocol.TaskMutation) (protocol.Task, error) {
-	if mutation == nil {
-		return protocol.Task{}, fmt.Errorf("task mutation is required")
-	}
-	provider, err := s.integrations.TaskAuthoring()
-	if err != nil {
-		return protocol.Task{}, err
-	}
-	ctx := context.Background()
-	var identity integration.AuthoredTaskIdentity
-	switch method {
-	case "task-create":
-		identity, err = provider.Create(ctx, mutation.Title)
-	case "task-done", "task-reopen", "task-priority":
-		task, ok := taskByID(s.store.Tasks(), mutation.TaskID)
-		if !ok {
-			return protocol.Task{}, fmt.Errorf("task %d not found", mutation.TaskID)
-		}
-		ref, ok := authoredRef(task, provider.Descriptor().Name)
-		if !ok {
-			return protocol.Task{}, fmt.Errorf("task %d is not authored by %s", mutation.TaskID, provider.Descriptor().Label)
-		}
-		switch method {
-		case "task-done":
-			identity, err = provider.SetLifecycle(ctx, ref, "done")
-		case "task-reopen":
-			identity, err = provider.SetLifecycle(ctx, ref, "open")
-		case "task-priority":
-			if task.Attention == "done" {
-				return protocol.Task{}, fmt.Errorf("task %d is done and cannot change priority", mutation.TaskID)
-			}
-			identity, err = provider.SetPriority(ctx, ref, mutation.Priority)
-		}
-	default:
-		return protocol.Task{}, fmt.Errorf("unknown task mutation: %s", method)
-	}
-	if err != nil {
-		return protocol.Task{}, err
-	}
-	refresh := s.localRefresh
-	if refresh == nil {
-		refresh = s.refresh
-	}
-	if refresh == nil {
-		return protocol.Task{}, fmt.Errorf("task mutation refresh is not configured")
-	}
-	refresh()
-	for _, task := range s.store.Tasks() {
-		for _, ref := range task.SourceRefs {
-			if ref.ID == identity.SourceRefID {
-				return task, nil
-			}
-		}
-	}
-	return protocol.Task{}, fmt.Errorf("authored task %q was not collected after mutation", identity.SourceRefID)
-}
-
-func authoredRef(task protocol.Task, source string) (protocol.SourceRef, bool) {
-	for _, ref := range task.SourceRefs {
-		if ref.Source == source && ref.Lifecycle == protocol.SourceRefLifecycleWorkItem && ref.Authority == protocol.SourceRefAuthorityPrimary {
-			return ref, true
-		}
-	}
-	return protocol.SourceRef{}, false
 }
 
 func (s *Server) taskMutationResponse(task protocol.Task) protocol.Response {

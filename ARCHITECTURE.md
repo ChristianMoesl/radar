@@ -21,6 +21,7 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 - `extensions/pi-radar/`: normally installed Pi package for registered-workspace tools, instructions, skills, and activity.
 - `internal/workspacegc/`: conservative eligibility and target selection for automatic cleanup of completed work.
 - `internal/server/`: Unix socket API used by TUI and CLI commands.
+- `internal/taskservice/`: authored mutations, source-scoped cache publication, and coordination with in-flight collections.
 - `internal/collector/`: orchestrates integration collection, observation projection, and remote state resolution.
 - `internal/notification/`: detects newly actionable tasks and delivers host OS notifications through the optional macOS notifier companion.
 - `internal/state/`: local persistent task cache/state and durable source-ref linking.
@@ -106,7 +107,7 @@ collect integration Observations
 → serve Tasks
 ```
 
-The local state file persists `TaskRecord`s and `SourceRefRecord`s as a rebuildable cache. `Task`s are disposable projections for the socket protocol, CLI, and TUI. Source refs remain source-system facts with first/last seen timestamps and an active flag. Authored task mutations go through `TaskAuthoringProvider`, refresh local sources immediately, and bump the daemon revision so watchers receive the new projection.
+The local state file persists `TaskRecord`s and `SourceRefRecord`s as a rebuildable cache. `Task`s are disposable projections for the socket protocol, CLI, and TUI. Source refs remain source-system facts with first/last seen timestamps and an active flag. Authored task mutations go through `TaskAuthoringProvider`, then collect only that provider (currently Obsidian) and re-project using cached observations from the other sources. They bump the daemon revision so watchers receive the new projection without waiting for Git, tmux, SBX, or remote collection.
 
 Radar groups authoritative work by linking mark and source-owned linking keys. Without a linking mark, authoritative source-provided canonical keys decide standalone identity; for example, Obsidian tasks use `obsidian:task:<uuid>`, local workspaces use `workspace:<path>`, GitHub PRs use `github:pr:<repo>:<number>`, and Jira issues use `jira:issue:<KEY>`. Informational refs never provide canonical or linking identity. Each source ref belongs to one task record at a time.
 
@@ -149,6 +150,8 @@ $XDG_STATE_HOME/radar/tasks.json
 ```
 
 Projected tasks are rebuilt from this state. Done tasks remain in durable history but are included in the user-facing projection only for three days. Full refreshes reconcile all source refs; local refreshes reconcile refs from sources that declare themselves local and leave remote GitHub/Jira refs untouched. The file also stores source statuses so the TUI can show cached status immediately. User acknowledgement state lives on task records, not inside source-ref metadata.
+
+`taskservice.Service` separates slow collection from short cache publication. The daemon's collection mutex still serializes background refreshes, reset, and garbage collection; authored mutations do not acquire it. A separate publication mutex serializes note mutations, source-scoped cache updates, and full-refresh automatic completion. An in-memory authoring revision fences collections started before a mutation: before publishing such a result, the service replaces only its authoring-source observations, status, and completeness evidence with a fresh collection. Other sources' results are retained, not retried. This also protects task creation, reopening, priority changes, and provider errors after partial writes. The cache schema and socket protocol are unchanged.
 
 State writes are atomic and serialized. The daemon refuses to start when an existing file is malformed. An incompatible state version is intentionally discarded and recollected because authored work lives in source systems. Reset clears collected observations and may retain acknowledgements; it does not need compatibility readers or migration fallbacks.
 
