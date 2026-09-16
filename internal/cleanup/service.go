@@ -2,11 +2,14 @@ package cleanup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"radar/internal/integration"
 	"radar/internal/protocol"
 )
+
+var ErrNoResources = errors.New("selected task has no local resources to clean up")
 
 // Service plans and executes cleanup across registered integrations.
 type Service struct {
@@ -31,7 +34,7 @@ func (s Service) Preview(ctx context.Context, task protocol.Task) (protocol.Clea
 		targets = append(targets, providerTargets...)
 	}
 	if len(targets) == 0 {
-		return protocol.CleanupPreview{}, fmt.Errorf("selected task has no local resources to clean up")
+		return protocol.CleanupPreview{}, ErrNoResources
 	}
 	return protocol.CleanupPreview{TaskID: task.ID, TaskTitle: task.Title, Targets: targets}, nil
 }

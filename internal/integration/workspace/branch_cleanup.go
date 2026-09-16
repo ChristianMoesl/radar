@@ -9,14 +9,15 @@ import (
 	"radar/internal/integration/workspace/group"
 )
 
-// BranchPublished reports whether the local branch tip is reachable from a
-// remote-tracking ref after refreshing origin.
-func BranchPublished(ctx context.Context, runner Runner, repository, branch string) (bool, error) {
+// BranchPublishedOrMerged verifies publication or an exact merged GitHub PR head.
+// A branch name or task completion status alone is never proof of publication.
+func BranchPublishedOrMerged(ctx context.Context, runner Runner, repository, branch string) (bool, error) {
 	repository = strings.TrimSpace(repository)
 	branch = strings.TrimSpace(branch)
 	if repository == "" || branch == "" {
 		return false, fmt.Errorf("repository and branch are required")
 	}
+	runner = verificationRetryRunner{Runner: runner}
 	if err := FetchBranches(ctx, runner, repository); err != nil {
 		return false, err
 	}
@@ -28,7 +29,10 @@ func BranchPublished(ctx context.Context, runner Runner, repository, branch stri
 	if err != nil {
 		return false, err
 	}
-	return strings.TrimSpace(output) != "", nil
+	if strings.TrimSpace(output) != "" {
+		return true, nil
+	}
+	return branchMergedOnGitHub(ctx, runner, repository, ref)
 }
 
 type ManagedWorktreeRemovalPlan struct {
@@ -53,7 +57,8 @@ func PlanManagedWorktreeRemoval(ctx context.Context, runner Runner, member works
 	if otherPath, err := branchCheckoutOutside(ctx, runner, member.Repository, branch, member.Path); err != nil {
 		return ManagedWorktreeRemovalPlan{}, err
 	} else if otherPath != "" {
-		return ManagedWorktreeRemovalPlan{}, fmt.Errorf("local branch %q is also checked out at %s", branch, otherPath)
+		// The other checkout preserves the branch and its commits.
+		return ManagedWorktreeRemovalPlan{}, nil
 	}
 	return ManagedWorktreeRemovalPlan{DeleteBranch: true}, nil
 }
@@ -131,8 +136,15 @@ func branchCheckoutOutside(ctx context.Context, runner Runner, repository, branc
 
 func physicalPath(path string) string {
 	path = filepath.Clean(path)
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return filepath.Clean(resolved)
+	// Resolve the nearest existing parent as well: missing worktrees may still
+	// be recorded by Git under a physical path (for example /private/var).
+	for parent := path; ; parent = filepath.Dir(parent) {
+		if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+			rel, _ := filepath.Rel(parent, path)
+			return filepath.Join(resolved, rel)
+		}
+		if filepath.Dir(parent) == parent {
+			return path
+		}
 	}
-	return path
 }

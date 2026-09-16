@@ -39,18 +39,7 @@ func LocationIssue(path, root string) string {
 	return ""
 }
 
-// InUseIssues uses the same path association as the automatic-cleanup planner.
-func InUseIssues(refs []protocol.SourceRef, path string) []Issue {
-	var issues []Issue
-	for _, ref := range refs {
-		if ref.InUse && strings.TrimSpace(ref.Path) != "" && strings.TrimSpace(path) != "" && filepath.Clean(ref.Path) == filepath.Clean(path) {
-			issues = append(issues, Issue{Ref: ref, Message: "a related local resource is in use"})
-		}
-	}
-	return issues
-}
-
-// Unresolved combines collected provider checks with current local-use signals.
+// Unresolved returns collected safety issues; normal runtime activity is not an issue.
 // It requires no I/O, so rendering and authored task mutations remain fast.
 func Unresolved(task protocol.Task) []Issue {
 	var issues []Issue
@@ -65,11 +54,6 @@ func Unresolved(task protocol.Task) []Issue {
 	for _, ref := range task.SourceRefs {
 		for _, message := range ref.CleanupIssues {
 			add(Issue{Ref: ref, Message: message})
-		}
-		if ref.ProvidesWorkspace && ref.Path != "" {
-			for _, issue := range InUseIssues(task.SourceRefs, ref.Path) {
-				add(issue)
-			}
 		}
 	}
 	return issues

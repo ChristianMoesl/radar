@@ -76,7 +76,10 @@ func previewCleanup(ctx context.Context, req integration.CleanupPreviewRequest, 
 			return nil, err
 		}
 		if mainWorkingTree {
-			return nil, fmt.Errorf("main working tree cannot be cleaned up from Radar")
+			if _, managed := workspacegroup.FindMemberByPath(registry, ref.Path); managed {
+				return nil, fmt.Errorf("managed workspace member points at a main repository checkout; repair its registration: %s", ref.Path)
+			}
+			continue // Protected primary checkouts are kept, not cleanup issues.
 		}
 		status, err := gitOutput(ctx, ref.Path, "status", "--porcelain")
 		if err != nil {
@@ -108,14 +111,14 @@ func previewCleanup(ctx context.Context, req integration.CleanupPreviewRequest, 
 				target.Safety = append(target.Safety, protocol.CleanupSafety{
 					Kind: "deletes_local_data", Summary: "deletes local branch", Message: "deletes local branch " + member.Branch,
 				})
-				published, publicationErr := workspace.BranchPublished(ctx, runner, member.Repository, member.Branch)
+				published, publicationErr := workspace.BranchPublishedOrMerged(ctx, runner, member.Repository, member.Branch)
 				if publicationErr != nil {
 					target.Safety = append(target.Safety, protocol.CleanupSafety{
-						Kind: "safety_check_unavailable", Message: "branch publication could not be verified", BlocksAutomatic: true,
+						Kind: "safety_check_unavailable", Message: "branch publication or merge could not be verified", BlocksAutomatic: true,
 					})
 				} else if !published {
 					target.Safety = append(target.Safety, protocol.CleanupSafety{
-						Kind: "unpublished_data", Message: "branch commits were not found remotely", BlocksAutomatic: true,
+						Kind: "unpublished_data", Message: "local branch has commits not verified as published or merged", BlocksAutomatic: true,
 					})
 				}
 			}
@@ -168,7 +171,28 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		return protocol.CleanupTarget{}, err
 	}
 	member, managed := workspacegroup.FindMemberByPath(registry, req.Target.Path)
-	if managed {
+	if managed && req.Target.Operation["delete_branch"] == "" {
+		// A preview that promised to keep a protected/shared branch must not
+		// start deleting it if the other checkout disappears before execution.
+		_, err = workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, member.Path, req.Force)
+	} else if managed {
+		// Automatic cleanup rechecks after preview; explicit user-confirmed
+		// cleanup keeps its existing force semantics.
+		if !req.Force {
+			plan, planErr := workspace.PlanManagedWorktreeRemoval(ctx, workspace.ExecRunner{}, member)
+			if planErr != nil {
+				return protocol.CleanupTarget{}, planErr
+			}
+			if plan.DeleteBranch {
+				safe, verifyErr := workspace.BranchPublishedOrMerged(ctx, workspace.ExecRunner{}, member.Repository, member.Branch)
+				if verifyErr != nil {
+					return protocol.CleanupTarget{}, fmt.Errorf("branch publication or merge could not be verified: %w", verifyErr)
+				}
+				if !safe {
+					return protocol.CleanupTarget{}, fmt.Errorf("local branch has commits not verified as published or merged")
+				}
+			}
+		}
 		_, err = workspace.RemoveManagedWorktree(ctx, workspace.ExecRunner{}, member, req.Force)
 	} else {
 		_, err = workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Force)

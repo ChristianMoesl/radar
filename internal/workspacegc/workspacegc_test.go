@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -72,7 +73,7 @@ func TestRunGarbageCollectsNoteOnlyWorkspace(t *testing.T) {
 	}
 }
 
-func TestBuildPlanSkipsAttachedSession(t *testing.T) {
+func TestBuildPlanIncludesCompletedWorkspaceWithAttachedSession(t *testing.T) {
 	store := testStore(t)
 	root := filepath.Join(t.TempDir(), "workspaces")
 	path := filepath.Join(root, "app", "ABC-7-ship")
@@ -87,8 +88,8 @@ func TestBuildPlanSkipsAttachedSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Candidates) != 0 || len(plan.Skipped) != 1 {
-		t.Fatalf("plan = %+v, want one skipped attached session", plan)
+	if len(plan.Candidates) != 1 || len(plan.Skipped) != 0 {
+		t.Fatalf("plan = %+v, want attached session not to block cleanup", plan)
 	}
 }
 
@@ -226,7 +227,7 @@ func TestRunSkipsDirtyWorkspaceWithoutExecutingLinkedTargets(t *testing.T) {
 	store.SetTasks([]protocol.Task{
 		makeTask("done", "merged", githubRef("github:pr:acme/app:7", "acme/app", "ABC-7-ship")),
 		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "ABC-7-ship")),
-		makeTask("in_progress", "tmux", detachedSessionRef(path, "session")),
+		makeTask("in_progress", "tmux", attachedSessionRef(path, "session")),
 	})
 
 	calls := []cleanupCall{}
@@ -340,7 +341,7 @@ func (p gcProvider) PreviewCleanup(_ context.Context, req integration.CleanupPre
 				target.Safety = append(target.Safety, protocol.CleanupSafety{Kind: "unpublished_data", Message: "branch has commits not found on a remote-tracking branch", BlocksAutomatic: true})
 			}
 			if p.publicationUnknown {
-				target.Safety = append(target.Safety, protocol.CleanupSafety{Kind: "safety_check_unavailable", Message: "branch publication could not be verified", BlocksAutomatic: true})
+				target.Safety = append(target.Safety, protocol.CleanupSafety{Kind: "safety_check_unavailable", Message: "branch publication or merge could not be verified", BlocksAutomatic: true})
 			}
 		}
 		targets = append(targets, target)
@@ -403,4 +404,44 @@ func attachedSessionRef(path string, name string) protocol.SourceRef {
 
 func sandboxRef(path string, name string) protocol.SourceRef {
 	return protocol.SourceRef{ID: "sbx:sandbox:" + name, EntityID: "sbx:sandbox:" + name, Source: "sbx", Kind: "sandbox", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Title: name, Path: path, LinkingKeys: linking.Keys("mark:ABC-7", linking.WorkspaceKey(path)), Metadata: map[string]string{"name": name}}
+}
+
+func TestRunCleansAttachedSessionOnlyForEligibleDoneWorkspace(t *testing.T) {
+	store := testStore(t)
+	root := filepath.Join(t.TempDir(), "workspaces")
+	path := filepath.Join(root, "feature")
+	store.SetTasks([]protocol.Task{
+		makeTask("done", "merged", githubRef("github:pr:acme/app:77", "acme/app", "feature")),
+		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "feature")),
+		makeTask("in_progress", "tmux", attachedSessionRef(path, "session")),
+	})
+	var calls []cleanupCall
+	providers := []integration.CleanupProvider{gcProvider{name: "tmux", calls: &calls}, gcProvider{name: "git", calls: &calls}}
+	result, err := Run(context.Background(), store, cleanup.New(providers), nil, time.Now(), Options{WorkspaceRoot: root, IgnoreRetention: true})
+	if err != nil || len(result.Deleted) != 1 || len(result.Skipped) != 0 || len(calls) != 2 {
+		t.Fatalf("result=%+v calls=%+v err=%v", result, calls, err)
+	}
+}
+
+func TestRunForgetsAlreadyMissingStandaloneWorkspace(t *testing.T) {
+	store := testStore(t)
+	root := t.TempDir()
+	path := filepath.Join(root, "missing")
+	store.SetTasks([]protocol.Task{
+		makeTask("done", "merged", githubRef("github:pr:acme/app:78", "acme/app", "feature")),
+		makeTask("in_progress", "git worktree", worktreeRef(path, "acme/app", "feature")),
+	})
+	result, err := Run(context.Background(), store, cleanup.New(nil), nil, time.Now(), Options{WorkspaceRoot: root, IgnoreRetention: true})
+	if err != nil || len(result.Deleted) != 1 || len(result.Skipped) != 0 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	// Existing paths are not silently forgotten simply because no provider can
+	// identify them. In particular, a dangling symlink is not a missing path.
+	if err := os.Symlink(filepath.Join(root, "absent-target"), path); err != nil {
+		t.Fatal(err)
+	}
+	result, err = Run(context.Background(), store, cleanup.New(nil), nil, time.Now(), Options{WorkspaceRoot: root, IgnoreRetention: true})
+	if err != nil || len(result.Deleted) != 0 || len(result.Skipped) != 1 {
+		t.Fatalf("existing entry forgotten: %+v %v", result, err)
+	}
 }

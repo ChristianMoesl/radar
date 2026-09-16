@@ -213,6 +213,9 @@ func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher, work
 	linkingKeys := linking.Keys(append(marks.Keys(w.Branch, w.Path, originRepo), canonicalKey, linking.BranchKey(originRepo, linking.BranchName(w.Branch)), linking.WorkspaceGroupKey(workspaceID), taskLinkingKey)...)
 
 	providesWorkspace := workspaceID == ""
+	if main, err := mainWorkingTree(ctx, w.Path); err == nil && main {
+		providesWorkspace = false
+	}
 	return protocol.SourceRef{
 		ID:                "git:worktree:" + w.Path,
 		Source:            "git",

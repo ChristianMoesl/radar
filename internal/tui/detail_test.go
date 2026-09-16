@@ -261,7 +261,7 @@ func TestInspectSectionOrderAndAllIssues(t *testing.T) {
 	task.Repo = "acme/app"
 	task.URL = "https://example.test/task"
 	task.Metadata = map[string]string{"context": "task metadata"}
-	task.SourceRefs[0].CleanupIssues = []string{"uncommitted changes will be discarded", "branch commits were not found remotely"}
+	task.SourceRefs[0].CleanupIssues = []string{"uncommitted changes will be discarded", "local branch has commits not verified as published or merged"}
 	task.SourceRefs = append(task.SourceRefs,
 		protocol.SourceRef{ID: "workspace:extra", Source: "workspace", Kind: "workspace", Path: "/workspaces/extra", ProvidesWorkspace: true, CleanupIssues: []string{"workspace anchor contains unknown files: /workspaces/extra/test.sh"}},
 		protocol.SourceRef{ID: "tmux:extra", Source: "tmux", Kind: "session", Path: "/workspaces/extra", InUse: true},
@@ -276,7 +276,7 @@ func TestInspectSectionOrderAndAllIssues(t *testing.T) {
 		}
 		previous = position
 	}
-	for _, want := range []string{"git worktree · /repo/one", "uncommitted changes will be discarded", "branch commits were not found remotely", "workspace · /workspaces/extra", "/workspaces/extra/test.sh", "tmux session · /workspaces/extra", "a related local resource is in use", "Source refs"} {
+	for _, want := range []string{"git worktree · /repo/one", "uncommitted changes will be discarded", "local branch has commits not verified as published or merged", "workspace · /workspaces/extra", "/workspaces/extra/test.sh", "Source refs"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
 		}
@@ -298,7 +298,7 @@ func TestInspectUnresolvedUpdatesWithTheTaskAndWrapsWithoutTruncation(t *testing
 	m := inspectFixture()
 	updatedTask := m.detail.task
 	updatedTask.Metadata = nil
-	updatedTask.SourceRefs = []protocol.SourceRef{{ID: "git:one", Source: "git", Kind: "worktree", Path: "/workspaces/" + strings.Repeat("long-世界-path/", 20), CleanupIssues: []string{"branch publication could not be verified: " + strings.Repeat("long-error-", 30)}}}
+	updatedTask.SourceRefs = []protocol.SourceRef{{ID: "git:one", Source: "git", Kind: "worktree", Path: "/workspaces/" + strings.Repeat("long-世界-path/", 20), CleanupIssues: []string{"branch publication or merge could not be verified: " + strings.Repeat("long-error-", 30)}}}
 	updated, _ := m.Update(watchMsg{response: protocol.Response{Tasks: []protocol.Task{updatedTask}}})
 	m = updated.(model)
 	if !strings.Contains(m.View(), "Unresolved") {
@@ -330,13 +330,13 @@ func TestUnresolvedSectionWithTeatest(t *testing.T) {
 	t.Setenv("TMUX", "test")
 	m := inspectFixture()
 	m.detail.task.Metadata = nil
-	m.detail.task.SourceRefs[0].CleanupIssues = []string{"uncommitted changes will be discarded", "branch commits were not found remotely"}
+	m.detail.task.SourceRefs[0].CleanupIssues = []string{"uncommitted changes will be discarded", "local branch has commits not verified as published or merged"}
 	tm := teatest.NewTestModel(t, staticTUIModel{model: m}, teatest.WithInitialTermSize(80, 24))
 	tm.Send(inspectKey("end"))
 	tm.Send(inspectKey("home"))
 	tm.Send(inspectKey("q"))
 	final := tm.FinalModel(t, teatest.WithFinalTimeout(time.Second)).(staticTUIModel).model
-	if final.detail.scroll != 0 || !strings.Contains(final.View(), "Unresolved") || !strings.Contains(final.View(), "branch commits were not found remotely") {
+	if final.detail.scroll != 0 || !strings.Contains(final.View(), "Unresolved") || !strings.Contains(final.View(), "local branch has commits not verified as published or merged") {
 		t.Fatalf("issues below task details were not reachable interactively:\n%s", final.View())
 	}
 }

@@ -72,11 +72,11 @@ func TestCollectedCleanupIssuesMatchFreshPreviewAndClear(t *testing.T) {
 	check([]string{"uncommitted changes will be discarded"})
 	runGit(t, ctx, path, "add", ".")
 	runGit(t, ctx, path, "commit", "-m", "feature")
-	check([]string{"branch commits were not found remotely"})
+	check([]string{"local branch has commits not verified as published or merged"})
 	if err := os.WriteFile(filepath.Join(path, "scratch.txt"), []byte("scratch\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	check([]string{"uncommitted changes will be discarded", "branch commits were not found remotely"})
+	check([]string{"uncommitted changes will be discarded", "local branch has commits not verified as published or merged"})
 	if err := os.Remove(filepath.Join(path, "scratch.txt")); err != nil {
 		t.Fatal(err)
 	}
@@ -86,13 +86,13 @@ func TestCollectedCleanupIssuesMatchFreshPreviewAndClear(t *testing.T) {
 	// become unresolved rather than being silently treated as clean.
 	runGit(t, ctx, repo, "remote", "set-url", "origin", filepath.Join(home, "missing.git"))
 	source.observations.entries[repo].checked = time.Time{}
-	check([]string{"branch publication could not be verified"})
+	check([]string{"branch publication or merge could not be verified"})
 	runGit(t, ctx, repo, "remote", "set-url", "origin", remote)
 	source.observations.entries[repo].checked = time.Time{}
 	check(nil)
 }
 
-func TestObservationKeepsOtherMemberIssuesAfterPreviewError(t *testing.T) {
+func TestObservationDoesNotFlagPrimaryOrMissingWorktrees(t *testing.T) {
 	ctx := context.Background()
 	home := cleanPhysicalPath(t.TempDir())
 	t.Setenv("HOME", home)
@@ -105,8 +105,8 @@ func TestObservationKeepsOtherMemberIssuesAfterPreviewError(t *testing.T) {
 		{ID: "missing", Source: "git", Kind: "worktree", Path: filepath.Join(home, "missing"), ProvidesWorkspace: true},
 	}
 	NewSource().collectCleanupIssues(ctx, refs)
-	if !reflect.DeepEqual(refs[0].CleanupIssues, []string{"main working tree cannot be cleaned up from Radar"}) || !reflect.DeepEqual(refs[1].CleanupIssues, []string{"matching workspace cleanup target was not found"}) {
-		t.Fatalf("issues = %+v", refs)
+	if len(refs[0].CleanupIssues) != 0 || len(refs[1].CleanupIssues) != 0 {
+		t.Fatalf("primary and absent resources must not require attention: %+v", refs)
 	}
 }
 
@@ -140,19 +140,23 @@ func TestObservationFetchCacheDeduplicatesOnlyRemoteFetches(t *testing.T) {
 			}()
 		}
 		wg.Wait()
-		if base.calls != 1 {
-			t.Fatalf("fetches = %d, want 1", base.calls)
+		wantCalls := 1
+		if failure != nil {
+			wantCalls = 8
+		}
+		if base.calls != wantCalls {
+			t.Fatalf("fetches = %d, want %d", base.calls, wantCalls)
 		}
 		for i := 0; i < 2; i++ {
 			_, _ = runner.Run(context.Background(), "/repo", "git", "for-each-ref")
 		}
-		if base.calls != 3 {
+		if base.calls != wantCalls+2 {
 			t.Fatalf("local checks were cached: %d calls", base.calls)
 		}
 		runner.cache.entries["/repo"].checked = time.Now().Add(-3 * time.Minute)
 		_, _ = runner.Run(context.Background(), "/repo", "git", "fetch", "--prune", "origin")
 		_, _ = runner.Run(context.Background(), "/other", "git", "fetch", "--prune", "origin")
-		if base.calls != 5 {
+		if base.calls != wantCalls+4 {
 			t.Fatalf("expiry or per-repo isolation failed: %d calls", base.calls)
 		}
 		ctx, cancel := context.WithCancel(context.Background())

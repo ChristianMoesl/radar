@@ -77,14 +77,14 @@ func TestWorktreeSourceRefContract(t *testing.T) {
 	}
 }
 
-func TestPreviewCleanupRejectsMainWorkingTree(t *testing.T) {
+func TestPreviewCleanupKeepsMainWorkingTree(t *testing.T) {
 	ctx := context.Background()
 	repo := filepath.Join(t.TempDir(), "repo")
 	runGit(t, ctx, filepath.Dir(repo), "init", "repo")
 
-	_, err := Source{}.PreviewCleanup(ctx, integration.CleanupPreviewRequest{Task: protocol.Task{ID: 1, SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: repo}}}})
-	if err == nil {
-		t.Fatal("PreviewCleanup() error = nil, want main working tree error")
+	targets, err := Source{}.PreviewCleanup(ctx, integration.CleanupPreviewRequest{Task: protocol.Task{ID: 1, SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: repo}}}})
+	if err != nil || len(targets) != 0 {
+		t.Fatalf("protected checkout should be kept without error: %v, %v", targets, err)
 	}
 }
 
@@ -175,7 +175,13 @@ func TestManagedWorktreeCleanupDeletesItsLocalBranch(t *testing.T) {
 			t.Fatalf("branch deletion effect = %+v", safety)
 		}
 	}
-	if _, err := (Source{}).Cleanup(ctx, integration.CleanupRequest{Target: targets[0]}); err != nil {
+	if _, err := (Source{}).Cleanup(ctx, integration.CleanupRequest{Target: targets[0]}); err == nil {
+		t.Fatal("automatic cleanup accepted an unverified branch")
+	}
+	if _, err := os.Stat(worktreePath); err != nil {
+		t.Fatalf("unverified worktree was removed: %v", err)
+	}
+	if _, err := (Source{}).Cleanup(ctx, integration.CleanupRequest{Target: targets[0], Force: true}); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/heads/small-fix")
@@ -394,5 +400,43 @@ func assertMissingRoot(t *testing.T, roots []string, want string) {
 		if root == want {
 			t.Fatalf("gitRoots() = %#v, unexpectedly contained %q", roots, want)
 		}
+	}
+}
+
+func TestCleanupHonoursPromiseToKeepSharedBranch(t *testing.T) {
+	ctx := context.Background()
+	home := cleanPhysicalPath(t.TempDir())
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	writeGitTestConfig(t, home)
+	root, err := workspace.DefaultRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(home, "repo")
+	runGit(t, ctx, home, "init", repo)
+	runGit(t, ctx, repo, "config", "user.email", "radar@example.test")
+	runGit(t, ctx, repo, "config", "user.name", "Radar Test")
+	runGit(t, ctx, repo, "commit", "--allow-empty", "-m", "initial")
+	anchor := filepath.Join(root, "feature")
+	one, two := filepath.Join(anchor, "repo--feature"), filepath.Join(home, "other")
+	runGit(t, ctx, repo, "worktree", "add", "-b", "feature", one)
+	runGit(t, ctx, repo, "worktree", "add", "--force", two, "feature")
+	group := workspacegroup.Workspace{ID: workspacegroup.ID(anchor), Name: "feature", Path: anchor, Members: []workspacegroup.Member{{Repository: repo, Path: one, Branch: "feature"}}}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+		t.Fatal(err)
+	}
+	ref := protocol.SourceRef{ID: "git:one", Source: "git", Kind: "worktree", Path: one, Branch: "feature"}
+	targets, err := (Source{}).PreviewCleanup(ctx, integration.CleanupPreviewRequest{Task: protocol.Task{SourceRefs: []protocol.SourceRef{ref}}})
+	if err != nil || len(targets) != 1 || targets[0].Operation["delete_branch"] != "" || len(targets[0].Safety) != 0 {
+		t.Fatalf("preview=%+v err=%v", targets, err)
+	}
+	runGit(t, ctx, repo, "worktree", "remove", two)
+	if _, err := (Source{}).Cleanup(ctx, integration.CleanupRequest{Target: targets[0]}); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, ctx, repo, "show-ref", "--verify", "refs/heads/feature")
+	if _, err := os.Stat(one); !os.IsNotExist(err) {
+		t.Fatalf("worktree not removed: %v", err)
 	}
 }

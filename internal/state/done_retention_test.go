@@ -30,14 +30,12 @@ func TestProjectTasksOnlyShowsRecentlyDoneTasks(t *testing.T) {
 }
 
 func TestOldDoneWorkspaceRemainsVisibleOnlyWhileCurrentIssuesExist(t *testing.T) {
-	for _, issue := range []string{"local changes", "unpublished branch", "verification failed", "unknown files", "outside workspace root", "attached session"} {
+	for _, issue := range []string{"local changes", "unpublished branch", "verification failed", "unknown files", "outside workspace root"} {
 		t.Run(issue, func(t *testing.T) {
 			doneAt := time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
 			anchor := protocol.SourceRef{ID: "workspace:one", Source: "workspace", Kind: "workspace", Role: protocol.SourceRefRoleAuthoritative, ProvidesWorkspace: true, Path: "/workspaces/one"}
 			resource := protocol.SourceRef{ID: "git:one", Source: "git", Kind: "worktree", Path: "/workspaces/one/repo", CleanupIssues: []string{issue}, RetainInactive: true}
-			if issue == "attached session" {
-				resource = protocol.SourceRef{ID: "tmux:one", Source: "tmux", Kind: "session", Path: anchor.Path, InUse: true, RetainInactive: true}
-			}
+
 			state := persistedState{
 				Version: stateVersion,
 				Records: []TaskRecord{{ID: "task:1", NumericID: 1, State: "done", DoneAt: doneAt, Snapshot: protocol.Task{Title: "Old workspace", Attention: "done"}}},
@@ -84,5 +82,18 @@ func TestOldDoneStandaloneWorktreeWithIssuesRemainsVisible(t *testing.T) {
 	}
 	if got := projectTasks(state); len(got) != 1 {
 		t.Fatalf("standalone workspace hidden: %+v", got)
+	}
+}
+
+func TestAttachedSessionAloneDoesNotExtendDoneTaskVisibility(t *testing.T) {
+	anchor := protocol.SourceRef{ID: "workspace:one", Source: "workspace", Kind: "workspace", Role: protocol.SourceRefRoleAuthoritative, ProvidesWorkspace: true, Path: "/workspaces/one"}
+	session := protocol.SourceRef{ID: "tmux:one", Source: "tmux", Kind: "session", InUse: true, Path: anchor.Path}
+	state := persistedState{
+		Version:    stateVersion,
+		Records:    []TaskRecord{{ID: "task:1", NumericID: 1, State: "done", DoneAt: time.Now().Add(-7 * 24 * time.Hour).Format(time.RFC3339)}},
+		SourceRefs: []SourceRefRecord{{ID: anchor.ID, TaskRecordID: "task:1", Active: true, Snapshot: anchor}, {ID: session.ID, TaskRecordID: "task:1", Active: true, Snapshot: session}},
+	}
+	if tasks := projectTasks(state); len(tasks) != 0 {
+		t.Fatalf("normal attachment kept old task visible: %+v", tasks)
 	}
 }

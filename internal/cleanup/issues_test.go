@@ -13,22 +13,20 @@ import (
 func TestUnresolvedIncludesAllResourceIssuesWithoutLifecycleGating(t *testing.T) {
 	refs := []protocol.SourceRef{
 		{ID: "workspace:one", Source: "workspace", Path: "/workspaces/one", ProvidesWorkspace: true, CleanupIssues: []string{"unknown files"}},
-		{ID: "git:one", Source: "git", Path: "/workspaces/one/repo", CleanupIssues: []string{"uncommitted changes", "branch commits were not found remotely", "uncommitted changes"}},
-		{ID: "git:two", Source: "git", Path: "/workspaces/one/other", CleanupIssues: []string{"branch publication could not be verified"}},
+		{ID: "git:one", Source: "git", Path: "/workspaces/one/repo", CleanupIssues: []string{"uncommitted changes", "local branch has commits not verified as published or merged", "uncommitted changes"}},
+		{ID: "git:two", Source: "git", Path: "/workspaces/one/other", CleanupIssues: []string{"branch publication or merge could not be verified"}},
 		{ID: "tmux:one", Source: "tmux", Path: "/workspaces/one", InUse: true},
 		{ID: "tmux:unrelated", Source: "tmux", Path: "/unrelated", InUse: true},
 	}
 	for _, attention := range []string{"in_progress", "done"} {
 		issues := Unresolved(protocol.Task{Attention: attention, SourceRefs: refs})
-		if len(issues) != 5 {
+		if len(issues) != 4 {
 			t.Fatalf("%s: issues = %+v", attention, issues)
 		}
-		if issues[4].Ref.ID != "git:two" {
-			// In-use issues are attached when visiting the anchor, before member checks.
-			t.Fatalf("resource order lost: %+v", issues)
-		}
-		if issues[1].Ref.ID != "tmux:one" || issues[1].Message != InUseIssues(refs, refs[0].Path)[0].Message {
-			t.Fatalf("in-use check differs from GC: %+v", issues)
+		for _, issue := range issues {
+			if issue.Ref.Source == "tmux" {
+				t.Fatalf("attachment must not be unresolved: %+v", issues)
+			}
 		}
 	}
 	for i := range refs {

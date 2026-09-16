@@ -1052,7 +1052,7 @@ func TestWaitingReplacesBusyAndAppearsInDetails(t *testing.T) {
 }
 
 func TestGarbageCollectionResultRemainsCountsOnly(t *testing.T) {
-	result := protocol.GarbageCollectionResult{Deleted: []protocol.GarbageCollectionItem{{Path: "/workspaces/removed"}}, Skipped: []protocol.GarbageCollectionItem{{Path: "/workspaces/retained", Reason: "branch commits were not found remotely"}}}
+	result := protocol.GarbageCollectionResult{Deleted: []protocol.GarbageCollectionItem{{Path: "/workspaces/removed"}}, Skipped: []protocol.GarbageCollectionItem{{Path: "/workspaces/retained", Reason: "local branch has commits not verified as published or merged"}}}
 	updated, cmd := (model{loading: true}).Update(actionMsg{response: &protocol.Response{OK: true, GarbageCollectionResult: &result}, message: garbageCollectionMessage(result)})
 	m := updated.(model)
 	if cmd != nil || m.mode != "" || m.loading || m.message != "Garbage collection: deleted 1, skipped 1" {

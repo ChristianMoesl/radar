@@ -25,7 +25,7 @@ func cleanupFixture() protocol.CleanupPreview {
 			Presentation: protocol.CleanupPresentation{Singular: "worktree", Plural: "worktrees", Label: "inspector", Detail: "small-fix"},
 			Safety: []protocol.CleanupSafety{
 				{Kind: "deletes_local_data", Summary: "deletes local branch", Message: "deletes local branch small-fix"},
-				{Kind: "unpublished_data", Message: "branch commits were not found remotely", BlocksAutomatic: true},
+				{Kind: "unpublished_data", Message: "local branch has commits not verified as published or merged", BlocksAutomatic: true},
 			}},
 		{Source: "git", Kind: "worktree", Path: "/repo/worktrees/frontend--main", Branch: "main",
 			Presentation: protocol.CleanupPresentation{Singular: "worktree", Plural: "worktrees", Label: "frontend", Detail: "main (branch kept)"}},
@@ -39,7 +39,7 @@ func TestCleanupSummaryEmphasizesConsequencesNotPaths(t *testing.T) {
 	view := ansi.Strip(m.View())
 	for _, want := range []string{
 		"Clean up local resources?", "ABC-123 · Inspector intermittently fails",
-		"⚠ Branch commits were not found remotely.", "REMOVE", "2 worktrees",
+		"⚠ Local branch has commits not verified as published or merged.", "REMOVE", "2 worktrees",
 		"inspector · small-fix", "deletes local branch · ⚠ remote backup unverified",
 		"frontend · main (branch kept)", "1 terminal session", "1 sandbox", "1 workspace directory",
 		"KEEP", "Remote resources remain unchanged.", "[d] Show full paths and branch names",
@@ -68,7 +68,7 @@ func TestCleanupDetailsTogglePreservesPreviewAndWarnings(t *testing.T) {
 		t.Fatalf("details toggle mutated the cleanup plan or started an action: %+v", m)
 	}
 	view := ansi.Strip(m.View())
-	for _, want := range []string{"/repo/worktrees/inspector--small-fix", "deletes local branch small-fix", "small-fix-12345678", "$11", "Branch: main", "⚠ Branch commits were not found remotely.", "[d] Hide details"} {
+	for _, want := range []string{"/repo/worktrees/inspector--small-fix", "deletes local branch small-fix", "small-fix-12345678", "$11", "Branch: main", "⚠ Local branch has commits not verified as published or merged.", "[d] Hide details"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("details missing %q:\n%s", want, view)
 		}
@@ -83,16 +83,16 @@ func TestCleanupDetailsTogglePreservesPreviewAndWarnings(t *testing.T) {
 func TestCleanupWarningsAreDeduplicatedAndUnknownRisksRemainVisible(t *testing.T) {
 	m := model{mode: "cleanup_confirm", cleanup: cleanupFixture()}
 	m.cleanup.Targets[3].Safety = []protocol.CleanupSafety{
-		{Kind: "unpublished_data", Message: "branch commits were not found remotely", BlocksAutomatic: true},
+		{Kind: "unpublished_data", Message: "local branch has commits not verified as published or merged", BlocksAutomatic: true},
 		{Kind: "local_changes", Message: "uncommitted changes will be discarded", BlocksAutomatic: true},
-		{Kind: "safety_check_unavailable", Message: "branch publication could not be verified", BlocksAutomatic: true},
+		{Kind: "safety_check_unavailable", Message: "branch publication or merge could not be verified", BlocksAutomatic: true},
 		{Kind: "future_risk", Message: "a custom safety warning", BlocksAutomatic: true},
 		{Kind: "future_effect", Message: "custom local data will be removed"},
 	}
 	for _, details := range []bool{false, true} {
 		m.cleanupDetails = details
 		view := ansi.Strip(m.View())
-		for _, warning := range []string{"⚠ Branch commits were not found remotely.", "⚠ Uncommitted changes will be discarded.", "⚠ Branch publication could not be verified.", "⚠ A custom safety warning."} {
+		for _, warning := range []string{"⚠ Local branch has commits not verified as published or merged.", "⚠ Uncommitted changes will be discarded.", "⚠ Branch publication or merge could not be verified.", "⚠ A custom safety warning."} {
 			if strings.Count(view, warning) != 1 || strings.Index(view, warning) > strings.Index(view, "REMOVE") {
 				t.Fatalf("warning %q must occur once before REMOVE:\n%s", warning, view)
 			}

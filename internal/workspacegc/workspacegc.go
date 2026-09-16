@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -94,10 +95,6 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 				plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Path: path, Reason: reason})
 				continue
 			}
-			if issues := cleanup.InUseIssues(refs, path); len(issues) > 0 {
-				plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Path: path, Reason: issues[0].Message})
-				continue
-			}
 			plan.Candidates = append(plan.Candidates, Candidate{
 				TaskID:      record.NumericID,
 				RecordID:    record.ID,
@@ -121,12 +118,20 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 	for _, candidate := range plan.Candidates {
 		preview, err := cleanupService.Preview(ctx, candidate.Task)
 		if err != nil {
+			if errors.Is(err, cleanup.ErrNoResources) && pathMissing(candidate.Path) {
+				result.Deleted = append(result.Deleted, candidate)
+				continue // Already gone; the post-GC local refresh drops stale refs.
+			}
 			result.skip(candidate, err, logger)
 			continue
 		}
 		selected, workspaceTarget := targetsForCandidate(preview, candidate)
-		if workspaceTarget == nil && candidate.WorkspaceID == "" {
+		if workspaceTarget == nil && candidate.WorkspaceID == "" && !pathMissing(candidate.Path) {
 			result.skip(candidate, fmt.Errorf("matching workspace cleanup target was not found"), logger)
+			continue
+		}
+		if len(selected.Targets) == 0 && pathMissing(candidate.Path) {
+			result.Deleted = append(result.Deleted, candidate)
 			continue
 		}
 		if messages := cleanup.BlockingMessages(selected.Targets); len(messages) > 0 {
@@ -207,4 +212,9 @@ func firstNonEmpty(values ...string) string {
 
 func (p Plan) String() string {
 	return fmt.Sprintf("%d candidates, %d skipped", len(p.Candidates), len(p.Skipped))
+}
+
+func pathMissing(path string) bool {
+	_, err := os.Lstat(path)
+	return os.IsNotExist(err)
 }

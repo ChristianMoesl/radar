@@ -33,7 +33,7 @@ func (Source) Status(context.Context, *slog.Logger) integration.StatusResult {
 	return integration.StatusResult{Status: protocol.SourceStatus{Name: "workspace", Status: "ok"}, CanRun: true}
 }
 
-func (Source) Collect(_ context.Context, req integration.CollectRequest) integration.CollectResult {
+func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	root, err := DefaultRoot()
 	if err != nil {
 		status := protocol.SourceStatus{Name: "workspace", Status: "error", Detail: err.Error()}
@@ -84,6 +84,13 @@ func (Source) Collect(_ context.Context, req integration.CollectRequest) integra
 		if err := anchorCleanupError(group); err != nil {
 			ref.CleanupIssues = append(ref.CleanupIssues, err.Error())
 		}
+		for _, member := range group.Members {
+			if _, err := os.Lstat(member.Path); os.IsNotExist(err) {
+				if _, err := inspectMissingMember(ctx, ExecRunner{}, member); err != nil {
+					ref.CleanupIssues = append(ref.CleanupIssues, fmt.Sprintf("%s: %v", member.Path, err))
+				}
+			}
+		}
 		observations = append(observations, integration.Observation{Ref: ref})
 	}
 	status := protocol.SourceStatus{Name: "workspace", Status: "ok", Detail: fmt.Sprintf("%d workspaces", len(observations))}
@@ -97,7 +104,7 @@ func (Source) Collect(_ context.Context, req integration.CollectRequest) integra
 	return integration.CollectResult{Observations: observations, Complete: complete, SourceStatus: &status}
 }
 
-func (Source) PreviewCleanup(_ context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
+func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
 	root, err := DefaultRoot()
 	if err != nil {
 		return nil, err
@@ -119,6 +126,23 @@ func (Source) PreviewCleanup(_ context.Context, req integration.CleanupPreviewRe
 		if err := anchorCleanupError(group); err != nil {
 			return nil, err
 		}
+		// A vanished member has no files to discard. Forget its targeted Git
+		// worktree registration, but retain its branch and all commits.
+		for _, member := range group.Members {
+			if _, err := os.Lstat(member.Path); os.IsNotExist(err) {
+				if _, err := inspectMissingMember(ctx, ExecRunner{}, member); err != nil {
+					return nil, err
+				}
+				targets = append(targets, protocol.CleanupTarget{
+					SourceRefID: ref.ID, Source: "workspace", Kind: "missing_member", WorkspaceID: group.ID,
+					Path: member.Path, Title: member.Branch, ResourceID: member.Path,
+					Presentation: protocol.CleanupPresentation{Singular: "stale worktree registration", Plural: "stale worktree registrations"},
+					Description:  "forget missing worktree " + member.Path + " (branch kept)",
+				})
+			} else if err != nil {
+				return nil, err
+			}
+		}
 		description := "workspace anchor " + group.Path
 		if group.Sandbox != nil && group.Sandbox.SharedDirectory != "" {
 			description += " and shared temporary files (including screenshots) in " + group.Sandbox.SharedDirectory
@@ -133,10 +157,14 @@ func (Source) PreviewCleanup(_ context.Context, req integration.CleanupPreviewRe
 	return targets, nil
 }
 
-func (Source) Cleanup(_ context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
 	root, err := DefaultRoot()
 	if err != nil {
 		return protocol.CleanupTarget{}, err
+	}
+	if req.Target.Kind == "missing_member" {
+		err := forgetMissingMember(ctx, ExecRunner{}, root, req.Target)
+		return req.Target, err
 	}
 	var removed workspacegroup.Workspace
 	err = workspacegroup.WithNoteLock(root, func() error {

@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,8 +33,6 @@ func (s Source) collectCleanupIssues(ctx context.Context, refs []protocol.Source
 				refs[i].CleanupIssues = cleanup.BlockingMessages(targets)
 				if err != nil {
 					refs[i].CleanupIssues = append(refs[i].CleanupIssues, err.Error())
-				} else if len(targets) == 0 && refs[i].ProvidesWorkspace {
-					refs[i].CleanupIssues = append(refs[i].CleanupIssues, "matching workspace cleanup target was not found")
 				}
 			}
 		}()
@@ -45,9 +44,9 @@ func (s Source) collectCleanupIssues(ctx context.Context, refs []protocol.Source
 	wg.Wait()
 }
 
-// Local collection runs every 15 seconds. Cache only its remote fetch outcome
-// for two minutes, per repository; local status and branch reachability are
-// checked every time. Cleanup previews and GC always use a fresh fetch.
+// Local collection runs every 15 seconds. Cache successful remote verification outcomes
+// for two minutes, per repository/commit; local status and branch reachability are
+// checked every time. Cleanup previews and GC always perform fresh verification.
 type observationFetchCache struct {
 	mu      sync.Mutex
 	entries map[string]*observationFetch
@@ -70,14 +69,20 @@ type observationRunner struct {
 }
 
 func (r observationRunner) Run(ctx context.Context, cwd, name string, args ...string) (string, error) {
-	if name != "git" || len(args) != 3 || args[0] != "fetch" || args[1] != "--prune" || args[2] != "origin" {
+	fetch := name == "git" && len(args) == 3 && args[0] == "fetch" && args[1] == "--prune" && args[2] == "origin"
+	mergeProof := name == "gh" && len(args) > 0 && args[0] == "api"
+	if !fetch && !mergeProof {
 		return r.Runner.Run(ctx, cwd, name, args...)
 	}
+	key := cwd
+	if mergeProof {
+		key += "\x00" + strings.Join(args, "\x00")
+	}
 	r.cache.mu.Lock()
-	entry := r.cache.entries[cwd]
+	entry := r.cache.entries[key]
 	if entry == nil {
 		entry = &observationFetch{}
-		r.cache.entries[cwd] = entry
+		r.cache.entries[key] = entry
 	}
 	r.cache.mu.Unlock()
 	entry.mu.Lock()
@@ -87,7 +92,12 @@ func (r observationRunner) Run(ctx context.Context, cwd, name string, args ...st
 	}
 	if entry.checked.IsZero() || time.Since(entry.checked) >= 2*time.Minute {
 		entry.output, entry.err = r.Runner.Run(ctx, cwd, name, args...)
-		entry.checked = time.Now()
+		if entry.err == nil {
+			entry.checked = time.Now()
+		} else {
+			// Verification retries must run a real command after a failure.
+			entry.checked = time.Time{}
+		}
 	}
 	return entry.output, entry.err
 }

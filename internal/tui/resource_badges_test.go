@@ -78,8 +78,8 @@ func TestUnresolvedBadgeUsesCleanupIssues(t *testing.T) {
 		want bool
 	}{
 		{"dirty member", protocol.SourceRef{Source: "git", Kind: "worktree", CleanupIssues: []string{"uncommitted changes will be discarded"}}, true},
-		{"unpublished", protocol.SourceRef{Source: "git", Kind: "worktree", CleanupIssues: []string{"branch commits were not found remotely"}}, true},
-		{"unavailable", protocol.SourceRef{Source: "git", Kind: "worktree", CleanupIssues: []string{"branch publication could not be verified"}}, true},
+		{"unpublished", protocol.SourceRef{Source: "git", Kind: "worktree", CleanupIssues: []string{"local branch has commits not verified as published or merged"}}, true},
+		{"unavailable", protocol.SourceRef{Source: "git", Kind: "worktree", CleanupIssues: []string{"branch publication or merge could not be verified"}}, true},
 		{"unknown files", protocol.SourceRef{Source: "workspace", Kind: "workspace", CleanupIssues: []string{"workspace anchor contains unknown files: /workspace/test.sh"}}, true},
 		{"clean", protocol.SourceRef{Source: "git", Kind: "worktree", Status: "clean"}, false},
 		{"ahead only", protocol.SourceRef{Source: "git", Kind: "worktree", Metadata: map[string]string{"ahead": "2"}}, false},

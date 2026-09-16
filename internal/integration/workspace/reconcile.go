@@ -309,7 +309,7 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 			return ReconcileWorkspacePlan{}, err
 		}
 		if removal.DeleteBranch {
-			published, publicationErr := BranchPublished(ctx, runner, member.Repository, member.Branch)
+			published, publicationErr := BranchPublishedOrMerged(ctx, runner, member.Repository, member.Branch)
 			switch {
 			case publicationErr != nil:
 				removalWarnings = append(removalWarnings, fmt.Sprintf("origin could not be refreshed for %s; removing the worktree will delete local branch %q without verifying that its commits exist remotely", member.Repository, member.Branch))
