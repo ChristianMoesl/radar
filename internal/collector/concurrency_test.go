@@ -85,3 +85,12 @@ func TestCollectSourcesRunsConcurrentlyWithIsolatedInputsAndDeterministicOutput(
 		t.Fatalf("source statuses are not in registration order: %+v", collected.Sources)
 	}
 }
+
+func TestCloneTasksIsolatesCleanupIssues(t *testing.T) {
+	previous := []protocol.Task{{SourceRefs: []protocol.SourceRef{{CleanupIssues: []string{"local changes"}}}}}
+	cloned := cloneTasks(previous)
+	cloned[0].SourceRefs[0].CleanupIssues[0] = "changed"
+	if previous[0].SourceRefs[0].CleanupIssues[0] != "local changes" {
+		t.Fatal("collector clone shares cleanup issues")
+	}
+}

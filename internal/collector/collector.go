@@ -171,6 +171,7 @@ func cloneTasks(tasks []protocol.Task) []protocol.Task {
 		cloned[i].SourceRefs = make([]protocol.SourceRef, len(task.SourceRefs))
 		for j, ref := range task.SourceRefs {
 			cloned[i].SourceRefs[j] = ref
+			cloned[i].SourceRefs[j].CleanupIssues = append([]string(nil), ref.CleanupIssues...)
 			cloned[i].SourceRefs[j].LinkingKeys = append([]string(nil), ref.LinkingKeys...)
 			cloned[i].SourceRefs[j].Metadata = cloneStringMap(ref.Metadata)
 			if ref.Presentation.TitleOrder != nil {

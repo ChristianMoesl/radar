@@ -255,3 +255,78 @@ func TestInspectScrollRoundTripWithTeatest(t *testing.T) {
 		t.Fatalf("interactive navigation escaped inspect: %+v", final.detail)
 	}
 }
+
+func TestInspectUnresolvedSectionLeadsAndKeepsAllIssues(t *testing.T) {
+	task := resourceBadgeFixture()
+	task.SourceRefs[0].CleanupIssues = []string{"uncommitted changes will be discarded", "branch commits were not found remotely"}
+	task.SourceRefs = append(task.SourceRefs,
+		protocol.SourceRef{ID: "workspace:extra", Source: "workspace", Kind: "workspace", Path: "/workspaces/extra", ProvidesWorkspace: true, CleanupIssues: []string{"workspace anchor contains unknown files: /workspaces/extra/test.sh"}},
+		protocol.SourceRef{ID: "tmux:extra", Source: "tmux", Kind: "session", Path: "/workspaces/extra", InUse: true},
+	)
+	before := taskDetailView(task, 140)
+	view := ansi.Strip(before)
+	if !strings.HasPrefix(view, "Unresolved\n") || strings.Index(view, "Unresolved") > strings.Index(view, "Title") {
+		t.Fatalf("unresolved section must precede all existing details:\n%s", view)
+	}
+	for _, want := range []string{"git worktree · /repo/one", "uncommitted changes will be discarded", "branch commits were not found remotely", "workspace · /workspaces/extra", "/workspaces/extra/test.sh", "tmux session · /workspaces/extra", "a related local resource is in use", "Source refs"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+	// Rendering must not consume or mutate issue snapshots.
+	if got := taskDetailView(task, 140); got != before {
+		t.Fatal("rendering mutated issues")
+	}
+	for i := range task.SourceRefs {
+		task.SourceRefs[i].CleanupIssues = nil
+		task.SourceRefs[i].InUse = false
+	}
+	if view := taskDetailView(task, 140); strings.Contains(view, "Unresolved") {
+		t.Fatalf("empty section should be hidden:\n%s", view)
+	}
+}
+
+func TestInspectUnresolvedUpdatesWithTheTaskAndWrapsWithoutTruncation(t *testing.T) {
+	m := inspectFixture()
+	updatedTask := m.detail.task
+	updatedTask.SourceRefs = []protocol.SourceRef{{ID: "git:one", Source: "git", Kind: "worktree", Path: "/workspaces/" + strings.Repeat("long-世界-path/", 20), CleanupIssues: []string{"branch publication could not be verified: " + strings.Repeat("long-error-", 30)}}}
+	updated, _ := m.Update(watchMsg{response: protocol.Response{Tasks: []protocol.Task{updatedTask}}})
+	m = updated.(model)
+	if !strings.Contains(m.View(), "Unresolved") {
+		t.Fatalf("live issue missing:\n%s", m.View())
+	}
+	lines, _, _, _ := m.detailViewport()
+	full := strings.Join(strings.Fields(ansi.Strip(strings.Join(lines, "\n"))), "")
+	for _, text := range []string{updatedTask.SourceRefs[0].Path, updatedTask.SourceRefs[0].CleanupIssues[0]} {
+		if !strings.Contains(full, strings.Join(strings.Fields(text), "")) {
+			t.Fatalf("truncated %q", text)
+		}
+	}
+	for _, key := range []string{"end", "pgup", "home"} {
+		updated, cmd := m.Update(inspectKey(key))
+		m = updated.(model)
+		if cmd != nil || lipgloss.Width(m.View()) > m.width || lipgloss.Height(m.View()) > m.height {
+			t.Fatalf("unresolved section broke viewport:\n%s", m.View())
+		}
+	}
+	updatedTask.SourceRefs[0].CleanupIssues = nil
+	updated, _ = m.Update(watchMsg{response: protocol.Response{Tasks: []protocol.Task{updatedTask}}})
+	m = updated.(model)
+	if strings.Contains(m.View(), "Unresolved") || strings.Contains(taskResourceBadges(m.detail.task), "unresolved") {
+		t.Fatalf("cleared issues remain:\n%s", m.View())
+	}
+}
+
+func TestUnresolvedSectionWithTeatest(t *testing.T) {
+	t.Setenv("TMUX", "test")
+	m := inspectFixture()
+	m.detail.task.SourceRefs[0].CleanupIssues = []string{"uncommitted changes will be discarded", "branch commits were not found remotely"}
+	tm := teatest.NewTestModel(t, staticTUIModel{model: m}, teatest.WithInitialTermSize(80, 24))
+	tm.Send(inspectKey("end"))
+	tm.Send(inspectKey("home"))
+	tm.Send(inspectKey("q"))
+	final := tm.FinalModel(t, teatest.WithFinalTimeout(time.Second)).(staticTUIModel).model
+	if final.detail.scroll != 0 || !strings.Contains(final.View(), "Unresolved") || !strings.Contains(final.View(), "branch commits were not found remotely") {
+		t.Fatalf("top-level issues were not reachable interactively:\n%s", final.View())
+	}
+}

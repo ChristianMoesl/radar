@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"radar/internal/cleanup"
 	"radar/internal/integration"
 	"radar/internal/integration/workspace"
 	"radar/internal/protocol"
@@ -33,6 +34,7 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 
 func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	sourceRefs, status := FetchSandboxes(ctx, req.Logger, req.LinkingMarks)
+	cleanup.ObserveIssues(ctx, Source{}, sourceRefs)
 	result := integration.CollectResult{
 		Observations: integration.ObserveRefs(sourceRefs, integration.SignalInProgress),
 		Complete:     status.Status == "ok",

@@ -15,7 +15,7 @@ func resourceBadgeFixture() protocol.Task {
 	return protocol.Task{
 		Title: "Resource badges", Attention: "attention", Activity: protocol.ActivityBusy,
 		SourceRefs: []protocol.SourceRef{
-			{ID: "git:worktree:/repo/one", Source: "git", Kind: "worktree", Path: "/repo/one", Status: "2 dirty, ahead 1", Metadata: map[string]string{"dirty_files": "2", "ahead": "1"}},
+			{ID: "git:worktree:/repo/one", Source: "git", Kind: "worktree", Path: "/repo/one", Status: "2 dirty, ahead 1", CleanupIssues: []string{"uncommitted changes will be discarded"}, Metadata: map[string]string{"dirty_files": "2", "ahead": "1"}},
 			{ID: "git:worktree:/repo/two", Source: "git", Kind: "worktree", Path: "/repo/two", Status: "clean"},
 			{ID: "sbx:sandbox:dev", Source: "sbx", Kind: "sandbox"},
 			{ID: "tmux:session:dev", Source: "tmux", Kind: "session"},
@@ -29,7 +29,7 @@ func resourceBadgeFixture() protocol.Task {
 
 func TestResourceBadgesUseEmoji(t *testing.T) {
 	got := ansi.Strip(taskResourceBadges(resourceBadgeFixture()))
-	if want := "🌿 2 🐳 1 📟 1 📝 1 ⚠️ dirty"; got != want {
+	if want := "🌿 2 🐳 1 📟 1 📝 1 ⚠️ unresolved"; got != want {
 		t.Fatalf("badges = %q, want %q", got, want)
 	}
 }
@@ -38,7 +38,7 @@ func TestTaskResourceBadges(t *testing.T) {
 	for _, cursor := range []int{0, 1} {
 		m := model{cursor: cursor, tasks: []protocol.Task{resourceBadgeFixture(), {Title: "Other", Attention: "attention"}}}
 		view := ansi.Strip(m.taskList(140, 20))
-		for _, want := range []string{"● busy  Resource badges", gitWorktreeIcon + " 2 " + sandboxIcon + " 1 " + tmuxIcon + " 1", dirtyIcon + " dirty", "jira:issue:ABC-123", "github:pr:owner/repo:42", obsidianIcon + " 1"} {
+		for _, want := range []string{"● busy  Resource badges", gitWorktreeIcon + " 2 " + sandboxIcon + " 1 " + tmuxIcon + " 1", unresolvedIcon + " unresolved", "jira:issue:ABC-123", "github:pr:owner/repo:42", obsidianIcon + " 1"} {
 			if !strings.Contains(view, want) {
 				t.Fatalf("cursor %d: missing %q:\n%s", cursor, want, view)
 			}
@@ -71,24 +71,23 @@ func TestResourceBadgesRetainInspectDetailsAndSourceRefs(t *testing.T) {
 	}
 }
 
-func TestDirtyBadgeUsesWorktreeMetadata(t *testing.T) {
+func TestUnresolvedBadgeUsesCleanupIssues(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		ref  protocol.SourceRef
 		want bool
 	}{
-		{"managed member", protocol.SourceRef{Source: "git", Kind: "worktree", ProvidesWorkspace: false, Metadata: map[string]string{"dirty_files": "2"}}, true},
-		{"standalone", protocol.SourceRef{Source: "git", Kind: "worktree", ProvidesWorkspace: true, Metadata: map[string]string{"dirty_files": "1"}}, true},
+		{"dirty member", protocol.SourceRef{Source: "git", Kind: "worktree", CleanupIssues: []string{"uncommitted changes will be discarded"}}, true},
+		{"unpublished", protocol.SourceRef{Source: "git", Kind: "worktree", CleanupIssues: []string{"branch commits were not found remotely"}}, true},
+		{"unavailable", protocol.SourceRef{Source: "git", Kind: "worktree", CleanupIssues: []string{"branch publication could not be verified"}}, true},
+		{"unknown files", protocol.SourceRef{Source: "workspace", Kind: "workspace", CleanupIssues: []string{"workspace anchor contains unknown files: /workspace/test.sh"}}, true},
 		{"clean", protocol.SourceRef{Source: "git", Kind: "worktree", Status: "clean"}, false},
-		{"ahead only", protocol.SourceRef{Source: "git", Kind: "worktree", Status: "ahead 2", Metadata: map[string]string{"ahead": "2"}}, false},
-		{"zero", protocol.SourceRef{Source: "git", Kind: "worktree", Metadata: map[string]string{"dirty_files": "0"}}, false},
-		{"invalid", protocol.SourceRef{Source: "git", Kind: "worktree", Metadata: map[string]string{"dirty_files": "unknown"}}, false},
-		{"other source", protocol.SourceRef{Source: "sbx", Kind: "sandbox", Metadata: map[string]string{"dirty_files": "1"}}, false},
+		{"ahead only", protocol.SourceRef{Source: "git", Kind: "worktree", Metadata: map[string]string{"ahead": "2"}}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			badges := taskResourceBadges(protocol.Task{SourceRefs: []protocol.SourceRef{tc.ref}})
-			if got := strings.Contains(badges, dirtyIcon+" dirty"); got != tc.want {
-				t.Fatalf("dirty = %v, want %v: %s", got, tc.want, badges)
+			if got := strings.Contains(badges, unresolvedIcon+" unresolved"); got != tc.want {
+				t.Fatalf("unresolved = %v, want %v: %s", got, tc.want, badges)
 			}
 		})
 	}
@@ -159,7 +158,7 @@ func TestResourceBadgesStayVisibleOnNarrowRows(t *testing.T) {
 	for _, width := range []int{60, 80, 100} {
 		m := model{tasks: []protocol.Task{task}}
 		view := ansi.Strip(m.taskList(width, 20))
-		for _, want := range []string{gitWorktreeIcon + " 2", sandboxIcon + " 1", tmuxIcon + " 1", obsidianIcon + " 1", dirtyIcon + " dirty", "● busy"} {
+		for _, want := range []string{gitWorktreeIcon + " 2", sandboxIcon + " 1", tmuxIcon + " 1", obsidianIcon + " 1", unresolvedIcon + " unresolved", "● busy"} {
 			if !strings.Contains(strings.Split(view, "\n")[1], want) {
 				t.Fatalf("width %d: task row missing %q:\n%s", width, want, view)
 			}

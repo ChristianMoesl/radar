@@ -142,6 +142,8 @@ type SourceRefAcknowledgement struct {
 }
 
 type SourceRef struct {
+	// CleanupIssues is the latest local collection snapshot of automatic-cleanup safety checks.
+	CleanupIssues       []string                  `json:"cleanup_issues,omitempty"`
 	ID                  string                    `json:"id"`
 	Activity            Activity                  `json:"activity,omitempty"`
 	InUse               bool                      `json:"in_use,omitempty"`

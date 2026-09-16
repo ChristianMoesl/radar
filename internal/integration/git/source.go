@@ -15,10 +15,12 @@ import (
 	"radar/internal/protocol"
 )
 
-type Source struct{}
+type Source struct {
+	observations *observationFetchCache
+}
 
 func NewSource() Source {
-	return Source{}
+	return Source{observations: newObservationFetchCache()}
 }
 
 func (Source) Descriptor() integration.Descriptor {
@@ -36,8 +38,9 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 	}
 }
 
-func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
+func (s Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	source_refs, status := FetchWorktrees(ctx, req.Logger, req.LinkingMarks)
+	s.collectCleanupIssues(ctx, source_refs)
 	if status.Status == "error" {
 		req.Logger.Warn("git worktree collection failed", "detail", status.Detail)
 		return integration.CollectResult{Observations: integration.ObserveRefs(source_refs, integration.SignalInProgress), SourceStatus: &status}
@@ -46,6 +49,10 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 }
 
 func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
+	return previewCleanup(ctx, req, workspace.ExecRunner{})
+}
+
+func previewCleanup(ctx context.Context, req integration.CleanupPreviewRequest, runner workspace.Runner) ([]protocol.CleanupTarget, error) {
 	targets := make([]protocol.CleanupTarget, 0)
 	root, err := workspace.DefaultRoot()
 	if err != nil {
@@ -91,7 +98,7 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 		if member, managed := workspacegroup.FindMemberByPath(registry, ref.Path); managed {
 			target.Presentation.Label = filepath.Base(member.Repository)
 			target.Presentation.Detail = member.Branch
-			removal, err := workspace.PlanManagedWorktreeRemoval(ctx, workspace.ExecRunner{}, member)
+			removal, err := workspace.PlanManagedWorktreeRemoval(ctx, runner, member)
 			if err != nil {
 				return nil, err
 			}
@@ -101,7 +108,7 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 				target.Safety = append(target.Safety, protocol.CleanupSafety{
 					Kind: "deletes_local_data", Summary: "deletes local branch", Message: "deletes local branch " + member.Branch,
 				})
-				published, publicationErr := workspace.BranchPublished(ctx, workspace.ExecRunner{}, member.Repository, member.Branch)
+				published, publicationErr := workspace.BranchPublished(ctx, runner, member.Repository, member.Branch)
 				if publicationErr != nil {
 					target.Safety = append(target.Safety, protocol.CleanupSafety{
 						Kind: "safety_check_unavailable", Message: "branch publication could not be verified", BlocksAutomatic: true,

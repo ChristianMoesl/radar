@@ -617,12 +617,13 @@ func TestTaskListTruncatesLongRows(t *testing.T) {
 			Path:              "/very/very/very/very/very/very/very/long/path/that/would/wrap",
 			ProvidesWorkspace: true,
 			Status:            "12 dirty, ahead 3",
+			CleanupIssues:     []string{"uncommitted changes will be discarded"},
 			Metadata:          map[string]string{"dirty_files": "12", "ahead": "3"},
 		}},
 	}}}
 
 	view := model.taskList(60, 20)
-	for _, want := range []string{gitWorktreeIcon + " 1", dirtyIcon + " dirty"} {
+	for _, want := range []string{gitWorktreeIcon + " 1", unresolvedIcon + " unresolved"} {
 		if !strings.Contains(ansi.Strip(view), want) {
 			t.Fatalf("taskList() truncated resource badge %q:\n%s", want, view)
 		}
@@ -1047,5 +1048,19 @@ func TestWaitingReplacesBusyAndAppearsInDetails(t *testing.T) {
 	task.Attention = "done"
 	if line := ansi.Strip(taskLine(task, false, 100)); strings.Contains(line, "waiting") {
 		t.Fatalf("completed badge: %q", line)
+	}
+}
+
+func TestGarbageCollectionResultRemainsCountsOnly(t *testing.T) {
+	result := protocol.GarbageCollectionResult{Deleted: []protocol.GarbageCollectionItem{{Path: "/workspaces/removed"}}, Skipped: []protocol.GarbageCollectionItem{{Path: "/workspaces/retained", Reason: "branch commits were not found remotely"}}}
+	updated, cmd := (model{loading: true}).Update(actionMsg{response: &protocol.Response{OK: true, GarbageCollectionResult: &result}, message: garbageCollectionMessage(result)})
+	m := updated.(model)
+	if cmd != nil || m.mode != "" || m.loading || m.message != "Garbage collection: deleted 1, skipped 1" {
+		t.Fatalf("unexpected GC result: %+v", m)
+	}
+	for _, hidden := range []string{"/workspaces/removed", "/workspaces/retained", "branch commits", "Unresolved"} {
+		if strings.Contains(m.View(), hidden) {
+			t.Fatalf("GC leaked %q into counts-only result:\n%s", hidden, m.View())
+		}
 	}
 }

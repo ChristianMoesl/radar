@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"radar/internal/cleanup"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
@@ -1144,7 +1145,7 @@ func projectTasks(state persistedState) []protocol.Task {
 
 	tasks := make([]protocol.Task, 0, len(state.Records))
 	for _, record := range state.Records {
-		if record.State == "done" && olderThan(record.DoneAt, doneTaskDisplayRetention) {
+		if record.State == "done" && olderThan(record.DoneAt, doneTaskDisplayRetention) && !hasUnresolvedWorkspace(activeSourceRefsByRecord[record.ID]) {
 			continue
 		}
 		task := cloneTask(record.Snapshot)
@@ -1184,6 +1185,17 @@ func projectTasks(state persistedState) []protocol.Task {
 	}
 	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
 	return tasks
+}
+
+// Only current workspace resources may extend done-task visibility. Historical
+// retained refs must not keep a task visible after its workspace is removed.
+func hasUnresolvedWorkspace(refs []protocol.SourceRef) bool {
+	for _, ref := range refs {
+		if ref.ProvidesWorkspace && strings.TrimSpace(ref.Path) != "" {
+			return len(cleanup.Unresolved(protocol.Task{SourceRefs: refs})) > 0
+		}
+	}
+	return false
 }
 
 func sourceRefsActivity(refs []protocol.SourceRef) protocol.Activity {
@@ -1233,6 +1245,7 @@ func cloneSourceRefs(sourceRefs []protocol.SourceRef) []protocol.SourceRef {
 	cloned := make([]protocol.SourceRef, len(sourceRefs))
 	for i, sourceRef := range sourceRefs {
 		cloned[i] = sourceRef
+		cloned[i].CleanupIssues = append([]string(nil), sourceRef.CleanupIssues...)
 		if sourceRef.Metadata != nil {
 			cloned[i].Metadata = cloneMetadata(sourceRef.Metadata)
 		}

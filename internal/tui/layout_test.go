@@ -166,7 +166,7 @@ func TestCatppuccinStylesAndSelectedTaskHierarchy(t *testing.T) {
 		subtleStyle.Background(mochaSurface0).Render("  " + task.Repo),
 		subtleStyle.Background(mochaSurface0).Render("  " + task.Reason),
 		progressStyle.Background(mochaSurface0).Render("● busy  "),
-		attentionStyle.Render(dirtyIcon + " dirty"),
+		attentionStyle.Render(unresolvedIcon + " unresolved"),
 	} {
 		if !strings.Contains(line, segment) {
 			t.Fatalf("selected task is missing styled segment %q: %q", segment, line)

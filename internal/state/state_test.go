@@ -709,3 +709,32 @@ func TestPrimaryLifecycleAuthorityOverridesContributingWorkItems(t *testing.T) {
 		t.Fatalf("reopened primary task with actionable contributor = %+v", tasks)
 	}
 }
+
+func TestCleanupIssuesPersistWithoutChangingStateVersionAndAreCloned(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := testGitWorktreeRef("git:worktree:/workspaces/feature", "/workspaces/feature", "acme/app", "feature")
+	ref.CleanupIssues = []string{"uncommitted changes will be discarded"}
+	store.SetTasks([]protocol.Task{{Title: "feature", Kind: "git_worktree", Attention: "in_progress", SourceRefs: []protocol.SourceRef{ref}}})
+	loaded, err := NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := loaded.CollectionTasks()
+	if loaded.state.Version != stateVersion || len(tasks) != 1 || len(tasks[0].SourceRefs[0].CleanupIssues) != 1 {
+		t.Fatalf("loaded state lost issues: %+v", tasks)
+	}
+	tasks[0].SourceRefs[0].CleanupIssues[0] = "changed by caller"
+	if got := loaded.Tasks()[0].SourceRefs[0].CleanupIssues[0]; got != ref.CleanupIssues[0] {
+		t.Fatalf("task snapshot shared issues: %q", got)
+	}
+	ref.CleanupIssues = nil
+	loaded.SetTasksForSources([]protocol.Task{{Title: "feature", Kind: "git_worktree", Attention: "in_progress", SourceRefs: []protocol.SourceRef{ref}}}, []string{"git"})
+	if got := loaded.Tasks()[0].SourceRefs[0].CleanupIssues; len(got) != 0 {
+		t.Fatalf("refresh did not clear issues: %v", got)
+	}
+}

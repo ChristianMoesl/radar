@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"radar/internal/cleanup"
 	"radar/internal/protocol"
 )
 
@@ -95,6 +96,24 @@ func taskDetailView(task protocol.Task, width int) string {
 		if value != "" {
 			lines = append(lines, fmt.Sprintf("%-10s %s", label, value))
 		}
+	}
+	if issues := cleanup.Unresolved(task); len(issues) > 0 {
+		lines = append(lines, titleStyle.Render("Unresolved"))
+		for _, issue := range issues {
+			label := issue.Ref.Title
+			if label == "" {
+				label = issue.Ref.ID
+			}
+			if issue.Ref.Path != "" {
+				label = shortenPath(issue.Ref.Path)
+			}
+			resource := issue.Ref.Source
+			if issue.Ref.Kind != resource {
+				resource += " " + issue.Ref.Kind
+			}
+			lines = append(lines, "  "+strings.TrimSpace(resource)+" · "+label, "    "+issue.Message)
+		}
+		lines = append(lines, "")
 	}
 	// The fixed heading is abbreviated; retain the full title in the body.
 	appendDetailLine("Title", task.Title)

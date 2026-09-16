@@ -143,3 +143,37 @@ func contains(values []string, wanted string) bool {
 	}
 	return false
 }
+
+func TestCollectedAnchorIssuesMatchCleanupPreviewAndClear(t *testing.T) {
+	root := configureWorkspaceRoot(t)
+	anchor := filepath.Join(root, "feature")
+	if err := os.MkdirAll(anchor, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	group := workspacegroup.Workspace{ID: workspacegroup.ID(anchor), Name: "feature", Path: anchor}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+		t.Fatal(err)
+	}
+	unknown := filepath.Join(anchor, "scratch.sh")
+	if err := os.WriteFile(unknown, []byte("echo test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	collect := func() protocol.SourceRef {
+		result := (Source{}).Collect(context.Background(), integration.CollectRequest{})
+		if len(result.Observations) != 1 {
+			t.Fatalf("observations = %+v", result.Observations)
+		}
+		return result.Observations[0].Ref
+	}
+	ref := collect()
+	_, err := (Source{}).PreviewCleanup(context.Background(), integration.CleanupPreviewRequest{Task: protocol.Task{SourceRefs: []protocol.SourceRef{ref}}})
+	if err == nil || len(ref.CleanupIssues) != 1 || ref.CleanupIssues[0] != err.Error() || !strings.Contains(ref.CleanupIssues[0], unknown) {
+		t.Fatalf("collected %v; preview error %v", ref.CleanupIssues, err)
+	}
+	if err := os.Remove(unknown); err != nil {
+		t.Fatal(err)
+	}
+	if got := collect().CleanupIssues; len(got) != 0 {
+		t.Fatalf("stale issues: %v", got)
+	}
+}

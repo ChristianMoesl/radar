@@ -90,12 +90,12 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 			if workspaceID != "" {
 				seenGroups[workspaceID] = true
 			}
-			if !insideRoot(path, root) {
-				plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Path: path, Reason: "workspace is outside configured workspace root"})
+			if reason := cleanup.LocationIssue(path, root); reason != "" {
+				plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Path: path, Reason: reason})
 				continue
 			}
-			if relatedResourceInUse(refs, path) {
-				plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Path: path, Reason: "a related local resource is in use"})
+			if issues := cleanup.InUseIssues(refs, path); len(issues) > 0 {
+				plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Path: path, Reason: issues[0].Message})
 				continue
 			}
 			plan.Candidates = append(plan.Candidates, Candidate{
@@ -129,21 +129,8 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			result.skip(candidate, fmt.Errorf("matching workspace cleanup target was not found"), logger)
 			continue
 		}
-		blocked := false
-		for _, target := range selected.Targets {
-			for _, safety := range target.Safety {
-				if !safety.BlocksAutomatic {
-					continue
-				}
-				result.skip(candidate, errors.New(safety.Message), logger)
-				blocked = true
-				break
-			}
-			if blocked {
-				break
-			}
-		}
-		if blocked {
+		if messages := cleanup.BlockingMessages(selected.Targets); len(messages) > 0 {
+			result.skip(candidate, errors.New(messages[0]), logger)
 			continue
 		}
 		if _, err := cleanupService.Execute(ctx, selected, cleanup.ExecuteOptions{Force: false}); err != nil {
@@ -203,25 +190,6 @@ func doneLongEnough(doneAt string, now time.Time, retention time.Duration) bool 
 		return false
 	}
 	return !parsed.After(now.Add(-retention))
-}
-
-func insideRoot(path string, root string) bool {
-	path = filepath.Clean(path)
-	root = filepath.Clean(root)
-	if path == root {
-		return false
-	}
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-func relatedResourceInUse(refs []protocol.SourceRef, path string) bool {
-	for _, ref := range refs {
-		if ref.InUse && samePath(ref.Path, path) {
-			return true
-		}
-	}
-	return false
 }
 
 func samePath(left string, right string) bool {

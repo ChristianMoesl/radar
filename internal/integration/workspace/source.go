@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"radar/internal/cleanup"
 	"radar/internal/integration"
 	"radar/internal/integration/obsidian"
 	"radar/internal/integration/workspace/group"
@@ -77,6 +78,12 @@ func (Source) Collect(_ context.Context, req integration.CollectRequest) integra
 			ref.Metadata["note_path"] = group.NotePath
 			ref.WorkspaceAnchorPath = group.NotePath
 		}
+		if reason := cleanup.LocationIssue(group.Path, root); reason != "" {
+			ref.CleanupIssues = append(ref.CleanupIssues, reason)
+		}
+		if err := anchorCleanupError(group); err != nil {
+			ref.CleanupIssues = append(ref.CleanupIssues, err.Error())
+		}
 		observations = append(observations, integration.Observation{Ref: ref})
 	}
 	status := protocol.SourceStatus{Name: "workspace", Status: "ok", Detail: fmt.Sprintf("%d workspaces", len(observations))}
@@ -109,10 +116,8 @@ func (Source) PreviewCleanup(_ context.Context, req integration.CleanupPreviewRe
 		if !found {
 			continue
 		}
-		if unknown, err := unknownAnchorEntries(group); err != nil {
+		if err := anchorCleanupError(group); err != nil {
 			return nil, err
-		} else if len(unknown) > 0 {
-			return nil, fmt.Errorf("workspace anchor contains unknown files: %s", strings.Join(unknown, ", "))
 		}
 		description := "workspace anchor " + group.Path
 		if group.Sandbox != nil && group.Sandbox.SharedDirectory != "" {
@@ -215,3 +220,15 @@ var _ integration.Source = Source{}
 var _ integration.LocalSource = Source{}
 var _ integration.StatusReporter = Source{}
 var _ integration.CleanupProvider = Source{}
+
+// Both observation and cleanup preview must reject the same anchor contents.
+func anchorCleanupError(group workspacegroup.Workspace) error {
+	unknown, err := unknownAnchorEntries(group)
+	if err != nil {
+		return err
+	}
+	if len(unknown) > 0 {
+		return fmt.Errorf("workspace anchor contains unknown files: %s", strings.Join(unknown, ", "))
+	}
+	return nil
+}

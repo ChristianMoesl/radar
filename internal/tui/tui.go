@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -16,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"radar/internal/app"
+	"radar/internal/cleanup"
 	"radar/internal/client"
 	"radar/internal/config"
 	"radar/internal/integration"
@@ -120,8 +120,6 @@ type model struct {
 	cleanup             protocol.CleanupPreview
 	cleanupDetails      bool
 	cleanupScroll       int
-	gcResult            protocol.GarbageCollectionResult
-	gcScroll            int
 	links               []linkChoice
 	linkCursor          int
 	linkScroll          int
@@ -199,9 +197,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
-		if m.mode == "gc_result" {
-			return m.updateGarbageCollectionResult(msg)
-		}
 		if strings.HasPrefix(m.mode, "workspace_") {
 			return m.updateWorkspace(msg)
 		}
@@ -531,12 +526,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.message = msg.message
 		if msg.response != nil {
 			m.applyResponse(*msg.response, false)
-			if msg.err == nil && msg.response.GarbageCollectionResult != nil {
-				m.gcResult = *msg.response.GarbageCollectionResult
-				m.gcScroll = 0
-				m.message = ""
-				m.mode = "gc_result"
-			}
 		}
 		if msg.quit && msg.err == nil {
 			return m, tea.Quit
@@ -668,9 +657,6 @@ func (m model) taskRowPositions() (map[int]int, int) {
 }
 
 func (m model) View() string {
-	if m.mode == "gc_result" {
-		return m.garbageCollectionScreen()
-	}
 	if m.mode == "cleanup_confirm" {
 		return m.cleanupScreen()
 	}
@@ -2041,7 +2027,7 @@ func taskLine(task protocol.Task, selected bool, width int) string {
 	if badges == "" {
 		return truncateLine(title, width)
 	}
-	// Keep resource counts and the dirty warning visible even for long titles.
+	// Keep resource counts and the unresolved warning visible even for long titles.
 	title = truncateLine(title, max(1, width-lipgloss.Width(badges)-2))
 	badgeStyle := textStyle
 	if selected {
@@ -2055,7 +2041,7 @@ const (
 	sandboxIcon     = "🐳"
 	tmuxIcon        = "📟"
 	obsidianIcon    = "📝"
-	dirtyIcon       = "⚠️"
+	unresolvedIcon  = "⚠️"
 )
 
 func resourceIcon(ref protocol.SourceRef) string {
@@ -2088,17 +2074,12 @@ func overviewSourceRefs(task protocol.Task) []protocol.SourceRef {
 
 func taskResourceBadges(task protocol.Task) string {
 	counts := make(map[string]int)
-	dirty := false
 	for _, ref := range task.SourceRefs {
 		icon := resourceIcon(ref)
 		if icon == "" {
 			continue
 		}
 		counts[icon]++
-		if icon == gitWorktreeIcon {
-			files, _ := strconv.Atoi(ref.Metadata["dirty_files"])
-			dirty = dirty || files > 0
-		}
 	}
 	var badges []string
 	for _, icon := range []string{gitWorktreeIcon, sandboxIcon, tmuxIcon, obsidianIcon} {
@@ -2106,8 +2087,8 @@ func taskResourceBadges(task protocol.Task) string {
 			badges = append(badges, fmt.Sprintf("%s %d", icon, count))
 		}
 	}
-	if dirty {
-		badges = append(badges, attentionStyle.Render(dirtyIcon+" dirty"))
+	if len(cleanup.Unresolved(task)) > 0 {
+		badges = append(badges, attentionStyle.Render(unresolvedIcon+" unresolved"))
 	}
 	return strings.Join(badges, " ")
 }
