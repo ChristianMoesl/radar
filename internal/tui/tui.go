@@ -121,6 +121,8 @@ type model struct {
 	cleanupDetails      bool
 	cleanupScroll       int
 	links               []linkChoice
+	linkCursor          int
+	linkScroll          int
 	worktrees           []protocol.SourceRef
 	worktreeTask        protocol.Task
 	worktreeCursor      int
@@ -190,6 +192,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.syncTaskScroll()
 		m.clampDetailScroll()
+		if m.mode == "open_link" {
+			m.syncLinkScroll()
+		}
 		return m, nil
 	case tea.KeyMsg:
 		if strings.HasPrefix(m.mode, "workspace_") {
@@ -229,24 +234,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDetail(msg)
 		}
 		if m.mode == "open_link" {
-			switch msg.String() {
-			case "esc", "backspace":
-				m.mode = ""
-				m.links = nil
-				return m, nil
-			case "q", "ctrl+c":
-				return m, tea.Quit
-			default:
-				link, ok := matchingLink(m.links, msg.String())
-				if !ok {
-					return m, nil
-				}
-				m.mode = ""
-				m.links = nil
-				m.loading = true
-				m.err = nil
-				return m, m.openTask(m.tasks[m.cursor], link)
-			}
+			return m.updateOpenLink(msg)
 		}
 		if m.mode == "worktree_session" {
 			switch msg.String() {
@@ -370,6 +358,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "o":
 			if len(m.tasks) > 0 {
 				m.links = taskLinks(m.tasks[m.cursor])
+				m.linkCursor, m.linkScroll = 0, 0
 				if len(m.links) == 0 {
 					m.message = "No link on selected task"
 					return m, nil
@@ -692,7 +681,7 @@ func (m model) View() string {
 
 	if m.mode == "open_link" {
 		sections = append(sections, m.openLinkView(contentWidth))
-		sections = append(sections, helpStyle.Render("press key to open • esc cancel • q quit"))
+		sections = append(sections, openLinkHelp(contentWidth))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
@@ -1455,20 +1444,6 @@ func shortenPath(path string) string {
 	return pathdisplay.HomeRelative(path)
 }
 
-func (m model) openLinkView(width int) string {
-	if len(m.links) == 0 {
-		return subtleStyle.Render("No links on selected task.")
-	}
-	lines := []string{titleStyle.Render("Open link")}
-	for _, link := range m.links {
-		lines = append(lines, fmt.Sprintf("  %s  %-10s %s", titleStyle.Render(link.Key), link.Source, link.Label))
-		if link.Detail != "" {
-			lines = append(lines, subtleStyle.Render("               "+link.Detail))
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
 func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool) {
 	var selectedTask *protocol.Task
 	selectedPosition := -1
@@ -1806,29 +1781,26 @@ func currentTaskCursor(tasks []protocol.Task) (int, bool) {
 func taskLinks(task protocol.Task) []linkChoice {
 	seen := map[string]bool{}
 	var links []linkChoice
-	usedKeys := map[string]bool{"q": true}
+	usedKeys := map[string]bool{"j": true, "k": true, "q": true}
 	reserveKey := func(preferred string, source string) string {
 		key := strings.ToLower(strings.TrimSpace(preferred))
-		if key != "" && !usedKeys[key] {
+		if len([]rune(key)) != 1 || linkMnemonic(key, usedKeys) == "" {
+			key = linkMnemonic(source+"abcdefghijklmnopqrstuvwxyz1234567890", usedKeys)
+		}
+		if key != "" {
 			usedKeys[key] = true
-			return key
 		}
-		key = linkMnemonic(source, usedKeys)
-		if key == "" {
-			key = fmt.Sprint(len(links) + 1)
-		}
-		usedKeys[key] = true
 		return key
 	}
 	addURL := func(source string, label string, url string) {
-		if url == "" || seen[url] || len(links) >= 9 {
+		if url == "" || seen[url] {
 			return
 		}
 		seen[url] = true
 		links = append(links, linkChoice{Key: reserveKey("", source), Source: source, Label: label, Detail: url, URL: url})
 	}
 	addAction := func(preferredKey string, source string, label string, detail string, action string, ref protocol.SourceRef) {
-		if action == "" || len(links) >= 9 {
+		if action == "" {
 			return
 		}
 		if ref.URL != "" {
@@ -1853,7 +1825,7 @@ func taskLinks(task protocol.Task) []linkChoice {
 
 func matchingLink(links []linkChoice, key string) (linkChoice, bool) {
 	for _, link := range links {
-		if link.Key == key {
+		if link.Key != "" && link.Key == key {
 			return link, true
 		}
 	}

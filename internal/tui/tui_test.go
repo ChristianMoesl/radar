@@ -986,8 +986,8 @@ func TestTaskLinksUsesSourceLabels(t *testing.T) {
 	if len(links) != 2 {
 		t.Fatalf("taskLinks() returned %d links, want 2: %+v", len(links), links)
 	}
-	if links[0].Key != "j" || links[0].Source != "Jira" {
-		t.Fatalf("jira link = %+v, want j/Jira", links[0])
+	if links[0].Key != "i" || links[0].Source != "Jira" {
+		t.Fatalf("jira link = %+v, want i/Jira because j navigates the list", links[0])
 	}
 	if links[1].Key != "g" || links[1].Source != "GitHub" {
 		t.Fatalf("github link = %+v, want g/GitHub", links[1])
