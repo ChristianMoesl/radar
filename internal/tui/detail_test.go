@@ -256,8 +256,11 @@ func TestInspectScrollRoundTripWithTeatest(t *testing.T) {
 	}
 }
 
-func TestInspectUnresolvedSectionLeadsAndKeepsAllIssues(t *testing.T) {
+func TestInspectSectionOrderAndAllIssues(t *testing.T) {
 	task := resourceBadgeFixture()
+	task.Repo = "acme/app"
+	task.URL = "https://example.test/task"
+	task.Metadata = map[string]string{"context": "task metadata"}
 	task.SourceRefs[0].CleanupIssues = []string{"uncommitted changes will be discarded", "branch commits were not found remotely"}
 	task.SourceRefs = append(task.SourceRefs,
 		protocol.SourceRef{ID: "workspace:extra", Source: "workspace", Kind: "workspace", Path: "/workspaces/extra", ProvidesWorkspace: true, CleanupIssues: []string{"workspace anchor contains unknown files: /workspaces/extra/test.sh"}},
@@ -265,8 +268,13 @@ func TestInspectUnresolvedSectionLeadsAndKeepsAllIssues(t *testing.T) {
 	)
 	before := taskDetailView(task, 140)
 	view := ansi.Strip(before)
-	if !strings.HasPrefix(view, "Unresolved\n") || strings.Index(view, "Unresolved") > strings.Index(view, "Title") {
-		t.Fatalf("unresolved section must precede all existing details:\n%s", view)
+	previous := -1
+	for _, label := range []string{"Title", "Status", "Activity", "Repo", "URL", "Metadata", "task metadata", "Unresolved", "Source refs"} {
+		position := strings.Index(view, label)
+		if position <= previous {
+			t.Fatalf("%q is missing or out of order; expected task details, Unresolved, Source refs:\n%s", label, view)
+		}
+		previous = position
 	}
 	for _, want := range []string{"git worktree · /repo/one", "uncommitted changes will be discarded", "branch commits were not found remotely", "workspace · /workspaces/extra", "/workspaces/extra/test.sh", "tmux session · /workspaces/extra", "a related local resource is in use", "Source refs"} {
 		if !strings.Contains(view, want) {
@@ -289,6 +297,7 @@ func TestInspectUnresolvedSectionLeadsAndKeepsAllIssues(t *testing.T) {
 func TestInspectUnresolvedUpdatesWithTheTaskAndWrapsWithoutTruncation(t *testing.T) {
 	m := inspectFixture()
 	updatedTask := m.detail.task
+	updatedTask.Metadata = nil
 	updatedTask.SourceRefs = []protocol.SourceRef{{ID: "git:one", Source: "git", Kind: "worktree", Path: "/workspaces/" + strings.Repeat("long-世界-path/", 20), CleanupIssues: []string{"branch publication could not be verified: " + strings.Repeat("long-error-", 30)}}}
 	updated, _ := m.Update(watchMsg{response: protocol.Response{Tasks: []protocol.Task{updatedTask}}})
 	m = updated.(model)
@@ -320,6 +329,7 @@ func TestInspectUnresolvedUpdatesWithTheTaskAndWrapsWithoutTruncation(t *testing
 func TestUnresolvedSectionWithTeatest(t *testing.T) {
 	t.Setenv("TMUX", "test")
 	m := inspectFixture()
+	m.detail.task.Metadata = nil
 	m.detail.task.SourceRefs[0].CleanupIssues = []string{"uncommitted changes will be discarded", "branch commits were not found remotely"}
 	tm := teatest.NewTestModel(t, staticTUIModel{model: m}, teatest.WithInitialTermSize(80, 24))
 	tm.Send(inspectKey("end"))
@@ -327,6 +337,6 @@ func TestUnresolvedSectionWithTeatest(t *testing.T) {
 	tm.Send(inspectKey("q"))
 	final := tm.FinalModel(t, teatest.WithFinalTimeout(time.Second)).(staticTUIModel).model
 	if final.detail.scroll != 0 || !strings.Contains(final.View(), "Unresolved") || !strings.Contains(final.View(), "branch commits were not found remotely") {
-		t.Fatalf("top-level issues were not reachable interactively:\n%s", final.View())
+		t.Fatalf("issues below task details were not reachable interactively:\n%s", final.View())
 	}
 }
