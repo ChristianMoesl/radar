@@ -71,15 +71,16 @@ type WorkspaceChange struct {
 }
 
 type ReconcileWorkspacePlan struct {
-	WorkspaceID         string            `json:"workspace_id"`
-	WorkspaceName       string            `json:"workspace_name"`
-	Revision            string            `json:"revision"`
-	NextRevision        string            `json:"next_revision"`
-	PlanID              string            `json:"plan_id"`
-	AutoConfirm         bool              `json:"auto_confirm,omitempty"`
-	EffectiveMountCount int               `json:"effective_sandbox_mount_count,omitempty"`
-	Changes             []WorkspaceChange `json:"changes"`
-	Warnings            []string          `json:"warnings,omitempty"`
+	Note                *DesiredWorkspaceNote `json:"note,omitempty"`
+	WorkspaceID         string                `json:"workspace_id"`
+	WorkspaceName       string                `json:"workspace_name"`
+	Revision            string                `json:"revision"`
+	NextRevision        string                `json:"next_revision"`
+	PlanID              string                `json:"plan_id"`
+	AutoConfirm         bool                  `json:"auto_confirm,omitempty"`
+	EffectiveMountCount int                   `json:"effective_sandbox_mount_count,omitempty"`
+	Changes             []WorkspaceChange     `json:"changes"`
+	Warnings            []string              `json:"warnings,omitempty"`
 
 	root         string
 	group        workspacegroup.Workspace
@@ -443,7 +444,7 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 	}
 	warnings := append([]string(nil), removalWarnings...)
 	if noteAdded {
-		warnings = append(warnings, "The Obsidian note will own task title, priority, and completion. It cannot be detached through workspace controls.")
+		warnings = append(warnings, "The canonical note is retained on workspace cleanup and cannot be detached through workspace controls.")
 	}
 	if recreateSandbox {
 		warnings = append(warnings, "recreating the sandbox interrupts processes running inside it")

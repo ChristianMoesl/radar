@@ -209,7 +209,13 @@ func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, gr
 }
 
 func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string) (bool, bool, error) {
+	if group.NotePath == "" {
+		return false, false, fmt.Errorf("workspace %s has no canonical note; associate its Obsidian note before opening it", group.Path)
+	}
 	if err := obsidiansettings.ValidateWorkspaceNote(group.NotePath); err != nil {
+		return false, false, err
+	}
+	if err := ensureNoteLink(group.Path, group.NotePath); err != nil {
 		return false, false, err
 	}
 	createdSandbox := false

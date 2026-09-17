@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"radar/internal/integration"
+	"radar/internal/integration/obsidian"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/pi"
@@ -27,6 +28,9 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 	if err := sessionlayout.Validate(options.Tmux); err != nil {
 		return fail(err)
 	}
+	if options.NoteAuthor == nil && options.Note != nil && options.Note.Create {
+		options.NoteAuthor = obsidian.NewSource()
+	}
 	root, err := workspaceRoot(options.WorkspaceRoot)
 	if err != nil {
 		return fail(err)
@@ -44,6 +48,16 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 		return fail(err)
 	} else if found {
 		return planOpenWorkspace(ctx, runner, root, existing, options)
+	}
+	if options.Note != nil {
+		if existing, found, err := existingWorkspaceForTask(root, options.Note.LinkingKey); err != nil {
+			return fail(err)
+		} else if found {
+			if err := validateTaskLink(existing.Path, existing.TaskLinkingKey, options.TaskLinkingKey); err != nil {
+				return fail(err)
+			}
+			return planOpenWorkspace(ctx, runner, root, existing, options)
+		}
 	}
 	if len(members) == 1 {
 		repository, err := canonicalRepository(ctx, runner, members[0].Repository)
@@ -126,6 +140,16 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 	if desired.Note == nil && options.NotePath != "" {
 		desired.Note = &DesiredWorkspaceNote{Path: options.NotePath, LinkingKey: options.TaskLinkingKey}
 	}
+	if desired.Note == nil {
+		if options.NoteAuthor == nil {
+			options.NoteAuthor = obsidian.NewSource()
+		}
+		note, err := options.NoteAuthor.PrepareWorkspaceNote(ctx, name)
+		if err != nil {
+			return fail(fmt.Errorf("prepare workspace notes.md: %w", err))
+		}
+		desired.Note = &note
+	}
 	if sandbox.Enabled {
 		initial.Sandbox = &workspacegroup.Sandbox{Name: SandboxName(repoName, name), Agent: sandbox.Kit.Name, KitPath: ExpandPath(sandbox.Kit.Path), AdditionalMounts: []workspacegroup.SandboxMount{}, Ports: []workspacegroup.SandboxPort{}}
 		desired.Sandbox = &DesiredWorkspaceSandbox{AdditionalMounts: []DesiredSandboxMount{}, Ports: []workspacegroup.SandboxPort{}}
@@ -139,6 +163,7 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 	if err != nil {
 		return fail(err)
 	}
+	plan.Note = desired.Note
 	plan.create, plan.forkSession = true, options.ForkPiSession
 	plan.Changes = append([]WorkspaceChange{{Action: "add", Resource: "workspace", Path: anchor, Summary: "create workspace " + anchor}}, plan.Changes...)
 	plan.Changes = append(plan.Changes, WorkspaceChange{Action: "add", Resource: "session", Summary: "start tmux and Pi in " + anchor})
@@ -202,12 +227,15 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) 
 }
 
 func planOpenWorkspace(ctx context.Context, runner Runner, root string, group workspacegroup.Workspace, options CreateOptions) (ReconcileWorkspacePlan, ReconcileWorkspaceRequest, error) {
+	if group.NotePath == "" {
+		return ReconcileWorkspacePlan{}, ReconcileWorkspaceRequest{}, fmt.Errorf("workspace %s has no canonical note; associate its Obsidian note before opening it", group.Path)
+	}
 	notePath := options.NotePath
 	if options.Note != nil {
 		notePath = options.Note.Path
 	}
 	if notePath != "" && !sameCleanPath(notePath, group.NotePath) {
-		return ReconcileWorkspacePlan{}, ReconcileWorkspaceRequest{}, fmt.Errorf("workspace already exists at %s; use its workspace editor to attach a note", group.Path)
+		return ReconcileWorkspacePlan{}, ReconcileWorkspaceRequest{}, fmt.Errorf("workspace already exists at %s; its canonical note cannot be replaced", group.Path)
 	}
 	ports, _, err := observedSandboxPorts(ctx, runner, group)
 	if err != nil {

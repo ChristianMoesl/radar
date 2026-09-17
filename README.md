@@ -140,7 +140,7 @@ bind-key F display-popup -E "radar fork"
 | <kbd>r</kbd> | Refresh sources |
 | <kbd>q</kbd> / <kbd>Esc</kbd> | Quit |
 
-The workspace editor starts with a name and a draft. Add an optional note and zero or more repositories, then review the complete change plan before applying it. Press `w` to edit an existing workspace, `a` to add a repository, `x` to remove the selected repository, and `n` to add a note. Repository addition uses repository search and branch selection. New branch names are prefilled once from the workspace name using Radar's branch-name sanitization. You can edit or clear the suggestion without changing the workspace name; Radar does not overwrite your edits. Each added repository starts with its own suggestion. It tries to refresh origin before listing branches. If that fetch fails, Radar shows a warning and continues with locally cached refs, so previously fetched branches remain available offline. Repository paths are shortened to `~/...` when they are inside your home directory.
+The workspace editor starts with a name and a draft. Add zero or more repositories, then review the complete change plan before applying it. Every workspace automatically gets a canonical Obsidian note exposed as `notes.md`. Press `w` to edit an existing workspace, `a` to add a repository, `x` to remove the selected repository. Repository addition uses repository search and branch selection. New branch names are prefilled once from the workspace name using Radar's branch-name sanitization. You can edit or clear the suggestion without changing the workspace name; Radar does not overwrite your edits. Each added repository starts with its own suggestion. It tries to refresh origin before listing branches. If that fetch fails, Radar shows a warning and continues with locally cached refs, so previously fetched branches remain available offline. Repository paths are shortened to `~/...` when they are inside your home directory.
 
 ## Workspaces
 
@@ -166,6 +166,7 @@ Radar creates one stable anchor with nested worktree members:
 
 ```text
 <workspace_root>/my-feature/
+├── notes.md -> <vault>/Tasks/my-feature--2c965c99/my-feature.md
 └── repository--my-feature/
 ```
 
@@ -178,7 +179,7 @@ Activating an Obsidian-only task prefills its note in the same workspace editor,
 └── notes.md -> <vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
 ```
 
-A note added from the editor starts with an empty body. Note creation happens only after confirmation. If the task already has an authored note, Radar reuses it. Attached notes cannot be replaced or detached through workspace controls. The same Pi session remains active while the task moves between planning and zero or more Git members.
+An automatically created note starts with an empty body. Note creation happens only after confirmation. Obsidian is required and has no enable/disable switch; an unavailable or unconfigured vault prevents creation before resources are provisioned. If the task already has an authored note, Radar reuses it. Attached notes cannot be replaced or detached through workspace controls. The same Pi session remains active while the task moves between planning and zero or more Git members.
 
 Radar stores every workspace record in the single `<workspace_root>/.radar-workspaces.json` registry. `radar reset` does not remove it. The current registry schema rejects old primary-worktree records rather than migrating them implicitly.
 
@@ -301,7 +302,7 @@ See [Workspace cleanup and Unresolved issues](docs/workspace-cleanup.md) for the
 
 ## Obsidian-authored tasks
 
-Configure one Obsidian vault before creating tasks:
+Configure one Obsidian vault before creating tasks or workspaces:
 
 ```json
 {
@@ -311,7 +312,7 @@ Configure one Obsidian vault before creating tasks:
 }
 ```
 
-The vault and its `.obsidian/` directory must already exist. Radar creates `Tasks/` inside it. Each task is one direct Markdown child named after its title, such as `Tasks/Write the release process in Notion.md`, with a source-owned UUID in its frontmatter:
+The vault and its `.obsidian/` directory must already exist. Radar creates `Tasks/` inside it. Each task has one Markdown note in a private directory, such as `Tasks/Write the release process--2c965c99/Write the release process.md`, with a source-owned UUID in its frontmatter:
 
 ```sh
 radar task create --title "Write the release process in Notion"
@@ -321,13 +322,13 @@ radar task priority <task-id> urgent
 radar task priority <task-id> normal
 ```
 
-The note frontmatter owns the display title (`radar-title`), open/done state, normal/urgent priority, and timestamps. Titles preserve punctuation such as `:`; only filenames and directory names are sanitized. Edit `radar-title` to rename a task without changing its path. The body owns working notes and outcomes. Radar projects those facts with live Jira, GitHub, Git, tmux, and SBX activity. An open normal note is low priority, urgent is immediate, linked activity can promote open work, and a done note remains terminal. After a successful full refresh, Radar automatically completes an open note when all linked authoritative contributing work items are confirmed done. At least one such work item is required; informational refs and local resources do not decide completion. Press `n`, `d`, and `p` for the same operations in the TUI, or `o` to open the note in Obsidian. These edits refresh only Obsidian and reuse cached linked activity, so confirmation does not wait for an unrelated Git, runtime, or remote scan.
+The note frontmatter owns the display title (`radar-title`), open/done state, normal/urgent priority, and timestamps. Titles preserve punctuation such as `:`; only filenames and directory names are sanitized. Edit `radar-title` to rename a task without changing its path. The body owns working notes and outcomes. Radar projects those facts with live Jira, GitHub, Git, tmux, and SBX activity. An open normal note is low priority, urgent is immediate, linked activity can promote open work, and authoritative active remote work reopens a completed note on a successful refresh. Without authoritative remote work, the note owns its lifecycle. After a successful full refresh, Radar automatically completes an open note when all linked authoritative contributing work items are confirmed done. At least one such work item is required; informational refs and local resources do not decide completion. Press `n`, `d`, and `p` for the same operations in the TUI, or `o` to open the note in Obsidian. These edits refresh only Obsidian and reuse cached linked activity, so confirmation does not wait for an unrelated Git, runtime, or remote scan.
 
-Automatic completion writes `radar-state: done` and `radar-completed-at` to the canonical note, preserving its body and unrelated frontmatter. Radar also maintains an optional `radar-completion-baseline` field. This records already-completed remote work, not a user configuration switch. Explicit reopening sets it to `pending`; the next successful full refresh records the completed work without closing the note. Subsequent active work or newly linked work can lead to automatic completion again. This protection survives daemon restarts and cache resets. Manual completion remains terminal even with active remote work.
+Automatic completion writes `radar-state: done` and `radar-completed-at` to the canonical note, preserving its body and unrelated frontmatter. Radar also maintains an optional `radar-completion-baseline` field. This records already-completed remote work, not a user configuration switch. Explicit reopening sets it to `pending`; the next successful full refresh records the completed work without closing the note. Subsequent active work or newly linked work can lead to automatic completion again. This protection survives daemon restarts and cache resets. Manual completion cannot override confirmed active remote work; reconciliation reopens the note. Opening an existing workspace does not itself change task lifecycle.
 
 Notes without `radar-completion-baseline` need no migration. Radar adds it when a lifecycle mutation needs it. Failed or incomplete source collection cannot trigger automatic completion, and a failed note write leaves the task open with an Obsidian source error. Local-only refreshes do not run automatic completion.
 
-Obsidian notes are task records rather than workspaces. Activating an Obsidian task prefills a note-only workspace draft; repositories are optional. Adding a note to an existing Jira or GitHub workspace preserves its original association and Pi session identity. The note becomes the primary owner of task title, priority, and completion. Radar preserves unknown frontmatter and the complete note body during atomic mutations and never deletes task notes. Completed notes move to `Tasks/Archived/<filename>.md` only when no workspace references them. Normal tasks keep their private directories and sandbox isolation; reopening restores that private layout before activation. See [the Obsidian integration contract](docs/integrations/obsidian.md) for the schema and failure behavior.
+Obsidian notes are task records rather than workspaces. Activating an Obsidian task prefills a note-only workspace draft; repositories are optional. Creating a workspace for Jira or GitHub automatically creates its note while preserving the remote association and Pi session identity. There is only one note model: its persisted lifecycle follows authoritative remote work while preserving explicit reopening against previously completed work. Radar preserves unknown frontmatter and the complete note body during atomic mutations and never deletes task notes. Completed notes move to `Tasks/Archived/<filename>.md` only when no workspace references them. Normal tasks keep their private directories and sandbox isolation; reopening restores that private layout before activation. See [the Obsidian integration contract](docs/integrations/obsidian.md) for the schema and failure behavior.
 
 ## Scriptable commands
 
@@ -403,7 +404,7 @@ RADAR_JIRA_CLOUD_ID="..."
 
 Names are trimmed and matched case-insensitively. An explicitly empty array skips assigned Jira search and makes every automatically title-discovered issue informational. Omitting the option uses the three default types. The former `jira.issue_types` option is not supported.
 
-Authoritative Jira refs can provide the task title, identity, attention, linking, and contributing lifecycle. An out-of-scope title discovery is shown as an informational **Jira reference** with its URL, status, issue type, priority, and status category, but it cannot rename, merge, reprioritize, complete, or reopen the task. Removing a key from all current title-bearing facts removes its derived reference on a complete refresh. When a Jira ref joins an Obsidian-authored task, Obsidian remains the primary lifecycle owner. Confirmed completion of all contributing work items is written back to that note before Radar projects it as done.
+Authoritative Jira refs can provide the task title, identity, attention, linking, and contributing lifecycle. An out-of-scope title discovery is shown as an informational **Jira reference** with its URL, status, issue type, priority, and status category, but it cannot rename, merge, reprioritize, complete, or reopen the task. Removing a key from all current title-bearing facts removes its derived reference on a complete refresh. When a Jira ref joins an Obsidian-authored task, authoritative active work reopens a completed note. Confirmed completion of all contributing work items is written back to that note before Radar projects it as done, unless its completion baseline protects an explicit reopening.
 
 Every distinct key in a title is collected in deterministic title order, with up to 50 keys fetched through one batched Jira search per refresh. Radar runs that batch concurrently with the assigned-issue search and deduplicates their results. Informational refs remain independent; all authoritative refs participate in linking and lifecycle, the first authoritative key supplies the Jira title, and completion requires every authoritative remote ref to be done. A failed batch or requested keys missing from its result are non-fatal, retain previously known refs, and are reported in Jira source status.
 
@@ -534,7 +535,7 @@ Example:
 
 `linking_mark_prefixes` is mandatory and lists the identifier prefixes Radar may use to link work across sources, for example `["ABC"]` permits `ABC-722`. Prefixes are normalized to uppercase, must start with a letter, and may contain only letters and numbers. Radar matches only complete `<PREFIX>-<NUMBER>` marks, so unrelated suffixes such as `Origin-096e274f` are ignored.
 
-`obsidian.vault_path` is required for task authoring and must identify an existing vault containing `.obsidian/`; Radar creates its fixed `Tasks/` root. `repository_dirs` controls where `radar create` discovers base repositories. `workspace.root_dir` controls where Radar creates worktrees. When omitted, it defaults to `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. Existing configs must move the former `workspace_root` value manually; Radar does not read legacy user-config keys. `workspace.auto_confirm` defaults to `false`; when enabled, Radar's Pi tool still previews and validates workspace reconciliation but applies the plan without asking for confirmation. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.authoritative_issue_types` defaults to Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection, while `datadog.monitor_statuses` selects the unhealthy states to ingest and defaults to Alert, Warn, and No Data. Secrets are accepted only from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`.
+`obsidian.vault_path` is required for task authoring and workspace creation and must identify an existing vault containing `.obsidian/`; Radar creates its fixed `Tasks/` root. `repository_dirs` controls where `radar create` discovers base repositories. `workspace.root_dir` controls where Radar creates worktrees. When omitted, it defaults to `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. Existing configs must move the former `workspace_root` value manually; Radar does not read legacy user-config keys. `workspace.auto_confirm` defaults to `false`; when enabled, Radar's Pi tool still previews and validates workspace reconciliation but applies the plan without asking for confirmation. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.authoritative_issue_types` defaults to Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection, while `datadog.monitor_statuses` selects the unhealthy states to ingest and defaults to Alert, Warn, and No Data. Secrets are accepted only from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`.
 
 Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the low-priority section. User filters also apply to GitHub comment and review actors: muted or deprioritized actor activity does not promote a PR to attention. Confirmed GitHub bots match both their API login and the equivalent `[bot]` alias, so `gemini-code-assist[bot]` matches the GraphQL login `gemini-code-assist`. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive.
 
@@ -542,7 +543,7 @@ Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the 
 
 The daemon stores rebuildable task records and source-ref observations locally. Task records provide cache-local numeric IDs, lifecycle projection, source-ref ownership, and acknowledgements. Obsidian notes—not this cache—own authored task content and lifecycle.
 
-Radar groups work by linking mark, source-owned identity, and workspace keys. A primary lifecycle ref controls the projected lifecycle when present. Full refreshes write confirmed completion of all contributing work items back to an open authored task through its source provider. Without a primary, contributing work-item refs retain their combined lifecycle behavior.
+Radar groups work by linking mark, source-owned identity, and workspace keys. A primary lifecycle ref controls the projected lifecycle when present. Full refreshes reconcile authoritative remote work back to the note through its source provider: active work reopens it, and all-completed work closes it unless its explicit reopen baseline applies. Without a primary, contributing work-item refs retain their combined lifecycle behavior.
 
 Use `radar reset` to discard collected observations and rebuild them from integrations. Acknowledgements may be retained. An incompatible state version is intentionally discarded and recollected; malformed state still fails closed.
 

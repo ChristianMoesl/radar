@@ -1,6 +1,6 @@
 # Obsidian task authoring
 
-Obsidian is Radar's task-authoring provider. A note owns task identity, title, lifecycle, priority, timestamps, and user content. Radar's task state remains a rebuildable projection.
+Obsidian is Radar's required, always-registered task-authoring provider. Every managed workspace has a canonical note; there is no enable/disable setting. A note owns task identity, title, lifecycle, priority, timestamps, and user content. Radar's task state remains a rebuildable projection.
 
 ## Configuration
 
@@ -64,17 +64,19 @@ A valid note emits one authoritative `obsidian:task:<radar-id>` ref with:
 - an `obsidian://open` URL for its current note path
 - canonical note and task-directory metadata
 
-The note owns the projected lifecycle. A successful full refresh automatically completes an open note when every linked authoritative contributing work item is confirmed done. At least one contributor is required. Informational refs and Git, tmux, Pi, or SBX resources do not decide completion. They can promote an open task's attention, but cannot reopen a done note.
+Without authoritative remote work, the note owns the projected lifecycle. A successful full refresh reopens a completed note when any authoritative contributor confirms active work, even if another contributor cannot be refreshed. It automatically completes an open note when every linked authoritative contributing work item is confirmed done. At least one contributor is required. Informational refs and Git, tmux, Pi, or SBX resources do not decide completion. These informational refs and local resources cannot reopen a done note.
 
-Automatic completion writes `radar-state: done` and `radar-completed-at` before returning a done observation. A failed write or a note edited since collection leaves the cached task open and reports an Obsidian source error. Missing unresolved remote refs and incomplete collections block automatic completion; previously confirmed terminal refs remain valid.
+Automatic completion writes `radar-state: done` and `radar-completed-at` before returning a done observation. A failed write or a note edited since collection leaves the cached lifecycle unchanged and reports an Obsidian source error. Missing unresolved remote refs and incomplete collections block automatic completion; previously confirmed terminal refs remain valid.
 
-Radar maintains optional `radar-completion-baseline` bookkeeping in frontmatter. A manual lifecycle change sets it to `pending`. After reopening, the next successful full refresh replaces that marker with a SHA-256 hash of the sorted completed contributor IDs, joined with newlines, without closing the note. When active work is observed, Radar updates the baseline. Completion becomes eligible again when all contributors are done and their completed set differs from the baseline. Automatic completion also saves the baseline, so directly reopening that note preserves the same protection. Neither restart nor cache reset discards it. Manual completion remains terminal.
+Radar maintains optional `radar-completion-baseline` bookkeeping in frontmatter. A manual lifecycle change sets it to `pending`. After reopening, the next successful full refresh replaces that marker with a SHA-256 hash of the sorted completed contributor IDs, joined with newlines, without closing the note. When active work is observed, Radar updates the baseline. Completion becomes eligible again when all contributors are done and their completed set differs from the baseline. Automatic completion also saves the baseline, so directly reopening that note preserves the same protection. Neither restart nor cache reset discards it. Manual completion does not override confirmed active remote work; a full refresh reopens the note.
+
+If a local mutation happens during source collection, Radar publishes the freshly reread note but waits for the next full refresh to reconcile lifecycle; a pre-mutation remote snapshot must not undo the user's action.
 
 The baseline is not a configuration option. It is absent from new notes until a lifecycle mutation needs it, so existing notes require no migration and keep their bodies and unrelated frontmatter unchanged.
 
 ## Planning workspaces
 
-Pressing `Enter` on an Obsidian-only task creates or reopens a stable Radar workspace immediately. Repository selection is not part of this step.
+Pressing `Enter` on an Obsidian-only task reuses its note in a workspace draft. After confirmation, Radar creates the stable anchor. Repositories are optional. Workspace creation from other sources or from scratch automatically prepares a note, with no note selection control. It persists the canonical note association before provisioning worktrees or the sandbox.
 
 ```text
 <workspace_root>/plan-authentication/
@@ -84,6 +86,8 @@ Pressing `Enter` on an Obsidian-only task creates or reopens a stable Radar work
 `notes.md` is an absolute symlink to the canonical note. Pi, tmux, and nvim start in the workspace directory without an automatic prompt. The same Pi session remains active when Git worktrees are later added as child directories through workspace reconciliation.
 
 When SBX is enabled, Radar mounts the workspace and only the task's private directory. The sandbox can edit `notes.md` without seeing sibling task directories or the rest of the vault. A note rename repairs the symlink during local workspace refresh.
+
+Opening an existing completed workspace does not reopen its task or alter its note. Explicit task reopening changes lifecycle and records the completion baseline.
 
 Cleanup removes the tmux session, sandbox, managed worktrees, `notes.md`, and the empty workspace anchor. Only after successful workspace removal does Radar archive its completed note. Removing a member worktree or closing a session does not archive the note. Incomplete notes stay in their private directories.
 
@@ -98,6 +102,9 @@ Moves use the operating system's atomic no-replace rename on Linux and macOS. Ex
 Notes with accompanying files or detected relative links remain in their private directory with an error rather than separating attachments or rewriting user Markdown. Resolve the reported obstacle, then retry `radar task done <task-id>` after refreshing. Vault-relative wikilinks and absolute URLs do not need rewriting. Radar does not repair arbitrary external symlinks or incoming path-based links; these require explicit handling before relocation.
 
 ## Rollout
+
+Mandatory workspace notes do not change the registry, note, or configuration schema. Existing note-less workspaces need a one-time local association before opening them with this version; there is no automatic migration or legacy configuration handling. Inventory the registry, canonical notes, and existing `notes.md` entries before applying those associations. Never overwrite user files or replace existing note identities. Adding private note mounts to existing SBX workspaces requires reconciliation and can interrupt sandbox processes.
+
 
 `radar-title` is a required frontmatter field. There is no filename fallback and collection does not migrate notes automatically. Before installing this version, migrate **both private and archived notes** with the explicit one-time tool:
 

@@ -413,15 +413,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.editor.state.Path == "" && m.editor.create.Name == "" {
 			m.mode = "workspace_name"
 		}
-	case workspaceNoteMsg:
-		m.mode, m.message, m.err = "workspace_edit", "", msg.err
-		if msg.err == nil {
-			m.editor.desired.Note = &msg.note
-		}
 	case workspacePlanMsg:
 		m.mode, m.message, m.err = "workspace_edit", "", msg.err
 		if msg.err == nil {
 			m.editor.plan = msg.plan
+			if msg.plan.Note != nil {
+				m.editor.desired.Note = msg.plan.Note
+			}
 			m.editor.scroll = 0
 			if len(msg.plan.Changes) == 0 {
 				m.message = "No workspace changes"
@@ -1672,15 +1670,6 @@ func authoredTaskRef(task protocol.Task) (protocol.SourceRef, bool) {
 		}
 	}
 	return protocol.SourceRef{}, false
-}
-
-func notePathForTask(task protocol.Task) string {
-	for _, ref := range task.SourceRefs {
-		if path := strings.TrimSpace(ref.WorkspaceAnchorPath); path != "" {
-			return path
-		}
-	}
-	return ""
 }
 
 func (m model) createSessionForWorktree(task protocol.Task, ref protocol.SourceRef) tea.Cmd {

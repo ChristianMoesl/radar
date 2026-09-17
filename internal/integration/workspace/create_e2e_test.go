@@ -38,6 +38,7 @@ func TestCreateWorkspaceReusesExistingLocalBranchE2E(t *testing.T) {
 
 	root := filepath.Join(tmp, "workspaces")
 	created, err := Create(ctx, ExecRunner{}, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchExisting,
 		Repo:          repo,
 		Name:          "chore-install-helper-binaries",
@@ -91,6 +92,7 @@ func TestCreateWorkspaceChecksOutMainFromDetachedSourceE2E(t *testing.T) {
 
 	root := filepath.Join(tmp, "workspaces")
 	created, err := Create(ctx, ExecRunner{}, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		Repo:          repo,
 		BranchMode:    integration.WorkspaceBranchExisting,
 		Branch:        "main",

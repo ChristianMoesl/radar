@@ -88,7 +88,7 @@ func (f *completionFixture) collect(sources ...integration.Source) (Result, []in
 }
 func (f *completionFixture) apply(result Result, sources []integration.Source) Result {
 	f.store.SetTasks(result.Tasks)
-	if CompleteAuthoredTasks(context.Background(), f.store.CollectionTasks(), &result, sources, f.logger) {
+	if ReconcileAuthoredTasks(context.Background(), f.store.CollectionTasks(), &result, sources, f.logger) {
 		f.store.SetTasks(result.Tasks)
 	}
 	return result
@@ -241,10 +241,10 @@ func TestAuthoredCompletionPreservesManualReopenAcrossCacheReset(t *testing.T) {
 	pr.Signal = "done"
 	f.refresh(remote())
 	f.assertState(t, "done")
-	// Manual completion remains terminal even with active remote work.
+	// Reopened remote work also reopens the note.
 	pr.Signal = "in_progress"
 	f.refresh(remote())
-	f.assertState(t, "done")
+	f.assertState(t, "open")
 }
 
 func TestAuthoredCompletionDoesNotRunDuringLocalRefresh(t *testing.T) {
@@ -253,7 +253,7 @@ func TestAuthoredCompletionDoesNotRunDuringLocalRefresh(t *testing.T) {
 	result, sources := f.collect(completionSource{name: "github", refs: []protocol.SourceRef{pr}})
 	f.store.SetTasks(result.Tasks)
 	local := CollectLocal(context.Background(), f.store.CollectionTasks(), f.logger, sources)
-	if CompleteAuthoredTasks(context.Background(), f.store.CollectionTasks(), &local, sources, f.logger) {
+	if ReconcileAuthoredTasks(context.Background(), f.store.CollectionTasks(), &local, sources, f.logger) {
 		t.Fatal("local refresh completed authored work")
 	}
 	f.assertState(t, "open")
@@ -282,7 +282,7 @@ func TestAuthoredCompletionDoesNotProjectFailedOrStaleNoteWrites(t *testing.T) {
 			}
 			result = f.apply(result, sources)
 			f.assertState(t, "open")
-			if result.Sources[0].Status != "error" || !strings.Contains(result.Sources[0].Detail, "completion failed") {
+			if result.Sources[0].Status != "error" || !strings.Contains(result.Sources[0].Detail, "lifecycle reconciliation failed") {
 				t.Fatalf("source status = %+v", result.Sources[0])
 			}
 			if !stale {
@@ -296,7 +296,7 @@ func TestAuthoredCompletionDoesNotProjectFailedOrStaleNoteWrites(t *testing.T) {
 	}
 }
 
-func TestAuthoredCompletionManualDoneAndReopenWithActiveWork(t *testing.T) {
+func TestAuthoredLifecycleRemoteWorkOverridesManualCompletion(t *testing.T) {
 	f := newCompletionFixture(t)
 	pr := f.ref("github", "pr:acme/app:7", "in_progress")
 	remote := func() completionSource { return completionSource{name: "github", refs: []protocol.SourceRef{pr}} }
@@ -305,7 +305,7 @@ func TestAuthoredCompletionManualDoneAndReopenWithActiveWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.refresh(remote())
-	f.assertState(t, "done")
+	f.assertState(t, "open")
 	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "open"); err != nil {
 		t.Fatal(err)
 	}
@@ -338,4 +338,96 @@ func TestAuthoredCompletionRequiresSuccessfulNoteCollection(t *testing.T) {
 	if !strings.Contains(string(data), "radar-state: open") {
 		t.Fatalf("note was completed during failed collection: %s", data)
 	}
+}
+
+func TestAuthoredLifecycleWithoutRemoteAuthorityUsesNoteState(t *testing.T) {
+	f := newCompletionFixture(t)
+	info := f.ref("jira", "mention:ABC-7", "in_progress")
+	info.Role = protocol.SourceRefRoleInformational
+	resource := f.ref("local", "session:7", "in_progress")
+	resource.Lifecycle, resource.Authority = protocol.SourceRefLifecycleResource, protocol.SourceRefAuthorityNone
+	remote := completionSource{name: "jira", refs: []protocol.SourceRef{info}}
+	local := completionSource{name: "local", refs: []protocol.SourceRef{resource}}
+	f.refresh(remote, local)
+	f.assertState(t, "open")
+	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "done"); err != nil {
+		t.Fatal(err)
+	}
+	f.refresh(remote, local)
+	f.assertState(t, "done")
+	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "open"); err != nil {
+		t.Fatal(err)
+	}
+	f.refresh(remote, local)
+	f.assertState(t, "open")
+}
+
+func TestAuthoredLifecycleReopenedTaskCanCompleteNewRemoteWork(t *testing.T) {
+	f := newCompletionFixture(t)
+	old := f.ref("github", "pr:acme/app:7", "done")
+	remote := completionSource{name: "github", refs: []protocol.SourceRef{old}}
+	f.refresh(remote)
+	f.assertState(t, "done")
+	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "open"); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		f.refresh(remote)
+		f.assertState(t, "open")
+	}
+	next := f.ref("github", "pr:acme/app:8", "in_progress")
+	remote.refs = append(remote.refs, next)
+	f.refresh(remote)
+	f.assertState(t, "open")
+	remote.refs[1].Signal = "done"
+	f.refresh(remote)
+	f.assertState(t, "done")
+}
+
+func TestAuthoredLifecycleConfirmedActiveWorkReopensDespiteOtherFailedSource(t *testing.T) {
+	f := newCompletionFixture(t)
+	pr := f.ref("github", "pr:acme/app:7", "done")
+	issue := f.ref("jira", "issue:ABC-7", "done")
+	github := completionSource{name: "github", refs: []protocol.SourceRef{pr}}
+	jira := completionSource{name: "jira", refs: []protocol.SourceRef{issue}}
+	f.refresh(github, jira)
+	f.assertState(t, "done")
+	github.refs[0].Signal = "in_progress"
+	github.incomplete = true
+	jira.incomplete = true
+	f.refresh(github, jira)
+	f.assertState(t, "done") // Neither source confirmed its new observations.
+	github.incomplete = false
+	f.refresh(github, jira)
+	f.assertState(t, "open")
+	github.refs[0].Signal = "done"
+	f.refresh(github, jira)
+	f.assertState(t, "open") // A failed source cannot confirm all work is done.
+	jira.incomplete = false
+	f.refresh(github, jira)
+	f.assertState(t, "done")
+}
+
+func TestAuthoredLifecycleFailedReopenDoesNotProjectSuccess(t *testing.T) {
+	f := newCompletionFixture(t)
+	pr := f.ref("github", "pr:acme/app:7", "done")
+	f.refresh(completionSource{name: "github", refs: []protocol.SourceRef{pr}})
+	f.assertState(t, "done")
+	pr.Signal = "in_progress"
+	result, sources := f.collect(completionSource{name: "github", refs: []protocol.SourceRef{pr}})
+	path := f.note.Metadata["note_path"]
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, []byte("\nConcurrent user edit.\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result = f.apply(result, sources)
+	f.assertState(t, "done")
+	if result.Sources[0].Status != "error" {
+		t.Fatal("failed reopen not reported")
+	}
+	f.refresh(completionSource{name: "github", refs: []protocol.SourceRef{pr}})
+	f.assertState(t, "open")
 }

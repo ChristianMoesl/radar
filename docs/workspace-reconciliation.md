@@ -31,7 +31,11 @@ Every managed workspace has a stable anchor below `workspace_root`:
 
 The anchor is Pi, tmux, nvim, and SBX's working directory. Members are real Git worktrees and direct children named from repository and branch. A workspace may contain zero members. No member is primary or protected because it was added first.
 
-`<workspace_root>/.radar-workspaces.json` remains the single authoritative registry file. It stores every anchor, optional note path, runtime settings, sandbox intent, and worktree member. The registry is versioned and rejects the former primary-worktree schema rather than interpreting or migrating it implicitly.
+`<workspace_root>/.radar-workspaces.json` remains the single authoritative registry file. It stores every anchor, canonical note path, runtime settings, sandbox intent, and worktree member. The registry is versioned and rejects the former primary-worktree schema rather than interpreting or migrating it implicitly.
+
+## Mandatory-note rollout
+
+Before installation, inventory existing workspaces and associate canonical notes with any note-less records in a one-time local operation. Preserve existing associations and never overwrite an existing `notes.md`. No migration logic or legacy configuration keys are added to Radar. An unconfigured or unavailable vault fails new creation, and a missing canonical note fails opening rather than silently generating a replacement.
 
 ## Filename rollout
 
@@ -41,15 +45,14 @@ This change does not alter the registry schema or migrate existing links automat
 
 ## Manual workspace editor
 
-Press `w` on a task to edit its workspace, or `c` to create a new workspace. Both use a draft containing an optional note and zero or more Git worktrees. The editor uses the same planner as the CLI and agent tools.
+Press `w` on a task to edit its workspace, or `c` to create a new workspace. Both use a draft containing zero or more Git worktrees. Every new workspace automatically gets a canonical Obsidian note; an existing task note is reused. There is no note selection control. The editor uses the same planner as the CLI and agent tools.
 
 - `a`: add a repository and choose a new or existing branch.
 - `x`: stage removal of the selected worktree. Dirty worktrees are blocked.
-- `n`: stage an existing authored task note or prepare a new empty Obsidian note.
 - `Enter`: review the full plan, then confirm once with `y` or `Enter`.
 - `Esc`: return from confirmation or cancel the draft without applying it.
 
-Notes are one-way additions. Neither the editor nor reconciliation can replace or detach an attached note. The canonical file is never deleted. The preview warns that an added Obsidian note becomes the primary owner of task lifecycle and may require SBX recreation. Creating its private directory and note happens only during apply.
+Notes are one-way additions. Neither the editor nor reconciliation can replace or detach an attached note. The canonical file is never deleted. The preview includes the automatic note creation and any required SBX recreation. Authoritative remote work drives the persisted lifecycle, with explicit reopening protected by the note's completion baseline. Creating its private directory and note happens only during apply.
 
 The editor preserves requested mounts and ports. Its first version does not edit those resources or change sandbox enablement. Initial runtime settings use the first selected repository's overrides, if any; adding repositories to an existing workspace does not replace persisted runtime settings.
 
@@ -91,7 +94,7 @@ Worktrees, requested mounts, and ports use replacement semantics. Omitting a mem
 
 Members use repository-and-branch identity. One workspace may contain several repositories or several branches from one repository, while a repository-and-branch pair may belong to only one registered workspace.
 
-`note: null` leaves the current note unchanged. To attach an existing note, provide `{"path":"/absolute/canonical/note.md","linking_key":"obsidian:task:<uuid>"}`. The Obsidian provider validates the path and identity. Retaining an attached note uses the same object returned by workspace inspection. A different note is rejected. The manual editor can also prepare a new note with a stable identity and `create: true`; it is not written during preview.
+`note: null` leaves the current note unchanged. To attach an existing note, provide `{"path":"/absolute/canonical/note.md","linking_key":"obsidian:task:<uuid>"}`. The Obsidian provider validates the path and identity. Retaining an attached note uses the same object returned by workspace inspection. A different note is rejected. Creation previews return a prepared `note` with stable identity and `create: true`; callers pass it back as the creation request's `Note` alongside `ExpectedPlanID` when applying. The editor retains this identity across confirmation and draft edits. The canonical file is not written during preview.
 
 The original `task_linking_key` remains stable, including Pi session identity. An optional `note_linking_key` records a secondary authored-note association without replacing a Jira or GitHub task link. Notes that are already the workspace's task use that task key. This adds an optional registry field without changing existing records; it does not migrate or rename files. Do not run an older Radar binary after writing secondary note associations because it would not preserve the new field.
 
@@ -100,7 +103,7 @@ The original `task_linking_key` remains stable, including Pi session identity. A
 `radar_workspace_context` resolves the registry before trying Git. Calls from the anchor, `notes.md`, a member root, or a nested member path return the same workspace ID. The result includes:
 
 - `workspace_path` and workspace identity
-- optional canonical and workspace note paths, without note contents
+- canonical and workspace note paths, without note contents (absent only on unmigrated records)
 - revision and typed capabilities
 - complete desired state
 - every member's repository, path, branch, dirty status, instruction files, and skill paths
@@ -127,7 +130,7 @@ The tool returns only the current logical workspace, not every record in `.radar
 Radar derives the effective managed mount set from:
 
 1. the workspace anchor
-2. the private canonical task directory, when present
+2. the private canonical task directory
 3. one external Git common directory per repository represented by a member
 4. global and member repository configured mounts
 5. agent-requested mounts
@@ -144,7 +147,7 @@ The installed `pi-radar` extension activates only inside registered workspace an
 
 ## Partial apply
 
-Creation registers the anchor before applying its resources. A failed apply keeps completed notes and worktrees. Inspect the workspace again and stage the remaining changes instead of blindly resubmitting the old draft. The editor discards a failed apply's stale draft and refreshes local task state. Sandbox and port failures remain retryable, and pending member setup can be retried through reconciliation.
+Creation registers the anchor before applying its resources. The note association is persisted before worktree and runtime provisioning. A failed apply keeps completed notes and worktrees, so retries reuse the associated note. Inspect the workspace again and stage the remaining changes instead of blindly resubmitting the old draft. The editor discards a failed apply's stale draft and refreshes local task state. Sandbox and port failures remain retryable, and pending member setup can be retried through reconciliation.
 
 ## Cleanup
 

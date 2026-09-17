@@ -54,7 +54,9 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 		s.applyLocal(result)
 	} else {
 		s.store.SetTasks(result.Tasks)
-		if collector.CompleteAuthoredTasks(ctx, s.store.CollectionTasks(), &result, s.integrations.Sources(), s.logger) {
+		// Remote observations captured before a local mutation must not undo it.
+		// Publish the fresh note now; reconcile lifecycle on the next full refresh.
+		if revision == s.authoringRevision && collector.ReconcileAuthoredTasks(ctx, s.store.CollectionTasks(), &result, s.integrations.Sources(), s.logger) {
 			s.store.SetTasks(result.Tasks)
 		}
 		s.store.SetSources(result.Sources)

@@ -27,7 +27,7 @@ func TestCompletionPreservesNoteContentAndIsIdempotent(t *testing.T) {
 	}
 	ref = source.Collect(context.Background(), integration.CollectRequest{}).Observations[0].Ref
 	items := []protocol.SourceRef{{ID: "github:pr:acme/app:7", Signal: "done"}}
-	observation, err := source.ReconcileCompletion(context.Background(), ref, items)
+	observation, err := source.ReconcileLifecycle(context.Background(), ref, items)
 	if err != nil || observation == nil || observation.Signal != integration.SignalDone {
 		t.Fatalf("completion=%+v err=%v", observation, err)
 	}
@@ -43,7 +43,7 @@ func TestCompletionPreservesNoteContentAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := source.ReconcileCompletion(context.Background(), observation.Ref, items)
+	again, err := source.ReconcileLifecycle(context.Background(), observation.Ref, items)
 	if err != nil || again != nil {
 		t.Fatalf("repeat completion=%+v err=%v", again, err)
 	}
@@ -61,7 +61,7 @@ func TestCompletionPreservesNoteContentAndIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref = source.Collect(context.Background(), integration.CollectRequest{}).Observations[0].Ref
-	if observation, err := source.ReconcileCompletion(context.Background(), ref, items); err != nil || observation != nil {
+	if observation, err := source.ReconcileLifecycle(context.Background(), ref, items); err != nil || observation != nil {
 		t.Fatalf("reopened note immediately completed: %+v %v", observation, err)
 	}
 }

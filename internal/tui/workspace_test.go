@@ -163,13 +163,40 @@ func TestWorkspaceConfirmationCanScrollAllWarnings(t *testing.T) {
 }
 
 func TestWorkspaceNoteReusesSelectedTasksAuthoredNote(t *testing.T) {
-	m := editorModel()
-	m.editor.desired.Note = nil
-	m.editor.task = protocol.Task{SourceRefs: []protocol.SourceRef{{ID: "obsidian:task:existing", Authored: true, WorkspaceAnchorPath: "/vault/Tasks/Existing/Existing.md"}}}
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	task := protocol.Task{Title: "Existing", SourceRefs: []protocol.SourceRef{
+		{ID: "jira:issue:ABC-123", Role: protocol.SourceRefRoleAuthoritative, CanonicalKey: "jira:issue:ABC-123", LinkingKeys: []string{"jira:issue:ABC-123"}},
+		{ID: "obsidian:task:existing", Authored: true, WorkspaceAnchorPath: "/vault/Tasks/Existing/Existing.md"},
+	}}
+	_, cmd := (model{}).editWorkspace(task)
+	msg := cmd().(workspaceStateMsg)
+	if msg.err != nil || msg.editor.desired.Note == nil || msg.editor.desired.Note.Create || msg.editor.desired.Note.LinkingKey != "obsidian:task:existing" {
+		t.Fatalf("existing authored note was not reused: %+v", msg)
+	}
+}
+
+func TestWorkspaceEditorDoesNotOfferNoteControls(t *testing.T) {
+	for _, m := range []model{editorModel(), {mode: "workspace_edit", editor: workspaceEditor{create: integration.ManagedWorkspaceRequest{Name: "New"}}}} {
+		if strings.Contains(m.workspaceView(100), "Note:") || strings.Contains(m.workspaceView(100), "add note") {
+			t.Fatal("editor offers optional note")
+		}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+		if cmd != nil || updated.(model).editor.desired.Note != m.editor.desired.Note {
+			t.Fatal("n changed note")
+		}
+	}
+}
+
+func TestWorkspacePreviewRetainsPreparedNote(t *testing.T) {
+	m := model{mode: "workspace_loading", editor: workspaceEditor{create: integration.ManagedWorkspaceRequest{Name: "New"}}}
+	note := &integration.DesiredWorkspaceNote{Create: true, Title: "New", Path: "/vault/Tasks/New--12345678/New.md", LinkingKey: "obsidian:task:12345678"}
+	updated, _ := m.Update(workspacePlanMsg{plan: integration.WorkspaceReconcilePlan{PlanID: "plan", Note: note, Changes: []integration.WorkspaceChange{{Resource: "note"}}}})
 	got := updated.(model)
-	if cmd != nil || got.editor.desired.Note == nil || got.editor.desired.Note.Create || got.editor.desired.Note.LinkingKey != "obsidian:task:existing" {
-		t.Fatal("existing authored note was not reused")
+	if got.editor.createRequest().Note != note {
+		t.Fatal("apply would prepare a different note")
+	}
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if updated.(model).editor.createRequest().Note != note {
+		t.Fatal("back from confirmation lost identity")
 	}
 }
 

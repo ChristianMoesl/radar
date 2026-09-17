@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"radar/internal/config"
@@ -53,13 +52,6 @@ func (Source) SessionName(repositoryName, workspaceName string) string {
 func (Source) OpenWorkspace(ctx context.Context, path string, switchClient bool) (integration.Workspace, error) {
 	created, err := OpenRegisteredWorkspace(ctx, ExecRunner{}, path, switchClient)
 	return integrationWorkspace(created), err
-}
-
-func (s Source) PrepareWorkspaceNote(ctx context.Context, title string) (integration.DesiredWorkspaceNote, error) {
-	if s.noteAuthor == nil {
-		return integration.DesiredWorkspaceNote{}, fmt.Errorf("note authoring is unavailable")
-	}
-	return s.noteAuthor.PrepareWorkspaceNote(ctx, title)
 }
 
 func (s Source) createOptions(req integration.ManagedWorkspaceRequest) (CreateOptions, error) {
@@ -251,7 +243,7 @@ func integrationPlan(value ReconcileWorkspacePlan) integration.WorkspaceReconcil
 		})
 	}
 	return integration.WorkspaceReconcilePlan{
-		WorkspaceID: value.WorkspaceID, WorkspaceName: value.WorkspaceName,
+		WorkspaceID: value.WorkspaceID, WorkspaceName: value.WorkspaceName, Note: value.Note,
 		Revision: value.Revision, NextRevision: value.NextRevision, PlanID: value.PlanID,
 		AutoConfirm: value.AutoConfirm, EffectiveMountCount: value.EffectiveMountCount,
 		Changes: changes, Warnings: append([]string(nil), value.Warnings...),

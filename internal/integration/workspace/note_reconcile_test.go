@@ -136,7 +136,7 @@ func TestCreatePlanUsesReconcilerForEmptyAndMultipleMembers(t *testing.T) {
 	repo := t.TempDir()
 	initRepository(t, ctx, repo)
 	root := t.TempDir()
-	options := CreateOptions{Name: "Plan", WorkspaceRoot: root, Worktrees: []DesiredWorkspaceWorktree{
+	options := CreateOptions{NoteAuthor: testNoteAuthor(t), Name: "Plan", WorkspaceRoot: root, Worktrees: []DesiredWorkspaceWorktree{
 		{Repository: repo, BranchMode: integration.WorkspaceBranchNew, Name: "one", Base: "HEAD"},
 		{Repository: repo, BranchMode: integration.WorkspaceBranchNew, Name: "two", Base: "HEAD"},
 	}}
@@ -158,6 +158,7 @@ func TestCreatePlanUsesReconcilerForEmptyAndMultipleMembers(t *testing.T) {
 	if _, err := os.Stat(plan.group.Path); !os.IsNotExist(err) {
 		t.Fatal("stale plan created anchor")
 	}
+	options.Note = plan.Note
 	options.ExpectedPlanID = plan.PlanID
 	created, err := Create(ctx, runner, options)
 	if err != nil {
@@ -170,11 +171,11 @@ func TestCreatePlanUsesReconcilerForEmptyAndMultipleMembers(t *testing.T) {
 	if created.Path != plan.group.Path {
 		t.Fatal("creation changed anchor")
 	}
-	empty, err := Create(ctx, runner, CreateOptions{Name: "Empty", WorkspaceRoot: root})
+	empty, err := Create(ctx, runner, CreateOptions{NoteAuthor: testNoteAuthor(t), Name: "Empty", WorkspaceRoot: root})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if entries, err := os.ReadDir(empty.Path); err != nil || len(entries) != 0 {
+	if entries, err := os.ReadDir(empty.Path); err != nil || len(entries) != 1 || entries[0].Name() != "notes.md" {
 		t.Fatalf("empty workspace = %+v, %v", entries, err)
 	}
 }
@@ -218,6 +219,7 @@ func TestPendingSetupCanBeRetriedWithoutAddingAnotherMember(t *testing.T) {
 		t.Fatal(err)
 	}
 	group := workspacegroup.Workspace{ID: workspacegroup.ID(anchor), Name: "Plan", Path: anchor, SessionName: "plan", Members: []workspacegroup.Member{{Repository: repo, Path: member, Branch: "feature"}}}
+	addTestWorkspaceNote(t, &group)
 	if err := registerWorkspace(root, group); err != nil {
 		t.Fatal(err)
 	}

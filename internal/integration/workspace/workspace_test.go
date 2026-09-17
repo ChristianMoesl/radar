@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"radar/internal/integration"
+	"radar/internal/integration/obsidian"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
 )
@@ -126,6 +127,7 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
@@ -238,6 +240,7 @@ func TestCreateUsesStableTaskIdentityForPiSession(t *testing.T) {
 	linkingKey := "obsidian:task:550e8400-e29b-41d4-a716-446655440000"
 
 	created, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:     testNoteAuthor(t),
 		BranchMode:     integration.WorkspaceBranchNew,
 		Repo:           repo,
 		Name:           "Readable task title",
@@ -265,6 +268,7 @@ func TestCreateTracksExistingOriginBranch(t *testing.T) {
 	}
 
 	created, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		Repo:          repo,
 		BranchMode:    integration.WorkspaceBranchExisting,
 		Branch:        "main",
@@ -304,7 +308,8 @@ func TestCreateExistingWorkspaceRejectsDifferentTaskBeforeStartingSession(t *tes
 	}
 
 	_, err := Create(context.Background(), runner, CreateOptions{
-		Repo: repo, BranchMode: integration.WorkspaceBranchExisting, Name: "second-task", Branch: "main",
+		NoteAuthor: testNoteAuthor(t),
+		Repo:       repo, BranchMode: integration.WorkspaceBranchExisting, Name: "second-task", Branch: "main",
 		WorkspaceRoot: root, TaskLinkingKey: "obsidian:task:two",
 	})
 	if err == nil || !strings.Contains(err.Error(), "already linked to another task") {
@@ -321,6 +326,7 @@ func TestCreateNewBranchRejectsExistingOriginBranch(t *testing.T) {
 	}
 
 	_, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		Repo:          repo,
 		BranchMode:    integration.WorkspaceBranchNew,
 		Name:          "feature/existing",
@@ -346,6 +352,7 @@ func TestCreateExistingBranchRejectsSourceCheckout(t *testing.T) {
 	}
 
 	_, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		Repo:          repo,
 		BranchMode:    integration.WorkspaceBranchExisting,
 		Branch:        "main",
@@ -362,6 +369,7 @@ func TestCreateUsesConfiguredTmuxWindowsAndHorizontalPanes(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	created, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
@@ -404,6 +412,7 @@ func TestCreateStartsPiOnHostWithConfiguredSandbox(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:     testNoteAuthor(t),
 		BranchMode:     integration.WorkspaceBranchNew,
 		Repo:           repo,
 		Name:           "small fix",
@@ -445,6 +454,7 @@ func TestCreateSchedulesSetupInsideConfiguredSandbox(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	created, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
@@ -477,6 +487,7 @@ func TestCreateDoesNotScheduleSetupWithoutCommands(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	_, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
@@ -498,6 +509,7 @@ func TestCreatePreservesWorkspaceWhenSetupCannotBeScheduled(t *testing.T) {
 	runner := &fakeRunner{repo: repo, failSetupWindow: true}
 
 	created, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
@@ -530,10 +542,12 @@ func TestCreateDoesNotRerunSetupWhenOpeningExistingWorkspace(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"setup":["pnpm install"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{{
+	group := workspacegroup.Workspace{
 		ID: workspacegroup.ID(path), Name: "existing", Path: path, SessionName: SessionName(filepath.Base(repo), "existing"),
 		Members: []workspacegroup.Member{{Repository: repo, Path: memberPath, Branch: "existing", SetupScheduled: true}},
-	}}}); err != nil {
+	}
+	addTestWorkspaceNote(t, &group)
+	if err := registerWorkspace(root, group); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{
@@ -547,6 +561,7 @@ func TestCreateDoesNotRerunSetupWhenOpeningExistingWorkspace(t *testing.T) {
 	}
 
 	_, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchExisting,
 		Repo:          repo,
 		Branch:        "existing",
@@ -587,6 +602,7 @@ func TestCreateStartsSandboxEnabledByUserConfig(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:              testNoteAuthor(t),
 		BranchMode:              integration.WorkspaceBranchNew,
 		Repo:                    repo,
 		Name:                    "small fix",
@@ -650,6 +666,7 @@ func TestCreateRejectsConfiguredSandboxOutsideMacOS(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	_, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
@@ -671,6 +688,7 @@ func TestCreateForksPiSession(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "follow up",
@@ -695,6 +713,7 @@ func TestCreateRejectsInvalidRepoThinking(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	_, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
@@ -712,6 +731,7 @@ func TestCreateRejectsInvalidDefaultThinking(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	_, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
@@ -733,6 +753,7 @@ func TestCreateDoesNotCopyEnvWithoutRepoConfig(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "small fix",
@@ -756,6 +777,7 @@ func TestCreateEscapesWorktreeNamePathSegment(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "feature/nested fix",
@@ -784,6 +806,7 @@ func TestCreatePreservesExplicitBranchName(t *testing.T) {
 	runner := &fakeRunner{repo: repo}
 
 	workspace, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor:    testNoteAuthor(t),
 		BranchMode:    integration.WorkspaceBranchNew,
 		Repo:          repo,
 		Name:          "feature/nested fix",
@@ -1123,4 +1146,13 @@ func (r *dirtyRunner) Run(ctx context.Context, cwd string, name string, args ...
 		return "?? .env", nil
 	}
 	return r.fakeRunner.Run(ctx, cwd, name, args...)
+}
+
+func testNoteAuthor(t *testing.T) obsidian.Source {
+	t.Helper()
+	vault := t.TempDir()
+	if err := os.Mkdir(filepath.Join(vault, ".obsidian"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return obsidian.NewSourceAt(vault)
 }

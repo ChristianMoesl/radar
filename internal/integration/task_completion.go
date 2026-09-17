@@ -6,11 +6,11 @@ import (
 	"radar/internal/protocol"
 )
 
-// TaskCompletionProvider persists remote completion in an authored task's source.
+// TaskLifecycleProvider persists remote-driven lifecycle changes in an authored task's source.
 // Work items are authoritative contributors with confirmed signals. A provider
-// may also record a reopening baseline while some work items are still active.
+// may reopen on active work or preserve an explicit reopening baseline.
 // A nil observation means no source mutation was needed.
-type TaskCompletionProvider interface {
+type TaskLifecycleProvider interface {
 	Integration
-	ReconcileCompletion(ctx context.Context, ref protocol.SourceRef, workItems []protocol.SourceRef) (*Observation, error)
+	ReconcileLifecycle(ctx context.Context, ref protocol.SourceRef, workItems []protocol.SourceRef) (*Observation, error)
 }

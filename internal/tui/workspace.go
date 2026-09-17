@@ -37,10 +37,6 @@ type workspacePlanMsg struct {
 	plan integration.WorkspaceReconcilePlan
 	err  error
 }
-type workspaceNoteMsg struct {
-	note integration.DesiredWorkspaceNote
-	err  error
-}
 type workspaceAppliedMsg struct {
 	result  integration.WorkspaceReconcileResult
 	created integration.Workspace
@@ -66,8 +62,8 @@ func (m model) editWorkspace(task protocol.Task) (tea.Model, tea.Cmd) {
 			return workspaceStateMsg{err: fmt.Errorf("this task has unmanaged worktrees; open them with Enter or create a separate managed workspace with c")}
 		}
 		editor.create = integration.ManagedWorkspaceRequest{Name: workspaceNameForTask(task), TaskLinkingKey: taskrefs.TaskLinkingKey(task)}
-		if path := notePathForTask(task); path != "" {
-			editor.desired.Note = &integration.DesiredWorkspaceNote{Path: path, LinkingKey: taskrefs.TaskLinkingKey(task)}
+		if ref, ok := authoredTaskRef(task); ok && ref.WorkspaceAnchorPath != "" {
+			editor.desired.Note = &integration.DesiredWorkspaceNote{Path: ref.WorkspaceAnchorPath, LinkingKey: ref.ID}
 		}
 		if ref, ok := taskrefs.WorkspaceCandidate(task); ok {
 			if seeder, found := app.DefaultIntegrations().WorkspaceSeeder(ref); found {
@@ -183,30 +179,6 @@ func (m model) updateWorkspace(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.editor.cursor--
 		}
 		m.err = nil
-	case "n":
-		if m.editor.desired.Note != nil {
-			return m, nil
-		}
-		if ref, ok := authoredTaskRef(m.editor.task); ok && ref.WorkspaceAnchorPath != "" {
-			m.editor.desired.Note = &integration.DesiredWorkspaceNote{Path: ref.WorkspaceAnchorPath, LinkingKey: ref.ID}
-			return m, nil
-		}
-		title := m.editor.create.Name
-		if m.editor.state.Path != "" {
-			title = m.editor.state.Name
-		}
-		if m.editor.task.Title != "" {
-			title = m.editor.task.Title
-		}
-		m.mode, m.message = "workspace_loading", "Preparing note..."
-		return m, func() tea.Msg {
-			manager, err := app.DefaultIntegrations().WorkspaceManager()
-			if err != nil {
-				return workspaceNoteMsg{err: err}
-			}
-			note, err := manager.PrepareWorkspaceNote(context.Background(), title)
-			return workspaceNoteMsg{note: note, err: err}
-		}
 	case "enter":
 		return m.previewWorkspace()
 	}
@@ -295,15 +267,6 @@ func (m model) workspaceView(width int) string {
 		name = m.editor.create.Name
 	}
 	lines := []string{titleStyle.Render("Workspace: " + name), ""}
-	if note := m.editor.desired.Note; note != nil {
-		label := "Note: " + shortenPath(note.Path)
-		if note.Create {
-			label += " [new]"
-		}
-		lines = append(lines, label)
-	} else {
-		lines = append(lines, "Note: none • n add note")
-	}
 	lines = append(lines, "", "Repositories")
 	if len(m.editor.desired.Worktrees) == 0 {
 		lines = append(lines, "  none")

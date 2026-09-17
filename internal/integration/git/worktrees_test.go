@@ -78,6 +78,11 @@ func TestWorktreeSourceRefContract(t *testing.T) {
 }
 
 func TestPreviewCleanupKeepsMainWorkingTree(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	writeGitTestConfig(t, home)
 	ctx := context.Background()
 	repo := filepath.Join(t.TempDir(), "repo")
 	runGit(t, ctx, filepath.Dir(repo), "init", "repo")

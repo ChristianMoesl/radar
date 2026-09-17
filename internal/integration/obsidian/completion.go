@@ -17,7 +17,7 @@ var validCompletionBaseline = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // The baseline records the set of already-completed work on explicit reopening.
 // It survives restarts and cache resets. Observing active work arms completion
 // again, even when the same issue or PR is reopened and subsequently completed.
-func (s Source) ReconcileCompletion(_ context.Context, ref protocol.SourceRef, workItems []protocol.SourceRef) (*integration.Observation, error) {
+func (s Source) ReconcileLifecycle(_ context.Context, ref protocol.SourceRef, workItems []protocol.SourceRef) (*integration.Observation, error) {
 	if len(workItems) == 0 {
 		return nil, nil
 	}
@@ -39,19 +39,26 @@ func (s Source) ReconcileCompletion(_ context.Context, ref protocol.SourceRef, w
 		if ref.Metadata["content_hash"] != fmt.Sprintf("%x", sha256.Sum256([]byte(current.content))) {
 			return nil, fmt.Errorf("task note changed since collection")
 		}
+		// Active remote work takes precedence over a locally completed note.
+		// Recording the completed subset also arms the next completion cycle.
+		if !allDone {
+			updates := map[string]string{}
+			if current.State == "done" {
+				updates["radar-state"] = "open"
+				updates["radar-completed-at"] = ""
+			}
+			if current.CompletionBaseline != baseline {
+				updates["radar-completion-baseline"] = baseline
+			}
+			changed = len(updates) > 0
+			return updates, nil
+		}
 		if current.State == "done" {
 			return nil, nil
 		}
 		if current.CompletionBaseline == "pending" {
 			changed = true
 			return map[string]string{"radar-completion-baseline": baseline}, nil
-		}
-		if !allDone {
-			if current.CompletionBaseline != "" && current.CompletionBaseline != baseline {
-				changed = true
-				return map[string]string{"radar-completion-baseline": baseline}, nil
-			}
-			return nil, nil
 		}
 		if current.CompletionBaseline == baseline {
 			return nil, nil
@@ -73,4 +80,4 @@ func (s Source) ReconcileCompletion(_ context.Context, ref protocol.SourceRef, w
 	return &observation, nil
 }
 
-var _ integration.TaskCompletionProvider = Source{}
+var _ integration.TaskLifecycleProvider = Source{}

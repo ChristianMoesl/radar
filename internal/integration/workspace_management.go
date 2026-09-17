@@ -21,7 +21,6 @@ type WorkspaceCatalog interface {
 }
 
 type ManagedWorkspaceLifecycle interface {
-	PrepareWorkspaceNote(ctx context.Context, title string) (DesiredWorkspaceNote, error)
 	PreviewCreate(ctx context.Context, req ManagedWorkspaceRequest) (WorkspaceReconcilePlan, error)
 	BranchName(workspaceName string) string
 	SessionName(repositoryName, workspaceName string) string
@@ -144,15 +143,18 @@ type WorkspaceChange struct {
 }
 
 type WorkspaceReconcilePlan struct {
-	WorkspaceID         string            `json:"workspace_id"`
-	WorkspaceName       string            `json:"workspace_name"`
-	Revision            string            `json:"revision"`
-	NextRevision        string            `json:"next_revision"`
-	PlanID              string            `json:"plan_id"`
-	AutoConfirm         bool              `json:"auto_confirm,omitempty"`
-	EffectiveMountCount int               `json:"effective_sandbox_mount_count,omitempty"`
-	Changes             []WorkspaceChange `json:"changes"`
-	Warnings            []string          `json:"warnings,omitempty"`
+	// Creation previews prepare a stable note identity. Pass it back in the
+	// creation request when applying the confirmed plan.
+	Note                *DesiredWorkspaceNote `json:"note,omitempty"`
+	WorkspaceID         string                `json:"workspace_id"`
+	WorkspaceName       string                `json:"workspace_name"`
+	Revision            string                `json:"revision"`
+	NextRevision        string                `json:"next_revision"`
+	PlanID              string                `json:"plan_id"`
+	AutoConfirm         bool                  `json:"auto_confirm,omitempty"`
+	EffectiveMountCount int                   `json:"effective_sandbox_mount_count,omitempty"`
+	Changes             []WorkspaceChange     `json:"changes"`
+	Warnings            []string              `json:"warnings,omitempty"`
 }
 
 type WorkspaceReconcileResult struct {

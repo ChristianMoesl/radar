@@ -314,6 +314,16 @@ func TestMutationDoesNotWaitForCollectionOrLoseToStaleSnapshot(t *testing.T) {
 						t.Fatal("discarded fresh source status")
 					}
 				}
+				if !localOnly && (method == "task-done" || method == "write-error") {
+					// Only a subsequent full refresh may apply the remote-active
+					// rule; the in-flight snapshot predates the user's mutation.
+					f.service.Refresh(ctx, false)
+					task, _ := taskByID(f.store.Tasks(), id)
+					ref, _ := authoredRef(task, "obsidian")
+					if ref.Metadata["state"] != "open" || task.Attention == "done" {
+						t.Fatal("fresh remote activity did not reopen the task")
+					}
+				}
 			})
 		}
 	}
