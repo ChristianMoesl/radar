@@ -3,5 +3,8 @@
   "thinking": "high",
   "setup": ["go mod download"],
   "copy_files": ["AGENTS.local.md"],
-  "sbx": { "enabled": true }
+  "sbx": {
+    "enabled": true,
+    "kit": { "name": "docker.io/christianmoesl/radar-kit:latest" }
+  }
 }
