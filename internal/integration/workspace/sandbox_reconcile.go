@@ -52,7 +52,8 @@ func enrollmentPlan(ctx context.Context, runner Runner, root, current string) (w
 	} else if found {
 		agent := strings.TrimSpace(sandbox.Agent)
 		if agent == "" {
-			agent = defaultSandboxKitName
+			// Preserve discovery's shell assumption, not the default for new workspaces.
+			agent = "shell"
 		}
 		group.Sandbox = &workspacegroup.Sandbox{Name: sandbox.Name, Agent: agent, KitPath: sandbox.KitPath, Mounts: sandboxWorkspaceMounts(sandbox)}
 	}

@@ -12,7 +12,9 @@ SBX supplies local Docker sandbox resources and shell actions.
 
 ## Published development kit
 
-Set `sbx.kit.name` to `docker.io/christianmoesl/radar-kit:latest`, or pin its digest, to use Radar's published toolchain image. No `kit.path` is needed for this OCI sandbox-kit reference. The [sandbox guide](../../sandbox/README.md) documents its tool inventory, Pi requirements, private Docker daemon, publication and rollout. Existing workspaces retain their recorded kit; this does not silently recreate them.
+With SBX 0.43.0 or newer, enabling `sbx.enabled` selects `docker.io/christianmoesl/radar-kit:latest` for new workspaces unless a user or repository kit overrides it. No `kit.name` or `kit.path` is required to use this default. Set `sbx.kit.name` only to select another kit or pin a digest. The [sandbox guide](../../sandbox/README.md) documents its tool inventory, Pi requirements, private Docker daemon, publication and rollout.
+
+Sandboxing remains disabled by default. Explicit kit settings, including `"shell"` in an older generated configuration, are preserved; remove that override manually to opt into the new default. Existing workspaces retain their recorded kit even during sandbox recreation. No configuration or registry migration is performed.
 
 ## Clipboard images and shared screenshots
 

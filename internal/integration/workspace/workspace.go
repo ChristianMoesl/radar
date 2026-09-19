@@ -20,6 +20,7 @@ import (
 	"radar/internal/integration"
 	obsidiansettings "radar/internal/integration/obsidian/settings"
 	"radar/internal/integration/sbx/auth"
+	sbxsettings "radar/internal/integration/sbx/settings"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/pi"
@@ -29,7 +30,6 @@ var invalidWorkspaceNameCharacters = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 var workspaceGOOS = runtime.GOOS
 
-const defaultSandboxKitName = "shell"
 const maxSandboxNameLength = 63
 const sandboxNameHashLength = 8
 const maxWorktreeDirectoryNameLength = 120
@@ -428,7 +428,7 @@ func workspaceSandboxConfig(repoConfig RepoConfig, enabled bool, kitName string,
 		AdditionalMounts: append([]string(nil), additionalMounts...),
 	}
 	if settings.Kit.Name == "" {
-		settings.Kit.Name = defaultSandboxKitName
+		settings.Kit.Name = sbxsettings.DefaultKitName
 	}
 	if repoConfig.SBX == nil {
 		return settings

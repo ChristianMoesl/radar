@@ -6,20 +6,22 @@ this environment. There are no model-provider credentials in the image or kit.
 
 ## Use the published kit
 
-With SBX 0.43.0 or newer, select the kit in Radar's user configuration (at
-`radar config-path`) or a repository's `.radar.json`:
+With SBX 0.43.0 or newer installed and signed in, enable sandboxing in Radar's
+user configuration (at `radar config-path`) or a repository's `.radar.json`:
 
 ```json
-{
-  "sbx": {
-    "enabled": true,
-    "kit": {"name": "docker.io/christianmoesl/radar-kit:latest"}
-  }
-}
+{"sbx": {"enabled": true}}
 ```
 
-For a reproducible environment, replace `:latest` with the kit's `@sha256:…`
-reference from the publishing workflow summary. Each published kit pins its
+New workspaces default to `docker.io/christianmoesl/radar-kit:latest`; no kit
+selection is required. Sandboxing itself remains opt-in. Explicit user and
+repository kit settings still override this default. If an older generated
+configuration contains `"kit": {"name": "shell"}`, remove that override manually
+to adopt the new default. Radar does not edit existing user configuration.
+
+For a reproducible environment, set `sbx.kit.name` to the kit's
+`docker.io/christianmoesl/radar-kit@sha256:…` reference from the publishing
+workflow summary. Each published kit pins its
 multi-platform image by digest, so pinning the kit also pins the toolchain.
 Do not use the image reference as a kit reference: these are separate artifacts.
 

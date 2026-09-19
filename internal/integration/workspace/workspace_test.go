@@ -10,6 +10,7 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/integration/obsidian"
+	sbxsettings "radar/internal/integration/sbx/settings"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
 )
@@ -231,7 +232,7 @@ func TestCreateNoteWorkspaceMountsOnlyAnchorAndPrivateTaskDirectory(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertCalled(t, runner.calls, "sbx", "create --name "+created.SandboxName+" shell "+created.Path+" "+taskDirectory)
+	assertCalled(t, runner.calls, "sbx", "create --name "+created.SandboxName+" "+sbxsettings.DefaultKitName+" "+created.Path+" "+taskDirectory)
 }
 
 func TestCreateUsesStableTaskIdentityForPiSession(t *testing.T) {
@@ -594,6 +595,47 @@ func TestScheduleMemberSetupCreatesDetachedTmuxWindow(t *testing.T) {
 	assertSetupWindowIsDetached(t, runner.calls)
 }
 
+func TestCreateSandboxKitDefaultsAndOverrides(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		enabled    bool
+		userKit    string
+		repoConfig string
+		wantKit    string
+	}{
+		{"user enabled", true, "", `{}`, sbxsettings.DefaultKitName},
+		{"repository enabled", false, "", `{"sbx":{"enabled":true}}`, sbxsettings.DefaultKitName},
+		{"user shell override", true, "shell", `{}`, "shell"},
+		{"repository shell override", true, sbxsettings.DefaultKitName, `{"sbx":{"kit":{"name":"shell"}}}`, "shell"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			withWorkspaceGOOS(t, "darwin")
+			repo, root := t.TempDir(), t.TempDir()
+			if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(tt.repoConfig), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			runner := &fakeRunner{repo: repo}
+			created, err := Create(context.Background(), runner, CreateOptions{
+				NoteAuthor: testNoteAuthor(t), BranchMode: integration.WorkspaceBranchNew,
+				Repo: repo, Name: "sandbox defaults", Base: "origin/main", WorkspaceRoot: root,
+				Sandbox: tt.enabled, SandboxKitName: tt.userKit,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertCalledContains(t, runner.calls, "sbx", "create --name "+created.SandboxName+" "+tt.wantKit+" ")
+			assertNotCalledContains(t, runner.calls, "sbx", "--kit")
+			_, stored, found, err := RegisteredWorkspace(created.Path, root)
+			if err != nil || !found || stored.Sandbox == nil {
+				t.Fatalf("registered workspace = %+v, %t, %v", stored, found, err)
+			}
+			if stored.Sandbox.Agent != tt.wantKit || stored.Sandbox.KitPath != "" {
+				t.Fatalf("recorded sandbox = %+v, want kit %q", stored.Sandbox, tt.wantKit)
+			}
+		})
+	}
+}
+
 func TestCreateStartsSandboxEnabledByUserConfig(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
 	repo := t.TempDir()
@@ -867,16 +909,15 @@ func TestCreateSessionMountsLinkedWorktreeGitDirectoryInNewSandbox(t *testing.T)
 	runner := &fakeRunner{gitCommonDir: commonDir}
 
 	created, err := CreateSessionWithOptions(context.Background(), runner, CreateSessionOptions{
-		Path:           path,
-		SessionName:    "repo-small-fix",
-		Sandbox:        true,
-		SandboxKitName: "radar",
+		Path:        path,
+		SessionName: "repo-small-fix",
+		Sandbox:     true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertCalled(t, runner.calls, "sbx", "create --name "+created.SandboxName+" radar "+path+" "+commonDir)
+	assertCalled(t, runner.calls, "sbx", "create --name "+created.SandboxName+" "+sbxsettings.DefaultKitName+" "+path+" "+commonDir)
 }
 
 func TestSandboxMountsDoesNotRepeatGitDirectoryInsideWorkspace(t *testing.T) {

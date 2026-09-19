@@ -29,8 +29,8 @@ func TestDefaultUsesProductDefaults(t *testing.T) {
 	if cfg.SBX.Enabled {
 		t.Fatal("SBX.Enabled = true, want disabled default")
 	}
-	if cfg.SBX.Kit.Name != "shell" || cfg.SBX.Kit.Path != "" {
-		t.Fatalf("SBX.Kit = %#v, want default shell kit without a path", cfg.SBX.Kit)
+	if cfg.SBX.Kit.Name != "docker.io/christianmoesl/radar-kit:latest" || cfg.SBX.Kit.Path != "" {
+		t.Fatalf("SBX.Kit = %#v, want published Radar kit without a path", cfg.SBX.Kit)
 	}
 	if cfg.SBX.AdditionalMounts == nil || len(cfg.SBX.AdditionalMounts) != 0 {
 		t.Fatalf("SBX.AdditionalMounts = %#v, want empty list", cfg.SBX.AdditionalMounts)
@@ -157,6 +157,48 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cfg.Datadog.MonitorStatuses, []string{"Alert", "Warn"}) {
 		t.Fatalf("Datadog.MonitorStatuses = %#v", cfg.Datadog.MonitorStatuses)
+	}
+}
+
+func TestLoadSandboxKitDefaultsAndOverrides(t *testing.T) {
+	const defaultKit = "docker.io/christianmoesl/radar-kit:latest"
+	for _, tt := range []struct {
+		name string
+		sbx  string
+		want SBXKitConfig
+	}{
+		{"enabled only", `{"enabled":true}`, SBXKitConfig{Name: defaultKit}},
+		{"empty kit", `{"enabled":true,"kit":{}}`, SBXKitConfig{Name: defaultKit}},
+		{"blank name", `{"enabled":true,"kit":{"name":"  "}}`, SBXKitConfig{Name: defaultKit}},
+		{"explicit shell", `{"enabled":true,"kit":{"name":"shell"}}`, SBXKitConfig{Name: "shell"}},
+		{"custom kit", `{"enabled":true,"kit":{"name":"custom","path":"~/kits/custom"}}`, SBXKitConfig{Name: "custom", Path: "~/kits/custom"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			configHome := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", configHome)
+			path := filepath.Join(configHome, "radar", "config.json")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			data := `{"linking_mark_prefixes":["ABC"],"sbx":` + tt.sbx + `}`
+			if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := EnsureFile(); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !cfg.SBX.Enabled || cfg.SBX.Kit != tt.want {
+				t.Fatalf("SBX = %+v, want enabled with kit %+v", cfg.SBX, tt.want)
+			}
+			stored, err := os.ReadFile(path)
+			if err != nil || string(stored) != data {
+				t.Fatalf("user configuration was changed: %s, %v", stored, err)
+			}
+		})
 	}
 }
 
@@ -417,6 +459,9 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	}
 	if generated.Workspace.RootDir != "~/.local/share/radar/workspaces" || generated.Workspace.AutoConfirm {
 		t.Fatalf("generated Workspace = %#v", generated.Workspace)
+	}
+	if generated.SBX.Enabled || generated.SBX.Kit.Name != "docker.io/christianmoesl/radar-kit:latest" || generated.SBX.Kit.Path != "" {
+		t.Fatalf("generated SBX = %#v, want disabled with the published Radar kit", generated.SBX)
 	}
 	if generated.Datadog.MonitorQuery != "" {
 		t.Fatalf("generated Datadog.MonitorQuery = %q, want disabled empty query", generated.Datadog.MonitorQuery)

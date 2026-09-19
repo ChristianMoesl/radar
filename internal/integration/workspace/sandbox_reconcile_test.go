@@ -6,11 +6,48 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"radar/internal/integration/workspace/group"
 )
+
+func TestReconcileSandboxPreservesRecordedKit(t *testing.T) {
+	for _, kit := range []SandboxKitConfig{
+		{Name: "shell"},
+		{Name: "custom", Path: "/kits/custom"},
+		{Name: "docker.io/christianmoesl/radar-kit@sha256:" + strings.Repeat("a", 64)},
+	} {
+		t.Run(kit.Name, func(t *testing.T) {
+			root := t.TempDir()
+			mount := filepath.Join(root, "work")
+			group := workspacegroup.Workspace{
+				ID: workspacegroup.ID(mount), Name: "work", Path: mount,
+				Sandbox: &workspacegroup.Sandbox{Name: "existing", Agent: kit.Name, KitPath: kit.Path, Mounts: []string{mount}},
+			}
+			if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+				t.Fatal(err)
+			}
+			_, group, found, err := RegisteredWorkspace(mount, root)
+			if err != nil || !found || group.Sandbox == nil {
+				t.Fatalf("registered workspace = %+v, %t, %v", group, found, err)
+			}
+			runner := &fakeRunner{}
+			if err := reconcileSandboxWithPolicy(context.Background(), runner, group, nil, sandboxReconcilePolicy{}); err != nil {
+				t.Fatal(err)
+			}
+			want := "create --name existing"
+			if kit.Path != "" {
+				want += " --kit " + kit.Path
+			}
+			assertCalled(t, runner.calls, "sbx", want+" "+kit.Name+" "+mount)
+			if group.Sandbox.Agent != kit.Name || group.Sandbox.KitPath != kit.Path {
+				t.Fatalf("recorded kit changed: %+v", group.Sandbox)
+			}
+		})
+	}
+}
 
 func TestNormalizeMountSetRemovesRedundantChildrenWithSameMode(t *testing.T) {
 	mounts := normalizeMountSet([]string{"/work", "/work/member", "/work/read-only:ro"})

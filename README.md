@@ -223,7 +223,6 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
   "setup": ["pnpm install --frozen-lockfile"],
   "sbx": {
     "enabled": true,
-    "kit": {"name": "radar", "path": "~/kits/radar"},
     "additional_mounts": ["~/repo-tools"]
   },
   "model": "anthropic/claude-sonnet-4",
@@ -235,19 +234,18 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 
 Changing the worktree membership or requested additional mounts of a sandboxed workspace reconciles the complete mount set by removing and recreating the sandbox under the same name. This interrupts processes inside the sandbox, so the Pi tool warns before confirmation. Radar waits for removal to converge and retries transient SBX container-start failures up to three times with bounded backoff and cleanup between attempts. Plans show the effective mount count and warn at 20 or more mounts without enforcing a limit. Radar then reconciles the complete desired loopback port set with `sbx ports`. If reconciliation fails, Radar keeps completed work and desired registry state and returns `ok: false` with `retryable: true`; the Pi tool reports completed work and asks the agent to re-inspect before retrying. Reconciliation phases and counts are recorded at `radar log-path` without logging complete mount commands.
 
-Enable sandboxes by default, select the kit, and mount additional host directories into every sandbox in the user config at `radar config-path`:
+Enable sandboxes and mount additional host directories into every sandbox in the user config at `radar config-path`. No kit selection is needed: new workspaces use Radar's published development kit by default (SBX 0.43.0 or newer):
 
 ```json
 {
   "sbx": {
     "enabled": true,
-    "kit": {"name": "shell"},
     "additional_mounts": ["~/shared-tools", "/opt/company-config"]
   }
 }
 ```
 
-A repository's `.radar.json` can use the same `sbx` fields. Repository `enabled` and `kit` values override the user settings; repository additional mounts are appended to the global list. `kit.name` defaults to `shell`; when optional `kit.path` is set, Radar expands a leading `~/` and passes it as `--kit <path>`. Additional-mount paths must be absolute or start with `~/`; Radar expands `~` and creates missing directories before starting SBX. Empty, duplicate, and redundant child entries are ignored, and the anchor remains the primary mount.
+A repository's `.radar.json` can use the same `sbx` fields. Repository `enabled` and `kit` values override the user settings; repository additional mounts are appended to the global list. `kit.name` defaults to `docker.io/christianmoesl/radar-kit:latest`; when optional `kit.path` is set, Radar expands a leading `~/` and passes it as `--kit <path>`. Additional-mount paths must be absolute or start with `~/`; Radar expands `~` and creates missing directories before starting SBX. Empty, duplicate, and redundant child entries are ignored, and the anchor remains the primary mount.
 
 Configure workspace windows, panes, layouts, and commands in the user config:
 
@@ -469,9 +467,11 @@ Tmux session refs use `#{session_id}` for stable identity, so renaming a tmux se
 
 Radar collects Docker sbx sandboxes with `sbx ls --json` when `sbx` is installed. Sandboxes attach to matching tasks through configured linking marks in the sandbox/workspace name and through their primary workspace path. Sandboxes without matches are shown as standalone in-progress tasks.
 
-The default sandbox kit name is `shell`. To use Radar's published development environment, set `sbx.kit.name` to `docker.io/christianmoesl/radar-kit:latest` (or a pinned kit digest). It provides Go, fnm with Node 24, pnpm 12, native build tools, Pi's sandbox tool dependencies and a private Docker daemon. See [the sandbox image and kit guide](sandbox/README.md) for the full inventory, setup and update behavior.
+Sandboxing is opt-in. With SBX 0.43.0 or newer installed and signed in, `{"sbx":{"enabled":true}}` selects `docker.io/christianmoesl/radar-kit:latest` for new workspaces by default. It provides Go, fnm with Node 24, pnpm 12, native build tools, Pi's sandbox tool dependencies and a private Docker daemon. See [the sandbox image and kit guide](sandbox/README.md) for the full inventory, setup and update behavior.
 
-`sbx.kit.name` is passed as SBX's agent or sandbox-kit reference. Optional `sbx.kit.path` passes a kit location with `--kit`. Configure `sbx.additional_mounts` to add host directories to every sandbox Radar creates.
+Explicit user or repository kit selections still win, including `"shell"` written by older Radar versions. Remove that `sbx.kit` override manually to adopt the default for new workspaces. Existing workspace records retain their original kit, including when their sandbox is recreated; Radar does not migrate configuration or existing workspaces.
+
+`sbx.kit.name` can override the default with another agent, sandbox-kit reference or pinned kit digest and is passed as SBX's agent or sandbox-kit reference. Optional `sbx.kit.path` passes a kit location with `--kit`. Configure `sbx.additional_mounts` to add host directories to every sandbox Radar creates.
 
 ## Config
 
@@ -501,7 +501,6 @@ Example:
   "thinking": "medium",
   "sbx": {
     "enabled": true,
-    "kit": {"name": "shell"},
     "additional_mounts": []
   },
   "datadog": {

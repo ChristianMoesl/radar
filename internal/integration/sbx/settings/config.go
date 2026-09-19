@@ -2,6 +2,8 @@ package settings
 
 import "strings"
 
+const DefaultKitName = "docker.io/christianmoesl/radar-kit:latest"
+
 type Config struct {
 	Enabled          bool      `json:"enabled"`
 	Kit              KitConfig `json:"kit"`
@@ -14,11 +16,11 @@ type KitConfig struct {
 }
 
 func Default() Config {
-	return Config{Kit: KitConfig{Name: "shell"}, AdditionalMounts: []string{}}
+	return Config{Kit: KitConfig{Name: DefaultKitName}, AdditionalMounts: []string{}}
 }
 
 func ApplyDefaults(config *Config) {
 	if strings.TrimSpace(config.Kit.Name) == "" {
-		config.Kit.Name = Default().Kit.Name
+		config.Kit.Name = DefaultKitName
 	}
 }
