@@ -34,10 +34,11 @@ func (Source) Status(_ context.Context, logger *slog.Logger) integration.StatusR
 		status.Detail = "could not load config"
 		return integration.StatusResult{Status: status, CanRun: false}
 	}
+	if availability := integration.OptionalStatus("datadog", cfg.Datadog.Enabled, ""); !availability.CanRun {
+		return availability
+	}
 	if strings.TrimSpace(cfg.Datadog.MonitorQuery) == "" {
-		status.Status = "disabled"
-		status.Detail = "missing datadog.monitor_query"
-		return integration.StatusResult{Status: status, CanRun: false}
+		return integration.OptionalStatus("datadog", cfg.Datadog.Enabled, "missing datadog.monitor_query")
 	}
 
 	_, missing, err := credentialsFromEnv()
@@ -48,9 +49,7 @@ func (Source) Status(_ context.Context, logger *slog.Logger) integration.StatusR
 		return integration.StatusResult{Status: status, CanRun: false}
 	}
 	if len(missing) > 0 {
-		status.Status = "disabled"
-		status.Detail = "missing " + strings.Join(missing, ", ")
-		return integration.StatusResult{Status: status, CanRun: false}
+		return integration.OptionalStatus("datadog", cfg.Datadog.Enabled, "missing "+strings.Join(missing, ", "))
 	}
 	return integration.StatusResult{Status: status, CanRun: true}
 }
@@ -61,10 +60,12 @@ func (s Source) Collect(ctx context.Context, req integration.CollectRequest) int
 	if err != nil {
 		return failedCollection(req, status, "could not load config", err)
 	}
+	if availability := integration.OptionalStatus("datadog", userConfig.Datadog.Enabled, ""); !availability.CanRun {
+		return integration.CollectResult{SourceStatus: &availability.Status}
+	}
 	query := strings.TrimSpace(userConfig.Datadog.MonitorQuery)
 	if query == "" {
-		status.Status = "disabled"
-		status.Detail = "missing datadog.monitor_query"
+		status = integration.OptionalStatus("datadog", userConfig.Datadog.Enabled, "missing datadog.monitor_query").Status
 		return integration.CollectResult{SourceStatus: &status}
 	}
 
@@ -73,8 +74,7 @@ func (s Source) Collect(ctx context.Context, req integration.CollectRequest) int
 		return failedCollection(req, status, err.Error(), err)
 	}
 	if len(missing) > 0 {
-		status.Status = "disabled"
-		status.Detail = "missing " + strings.Join(missing, ", ")
+		status = integration.OptionalStatus("datadog", userConfig.Datadog.Enabled, "missing "+strings.Join(missing, ", ")).Status
 		return integration.CollectResult{Observations: previousObservations(req.Previous), SourceStatus: &status}
 	}
 

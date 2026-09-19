@@ -14,9 +14,9 @@ func TestAuthenticationRequired(t *testing.T) {
 		want bool
 	}{
 		{name: "normal startup", req: integration.AuthenticationRequest{Operation: "startup"}},
-		{name: "create", req: integration.AuthenticationRequest{Operation: "create"}, want: true},
-		{name: "fork", req: integration.AuthenticationRequest{Operation: "fork"}, want: true},
-		{name: "expired session", req: integration.AuthenticationRequest{Operation: "startup", SourceStatuses: []protocol.SourceStatus{{Name: "sbx", Status: "error", Detail: "not signed in; run sbx login"}}}, want: true},
+		{name: "create", req: integration.AuthenticationRequest{Operation: "create"}},
+		{name: "fork", req: integration.AuthenticationRequest{Operation: "fork"}},
+		{name: "expired session", req: integration.AuthenticationRequest{Operation: "startup", SourceStatuses: []protocol.SourceStatus{{Name: "sbx", Status: "error", Detail: "not signed in; run sbx login"}}}},
 		{name: "unrelated failure", req: integration.AuthenticationRequest{Operation: "startup", SourceStatuses: []protocol.SourceStatus{{Name: "sbx", Status: "error", Detail: "sbx daemon is unavailable"}}}},
 		{name: "cleanup", req: integration.AuthenticationRequest{Operation: "cleanup", CleanupTargets: []protocol.CleanupTarget{{Source: "sbx"}}}, want: true},
 	} {

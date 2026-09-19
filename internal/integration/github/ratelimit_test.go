@@ -1,6 +1,10 @@
 package github
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -63,4 +67,30 @@ func resetRateStateForTest(t *testing.T) {
 		rateState.graphqlUntil = previousGraphQLUntil
 		rateState.mu.Unlock()
 	})
+}
+
+func TestInstalledGitHubFailuresRemainErrors(t *testing.T) {
+	for _, body := range []string{
+		"exit 2", // a broken local authentication check is not missing credentials
+		`if [ "$1 $2" = "auth token" ]; then printf 'fixture-token\n'; exit 0; fi
+printf 'authentication rejected\n' >&2
+exit 1`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			resetRateStateForTest(t)
+			tmp := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", tmp)
+			t.Setenv("PATH", tmp)
+			if err := os.WriteFile(filepath.Join(tmp, "gh"), []byte("#!/bin/sh\n"+body+"\n"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			status := NewSource().Status(context.Background(), testLogger())
+			if status.CanRun || status.Status.Status != "error" {
+				t.Fatalf("status = %+v", status)
+			}
+			if strings.Contains(status.Status.Detail, "fixture-token") {
+				t.Fatal("authentication token leaked into status")
+			}
+		})
+	}
 }

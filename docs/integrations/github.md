@@ -8,7 +8,7 @@ GitHub supplies code-review work items through the `gh` CLI.
 
 ## Configuration and authentication
 
-`github.filters` owns repository and actor mute/deprioritize rules. Authentication is the existing `gh auth` state. Radar does not store GitHub credentials.
+`github.filters` owns repository and actor mute/deprioritize rules. Authentication is the existing `gh auth` state. Radar does not store GitHub credentials. Omitted `github.enabled` activates collection when `gh` is installed and has a locally configured token; `false` skips collection and reconciliation, and `true` reports missing prerequisites as an error. Radar probes local authentication without prompting or logging tokens; expired credentials and API failures are errors, not missing prerequisites. Fresh configs contain no example tracked-PR search rules.
 
 ## Collection and refs
 

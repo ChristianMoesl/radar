@@ -3,6 +3,7 @@ package settings
 import "radar/internal/integration/github/filters"
 
 type Config struct {
+	Enabled *bool          `json:"enabled,omitempty"`
 	Filters filters.Config `json:"filters"`
 }
 
@@ -12,11 +13,6 @@ func Default() Config {
 		DeprioritizeRepos: []string{},
 		MuteUsers:         []string{},
 		DeprioritizeUsers: []string{},
-		Rules: []filters.Rule{{
-			Name:   "Track bot PRs in selected repos",
-			Repos:  []string{"example-org/*"},
-			Users:  []string{"dependabot[bot]", "renovate[bot]"},
-			Action: "deprioritize",
-		}},
+		Rules:             []filters.Rule{},
 	}}
 }

@@ -37,18 +37,9 @@ func (Source) EnsureAuthentication(ctx context.Context, req integration.Authenti
 }
 
 func authenticationRequired(req integration.AuthenticationRequest) bool {
-	switch req.Operation {
-	case "create", "fork":
-		return true
-	case "cleanup":
+	if req.Operation == "cleanup" {
 		for _, target := range req.CleanupTargets {
 			if target.Source == "sbx" {
-				return true
-			}
-		}
-	default:
-		for _, status := range req.SourceStatuses {
-			if status.Name == "sbx" && status.Status == "error" && auth.IsRequired(status.Detail) {
 				return true
 			}
 		}

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"radar/internal/config"
+	"radar/internal/integration"
 	"radar/internal/integration/sbx/auth"
 	"radar/internal/integration/workspace"
 	"radar/internal/integration/workspace/group"
@@ -31,18 +33,30 @@ type sandbox struct {
 	Workspaces []string `json:"workspaces"`
 }
 
-func SourceStatus(ctx context.Context) protocol.SourceStatus {
-	_ = ctx
-	status := protocol.SourceStatus{Name: "sbx", Status: "ok"}
-	if _, err := exec.LookPath("sbx"); err != nil {
-		status.Status = "disabled"
-		status.Detail = "sbx not found"
+func collectionSettings(logger *slog.Logger) (config.SBXConfig, map[string]string, protocol.SourceStatus) {
+	cfg, err := config.Load()
+	if err != nil {
+		return config.SBXConfig{}, nil, protocol.SourceStatus{Name: "sbx", Status: "error", Detail: err.Error()}
 	}
-	return status
+	registered := registeredSandboxWorkspaces(logger)
+	enabled := cfg.SBX.Enabled
+	// Registered runtimes keep their lifecycle even after defaults are disabled.
+	// This also covers repositories explicitly overriding a global opt-out.
+	if enabled != nil && !*enabled && len(registered) > 0 {
+		enabled = new(true)
+	}
+	missing := ""
+	if _, err := exec.LookPath("sbx"); err != nil {
+		missing = "sbx not found"
+	}
+	return cfg.SBX, registered, integration.OptionalStatus("sbx", enabled, missing).Status
 }
 
 func FetchSandboxes(ctx context.Context, logger *slog.Logger, marks linking.MarkMatcher) ([]protocol.SourceRef, protocol.SourceStatus) {
-	status := protocol.SourceStatus{Name: "sbx", Status: "ok"}
+	cfg, registeredWorkspaces, status := collectionSettings(logger)
+	if status.Status != "ok" {
+		return nil, status
+	}
 	output, err := sbxOutput(ctx, "ls", "--json")
 	if err != nil {
 		status.Status = "error"
@@ -57,9 +71,11 @@ func FetchSandboxes(ctx context.Context, logger *slog.Logger, marks linking.Mark
 		return nil, status
 	}
 
-	registeredWorkspaces := registeredSandboxWorkspaces(logger)
 	sourceRefs := make([]protocol.SourceRef, 0, len(sandboxes))
 	for _, s := range sandboxes {
+		if cfg.Enabled != nil && !*cfg.Enabled && registeredWorkspaces[strings.TrimSpace(s.Name)] == "" {
+			continue
+		}
 		if ref := s.SourceRef(marks, registeredWorkspaces[strings.TrimSpace(s.Name)]); ref.ID != "" {
 			sourceRefs = append(sourceRefs, ref)
 		}

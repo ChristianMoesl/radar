@@ -7,6 +7,7 @@ import (
 )
 
 type Config struct {
+	Enabled                 *bool             `json:"enabled,omitempty"`
 	AuthoritativeIssueTypes []string          `json:"authoritative_issue_types"`
 	StatusMapping           map[string]string `json:"status_mapping,omitempty"`
 	UnmappedStatus          string            `json:"unmapped_status,omitempty"`
@@ -15,6 +16,7 @@ type Config struct {
 
 func (c *Config) UnmarshalJSON(data []byte) error {
 	var raw struct {
+		Enabled                 *bool           `json:"enabled"`
 		AuthoritativeIssueTypes []string        `json:"authoritative_issue_types"`
 		StatusMapping           json.RawMessage `json:"status_mapping"`
 		UnmappedStatus          *string         `json:"unmapped_status"`
@@ -22,6 +24,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	c.Enabled = raw.Enabled
 	if raw.AuthoritativeIssueTypes != nil {
 		c.AuthoritativeIssueTypes = raw.AuthoritativeIssueTypes
 	}

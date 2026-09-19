@@ -47,6 +47,9 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger,
 			continue
 		}
 		name := source.Descriptor().Name
+		if _, collectedSource := collected.Results[name]; !collectedSource {
+			continue // Disabled or unavailable sources must not make reconciliation requests.
+		}
 		started := time.Now()
 		reconciled := reconciler.Reconcile(ctx, integration.ReconcileRequest{
 			Previous:     previous,

@@ -2,8 +2,11 @@ package github
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"os/exec"
 	"sync"
+	"time"
 
 	"radar/internal/config"
 	"radar/internal/integration"
@@ -23,6 +26,33 @@ func (Source) Descriptor() integration.Descriptor {
 }
 
 func (Source) Status(ctx context.Context, logger *slog.Logger) integration.StatusResult {
+	cfg, err := config.Load()
+	if err != nil {
+		return integration.StatusResult{Status: protocol.SourceStatus{Name: "github", Status: "error", Detail: err.Error()}}
+	}
+	if status := integration.OptionalStatus("github", cfg.GitHub.Enabled, ""); !status.CanRun {
+		return status
+	}
+	if _, err := exec.LookPath("gh"); err != nil {
+		return integration.OptionalStatus("github", cfg.GitHub.Enabled, "gh not found")
+	}
+	// Read local authentication only. Do not prompt, contact GitHub, or log tokens.
+	authCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	token, err := exec.CommandContext(authCtx, "gh", "auth", "token").Output()
+	if authCtx.Err() != nil {
+		return integration.StatusResult{Status: protocol.SourceStatus{Name: "github", Status: "error", Detail: "gh authentication check timed out or was cancelled"}}
+	}
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 1 {
+			return integration.OptionalStatus("github", cfg.GitHub.Enabled, "gh authentication missing; run gh auth login")
+		}
+		return integration.StatusResult{Status: protocol.SourceStatus{Name: "github", Status: "error", Detail: "gh authentication check failed: " + err.Error()}}
+	}
+	if len(token) == 0 {
+		return integration.StatusResult{Status: protocol.SourceStatus{Name: "github", Status: "error", Detail: "gh authentication check returned no token"}}
+	}
 	status, allowed := GraphQLSourceStatus(ctx, logger)
 	return integration.StatusResult{Status: status, CanRun: allowed}
 }
@@ -31,8 +61,12 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	result := integration.CollectResult{}
 	filterConfig := filters.Config{}
 	if cfg, err := config.Load(); err != nil {
-		req.Logger.Warn("could not load github filters", "error", err)
+		status := protocol.SourceStatus{Name: "github", Status: "error", Detail: err.Error()}
+		return integration.CollectResult{SourceStatus: &status}
 	} else {
+		if status := integration.OptionalStatus("github", cfg.GitHub.Enabled, ""); !status.CanRun {
+			return integration.CollectResult{SourceStatus: &status.Status}
+		}
 		filterConfig = cfg.GitHub.Filters
 	}
 
@@ -52,6 +86,8 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 
 	if pullRequestErr != nil {
 		req.Logger.Warn("github pull request collection failed", "error", pullRequestErr)
+		status := protocol.SourceStatus{Name: "github", Status: "error", Detail: "pull request collection failed"}
+		result.SourceStatus = &status
 		return result
 	}
 

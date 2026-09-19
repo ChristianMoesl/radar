@@ -209,6 +209,12 @@ func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, gr
 }
 
 func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string) (bool, bool, error) {
+	_, sessionErr := runner.Run(ctx, group.Path, "tmux", "has-session", "-t", group.SessionName)
+	if sessionErr != nil {
+		if err := validateSessionDependencies(runner, group.Tmux); err != nil {
+			return false, false, err
+		}
+	}
 	if group.NotePath == "" {
 		return false, false, fmt.Errorf("workspace %s has no canonical note; associate its Obsidian note before opening it", group.Path)
 	}
@@ -234,7 +240,7 @@ func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegr
 			createdSandbox = true
 		}
 	}
-	if _, err := runner.Run(ctx, group.Path, "tmux", "has-session", "-t", group.SessionName); err == nil {
+	if sessionErr == nil {
 		return false, createdSandbox, nil
 	}
 	piArgsText := piArgsWithPrompt(taskPiSessionID(group.SessionName, group.TaskLinkingKey), group.SessionName, group.Model, group.Thinking, forkSession, "")
@@ -507,10 +513,8 @@ func CreateSession(ctx context.Context, runner Runner, path string, sessionName 
 }
 
 func CreateSessionWithOptions(ctx context.Context, runner Runner, options CreateSessionOptions) (Workspace, error) {
-	for _, dependency := range []string{"tmux"} {
-		if err := runner.LookPath(dependency); err != nil {
-			return Workspace{}, fmt.Errorf("workspace session creation requires %q: %w", dependency, err)
-		}
+	if err := runner.LookPath("tmux"); err != nil {
+		return Workspace{}, fmt.Errorf("workspace session requires %q: %w", "tmux", err)
 	}
 	if strings.TrimSpace(options.Path) == "" {
 		return Workspace{}, fmt.Errorf("workspace path is required")
@@ -550,6 +554,9 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 		sandboxName = SandboxName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
 	}
 	if _, err := runner.Run(ctx, "", "tmux", "has-session", "-t", sessionName); err != nil {
+		if err := validateSessionDependencies(runner, options.Tmux); err != nil {
+			return Workspace{}, err
+		}
 		model := options.Model
 		if strings.TrimSpace(repoConfig.Model) != "" {
 			model = repoConfig.Model
@@ -1015,4 +1022,24 @@ func piArgsWithPrompt(sessionID string, name string, model string, thinking stri
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+// Check Radar's standard pane commands without trying to interpret arbitrary
+// user shell programs. Custom commands remain the user's responsibility.
+func validateSessionDependencies(runner Runner, cfg sessionlayout.Config) error {
+	dependencies := []string{"tmux"}
+	for _, window := range sessionlayout.WithDefaults(cfg).Windows {
+		for _, pane := range window.Panes {
+			fields := strings.Fields(pane.Command)
+			if len(fields) > 0 && (fields[0] == "pi" || fields[0] == "nvim") {
+				dependencies = append(dependencies, fields[0])
+			}
+		}
+	}
+	for _, dependency := range dependencies {
+		if err := runner.LookPath(dependency); err != nil {
+			return fmt.Errorf("workspace session requires %q: %w", dependency, err)
+		}
+	}
+	return nil
 }

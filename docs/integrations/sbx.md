@@ -8,13 +8,13 @@ SBX supplies local Docker sandbox resources and shell actions.
 
 ## Configuration and authentication
 
-`sbx.enabled`, `sbx.kit`, and `sbx.additional_mounts` configure managed runtimes. Repository-local settings use the same shape. The authentication capability recognizes login failures and runs the provider-owned interactive login flow when applicable.
+`sbx.enabled`, `sbx.kit`, and `sbx.additional_mounts` configure managed runtimes. Repository-local settings use the same shape. Omitted `enabled` automatically enables new workspaces on macOS when `sbx` is on PATH. Explicit repository `enabled` overrides explicit global `enabled`; otherwise automatic detection applies. Explicit enablement with missing tools or unsupported platforms fails before provisioning; runtime/authentication failures never fall back to the host. Sign in with `sbx login`. Only explicit cleanup can initiate the provider-owned interactive login flow; dashboard startup and creation never prompt.
 
 ## Published development kit
 
 With SBX 0.43.0 or newer, enabling `sbx.enabled` selects `docker.io/christianmoesl/radar-kit:latest` for new workspaces unless a user or repository kit overrides it. No `kit.name` or `kit.path` is required to use this default. Set `sbx.kit.name` only to select another kit or pin a digest. The [sandbox guide](../../sandbox/README.md) documents its tool inventory, Pi requirements, private Docker daemon, publication and rollout.
 
-Sandboxing remains disabled by default. Explicit kit settings, including `"shell"` in an older generated configuration, are preserved; remove that override manually to opt into the new default. Existing workspaces retain their recorded kit even during sandbox recreation. No configuration or registry migration is performed.
+Sandboxing is automatic on supported systems. Existing `sbx.enabled: false` values remain opt-outs; remove the field manually to adopt automatic detection. Explicit kit settings, including `"shell"` in an older generated configuration, are preserved; remove that override manually to opt into the new default. Existing workspaces retain their recorded kit even during sandbox recreation. No configuration or registry migration is performed.
 
 ## Clipboard images and shared screenshots
 
@@ -42,7 +42,7 @@ Existing configured mounts are preserved. If configuration explicitly mounts the
 
 ## Collection and refs
 
-Local refreshes parse `sbx ls --json` and emit stable sandbox refs linked by name, mark, and primary workspace. The runtime capability resolves provider-owned sandbox names. Shell actions use the registered multiplexer rather than invoking tmux themselves.
+With SBX installed, local refreshes parse `sbx ls --json` and emit stable sandbox refs linked by name, mark, and primary workspace. Global `sbx.enabled: false` disables collection of unmanaged sandboxes, but registered workspace runtimes are still observed and remain available for explicit cleanup. This preserves existing workspace behavior and repository opt-ins. Changing defaults never adds or removes a sandbox from an existing registration. The runtime capability resolves provider-owned sandbox names. Shell actions use the registered multiplexer rather than invoking tmux themselves.
 
 Cleanup descriptions and opaque resource IDs are provider-owned. Workspace reconciliation preserves mount, port, recreation, and failure behavior; failed runtime recreation does not roll back completed filesystem or Git changes.
 

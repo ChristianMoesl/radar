@@ -110,30 +110,14 @@ func runTUIWithMode(mode string) {
 	if err := ensureDaemonCurrent(path); err != nil {
 		fatal(err)
 	}
-	response, err := client.Call(path, "tasks")
+	_, err = client.Call(path, "tasks")
 	if err != nil {
 		if err := startDaemonAndWait(path); err != nil {
 			fatal(err)
 		}
-		response, err = client.Call(path, "tasks")
+		_, err = client.Call(path, "tasks")
 		if err != nil {
 			fatal(err)
-		}
-	}
-	integrations := app.DefaultIntegrations()
-	operation := "startup"
-	if mode == "create" || mode == "fork" {
-		operation = mode
-	}
-	authentication, err := integrations.EnsureAuthentication(context.Background(), integration.AuthenticationRequest{Operation: operation, SourceStatuses: response.Sources})
-	if err != nil {
-		fatal(err)
-	}
-	if authentication.Changed {
-		if res, err := client.Call(path, "refresh"); err != nil {
-			fatal(err)
-		} else if !res.OK {
-			fatal(errors.New(res.Error))
 		}
 	}
 	if mode == "create" {
@@ -272,9 +256,6 @@ func runCreate(args []string) {
 	}
 
 	integrations := app.DefaultIntegrations()
-	if _, err := integrations.EnsureAuthentication(context.Background(), integration.AuthenticationRequest{Operation: "create"}); err != nil {
-		fatal(err)
-	}
 	manager, err := integrations.WorkspaceManager()
 	if err != nil {
 		fatal(err)

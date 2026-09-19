@@ -106,7 +106,7 @@ Open Radar. The background daemon starts automatically, refreshes local sources 
 radar
 ```
 
-The first launch creates the JSON config reported by `radar config-path`. Press <kbd>f</kbd> to edit it, set `linking_mark_prefixes` for your ticket keys, and configure only the sources you use; unavailable sources are reported in the dashboard without hiding healthy ones.
+The first launch creates a usable JSON config reported by `radar config-path`. Available integrations activate automatically; missing optional prerequisites are shown as disabled without hiding healthy sources. Press <kbd>f</kbd> to configure an Obsidian vault before creating tasks or workspaces, and optionally set `linking_mark_prefixes` for your ticket keys. See [installation defaults and setup requirements](docs/installation.md).
 
 For a fast, always-available dashboard, open it in a tmux popup:
 
@@ -230,16 +230,15 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 }
 ```
 
-`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree in a temporary setup window after tmux and any sandbox are available. Without sandboxing they run on the host. On macOS, when `sbx.enabled` is true, Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The sandbox mounts the anchor, the private task directory when present, each distinct external writable Git common directory, and global and repository `sbx.additional_mounts`. Nested members are already visible through the anchor. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's regular tools through `sbx exec`. The separately installed `pi-radar` package provides host-side workspace tools and context without launch-time injection. Install `pi-sbx` with `pi install git:github.com/ChristianMoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree in a temporary setup window after tmux and any sandbox are available. Without sandboxing they run on the host. On macOS, when sandboxing is enabled (automatically when `sbx` is installed, or explicitly with `sbx.enabled`), Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The sandbox mounts the anchor, the private task directory when present, each distinct external writable Git common directory, and global and repository `sbx.additional_mounts`. Nested members are already visible through the anchor. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's regular tools through `sbx exec`. The separately installed `pi-radar` package provides host-side workspace tools and context without launch-time injection. Install `pi-sbx` with `pi install git:github.com/ChristianMoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
 
 Changing the worktree membership or requested additional mounts of a sandboxed workspace reconciles the complete mount set by removing and recreating the sandbox under the same name. This interrupts processes inside the sandbox, so the Pi tool warns before confirmation. Radar waits for removal to converge and retries transient SBX container-start failures up to three times with bounded backoff and cleanup between attempts. Plans show the effective mount count and warn at 20 or more mounts without enforcing a limit. Radar then reconciles the complete desired loopback port set with `sbx ports`. If reconciliation fails, Radar keeps completed work and desired registry state and returns `ok: false` with `retryable: true`; the Pi tool reports completed work and asks the agent to re-inspect before retrying. Reconciliation phases and counts are recorded at `radar log-path` without logging complete mount commands.
 
-Enable sandboxes and mount additional host directories into every sandbox in the user config at `radar config-path`. No kit selection is needed: new workspaces use Radar's published development kit by default (SBX 0.43.0 or newer):
+On macOS, installed SBX is enabled for new workspaces by default. Configure additional host directories in the user config at `radar config-path`. No kit selection is needed: new workspaces use Radar's published development kit by default (SBX 0.43.0 or newer):
 
 ```json
 {
   "sbx": {
-    "enabled": true,
     "additional_mounts": ["~/shared-tools", "/opt/company-config"]
   }
 }
@@ -465,11 +464,11 @@ Tmux session refs use `#{session_id}` for stable identity, so renaming a tmux se
 
 ## Docker sbx sandboxes
 
-Radar collects Docker sbx sandboxes with `sbx ls --json` when `sbx` is installed. Sandboxes attach to matching tasks through configured linking marks in the sandbox/workspace name and through their primary workspace path. Sandboxes without matches are shown as standalone in-progress tasks.
+Radar collects Docker sbx sandboxes with `sbx ls --json` when `sbx` is installed, unless globally disabled. Registered workspace sandboxes remain tracked even when the default is disabled. Sandboxes attach to matching tasks through configured linking marks in the sandbox/workspace name and through their primary workspace path. Sandboxes without matches are shown as standalone in-progress tasks.
 
-Sandboxing is opt-in. With SBX 0.43.0 or newer installed and signed in, `{"sbx":{"enabled":true}}` selects `docker.io/christianmoesl/radar-kit:latest` for new workspaces by default. It provides Go, fnm with Node 24, pnpm 12, native build tools, Pi's sandbox tool dependencies and a private Docker daemon. See [the sandbox image and kit guide](sandbox/README.md) for the full inventory, setup and update behavior.
+On macOS, sandboxing activates automatically when `sbx` is installed. Use SBX 0.43.0 or newer and sign in with `sbx login`; new workspaces use `docker.io/christianmoesl/radar-kit:latest` by default. Set `sbx.enabled: false` to opt out or `true` to require sandboxing. An explicit repository setting overrides the global setting in either direction. Missing prerequisites or runtime failures never silently switch sandboxed work to the host. Radar does not open a login prompt on dashboard startup or workspace creation. The kit provides Go, fnm with Node 24, pnpm 12, native build tools, Pi's sandbox tool dependencies and a private Docker daemon. See [the sandbox image and kit guide](sandbox/README.md) for the full inventory, setup and update behavior.
 
-Explicit user or repository kit selections still win, including `"shell"` written by older Radar versions. Remove that `sbx.kit` override manually to adopt the default for new workspaces. Existing workspace records retain their original kit, including when their sandbox is recreated; Radar does not migrate configuration or existing workspaces.
+Existing `sbx.enabled: false` values remain explicit opt-outs; remove the field manually to adopt automatic detection. Explicit user or repository kit selections still win, including `"shell"` written by older Radar versions. Remove that `sbx.kit` override manually to adopt the default for new workspaces. Existing workspace records retain their original kit, including when their sandbox is recreated; Radar does not migrate configuration or existing workspaces.
 
 `sbx.kit.name` can override the default with another agent, sandbox-kit reference or pinned kit digest and is passed as SBX's agent or sandbox-kit reference. Optional `sbx.kit.path` passes a kit location with `--kit`. Configure `sbx.additional_mounts` to add host directories to every sandbox Radar creates.
 
@@ -482,9 +481,11 @@ radar config-path
 ```
 
 By default this is `$XDG_CONFIG_HOME/radar/config.json` or `~/.config/radar/config.json`.
-The daemon creates an example file on startup if it does not exist yet.
+The daemon creates a default file on startup if it does not exist yet.
 
 Radar-managed Pi sessions also load `$XDG_CONFIG_HOME/radar/AGENTS.md`, falling back to `~/.config/radar/AGENTS.md`. The installer creates the default file only when it is missing. Edit it to change agent behavior specific to Radar workspace and resource management. Radar reads it before every agent turn, so changes apply without restarting Pi.
+
+Optional integrations (`github`, `jira`, `datadog`, and `sbx`) accept `enabled`: omit it for automatic activation, set `false` to opt out, or `true` to report missing prerequisites as an error. Auto-detection is evaluated at runtime, never persisted as an on/off decision in a new config. For example, `{"github":{"enabled":false}}` disables GitHub collection. Jira still needs its environment credentials; Datadog still needs credentials and a monitor query. See [the activation contract](docs/installation.md) for prerequisites, repository precedence, and existing-workspace behavior.
 
 Example:
 
@@ -500,7 +501,6 @@ Example:
   "model": "github-copilot/claude-sonnet-4.5",
   "thinking": "medium",
   "sbx": {
-    "enabled": true,
     "additional_mounts": []
   },
   "datadog": {
@@ -534,7 +534,7 @@ Example:
 }
 ```
 
-`linking_mark_prefixes` is mandatory and lists the identifier prefixes Radar may use to link work across sources, for example `["ABC"]` permits `ABC-722`. Prefixes are normalized to uppercase, must start with a letter, and may contain only letters and numbers. Radar matches only complete `<PREFIX>-<NUMBER>` marks, so unrelated suffixes such as `Origin-096e274f` are ignored.
+`linking_mark_prefixes` optionally lists the identifier prefixes Radar may use to link work across sources, for example `["ABC"]` permits `ABC-722`. Omitting it or using `[]` disables only ticket-prefix linking; source identity, branch, and workspace linking still work. Prefixes are normalized to uppercase, must start with a letter, and may contain only letters and numbers. Radar matches only complete `<PREFIX>-<NUMBER>` marks, so unrelated suffixes such as `Origin-096e274f` are ignored.
 
 `obsidian.vault_path` is required for task authoring and workspace creation and must identify an existing vault containing `.obsidian/`; Radar creates its fixed `Tasks/` root. `repository_dirs` controls where `radar create` discovers base repositories. `workspace.root_dir` controls where Radar creates worktrees. When omitted, it defaults to `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. Existing configs must move the former `workspace_root` value manually; Radar does not read legacy user-config keys. `workspace.auto_confirm` defaults to `false`; when enabled, Radar's Pi tool still previews and validates workspace reconciliation but applies the plan without asking for confirmation. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.authoritative_issue_types` defaults to Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection, while `datadog.monitor_statuses` selects the unhealthy states to ingest and defaults to Alert, Warn, and No Data. Secrets are accepted only from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`.
 

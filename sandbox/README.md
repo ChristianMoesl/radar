@@ -6,16 +6,19 @@ this environment. There are no model-provider credentials in the image or kit.
 
 ## Use the published kit
 
-With SBX 0.43.0 or newer installed and signed in, enable sandboxing in Radar's
-user configuration (at `radar config-path`) or a repository's `.radar.json`:
+On macOS, Radar automatically enables sandboxing when `sbx` is installed. Use
+SBX 0.43.0 or newer and sign in with `sbx login`. To require sandboxing explicitly,
+set this in Radar's user configuration or a repository's `.radar.json`:
 
 ```json
 {"sbx": {"enabled": true}}
 ```
 
 New workspaces default to `docker.io/christianmoesl/radar-kit:latest`; no kit
-selection is required. Sandboxing itself remains opt-in. Explicit user and
-repository kit settings still override this default. If an older generated
+selection is required. Set `sbx.enabled: false` to opt out; explicit repository
+settings override global settings in either direction. Existing explicit false
+values are preserved; remove the field to adopt automatic detection. Explicit
+user and repository kit settings still override the default kit. If an older generated
 configuration contains `"kit": {"name": "shell"}`, remove that override manually
 to adopt the new default. Radar does not edit existing user configuration.
 

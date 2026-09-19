@@ -26,8 +26,8 @@ func TestDefaultUsesProductDefaults(t *testing.T) {
 	if cfg.Workspace.AutoConfirm {
 		t.Fatal("Workspace.AutoConfirm = true, want disabled default")
 	}
-	if cfg.SBX.Enabled {
-		t.Fatal("SBX.Enabled = true, want disabled default")
+	if cfg.SBX.Enabled != nil {
+		t.Fatal("SBX.Enabled must be omitted for automatic detection")
 	}
 	if cfg.SBX.Kit.Name != "docker.io/christianmoesl/radar-kit:latest" || cfg.SBX.Kit.Path != "" {
 		t.Fatalf("SBX.Kit = %#v, want published Radar kit without a path", cfg.SBX.Kit)
@@ -128,7 +128,7 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	if cfg.Thinking != "high" {
 		t.Fatalf("Thinking = %q", cfg.Thinking)
 	}
-	if !cfg.SBX.Enabled {
+	if cfg.SBX.Enabled == nil || !*cfg.SBX.Enabled {
 		t.Fatal("SBX.Enabled = false, want true")
 	}
 	if cfg.SBX.Kit.Name != "radar" || cfg.SBX.Kit.Path != "~/kits/radar" {
@@ -191,7 +191,7 @@ func TestLoadSandboxKitDefaultsAndOverrides(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !cfg.SBX.Enabled || cfg.SBX.Kit != tt.want {
+			if cfg.SBX.Enabled == nil || !*cfg.SBX.Enabled || cfg.SBX.Kit != tt.want {
 				t.Fatalf("SBX = %+v, want enabled with kit %+v", cfg.SBX, tt.want)
 			}
 			stored, err := os.ReadFile(path)
@@ -225,7 +225,7 @@ func TestLoadDoesNotTreatWorkspaceRootAsAlias(t *testing.T) {
 	}
 }
 
-func TestLoadRequiresLinkingMarkPrefixes(t *testing.T) {
+func TestLoadAllowsNoLinkingMarkPrefixes(t *testing.T) {
 	home := t.TempDir()
 	configHome := filepath.Join(home, "config")
 	t.Setenv("HOME", home)
@@ -237,8 +237,8 @@ func TestLoadRequiresLinkingMarkPrefixes(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "linking_mark_prefixes must not be empty") {
-		t.Fatalf("Load() error = %v, want required linking mark prefixes error", err)
+	if cfg, err := Load(); err != nil || len(cfg.LinkingMarkPrefixes) != 0 {
+		t.Fatalf("Load() = %+v, %v; want usable defaults without prefix linking", cfg, err)
 	}
 }
 
@@ -455,13 +455,13 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 		t.Fatalf("generated Jira status config = %#v, fallback %q", generated.Jira.StatusMapping, generated.Jira.UnmappedStatus)
 	}
 	if generated.LinkingMarkPrefixes == nil || len(generated.LinkingMarkPrefixes) != 0 {
-		t.Fatalf("generated LinkingMarkPrefixes = %#v, want mandatory empty list", generated.LinkingMarkPrefixes)
+		t.Fatalf("generated LinkingMarkPrefixes = %#v, want empty list", generated.LinkingMarkPrefixes)
 	}
 	if generated.Workspace.RootDir != "~/.local/share/radar/workspaces" || generated.Workspace.AutoConfirm {
 		t.Fatalf("generated Workspace = %#v", generated.Workspace)
 	}
-	if generated.SBX.Enabled || generated.SBX.Kit.Name != "docker.io/christianmoesl/radar-kit:latest" || generated.SBX.Kit.Path != "" {
-		t.Fatalf("generated SBX = %#v, want disabled with the published Radar kit", generated.SBX)
+	if generated.SBX.Enabled != nil || generated.SBX.Kit.Name != "docker.io/christianmoesl/radar-kit:latest" || generated.SBX.Kit.Path != "" {
+		t.Fatalf("generated SBX = %#v, want automatic with the published Radar kit", generated.SBX)
 	}
 	if generated.Datadog.MonitorQuery != "" {
 		t.Fatalf("generated Datadog.MonitorQuery = %q, want disabled empty query", generated.Datadog.MonitorQuery)
@@ -510,6 +510,44 @@ func TestObsidianVaultValidationAndPreparation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := (ObsidianConfig{VaultPath: test.path}).ValidateAndPrepare(); err == nil {
 				t.Fatalf("ValidateAndPrepare(%q) error = nil", test.path)
+			}
+		})
+	}
+}
+
+func TestOptionalEnableSettingsSurviveLoadAndInstallerReruns(t *testing.T) {
+	for _, value := range []string{"true", "false", "null"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			path, err := EnsureFile()
+			if err != nil {
+				t.Fatal(err)
+			}
+			contents := `{"sbx":{"enabled":` + value + `},"github":{"enabled":` + value + `},"jira":{"enabled":` + value + `},"datadog":{"enabled":` + value + `}}`
+			if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := EnsureFile(); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for name, enabled := range map[string]*bool{"sbx": cfg.SBX.Enabled, "github": cfg.GitHub.Enabled, "jira": cfg.Jira.Enabled, "datadog": cfg.Datadog.Enabled} {
+				if value == "null" {
+					if enabled != nil {
+						t.Fatalf("%s = %v, want auto", name, enabled)
+					}
+					continue
+				}
+				if enabled == nil || *enabled != (value == "true") {
+					t.Fatalf("%s = %v, want %s", name, enabled, value)
+				}
+			}
+			data, _ := os.ReadFile(path)
+			if string(data) != contents {
+				t.Fatal("user configuration was rewritten")
 			}
 		})
 	}

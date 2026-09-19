@@ -35,21 +35,16 @@ func (Source) Descriptor() integration.Descriptor {
 }
 
 func (Source) Status(ctx context.Context, logger *slog.Logger) integration.StatusResult {
-	status := protocol.SourceStatus{Name: "jira", Status: "ok"}
-	if _, err := config.Load(); err != nil {
-		logger.Debug("jira user configuration is invalid", "error", err)
-		status.Status = "error"
-		status.Detail = "could not load config"
-		return integration.StatusResult{Status: status, CanRun: false}
+	cfg, err := config.Load()
+	if err != nil {
+		return integration.StatusResult{Status: protocol.SourceStatus{Name: "jira", Status: "error", Detail: err.Error()}}
 	}
-	_, ok, missing := configFromEnv()
-	if !ok {
-		logger.Debug("jira collector not configured", "missing", missing)
-		status.Status = "disabled"
-		status.Detail = "missing " + strings.Join(missing, ", ")
-		return integration.StatusResult{Status: status, CanRun: false}
+	_, _, missing := configFromEnv()
+	detail := ""
+	if len(missing) > 0 {
+		detail = "missing " + strings.Join(missing, ", ")
 	}
-	return integration.StatusResult{Status: status, CanRun: true}
+	return integration.OptionalStatus("jira", cfg.Jira.Enabled, detail)
 }
 
 func (source Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
@@ -59,10 +54,13 @@ func (source Source) Collect(ctx context.Context, req integration.CollectRequest
 		status := protocol.SourceStatus{Name: "jira", Status: "error", Detail: "could not load config"}
 		return integration.CollectResult{SourceStatus: &status}
 	}
-	jiraConfig, ok, missing := configFromEnv()
-	if !ok {
-		status := protocol.SourceStatus{Name: "jira", Status: "disabled", Detail: "missing " + strings.Join(missing, ", ")}
-		return integration.CollectResult{SourceStatus: &status}
+	jiraConfig, _, missing := configFromEnv()
+	detail := ""
+	if len(missing) > 0 {
+		detail = "missing " + strings.Join(missing, ", ")
+	}
+	if availability := integration.OptionalStatus("jira", userConfig.Jira.Enabled, detail); !availability.CanRun {
+		return integration.CollectResult{SourceStatus: &availability.Status}
 	}
 
 	status := protocol.SourceStatus{Name: "jira", Status: "ok"}

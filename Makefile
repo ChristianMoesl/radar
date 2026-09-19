@@ -31,9 +31,9 @@ notifier:
 	scripts/build-notifier-app.sh "$(NOTIFIER_APP)" "$(VERSION)" "$(HOST_GOARCH)"
 
 install: build
-	install -d $(BINDIR)
-	install -m 0755 $(BINARY) $(BINDIR)/$(BINARY)
-	scripts/install-agent-instructions.sh $(AGENT_INSTRUCTIONS_TEMPLATE)
+	install -d "$(BINDIR)"
+	install -m 0755 "$(BINARY)" "$(BINDIR)/$(BINARY)"
+	scripts/install-agent-instructions.sh "$(AGENT_INSTRUCTIONS_TEMPLATE)"
 	@if [ "$(HOST_OS)" = "Darwin" ]; then \
 		rm -rf "$(LIBEXECDIR)/RadarNotifier.app"; \
 		install -d "$(LIBEXECDIR)"; \

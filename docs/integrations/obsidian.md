@@ -14,7 +14,7 @@ Add the vault to `radar config-path`:
 }
 ```
 
-Radar expands `~/`, requires an absolute vault containing `.obsidian/`, and creates `<vault>/Tasks/`. Obsidian Desktop is needed only for the **Open in Obsidian** action.
+Radar expands `~/`, requires an absolute vault containing `.obsidian/`, and creates `<vault>/Tasks/`. Obsidian Desktop is needed only for the **Open in Obsidian** action. An unconfigured vault is shown as disabled on the dashboard, with setup guidance; configured but invalid vaults are errors. Tasks and workspace creation still require a valid vault. Radar never guesses or creates a vault.
 
 ## Task layout
 

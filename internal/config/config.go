@@ -151,9 +151,6 @@ func validate(cfg Config) error {
 	if err := pi.ValidateThinking(cfg.Thinking); err != nil {
 		return err
 	}
-	if len(cfg.LinkingMarkPrefixes) == 0 {
-		return fmt.Errorf("linking_mark_prefixes must not be empty")
-	}
 	markPrefixes := map[string]string{}
 	validMarkPrefix := regexp.MustCompile(`^[A-Z][A-Z0-9]*$`)
 	for i, prefix := range cfg.LinkingMarkPrefixes {

@@ -74,7 +74,7 @@ Every integration implements `Integration` by returning a descriptor with its st
 | tmux | yes | yes | yes | no | no | no | yes | no | multiplexer, activity publisher |
 | SBX | yes | yes | yes | no | no | yes | yes | no | runtime naming, authentication |
 
-The matrix describes compiled capabilities, not whether a source can run in the current environment. `StatusReporter` reports missing tools, credentials, configuration, or API availability at runtime.
+The matrix describes compiled capabilities, not whether a source can run in the current environment. `StatusReporter` reports missing tools, credentials, configuration, or API availability at runtime. See [installation defaults](installation.md) for the shared auto/explicit-enable/explicit-disable contract. A source with `CanRun: false` is skipped for both collection and reconciliation; provider-owned explicit actions and cleanup remain available.
 
 ## Source facts
 

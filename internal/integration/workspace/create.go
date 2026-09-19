@@ -20,7 +20,7 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 		return ReconcileWorkspacePlan{}, ReconcileWorkspaceRequest{}, err
 	}
 	if err := runner.LookPath("tmux"); err != nil {
-		return fail(err)
+		return fail(fmt.Errorf("workspace session requires %q: %w", "tmux", err))
 	}
 	if err := pi.ValidateThinking(options.Thinking); err != nil {
 		return fail(err)
@@ -102,6 +102,9 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 	if _, err := os.Lstat(anchor); err == nil {
 		return fail(fmt.Errorf("workspace anchor is occupied by unrelated content: %s", anchor))
 	} else if !os.IsNotExist(err) {
+		return fail(err)
+	}
+	if err := validateSessionDependencies(runner, options.Tmux); err != nil {
 		return fail(err)
 	}
 	repoConfig := RepoConfig{}

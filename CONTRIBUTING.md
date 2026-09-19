@@ -26,6 +26,15 @@ make install
 radar version
 ```
 
+## Installation regression tests
+
+`go test ./scripts ./internal/app ./internal/config ./internal/collector ./internal/integration/...`
+exercises release and source installers, first daemon launch, optional-integration
+activation, repository precedence, and missing workspace prerequisites. Fixtures
+isolate HOME/XDG directories, PATH and credentials; they never call real remote
+services or create real sandboxes. CI runs this suite on Linux and macOS. See
+[installation defaults](docs/installation.md) for the supported setup matrix.
+
 ## Pi extension
 
 Use Node.js 24+ and install the development dependencies:

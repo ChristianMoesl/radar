@@ -28,7 +28,7 @@ func (Source) Local() bool {
 }
 
 func (Source) Status(ctx context.Context, logger *slog.Logger) integration.StatusResult {
-	status := SourceStatus(ctx)
+	_, _, status := collectionSettings(logger)
 	return integration.StatusResult{Status: status, CanRun: status.Status == "ok"}
 }
 

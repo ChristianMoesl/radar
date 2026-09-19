@@ -8,7 +8,7 @@ Datadog supplies actionable monitor work items through the monitor search API.
 
 ## Configuration and authentication
 
-`datadog.monitor_query` scopes collection and `datadog.monitor_statuses` selects `Alert`, `Warn`, and `No Data`. Credentials come from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`; Radar does not persist them.
+`datadog.monitor_query` scopes collection and `datadog.monitor_statuses` selects `Alert`, `Warn`, and `No Data`. Credentials come from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`; Radar does not persist them. Omitted `datadog.enabled` activates collection only when both credentials and a monitor query exist; `false` skips collection and reconciliation, and `true` reports missing prerequisites as an error. Radar never invents a query or defaults to collecting every monitor.
 
 ## Collection and refs
 

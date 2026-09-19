@@ -8,7 +8,7 @@ Jira supplies work-tracker issues through Jira Cloud REST APIs.
 
 ## Configuration and authentication
 
-`jira.base_url`, `jira.email`, and `jira.api_token` configure API access. Authoritative issue types, status mapping, and the unmapped-status policy are provider-owned settings.
+`RADAR_JIRA_BASE_URL`, `RADAR_JIRA_EMAIL`, `RADAR_JIRA_API_TOKEN`, and either `RADAR_JIRA_CLOUD_ID` or `RADAR_JIRA_API_BASE_URL` configure API access. Omitted `jira.enabled` activates collection when these prerequisites exist; `false` skips collection and reconciliation, and `true` reports missing prerequisites as an error. Authoritative issue types, status mapping, and the unmapped-status policy are provider-owned settings.
 
 ## Collection and refs
 

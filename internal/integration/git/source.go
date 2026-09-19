@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -32,6 +33,9 @@ func (Source) Local() bool {
 }
 
 func (Source) Status(ctx context.Context, logger *slog.Logger) integration.StatusResult {
+	if _, err := exec.LookPath("git"); err != nil {
+		return integration.OptionalStatus("git", nil, "git not found")
+	}
 	return integration.StatusResult{
 		Status: protocol.SourceStatus{Name: "git", Status: "ok"},
 		CanRun: true,

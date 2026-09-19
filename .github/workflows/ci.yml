@@ -74,5 +74,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Test installation and integration defaults on macOS
+        run: go test ./scripts ./internal/app ./internal/config ./internal/collector ./internal/integration/...
+
       - name: Check macOS release packaging
         run: make dist VERSION=ci DIST_TARGETS="darwin/amd64 darwin/arm64"

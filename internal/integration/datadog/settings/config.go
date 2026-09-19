@@ -6,6 +6,7 @@ import (
 )
 
 type Config struct {
+	Enabled         *bool    `json:"enabled,omitempty"`
 	MonitorQuery    string   `json:"monitor_query"`
 	MonitorStatuses []string `json:"monitor_statuses"`
 }

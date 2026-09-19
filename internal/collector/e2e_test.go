@@ -105,6 +105,10 @@ func setupFakeGitHubCLI(t *testing.T, tmp string) {
 	script := fmt.Sprintf(`#!/bin/sh
 set -eu
 mode=$(cat %q)
+if [ "$1 $2" = "auth token" ]; then
+  printf "test-token\n"
+  exit 0
+fi
 if [ "$1" = "api" ] && [ "$2" = "rate_limit" ]; then
   cat <<'JSON'
 {"resources":{"core":{"limit":5000,"remaining":4999,"reset":4102444800},"search":{"limit":30,"remaining":30,"reset":4102444800},"graphql":{"limit":5000,"remaining":4999,"reset":4102444800}}}

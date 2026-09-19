@@ -90,6 +90,15 @@ func (s Source) configuredVault() (string, error) {
 }
 
 func (s Source) Status(_ context.Context, _ *slog.Logger) integration.StatusResult {
+	if strings.TrimSpace(s.vaultPath) == "" {
+		cfg, err := config.Load()
+		if err != nil {
+			return integration.StatusResult{Status: protocol.SourceStatus{Name: "obsidian", Status: "error", Detail: err.Error()}}
+		}
+		if strings.TrimSpace(cfg.Obsidian.VaultPath) == "" {
+			return integration.OptionalStatus("obsidian", nil, "configure obsidian.vault_path to create tasks and workspaces")
+		}
+	}
 	vault, err := s.configuredVault()
 	if err != nil {
 		return integration.StatusResult{Status: protocol.SourceStatus{Name: "obsidian", Status: "error", Detail: err.Error()}, CanRun: true}

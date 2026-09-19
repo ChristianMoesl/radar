@@ -40,3 +40,31 @@ func TestCollectSourcesUsesRuntimeSourceStatus(t *testing.T) {
 		t.Fatalf("source status = %+v, want runtime collection error", status)
 	}
 }
+
+type unavailableSource struct{ called *bool }
+
+func (s unavailableSource) Descriptor() integration.Descriptor {
+	return integration.Descriptor{Name: "unavailable"}
+}
+func (s unavailableSource) Status(context.Context, *slog.Logger) integration.StatusResult {
+	return integration.OptionalStatus("unavailable", new(false), "")
+}
+func (s unavailableSource) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
+	*s.called = true
+	return integration.CollectResult{}
+}
+func (s unavailableSource) Reconcile(context.Context, integration.ReconcileRequest) []integration.Observation {
+	*s.called = true
+	return nil
+}
+func TestUnavailableSourceDoesNotCollectOrReconcile(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	called := false
+	result := Collect(context.Background(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)), []integration.Source{unavailableSource{&called}, collectionStatusSource{}})
+	if called {
+		t.Fatal("disabled integration was invoked")
+	}
+	if len(result.Sources) != 2 {
+		t.Fatalf("sources = %+v", result.Sources)
+	}
+}
