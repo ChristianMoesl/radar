@@ -65,11 +65,13 @@ The release script tests, builds the release archives, creates a signed annotate
 
 Release assets should not be replaced after publishing. If a release is wrong, publish a new patch version.
 
-The sandbox image is released separately because it packages frequently updated tools such as Node, pnpm, and gh. The sandbox image workflow runs weekly and can be triggered manually. It publishes:
+The sandbox image and SBX kit are released together, separately from Radar binaries. The [sandbox workflow](.github/workflows/sandbox-image.yml) builds and smoke-tests both architectures on relevant pull requests and changes to `main`, weekly, or manually. Trusted `main` runs also verify a real SBX sandbox and its private Docker daemon before publishing:
 
 ```text
-christianmoesl/radar-sandbox:YYYY.MM.DD
-christianmoesl/radar-sandbox:latest
+docker.io/christianmoesl/radar-sandbox:<date>-<revision>-<run>-<attempt>
+docker.io/christianmoesl/radar-sandbox:latest
+docker.io/christianmoesl/radar-kit:<date>-<revision>-<run>-<attempt>
+docker.io/christianmoesl/radar-kit:latest
 ```
 
-Publishing the sandbox image requires the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` GitHub secrets.
+Publishing requires the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` GitHub secrets with read/write access to both repositories. Each kit pins the matching image digest and is signed using GitHub Actions OIDC. See [the sandbox guide](sandbox/README.md) for the tool inventory, fnm/Node and Go defaults, local validation, dependency updates and rollout guidance.

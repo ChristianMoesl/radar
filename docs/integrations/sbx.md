@@ -10,6 +10,10 @@ SBX supplies local Docker sandbox resources and shell actions.
 
 `sbx.enabled`, `sbx.kit`, and `sbx.additional_mounts` configure managed runtimes. Repository-local settings use the same shape. The authentication capability recognizes login failures and runs the provider-owned interactive login flow when applicable.
 
+## Published development kit
+
+Set `sbx.kit.name` to `docker.io/christianmoesl/radar-kit:latest`, or pin its digest, to use Radar's published toolchain image. No `kit.path` is needed for this OCI sandbox-kit reference. The [sandbox guide](../../sandbox/README.md) documents its tool inventory, Pi requirements, private Docker daemon, publication and rollout. Existing workspaces retain their recorded kit; this does not silently recreate them.
+
 ## Clipboard images and shared screenshots
 
 Radar provisions one private host directory per sandbox-backed workspace:
@@ -18,7 +22,7 @@ Radar provisions one private host directory per sandbox-backed workspace:
 <host temporary directory>/radar-workspaces/<workspace-id>/
 ```
 
-The directory and its parent are created with mode `0700`. Only the workspace's child is mounted read/write, at the same absolute path in the sandbox. The CAP shell image needs no special screenshot support or rebuild: screenshot tools accept an explicit output path.
+The directory and its parent are created with mode `0700`. Only the workspace's child is mounted read/write, at the same absolute path in the sandbox. The shell image needs no special screenshot support: screenshot tools accept an explicit output path. Radar's image includes `file` so `pi-sbx` can recognize image MIME types when reading the resulting files; browser/screenshot tools remain project-specific dependencies.
 
 The recorded `sandbox.shared_directory` is a managed resource, separate from agent-requested `additional_mounts`. New workspaces provision it during creation. An existing workspace without this resource keeps its current behavior until explicit workspace reconciliation provisions it. Preview is read-only and shows the new writable mount and any sandbox recreation; apply persists the path so later host `TMPDIR` changes do not relocate files.
 

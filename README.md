@@ -469,7 +469,9 @@ Tmux session refs use `#{session_id}` for stable identity, so renaming a tmux se
 
 Radar collects Docker sbx sandboxes with `sbx ls --json` when `sbx` is installed. Sandboxes attach to matching tasks through configured linking marks in the sandbox/workspace name and through their primary workspace path. Sandboxes without matches are shown as standalone in-progress tasks.
 
-The default sandbox kit name is `shell`. Set `sbx.kit.name` to select another kit and optionally set `sbx.kit.path` to pass its location with `--kit`. Configure `sbx.additional_mounts` to add host directories to every sandbox Radar creates.
+The default sandbox kit name is `shell`. To use Radar's published development environment, set `sbx.kit.name` to `docker.io/christianmoesl/radar-kit:latest` (or a pinned kit digest). It provides Go, fnm with Node 24, pnpm 12, native build tools, Pi's sandbox tool dependencies and a private Docker daemon. See [the sandbox image and kit guide](sandbox/README.md) for the full inventory, setup and update behavior.
+
+`sbx.kit.name` is passed as SBX's agent or sandbox-kit reference. Optional `sbx.kit.path` passes a kit location with `--kit`. Configure `sbx.additional_mounts` to add host directories to every sandbox Radar creates.
 
 ## Config
 

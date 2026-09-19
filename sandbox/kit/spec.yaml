@@ -1,0 +1,15 @@
+schemaVersion: "2"
+kind: sandbox
+name: radar
+displayName: Radar development sandbox
+description: Go, Node.js via fnm, pnpm, native build tools and a private Docker daemon.
+sourceURL: https://github.com/ChristianMoesl/radar
+
+sandbox:
+  # CI replaces this with the published multi-platform image digest before
+  # publishing the kit. A pinned kit therefore also pins its toolchain image.
+  image: docker.io/christianmoesl/radar-sandbox:latest
+  entrypoint: [bash]
+
+# No host credentials, extra mounts, port exposure or network-policy overrides.
+# The shell-docker base requests the private daemon inside SBX's microVM.

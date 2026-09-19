@@ -1,0 +1,25 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["dockerfile", "custom.regex"],
+  "pinDigests": true,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^Dockerfile$/", "/^\\.github/workflows/sandbox-image\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n(?:ARG |  )\\w+(?:=|: )(?<currentValue>\\S+)"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": ["node"],
+      "allowedVersions": ">=24 <25"
+    },
+    {
+      "matchPackageNames": ["pnpm"],
+      "allowedVersions": ">=12 <13"
+    }
+  ]
+}

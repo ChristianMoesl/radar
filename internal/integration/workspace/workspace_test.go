@@ -626,6 +626,23 @@ func TestCreateStartsSandboxEnabledByUserConfig(t *testing.T) {
 	assertNotCalledContains(t, runner.calls, "tmux", "pi --approve")
 }
 
+func TestStartSandboxWithPublishedKitReference(t *testing.T) {
+	for _, ref := range []string{
+		"docker.io/christianmoesl/radar-kit:latest",
+		"docker.io/christianmoesl/radar-kit@sha256:" + strings.Repeat("a", 64),
+	} {
+		t.Run(ref, func(t *testing.T) {
+			runner := &fakeRunner{}
+			path := t.TempDir()
+			if _, err := startSandboxWithMounts(context.Background(), runner, path, "sandbox", SandboxKitConfig{Name: ref}, []string{path}); err != nil {
+				t.Fatal(err)
+			}
+			assertCalled(t, runner.calls, "sbx", "create --name sandbox "+ref+" "+path)
+			assertNotCalledContains(t, runner.calls, "sbx", "--kit")
+		})
+	}
+}
+
 func TestWorkspaceSandboxConfigAppliesRepoOverrides(t *testing.T) {
 	disabled := false
 	settings := workspaceSandboxConfig(RepoConfig{SBX: &SandboxConfig{

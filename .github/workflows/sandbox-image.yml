@@ -1,6 +1,21 @@
 name: Sandbox image
 
 on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - sandbox/**
+      - scripts/test-sandbox-runtime.sh
+      - .github/workflows/sandbox-image.yml
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - sandbox/**
+      - scripts/test-sandbox-runtime.sh
+      - .github/workflows/sandbox-image.yml
   workflow_dispatch:
   schedule:
     - cron: '0 4 * * 1'
@@ -8,21 +23,32 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sandbox-image-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
-  IMAGE: christianmoesl/radar-sandbox
+  IMAGE: docker.io/christianmoesl/radar-sandbox
+  KIT: docker.io/christianmoesl/radar-kit
+  # renovate: datasource=github-releases depName=docker/sbx-releases
+  SBX_VERSION: v0.43.0
 
 jobs:
   publish:
-    name: Build and publish sandbox image
+    name: Test and publish sandbox image and kit
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set image tag
+      - name: Set immutable build tag
         id: version
-        run: echo "tag=$(date -u +%Y.%m.%d)" >> "$GITHUB_OUTPUT"
+        run: echo "tag=$(date -u +%Y.%m.%d)-${GITHUB_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -30,18 +56,79 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Install SBX
+        run: |
+          curl -fsSL "https://github.com/docker/sbx-releases/releases/download/${SBX_VERSION}/DockerSandboxes-linux-amd64.tar.gz" -o "$RUNNER_TEMP/sbx.tar.gz"
+          tar -xzf "$RUNNER_TEMP/sbx.tar.gz" -C "$RUNNER_TEMP"
+          sudo env PREFIX="$RUNNER_TEMP/sbx" "$RUNNER_TEMP/docker-sbx/install.sh"
+          echo "$RUNNER_TEMP/sbx/bin" >> "$GITHUB_PATH"
+
+      - name: Validate kit
+        run: sbx kit validate sandbox/kit
+
+      - name: Build and smoke-test both architectures
+        run: |
+          for arch in amd64 arm64; do
+            image="$IMAGE:check-$arch"
+            docker buildx build --pull --platform "linux/$arch" --load --tag "$image" .
+            test "$(docker image inspect --format '{{ index .Config.Labels "com.docker.sandboxes.start-docker" }}' "$image")" = true
+            test "$(docker image inspect --format '{{ index .Config.Labels "com.docker.sandboxes.flavor" }}' "$image")" = radar
+            docker run --rm --platform "linux/$arch" --network none -i "$image" bash -s < sandbox/smoke-test.sh
+          done
+
+      # PRs (including same-repository PRs) never receive publishing credentials.
       - name: Login to Docker Hub
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push image
+      - name: Sign in to SBX and test the private daemon
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          sudo chmod a+rw /dev/kvm
+          printf '%s' "$DOCKERHUB_TOKEN" | sbx login --username "$DOCKERHUB_USERNAME" --password-stdin
+          bash scripts/test-sandbox-runtime.sh "$IMAGE:check-amd64"
+
+      - name: Publish tested image
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        id: image
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}
-            ${{ env.IMAGE }}:latest
+          tags: ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}
+
+      - name: Set up ORAS
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: oras-project/setup-oras@v2
+        with:
+          version: '1.3.3'
+
+      - name: Publish kit pinned to the tested image
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          mkdir "$RUNNER_TEMP/radar-kit"
+          sed "s|^  image: .*|  image: $IMAGE@$IMAGE_DIGEST|" sandbox/kit/spec.yaml > "$RUNNER_TEMP/radar-kit/spec.yaml"
+          sbx kit validate "$RUNNER_TEMP/radar-kit"
+          sbx kit push "$RUNNER_TEMP/radar-kit" "$KIT:$TAG" --sign
+          digest=$(oras manifest fetch --descriptor "$KIT:$TAG" | jq -er .digest)
+          # Retag the same manifests rather than repacking or rebuilding them.
+          oras tag "$KIT@$digest" latest
+          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$IMAGE_DIGEST"
+          {
+            echo '## Published sandbox image and kit'
+            echo "- Image: \`$IMAGE:$TAG\` (also \`latest\`)"
+            echo "- Kit: \`$KIT:$TAG\` (also \`latest\`)"
+            echo "- Pinned image: \`$IMAGE@$IMAGE_DIGEST\`"
+            echo "- Pinned kit: \`$KIT@$digest\`"
+            echo '- Kit signed using GitHub Actions OIDC; its spec pins the image digest.'
+          } >> "$GITHUB_STEP_SUMMARY"
