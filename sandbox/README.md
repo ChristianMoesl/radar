@@ -112,8 +112,8 @@ uses fnm and offline pnpm, compiles C/C++, exercises Go/cgo and loads a native
 Node addon. It also checks file discovery, search and PNG MIME detection used
 by Pi's tools.
 
-On a **disposable Linux test host** with Docker, SBX, accessible `/dev/kvm` and an
-SBX login, additionally run:
+On a **disposable Linux test host** with Docker, SBX, accessible `/dev/kvm`, an
+SBX login and an initialized network policy, additionally run:
 
 ```sh
 bash scripts/test-sandbox-runtime.sh radar-sandbox:test
@@ -129,7 +129,8 @@ sandbox and files. It does not reset other sandboxes or alter network policy.
 [The workflow](../.github/workflows/sandbox-image.yml) runs on relevant changes
 to `main`, weekly, or manually. Pull requests build and smoke-test both
 architectures without publishing or receiving Docker Hub credentials. Trusted
-`main` runs additionally test the real SBX runtime before publishing.
+`main` runs additionally initialize a balanced policy on the disposable runner
+and test the real SBX runtime before publishing.
 
 The workflow publishes **linux/amd64 and linux/arm64** images and one
 architecture-independent kit:

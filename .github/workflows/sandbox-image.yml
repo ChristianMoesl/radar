@@ -92,6 +92,7 @@ jobs:
         run: |
           sudo chmod a+rw /dev/kvm
           printf '%s' "$DOCKERHUB_TOKEN" | sbx login --username "$DOCKERHUB_USERNAME" --password-stdin
+          sbx policy init balanced
           bash scripts/test-sandbox-runtime.sh "$IMAGE:check-amd64"
 
       - name: Publish tested image
