@@ -8,6 +8,7 @@ import (
 
 	"radar/internal/cleanup"
 	"radar/internal/integration"
+	sbxclient "radar/internal/integration/sbx/client"
 	"radar/internal/integration/workspace"
 	"radar/internal/protocol"
 	"radar/internal/taskrefs"
@@ -125,8 +126,10 @@ func openShell(ctx context.Context, runner workspace.Runner, multiplexer integra
 	if name == "" {
 		return OpenShellResult{}, fmt.Errorf("sbx sandbox name is required")
 	}
-	if err := runner.LookPath("sbx"); err != nil {
-		return OpenShellResult{}, fmt.Errorf("open sbx sandbox requires %q: %w", "sbx", err)
+	client := sbxclient.New(runner)
+	executable, err := client.Executable()
+	if err != nil {
+		return OpenShellResult{}, fmt.Errorf("open sbx sandbox requires SBX: %w", err)
 	}
 	sessionName := strings.TrimSpace(options.SessionTarget)
 	if sessionName == "" {
@@ -135,7 +138,10 @@ func openShell(ctx context.Context, runner workspace.Runner, multiplexer integra
 	if sessionName == "" {
 		return OpenShellResult{}, fmt.Errorf("multiplexer session name is required")
 	}
-	command := "sbx run --name " + shellQuote(name)
+	command := executable + " run --name " + shellQuote(name)
+	if executable == "sbx.exe" {
+		command = "cd / && exec " + command
+	}
 	path := strings.TrimSpace(ref.Path)
 	result := OpenShellResult{SessionName: sessionName}
 	session, err := multiplexer.EnsureSession(ctx, integration.EnsureSessionRequest{Name: sessionName, Path: path, FirstWindow: "sbx", FirstCommand: command})
@@ -161,7 +167,11 @@ func cleanupSandbox(ctx context.Context, runner workspace.Runner, target protoco
 	if name == "" {
 		return protocol.CleanupTarget{}, fmt.Errorf("sbx sandbox name is required")
 	}
-	if _, err := runner.Run(ctx, "", "sbx", "rm", "--force", name); err != nil {
+	client := sbxclient.New(runner)
+	if err := client.LookPath(); err != nil {
+		return protocol.CleanupTarget{}, err
+	}
+	if _, err := client.Run(ctx, "", "rm", "--force", name); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {
 			return target, nil
 		}

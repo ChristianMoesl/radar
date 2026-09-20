@@ -14,6 +14,12 @@ set this in Radar's user configuration or a repository's `.radar.json`:
 {"sbx": {"enabled": true}}
 ```
 
+Windows SBX is detected from WSL2 for collection, shell actions and cleanup, but
+Radar-managed sandbox workspaces are not yet supported there: SBX v0.43.0 cannot
+read the required `notes.md` symlink through WSL-mounted directories. See the
+[WSL2 validation notes](../docs/integrations/sbx.md#windows--wsl2). Setting
+`sbx.enabled: true` reports this limitation; it does not bypass it.
+
 New workspaces default to `docker.io/christianmoesl/radar-kit:latest`; no kit
 selection is required. Set `sbx.enabled: false` to opt out; explicit repository
 settings override global settings in either direction. Existing explicit false

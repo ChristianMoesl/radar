@@ -15,6 +15,7 @@ import (
 	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/integration/sbx/auth"
+	sbxclient "radar/internal/integration/sbx/client"
 	"radar/internal/integration/workspace"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/linking"
@@ -46,8 +47,8 @@ func collectionSettings(logger *slog.Logger) (config.SBXConfig, map[string]strin
 		enabled = new(true)
 	}
 	missing := ""
-	if _, err := exec.LookPath("sbx"); err != nil {
-		missing = "sbx not found"
+	if err := sbxclient.New(sbxclient.ExecRunner{}).LookPath(); err != nil {
+		missing = err.Error()
 	}
 	return cfg.SBX, registered, integration.OptionalStatus("sbx", enabled, missing).Status
 }
@@ -192,23 +193,7 @@ func sbxOutput(ctx context.Context, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "sbx", args...)
-	output, err := cmd.Output()
-	if err != nil {
-		command := "sbx " + strings.Join(args, " ")
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return "", fmt.Errorf("%s failed: %w", command, ctxErr)
-		}
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			detail := strings.TrimSpace(string(exitErr.Stderr))
-			if detail == "" {
-				detail = exitErr.Error()
-			}
-			return "", fmt.Errorf("%s failed: %s", command, detail)
-		}
-		return "", fmt.Errorf("%s failed: %w", command, err)
-	}
-	return string(output), nil
+	return sbxclient.New(sbxclient.ExecRunner{}).Run(ctx, "", args...)
 }
 
 func sbxErrorDetail(err error) string {
@@ -217,6 +202,9 @@ func sbxErrorDetail(err error) string {
 	}
 	detail := err.Error()
 	if auth.IsRequired(detail) {
+		if strings.HasPrefix(detail, "sbx.exe ") {
+			return "not signed in; run sbx.exe login"
+		}
 		return "not signed in; run sbx login"
 	}
 	return detail

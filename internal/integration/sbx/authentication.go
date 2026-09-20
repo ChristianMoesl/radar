@@ -9,24 +9,32 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/integration/sbx/auth"
+	sbxclient "radar/internal/integration/sbx/client"
 )
 
 func (Source) EnsureAuthentication(ctx context.Context, req integration.AuthenticationRequest) (integration.AuthenticationResult, error) {
 	if !authenticationRequired(req) {
 		return integration.AuthenticationResult{}, nil
 	}
-	if _, err := exec.LookPath("sbx"); err != nil {
+	executable, err := sbxclient.New(sbxclient.ExecRunner{}).Executable()
+	if err != nil {
 		return integration.AuthenticationResult{}, nil
 	}
 	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	check := exec.CommandContext(checkCtx, "sbx", "ls", "--json")
+	check := exec.CommandContext(checkCtx, executable, "ls", "--json")
+	if executable == "sbx.exe" {
+		check.Dir = "/"
+	}
 	output, err := check.CombinedOutput()
 	if err == nil || !auth.IsRequired(string(output)+"\n"+err.Error()) {
 		return integration.AuthenticationResult{}, nil
 	}
-	fmt.Fprintln(os.Stderr, "radar: sbx is not signed in; starting sbx login")
-	login := exec.CommandContext(ctx, "sbx", "login")
+	fmt.Fprintf(os.Stderr, "radar: sbx is not signed in; starting %s login\n", executable)
+	login := exec.CommandContext(ctx, executable, "login")
+	if executable == "sbx.exe" {
+		login.Dir = "/"
+	}
 	login.Stdin = os.Stdin
 	login.Stdout = os.Stdout
 	login.Stderr = os.Stderr

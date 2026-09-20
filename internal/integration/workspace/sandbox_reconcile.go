@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	sbxclient "radar/internal/integration/sbx/client"
 	"radar/internal/integration/workspace/group"
 )
 
@@ -46,7 +47,7 @@ func enrollmentPlan(ctx context.Context, runner Runner, root, current string) (w
 	}
 	group.SessionName = discoverSession(ctx, runner, current)
 	if sandbox, found, err := findSandbox(ctx, runner, current, ""); err != nil {
-		if runner.LookPath("sbx") == nil {
+		if sbxclient.New(runner).LookPath() == nil {
 			return workspacegroup.Workspace{}, err
 		}
 	} else if found {
@@ -95,7 +96,7 @@ func discoverSession(ctx context.Context, runner Runner, workspacePath string) s
 }
 
 func listSandboxes(ctx context.Context, runner Runner) ([]listedSandbox, error) {
-	output, err := runner.Run(ctx, "", "sbx", "ls", "--json")
+	output, err := sbxclient.New(runner).Run(ctx, "", "ls", "--json")
 	if err != nil {
 		return nil, sbxCommandError(err)
 	}
@@ -109,7 +110,7 @@ func listSandboxes(ctx context.Context, runner Runner) ([]listedSandbox, error) 
 }
 
 func findSandbox(ctx context.Context, runner Runner, workspacePath, preferredName string) (listedSandbox, bool, error) {
-	if err := runner.LookPath("sbx"); err != nil {
+	if err := sbxclient.New(runner).LookPath(); err != nil {
 		return listedSandbox{}, false, nil
 	}
 	sandboxes, err := listSandboxes(ctx, runner)
@@ -292,7 +293,7 @@ func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group worksp
 				"workspace_id", group.ID, "sandbox", sandbox.Name, "attempt", attempt,
 				"max_attempts", attempts, "effective_mount_count", len(sandbox.Mounts))
 		}
-		if _, runErr := runner.Run(ctx, group.Path, "sbx", args...); runErr == nil {
+		if _, runErr := sbxclient.New(runner).Run(ctx, group.Path, args...); runErr == nil {
 			return nil
 		} else {
 			createErr := conciseSandboxCreateError(sbxCommandError(runErr))

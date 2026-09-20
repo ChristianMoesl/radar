@@ -238,3 +238,19 @@ func installFakeSBX(t *testing.T, dir string, body string) {
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
+
+func TestCleanupSandboxDoesNotTreatMissingCLIAsMissingResource(t *testing.T) {
+	runner := &fakeRunner{missing: map[string]bool{"sbx": true, "sbx.exe": true}}
+	if _, err := cleanupSandbox(context.Background(), runner, protocol.CleanupTarget{ResourceID: "ABC-123"}); err == nil {
+		t.Fatal("missing CLI was treated as successful cleanup")
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("unexpected commands: %+v", runner.calls)
+	}
+}
+
+func TestWindowsAuthenticationHintNamesWindowsCLI(t *testing.T) {
+	if got := sbxErrorDetail(fmt.Errorf("sbx.exe ls --json failed: not signed in; run sbx login")); got != "not signed in; run sbx.exe login" {
+		t.Fatalf("got %q", got)
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"radar/internal/integration"
 	obsidiansettings "radar/internal/integration/obsidian/settings"
 	"radar/internal/integration/sbx/auth"
+	sbxclient "radar/internal/integration/sbx/client"
 	sbxsettings "radar/internal/integration/sbx/settings"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
@@ -29,6 +30,7 @@ import (
 var invalidWorkspaceNameCharacters = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 var workspaceGOOS = runtime.GOOS
+var workspaceWSL = sbxclient.IsWSL()
 
 const maxSandboxNameLength = 63
 const sandboxNameHashLength = 8
@@ -48,6 +50,9 @@ func (ExecRunner) LookPath(name string) error {
 }
 
 func (ExecRunner) Run(ctx context.Context, cwd string, name string, args ...string) (string, error) {
+	if name == "sbx" || name == "sbx.exe" || name == "wslpath" {
+		return (sbxclient.ExecRunner{}).Run(ctx, cwd, name, args...)
+	}
 	candidates := commandCandidates(name)
 	if len(candidates) == 0 {
 		candidates = []string{name}
@@ -209,6 +214,11 @@ func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, gr
 }
 
 func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string) (bool, bool, error) {
+	if group.Sandbox != nil {
+		if err := sbxclient.New(runner).RequireManaged(); err != nil {
+			return false, false, err
+		}
+	}
 	_, sessionErr := runner.Run(ctx, group.Path, "tmux", "has-session", "-t", group.SessionName)
 	if sessionErr != nil {
 		if err := validateSessionDependencies(runner, group.Tmux); err != nil {
@@ -410,9 +420,12 @@ func validateSandboxDependencies(runner Runner, enabled bool) error {
 		return nil
 	}
 	if workspaceGOOS != "darwin" {
+		if workspaceGOOS == "linux" && workspaceWSL {
+			return sbxclient.ErrWindowsWorkspace
+		}
 		return fmt.Errorf("workspace sandbox is only supported on macOS")
 	}
-	if err := runner.LookPath("sbx"); err != nil {
+	if err := sbxclient.New(runner).LookPath(); err != nil {
 		return fmt.Errorf("workspace sandbox requires %q: %w", "sbx", err)
 	}
 	return nil
@@ -538,13 +551,8 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 	if sandboxName != "" {
 		sandbox.Enabled = true
 	}
-	if sandbox.Enabled {
-		if workspaceGOOS != "darwin" {
-			return Workspace{}, fmt.Errorf("workspace sandbox is only supported on macOS")
-		}
-		if err := runner.LookPath("sbx"); err != nil {
-			return Workspace{}, fmt.Errorf("workspace sandbox requires %q: %w", "sbx", err)
-		}
+	if err := validateSandboxDependencies(runner, sandbox.Enabled); err != nil {
+		return Workspace{}, err
 	}
 	sessionName := options.SessionName
 	if sessionName == "" {
@@ -752,8 +760,16 @@ func scheduleSetupCommandsNamed(ctx context.Context, runner Runner, path string,
 	}
 	args := []string{"new-window", "-t", sessionName + ":", "-d", "-n", windowName, "-c", path, "-P", "-F", "#{window_id} #{pane_id}"}
 	if sandboxName != "" {
+		client := sbxclient.New(runner)
+		if err := client.RequireManaged(); err != nil {
+			return err
+		}
+		executable, err := client.Executable()
+		if err != nil {
+			return err
+		}
 		args = append(args, strings.Join([]string{
-			"sbx exec -it --workdir",
+			executable + " exec -it --workdir",
 			shellQuote(path),
 			shellQuote(sandboxName),
 			"sh -i",
@@ -801,7 +817,7 @@ func startSandboxWithMounts(ctx context.Context, runner Runner, path string, nam
 	}
 	args = append(args, kit.Name)
 	args = append(args, mounts...)
-	output, err := runner.Run(ctx, path, "sbx", args...)
+	output, err := sbxclient.New(runner).Run(ctx, path, args...)
 	if err != nil {
 		return output, sbxCommandError(err)
 	}
@@ -855,7 +871,11 @@ func pathContains(root string, path string) bool {
 }
 
 func stopSandbox(ctx context.Context, runner Runner, path string, name string) (string, error) {
-	output, err := runner.Run(ctx, "", "sbx", "rm", "--force", name)
+	client := sbxclient.New(runner)
+	if err := client.LookPath(); err != nil {
+		return "", err
+	}
+	output, err := client.Run(ctx, "", "rm", "--force", name)
 	if err != nil && strings.Contains(err.Error(), "not found") {
 		return output, nil
 	}
@@ -872,7 +892,7 @@ type sandboxListResponse struct {
 }
 
 func sandboxExists(ctx context.Context, runner Runner, name string) (bool, error) {
-	output, err := runner.Run(ctx, "", "sbx", "ls", "--json")
+	output, err := sbxclient.New(runner).Run(ctx, "", "ls", "--json")
 	if err != nil {
 		return false, sbxCommandError(err)
 	}

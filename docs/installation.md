@@ -25,8 +25,8 @@ Explicit source actions and cleanup are separate from background collection.
 | GitHub | `gh` on PATH and a locally configured GitHub token; API failures, including expired credentials, are errors |
 | Jira | Endpoint, email and token in the documented `RADAR_JIRA_*` variables |
 | Datadog | Both credentials and an explicit `datadog.monitor_query`; no automatic organization-wide query |
-| SBX collection | `sbx` on PATH |
-| SBX for new workspaces | macOS and `sbx` on PATH |
+| SBX collection | `sbx` on PATH, or Windows `sbx.exe` plus `wslpath` on WSL2 |
+| SBX for new workspaces | macOS and `sbx` on PATH; Windows SBX managed workspaces remain blocked by WSL symlink support |
 
 Git worktrees and tmux sessions are discovered when their CLIs are available.
 The macOS notifier is used when its companion is installed. None of these is
@@ -35,7 +35,7 @@ on subsequent checks, without rewriting the config. If the daemon's PATH itself
 changes, restart the daemon to give it the updated environment.
 
 Dashboard startup never opens login prompts. Authenticate GitHub with
-`gh auth login` and SBX with `sbx login`. SBX runtime failures never cause a
+`gh auth login` and SBX with `sbx login` (`sbx.exe login` for Windows SBX from WSL). SBX runtime failures never cause a
 sandboxed setup command to execute on the host instead.
 
 ## Repository precedence and existing workspaces
@@ -96,6 +96,8 @@ schemas are unchanged. Restart a running daemon after updating the binary.
 - Auto/on/off activation with absent, partial and available prerequisites.
 - Newly installed tools detected without changing generated configuration.
 - Linux/macOS sandbox defaults and every global/repository enablement combination.
+- WSL executable selection and Windows path normalization without config changes;
+  unsupported managed workspaces rejected before provisioning.
 - Missing workspace tools/vaults failing before resource provisioning.
 - Existing workspace runtime preservation and explicit cleanup while disabled.
 - Failed sources remaining errors without launching authentication or suppressing

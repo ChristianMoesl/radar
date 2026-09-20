@@ -1189,6 +1189,9 @@ func assertNotCalledContains(t *testing.T, calls []call, name string, argsPart s
 
 func withWorkspaceGOOS(t *testing.T, value string) {
 	t.Helper()
+	previousWSL := workspaceWSL
+	workspaceWSL = false
+	t.Cleanup(func() { workspaceWSL = previousWSL })
 	previous := workspaceGOOS
 	workspaceGOOS = value
 	t.Cleanup(func() { workspaceGOOS = previous })
@@ -1213,4 +1216,36 @@ func testNoteAuthor(t *testing.T) obsidian.Source {
 		t.Fatal(err)
 	}
 	return obsidian.NewSourceAt(vault)
+}
+
+func TestWSLManagedWorkspaceFailsBeforeProvisioning(t *testing.T) {
+	withWorkspaceGOOS(t, "linux")
+	workspaceWSL = true
+	root := t.TempDir()
+	repository := filepath.Join(root, "repository")
+	if err := os.Mkdir(repository, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, ".radar.json"), []byte(`{"sbx":{"enabled":true}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{repo: repository}
+	_, err := Create(context.Background(), runner, CreateOptions{
+		NoteAuthor: testNoteAuthor(t), BranchMode: integration.WorkspaceBranchNew,
+		Repo: repository, Name: "ABC-123", Base: "origin/main", WorkspaceRoot: filepath.Join(root, "workspaces"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "WSL-mounted symlinks") {
+		t.Fatalf("got %v", err)
+	}
+	assertNotCalled(t, runner.calls, "sbx")
+	assertNotCalled(t, runner.calls, "sbx.exe")
+	assertNotCalled(t, runner.calls, "tmux")
+	if _, err := os.Stat(filepath.Join(root, "workspaces", "ABC-123")); !os.IsNotExist(err) {
+		t.Fatalf("created workspace anchor: %v", err)
+	}
+	runner.calls = nil
+	_, err = CreateSessionWithOptions(context.Background(), runner, CreateSessionOptions{Path: repository})
+	if err == nil || !strings.Contains(err.Error(), "WSL-mounted symlinks") || len(runner.calls) != 0 {
+		t.Fatalf("session provisioned: %v, %+v", err, runner.calls)
+	}
 }

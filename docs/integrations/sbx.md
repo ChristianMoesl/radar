@@ -10,6 +10,57 @@ SBX supplies local Docker sandbox resources and shell actions.
 
 `sbx.enabled`, `sbx.kit`, and `sbx.additional_mounts` configure managed runtimes. Repository-local settings use the same shape. Omitted `enabled` automatically enables new workspaces on macOS when `sbx` is on PATH. Explicit repository `enabled` overrides explicit global `enabled`; otherwise automatic detection applies. Explicit enablement with missing tools or unsupported platforms fails before provisioning; runtime/authentication failures never fall back to the host. Sign in with `sbx login`. Only explicit cleanup can initiate the provider-owned interactive login flow; dashboard startup and creation never prompt.
 
+## Windows / WSL2
+
+Radar detects Windows Docker Sandboxes when running in WSL2. Install SBX for
+Windows, enable WSL interoperability, and expose `sbx.exe` on the WSL PATH:
+
+```sh
+sbx.exe version
+sbx.exe ls --json
+```
+
+A native `sbx` takes precedence if both are installed, matching `pi-sbx` discovery.
+Radar selects one installation for each operation and never switches after a
+runtime/authentication failure. No executable override or wrapper is required.
+Authenticate Windows SBX with `sbx.exe login`. Restart Radar's daemon if its PATH
+predates the installation.
+
+Supported operations are collection, task/workspace matching, opening sandbox
+shells, and cleanup. `wslpath -u` translates Windows drive and WSL UNC mount paths
+to local Linux paths, including custom drive mount roots and paths with spaces.
+Read-only mount suffixes are preserved. Sandboxes in other WSL distributions
+remain resources that can be opened/removed by name, but their paths do not link
+to this distribution's workspaces. Other conversion failures report an error.
+Shell text and paths passed to commands **inside** a sandbox are not rewritten.
+Windows SBX processes run outside host workspace directories to avoid holding
+Windows directory handles that prevent removal.
+
+### Managed workspace limitation
+
+**Detection does not mean managed workspace provisioning is supported.** A real
+WSL2 preflight with Windows SBX v0.43.0 verified ordinary file reads/writes, but
+both relative and absolute symlinks in WSL-mounted directories failed with
+`Invalid argument` from `readlink`/`cat` inside the sandbox. Radar requires its
+canonical `notes.md` symlink, so enabling workspace sandboxing would produce a
+broken workspace. Windows SBX also exposes mounts at different sandbox paths
+(`/wsl.localhost/<distribution>/...` or `/c/...`), affecting absolute Git worktree
+pointers and shared-directory references.
+
+New workspace sandboxing therefore remains macOS-only. Explicit enablement on
+WSL reports the limitation before provisioning the workspace bundle; existing
+Windows-backed managed workspaces cannot be opened/reconciled through Radar.
+Collection, sandbox shell actions and cleanup remain available. Radar does not
+rewrite host note links/Git metadata, install mount aliases, or silently execute
+sandboxed setup on the host. No config, registry, or sandbox filesystem migration
+is introduced.
+
+Before enabling full WSL workspace support, validate canonical note links, Git
+worktrees with external common directories, shared files, read-only mounts,
+recreation, restart, and agent tool routing against a backend that supports the
+required filesystem semantics. The separate `pi-sbx` extension's WSL support does
+not by itself solve host symlink transport.
+
 ## Published development kit
 
 With SBX 0.43.0 or newer, enabling `sbx.enabled` selects `docker.io/christianmoesl/radar-kit:latest` for new workspaces unless a user or repository kit overrides it. No `kit.name` or `kit.path` is required to use this default. Set `sbx.kit.name` only to select another kit or pin a digest. The [sandbox guide](../../sandbox/README.md) documents its tool inventory, Pi requirements, private Docker daemon, publication and rollout.
@@ -49,8 +100,10 @@ Cleanup descriptions and opaque resource IDs are provider-owned. Workspace recon
 ## Validation
 
 ```sh
-go test ./internal/integration/sbx ./internal/integration/workspace/... ./internal/pi
+go test ./internal/integration/sbx/... ./internal/integration/workspace/... ./internal/pi
 # Extension runtime tests use Node.js with native TypeScript stripping (Node 22.18+).
 # Optional macOS/SBX integration tests:
 RADAR_SBX_E2E=1 go test ./internal/integration/workspace -run 'SharedDirectoryRoundTripE2E'
+# Optional WSL2/Windows SBX test (creates and removes one disposable sandbox):
+RADAR_SBX_WSL_E2E=1 go test ./internal/integration/sbx -run TestWindowsSBXLifecycleE2E -count=1
 ```

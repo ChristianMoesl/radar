@@ -16,6 +16,7 @@ import (
 
 	"radar/internal/integration"
 	obsidiansettings "radar/internal/integration/obsidian/settings"
+	sbxclient "radar/internal/integration/sbx/client"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
 )
@@ -152,6 +153,11 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 }
 
 func planWorkspace(ctx context.Context, runner Runner, root string, group workspacegroup.Workspace, request ReconcileWorkspaceRequest) (ReconcileWorkspacePlan, error) {
+	if group.Sandbox != nil {
+		if err := sbxclient.New(runner).RequireManaged(); err != nil {
+			return ReconcileWorkspacePlan{}, err
+		}
+	}
 	registry, err := workspacegroup.Load(root)
 	if err != nil {
 		return ReconcileWorkspacePlan{}, err
@@ -1027,7 +1033,7 @@ type sandboxPortBinding struct {
 }
 
 func listSandboxPortBindings(ctx context.Context, runner Runner, name string) ([]sandboxPortBinding, error) {
-	output, err := runner.Run(ctx, "", "sbx", "ports", name, "--json")
+	output, err := sbxclient.New(runner).Run(ctx, "", "ports", name, "--json")
 	if err != nil {
 		return nil, sbxCommandError(err)
 	}
@@ -1196,7 +1202,7 @@ func reconcileSandboxPorts(ctx context.Context, runner Runner, name string, desi
 	}
 	sort.Strings(specs)
 	for _, spec := range specs {
-		if _, err := runner.Run(ctx, "", "sbx", "ports", name, "--unpublish", spec); err != nil {
+		if _, err := sbxclient.New(runner).Run(ctx, "", "ports", name, "--unpublish", spec); err != nil {
 			return published, unpublished, sbxCommandError(err)
 		}
 		unpublished++
@@ -1208,13 +1214,13 @@ func reconcileSandboxPorts(ctx context.Context, runner Runner, name string, desi
 		}
 	}
 	for _, port := range portDifference(compatibleActual, desired) {
-		if _, err := runner.Run(ctx, "", "sbx", "ports", name, "--unpublish", ipv4PortKey(port)); err != nil {
+		if _, err := sbxclient.New(runner).Run(ctx, "", "ports", name, "--unpublish", ipv4PortKey(port)); err != nil {
 			return published, unpublished, sbxCommandError(err)
 		}
 		unpublished++
 	}
 	for _, port := range portDifference(desired, compatibleActual) {
-		if _, err := runner.Run(ctx, "", "sbx", "ports", name, "--publish", ipv4PortKey(port)); err != nil {
+		if _, err := sbxclient.New(runner).Run(ctx, "", "ports", name, "--publish", ipv4PortKey(port)); err != nil {
 			return published, unpublished, sbxCommandError(err)
 		}
 		published++

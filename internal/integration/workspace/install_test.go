@@ -23,7 +23,7 @@ type setupRunner struct {
 }
 
 func (r *setupRunner) LookPath(name string) error {
-	if name == r.missing {
+	if name == r.missing || (r.missing == "sbx" && name == "sbx.exe") {
 		return errors.New("not found")
 	}
 	return nil
