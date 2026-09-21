@@ -76,6 +76,14 @@ unavailable remote can delay the response even after the selected workspace
 has been removed. Verification failures remain unresolved issues; they are not
 permission for GC to discard local work.
 
+Publication/merge verification has one 10-second budget covering Git fetch,
+GitHub proof, and retries. This applies to collection, explicit cleanup
+previews, and GC, including callers without their own deadline. A shorter
+caller deadline is preserved. Automatic GC shares the collection lock, so its
+verification can also delay an interactive refresh; it must not wait for an
+unreachable remote without a deadline. This is a per-verification budget, not a
+global response deadline across all workspaces.
+
 Non-interactive integration commands cancel their process group, including
 helpers such as `git-remote-https`, when their context expires. Output-pipe
 waiting is additionally bounded to 250 ms so inherited descriptors cannot keep

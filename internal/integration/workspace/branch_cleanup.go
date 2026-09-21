@@ -5,18 +5,25 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"radar/internal/integration/workspace/group"
 )
 
+const branchVerificationTimeout = 10 * time.Second
+
 // BranchPublishedOrMerged verifies publication or an exact merged GitHub PR head.
 // A branch name or task completion status alone is never proof of publication.
+// All callers, including GC and explicit previews with a background context,
+// share one bounded budget for fetching, retries, and GitHub merge proof.
 func BranchPublishedOrMerged(ctx context.Context, runner Runner, repository, branch string) (bool, error) {
 	repository = strings.TrimSpace(repository)
 	branch = strings.TrimSpace(branch)
 	if repository == "" || branch == "" {
 		return false, fmt.Errorf("repository and branch are required")
 	}
+	ctx, cancel := context.WithTimeout(ctx, branchVerificationTimeout)
+	defer cancel()
 	runner = verificationRetryRunner{Runner: runner}
 	if err := FetchBranches(ctx, runner, repository); err != nil {
 		return false, err
