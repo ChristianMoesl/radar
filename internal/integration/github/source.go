@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"radar/internal/command"
 	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/integration/github/filters"
@@ -39,7 +40,7 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 	// Read local authentication only. Do not prompt, contact GitHub, or log tokens.
 	authCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	token, err := exec.CommandContext(authCtx, "gh", "auth", "token").Output()
+	token, err := command.CommandContext(authCtx, "gh", "auth", "token").Output()
 	if authCtx.Err() != nil {
 		return integration.StatusResult{Status: protocol.SourceStatus{Name: "github", Status: "error", Detail: "gh authentication check timed out or was cancelled"}}
 	}

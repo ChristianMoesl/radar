@@ -17,6 +17,7 @@ import (
 	"strings"
 	"syscall"
 
+	"radar/internal/command"
 	"radar/internal/integration"
 	obsidiansettings "radar/internal/integration/obsidian/settings"
 	"radar/internal/integration/sbx/auth"
@@ -59,11 +60,14 @@ func (ExecRunner) Run(ctx context.Context, cwd string, name string, args ...stri
 	}
 	formatErrors := make([]error, 0)
 	for _, candidate := range candidates {
-		command := exec.CommandContext(ctx, candidate, args...)
-		command.Dir = cwd
-		output, err := command.CombinedOutput()
+		cmd := command.CommandContext(ctx, candidate, args...)
+		cmd.Dir = cwd
+		output, err := cmd.CombinedOutput()
 		if err == nil {
 			return strings.TrimSpace(string(output)), nil
+		}
+		if ctx.Err() != nil {
+			return "", commandError(name, args, output, ctx.Err())
 		}
 		if errors.Is(err, syscall.ENOEXEC) && candidate != name {
 			formatErrors = append(formatErrors, fmt.Errorf("%s: %w", candidate, err))
@@ -103,8 +107,7 @@ func commandError(name string, args []string, output []byte, err error) error {
 	if detail != "" {
 		detail += "\n"
 	}
-	detail += err.Error()
-	return fmt.Errorf("%s %s failed: %s", name, strings.Join(args, " "), detail)
+	return fmt.Errorf("%s %s failed: %s%w", name, strings.Join(args, " "), detail, err)
 }
 
 type CreateOptions struct {

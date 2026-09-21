@@ -67,3 +67,17 @@ remaining local-data protections. `X` bypasses the retention wait, not those
 protections. The selected task's `x` cleanup confirmation can explicitly discard
 local work; read its warnings and use it only after deciding what to preserve.
 Remote branches, PRs, issues, and primary repositories are not deleted by GC.
+
+## Cleanup response timing
+
+Explicit cleanup returns after refreshing local resource observations. That
+refresh can include remote Git safety checks for other workspaces, so an
+unavailable remote can delay the response even after the selected workspace
+has been removed. Verification failures remain unresolved issues; they are not
+permission for GC to discard local work.
+
+Non-interactive integration commands cancel their process group, including
+helpers such as `git-remote-https`, when their context expires. Output-pipe
+waiting is additionally bounded to 250 ms so inherited descriptors cannot keep
+a timed-out command—and the cleanup response—blocked indefinitely. Interactive
+login commands keep their terminal's process group.

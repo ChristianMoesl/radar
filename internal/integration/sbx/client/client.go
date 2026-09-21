@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"radar/internal/command"
 )
 
 type Runner interface {
@@ -202,9 +204,9 @@ type ExecRunner struct{}
 
 func (ExecRunner) LookPath(name string) error { _, err := exec.LookPath(name); return err }
 func (ExecRunner) Run(ctx context.Context, cwd, name string, args ...string) (string, error) {
-	command := exec.CommandContext(ctx, name, args...)
-	command.Dir = cwd
-	output, err := command.Output()
+	cmd := command.CommandContext(ctx, name, args...)
+	cmd.Dir = cwd
+	output, err := cmd.Output()
 	if err == nil {
 		return strings.TrimSpace(string(output)), nil
 	}

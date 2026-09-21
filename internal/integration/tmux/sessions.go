@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"radar/internal/command"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
@@ -239,7 +240,7 @@ func tmuxOutput(ctx context.Context, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := command.CommandContext(ctx, "tmux", args...)
 	output, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {

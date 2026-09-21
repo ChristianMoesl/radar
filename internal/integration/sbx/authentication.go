@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"time"
 
+	"radar/internal/command"
 	"radar/internal/integration"
 	"radar/internal/integration/sbx/auth"
 	sbxclient "radar/internal/integration/sbx/client"
@@ -22,7 +23,7 @@ func (Source) EnsureAuthentication(ctx context.Context, req integration.Authenti
 	}
 	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	check := exec.CommandContext(checkCtx, executable, "ls", "--json")
+	check := command.CommandContext(checkCtx, executable, "ls", "--json")
 	if executable == "sbx.exe" {
 		check.Dir = "/"
 	}

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"radar/internal/command"
 	"radar/internal/integration/workspace"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/linking"
@@ -297,7 +298,7 @@ func gitOutput(ctx context.Context, dir string, args ...string) (string, error) 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := command.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	output, err := cmd.Output()
 	if err != nil {

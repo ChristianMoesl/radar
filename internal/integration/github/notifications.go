@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"radar/internal/command"
 	"radar/internal/integration/github/filters"
 	"radar/internal/integration/github/identity"
 	"radar/internal/linking"
@@ -751,7 +752,7 @@ func ghJSON(ctx context.Context, args []string, target any) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd := command.CommandContext(ctx, "gh", args...)
 	output, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
