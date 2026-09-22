@@ -70,6 +70,9 @@ func (m model) detailViewport() (lines []string, title, footer string, rows int)
 	if m.detail.available {
 		body = taskDetailView(m.detail.task, width)
 	}
+	if operation := m.operationDetails(m.detail.task, width); operation != "" {
+		body = operation + "\n\n" + body
+	}
 	lines = strings.Split(body, "\n")
 	footer = ansi.Wrap(helpStyle.Render("↑/k/ctrl+p ↓/j/ctrl+n scroll • PgUp/PgDn/ctrl+u/d page • g/Home G/End top/bottom • esc/backspace back • q quit"), width, "")
 	rows = len(lines)

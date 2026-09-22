@@ -125,7 +125,7 @@ func TestCleanupKeysAreModal(t *testing.T) {
 	for _, key := range []rune{'y', 'Y'} {
 		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
 		got := updated.(model)
-		if cmd == nil || got.mode != "" || !got.loading || got.message != "Cleaning up…" || !reflect.DeepEqual(got.cleanup, m.cleanup) {
+		if cmd == nil || got.mode != "" || got.operation.label != "Cleaning up…" || got.message != "" || !reflect.DeepEqual(got.cleanup, m.cleanup) {
 			t.Fatalf("%c did not submit the unchanged preview", key)
 		}
 	}

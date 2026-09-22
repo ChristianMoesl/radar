@@ -518,7 +518,7 @@ func TestSubmitCreateShowsCreatingWorkspaceNotification(t *testing.T) {
 	}
 	got := updated.(model)
 	if got.mode != "workspace_loading" {
-		t.Fatalf("submitCreate() loading=%v message=%q, want loading with creating notification", got.loading, got.message)
+		t.Fatalf("submitCreate() loading=%v message=%q, want workspace preparation", got.loading, got.message)
 	}
 }
 
@@ -811,7 +811,7 @@ func TestActivateSelectedPrefersRegisteredWorkspaceAnchor(t *testing.T) {
 		t.Fatal("activateSelected() returned no anchor command")
 	}
 	got := updated.(model)
-	if !got.loading || got.mode != "" || got.message != "Creating tmux session…" {
+	if got.operation.kind != "session" || got.mode != "" || got.message != "" {
 		t.Fatalf("activation = %+v", got)
 	}
 }

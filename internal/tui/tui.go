@@ -103,6 +103,11 @@ type createForm struct {
 }
 
 type model struct {
+	operation           taskOperation
+	operationGeneration uint64
+	operationFrame      int
+	taskFailures        []taskFailure
+	cleanupTask         protocol.Task
 	editor              workspaceEditor
 	socketPath          string
 	width               int
@@ -187,6 +192,29 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case operationTickMsg:
+		if m.operation.kind == "" || uint64(msg) != m.operationGeneration {
+			return m, nil
+		}
+		m.operationFrame++
+		return m, m.operationTick()
+	case taskActionMsg:
+		action := msg.action
+		if m.operation.kind == "session" || m.operation.kind == "cleanup" {
+			action.message = ""
+		}
+		m.finishOperation(action.err, true)
+		m.message = action.message
+		if action.response != nil {
+			m.applyResponse(*action.response, false)
+		}
+		if action.quit && action.err == nil {
+			return m, tea.Quit
+		}
+		if action.refresh && action.err == nil {
+			m.loading = true
+			return m, m.fetch("refresh")
+		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -197,7 +225,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
-		if strings.HasPrefix(m.mode, "workspace_") {
+		if m.operation.kind != "" && !operationNavigationKey(msg.String()) {
+			return m, nil
+		}
+		if strings.HasPrefix(m.mode, "workspace_") && !m.operationOnRow() {
 			return m.updateWorkspace(msg)
 		}
 		if m.mode == "task_authoring" {
@@ -265,10 +296,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.worktrees = nil
 				m.worktreeTask = protocol.Task{}
 				m.worktreeCursor = 0
-				m.loading = true
-				m.err = nil
-				m.message = "Creating tmux session…"
-				return m, m.createSessionForWorktree(task, ref)
+				cmd := m.startOperation(task, "session", "Starting session…", "Session start failed", taskAction(m.createSessionForWorktree(task, ref)))
+				return m, cmd
 			default:
 				return m, nil
 			}
@@ -288,10 +317,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				preview := m.cleanup
 				m.mode = ""
-				m.loading = true
-				m.err = nil
-				m.message = "Cleaning up…"
-				return m, m.cleanupSelected(preview)
+				cmd := m.startOperation(m.cleanupTask, "cleanup", "Cleaning up…", "Cleanup failed", taskAction(m.cleanupSelected(preview)))
+				return m, cmd
 			case "esc", "backspace", "n", "N":
 				m.mode = ""
 				m.err = nil
@@ -368,10 +395,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "x":
 			if len(m.tasks) > 0 {
-				m.loading = true
-				m.err = nil
-				m.message = "Inspecting local resources…"
-				return m, m.previewCleanup(m.tasks[m.cursor])
+				m.cleanupTask = m.tasks[m.cursor]
+				cmd := m.startOperation(m.cleanupTask, "cleanup-check", "Checking local resources…", "Resource check failed", m.previewCleanup(m.cleanupTask))
+				return m, cmd
 			}
 		case "X":
 			m.loading = true
@@ -388,11 +414,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "k", "up", "ctrl+p":
 			m.moveCursor(-1)
 		case "ctrl+d":
-			if m.mode == "" {
+			if m.mode == "" || m.operationOnRow() {
 				m.moveCursorPage(1)
 			}
 		case "ctrl+u":
-			if m.mode == "" {
+			if m.mode == "" || m.operationOnRow() {
 				m.moveCursorPage(-1)
 			}
 		case "g", "home":
@@ -403,7 +429,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.activateSelected()
 		}
 	case workspaceStateMsg:
-		m.message, m.err = "", msg.err
+		m.message = ""
+		m.finishOperation(msg.err, true)
 		if msg.err != nil {
 			m.mode = ""
 			m.editor = workspaceEditor{}
@@ -414,7 +441,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = "workspace_name"
 		}
 	case workspacePlanMsg:
-		m.mode, m.message, m.err = "workspace_edit", "", msg.err
+		m.mode, m.message = "workspace_edit", ""
+		m.finishOperation(msg.err, true)
 		if msg.err == nil {
 			m.editor.plan = msg.plan
 			if msg.plan.Note != nil {
@@ -430,35 +458,44 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case workspaceAppliedMsg:
-		m.message, m.err = "", msg.err
+		m.message = ""
 		if msg.err == nil && msg.result.ReconfirmRequired && msg.result.Plan != nil {
+			m.finishOperation(nil, false)
 			m.editor.plan, m.mode = *msg.result.Plan, "workspace_confirm"
 			m.editor.scroll = 0
 			m.message = "Workspace plan changed; review it again"
 			return m, nil
 		}
-		if msg.err == nil && msg.created.Path == "" && !msg.result.OK {
-			m.err = fmt.Errorf("workspace changes did not finish: %s; reopen the editor to inspect completed work", msg.result.Error)
+		problem := msg.err
+		if problem == nil && msg.created.Path == "" && !msg.result.OK {
+			problem = fmt.Errorf("workspace changes did not finish: %s; reopen the editor to inspect completed work", msg.result.Error)
 		}
 		// Never keep submitting a stale draft after a partial apply.
-		m.mode, m.editor = "", workspaceEditor{}
-		if m.err == nil && msg.created.Path != "" && canSwitchMultiplexer() {
+		if m.mode != "detail" {
+			m.mode = ""
+		}
+		m.editor = workspaceEditor{}
+		if problem == nil && msg.created.Path != "" && canSwitchMultiplexer() {
+			m.finishOperation(nil, true)
 			return m, tea.Quit
 		}
-		message := "Workspace updated"
+		var notices []string
 		if msg.result.WorktreesAdded > 0 || msg.result.WorktreesRemoved > 0 {
-			message += ". Run /radar-reload-workspace-resources in Pi to refresh member skills"
+			notices = append(notices, "Run /radar-reload-workspace-resources in Pi to refresh member skills")
 		}
 		if msg.result.Warning != "" {
-			message += ". " + msg.result.Warning
+			notices = append(notices, msg.result.Warning)
 		}
 		if msg.created.Warning != "" {
-			message += ". " + msg.created.Warning
+			notices = append(notices, msg.created.Warning)
 		}
-		if m.err != nil {
-			message = ""
+		m.message = strings.Join(notices, ". ")
+		if problem != nil {
+			m.finishOperation(problem, false)
+			// Refresh partial work without erasing the operation's explanation.
+			return m, m.refreshWorkspaceResult(m.message, m.err)
 		}
-		return m, m.refreshWorkspaceResult(message, m.err)
+		return m, taskAction(m.refreshWorkspaceResult(m.message, nil))
 	case fetchMsg:
 		m.loading = false
 		m.err = msg.err
@@ -511,8 +548,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case cleanupPreviewMsg:
-		m.loading = false
-		m.err = msg.err
+		m.finishOperation(msg.err, true)
 		m.message = ""
 		if msg.err == nil {
 			m.cleanup = msg.preview
@@ -665,7 +701,7 @@ func (m model) View() string {
 	var sections []string
 	sections = append(sections, m.header(contentWidth))
 
-	if strings.HasPrefix(m.mode, "workspace_") {
+	if strings.HasPrefix(m.mode, "workspace_") && !m.operationOnRow() {
 		sections = append(sections, m.workspaceView(contentWidth))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
@@ -719,6 +755,13 @@ func (m model) View() string {
 
 func (m model) afterTaskSections(width int) []string {
 	sections := []string{}
+	if m.operation.kind != "" && !m.operationOnRow() {
+		label := m.operation.label
+		if m.operation.task.Title != "" {
+			label = m.operation.task.Title + " · " + label
+		}
+		sections = append(sections, truncateLine(m.operationMarker()+" "+label, width))
+	}
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
@@ -1602,10 +1645,8 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 	}
 
 	if anchor, ok := workspaceAnchorRef(task); ok {
-		m.loading = true
-		m.err = nil
-		m.message = "Creating tmux session…"
-		return m, m.openRegisteredWorkspace(anchor)
+		cmd := m.startOperation(task, "session", "Starting session…", "Session start failed", taskAction(m.openRegisteredWorkspace(anchor)))
+		return m, cmd
 	}
 
 	worktrees := taskrefs.Worktrees(task)
@@ -1613,10 +1654,8 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 	case 0:
 		return m.editWorkspace(task)
 	case 1:
-		m.loading = true
-		m.err = nil
-		m.message = "Creating tmux session…"
-		return m, m.createSessionForWorktree(task, worktrees[0])
+		cmd := m.startOperation(task, "session", "Starting session…", "Session start failed", taskAction(m.createSessionForWorktree(task, worktrees[0])))
+		return m, cmd
 	default:
 		m.mode = "worktree_session"
 		m.worktrees = worktrees
@@ -1946,7 +1985,15 @@ func (m model) taskLines(width int) ([]string, int, int) {
 				groupLines = append(groupLines, "")
 			}
 			lineWidth := max(1, width)
-			line := taskLine(task, i == m.cursor, lineWidth-2)
+			marker, status := m.taskOperationStatus(task)
+			statusWidth := 0
+			if status != "" {
+				statusWidth = min(lipgloss.Width(status)+2, max(0, (lineWidth-4)/2))
+			}
+			line := marker + " " + taskLine(task, i == m.cursor, max(1, lineWidth-4-statusWidth))
+			if statusWidth > 0 {
+				line += "  " + truncateLine(status, max(1, statusWidth-2))
+			}
 			if i == m.cursor {
 				line = selectedStyle.Render("› " + line)
 			} else {

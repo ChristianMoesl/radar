@@ -23,9 +23,9 @@ func TestTaskBlocksHaveOneBlankRowBetweenThem(t *testing.T) {
 	lines, start, end := m.taskLines(100)
 	plain := ansi.Strip(strings.Join(lines, "\n"))
 	want := "👀 Need attention\n" +
-		"  First task\n    ↳ jira:issue:ABC-123\n    ↳ github:pr:owner/repo:1\n\n" +
-		"› Second task\n    ↳ jira:issue:ABC-456\n\n" +
-		"⏳ In progress\n  Third task\n\n  Fourth task"
+		"    First task\n    ↳ jira:issue:ABC-123\n    ↳ github:pr:owner/repo:1\n\n" +
+		"›   Second task\n    ↳ jira:issue:ABC-456\n\n" +
+		"⏳ In progress\n    Third task\n\n    Fourth task"
 	if plain != want {
 		t.Fatalf("task blocks:\n%s\nwant:\n%s", plain, want)
 	}
@@ -133,7 +133,7 @@ func TestTaskSpacingSurvivesResizeAndPageNavigation(t *testing.T) {
 			t.Fatal("resize changed the selected task")
 		}
 		view := m.View()
-		if !strings.Contains(ansi.Strip(view), "› progress task") {
+		if !strings.Contains(ansi.Strip(view), "›   progress task") {
 			t.Fatalf("resize hid selected task:\n%s", view)
 		}
 		assertNoWideLines(t, view, size.Width)

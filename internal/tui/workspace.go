@@ -45,8 +45,8 @@ type workspaceAppliedMsg struct {
 
 func (m model) editWorkspace(task protocol.Task) (tea.Model, tea.Cmd) {
 	m.editor = workspaceEditor{active: true, task: task}
-	m.mode, m.err, m.message = "workspace_loading", nil, "Inspecting workspace..."
-	return m, func() tea.Msg {
+	m.mode = "workspace_loading"
+	cmd := m.startOperation(task, "workspace-inspect", "Inspecting workspace…", "Workspace inspection failed", func() tea.Msg {
 		manager, err := app.DefaultIntegrations().WorkspaceManager()
 		if err != nil {
 			return workspaceStateMsg{err: err}
@@ -80,7 +80,8 @@ func (m model) editWorkspace(task protocol.Task) (tea.Model, tea.Cmd) {
 			}
 		}
 		return workspaceStateMsg{editor: editor}
-	}
+	})
+	return m, cmd
 }
 
 func (m model) newWorkspace() (tea.Model, tea.Cmd) {
@@ -215,8 +216,8 @@ func (e workspaceEditor) reconcileRequest() (integration.WorkspaceReconcileReque
 
 func (m model) previewWorkspace() (tea.Model, tea.Cmd) {
 	editor := m.editor
-	m.mode, m.err, m.message = "workspace_loading", nil, "Preparing workspace changes..."
-	return m, func() tea.Msg {
+	m.mode = "workspace_loading"
+	cmd := m.startOperation(editor.task, "workspace-prepare", "Preparing changes…", "Workspace preparation failed", func() tea.Msg {
 		manager, err := app.DefaultIntegrations().WorkspaceManager()
 		if err != nil {
 			return workspacePlanMsg{err: err}
@@ -232,16 +233,18 @@ func (m model) previewWorkspace() (tea.Model, tea.Cmd) {
 			plan, err = manager.PreviewReconcile(context.Background(), request)
 		}
 		return workspacePlanMsg{plan: plan, err: err}
-	}
+	})
+	return m, cmd
 }
 
 func (m model) applyWorkspace() (tea.Model, tea.Cmd) {
 	editor := m.editor
-	m.mode, m.err, m.message = "workspace_applying", nil, "Applying workspace changes..."
+	m.mode = "workspace_applying"
+	label, failure := "Updating workspace…", "Workspace update failed"
 	if editor.createsWorkspace() {
-		m.message = "Creating workspace..."
+		label, failure = "Creating workspace…", "Workspace creation failed"
 	}
-	return m, func() tea.Msg {
+	cmd := m.startOperation(editor.task, "workspace", label, failure, func() tea.Msg {
 		manager, err := app.DefaultIntegrations().WorkspaceManager()
 		if err != nil {
 			return workspaceAppliedMsg{err: err}
@@ -265,10 +268,14 @@ func (m model) applyWorkspace() (tea.Model, tea.Cmd) {
 		defer file.Close()
 		result, err := manager.ApplyReconcile(context.Background(), logger, request)
 		return workspaceAppliedMsg{result: result, err: err}
-	}
+	})
+	return m, cmd
 }
 
 func (m model) workspaceView(width int) string {
+	if m.operation.kind != "" {
+		return titleStyle.Render("Workspace: "+m.workspaceEditorName()) + "\n\n" + m.operationMarker() + " " + m.operation.label
+	}
 	if m.mode == "workspace_name" {
 		return titleStyle.Render("Create workspace") + "\nName: " + m.editor.create.Name + "\n\nenter continue • esc cancel"
 	}
@@ -279,11 +286,10 @@ func (m model) workspaceView(width int) string {
 		return strings.Join(lines[start:end], "\n") + fmt.Sprintf("\n\nj/k scroll • %d-%d of %d • y/enter apply • n/esc back", start+1, end, len(lines))
 	}
 
-	name := m.editor.state.Name
-	if name == "" {
-		name = m.editor.create.Name
+	lines := []string{titleStyle.Render("Workspace: " + m.workspaceEditorName()), ""}
+	if details := m.operationDetails(m.editor.task, width); details != "" {
+		lines = append(lines, details, "")
 	}
-	lines := []string{titleStyle.Render("Workspace: " + name), ""}
 	lines = append(lines, "", "Repositories")
 	if len(m.editor.desired.Worktrees) == 0 {
 		lines = append(lines, "  none")
@@ -355,4 +361,11 @@ func (m model) workspaceConfirmationLines(width int) []string {
 		lines = append(lines, errorStyle.Render(warning))
 	}
 	return strings.Split(ansi.Wrap(strings.Join(lines, "\n"), width, ""), "\n")
+}
+
+func (m model) workspaceEditorName() string {
+	if m.editor.state.Name != "" {
+		return m.editor.state.Name
+	}
+	return m.editor.create.Name
 }

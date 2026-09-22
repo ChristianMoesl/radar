@@ -115,7 +115,7 @@ func TestWorkspaceCreationSkipsConfirmation(t *testing.T) {
 	}
 	updated, cmd = m.Update(workspacePlanMsg{plan: plan})
 	m = updated.(model)
-	if cmd == nil || m.mode != "workspace_applying" || m.editor.plan.PlanID != "validated" || m.message != "Creating workspace..." {
+	if cmd == nil || m.mode != "workspace_applying" || m.editor.plan.PlanID != "validated" || m.message != "" || m.operation.label != "Creating workspace…" {
 		t.Fatalf("creation did not apply validated plan directly: %+v", m)
 	}
 	if strings.Contains(m.View(), "Apply workspace changes?") {
@@ -229,7 +229,7 @@ func TestWorkspaceNoteReusesSelectedTasksAuthoredNote(t *testing.T) {
 		{ID: "obsidian:task:existing", Authored: true, WorkspaceAnchorPath: "/vault/Tasks/Existing/Existing.md"},
 	}}
 	_, cmd := (model{}).editWorkspace(task)
-	msg := cmd().(workspaceStateMsg)
+	msg := cmd().(tea.BatchMsg)[0]().(workspaceStateMsg)
 	if msg.err != nil || msg.editor.desired.Note == nil || msg.editor.desired.Note.Create || msg.editor.desired.Note.LinkingKey != "obsidian:task:existing" {
 		t.Fatalf("existing authored note was not reused: %+v", msg)
 	}
