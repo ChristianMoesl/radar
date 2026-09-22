@@ -18,6 +18,9 @@ func IsRequired(detail string) bool {
 		"run sbx login",
 		"run 'sbx login'",
 		`run "sbx login"`,
+		"run sbx.exe login",
+		"run 'sbx.exe login'",
+		`run "sbx.exe login"`,
 	} {
 		if strings.Contains(detail, marker) {
 			return true

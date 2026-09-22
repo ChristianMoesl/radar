@@ -21,6 +21,12 @@ func (Source) EnsureAuthentication(ctx context.Context, req integration.Authenti
 	if err != nil {
 		return integration.AuthenticationResult{}, nil
 	}
+	return authenticate(ctx, executable)
+}
+
+// Keep the same executable for the probe and interactive login. In particular,
+// Windows SBX credentials must be refreshed by sbx.exe, not a native installation.
+func authenticate(ctx context.Context, executable string) (integration.AuthenticationResult, error) {
 	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	check := command.CommandContext(checkCtx, executable, "ls", "--json")
@@ -40,13 +46,22 @@ func (Source) EnsureAuthentication(ctx context.Context, req integration.Authenti
 	login.Stdout = os.Stdout
 	login.Stderr = os.Stderr
 	if err := login.Run(); err != nil {
-		return integration.AuthenticationResult{}, fmt.Errorf("sbx login failed: %w", err)
+		return integration.AuthenticationResult{}, fmt.Errorf("%s login failed: %w", executable, err)
 	}
 	return integration.AuthenticationResult{Changed: true}, nil
 }
 
 func authenticationRequired(req integration.AuthenticationRequest) bool {
-	if req.Operation == "cleanup" {
+	switch req.Operation {
+	case "create", "fork":
+		return true
+	case "startup":
+		for _, status := range req.SourceStatuses {
+			if status.Name == "sbx" && status.Status == "error" && auth.IsRequired(status.Detail) {
+				return true
+			}
+		}
+	case "cleanup":
 		for _, target := range req.CleanupTargets {
 			if target.Source == "sbx" {
 				return true

@@ -13,6 +13,9 @@ func TestIsRequired(t *testing.T) {
 		{name: "current sign in", detail: "Sign-in required", want: true},
 		{name: "current token", detail: "docker Hub session has no access token (run 'sbx login' to refresh)", want: true},
 		{name: "radar status", detail: "not signed in; run sbx login", want: true},
+		{name: "Windows hint", detail: "run sbx.exe login", want: true},
+		{name: "Windows quoted hint", detail: "run 'sbx.exe login' to refresh", want: true},
+		{name: "Windows double quoted hint", detail: `run "sbx.exe login"`, want: true},
 		{name: "unrelated", detail: "sbx daemon is unavailable", want: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {

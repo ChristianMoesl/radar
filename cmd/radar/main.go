@@ -110,14 +110,31 @@ func runTUIWithMode(mode string) {
 	if err := ensureDaemonCurrent(path); err != nil {
 		fatal(err)
 	}
-	_, err = client.Call(path, "tasks")
+	response, err := client.Call(path, "tasks")
 	if err != nil {
 		if err := startDaemonAndWait(path); err != nil {
 			fatal(err)
 		}
-		_, err = client.Call(path, "tasks")
+		response, err = client.Call(path, "tasks")
 		if err != nil {
 			fatal(err)
+		}
+	}
+	operation := "startup"
+	if mode == "create" || mode == "fork" {
+		operation = mode
+	}
+	// Authenticate before Bubble Tea takes ownership of the terminal. Background
+	// collection only reports failures; the foreground owns interactive login.
+	authentication, err := app.DefaultIntegrations().EnsureAuthentication(context.Background(), integration.AuthenticationRequest{Operation: operation, SourceStatuses: response.Sources})
+	if err != nil {
+		fatal(err)
+	}
+	if authentication.Changed {
+		if refreshed, err := client.Call(path, "refresh-local"); err != nil {
+			fatal(err)
+		} else if !refreshed.OK {
+			fatal(errors.New(refreshed.Error))
 		}
 	}
 	if mode == "create" {
@@ -256,6 +273,9 @@ func runCreate(args []string) {
 	}
 
 	integrations := app.DefaultIntegrations()
+	if _, err := integrations.EnsureAuthentication(context.Background(), integration.AuthenticationRequest{Operation: "create"}); err != nil {
+		fatal(err)
+	}
 	manager, err := integrations.WorkspaceManager()
 	if err != nil {
 		fatal(err)

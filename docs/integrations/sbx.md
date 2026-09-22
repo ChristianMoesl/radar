@@ -8,7 +8,7 @@ SBX supplies local Docker sandbox resources and shell actions.
 
 ## Configuration and authentication
 
-`sbx.enabled`, `sbx.kit`, and `sbx.additional_mounts` configure managed runtimes. Repository-local settings use the same shape. Omitted `enabled` automatically enables new workspaces on macOS when `sbx` is on PATH. Explicit repository `enabled` overrides explicit global `enabled`; otherwise automatic detection applies. Explicit enablement with missing tools or unsupported platforms fails before provisioning; runtime/authentication failures never fall back to the host. Sign in with `sbx login`. Only explicit cleanup can initiate the provider-owned interactive login flow; dashboard startup and creation never prompt.
+`sbx.enabled`, `sbx.kit`, and `sbx.additional_mounts` configure managed runtimes. Repository-local settings use the same shape. Omitted `enabled` automatically enables new workspaces on macOS when `sbx` is on PATH. Explicit repository `enabled` overrides explicit global `enabled`; otherwise automatic detection applies. Explicit enablement with missing tools or unsupported platforms fails before provisioning; runtime/authentication failures never fall back to the host. On dashboard startup, Radar detects reported SBX authentication failures and runs the provider-owned login flow before opening the TUI. `radar create`, `radar fork`, and CLI cleanup of sandbox targets also check authentication before proceeding. The check is bounded and only authentication failures trigger login; missing tools, healthy sessions, and unrelated runtime failures do not. Successful startup login refreshes local sources. Background collection never prompts. You can also sign in manually with `sbx login`.
 
 ## Windows / WSL2
 
@@ -23,8 +23,12 @@ sbx.exe ls --json
 A native `sbx` takes precedence if both are installed, matching `pi-sbx` discovery.
 Radar selects one installation for each operation and never switches after a
 runtime/authentication failure. No executable override or wrapper is required.
-Authenticate Windows SBX with `sbx.exe login`. Restart Radar's daemon if its PATH
-predates the installation.
+Automatic login uses that same selected executable: `sbx login` on macOS or
+native Linux, and `sbx.exe login` for Windows SBX from WSL2. Both the Windows
+authentication check and login run with `/` as their working directory; login
+inherits the foreground terminal's stdin/stdout/stderr and process group. You
+can also authenticate manually with `sbx.exe login`. Restart Radar's daemon if
+its PATH predates the installation.
 
 Supported operations are collection, task/workspace matching, opening sandbox
 shells, and cleanup. `wslpath -u` translates Windows drive and WSL UNC mount paths
@@ -99,8 +103,13 @@ Cleanup descriptions and opaque resource IDs are provider-owned. Workspace recon
 
 ## Validation
 
+Authentication tests use fake CLIs to cover macOS and WSL2 executable selection,
+Windows working directories, forwarded login streams, expired/healthy sessions,
+login failures without backend fallback, and foreground entry points. They do
+not authenticate a real account; the WSL2 dispatch tests can run on either OS.
+
 ```sh
-go test ./internal/integration/sbx/... ./internal/integration/workspace/... ./internal/pi
+go test ./cmd/radar ./internal/integration/sbx/... ./internal/integration/workspace/... ./internal/pi
 # Extension runtime tests use Node.js with native TypeScript stripping (Node 22.18+).
 # Optional macOS/SBX integration tests:
 RADAR_SBX_E2E=1 go test ./internal/integration/workspace -run 'SharedDirectoryRoundTripE2E'

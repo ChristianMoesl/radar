@@ -34,8 +34,12 @@ required just to open the dashboard. Tools installed later on PATH are detected
 on subsequent checks, without rewriting the config. If the daemon's PATH itself
 changes, restart the daemon to give it the updated environment.
 
-Dashboard startup never opens login prompts. Authenticate GitHub with
-`gh auth login` and SBX with `sbx login` (`sbx.exe login` for Windows SBX from WSL). SBX runtime failures never cause a
+Dashboard startup recovers reported SBX authentication failures by launching
+`sbx login` (`sbx.exe login` for Windows SBX from WSL2) before opening the TUI,
+then refreshing local sources. `radar create` and `radar fork` also check SBX
+authentication in the foreground. Background collection never opens login
+prompts, and unrelated runtime failures do not trigger login. Authenticate
+GitHub manually with `gh auth login`. SBX runtime failures never cause a
 sandboxed setup command to execute on the host instead.
 
 ## Repository precedence and existing workspaces
@@ -52,8 +56,8 @@ Kit overrides and additive mount configuration retain their existing semantics.
 Changing defaults never changes an existing registered workspace's runtime or
 kit. With global SBX disabled, Radar still observes registered sandboxes (including
 repository opt-ins), but not unrelated sandboxes. Registered resources can still
-be explicitly cleaned up. SBX's interactive authentication capability is used
-only for explicit cleanup of sandbox targets.
+be explicitly cleaned up. CLI cleanup of sandbox targets also checks SBX
+authentication in the foreground.
 
 ## Required only when using a workflow
 
@@ -100,8 +104,10 @@ schemas are unchanged. Restart a running daemon after updating the binary.
   unsupported managed workspaces rejected before provisioning.
 - Missing workspace tools/vaults failing before resource provisioning.
 - Existing workspace runtime preservation and explicit cleanup while disabled.
-- Failed sources remaining errors without launching authentication or suppressing
-  healthy sources; skipped sources never running reconciliation.
+- Background source failures remaining errors without launching authentication or
+  suppressing healthy sources; skipped sources never running reconciliation.
+- Foreground SBX login recovery, macOS/WSL2 executable selection and login streams,
+  with no login for healthy sessions or unrelated errors.
 
 Tests use fake CLIs and local fixtures, not real authentication, remote APIs, or
 sandbox provisioning. CI also builds native macOS notifier/release archives;
