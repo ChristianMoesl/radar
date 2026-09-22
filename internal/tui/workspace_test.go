@@ -95,6 +95,67 @@ func TestWorkspaceNoteCannotBeDetached(t *testing.T) {
 	}
 }
 
+func TestWorkspaceCreationSkipsConfirmation(t *testing.T) {
+	m := model{mode: "workspace_edit", editor: workspaceEditor{active: true, create: integration.ManagedWorkspaceRequest{Name: "New"}}}
+	if !strings.Contains(m.View(), "enter create") {
+		t.Fatal("creation control still advertises review")
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd == nil || m.mode != "workspace_loading" {
+		t.Fatal("creation skipped plan validation")
+	}
+	plan := integration.WorkspaceReconcilePlan{
+		PlanID: "validated",
+		Changes: []integration.WorkspaceChange{
+			{Action: "add", Resource: "workspace"},
+			{Action: "recreate", Resource: "sandbox"},
+		},
+		Warnings: []string{"The canonical note is retained", "recreating the sandbox interrupts processes running inside it"},
+	}
+	updated, cmd = m.Update(workspacePlanMsg{plan: plan})
+	m = updated.(model)
+	if cmd == nil || m.mode != "workspace_applying" || m.editor.plan.PlanID != "validated" || m.message != "Creating workspace..." {
+		t.Fatalf("creation did not apply validated plan directly: %+v", m)
+	}
+	if strings.Contains(m.View(), "Apply workspace changes?") {
+		t.Fatal("creation still displays confirmation")
+	}
+	for _, key := range []tea.KeyMsg{{Type: tea.KeyEnter}, {Type: tea.KeyEsc}} {
+		updated, cmd = m.Update(key)
+		if cmd != nil || updated.(model).mode != "workspace_applying" {
+			t.Fatal("key interrupted or duplicated creation")
+		}
+	}
+}
+
+func TestWorkspaceCreationPreviewFailureDoesNotApply(t *testing.T) {
+	m := model{mode: "workspace_loading", editor: workspaceEditor{active: true, create: integration.ManagedWorkspaceRequest{Name: "New"}}}
+	updated, cmd := m.Update(workspacePlanMsg{err: fmt.Errorf("vault unavailable")})
+	got := updated.(model)
+	if cmd != nil || got.mode != "workspace_edit" || got.err == nil || !got.editor.active {
+		t.Fatal("failed validation applied or discarded the draft")
+	}
+}
+
+func TestWorkspaceCreationResolvingToExistingWorkspaceRequiresConfirmation(t *testing.T) {
+	m := model{mode: "workspace_loading", editor: workspaceEditor{active: true, create: integration.ManagedWorkspaceRequest{Name: "Existing"}}}
+	plan := integration.WorkspaceReconcilePlan{Changes: []integration.WorkspaceChange{{Action: "recreate", Resource: "sandbox"}}, Warnings: []string{"recreating the sandbox interrupts processes running inside it"}}
+	updated, cmd := m.Update(workspacePlanMsg{plan: plan})
+	got := updated.(model)
+	if cmd != nil || got.mode != "workspace_confirm" || !strings.Contains(got.View(), plan.Warnings[0]) {
+		t.Fatal("existing workspace changes bypassed confirmation")
+	}
+}
+
+func TestWorkspaceUnchangedPlanDoesNotApply(t *testing.T) {
+	updated, cmd := editorModel().Update(workspacePlanMsg{plan: integration.WorkspaceReconcilePlan{PlanID: "unchanged"}})
+	got := updated.(model)
+	if cmd != nil || got.mode != "workspace_edit" || got.message != "No workspace changes" {
+		t.Fatal("unchanged plan applied or requested confirmation")
+	}
+}
+
 func TestWorkspacePreviewRequiresConfirmation(t *testing.T) {
 	m := editorModel()
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -189,14 +250,10 @@ func TestWorkspaceEditorDoesNotOfferNoteControls(t *testing.T) {
 func TestWorkspacePreviewRetainsPreparedNote(t *testing.T) {
 	m := model{mode: "workspace_loading", editor: workspaceEditor{create: integration.ManagedWorkspaceRequest{Name: "New"}}}
 	note := &integration.DesiredWorkspaceNote{Create: true, Title: "New", Path: "/vault/Tasks/New--12345678/New.md", LinkingKey: "obsidian:task:12345678"}
-	updated, _ := m.Update(workspacePlanMsg{plan: integration.WorkspaceReconcilePlan{PlanID: "plan", Note: note, Changes: []integration.WorkspaceChange{{Resource: "note"}}}})
+	updated, cmd := m.Update(workspacePlanMsg{plan: integration.WorkspaceReconcilePlan{PlanID: "plan", Note: note, Changes: []integration.WorkspaceChange{{Action: "add", Resource: "workspace"}, {Resource: "note"}}}})
 	got := updated.(model)
-	if got.editor.createRequest().Note != note {
-		t.Fatal("apply would prepare a different note")
-	}
-	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if updated.(model).editor.createRequest().Note != note {
-		t.Fatal("back from confirmation lost identity")
+	if cmd == nil || got.mode != "workspace_applying" || got.editor.createRequest().Note != note || got.editor.plan.PlanID != "plan" {
+		t.Fatal("direct apply lost prepared note or validated plan identity")
 	}
 }
 

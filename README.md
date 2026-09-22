@@ -140,7 +140,7 @@ bind-key F display-popup -E "radar fork"
 | <kbd>r</kbd> | Refresh sources |
 | <kbd>q</kbd> / <kbd>Esc</kbd> | Quit |
 
-The workspace editor starts with a name and a draft. Add zero or more repositories, then review the complete change plan before applying it. Every workspace automatically gets a canonical Obsidian note exposed as `notes.md`. Press `w` to edit an existing workspace, `a` to add a repository, `x` to remove the selected repository. Repository addition uses repository search and branch selection. New branch names are prefilled once from the workspace name using Radar's branch-name sanitization. You can edit or clear the suggestion without changing the workspace name; Radar does not overwrite your edits. Each added repository starts with its own suggestion. It tries to refresh origin before listing branches. If that fetch fails, Radar shows a warning and continues with locally cached refs, so previously fetched branches remain available offline. Repository paths are shortened to `~/...` when they are inside your home directory.
+The workspace editor starts with a name and a draft. Add zero or more repositories, then press Enter to create and open the workspace without a confirmation dialog. Radar still validates the complete plan before applying it. Every workspace automatically gets a canonical Obsidian note exposed as `notes.md`. Press `w` to edit an existing workspace, `a` to add a repository, `x` to remove the selected repository. Repository addition uses repository search and branch selection. New branch names are prefilled once from the workspace name using Radar's branch-name sanitization. You can edit or clear the suggestion without changing the workspace name; Radar does not overwrite your edits. Each added repository starts with its own suggestion. It tries to refresh origin before listing branches. If that fetch fails, Radar shows a warning and continues with locally cached refs, so previously fetched branches remain available offline. Repository paths are shortened to `~/...` when they are inside your home directory.
 
 ## Workspaces
 
@@ -179,7 +179,7 @@ Activating an Obsidian-only task prefills its note in the same workspace editor,
 └── notes.md -> <vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
 ```
 
-An automatically created note starts with an empty body. Note creation happens only after confirmation. Obsidian is required and has no enable/disable switch; an unavailable or unconfigured vault prevents creation before resources are provisioned. If the task already has an authored note, Radar reuses it. Attached notes cannot be replaced or detached through workspace controls. The same Pi session remains active while the task moves between planning and zero or more Git members.
+An automatically created note starts with an empty body. Note creation happens only during apply, after plan validation. Obsidian is required and has no enable/disable switch; an unavailable or unconfigured vault prevents creation before resources are provisioned. If the task already has an authored note, Radar reuses it. Attached notes cannot be replaced or detached through workspace controls. The same Pi session remains active while the task moves between planning and zero or more Git members.
 
 Radar stores every workspace record in the single `<workspace_root>/.radar-workspaces.json` registry. `radar reset` does not remove it. The current registry schema rejects old primary-worktree records rather than migrating them implicitly.
 
@@ -191,7 +191,7 @@ With `pi-radar` installed, Pi sessions started inside a registered Radar workspa
 
 The context tool returns only the current logical workspace, not all registry records. It never returns note contents.
 
-Creation and edits share the resource planner and apply engine. Interactive changes show one preview and confirmation, including dirty-worktree protection, unpublished-commit warnings, and sandbox recreation. A changed plan requires confirmation again. The editor preserves mounts and ports; edit those through the existing agent tools or CLI. After manual membership changes, use `/radar-reload-workspace-resources` in an active Pi session to refresh member skills without restarting it.
+Creation and edits share the resource planner and apply engine. New workspace creation in the TUI applies the validated plan directly. Edits to existing workspaces still show a preview and confirmation, including dirty-worktree protection, unpublished-commit warnings, and sandbox recreation; this also applies when a creation request resolves to an existing workspace. A changed plan is never silently applied. The editor preserves mounts and ports; edit those through the existing agent tools or CLI. After manual membership changes, use `/radar-reload-workspace-resources` in an active Pi session to refresh member skills without restarting it.
 
 Desired worktrees use replacement semantics. `worktrees: []` is valid. Omitting a clean member removes its worktree and eligible local branch while leaving the anchor, note, and Pi session intact. Dirty removals fail closed. Protected default branches and all remote branches remain untouched. Sandbox state must stay `null` for a sandbox-less workspace, and ordinary reconciliation cannot enable or remove SBX.
 

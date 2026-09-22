@@ -185,6 +185,20 @@ func (m model) updateWorkspace(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// A creation request can resolve to an existing workspace. Only skip approval
+// when the validated plan actually creates a new workspace.
+func (e workspaceEditor) createsWorkspace() bool {
+	if e.state.Path != "" {
+		return false
+	}
+	for _, change := range e.plan.Changes {
+		if change.Resource == "workspace" && change.Action == "add" {
+			return true
+		}
+	}
+	return false
+}
+
 func (e workspaceEditor) createRequest() integration.ManagedWorkspaceRequest {
 	request := e.create
 	request.Worktrees, request.Note = e.desired.Worktrees, e.desired.Note
@@ -201,7 +215,7 @@ func (e workspaceEditor) reconcileRequest() (integration.WorkspaceReconcileReque
 
 func (m model) previewWorkspace() (tea.Model, tea.Cmd) {
 	editor := m.editor
-	m.mode, m.err, m.message = "workspace_loading", nil, "Reviewing workspace changes..."
+	m.mode, m.err, m.message = "workspace_loading", nil, "Preparing workspace changes..."
 	return m, func() tea.Msg {
 		manager, err := app.DefaultIntegrations().WorkspaceManager()
 		if err != nil {
@@ -224,6 +238,9 @@ func (m model) previewWorkspace() (tea.Model, tea.Cmd) {
 func (m model) applyWorkspace() (tea.Model, tea.Cmd) {
 	editor := m.editor
 	m.mode, m.err, m.message = "workspace_applying", nil, "Applying workspace changes..."
+	if editor.createsWorkspace() {
+		m.message = "Creating workspace..."
+	}
 	return m, func() tea.Msg {
 		manager, err := app.DefaultIntegrations().WorkspaceManager()
 		if err != nil {
@@ -301,7 +318,11 @@ func (m model) workspaceView(width int) string {
 	if sandbox := m.editor.desired.Sandbox; sandbox != nil {
 		lines = append(lines, "", fmt.Sprintf("Sandbox: %d requested mounts, %d ports, unchanged", len(sandbox.AdditionalMounts), len(sandbox.Ports)))
 	}
-	lines = append(lines, "", "a add repository • x remove selected • enter review • esc cancel")
+	submit := "review"
+	if m.editor.state.Path == "" {
+		submit = "create"
+	}
+	lines = append(lines, "", "a add repository • x remove selected • enter "+submit+" • esc cancel")
 	return strings.Join(lines, "\n")
 }
 

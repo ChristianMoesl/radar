@@ -76,7 +76,7 @@ The baseline is not a configuration option. It is absent from new notes until a 
 
 ## Planning workspaces
 
-Pressing `Enter` on an Obsidian-only task reuses its note in a workspace draft. After confirmation, Radar creates the stable anchor. Repositories are optional. Workspace creation from other sources or from scratch automatically prepares a note, with no note selection control. It persists the canonical note association before provisioning worktrees or the sandbox.
+Pressing `Enter` on an Obsidian-only task reuses its note in a workspace draft. Pressing `Enter` in the draft validates and creates the stable anchor without a confirmation dialog. Repositories are optional. Workspace creation from other sources or from scratch automatically prepares a note, with no note selection control. It persists the canonical note association before provisioning worktrees or the sandbox.
 
 ```text
 <workspace_root>/plan-authentication/

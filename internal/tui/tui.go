@@ -423,6 +423,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editor.scroll = 0
 			if len(msg.plan.Changes) == 0 {
 				m.message = "No workspace changes"
+			} else if m.editor.createsWorkspace() {
+				return m.applyWorkspace()
 			} else {
 				m.mode = "workspace_confirm"
 			}

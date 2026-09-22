@@ -49,7 +49,7 @@ Press `w` on a task to edit its workspace, or `c` to create a new workspace. Bot
 
 - `a`: add a repository and choose a new or existing branch.
 - `x`: stage removal of the selected worktree. Dirty worktrees are blocked.
-- `Enter`: review the full plan, then confirm once with `y` or `Enter`.
+- `Enter`: validate, create, and open a new workspace directly, without a confirmation dialog. Edits to an existing workspace still show the full plan and require confirmation with `y` or `Enter`. Creation requests that resolve to existing workspaces also retain confirmation.
 - `Esc`: return from confirmation or cancel the draft without applying it.
 
 Notes are one-way additions. Neither the editor nor reconciliation can replace or detach an attached note. The canonical file is never deleted. The preview includes the automatic note creation and any required SBX recreation. Authoritative remote work drives the persisted lifecycle, with explicit reopening protected by the note's completion baseline. Creating its private directory and note happens only during apply.
@@ -94,7 +94,7 @@ Worktrees, requested mounts, and ports use replacement semantics. Omitting a mem
 
 Members use repository-and-branch identity. One workspace may contain several repositories or several branches from one repository, while a repository-and-branch pair may belong to only one registered workspace.
 
-`note: null` leaves the current note unchanged. To attach an existing note, provide `{"path":"/absolute/canonical/note.md","linking_key":"obsidian:task:<uuid>"}`. The Obsidian provider validates the path and identity. Retaining an attached note uses the same object returned by workspace inspection. A different note is rejected. Creation previews return a prepared `note` with stable identity and `create: true`; callers pass it back as the creation request's `Note` alongside `ExpectedPlanID` when applying. The editor retains this identity across confirmation and draft edits. The canonical file is not written during preview.
+`note: null` leaves the current note unchanged. To attach an existing note, provide `{"path":"/absolute/canonical/note.md","linking_key":"obsidian:task:<uuid>"}`. The Obsidian provider validates the path and identity. Retaining an attached note uses the same object returned by workspace inspection. A different note is rejected. Creation previews return a prepared `note` with stable identity and `create: true`; callers pass it back as the creation request's `Note` alongside `ExpectedPlanID` when applying. The editor retains this identity when applying creation directly and across confirmation and draft edits. The canonical file is not written during preview.
 
 The original `task_linking_key` remains stable, including Pi session identity. An optional `note_linking_key` records a secondary authored-note association without replacing a Jira or GitHub task link. Notes that are already the workspace's task use that task key. This adds an optional registry field without changing existing records; it does not migrate or rename files. Do not run an older Radar binary after writing secondary note associations because it would not preserve the new field.
 
