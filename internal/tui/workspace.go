@@ -290,7 +290,7 @@ func (m model) workspaceView(width int) string {
 	if details := m.operationDetails(m.editor.task, width); details != "" {
 		lines = append(lines, details, "")
 	}
-	lines = append(lines, "", "Repositories")
+	lines = append(lines, "Repositories")
 	if len(m.editor.desired.Worktrees) == 0 {
 		lines = append(lines, "  none")
 	}

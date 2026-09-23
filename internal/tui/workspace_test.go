@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"radar/internal/integration"
 	"radar/internal/protocol"
 )
@@ -14,6 +15,33 @@ func editorModel() model {
 	member := integration.DesiredWorkspaceWorktree{Repository: "/repos/app", BranchMode: integration.WorkspaceBranchExisting, Branch: "feature"}
 	desired := integration.DesiredWorkspaceDescription{Worktrees: []integration.DesiredWorkspaceWorktree{member}, Note: &integration.DesiredWorkspaceNote{Path: "/vault/Tasks/Plan/Plan.md", LinkingKey: "obsidian:task:one"}, Sandbox: &integration.DesiredWorkspaceSandbox{Ports: []integration.SandboxPort{{HostPort: 3000, SandboxPort: 3000}}}}
 	return model{mode: "workspace_edit", editor: workspaceEditor{active: true, state: integration.WorkspaceState{Path: "/work/plan", Name: "Plan", Revision: "original", Desired: desired, Members: []integration.WorkspaceStateMember{{Repository: member.Repository, Branch: member.Branch, Path: "/work/plan/app--feature"}}}, desired: desired}}
+}
+
+func TestWorkspaceEditorUsesOneBlankRowBeforeRepositories(t *testing.T) {
+	for _, creating := range []bool{false, true} {
+		for _, failed := range []bool{false, true} {
+			t.Run(fmt.Sprintf("creating=%v/failed=%v", creating, failed), func(t *testing.T) {
+				m := editorModel()
+				if creating {
+					m.editor.state = integration.WorkspaceState{}
+					m.editor.create.Name = "Plan"
+				}
+				want := "Workspace: Plan\n\n"
+				if failed {
+					m.editor.task = protocol.Task{ID: 7, Title: "Plan"}
+					m.taskFailures = []taskFailure{{
+						operation: taskOperation{task: m.editor.task, kind: "workspace-prepare", failure: "Workspace preparation failed"},
+						err:       fmt.Errorf("repository unavailable"),
+					}}
+					want += "Workspace preparation failed\nrepository unavailable\n\n"
+				}
+				want += "Repositories\n› app  feature\n"
+				if got := ansi.Strip(m.workspaceView(100)); !strings.HasPrefix(got, want) {
+					t.Fatalf("workspace view = %q, want prefix %q", got, want)
+				}
+			})
+		}
+	}
 }
 
 func TestWorkspaceKeyInspectsSelectedTask(t *testing.T) {
