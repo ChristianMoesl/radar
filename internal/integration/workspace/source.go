@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
-	"radar/internal/cleanup"
 	"radar/internal/integration"
 	"radar/internal/integration/obsidian"
 	"radar/internal/integration/workspace/group"
@@ -34,7 +32,7 @@ func (Source) Status(context.Context, *slog.Logger) integration.StatusResult {
 }
 
 func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
-	root, err := DefaultRoot()
+	root, disposable, err := loadAnchorCleanupSettings()
 	if err != nil {
 		status := protocol.SourceStatus{Name: "workspace", Status: "error", Detail: err.Error()}
 		return integration.CollectResult{SourceStatus: &status}
@@ -78,10 +76,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 			ref.Metadata["note_path"] = group.NotePath
 			ref.WorkspaceAnchorPath = group.NotePath
 		}
-		if reason := cleanup.LocationIssue(group.Path, root); reason != "" {
-			ref.CleanupIssues = append(ref.CleanupIssues, reason)
-		}
-		if err := anchorCleanupError(group); err != nil {
+		if _, err := anchorCleanupEntries(root, group, disposable); err != nil {
 			ref.CleanupIssues = append(ref.CleanupIssues, err.Error())
 		}
 		for _, member := range group.Members {
@@ -105,7 +100,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 }
 
 func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
-	root, err := DefaultRoot()
+	root, disposable, err := loadAnchorCleanupSettings()
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +118,8 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 		if !found {
 			continue
 		}
-		if err := anchorCleanupError(group); err != nil {
+		entries, err := anchorCleanupEntries(root, group, disposable)
+		if err != nil {
 			return nil, err
 		}
 		// A vanished member has no files to discard. Forget its targeted Git
@@ -147,12 +143,14 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 		if group.Sandbox != nil && group.Sandbox.SharedDirectory != "" {
 			description += " and shared temporary files (including screenshots) in " + group.Sandbox.SharedDirectory
 		}
-		targets = append(targets, protocol.CleanupTarget{
+		target := protocol.CleanupTarget{
 			SourceRefID: ref.ID, Source: "workspace", Kind: "workspace", Title: group.Name, Path: group.Path,
 			Presentation: protocol.CleanupPresentation{Singular: "workspace directory", Plural: "workspace directories"},
 			Description:  description, ResourceRole: "workspace", ResourceID: group.ID,
 			ProvidesWorkspace: true, WorkspaceID: group.ID,
-		})
+		}
+		addDisposableEntriesPreview(&target, entries)
+		targets = append(targets, target)
 	}
 	return targets, nil
 }
@@ -183,80 +181,7 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 	return req.Target, nil
 }
 
-func removeWorkspaceAnchor(root string, target protocol.CleanupTarget) (workspacegroup.Workspace, error) {
-	registry, err := workspacegroup.Load(root)
-	if err != nil {
-		return workspacegroup.Workspace{}, err
-	}
-	id := strings.TrimPrefix(target.SourceRefID, "workspace:")
-	group, found := workspacegroup.FindByID(registry, id)
-	if !found {
-		return workspacegroup.Workspace{}, nil
-	}
-	if len(group.Members) > 0 {
-		return workspacegroup.Workspace{}, fmt.Errorf("workspace still contains %d managed worktree(s)", len(group.Members))
-	}
-	unknown, err := unknownAnchorEntries(group)
-	if err != nil {
-		return workspacegroup.Workspace{}, err
-	}
-	if len(unknown) > 0 {
-		return workspacegroup.Workspace{}, fmt.Errorf("workspace anchor contains unknown files: %s", strings.Join(unknown, ", "))
-	}
-	link := filepath.Join(group.Path, "notes.md")
-	if info, statErr := os.Lstat(link); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
-		if err := os.Remove(link); err != nil {
-			return workspacegroup.Workspace{}, err
-		}
-	}
-	if err := os.Remove(group.Path); err != nil && !os.IsNotExist(err) {
-		return workspacegroup.Workspace{}, err
-	}
-	if err := removeSharedDirectory(group); err != nil {
-		return workspacegroup.Workspace{}, err
-	}
-	if err := workspacegroup.RemoveWorkspace(root, group.ID); err != nil {
-		return workspacegroup.Workspace{}, err
-	}
-	return group, nil
-}
-
-func unknownAnchorEntries(group workspacegroup.Workspace) ([]string, error) {
-	entries, err := os.ReadDir(group.Path)
-	if os.IsNotExist(err) {
-		return []string{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	managed := map[string]bool{"notes.md": group.NotePath != ""}
-	for _, member := range group.Members {
-		managed[filepath.Base(member.Path)] = true
-	}
-	unknown := make([]string, 0)
-	for _, entry := range entries {
-		path := filepath.Join(group.Path, entry.Name())
-		if !managed[entry.Name()] || (entry.Name() == "notes.md" && entry.Type()&os.ModeSymlink == 0) {
-			unknown = append(unknown, path)
-		}
-	}
-	sort.Strings(unknown)
-	return unknown, nil
-}
-
 var _ integration.Source = Source{}
 var _ integration.LocalSource = Source{}
 var _ integration.StatusReporter = Source{}
 var _ integration.CleanupProvider = Source{}
-
-// Both observation and cleanup preview must reject the same anchor contents.
-func anchorCleanupError(group workspacegroup.Workspace) error {
-	unknown, err := unknownAnchorEntries(group)
-	if err != nil {
-		return err
-	}
-	if len(unknown) > 0 {
-		return fmt.Errorf("workspace anchor contains unknown files: %s", strings.Join(unknown, ", "))
-	}
-	return nil
-}

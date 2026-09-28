@@ -122,9 +122,9 @@ type CleanupRequest struct {
 }
 ```
 
-The provider owns removal of only its resource type. tmux removes sessions, SBX removes sandboxes, Git removes worktrees and eligible local branches, and Workspace removes an empty managed anchor. Merely observed worktrees, protected branches, remote branches, and canonical Obsidian notes are preserved. Manual cleanup passes `Force: true` after user confirmation. Automatic garbage collection passes `Force: false` and skips any target whose provider emitted a safety item with `BlocksAutomatic`.
+The provider owns removal of only its resource type. tmux removes sessions, SBX removes sandboxes, Git removes worktrees and eligible local branches, and Workspace removes explicitly configured disposable root entries and then the empty managed anchor. Merely observed worktrees, protected branches, remote branches, and canonical Obsidian notes are preserved. Manual cleanup passes `Force: true` after user confirmation. Automatic garbage collection passes `Force: false` and skips any target whose provider emitted a safety item with `BlocksAutomatic`.
 
-The active provider order is tmux, SBX, Git, then Workspace. Processes stop first, members disappear before the anchor, and unknown anchor contents block removal. Do not orchestrate another integration's resources from a provider.
+The active provider order is tmux, SBX, Git, then Workspace. Processes stop first, members disappear before the anchor, and unknown anchor contents block removal. The workspace provider alone interprets the global disposable-entry allowlist and its preview operation data; it never overrides member safety checks. Do not orchestrate another integration's resources from a provider.
 
 ## Checklist
 

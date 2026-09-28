@@ -32,8 +32,9 @@ type Config struct {
 }
 
 type WorkspaceConfig struct {
-	RootDir     string `json:"root_dir"`
-	AutoConfirm bool   `json:"auto_confirm"`
+	RootDir     string                 `json:"root_dir"`
+	AutoConfirm bool                   `json:"auto_confirm"`
+	Cleanup     WorkspaceCleanupConfig `json:"cleanup"`
 }
 
 type SBXConfig = sbxsettings.Config
@@ -111,8 +112,11 @@ func EnsureFile() (string, error) {
 
 func Default() Config {
 	cfg := Config{
-		RepositoryDirs:      []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"},
-		Workspace:           WorkspaceConfig{RootDir: defaultWorkspaceRoot()},
+		RepositoryDirs: []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"},
+		Workspace: WorkspaceConfig{
+			RootDir: defaultWorkspaceRoot(),
+			Cleanup: WorkspaceCleanupConfig{DisposableEntries: []string{}},
+		},
 		LinkingMarkPrefixes: []string{},
 		SBX:                 sbxsettings.Default(),
 		Tmux:                sessionlayout.Default(),
@@ -148,6 +152,9 @@ func applyDefaults(cfg *Config) {
 }
 
 func validate(cfg Config) error {
+	if err := cfg.Workspace.Cleanup.validate(); err != nil {
+		return err
+	}
 	if err := pi.ValidateThinking(cfg.Thinking); err != nil {
 		return err
 	}

@@ -15,7 +15,7 @@ The section is omitted when there are no issues. GC feedback stays counts-only.
 | **Uncommitted changes** | Staged changes, modified tracked files, or untracked files could be discarded with the worktree. | Review the affected worktree with `git status` and `git diff`. Commit and publish work you need, stash it for later, or move untracked files outside the workspace. Discard changes only after deciding they are unnecessary. A local commit can still need publication verification. |
 | **Local commits not verified as published or merged** | A branch scheduled for deletion has commits that cannot be verified on origin or as the exact head of a merged GitHub PR. A completed task or reused branch name is not sufficient proof. | Inspect the branch history and its PR. Publish any local-only work. Check for commits added **after** the PR merged. If the PR used squash/rebase merging, refresh Radar after the merge and confirm the local tip matches the merged PR's head. On other Git hosts, publish the branch if its original tip is no longer reachable on origin. |
 | **Publication or merge verification unavailable** | Fetching origin or obtaining GitHub merge evidence still fails after one retry, or a verification check times out. Radar does not treat uncertainty as permission to delete commits. | Check connectivity and repository access; use `gh auth status` for GitHub API access. Correct invalid remotes or credentials, then refresh Radar. A transient failure that succeeds on retry does not become an issue. |
-| **Unknown workspace-root files** | The workspace anchor contains files Radar does not own. A familiar filename or extension is not enough to declare them disposable. | Inspect the exact paths listed. Move valuable scripts, notes, or downloads into an appropriate repository or another directory. Remove only files you recognise as unnecessary. Use the workspace's advertised shared directory for disposable screenshots and temporary exchange files. |
+| **Unknown workspace-root files** | The workspace anchor contains files Radar does not own. A familiar filename or extension is not enough to declare them disposable. | Inspect the exact paths listed. Move valuable scripts, notes, or downloads into an appropriate repository or another directory. Remove only files you recognise as unnecessary, or explicitly configure disposable root entries as described below. Use the workspace's advertised shared directory for disposable screenshots and temporary exchange files. |
 | **Unsafe workspace location** | The workspace is outside the configured workspace root, or is the root itself. | Check the configured root and workspace registration. Correct an unintended configuration or use Radar's workspace management to restore a valid location. Do not bypass the boundary by forcing directory deletion. |
 | **Invalid workspace registration** | For example, a managed member incorrectly points at a primary repository checkout, or a referenced repository cannot be inspected. | Inspect the workspace membership and repository paths. Correct the member through Radar's workspace management; keep primary repositories outside the removal set. Restore a missing source repository if its worktree metadata must be inspected. |
 | **Persistent inspection or resource-identification failure** | Git/filesystem/registry inspection fails, or Radar cannot identify a sandbox or tmux cleanup target. | Read the specific reason in Inspect. Restore permissions/access, unlock a worktree only if it is safe, or reconcile stale workspace/runtime information and refresh Radar. A running sandbox or attached terminal alone is not an error. |
@@ -56,9 +56,51 @@ change automatic GC's 24-hour retention period.
 - **Radar-owned artifacts:** registered member directories, the managed
   `notes.md` symlink, and the validated workspace-specific shared temporary
   directory are already recognised. The canonical note is not disposable.
-  Arbitrary root files are **not** newly allowlisted or recursively deleted.
+  Other root files remain protected unless explicitly configured as disposable.
 - **Temporary remote failure:** retry the read-only verification once before
   raising an issue. Persistent failures remain visible and conservative.
+
+## Disposable workspace-root entries
+
+For disposable caches such as `.pnpm-store`, add an explicit deletion allowlist
+in the **user** config (`radar config-path`):
+
+```json
+{
+  "workspace": {
+    "cleanup": {
+      "disposable_entries": [".pnpm-store"]
+    }
+  }
+}
+```
+
+The default is `[]`. This setting **authorises deletion**, not just ignoring a
+safety warning: when an otherwise eligible workspace is cleaned up, Radar removes
+each listed entry, including a directory's contents. It applies to all registered
+workspaces, including note-only workspaces, and is not a repository `.radar.json`
+setting. Existing user configs are not rewritten; no registry or cache migration
+is needed.
+
+Names match exact, case-sensitive direct children of the workspace anchor, not
+files inside member worktrees. Paths, glob patterns, empty/duplicate names,
+control characters and leading/trailing whitespace are rejected. `notes.md` is
+reserved (including case variants), and a configured name never overrides managed
+member safety checks or permits deleting the canonical note.
+
+Collection, cleanup preview, manual cleanup and automatic GC use the same policy.
+Configured entries no longer cause **Unresolved**; unknown siblings still block
+the whole bundle. Cleanup previews list the disposable entries under **REMOVE**,
+including in the compact TUI view. Execution reloads the configuration and
+rechecks the anchor before deleting its entries. Revoked permission, newly
+appearing entries absent from the preview, or new unknown content stops anchor
+cleanup; preview again after reviewing the changes.
+
+Radar unlinks disposable symlinks without following their targets, including
+links inside disposable directories. It refuses symlinked anchors and symlinked
+parents below the configured workspace root. Only approved entries are removed
+recursively; the anchor itself must then be empty. Dirty-worktree, unpublished-
+commit, task-completion and GC-retention protections remain unchanged.
 
 ## Explicit cleanup versus garbage collection
 

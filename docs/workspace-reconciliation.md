@@ -151,4 +151,4 @@ Creation registers the anchor before applying its resources. The note associatio
 
 ## Cleanup
 
-Cleanup order is tmux, SBX, Git members, then the workspace anchor. The anchor provider removes only Radar-owned entries and refuses unknown files. It never removes the canonical Obsidian note.
+Cleanup order is tmux, SBX, Git members, then the workspace anchor. The anchor provider removes Radar-owned entries and explicitly configured disposable root entries (`workspace.cleanup.disposable_entries`), and refuses unknown files. It never removes the canonical Obsidian note.

@@ -229,3 +229,22 @@ func TestCleanupToggleAndScrollWithTeatest(t *testing.T) {
 		t.Fatalf("details were not reachable interactively:\n%s", final.View())
 	}
 }
+
+func TestCleanupShowsDisposableEntriesInCompactAndDetailedViews(t *testing.T) {
+	m := model{mode: "cleanup_confirm", cleanup: cleanupFixture()}
+	m.cleanup.Targets[4].Title = "feature"
+	m.cleanup.Targets[4].Safety = []protocol.CleanupSafety{{
+		Kind: "disposable_entries", Summary: "delete disposable entries: .pnpm-store, scratch.log",
+		Message: "delete configured disposable entries (including directory contents): .pnpm-store, scratch.log",
+	}}
+	for _, details := range []bool{false, true} {
+		m.cleanupDetails = details
+		view := ansi.Strip(m.cleanupConfirmView(96))
+		remove := view[strings.Index(view, "REMOVE"):strings.Index(view, "KEEP")]
+		for _, name := range []string{".pnpm-store", "scratch.log"} {
+			if !strings.Contains(remove, name) {
+				t.Fatalf("disposable entry %q hidden (details=%v):\n%s", name, details, view)
+			}
+		}
+	}
+}

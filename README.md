@@ -295,7 +295,7 @@ Cleanup issues are visible before running GC. The overview shows **⚠️ unreso
 
 Local collection reuses cleanup preview checks to populate resource issue snapshots. Local checks run each collection; successful remote fetch and merged-PR observations are cached per repository/commit for up to two minutes. Failed remote checks are retried once before surfacing an issue; persistent failures still stop automatic cleanup. Cleanup itself uses fresh verification. A deleted remote branch is safe when its tip is reachable on origin, or GitHub confirms a merged PR with that exact local tip and a merge commit still reachable on origin. Shared branches are kept, primary repository checkouts are not removal candidates, and missing managed members have only their stale worktree registrations removed—their local branches remain intact. Rendering Inspect and changing authored task state do not run safety checks or fetch remotes. Issue snapshots are optional fields in the existing rebuildable state cache; existing cache files remain readable and are populated on the next local collection without migration or reset.
 
-See [Workspace cleanup and Unresolved issues](docs/workspace-cleanup.md) for the remaining reasons, resolution activities, and safety boundaries.
+Disposable workspace-root artifacts can be explicitly authorised for deletion with `workspace.cleanup.disposable_entries`, for example `[".pnpm-store"]`. The default is empty. These are exact root-entry names, not globs or `.gitignore` rules; listed directories and their contents are removed during otherwise eligible cleanup. Previews show the deletions, while unknown content and existing worktree/note protections still block unsafe cleanup. See [Workspace cleanup and Unresolved issues](docs/workspace-cleanup.md) for configuration, remaining reasons, resolution activities, and safety boundaries.
 
 ## Obsidian-authored tasks
 
@@ -500,7 +500,8 @@ Example:
   "repository_dirs": ["~/workspace", "~/code", "~/src", "~/dev", "~/projects"],
   "workspace": {
     "root_dir": "~/.local/share/radar/workspaces",
-    "auto_confirm": false
+    "auto_confirm": false,
+    "cleanup": {"disposable_entries": []}
   },
   "linking_mark_prefixes": ["ABC"],
   "obsidian": {"vault_path": "~/Documents/Obsidian/Work"},
