@@ -277,7 +277,7 @@ func TestSourceColumnsAlignAfterTheLongestName(t *testing.T) {
 		{"obsidian", "github", "jira", "datadog", "workspace", "git", "tmux", "sbx"},
 		{"git", "workspace", "custom-provider", "日本語"},
 	} {
-		m := model{}
+		m := model{sourcesExpanded: true}
 		nameWidth := 8
 		for _, name := range names {
 			nameWidth = max(nameWidth, lipgloss.Width(name))

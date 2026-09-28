@@ -71,7 +71,8 @@ func TestViewShowsErrorsAsToastWithoutReplacingTasks(t *testing.T) {
 
 func TestViewRendersTasksAndSources(t *testing.T) {
 	model := model{
-		summary: protocol.Summary{Attention: 1},
+		sourcesExpanded: true,
+		summary:         protocol.Summary{Attention: 1},
 		tasks: []protocol.Task{{
 			Title:     "Review change",
 			Reason:    "review requested",

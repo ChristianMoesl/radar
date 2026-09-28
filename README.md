@@ -114,7 +114,7 @@ For a fast, always-available dashboard, open it in a tmux popup:
 tmux display-popup -E "radar"
 ```
 
-The dashboard uses [Catppuccin Mocha](https://catppuccin.com/palette/) colors while keeping your terminal background. Tasks remain a flowing list with inline metadata and resource badges. A blank line separates tasks without separating their source references. The task area fills the available popup height, keeping Sources and shortcuts at the bottom even when the list is short. Outer padding shrinks on smaller terminals, and the footer wraps between shortcuts so every action stays visible.
+The dashboard uses [Catppuccin Mocha](https://catppuccin.com/palette/) colors while keeping your terminal background. Tasks remain a flowing list with inline metadata and resource badges. A blank line separates tasks without separating their source references. The task area fills the available popup height, keeping Sources and shortcuts at the bottom even when the list is short. Sources starts collapsed to a one-line health summary; failures and other non-healthy states remain visible, with disabled integrations counted separately. Press `s` to show or hide the full source diagnostics without changing the selected task. The list uses the reclaimed rows, and refreshes preserve your choice for the current dashboard session. Outer padding shrinks on smaller terminals, and the footer wraps between shortcuts so every action stays visible.
 
 The `o` view lists every source action and link. Move with `j`/`k` or `↓`/`↑` and press `Enter` to open the selection; the list scrolls to keep it visible. Displayed letter/digit shortcuts open entries directly, reserving `j`, `k`, and `q` for navigation and quitting. Entries without an available shortcut leave that column blank and remain selectable. Press `Esc` or `Backspace` to return.
 
@@ -137,6 +137,7 @@ bind-key F display-popup -E "radar fork"
 | <kbd>w</kbd> | Edit the selected task's workspace resources |
 | <kbd>x</kbd> / <kbd>X</kbd> | Clean up the selected task / garbage-collect eligible workspaces |
 | <kbd>f</kbd> | Edit the configuration |
+| <kbd>s</kbd> | Show or hide source diagnostics |
 | <kbd>r</kbd> | Refresh sources |
 | <kbd>q</kbd> / <kbd>Esc</kbd> | Quit |
 

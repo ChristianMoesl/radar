@@ -117,6 +117,7 @@ type model struct {
 	summary             protocol.Summary
 	tasks               []protocol.Task
 	sources             []protocol.SourceStatus
+	sourcesExpanded     bool
 	cursor              int
 	selectedCurrentTask bool
 	mode                string
@@ -404,6 +405,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			m.message = "Garbage collecting…"
 			return m, m.garbageCollect()
+		case "s":
+			m.sourcesExpanded = !m.sourcesExpanded
+			m.syncTaskScroll()
 		case "r":
 			m.loading = true
 			m.err = nil
@@ -2182,12 +2186,14 @@ func sourceRefLabel(ref protocol.SourceRef) string {
 }
 
 func (m model) sourceList(width int) string {
+	lines := []string{m.sourceSummary(width)}
+	if !m.sourcesExpanded {
+		return lines[0]
+	}
 	nameWidth := 8
 	for _, source := range m.sources {
 		nameWidth = max(nameWidth, lipgloss.Width(source.Name))
 	}
-	var lines []string
-	lines = append(lines, titleStyle.Render("Sources"))
 	for _, source := range m.sources {
 		statusStyle := sourceStatusStyle(source.Status)
 		name := source.Name + strings.Repeat(" ", nameWidth-lipgloss.Width(source.Name))
@@ -2202,11 +2208,48 @@ func (m model) sourceList(width int) string {
 	return strings.Join(lines, "\n")
 }
 
+func (m model) sourceSummary(width int) string {
+	var failures, warnings []string
+	healthy, disabled := 0, 0
+	for _, source := range m.sources {
+		switch source.Status {
+		case "ok":
+			healthy++
+		case "disabled":
+			disabled++
+		case "error":
+			failures = append(failures, urgentStyle.Render("⚠ "+source.Name+" failed"))
+		default:
+			status := source.Status
+			if status == "" {
+				status = "unknown"
+			}
+			warnings = append(warnings, attentionStyle.Render("⚠ "+source.Name+" "+status))
+		}
+	}
+	// Put failures first so healthy or disabled sources cannot hide them on
+	// narrow terminals. The full diagnostics remain available with s.
+	parts := append(failures, warnings...)
+	if healthy > 0 {
+		parts = append(parts, doneStyle.Render(fmt.Sprintf("✓ %d healthy", healthy)))
+	}
+	if disabled > 0 {
+		parts = append(parts, subtleStyle.Render(fmt.Sprintf("%d disabled", disabled)))
+	}
+	label := "details"
+	if m.sourcesExpanded {
+		label = "hide"
+	}
+	hint := "  " + helpKeyStyle.Render("[s]") + helpStyle.Render(" "+label)
+	summary := titleStyle.Render("Sources: ") + strings.Join(parts, subtleStyle.Render(" · "))
+	return truncateLine(truncateLine(summary, max(1, width-lipgloss.Width(hint)))+hint, width)
+}
+
 func sourceStatusStyle(status string) lipgloss.Style {
 	switch status {
 	case "ok":
 		return doneStyle
-	case "paused":
+	case "paused", "partial":
 		return attentionStyle
 	case "error":
 		return urgentStyle

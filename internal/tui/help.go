@@ -29,6 +29,7 @@ var mainKeyHints = [][]keyHint{
 		{"x", "cleanup"},
 		{"X", "garbage collect"},
 		{"f", "config"},
+		{"s", "sources"},
 		{"r", "refresh"},
 		{"q", "quit"},
 	},
