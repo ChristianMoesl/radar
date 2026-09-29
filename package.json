@@ -36,6 +36,12 @@
   "scripts": {
     "test": "node --experimental-strip-types --test test/pi-radar/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test"
+    "check": "pnpm typecheck && pnpm test",
+    "check:release": "node scripts/check-release-version.mjs"
+  },
+  "packageManager": "pnpm@12.4.2",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   }
 }

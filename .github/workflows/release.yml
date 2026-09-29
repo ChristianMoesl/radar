@@ -6,18 +6,37 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
     name: Build and publish binaries
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Validate package release version
+        run: pnpm check:release "${GITHUB_REF_NAME}"
+
+      - name: Install Pi dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck and test packed extension
+        run: pnpm check
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -39,3 +58,48 @@ jobs:
             --verify-tag \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes
+
+  publish-npm:
+    name: Publish Pi package to npm
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # No dependency cache in publishing jobs. npm uses the job's OIDC identity,
+      # not a persistent NODE_AUTH_TOKEN or NPM_TOKEN secret.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup npm with trusted publishing support
+        run: npm install --global npm@11
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Validate package release version
+        run: pnpm check:release "${GITHUB_REF_NAME}"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck and test packed extension
+        run: pnpm check
+
+      - name: Publish using npm trusted publishing
+        run: |
+          package="${RUNNER_TEMP}/pi-radar.tgz"
+          pnpm pack --out "$package"
+          version="$(node -p 'require("./package.json").version')"
+          if [[ "$version" == *-* ]]; then
+            npm publish "$package" --access public --tag next
+          else
+            npm publish "$package" --access public --tag latest
+          fi

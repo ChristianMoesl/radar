@@ -67,13 +67,28 @@ export default function(pi) {
     XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_STATE_HOME: join(root, "state"),
     TMPDIR: root, FIXTURE_LOG: join(root, "radar.jsonl"),
   };
-  // Install only shipped files, with no development node_modules next to them.
-  // Pi must supply its normal runtime imports just as for a Git installation.
+  // Exercise the actual publish artifact, not a hand-maintained copy of source
+  // files. No development node_modules may be present beside the extension:
+  // Pi must supply its normal runtime imports, just as for an npm installation.
+  const tarball = join(root, "pi-radar.tgz");
+  await exec("pnpm", ["pack", "--out", tarball], { cwd: repository, timeout: 15000 });
+  const { stdout: listing } = await exec("tar", ["-tzf", tarball]);
+  assert.deepEqual(listing.trim().split("\n").sort(), [
+    "package/README.md", "package/extensions/pi-radar/index.ts", "package/package.json",
+  ]);
+  await exec("tar", ["-xzf", tarball, "-C", root]);
   const distribution = join(root, "package");
-  await mkdir(join(distribution, "extensions", "pi-radar"), { recursive: true });
-  for (const path of ["package.json", "extensions/pi-radar/index.ts"]) {
-    await writeFile(join(distribution, path), await readFile(join(repository, path)));
-  }
+  const manifest = JSON.parse(await readFile(join(distribution, "package.json"), "utf8"));
+  assert.equal(manifest.name, "@christianmoesl/pi-radar");
+  assert.equal(manifest.publishConfig.access, "public");
+  assert.equal(manifest.publishConfig.registry, "https://registry.npmjs.org");
+  assert.ok(manifest.keywords.includes("pi-package"));
+  assert.deepEqual(manifest.pi.extensions, ["./extensions/pi-radar/index.ts"]);
+  assert.equal(manifest.dependencies, undefined);
+  assert.ok(manifest.peerDependencies["@earendil-works/pi-coding-agent"]);
+  assert.ok(manifest.peerDependencies.typebox);
+  assert.equal(await readFile(join(distribution, "extensions/pi-radar/index.ts"), "utf8"),
+    await readFile(join(repository, "extensions/pi-radar/index.ts"), "utf8"));
   await exec(process.execPath, [cli, "install", distribution], { cwd: outside, env, timeout: 15000 });
   const settingsPath = join(agent, "settings.json");
   const settings = JSON.parse(await readFile(settingsPath, "utf8"));

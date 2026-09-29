@@ -37,18 +37,20 @@ services or create real sandboxes. CI runs this suite on Linux and macOS. See
 
 ## Pi extension
 
-Use Node.js 24+ and install the development dependencies:
+Use Node.js 24+ and the pnpm version pinned by `packageManager` in `package.json` (currently 12.4.2). Radar's sandbox already provides both. Outside it, enable Corepack or install the pinned pnpm version, then install the development dependencies:
 
 ```sh
-npm ci
-npm run check
-npm pack --dry-run
+pnpm install --frozen-lockfile
+pnpm check
+pnpm pack --dry-run
 pi install /absolute/path/to/radar
 ```
 
-The package manifest points to `extensions/pi-radar/index.ts`; Pi loads the TypeScript directly. `npm run check` typechecks it and runs unit tests plus an isolated installed-package startup/reload/session-switch test. The latter uses fake Radar commands, separate Pi settings and no model calls. `make test` remains the Go test suite. Run both suites before delivery.
+The package manifest points to `extensions/pi-radar/index.ts`; Pi loads the TypeScript directly. `pnpm check` typechecks it and runs unit tests, release-version checks, and an isolated packed-package startup/reload/session-switch test. The latter packs the actual npm distribution, verifies its file allowlist and manifest, and loads the extracted artifact without development dependencies. It uses fake Radar commands, separate Pi settings and no model calls. `make test` remains the Go test suite. Run both suites before delivery.
 
-For sandbox development, keep dependencies on the sandbox's local filesystem if the host-mounted filesystem cannot reliably extract npm packages. Do not commit environment-specific dependency paths or registry URLs.
+Commit dependency changes with `pnpm-lock.yaml`. `pnpm-workspace.yaml` configures reviewed dependency build-script approvals for this single package; it is not a multi-package workspace. New dependency install scripts must be reviewed rather than globally enabled.
+
+For sandbox development, keep dependencies on the sandbox's local filesystem if the host-mounted filesystem cannot reliably extract packages. Do not commit environment-specific dependency paths or registry URLs.
 
 ## Build
 
@@ -64,15 +66,17 @@ make install
 
 ## Release
 
-Releases are tag-driven. To publish versioned Linux and macOS binaries from a clean, up-to-date `main`:
+Releases are tag-driven. The Radar CLI and `@christianmoesl/pi-radar` npm package share a version. First update `package.json.version` to the intended release version (without `v`), commit it, and ensure `main` is clean and up to date. To release:
 
 ```sh
 make release VERSION=v0.1.0
 ```
 
-The release script tests, builds the release archives, creates a signed annotated tag, and pushes it. The release workflow then publishes `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64` tarballs, plus `checksums.txt`, with generated notes from the changes since the previous tag.
+The release script validates the version against `package.json`, installs locked Pi dependencies, runs the Pi and Go suites, builds the release archives, creates a signed annotated tag, and pushes it. The GitHub release workflow repeats the version and test checks, then publishes `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64` tarballs, plus `checksums.txt`, with generated notes from the changes since the previous tag. After the binary release succeeds, a dedicated GitHub-hosted job publishes the packed Pi extension using npm trusted publishing. Stable versions use npm's `latest` dist-tag; prereleases use `next`.
 
-Release assets should not be replaced after publishing. If a release is wrong, publish a new patch version.
+Before the first automated release, complete the [npm trusted publishing setup](docs/npm-publishing.md). It requires one interactive bootstrap publication and package-level npm configuration, not a GitHub npm publishing secret. The release tag must reach the GitHub repository even if development uses another Git remote.
+
+Release assets and npm versions should not be replaced after publishing. If a release is wrong, publish a new patch version. If npm publishing fails after the binary release succeeds, fix the cause and re-run only the failed publishing job; do not recreate the GitHub release or move its tag.
 
 The sandbox image and SBX kit are released together, separately from Radar binaries. The [sandbox workflow](.github/workflows/sandbox-image.yml) builds and smoke-tests both architectures on relevant pull requests and changes to `main`, weekly, or manually. Trusted `main` runs also verify a real SBX sandbox and its private Docker daemon before publishing:
 

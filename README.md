@@ -59,8 +59,10 @@ The installer uses `~/.local` by default. Set `PREFIX` to install elsewhere. It 
 Install `pi-radar` once in Pi's user configuration (Pi 0.85.1 or newer, Node.js 24+):
 
 ```sh
-pi install git:github.com/ChristianMoesl/radar
+pi install npm:@christianmoesl/pi-radar
 ```
+
+The npm package contains only the Pi extension; it does not install the Radar CLI, and extension users do not need pnpm. If switching from a Git installation, first remove its source with `pi remove git:github.com/ChristianMoesl/radar` (use the exact source from `pi list` if it is pinned to a tag). Then install the npm package and restart Pi. Git and npm sources have different package identities, so keeping both can load the extension twice.
 
 Keep the `radar` binary on PATH. The installed package checks Radar's registry at Pi startup and activates only inside a registered workspace anchor or one of its members. Outside those workspaces it adds no Radar tools, commands, instructions, skills, or activity reporting. A missing or failing Radar binary leaves the extension inactive; run `radar workspace-context --registration-only` to diagnose discovery, then restart Pi or use `/reload`.
 
@@ -80,7 +82,7 @@ Sandbox routing remains entirely owned by the separately installed `pi-sbx` exte
 
 ## Update
 
-Download the new release archive, verify it with `checksums.txt`, and run its installer over the existing installation. Run `radar restart` after updating if the daemon is already running. Update the installed Pi package with `pi update git:github.com/ChristianMoesl/radar` and restart Pi. For a Git installation pinned to a release tag, use `pi install git:github.com/ChristianMoesl/radar@<new-tag>` to move to the new release.
+Download the new release archive, verify it with `checksums.txt`, and run its installer over the existing installation. Run `radar restart` after updating if the daemon is already running. Update the installed Pi package with `pi update npm:@christianmoesl/pi-radar` and restart Pi. To pin the extension to a release, use `pi install npm:@christianmoesl/pi-radar@<version>`; move to a new pinned release by installing its version explicitly. The CLI and npm package share the same release version (the npm version omits the tag's leading `v`).
 
 ## Prerequisites
 

@@ -19,6 +19,8 @@ fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
+pnpm check:release "$version"
+
 branch="$(git branch --show-current)"
 if [[ "$branch" != "main" ]]; then
   echo "releases must be cut from main; current branch is $branch" >&2
@@ -51,6 +53,8 @@ fi
 
 commit="$(git rev-parse --short=12 HEAD)"
 
+pnpm install --frozen-lockfile
+pnpm check
 make test
 make dist VERSION="$version" COMMIT="$commit"
 
@@ -59,4 +63,4 @@ git push origin main
 git push origin "$version"
 
 echo "released $version from $commit"
-echo "GitHub Actions will publish the binaries from the tag workflow."
+echo "GitHub Actions will publish the binaries and Pi package from the tag workflow."
