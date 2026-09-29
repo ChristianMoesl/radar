@@ -33,6 +33,8 @@ notifier:
 install: build
 	install -d "$(BINDIR)"
 	install -m 0755 "$(BINARY)" "$(BINDIR)/$(BINARY)"
+	install -d "$(PREFIX)/share/radar"
+	install -m 0644 LICENSE "$(PREFIX)/share/radar/LICENSE"
 	scripts/install-agent-instructions.sh "$(AGENT_INSTRUCTIONS_TEMPLATE)"
 	@if [ "$(HOST_OS)" = "Darwin" ]; then \
 		rm -rf "$(LIBEXECDIR)/RadarNotifier.app"; \
@@ -63,6 +65,7 @@ dist: clean-dist
 			scripts/build-notifier-app.sh "$${dir}/libexec/radar/RadarNotifier.app" "$(VERSION)" "$${goarch}"; \
 		fi; \
 		cp README.md "$${dir}/README.md"; \
+		cp LICENSE "$${dir}/LICENSE"; \
 		cp $(AGENT_INSTRUCTIONS_TEMPLATE) "$${dir}/share/radar/AGENTS.md"; \
 		cp scripts/install.sh "$${dir}/install.sh"; \
 		cp scripts/install-agent-instructions.sh "$${dir}/install-agent-instructions.sh"; \

@@ -2,13 +2,13 @@
 
 Radar releases its CLI binaries and `@christianmoesl/pi-radar` together from `vX.Y.Z` tags. The npm package version is `X.Y.Z`. Development dependencies and artifact creation use the pnpm version pinned in `package.json`; registry publication uses npm CLI's trusted publishing support.
 
-The package contains `package.json`, `README.md`, and `extensions/pi-radar/index.ts`. Pi loads the TypeScript directly and supplies its runtime imports. The package neither bundles Pi nor installs the Radar binary.
+The package is MIT-licensed and contains `LICENSE`, `package.json`, `README.md`, and `extensions/pi-radar/index.ts`. Pi loads the TypeScript directly and supplies its runtime imports. The package neither bundles Pi nor installs the Radar binary.
 
 ## One-time bootstrap
 
 Trusted publisher configuration is package-specific. Since a new package has no settings page yet, its npm owner must publish the first reviewed version interactively before configuring automated publication.
 
-1. Confirm control of the `@christianmoesl` npm scope and decide the package's licensing before its first public release. Do not invent a license as part of release automation.
+1. Confirm control of the `@christianmoesl` npm scope. The package's MIT license and copyright notice are included in the published artifact.
 2. From the reviewed release commit, use Node 24 and npm 11.5.1 or newer. Install dependencies with `pnpm install --frozen-lockfile`, run `pnpm check` and `make test`, and verify the version with `pnpm check:release v0.1.0` (substitute the intended bootstrap version).
 3. Pack and publish the reviewed artifact interactively:
 

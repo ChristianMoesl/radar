@@ -13,6 +13,8 @@ fi
 
 install -d "$bindir"
 install -m 0755 "$root/bin/radar" "$bindir/radar"
+install -d "$prefix/share/radar"
+install -m 0644 "$root/LICENSE" "$prefix/share/radar/LICENSE"
 "$root/install-agent-instructions.sh" "$root/share/radar/AGENTS.md"
 
 notifier="$root/libexec/radar/RadarNotifier.app"

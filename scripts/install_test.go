@@ -28,6 +28,7 @@ func TestReleaseInstallAndFirstLaunch(t *testing.T) {
 	}
 	for _, file := range []struct{ source, destination string }{
 		{"../Makefile", "Makefile"},
+		{"../LICENSE", "LICENSE"},
 		{"install.sh", "install.sh"},
 		{"install-agent-instructions.sh", "install-agent-instructions.sh"},
 		{"install-agent-instructions.sh", "scripts/install-agent-instructions.sh"},
@@ -91,6 +92,19 @@ func TestReleaseInstallAndFirstLaunch(t *testing.T) {
 			install()
 			executable := filepath.Join(bindir, "radar")
 			assertMode(t, executable, 0755)
+			licensePath := filepath.Join(prefix, "share", "radar", "LICENSE")
+			assertMode(t, licensePath, 0644)
+			license, err := os.ReadFile(licensePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantLicense, err := os.ReadFile("../LICENSE")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(license, wantLicense) {
+				t.Fatal("installer must preserve the MIT license notice")
+			}
 			instructions := filepath.Join(configHome, "radar", "AGENTS.md")
 			assertInstalledInstructions(t, instructions)
 			configPath := filepath.Join(configHome, "radar", "config.json")

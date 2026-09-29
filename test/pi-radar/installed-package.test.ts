@@ -74,12 +74,17 @@ export default function(pi) {
   await exec("pnpm", ["pack", "--out", tarball], { cwd: repository, timeout: 15000 });
   const { stdout: listing } = await exec("tar", ["-tzf", tarball]);
   assert.deepEqual(listing.trim().split("\n").sort(), [
-    "package/README.md", "package/extensions/pi-radar/index.ts", "package/package.json",
+    "package/LICENSE", "package/README.md", "package/extensions/pi-radar/index.ts", "package/package.json",
   ]);
   await exec("tar", ["-xzf", tarball, "-C", root]);
   const distribution = join(root, "package");
   const manifest = JSON.parse(await readFile(join(distribution, "package.json"), "utf8"));
   assert.equal(manifest.name, "@christianmoesl/pi-radar");
+  assert.equal(manifest.license, "MIT");
+  const license = await readFile(join(distribution, "LICENSE"), "utf8");
+  assert.equal(license, await readFile(join(repository, "LICENSE"), "utf8"));
+  assert.match(license, /^MIT License\n/);
+  assert.match(license, /Permission is hereby granted, free of charge/);
   assert.equal(manifest.publishConfig.access, "public");
   assert.equal(manifest.publishConfig.registry, "https://registry.npmjs.org");
   assert.ok(manifest.keywords.includes("pi-package"));

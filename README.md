@@ -52,7 +52,7 @@ tar -xzf "$archive"
 radar version
 ```
 
-The installer uses `~/.local` by default. Set `PREFIX` to install elsewhere. It also creates `$XDG_CONFIG_HOME/radar/AGENTS.md`, falling back to `~/.config/radar/AGENTS.md`, with default instructions for Radar-managed agent sessions. An existing instruction file is never changed. macOS archives also install the `RadarNotifier.app` companion under `libexec/radar` and register it with Launch Services.
+The installer uses `~/.local` by default. Set `PREFIX` to install elsewhere. It installs the MIT license notice under `share/radar/LICENSE` in that prefix. It also creates `$XDG_CONFIG_HOME/radar/AGENTS.md`, falling back to `~/.config/radar/AGENTS.md`, with default instructions for Radar-managed agent sessions. An existing instruction file is never changed. macOS archives also install the `RadarNotifier.app` companion under `libexec/radar` and register it with Launch Services.
 
 ### Pi integration
 
@@ -600,3 +600,7 @@ Supported levels: `debug`, `info`, `warn`, `error`. Default is `info`.
 - [Attention and prioritization](docs/attention-algorithm.md)
 - [Integration internals](docs/integrations.md)
 - [Contributing, building, and releasing](CONTRIBUTING.md)
+
+## License
+
+Radar is licensed under the [MIT License](LICENSE).
