@@ -63,4 +63,5 @@ git push origin main
 git push origin "$version"
 
 echo "released $version from $commit"
-echo "GitHub Actions will publish the binaries and Pi package from the tag workflow."
+echo "GitHub Actions will publish the binaries and stage the Pi package for npm review."
+echo "Approve the staged package with 2FA on npmjs.com before it becomes publicly available."

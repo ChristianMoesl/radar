@@ -59,8 +59,8 @@ jobs:
             --title "${GITHUB_REF_NAME}" \
             --generate-notes
 
-  publish-npm:
-    name: Publish Pi package to npm
+  stage-npm:
+    name: Stage Pi package for npm approval
     needs: release
     runs-on: ubuntu-latest
     permissions:
@@ -71,15 +71,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # No dependency cache in publishing jobs. npm uses the job's OIDC identity,
+      # No dependency cache in staging jobs. npm uses the job's OIDC identity,
       # not a persistent NODE_AUTH_TOKEN or NPM_TOKEN secret.
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 24
 
-      - name: Setup npm with trusted publishing support
-        run: npm install --global npm@11
+      - name: Setup npm with staged publishing support
+        run: npm install --global "npm@^11.15.0"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -93,13 +93,18 @@ jobs:
       - name: Typecheck and test packed extension
         run: pnpm check
 
-      - name: Publish using npm trusted publishing
+      - name: Stage using npm trusted publishing
         run: |
           package="${RUNNER_TEMP}/pi-radar.tgz"
           pnpm pack --out "$package"
           version="$(node -p 'require("./package.json").version')"
+          tag=latest
           if [[ "$version" == *-* ]]; then
-            npm publish "$package" --access public --tag next
-          else
-            npm publish "$package" --access public --tag latest
+            tag=next
           fi
+          npm stage publish "$package" --access public --tag "$tag"
+          {
+            printf '## Pi package staged\n\n'
+            printf '`@christianmoesl/pi-radar@%s` is staged for `%s`, not publicly published.\n\n' "$version" "$tag"
+            printf 'Review it in the **Staged Packages** tab on npmjs.com and approve with 2FA to publish.\n'
+          } >> "$GITHUB_STEP_SUMMARY"

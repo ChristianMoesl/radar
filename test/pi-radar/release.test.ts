@@ -74,3 +74,78 @@ exec node "$FIXTURE_ROOT/scripts/check-release-version.mjs" "$2"
   });
   await assert.rejects(readFile(join(root, "git-calls")), { code: "ENOENT" });
 });
+
+async function stagingFixture(t: Parameters<typeof fixture>[0], version: string) {
+  const { root } = await fixture(t, version);
+  const workflow = await readFile(join(repository, ".github", "workflows", "release.yml"), "utf8");
+  assert.match(workflow, /npm install --global "npm@\^11\.15\.0"/);
+  const lines = workflow.split("\n");
+  const step = lines.indexOf("      - name: Stage using npm trusted publishing");
+  assert.ok(step >= 0, "the release workflow must stage the npm artifact");
+  assert.equal(lines[step + 1], "        run: |");
+  const shell: string[] = [];
+  for (const line of lines.slice(step + 2)) {
+    if (!line.startsWith("          ")) break;
+    shell.push(line.slice(10));
+  }
+  assert.ok(shell.length > 0);
+  const calls = join(root, "calls.jsonl");
+  const summary = join(root, "summary.md");
+  const bin = join(root, "bin");
+  await mkdir(bin);
+  await writeFile(join(bin, "pnpm"), `#!/usr/bin/env node
+const { appendFileSync, writeFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+appendFileSync(process.env.FIXTURE_CALLS, JSON.stringify({command: 'pnpm', args}) + '\\n');
+if (process.env.FAIL_PACK || args[0] !== 'pack' || args[1] !== '--out') process.exit(1);
+writeFileSync(args[2], 'fixture tarball');
+`, { mode: 0o755 });
+  await writeFile(join(bin, "npm"), `#!/usr/bin/env node
+const { appendFileSync, existsSync } = require('node:fs');
+const args = process.argv.slice(2);
+appendFileSync(process.env.FIXTURE_CALLS, JSON.stringify({command: 'npm', args}) + '\\n');
+if (process.env.FAIL_STAGE || args[0] !== 'stage' || args[1] !== 'publish' || !existsSync(args[2])) process.exit(1);
+`, { mode: 0o755 });
+  const env = {
+    PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,
+    RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: summary, FIXTURE_CALLS: calls,
+  };
+  return {
+    root, summary,
+    run: (extra: Record<string, string> = {}) => exec("bash", ["-e", "-u", "-o", "pipefail", "-c", shell.join("\n")], {
+      cwd: root, env: { ...env, ...extra },
+    }),
+    calls: async () => (await readFile(calls, "utf8")).trim().split("\n").map(line => JSON.parse(line)),
+  };
+}
+
+for (const [version, tag] of [["0.1.1", "latest"], ["0.2.0-rc.1", "next"]]) {
+  test(`npm release stages ${version} for ${tag} and requests human approval`, async t => {
+    const staging = await stagingFixture(t, version);
+    await staging.run();
+    const tarball = join(staging.root, "pi-radar.tgz");
+    assert.deepEqual(await staging.calls(), [
+      { command: "pnpm", args: ["pack", "--out", tarball] },
+      { command: "npm", args: ["stage", "publish", tarball, "--access", "public", "--tag", tag] },
+    ]);
+    const summary = await readFile(staging.summary, "utf8");
+    assert.ok(summary.includes(`@christianmoesl/pi-radar@${version}`));
+    assert.ok(summary.includes(`staged for \`${tag}\``));
+    assert.match(summary, /not publicly published/);
+    assert.match(summary, /approve with 2FA/);
+  });
+}
+
+test("npm release does not stage anything if packing fails", async t => {
+  const staging = await stagingFixture(t, "0.1.1");
+  await assert.rejects(staging.run({ FAIL_PACK: "1" }));
+  assert.deepEqual((await staging.calls()).map(call => call.command), ["pnpm"]);
+  await assert.rejects(readFile(staging.summary), { code: "ENOENT" });
+});
+
+test("failed npm staging fails the job without claiming approval is ready", async t => {
+  const staging = await stagingFixture(t, "0.1.1");
+  await assert.rejects(staging.run({ FAIL_STAGE: "1" }));
+  assert.deepEqual((await staging.calls()).map(call => call.command), ["pnpm", "npm"]);
+  await assert.rejects(readFile(staging.summary), { code: "ENOENT" });
+});
