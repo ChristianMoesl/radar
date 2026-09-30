@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -659,14 +660,32 @@ func (m *model) moveCursorPage(direction int) {
 	m.syncTaskScroll()
 }
 
+// Share section ordering between rendering, navigation, and scroll calculations.
+// Keep indexes into m.tasks so sorting Done does not change task identities.
+func (m model) taskGroupOrder(key string) []int {
+	var order []int
+	for i, task := range m.tasks {
+		if task.Attention == key {
+			order = append(order, i)
+		}
+	}
+	if key == "done" {
+		sort.SliceStable(order, func(i, j int) bool {
+			left, leftErr := time.Parse(time.RFC3339, m.tasks[order[i]].DoneAt)
+			right, rightErr := time.Parse(time.RFC3339, m.tasks[order[j]].DoneAt)
+			if leftErr != nil {
+				return false
+			}
+			return rightErr != nil || left.After(right)
+		})
+	}
+	return order
+}
+
 func (m model) taskCursorOrder() []int {
 	order := make([]int, 0, len(m.tasks))
 	for _, key := range taskGroupKeys {
-		for i, task := range m.tasks {
-			if task.Attention == key {
-				order = append(order, i)
-			}
-		}
+		order = append(order, m.taskGroupOrder(key)...)
 	}
 	return order
 }
@@ -676,10 +695,8 @@ func (m model) taskRowPositions() (map[int]int, int) {
 	line := 0
 	for _, key := range taskGroupKeys {
 		groupStarted := false
-		for i, task := range m.tasks {
-			if task.Attention != key {
-				continue
-			}
+		for _, i := range m.taskGroupOrder(key) {
+			task := m.tasks[i]
 			if !groupStarted {
 				if line > 0 {
 					line++
@@ -1544,14 +1561,31 @@ func (m model) cursorPosition() int {
 }
 
 func (m *model) restoreCursor(selectedTask *protocol.Task, selectedPosition int) {
+	completed := false
 	if selectedTask != nil {
 		if cursor, ok := matchingTaskCursor(m.tasks, *selectedTask); ok {
-			m.cursor = cursor
-			return
+			completed = selectedTask.Attention != "done" && m.tasks[cursor].Attention == "done"
+			if !completed {
+				m.cursor = cursor
+				return
+			}
 		}
 	}
 
 	order := m.taskCursorOrder()
+	if completed {
+		// Stay at the vacated position among unfinished tasks, or the previous
+		// one at the end. Only fall back to Done when no unfinished tasks remain.
+		var unfinished []int
+		for _, cursor := range order {
+			if m.tasks[cursor].Attention != "done" {
+				unfinished = append(unfinished, cursor)
+			}
+		}
+		if len(unfinished) > 0 {
+			order = unfinished
+		}
+	}
 	if len(order) == 0 {
 		m.cursor = 0
 		return
@@ -1981,10 +2015,8 @@ func (m model) taskLines(width int) ([]string, int, int) {
 		if len(lines) > 0 {
 			groupHeaderIndex++
 		}
-		for i, task := range m.tasks {
-			if task.Attention != group.key {
-				continue
-			}
+		for _, i := range m.taskGroupOrder(group.key) {
+			task := m.tasks[i]
 			if len(groupLines) > 0 {
 				groupLines = append(groupLines, "")
 			}
