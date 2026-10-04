@@ -59,7 +59,7 @@ Every integration implements `Integration` by returning a descriptor with its st
 - `CodeReviewProvider`: combines source and reconciliation capabilities for a code-review system. GitHub is the active provider.
 - `WorkTracker`: combines source and reconciliation capabilities for a work tracker. Jira is the active provider.
 - Runtime integrations may combine source, action, cleanup, and resource-name capabilities for an executable local environment.
-- `TaskAuthoringProvider`: creates source-owned tasks and changes their open/done lifecycle and normal/urgent priority. The registry requires exactly one provider; Obsidian is the active provider.
+- `TaskAuthoringProvider`: creates source-owned tasks, changes their open/done lifecycle and normal/urgent priority, and previews/executes recoverable deletion. Deletion previews carry source-owned revision and path information; the provider revalidates the complete confirmed plan before moving data. The registry requires exactly one provider; Obsidian is the active provider.
 
 ## Current capability matrix
 

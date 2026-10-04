@@ -336,6 +336,20 @@ func (s *Store) Tasks() []protocol.Task {
 	return items
 }
 
+// Snapshot reads the served projection and its revision together. Reading them
+// separately can label an old task list with a newer mutation's revision, which
+// prevents frontends from recognizing a delayed response as stale.
+func (s *Store) Snapshot() ([]protocol.Task, []protocol.SourceStatus, int64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	tasks := make([]protocol.Task, len(s.items))
+	for i, task := range s.items {
+		tasks[i] = cloneTask(task)
+	}
+	sources := append([]protocol.SourceStatus{}, s.state.Sources...)
+	return tasks, sources, s.revision
+}
+
 // CollectionTasks includes retained work items even when they disappeared from
 // collection. Providers must still resolve them, and missing active work must
 // not silently stop blocking automatic completion of an authored task.

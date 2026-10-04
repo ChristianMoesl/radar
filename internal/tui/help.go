@@ -19,6 +19,7 @@ var mainKeyHints = [][]keyHint{
 		{"enter", "switch tmux"},
 		{"n", "new task"},
 		{"d", "done/reopen"},
+		{"D", "delete task"},
 		{"p", "urgent/normal"},
 		{"o", "open link"},
 		{"i", "inspect"},

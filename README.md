@@ -137,6 +137,7 @@ bind-key F display-popup -E "radar fork"
 | <kbd>i</kbd> | Inspect the selected task and its linked sources |
 | <kbd>n</kbd> | Create an Obsidian-backed task |
 | <kbd>d</kbd> / <kbd>p</kbd> | Complete or reopen a task / toggle urgent priority |
+| <kbd>D</kbd> | Delete an authored task with confirmation (move to vault trash) |
 | <kbd>c</kbd> | Create a workspace |
 | <kbd>w</kbd> | Edit the selected task's workspace resources |
 | <kbd>x</kbd> / <kbd>X</kbd> | Clean up the selected task / garbage-collect eligible workspaces |
@@ -330,7 +331,17 @@ Automatic completion writes `radar-state: done` and `radar-completed-at` to the 
 
 Notes without `radar-completion-baseline` need no migration. Radar adds it when a lifecycle mutation needs it. Failed or incomplete source collection cannot trigger automatic completion, and a failed note write leaves the task open with an Obsidian source error. Local-only refreshes do not run automatic completion.
 
-Obsidian notes are task records rather than workspaces. Activating an Obsidian task prefills a note-only workspace draft; repositories are optional. Creating a workspace for Jira or GitHub automatically creates its note while preserving the remote association and Pi session identity. There is only one note model: its persisted lifecycle follows authoritative remote work while preserving explicit reopening against previously completed work. Radar preserves unknown frontmatter and the complete note body during atomic mutations and never deletes task notes. Completed notes move to `Tasks/Archived/<filename>.md` only when no workspace references them. Normal tasks keep their private directories and sandbox isolation; reopening restores that private layout before activation. See [the Obsidian integration contract](docs/integrations/obsidian.md) for the schema and failure behavior.
+Obsidian notes are task records rather than workspaces. Activating an Obsidian task prefills a note-only workspace draft; repositories are optional. Creating a workspace for Jira or GitHub automatically creates its note while preserving the remote association and Pi session identity. There is only one note model: its persisted lifecycle follows authoritative remote work while preserving explicit reopening against previously completed work. Radar preserves unknown frontmatter and the complete note body during atomic mutations. Workspace cleanup never deletes task notes; explicit task deletion moves them to recoverable vault trash. Completed notes move to `Tasks/Archived/<filename>.md` only when no workspace references them. Normal tasks keep their private directories and sandbox isolation; reopening restores that private layout before activation. See [the Obsidian integration contract](docs/integrations/obsidian.md) for the schema and failure behavior.
+
+### Deleting a task
+
+Press `D` in the overview or run `radar task delete <task-id>`. Radar previews the exact path and asks for confirmation; only `y` confirms, while Enter or `n` cancels in the CLI (Enter does nothing in the TUI). There is no force or confirmation-bypass option.
+
+Deletion moves the authored Obsidian task to `<vault>/.trash/radar-<unique>/`. A private task directory moves intact, including attachments and symlinks; an archived task moves only its Markdown note, never the shared archive. Note contents and permissions are unchanged, nothing is overwritten, and Radar never permanently erases this trash. The CLI returns JSON with `original_path` and `trash_path`; the TUI reports the recovery path.
+
+Clean up every registered workspace referencing the note first, using `x` or `radar cleanup <task-id>`. Deletion does not remove worktrees, branches, sessions, sandboxes, Jira issues, or GitHub PRs. Linked source-backed work can remain visible; remote-only tasks cannot be deleted this way. If the note changes while confirmation is open, Radar refuses the stale plan—retry the delete action to preview it again.
+
+To recover a task, move the trashed directory or note back to its original path without overwriting existing content, then refresh Radar. `radar task reopen` is for completed tasks, not trashed ones. External links are not rewritten, and Obsidian or another tool may empty the vault trash, so it is not a backup.
 
 ## Scriptable commands
 
@@ -338,6 +349,7 @@ Obsidian notes are task records rather than workspaces. Activating an Obsidian t
 radar task create --title <title>
 radar task done <task-id>
 radar task reopen <task-id>
+radar task delete <task-id>
 radar task priority <task-id> urgent|normal
 radar status
 radar tasks
@@ -355,7 +367,7 @@ radar state-path
 radar log-path
 ```
 
-Task commands return JSON.
+Task commands return JSON. Deletion prompts on stderr and reads confirmation from stdin; cancellation produces no JSON result.
 
 ## GitHub
 

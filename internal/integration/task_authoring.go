@@ -15,4 +15,6 @@ type TaskAuthoringProvider interface {
 	Create(ctx context.Context, title string) (AuthoredTaskIdentity, error)
 	SetLifecycle(ctx context.Context, ref protocol.SourceRef, state string) (AuthoredTaskIdentity, error)
 	SetPriority(ctx context.Context, ref protocol.SourceRef, priority string) (AuthoredTaskIdentity, error)
+	PreviewDelete(ctx context.Context, ref protocol.SourceRef) (protocol.TaskDeletionPreview, error)
+	Delete(ctx context.Context, ref protocol.SourceRef, preview protocol.TaskDeletionPreview) (protocol.TaskDeletionResult, error)
 }

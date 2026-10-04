@@ -29,6 +29,14 @@ func SetTaskPriority(socketPath string, taskID int, priority string) (protocol.R
 	return CallRequest(socketPath, protocol.Request{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: taskID, Priority: priority}})
 }
 
+func PreviewTaskDeletion(socketPath string, taskID int) (protocol.Response, error) {
+	return CallRequest(socketPath, protocol.Request{Method: "task-delete-preview", TaskID: taskID})
+}
+
+func DeleteTask(socketPath string, preview protocol.TaskDeletionPreview) (protocol.Response, error) {
+	return CallRequest(socketPath, protocol.Request{Method: "task-delete", TaskDeletion: &preview})
+}
+
 // CallWithTimeout bounds the entire request, including waiting for the daemon.
 func CallWithTimeout(socketPath, method string, timeout time.Duration) (protocol.Response, error) {
 	return callRequest(socketPath, protocol.Request{Method: method}, timeout)

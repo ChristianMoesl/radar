@@ -109,6 +109,7 @@ type model struct {
 	operationFrame      int
 	taskFailures        []taskFailure
 	cleanupTask         protocol.Task
+	deletion            taskDeletionState
 	editor              workspaceEditor
 	socketPath          string
 	width               int
@@ -304,6 +305,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		if m.mode == "task_delete_confirm" {
+			return m.updateTaskDeletion(msg)
+		}
 		if m.mode == "cleanup_confirm" {
 			switch msg.String() {
 			case "d":
@@ -350,6 +354,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				m.err = nil
 				return m, m.setAuthoredTaskDone(task, ref.Metadata["state"] != "done")
+			}
+		case "D":
+			if len(m.tasks) > 0 {
+				task := m.tasks[m.cursor]
+				if _, ok := authoredTaskRef(task); !ok {
+					m.message = "Selected task has no authored note to delete"
+					return m, nil
+				}
+				m.deletion = taskDeletionState{task: task}
+				cmd := m.startOperation(task, "task-delete-check", "Checking task deletion…", "Task deletion check failed", m.previewTaskDeletion(task))
+				return m, cmd
 			}
 		case "p":
 			if len(m.tasks) > 0 {
@@ -515,6 +530,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case watchMsg:
 		m.watching = false
 		if msg.err != nil {
+			// Revisions are local to a daemon process. Reconnect from zero so
+			// a restarted daemon's snapshots are not mistaken for stale replies.
+			m.revision = 0
 			m.err = msg.err
 			return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return watchRetryMsg{} })
 		}
@@ -551,6 +569,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.create.baseList.options = msg.branches
 				m.create.baseList.cursor = 0
 			}
+		}
+	case taskDeletionPreviewMsg:
+		m.finishOperation(msg.err, true)
+		m.message = ""
+		if msg.err == nil {
+			m.deletion.preview, m.deletion.scroll = msg.preview, 0
+			m.mode = "task_delete_confirm"
 		}
 	case cleanupPreviewMsg:
 		m.finishOperation(msg.err, true)
@@ -714,6 +739,9 @@ func (m model) taskRowPositions() (map[int]int, int) {
 }
 
 func (m model) View() string {
+	if m.mode == "task_delete_confirm" {
+		return m.taskDeletionScreen()
+	}
 	if m.mode == "cleanup_confirm" {
 		return m.cleanupScreen()
 	}
@@ -1509,6 +1537,11 @@ func shortenPath(path string) string {
 }
 
 func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool) {
+	// An in-flight watch/fetch can arrive after a mutation's newer snapshot.
+	// In particular, it must not put a deleted task back on the dashboard.
+	if response.Revision > 0 && response.Revision < m.revision {
+		return
+	}
 	var selectedTask *protocol.Task
 	selectedPosition := -1
 	if response.Tasks != nil && m.cursor >= 0 && m.cursor < len(m.tasks) {

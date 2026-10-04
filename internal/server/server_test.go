@@ -144,7 +144,7 @@ func TestStructuredTaskMutations(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(store, logger, nil, nil, nil, registry, cleanup.New(nil)).SetTaskMutation(tasks.MutateTask).handle(serverConn)
+		New(store, logger, nil, nil, nil, registry, cleanup.New(nil)).SetTaskMutation(tasks.MutateTask).SetTaskDeletion(tasks.PreviewDeleteTask, tasks.DeleteTask).handle(serverConn)
 	}()
 	encoder := json.NewEncoder(clientConn)
 	decoder := json.NewDecoder(clientConn)
@@ -178,9 +178,47 @@ func TestStructuredTaskMutations(t *testing.T) {
 			t.Fatalf("incorrect priority in mutation response: %+v", response.Task)
 		}
 	}
+	exchange := func(request protocol.Request) protocol.Response {
+		t.Helper()
+		if err := encoder.Encode(request); err != nil {
+			t.Fatal(err)
+		}
+		var response protocol.Response
+		if err := decoder.Decode(&response); err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+	if response := exchange(protocol.Request{Method: "task-delete"}); response.OK {
+		t.Fatal("accepted deletion without preview")
+	}
+	previewResponse := exchange(protocol.Request{Method: "task-delete-preview", TaskID: 1})
+	if !previewResponse.OK || previewResponse.TaskDeletionPreview == nil || previewResponse.Revision != revision {
+		t.Fatalf("preview mutated cache or failed: %+v", previewResponse)
+	}
+	preview := previewResponse.TaskDeletionPreview
+	wrong := *preview
+	wrong.Revision = "stale"
+	if response := exchange(protocol.Request{Method: "task-delete", TaskDeletion: &wrong}); response.OK {
+		t.Fatal("accepted stale deletion")
+	}
+	response := exchange(protocol.Request{Method: "task-delete", TaskDeletion: preview})
+	if !response.OK || response.Task != nil || response.TaskDeletionResult == nil || response.TaskDeletionResult.TaskID != 1 || response.Tasks == nil || len(response.Tasks) != 0 || response.Revision <= revision || response.Summary == nil {
+		t.Fatalf("deletion response = %+v", response)
+	}
+	if _, err := os.Stat(response.TaskDeletionResult.TrashPath); err != nil {
+		t.Fatal(err)
+	}
+	watch := exchange(protocol.Request{Method: fmt.Sprintf("watch:%d", revision)})
+	if !watch.OK || watch.Tasks == nil || len(watch.Tasks) != 0 {
+		t.Fatalf("watch did not clear last task: %+v", watch)
+	}
+	if response := exchange(protocol.Request{Method: "task-delete", TaskDeletion: preview}); response.OK {
+		t.Fatal("replayed deletion succeeded")
+	}
 	_ = clientConn.Close()
 	<-done
-	if got := store.Tasks(); len(got) != 1 || got[0].SourceRefs[0].Source != "obsidian" {
+	if got := store.Tasks(); len(got) != 0 {
 		t.Fatalf("stored tasks = %+v", got)
 	}
 }

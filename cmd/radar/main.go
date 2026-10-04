@@ -197,6 +197,19 @@ func runTask(args []string) {
 			os.Exit(2)
 		}
 		request = protocol.Request{Method: "task-create", TaskMutation: &protocol.TaskMutation{Title: *title}}
+	case "delete":
+		if len(args) != 2 {
+			taskUsage()
+			os.Exit(2)
+		}
+		result, err := deleteTask(parseTaskID(args[1]), os.Stdin, os.Stderr, callDaemonRequest)
+		if err != nil {
+			fatal(err)
+		}
+		if result != nil {
+			printJSON(result)
+		}
+		return
 	case "done", "reopen":
 		if len(args) != 2 {
 			taskUsage()
@@ -600,7 +613,7 @@ func runDaemon() {
 	}
 
 	localRefresh := localRefresher(context.Background(), collectionMu, tasks)
-	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), logger, collectionMu, tasks), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).SetTaskMutation(tasks.MutateTask).ListenAndServe(path); err != nil {
+	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), logger, collectionMu, tasks), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).SetTaskMutation(tasks.MutateTask).SetTaskDeletion(tasks.PreviewDeleteTask, tasks.DeleteTask).ListenAndServe(path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}
@@ -932,6 +945,7 @@ Tasks:
   radar task create --title <title>
   radar task done <task-id>
   radar task reopen <task-id>
+  radar task delete <task-id>
   radar task priority <task-id> urgent|normal
 
 Workspaces:
@@ -966,6 +980,7 @@ func taskUsage() {
 	fmt.Fprintln(os.Stderr, `usage: radar task create --title <title>
        radar task done <task-id>
        radar task reopen <task-id>
+       radar task delete <task-id>
        radar task priority <task-id> urgent|normal`)
 }
 

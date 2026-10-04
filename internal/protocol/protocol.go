@@ -5,10 +5,11 @@ import "encoding/json"
 const Version = "0.1.0"
 
 type Request struct {
-	Method       string          `json:"method"`
-	TaskID       int             `json:"task_id,omitempty"`
-	TaskMutation *TaskMutation   `json:"task_mutation,omitempty"`
-	Cleanup      *CleanupPreview `json:"cleanup,omitempty"`
+	Method       string               `json:"method"`
+	TaskID       int                  `json:"task_id,omitempty"`
+	TaskMutation *TaskMutation        `json:"task_mutation,omitempty"`
+	Cleanup      *CleanupPreview      `json:"cleanup,omitempty"`
+	TaskDeletion *TaskDeletionPreview `json:"task_deletion,omitempty"`
 }
 
 type TaskMutation struct {
@@ -202,6 +203,8 @@ type Response struct {
 	Sources                 []SourceStatus           `json:"sources,omitempty"`
 	CleanupPreview          *CleanupPreview          `json:"cleanup_preview,omitempty"`
 	CleanupResult           *CleanupResult           `json:"cleanup_result,omitempty"`
+	TaskDeletionPreview     *TaskDeletionPreview     `json:"task_deletion_preview,omitempty"`
+	TaskDeletionResult      *TaskDeletionResult      `json:"task_deletion_result,omitempty"`
 	GarbageCollectionResult *GarbageCollectionResult `json:"garbage_collection_result,omitempty"`
 }
 
@@ -233,6 +236,12 @@ func (r Response) MarshalJSON() ([]byte, error) {
 	}
 	if r.CleanupResult != nil {
 		fields["cleanup_result"] = r.CleanupResult
+	}
+	if r.TaskDeletionPreview != nil {
+		fields["task_deletion_preview"] = r.TaskDeletionPreview
+	}
+	if r.TaskDeletionResult != nil {
+		fields["task_deletion_result"] = r.TaskDeletionResult
 	}
 	if r.GarbageCollectionResult != nil {
 		fields["garbage_collection_result"] = r.GarbageCollectionResult

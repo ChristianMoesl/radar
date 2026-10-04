@@ -22,13 +22,24 @@ import (
 
 type testAuthor struct {
 	obsidian.Source
-	collected  chan struct{}
-	calls      atomic.Int32
-	writeError error
+	collected    chan struct{}
+	calls        atomic.Int32
+	writeError   error
+	collectError error
 }
 
 func (s *testAuthor) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	result := s.Source.Collect(ctx, req)
+	if s.collectError != nil {
+		result = integration.CollectResult{SourceStatus: &protocol.SourceStatus{Name: "obsidian", Status: "error", Detail: s.collectError.Error()}}
+		for _, task := range req.Previous {
+			for _, ref := range task.SourceRefs {
+				if ref.Source == "obsidian" {
+					result.Observations = append(result.Observations, integration.Observation{Ref: ref, Signal: integration.WorkSignal(ref.Signal)})
+				}
+			}
+		}
+	}
 	s.calls.Add(1)
 	if s.collected != nil {
 		s.collected <- struct{}{}

@@ -23,15 +23,17 @@ import (
 var watchTimeout = 30 * time.Second
 
 type Server struct {
-	store          *state.Store
-	logger         *slog.Logger
-	refresh        func()
-	localRefresh   func()
-	taskMutation   func(context.Context, string, *protocol.TaskMutation) (protocol.Task, error)
-	reset          func() error
-	garbageCollect func() (protocol.GarbageCollectionResult, error)
-	integrations   integration.Registry
-	cleanupService cleanup.Service
+	store               *state.Store
+	logger              *slog.Logger
+	refresh             func()
+	localRefresh        func()
+	taskMutation        func(context.Context, string, *protocol.TaskMutation) (protocol.Task, error)
+	previewTaskDeletion func(context.Context, int) (protocol.TaskDeletionPreview, error)
+	deleteTask          func(context.Context, *protocol.TaskDeletionPreview) (protocol.TaskDeletionResult, error)
+	reset               func() error
+	garbageCollect      func() (protocol.GarbageCollectionResult, error)
+	integrations        integration.Registry
+	cleanupService      cleanup.Service
 }
 
 func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() error, garbageCollect func() (protocol.GarbageCollectionResult, error), integrations integration.Registry, cleanupService cleanup.Service) *Server {
@@ -53,6 +55,11 @@ func (s *Server) SetLocalRefresh(refresh func()) *Server {
 
 func (s *Server) SetTaskMutation(mutate func(context.Context, string, *protocol.TaskMutation) (protocol.Task, error)) *Server {
 	s.taskMutation = mutate
+	return s
+}
+
+func (s *Server) SetTaskDeletion(preview func(context.Context, int) (protocol.TaskDeletionPreview, error), deleteTask func(context.Context, *protocol.TaskDeletionPreview) (protocol.TaskDeletionResult, error)) *Server {
+	s.previewTaskDeletion, s.deleteTask = preview, deleteTask
 	return s
 }
 
@@ -122,9 +129,9 @@ func (s *Server) handle(conn net.Conn) {
 		case "version":
 			_ = encoder.Encode(protocol.Response{OK: true, Version: version.Current(), Revision: s.store.Revision()})
 		case "summary":
-			tasks := s.filteredTasks()
-			summary := protocol.SummarizeTasks(tasks)
-			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), Summary: &summary, Sources: s.store.Sources()})
+			response := s.tasksResponse()
+			response.Tasks = nil
+			_ = encoder.Encode(response)
 		case "tasks":
 			_ = encoder.Encode(s.tasksResponse())
 		case "refresh":
@@ -169,6 +176,30 @@ func (s *Server) handle(conn net.Conn) {
 				continue
 			}
 			_ = encoder.Encode(s.taskMutationResponse(task))
+		case "task-delete-preview":
+			if s.previewTaskDeletion == nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "task deletion is not configured", Revision: s.store.Revision()})
+				continue
+			}
+			preview, err := s.previewTaskDeletion(context.Background(), req.TaskID)
+			if err != nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
+				continue
+			}
+			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), TaskDeletionPreview: &preview})
+		case "task-delete":
+			if s.deleteTask == nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "task deletion is not configured", Revision: s.store.Revision()})
+				continue
+			}
+			result, err := s.deleteTask(context.Background(), req.TaskDeletion)
+			if err != nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
+				continue
+			}
+			response := s.tasksResponse()
+			response.TaskDeletionResult = &result
+			_ = encoder.Encode(response)
 		case "cleanup-preview":
 			preview, err := s.cleanupPreview(context.Background(), req.TaskID)
 			if err != nil {
@@ -197,9 +228,9 @@ func (s *Server) handle(conn net.Conn) {
 }
 
 func (s *Server) taskMutationResponse(task protocol.Task) protocol.Response {
-	tasks := s.filteredTasks()
-	summary := protocol.SummarizeTasks(tasks)
-	return protocol.Response{OK: true, Revision: s.store.Revision(), Summary: &summary, Tasks: tasks, Task: &task, Sources: s.store.Sources()}
+	response := s.tasksResponse()
+	response.Task = &task
+	return response
 }
 
 func (s *Server) cleanupPreview(ctx context.Context, taskID int) (protocol.CleanupPreview, error) {
@@ -234,9 +265,10 @@ func taskByID(tasks []protocol.Task, id int) (protocol.Task, bool) {
 }
 
 func (s *Server) tasksResponse() protocol.Response {
-	tasks := s.filteredTasks()
+	tasks, sources, revision := s.store.Snapshot()
+	tasks = s.integrations.FilterTasks(tasks, s.logger)
 	summary := protocol.SummarizeTasks(tasks)
-	return protocol.Response{OK: true, Revision: s.store.Revision(), Summary: &summary, Tasks: tasks, Sources: s.store.Sources()}
+	return protocol.Response{OK: true, Revision: revision, Summary: &summary, Tasks: tasks, Sources: sources}
 }
 
 func (s *Server) filteredTasks() []protocol.Task {

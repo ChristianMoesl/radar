@@ -101,6 +101,20 @@ Moves use the operating system's atomic no-replace rename on Linux and macOS. Ex
 
 Notes with accompanying files or detected relative links remain in their private directory with an error rather than separating attachments or rewriting user Markdown. Resolve the reported obstacle, then retry `radar task done <task-id>` after refreshing. Vault-relative wikilinks and absolute URLs do not need rewriting. Radar does not repair arbitrary external symlinks or incoming path-based links; these require explicit handling before relocation.
 
+## Deleting authored tasks
+
+`radar task delete <task-id>` and the TUI's `D` key use the same daemon preview/apply operation. Confirmation is explicit (`y` only); workspace auto-confirm does not apply. The preview names the authored task, source identity, exact file/directory, and vault trash directory. It does not create trash or move files.
+
+The Obsidian provider revalidates the note identity, content, private-directory entries, and complete preview under the shared workspace note lock immediately before applying it. A changed or malformed note, ambiguous task containing multiple authored notes, invalid registry, or any workspace reference by identity or path blocks deletion. Clean up referencing workspaces first using the existing cleanup flow. Symlinked task roots, note parents, notes, or trash roots are rejected. Accompanying symlinks inside a private task directory move as symlinks; their targets are not touched.
+
+Deletion creates a unique `<vault>/.trash/radar-<unique>/` container and atomically moves the original path inside it using no-replace rename. A private task directory moves as a unit, preserving attachments, relative layout, note bytes, and file permissions. An archived task moves only its Markdown note; other archive contents remain untouched. A failed move leaves the original in place; there is no recursive delete, cross-filesystem copy fallback, or trash-emptying operation. Relative links are not rewritten, and arbitrary incoming links or external symlinks are not repaired.
+
+The daemon returns a `task_deletion_result` with `task_id`, `source_ref_id`, `original_path`, and `trash_path`, plus the updated task list (possibly empty). There need not be a surviving `task` in this response. Only Obsidian is refreshed. Revision fencing prevents an in-flight collection from restoring the deleted observation, and failed collections cannot reuse it as fallback. Linked remote items and local resources stay unchanged and may still project a task. This is authored-task deletion, not persistent dismissal of arbitrary source-backed rows.
+
+Recovery is manual: move the payload at `trash_path` back to `original_path` without replacing anything, then refresh. Restored notes retain their source identity and lifecycle. The cache's numeric task ID is not a durable recovery identity. After restoring an archived note, use the normal reopen operation if it needs an active workspace. Vault trash may be emptied by Obsidian or other software; it is not a backup.
+
+No note, workspace-registry, configuration, or cache schema changes are required. Existing private and archived notes remain in place until explicitly deleted, and `.trash/` is outside collection. No migration or reset is needed. Before installing, check the configured vault's existing `.trash` path: it must be absent or a real directory, not a file or symlink. Existing trash contents are left untouched.
+
 ## Rollout
 
 Mandatory workspace notes do not change the registry, note, or configuration schema. Existing note-less workspaces need a one-time local association before opening them with this version; there is no automatic migration or legacy configuration handling. Inventory the registry, canonical notes, and existing `notes.md` entries before applying those associations. Never overwrite user files or replace existing note identities. Adding private note mounts to existing SBX workspaces requires reconciliation and can interrupt sandbox processes.
@@ -148,10 +162,11 @@ Valid tasks remain available during partial collection. Radar preserves previous
 radar task create --title <title>
 radar task done <task-id>
 radar task reopen <task-id>
+radar task delete <task-id>
 radar task priority <task-id> urgent|normal
 ```
 
-In the TUI, `n` creates a note, `Enter` opens its planning workspace, `d` changes lifecycle, `p` changes priority, and `o` opens the canonical note in Obsidian.
+In the TUI, `n` creates a note, `Enter` opens its planning workspace, `d` changes lifecycle, `D` previews task deletion, `p` changes priority, and `o` opens the canonical note in Obsidian. Deletion confirmation is modal: Enter does nothing, `y` confirms, and `Esc` or `n` cancels.
 
 ## Validation
 
