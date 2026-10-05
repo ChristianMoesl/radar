@@ -61,6 +61,10 @@ export default function(pi) {
   }});
 }
 `);
+  // Also exercise the launcher's notice-only helper from outside the package,
+  // as it would be loaded from Radar's cache. RPC must not consume its notice.
+  const hint = join(root, "install-hint.ts");
+  await writeFile(hint, await readFile(join(repository, "internal/pi/install-hint.ts")));
   const env = {
     PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, HOME: home,
     PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0", TERM: "dumb",
@@ -102,7 +106,7 @@ export default function(pi) {
   await writeFile(settingsPath, JSON.stringify(settings));
 
   function launch(cwd: string) {
-    const child = spawn(process.execPath, [cli, "--offline", "--mode", "rpc"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(process.execPath, [cli, "--offline", "--mode", "rpc", "--extension", hint], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
     let buffer = "";
     let stderr = "";
     let counter = 0;
@@ -194,6 +198,7 @@ export default function(pi) {
   const plain = await outsidePi.snapshot();
   assert.equal(plain.tools.some((name: string) => name.startsWith("radar_")), false);
   await outsidePi.stop();
+  await assert.rejects(readFile(join(agent, "radar", "install-hint-seen")), { code: "ENOENT" });
   const calls = (await readFile(env.FIXTURE_LOG, "utf8")).trim().split("\n").map(line => JSON.parse(line));
   assert.ok(calls.some(args => args.includes("--registration-only") && args.includes(member)));
   assert.ok(!calls.some(args => args[0] === "workspace-context" && args.includes(outside) && !args.includes("--registration-only")));

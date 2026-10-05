@@ -114,8 +114,9 @@ func Default() Config {
 	cfg := Config{
 		RepositoryDirs: []string{"~/workspace", "~/code", "~/src", "~/dev", "~/projects"},
 		Workspace: WorkspaceConfig{
-			RootDir: defaultWorkspaceRoot(),
-			Cleanup: WorkspaceCleanupConfig{DisposableEntries: []string{}},
+			RootDir:     defaultWorkspaceRoot(),
+			AutoConfirm: true,
+			Cleanup:     WorkspaceCleanupConfig{DisposableEntries: []string{}},
 		},
 		LinkingMarkPrefixes: []string{},
 		SBX:                 sbxsettings.Default(),

@@ -23,8 +23,8 @@ func TestDefaultUsesProductDefaults(t *testing.T) {
 	if cfg.Workspace.RootDir != filepath.Join(dataHome, "radar", "workspaces") {
 		t.Fatalf("Workspace.RootDir = %q", cfg.Workspace.RootDir)
 	}
-	if cfg.Workspace.AutoConfirm {
-		t.Fatal("Workspace.AutoConfirm = true, want disabled default")
+	if !cfg.Workspace.AutoConfirm {
+		t.Fatal("Workspace.AutoConfirm = false, want enabled default")
 	}
 	if cfg.SBX.Enabled != nil {
 		t.Fatal("SBX.Enabled must be omitted for automatic detection")
@@ -457,7 +457,7 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	if generated.LinkingMarkPrefixes == nil || len(generated.LinkingMarkPrefixes) != 0 {
 		t.Fatalf("generated LinkingMarkPrefixes = %#v, want empty list", generated.LinkingMarkPrefixes)
 	}
-	if generated.Workspace.RootDir != "~/.local/share/radar/workspaces" || generated.Workspace.AutoConfirm {
+	if generated.Workspace.RootDir != "~/.local/share/radar/workspaces" || !generated.Workspace.AutoConfirm {
 		t.Fatalf("generated Workspace = %#v", generated.Workspace)
 	}
 	if generated.SBX.Enabled != nil || generated.SBX.Kit.Name != "docker.io/christianmoesl/radar-kit:latest" || generated.SBX.Kit.Path != "" {
@@ -548,6 +548,45 @@ func TestOptionalEnableSettingsSurviveLoadAndInstallerReruns(t *testing.T) {
 			data, _ := os.ReadFile(path)
 			if string(data) != contents {
 				t.Fatal("user configuration was rewritten")
+			}
+		})
+	}
+}
+
+func TestWorkspaceAutoConfirmDefaultAndExplicitOverride(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data string
+		want bool
+	}{
+		{"missing file", "", true},
+		{"omitted workspace", `{}`, true},
+		{"omitted setting", `{"workspace":{"root_dir":"~/work"}}`, true},
+		{"enabled", `{"workspace":{"auto_confirm":true}}`, true},
+		{"disabled", `{"workspace":{"auto_confirm":false}}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			path, err := Path()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.data != "" {
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(tc.data), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg, err := Load()
+			if err != nil || cfg.Workspace.AutoConfirm != tc.want {
+				t.Fatalf("AutoConfirm = %t, want %t: %v", cfg.Workspace.AutoConfirm, tc.want, err)
+			}
+			if tc.data != "" {
+				if data, _ := os.ReadFile(path); string(data) != tc.data {
+					t.Fatal("loading defaults rewrote existing configuration")
+				}
 			}
 		})
 	}

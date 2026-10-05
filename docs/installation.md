@@ -69,7 +69,9 @@ authentication in the foreground.
 - Git members require Git. Repository discovery requires `fd`.
 - Pi's Radar tools/activity require the separately installed `pi-radar` package;
   sandbox tool routing requires `pi-sbx`. Installing the SBX CLI does not install
-  those extensions.
+  those extensions. Radar-launched interactive Pi sessions show optional install
+  advice once per Pi profile when `pi-radar` is missing; they never auto-install it.
+  The notice can be hidden with `/radar-dismiss-install-hint`.
 - URL actions require the platform opener (`xdg-open` on Linux, `open` on macOS).
 
 `linking_mark_prefixes` defaults to `[]`. This disables only ticket-prefix

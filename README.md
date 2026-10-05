@@ -62,6 +62,10 @@ Install `pi-radar` once in Pi's user configuration (Pi 0.85.1 or newer, Node.js 
 pi install npm:@christianmoesl/pi-radar
 ```
 
+Radar-launched interactive Pi sessions show a one-time, non-blocking recommendation when the integration is missing. It explains the benefits and installation command; `/radar-dismiss-install-hint` hides it. Radar never installs packages automatically. The notice checks the running Pi's tools and personal/project declarations (including `PI_CODING_AGENT_DIR`), stays quiet for known configured or explicitly disabled integrations, and does not appear in RPC/print mode. Pi runs on the host even for sandboxed workspaces, so install the package in that host Pi profile. For a custom agent directory, the suggested command includes the matching `PI_CODING_AGENT_DIR`.
+
+The launcher loads a small **notice-only helper**, not the integration. It caches this helper under `$XDG_CACHE_HOME/radar/pi/` (or the platform's user cache directory) and records that the notice was shown in `<Pi agent directory>/radar/install-hint-seen`. Removing that marker allows the recommendation to appear again. Existing settings and workspaces are not rewritten; unreadable settings or unavailable notice storage simply skip the advice.
+
 The npm package contains only the Pi extension; it does not install the Radar CLI, and extension users do not need pnpm. If switching from a Git installation, first remove its source with `pi remove git:github.com/ChristianMoesl/radar` (use the exact source from `pi list` if it is pinned to a tag). Then install the npm package and restart Pi. Git and npm sources have different package identities, so keeping both can load the extension twice.
 
 Keep the `radar` binary on PATH. The installed package checks Radar's registry at Pi startup and activates only inside a registered workspace anchor or one of its members. Outside those workspaces it adds no Radar tools, commands, instructions, skills, or activity reporting. A missing or failing Radar binary leaves the extension inactive; run `radar workspace-context --registration-only` to diagnose discovery, then restart Pi or use `/reload`.
@@ -193,7 +197,7 @@ With `pi-radar` installed, Pi sessions started inside a registered Radar workspa
 
 - `radar_workspace_context` resolves the current anchor or member and returns its revision, complete desired state, note metadata, member status, sandbox resources, and discovered repositories.
 - `radar_repository_refs` refreshes one selected repository when possible and returns canonical branches, base refs, and checkout paths.
-- `radar_reconcile_workspace` previews and applies complete worktree, requested-mount, and port state. It asks for confirmation unless `workspace.auto_confirm` is enabled.
+- `radar_reconcile_workspace` previews and applies complete worktree, requested-mount, and port state. It applies validated plans automatically by default; set `workspace.auto_confirm` to `false` to require confirmation.
 
 The context tool returns only the current logical workspace, not all registry records. It never returns note contents.
 
@@ -517,7 +521,7 @@ Example:
   "repository_dirs": ["~/workspace", "~/code", "~/src", "~/dev", "~/projects"],
   "workspace": {
     "root_dir": "~/.local/share/radar/workspaces",
-    "auto_confirm": false,
+    "auto_confirm": true,
     "cleanup": {"disposable_entries": []}
   },
   "linking_mark_prefixes": ["ABC"],
@@ -560,7 +564,7 @@ Example:
 
 `linking_mark_prefixes` optionally lists the identifier prefixes Radar may use to link work across sources, for example `["ABC"]` permits `ABC-722`. Omitting it or using `[]` disables only ticket-prefix linking; source identity, branch, and workspace linking still work. Prefixes are normalized to uppercase, must start with a letter, and may contain only letters and numbers. Radar matches only complete `<PREFIX>-<NUMBER>` marks, so unrelated suffixes such as `Origin-096e274f` are ignored.
 
-`obsidian.vault_path` is required for task authoring and workspace creation and must identify an existing vault containing `.obsidian/`; Radar creates its fixed `Tasks/` root. `repository_dirs` controls where `radar create` discovers base repositories. `workspace.root_dir` controls where Radar creates worktrees. When omitted, it defaults to `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. Existing configs must move the former `workspace_root` value manually; Radar does not read legacy user-config keys. `workspace.auto_confirm` defaults to `false`; when enabled, Radar's Pi tool still previews and validates workspace reconciliation but applies the plan without asking for confirmation. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.authoritative_issue_types` defaults to Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection, while `datadog.monitor_statuses` selects the unhealthy states to ingest and defaults to Alert, Warn, and No Data. Secrets are accepted only from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`.
+`obsidian.vault_path` is required for task authoring and workspace creation and must identify an existing vault containing `.obsidian/`; Radar creates its fixed `Tasks/` root. `repository_dirs` controls where `radar create` discovers base repositories. `workspace.root_dir` controls where Radar creates worktrees. When omitted, it defaults to `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. Existing configs must move the former `workspace_root` value manually; Radar does not read legacy user-config keys. `workspace.auto_confirm` defaults to `true`; Radar's Pi tool still previews and validates workspace reconciliation but applies the plan without asking for confirmation. Set it to `false` to require interactive confirmation. Existing explicit `false` values remain unchanged; the new default applies only when the setting is omitted or a new config is generated. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.authoritative_issue_types` defaults to Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection, while `datadog.monitor_statuses` selects the unhealthy states to ingest and defaults to Alert, Warn, and No Data. Secrets are accepted only from `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`.
 
 Muted tasks are hidden from the TUI and counts. Deprioritized tasks move to the low-priority section. User filters also apply to GitHub comment and review actors: muted or deprioritized actor activity does not promote a PR to attention. Confirmed GitHub bots match both their API login and the equivalent `[bot]` alias, so `gemini-code-assist[bot]` matches the GraphQL login `gemini-code-assist`. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive.
 

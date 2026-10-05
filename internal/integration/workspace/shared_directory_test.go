@@ -24,6 +24,11 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := os.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache")); err != nil {
+		_ = os.RemoveAll(root)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	code := m.Run()
 	_ = os.RemoveAll(root)
 	os.Exit(code)

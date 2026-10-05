@@ -156,7 +156,8 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	assertCalled(t, runner.calls, "git", "worktree add -b small-fix "+memberPath+" origin/main")
 	assertNotCalled(t, runner.calls, "sh")
 	assertCalledContains(t, runner.calls, "tmux", "pi --model 'anthropic/claude-sonnet-4' --thinking 'high' --session-id '"+workspace.SessionName+"'")
-	assertNotCalledContains(t, runner.calls, "tmux", "--extension")
+	assertCalledContains(t, runner.calls, "tmux", "--extension")
+	assertNotCalledContains(t, runner.calls, "tmux", "/pi/radar.ts")
 	assertNotCalledContains(t, runner.calls, "tmux", "RADAR_BINARY=")
 	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workspace.SessionName)
 	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+":")
@@ -1248,4 +1249,22 @@ func TestWSLManagedWorkspaceFailsBeforeProvisioning(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "WSL-mounted symlinks") || len(runner.calls) != 0 {
 		t.Fatalf("session provisioned: %v, %+v", err, runner.calls)
 	}
+}
+
+func TestInstallAdviceCacheFailureDoesNotPreventPiSession(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	if err := os.WriteFile(filepath.Join(cache, "radar"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	_, err := CreateSessionWithOptions(context.Background(), runner, CreateSessionOptions{
+		Path: t.TempDir(), SessionName: "optional-advice", InitialPrompt: "Review ABC-123",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCalledContains(t, runner.calls, "tmux", "pi --session-id 'optional-advice'")
+	assertCalledContains(t, runner.calls, "tmux", "'Review ABC-123'")
+	assertNotCalledContains(t, runner.calls, "tmux", "--extension")
 }

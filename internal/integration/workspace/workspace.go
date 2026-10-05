@@ -1037,6 +1037,11 @@ func piArgsWithPrompt(sessionID string, name string, model string, thinking stri
 		args = append(args, "--thinking", shellQuote(strings.TrimSpace(thinking)))
 	}
 	args = append(args, "--session-id", shellQuote(sessionID), "--name", shellQuote(name))
+	// Optional UI-only advice runs in Pi's actual environment (including custom
+	// agent directories). Cache failures must not prevent the session starting.
+	if hint, err := pi.InstallHintPath(); err == nil {
+		args = append(args, "--extension", shellQuote(hint))
+	}
 	if strings.TrimSpace(prompt) != "" {
 		args = append(args, shellQuote(strings.TrimSpace(prompt)))
 	}
