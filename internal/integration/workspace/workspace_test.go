@@ -430,7 +430,7 @@ func TestCreateStartsPiOnHostWithConfiguredSandbox(t *testing.T) {
 	if want := SandboxName(filepath.Base(repo), "small fix"); workspace.SandboxName != want {
 		t.Fatalf("sandbox name = %q, want %q", workspace.SandboxName, want)
 	}
-	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --kit "+filepath.Join(home, "kits", "radar")+" radar "+filepath.Join(repo, ".git")+" "+workspace.Path)
+	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" --kit "+filepath.Join(home, "kits", "radar")+" radar "+workspace.Path+" "+filepath.Join(repo, ".git"))
 	assertCalledContains(t, runner.calls, "tmux", "pi --session-id")
 	assertNotCalledContains(t, runner.calls, "tmux", "sbx exec")
 	assertNotCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_DIR=")
@@ -662,7 +662,7 @@ func TestCreateStartsSandboxEnabledByUserConfig(t *testing.T) {
 	if want := SandboxName(filepath.Base(repo), "small fix"); workspace.SandboxName != want {
 		t.Fatalf("sandbox name = %q, want %q", workspace.SandboxName, want)
 	}
-	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" radar "+filepath.Join(repo, ".git")+" "+workspace.Path+" "+shared)
+	assertCalled(t, runner.calls, "sbx", "create --name "+workspace.SandboxName+" radar "+workspace.Path+" "+filepath.Join(repo, ".git")+" "+shared)
 	assertCalledContains(t, runner.calls, "tmux", "pi --session-id")
 	assertNotCalledContains(t, runner.calls, "tmux", "sbx exec")
 	assertNotCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_SESSION_DIR=")

@@ -94,7 +94,10 @@ func TestResolveSandboxEnvFile(t *testing.T) {
 }
 
 func TestSandboxCreateArgsWithEnvFile(t *testing.T) {
-	got := sandboxCreateArgs("ABC-123", SandboxKitConfig{Name: "custom", Path: "/kit path"}, "/env file", []string{"/work path", "/shared:ro"})
+	got, err := sandboxCreateArgs("/work path", "ABC-123", SandboxKitConfig{Name: "custom", Path: "/kit path"}, "/env file", []string{"/shared:ro", "/work path"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []string{"create", "--name", "ABC-123", "--kit", "/kit path", "--env-file", "/env file", "custom", "/work path", "/shared:ro"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("args = %#v, want %#v", got, want)
@@ -491,7 +494,8 @@ func TestSandboxEnvFileCreationDiagnosticsDoNotExposeValues(t *testing.T) {
 				envFile = env
 			}
 			runner := &sandboxEnvDiagnosticRunner{sandboxRetryRunner: sandboxRetryRunner{permanentFailure: true}, value: value}
-			output, err := startSandboxWithMounts(context.Background(), runner, t.TempDir(), "ABC-123", SandboxKitConfig{Name: "shell"}, envFile, nil)
+			primary := t.TempDir()
+			output, err := startSandboxWithMounts(context.Background(), runner, primary, "ABC-123", SandboxKitConfig{Name: "shell"}, envFile, []string{primary})
 			if err == nil {
 				t.Fatal("expected creation failure")
 			}

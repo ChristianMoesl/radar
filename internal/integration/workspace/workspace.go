@@ -881,7 +881,11 @@ func startSandboxWithMounts(ctx context.Context, runner Runner, path string, nam
 	if err := validateSandboxEnvFile(envFile); err != nil {
 		return "", err
 	}
-	output, err := sbxclient.New(runner).Run(ctx, path, sandboxCreateArgs(name, kit, envFile, mounts)...)
+	args, err := sandboxCreateArgs(path, name, kit, envFile, mounts)
+	if err != nil {
+		return "", err
+	}
+	output, err := sbxclient.New(runner).Run(ctx, path, args...)
 	if err != nil {
 		if envFile != "" {
 			return "", sandboxCreateDiagnostic(sbxCommandError(err), envFile)

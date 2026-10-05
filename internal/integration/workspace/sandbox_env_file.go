@@ -72,7 +72,11 @@ func sandboxCreateDiagnostic(err error, envFile string) error {
 
 // sandboxCreateArgs is shared by first creation, missing-runtime recovery and
 // reconciliation retries. The env-file is one host path, never shell text.
-func sandboxCreateArgs(name string, kit SandboxKitConfig, envFile string, mounts []string) []string {
+func sandboxCreateArgs(primaryWorkspace string, name string, kit SandboxKitConfig, envFile string, mounts []string) ([]string, error) {
+	orderedMounts, err := sandboxPrimaryMounts(primaryWorkspace, mounts)
+	if err != nil {
+		return nil, err
+	}
 	args := []string{"create", "--name", name}
 	if kit.Path != "" {
 		args = append(args, "--kit", ExpandPath(kit.Path))
@@ -81,5 +85,5 @@ func sandboxCreateArgs(name string, kit SandboxKitConfig, envFile string, mounts
 		args = append(args, "--env-file", envFile)
 	}
 	args = append(args, kit.Name)
-	return append(args, mounts...)
+	return append(args, orderedMounts...), nil
 }

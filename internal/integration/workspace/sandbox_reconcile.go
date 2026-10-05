@@ -284,6 +284,11 @@ func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group worksp
 	if err := validateSandboxEnvFile(sandbox.EnvFile); err != nil {
 		return err
 	}
+	// Validate ordering/access before removing an existing runtime.
+	args, err := sandboxCreateArgs(group.Path, sandbox.Name, SandboxKitConfig{Name: sandbox.Agent, Path: sandbox.KitPath}, sandbox.EnvFile, sandbox.Mounts)
+	if err != nil {
+		return err
+	}
 	if sandbox.EnvFile != "" {
 		if err := ensureSharedDirectory(group); err != nil {
 			return err
@@ -299,7 +304,6 @@ func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group worksp
 		return err
 	}
 
-	args := sandboxCreateArgs(sandbox.Name, SandboxKitConfig{Name: sandbox.Agent, Path: sandbox.KitPath}, sandbox.EnvFile, sandbox.Mounts)
 	attempts := max(policy.createAttempts, 1)
 	for attempt := 1; attempt <= attempts; attempt++ {
 		if err := validateSandboxEnvFile(sandbox.EnvFile); err != nil {
