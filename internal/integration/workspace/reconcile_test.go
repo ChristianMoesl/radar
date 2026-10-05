@@ -483,7 +483,7 @@ func (r *sandboxPlanningRunner) Run(_ context.Context, _ string, name string, ar
 			if len(args) < 5 || args[1] != "--name" || args[2] != r.sandboxName {
 				return "", fmt.Errorf("unexpected create command: %s", command)
 			}
-			r.mounts = append([]string(nil), args[4:]...)
+			r.mounts = append([]string(nil), sandboxCreateMountArgs(args)...)
 			r.exists = true
 			return "", nil
 		}

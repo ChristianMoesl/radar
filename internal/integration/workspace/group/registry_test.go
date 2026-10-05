@@ -145,3 +145,52 @@ func TestRegistryRejectsDuplicateTaskLinkingKey(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestRegistrySandboxEnvFileRoundTripWithoutHostFile(t *testing.T) {
+	root := t.TempDir()
+	workspace := testWorkspace(root, "ABC-123")
+	env := filepath.Join(root, "deleted env file")
+	workspace.Sandbox = &Sandbox{Name: "ABC-123", Agent: "shell", EnvFile: env}
+	if err := Save(root, Registry{Version: Version, Workspaces: []Workspace{workspace}}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(root)
+	if err != nil || loaded.Workspaces[0].Sandbox.EnvFile != env {
+		t.Fatalf("registry = %+v, %v", loaded, err)
+	}
+	// Removing a workspace must also work when its env-file is gone.
+	if err := RemoveWorkspace(root, workspace.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRegistryVersionTwoSandboxWithoutEnvFileStaysEmpty(t *testing.T) {
+	root := t.TempDir()
+	workspace := testWorkspace(root, "ABC-123")
+	workspace.Sandbox = &Sandbox{Name: "ABC-123", Agent: "shell"}
+	if err := Save(root, Registry{Version: 2, Workspaces: []Workspace{workspace}}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(Path(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"env_file"`) {
+		t.Fatalf("empty env-file must be omitted: %s", data)
+	}
+	loaded, err := Load(root)
+	if err != nil || loaded.Workspaces[0].Sandbox.EnvFile != "" {
+		t.Fatalf("registry = %+v, %v", loaded, err)
+	}
+}
+
+func TestRegistryRejectsRelativeSandboxEnvFile(t *testing.T) {
+	for _, env := range []string{"relative env", "~/env"} {
+		root := t.TempDir()
+		workspace := testWorkspace(root, "ABC-123")
+		workspace.Sandbox = &Sandbox{Name: "ABC-123", Agent: "shell", EnvFile: env}
+		if err := Save(root, Registry{Version: Version, Workspaces: []Workspace{workspace}}); err == nil || !strings.Contains(err.Error(), "env_file must be absolute") {
+			t.Fatalf("Save() error = %v", err)
+		}
+	}
+}

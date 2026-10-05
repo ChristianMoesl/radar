@@ -8,7 +8,58 @@ SBX supplies local Docker sandbox resources and shell actions.
 
 ## Configuration and authentication
 
-`sbx.enabled`, `sbx.kit`, and `sbx.additional_mounts` configure managed runtimes. Repository-local settings use the same shape. Omitted `enabled` automatically enables new workspaces on macOS when `sbx` is on PATH. Explicit repository `enabled` overrides explicit global `enabled`; otherwise automatic detection applies. Explicit enablement with missing tools or unsupported platforms fails before provisioning; runtime/authentication failures never fall back to the host. On dashboard startup, Radar detects reported SBX authentication failures and runs the provider-owned login flow before opening the TUI. `radar create`, `radar fork`, and CLI cleanup of sandbox targets also check authentication before proceeding. The check is bounded and only authentication failures trigger login; missing tools, healthy sessions, and unrelated runtime failures do not. Successful startup login refreshes local sources. Background collection never prompts. You can also sign in manually with `sbx login`.
+`sbx.enabled`, `sbx.kit`, `sbx.additional_mounts`, and optional `sbx.env_file` configure managed runtimes. Repository-local settings use the same shape. Omitted `enabled` automatically enables new workspaces on macOS when `sbx` is on PATH. Explicit repository `enabled` overrides explicit global `enabled`; otherwise automatic detection applies. Explicit enablement with missing tools or unsupported platforms fails before provisioning; runtime/authentication failures never fall back to the host. On dashboard startup, Radar detects reported SBX authentication failures and runs the provider-owned login flow before opening the TUI. `radar create`, `radar fork`, and CLI cleanup of sandbox targets also check authentication before proceeding. The check is bounded and only authentication failures trigger login; missing tools, healthy sessions, and unrelated runtime failures do not. Successful startup login refreshes local sources. Background collection never prompts. You can also sign in manually with `sbx login`.
+
+### Environment files
+
+Pass one machine-local environment file through to SBX with Radar's user config:
+
+```json
+{
+  "sbx": {
+    "env_file": "~/.config/sbx/sandbox.env"
+  }
+}
+```
+
+The path must be absolute or begin with `~/`. Radar expands it to a host-native
+absolute path and passes separate `--env-file` and path arguments to `sbx create`.
+The selected file must exist, be regular, and be readable before provisioning or
+destructive sandbox recreation. A missing file does not prevent unrelated
+listing or cleanup. Radar does not interpret or log file contents, copy the file
+into the sandbox, or expose it as a mount. SBX controls parsing and runtime
+injection; the values are not baked into the image. For creation failures with
+an env-file, Radar withholds raw SBX diagnostics because a parser error could
+echo a private value; retry classification and attempt counts remain available.
+
+A repository's `.radar.json` can select another file with the same field. Omission
+inherits the user setting; `"env_file": ""` explicitly disables it. Multi-repository
+creation uses the first member's repository settings, matching kit selection.
+Only one file is selected, not a merged list.
+
+The workspace registry stores the resolved path in `sandbox.env_file`, not the
+contents. Missing-runtime recovery and mount-triggered recreation reuse that
+recorded selection, including creation retries. Later user/repository setting
+changes affect new workspaces only. Editing file contents does not change a
+running sandbox or trigger recreation; the next actual creation reads the
+current file. Existing version-2 registrations without this field remain valid
+and keep no env-file. No automatic migration or backfill is performed. Restart
+the Radar daemon after updating the binary so older processes do not drop the
+new field when rewriting registrations.
+
+A file can supply generic image inputs such as:
+
+```dotenv
+SBX_STARTUP_DIR=/absolute/host/startup.d
+```
+
+The directory must be mounted separately, preferably as a read-only requested
+workspace mount. On macOS, mounts retain their host absolute paths, so the value
+must name the sandbox-visible path. Radar does not expand expressions inside
+the file. The selected image/kit still needs a startup runner before scripts
+will execute, including for `sbx exec`; this feature adds no runner or Git-specific
+provisioning. Keep machine-specific files untracked and private keys in the
+host's signing agent.
 
 ## Windows / WSL2
 

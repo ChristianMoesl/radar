@@ -591,3 +591,37 @@ func TestWorkspaceAutoConfirmDefaultAndExplicitOverride(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadOptionalSandboxEnvFile(t *testing.T) {
+	for _, test := range []struct{ name, sbx, want string }{
+		{"absent", `{}`, ""},
+		{"empty", `{"env_file":""}`, ""},
+		{"absolute", `{"env_file":"/missing env file"}`, "/missing env file"},
+		{"home", `{"env_file":"~/missing env file"}`, "~/missing env file"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			path, err := Path()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(`{"sbx":`+test.sbx+`}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load()
+			if err != nil || cfg.SBX.EnvFile != test.want {
+				t.Fatalf("env_file = %q, %v, want %q", cfg.SBX.EnvFile, err, test.want)
+			}
+			data, err := json.Marshal(cfg.SBX)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), `"env_file"`) != (test.want != "") {
+				t.Fatalf("env_file omitempty: %s", data)
+			}
+		})
+	}
+}

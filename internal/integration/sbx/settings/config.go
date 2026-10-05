@@ -8,6 +8,7 @@ type Config struct {
 	Enabled          *bool     `json:"enabled,omitempty"`
 	Kit              KitConfig `json:"kit"`
 	AdditionalMounts []string  `json:"additional_mounts"`
+	EnvFile          string    `json:"env_file,omitempty"`
 }
 
 type KitConfig struct {

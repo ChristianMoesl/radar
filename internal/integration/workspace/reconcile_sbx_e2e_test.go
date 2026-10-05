@@ -49,7 +49,7 @@ func TestNoteWorkspaceSandboxSymlinkE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := fmt.Sprintf("radar-note-e2e-%d-%d", os.Getpid(), time.Now().UnixNano())
-	if _, err := startSandboxWithMounts(ctx, runner, anchor, name, SandboxKitConfig{Name: "shell"}, []string{anchor, taskDirectory}); err != nil {
+	if _, err := startSandboxWithMounts(ctx, runner, anchor, name, SandboxKitConfig{Name: "shell"}, "", []string{anchor, taskDirectory}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {

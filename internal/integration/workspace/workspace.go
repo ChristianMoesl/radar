@@ -128,6 +128,7 @@ type CreateOptions struct {
 	Sandbox                 bool
 	SandboxKitName          string
 	SandboxKitPath          string
+	SandboxEnvFile          string
 	AdditionalSandboxMounts []string
 	Tmux                    sessionlayout.Config
 	Switch                  bool
@@ -158,6 +159,7 @@ type CreateSessionOptions struct {
 	Sandbox                 bool
 	SandboxKitName          string
 	SandboxKitPath          string
+	SandboxEnvFile          string
 	AdditionalSandboxMounts []string
 	SandboxName             string
 	Tmux                    sessionlayout.Config
@@ -234,6 +236,19 @@ func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegr
 	if err := obsidiansettings.ValidateWorkspaceNote(group.NotePath); err != nil {
 		return false, false, err
 	}
+	createSandbox := false
+	if group.Sandbox != nil && group.Sandbox.EnvFile != "" {
+		exists, err := sandboxExists(ctx, runner, group.Sandbox.Name)
+		if err != nil {
+			return false, false, err
+		}
+		createSandbox = !exists
+		if createSandbox {
+			if err := validateSandboxEnvFile(group.Sandbox.EnvFile); err != nil {
+				return false, false, err
+			}
+		}
+	}
 	if err := ensureNoteLink(group.Path, group.NotePath); err != nil {
 		return false, false, err
 	}
@@ -241,17 +256,19 @@ func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegr
 	if err := ensureSharedDirectory(group); err != nil {
 		return false, false, err
 	}
-	if group.Sandbox != nil {
+	// Preserve the original setup/lookup ordering for workspaces without an env-file.
+	if group.Sandbox != nil && group.Sandbox.EnvFile == "" {
 		exists, err := sandboxExists(ctx, runner, group.Sandbox.Name)
 		if err != nil {
 			return false, false, err
 		}
-		if !exists {
-			if _, err := startSandboxWithMounts(ctx, runner, group.Path, group.Sandbox.Name, SandboxKitConfig{Name: group.Sandbox.Agent, Path: group.Sandbox.KitPath}, group.Sandbox.Mounts); err != nil {
-				return false, false, err
-			}
-			createdSandbox = true
+		createSandbox = !exists
+	}
+	if createSandbox {
+		if _, err := startSandboxWithMounts(ctx, runner, group.Path, group.Sandbox.Name, SandboxKitConfig{Name: group.Sandbox.Agent, Path: group.Sandbox.KitPath}, group.Sandbox.EnvFile, group.Sandbox.Mounts); err != nil {
+			return false, false, err
 		}
+		createdSandbox = true
 	}
 	if sessionErr == nil {
 		return false, createdSandbox, nil
@@ -438,11 +455,13 @@ type sandboxSettings struct {
 	Enabled          bool
 	Kit              SandboxKitConfig
 	AdditionalMounts []string
+	EnvFile          string
 }
 
-func workspaceSandboxConfig(repoConfig RepoConfig, enabled bool, kitName string, kitPath string, additionalMounts []string) sandboxSettings {
+func workspaceSandboxConfig(repoConfig RepoConfig, enabled bool, kitName string, kitPath string, envFile string, additionalMounts []string) sandboxSettings {
 	settings := sandboxSettings{
 		Enabled: enabled,
+		EnvFile: envFile,
 		Kit: SandboxKitConfig{
 			Name: strings.TrimSpace(kitName),
 			Path: strings.TrimSpace(kitPath),
@@ -463,6 +482,9 @@ func workspaceSandboxConfig(repoConfig RepoConfig, enabled bool, kitName string,
 			Name: strings.TrimSpace(repoConfig.SBX.Kit.Name),
 			Path: strings.TrimSpace(repoConfig.SBX.Kit.Path),
 		}
+	}
+	if repoConfig.SBX.EnvFile != nil {
+		settings.EnvFile = *repoConfig.SBX.EnvFile
 	}
 	settings.AdditionalMounts = append(settings.AdditionalMounts, repoConfig.SBX.AdditionalMounts...)
 	return settings
@@ -549,7 +571,7 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 	if err := sessionlayout.Validate(options.Tmux); err != nil {
 		return Workspace{}, err
 	}
-	sandbox := workspaceSandboxConfig(repoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.AdditionalSandboxMounts)
+	sandbox := workspaceSandboxConfig(repoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.SandboxEnvFile, options.AdditionalSandboxMounts)
 	sandboxName := strings.TrimSpace(options.SandboxName)
 	if sandboxName != "" {
 		sandbox.Enabled = true
@@ -583,7 +605,7 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 			if exists, err := sandboxExists(ctx, runner, sandboxName); err != nil {
 				return Workspace{}, err
 			} else if !exists {
-				if _, err := startSandbox(ctx, runner, path, sandboxName, sandbox.Kit, sandbox.AdditionalMounts); err != nil {
+				if _, err := startSandbox(ctx, runner, path, sandboxName, sandbox.Kit, sandbox.EnvFile, sandbox.AdditionalMounts); err != nil {
 					return Workspace{}, err
 				}
 				createdSandbox = true
@@ -805,23 +827,30 @@ func setupInteractiveCommand(commands []string) string {
 	return strings.Join(steps, " && ")
 }
 
-func startSandbox(ctx context.Context, runner Runner, path string, name string, kit SandboxKitConfig, additionalMounts []string) (string, error) {
+func startSandbox(ctx context.Context, runner Runner, path string, name string, kit SandboxKitConfig, envFile string, additionalMounts []string) (string, error) {
+	envFile, err := resolveSandboxEnvFile(envFile)
+	if err != nil {
+		return "", err
+	}
+	if err := validateSandboxEnvFile(envFile); err != nil {
+		return "", err
+	}
 	mounts, err := sandboxMounts(ctx, runner, path, additionalMounts)
 	if err != nil {
 		return "", err
 	}
-	return startSandboxWithMounts(ctx, runner, path, name, kit, mounts)
+	return startSandboxWithMounts(ctx, runner, path, name, kit, envFile, mounts)
 }
 
-func startSandboxWithMounts(ctx context.Context, runner Runner, path string, name string, kit SandboxKitConfig, mounts []string) (string, error) {
-	args := []string{"create", "--name", name}
-	if kit.Path != "" {
-		args = append(args, "--kit", ExpandPath(kit.Path))
+func startSandboxWithMounts(ctx context.Context, runner Runner, path string, name string, kit SandboxKitConfig, envFile string, mounts []string) (string, error) {
+	if err := validateSandboxEnvFile(envFile); err != nil {
+		return "", err
 	}
-	args = append(args, kit.Name)
-	args = append(args, mounts...)
-	output, err := sbxclient.New(runner).Run(ctx, path, args...)
+	output, err := sbxclient.New(runner).Run(ctx, path, sandboxCreateArgs(name, kit, envFile, mounts)...)
 	if err != nil {
+		if envFile != "" {
+			return "", sandboxCreateDiagnostic(sbxCommandError(err), envFile)
+		}
 		return output, sbxCommandError(err)
 	}
 	return output, nil

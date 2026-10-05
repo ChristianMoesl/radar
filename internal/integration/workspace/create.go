@@ -120,9 +120,15 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 			return fail(err)
 		}
 	}
-	sandbox := workspaceSandboxConfig(repoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.AdditionalSandboxMounts)
+	sandbox := workspaceSandboxConfig(repoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.SandboxEnvFile, options.AdditionalSandboxMounts)
 	if err := validateSandboxDependencies(runner, sandbox.Enabled); err != nil {
 		return fail(err)
+	}
+	if sandbox.Enabled {
+		sandbox.EnvFile, err = resolveSandboxEnvFile(sandbox.EnvFile)
+		if err != nil {
+			return fail(err)
+		}
 	}
 	model, thinking := options.Model, options.Thinking
 	if repoConfig.Model != "" {
@@ -154,7 +160,7 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 		desired.Note = &note
 	}
 	if sandbox.Enabled {
-		initial.Sandbox = &workspacegroup.Sandbox{Name: SandboxName(repoName, name), Agent: sandbox.Kit.Name, KitPath: ExpandPath(sandbox.Kit.Path), AdditionalMounts: []workspacegroup.SandboxMount{}, Ports: []workspacegroup.SandboxPort{}}
+		initial.Sandbox = &workspacegroup.Sandbox{Name: SandboxName(repoName, name), Agent: sandbox.Kit.Name, KitPath: ExpandPath(sandbox.Kit.Path), EnvFile: sandbox.EnvFile, AdditionalMounts: []workspacegroup.SandboxMount{}, Ports: []workspacegroup.SandboxPort{}}
 		desired.Sandbox = &DesiredWorkspaceSandbox{AdditionalMounts: []DesiredSandboxMount{}, Ports: []workspacegroup.SandboxPort{}}
 	}
 	revision, err := workspaceRevision(initial, nil)
@@ -198,6 +204,11 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) 
 	}
 	if plan.openExisting {
 		return openRegisteredWorkspace(ctx, runner, plan.root, plan.group, options, options.Repo, options.Branch)
+	}
+	if plan.group.Sandbox != nil {
+		if err := validateSandboxEnvFile(plan.group.Sandbox.EnvFile); err != nil {
+			return Workspace{}, err
+		}
 	}
 	if err := createAnchorDirectory(plan.root, plan.group.Path); err != nil {
 		return Workspace{}, err

@@ -240,7 +240,7 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 }
 ```
 
-`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree in a temporary setup window after tmux and any sandbox are available. Without sandboxing they run on the host. On macOS, when sandboxing is enabled (automatically when `sbx` is installed, or explicitly with `sbx.enabled`), Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The sandbox mounts the anchor, the private task directory when present, each distinct external writable Git common directory, and global and repository `sbx.additional_mounts`. Nested members are already visible through the anchor. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's regular tools through `sbx exec`. The separately installed `pi-radar` package provides host-side workspace tools and context without launch-time injection. Install `pi-sbx` with `pi install git:github.com/ChristianMoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree in a temporary setup window after tmux and any sandbox are available. Without sandboxing they run on the host. On macOS, when sandboxing is enabled (automatically when `sbx` is installed, or explicitly with `sbx.enabled`), Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] [--env-file <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The sandbox mounts the anchor, the private task directory when present, each distinct external writable Git common directory, and global and repository `sbx.additional_mounts`. Nested members are already visible through the anchor. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's regular tools through `sbx exec`. The separately installed `pi-radar` package provides host-side workspace tools and context without launch-time injection. Install `pi-sbx` with `pi install git:github.com/ChristianMoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
 
 Changing the worktree membership or requested additional mounts of a sandboxed workspace reconciles the complete mount set by removing and recreating the sandbox under the same name. This interrupts processes inside the sandbox, so the Pi tool warns before confirmation. Radar waits for removal to converge and retries transient SBX container-start failures up to three times with bounded backoff and cleanup between attempts. Plans show the effective mount count and warn at 20 or more mounts without enforcing a limit. Radar then reconciles the complete desired loopback port set with `sbx ports`. If reconciliation fails, Radar keeps completed work and desired registry state and returns `ok: false` with `retryable: true`; the Pi tool reports completed work and asks the agent to re-inspect before retrying. Reconciliation phases and counts are recorded at `radar log-path` without logging complete mount commands.
 
@@ -249,12 +249,46 @@ On macOS, installed SBX is enabled for new workspaces by default. Configure addi
 ```json
 {
   "sbx": {
-    "additional_mounts": ["~/shared-tools", "/opt/company-config"]
+    "additional_mounts": ["~/shared-tools", "/opt/company-config"],
+    "env_file": "~/.config/sbx/sandbox.env"
   }
 }
 ```
 
 A repository's `.radar.json` can use the same `sbx` fields. Repository `enabled` and `kit` values override the user settings; repository additional mounts are appended to the global list. `kit.name` defaults to `docker.io/christianmoesl/radar-kit:latest`; when optional `kit.path` is set, Radar expands a leading `~/` and passes it as `--kit <path>`. Additional-mount paths must be absolute or start with `~/`; Radar expands `~` and creates missing directories before starting SBX. Empty, duplicate, and redundant child entries are ignored, and the anchor remains the primary mount.
+
+Optional `sbx.env_file` passes one host environment file to `sbx create --env-file`.
+The path must be absolute or start with `~/`; the selected file must already
+exist and be a readable regular file before sandbox provisioning. Radar does
+not parse, source, copy, mount, or log its contents. SBX owns the file syntax and
+injects its values into the sandbox. Omit the field to pass no environment file.
+A repository's `sbx.env_file` overrides the user value; an explicit empty string
+opts that repository out of the inherited file. As with kit selection, the
+first repository member supplies repository-local settings during multi-repository
+workspace creation.
+
+The expanded path is recorded with the workspace and reused for missing-runtime
+recovery and sandbox recreation. Configuration changes affect newly created
+workspaces, not existing registrations. Editing the file does not update a
+running sandbox or automatically recreate it; SBX reads its current contents
+on the next actual sandbox creation. Existing registrations without an env-file
+keep that behavior, with no migration or backfill.
+
+For example, a machine-local `sandbox.env` could contain:
+
+```dotenv
+SBX_STARTUP_DIR=/absolute/host/startup.d
+```
+
+Mount that directory separately with the existing sandbox mount controls. On
+macOS, SBX retains its host absolute path; use that sandbox-visible path in the
+environment file, not a host-shell expression such as `$HOME`. A trusted startup
+directory should be mounted read-only using the workspace's requested-mount
+controls. Passing `SBX_STARTUP_DIR` does **not** execute scripts: the selected
+image/kit must provide its own startup runner, including support for commands
+launched through `sbx exec`. Radar has no special handling for this variable or
+Git identities. Keep machine-specific environment files outside version control;
+do not put private keys in them.
 
 Configure workspace windows, panes, layouts, and commands in the user config:
 
@@ -497,7 +531,7 @@ Existing `sbx.enabled: false` values remain explicit opt-outs; remove the field 
 
 **WSL2:** Windows SBX collection, task linking, sandbox shell actions, and cleanup are supported. Put `sbx.exe` on WSL's PATH; automatic login uses `sbx.exe login` (which can also be run manually). Managed sandbox creation/reconciliation is **not** enabled: SBX v0.43.0 returns `Invalid argument` when reading symlinks in WSL-mounted directories, including Radar's required `notes.md` link. Explicit sandbox enablement reports this limitation rather than running work on the host. See [WSL2 support and validation](docs/integrations/sbx.md#windows--wsl2).
 
-`sbx.kit.name` can override the default with another agent, sandbox-kit reference or pinned kit digest and is passed as SBX's agent or sandbox-kit reference. Optional `sbx.kit.path` passes a kit location with `--kit`. Configure `sbx.additional_mounts` to add host directories to every sandbox Radar creates.
+`sbx.kit.name` can override the default with another agent, sandbox-kit reference or pinned kit digest and is passed as SBX's agent or sandbox-kit reference. Optional `sbx.kit.path` passes a kit location with `--kit`. Configure `sbx.additional_mounts` to add host directories and optional `sbx.env_file` to pass one host environment file when Radar creates a sandbox.
 
 ## Config
 

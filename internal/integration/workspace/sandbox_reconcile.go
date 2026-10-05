@@ -259,16 +259,29 @@ func reconcileSandbox(ctx context.Context, runner Runner, group workspacegroup.W
 }
 
 func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group workspacegroup.Workspace, logger *slog.Logger, policy sandboxReconcilePolicy) error {
-	if err := ensureSharedDirectory(group); err != nil {
-		return err
-	}
 	sandbox := group.Sandbox
+	if sandbox.EnvFile == "" {
+		if err := ensureSharedDirectory(group); err != nil {
+			return err
+		}
+	}
 	actual, found, err := findSandbox(ctx, runner, group.Path, sandbox.Name)
 	if err != nil {
 		return err
 	}
 	if found && sameMountSet(sandbox.Mounts, sandboxWorkspaceMounts(actual)) {
+		if sandbox.EnvFile != "" {
+			return ensureSharedDirectory(group)
+		}
 		return nil
+	}
+	if err := validateSandboxEnvFile(sandbox.EnvFile); err != nil {
+		return err
+	}
+	if sandbox.EnvFile != "" {
+		if err := ensureSharedDirectory(group); err != nil {
+			return err
+		}
 	}
 	for _, mount := range sandbox.Mounts {
 		path := strings.TrimSuffix(mount, ":ro")
@@ -280,14 +293,12 @@ func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group worksp
 		return err
 	}
 
-	args := []string{"create", "--name", sandbox.Name}
-	if sandbox.KitPath != "" {
-		args = append(args, "--kit", sandbox.KitPath)
-	}
-	args = append(args, sandbox.Agent)
-	args = append(args, sandbox.Mounts...)
+	args := sandboxCreateArgs(sandbox.Name, SandboxKitConfig{Name: sandbox.Agent, Path: sandbox.KitPath}, sandbox.EnvFile, sandbox.Mounts)
 	attempts := max(policy.createAttempts, 1)
 	for attempt := 1; attempt <= attempts; attempt++ {
+		if err := validateSandboxEnvFile(sandbox.EnvFile); err != nil {
+			return err
+		}
 		if logger != nil {
 			logger.Info("workspace reconciliation sandbox create attempt",
 				"workspace_id", group.ID, "sandbox", sandbox.Name, "attempt", attempt,
@@ -296,13 +307,15 @@ func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group worksp
 		if _, runErr := sbxclient.New(runner).Run(ctx, group.Path, args...); runErr == nil {
 			return nil
 		} else {
-			createErr := conciseSandboxCreateError(sbxCommandError(runErr))
+			providerErr := sbxCommandError(runErr)
+			retryable := retryableSandboxCreateError(providerErr)
+			createErr := sandboxCreateDiagnostic(providerErr, sandbox.EnvFile)
 			if logger != nil {
 				logger.Warn("workspace reconciliation sandbox create failed",
 					"workspace_id", group.ID, "sandbox", sandbox.Name, "attempt", attempt,
 					"max_attempts", attempts, "effective_mount_count", len(sandbox.Mounts), "error", createErr)
 			}
-			if !retryableSandboxCreateError(createErr) || attempt == attempts {
+			if !retryable || attempt == attempts {
 				cleanupErr := removeSandboxForRecreation(ctx, runner, sandbox.Name, group.ID, "after_failed_create", logger, policy)
 				if cleanupErr != nil {
 					return fmt.Errorf("create SBX sandbox %s after %d attempt(s): %w; failed to clean up the failed runtime: %v", sandbox.Name, attempt, createErr, cleanupErr)

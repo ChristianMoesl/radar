@@ -141,6 +141,7 @@ func TestReconcileSandboxDoesNotRetryPermanentCreateFailure(t *testing.T) {
 }
 
 type sandboxRetryRunner struct {
+	calls            []call
 	name             string
 	exists           bool
 	mounts           []string
@@ -156,7 +157,8 @@ type sandboxRetryRunner struct {
 
 func (r *sandboxRetryRunner) LookPath(string) error { return nil }
 
-func (r *sandboxRetryRunner) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
+func (r *sandboxRetryRunner) Run(_ context.Context, cwd string, name string, args ...string) (string, error) {
+	r.calls = append(r.calls, call{cwd: cwd, name: name, args: append([]string(nil), args...)})
 	if name != "sbx" || len(args) == 0 {
 		return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
 	}
@@ -196,7 +198,7 @@ func (r *sandboxRetryRunner) Run(_ context.Context, _ string, name string, args 
 		}
 		r.exists = true
 		r.removing = false
-		r.mounts = append([]string(nil), args[4:]...)
+		r.mounts = append([]string(nil), sandboxCreateMountArgs(args)...)
 		return "", nil
 	default:
 		return "", fmt.Errorf("unexpected sbx command: %s", strings.Join(args, " "))

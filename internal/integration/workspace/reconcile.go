@@ -521,6 +521,19 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 			"plan_id", plan.PlanID, "revision", plan.Revision, "change_count", len(plan.Changes),
 			"effective_mount_count", plan.EffectiveMountCount)
 	}
+	// Preflight a recorded env-file before changing any workspace resources.
+	// A matching runtime does not need the host file until its next creation.
+	if plan.group.Sandbox != nil && plan.group.Sandbox.EnvFile != "" {
+		actual, found, err := findSandbox(ctx, runner, plan.group.Path, plan.group.Sandbox.Name)
+		if err != nil {
+			return result, err
+		}
+		if !found || !sameMountSet(plan.group.Sandbox.Mounts, sandboxWorkspaceMounts(actual)) {
+			if err := validateSandboxEnvFile(plan.group.Sandbox.EnvFile); err != nil {
+				return result, err
+			}
+		}
+	}
 	if plan.noteAdded {
 		if request.Desired.Note.Create {
 			if err := request.NoteAuthor.EnsureWorkspaceNote(ctx, *request.Desired.Note); err != nil {
@@ -855,6 +868,7 @@ func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.Sa
 		Name             string                        `json:"name"`
 		Agent            string                        `json:"agent"`
 		KitPath          string                        `json:"kit_path"`
+		EnvFile          string                        `json:"env_file,omitempty"`
 		AdditionalMounts []workspacegroup.SandboxMount `json:"additional_mounts"`
 		Ports            []workspacegroup.SandboxPort  `json:"ports"`
 	}
@@ -887,7 +901,7 @@ func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.Sa
 		if err != nil {
 			return "", err
 		}
-		state.Sandbox = &revisionSandbox{SharedDirectory: group.Sandbox.SharedDirectory, Name: group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath, AdditionalMounts: normalizedMounts, Ports: normalizedPorts}
+		state.Sandbox = &revisionSandbox{SharedDirectory: group.Sandbox.SharedDirectory, Name: group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath, EnvFile: group.Sandbox.EnvFile, AdditionalMounts: normalizedMounts, Ports: normalizedPorts}
 	}
 	data, err := json.Marshal(state)
 	if err != nil {

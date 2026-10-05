@@ -20,6 +20,7 @@ type RepoConfig struct {
 
 type SandboxConfig struct {
 	Enabled          *bool             `json:"enabled,omitempty"`
+	EnvFile          *string           `json:"env_file,omitempty"`
 	Kit              *SandboxKitConfig `json:"kit,omitempty"`
 	AdditionalMounts []string          `json:"additional_mounts,omitempty"`
 }
@@ -67,6 +68,11 @@ func validateRepoConfig(cfg RepoConfig) error {
 	}
 	if cfg.SBX != nil && cfg.SBX.Kit != nil && strings.TrimSpace(cfg.SBX.Kit.Name) == "" {
 		return fmt.Errorf("sbx.kit.name is required")
+	}
+	if cfg.SBX != nil && cfg.SBX.EnvFile != nil {
+		if _, err := resolveSandboxEnvFile(*cfg.SBX.EnvFile); err != nil {
+			return err
+		}
 	}
 	return nil
 }

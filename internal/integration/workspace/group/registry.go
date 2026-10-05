@@ -47,6 +47,7 @@ type Sandbox struct {
 	Name             string         `json:"name"`
 	Agent            string         `json:"agent"`
 	KitPath          string         `json:"kit_path,omitempty"`
+	EnvFile          string         `json:"env_file,omitempty"`
 	Mounts           []string       `json:"mounts"`
 	AdditionalMounts []SandboxMount `json:"additional_mounts"`
 	Ports            []SandboxPort  `json:"ports"`
@@ -426,6 +427,12 @@ func normalizeAndValidate(registry *Registry) error {
 			}
 			if workspace.Sandbox.KitPath != "" && !filepath.IsAbs(workspace.Sandbox.KitPath) {
 				return fmt.Errorf("workspace %q sandbox kit_path must be absolute", workspace.ID)
+			}
+			if workspace.Sandbox.EnvFile != "" {
+				if !filepath.IsAbs(workspace.Sandbox.EnvFile) {
+					return fmt.Errorf("workspace %q sandbox env_file must be absolute", workspace.ID)
+				}
+				workspace.Sandbox.EnvFile = filepath.Clean(workspace.Sandbox.EnvFile)
 			}
 			for _, mount := range workspace.Sandbox.Mounts {
 				path := strings.TrimSuffix(strings.TrimSpace(mount), ":ro")
