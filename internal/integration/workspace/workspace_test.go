@@ -692,7 +692,7 @@ func TestWorkspaceSandboxConfigAppliesRepoOverrides(t *testing.T) {
 		Enabled:          &disabled,
 		Kit:              &SandboxKitConfig{Name: "repo-kit", Path: "/repo/kit"},
 		AdditionalMounts: []string{"/repo/shared"},
-	}}, true, "user-kit", "/user/kit", "", []string{"/user/shared"})
+	}}, true, "user-kit", "/user/kit", "", nil, []string{"/user/shared"})
 
 	if settings.Enabled {
 		t.Fatal("sandbox enabled = true, want repo override to disable it")
@@ -709,7 +709,7 @@ func TestWorkspaceSandboxConfigAppliesRepoOverrides(t *testing.T) {
 func TestWorkspaceSandboxConfigInheritsUserSettings(t *testing.T) {
 	settings := workspaceSandboxConfig(RepoConfig{SBX: &SandboxConfig{
 		AdditionalMounts: []string{"/repo/shared"},
-	}}, true, "user-kit", "/user/kit", "", []string{"/user/shared"})
+	}}, true, "user-kit", "/user/kit", "", nil, []string{"/user/shared"})
 
 	if !settings.Enabled || settings.Kit.Name != "user-kit" || settings.Kit.Path != "/user/kit" {
 		t.Fatalf("sandbox settings = %+v, want inherited enabled state and kit", settings)

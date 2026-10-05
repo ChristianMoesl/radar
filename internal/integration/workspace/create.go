@@ -9,6 +9,7 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/integration/obsidian"
+	sbxsettings "radar/internal/integration/sbx/settings"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/pi"
@@ -120,7 +121,10 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 			return fail(err)
 		}
 	}
-	sandbox := workspaceSandboxConfig(repoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.SandboxEnvFile, options.AdditionalSandboxMounts)
+	sandbox := workspaceSandboxConfig(repoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.SandboxEnvFile, options.SandboxReadyCommand, options.AdditionalSandboxMounts)
+	if err := sbxsettings.ValidateReadyCommand(sandbox.ReadyCommand); err != nil {
+		return fail(err)
+	}
 	if err := validateSandboxDependencies(runner, sandbox.Enabled); err != nil {
 		return fail(err)
 	}
@@ -160,7 +164,7 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 		desired.Note = &note
 	}
 	if sandbox.Enabled {
-		initial.Sandbox = &workspacegroup.Sandbox{Name: SandboxName(repoName, name), Agent: sandbox.Kit.Name, KitPath: ExpandPath(sandbox.Kit.Path), EnvFile: sandbox.EnvFile, AdditionalMounts: []workspacegroup.SandboxMount{}, Ports: []workspacegroup.SandboxPort{}}
+		initial.Sandbox = &workspacegroup.Sandbox{Name: SandboxName(repoName, name), Agent: sandbox.Kit.Name, KitPath: ExpandPath(sandbox.Kit.Path), EnvFile: sandbox.EnvFile, ReadyCommand: append([]string(nil), sandbox.ReadyCommand...), AdditionalMounts: []workspacegroup.SandboxMount{}, Ports: []workspacegroup.SandboxPort{}}
 		desired.Sandbox = &DesiredWorkspaceSandbox{AdditionalMounts: []DesiredSandboxMount{}, Ports: []workspacegroup.SandboxPort{}}
 	}
 	revision, err := workspaceRevision(initial, nil)
@@ -230,6 +234,9 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) 
 		return created, fmt.Errorf("workspace %s was partially created; inspect it before retrying: %w", created.Path, err)
 	}
 	if !result.OK {
+		if result.readinessErr != nil {
+			return created, fmt.Errorf("workspace %s needs reconciliation: %w", created.Path, result.readinessErr)
+		}
 		return created, fmt.Errorf("workspace %s needs reconciliation: %s", created.Path, result.Error)
 	}
 	if options.Switch {

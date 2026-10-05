@@ -11,5 +11,13 @@ sandbox:
   image: docker.io/christianmoesl/radar-sandbox:latest
   entrypoint: [bash]
 
+setup:
+  startup:
+    # Keep a failed runtime accessible; optional readiness gates dependent work.
+    - command: [sh, -c, "sandbox-startup run || true"]
+      user: "1000"
+      background: false
+      description: Run configured host-mounted startup scripts
+
 # No host credentials, extra mounts, port exposure or network-policy overrides.
 # The shell-docker base requests the private daemon inside SBX's microVM.

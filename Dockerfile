@@ -27,6 +27,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=go /usr/local/go /usr/local/go
+# Only the generic runner is copied; host startup scripts remain runtime mounts.
+COPY --chmod=0755 sandbox/startup.py /usr/local/bin/sandbox-startup
 
 RUN set -eux; \
     case "$TARGETARCH" in \

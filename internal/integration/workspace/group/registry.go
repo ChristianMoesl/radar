@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	sbxsettings "radar/internal/integration/sbx/settings"
 	sessionlayout "radar/internal/integration/tmux/layout"
 )
 
@@ -48,6 +49,7 @@ type Sandbox struct {
 	Agent            string         `json:"agent"`
 	KitPath          string         `json:"kit_path,omitempty"`
 	EnvFile          string         `json:"env_file,omitempty"`
+	ReadyCommand     []string       `json:"ready_command,omitempty"`
 	Mounts           []string       `json:"mounts"`
 	AdditionalMounts []SandboxMount `json:"additional_mounts"`
 	Ports            []SandboxPort  `json:"ports"`
@@ -416,6 +418,9 @@ func normalizeAndValidate(registry *Registry) error {
 			memberIdentities[identity] = true
 		}
 		if workspace.Sandbox != nil {
+			if err := sbxsettings.ValidateReadyCommand(workspace.Sandbox.ReadyCommand); err != nil {
+				return err
+			}
 			if err := ValidateSharedDirectory(workspace.Path, workspace.Sandbox.SharedDirectory); err != nil {
 				return err
 			}

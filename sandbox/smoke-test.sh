@@ -6,12 +6,15 @@ test "$(id -un)" = agent
 test "$(id -u)" != 0
 
 for tool in bash sh node npm pnpm corepack fnm go gcc g++ make pkg-config python3 \
-    git ssh curl gh jq rg fd file unzip zip rsync less ps \
+    git ssh curl gh jq rg fd file unzip zip rsync less ps sandbox-startup \
     cat mkdir base64 sed grep find head tail stat sort xargs \
     docker dockerd containerd; do
     command -v "$tool"
 done
 test -s /etc/ssl/certs/ca-certificates.crt
+# No startup directory is a no-op, including ordinary images without a kit.
+sandbox-startup run
+sandbox-startup wait --timeout 1
 docker compose version
 docker buildx version
 

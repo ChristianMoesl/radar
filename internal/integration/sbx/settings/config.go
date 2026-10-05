@@ -1,6 +1,9 @@
 package settings
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 const DefaultKitName = "docker.io/christianmoesl/radar-kit:latest"
 
@@ -9,6 +12,7 @@ type Config struct {
 	Kit              KitConfig `json:"kit"`
 	AdditionalMounts []string  `json:"additional_mounts"`
 	EnvFile          string    `json:"env_file,omitempty"`
+	ReadyCommand     []string  `json:"ready_command,omitempty"`
 }
 
 type KitConfig struct {
@@ -33,4 +37,21 @@ func (c Config) WorkspaceEnabled(goos string, lookPath func(string) error) bool 
 		return *c.Enabled
 	}
 	return goos == "darwin" && lookPath("sbx") == nil
+}
+
+// ValidateReadyCommand checks argv structure only. The executable belongs to the
+// sandbox, not the host, and arguments are never trimmed or shell-evaluated.
+func ValidateReadyCommand(argv []string) error {
+	if len(argv) == 0 {
+		return nil
+	}
+	if strings.TrimSpace(argv[0]) == "" {
+		return fmt.Errorf("sbx.ready_command requires a nonempty executable")
+	}
+	for _, arg := range argv {
+		if strings.ContainsRune(arg, '\x00') {
+			return fmt.Errorf("sbx.ready_command must not contain NUL bytes")
+		}
+	}
+	return nil
 }

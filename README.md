@@ -250,7 +250,8 @@ On macOS, installed SBX is enabled for new workspaces by default. Configure addi
 {
   "sbx": {
     "additional_mounts": ["~/shared-tools", "/opt/company-config"],
-    "env_file": "~/.config/sbx/sandbox.env"
+    "env_file": "~/.config/sbx/sandbox.env",
+    "ready_command": ["sandbox-startup", "wait"]
   }
 }
 ```
@@ -284,11 +285,31 @@ Mount that directory separately with the existing sandbox mount controls. On
 macOS, SBX retains its host absolute path; use that sandbox-visible path in the
 environment file, not a host-shell expression such as `$HOME`. A trusted startup
 directory should be mounted read-only using the workspace's requested-mount
-controls. Passing `SBX_STARTUP_DIR` does **not** execute scripts: the selected
-image/kit must provide its own startup runner, including support for commands
-launched through `sbx exec`. Radar has no special handling for this variable or
-Git identities. Keep machine-specific environment files outside version control;
-do not put private keys in them.
+controls. The development image provides `sandbox-startup`, and its kit runs
+`sandbox-startup run` through SBX's native startup hook. Regular executable files
+are run in filename byte order as the non-root `agent` user. The scripts stay in
+the runtime host mount, not the image. See [startup hooks](sandbox/README.md#startup-hooks)
+for the script contract and diagnostics. Radar has no special handling for
+`SBX_STARTUP_DIR` or Git identities. Keep machine-specific environment files
+outside version control; do not put private keys in them.
+
+Optional `sbx.ready_command` is an argument array executed with `sbx exec` from
+the workspace anchor before repository setup or starting/reusing the Pi/tmux
+workspace. Omit it or use `[]` for **no command and no wait**. It is not a shell
+string; use `["sh", "-c", "..."]` explicitly if a shell is needed. Radar bounds
+the check to 60 seconds, honors cancellation, and stops the launch/reconciliation
+on failure or timeout while retaining the sandbox for inspection and retry.
+Command output is withheld from Radar diagnostics to avoid exposing private data.
+Repository settings override the user command; `[]` disables inheritance. The
+selected command is recorded with the workspace, like the env-file and kit.
+
+For the development kit, use `["sandbox-startup", "wait"]` as shown above.
+SBX's startup hooks are asynchronous; this readiness command waits for the
+current VM/container boot's scripts to complete, including after stop/start,
+before Radar proceeds. Without the optional check, startup hooks may still be
+running when commands begin. It does not gate independently launched `sbx exec`
+or Pi processes: those callers must wait explicitly too. Existing registrations
+without a command remain ungated; no automatic backfill is performed.
 
 Configure workspace windows, panes, layouts, and commands in the user config:
 

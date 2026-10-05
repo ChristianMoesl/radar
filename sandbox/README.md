@@ -55,6 +55,89 @@ original kit. Recreate an existing workspace only after saving needed files and
 accepting the loss of private VM state; this change performs no automatic reset,
 configuration migration or sandbox recreation.
 
+## Startup hooks
+
+The image includes a generic `sandbox-startup` runner. The kit registers
+`sandbox-startup run` as a native SBX `setup.startup` command, running as UID 1000
+(`agent`) on sandbox starts. The native hook records failure but returns success
+to SBX so the runtime remains accessible; `sandbox-startup wait` then reports the
+failure to dependent callers. It does not replace the upstream container
+initialization, proxy environment, Bash initialization, or private Docker daemon.
+Image and kit contain no personal Git identities, startup scripts, or private keys.
+
+Provide a machine-local env-file and mount a trusted host directory separately:
+
+```dotenv
+SBX_STARTUP_DIR=/absolute/host/startup.d
+```
+
+Use the absolute path visible **inside** the sandbox; local macOS mounts retain
+the host path. The runner does not expand `$HOME` or `~` in that value. Keep the
+directory outside writable project workspaces and mount it read-only. With
+Radar, set optional `sbx.env_file` and
+`"ready_command": ["sandbox-startup", "wait"]`, and add the directory through
+the workspace's requested read-only mount controls. The env-file is not mounted
+or baked into the image.
+
+For direct SBX usage:
+
+```sh
+sbx create --name startup-dev --env-file /absolute/host/sandbox.env \
+  docker.io/christianmoesl/radar-kit:latest "$PWD" /absolute/host/startup.d:ro
+sbx exec startup-dev sandbox-startup wait
+```
+
+### Script contract
+
+- Only regular executable files directly in `SBX_STARTUP_DIR` run. Directories,
+  symlinks and non-executable files are skipped; no file extension is required.
+- Filenames use byte order (equivalent to `LC_ALL=C` sorting). Use zero-padded
+  prefixes such as `10-git-config` and `20-tools`.
+- Files execute as separate processes, using their own shebang. They are not
+  sourced; an `export` in one cannot configure later processes. Persist settings
+  in the appropriate application config instead.
+- The working directory is the startup directory. Standard input is closed;
+  hooks must not prompt. They run as the unprivileged `agent` user, not root.
+- A nonzero exit stops later hooks and records failure. Use idempotent scripts;
+  they rerun after a VM or container restart. Concurrent invocations are locked,
+  and an already successful run for the current boot is a no-op.
+- Unset/empty `SBX_STARTUP_DIR` makes both `run` and `wait` immediate no-ops. A
+  configured missing or relative directory fails initialization.
+
+A hook may configure Git's email and public signing key at runtime. Private keys
+stay in a forwarded host SSH agent. The runner is deliberately generic and
+contains no Git-specific behavior. Do not set the host's `SSH_AUTH_SOCK` inside
+Linux; SBX supplies its own forwarded socket.
+
+### Readiness and diagnostics
+
+Native SBX startup hooks are **asynchronous** and do not block arbitrary `exec`
+commands or the agent's entrypoint, even with `background: false`. Radar's optional
+`sbx.ready_command` gates its setup/Pi launch; if omitted or `[]`, Radar does not
+wait. Other clients must run `sandbox-startup wait` before dependent commands.
+
+`wait` defaults to 60 seconds; `--timeout <seconds>` can shorten the image-side
+wait. It exits 0 on success and nonzero on failure or timeout. No stale state
+from a previous VM/container boot can pass: state identifies the kernel boot ID
+and PID-1 start time. A long-running or interrupted hook may time out without
+being killed; the sandbox is retained so it can be inspected or retried.
+
+Private runtime state is under `~/.cache/sandbox-startup/` (directory mode 0700,
+files 0600). `status.json` records only boot identity, state, and, on failure,
+script filename/exit code. Hook output goes to `output.log`, which can contain
+private values and is never copied into the image or emitted by `wait`. Inspect
+it locally only when needed. Radar suppresses readiness command diagnostics.
+After fixing a failed hook, run `sbx exec <name> sandbox-startup run`, then wait
+again; that retries a failed run. Successfully completed hooks rerun only after
+a restart, not merely because their host files change. Do not publish snapshots
+of a provisioned sandbox containing personal runtime state.
+
+The generic runner is available in the image, but a direct image launch without
+the kit must invoke `sandbox-startup run` explicitly. Updating the image/kit does
+not modify existing sandboxes or recorded Radar readiness settings automatically.
+New workspace creation is the normal adoption path; save private VM state before
+any explicit recreation.
+
 ## Toolchain
 
 The exact versions and upstream image digests live in [`../Dockerfile`](../Dockerfile):
@@ -118,6 +201,10 @@ docker run --rm --network none -i radar-sandbox:test bash -s < sandbox/smoke-tes
 sbx kit validate sandbox/kit
 ```
 
+`python3 -B sandbox/test_startup.py` runs offline startup-runner tests, also
+included in `go test ./scripts`. They cover ordering, ignored files, failures,
+concurrent runs, timeout and stale readiness after VM/container restarts.
+
 The smoke test runs as `agent`, checks utility availability and shell startup,
 uses fnm and offline pnpm, compiles C/C++, exercises Go/cgo and loads a native
 Node addon. It also checks file discovery, search and PNG MIME detection used
@@ -131,8 +218,10 @@ bash scripts/test-sandbox-runtime.sh radar-sandbox:test
 ```
 
 This loads the image into SBX's separate image store, creates a sandbox from a
-copy of the kit, reruns the smoke test, and launches `hello-world` using the
-sandbox's automatically started Docker daemon. It removes only its temporary
+copy of the kit with an env-file and read-only fixture hooks, checks readiness
+before direct Node execution and again after stop/start, reruns the smoke test,
+and launches `hello-world` using the sandbox's automatically started Docker
+daemon. It also checks failed startup cannot reuse the preceding boot's success. It removes only its temporary
 sandbox and files. It does not reset other sandboxes or alter network policy.
 
 ## Publishing and updates

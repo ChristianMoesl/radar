@@ -54,7 +54,7 @@ func TestRepoSandboxEnvFileInheritance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			settings := workspaceSandboxConfig(cfg, true, "shell", "", "/user/env", nil)
+			settings := workspaceSandboxConfig(cfg, true, "shell", "", "/user/env", nil, nil)
 			if settings.EnvFile != test.want {
 				t.Fatalf("env-file = %q, want %q", settings.EnvFile, test.want)
 			}

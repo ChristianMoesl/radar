@@ -12,6 +12,7 @@ import (
 	"time"
 
 	sbxclient "radar/internal/integration/sbx/client"
+	sbxsettings "radar/internal/integration/sbx/settings"
 	"radar/internal/integration/workspace/group"
 )
 
@@ -260,6 +261,9 @@ func reconcileSandbox(ctx context.Context, runner Runner, group workspacegroup.W
 
 func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group workspacegroup.Workspace, logger *slog.Logger, policy sandboxReconcilePolicy) error {
 	sandbox := group.Sandbox
+	if err := sbxsettings.ValidateReadyCommand(sandbox.ReadyCommand); err != nil {
+		return err
+	}
 	if sandbox.EnvFile == "" {
 		if err := ensureSharedDirectory(group); err != nil {
 			return err
@@ -271,9 +275,11 @@ func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group worksp
 	}
 	if found && sameMountSet(sandbox.Mounts, sandboxWorkspaceMounts(actual)) {
 		if sandbox.EnvFile != "" {
-			return ensureSharedDirectory(group)
+			if err := ensureSharedDirectory(group); err != nil {
+				return err
+			}
 		}
-		return nil
+		return waitForSandboxReady(ctx, runner, group.Path, sandbox)
 	}
 	if err := validateSandboxEnvFile(sandbox.EnvFile); err != nil {
 		return err
@@ -305,7 +311,8 @@ func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group worksp
 				"max_attempts", attempts, "effective_mount_count", len(sandbox.Mounts))
 		}
 		if _, runErr := sbxclient.New(runner).Run(ctx, group.Path, args...); runErr == nil {
-			return nil
+			// Readiness is not a create failure: never remove or recreate this runtime.
+			return waitForSandboxReady(ctx, runner, group.Path, sandbox)
 		} else {
 			providerErr := sbxCommandError(runErr)
 			retryable := retryableSandboxCreateError(providerErr)

@@ -17,6 +17,7 @@ import (
 	"radar/internal/integration"
 	obsidiansettings "radar/internal/integration/obsidian/settings"
 	sbxclient "radar/internal/integration/sbx/client"
+	sbxsettings "radar/internal/integration/sbx/settings"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
 )
@@ -112,6 +113,10 @@ type ReconcileWorkspaceResult struct {
 	Plan              *ReconcileWorkspacePlan `json:"plan,omitempty"`
 	Warning           string                  `json:"warning,omitempty"`
 	Error             string                  `json:"error,omitempty"`
+
+	// Retain safe readiness causes for in-process creation callers. The public
+	// reconciliation result intentionally reports retryable failures as data.
+	readinessErr error
 }
 
 type ReconcileWorkspaceError struct {
@@ -182,6 +187,7 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 	candidate := group
 	if group.Sandbox != nil {
 		sandbox := *group.Sandbox
+		sandbox.ReadyCommand = append([]string(nil), group.Sandbox.ReadyCommand...)
 		candidate.Sandbox = &sandbox
 	}
 	noteAdded := false
@@ -515,6 +521,11 @@ func applyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 
 func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger, request ReconcileWorkspaceRequest, plan ReconcileWorkspacePlan) (ReconcileWorkspaceResult, error) {
 	result := ReconcileWorkspaceResult{WorkspaceID: plan.WorkspaceID}
+	if plan.group.Sandbox != nil {
+		if err := sbxsettings.ValidateReadyCommand(plan.group.Sandbox.ReadyCommand); err != nil {
+			return result, err
+		}
+	}
 	if logger != nil {
 		logger.Info("workspace reconciliation started",
 			"workspace_id", plan.WorkspaceID, "workspace_name", plan.WorkspaceName,
@@ -594,6 +605,10 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 		if _, _, err := startWorkspaceRuntime(ctx, runner, plan.group, plan.forkSession); err != nil {
 			result.Retryable = true
 			result.Error = err.Error()
+			if isSandboxReadinessError(err) {
+				result.readinessErr = err
+			}
+			logRetryableReconciliationFailure(logger, plan, sandboxRuntimeFailurePhase(err), result, err)
 			return result, nil
 		}
 	}
@@ -602,7 +617,10 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 			if err := reconcileSandbox(ctx, runner, plan.group, logger); err != nil {
 				result.Retryable = true
 				result.Error = err.Error()
-				logRetryableReconciliationFailure(logger, plan, "sandbox", result, err)
+				if isSandboxReadinessError(err) {
+					result.readinessErr = err
+				}
+				logRetryableReconciliationFailure(logger, plan, sandboxRuntimeFailurePhase(err), result, err)
 				return result, nil
 			}
 		}
@@ -636,9 +654,15 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 	}
 
 	if plan.startSession && !plan.create {
-		if _, _, err := startWorkspaceRuntime(ctx, runner, plan.group, ""); err != nil {
+		// Sandbox reconciliation has already gated this runtime. Do not execute
+		// the same optional readiness command twice before launching tmux.
+		if _, _, err := startWorkspaceRuntimeWithReadiness(ctx, runner, plan.group, "", true); err != nil {
 			result.Retryable = true
 			result.Error = err.Error()
+			if isSandboxReadinessError(err) {
+				result.readinessErr = err
+			}
+			logRetryableReconciliationFailure(logger, plan, sandboxRuntimeFailurePhase(err), result, err)
 			return result, nil
 		}
 	}
@@ -869,6 +893,7 @@ func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.Sa
 		Agent            string                        `json:"agent"`
 		KitPath          string                        `json:"kit_path"`
 		EnvFile          string                        `json:"env_file,omitempty"`
+		ReadyCommand     []string                      `json:"ready_command,omitempty"`
 		AdditionalMounts []workspacegroup.SandboxMount `json:"additional_mounts"`
 		Ports            []workspacegroup.SandboxPort  `json:"ports"`
 	}
@@ -901,7 +926,7 @@ func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.Sa
 		if err != nil {
 			return "", err
 		}
-		state.Sandbox = &revisionSandbox{SharedDirectory: group.Sandbox.SharedDirectory, Name: group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath, EnvFile: group.Sandbox.EnvFile, AdditionalMounts: normalizedMounts, Ports: normalizedPorts}
+		state.Sandbox = &revisionSandbox{SharedDirectory: group.Sandbox.SharedDirectory, Name: group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath, EnvFile: group.Sandbox.EnvFile, ReadyCommand: group.Sandbox.ReadyCommand, AdditionalMounts: normalizedMounts, Ports: normalizedPorts}
 	}
 	data, err := json.Marshal(state)
 	if err != nil {

@@ -129,6 +129,7 @@ type CreateOptions struct {
 	SandboxKitName          string
 	SandboxKitPath          string
 	SandboxEnvFile          string
+	SandboxReadyCommand     []string
 	AdditionalSandboxMounts []string
 	Tmux                    sessionlayout.Config
 	Switch                  bool
@@ -160,6 +161,7 @@ type CreateSessionOptions struct {
 	SandboxKitName          string
 	SandboxKitPath          string
 	SandboxEnvFile          string
+	SandboxReadyCommand     []string
 	AdditionalSandboxMounts []string
 	SandboxName             string
 	Tmux                    sessionlayout.Config
@@ -176,7 +178,9 @@ func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string,
 	}
 	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, "")
 	if err != nil {
-		rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
+		if !isSandboxReadinessError(err) {
+			rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
+		}
 		return Workspace{}, err
 	}
 	if switchClient {
@@ -207,7 +211,9 @@ func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, gr
 	}
 	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, options.ForkPiSession)
 	if err != nil {
-		rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
+		if !isSandboxReadinessError(err) {
+			rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
+		}
 		return Workspace{}, err
 	}
 	if options.Switch {
@@ -219,7 +225,16 @@ func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, gr
 }
 
 func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string) (bool, bool, error) {
+	return startWorkspaceRuntimeWithReadiness(ctx, runner, group, forkSession, false)
+}
+
+// Reconciliation may already have checked this runtime before scheduling setup.
+// A runtime newly recovered here still needs its own readiness check.
+func startWorkspaceRuntimeWithReadiness(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string, readinessChecked bool) (bool, bool, error) {
 	if group.Sandbox != nil {
+		if err := sbxsettings.ValidateReadyCommand(group.Sandbox.ReadyCommand); err != nil {
+			return false, false, err
+		}
 		if err := sbxclient.New(runner).RequireManaged(); err != nil {
 			return false, false, err
 		}
@@ -269,6 +284,11 @@ func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegr
 			return false, false, err
 		}
 		createdSandbox = true
+	}
+	if !readinessChecked || createdSandbox {
+		if err := waitForSandboxReady(ctx, runner, group.Path, group.Sandbox); err != nil {
+			return false, createdSandbox, err
+		}
 	}
 	if sessionErr == nil {
 		return false, createdSandbox, nil
@@ -456,12 +476,14 @@ type sandboxSettings struct {
 	Kit              SandboxKitConfig
 	AdditionalMounts []string
 	EnvFile          string
+	ReadyCommand     []string
 }
 
-func workspaceSandboxConfig(repoConfig RepoConfig, enabled bool, kitName string, kitPath string, envFile string, additionalMounts []string) sandboxSettings {
+func workspaceSandboxConfig(repoConfig RepoConfig, enabled bool, kitName string, kitPath string, envFile string, readyCommand []string, additionalMounts []string) sandboxSettings {
 	settings := sandboxSettings{
-		Enabled: enabled,
-		EnvFile: envFile,
+		Enabled:      enabled,
+		EnvFile:      envFile,
+		ReadyCommand: append([]string(nil), readyCommand...),
 		Kit: SandboxKitConfig{
 			Name: strings.TrimSpace(kitName),
 			Path: strings.TrimSpace(kitPath),
@@ -485,6 +507,9 @@ func workspaceSandboxConfig(repoConfig RepoConfig, enabled bool, kitName string,
 	}
 	if repoConfig.SBX.EnvFile != nil {
 		settings.EnvFile = *repoConfig.SBX.EnvFile
+	}
+	if repoConfig.SBX.ReadyCommand != nil {
+		settings.ReadyCommand = append([]string(nil), (*repoConfig.SBX.ReadyCommand)...)
 	}
 	settings.AdditionalMounts = append(settings.AdditionalMounts, repoConfig.SBX.AdditionalMounts...)
 	return settings
@@ -571,7 +596,10 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 	if err := sessionlayout.Validate(options.Tmux); err != nil {
 		return Workspace{}, err
 	}
-	sandbox := workspaceSandboxConfig(repoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.SandboxEnvFile, options.AdditionalSandboxMounts)
+	sandbox := workspaceSandboxConfig(repoConfig, options.Sandbox, options.SandboxKitName, options.SandboxKitPath, options.SandboxEnvFile, options.SandboxReadyCommand, options.AdditionalSandboxMounts)
+	if err := sbxsettings.ValidateReadyCommand(sandbox.ReadyCommand); err != nil {
+		return Workspace{}, err
+	}
 	sandboxName := strings.TrimSpace(options.SandboxName)
 	if sandboxName != "" {
 		sandbox.Enabled = true
@@ -586,10 +614,28 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 	if sandbox.Enabled && sandboxName == "" {
 		sandboxName = SandboxName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
 	}
-	if _, err := runner.Run(ctx, "", "tmux", "has-session", "-t", sessionName); err != nil {
+	_, sessionErr := runner.Run(ctx, "", "tmux", "has-session", "-t", sessionName)
+	if sessionErr != nil {
 		if err := validateSessionDependencies(runner, options.Tmux); err != nil {
 			return Workspace{}, err
 		}
+	}
+	createdSandbox := false
+	if sandbox.Enabled && (sessionErr != nil || len(sandbox.ReadyCommand) > 0) {
+		if exists, err := sandboxExists(ctx, runner, sandboxName); err != nil {
+			return Workspace{}, err
+		} else if !exists {
+			if _, err := startSandbox(ctx, runner, path, sandboxName, sandbox.Kit, sandbox.EnvFile, sandbox.AdditionalMounts); err != nil {
+				return Workspace{}, err
+			}
+			createdSandbox = true
+		}
+		if err := waitForSandboxReady(ctx, runner, path, &workspacegroup.Sandbox{Name: sandboxName, ReadyCommand: sandbox.ReadyCommand}); err != nil {
+			// A provisioned runtime remains available for inspection and retry.
+			return Workspace{}, err
+		}
+	}
+	if sessionErr != nil {
 		model := options.Model
 		if strings.TrimSpace(repoConfig.Model) != "" {
 			model = repoConfig.Model
@@ -600,17 +646,6 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 		}
 		piSessionID := taskPiSessionID(sessionName, options.TaskLinkingKey)
 		piArgsText := piArgsWithPrompt(piSessionID, sessionName, model, thinking, "", options.InitialPrompt)
-		createdSandbox := false
-		if sandbox.Enabled {
-			if exists, err := sandboxExists(ctx, runner, sandboxName); err != nil {
-				return Workspace{}, err
-			} else if !exists {
-				if _, err := startSandbox(ctx, runner, path, sandboxName, sandbox.Kit, sandbox.EnvFile, sandbox.AdditionalMounts); err != nil {
-					return Workspace{}, err
-				}
-				createdSandbox = true
-			}
-		}
 		if err := createTmuxWorkspace(ctx, runner, "", path, sessionName, options.Tmux, piArgsText, options.Environment); err != nil {
 			if createdSandbox {
 				_, _ = stopSandbox(ctx, runner, path, sandboxName)

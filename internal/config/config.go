@@ -153,6 +153,9 @@ func applyDefaults(cfg *Config) {
 }
 
 func validate(cfg Config) error {
+	if err := sbxsettings.ValidateReadyCommand(cfg.SBX.ReadyCommand); err != nil {
+		return err
+	}
 	if err := cfg.Workspace.Cleanup.validate(); err != nil {
 		return err
 	}

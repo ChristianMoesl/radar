@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	sbxsettings "radar/internal/integration/sbx/settings"
 	"radar/internal/pi"
 )
 
@@ -20,6 +21,7 @@ type RepoConfig struct {
 
 type SandboxConfig struct {
 	Enabled          *bool             `json:"enabled,omitempty"`
+	ReadyCommand     *[]string         `json:"ready_command,omitempty"`
 	EnvFile          *string           `json:"env_file,omitempty"`
 	Kit              *SandboxKitConfig `json:"kit,omitempty"`
 	AdditionalMounts []string          `json:"additional_mounts,omitempty"`
@@ -50,6 +52,11 @@ func loadRepoConfig(repo string) (RepoConfig, error) {
 }
 
 func validateRepoConfig(cfg RepoConfig) error {
+	if cfg.SBX != nil && cfg.SBX.ReadyCommand != nil {
+		if err := sbxsettings.ValidateReadyCommand(*cfg.SBX.ReadyCommand); err != nil {
+			return err
+		}
+	}
 	for _, path := range cfg.CopyFiles {
 		if err := validateRelativeFilePath(path); err != nil {
 			return fmt.Errorf("copy_files contains invalid path %q: %w", path, err)

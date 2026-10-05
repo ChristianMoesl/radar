@@ -8,7 +8,7 @@ SBX supplies local Docker sandbox resources and shell actions.
 
 ## Configuration and authentication
 
-`sbx.enabled`, `sbx.kit`, `sbx.additional_mounts`, and optional `sbx.env_file` configure managed runtimes. Repository-local settings use the same shape. Omitted `enabled` automatically enables new workspaces on macOS when `sbx` is on PATH. Explicit repository `enabled` overrides explicit global `enabled`; otherwise automatic detection applies. Explicit enablement with missing tools or unsupported platforms fails before provisioning; runtime/authentication failures never fall back to the host. On dashboard startup, Radar detects reported SBX authentication failures and runs the provider-owned login flow before opening the TUI. `radar create`, `radar fork`, and CLI cleanup of sandbox targets also check authentication before proceeding. The check is bounded and only authentication failures trigger login; missing tools, healthy sessions, and unrelated runtime failures do not. Successful startup login refreshes local sources. Background collection never prompts. You can also sign in manually with `sbx login`.
+`sbx.enabled`, `sbx.kit`, `sbx.additional_mounts`, optional `sbx.env_file`, and optional `sbx.ready_command` configure managed runtimes. Repository-local settings use the same shape. Omitted `enabled` automatically enables new workspaces on macOS when `sbx` is on PATH. Explicit repository `enabled` overrides explicit global `enabled`; otherwise automatic detection applies. Explicit enablement with missing tools or unsupported platforms fails before provisioning; runtime/authentication failures never fall back to the host. On dashboard startup, Radar detects reported SBX authentication failures and runs the provider-owned login flow before opening the TUI. `radar create`, `radar fork`, and CLI cleanup of sandbox targets also check authentication before proceeding. The check is bounded and only authentication failures trigger login; missing tools, healthy sessions, and unrelated runtime failures do not. Successful startup login refreshes local sources. Background collection never prompts. You can also sign in manually with `sbx login`.
 
 ### Environment files
 
@@ -56,10 +56,54 @@ SBX_STARTUP_DIR=/absolute/host/startup.d
 The directory must be mounted separately, preferably as a read-only requested
 workspace mount. On macOS, mounts retain their host absolute paths, so the value
 must name the sandbox-visible path. Radar does not expand expressions inside
-the file. The selected image/kit still needs a startup runner before scripts
-will execute, including for `sbx exec`; this feature adds no runner or Git-specific
-provisioning. Keep machine-specific files untracked and private keys in the
-host's signing agent.
+the file. The development image includes the generic `sandbox-startup` runner;
+the kit registers it through SBX's native `setup.startup` hook. Other images
+must provide their own initialization. Keep machine-specific files untracked
+and private keys in the host's signing agent.
+
+### Optional readiness command
+
+The default is no readiness command: **Radar performs no check and does not wait**.
+To gate a workspace using the development kit's startup scripts:
+
+```json
+{
+  "sbx": {
+    "env_file": "~/.config/sbx/sandbox.env",
+    "ready_command": ["sandbox-startup", "wait"]
+  }
+}
+```
+
+The command is an argv array, not shell text. Radar runs it with
+`sbx exec --workdir <anchor> <sandbox> <argv...>` before repository setup and
+before starting or reusing the Pi/tmux workspace. The check also runs after
+recreation, missing-runtime recovery, and reopening an existing runtime;
+`sbx exec` starts a stopped sandbox first. Success continues, failure stops the
+launch, and timeout/cancellation is reported. The bound is 60 seconds and the
+parent context can cancel earlier. Raw command output and provider errors are
+withheld to avoid logging private values. A readiness failure is not a create
+failure: the existing sandbox is retained for inspection/retry, and repository
+setup is not marked scheduled.
+
+Repository `ready_command` overrides the user value; an explicit `[]` disables
+an inherited command. Omission inherits it. The selected argv is recorded as
+`sandbox.ready_command`, participates in the workspace revision, and survives
+recovery/recreation independently of later user configuration. Existing
+version-2 registrations without this optional field remain unchanged. Restart
+the Radar daemon after upgrading before creating records with the new field.
+
+The image's [startup hook contract](../../sandbox/README.md#startup-hooks)
+executes regular executable files in byte-sorted filename order as UID 1000,
+with no shell sourcing. Readiness is atomically recorded for the current VM
+boot ID and PID-1 start time, not merely a persistent `ready` file. Script
+failure stops later scripts; output stays in private sandbox-local state.
+An unset `SBX_STARTUP_DIR` is an immediate no-op.
+
+SBX native startup commands do not gate the agent's entrypoint, regardless of
+`background: false`. Radar's optional command supplies that ordering only for
+Radar-managed operations. Manual `sbx exec` and independently started Pi
+sessions must run `sandbox-startup wait` themselves when they need readiness.
 
 ## Windows / WSL2
 

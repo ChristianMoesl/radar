@@ -64,7 +64,7 @@ func (s Source) createOptions(req integration.ManagedWorkspaceRequest) (CreateOp
 		Repo: req.Repo, BranchMode: req.BranchMode, Name: req.Name, Branch: req.Branch,
 		Base: req.Base, Path: req.Path, SessionName: req.SessionName, WorkspaceRoot: req.WorkspaceRoot,
 		Model: cfg.Model, Thinking: cfg.Thinking, Sandbox: cfg.SBX.WorkspaceEnabled(workspaceGOOS, ExecRunner{}.LookPath),
-		SandboxKitName: cfg.SBX.Kit.Name, SandboxKitPath: cfg.SBX.Kit.Path, SandboxEnvFile: cfg.SBX.EnvFile,
+		SandboxKitName: cfg.SBX.Kit.Name, SandboxKitPath: cfg.SBX.Kit.Path, SandboxEnvFile: cfg.SBX.EnvFile, SandboxReadyCommand: append([]string(nil), cfg.SBX.ReadyCommand...),
 		AdditionalSandboxMounts: cfg.SBX.AdditionalMounts, Tmux: cfg.Tmux,
 		Switch: req.Switch, ForkPiSession: req.ForkPiSession,
 		TaskLinkingKey: req.TaskLinkingKey, NotePath: req.NotePath,
@@ -98,7 +98,7 @@ func (Source) CreateSession(ctx context.Context, req integration.CreateSessionRe
 	created, err := CreateSessionWithOptions(ctx, ExecRunner{}, CreateSessionOptions{
 		Path: req.Path, SessionName: req.SessionName, TaskLinkingKey: req.TaskLinkingKey,
 		Model: cfg.Model, Thinking: cfg.Thinking, Sandbox: cfg.SBX.WorkspaceEnabled(workspaceGOOS, ExecRunner{}.LookPath),
-		SandboxKitName: cfg.SBX.Kit.Name, SandboxKitPath: cfg.SBX.Kit.Path, SandboxEnvFile: cfg.SBX.EnvFile,
+		SandboxKitName: cfg.SBX.Kit.Name, SandboxKitPath: cfg.SBX.Kit.Path, SandboxEnvFile: cfg.SBX.EnvFile, SandboxReadyCommand: append([]string(nil), cfg.SBX.ReadyCommand...),
 		AdditionalSandboxMounts: cfg.SBX.AdditionalMounts, SandboxName: req.RuntimeResourceID,
 		Tmux: cfg.Tmux, Switch: req.Switch,
 	})
