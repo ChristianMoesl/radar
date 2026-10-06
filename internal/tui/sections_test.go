@@ -20,8 +20,8 @@ import (
 func sectionFixture() model {
 	return model{selectedCurrentTask: true, tasks: []protocol.Task{
 		{ID: 1, Title: "Active work", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "jira:issue:ABC-123"}}},
-		{ID: 2, Title: "Ignored work", Attention: "immediate", Ignored: true, SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:7"}}},
-		{ID: 3, Title: "Completed work", Attention: "done", Ignored: true, DoneAt: "2026-01-02T10:00:00Z", SourceRefs: []protocol.SourceRef{{ID: "jira:issue:ABC-456"}}},
+		{ID: 2, Title: "Muted work", Attention: "immediate", Muted: true, SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:7"}}},
+		{ID: 3, Title: "Completed work", Attention: "done", Muted: true, DoneAt: "2026-01-02T10:00:00Z", SourceRefs: []protocol.SourceRef{{ID: "jira:issue:ABC-456"}}},
 		{ID: 4, Title: "Older completed work", Attention: "done", DoneAt: "2026-01-01T10:00:00Z"},
 	}}
 }
@@ -60,24 +60,24 @@ func assertVisibleSelection(t *testing.T, m model) {
 
 func TestHistorySectionsStartCollapsedAndUseEffectiveGroups(t *testing.T) {
 	m := sectionFixture()
-	want := []visibleEntry{{task: 0}, {section: "ignored"}, {section: "done"}}
+	want := []visibleEntry{{task: 0}, {section: "muted"}, {section: "done"}}
 	if got := m.overviewLayout().entries; !slices.Equal(got, want) {
 		t.Fatalf("entries = %+v, want %+v", got, want)
 	}
 	lines, _, _ := m.taskLines(100)
 	view := ansi.Strip(strings.Join(lines, "\n"))
-	for _, label := range []string{"Active work", "▸ Ignored (1)", "▸ Done (2) · last 3 days"} {
+	for _, label := range []string{"Active work", "▸ Muted (1)", "▸ Done (2) · last 3 days"} {
 		if !strings.Contains(view, label) {
 			t.Fatalf("missing %q:\n%s", label, view)
 		}
 	}
-	for _, hidden := range []string{"Ignored work", "Completed work", "Older completed work", "Need immediate attention", "acme/app:7", "ABC-456"} {
+	for _, hidden := range []string{"Muted work", "Completed work", "Older completed work", "Need immediate attention", "acme/app:7", "ABC-456"} {
 		if strings.Contains(view, hidden) {
-			t.Fatalf("collapsed/ignored content %q leaked into overview:\n%s", hidden, view)
+			t.Fatalf("collapsed/muted content %q leaked into overview:\n%s", hidden, view)
 		}
 	}
 	positions, count := m.taskRowPositions()
-	if len(lines) != 7 || count != len(lines) || len(positions) != 3 || positions[visibleEntry{section: "ignored"}] != 4 || positions[visibleEntry{section: "done"}] != 6 {
+	if len(lines) != 7 || count != len(lines) || len(positions) != 3 || positions[visibleEntry{section: "muted"}] != 4 || positions[visibleEntry{section: "done"}] != 6 {
 		t.Fatalf("collapsed layout: rows=%d, count=%d, positions=%v", len(lines), count, positions)
 	}
 	if m.tasks[1].Attention != "immediate" || m.tasks[2].Attention != "done" {
@@ -91,12 +91,12 @@ func TestHeadersNavigateAndToggleIndependently(t *testing.T) {
 			t.Run(down+"/"+up, func(t *testing.T) {
 				m := sectionFixture()
 				m = pressSectionKey(t, m, down)
-				if m.selectedSection != "ignored" {
-					t.Fatal("Ignored header was not selectable")
+				if m.selectedSection != "muted" {
+					t.Fatal("Muted header was not selectable")
 				}
 				m = pressSectionKey(t, m, "enter")
-				if m.selectedSection != "ignored" || !m.sectionExpanded("ignored") || m.sectionExpanded("done") {
-					t.Fatal("Enter did not expand only Ignored while retaining its selection")
+				if m.selectedSection != "muted" || !m.sectionExpanded("muted") || m.sectionExpanded("done") {
+					t.Fatal("Enter did not expand only Muted while retaining its selection")
 				}
 				m = pressSectionKey(t, m, down)
 				if task, ok := m.selectedTask(); !ok || task.ID != 2 {
@@ -105,11 +105,11 @@ func TestHeadersNavigateAndToggleIndependently(t *testing.T) {
 				m = pressSectionKey(t, m, up)
 				m = pressSectionKey(t, m, "enter")
 				m = pressSectionKey(t, m, down)
-				if m.selectedSection != "done" || m.sectionExpanded("ignored") {
+				if m.selectedSection != "done" || m.sectionExpanded("muted") {
 					t.Fatal("collapse left a child in the selectable order")
 				}
 				m = pressSectionKey(t, m, "enter")
-				if m.selectedSection != "done" || !m.sectionExpanded("done") || m.sectionExpanded("ignored") {
+				if m.selectedSection != "done" || !m.sectionExpanded("done") || m.sectionExpanded("muted") {
 					t.Fatal("Done did not expand independently")
 				}
 				m = pressSectionKey(t, m, down)
@@ -131,34 +131,34 @@ func TestHeadersNavigateAndToggleIndependently(t *testing.T) {
 
 func TestEmptySectionsHideButRetainSessionExpansion(t *testing.T) {
 	m := sectionFixture()
-	m.selectEntry(visibleEntry{section: "ignored"})
+	m.selectEntry(visibleEntry{section: "muted"})
 	m = pressSectionKey(t, m, "enter")
 	m.selectEntry(visibleEntry{section: "done"})
 	m = pressSectionKey(t, m, "enter")
 	original := slices.Clone(m.tasks)
 	for _, tasks := range [][]protocol.Task{original[:1], {}} {
 		m.applyResponse(protocol.Response{Tasks: tasks}, false)
-		if strings.Contains(ansi.Strip(m.taskList(100, 100)), "Ignored") || strings.Contains(ansi.Strip(m.taskList(100, 100)), "Done") {
+		if strings.Contains(ansi.Strip(m.taskList(100, 100)), "Muted") || strings.Contains(ansi.Strip(m.taskList(100, 100)), "Done") {
 			t.Fatal("empty history sections are visible")
 		}
-		if !m.sectionExpanded("ignored") || !m.sectionExpanded("done") {
+		if !m.sectionExpanded("muted") || !m.sectionExpanded("done") {
 			t.Fatal("temporary emptiness reset session expansion")
 		}
 		assertVisibleSelection(t, m)
 	}
 	m.applyResponse(protocol.Response{Tasks: original}, false)
-	if !m.sectionExpanded("ignored") || !m.sectionExpanded("done") || len(m.overviewLayout().entries) != 6 {
+	if !m.sectionExpanded("muted") || !m.sectionExpanded("done") || len(m.overviewLayout().entries) != 6 {
 		t.Fatal("reappearing sections did not retain expansion")
 	}
 	fresh := newModel("")
 	fresh.applyResponse(protocol.Response{Tasks: original}, false)
-	if fresh.sectionExpanded("ignored") || fresh.sectionExpanded("done") {
+	if fresh.sectionExpanded("muted") || fresh.sectionExpanded("done") {
 		t.Fatal("expansion escaped the lifetime of this TUI session")
 	}
 }
 
 func TestSectionHeadersNeverRunTaskActions(t *testing.T) {
-	for _, section := range []string{"ignored", "done"} {
+	for _, section := range []string{"muted", "done"} {
 		for _, expanded := range []bool{false, true} {
 			for _, key := range []string{"m", "d", "D", "p", "o", "i", "right", "w", "x"} {
 				t.Run(fmt.Sprintf("%s/expanded=%v/%s", section, expanded, key), func(t *testing.T) {
@@ -182,7 +182,7 @@ func TestGlobalActionsRemainAvailableOnHeaders(t *testing.T) {
 	for _, key := range []string{"n", "c", "s", "r", "X", "q", "ctrl+c"} {
 		t.Run(key, func(t *testing.T) {
 			m := sectionFixture()
-			m.selectEntry(visibleEntry{section: "ignored"})
+			m.selectEntry(visibleEntry{section: "muted"})
 			updated, cmd := m.Update(inspectKey(key))
 			got := updated.(model)
 			switch key {
@@ -238,30 +238,30 @@ func TestHeaderSelectionSurvivesRefreshAndMutationSnapshots(t *testing.T) {
 		} {
 			updated, _ := m.Update(msg)
 			m = updated.(model)
-			if m.selectedSection != "done" || !m.sectionExpanded("done") || m.sectionExpanded("ignored") {
+			if m.selectedSection != "done" || !m.sectionExpanded("done") || m.sectionExpanded("muted") {
 				t.Fatalf("%T reset selected header or expansion in mode %q", msg, mode)
 			}
 		}
 	}
 }
 
-func TestIgnoreKeepsSelectionAmongActiveTasks(t *testing.T) {
+func TestMuteKeepsSelectionAmongActiveTasks(t *testing.T) {
 	// Incoming order intentionally differs from the rendered active order.
 	original := []protocol.Task{
 		{ID: 1, Attention: "low_priority"}, {ID: 2, Attention: "attention"},
-		{ID: 3, Attention: "in_progress"}, {ID: 4, Attention: "attention", Ignored: true},
+		{ID: 3, Attention: "in_progress"}, {ID: 4, Attention: "attention", Muted: true},
 		{ID: 5, Attention: "done"},
 	}
 	for _, expanded := range []bool{false, true} {
 		for _, tt := range []struct{ cursor, wantID int }{{1, 3}, {2, 1}, {0, 3}} {
 			t.Run(fmt.Sprintf("cursor=%d/expanded=%v", tt.cursor, expanded), func(t *testing.T) {
-				m := model{tasks: original, cursor: tt.cursor, expandedSections: map[string]bool{"ignored": expanded, "done": expanded}}
+				m := model{tasks: original, cursor: tt.cursor, expandedSections: map[string]bool{"muted": expanded, "done": expanded}}
 				tasks := slices.Clone(original)
-				tasks[tt.cursor].Ignored = true
+				tasks[tt.cursor].Muted = true
 				m.applyResponse(protocol.Response{Tasks: tasks}, false)
 				selected, ok := m.selectedTask()
-				if !ok || selected.ID != tt.wantID || m.sectionExpanded("ignored") != expanded || m.sectionExpanded("done") != expanded {
-					t.Fatalf("ignore selected %+v, want active task %d", m.selectedEntry(), tt.wantID)
+				if !ok || selected.ID != tt.wantID || m.sectionExpanded("muted") != expanded || m.sectionExpanded("done") != expanded {
+					t.Fatalf("mute selected %+v, want active task %d", m.selectedEntry(), tt.wantID)
 				}
 				assertVisibleSelection(t, m)
 			})
@@ -270,20 +270,20 @@ func TestIgnoreKeepsSelectionAmongActiveTasks(t *testing.T) {
 }
 
 func TestMovingLastTaskToHistorySelectsHeaderEvenWhenExpanded(t *testing.T) {
-	for _, destination := range []string{"ignored", "done"} {
+	for _, destination := range []string{"muted", "done"} {
 		for _, expanded := range []bool{false, true} {
-			for _, originIgnored := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%s/expanded=%v/originIgnored=%v", destination, expanded, originIgnored), func(t *testing.T) {
-					selected := protocol.Task{ID: 1, Attention: "attention", Ignored: originIgnored}
-					m := model{tasks: []protocol.Task{selected}, expandedSections: map[string]bool{"ignored": originIgnored, "done": expanded}}
-					if destination == "ignored" {
-						m.expandedSections["ignored"] = expanded
-						selected.Ignored = true
+			for _, originMuted := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/expanded=%v/originMuted=%v", destination, expanded, originMuted), func(t *testing.T) {
+					selected := protocol.Task{ID: 1, Attention: "attention", Muted: originMuted}
+					m := model{tasks: []protocol.Task{selected}, expandedSections: map[string]bool{"muted": originMuted, "done": expanded}}
+					if destination == "muted" {
+						m.expandedSections["muted"] = expanded
+						selected.Muted = true
 					} else {
 						selected.Attention = "done"
 					}
-					// Already ignored is not a group transition; test Done for that case.
-					if originIgnored && destination == "ignored" {
+					// Already muted is not a group transition; test Done for that case.
+					if originMuted && destination == "muted" {
 						return
 					}
 					m.applyResponse(protocol.Response{Tasks: []protocol.Task{selected}}, false)
@@ -297,77 +297,77 @@ func TestMovingLastTaskToHistorySelectsHeaderEvenWhenExpanded(t *testing.T) {
 	}
 }
 
-func TestUnignoreFollowsActiveTaskAndPreservesExpansion(t *testing.T) {
+func TestUnmuteFollowsActiveTaskAndPreservesExpansion(t *testing.T) {
 	for _, attention := range []string{"immediate", "attention", "in_progress", "low_priority", "done"} {
 		t.Run(attention, func(t *testing.T) {
 			m := sectionFixture()
-			m.expandedSections = map[string]bool{"ignored": true, "done": true}
+			m.expandedSections = map[string]bool{"muted": true, "done": true}
 			m.tasks[1].Attention = attention
 			m.selectEntry(visibleEntry{task: 1})
 			tasks := slices.Clone(m.tasks)
-			tasks[1].Ignored = false
+			tasks[1].Muted = false
 			m.applyResponse(protocol.Response{Tasks: tasks}, false)
 			selected, ok := m.selectedTask()
-			if !ok || selected.ID != 2 || selected.Attention != attention || selected.Ignored || !m.sectionExpanded("ignored") || !m.sectionExpanded("done") {
-				t.Fatal("unignore failed to follow task without changing lifecycle or expansion")
+			if !ok || selected.ID != 2 || selected.Attention != attention || selected.Muted || !m.sectionExpanded("muted") || !m.sectionExpanded("done") {
+				t.Fatal("unmute failed to follow task without changing lifecycle or expansion")
 			}
 		})
 	}
 }
 
-func TestIgnoreSelectionSurvivesRegroupedTaskIDs(t *testing.T) {
+func TestMuteSelectionSurvivesRegroupedTaskIDs(t *testing.T) {
 	selected := protocol.Task{ID: 1, Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:7"}}}
 	m := model{tasks: []protocol.Task{selected, {ID: 2, Attention: "low_priority"}}}
-	selected.ID, selected.Ignored = 3, true
+	selected.ID, selected.Muted = 3, true
 	m.applyResponse(protocol.Response{Tasks: []protocol.Task{{ID: 2, Attention: "low_priority"}, selected}}, false)
 	if task, ok := m.selectedTask(); !ok || task.ID != 2 {
-		t.Fatal("regrouping followed an ignored task into history")
+		t.Fatal("regrouping followed an muted task into history")
 	}
-	m.expandedSections = map[string]bool{"ignored": true}
+	m.expandedSections = map[string]bool{"muted": true}
 	m.selectEntry(visibleEntry{task: 1})
-	selected.ID, selected.Ignored = 4, false
+	selected.ID, selected.Muted = 4, false
 	m.applyResponse(protocol.Response{Tasks: []protocol.Task{selected, {ID: 2, Attention: "low_priority"}}}, false)
 	if task, ok := m.selectedTask(); !ok || task.ID != 4 {
-		t.Fatal("unignore lost stable source-ref identity when task ID changed")
+		t.Fatal("unmute lost stable source-ref identity when task ID changed")
 	}
 }
 
-func TestIgnoreWaitsForSuccessfulPublicationAndDoesNotStealFocus(t *testing.T) {
+func TestMuteWaitsForSuccessfulPublicationAndDoesNotStealFocus(t *testing.T) {
 	for _, navigate := range []bool{false, true} {
 		for _, fail := range []bool{false, true} {
 			t.Run(fmt.Sprintf("navigate=%v/fail=%v", navigate, fail), func(t *testing.T) {
 				m := sectionFixture()
 				updated, cmd := m.Update(inspectKey("m"))
 				m = updated.(model)
-				if cmd == nil || m.cursor != 0 || m.selectedSection != "" || m.tasks[0].Ignored {
+				if cmd == nil || m.cursor != 0 || m.selectedSection != "" || m.tasks[0].Muted {
 					t.Fatal("m changed preference or selection before publication")
 				}
 				if navigate {
 					m = pressSectionKey(t, m, "end")
 				}
 				response := protocol.Response{Revision: 2, Tasks: slices.Clone(m.tasks)}
-				response.Tasks[0].Ignored = true
+				response.Tasks[0].Muted = true
 				msg := actionMsg{response: &response}
 				if fail {
-					msg = actionMsg{err: errors.New("ignore failed")}
+					msg = actionMsg{err: errors.New("mute failed")}
 				}
 				updated, _ = m.Update(msg)
 				m = updated.(model)
 				if fail {
-					if m.tasks[0].Ignored || m.err == nil || (!navigate && m.selectedSection != "") {
-						t.Fatal("failed ignore changed state/selection")
+					if m.tasks[0].Muted || m.err == nil || (!navigate && m.selectedSection != "") {
+						t.Fatal("failed mute changed state/selection")
 					}
-				} else if !navigate && m.selectedSection != "ignored" {
-					t.Fatal("last active task did not select Ignored header")
+				} else if !navigate && m.selectedSection != "muted" {
+					t.Fatal("last active task did not select Muted header")
 				}
 				if navigate && m.selectedSection != "done" {
-					t.Fatal("ignore response stole focus from user navigation")
+					t.Fatal("mute response stole focus from user navigation")
 				}
 				if !fail {
 					// Watch/action duplicates cannot jump back to the moved child.
 					updated, _ = m.Update(watchMsg{response: response})
 					m = updated.(model)
-					want := "ignored"
+					want := "muted"
 					if navigate {
 						want = "done"
 					}
@@ -380,27 +380,27 @@ func TestIgnoreWaitsForSuccessfulPublicationAndDoesNotStealFocus(t *testing.T) {
 	}
 }
 
-func TestIgnoredInspectPreservesRawFactsAndPinnedIdentity(t *testing.T) {
-	for _, group := range []string{"ignored", "done"} {
+func TestMutedInspectPreservesRawFactsAndPinnedIdentity(t *testing.T) {
+	for _, group := range []string{"muted", "done"} {
 		m := sectionFixture()
 		m = pressSectionKey(t, m, "i")
 		selected := m.tasks[0]
-		selected.Ignored = true
+		selected.Muted = true
 		if group == "done" {
 			selected.Attention = "done"
 		}
 		tasks := slices.Clone(m.tasks)
 		tasks[0] = selected
 		m.applyResponse(protocol.Response{Tasks: tasks}, false)
-		if !m.detail.available || m.detail.task.ID != 1 || !m.detail.task.Ignored || m.selectedSection != "ignored" {
+		if !m.detail.available || m.detail.task.ID != 1 || !m.detail.task.Muted || m.selectedSection != "muted" {
 			t.Fatal("Inspect lost pinned task or retained an invisible overview cursor")
 		}
 		view := ansi.Strip(m.View())
-		if !strings.Contains(view, "Ignored    true") || !strings.Contains(view, "ABC-123") || !strings.Contains(view, selected.Attention) {
+		if !strings.Contains(strings.Join(strings.Fields(view), " "), "Muted true") || !strings.Contains(view, "ABC-123") || !strings.Contains(view, selected.Attention) {
 			t.Fatalf("Inspect hid preference or actual source facts:\n%s", view)
 		}
 		m = pressSectionKey(t, m, "esc")
-		if m.mode != "" || m.selectedSection != "ignored" || m.sectionExpanded(group) {
+		if m.mode != "" || m.selectedSection != "muted" || m.sectionExpanded(group) {
 			t.Fatal("returning from Inspect autoexpanded or selected a hidden child")
 		}
 		assertVisibleSelection(t, m)
@@ -417,7 +417,7 @@ func TestRequestedHistoryTaskMapsToCollapsedHeader(t *testing.T) {
 	}
 	m.cursor, m.selectedSection = 1, ""
 	m.ensureVisibleSelection()
-	if m.selectedSection != "ignored" {
+	if m.selectedSection != "muted" {
 		t.Fatal("a hidden child cursor was not mapped to its header")
 	}
 }
@@ -428,10 +428,10 @@ func TestHistoryCountsUseServedTasksNotExpansionOrLifecyclePreference(t *testing
 	m.tasks[3].DoneAt = "2001-01-01T00:00:00Z"
 	m.tasks[3].SourceRefs = []protocol.SourceRef{{ID: "workspace:old", Source: "workspace", Kind: "workspace", CleanupIssues: []string{"unresolved work"}}}
 	for _, expanded := range []bool{false, true} {
-		m.expandedSections = map[string]bool{"ignored": expanded, "done": expanded}
+		m.expandedSections = map[string]bool{"muted": expanded, "done": expanded}
 		view := ansi.Strip(m.taskList(100, 100))
-		if !strings.Contains(view, "Ignored (1)") || !strings.Contains(view, "Done (2) · last 3 days") {
-			t.Fatal("history counts double-counted ignored+done or imposed different retention")
+		if !strings.Contains(view, "Muted (1)") || !strings.Contains(view, "Done (2) · last 3 days") {
+			t.Fatal("history counts double-counted muted+done or imposed different retention")
 		}
 		if strings.Contains(view, "Older completed work") != expanded {
 			t.Fatal("TUI discarded a served unresolved-workspace retention exception")
@@ -443,7 +443,7 @@ func TestSectionHelpIsContextualAndKeepsViewportHeight(t *testing.T) {
 	for _, width := range []int{40, 60, 80, 100, 140, 224} {
 		m := sectionFixture()
 		activeHelp := m.mainHelp(width)
-		for _, group := range []string{"ignored", "done"} {
+		for _, group := range []string{"muted", "done"} {
 			m.selectEntry(visibleEntry{section: group})
 			for _, expanded := range []bool{false, true} {
 				m.expandedSections = map[string]bool{group: expanded}
@@ -452,7 +452,7 @@ func TestSectionHelpIsContextualAndKeepsViewportHeight(t *testing.T) {
 				if lipgloss.Height(help) != lipgloss.Height(activeHelp) {
 					t.Fatal("contextual help changed viewport height")
 				}
-				for _, forbidden := range []string{"m ignore", "d done", "D delete", "p urgent", "o open", "i inspect", "w workspace", "x cleanup"} {
+				for _, forbidden := range []string{"m mute", "d done", "D delete", "p urgent", "o open", "i inspect", "w workspace", "x cleanup"} {
 					if strings.Contains(help, forbidden) {
 						t.Fatalf("header help advertises task action %q", forbidden)
 					}
@@ -466,14 +466,14 @@ func TestSectionHelpIsContextualAndKeepsViewportHeight(t *testing.T) {
 				}
 			}
 		}
-		m.expandedSections = map[string]bool{"ignored": true, "done": true}
+		m.expandedSections = map[string]bool{"muted": true, "done": true}
 		m.selectEntry(visibleEntry{task: 1})
-		if !strings.Contains(ansi.Strip(m.mainHelp(width)), "m unignore") {
-			t.Fatal("ignored task help did not offer unignore")
+		if !strings.Contains(ansi.Strip(m.mainHelp(width)), "m unmute") {
+			t.Fatal("muted task help did not offer unmute")
 		}
 		m.selectEntry(visibleEntry{task: 2})
-		if !strings.Contains(ansi.Strip(m.mainHelp(width)), "m unignore") {
-			t.Fatal("Done hid its retained ignored preference in action help")
+		if !strings.Contains(ansi.Strip(m.mainHelp(width)), "m unmute") {
+			t.Fatal("Done hid its retained muted preference in action help")
 		}
 	}
 }
@@ -482,10 +482,10 @@ func TestSectionLayoutHandlesSmallViewportsPageMovementAndCollapse(t *testing.T)
 	t.Setenv("TMUX", "test")
 	m := sectionFixture()
 	for i := 0; i < 25; i++ {
-		m.tasks = append(m.tasks, protocol.Task{ID: i + 10, Title: fmt.Sprintf("History %d", i), Attention: "attention", Ignored: true, SourceRefs: []protocol.SourceRef{{ID: fmt.Sprintf("github:pr:acme/app:%d", i+10)}, {ID: fmt.Sprintf("jira:issue:ABC-%d", i+10)}}})
+		m.tasks = append(m.tasks, protocol.Task{ID: i + 10, Title: fmt.Sprintf("History %d", i), Attention: "attention", Muted: true, SourceRefs: []protocol.SourceRef{{ID: fmt.Sprintf("github:pr:acme/app:%d", i+10)}, {ID: fmt.Sprintf("jira:issue:ABC-%d", i+10)}}})
 	}
 	m.width, m.height = 80, 24
-	m.selectEntry(visibleEntry{section: "ignored"})
+	m.selectEntry(visibleEntry{section: "muted"})
 	m = pressSectionKey(t, m, "enter")
 	for _, size := range []tea.WindowSizeMsg{{Width: 80, Height: 24}, {Width: 100, Height: 30}, {Width: 60, Height: 24}} {
 		updated, _ := m.Update(size)
@@ -500,7 +500,7 @@ func TestSectionLayoutHandlesSmallViewportsPageMovementAndCollapse(t *testing.T)
 			}
 		}
 	}
-	m.selectEntry(visibleEntry{section: "ignored"})
+	m.selectEntry(visibleEntry{section: "muted"})
 	m.syncTaskScroll()
 	m = pressSectionKey(t, m, "enter")
 	assertVisibleSelection(t, m)
@@ -522,7 +522,7 @@ func TestSectionsNavigationWithTeatest(t *testing.T) {
 	}
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 	final := tm.FinalModel(t).(staticTUIModel).model
-	if final.sectionExpanded("ignored") || !final.sectionExpanded("done") {
+	if final.sectionExpanded("muted") || !final.sectionExpanded("done") {
 		t.Fatal("interactive expansion state did not survive Inspect/navigation")
 	}
 	if task, ok := final.selectedTask(); !ok || task.ID != 3 {

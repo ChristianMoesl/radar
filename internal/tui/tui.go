@@ -356,7 +356,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if task, ok := m.selectedTask(); ok {
 				m.loading = true
 				m.err = nil
-				return m, m.setTaskIgnored(task, !task.Ignored)
+				return m, m.setTaskMuted(task, !task.Muted)
 			}
 		case "D":
 			if task, ok := m.selectedTask(); ok {
@@ -1103,16 +1103,16 @@ func (m model) setAuthoredTaskDone(task protocol.Task, complete bool) tea.Cmd {
 	}
 }
 
-func (m model) setTaskIgnored(task protocol.Task, ignored bool) tea.Cmd {
+func (m model) setTaskMuted(task protocol.Task, muted bool) tea.Cmd {
 	return func() tea.Msg {
 		var response protocol.Response
 		var err error
-		message := "Task unignored"
-		if ignored {
-			response, err = client.IgnoreTask(m.socketPath, task.ID)
-			message = "Task ignored"
+		message := "Task unmuted"
+		if muted {
+			response, err = client.MuteTask(m.socketPath, task.ID)
+			message = "Task muted"
 		} else {
-			response, err = client.UnignoreTask(m.socketPath, task.ID)
+			response, err = client.UnmuteTask(m.socketPath, task.ID)
 		}
 		if err != nil {
 			return actionMsg{err: err}
@@ -1465,7 +1465,7 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 			if ok {
 				m.detail.task = m.tasks[cursor]
 				// Keep Inspect pinned independently of the overview fallback.
-				// A returning task regains selection, but a completed/ignored
+				// A returning task regains selection, but a completed/muted
 				// task must not pull the overview back into history on refresh.
 				if !wasAvailable {
 					m.selectTaskCursor(cursor)
@@ -1522,7 +1522,7 @@ func (m *model) restoreCursor(selectedTask *protocol.Task, selectedSection strin
 					}
 				}
 			} else {
-				// Unignore/reopen follows the selected task into active work.
+				// Unmute/reopen follows the selected task into active work.
 				// A refresh hiding a child maps to its collapsed header.
 				m.selectTaskCursor(cursor)
 				return
@@ -1874,7 +1874,7 @@ func (m model) header(width int) string {
 		attentionStyle.Render(fmt.Sprintf("👀 %d attention", m.summary.Attention)),
 		progressStyle.Render(fmt.Sprintf("⏳ %d progress", m.summary.InProgress)),
 		lowStyle.Render(fmt.Sprintf("🔇 %d low", m.summary.LowPriority)),
-		lowStyle.Render(fmt.Sprintf("%d ignored", m.summary.Ignored)),
+		lowStyle.Render(fmt.Sprintf("%d muted", m.summary.Muted)),
 		doneStyle.Render(fmt.Sprintf("✅ %d done", m.summary.Done)),
 	}, "  ")
 

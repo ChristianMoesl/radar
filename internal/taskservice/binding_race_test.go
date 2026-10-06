@@ -63,11 +63,11 @@ func bindingRaceObservations(refs []protocol.SourceRef) integration.CollectResul
 func TestMutationFencedRefreshPersistsNewBindingsBeforeImmediateReset(t *testing.T) {
 	for _, tc := range []struct {
 		name, staleSignal, wantState string
-		beforeRefresh, afterIgnore   string
+		beforeRefresh, afterMute     string
 	}{
-		{name: "ignore", staleSignal: "done", wantState: "open"},
-		{name: "manual done", staleSignal: "in_progress", wantState: "done", afterIgnore: "task-done"},
-		{name: "manual reopen", staleSignal: "done", wantState: "open", beforeRefresh: "task-done", afterIgnore: "task-reopen"},
+		{name: "mute", staleSignal: "done", wantState: "open"},
+		{name: "manual done", staleSignal: "in_progress", wantState: "done", afterMute: "task-done"},
+		{name: "manual reopen", staleSignal: "done", wantState: "open", beforeRefresh: "task-done", afterMute: "task-reopen"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			source := &bindingRaceSource{started: make(chan struct{}, 8), release: make(chan struct{})}
@@ -103,15 +103,15 @@ func TestMutationFencedRefreshPersistsNewBindingsBeforeImmediateReset(t *testing
 			wait(t, source.started)
 			wait(t, f.author.collected) // stale author snapshot has already been captured
 
-			ignored := f.mutate(t, "task-ignore", &protocol.TaskMutation{TaskID: f.task.ID})
-			ref, ok := authoredRef(ignored, "obsidian")
+			muted := f.mutate(t, "task-mute", &protocol.TaskMutation{TaskID: f.task.ID})
+			ref, ok := authoredRef(muted, "obsidian")
 			if !ok || len(ref.Bindings) != 1 || ref.Bindings[0] != first.Binding() {
-				t.Fatalf("ignore must initially know only the cached first contributor: %+v", ref)
+				t.Fatalf("mute must initially know only the cached first contributor: %+v", ref)
 			}
-			if tc.afterIgnore != "" {
-				ignored = f.mutate(t, tc.afterIgnore, &protocol.TaskMutation{TaskID: f.task.ID})
+			if tc.afterMute != "" {
+				muted = f.mutate(t, tc.afterMute, &protocol.TaskMutation{TaskID: f.task.ID})
 			}
-			mutatedRef, _ := authoredRef(ignored, "obsidian")
+			mutatedRef, _ := authoredRef(muted, "obsidian")
 			completedAt := mutatedRef.Metadata["completed_at"]
 			close(source.release)
 			released = true
@@ -126,7 +126,7 @@ func TestMutationFencedRefreshPersistsNewBindingsBeforeImmediateReset(t *testing
 			}
 			current, ok := taskByID(f.store.Tasks(), f.task.ID)
 			ref, authored := authoredRef(current, "obsidian")
-			if !ok || !authored || !current.Ignored || ref.Metadata["state"] != tc.wantState || ref.Metadata["completed_at"] != completedAt {
+			if !ok || !authored || !current.Muted || ref.Metadata["state"] != tc.wantState || ref.Metadata["completed_at"] != completedAt {
 				t.Fatalf("stale lifecycle undid the mutation: %+v", current)
 			}
 			if len(ref.Bindings) != 2 {
@@ -143,7 +143,7 @@ func TestMutationFencedRefreshPersistsNewBindingsBeforeImmediateReset(t *testing
 			}
 			// Reopen's pending completion baseline is also authored intent: a
 			// bindings-only reconciliation must not arm it with stale done facts.
-			if tc.afterIgnore == "task-reopen" {
+			if tc.afterMute == "task-reopen" {
 				data, err := os.ReadFile(ref.Metadata["note_path"])
 				if err != nil || !strings.Contains(string(data), "radar-completion-baseline: pending") {
 					t.Fatalf("stale lifecycle changed the manual-reopen baseline: %s, %v", data, err)
@@ -161,11 +161,11 @@ func TestMutationFencedRefreshPersistsNewBindingsBeforeImmediateReset(t *testing
 			source.resolved = []protocol.SourceRef{first, second}
 			f.service.Refresh(ctx, false)
 			tasks := f.store.Tasks()
-			if len(tasks) != 1 || !tasks[0].Ignored || tasks[0].Attention == "done" || len(tasks[0].SourceRefs) != 3 || len(source.requests) != 2 {
+			if len(tasks) != 1 || !tasks[0].Muted || tasks[0].Attention == "done" || len(tasks[0].SourceRefs) != 3 || len(source.requests) != 2 {
 				t.Fatalf("immediate reset detached the new contributor: tasks=%+v requests=%+v", tasks, source.requests)
 			}
 			persisted := f.author.Source.Collect(ctx, integration.CollectRequest{})
-			if !persisted.Complete || len(persisted.Observations) != 1 || len(persisted.Observations[0].Ref.Bindings) != 2 || !persisted.Observations[0].Ref.Ignored || persisted.Observations[0].Ref.Status != "open" {
+			if !persisted.Complete || len(persisted.Observations) != 1 || len(persisted.Observations[0].Ref.Bindings) != 2 || !persisted.Observations[0].Ref.Muted || persisted.Observations[0].Ref.Status != "open" {
 				t.Fatalf("reset lost canonical note or unsupportedly completed it: %+v", persisted)
 			}
 		})

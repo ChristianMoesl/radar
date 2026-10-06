@@ -21,10 +21,10 @@ import (
 	"radar/internal/state"
 )
 
-// fakeIgnoreAuthor persists its authored observation only in a temporary file.
+// fakeMuteAuthor persists its authored observation only in a temporary file.
 // This exercises actual author-only collection and state merging without a live
 // vault, workspace, remote provider, or mock of the service's publication path.
-type fakeIgnoreAuthor struct {
+type fakeMuteAuthor struct {
 	path         string
 	mu           sync.Mutex
 	lastTask     protocol.Task
@@ -36,16 +36,16 @@ type fakeIgnoreAuthor struct {
 	collected    chan struct{}
 }
 
-var _ integration.TaskAuthoringProvider = (*fakeIgnoreAuthor)(nil)
-var _ integration.TaskIgnoreProvider = (*fakeIgnoreAuthor)(nil)
+var _ integration.TaskAuthoringProvider = (*fakeMuteAuthor)(nil)
+var _ integration.TaskMuteProvider = (*fakeMuteAuthor)(nil)
 
-func (*fakeIgnoreAuthor) Descriptor() integration.Descriptor {
+func (*fakeMuteAuthor) Descriptor() integration.Descriptor {
 	return integration.Descriptor{Name: "author", Label: "Temporary author"}
 }
 
-func (*fakeIgnoreAuthor) Local() bool { return true }
+func (*fakeMuteAuthor) Local() bool { return true }
 
-func (a *fakeIgnoreAuthor) read() (protocol.SourceRef, error) {
+func (a *fakeMuteAuthor) read() (protocol.SourceRef, error) {
 	data, err := os.ReadFile(a.path)
 	if os.IsNotExist(err) {
 		return protocol.SourceRef{}, nil
@@ -58,7 +58,7 @@ func (a *fakeIgnoreAuthor) read() (protocol.SourceRef, error) {
 	return ref, err
 }
 
-func (a *fakeIgnoreAuthor) Collect(_ context.Context, req integration.CollectRequest) integration.CollectResult {
+func (a *fakeMuteAuthor) Collect(_ context.Context, req integration.CollectRequest) integration.CollectResult {
 	a.mu.Lock()
 	ref, err := a.read()
 	if a.collectError != nil {
@@ -86,7 +86,7 @@ func (a *fakeIgnoreAuthor) Collect(_ context.Context, req integration.CollectReq
 	return result
 }
 
-func (a *fakeIgnoreAuthor) SetIgnored(_ context.Context, task protocol.Task, ignored bool) (integration.AuthoredTaskIdentity, error) {
+func (a *fakeMuteAuthor) SetMuted(_ context.Context, task protocol.Task, muted bool) (integration.AuthoredTaskIdentity, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.lastTask = task
@@ -94,7 +94,7 @@ func (a *fakeIgnoreAuthor) SetIgnored(_ context.Context, task protocol.Task, ign
 	if err != nil {
 		return integration.AuthoredTaskIdentity{}, err
 	}
-	if ref.ID == "" && !ignored {
+	if ref.ID == "" && !muted {
 		return integration.AuthoredTaskIdentity{}, nil
 	}
 	previous := ref
@@ -112,7 +112,7 @@ func (a *fakeIgnoreAuthor) SetIgnored(_ context.Context, task protocol.Task, ign
 		a.creates.Add(1)
 	}
 	// Only concrete authoritative refs are adopted. Preserve bindings on
-	// unignore and keep terminal/missing contributors supplied by the service.
+	// unmute and keep terminal/missing contributors supplied by the service.
 	bindings := append([]protocol.SourceBinding(nil), ref.Bindings...)
 	for _, sourceRef := range task.SourceRefs {
 		if sourceRef.Role != protocol.SourceRefRoleAuthoritative || sourceRef.Authored {
@@ -127,7 +127,7 @@ func (a *fakeIgnoreAuthor) SetIgnored(_ context.Context, task protocol.Task, ign
 			bindings = append(bindings, binding)
 		}
 	}
-	ref.Bindings, ref.Ignored = bindings, ignored
+	ref.Bindings, ref.Muted = bindings, muted
 	ref.LinkingKeys = []string{ref.ID}
 	for _, binding := range bindings {
 		ref.LinkingKeys = append(ref.LinkingKeys, binding.LinkingKey())
@@ -147,27 +147,27 @@ func (a *fakeIgnoreAuthor) SetIgnored(_ context.Context, task protocol.Task, ign
 	return identity, a.writeError
 }
 
-func (*fakeIgnoreAuthor) Create(context.Context, string) (integration.AuthoredTaskIdentity, error) {
-	return integration.AuthoredTaskIdentity{}, errors.New("not used by ignore tests")
+func (*fakeMuteAuthor) Create(context.Context, string) (integration.AuthoredTaskIdentity, error) {
+	return integration.AuthoredTaskIdentity{}, errors.New("not used by mute tests")
 }
 
-func (*fakeIgnoreAuthor) SetLifecycle(context.Context, protocol.SourceRef, string) (integration.AuthoredTaskIdentity, error) {
-	return integration.AuthoredTaskIdentity{}, errors.New("not used by ignore tests")
+func (*fakeMuteAuthor) SetLifecycle(context.Context, protocol.SourceRef, string) (integration.AuthoredTaskIdentity, error) {
+	return integration.AuthoredTaskIdentity{}, errors.New("not used by mute tests")
 }
 
-func (*fakeIgnoreAuthor) SetPriority(context.Context, protocol.SourceRef, string) (integration.AuthoredTaskIdentity, error) {
-	return integration.AuthoredTaskIdentity{}, errors.New("not used by ignore tests")
+func (*fakeMuteAuthor) SetPriority(context.Context, protocol.SourceRef, string) (integration.AuthoredTaskIdentity, error) {
+	return integration.AuthoredTaskIdentity{}, errors.New("not used by mute tests")
 }
 
-func (*fakeIgnoreAuthor) PreviewDelete(context.Context, protocol.SourceRef) (protocol.TaskDeletionPreview, error) {
-	return protocol.TaskDeletionPreview{}, errors.New("not used by ignore tests")
+func (*fakeMuteAuthor) PreviewDelete(context.Context, protocol.SourceRef) (protocol.TaskDeletionPreview, error) {
+	return protocol.TaskDeletionPreview{}, errors.New("not used by mute tests")
 }
 
-func (*fakeIgnoreAuthor) Delete(context.Context, protocol.SourceRef, protocol.TaskDeletionPreview) (protocol.TaskDeletionResult, error) {
-	return protocol.TaskDeletionResult{}, errors.New("not used by ignore tests")
+func (*fakeMuteAuthor) Delete(context.Context, protocol.SourceRef, protocol.TaskDeletionPreview) (protocol.TaskDeletionResult, error) {
+	return protocol.TaskDeletionResult{}, errors.New("not used by mute tests")
 }
 
-func newIgnoreFixture(t *testing.T, source *testSource) (*Service, *state.Store, *fakeIgnoreAuthor, protocol.Task) {
+func newMuteFixture(t *testing.T, source *testSource) (*Service, *state.Store, *fakeMuteAuthor, protocol.Task) {
 	t.Helper()
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
@@ -183,7 +183,7 @@ func newIgnoreFixture(t *testing.T, source *testSource) (*Service, *state.Store,
 	if err != nil {
 		t.Fatal(err)
 	}
-	author := &fakeIgnoreAuthor{path: filepath.Join(t.TempDir(), "note.json"), collected: make(chan struct{}, 64)}
+	author := &fakeMuteAuthor{path: filepath.Join(t.TempDir(), "note.json"), collected: make(chan struct{}, 64)}
 	registry := integration.NewRegistry(author, source)
 	service := New(store, logger, registry)
 	store.SetTasks([]protocol.Task{{Title: source.ref.Title, Attention: source.ref.Signal, SourceRefs: []protocol.SourceRef{source.ref}}})
@@ -191,7 +191,7 @@ func newIgnoreFixture(t *testing.T, source *testSource) (*Service, *state.Store,
 	return service, store, author, store.Tasks()[0]
 }
 
-func ignoreSource(local bool, signal string) *testSource {
+func muteSource(local bool, signal string) *testSource {
 	return &testSource{name: "other", local: local, ref: protocol.SourceRef{
 		ID: "other:work:one", Source: "other", Kind: "work_item", EntityID: "other:work:one",
 		Title: "Ship release", CanonicalKey: "other:work:one", LinkingKeys: []string{"release-one"},
@@ -200,32 +200,32 @@ func ignoreSource(local bool, signal string) *testSource {
 	}}
 }
 
-func TestIgnoreAdoptsSourceOnlyTaskAndPreservesCachedFacts(t *testing.T) {
-	source := ignoreSource(false, "attention")
-	service, store, author, original := newIgnoreFixture(t, source)
+func TestMuteAdoptsSourceOnlyTaskAndPreservesCachedFacts(t *testing.T) {
+	source := muteSource(false, "attention")
+	service, store, author, original := newMuteFixture(t, source)
 	ctx := context.Background()
-	for _, ignored := range []bool{true, true, false, false, true} {
+	for _, muted := range []bool{true, true, false, false, true} {
 		before := store.Revision()
-		task, err := service.SetIgnored(ctx, original.ID, ignored)
+		task, err := service.SetMuted(ctx, original.ID, muted)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if task.ID != original.ID || task.Ignored != ignored || task.Attention != original.Attention {
-			t.Fatalf("task identity, ignore preference, or underlying signal changed: %+v", task)
+		if task.ID != original.ID || task.Muted != muted || task.Attention != original.Attention {
+			t.Fatalf("task identity, mute preference, or underlying signal changed: %+v", task)
 		}
 		wantGroup := original.Attention
-		if ignored {
-			wantGroup = "ignored"
+		if muted {
+			wantGroup = "muted"
 		}
 		if task.DisplayGroup() != wantGroup {
 			t.Fatalf("group = %q, want %q", task.DisplayGroup(), wantGroup)
 		}
 		ref, ok := authoredRef(task, "author")
-		if !ok || len(ref.Bindings) != 1 || ref.Bindings[0] != source.ref.Binding() || ref.Ignored != ignored || ref.Status != "open" {
+		if !ok || len(ref.Bindings) != 1 || ref.Bindings[0] != source.ref.Binding() || ref.Muted != muted || ref.Status != "open" {
 			t.Fatalf("authored preference/binding = %+v", ref)
 		}
 		if store.Revision() <= before {
-			t.Fatal("ignore mutation was not published to watchers")
+			t.Fatal("mute mutation was not published to watchers")
 		}
 		for _, status := range store.Sources() {
 			if status.Name == source.name && (status.Status != "error" || status.Detail != "cached error") {
@@ -233,7 +233,7 @@ func TestIgnoreAdoptsSourceOnlyTaskAndPreservesCachedFacts(t *testing.T) {
 			}
 		}
 		if source.calls.Load() != 0 {
-			t.Fatal("ignore mutation collected unrelated source")
+			t.Fatal("mute mutation collected unrelated source")
 		}
 	}
 	if author.creates.Load() != 1 || author.writes.Load() != 3 {
@@ -241,16 +241,16 @@ func TestIgnoreAdoptsSourceOnlyTaskAndPreservesCachedFacts(t *testing.T) {
 	}
 }
 
-func TestConcurrentIgnoreRequestsAreIdempotent(t *testing.T) {
-	service, store, author, original := newIgnoreFixture(t, ignoreSource(false, "attention"))
+func TestConcurrentMuteRequestsAreIdempotent(t *testing.T) {
+	service, store, author, original := newMuteFixture(t, muteSource(false, "attention"))
 	const requests = 16
 	errors := make(chan error, requests)
 	var wg sync.WaitGroup
 	for range requests {
 		wg.Go(func() {
-			task, err := service.Ignore(context.Background(), original.ID)
-			if err == nil && (task.ID != original.ID || !task.Ignored) {
-				err = fmt.Errorf("unexpected ignored task: %+v", task)
+			task, err := service.Mute(context.Background(), original.ID)
+			if err == nil && (task.ID != original.ID || !task.Muted) {
+				err = fmt.Errorf("unexpected muted task: %+v", task)
 			}
 			errors <- err
 		})
@@ -263,40 +263,40 @@ func TestConcurrentIgnoreRequestsAreIdempotent(t *testing.T) {
 		}
 	}
 	if author.creates.Load() != 1 || author.writes.Load() != 1 || len(store.Tasks()) != 1 {
-		t.Fatalf("concurrent ignore duplicated/re-wrote note: creates=%d writes=%d tasks=%d", author.creates.Load(), author.writes.Load(), len(store.Tasks()))
+		t.Fatalf("concurrent mute duplicated/re-wrote note: creates=%d writes=%d tasks=%d", author.creates.Load(), author.writes.Load(), len(store.Tasks()))
 	}
 }
 
-func TestUnignoreNeverIgnoredSourceOnlyTaskDoesNotAuthorANote(t *testing.T) {
-	service, store, author, original := newIgnoreFixture(t, ignoreSource(false, "immediate"))
+func TestUnmuteNeverMutedSourceOnlyTaskDoesNotAuthorANote(t *testing.T) {
+	service, store, author, original := newMuteFixture(t, muteSource(false, "immediate"))
 	for range 2 {
-		task, err := service.Unignore(context.Background(), original.ID)
+		task, err := service.Unmute(context.Background(), original.ID)
 		if err != nil || !reflect.DeepEqual(task, original) {
-			t.Fatalf("unignore no-op = %+v, %v, want original %+v", task, err, original)
+			t.Fatalf("unmute no-op = %+v, %v, want original %+v", task, err, original)
 		}
 	}
 	if author.creates.Load() != 0 || author.writes.Load() != 0 || len(store.Tasks()) != 1 {
-		t.Fatal("unignore created a note or detached the task")
+		t.Fatal("unmute created a note or detached the task")
 	}
 }
 
-func TestIgnoreDoneTaskDoesNotReopenIt(t *testing.T) {
-	service, _, author, original := newIgnoreFixture(t, ignoreSource(false, "done"))
-	for _, ignored := range []bool{true, false, true} {
-		task, err := service.SetIgnored(context.Background(), original.ID, ignored)
-		if err != nil || task.Ignored != ignored || task.Attention != "done" || task.DisplayGroup() != "done" {
-			t.Fatalf("done task ignore=%v: %+v, %v", ignored, task, err)
+func TestMuteDoneTaskDoesNotReopenIt(t *testing.T) {
+	service, _, author, original := newMuteFixture(t, muteSource(false, "done"))
+	for _, muted := range []bool{true, false, true} {
+		task, err := service.SetMuted(context.Background(), original.ID, muted)
+		if err != nil || task.Muted != muted || task.Attention != "done" || task.DisplayGroup() != "done" {
+			t.Fatalf("done task mute=%v: %+v, %v", muted, task, err)
 		}
 		ref, _ := author.read()
 		if ref.Status != "done" {
-			t.Fatalf("ignore changed authored lifecycle: %+v", ref)
+			t.Fatalf("mute changed authored lifecycle: %+v", ref)
 		}
 	}
 }
 
-func TestIgnorePassesRetainedContributorsToAuthor(t *testing.T) {
-	source := ignoreSource(false, "attention")
-	service, store, author, original := newIgnoreFixture(t, source)
+func TestMutePassesRetainedContributorsToAuthor(t *testing.T) {
+	source := muteSource(false, "attention")
+	service, store, author, original := newMuteFixture(t, source)
 	missing := source.ref
 	missing.ID, missing.EntityID, missing.CanonicalKey, missing.Signal = "other:work:retained", "other:work:retained", "other:work:retained", "done"
 	store.SetTasks([]protocol.Task{{Title: original.Title, Attention: original.Attention, SourceRefs: []protocol.SourceRef{source.ref, missing}}})
@@ -304,7 +304,7 @@ func TestIgnorePassesRetainedContributorsToAuthor(t *testing.T) {
 	if len(store.Tasks()[0].SourceRefs) != 1 || len(store.CollectionTasks()[0].SourceRefs) != 2 {
 		t.Fatal("fixture must include a retained contributor absent from the served projection")
 	}
-	task, err := service.Ignore(context.Background(), original.ID)
+	task, err := service.Mute(context.Background(), original.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,19 +321,19 @@ func TestIgnorePassesRetainedContributorsToAuthor(t *testing.T) {
 		found = found || ref.ID == missing.ID
 	}
 	if !found {
-		t.Fatal("ignore publication discarded retained source reference")
+		t.Fatal("mute publication discarded retained source reference")
 	}
 }
 
-func TestIgnoreMutationDoesNotWaitForCollectionOrLoseBindingsToStaleRefresh(t *testing.T) {
+func TestMuteMutationDoesNotWaitForCollectionOrLoseBindingsToStaleRefresh(t *testing.T) {
 	for _, localOnly := range []bool{false, true} {
-		for _, method := range []string{"task-ignore", "task-unignore", "multiple", "write-error"} {
+		for _, method := range []string{"task-mute", "task-unmute", "multiple", "write-error"} {
 			t.Run(fmt.Sprintf("local=%v/%s", localOnly, method), func(t *testing.T) {
-				source := ignoreSource(localOnly, "attention")
+				source := muteSource(localOnly, "attention")
 				source.started, source.release = make(chan struct{}, 4), make(chan struct{})
-				service, store, author, original := newIgnoreFixture(t, source)
-				if method == "task-unignore" {
-					if _, err := service.Ignore(context.Background(), original.ID); err != nil {
+				service, store, author, original := newMuteFixture(t, source)
+				if method == "task-unmute" {
+					if _, err := service.Mute(context.Background(), original.ID); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -368,13 +368,13 @@ func TestIgnoreMutationDoesNotWaitForCollectionOrLoseBindingsToStaleRefresh(t *t
 				go func() {
 					actualMethod := method
 					if method == "multiple" || method == "write-error" {
-						actualMethod = "task-ignore"
+						actualMethod = "task-mute"
 					}
 					task, err := service.MutateTask(ctx, actualMethod, &protocol.TaskMutation{TaskID: original.ID})
 					if method == "multiple" && err == nil {
-						task, err = service.Unignore(ctx, task.ID)
+						task, err = service.Unmute(ctx, task.ID)
 						if err == nil {
-							task, err = service.Ignore(ctx, task.ID)
+							task, err = service.Mute(ctx, task.ID)
 						}
 					}
 					mutated <- mutationResult{task: task, err: err}
@@ -383,7 +383,7 @@ func TestIgnoreMutationDoesNotWaitForCollectionOrLoseBindingsToStaleRefresh(t *t
 				select {
 				case got = <-mutated:
 				case <-ctx.Done():
-					t.Fatal("ignore mutation waited for unrelated collection")
+					t.Fatal("mute mutation waited for unrelated collection")
 				}
 				if method == "write-error" {
 					if !errors.Is(got.err, author.writeError) {
@@ -394,11 +394,11 @@ func TestIgnoreMutationDoesNotWaitForCollectionOrLoseBindingsToStaleRefresh(t *t
 				} else {
 					cached, ok := taskByID(store.Tasks(), got.task.ID)
 					if !ok || !reflect.DeepEqual(cached, got.task) {
-						t.Fatal("ignore preference not visible while refresh remains blocked")
+						t.Fatal("mute preference not visible while refresh remains blocked")
 					}
 				}
 				if source.calls.Load() != 1 {
-					t.Fatal("ignore mutation re-collected an unrelated source")
+					t.Fatal("mute mutation re-collected an unrelated source")
 				}
 				close(source.release)
 				released = true
@@ -408,7 +408,7 @@ func TestIgnoreMutationDoesNotWaitForCollectionOrLoseBindingsToStaleRefresh(t *t
 					t.Fatal("refresh did not finish")
 				}
 				tasks := store.Tasks()
-				if len(tasks) != 1 || tasks[0].ID != original.ID || tasks[0].Ignored != (method != "task-unignore") {
+				if len(tasks) != 1 || tasks[0].ID != original.ID || tasks[0].Muted != (method != "task-unmute") {
 					t.Fatalf("stale refresh detached binding or reverted preference: %+v", tasks)
 				}
 				ref, ok := authoredRef(tasks[0], "author")
@@ -416,35 +416,35 @@ func TestIgnoreMutationDoesNotWaitForCollectionOrLoseBindingsToStaleRefresh(t *t
 					t.Fatalf("stale refresh lost authored binding: %+v", ref)
 				}
 				if tasks[0].Attention == "done" || source.calls.Load() != 1 || author.creates.Load() != 1 {
-					t.Fatal("ignore changed lifecycle, retried remote collection, or duplicated the note")
+					t.Fatal("mute changed lifecycle, retried remote collection, or duplicated the note")
 				}
 			})
 		}
 	}
 }
 
-func TestIgnoreCollectFailureAfterWriteIsReportedAndRetryReusesNote(t *testing.T) {
+func TestMuteCollectFailureAfterWriteIsReportedAndRetryReusesNote(t *testing.T) {
 	for _, existing := range []bool{false, true} {
 		t.Run(fmt.Sprintf("existing=%v", existing), func(t *testing.T) {
-			service, store, author, original := newIgnoreFixture(t, ignoreSource(false, "attention"))
+			service, store, author, original := newMuteFixture(t, muteSource(false, "attention"))
 			if existing {
-				if _, err := service.Ignore(context.Background(), original.ID); err != nil {
+				if _, err := service.Mute(context.Background(), original.ID); err != nil {
 					t.Fatal(err)
 				}
 			}
 			author.collectError = errors.New("temporary collection failure")
 			// Even if the stale projection already has the requested preference,
 			// a failed publication must not be reported as a successful mutation.
-			if _, err := service.Ignore(context.Background(), original.ID); err == nil {
+			if _, err := service.Mute(context.Background(), original.ID); err == nil {
 				t.Fatal("failed post-write author collection reported success")
 			}
 			ref, err := author.read()
-			if err != nil || !ref.Ignored {
+			if err != nil || !ref.Muted {
 				t.Fatalf("preference was not durably written before collection failure: %+v, %v", ref, err)
 			}
 			author.collectError = nil
-			task, err := service.Ignore(context.Background(), original.ID)
-			if err != nil || !task.Ignored || task.ID != original.ID || len(store.Tasks()) != 1 {
+			task, err := service.Mute(context.Background(), original.ID)
+			if err != nil || !task.Muted || task.ID != original.ID || len(store.Tasks()) != 1 {
 				t.Fatalf("retry failed to publish preference: %+v, %v", task, err)
 			}
 			if author.creates.Load() != 1 || author.writes.Load() != 1 {
@@ -454,25 +454,25 @@ func TestIgnoreCollectFailureAfterWriteIsReportedAndRetryReusesNote(t *testing.T
 	}
 }
 
-// Embedding the narrower contract intentionally hides SetIgnored, proving it is
+// Embedding the narrower contract intentionally hides SetMuted, proving it is
 // an optional capability rather than a new requirement for every author.
-type authorWithoutIgnore struct {
+type authorWithoutMute struct {
 	integration.TaskAuthoringProvider
 }
 
-func TestIgnoreRejectsMissingCapabilityAndInvalidTargets(t *testing.T) {
-	service, store, author, _ := newIgnoreFixture(t, ignoreSource(false, "attention"))
+func TestMuteRejectsMissingCapabilityAndInvalidTargets(t *testing.T) {
+	service, store, author, _ := newMuteFixture(t, muteSource(false, "attention"))
 	before, revision := author.calls.Load(), store.Revision()
-	for _, method := range []string{"task-ignore", "task-unignore"} {
+	for _, method := range []string{"task-mute", "task-unmute"} {
 		for _, mutation := range []*protocol.TaskMutation{nil, {TaskID: 999}} {
 			if _, err := service.MutateTask(context.Background(), method, mutation); err == nil {
 				t.Fatalf("accepted invalid mutation: %s %+v", method, mutation)
 			}
 		}
 	}
-	service.integrations = integration.NewRegistry(authorWithoutIgnore{author})
-	if _, err := service.Ignore(context.Background(), store.Tasks()[0].ID); err == nil {
-		t.Fatal("author without optional ignore capability accepted mutation")
+	service.integrations = integration.NewRegistry(authorWithoutMute{author})
+	if _, err := service.Mute(context.Background(), store.Tasks()[0].ID); err == nil {
+		t.Fatal("author without optional mute capability accepted mutation")
 	}
 	if author.calls.Load() != before || store.Revision() != revision || author.writes.Load() != 0 {
 		t.Fatal("invalid mutation wrote authoring data or refreshed cache")

@@ -16,14 +16,14 @@ import (
 	"radar/internal/state"
 )
 
-func TestIgnoreSocketMethodsUseStructuredTaskMutation(t *testing.T) {
+func TestMuteSocketMethodsUseStructuredTaskMutation(t *testing.T) {
 	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	store, err := state.NewStore(logger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, method := range []string{"task-ignore", "task-unignore"} {
+	for _, method := range []string{"task-mute", "task-unmute"} {
 		t.Run(method, func(t *testing.T) {
 			for _, mode := range []string{"success", "error", "unconfigured"} {
 				t.Run(mode, func(t *testing.T) {
@@ -36,9 +36,9 @@ func TestIgnoreSocketMethodsUseStructuredTaskMutation(t *testing.T) {
 								return protocol.Task{}, errors.New("incorrect method or target")
 							}
 							if mode == "error" {
-								return protocol.Task{}, errors.New("cannot persist ignore preference")
+								return protocol.Task{}, errors.New("cannot persist mute preference")
 							}
-							return protocol.Task{ID: 7, Title: "Ship release", Attention: "attention", Ignored: method == "task-ignore"}, nil
+							return protocol.Task{ID: 7, Title: "Ship release", Attention: "attention", Muted: method == "task-mute"}, nil
 						})
 					}
 					serverConn, clientConn := net.Pipe()
@@ -60,7 +60,7 @@ func TestIgnoreSocketMethodsUseStructuredTaskMutation(t *testing.T) {
 						t.Fatal(err)
 					}
 					if mode == "success" {
-						if !response.OK || response.Task == nil || response.Task.ID != 7 || response.Task.Ignored != (method == "task-ignore") || response.Task.Attention != "attention" || response.Tasks == nil || response.Summary == nil || calls != 1 {
+						if !response.OK || response.Task == nil || response.Task.ID != 7 || response.Task.Muted != (method == "task-mute") || response.Task.Attention != "attention" || response.Tasks == nil || response.Summary == nil || calls != 1 {
 							t.Fatalf("mutation response = %+v, calls = %d", response, calls)
 						}
 					} else if response.OK || response.Task != nil || response.Error == "" {
@@ -70,6 +70,43 @@ func TestIgnoreSocketMethodsUseStructuredTaskMutation(t *testing.T) {
 						t.Fatal("unconfigured mutation invoked callback")
 					}
 				})
+			}
+		})
+	}
+}
+
+func TestLegacyIgnoreSocketMethodsAreNotAliases(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, method := range []string{"task-ignore", "task-unignore"} {
+		t.Run(method, func(t *testing.T) {
+			called := false
+			server := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New(nil)).SetTaskMutation(func(context.Context, string, *protocol.TaskMutation) (protocol.Task, error) {
+				called = true
+				return protocol.Task{}, nil
+			})
+			serverConn, clientConn := net.Pipe()
+			done := make(chan struct{})
+			go func() { defer close(done); server.handle(serverConn) }()
+			defer func() { clientConn.Close(); <-done }()
+			if err := json.NewEncoder(clientConn).Encode(protocol.Request{Method: method, TaskMutation: &protocol.TaskMutation{TaskID: 1}}); err != nil {
+				t.Fatal(err)
+			}
+			var response protocol.Response
+			if err := json.NewDecoder(clientConn).Decode(&response); err != nil {
+				t.Fatal(err)
+			}
+			if response.OK || response.Error == "" {
+				t.Fatalf("legacy command accepted: %+v", response)
+			}
+			clientConn.Close()
+			<-done
+			if called {
+				t.Fatal("legacy command invoked mutator")
 			}
 		})
 	}

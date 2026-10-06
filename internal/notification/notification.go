@@ -109,5 +109,5 @@ func newlyActionable(previous, current []protocol.Task) []protocol.Task {
 }
 
 func needsAttention(task protocol.Task) bool {
-	return !task.Ignored && (task.Attention == "immediate" || task.Attention == "attention")
+	return !task.Muted && (task.Attention == "immediate" || task.Attention == "attention")
 }

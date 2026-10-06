@@ -12,7 +12,7 @@ const bindingTestHeader = "---\nradar-id: 12345678-1234-4234-8234-123456789abc\n
 
 func TestPreferenceFrontmatterValidation(t *testing.T) {
 	for _, fields := range []string{
-		"", "radar-ignored: true\n", "radar-ignored: false\n", "radar-ignored: TRUE\n",
+		"", "radar-muted: true\n", "radar-muted: false\n", "radar-muted: TRUE\n",
 		"radar-source-refs: []\n",
 		"radar-source-refs:\n  - source: jira\n    kind: issue\n    id: jira:issue:ABC-123\n    work_item: true\n",
 		"radar-source-refs:\n- {source: tmux, kind: session, id: 'tmux:session:a#b', key: 'tmux:$7:1234', work_item: false}\n",
@@ -22,7 +22,7 @@ func TestPreferenceFrontmatterValidation(t *testing.T) {
 		}
 	}
 	for _, fields := range []string{
-		"radar-ignored:\n", "radar-ignored: null\n", "radar-ignored: 'true'\n", "radar-ignored: 1\n", "radar-ignored: []\n", "radar-ignored: false\nradar-ignored: true\n",
+		"radar-muted:\n", "radar-muted: null\n", "radar-muted: 'true'\n", "radar-muted: 1\n", "radar-muted: []\n", "radar-muted: false\nradar-muted: true\n",
 		"radar-source-refs:\n", "radar-source-refs: {}\n", "radar-source-refs: true\n", "radar-source-refs: [jira:issue:ABC-123]\n",
 		"radar-source-refs: [{source: jira, kind: issue}]\n",
 		"radar-source-refs: [{source: jira, kind: issue, id: null}]\n",
@@ -39,7 +39,7 @@ func TestPreferenceFrontmatterValidation(t *testing.T) {
 		"radar-source-refs: [{source: jira, kind: issue, id: ABC-123}, {source: jira, kind: issue, id: ABC-123}]\n",
 		"radar-source-refs: [{source: tmux, kind: session, id: old, key: same}, {source: tmux, kind: session, id: new, key: same}]\n",
 		"user-binding: &binding {source: jira, kind: issue, id: ABC-123}\nradar-source-refs: [*binding]\n",
-		"user-ignored: &ignored true\nradar-ignored: *ignored\n",
+		"user-muted: &muted true\nradar-muted: *muted\n",
 	} {
 		if _, err := parseNote(bindingTestHeader + fields + "---\n"); err == nil {
 			t.Errorf("invalid fields accepted: %q", fields)
@@ -54,21 +54,21 @@ func TestSurgicalWriterMultilineBindingsCRLFAndMultipleOptionalInsertions(t *tes
 			t.Run(strings.ReplaceAll(newline, "\r", "CR")+map[bool]string{false: "insert", true: "replace"}[existing], func(t *testing.T) {
 				prefs := ""
 				if existing {
-					prefs = "radar-ignored: false # keep preference comment\nradar-source-refs: # keep binding comment\n  - source: jira\n    kind: issue\n    id: jira:issue:ABC-123\n    work_item: true\n# user separator\n\n"
+					prefs = "radar-muted: false # keep preference comment\nradar-source-refs: # keep binding comment\n  - source: jira\n    kind: issue\n    id: jira:issue:ABC-123\n    work_item: true\n# user separator\n\n"
 				}
-				original := strings.ReplaceAll(bindingTestHeader+prefs+"user: &user\n  multiline: |-\n    radar-ignored: false\n    radar-source-refs: not a managed field\n  id: {nested: unchanged}\nother: *user\n# trailing user comment\n---\n", "\n", newline) + "\r\nBody: keep mixed newline bytes.\nNo final newline"
+				original := strings.ReplaceAll(bindingTestHeader+prefs+"user: &user\n  multiline: |-\n    radar-muted: false\n    radar-source-refs: not a managed field\n  id: {nested: unchanged}\nother: *user\n# trailing user comment\n---\n", "\n", newline) + "\r\nBody: keep mixed newline bytes.\nNo final newline"
 				current, err := parseNote(original)
 				if err != nil {
 					t.Fatal(err)
 				}
 				content, updated, err := updateNoteContent(current, map[string]string{
-					"radar-ignored": "true", "radar-source-refs": encodeBindings(bindings),
+					"radar-muted": "true", "radar-source-refs": encodeBindings(bindings),
 					"radar-completion-baseline": "pending", "radar-priority": "urgent",
 				})
 				if err != nil {
 					t.Fatal(err)
 				}
-				if !updated.Ignored || !reflect.DeepEqual(updated.Bindings, bindings) || updated.Priority != "urgent" || updated.CompletionBaseline != "pending" {
+				if !updated.Muted || !reflect.DeepEqual(updated.Bindings, bindings) || updated.Priority != "urgent" || updated.CompletionBaseline != "pending" {
 					t.Fatalf("updated fields = %+v", updated)
 				}
 				unknown := original[strings.Index(original, "user: &user"):strings.LastIndex(original, "---"+newline)]
@@ -98,8 +98,8 @@ func TestSurgicalWriterReplacesUnindentedAndFlowBindingSequences(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		updated, parsed, err := updateNoteContent(current, map[string]string{"radar-source-refs": encodeBindings([]protocol.SourceBinding{{Source: "git", Kind: "worktree", ID: "git:/path", Key: "git:/path:created"}}), "radar-ignored": "true"})
-		if err != nil || !parsed.Ignored || len(parsed.Bindings) != 1 || !strings.Contains(updated, "unknown: >-\n  user text\n\n# user comment\n") || !strings.HasSuffix(updated, "---\nBody") {
+		updated, parsed, err := updateNoteContent(current, map[string]string{"radar-source-refs": encodeBindings([]protocol.SourceBinding{{Source: "git", Kind: "worktree", ID: "git:/path", Key: "git:/path:created"}}), "radar-muted": "true"})
+		if err != nil || !parsed.Muted || len(parsed.Bindings) != 1 || !strings.Contains(updated, "unknown: >-\n  user text\n\n# user comment\n") || !strings.HasSuffix(updated, "---\nBody") {
 			t.Fatalf("replaced sequence = %s, %v", updated, err)
 		}
 	}
@@ -115,13 +115,13 @@ func TestBindingKeyDistinctLifetimesValidate(t *testing.T) {
 
 func TestSurgicalWriterSemanticNoopPreservesFormatting(t *testing.T) {
 	content := strings.Replace(bindingTestHeader, "radar-priority: normal", "radar-priority: 'normal' # user comment", 1)
-	content += "radar-ignored: TRUE # comment\nradar-source-refs: [{source: jira, kind: issue, id: ABC-123, work_item: TRUE}] # binding comment\nradar-completion-baseline: 'pending'\n---\nBody\r\n"
+	content += "radar-muted: TRUE # comment\nradar-source-refs: [{source: jira, kind: issue, id: ABC-123, work_item: TRUE}] # binding comment\nradar-completion-baseline: 'pending'\n---\nBody\r\n"
 	current, err := parseNote(content)
 	if err != nil {
 		t.Fatal(err)
 	}
 	updated, _, err := updateNoteContent(current, map[string]string{
-		"radar-priority": "normal", "radar-ignored": "true",
+		"radar-priority": "normal", "radar-muted": "true",
 		"radar-source-refs": encodeBindings(current.Bindings), "radar-completion-baseline": "pending",
 	})
 	if err != nil || updated != content {
@@ -136,20 +136,20 @@ func TestUnknownNumericAndMergeFieldsRemainBytePreserved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, _, err := updateNoteContent(current, map[string]string{"radar-ignored": "true"})
+	updated, _, err := updateNoteContent(current, map[string]string{"radar-muted": "true"})
 	if err != nil || !strings.Contains(updated, unknown) || !strings.HasSuffix(updated, "---\nBody") {
 		t.Fatalf("unknown fields changed:\n%s, %v", updated, err)
 	}
 }
 
 func TestUserBlockScalarContainingDelimiterIsNotFrontmatterEnd(t *testing.T) {
-	unknown := "user: |-\n  ---\n  radar-ignored: false\n  ---\n"
+	unknown := "user: |-\n  ---\n  radar-muted: false\n  ---\n"
 	content := bindingTestHeader + unknown + "---\nUser body"
 	current, err := parseNote(content)
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, _, err := updateNoteContent(current, map[string]string{"radar-ignored": "true"})
+	updated, _, err := updateNoteContent(current, map[string]string{"radar-muted": "true"})
 	if err != nil || !strings.Contains(updated, unknown) || !strings.HasSuffix(updated, "---\nUser body") {
 		t.Fatalf("user scalar changed:\n%s, %v", updated, err)
 	}

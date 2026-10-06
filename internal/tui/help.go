@@ -19,7 +19,7 @@ var mainKeyHints = [][]keyHint{
 		{"enter", "open"},
 		{"n", "new task"},
 		{"d", "done/reopen"},
-		{"m", "ignore/unignore"},
+		{"m", "mute/unmute"},
 		{"D", "delete task"},
 		{"p", "urgent/normal"},
 		{"o", "open link"},
@@ -65,9 +65,9 @@ func (m model) mainHelp(width int) string {
 	} else if task, ok := m.selectedTask(); ok {
 		for i, hint := range groups[0] {
 			if hint.keys == "m" {
-				groups[0][i].action = "ignore"
-				if task.Ignored {
-					groups[0][i].action = "unignore"
+				groups[0][i].action = "mute"
+				if task.Muted {
+					groups[0][i].action = "unmute"
 				}
 			}
 		}

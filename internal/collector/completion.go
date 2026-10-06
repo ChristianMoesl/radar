@@ -163,7 +163,7 @@ func replaceAuthoredObservation(result *Result, id string, updated protocol.Task
 				if len(result.Tasks[i].SourceRefs) == 1 {
 					result.Tasks[i].Attention = updated.Attention
 					result.Tasks[i].Reason = updated.Reason
-					result.Tasks[i].Ignored = updated.Ignored
+					result.Tasks[i].Muted = updated.Muted
 				}
 			}
 		}

@@ -90,7 +90,7 @@ type GarbageCollectionResult struct {
 }
 
 type Summary struct {
-	Ignored     int `json:"ignored"`
+	Muted       int `json:"muted"`
 	Immediate   int `json:"immediate"`
 	Attention   int `json:"attention"`
 	InProgress  int `json:"in_progress"`
@@ -145,7 +145,7 @@ type SourceRefAcknowledgement struct {
 
 type SourceRef struct {
 	BindingError string          `json:"binding_error,omitempty"`
-	Ignored      bool            `json:"ignored,omitempty"`
+	Muted        bool            `json:"muted,omitempty"`
 	Bindings     []SourceBinding `json:"bindings,omitempty"`
 	BindingKey   string          `json:"binding_key,omitempty"`
 	// CleanupIssues is the latest local collection snapshot of automatic-cleanup safety checks.
@@ -184,7 +184,7 @@ type SourceRef struct {
 type Task struct {
 	// TrackingOnly retains hidden authored history for source resolvers, not discovery.
 	TrackingOnly          bool              `json:"-"`
-	Ignored               bool              `json:"ignored,omitempty"`
+	Muted                 bool              `json:"muted,omitempty"`
 	ID                    int               `json:"id"`
 	TargetTaskID          int               `json:"-"`
 	Activity              Activity          `json:"activity,omitempty"`

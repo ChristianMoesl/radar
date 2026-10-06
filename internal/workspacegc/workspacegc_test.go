@@ -446,9 +446,9 @@ func TestRunForgetsAlreadyMissingStandaloneWorkspace(t *testing.T) {
 	}
 }
 
-func TestIgnoreDoesNotAuthorizeCleanupButRealCompletionStillDoes(t *testing.T) {
+func TestMuteDoesNotAuthorizeCleanupButRealCompletionStillDoes(t *testing.T) {
 	for _, done := range []bool{false, true} {
-		t.Run(map[bool]string{false: "ignored open", true: "ignored done"}[done], func(t *testing.T) {
+		t.Run(map[bool]string{false: "muted open", true: "muted done"}[done], func(t *testing.T) {
 			store := testStore(t)
 			root := filepath.Join(t.TempDir(), "workspaces")
 			path := filepath.Join(root, "app", "ABC-7-work")
@@ -456,7 +456,7 @@ func TestIgnoreDoesNotAuthorizeCleanupButRealCompletionStillDoes(t *testing.T) {
 			if done {
 				signal = "done"
 			}
-			note := protocol.SourceRef{ID: "notes:one", Source: "notes", Kind: "task", Role: protocol.SourceRefRoleAuthoritative, Authored: true, Ignored: true, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary, Signal: signal, CanonicalKey: "notes:one", LinkingKeys: []string{"mark:ABC-7"}}
+			note := protocol.SourceRef{ID: "notes:one", Source: "notes", Kind: "task", Role: protocol.SourceRefRoleAuthoritative, Authored: true, Muted: true, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary, Signal: signal, CanonicalKey: "notes:one", LinkingKeys: []string{"mark:ABC-7"}}
 			store.SetTasks([]protocol.Task{makeTask(signal, "authored", note), makeTask("in_progress", "worktree", worktreeRef(path, "acme/app", "ABC-7-work"))})
 			plan, err := BuildPlan(store, time.Now().Add(time.Hour), Options{WorkspaceRoot: root, IgnoreRetention: true})
 			if err != nil {

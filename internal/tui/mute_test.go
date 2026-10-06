@@ -10,12 +10,12 @@ import (
 	"radar/internal/protocol"
 )
 
-func TestIgnoreCommandsUseWholeTaskIDAndPublishOnlyOnSuccess(t *testing.T) {
-	for _, ignored := range []bool{false, true} {
+func TestMuteCommandsUseWholeTaskIDAndPublishOnlyOnSuccess(t *testing.T) {
+	for _, muted := range []bool{false, true} {
 		for _, done := range []bool{false, true} {
 			for _, authored := range []bool{false, true} {
-				t.Run(fmt.Sprintf("ignored=%v/done=%v/authored=%v", ignored, done, authored), func(t *testing.T) {
-					task := protocol.Task{ID: 7, Title: "Review work", Attention: "attention", Ignored: ignored, SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:7", Source: "github"}}}
+				t.Run(fmt.Sprintf("muted=%v/done=%v/authored=%v", muted, done, authored), func(t *testing.T) {
+					task := protocol.Task{ID: 7, Title: "Review work", Attention: "attention", Muted: muted, SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:7", Source: "github"}}}
 					if authored {
 						task.SourceRefs = append(task.SourceRefs, authoredTaskForTUITest("open", "normal", "attention").SourceRefs...)
 					}
@@ -23,9 +23,9 @@ func TestIgnoreCommandsUseWholeTaskIDAndPublishOnlyOnSuccess(t *testing.T) {
 						task.Attention = "done"
 					}
 					published := task
-					published.Ignored = !ignored
+					published.Muted = !muted
 					path, requests := deletionSocket(t, protocol.Response{OK: true, Revision: 2, Tasks: []protocol.Task{published}})
-					m := model{socketPath: path, tasks: []protocol.Task{task}, expandedSections: map[string]bool{"ignored": true, "done": true}}
+					m := model{socketPath: path, tasks: []protocol.Task{task}, expandedSections: map[string]bool{"muted": true, "done": true}}
 					updated, cmd := m.Update(inspectKey("m"))
 					m = updated.(model)
 					if cmd == nil || !m.loading || !reflect.DeepEqual(m.tasks[0], task) {
@@ -35,9 +35,9 @@ func TestIgnoreCommandsUseWholeTaskIDAndPublishOnlyOnSuccess(t *testing.T) {
 					if action.err != nil || action.response == nil || action.response.Revision != 2 {
 						t.Fatalf("toggle command failed: %+v", action)
 					}
-					method, message := "task-ignore", "Task ignored"
-					if ignored {
-						method, message = "task-unignore", "Task unignored"
+					method, message := "task-mute", "Task muted"
+					if muted {
+						method, message = "task-unmute", "Task unmuted"
 					}
 					select {
 					case request := <-requests:
@@ -45,26 +45,26 @@ func TestIgnoreCommandsUseWholeTaskIDAndPublishOnlyOnSuccess(t *testing.T) {
 							t.Fatalf("toggle targeted source rather than whole task: %+v", request)
 						}
 					case <-time.After(time.Second):
-						t.Fatal("no ignore request arrived")
+						t.Fatal("no mute request arrived")
 					}
 					if action.message != message {
 						t.Fatalf("message=%q, want %q", action.message, message)
 					}
 					updated, _ = m.Update(action)
 					m = updated.(model)
-					if m.tasks[0].Ignored != !ignored || m.tasks[0].Attention != task.Attention || m.loading {
+					if m.tasks[0].Muted != !muted || m.tasks[0].Attention != task.Attention || m.loading {
 						t.Fatal("published toggle altered lifecycle or failed to update preference")
 					}
 					if done {
 						if selected, ok := m.selectedTask(); !ok || selected.Attention != "done" {
-							t.Fatal("toggling ignored on Done moved/resurrected the selected task")
+							t.Fatal("toggling muted on Done moved/resurrected the selected task")
 						}
-					} else if ignored {
+					} else if muted {
 						if selected, ok := m.selectedTask(); !ok || selected.ID != 7 {
-							t.Fatal("unignore did not follow the selected task back to active work")
+							t.Fatal("unmute did not follow the selected task back to active work")
 						}
-					} else if m.selectedSection != "ignored" {
-						t.Fatal("ignoring last active task did not land on history header")
+					} else if m.selectedSection != "muted" {
+						t.Fatal("muting last active task did not land on history header")
 					}
 				})
 			}
@@ -72,16 +72,16 @@ func TestIgnoreCommandsUseWholeTaskIDAndPublishOnlyOnSuccess(t *testing.T) {
 	}
 }
 
-func TestIgnoreCommandErrorsLeavePreferenceAndSelectionUntouched(t *testing.T) {
-	for _, ignored := range []bool{false, true} {
+func TestMuteCommandErrorsLeavePreferenceAndSelectionUntouched(t *testing.T) {
+	for _, muted := range []bool{false, true} {
 		for _, transportFailure := range []bool{false, true} {
-			t.Run(fmt.Sprintf("ignored=%v/transport=%v", ignored, transportFailure), func(t *testing.T) {
-				task := protocol.Task{ID: 7, Attention: "attention", Ignored: ignored}
+			t.Run(fmt.Sprintf("muted=%v/transport=%v", muted, transportFailure), func(t *testing.T) {
+				task := protocol.Task{ID: 7, Attention: "attention", Muted: muted}
 				path := "/not/a/radar/socket"
 				if !transportFailure {
 					path, _ = deletionSocket(t, protocol.Response{OK: false, Error: "note write failed"})
 				}
-				m := model{socketPath: path, tasks: []protocol.Task{task}, expandedSections: map[string]bool{"ignored": true}}
+				m := model{socketPath: path, tasks: []protocol.Task{task}, expandedSections: map[string]bool{"muted": true}}
 				updated, cmd := m.Update(inspectKey("m"))
 				m = updated.(model)
 				action := cmd().(actionMsg)

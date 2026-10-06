@@ -7,11 +7,11 @@ import (
 	"radar/internal/protocol"
 )
 
-// TaskIgnoreProvider authors a durable preference, adopting source-only tasks
+// TaskMuteProvider authors a durable preference, adopting source-only tasks
 // without provisioning workspace resources.
-type TaskIgnoreProvider interface {
+type TaskMuteProvider interface {
 	Source
-	SetIgnored(context.Context, protocol.Task, bool) (AuthoredTaskIdentity, error)
+	SetMuted(context.Context, protocol.Task, bool) (AuthoredTaskIdentity, error)
 }
 
 // TaskBindingProvider keeps explicitly adopted tasks associated with new work.

@@ -61,7 +61,7 @@ func TestResolveBindingsDiscoversDevelopmentRelationshipsOutsideOrdinarySearches
 			t.Setenv("RADAR_JIRA_BASE_URL", server.URL) // All development requests stay on the local mock.
 			source := NewSource(github.NewSource())
 			req := boundJiraRequest()
-			req.Previous = []protocol.Task{{ID: 17, Title: "Renamed adopted work", Ignored: true, SourceRefs: []protocol.SourceRef{{Source: "obsidian", Kind: "task", Title: "Renamed adopted work"}}}}
+			req.Previous = []protocol.Task{{ID: 17, Title: "Renamed adopted work", Muted: true, SourceRefs: []protocol.SourceRef{{Source: "obsidian", Kind: "task", Title: "Renamed adopted work"}}}}
 			req.Result = source.Collect(context.Background(), integration.CollectRequest{Previous: req.Previous, LinkingMarks: req.LinkingMarks, Logger: req.Logger})
 			if !req.Result.Complete || len(req.Result.Observations) != 0 || searches.Load() != 1 {
 				t.Fatalf("ordinary result=%+v searches=%d", req.Result, searches.Load())

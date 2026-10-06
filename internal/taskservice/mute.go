@@ -9,25 +9,25 @@ import (
 	"radar/internal/protocol"
 )
 
-func (s *Service) Ignore(ctx context.Context, taskID int) (protocol.Task, error) {
-	return s.SetIgnored(ctx, taskID, true)
+func (s *Service) Mute(ctx context.Context, taskID int) (protocol.Task, error) {
+	return s.SetMuted(ctx, taskID, true)
 }
 
-func (s *Service) Unignore(ctx context.Context, taskID int) (protocol.Task, error) {
-	return s.SetIgnored(ctx, taskID, false)
+func (s *Service) Unmute(ctx context.Context, taskID int) (protocol.Task, error) {
+	return s.SetMuted(ctx, taskID, false)
 }
 
-// SetIgnored persists a whole-task preference, then publishes only the updated
-// authoring source. Unrelated source observations remain cached; ignoring a task
+// SetMuted persists a whole-task preference, then publishes only the updated
+// authoring source. Unrelated source observations remain cached; muting a task
 // must neither wait for remote collection nor change its underlying lifecycle.
-func (s *Service) SetIgnored(ctx context.Context, taskID int, ignored bool) (protocol.Task, error) {
+func (s *Service) SetMuted(ctx context.Context, taskID int, muted bool) (protocol.Task, error) {
 	author, err := s.integrations.TaskAuthoring()
 	if err != nil {
 		return protocol.Task{}, err
 	}
-	provider, ok := author.(integration.TaskIgnoreProvider)
+	provider, ok := author.(integration.TaskMuteProvider)
 	if !ok {
-		return protocol.Task{}, fmt.Errorf("%s task authoring integration does not support ignore/unignore", author.Descriptor().Label)
+		return protocol.Task{}, fmt.Errorf("%s task authoring integration does not support mute/unmute", author.Descriptor().Label)
 	}
 
 	s.applyMu.Lock()
@@ -39,15 +39,15 @@ func (s *Service) SetIgnored(ctx context.Context, taskID int, ignored bool) (pro
 	if !ok {
 		return protocol.Task{}, fmt.Errorf("task %d not found", taskID)
 	}
-	identity, err := provider.SetIgnored(ctx, task, ignored)
+	identity, err := provider.SetMuted(ctx, task, muted)
 	// An error can follow a successful note write. Fence in-flight refreshes on
 	// both success and failure, just as lifecycle and deletion mutations do.
 	s.authoringRevision++
 	if err != nil {
 		return protocol.Task{}, err
 	}
-	if ignored && identity.SourceRefID == "" {
-		return protocol.Task{}, fmt.Errorf("task %d ignore mutation did not return an authored identity", taskID)
+	if muted && identity.SourceRefID == "" {
+		return protocol.Task{}, fmt.Errorf("task %d mute mutation did not return an authored identity", taskID)
 	}
 	result := collector.Collect(ctx, s.store.CollectionTasks(), s.logger, []integration.Source{author})
 	s.applyLocal(result)
@@ -59,7 +59,7 @@ func (s *Service) SetIgnored(ctx context.Context, taskID int, ignored bool) (pro
 				break
 			}
 		}
-		return protocol.Task{}, fmt.Errorf("task ignore preference could not be collected from %s: %s", author.Descriptor().Label, detail)
+		return protocol.Task{}, fmt.Errorf("task mute preference could not be collected from %s: %s", author.Descriptor().Label, detail)
 	}
 	for _, current := range s.store.Tasks() {
 		matches := identity.SourceRefID == "" && current.ID == taskID
@@ -67,11 +67,11 @@ func (s *Service) SetIgnored(ctx context.Context, taskID int, ignored bool) (pro
 			matches = matches || (identity.SourceRefID != "" && ref.ID == identity.SourceRefID)
 		}
 		if matches {
-			if current.Ignored != ignored {
-				return protocol.Task{}, fmt.Errorf("task %d ignore preference was not collected after mutation", taskID)
+			if current.Muted != muted {
+				return protocol.Task{}, fmt.Errorf("task %d mute preference was not collected after mutation", taskID)
 			}
 			return current, nil
 		}
 	}
-	return protocol.Task{}, fmt.Errorf("task %d was not collected after ignore preference mutation", taskID)
+	return protocol.Task{}, fmt.Errorf("task %d was not collected after mute preference mutation", taskID)
 }

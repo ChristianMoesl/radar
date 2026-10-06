@@ -28,7 +28,7 @@ var taskSections = []taskSection{
 	{key: "attention", title: "👀 Need attention", style: attentionStyle},
 	{key: "in_progress", title: "⏳ In progress", style: progressStyle},
 	{key: "low_priority", title: "🔇 Low priority", style: lowStyle},
-	{key: "ignored", title: "Ignored", style: lowStyle, collapsible: true},
+	{key: "muted", title: "Muted", style: lowStyle, collapsible: true},
 	{key: "done", title: "Done", style: doneStyle, collapsible: true},
 }
 
@@ -51,7 +51,7 @@ type overviewLayout struct {
 	bounds  map[visibleEntry]entryBounds
 }
 
-func historyGroup(group string) bool { return group == "ignored" || group == "done" }
+func historyGroup(group string) bool { return group == "muted" || group == "done" }
 
 func (m model) sectionExpanded(group string) bool { return m.expandedSections[group] }
 

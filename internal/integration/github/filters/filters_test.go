@@ -162,3 +162,21 @@ func TestWildcardMatch(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskMutingRemainsVisibleUnlessRepositoryOrUserFilterHidesIt(t *testing.T) {
+	task := protocol.Task{ID: 1, Repo: "acme/app", Attention: "attention", Muted: true, Metadata: map[string]string{"author": "reviewer"}}
+	visible := Apply([]protocol.Task{task}, Config{})
+	if len(visible) != 1 || visible[0].DisplayGroup() != "muted" || protocol.SummarizeTasks(visible).Muted != 1 {
+		t.Fatalf("task preference hidden like a repository filter: %+v", visible)
+	}
+	for _, cfg := range []Config{{MuteRepos: []string{"acme/app"}}, {MuteUsers: []string{"reviewer"}}} {
+		hidden := Apply([]protocol.Task{task}, cfg)
+		if len(hidden) != 0 || protocol.SummarizeTasks(hidden) != (protocol.Summary{}) {
+			t.Fatalf("existing mute filter stopped excluding tasks: %+v", hidden)
+		}
+	}
+	deprioritized := Apply([]protocol.Task{task}, Config{DeprioritizeRepos: []string{"acme/app"}})
+	if len(deprioritized) != 1 || !deprioritized[0].Muted || deprioritized[0].DisplayGroup() != "muted" {
+		t.Fatalf("deprioritize defeated task muting: %+v", deprioritized)
+	}
+}

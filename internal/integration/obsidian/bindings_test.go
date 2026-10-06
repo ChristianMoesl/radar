@@ -15,13 +15,13 @@ import (
 func TestReconcileBindingsAdoptedNotePreservesOldUnresolvedAndRuntimeLifetimes(t *testing.T) {
 	source := NewSourceAt(testVault(t))
 	ctx := context.Background()
-	task := ignoreTask("Tracked identities")
-	if _, err := source.SetIgnored(ctx, task, true); err != nil {
+	task := muteTask("Tracked identities")
+	if _, err := source.SetMuted(ctx, task, true); err != nil {
 		t.Fatal(err)
 	}
 	ref := collectedArchiveRef(t, source)
-	// Unignore keeps tracking intent, and new identities still persist.
-	if _, err := source.SetIgnored(ctx, task, false); err != nil {
+	// Unmute keeps tracking intent, and new identities still persist.
+	if _, err := source.SetMuted(ctx, task, false); err != nil {
 		t.Fatal(err)
 	}
 	ref = collectedArchiveRef(t, source)
@@ -34,7 +34,7 @@ func TestReconcileBindingsAdoptedNotePreservesOldUnresolvedAndRuntimeLifetimes(t
 	// must remain unresolved; disappearance is not deletion/completion intent.
 	task.SourceRefs = []protocol.SourceRef{ref, newRuntime, newWork, task.SourceRefs[3]}
 	observation, err := source.ReconcileBindings(ctx, ref, task)
-	if err != nil || observation == nil || observation.Ref.Ignored || observation.Ref.Status != "open" || len(observation.Ref.Bindings) != 5 {
+	if err != nil || observation == nil || observation.Ref.Muted || observation.Ref.Status != "open" || len(observation.Ref.Bindings) != 5 {
 		t.Fatalf("reconcile = %+v, %v", observation, err)
 	}
 	if !reflect.DeepEqual(observation.Ref.Bindings[:len(old)], old) {
@@ -66,14 +66,14 @@ func TestReconcileBindingsAdoptedNotePreservesOldUnresolvedAndRuntimeLifetimes(t
 	}
 }
 
-func TestNoteOnlyIgnoreAdoptedEmptyBindingsPersistLaterContributors(t *testing.T) {
+func TestNoteOnlyMuteAdoptedEmptyBindingsPersistLaterContributors(t *testing.T) {
 	source := NewSourceAt(testVault(t))
 	ctx := context.Background()
 	if _, err := source.Create(ctx, "Note-only task"); err != nil {
 		t.Fatal(err)
 	}
 	ref := collectedArchiveRef(t, source)
-	if _, err := source.SetIgnored(ctx, protocol.Task{SourceRefs: []protocol.SourceRef{ref}}, true); err != nil {
+	if _, err := source.SetMuted(ctx, protocol.Task{SourceRefs: []protocol.SourceRef{ref}}, true); err != nil {
 		t.Fatal(err)
 	}
 	ref = collectedArchiveRef(t, source)
@@ -83,10 +83,10 @@ func TestNoteOnlyIgnoreAdoptedEmptyBindingsPersistLaterContributors(t *testing.T
 	}
 	// nil models the JSON omitempty boundary for an adopted zero-ref note.
 	ref.Bindings = nil
-	incoming := ignoreTask("ignored")
+	incoming := muteTask("muted")
 	incoming.SourceRefs = append(incoming.SourceRefs, ref)
 	observation, err := source.ReconcileBindings(ctx, ref, incoming)
-	if err != nil || observation == nil || len(observation.Ref.Bindings) != 3 || !observation.Ref.Ignored {
+	if err != nil || observation == nil || len(observation.Ref.Bindings) != 3 || !observation.Ref.Muted {
 		t.Fatalf("empty adopted note did not acquire bindings: %+v, %v", observation, err)
 	}
 }
@@ -102,7 +102,7 @@ func TestReconcileBindingsNeverAdoptsOrdinaryNoteOrCreatesNote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation, err := source.ReconcileBindings(ctx, ref, ignoreTask("Source title"))
+	observation, err := source.ReconcileBindings(ctx, ref, muteTask("Source title"))
 	if err != nil || observation != nil {
 		t.Fatalf("ordinary note was adopted: %+v, %v", observation, err)
 	}
@@ -110,7 +110,7 @@ func TestReconcileBindingsNeverAdoptsOrdinaryNoteOrCreatesNote(t *testing.T) {
 	if err != nil || !os.SameFile(before, after) {
 		t.Fatal("ordinary note was rewritten")
 	}
-	if _, err := source.ReconcileBindings(ctx, ignoreTask("").SourceRefs[0], ignoreTask("No authored task")); err == nil {
+	if _, err := source.ReconcileBindings(ctx, muteTask("").SourceRefs[0], muteTask("No authored task")); err == nil {
 		t.Fatal("non-authored binding target succeeded")
 	}
 	if result := source.Collect(ctx, integration.CollectRequest{}); !result.Complete || len(result.Observations) != 1 {
@@ -121,8 +121,8 @@ func TestReconcileBindingsNeverAdoptsOrdinaryNoteOrCreatesNote(t *testing.T) {
 func TestReconcileBindingsProtectsContentHashRaces(t *testing.T) {
 	source := NewSourceAt(testVault(t))
 	ctx := context.Background()
-	task := ignoreTask("Race-safe")
-	if _, err := source.SetIgnored(ctx, task, true); err != nil {
+	task := muteTask("Race-safe")
+	if _, err := source.SetMuted(ctx, task, true); err != nil {
 		t.Fatal(err)
 	}
 	ref := collectedArchiveRef(t, source)
@@ -156,9 +156,9 @@ func TestReconcileBindingsDoesNotRelocateDoneOrArchivedNotes(t *testing.T) {
 		t.Run(map[bool]string{false: "private", true: "archived"}[archived], func(t *testing.T) {
 			source := NewSourceAt(testVault(t))
 			ctx := context.Background()
-			task := ignoreTask("Done binding task")
+			task := muteTask("Done binding task")
 			task.Attention, task.DoneAt = "done", "2026-08-01T10:00:00Z"
-			if _, err := source.SetIgnored(ctx, task, true); err != nil {
+			if _, err := source.SetMuted(ctx, task, true); err != nil {
 				t.Fatal(err)
 			}
 			ref := collectedArchiveRef(t, source)
@@ -177,7 +177,7 @@ func TestReconcileBindingsDoesNotRelocateDoneOrArchivedNotes(t *testing.T) {
 			newRef.ID = "jira:issue:ABC-456"
 			task.SourceRefs = []protocol.SourceRef{ref, newRef}
 			observation, err := source.ReconcileBindings(ctx, ref, task)
-			if err != nil || observation == nil || observation.Ref.Metadata["note_path"] != path || !observation.Ref.Ignored || observation.Ref.Status != "done" {
+			if err != nil || observation == nil || observation.Ref.Metadata["note_path"] != path || !observation.Ref.Muted || observation.Ref.Status != "done" {
 				t.Fatalf("binding mutation moved/reopened task: %+v, %v", observation, err)
 			}
 			updated, err := readNote(path)
@@ -188,13 +188,13 @@ func TestReconcileBindingsDoesNotRelocateDoneOrArchivedNotes(t *testing.T) {
 	}
 }
 
-func TestIgnoreAndReconcileFailClosedOnAmbiguousNotes(t *testing.T) {
+func TestMuteAndReconcileFailClosedOnAmbiguousNotes(t *testing.T) {
 	for _, conflict := range []string{"multiple authored", "multiple bindings", "duplicate binding owner", "duplicate ID", "malformed note", "missing authored"} {
 		t.Run(conflict, func(t *testing.T) {
 			source := NewSourceAt(testVault(t))
 			ctx := context.Background()
-			task := ignoreTask("First")
-			if _, err := source.SetIgnored(ctx, task, true); err != nil {
+			task := muteTask("First")
+			if _, err := source.SetMuted(ctx, task, true); err != nil {
 				t.Fatal(err)
 			}
 			ref := collectedArchiveRef(t, source)
@@ -224,7 +224,7 @@ func TestIgnoreAndReconcileFailClosedOnAmbiguousNotes(t *testing.T) {
 				otherBinding := task.SourceRefs[0]
 				otherBinding.ID = "jira:issue:ABC-456"
 				otherTask := protocol.Task{SourceRefs: []protocol.SourceRef{other, otherBinding}}
-				if _, err := source.SetIgnored(ctx, otherTask, true); err != nil {
+				if _, err := source.SetMuted(ctx, otherTask, true); err != nil {
 					t.Fatal(err)
 				}
 				selected.SourceRefs = append(append([]protocol.SourceRef(nil), task.SourceRefs...), otherBinding)
@@ -252,11 +252,11 @@ func TestIgnoreAndReconcileFailClosedOnAmbiguousNotes(t *testing.T) {
 				other.Metadata = nil
 				selected.SourceRefs = append(append([]protocol.SourceRef(nil), task.SourceRefs...), other)
 			}
-			if _, err := source.SetIgnored(ctx, selected, false); err == nil {
-				t.Fatal("ambiguous unignore selected a note")
+			if _, err := source.SetMuted(ctx, selected, false); err == nil {
+				t.Fatal("ambiguous unmute selected a note")
 			}
-			if _, err := source.SetIgnored(ctx, selected, true); err == nil {
-				t.Fatal("ambiguous ignore selected a note")
+			if _, err := source.SetMuted(ctx, selected, true); err == nil {
+				t.Fatal("ambiguous mute selected a note")
 			}
 			if observation, err := source.ReconcileBindings(ctx, ref, selected); err == nil || observation != nil {
 				t.Fatalf("ambiguous reconciliation selected a note: %+v, %v", observation, err)
@@ -272,8 +272,8 @@ func TestIgnoreAndReconcileFailClosedOnAmbiguousNotes(t *testing.T) {
 func TestCollectionRejectsConflictingBindingOwnersAndPreservesPreviousRefs(t *testing.T) {
 	source := NewSourceAt(testVault(t))
 	ctx := context.Background()
-	task := ignoreTask("First owner")
-	if _, err := source.SetIgnored(ctx, task, true); err != nil {
+	task := muteTask("First owner")
+	if _, err := source.SetMuted(ctx, task, true); err != nil {
 		t.Fatal(err)
 	}
 	ref := collectedArchiveRef(t, source)
@@ -299,7 +299,7 @@ func TestCollectionRejectsConflictingBindingOwnersAndPreservesPreviousRefs(t *te
 		t.Fatalf("conflicting owners collection = %+v", result)
 	}
 	for _, observation := range result.Observations {
-		if observation.Ref.ID == ref.ID && (!observation.Ref.Ignored || !reflect.DeepEqual(observation.Ref.Bindings, ref.Bindings)) {
+		if observation.Ref.ID == ref.ID && (!observation.Ref.Muted || !reflect.DeepEqual(observation.Ref.Bindings, ref.Bindings)) {
 			t.Fatal("conflicting ownership dropped existing preference")
 		}
 	}
@@ -328,23 +328,23 @@ func TestUnadoptedNoteUnreadableResourceDoesNotBlockOrdinaryCompletion(t *testin
 	}
 }
 
-func TestUnreadableBindingFailsAdoptionAndReconcileButAuthoredUnignoreStillWorks(t *testing.T) {
+func TestUnreadableBindingFailsAdoptionAndReconcileButAuthoredUnmuteStillWorks(t *testing.T) {
 	source := NewSourceAt(testVault(t))
 	ctx := context.Background()
-	task := ignoreTask("Operational identity failure")
+	task := muteTask("Operational identity failure")
 	unsafe := task.SourceRefs[2]
 	unsafe.BindingKey = ""
 	unsafe.BindingError = "resource identity could not be read"
 	unsafeTask := task
 	unsafeTask.SourceRefs = append([]protocol.SourceRef(nil), task.SourceRefs...)
 	unsafeTask.SourceRefs[2] = unsafe
-	if _, err := source.SetIgnored(ctx, unsafeTask, true); err == nil || !strings.Contains(err.Error(), unsafe.BindingError) {
+	if _, err := source.SetMuted(ctx, unsafeTask, true); err == nil || !strings.Contains(err.Error(), unsafe.BindingError) {
 		t.Fatalf("unsafe adoption was not rejected with provider reason: %v", err)
 	}
 	if result := source.Collect(ctx, integration.CollectRequest{}); !result.Complete || len(result.Observations) != 0 {
 		t.Fatalf("unsafe adoption created note: %+v", result)
 	}
-	if _, err := source.SetIgnored(ctx, task, true); err != nil {
+	if _, err := source.SetMuted(ctx, task, true); err != nil {
 		t.Fatal(err)
 	}
 	ref := collectedArchiveRef(t, source)
@@ -356,25 +356,25 @@ func TestUnreadableBindingFailsAdoptionAndReconcileButAuthoredUnignoreStillWorks
 	if observation, err := source.ReconcileBindings(ctx, ref, unsafeTask); err == nil || observation != nil || !strings.Contains(err.Error(), unsafe.BindingError) {
 		t.Fatalf("unsafe binding persisted: %+v, %v", observation, err)
 	}
-	if _, err := source.SetIgnored(ctx, unsafeTask, true); err == nil {
-		t.Fatal("repeat ignore persisted unsafe identity")
+	if _, err := source.SetMuted(ctx, unsafeTask, true); err == nil {
+		t.Fatal("repeat mute persisted unsafe identity")
 	}
 	after, err := os.ReadFile(ref.Metadata["note_path"])
 	if err != nil || string(after) != string(original) {
 		t.Fatal("unavailable identity contaminated existing note")
 	}
-	if _, err := source.SetIgnored(ctx, unsafeTask, false); err != nil {
-		t.Fatalf("operational failure blocked explicit authored unignore: %v", err)
+	if _, err := source.SetMuted(ctx, unsafeTask, false); err != nil {
+		t.Fatalf("operational failure blocked explicit authored unmute: %v", err)
 	}
-	unignored := collectedArchiveRef(t, source)
-	if unignored.Ignored || !reflect.DeepEqual(unignored.Bindings, ref.Bindings) {
-		t.Fatalf("unignore changed safe bindings: %+v", unignored)
+	unmuted := collectedArchiveRef(t, source)
+	if unmuted.Muted || !reflect.DeepEqual(unmuted.Bindings, ref.Bindings) {
+		t.Fatalf("unmute changed safe bindings: %+v", unmuted)
 	}
 	// Informational identities never become tracking intent, even if broken.
 	informational := unsafe
 	informational.Role = protocol.SourceRefRoleInformational
 	task.SourceRefs = append(task.SourceRefs, informational)
-	if _, err := source.SetIgnored(ctx, task, true); err != nil {
-		t.Fatalf("informational identity failure blocked ignore: %v", err)
+	if _, err := source.SetMuted(ctx, task, true); err != nil {
+		t.Fatalf("informational identity failure blocked mute: %v", err)
 	}
 }

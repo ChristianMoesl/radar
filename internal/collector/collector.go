@@ -151,7 +151,7 @@ func collectSource(ctx context.Context, source integration.Source, descriptor in
 	statusDuration := time.Since(statusStarted)
 	if !collection.status.CanRun {
 		if authorsTasks(source) {
-			// Losing access to the preference authority must not turn ignored
+			// Losing access to the preference authority must not turn muted
 			// tasks back into actionable work. Retain facts, never completeness.
 			for _, task := range previous {
 				for _, ref := range task.SourceRefs {
@@ -286,7 +286,7 @@ func taskFromObservation(observation integration.Observation) protocol.Task {
 	sourceRef.Signal = attention
 	return protocol.Task{
 		TargetTaskID: observation.TargetTaskID,
-		Ignored:      sourceRef.Authored && sourceRef.Ignored,
+		Muted:        sourceRef.Authored && sourceRef.Muted,
 		Activity:     sourceRef.Activity,
 		Kind:         taskKindFromObservation(observation),
 		Title:        sourceRef.Title,
@@ -370,6 +370,6 @@ func mergeSourceRefs(left []protocol.SourceRef, right []protocol.SourceRef) []pr
 
 func authorsTasks(source integration.Source) bool {
 	_, author := source.(integration.TaskAuthoringProvider)
-	_, preferences := source.(integration.TaskIgnoreProvider)
+	_, preferences := source.(integration.TaskMuteProvider)
 	return author || preferences
 }

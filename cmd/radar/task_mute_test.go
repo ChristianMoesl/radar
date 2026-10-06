@@ -43,10 +43,10 @@ func captureTaskCommandOutput(t *testing.T, output **os.File, run func()) string
 	return string(data)
 }
 
-func TestTaskIgnoreAndUnignoreCLIRequests(t *testing.T) {
-	for _, command := range []string{"ignore", "unignore"} {
+func TestTaskMuteAndUnmuteCLIRequests(t *testing.T) {
+	for _, command := range []string{"mute", "unmute"} {
 		t.Run(command, func(t *testing.T) {
-			dir, err := os.MkdirTemp("/tmp", "radar-ignore-cli-")
+			dir, err := os.MkdirTemp("/tmp", "radar-mute-cli-")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -60,7 +60,7 @@ func TestTaskIgnoreAndUnignoreCLIRequests(t *testing.T) {
 			defer listener.Close()
 			requests := make(chan protocol.Request, 2)
 			finished := make(chan struct{})
-			wantTask := protocol.Task{ID: 7, Title: "Ship release", Attention: "attention", Ignored: command == "ignore"}
+			wantTask := protocol.Task{ID: 7, Title: "Ship release", Attention: "attention", Muted: command == "mute"}
 			go func() {
 				defer close(finished)
 				for range 2 {
@@ -102,36 +102,38 @@ func TestTaskIgnoreAndUnignoreCLIRequests(t *testing.T) {
 	}
 }
 
-func TestTaskHelpDocumentsIgnoreAndUnignoreWithoutRestoreAlias(t *testing.T) {
+func TestTaskHelpDocumentsMuteAndUnmuteWithoutRestoreAlias(t *testing.T) {
 	for _, usage := range []func(){usage, taskUsage} {
 		output := captureTaskCommandOutput(t, &os.Stderr, usage)
-		for _, want := range []string{"radar task ignore <task-id>", "radar task unignore <task-id>"} {
+		for _, want := range []string{"radar task mute <task-id>", "radar task unmute <task-id>"} {
 			if !strings.Contains(output, want) {
 				t.Fatalf("help did not include %q: %s", want, output)
 			}
 		}
-		if strings.Contains(output, "restore") {
-			t.Fatal("ignore feature added an unwanted restore alias")
+		for _, legacy := range []string{"restore", "radar task ignore ", "radar task unignore "} {
+			if strings.Contains(output, legacy) {
+				t.Fatalf("mute feature advertises legacy command %q", legacy)
+			}
 		}
 	}
 }
 
-func TestNotifyActionableTransitionsSuppressesIgnoredAndUnignoreMutation(t *testing.T) {
+func TestNotifyActionableTransitionsSuppressesMutedAndUnmuteMutation(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sender := &recordingNotificationSender{}
 	service := notification.NewWithSender(logger, sender)
-	previous := []protocol.Task{{ID: 3, Title: "Explicitly unignored", Attention: "attention", Ignored: true}}
+	previous := []protocol.Task{{ID: 3, Title: "Explicitly unmuted", Attention: "attention", Muted: true}}
 	current := []protocol.Task{
-		{ID: 1, Title: "Ignored urgent", Attention: "immediate", Ignored: true},
-		{ID: 2, Title: "Ignored done", Attention: "done", Ignored: true},
-		{ID: 3, Title: "Explicitly unignored", Attention: "attention"},
+		{ID: 1, Title: "Muted urgent", Attention: "immediate", Muted: true},
+		{ID: 2, Title: "Muted done", Attention: "done", Muted: true},
+		{ID: 3, Title: "Explicitly unmuted", Attention: "attention"},
 		{ID: 4, Title: "Useful", Attention: "attention"},
 	}
 	notifyActionableTransitions(context.Background(), previous, current, logger, integration.NewRegistry(), service)
 	if !reflect.DeepEqual(sender.titles, []string{"Radar: Useful"}) {
 		t.Fatalf("notification titles = %#v, want only useful task", sender.titles)
 	}
-	if current[0].Attention != "immediate" || !current[0].Ignored || !previous[0].Ignored {
+	if current[0].Attention != "immediate" || !current[0].Muted || !previous[0].Muted {
 		t.Fatal("notification gating mutated underlying task facts")
 	}
 }

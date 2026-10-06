@@ -45,7 +45,7 @@ Every integration implements `Integration` by returning a descriptor with its st
 - `LocalSource`: marks sources that can be refreshed frequently without remote API calls.
 - `Reconciler`: resolves disappeared remote refs into observations, including `done` signals.
 - `BoundSourceResolver`: resolves explicitly bound provider-owned identities not covered by normal active discovery, including on a cold cache start. GitHub, Jira, and Datadog implement it.
-- `TaskIgnoreProvider`: persists a whole-task ignored preference and adopts source-only work into a canonical note without provisioning workspace resources. Obsidian implements it.
+- `TaskMuteProvider`: persists a whole-task muted preference and adopts source-only work into a canonical note without provisioning workspace resources. Obsidian implements it.
 - `TaskBindingProvider`: persists newly established authoritative associations on an explicitly adopted task without changing its lifecycle. Obsidian implements it.
 - `ActionProvider`: exposes source-owned actions for source refs.
 - `CleanupProvider`: previews and cleans up source-owned local resources through the shared cleanup service.
@@ -68,7 +68,7 @@ Every integration implements `Integration` by returning a descriptor with its st
 
 | Integration | Source | Status | Local | Reconcile | Authoring | Actions | Cleanup | Workspace role | Other capabilities |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Obsidian | yes | yes | yes | no | yes | yes | no | seed | ignore preferences, binding reconciliation |
+| Obsidian | yes | yes | yes | no | yes | yes | no | seed | mute preferences, binding reconciliation |
 | GitHub | yes | yes | no | yes | no | no | no | seed | filters, rate limits, development-link resolver, bound lookup |
 | Jira | yes | yes | no | yes | no | no | no | no | work tracker, bound lookup |
 | Datadog | yes | yes | no | yes | no | no | no | no | bound lookup |
@@ -103,27 +103,27 @@ Every emitted `protocol.SourceRef` must have:
 16. `URL` only when it is directly openable.
 17. `Acknowledgement` only when the provider exposes a cursor-based activity acknowledgement contract.
 18. `RetainInactive` only when a provider's terminal source facts must remain in done-task history; local/deletable refs leave it false.
-19. `Ignored` when an authoritative authoring ref owns the task's independent persisted preference. It does not change `Signal`, lifecycle, priority, or external state.
+19. `Muted` when an authoritative authoring ref owns the task's independent persisted preference. It does not change `Signal`, lifecycle, priority, or external state.
 20. `Bindings` when an authoring ref carries durable `protocol.SourceBinding` tracking intent for its aggregate. These are structured identities, not source observations or cached remote status.
 21. `BindingKey` when the provider's ordinary `ID` is a locator or display-derived value that can be reused. The opaque key must distinguish the represented resource's concrete lifetime.
-22. `BindingError` when the provider cannot currently establish an unambiguous durable identity. Explicit ignore must report the error rather than bind an unsafe locator. This does not remove the ref from collection, disable its actions, or change lifecycle authority.
+22. `BindingError` when the provider cannot currently establish an unambiguous durable identity. Explicit mute must report the error rather than bind an unsafe locator. This does not remove the ref from collection, disable its actions, or change lifecycle authority.
 
 Informational refs cannot emit activity because their facts do not participate in task projection. Workspace capability is independent of lifecycle and lifecycle authority. A registered Radar anchor provides the logical workspace, including when it has no Git members. Registered Git members link through `workspace-group:<id>` and the persisted task key but do not compete with the anchor as the preferred workspace. Unmanaged Git worktrees continue to provide their own workspace paths. Obsidian notes own work-item lifecycle, while tmux sessions and SBX sandboxes consume anchor paths as resources. Workspace capability does not emit a signal or change attention by itself.
 
 The collector stamps source label and display order from the integration descriptor. Informational refs must not emit signals, runtime activity, lifecycle authority, canonical keys, linking keys, or workspace capability. An observation may set `TargetTaskID` to associate such a ref with a stable existing Radar task without turning source metadata into task identity. Do not invent Radar task IDs in integrations or parse another source's IDs or metadata in core state. Keep source-specific behavior tested in the source package. Core packages consume only interfaces and generic protocol fields. `internal/integration/contracttest` rejects concrete provider imports and direct `gh`, `git`, `tmux`, or `sbx` command execution outside the integration boundary.
 
-## Durable ignored preferences and bound collection
+## Durable muted preferences and bound collection
 
-Ignored is a whole-task authoring preference, not a third authored lifecycle state or a source attention signal. `protocol.Task.Ignored` carries it independently of `Task.Attention`; `Task.DisplayGroup()` returns actual done → `done`, otherwise ignored → `ignored`, otherwise the current attention category. An unfinished ignored task contributes only to the separate ignored count and does not produce actionable attention notifications. A done task with the preference contributes only to Done. Existing mute filters still hide matching tasks; deprioritization and urgency cannot make ignored work actively visible.
+Muted is a whole-task authoring preference, not a third authored lifecycle state or a source attention signal. `protocol.Task.Muted` carries it independently of `Task.Attention`; `Task.DisplayGroup()` returns actual done → `done`, otherwise muted → `muted`, otherwise the current attention category. An unfinished muted task remains in the Muted section, contributes only to the separate muted count, and does not produce actionable attention notifications. A done task with the preference contributes only to Done. Repository/user `mute` filters are distinct and still hide entire matching tasks from the view and all counts, including Muted and Done; deprioritization and urgency cannot move per-task muted work into active sections.
 
-The explicit mutation entry points are `radar task ignore <task-id>` and `radar task unignore <task-id>`, with the TUI's `m` key toggling the preference on a selected task. Ignore reuses a canonical note or creates a normal note with bindings on demand for source-only work; it creates no workspace, worktree, branch, session, sandbox, mount, or port, and does not mutate remote source state. Unignore clears only the flag, leaving the note, associations, and actual lifecycle intact. The preference and bindings remain through completion, reopening, archival, renames, restarts, cache resets, and workspace cleanup. See [Obsidian's schema and mutation guarantees](integrations/obsidian.md#ignored-preference-and-durable-source-bindings) and [attention policy and TUI sections](attention-algorithm.md#ignored-preference-and-history-sections).
+The explicit mutation entry points are `radar task mute <task-id>` and `radar task unmute <task-id>`, with the TUI's `m` key toggling the preference on a selected task. Mute reuses a canonical note or creates a normal note with bindings on demand for source-only work; it creates no workspace, worktree, branch, session, sandbox, mount, or port, and does not mutate remote source state. Unmute clears only the flag, leaving the note, associations, and actual lifecycle intact. The preference and bindings remain through completion, reopening, archival, renames, restarts, cache resets, and workspace cleanup. See [Obsidian's schema and mutation guarantees](integrations/obsidian.md#muted-preference-and-durable-source-bindings) and [attention policy and TUI sections](attention-algorithm.md#muted-preference-and-history-sections).
 
 These capabilities keep provider-owned identity and persistence separate from generic collection/projection:
 
 ```go
-type TaskIgnoreProvider interface {
+type TaskMuteProvider interface {
     Source
-    SetIgnored(context.Context, protocol.Task, bool) (AuthoredTaskIdentity, error)
+    SetMuted(context.Context, protocol.Task, bool) (AuthoredTaskIdentity, error)
 }
 
 type TaskBindingProvider interface {
@@ -139,15 +139,15 @@ type BoundSourceResolver interface {
 
 `protocol.SourceBinding` has required `Source`, `Kind`, and `ID`, optional `Key`, and optional `WorkItem`. The canonical note stores it as the managed structured `radar-source-refs` YAML sequence. `Key`, when present, identifies the concrete lifetime; otherwise the provider's exact `ID` is the identity. Generic state joins using source/kind/identity, without source-name switches, title matching, or cache-local task IDs. `WorkItem: true` marks authoritative contributing work required for automatic completion. Informational refs do not become binding-owned contributors, and supporting local resources remain non-contributing.
 
-Providers own identity validation, lookup, and terminal-state interpretation. A path, branch, or session/sandbox display name alone is not a safe durable ignore selector when another resource can reuse it. Emit a provider-owned lifetime-safe `BindingKey`, or emit `BindingError` if that identity cannot be proven. The latter keeps existing collection and capabilities available but makes explicit ignore fail clearly; do not hide the resource or silently substitute a broad name/path match.
+Providers own identity validation, lookup, and terminal-state interpretation. A path, branch, or session/sandbox display name alone is not a safe durable selector for the muted preference when another resource can reuse it. Emit a provider-owned lifetime-safe `BindingKey`, or emit `BindingError` if that identity cannot be proven. The latter keeps existing collection and capabilities available but makes explicit mute fail clearly; do not hide the resource or silently substitute a broad name/path match.
 
 Full collection first performs the short local authoring read so persisted bindings are available even with an empty cache. The remaining providers still collect in parallel. After a provider's normal discovery, a registered `BoundSourceResolver` receives only bindings for its source, the prior projected tasks, its current `CollectResult`, linking-mark matcher, and logger in a typed `BindingRequest`. It returns actual observations and completeness/status diagnostics. A provider skipped by `StatusReporter` remains skipped; bindings do not bypass configuration, credentials, or source availability.
 
 Bound lookup must recover work that left active search while Radar was stopped, for example `github:pr:acme/app:7` after merging. Ordinary refreshes may reuse previously confirmed terminal facts instead of repeatedly fetching every completed item. Local providers resolve current concrete resource lifetimes through their normal collection and exact binding identity; a new resource reusing an old name is not the bound resource. No provider may manufacture an active or done observation merely because a binding exists.
 
-Missing unresolved bound work items and failed, unavailable, or incomplete provider lookup block unsupported automatic completion and remain visible as source diagnostics. Keep unresolved bindings; missing data is not completion evidence. `TaskBindingProvider` adds newly established authoritative associations to already adopted notes, including after unignore, and avoids writes when nothing changed. It does not create notes for all discovered tasks, prune bindings just because an item disappeared, or change completion authority. Existing authored completion-baseline rules still apply, and local-resource disappearance neither completes a note nor clears its preference.
+Missing unresolved bound work items and failed, unavailable, or incomplete provider lookup block unsupported automatic completion and remain visible as source diagnostics. Keep unresolved bindings; missing data is not completion evidence. `TaskBindingProvider` adds newly established authoritative associations to already adopted notes, including after unmute, and avoids writes when nothing changed. It does not create notes for all discovered tasks, prune bindings just because an item disappeared, or change completion authority. Existing authored completion-baseline rules still apply, and local-resource disappearance neither completes a note nor clears its preference.
 
-The optional `radar-ignored` boolean is false when absent; absent bindings leave ordinary notes unchanged. This feature adds no migrations, legacy aliases/readers, or configuration switches. Validate existing private/archived note fields and binding ownership read-only before installation; cold reconstruction must preserve authored intent independently of the rebuildable cache.
+The optional `radar-muted` boolean is false when absent; absent bindings leave ordinary notes unchanged. The rename changes the note field from `radar-ignored` to `radar-muted` and typed snapshot keys from `ignored` to `muted`, raising the cache version from 7 to 8. Users of the prior ignore version must run the [explicit offline migration](integrations/obsidian.md#migrating-task-muting) before starting the new daemon. Ordinary notes without the old field need no note edits. No runtime legacy aliases/readers, automatic migration, or configuration switches are added; cold reconstruction must preserve authored intent independently of the rebuildable cache.
 
 ## Cleanup providers
 
@@ -166,7 +166,7 @@ type CleanupRequest struct {
 }
 ```
 
-The provider owns removal of only its resource type. tmux removes sessions, SBX removes sandboxes, Git removes worktrees and eligible local branches, and Workspace removes explicitly configured disposable root entries and then the empty managed anchor. Merely observed worktrees, protected branches, remote branches, and canonical Obsidian notes are preserved. Manual cleanup passes `Force: true` after user confirmation. Automatic garbage collection passes `Force: false` and skips any target whose provider emitted a safety item with `BlocksAutomatic`. Ignoring alone does not mark work complete, archive an open note, authorize cleanup, or establish garbage-collection eligibility. Genuinely done ignored work follows the same existing retention and provider safety checks; manual cleanup remains available.
+The provider owns removal of only its resource type. tmux removes sessions, SBX removes sandboxes, Git removes worktrees and eligible local branches, and Workspace removes explicitly configured disposable root entries and then the empty managed anchor. Merely observed worktrees, protected branches, remote branches, and canonical Obsidian notes are preserved. Manual cleanup passes `Force: true` after user confirmation. Automatic garbage collection passes `Force: false` and skips any target whose provider emitted a safety item with `BlocksAutomatic`. Muting alone does not mark work complete, archive an open note, authorize cleanup, or establish garbage-collection eligibility. Genuinely done muted work follows the same existing retention and provider safety checks; manual cleanup remains available.
 
 The active provider order is tmux, SBX, Git, then Workspace. Processes stop first, members disappear before the anchor, and unknown anchor contents block removal. The workspace provider alone interprets the global disposable-entry allowlist and its preview operation data; it never overrides member safety checks. Do not orchestrate another integration's resources from a provider.
 

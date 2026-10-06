@@ -29,8 +29,8 @@ func (t Task) DisplayGroup() string {
 	if t.Attention == "done" {
 		return "done"
 	}
-	if t.Ignored {
-		return "ignored"
+	if t.Muted {
+		return "muted"
 	}
 	return t.Attention
 }

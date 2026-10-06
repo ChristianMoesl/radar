@@ -12,19 +12,19 @@ import (
 	"radar/internal/protocol"
 )
 
-func TestIgnoreTaskRequestsAndResponses(t *testing.T) {
+func TestMuteTaskRequestsAndResponses(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		method string
 		call   func(string, int) (protocol.Response, error)
 	}{
-		{name: "ignore", method: "task-ignore", call: IgnoreTask},
-		{name: "unignore", method: "task-unignore", call: UnignoreTask},
+		{name: "mute", method: "task-mute", call: MuteTask},
+		{name: "unmute", method: "task-unmute", call: UnmuteTask},
 	} {
 		for _, ok := range []bool{true, false} {
 			t.Run(tc.name+map[bool]string{true: "/success", false: "/daemon-error"}[ok], func(t *testing.T) {
 				// Use a short isolated Unix socket path on both Linux and macOS.
-				dir, err := os.MkdirTemp("/tmp", "radar-ignore-client-")
+				dir, err := os.MkdirTemp("/tmp", "radar-mute-client-")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -38,7 +38,7 @@ func TestIgnoreTaskRequestsAndResponses(t *testing.T) {
 				requests := make(chan protocol.Request, 1)
 				want := protocol.Response{OK: ok, Revision: 42}
 				if ok {
-					want.Task = &protocol.Task{ID: 7, Title: "Ship release", Attention: "attention", Ignored: tc.method == "task-ignore"}
+					want.Task = &protocol.Task{ID: 7, Title: "Ship release", Attention: "attention", Muted: tc.method == "task-mute"}
 					want.Tasks = []protocol.Task{*want.Task}
 				} else {
 					want.Error = "task 7 not found"
@@ -67,7 +67,7 @@ func TestIgnoreTaskRequestsAndResponses(t *testing.T) {
 						t.Fatalf("request = %+v, want %+v", request, wantRequest)
 					}
 				case <-time.After(time.Second):
-					t.Fatal("ignore request was not received")
+					t.Fatal("mute request was not received")
 				}
 			})
 		}

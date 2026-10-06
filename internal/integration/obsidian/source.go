@@ -32,7 +32,7 @@ type Source struct {
 }
 
 type note struct {
-	Ignored            bool
+	Muted              bool
 	Bindings           []protocol.SourceBinding
 	ID                 string
 	Title              string
@@ -277,7 +277,7 @@ func observationsFor(vault string, current note) []integration.Observation {
 			Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
 			Presentation: protocol.SourceRefPresentation{PreferTitle: true, WorkspaceName: current.Title}, Title: current.Title, URL: uri,
 			Status: current.State, CanonicalKey: identity, LinkingKeys: linking.Keys(keys...), Metadata: metadata,
-			WorkspaceAnchorPath: current.Path, Authored: true, Ignored: current.Ignored, Bindings: current.Bindings,
+			WorkspaceAnchorPath: current.Path, Authored: true, Muted: current.Muted, Bindings: current.Bindings,
 		},
 		Signal: signal, Reason: "Obsidian task is " + current.State,
 	}}

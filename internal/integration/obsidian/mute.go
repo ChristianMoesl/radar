@@ -17,15 +17,15 @@ import (
 	"radar/internal/protocol"
 )
 
-// SetIgnored adopts a source-only task on demand. Discovery and the complete
+// SetMuted adopts a source-only task on demand. Discovery and the complete
 // bound-note write share the existing note lock, including retries after a
 // successful write whose subsequent collection/publication failed.
-func (s Source) SetIgnored(ctx context.Context, task protocol.Task, ignored bool) (integration.AuthoredTaskIdentity, error) {
+func (s Source) SetMuted(ctx context.Context, task protocol.Task, muted bool) (integration.AuthoredTaskIdentity, error) {
 	// An explicit authored identity is enough to clear an existing preference
 	// when a supporting resource's lifetime is temporarily unreadable. Never
 	// use that resource's unsafe raw identity to discover or adopt a note.
 	requireIdentity := true
-	if !ignored {
+	if !muted {
 		for _, ref := range task.SourceRefs {
 			if ref.Role == protocol.SourceRefRoleAuthoritative && ref.Source == "obsidian" && ref.Kind == "task" && ref.Authority == protocol.SourceRefAuthorityPrimary {
 				requireIdentity = false
@@ -55,7 +55,7 @@ func (s Source) SetIgnored(ctx context.Context, task protocol.Task, ignored bool
 		}
 		if current == nil {
 			// Clearing a preference that has never been authored is a true no-op.
-			if !ignored {
+			if !muted {
 				return nil
 			}
 			if len(bindings) == 0 {
@@ -73,7 +73,7 @@ func (s Source) SetIgnored(ctx context.Context, task protocol.Task, ignored bool
 			if err != nil {
 				return err
 			}
-			updates := map[string]string{"radar-ignored": "true", "radar-source-refs": encodeBindings(bindings)}
+			updates := map[string]string{"radar-muted": "true", "radar-source-refs": encodeBindings(bindings)}
 			if task.Attention == "done" {
 				completed := task.DoneAt
 				if completed == "" {
@@ -97,10 +97,10 @@ func (s Source) SetIgnored(ctx context.Context, task protocol.Task, ignored bool
 		}
 		identity.SourceRefID = "obsidian:task:" + current.ID
 		updates := map[string]string{}
-		if current.Ignored != ignored {
-			updates["radar-ignored"] = strconv.FormatBool(ignored)
+		if current.Muted != muted {
+			updates["radar-muted"] = strconv.FormatBool(muted)
 		}
-		if ignored {
+		if muted {
 			merged, changed := mergeBindings(current.Bindings, bindings)
 			if _, adopted := current.fields["radar-source-refs"]; changed || !adopted {
 				updates["radar-source-refs"] = encodeBindings(merged)
@@ -170,8 +170,8 @@ func (s Source) ReconcileBindings(ctx context.Context, ref protocol.SourceRef, t
 	return observation, err
 }
 
-// Preference/binding writes must not trigger archive/restore: ignoring is not
-// completion, and unignoring a completed task must leave it completed in place.
+// Preference/binding writes must not trigger archive/restore: muting is not
+// completion, and unmuting a completed task must leave it completed in place.
 func persistPreference(current note, updates map[string]string) (note, error) {
 	if len(updates) == 0 {
 		return current, nil
@@ -338,5 +338,5 @@ func validateNoteOwnership(items []discoveredNote) {
 	}
 }
 
-var _ integration.TaskIgnoreProvider = Source{}
+var _ integration.TaskMuteProvider = Source{}
 var _ integration.TaskBindingProvider = Source{}

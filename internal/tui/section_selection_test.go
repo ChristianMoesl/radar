@@ -11,14 +11,14 @@ import (
 )
 
 func TestInspectMutationKeepsOverviewAmongActiveEvenWithHistoryExpanded(t *testing.T) {
-	for _, destination := range []string{"ignored", "done"} {
+	for _, destination := range []string{"muted", "done"} {
 		m := sectionFixture()
 		m.tasks = append(m.tasks, protocol.Task{ID: 5, Title: "Next active work", Attention: "low_priority"})
-		m.expandedSections = map[string]bool{"ignored": true, "done": true}
+		m.expandedSections = map[string]bool{"muted": true, "done": true}
 		m = pressSectionKey(t, m, "i")
 		tasks := slices.Clone(m.tasks)
-		if destination == "ignored" {
-			tasks[0].Ignored = true
+		if destination == "muted" {
+			tasks[0].Muted = true
 		} else {
 			tasks[0].Attention = "done"
 		}
@@ -39,7 +39,7 @@ func TestInspectMutationKeepsOverviewAmongActiveEvenWithHistoryExpanded(t *testi
 }
 
 func TestSelectedHeaderDisappearanceRestoresValidEntryWithoutAutoexpanding(t *testing.T) {
-	for _, selectedGroup := range []string{"ignored", "done"} {
+	for _, selectedGroup := range []string{"muted", "done"} {
 		for _, expanded := range []bool{false, true} {
 			m := sectionFixture()
 			m.expandedSections = map[string]bool{selectedGroup: expanded}
@@ -57,7 +57,7 @@ func TestSelectedHeaderDisappearanceRestoresValidEntryWithoutAutoexpanding(t *te
 			}
 			otherGroup := "done"
 			if selectedGroup == "done" {
-				otherGroup = "ignored"
+				otherGroup = "muted"
 			}
 			if m.sectionExpanded(otherGroup) {
 				t.Fatal("fallback autoexpanded a remaining section")
@@ -67,7 +67,7 @@ func TestSelectedHeaderDisappearanceRestoresValidEntryWithoutAutoexpanding(t *te
 }
 
 func TestBackgroundUpdateMovesChildToCollapsedHeader(t *testing.T) {
-	for _, sourceGroup := range []string{"ignored", "done"} {
+	for _, sourceGroup := range []string{"muted", "done"} {
 		m := sectionFixture()
 		m.tasks = m.tasks[1:] // No active work; the selected child must use a header.
 		m.expandedSections = map[string]bool{sourceGroup: true}
@@ -77,10 +77,10 @@ func TestBackgroundUpdateMovesChildToCollapsedHeader(t *testing.T) {
 		}
 		m.selectEntry(visibleEntry{task: cursor})
 		tasks := slices.Clone(m.tasks)
-		if sourceGroup == "ignored" {
+		if sourceGroup == "muted" {
 			tasks[cursor].Attention = "done"
 		} else {
-			tasks[cursor].Attention = "attention" // Reopen preserves ignored=true.
+			tasks[cursor].Attention = "attention" // Reopen preserves muted=true.
 		}
 		m.applyResponse(protocol.Response{Tasks: tasks}, false)
 		assertVisibleSelection(t, m)
@@ -90,16 +90,16 @@ func TestBackgroundUpdateMovesChildToCollapsedHeader(t *testing.T) {
 	}
 }
 
-func TestStaleSnapshotCannotUndoIgnoreSelectionOrSessionExpansion(t *testing.T) {
+func TestStaleSnapshotCannotUndoMuteSelectionOrSessionExpansion(t *testing.T) {
 	m := sectionFixture()
-	m.expandedSections = map[string]bool{"ignored": true}
+	m.expandedSections = map[string]bool{"muted": true}
 	old := protocol.Response{Revision: 1, Tasks: slices.Clone(m.tasks)}
 	new := protocol.Response{Revision: 2, Tasks: slices.Clone(m.tasks)}
-	new.Tasks[0].Ignored = true
+	new.Tasks[0].Muted = true
 	m.applyResponse(new, false)
 	selection, scroll := m.selectedEntry(), m.scroll
 	m.applyResponse(old, false)
-	if m.revision != 2 || !m.tasks[0].Ignored || m.selectedEntry() != selection || m.scroll != scroll || !m.sectionExpanded("ignored") {
+	if m.revision != 2 || !m.tasks[0].Muted || m.selectedEntry() != selection || m.scroll != scroll || !m.sectionExpanded("muted") {
 		t.Fatal("stale refresh reverted preference, focus or expansion")
 	}
 }
@@ -111,20 +111,20 @@ func TestHiddenResourceOperationStillAppearsOutsideCollapsedList(t *testing.T) {
 		t.Fatal("collapsed child is still treated as an operation row")
 	}
 	view := ansi.Strip(m.View())
-	if !strings.Contains(view, "Cleaning up…") || !strings.Contains(view, "Ignored work") {
+	if !strings.Contains(view, "Cleaning up…") || !strings.Contains(view, "Muted work") {
 		t.Fatal("collapsing history hid an in-flight operation's status")
 	}
-	m.expandedSections = map[string]bool{"ignored": true}
+	m.expandedSections = map[string]bool{"muted": true}
 	if !m.operationOnRow() {
 		t.Fatal("expanding history failed to restore its task operation row")
 	}
 }
 
-func TestOverviewSummaryShowsSeparateIgnoredCount(t *testing.T) {
+func TestOverviewSummaryShowsSeparateMutedCount(t *testing.T) {
 	m := sectionFixture()
-	m.summary = protocol.Summary{Immediate: 1, Attention: 2, InProgress: 3, LowPriority: 4, Ignored: 5, Done: 6}
+	m.summary = protocol.Summary{Immediate: 1, Attention: 2, InProgress: 3, LowPriority: 4, Muted: 5, Done: 6}
 	view := ansi.Strip(m.header(140))
-	for _, label := range []string{"1 urgent", "2 attention", "3 progress", "4 low", "5 ignored", "6 done"} {
+	for _, label := range []string{"1 urgent", "2 attention", "3 progress", "4 low", "5 muted", "6 done"} {
 		if !strings.Contains(view, label) {
 			t.Fatalf("summary lost %q: %s", label, view)
 		}

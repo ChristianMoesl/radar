@@ -154,9 +154,9 @@ func parseNote(content string) (note, error) {
 	if value := current.CompletionBaseline; value != "" && value != "pending" && !validCompletionBaseline.MatchString(value) {
 		return current, fmt.Errorf("invalid radar-completion-baseline %q", value)
 	}
-	if value := values["radar-ignored"]; value != nil {
-		if value.Kind != yaml.ScalarNode || value.Tag != "!!bool" || value.Decode(&current.Ignored) != nil {
-			return current, fmt.Errorf("radar-ignored must be a YAML boolean")
+	if value := values["radar-muted"]; value != nil {
+		if value.Kind != yaml.ScalarNode || value.Tag != "!!bool" || value.Decode(&current.Muted) != nil {
+			return current, fmt.Errorf("radar-muted must be a YAML boolean")
 		}
 	}
 	if value := values["radar-source-refs"]; value != nil {
@@ -291,7 +291,7 @@ func updateNoteContent(current note, updates map[string]string) (string, note, e
 	sort.Strings(fields)
 	for _, field := range fields {
 		switch field {
-		case "radar-state", "radar-priority", "radar-completed-at", "radar-completion-baseline", "radar-ignored", "radar-source-refs":
+		case "radar-state", "radar-priority", "radar-completed-at", "radar-completion-baseline", "radar-muted", "radar-source-refs":
 		default:
 			return "", note{}, fmt.Errorf("unsupported managed field %s", field)
 		}
@@ -308,7 +308,7 @@ func updateNoteContent(current note, updates map[string]string) (string, note, e
 		}
 		span, exists := current.fields[field]
 		if !exists {
-			if field != "radar-completion-baseline" && field != "radar-ignored" && field != "radar-source-refs" {
+			if field != "radar-completion-baseline" && field != "radar-muted" && field != "radar-source-refs" {
 				return "", note{}, fmt.Errorf("managed field %s is missing from %s", field, current.Path)
 			}
 			insertions = append(insertions, strings.ReplaceAll(text, "\n", current.newline)+current.newline)
@@ -354,15 +354,15 @@ func unchangedManagedField(current note, field, value string) bool {
 		return current.CompletedAt == value
 	case "radar-completion-baseline":
 		return current.CompletionBaseline == value
-	case "radar-ignored", "radar-source-refs":
+	case "radar-muted", "radar-source-refs":
 		var document yaml.Node
 		if yaml.Unmarshal([]byte(value), &document) != nil || len(document.Content) != 1 {
 			return false
 		}
 		node := document.Content[0]
-		if field == "radar-ignored" {
-			var ignored bool
-			return node.Kind == yaml.ScalarNode && node.Tag == "!!bool" && node.Decode(&ignored) == nil && ignored == current.Ignored
+		if field == "radar-muted" {
+			var muted bool
+			return node.Kind == yaml.ScalarNode && node.Tag == "!!bool" && node.Decode(&muted) == nil && muted == current.Muted
 		}
 		bindings, err := parseBindings(node)
 		return err == nil && reflect.DeepEqual(bindings, current.Bindings)

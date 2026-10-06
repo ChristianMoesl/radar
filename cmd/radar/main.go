@@ -210,7 +210,7 @@ func runTask(args []string) {
 			printJSON(result)
 		}
 		return
-	case "done", "reopen", "ignore", "unignore":
+	case "done", "reopen", "mute", "unmute":
 		if len(args) != 2 {
 			taskUsage()
 			os.Exit(2)
@@ -822,16 +822,16 @@ func garbageCollectionResult(result workspacegc.Result) protocol.GarbageCollecti
 func notifyActionableTransitions(ctx context.Context, previous, current []protocol.Task, logger *slog.Logger, integrations integration.Registry, notificationService notification.Service) {
 	previous = integrations.FilterTasks(previous, logger)
 	current = integrations.FilterTasks(current, logger)
-	previouslyIgnored := make(map[int]bool, len(previous))
+	previouslyMuted := make(map[int]bool, len(previous))
 	for _, task := range previous {
-		previouslyIgnored[task.ID] = task.Ignored
+		previouslyMuted[task.ID] = task.Muted
 	}
 	eligible := make([]protocol.Task, 0, len(current))
 	for _, task := range current {
-		// A refresh can span an explicit unignore. It must not turn that
-		// preference change into a self-notification, or notify ignored work
+		// A refresh can span an explicit unmute. It must not turn that
+		// preference change into a self-notification, or notify muted work
 		// whose underlying source attention remains active.
-		if !task.Ignored && !previouslyIgnored[task.ID] {
+		if !task.Muted && !previouslyMuted[task.ID] {
 			eligible = append(eligible, task)
 		}
 	}
@@ -960,8 +960,8 @@ Tasks:
   radar task create --title <title>
   radar task done <task-id>
   radar task reopen <task-id>
-  radar task ignore <task-id>
-  radar task unignore <task-id>
+  radar task mute <task-id>
+  radar task unmute <task-id>
   radar task delete <task-id>
   radar task priority <task-id> urgent|normal
 
@@ -997,8 +997,8 @@ func taskUsage() {
 	fmt.Fprintln(os.Stderr, `usage: radar task create --title <title>
        radar task done <task-id>
        radar task reopen <task-id>
-       radar task ignore <task-id>
-       radar task unignore <task-id>
+       radar task mute <task-id>
+       radar task unmute <task-id>
        radar task delete <task-id>
        radar task priority <task-id> urgent|normal`)
 }

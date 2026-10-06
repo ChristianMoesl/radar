@@ -25,21 +25,21 @@ func linkIdentityFixture(t *testing.T) model {
 }
 
 func TestLinkPickerAcknowledgesPinnedTaskAfterWatchRegrouping(t *testing.T) {
-	for _, change := range []string{"reorder", "ignore", "complete", "regroup task ID", "reuse task ID", "only done remain"} {
+	for _, change := range []string{"reorder", "mute", "complete", "regroup task ID", "reuse task ID", "only done remain"} {
 		for _, activation := range []string{"enter", "shortcut"} {
 			t.Run(change+"/"+activation, func(t *testing.T) {
 				m := linkIdentityFixture(t)
 				original, neighbor := m.tasks[0], m.tasks[1]
 				selected := original
 				switch change {
-				case "ignore":
-					selected.Ignored = true
+				case "mute":
+					selected.Muted = true
 				case "complete", "only done remain":
 					selected.Attention = "done"
 				case "regroup task ID":
-					selected.ID, selected.Ignored = 9, true
+					selected.ID, selected.Muted = 9, true
 				case "reuse task ID":
-					selected.ID, selected.Ignored = 9, true
+					selected.ID, selected.Muted = 9, true
 					neighbor.ID = original.ID // A cold-cache ID must not retarget the picker.
 				}
 				tasks := []protocol.Task{neighbor, selected}
@@ -53,10 +53,10 @@ func TestLinkPickerAcknowledgesPinnedTaskAfterWatchRegrouping(t *testing.T) {
 					t.Fatal("watch replaced picker identity/choices with the overview fallback")
 				}
 				resolved, ok := m.linkPickerTask()
-				if !ok || resolved.ID != selected.ID || resolved.Attention != selected.Attention || resolved.Ignored != selected.Ignored {
+				if !ok || resolved.ID != selected.ID || resolved.Attention != selected.Attention || resolved.Muted != selected.Muted {
 					t.Fatalf("picker resolved %+v, want latest pinned task %+v", resolved, selected)
 				}
-				if change == "ignore" || change == "complete" || change == "regroup task ID" || change == "reuse task ID" {
+				if change == "mute" || change == "complete" || change == "regroup task ID" || change == "reuse task ID" {
 					if overview, ok := m.selectedTask(); !ok || overview.ID != neighbor.ID {
 						t.Fatal("regression fixture did not move overview focus away from the pinned task")
 					}
@@ -90,7 +90,7 @@ func TestLinkPickerAcknowledgesPinnedTaskAfterWatchRegrouping(t *testing.T) {
 				case <-time.After(time.Second):
 					t.Fatal("pinned task was not acknowledged")
 				}
-				if m.sectionExpanded("ignored") || m.sectionExpanded("done") {
+				if m.sectionExpanded("muted") || m.sectionExpanded("done") {
 					t.Fatal("opening a pinned history task expanded its overview section")
 				}
 			})

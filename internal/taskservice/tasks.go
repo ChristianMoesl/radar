@@ -85,8 +85,8 @@ func (s *Service) MutateTask(ctx context.Context, method string, mutation *proto
 	if mutation == nil {
 		return protocol.Task{}, fmt.Errorf("task mutation is required")
 	}
-	if method == "task-ignore" || method == "task-unignore" {
-		return s.SetIgnored(ctx, mutation.TaskID, method == "task-ignore")
+	if method == "task-mute" || method == "task-unmute" {
+		return s.SetMuted(ctx, mutation.TaskID, method == "task-mute")
 	}
 	provider, err := s.integrations.TaskAuthoring()
 	if err != nil {

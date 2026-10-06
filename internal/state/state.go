@@ -22,7 +22,7 @@ const maxStateFileSize = 50 * 1024 * 1024
 // stateVersion changes only when the persisted format becomes intentionally
 // incompatible. Additive, backward-readable state changes must keep the
 // current version.
-const stateVersion = 7
+const stateVersion = 8
 const doneTaskDisplayRetention = 3 * 24 * time.Hour
 
 type Store struct {
@@ -386,7 +386,7 @@ func (s *Store) CollectionTasks() []protocol.Task {
 		task.TrackingOnly = true
 		task.ID = record.NumericID
 		task.SourceRefs = nil
-		task.Ignored = false
+		task.Muted = false
 		if record.State == "done" {
 			task.Attention = "done"
 			task.DoneAt = record.DoneAt
@@ -394,7 +394,7 @@ func (s *Store) CollectionTasks() []protocol.Task {
 		for _, ref := range s.state.SourceRefs {
 			if ref.TaskRecordID == record.ID && (ref.Active || ref.Snapshot.RetainInactive) {
 				task.SourceRefs = append(task.SourceRefs, cloneSourceRefs([]protocol.SourceRef{ref.Snapshot})...)
-				task.Ignored = task.Ignored || (ref.Active && ref.Snapshot.Authored && ref.Snapshot.Ignored)
+				task.Muted = task.Muted || (ref.Active && ref.Snapshot.Authored && ref.Snapshot.Muted)
 			}
 		}
 		byRecord[record.ID] = len(items)
@@ -1192,10 +1192,10 @@ func projectTasks(state persistedState) []protocol.Task {
 		}
 		task.TargetTaskID = 0
 		task.SourceRefs = cloneSourceRefs(sortSourceRefs(mergeSourceRefs(nil, refs)))
-		task.Ignored = false
+		task.Muted = false
 		for _, ref := range refs {
-			if authoritativeRef(ref) && ref.Authored && ref.Ignored {
-				task.Ignored = true
+			if authoritativeRef(ref) && ref.Authored && ref.Muted {
+				task.Muted = true
 			}
 		}
 		if title := preferredTitle(refs); title != "" {
