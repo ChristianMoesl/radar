@@ -183,7 +183,7 @@ $XDG_CONFIG_HOME/radar/config.json
 
 The daemon creates an example file on startup when it is missing. The TUI exposes it with `f`.
 
-The config controls the required Obsidian vault, repository discovery roots, the workspace root, SBX settings, GitHub filters, and Datadog monitor collection. SBX enablement, kit selection, and global additional mounts live together under `sbx`; repository-local `.radar.json` files use the same shape. Filters live under `github.filters` and are applied when serving tasks from the daemon, so CLI and TUI see the same view. `datadog.monitor_query` scopes Datadog collection, `datadog.monitor_statuses` selects the unhealthy states to ingest, and Datadog credentials are read only from environment variables. Raw collected state stays unmodified on disk.
+The config controls the required task-notes directory (optionally an Obsidian vault), repository discovery roots, the workspace root, SBX settings, GitHub filters, and Datadog monitor collection. SBX enablement, kit selection, and global additional mounts live together under `sbx`; repository-local `.radar.json` files use the same shape. Filters live under `github.filters` and are applied when serving tasks from the daemon, so CLI and TUI see the same view. `datadog.monitor_query` scopes Datadog collection, `datadog.monitor_statuses` selects the unhealthy states to ingest, and Jira and Datadog secrets are read from the separate owner-only `secrets.json`, with environment overrides. Connection metadata remains in `config.json`. Raw collected state stays unmodified on disk.
 
 `$XDG_CONFIG_HOME/radar/AGENTS.md`, falling back to `~/.config/radar/AGENTS.md`, is the user-owned instruction file for Radar-managed Pi sessions. Installers copy the committed default only when the file does not exist and never update an existing file.
 
@@ -195,6 +195,23 @@ There are two filter effects:
 Repository/user mute filters are applied before display. They are not the per-task muted preference: the preference keeps unfinished work in Muted unless a filter hides it. A primary urgent source signal wins over deprioritization. Task mutations are handled through the authoring provider and do not run the external-transition notification path, preventing self-notification.
 
 User filters also apply while GitHub activity is classified. Activity from a muted or deprioritized actor does not promote a PR to attention. GitHub's actor type is used only to generate equivalent bot login aliases (`name` and `name[bot]`) for configuration matching; bot identity is not itself a filtering policy.
+
+## Foreground onboarding
+
+`internal/integration/onboarding` owns the foreground setup workflow, its inline
+prompts, dependency installers, and service access checks. It lives under the
+integration boundary because it invokes provider CLIs and APIs. `internal/config`
+owns settings/secrets storage; previews contain only Config, never the Secrets
+map. Saving config is the completion marker, with directory locking to prevent
+concurrent setup bundles and exclusive publication to protect existing configs.
+Neither the daemon nor informational commands generate configuration. Existing
+configs are not migrated or rewritten.
+
+Tmux owns popup startup and its configuration plan. The multiplexer capability
+exposes `OpenDashboard`; core does not issue tmux commands. Bare `radar` shows the
+TUI directly inside a client; outside, tmux attaches/starts a session and opens
+Radar in a popup. Setup proposes a starter profile only for newly installed tmux,
+or the minimal prefix + r binding for existing tmux, and preserves user config.
 
 ## GitHub integration
 
@@ -213,7 +230,7 @@ An assigned issue or a title discovery whose issue type matches the configured s
 
 ## Datadog integration
 
-Datadog access uses the monitor search API with `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY` from the environment. The user-owned `datadog.monitor_query` config value scopes collection, and `datadog.monitor_statuses` selects one or more of `Alert`, `Warn`, and `No Data` to append to the query. All three statuses are selected by default. Radar performs one search request during the two-minute full refresh. It does not collect Datadog logs, traces, metrics, events, or historical alert transitions.
+Datadog access uses the monitor search API with `datadog.api_key` and `datadog.app_key` from `secrets.json`, or the `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY` environment overrides. The user-owned `datadog.monitor_query` config value scopes collection, and `datadog.monitor_statuses` selects one or more of `Alert`, `Warn`, and `No Data` to append to the query. All three statuses are selected by default. Radar performs one search request during the two-minute full refresh. It does not collect Datadog logs, traces, metrics, events, or historical alert transitions.
 
 Each monitor is a standalone source ref keyed by monitor ID. A configured `Alert` emits `immediate`; configured `Warn` and `No Data` states emit `attention`. A previously active monitor missing from a complete search is reconciled to `done`. Failed or truncated searches preserve the previous observations and do not resolve monitors. The source is disabled unless both credentials and a non-empty query are present.
 

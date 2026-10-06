@@ -34,12 +34,7 @@ func (c Config) ValidateAndPrepare() (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("obsidian vault is not a directory: %s", path)
 	}
-	if info, err := os.Stat(filepath.Join(path, ".obsidian")); err != nil || !info.IsDir() {
-		if err == nil {
-			err = fmt.Errorf("not a directory")
-		}
-		return "", fmt.Errorf("obsidian vault %s does not contain .obsidian/: %w", path, err)
-	}
+
 	taskRoot := TaskRoot(path)
 	if err := os.MkdirAll(taskRoot, 0o755); err != nil {
 		return "", fmt.Errorf("create Obsidian task root %s: %w", taskRoot, err)

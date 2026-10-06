@@ -28,7 +28,7 @@ func (Source) ResolveBindings(_ context.Context, req integration.BindingRequest)
 		status := integration.OptionalStatus("datadog", cfg.Datadog.Enabled, "missing datadog.monitor_query").Status
 		return integration.CollectResult{SourceStatus: &status}
 	}
-	credentials, missing, err := credentialsFromEnv()
+	credentials, missing, err := loadCredentials()
 	if err != nil {
 		datadogBindingFailure(&result, req, err)
 		return result

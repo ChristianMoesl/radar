@@ -61,12 +61,12 @@ func TestAPIClientSearchUsesConfiguredMonitorStatuses(t *testing.T) {
 	}
 }
 
-func TestCredentialsComeOnlyFromEnvironment(t *testing.T) {
+func TestCredentialsAcceptEnvironmentOverrides(t *testing.T) {
 	t.Setenv("RADAR_DATADOG_API_KEY", "api-secret")
 	t.Setenv("RADAR_DATADOG_APP_KEY", "app-secret")
 	t.Setenv("RADAR_DATADOG_SITE", "datadoghq.eu")
 
-	cfg, missing, err := credentialsFromEnv()
+	cfg, missing, err := loadCredentials()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,11 +86,11 @@ func TestCredentialsReportMissingRequiredEnvironment(t *testing.T) {
 	t.Setenv("RADAR_DATADOG_APP_KEY", "")
 	t.Setenv("RADAR_DATADOG_SITE", "")
 
-	cfg, missing, err := credentialsFromEnv()
+	cfg, missing, err := loadCredentials()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(missing) != 2 || missing[0] != "RADAR_DATADOG_API_KEY" || missing[1] != "RADAR_DATADOG_APP_KEY" {
+	if len(missing) != 2 || missing[0] != "datadog.api_key in secrets.json or RADAR_DATADOG_API_KEY" || missing[1] != "datadog.app_key in secrets.json or RADAR_DATADOG_APP_KEY" {
 		t.Fatalf("missing = %v", missing)
 	}
 	if cfg.Site != defaultSite {
@@ -103,8 +103,8 @@ func TestCredentialsRejectUnsupportedSiteBeforeSendingSecrets(t *testing.T) {
 	t.Setenv("RADAR_DATADOG_APP_KEY", "app-secret")
 	t.Setenv("RADAR_DATADOG_SITE", "example.com")
 
-	if _, _, err := credentialsFromEnv(); err == nil {
-		t.Fatal("credentialsFromEnv() error = nil, want unsupported site error")
+	if _, _, err := loadCredentials(); err == nil {
+		t.Fatal("loadCredentials() error = nil, want unsupported site error")
 	}
 }
 

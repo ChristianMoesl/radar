@@ -9,10 +9,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
+	"radar/internal/config"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
@@ -58,8 +58,12 @@ type issue struct {
 func FetchAssignedIssues(ctx context.Context, issueTypes []string, logger *slog.Logger, matchers ...linking.MarkMatcher) ([]protocol.SourceRef, protocol.SourceStatus, error) {
 	status := protocol.SourceStatus{Name: "jira", Status: "ok"}
 
-	cfg, ok, missing := configFromEnv()
-	if !ok {
+	cfg, missing, configErr := loadConnection()
+	if configErr != nil {
+		status.Status, status.Detail = "error", configErr.Error()
+		return nil, status, configErr
+	}
+	if len(missing) > 0 {
 		logger.Debug("jira collector not configured", "missing", missing)
 		status.Status = "disabled"
 		status.Detail = "missing " + strings.Join(missing, ", ")
@@ -86,8 +90,8 @@ func ResolveDoneIssues(ctx context.Context, previous []protocol.Task, active []p
 		return keepTodaysDoneIssues(nil, previous)
 	}
 
-	cfg, ok, missing := configFromEnv()
-	if !ok {
+	cfg, missing, configErr := loadConnection()
+	if configErr != nil || len(missing) > 0 {
 		logger.Debug("skipping jira done resolution; jira collector not configured", "missing", missing)
 		return keepTodaysDoneIssues(nil, previous)
 	}
@@ -170,13 +174,21 @@ func statusWithCount(status protocol.SourceStatus, count int, suffix string) pro
 	return status
 }
 
-func configFromEnv() (Config, bool, []string) {
-	cloudID := os.Getenv("RADAR_JIRA_CLOUD_ID")
+func loadConnection() (Config, []string, error) {
+	user, err := config.Load()
+	if err != nil {
+		return Config{}, nil, err
+	}
+	token, err := config.Secret("RADAR_JIRA_API_TOKEN", "jira", "api_token")
+	if err != nil {
+		return Config{}, nil, err
+	}
+	cloudID := config.EnvOr("RADAR_JIRA_CLOUD_ID", user.Jira.CloudID)
 	cfg := Config{
-		BaseURL:    strings.TrimRight(os.Getenv("RADAR_JIRA_BASE_URL"), "/"),
-		APIBaseURL: strings.TrimRight(os.Getenv("RADAR_JIRA_API_BASE_URL"), "/"),
-		Email:      os.Getenv("RADAR_JIRA_EMAIL"),
-		APIToken:   os.Getenv("RADAR_JIRA_API_TOKEN"),
+		BaseURL:    strings.TrimRight(config.EnvOr("RADAR_JIRA_BASE_URL", user.Jira.BaseURL), "/"),
+		APIBaseURL: strings.TrimRight(config.EnvOr("RADAR_JIRA_API_BASE_URL", user.Jira.APIBaseURL), "/"),
+		Email:      config.EnvOr("RADAR_JIRA_EMAIL", user.Jira.Email),
+		APIToken:   token,
 	}
 
 	if cfg.APIBaseURL == "" && cloudID != "" {
@@ -185,18 +197,18 @@ func configFromEnv() (Config, bool, []string) {
 
 	missing := make([]string, 0)
 	if cfg.Email == "" {
-		missing = append(missing, "RADAR_JIRA_EMAIL")
+		missing = append(missing, "jira.email or RADAR_JIRA_EMAIL")
 	}
 	if cfg.APIToken == "" {
-		missing = append(missing, "RADAR_JIRA_API_TOKEN")
+		missing = append(missing, "jira.api_token in secrets.json or RADAR_JIRA_API_TOKEN")
 	}
 	if cfg.APIBaseURL == "" {
-		missing = append(missing, "RADAR_JIRA_CLOUD_ID or RADAR_JIRA_API_BASE_URL")
+		missing = append(missing, "jira.cloud_id/api_base_url or RADAR_JIRA_CLOUD_ID/RADAR_JIRA_API_BASE_URL")
 	}
 	if cfg.BaseURL == "" {
-		missing = append(missing, "RADAR_JIRA_BASE_URL")
+		missing = append(missing, "jira.base_url or RADAR_JIRA_BASE_URL")
 	}
-	return cfg, len(missing) == 0, missing
+	return cfg, missing, nil
 }
 
 func fetchIssue(ctx context.Context, cfg Config, key string) (issue, error) {

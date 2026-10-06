@@ -39,7 +39,13 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 	if err != nil {
 		return integration.StatusResult{Status: protocol.SourceStatus{Name: "jira", Status: "error", Detail: err.Error()}}
 	}
-	_, _, missing := configFromEnv()
+	if availability := integration.OptionalStatus("jira", cfg.Jira.Enabled, ""); !availability.CanRun {
+		return availability
+	}
+	_, missing, err := loadConnection()
+	if err != nil {
+		return integration.StatusResult{Status: protocol.SourceStatus{Name: "jira", Status: "error", Detail: err.Error()}}
+	}
 	detail := ""
 	if len(missing) > 0 {
 		detail = "missing " + strings.Join(missing, ", ")
@@ -54,7 +60,14 @@ func (source Source) Collect(ctx context.Context, req integration.CollectRequest
 		status := protocol.SourceStatus{Name: "jira", Status: "error", Detail: "could not load config"}
 		return integration.CollectResult{SourceStatus: &status}
 	}
-	jiraConfig, _, missing := configFromEnv()
+	if availability := integration.OptionalStatus("jira", userConfig.Jira.Enabled, ""); !availability.CanRun {
+		return integration.CollectResult{SourceStatus: &availability.Status}
+	}
+	jiraConfig, missing, err := loadConnection()
+	if err != nil {
+		status := protocol.SourceStatus{Name: "jira", Status: "error", Detail: err.Error()}
+		return integration.CollectResult{SourceStatus: &status}
+	}
 	detail := ""
 	if len(missing) > 0 {
 		detail = "missing " + strings.Join(missing, ", ")

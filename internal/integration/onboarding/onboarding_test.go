@@ -1,0 +1,460 @@
+package onboarding
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"radar/internal/config"
+)
+
+type fakeUI struct {
+	inputs        []string
+	decisions     []bool
+	titles        []string
+	transcript    strings.Builder
+	cancelAt      string
+	beforeConfirm func(string)
+	tmuxChoice    bool
+}
+
+func (u *fakeUI) input(q question) (string, error) {
+	u.titles = append(u.titles, q.title)
+	if q.title == u.cancelAt {
+		return "", ErrAborted
+	}
+	if len(u.inputs) == 0 {
+		return "", fmt.Errorf("unexpected input: %s", q.title)
+	}
+	value := u.inputs[0]
+	u.inputs = u.inputs[1:]
+	if q.validate != nil {
+		if err := q.validate(value); err != nil {
+			return "", err
+		}
+	}
+	if q.secret {
+		u.print("%s: [hidden]\n", q.title)
+	} else {
+		u.print("%s: %s\n", q.title, value)
+	}
+	return value, nil
+}
+func (u *fakeUI) confirm(title string) (bool, error) {
+	u.titles = append(u.titles, title)
+	if title == "Add Radar's prefix + r popup binding?" {
+		return u.tmuxChoice, nil
+	}
+	if u.beforeConfirm != nil {
+		u.beforeConfirm(title)
+	}
+	if title == u.cancelAt {
+		return false, ErrAborted
+	}
+	if len(u.decisions) == 0 {
+		return false, fmt.Errorf("unexpected confirmation: %s", title)
+	}
+	result := u.decisions[0]
+	u.decisions = u.decisions[1:]
+	return result, nil
+}
+func (u *fakeUI) print(format string, args ...any) { fmt.Fprintf(&u.transcript, format, args...) }
+
+type fakeSystem struct {
+	missing      map[string]bool
+	calls        []string
+	installErr   error
+	loginMissing bool
+	goos         string
+	nodeVersion  string
+}
+
+func (s *fakeSystem) platform() string {
+	if s.goos != "" {
+		return s.goos
+	}
+	return "darwin"
+}
+func (s *fakeSystem) lookPath(name string) bool { return !s.missing[name] }
+func (s *fakeSystem) output(_ context.Context, name string, args ...string) (string, error) {
+	s.calls = append(s.calls, name+" "+strings.Join(args, " "))
+	if name == "tmux" {
+		return "tmux 3.6", nil
+	}
+	if name == "node" {
+		if s.nodeVersion != "" {
+			return s.nodeVersion, nil
+		}
+		return "v24.8.0", nil
+	}
+	if name == "pi" {
+		return "1.0.0", nil
+	}
+	if name == "gh" && len(args) > 0 && args[0] == "auth" && s.loginMissing {
+		return "", errors.New("not authenticated")
+	}
+	return "", nil
+}
+func (s *fakeSystem) run(_ context.Context, name string, args ...string) error {
+	s.calls = append(s.calls, name+" "+strings.Join(args, " "))
+	if s.installErr != nil {
+		return s.installErr
+	}
+	if name == "brew" {
+		delete(s.missing, args[1])
+		if args[1] == "node" {
+			s.nodeVersion = "v24.8.0"
+		}
+	}
+	if name == "gh" {
+		s.loginMissing = false
+	}
+	return nil
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func fixture(t *testing.T) (wizard, *fakeUI, *fakeSystem, string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	piDir := filepath.Join(home, ".pi", "agent")
+	installRadarFixture(t, piDir)
+	repos := filepath.Join(home, "repos")
+	if err := os.Mkdir(repos, 0755); err != nil {
+		t.Fatal(err)
+	}
+	ui := &fakeUI{inputs: []string{repos, filepath.Join(home, "workspaces"), filepath.Join(home, "notes")}}
+	sys := &fakeSystem{missing: map[string]bool{"sbx": true}}
+	w := newWizard(ui, sys)
+	w.http.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) { t.Fatal("unexpected HTTP request"); return nil, nil })
+	return w, ui, sys, home
+}
+func installRadarFixture(t *testing.T, dir string) {
+	t.Helper()
+	pkg := filepath.Join(dir, "npm", "node_modules", "@christianmoesl", "pi-radar")
+	if err := os.MkdirAll(pkg, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(`{"name":"@christianmoesl/pi-radar"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"packages":["npm:@christianmoesl/pi-radar"]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWizardSavesSettingsAndSeparateSecretsAfterReview(t *testing.T) {
+	w, ui, sys, home := fixture(t)
+	ui.inputs = append(ui.inputs, "https://example.atlassian.net/", "you@example.com", "jira-fixture-secret", "abc, XYZ abc", "https://api.datadoghq.eu", "dd-api-fixture-secret", "dd-app-fixture-secret", "tag:team:platform")
+	ui.decisions = []bool{true, true, true, true}
+	requests := []string{}
+	w.http.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests = append(requests, req.URL.Host+req.URL.Path)
+		body := `{}`
+		switch req.URL.Path {
+		case "/_edge/tenant_info":
+			if req.Header.Get("Authorization") != "" {
+				t.Fatal("discovery must not receive the API token")
+			}
+			body = `{"cloudId":"cloud-fixture"}`
+		case "/ex/jira/cloud-fixture/rest/api/3/myself":
+			email, token, ok := req.BasicAuth()
+			if !ok || email != "you@example.com" || token != "jira-fixture-secret" {
+				t.Fatal("missing Jira authentication")
+			}
+		case "/api/v1/monitor/search":
+			if req.Header.Get("DD-API-KEY") != "dd-api-fixture-secret" || req.Header.Get("DD-APPLICATION-KEY") != "dd-app-fixture-secret" {
+				t.Fatal("missing Datadog authentication")
+			}
+			if req.URL.Query().Get("query") != "tag:team:platform" {
+				t.Fatal("query scope was not sent")
+			}
+		default:
+			t.Fatalf("unexpected request: %s", req.URL)
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	ui.beforeConfirm = func(title string) {
+		if title != "Generate this configuration?" {
+			return
+		}
+		needed, err := Needed()
+		if err != nil || !needed {
+			t.Fatalf("config written before confirmation: %v", err)
+		}
+		path, _ := config.SecretsPath()
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatal("secrets written before confirmation")
+		}
+		if !strings.Contains(ui.transcript.String(), `"cloud_id": "cloud-fixture"`) {
+			t.Fatal("config preview not shown before confirmation")
+		}
+	}
+	if err := w.run(); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Jira.CloudID != "cloud-fixture" || cfg.Datadog.Site != "datadoghq.eu" || !reflect.DeepEqual(cfg.LinkingMarkPrefixes, []string{"ABC", "XYZ"}) {
+		t.Fatalf("settings = %+v", cfg)
+	}
+	if cfg.GitHub.Enabled == nil || !*cfg.GitHub.Enabled || cfg.Jira.Enabled == nil || !*cfg.Jira.Enabled || cfg.Datadog.Enabled == nil || !*cfg.Datadog.Enabled {
+		t.Fatal("integrations were not enabled")
+	}
+	if len(cfg.Tmux.Windows) != 1 || cfg.Tmux.Windows[0].Name != "pi" {
+		t.Fatal("setup must not require Neovim")
+	}
+	secrets, err := config.LoadSecrets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secrets["jira"]["api_token"] != "jira-fixture-secret" || secrets["datadog"]["app_key"] != "dd-app-fixture-secret" {
+		t.Fatal("secrets were not saved")
+	}
+	configPath, _ := config.Path()
+	data, _ := os.ReadFile(configPath)
+	for _, secret := range []string{"jira-fixture-secret", "dd-api-fixture-secret", "dd-app-fixture-secret"} {
+		if strings.Contains(ui.transcript.String(), secret) || strings.Contains(string(data), secret) || strings.Contains(strings.Join(sys.calls, "\n"), secret) {
+			t.Fatal("secret leaked outside secrets.json")
+		}
+	}
+	if len(requests) != 3 {
+		t.Fatalf("requests: %v", requests)
+	}
+	if _, err := os.Stat(filepath.Join(home, "notes", "Tasks")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "notes", ".obsidian")); !os.IsNotExist(err) {
+		t.Fatal("must not require/create an Obsidian vault")
+	}
+}
+
+func TestWizardSkipsDeclinedIntegrations(t *testing.T) {
+	w, ui, sys, _ := fixture(t)
+	ui.decisions = []bool{false, false, false, true}
+	if err := w.run(); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *cfg.GitHub.Enabled || *cfg.Jira.Enabled || *cfg.Datadog.Enabled {
+		t.Fatal("declined integrations must be explicitly disabled")
+	}
+	for _, call := range sys.calls {
+		if strings.HasPrefix(call, "gh auth ") {
+			t.Fatal("declined GitHub must not authenticate")
+		}
+	}
+	path, _ := config.SecretsPath()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("no secrets should have been written")
+	}
+}
+
+func TestWizardCancellationLeavesNoConfigurationOrDirectories(t *testing.T) {
+	for _, cancel := range []string{"Where do you check out your repositories?", "Jira API token", "Generate this configuration?", "decline save", "decline install"} {
+		t.Run(cancel, func(t *testing.T) {
+			w, ui, sys, home := fixture(t)
+			ui.cancelAt = cancel
+			ui.decisions = []bool{false, false, false, false}
+			if cancel == "Jira API token" {
+				ui.decisions = []bool{false, true}
+				ui.inputs = append(ui.inputs, "https://example.atlassian.net", "you@example.com")
+			}
+			if cancel == "decline install" {
+				sys.missing["tmux"] = true
+				ui.decisions = []bool{false}
+			}
+			if err := w.run(); !errors.Is(err, ErrAborted) {
+				t.Fatalf("error = %v", err)
+			}
+			for _, path := range []string{filepath.Join(home, "config", "radar", "config.json"), filepath.Join(home, "config", "radar", "secrets.json"), filepath.Join(home, "workspaces"), filepath.Join(home, "notes")} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("cancellation left %s", path)
+				}
+			}
+		})
+	}
+}
+
+func TestWizardInstallsWithConsentAndChecksAgain(t *testing.T) {
+	w, ui, sys, _ := fixture(t)
+	sys.missing["tmux"] = true
+	sys.nodeVersion = "v22.0.0"
+	ui.decisions = []bool{true, true, false, false, false, true}
+	if err := w.run(); err != nil {
+		t.Fatal(err)
+	}
+	calls := strings.Join(sys.calls, "\n")
+	if !strings.Contains(calls, "brew install tmux") || !strings.Contains(calls, "brew upgrade node") || strings.Count(calls, "node --version") != 2 {
+		t.Fatalf("calls: %s", calls)
+	}
+	if !strings.Contains(ui.transcript.String(), "Pi runtime prerequisite") {
+		t.Fatal("missing Node explanation")
+	}
+}
+
+func TestWizardAbortsFailedInstallationAndAuthentication(t *testing.T) {
+	for _, mode := range []string{"install", "login", "jira"} {
+		t.Run(mode, func(t *testing.T) {
+			w, ui, sys, _ := fixture(t)
+			switch mode {
+			case "install":
+				sys.missing["tmux"] = true
+				sys.installErr = errors.New("fixture failure")
+				ui.decisions = []bool{true}
+			case "login":
+				sys.loginMissing = true
+				sys.installErr = errors.New("fixture failure")
+				ui.decisions = []bool{true, true}
+			case "jira":
+				ui.decisions = []bool{false, true}
+				ui.inputs = append(ui.inputs, "https://example.atlassian.net", "you@example.com", "secret-do-not-echo")
+				w.http.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: 401, Body: io.NopCloser(strings.NewReader("secret-do-not-echo"))}, nil
+				})
+			}
+			err := w.run()
+			if err == nil || strings.Contains(err.Error(), "secret-do-not-echo") {
+				t.Fatalf("error: %v", err)
+			}
+			if needed, _ := Needed(); !needed {
+				t.Fatal("failure wrote config")
+			}
+		})
+	}
+}
+
+func TestWizardRecoversGitHubLogin(t *testing.T) {
+	w, ui, sys, _ := fixture(t)
+	sys.loginMissing = true
+	ui.decisions = []bool{true, true, false, false, true}
+	if err := w.run(); err != nil {
+		t.Fatal(err)
+	}
+	calls := strings.Join(sys.calls, "\n")
+	if strings.Count(calls, "gh auth status") != 2 || !strings.Contains(calls, "gh auth login --hostname github.com") {
+		t.Fatalf("calls: %s", calls)
+	}
+}
+
+func TestWizardNeverOverwritesExistingConfig(t *testing.T) {
+	for _, data := range []string{`{}`, `broken`, ""} {
+		t.Run(data, func(t *testing.T) {
+			w, ui, _, _ := fixture(t)
+			path, _ := config.EnsureFile()
+			if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if needed, err := Needed(); needed || err != nil {
+				t.Fatalf("needed: %v %v", needed, err)
+			}
+			if err := w.run(); err == nil {
+				t.Fatal("expected existing-config error")
+			}
+			got, _ := os.ReadFile(path)
+			if string(got) != data || len(ui.titles) > 0 {
+				t.Fatal("existing configuration changed or wizard prompted")
+			}
+		})
+	}
+}
+
+func TestWizardDetectsConcurrentConfigBeforeWriting(t *testing.T) {
+	w, ui, _, home := fixture(t)
+	ui.decisions = []bool{false, false, false, true}
+	ui.beforeConfirm = func(title string) {
+		if title == "Generate this configuration?" {
+			if err := config.Create(config.Default()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := w.run(); err == nil {
+		t.Fatal("expected conflict")
+	}
+	if _, err := os.Stat(filepath.Join(home, "notes")); !os.IsNotExist(err) {
+		t.Fatal("conflict created directories")
+	}
+}
+
+func TestValidation(t *testing.T) {
+	for _, value := range []string{"", "123", "ABC-123", "a/b"} {
+		if _, err := parsePrefixes(value); err == nil {
+			t.Errorf("accepted prefix %q", value)
+		}
+	}
+	for _, value := range []string{"http://example.atlassian.net", "https://u:p@example.atlassian.net", "https://example.atlassian.net/path", "https://example.atlassian.net?secret=x"} {
+		if validateSiteURL(value) == nil {
+			t.Errorf("accepted site %q", value)
+		}
+	}
+	for _, value := range []string{"v22.1.0", "24.0", "v24.0.0-rc.1", "nonsense"} {
+		if versionAtLeast(value, [3]int{24, 0, 0}) {
+			t.Errorf("accepted version %q", value)
+		}
+	}
+	if !versionAtLeast("v24.1.0\n", [3]int{24, 0, 0}) {
+		t.Fatal("rejected Node 24")
+	}
+	if _, err := directoryPath("relative/path", false); err == nil {
+		t.Fatal("accepted relative directory")
+	}
+	file := filepath.Join(t.TempDir(), "file")
+	_ = os.WriteFile(file, nil, 0600)
+	if _, err := directoryPath(filepath.Join(file, "child"), false); err == nil {
+		t.Fatal("accepted file parent")
+	}
+}
+
+func TestWizardRejectsWorkspaceRootContainingRepositories(t *testing.T) {
+	w, ui, _, home := fixture(t)
+	ui.inputs[1] = home
+	if err := w.run(); err == nil || !strings.Contains(err.Error(), "must not contain") {
+		t.Fatalf("error = %v", err)
+	}
+	if needed, _ := Needed(); !needed {
+		t.Fatal("invalid directory setup was saved")
+	}
+}
+
+func TestWizardDecliningFinalReviewPreservesExistingSecrets(t *testing.T) {
+	w, ui, _, _ := fixture(t)
+	if err := config.SaveSecrets(config.Secrets{"other": {"key": "keep"}}); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := config.SecretsPath()
+	before, _ := os.ReadFile(path)
+	ui.inputs = append(ui.inputs, "https://example.atlassian.net", "you@example.com", "new-secret", "ABC", "datadoghq.eu", "dd-api", "dd-app", "tag:team:platform")
+	ui.decisions = []bool{false, true, true, false}
+	w.http.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"cloudId":"fixture"}`))}, nil
+	})
+	if err := w.run(); !errors.Is(err, ErrAborted) {
+		t.Fatalf("error = %v", err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatal("declining review changed secrets")
+	}
+	if needed, _ := Needed(); !needed {
+		t.Fatal("declining review wrote config")
+	}
+}

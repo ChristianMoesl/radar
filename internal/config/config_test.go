@@ -480,6 +480,19 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	}
 }
 
+func TestPlainNotesDirectoryValidationAndPreparation(t *testing.T) {
+	root := t.TempDir()
+	if _, err := (ObsidianConfig{VaultPath: root}).ValidateAndPrepare(); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(root, "Tasks")); err != nil || !info.IsDir() {
+		t.Fatalf("task root: %v %v", info, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".obsidian")); !os.IsNotExist(err) {
+		t.Fatal("must not create an Obsidian vault")
+	}
+}
+
 func TestObsidianVaultValidationAndPreparation(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -505,7 +518,6 @@ func TestObsidianVaultValidationAndPreparation(t *testing.T) {
 		{name: "missing", path: ""},
 		{name: "relative", path: "relative/vault"},
 		{name: "not found", path: filepath.Join(home, "missing")},
-		{name: "not vault", path: home},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := (ObsidianConfig{VaultPath: test.path}).ValidateAndPrepare(); err == nil {

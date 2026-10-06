@@ -1,9 +1,118 @@
 # Installation defaults and setup requirements
 
-Radar's dashboard starts with the generated configuration even if no external
-tools are installed. Missing sources do not hide healthy ones. Configuration is
-created on first launch, not tailored to whichever tools happened to be present
-at install time.
+## Guided first startup
+
+Run `radar` in an interactive terminal, or `radar init` to complete setup without
+opening the dashboard. Setup runs only when `config.json` is missing; empty,
+malformed, and existing configs are never treated as permission to overwrite.
+`radar config-path`, `version`, and background daemon startup do not generate a
+config. A headless daemon can still collect with in-memory defaults; it never
+prompts or installs anything.
+
+The inline prompts stay in terminal scrollback. Escape/Ctrl+C cancels; yes/no
+prompts default to **no**. Secrets are masked while typing and in answered prompts.
+
+1. Check Git, tmux 3.2+, fd (`fdfind` on Debian), Node.js 24+, npm, Pi 0.85.1+,
+   pi-radar, and gh. Node.js is a **Pi runtime prerequisite**, not a dependency
+   of Radar's Go binary. Neovim is not required: the generated layout has one
+   Pi window, without altering existing user layouts.
+2. Show each necessary installation command and ask permission. Homebrew and
+   apt-get installs are supported; Pi uses npm and pi-radar uses `pi install`.
+   No downloaded bootstrap shell is run. Install/update failures, declining,
+   or binaries still missing/too old on PATH stop setup. Linux distributions
+   whose apt repositories do not provide Node 24+ need Node installed separately.
+   No sudo npm install or silent PATH/shell-profile changes are made. If SBX is
+   already installed on macOS, setup also checks pi-sbx 0.6.0+ so automatic
+   sandbox activation does not produce an unusable early Pi session. Existing
+   Git/local package sources are never silently replaced by duplicate npm installs.
+3. Offer the tmux configuration described below.
+4. Ask for the existing repository directory, workspace root, and notes parent
+   directory. Notes live under its `Tasks/` folder. An Obsidian vault is optional.
+5. Ask whether to connect GitHub, Jira, and Datadog. Declining writes an explicit
+   `enabled: false`; opting in verifies access and writes `true`. GitHub uses
+   `gh auth status` and offers `gh auth login` when needed. Jira uses site URL,
+   email, hidden API token, automatic Cloud ID discovery, and comma/space-separated
+   ticket prefixes. Datadog uses a supported site/API endpoint, hidden API and
+   application keys, and a required monitor query such as `tag:team:platform`.
+6. Preview the full config, any tmux additions, and the secret destination (never
+   token values). Only affirmative confirmation saves the files and directories.
+
+Tool installations and GitHub login happen with their own earlier consent and
+are not rolled back if final review is declined. Cancelling does not save Radar
+config, secrets, or tmux settings. Existing secrets belonging to other integrations
+are preserved. Concurrent setup saves are serialized; config creation refuses to
+replace an existing file. I/O failures are reported, not presented as success;
+independent files already saved before a failure are not destructively rolled back.
+
+## Settings and secrets
+
+Both live in `$XDG_CONFIG_HOME/radar/`, or `~/.config/radar/` by default.
+`config.json` contains settings and connection metadata:
+
+```json
+{
+  "jira": {
+    "enabled": true,
+    "base_url": "https://example.atlassian.net",
+    "email": "you@example.com",
+    "cloud_id": "discovered-cloud-id"
+  },
+  "datadog": {
+    "enabled": true,
+    "site": "datadoghq.eu",
+    "monitor_query": "tag:team:platform"
+  }
+}
+```
+
+`secrets.json` contains integration-namespaced secrets:
+
+```json
+{
+  "jira": {"api_token": "<token>"},
+  "datadog": {"api_key": "<API key>", "app_key": "<application key>"}
+}
+```
+
+The directory is `0700`, the files are `0600`, and writes use private temporary
+files and atomic publication. Secrets are **plaintext**, protected by filesystem
+permissions, not encrypted. The reader rejects symlinks, non-regular files, broad
+permissions, and malformed secret JSON without echoing its contents. Repair
+permissions with `chmod 600`; edit/rotate secrets locally. GitHub credentials stay
+with gh and Pi provider authentication stays with Pi (`/login`).
+
+The documented `RADAR_JIRA_*` and `RADAR_DATADOG_*` environment variables remain
+supported and override corresponding stored settings/secrets. `jira.api_base_url`
+can specify an API base explicitly, like the existing `RADAR_JIRA_API_BASE_URL`;
+otherwise the Cloud ID determines the Atlassian API URL. No credentials are
+copied from the environment into files automatically.
+
+## Tmux dashboard workflow
+
+Inside tmux, bare `radar` shows the dashboard. Outside tmux, Radar attaches to an
+existing session, or creates a `radar` session if none exists, then opens a 90%
+width/height popup in the invoking directory. Closing it leaves the tmux session
+running. Prefix + r reopens it:
+
+```tmux
+bind-key r display-popup -E -w 90% -h 90% -d '#{pane_current_path}' 'radar'
+```
+
+If setup installs tmux, it proposes a starter config with mouse support, larger
+scrollback, one-based window/pane numbering, renumbering, low Escape delay, focus
+events, and a status-bar reminder. If tmux was already installed, it offers only
+the popup binding, explicitly warning that an existing prefix + r binding will
+be replaced. Declining the optional addition leaves tmux configuration unchanged;
+`radar` can still bootstrap its popup when invoked outside tmux.
+
+After final confirmation, Radar writes `radar/tmux.conf` beside `config.json` and
+appends a `source-file` line to `~/.tmux.conf`, or an existing
+`$XDG_CONFIG_HOME/tmux/tmux.conf` when no `~/.tmux.conf` exists. Existing contents,
+file permissions, and dotfile symlinks are preserved. Custom `tmux -f` configs
+need the displayed source line added to that custom file. Existing prefixes are
+not changed. Repeat application does not duplicate the include. If a server is
+running, setup sources the snippet immediately; failure is reported with a
+manual reload instruction. A new server loads the snippet from the user config.
 
 ## Optional integrations
 
@@ -23,14 +132,14 @@ Explicit source actions and cleanup are separate from background collection.
 | Integration | Automatic activation prerequisites |
 | --- | --- |
 | GitHub | `gh` on PATH and a locally configured GitHub token; API failures, including expired credentials, are errors |
-| Jira | Endpoint, email and token in the documented `RADAR_JIRA_*` variables |
+| Jira | Connection settings and a token in config/secrets or `RADAR_JIRA_*` overrides |
 | Datadog | Both credentials and an explicit `datadog.monitor_query`; no automatic organization-wide query |
 | SBX collection | `sbx` on PATH, or Windows `sbx.exe` plus `wslpath` on WSL2 |
 | SBX for new workspaces | macOS and `sbx` on PATH; Windows SBX managed workspaces remain blocked by WSL symlink support |
 
 Git worktrees and tmux sessions are discovered when their CLIs are available.
-The macOS notifier is used when its companion is installed. None of these is
-required just to open the dashboard. Tools installed later on PATH are detected
+The macOS notifier is used when its companion is installed. Interactive first-run setup requires the tools listed above; background collection
+continues to report missing optional sources without hiding healthy ones. Tools installed later on PATH are detected
 on subsequent checks, without rewriting the config. If the daemon's PATH itself
 changes, restart the daemon to give it the updated environment.
 
@@ -38,8 +147,7 @@ Dashboard startup recovers reported SBX authentication failures by launching
 `sbx login` (`sbx.exe login` for Windows SBX from WSL2) before opening the TUI,
 then refreshing local sources. `radar create` and `radar fork` also check SBX
 authentication in the foreground. Background collection never opens login
-prompts, and unrelated runtime failures do not trigger login. Authenticate
-GitHub manually with `gh auth login`. SBX runtime failures never cause a
+prompts, and unrelated runtime failures do not trigger login. First-run setup offers GitHub login; it can also be run manually with `gh auth login`. SBX runtime failures never cause a
 sandboxed setup command to execute on the host instead.
 
 ## Repository precedence and existing workspaces
@@ -62,7 +170,7 @@ authentication in the foreground.
 ## Required only when using a workflow
 
 - Task authoring and every new workspace require an explicitly configured,
-  existing Obsidian vault containing `.obsidian/`. Radar does not guess a vault.
+  task-notes directory. An existing Obsidian vault is optional; Radar does not guess one.
 - Workspace sessions require tmux. New sessions using the standard `pi` and
   `nvim` pane commands check these tools before provisioning. Unused pane tools
   are not required; arbitrary custom shell commands remain the user's responsibility.
@@ -125,7 +233,7 @@ schemas are unchanged. Restart a running daemon after updating the binary.
 
 - Actual release installer and source-install recipe, isolated HOME/XDG paths,
   default/custom prefixes, custom binary directories, and paths with spaces.
-- First launch of the installed daemon with no optional tools or credentials.
+- First launch of the installed daemon with no optional tools or credentials, without silently generating config.
 - Installer reruns preserving configuration and instructions byte for byte.
 - Auto/on/off activation with absent, partial and available prerequisites.
 - Newly installed tools detected without changing generated configuration.
@@ -142,3 +250,25 @@ schemas are unchanged. Restart a running daemon after updating the binary.
 Tests use fake CLIs and local fixtures, not real authentication, remote APIs, or
 sandbox provisioning. CI also builds native macOS notifier/release archives;
 real SBX runtime tests remain separately opt-in.
+
+## Onboarding regression matrix
+
+`go test ./...` also drives the real inline wizard through a pseudo-terminal with
+isolated HOME/XDG/PATH, real JSON files, stub installers and a local HTTP server:
+
+- Every GitHub/Jira/Datadog opt-in combination, both with existing tools and with
+  simulated tmux/Node installation; existing vs missing GitHub authentication.
+- Reloaded integration status, real Jira/Datadog collector requests with the stored
+  secrets, and note-only workspace creation from every generated configuration.
+- Declining dependencies or final review, interrupted prompts, invalid input,
+  failed installation/authentication, existing/broken configs, and concurrent saves.
+- Secret redaction, owner-only permissions, unrelated-secret preservation, unsafe
+  secret-file rejection, and explicit environment overrides.
+- Tmux profile preservation, symlinks, XDG locations, idempotence and edits made
+  during preview; startup from outside/inside tmux and informational commands.
+- With tmux installed, real isolated-server tests exercise popup startup, reuse of
+  a detached session, and the actual prefix + r keystroke. They skip explicitly
+  when tmux is unavailable; the hermetic command/config tests always run.
+
+No test uses real service credentials, installs software on the machine, or talks
+to the user's tmux server. The PTY matrix adds roughly 90 seconds to the suite.

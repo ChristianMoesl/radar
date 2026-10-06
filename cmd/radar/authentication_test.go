@@ -47,6 +47,14 @@ func TestForegroundAuthentication(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer os.RemoveAll(dir)
+			// This test exercises authentication for an already-configured user.
+			configDir := filepath.Join(dir, ".config", "radar")
+			if err := os.MkdirAll(configDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{}`), 0600); err != nil {
+				t.Fatal(err)
+			}
 			logPath := filepath.Join(dir, "calls")
 			script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$RADAR_TEST_AUTH_LOG\"\n" +
 				"case \"$1\" in\nls) echo \"Sign-in required\" >&2; exit 1;;\nlogin) exit "
@@ -96,7 +104,7 @@ func TestForegroundAuthentication(t *testing.T) {
 			defer cancel()
 			cmd := exec.CommandContext(ctx, executable, "-test.run=^TestForegroundAuthentication$")
 			cmd.Env = []string{
-				"PATH=" + dir, "HOME=" + dir, "RADAR_SOCKET=" + socketPath,
+				"TMUX=fixture", "PATH=" + dir, "HOME=" + dir, "RADAR_SOCKET=" + socketPath,
 				"RADAR_TEST_AUTH_MODE=" + tt.mode, "RADAR_TEST_AUTH_LOG=" + logPath,
 			}
 			output, err := cmd.CombinedOutput()

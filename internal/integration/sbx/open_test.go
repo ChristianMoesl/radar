@@ -28,7 +28,8 @@ func (fakeMultiplexer) Descriptor() integration.Descriptor {
 func (fakeMultiplexer) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
 	return integration.CollectResult{}
 }
-func (fakeMultiplexer) ClientActive() bool { return false }
+func (fakeMultiplexer) ClientActive() bool                  { return false }
+func (fakeMultiplexer) OpenDashboard(context.Context) error { return nil }
 func (fakeMultiplexer) Current(context.Context) (integration.SessionContext, bool, error) {
 	return integration.SessionContext{}, false, nil
 }

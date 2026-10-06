@@ -7,25 +7,17 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
+
+	"radar/internal/config"
+	"radar/internal/integration/datadog/settings"
 )
 
 const (
 	defaultSite     = "datadoghq.eu"
 	monitorPageSize = 1000
 )
-
-var supportedSites = map[string]bool{
-	"datadoghq.com":     true,
-	"us3.datadoghq.com": true,
-	"us5.datadoghq.com": true,
-	"datadoghq.eu":      true,
-	"ap1.datadoghq.com": true,
-	"ap2.datadoghq.com": true,
-	"ddog-gov.com":      true,
-}
 
 type credentials struct {
 	APIKey     string
@@ -103,24 +95,33 @@ func (c apiClient) Search(ctx context.Context, cfg credentials, userQuery string
 	return response, nil
 }
 
-func credentialsFromEnv() (credentials, []string, error) {
-	cfg := credentials{
-		APIKey: strings.TrimSpace(os.Getenv("RADAR_DATADOG_API_KEY")),
-		AppKey: strings.TrimSpace(os.Getenv("RADAR_DATADOG_APP_KEY")),
-		Site:   strings.TrimSpace(os.Getenv("RADAR_DATADOG_SITE")),
+func loadCredentials() (credentials, []string, error) {
+	user, err := config.Load()
+	if err != nil {
+		return credentials{}, nil, err
 	}
+	apiKey, err := config.Secret("RADAR_DATADOG_API_KEY", "datadog", "api_key")
+	if err != nil {
+		return credentials{}, nil, err
+	}
+	appKey, err := config.Secret("RADAR_DATADOG_APP_KEY", "datadog", "app_key")
+	if err != nil {
+		return credentials{}, nil, err
+	}
+	cfg := credentials{APIKey: apiKey, AppKey: appKey, Site: config.EnvOr("RADAR_DATADOG_SITE", user.Datadog.Site)}
+
 	missing := make([]string, 0, 2)
 	if cfg.APIKey == "" {
-		missing = append(missing, "RADAR_DATADOG_API_KEY")
+		missing = append(missing, "datadog.api_key in secrets.json or RADAR_DATADOG_API_KEY")
 	}
 	if cfg.AppKey == "" {
-		missing = append(missing, "RADAR_DATADOG_APP_KEY")
+		missing = append(missing, "datadog.app_key in secrets.json or RADAR_DATADOG_APP_KEY")
 	}
 	if cfg.Site == "" {
 		cfg.Site = defaultSite
 	}
 
-	site, err := normalizeSite(cfg.Site)
+	site, err := settings.NormalizeSite(cfg.Site)
 	if err != nil {
 		return cfg, missing, err
 	}
@@ -128,17 +129,6 @@ func credentialsFromEnv() (credentials, []string, error) {
 	cfg.APIBaseURL = "https://api." + site
 	cfg.AppBaseURL = datadogAppBaseURL(site)
 	return cfg, missing, nil
-}
-
-func normalizeSite(site string) (string, error) {
-	site = strings.TrimSpace(strings.ToLower(site))
-	site = strings.TrimPrefix(site, "https://")
-	site = strings.TrimPrefix(site, "http://")
-	site = strings.TrimPrefix(site, "api.")
-	if strings.ContainsAny(site, "/?#") || !supportedSites[site] {
-		return "", fmt.Errorf("RADAR_DATADOG_SITE must be a supported Datadog site hostname")
-	}
-	return site, nil
 }
 
 func datadogAppBaseURL(site string) string {

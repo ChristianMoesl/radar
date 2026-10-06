@@ -3,7 +3,6 @@ package scripts_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"radar/internal/client"
-	"radar/internal/config"
 )
 
 func TestReleaseInstallAndFirstLaunch(t *testing.T) {
@@ -167,17 +165,10 @@ func TestReleaseInstallAndFirstLaunch(t *testing.T) {
 			if !ready {
 				t.Fatal("installed daemon did not become ready with usable source status")
 			}
-			data, err := os.ReadFile(configPath)
-			if err != nil {
-				t.Fatal(err)
+			if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+				t.Fatal("background daemon must not create config.json and bypass first-run consent")
 			}
-			var cfg config.Config
-			if err := json.Unmarshal(data, &cfg); err != nil {
-				t.Fatal(err)
-			}
-			if cfg.SBX.Enabled != nil || cfg.GitHub.Enabled != nil || cfg.Jira.Enabled != nil || cfg.Datadog.Enabled != nil {
-				t.Fatalf("first launch froze activation: %s", data)
-			}
+
 			// An upgrade must preserve both user-owned files byte for byte.
 			customConfig := []byte(`{"sbx":{"enabled":false},"github":{"enabled":false}}` + "\n")
 			customInstructions := []byte("User-owned instructions\n")

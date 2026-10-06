@@ -1,6 +1,6 @@
 # Obsidian task authoring
 
-Obsidian is Radar's required, always-registered task-authoring provider. Every managed workspace has a canonical note; there is no enable/disable setting. A note owns task identity, title, lifecycle, priority, timestamps, the muted preference, durable source bindings, and user content. Radar's task state remains a rebuildable projection.
+Radar's always-registered Markdown task-authoring provider supports both ordinary directories and Obsidian vaults. Every managed workspace has a canonical note; there is no enable/disable setting. A note owns task identity, title, lifecycle, priority, timestamps, the muted preference, durable source bindings, and user content. Radar's task state remains a rebuildable projection.
 
 ## Configuration
 
@@ -14,7 +14,7 @@ Add the vault to `radar config-path`:
 }
 ```
 
-Radar expands `~/`, requires an absolute vault containing `.obsidian/`, and creates `<vault>/Tasks/`. Obsidian Desktop is needed only for the **Open in Obsidian** action. An unconfigured vault is shown as disabled on the dashboard, with setup guidance; configured but invalid vaults are errors. Task creation, mute/unmute persistence, and workspace creation require a valid vault. Radar never guesses or creates a vault.
+Radar expands `~/`, requires an existing absolute directory, and creates `<directory>/Tasks/`. First-run setup can create the selected directory after confirmation. `.obsidian/` is not required or created. For a real Obsidian vault, the open action uses an Obsidian deep link; otherwise it opens the Markdown file with the system handler. An unconfigured notes directory is shown as disabled with setup guidance; a configured but unavailable directory is an error. Task creation, mute/unmute persistence, and workspace creation still require a valid notes directory. The existing `obsidian.vault_path` setting, task identities, and note layout are unchanged.
 
 ## Task layout
 
@@ -110,7 +110,7 @@ A valid note emits one authoritative `obsidian:task:<radar-id>` ref with:
 - canonical and linking key `obsidian:task:<radar-id>`
 - preferred title from `radar-title`
 - signal `low_priority`, `immediate`, or `done`
-- an `obsidian://open` URL for its current note path
+- an `obsidian://open` URL in an Obsidian vault, otherwise a `file://` URL for its current note path
 - canonical note and task-directory metadata
 - typed `Muted` and `Bindings` values from the optional managed preference fields, without changing the actual source signal or lifecycle
 

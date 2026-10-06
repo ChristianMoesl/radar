@@ -147,7 +147,7 @@ func TestStatusRequiresQueryAndEnvironmentCredentials(t *testing.T) {
 
 	configureDatadog(t, "tag:team:cap")
 	status = NewSource().Status(context.Background(), testLogger())
-	if status.CanRun || status.Status.Detail != "missing RADAR_DATADOG_API_KEY, RADAR_DATADOG_APP_KEY" {
+	if status.CanRun || status.Status.Detail != "missing datadog.api_key in secrets.json or RADAR_DATADOG_API_KEY, datadog.app_key in secrets.json or RADAR_DATADOG_APP_KEY" {
 		t.Fatalf("status without credentials = %+v", status)
 	}
 

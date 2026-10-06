@@ -519,7 +519,7 @@ func (Source) Actions(_ context.Context, req integration.ActionRequest) []integr
 	if req.Ref.Source != "obsidian" || req.Ref.Kind != "task" || req.Ref.URL == "" {
 		return nil
 	}
-	return []integration.Action{{PreferredKey: "o", Source: "Obsidian", Label: req.Label, Detail: "Open in Obsidian", ID: OpenAction, Ref: req.Ref}}
+	return []integration.Action{{PreferredKey: "o", Source: "Obsidian", Label: req.Label, Detail: "Open task note", ID: OpenAction, Ref: req.Ref}}
 }
 
 func (Source) RunAction(ctx context.Context, req integration.RunActionRequest) (integration.ActionResult, error) {
@@ -529,7 +529,7 @@ func (Source) RunAction(ctx context.Context, req integration.RunActionRequest) (
 	if err := openurl.Open(ctx, req.Ref.URL); err != nil {
 		return integration.ActionResult{}, err
 	}
-	return integration.ActionResult{Message: "Opened task in Obsidian"}, nil
+	return integration.ActionResult{Message: "Opened task note"}, nil
 }
 
 func taskRoot(vault string) string { return config.ObsidianTaskRoot(vault) }
@@ -564,6 +564,11 @@ func newUUID() (string, error) {
 }
 
 func noteURI(vault, notePath string) string {
+	// Ordinary directories use the system's Markdown handler, while a real vault
+	// retains its Obsidian deep links. Notes and their stable identities are identical.
+	if info, err := os.Stat(filepath.Join(vault, ".obsidian")); err != nil || !info.IsDir() {
+		return (&url.URL{Scheme: "file", Path: notePath}).String()
+	}
 	relative, err := filepath.Rel(vault, notePath)
 	if err != nil {
 		relative = notePath

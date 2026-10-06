@@ -7,6 +7,10 @@ import (
 )
 
 type Config struct {
+	BaseURL                 string            `json:"base_url,omitempty"`
+	Email                   string            `json:"email,omitempty"`
+	CloudID                 string            `json:"cloud_id,omitempty"`
+	APIBaseURL              string            `json:"api_base_url,omitempty"`
 	Enabled                 *bool             `json:"enabled,omitempty"`
 	AuthoritativeIssueTypes []string          `json:"authoritative_issue_types"`
 	StatusMapping           map[string]string `json:"status_mapping,omitempty"`
@@ -16,6 +20,10 @@ type Config struct {
 
 func (c *Config) UnmarshalJSON(data []byte) error {
 	var raw struct {
+		BaseURL                 string          `json:"base_url"`
+		Email                   string          `json:"email"`
+		CloudID                 string          `json:"cloud_id"`
+		APIBaseURL              string          `json:"api_base_url"`
 		Enabled                 *bool           `json:"enabled"`
 		AuthoritativeIssueTypes []string        `json:"authoritative_issue_types"`
 		StatusMapping           json.RawMessage `json:"status_mapping"`
@@ -24,6 +32,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	c.BaseURL, c.Email, c.CloudID, c.APIBaseURL = raw.BaseURL, raw.Email, raw.CloudID, raw.APIBaseURL
 	c.Enabled = raw.Enabled
 	if raw.AuthoritativeIssueTypes != nil {
 		c.AuthoritativeIssueTypes = raw.AuthoritativeIssueTypes

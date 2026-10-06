@@ -36,14 +36,19 @@ func DiscoverRepos(ctx context.Context, runner Runner, currentDirectory string) 
 	if currentErr == nil {
 		addRepo(current)
 	}
-	if err := runner.LookPath("fd"); err != nil {
-		return nil, err
+	finder := "fd"
+	if err := runner.LookPath(finder); err != nil {
+		// Debian names the fd executable fdfind; this is the same discovery tool.
+		if runtime.GOOS != "linux" || runner.LookPath("fdfind") != nil {
+			return nil, err
+		}
+		finder = "fdfind"
 	}
 	roots := RepositoryDirs(cfg)
 	fdErrors := make([]error, 0)
 	for _, root := range roots {
 		args := []string{"-H", "-t", "d", `^\.git$`, "--max-depth", "5", root}
-		output, err := runner.Run(ctx, "", "fd", args...)
+		output, err := runner.Run(ctx, "", finder, args...)
 		if err != nil {
 			fdErrors = append(fdErrors, fmt.Errorf("%s: %w", root, err))
 			continue

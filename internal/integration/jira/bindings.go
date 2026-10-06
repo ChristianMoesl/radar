@@ -22,7 +22,14 @@ func (source Source) ResolveBindings(ctx context.Context, req integration.Bindin
 		jiraBindingFailure(&result, req, err)
 		return result
 	}
-	jiraConfig, _, missing := configFromEnv()
+	if availability := integration.OptionalStatus("jira", cfg.Jira.Enabled, ""); !availability.CanRun {
+		return integration.CollectResult{SourceStatus: &availability.Status}
+	}
+	jiraConfig, missing, err := loadConnection()
+	if err != nil {
+		jiraBindingFailure(&result, req, err)
+		return result
+	}
 	detail := ""
 	if len(missing) > 0 {
 		detail = "missing " + strings.Join(missing, ", ")

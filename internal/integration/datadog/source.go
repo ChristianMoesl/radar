@@ -41,7 +41,7 @@ func (Source) Status(_ context.Context, logger *slog.Logger) integration.StatusR
 		return integration.OptionalStatus("datadog", cfg.Datadog.Enabled, "missing datadog.monitor_query")
 	}
 
-	_, missing, err := credentialsFromEnv()
+	_, missing, err := loadCredentials()
 	if err != nil {
 		logger.Debug("datadog collector configuration is invalid", "error", err)
 		status.Status = "error"
@@ -69,7 +69,7 @@ func (s Source) Collect(ctx context.Context, req integration.CollectRequest) int
 		return integration.CollectResult{SourceStatus: &status}
 	}
 
-	credentials, missing, err := credentialsFromEnv()
+	credentials, missing, err := loadCredentials()
 	if err != nil {
 		return failedCollection(req, status, err.Error(), err)
 	}

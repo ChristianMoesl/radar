@@ -21,6 +21,7 @@ import (
 	"radar/internal/client"
 	"radar/internal/config"
 	"radar/internal/integration"
+	"radar/internal/integration/onboarding"
 	"radar/internal/logging"
 	"radar/internal/notification"
 	"radar/internal/process"
@@ -42,6 +43,12 @@ func main() {
 
 	command := os.Args[1]
 	switch command {
+	case "init":
+		if len(os.Args) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: radar init")
+			os.Exit(2)
+		}
+		runOnboarding()
 	case "create":
 		runCreate(os.Args[2:])
 	case "reconcile-workspace":
@@ -99,10 +106,22 @@ func main() {
 }
 
 func runTUI() {
+	ensureOnboarding()
+	multiplexer, err := app.DefaultIntegrations().Multiplexer()
+	if err != nil {
+		fatal(err)
+	}
+	if !multiplexer.ClientActive() {
+		if err := multiplexer.OpenDashboard(context.Background()); err != nil {
+			fatal(err)
+		}
+		return
+	}
 	runTUIWithMode("")
 }
 
 func runTUIWithMode(mode string) {
+	ensureOnboarding()
 	path, err := socket.Path()
 	if err != nil {
 		fatal(err)
@@ -285,6 +304,7 @@ func runCreate(args []string) {
 		os.Exit(2)
 	}
 
+	ensureOnboarding()
 	integrations := app.DefaultIntegrations()
 	if _, err := integrations.EnsureAuthentication(context.Background(), integration.AuthenticationRequest{Operation: "create"}); err != nil {
 		fatal(err)
@@ -587,12 +607,6 @@ func runDaemon() {
 	defer os.Remove(pidPath)
 
 	logger.Info("daemon starting", "socket", path, "log", logPath, "pid", os.Getpid(), "pid_file", pidPath, "version", version.Current())
-
-	if configPath, err := config.EnsureFile(); err != nil {
-		logger.Warn("could not initialize config file", "error", err)
-	} else {
-		logger.Info("config file ready", "path", configPath)
-	}
 
 	store, err := state.NewStore(logger)
 	if err != nil {
@@ -926,7 +940,7 @@ func printStatePath() {
 }
 
 func printConfigPath() {
-	path, err := config.EnsureFile()
+	path, err := config.Path()
 	if err != nil {
 		fatal(err)
 	}
@@ -983,6 +997,9 @@ Daemon and status:
   radar reset
   radar stop
   radar restart
+
+Setup:
+  radar init
 
 Other:
   radar ack <task-id>
@@ -1076,4 +1093,24 @@ func fatalMessage(err error) string {
 		}
 	}
 	return "radar: " + err.Error()
+}
+
+func ensureOnboarding() {
+	needed, err := onboarding.Needed()
+	if err != nil {
+		fatal(err)
+	}
+	if needed {
+		runOnboarding()
+	}
+}
+
+func runOnboarding() {
+	if err := onboarding.Run(); err != nil {
+		if errors.Is(err, onboarding.ErrAborted) {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fatal(err)
+	}
 }
