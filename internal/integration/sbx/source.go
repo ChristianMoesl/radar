@@ -10,6 +10,7 @@ import (
 	"radar/internal/integration"
 	sbxclient "radar/internal/integration/sbx/client"
 	"radar/internal/integration/workspace"
+	"radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
 	"radar/internal/taskrefs"
 )
@@ -78,6 +79,39 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 }
 
 func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+	name := strings.TrimSpace(req.Target.ResourceID)
+	if name == "" {
+		return protocol.CleanupTarget{}, fmt.Errorf("sbx sandbox name is required")
+	}
+	root, err := workspace.DefaultRoot()
+	if err != nil {
+		return protocol.CleanupTarget{}, err
+	}
+	registry, err := workspacegroup.Load(root)
+	if err != nil {
+		return protocol.CleanupTarget{}, err
+	}
+	for _, group := range registry.Workspaces {
+		if group.Sandbox == nil || group.Sandbox.Name != name {
+			continue
+		}
+		err := workspacegroup.WithNoteLock(root, func() error {
+			registry, err := workspacegroup.Load(root)
+			if err != nil {
+				return err
+			}
+			current, found := workspacegroup.FindByID(registry, group.ID)
+			if !found || current.Sandbox == nil || current.Sandbox.Name != name {
+				return fmt.Errorf("managed sandbox registration changed; preview cleanup again")
+			}
+			_, err = cleanupSandbox(ctx, workspace.ExecRunner{}, req.Target)
+			return err
+		})
+		if err != nil {
+			return protocol.CleanupTarget{}, err
+		}
+		return req.Target, nil
+	}
 	return cleanupSandbox(ctx, workspace.ExecRunner{}, req.Target)
 }
 

@@ -244,7 +244,7 @@ func (m model) applyWorkspace() (tea.Model, tea.Cmd) {
 	if editor.createsWorkspace() {
 		label, failure = "Creating workspace…", "Workspace creation failed"
 	}
-	cmd := m.startOperation(editor.task, "workspace", label, failure, func() tea.Msg {
+	action := func() tea.Msg {
 		manager, err := app.DefaultIntegrations().WorkspaceManager()
 		if err != nil {
 			return workspaceAppliedMsg{err: err}
@@ -268,7 +268,13 @@ func (m model) applyWorkspace() (tea.Model, tea.Cmd) {
 		defer file.Close()
 		result, err := manager.ApplyReconcile(context.Background(), logger, request)
 		return workspaceAppliedMsg{result: result, err: err}
-	})
+	}
+	// Only accepted new creations outlive the UI. Start before constructing
+	// the batch, which Bubble Tea may discard when the popup closes.
+	if editor.createsWorkspace() && m.creations != nil {
+		action = m.creations.start(action)
+	}
+	cmd := m.startOperation(editor.task, "workspace", label, failure, action)
 	return m, cmd
 }
 

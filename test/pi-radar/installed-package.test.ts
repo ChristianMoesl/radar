@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -12,7 +12,7 @@ const repository = fileURLToPath(new URL("../../", import.meta.url));
 const cli = join(dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))), "bundle", "cli.js");
 
 test("installed package activates on startup/reload/restart and disappears on a non-workspace session switch", { timeout: 60000 }, async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "pi-radar-installed-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "pi-radar-installed-")));
   const stops: (() => Promise<void>)[] = [];
   t.after(async () => {
     for (const stop of stops) await stop();

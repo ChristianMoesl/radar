@@ -66,3 +66,26 @@ func TestInstallHintUnavailableCache(t *testing.T) {
 		}
 	}
 }
+
+func TestRequiredSandboxGuardIsMaterializedOrFailsExplicitly(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	path, err := RequireSandboxPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(filepath.Base(path), "require-sandbox-") {
+		t.Fatalf("guard path = %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != string(requireSandbox) {
+		t.Fatalf("guard content = %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("guard permissions: %v, %v", info, err)
+	}
+	t.Setenv("XDG_CACHE_HOME", "relative")
+	if _, err := RequireSandboxPath(); err == nil {
+		t.Fatal("unavailable mandatory guard silently skipped")
+	}
+}

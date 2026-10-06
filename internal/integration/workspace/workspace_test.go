@@ -479,8 +479,8 @@ func TestCreateSchedulesSetupInsideConfiguredSandbox(t *testing.T) {
 	assertNotCalledContains(t, runner.calls, "tmux", "remain-on-exit on")
 	assertNotCalledContains(t, runner.calls, "tmux", "kill-window")
 	assertCallOrder(t, runner.calls,
-		call{name: "sbx", args: []string{"create", "--name", created.SandboxName}},
 		call{name: "tmux", args: []string{"new-session", "-d", "-s", created.SessionName}},
+		call{name: "sbx", args: []string{"create", "--name", created.SandboxName}},
 	)
 }
 

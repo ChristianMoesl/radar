@@ -166,6 +166,9 @@ importers:
 
   .:
     devDependencies:
+      '@christianmoesl/pi-sbx':
+        specifier: 0.6.0
+        version: 0.6.0(@earendil-works/pi-coding-agent@0.85.1(ws@8.21.0))(typebox@1.3.8)
       '@earendil-works/pi-coding-agent':
         specifier: 0.85.1
         version: 0.85.1(ws@8.21.0)
@@ -291,6 +294,13 @@ packages:
   '@babel/runtime@7.29.2':
     resolution: {integrity: sha512-JiDShH45zKHWyGe4ZNVRrCjBz8Nh9TMmZG1kh4QTK8hCBTWBi8Da+i7s1fJw7/lYpM4ccepSNfqzZ/QvABBi5g==}
     engines: {node: '>=6.9.0'}
+
+  '@christianmoesl/pi-sbx@0.6.0':
+    resolution: {integrity: sha512-SjMpEbYgroejEkHw8n7l1zcc/E9chRVCotNYgteotg60JojneBVCwrVaV/Im5YIGn4q/X0I1lpgURxi1dVgudA==}
+    engines: {node: '>=24'}
+    peerDependencies:
+      '@earendil-works/pi-coding-agent': '*'
+      typebox: '*'
 
   '@earendil-works/chord@0.85.1':
     resolution: {integrity: sha512-VDlkEC3dhCzQ5fcyH1OhG19dq+6jCn+rqc/iXFivwDYGR5anwo2RCiXij9PpHhqNR5GuhhE+Er69Zi1Sn4eY6w==}
@@ -1145,6 +1155,11 @@ snapshots:
   '@aws/lambda-invoke-store@0.2.4': {}
 
   '@babel/runtime@7.29.2': {}
+
+  '@christianmoesl/pi-sbx@0.6.0(@earendil-works/pi-coding-agent@0.85.1(ws@8.21.0))(typebox@1.3.8)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 0.85.1(ws@8.21.0)
+      typebox: 1.3.8
 
   '@earendil-works/chord@0.85.1':
     dependencies:

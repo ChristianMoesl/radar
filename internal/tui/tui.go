@@ -104,6 +104,7 @@ type createForm struct {
 }
 
 type model struct {
+	creations           *creationTracker
 	operation           taskOperation
 	operationGeneration uint64
 	operationFrame      int
@@ -147,18 +148,14 @@ const (
 )
 
 func Run(socketPath string) error {
-	program := tea.NewProgram(newModel(socketPath), tea.WithAltScreen())
-	_, err := program.Run()
-	return err
+	return runModel(newModel(socketPath))
 }
 
 func RunCreate(socketPath string) error {
 	model := newModel(socketPath)
 	model.mode = "workspace_name"
 	model.editor = workspaceEditor{active: true, desired: integration.DesiredWorkspaceDescription{Worktrees: []integration.DesiredWorkspaceWorktree{}}}
-	program := tea.NewProgram(model, tea.WithAltScreen())
-	_, err := program.Run()
-	return err
+	return runModel(model)
 }
 
 func RunFork(socketPath string) error {
@@ -173,13 +170,11 @@ func RunFork(socketPath string) error {
 	}
 	form.branchMode = integration.WorkspaceBranchNew
 	model.create = form
-	program := tea.NewProgram(model, tea.WithAltScreen())
-	_, err = program.Run()
-	return err
+	return runModel(model)
 }
 
 func newModel(socketPath string) model {
-	return model{socketPath: socketPath, loading: true}
+	return model{socketPath: socketPath, loading: true, creations: &creationTracker{}}
 }
 
 func (m model) Init() tea.Cmd {

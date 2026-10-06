@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"radar/internal/command"
 	"radar/internal/integration"
@@ -169,7 +170,26 @@ type CreateSessionOptions struct {
 }
 
 func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string, switchClient bool) (Workspace, error) {
-	_, group, found, err := RegisteredWorkspace(current, "")
+	root, _, found, err := RegisteredWorkspace(current, "")
+	if err != nil {
+		return Workspace{}, err
+	}
+	if !found {
+		return Workspace{}, fmt.Errorf("no registered Radar workspace contains %s", current)
+	}
+	var result Workspace
+	err = workspacegroup.WithNoteLock(root, func() error {
+		var err error
+		result, err = openRegisteredWorkspaceAt(ctx, runner, root, current, switchClient)
+		return err
+	})
+	return result, err
+}
+
+// Re-read registration under the creation/cleanup lock. Read-only inspection
+// remains independent so the early Pi conversation can load its context.
+func openRegisteredWorkspaceAt(ctx context.Context, runner Runner, root, current string, switchClient bool) (Workspace, error) {
+	_, group, found, err := RegisteredWorkspace(current, root)
 	if err != nil {
 		return Workspace{}, err
 	}
@@ -178,7 +198,7 @@ func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string,
 	}
 	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, "")
 	if err != nil {
-		if !isSandboxReadinessError(err) {
+		if !isSandboxReadinessError(err) && !isWorkspacePaneError(err) {
 			rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
 		}
 		return Workspace{}, err
@@ -211,7 +231,7 @@ func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, gr
 	}
 	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, options.ForkPiSession)
 	if err != nil {
-		if !isSandboxReadinessError(err) {
+		if !isSandboxReadinessError(err) && !isWorkspacePaneError(err) {
 			rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
 		}
 		return Workspace{}, err
@@ -222,82 +242,6 @@ func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, gr
 		}
 	}
 	return Workspace{Name: group.Name, Branch: branch, Repo: repository, Path: group.Path, SessionName: group.SessionName, SandboxName: sandboxName(group)}, nil
-}
-
-func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string) (bool, bool, error) {
-	return startWorkspaceRuntimeWithReadiness(ctx, runner, group, forkSession, false)
-}
-
-// Reconciliation may already have checked this runtime before scheduling setup.
-// A runtime newly recovered here still needs its own readiness check.
-func startWorkspaceRuntimeWithReadiness(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string, readinessChecked bool) (bool, bool, error) {
-	if group.Sandbox != nil {
-		if err := sbxsettings.ValidateReadyCommand(group.Sandbox.ReadyCommand); err != nil {
-			return false, false, err
-		}
-		if err := sbxclient.New(runner).RequireManaged(); err != nil {
-			return false, false, err
-		}
-	}
-	_, sessionErr := runner.Run(ctx, group.Path, "tmux", "has-session", "-t", group.SessionName)
-	if sessionErr != nil {
-		if err := validateSessionDependencies(runner, group.Tmux); err != nil {
-			return false, false, err
-		}
-	}
-	if group.NotePath == "" {
-		return false, false, fmt.Errorf("workspace %s has no canonical note; associate its Obsidian note before opening it", group.Path)
-	}
-	if err := obsidiansettings.ValidateWorkspaceNote(group.NotePath); err != nil {
-		return false, false, err
-	}
-	createSandbox := false
-	if group.Sandbox != nil && group.Sandbox.EnvFile != "" {
-		exists, err := sandboxExists(ctx, runner, group.Sandbox.Name)
-		if err != nil {
-			return false, false, err
-		}
-		createSandbox = !exists
-		if createSandbox {
-			if err := validateSandboxEnvFile(group.Sandbox.EnvFile); err != nil {
-				return false, false, err
-			}
-		}
-	}
-	if err := ensureNoteLink(group.Path, group.NotePath); err != nil {
-		return false, false, err
-	}
-	createdSandbox := false
-	if err := ensureSharedDirectory(group); err != nil {
-		return false, false, err
-	}
-	// Preserve the original setup/lookup ordering for workspaces without an env-file.
-	if group.Sandbox != nil && group.Sandbox.EnvFile == "" {
-		exists, err := sandboxExists(ctx, runner, group.Sandbox.Name)
-		if err != nil {
-			return false, false, err
-		}
-		createSandbox = !exists
-	}
-	if createSandbox {
-		if _, err := startSandboxWithMounts(ctx, runner, group.Path, group.Sandbox.Name, SandboxKitConfig{Name: group.Sandbox.Agent, Path: group.Sandbox.KitPath}, group.Sandbox.EnvFile, group.Sandbox.Mounts); err != nil {
-			return false, false, err
-		}
-		createdSandbox = true
-	}
-	if !readinessChecked || createdSandbox {
-		if err := waitForSandboxReady(ctx, runner, group.Path, group.Sandbox); err != nil {
-			return false, createdSandbox, err
-		}
-	}
-	if sessionErr == nil {
-		return false, createdSandbox, nil
-	}
-	piArgsText := piArgsWithPrompt(taskPiSessionID(group.SessionName, group.TaskLinkingKey), group.SessionName, group.Model, group.Thinking, forkSession, "")
-	if err := createTmuxWorkspace(ctx, runner, group.Path, group.Path, group.SessionName, group.Tmux, piArgsText, nil); err != nil {
-		return false, createdSandbox, err
-	}
-	return true, createdSandbox, nil
 }
 
 func rollbackWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, session, sandbox bool) {
@@ -990,6 +934,10 @@ func sbxCommandError(err error) error {
 }
 
 func createTmuxWorkspace(ctx context.Context, runner Runner, cwd string, path string, sessionName string, cfg sessionlayout.Config, piArgsText string, environment map[string]string) error {
+	return createTmuxWorkspaceWithGates(ctx, runner, cwd, path, sessionName, cfg, piArgsText, environment, false)
+}
+
+func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string, path string, sessionName string, cfg sessionlayout.Config, piArgsText string, environment map[string]string, early bool) error {
 	cfg = sessionlayout.WithDefaults(cfg)
 	if err := sessionlayout.Validate(cfg); err != nil {
 		return err
@@ -998,14 +946,18 @@ func createTmuxWorkspace(ctx context.Context, runner Runner, cwd string, path st
 	createdSession := false
 	cleanup := func(err error) error {
 		if createdSession {
-			_, _ = runner.Run(ctx, cwd, "tmux", "kill-session", "-t", sessionName)
+			// Cancellation between pane creation and gate registration must not
+			// leave a live pane waiting on an unrecorded, unrecoverable gate.
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			defer cancel()
+			_, _ = runner.Run(cleanupCtx, cwd, "tmux", "kill-session", "-t", sessionName)
 		}
 		return err
 	}
 	var piWindowID string
 	var piPaneID string
 	for windowIndex, window := range cfg.Windows {
-		firstCommand := expandPiArgs(window.Panes[0].Command, piArgsText)
+		firstCommand, firstGate := workspacePaneCommand(window.Panes[0].Command, piArgsText, early)
 		var output string
 		var err error
 		if windowIndex == 0 {
@@ -1033,13 +985,18 @@ func createTmuxWorkspace(ctx context.Context, runner Runner, cwd string, path st
 		if err != nil {
 			return cleanup(err)
 		}
+		if firstGate != "" {
+			if _, err := runner.Run(ctx, cwd, "tmux", "set-option", "-p", "-t", firstPaneID, workspacePaneGateOption, firstGate); err != nil {
+				return cleanup(err)
+			}
+		}
 		if strings.Contains(window.Panes[0].Command, sessionlayout.PiArgsPlaceholder) {
 			piWindowID = windowID
 			piPaneID = firstPaneID
 		}
 
 		for _, pane := range window.Panes[1:] {
-			command := expandPiArgs(pane.Command, piArgsText)
+			command, gate := workspacePaneCommand(pane.Command, piArgsText, early)
 			output, err := runner.Run(ctx, cwd, "tmux", "split-window", "-d", "-t", firstPaneID, "-c", path, "-P", "-F", "#{window_id} #{pane_id}", command)
 			if err != nil {
 				return cleanup(err)
@@ -1047,6 +1004,11 @@ func createTmuxWorkspace(ctx context.Context, runner Runner, cwd string, path st
 			paneWindowID, paneID, err := parseTmuxIDs(output)
 			if err != nil {
 				return cleanup(err)
+			}
+			if gate != "" {
+				if _, err := runner.Run(ctx, cwd, "tmux", "set-option", "-p", "-t", paneID, workspacePaneGateOption, gate); err != nil {
+					return cleanup(err)
+				}
 			}
 			if strings.Contains(pane.Command, sessionlayout.PiArgsPlaceholder) {
 				piWindowID = paneWindowID

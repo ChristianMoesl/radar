@@ -77,10 +77,13 @@ To gate a workspace using the development kit's startup scripts:
 
 The command is an argv array, not shell text. Radar runs it with
 `sbx exec --workdir <anchor> <sandbox> <argv...>` before repository setup and
-before starting or reusing the Pi/tmux workspace. The check also runs after
-recreation, missing-runtime recovery, and reopening an existing runtime;
-`sbx exec` starts a stopped sandbox first. Success continues, failure stops the
-launch, and timeout/cancellation is reported. The bound is 60 seconds and the
+before releasing auxiliary pane commands. **New sandboxed workspaces start and
+switch to host Pi earlier**, after local note/worktrees/shared-directory setup
+but before SBX creation. The originating Radar operation continues provisioning;
+it still returns final completion, not an early success. Ordinary reopening,
+recreation and missing-runtime recovery retain their sandbox-first ordering.
+`sbx exec` starts a stopped sandbox first. Failure stops dependent work and is
+reported without destroying the early Pi conversation. The bound is 60 seconds and the
 parent context can cancel earlier. Raw command output and provider errors are
 withheld to avoid logging private values. A readiness failure is not a create
 failure: the existing sandbox is retained for inspection/retry, and repository
@@ -101,9 +104,54 @@ failure stops later scripts; output stays in private sandbox-local state.
 An unset `SBX_STARTUP_DIR` is an immediate no-op.
 
 SBX native startup commands do not gate the agent's entrypoint, regardless of
-`background: false`. Radar's optional command supplies that ordering only for
-Radar-managed operations. Manual `sbx exec` and independently started Pi
-sessions must run `sandbox-startup wait` themselves when they need readiness.
+`background: false`. Radar's command gates its auxiliary panes and repository
+setup, **not the early Pi tools**. Tool readiness is independently owned by
+**pi-sbx >=0.6.0**: a nonempty sandbox `SBX_STARTUP_DIR` requires the image's
+`sandbox-startup wait --timeout 60` contract before the worker becomes ready.
+The helper must exist and report current-boot readiness; failure never enables
+implicit host execution. With no startup directory, pi-sbx only checks worker
+readiness. Put every tool-critical prerequisite in the image-owned contract;
+an arbitrary Radar `ready_command` alone cannot protect early tool calls.
+Manual `sbx exec` callers still need to wait explicitly when readiness matters.
+
+### Early Pi launch and recovery
+
+Install `pi-sbx` in the host Pi profile (`pi install npm:@christianmoesl/pi-sbx`)
+and keep its extension enabled. Radar's launch-only guard checks the **active**
+`/sbx` command, ownership of all seven routed tools, and the owning package's
+stable version, not just installation declarations. Missing, old, filtered-out,
+or conflicting providers refuse the Pi launch with installation guidance; no
+automatic host/slow-path fallback is selected. `/sbx off` remains explicit host
+consent within a verified pi-sbx session. `pi-radar` remains separately recommended
+for workspace tools/context, not responsible for routing.
+
+Custom agent commands must invoke host Pi, forward `$RADAR_PI_ARGS` including
+its required guard extension, and be safe to start before SBX exists. Do not
+suppress the guard or do sandbox-dependent work in a wrapper preamble. All
+non-agent pane commands keep their layout/cwd and wait on unique, one-shot tmux
+gates. Their pending gate names live in pane user options; ordinary open or
+reconciliation releases them after readiness, without replaying started commands.
+A failed Pi launch retains its pane for diagnostics; normal successful exits
+are unchanged. New creation will not reuse an unrelated existing tmux session
+whose early-start guard cannot be verified.
+
+If provisioning fails or the creator is terminated after switching, the note,
+completed worktrees, early session and completed runtime resources remain for
+inspection. Creation writes phase/failure diagnostics to `radar log-path`; inspect
+that log and reconcile/open the retained workspace. An early switch explicitly
+closes the dashboard popup so it no longer captures keyboard input. Popup
+hangup/graceful termination dismisses the TUI but the same Radar process drains
+the accepted creation operation before exiting. Force-killing that process or
+canceling the operation still interrupts provisioning; there is no detached job.
+Managed
+open, reconciliation and cleanup serialize against creation; read-only context
+inspection remains available. If SBX appears after pi-sbx's 60-second discovery
+window, retry explicitly with `/sbx on`; earlier tool calls are never replayed.
+Repository setup is still scheduled asynchronously, not awaited to completion.
+
+No registry schema or configuration migration is introduced. The added launch
+helper is content-addressed cache data, and pending pane gates are scoped to
+fresh tmux panes rather than persisted workspace records.
 
 ## Windows / WSL2
 

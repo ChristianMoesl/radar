@@ -68,15 +68,43 @@ authentication in the foreground.
   are not required; arbitrary custom shell commands remain the user's responsibility.
 - Git members require Git. Repository discovery requires `fd`.
 - Pi's Radar tools/activity require the separately installed `pi-radar` package;
-  sandbox tool routing requires `pi-sbx`. Installing the SBX CLI does not install
-  those extensions. Radar-launched interactive Pi sessions show optional install
-  advice once per Pi profile when `pi-radar` is missing; they never auto-install it.
-  The notice can be hidden with `/radar-dismiss-install-hint`.
+  sandbox tool routing requires `pi-sbx` >=0.6.0 for early sandboxed launch.
+  Installing the SBX CLI does not install those extensions. Radar-launched
+  interactive Pi sessions show one non-blocking install notice per Pi profile,
+  recommending each missing package independently. Configured or explicitly
+  disabled package declarations suppress only that package's advice, so installed
+  `pi-radar` does not hide missing `pi-sbx` advice. This notice does not enforce
+  versions, auto-install packages, or change Pi settings. Hide it with
+  `/radar-dismiss-install-hint`.
 - URL actions require the platform opener (`xdg-open` on Linux, `open` on macOS).
 
 `linking_mark_prefixes` defaults to `[]`. This disables only ticket-prefix
 linking, not source identity, branch, or workspace linking. GitHub's generated
 tracked-PR rules also default to an empty list, not example repository searches.
+
+## Installing and updating Pi packages
+
+Install both packages in a host terminal, in the Pi profile used for Radar
+sessions (Pi 0.85.1 or newer, Node.js 24+):
+
+```sh
+pi install npm:@christianmoesl/pi-radar
+pi install npm:@christianmoesl/pi-sbx
+```
+
+For a custom profile, prefix each command with
+`PI_CODING_AGENT_DIR=/path/to/profile`. These user-scoped installs also serve
+sandboxed workspaces because Pi itself runs on the host. Restart Pi afterwards.
+The existing `<Pi agent directory>/radar/install-hint-seen` marker still owns
+notice suppression; this recommendation does not reset it or migrate profiles.
+
+Update unpinned packages with `pi update npm:@christianmoesl/pi-radar` and
+`pi update npm:@christianmoesl/pi-sbx`, in the same host Pi profile, then restart
+Pi. Bare `pi update` updates Pi itself, not these packages. Versioned npm sources
+are pinned and skipped by package updates; install the desired version explicitly
+with `pi install npm:@christianmoesl/pi-sbx@<version>` (>=0.6.0 for early sandboxed
+launch), or `pi install npm:@christianmoesl/pi-radar@<version>`. The two extensions
+have independent release versions.
 
 ## Upgrading and data handling
 

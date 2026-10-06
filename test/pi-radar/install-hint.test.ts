@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import installHint, { radarConfigured } from "../../internal/pi/install-hint.ts";
+import installHint, { radarConfigured, sbxConfigured } from "../../internal/pi/install-hint.ts";
 
 async function harness(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), "radar-install-hint-"));
@@ -33,6 +33,7 @@ async function harness(t: TestContext) {
       widget = value;
       if (value) displayed.push(value);
     } },
+    shutdown: () => assert.fail("advice must not enforce package requirements"),
   };
   const pi = {
     on: (name: string, handler: (event: any, ctx: any) => any) => hooks.set(name, handler),
@@ -47,19 +48,24 @@ async function harness(t: TestContext) {
     root, agent, cwd, commands, tools, ctx, displayed, load,
     marker: join(agent, "radar", "install-hint-seen"),
     widget: () => widget,
+    text: () => widget!.join("\n"),
     discover: async () => hooks.get("resources_discover")!({ reason: "startup", cwd }, ctx),
   };
 }
 
-test("missing integration gets optional, dismissible advice once per actual Pi profile", async t => {
+test("missing packages get combined, dismissible advice once per actual Pi profile", async t => {
   const h = await harness(t);
   const original = '{"theme":"dark"}\n';
   await writeFile(join(h.agent, "settings.json"), original);
   await h.discover();
   assert.equal(h.displayed.length, 1);
-  assert.match(h.widget()!.join("\n"), /pi install npm:@christianmoesl\/pi-radar/);
-  assert.match(h.widget()!.join("\n"), /Optional/);
-  assert.ok(h.widget()!.join("\n").includes(`PI_CODING_AGENT_DIR='${h.agent}' pi install`));
+  assert.match(h.text(), /pi install npm:@christianmoesl\/pi-radar/);
+  assert.match(h.text(), /pi install npm:@christianmoesl\/pi-sbx/);
+  assert.match(h.text(), />=0\.6\.0 is required for early sandboxed launch/);
+  assert.match(h.text(), /Advice only; no automatic installs or Pi settings changes/);
+  for (const name of ["pi-radar", "pi-sbx"]) {
+    assert.ok(h.text().includes(`PI_CODING_AGENT_DIR='${h.agent}' pi install npm:@christianmoesl/${name}`));
+  }
   assert.equal(await readFile(h.marker, "utf8"), "shown\n");
   assert.equal((await stat(h.marker)).mode & 0o777, 0o600);
   await h.commands.get("radar-dismiss-install-hint").handler("", h.ctx);
@@ -73,56 +79,118 @@ test("missing integration gets optional, dismissible advice once per actual Pi p
   process.env.PI_CODING_AGENT_DIR = other;
   await h.discover();
   assert.equal(h.displayed.length, 2);
-  assert.ok(h.widget()!.join("\n").includes(`PI_CODING_AGENT_DIR='${other.replaceAll("'", "'\"'\"'")}' pi install`));
+  for (const name of ["pi-radar", "pi-sbx"]) {
+    assert.ok(h.text().includes(`PI_CODING_AGENT_DIR='${other.replaceAll("'", "'\"'\"'")}' pi install npm:@christianmoesl/${name}`));
+  }
 });
 
-test("active integration is detected even when its tools are not selected", async t => {
+test("active pi-radar does not suppress missing pi-sbx advice even when its tools are not selected", async t => {
   const h = await harness(t);
   h.tools.push({ name: "radar_workspace_context" });
+  await h.discover();
+  assert.equal(h.displayed.length, 1);
+  assert.match(h.text(), /pi install npm:@christianmoesl\/pi-sbx/);
+  assert.doesNotMatch(h.text(), /pi-radar/);
+});
+
+test("both packages configured stay quiet without consuming the notice or enforcing versions", async t => {
+  const h = await harness(t);
+  const settings = JSON.stringify({ packages: [
+    { source: "npm:@christianmoesl/pi-radar", extensions: [] },
+    { source: "npm:@christianmoesl/pi-sbx@0.5.0", extensions: [] },
+  ] });
+  await writeFile(join(h.agent, "settings.json"), settings);
+  await h.discover();
+  assert.equal(h.displayed.length, 0);
+  await assert.rejects(stat(h.marker), { code: "ENOENT" });
+  assert.equal(await readFile(join(h.agent, "settings.json"), "utf8"), settings);
+});
+
+for (const { name, repository, configured, other } of [
+  { name: "pi-radar", repository: "radar", configured: radarConfigured, other: "pi-sbx" },
+  { name: "pi-sbx", repository: "pi-sbx", configured: sbxConfigured, other: "pi-radar" },
+]) {
+  for (const source of [
+    `npm:@christianmoesl/${name}`, `npm:@christianmoesl/${name}@0.1.0`,
+    `git:github.com/ChristianMoesl/${repository}`, `git:github.com/ChristianMoesl/${repository}@v0.1.0`,
+    `https://github.com/ChristianMoesl/${repository}.git`, `git:git@github.com:ChristianMoesl/${repository}.git`,
+    `ssh://git@github.com/ChristianMoesl/${repository}.git`,
+  ]) {
+    test(`recognizes configured ${source}, including deliberately disabled resources, independently`, async t => {
+      const h = await harness(t);
+      for (const base of [h.agent, join(h.cwd, ".pi")]) {
+        const settings = JSON.stringify({ packages: [{ source, extensions: [] }] });
+        await writeFile(join(base, "settings.json"), settings);
+        assert.equal(await configured(h.agent, h.cwd), true);
+        await h.discover();
+        assert.doesNotMatch(h.text(), new RegExp(`pi install npm:@christianmoesl/${name}`));
+        assert.ok(h.text().includes(`pi install npm:@christianmoesl/${other}`));
+        assert.equal(await readFile(join(base, "settings.json"), "utf8"), settings);
+        await rm(join(base, "settings.json"));
+        await rm(h.marker);
+      }
+      assert.equal(h.displayed.length, 2);
+    });
+  }
+
+  test(`${name} local package identity and explicitly excluded extension paths suppress only its advice`, async t => {
+    const h = await harness(t);
+    for (const base of [h.agent, join(h.cwd, ".pi")]) {
+      const local = join(base, "arbitrary-name");
+      await mkdir(local);
+      await writeFile(join(local, "package.json"), JSON.stringify({ name: `@christianmoesl/${name}` }));
+      for (const declaration of [
+        { packages: [{ source: "./arbitrary-name", extensions: [] }] },
+        { extensions: [`-/src/extensions/${name}/index.ts`] },
+        { extensions: [`!./extensions/${name}/index.js`] },
+      ]) {
+        await writeFile(join(base, "settings.json"), JSON.stringify(declaration));
+        await h.discover();
+        assert.doesNotMatch(h.text(), new RegExp(`pi install npm:@christianmoesl/${name}`));
+        assert.ok(h.text().includes(`pi install npm:@christianmoesl/${other}`));
+        await rm(h.marker);
+      }
+      await rm(join(base, "settings.json"));
+    }
+  });
+}
+
+test("user pi-radar and project-disabled pi-sbx declarations suppress both recommendations", async t => {
+  const h = await harness(t);
+  await writeFile(join(h.agent, "settings.json"), JSON.stringify({ packages: ["npm:@christianmoesl/pi-radar"] }));
+  await writeFile(join(h.cwd, ".pi", "settings.json"), JSON.stringify({ packages: [
+    { source: "npm:@christianmoesl/pi-sbx", autoload: false, extensions: [] },
+  ] }));
   await h.discover();
   assert.equal(h.displayed.length, 0);
   await assert.rejects(stat(h.marker), { code: "ENOENT" });
 });
 
-for (const source of [
-  "npm:@christianmoesl/pi-radar", "npm:@christianmoesl/pi-radar@0.1.0",
-  "git:github.com/ChristianMoesl/radar", "git:github.com/ChristianMoesl/radar@v0.1.0",
-  "https://github.com/ChristianMoesl/radar.git", "git@github.com:ChristianMoesl/radar.git",
-]) {
-  test(`recognizes configured source ${source}, including deliberately disabled resources`, async t => {
-    const h = await harness(t);
-    for (const base of [h.agent, join(h.cwd, ".pi")]) {
-      await writeFile(join(base, "settings.json"), JSON.stringify({ packages: [{ source, extensions: [] }] }));
-      assert.equal(await radarConfigured(h.agent, h.cwd), true);
-      await h.discover();
-      await rm(join(base, "settings.json"));
-    }
-    assert.equal(h.displayed.length, 0);
-  });
-}
-
-test("local package identity and explicitly excluded extension paths suppress advice", async t => {
+test("an existing per-profile notice marker is preserved, not reset for pi-sbx advice", async t => {
   const h = await harness(t);
-  const local = join(h.agent, "arbitrary-name");
-  await mkdir(local);
-  await writeFile(join(local, "package.json"), JSON.stringify({ name: "@christianmoesl/pi-radar" }));
-  await writeFile(join(h.agent, "settings.json"), JSON.stringify({ packages: [{ source: "./arbitrary-name", extensions: [] }] }));
-  await h.discover();
-  await writeFile(join(h.agent, "settings.json"), JSON.stringify({ extensions: ["-/src/extensions/pi-radar/index.ts"] }));
+  await mkdir(join(h.agent, "radar"));
+  await writeFile(h.marker, "shown\n");
+  h.tools.push({ name: "radar_workspace_context" });
   await h.discover();
   assert.equal(h.displayed.length, 0);
+  assert.equal(await readFile(h.marker, "utf8"), "shown\n");
 });
 
-test("unrelated packages and ordinary extension files do not hide the recommendation", async t => {
+test("unrelated packages and ordinary extension files do not hide either recommendation", async t => {
   const h = await harness(t);
   const extension = join(h.agent, "unrelated.ts");
   await writeFile(extension, "export default function() {}");
   await writeFile(join(h.agent, "settings.json"), JSON.stringify({
-    packages: ["npm:@christianmoesl/pi-radar-other", "https://github.com/elsewhere/radar", "npm:unrelated"],
+    packages: [
+      "npm:@christianmoesl/pi-radar-other", "https://github.com/elsewhere/radar",
+      "npm:@christianmoesl/pi-sbx-other", "https://github.com/elsewhere/pi-sbx", "npm:unrelated",
+    ],
     extensions: [extension, "builtin:mcp"],
   }));
   await h.discover();
   assert.equal(h.displayed.length, 1);
+  assert.match(h.text(), /pi install npm:@christianmoesl\/pi-radar/);
+  assert.match(h.text(), /pi install npm:@christianmoesl\/pi-sbx/);
 });
 
 test("explicit extension disabling, RPC and headless sessions remain quiet without consuming the notice", async t => {
@@ -135,28 +203,35 @@ test("explicit extension disabling, RPC and headless sessions remain quiet witho
   h.ctx.hasUI = false;
   await h.discover();
   h.ctx.hasUI = true;
-  h.ctx.mode = "rpc";
-  await h.discover();
+  for (const mode of ["rpc", "print", "json"]) {
+    h.ctx.mode = mode;
+    await h.discover();
+  }
   assert.equal(h.displayed.length, 0);
   await assert.rejects(stat(h.marker), { code: "ENOENT" });
   h.ctx.mode = "tui";
+  process.argv = ["node", "pi", "--", "--no-extensions"];
   await h.discover();
   assert.equal(h.displayed.length, 1);
 });
 
 test("invalid settings and unavailable notice storage never interrupt startup", async t => {
   const h = await harness(t);
-  const settings = join(h.agent, "settings.json");
-  await writeFile(settings, "broken json");
-  await h.discover();
-  await rm(settings);
+  for (const base of [h.agent, join(h.cwd, ".pi")]) {
+    const settings = join(base, "settings.json");
+    await writeFile(settings, "broken json");
+    await h.discover();
+    await rm(settings);
+  }
   await writeFile(join(h.agent, "radar"), "not a directory");
   await h.discover();
   assert.equal(h.displayed.length, 0);
 });
 
-test("concurrent launches claim only one notice", async t => {
+test("concurrent launches claim only one combined notice", async t => {
   const h = await harness(t);
   await Promise.all([h.discover(), h.discover(), h.discover()]);
   assert.equal(h.displayed.length, 1);
+  assert.match(h.text(), /pi install npm:@christianmoesl\/pi-radar/);
+  assert.match(h.text(), /pi install npm:@christianmoesl\/pi-sbx/);
 });

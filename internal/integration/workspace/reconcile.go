@@ -93,6 +93,7 @@ type ReconcileWorkspacePlan struct {
 	openExisting bool
 	startSession bool
 	forkSession  string
+	switchClient bool
 }
 
 type ReconcileWorkspaceResult struct {
@@ -117,6 +118,8 @@ type ReconcileWorkspaceResult struct {
 	// Retain safe readiness causes for in-process creation callers. The public
 	// reconciliation result intentionally reports retryable failures as data.
 	readinessErr error
+	switchErr    error
+	earlySession bool
 }
 
 type ReconcileWorkspaceError struct {
@@ -602,7 +605,13 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 	}
 
 	if plan.create {
-		if _, _, err := startWorkspaceRuntime(ctx, runner, plan.group, plan.forkSession); err != nil {
+		var err error
+		if plan.group.Sandbox != nil {
+			result.earlySession, result.switchErr, err = startNewWorkspaceRuntime(ctx, runner, plan.group, plan.forkSession, plan.switchClient)
+		} else {
+			_, _, err = startWorkspaceRuntime(ctx, runner, plan.group, plan.forkSession)
+		}
+		if err != nil {
 			result.Retryable = true
 			result.Error = err.Error()
 			if isSandboxReadinessError(err) {
@@ -664,6 +673,17 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 			}
 			logRetryableReconciliationFailure(logger, plan, sandboxRuntimeFailurePhase(err), result, err)
 			return result, nil
+		}
+	}
+	// A failed/interrupted creation can leave auxiliary panes waiting even
+	// when this reconciliation does not need to start a session for setup.
+	if !plan.create && !plan.startSession {
+		if _, sessionErr := runner.Run(ctx, plan.group.Path, "tmux", "has-session", "-t", plan.group.SessionName); sessionErr == nil {
+			if err := releaseWorkspacePanes(ctx, runner, plan.group.Path, plan.group.SessionName); err != nil {
+				result.Retryable, result.Error = true, err.Error()
+				logRetryableReconciliationFailure(logger, plan, "session", result, err)
+				return result, nil
+			}
 		}
 	}
 	warnings := []string{}

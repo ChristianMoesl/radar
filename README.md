@@ -56,17 +56,20 @@ The installer uses `~/.local` by default. Set `PREFIX` to install elsewhere. It 
 
 ### Pi integration
 
-Install `pi-radar` once in Pi's user configuration (Pi 0.85.1 or newer, Node.js 24+):
+Install `pi-radar` and `pi-sbx` once in Pi's user configuration (Pi 0.85.1 or newer, Node.js 24+):
 
 ```sh
 pi install npm:@christianmoesl/pi-radar
+pi install npm:@christianmoesl/pi-sbx
 ```
 
-Radar-launched interactive Pi sessions show a one-time, non-blocking recommendation when the integration is missing. It explains the benefits and installation command; `/radar-dismiss-install-hint` hides it. Radar never installs packages automatically. The notice checks the running Pi's tools and personal/project declarations (including `PI_CODING_AGENT_DIR`), stays quiet for known configured or explicitly disabled integrations, and does not appear in RPC/print mode. Pi runs on the host even for sandboxed workspaces, so install the package in that host Pi profile. For a custom agent directory, the suggested command includes the matching `PI_CODING_AGENT_DIR`.
+`pi-radar` provides Radar workspace tools and context; `pi-sbx` provides sandbox tool routing. **`pi-sbx` >=0.6.0 is required for early sandboxed launch.** Installing the SBX CLI alone does not install either Pi package.
 
-The launcher loads a small **notice-only helper**, not the integration. It caches this helper under `$XDG_CACHE_HOME/radar/pi/` (or the platform's user cache directory) and records that the notice was shown in `<Pi agent directory>/radar/install-hint-seen`. Removing that marker allows the recommendation to appear again. Existing settings and workspaces are not rewritten; unreadable settings or unavailable notice storage simply skip the advice.
+Radar-launched interactive Pi sessions show one combined, non-blocking recommendation per Pi profile for missing packages. It explains each package's benefits and installation command; `/radar-dismiss-install-hint` hides it. Radar never installs packages automatically or changes Pi settings. The notice checks the running Pi's Radar tools and personal/project declarations (including `PI_CODING_AGENT_DIR`), suppresses advice independently for each known configured or explicitly disabled package, and does not appear in RPC/print mode. Having `pi-radar` installed does not hide missing `pi-sbx` advice. This helper gives installation advice, not version enforcement. Pi runs on the host even for sandboxed workspaces, so install both packages in that host Pi profile. For a custom agent directory, prefix each command with `PI_CODING_AGENT_DIR=/path/to/profile`; the suggested commands include the matching directory. Restart Pi after installation.
 
-The npm package contains only the Pi extension; it does not install the Radar CLI, and extension users do not need pnpm. If switching from a Git installation, first remove its source with `pi remove git:github.com/ChristianMoesl/radar` (use the exact source from `pi list` if it is pinned to a tag). Then install the npm package and restart Pi. Git and npm sources have different package identities, so keeping both can load the extension twice.
+All launches load a small **notice-only helper**, not the integration; early sandboxed launches additionally load the required pi-sbx prerequisite guard described below. Radar caches these helpers under `$XDG_CACHE_HOME/radar/pi/` (or the platform's user cache directory) and records that the notice was shown in `<Pi agent directory>/radar/install-hint-seen`. Removing that marker allows the recommendation to appear again. Existing settings and workspaces are not rewritten; unreadable settings or unavailable notice storage simply skip the advice.
+
+The `pi-radar` npm package contains only the Pi extension; it does not install the Radar CLI, and extension users do not need pnpm. If switching from a Git installation, first remove its source with `pi remove git:github.com/ChristianMoesl/radar` (use the exact source from `pi list` if it is pinned to a tag). Then install the npm package and restart Pi. Git and npm sources have different package identities, so keeping both can load the extension twice.
 
 Keep the `radar` binary on PATH. The installed package checks Radar's registry at Pi startup and activates only inside a registered workspace anchor or one of its members. Outside those workspaces it adds no Radar tools, commands, instructions, skills, or activity reporting. A missing or failing Radar binary leaves the extension inactive; run `radar workspace-context --registration-only` to diagnose discovery, then restart Pi or use `/reload`.
 
@@ -86,7 +89,14 @@ Sandbox routing remains entirely owned by the separately installed `pi-sbx` exte
 
 ## Update
 
-Download the new release archive, verify it with `checksums.txt`, and run its installer over the existing installation. Run `radar restart` after updating if the daemon is already running. Update the installed Pi package with `pi update npm:@christianmoesl/pi-radar` and restart Pi. To pin the extension to a release, use `pi install npm:@christianmoesl/pi-radar@<version>`; move to a new pinned release by installing its version explicitly. The CLI and npm package share the same release version (the npm version omits the tag's leading `v`).
+Download the new release archive, verify it with `checksums.txt`, and run its installer over the existing installation. Run `radar restart` after updating if the daemon is already running. Update unpinned Pi packages in the same host Pi profile:
+
+```sh
+pi update npm:@christianmoesl/pi-radar
+pi update npm:@christianmoesl/pi-sbx
+```
+
+Restart Pi afterwards. `pi update` without a package source updates Pi itself, not these packages. To pin either extension, use `pi install npm:@christianmoesl/pi-radar@<version>` or `pi install npm:@christianmoesl/pi-sbx@<version>`; choose `pi-sbx` >=0.6.0 for early sandboxed launch. Versioned npm sources are pinned and skipped by package updates, so move to a new pinned release by installing its version explicitly. The Radar CLI and `pi-radar` npm package share the same release version (the npm version omits the tag's leading `v`); `pi-sbx` is versioned separately.
 
 ## Prerequisites
 
@@ -95,7 +105,7 @@ Radar uses these local tools:
 - `fd` for fast repository discovery in `radar create`
 - `git` for repository and worktree operations
 - `tmux` for workspace creation; the default tmux configuration also runs `pi` and `nvim`
-- `sbx` and the [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) Pi extension on macOS for repositories that enable sandboxed tool execution
+- `sbx` and the [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) Pi extension >=0.6.0 on macOS for repositories that enable sandboxed tool execution
 
 On macOS, the daemon uses the installed Radar notifier companion to send host notifications when a task newly needs immediate attention or attention. Clicking a pull-request notification opens the relevant GitHub pull request; clicking a Datadog alert opens its monitor; other task notifications open their task URL when one is available. Existing actionable tasks are not notified again on every refresh or daemon restart. Muted and deprioritized tasks do not produce notifications. If the companion app is not installed, Radar continues without host notifications.
 
@@ -240,7 +250,7 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 }
 ```
 
-`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree in a temporary setup window after tmux and any sandbox are available. Without sandboxing they run on the host. On macOS, when sandboxing is enabled (automatically when `sbx` is installed, or explicitly with `sbx.enabled`), Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] [--env-file <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The anchor is always the first, writable SBX workspace argument, even when additional read-only mounts sort earlier. The sandbox mounts the anchor, the private task directory when present, each distinct external writable Git common directory, and global and repository `sbx.additional_mounts`. Nested members are already visible through the anchor. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's regular tools through `sbx exec`. The separately installed `pi-radar` package provides host-side workspace tools and context without launch-time injection. Install `pi-sbx` with `pi install git:github.com/ChristianMoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree in a temporary setup window after tmux and any sandbox are available. Without sandboxing they run on the host. On macOS, when sandboxing is enabled (automatically when `sbx` is installed, or explicitly with `sbx.enabled`), Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] [--env-file <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The anchor is always the first, writable SBX workspace argument, even when additional read-only mounts sort earlier. The sandbox mounts the anchor, the private task directory when present, each distinct external writable Git common directory, and global and repository `sbx.additional_mounts`. Nested members are already visible through the anchor. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's regular tools through `sbx exec`. The separately installed `pi-radar` package provides host-side workspace tools and context without launch-time injection. Install `pi-sbx` >=0.6.0 with `pi install npm:@christianmoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
 
 Changing the worktree membership or requested additional mounts of a sandboxed workspace reconciles the complete mount set by removing and recreating the sandbox under the same name. This interrupts processes inside the sandbox, so the Pi tool warns before confirmation. Radar waits for removal to converge and retries transient SBX container-start failures up to three times with bounded backoff and cleanup between attempts. Plans show the effective mount count and warn at 20 or more mounts without enforcing a limit. Radar then reconciles the complete desired loopback port set with `sbx ports`. If reconciliation fails, Radar keeps completed work and desired registry state and returns `ok: false` with `retryable: true`; the Pi tool reports completed work and asks the agent to re-inspect before retrying. Reconciliation phases and counts are recorded at `radar log-path` without logging complete mount commands.
 
@@ -293,9 +303,26 @@ for the script contract and diagnostics. Radar has no special handling for
 `SBX_STARTUP_DIR` or Git identities. Keep machine-specific environment files
 outside version control; do not put private keys in them.
 
+New sandboxed workspace creation prepares the note, local worktrees and shared
+directory synchronously, then starts host Pi and switches the client **before
+SBX creation/readiness**. The same Radar operation continues provisioning; its
+return value still reports final completion. The dashboard popup closes at the
+early switch, while the same Radar process finishes the accepted operation;
+phase/failure diagnostics remain available at `radar log-path`. Auxiliary panes retain their layout
+but wait until Radar readiness succeeds. This reduces time to conversation, not
+checkout cost or total sandbox preparation time. Normal open/recovery and
+sandbox-less creation retain their existing order.
+
+Early launch requires active **pi-sbx >=0.6.0** and the image-owned readiness
+contract for any tool-critical initialization. A required launch helper verifies
+the running provider and refuses incompatible launches with installation guidance.
+It does not install packages, route tools, or communicate readiness to pi-sbx.
+Custom Pi wrappers must forward `$RADAR_PI_ARGS` intact and be safe before SBX
+exists. See [early launch and recovery](docs/integrations/sbx.md#early-pi-launch-and-recovery).
+
 Optional `sbx.ready_command` is an argument array executed with `sbx exec` from
-the workspace anchor before repository setup or starting/reusing the Pi/tmux
-workspace. Omit it or use `[]` for **no command and no wait**. It is not a shell
+the workspace anchor before repository setup and auxiliary pane commands, and
+before starting/reusing Pi during ordinary open/recovery. Omit it or use `[]` for **no command and no wait**. It is not a shell
 string; use `["sh", "-c", "..."]` explicitly if a shell is needed. Radar bounds
 the check to 60 seconds, honors cancellation, and stops the launch/reconciliation
 on failure or timeout while retaining the sandbox for inspection and retry.
@@ -307,9 +334,12 @@ For the development kit, use `["sandbox-startup", "wait"]` as shown above.
 SBX's startup hooks are asynchronous; this readiness command waits for the
 current VM/container boot's scripts to complete, including after stop/start,
 before Radar proceeds. Without the optional check, startup hooks may still be
-running when commands begin. It does not gate independently launched `sbx exec`
-or Pi processes: those callers must wait explicitly too. Existing registrations
-without a command remain ungated; no automatic backfill is performed.
+running when dependent commands begin. It does not gate early Pi tools or manual
+`sbx exec`: pi-sbx independently waits for the image-owned `sandbox-startup`
+contract when sandbox `SBX_STARTUP_DIR` is nonempty; manual callers must wait
+explicitly too. Put all tool-critical initialization in that image contract,
+not solely in Radar's arbitrary readiness command. Existing registrations
+without a Radar command keep that setting; no automatic backfill is performed.
 
 Configure workspace windows, panes, layouts, and commands in the user config:
 

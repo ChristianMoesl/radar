@@ -174,37 +174,67 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 	if err != nil {
 		return protocol.CleanupTarget{}, err
 	}
-	member, managed := workspacegroup.FindMemberByPath(registry, req.Target.Path)
-	if managed && req.Target.Operation["delete_branch"] == "" {
-		// A preview that promised to keep a protected/shared branch must not
-		// start deleting it if the other checkout disappears before execution.
-		_, err = workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, member.Path, req.Force)
-	} else if managed {
-		// Automatic cleanup rechecks after preview; explicit user-confirmed
-		// cleanup keeps its existing force semantics.
-		if !req.Force {
-			plan, planErr := workspace.PlanManagedWorktreeRemoval(ctx, workspace.ExecRunner{}, member)
-			if planErr != nil {
-				return protocol.CleanupTarget{}, planErr
-			}
-			if plan.DeleteBranch {
-				safe, verifyErr := workspace.BranchPublishedOrMerged(ctx, workspace.ExecRunner{}, member.Repository, member.Branch)
-				if verifyErr != nil {
-					return protocol.CleanupTarget{}, fmt.Errorf("branch publication or merge could not be verified: %w", verifyErr)
-				}
-				if !safe {
-					return protocol.CleanupTarget{}, fmt.Errorf("local branch has commits not verified as published or merged")
-				}
-			}
+	// Creation exposes a worktree before publishing its member record. Paths
+	// inside an anchor must wait for that operation too, not bypass it as standalone.
+	group, managed := workspacegroup.FindByContainingPath(registry, req.Target.Path)
+	_, wasMember := workspacegroup.FindMemberByPath(registry, req.Target.Path)
+	if !managed {
+		// Standalone worktrees do not participate in workspace mutation locking
+		// or update a registration that may have appeared during removal.
+		if _, err := workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Force); err != nil {
+			return protocol.CleanupTarget{}, err
 		}
-		_, err = workspace.RemoveManagedWorktree(ctx, workspace.ExecRunner{}, member, req.Force)
-	} else {
-		_, err = workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Force)
+		return req.Target, nil
 	}
+	err = workspacegroup.WithNoteLock(root, func() error {
+		registry, err := workspacegroup.Load(root)
+		if err != nil {
+			return err
+		}
+		current, found := workspacegroup.FindByContainingPath(registry, req.Target.Path)
+		if !found || current.ID != group.ID {
+			return fmt.Errorf("managed worktree registration changed; preview cleanup again")
+		}
+		member, found := workspacegroup.FindMemberByPath(registry, req.Target.Path)
+		if !found {
+			if wasMember {
+				return fmt.Errorf("managed worktree registration changed; preview cleanup again")
+			}
+			// Still unregistered after creation completed: an independently
+			// created worktree or a partial addition may be explicitly cleaned.
+			_, err := workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Force)
+			return err
+		}
+		if req.Target.Operation["delete_branch"] == "" {
+			// A preview that promised to keep a protected/shared branch must not
+			// start deleting it if the other checkout disappears before execution.
+			_, err = workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, member.Path, req.Force)
+		} else {
+			// Automatic cleanup rechecks after preview; explicit user-confirmed
+			// cleanup keeps its existing force semantics.
+			if !req.Force {
+				plan, planErr := workspace.PlanManagedWorktreeRemoval(ctx, workspace.ExecRunner{}, member)
+				if planErr != nil {
+					return planErr
+				}
+				if plan.DeleteBranch {
+					safe, verifyErr := workspace.BranchPublishedOrMerged(ctx, workspace.ExecRunner{}, member.Repository, member.Branch)
+					if verifyErr != nil {
+						return fmt.Errorf("branch publication or merge could not be verified: %w", verifyErr)
+					}
+					if !safe {
+						return fmt.Errorf("local branch has commits not verified as published or merged")
+					}
+				}
+			}
+			_, err = workspace.RemoveManagedWorktree(ctx, workspace.ExecRunner{}, member, req.Force)
+		}
+		if err != nil {
+			return err
+		}
+		return workspacegroup.RemoveMember(root, req.Target.Path)
+	})
 	if err != nil {
-		return protocol.CleanupTarget{}, err
-	}
-	if err := workspacegroup.RemoveMember(root, req.Target.Path); err != nil {
 		return protocol.CleanupTarget{}, err
 	}
 	return req.Target, nil

@@ -3,3 +3,6 @@ allowBuilds:
   '@google/genai': true
   esbuild: true
   protobufjs: true
+# Reviewed first-party release, pinned for offline startup integration coverage.
+minimumReleaseAgeExclude:
+  - '@christianmoesl/pi-sbx@0.6.0'

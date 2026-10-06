@@ -269,7 +269,7 @@ func TestMalformedReadyCommandFailsBeforeProvisioning(t *testing.T) {
 	}
 }
 
-func TestCreateReadinessGatesPiAndRepositorySetupAndRetainsRuntime(t *testing.T) {
+func TestCreateStartsPiEarlyButReadinessGatesSetupAndRetainsRuntime(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
 	t.Setenv(hostTempDirEnv, t.TempDir())
 	for _, fail := range []bool{false, true} {
@@ -302,10 +302,9 @@ func TestCreateReadinessGatesPiAndRepositorySetupAndRetainsRuntime(t *testing.T)
 			if recorded.Members[0].SetupScheduled == fail {
 				t.Fatalf("setup scheduled = %v", recorded.Members[0].SetupScheduled)
 			}
-			if fail {
-				assertNoReadyLaunches(t, runner.calls)
-			} else {
-				assertReadyBeforeLaunches(t, runner.calls)
+			assertEarlySessionBeforeReadiness(t, runner.calls)
+			if !fail {
+				assertCallOrder(t, runner.calls, checks[0], call{name: "tmux", args: []string{"new-window", "-t", created.SessionName + ":", "-d", "-n", "setup-" + filepath.Base(repo)}})
 				assertCalledContains(t, runner.calls, "tmux", "echo setup")
 			}
 		})
@@ -499,7 +498,7 @@ func TestApplyReadinessFailureIsRetryableAndSetupUnscheduled(t *testing.T) {
 					t.Fatal(err)
 				}
 				base.sbxListOutput = listedReadySandbox(group.Sandbox, "stopped")
-				base.hasSession = !startSession
+				base.hasSession = !create && !startSession
 				runner.calls = nil
 				runner.ready = func(context.Context) (string, error) { return readySecret, errors.New(readySecret) }
 				plan := ReconcileWorkspacePlan{WorkspaceID: group.ID, WorkspaceName: group.Name, group: group, root: root, create: create, startSession: startSession}
@@ -511,12 +510,18 @@ func TestApplyReadinessFailureIsRetryableAndSetupUnscheduled(t *testing.T) {
 				if !strings.Contains(logs.String(), "phase=sandbox_ready") || strings.Contains(logs.String(), readySecret) {
 					t.Fatalf("logs = %s", logs.String())
 				}
-				assertNoReadyLaunches(t, runner.calls)
+				if create {
+					assertEarlySessionBeforeReadiness(t, runner.calls)
+				} else {
+					assertNoReadyLaunches(t, runner.calls)
+				}
 				_, recorded, _, err := RegisteredWorkspace(created.Path, root)
 				if err != nil || recorded.Members[0].SetupScheduled {
 					t.Fatalf("setup incorrectly scheduled: %+v, %v", recorded, err)
 				}
-				// Reconciliation retry succeeds without needing a new container.
+				// Retry through ordinary reconciliation, not the new-workspace path.
+				base.hasSession = create || !startSession
+				plan.create = false
 				runner.calls = nil
 				runner.ready = nil
 				result, err = applyWorkspacePlan(context.Background(), runner, nil, ReconcileWorkspaceRequest{}, plan)
@@ -682,7 +687,11 @@ func TestCreateAndSessionPreserveSafeReadinessContextCauses(t *testing.T) {
 				if !errors.Is(err, cause) || strings.Contains(err.Error(), readySecret) {
 					t.Fatalf("cause lost or private data exposed: %v", err)
 				}
-				assertNoReadyLaunches(t, runner.calls)
+				if session {
+					assertNoReadyLaunches(t, runner.calls)
+				} else {
+					assertEarlySessionBeforeReadiness(t, runner.calls)
+				}
 			})
 		}
 	}
@@ -715,4 +724,25 @@ func TestRuntimeRecoveredAfterReconciliationStillChecksReadiness(t *testing.T) {
 	}
 	assertCalledContains(t, runner.calls, "sbx", "create")
 	assertNoReadyLaunches(t, runner.calls)
+}
+
+// Only new sandboxed creation launches Pi before readiness. Setup still waits,
+// and a failed readiness check must not roll back the early conversation.
+func assertEarlySessionBeforeReadiness(t *testing.T, calls []call) {
+	t.Helper()
+	launch, ready := -1, -1
+	for i, c := range calls {
+		if c.name == "tmux" && len(c.args) > 0 && c.args[0] == "new-session" {
+			launch = i
+		}
+		if c.name == "sbx" && len(c.args) > 0 && c.args[0] == "exec" {
+			ready = i
+		}
+		if (c.name == "tmux" && len(c.args) > 0 && c.args[0] == "kill-session") || (c.name == "sbx" && len(c.args) > 0 && c.args[0] == "rm") {
+			t.Fatalf("rolled back early runtime: %+v", c)
+		}
+	}
+	if launch < 0 || ready <= launch {
+		t.Fatalf("expected early Pi before readiness: %+v", calls)
+	}
 }

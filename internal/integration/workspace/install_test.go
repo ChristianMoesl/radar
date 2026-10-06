@@ -229,7 +229,9 @@ func TestSandboxProvisioningFailureNeverLaunchesHostSetup(t *testing.T) {
 	if err == nil {
 		t.Fatal("sandbox provisioning failure was hidden")
 	}
-	assertNotCalledContains(t, runner.calls, "tmux", "new-session")
+	assertCalledContains(t, runner.calls, "tmux", "new-session")
+	assertCalledContains(t, runner.calls, "tmux", "require-sandbox-")
+	assertNotCalledContains(t, runner.calls, "tmux", "kill-session")
 	assertNotCalledContains(t, runner.calls, "tmux", "setup-marker")
 	registry, err := workspacegroup.Load(root)
 	if err != nil {

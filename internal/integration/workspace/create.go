@@ -4,14 +4,18 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"radar/internal/integration"
 	"radar/internal/integration/obsidian"
 	sbxsettings "radar/internal/integration/sbx/settings"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
+	"radar/internal/logging"
 	"radar/internal/pi"
 )
 
@@ -148,6 +152,11 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 			sessionName = SessionName(repoName, name)
 		}
 	}
+	if sandbox.Enabled {
+		if _, err := runner.Run(ctx, "", "tmux", "has-session", "-t", sessionName); err == nil {
+			return fail(fmt.Errorf("tmux session %s already exists; cannot verify its early-start sandbox guard; open its registered workspace or choose a different session name", sessionName))
+		}
+	}
 	initial := workspacegroup.Workspace{ID: workspacegroup.ID(anchor), Name: name, Path: anchor, SessionName: sessionName, TaskLinkingKey: options.TaskLinkingKey, Model: model, Thinking: thinking, Tmux: options.Tmux, Members: []workspacegroup.Member{}}
 	desired := DesiredWorkspaceDescription{Worktrees: members, Note: options.Note}
 	if desired.Note == nil && options.NotePath != "" {
@@ -177,7 +186,7 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 		return fail(err)
 	}
 	plan.Note = desired.Note
-	plan.create, plan.forkSession = true, options.ForkPiSession
+	plan.create, plan.forkSession, plan.switchClient = true, options.ForkPiSession, options.Switch
 	plan.Changes = append([]WorkspaceChange{{Action: "add", Resource: "workspace", Path: anchor, Summary: "create workspace " + anchor}}, plan.Changes...)
 	plan.Changes = append(plan.Changes, WorkspaceChange{Action: "add", Resource: "session", Summary: "start tmux and Pi in " + anchor})
 	plan.PlanID, err = workspacePlanID(plan.Revision, plan.Changes, plan.Warnings)
@@ -214,6 +223,18 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) 
 			return Workspace{}, err
 		}
 	}
+	// tmux closes a popup with SIGTERM and a PTY hangup. Creation is still
+	// owned by this process; finish it before restoring normal handling.
+	if plan.group.Sandbox != nil && options.Switch {
+		hangup := make(chan os.Signal, 1)
+		signal.Notify(hangup, syscall.SIGHUP, syscall.SIGTERM)
+		defer signal.Stop(hangup)
+	}
+	logger, logFile, _, err := logging.New()
+	if err != nil {
+		return Workspace{}, fmt.Errorf("open workspace creation log: %w", err)
+	}
+	defer logFile.Close()
 	if err := createAnchorDirectory(plan.root, plan.group.Path); err != nil {
 		return Workspace{}, err
 	}
@@ -224,11 +245,19 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) 
 		removeEmptyAnchor(initial.Path)
 		return Workspace{}, err
 	}
-	result, err := applyWorkspacePlan(ctx, runner, nil, request, plan)
+	result, err := applyWorkspacePlan(ctx, runner, logger, request, plan)
 	created := Workspace{Name: plan.group.Name, Path: plan.group.Path, SessionName: plan.group.SessionName, SandboxName: sandboxName(plan.group), Warning: result.Warning}
 	if len(plan.additions) > 0 {
 		member := plan.additions[0].plan
 		created.Repo, created.Branch, created.Base = member.Repo, member.Branch, member.Base
+	}
+	if result.earlySession && (err != nil || !result.OK) {
+		// The originating Radar operation still owns the detailed error, but its
+		// client may now be looking at Pi. Keep the conversation and show only a
+		// safe, bounded diagnostic there, including after caller cancellation.
+		notifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		_, _ = runner.Run(notifyCtx, created.Path, "tmux", "display-message", "-t", created.SessionName, "-d", "10000", "Radar workspace preparation failed; inspect radar log-path, then reconcile the retained workspace.")
+		cancel()
 	}
 	if err != nil {
 		return created, fmt.Errorf("workspace %s was partially created; inspect it before retrying: %w", created.Path, err)
@@ -239,7 +268,12 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) 
 		}
 		return created, fmt.Errorf("workspace %s needs reconciliation: %s", created.Path, result.Error)
 	}
-	if options.Switch {
+	if result.switchErr != nil {
+		return created, result.switchErr
+	}
+	// Sandboxed creation has already switched before provisioning. Keep the
+	// existing sandbox-less order and final completion/error contract.
+	if options.Switch && plan.group.Sandbox == nil {
 		if _, err := runner.Run(ctx, created.Path, "tmux", "switch-client", "-t", created.SessionName); err != nil {
 			return created, err
 		}
