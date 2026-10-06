@@ -26,6 +26,8 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "backspace":
 		m.mode = ""
 		m.detail = detailState{}
+		m.ensureVisibleSelection()
+		m.syncTaskScroll()
 		return m, nil
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -103,6 +105,10 @@ func taskDetailView(task protocol.Task, width int) string {
 	// The fixed heading is abbreviated; retain the full title in the body.
 	appendDetailLine("Title", task.Title)
 	appendDetailLine("Status", task.Attention)
+	appendDetailLine("Ignored", fmt.Sprint(task.Ignored))
+	if task.DisplayGroup() != task.Attention {
+		appendDetailLine("Section", task.DisplayGroup())
+	}
 	if activity := taskActivity(task); activity != protocol.ActivityIdle {
 		appendDetailLine("Activity", activity.String())
 	}

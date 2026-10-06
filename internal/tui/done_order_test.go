@@ -82,7 +82,7 @@ func TestTaskGroupOrderPreservesUnfinishedOrder(t *testing.T) {
 
 func TestDoneOrderMatchesRenderingAndNavigation(t *testing.T) {
 	t.Setenv("TMUX", "")
-	m := model{width: 100, height: 20, tasks: []protocol.Task{
+	m := model{width: 100, height: 20, expandedSections: map[string]bool{"done": true}, tasks: []protocol.Task{
 		{Title: "oldest done", Attention: "done", DoneAt: "2026-01-01T10:00:00Z", SourceRefs: []protocol.SourceRef{{ID: "jira:issue:ABC-123"}, {ID: "github:pr:owner/repo:1"}}},
 		{Title: "first active", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "jira:issue:ABC-456"}}},
 		{Title: "middle done", Attention: "done", DoneAt: "2026-01-02T10:00:00Z"},
@@ -95,58 +95,70 @@ func TestDoneOrderMatchesRenderingAndNavigation(t *testing.T) {
 	if height := m.taskListHeight(m.contentWidth()); height != 6 {
 		t.Fatalf("task list height = %d, want 6", height)
 	}
-	wantOrder := []int{1, 3, 5, 4, 2, 0}
-	if got := m.taskCursorOrder(); !slices.Equal(got, wantOrder) {
+	wantOrder := []visibleEntry{{task: 1}, {task: 3}, {task: 5}, {section: "done"}, {task: 4}, {task: 2}, {task: 0}}
+	if got := m.overviewLayout().entries; !slices.Equal(got, wantOrder) {
 		t.Fatalf("taskCursorOrder() = %v, want %v", got, wantOrder)
 	}
 	positions, count := m.taskRowPositions()
-	wantPositions := map[int]int{1: 1, 3: 4, 5: 7, 4: 10, 2: 13, 0: 15}
+	wantPositions := map[visibleEntry]int{{task: 1}: 1, {task: 3}: 4, {task: 5}: 7, {section: "done"}: 9, {task: 4}: 10, {task: 2}: 13, {task: 0}: 15}
 	if !reflect.DeepEqual(positions, wantPositions) || count != 18 {
 		t.Fatalf("taskRowPositions() = %v, %d; want %v, 18", positions, count, wantPositions)
 	}
-	starts, ends := []int{0, 4, 6, 9, 13, 15}, []int{2, 4, 7, 11, 13, 17}
-	for i, cursor := range wantOrder {
-		m.cursor = cursor
+	starts, ends := []int{0, 4, 6, 9, 10, 13, 15}, []int{2, 4, 7, 9, 11, 13, 17}
+	for i, entry := range wantOrder {
+		m.selectEntry(entry)
 		lines, start, end := m.taskLines(m.contentWidth())
 		view := strings.Join(lines, "\n")
-		if len(lines) != count || renderedLineIndex(view, m.tasks[cursor].Title) != positions[cursor] {
-			t.Fatalf("cursor %d: rendering disagrees with row positions:\n%s", cursor, ansi.Strip(view))
+		label := "Done (3)"
+		if entry.section == "" {
+			label = m.tasks[entry.task].Title
+		}
+		if len(lines) != count || renderedLineIndex(view, label) != positions[entry] {
+			t.Fatalf("entry %+v: rendering disagrees with row positions:\n%s", entry, ansi.Strip(view))
 		}
 		if start != starts[i] || end != ends[i] {
-			t.Fatalf("cursor %d: selected block = %d..%d, want %d..%d", cursor, start, end, starts[i], ends[i])
+			t.Fatalf("entry %+v: selected block = %d..%d, want %d..%d", entry, start, end, starts[i], ends[i])
 		}
 	}
 
-	m.cursor = wantOrder[0]
+	m.selectEntry(wantOrder[0])
 	m.syncTaskScroll()
 	for _, step := range []struct {
-		key    tea.KeyType
-		cursor int
+		key   tea.KeyType
+		entry visibleEntry
 	}{
-		{tea.KeyDown, 3}, {tea.KeyDown, 5}, {tea.KeyDown, 4}, {tea.KeyDown, 2}, {tea.KeyDown, 0}, {tea.KeyDown, 0},
-		{tea.KeyUp, 2}, {tea.KeyUp, 4}, {tea.KeyUp, 5}, {tea.KeyUp, 3}, {tea.KeyUp, 1}, {tea.KeyUp, 1},
-		{tea.KeyEnd, 0}, {tea.KeyHome, 1},
-		{tea.KeyCtrlD, 5}, {tea.KeyCtrlD, 2}, {tea.KeyCtrlD, 0},
-		{tea.KeyCtrlU, 4}, {tea.KeyCtrlU, 3}, {tea.KeyCtrlU, 1},
+		{tea.KeyDown, visibleEntry{task: 3}}, {tea.KeyDown, visibleEntry{task: 5}},
+		{tea.KeyDown, visibleEntry{section: "done"}}, {tea.KeyDown, visibleEntry{task: 4}},
+		{tea.KeyDown, visibleEntry{task: 2}}, {tea.KeyDown, visibleEntry{task: 0}}, {tea.KeyDown, visibleEntry{task: 0}},
+		{tea.KeyUp, visibleEntry{task: 2}}, {tea.KeyUp, visibleEntry{task: 4}},
+		{tea.KeyUp, visibleEntry{section: "done"}}, {tea.KeyUp, visibleEntry{task: 5}},
+		{tea.KeyUp, visibleEntry{task: 3}}, {tea.KeyUp, visibleEntry{task: 1}}, {tea.KeyUp, visibleEntry{task: 1}},
+		{tea.KeyEnd, visibleEntry{task: 0}}, {tea.KeyHome, visibleEntry{task: 1}},
+		{tea.KeyCtrlD, visibleEntry{task: 5}}, {tea.KeyCtrlD, visibleEntry{task: 2}}, {tea.KeyCtrlD, visibleEntry{task: 0}},
+		{tea.KeyCtrlU, visibleEntry{section: "done"}}, {tea.KeyCtrlU, visibleEntry{task: 3}}, {tea.KeyCtrlU, visibleEntry{task: 1}},
 	} {
 		key := tea.KeyMsg{Type: step.key}
 		updated, _ := m.Update(key)
 		m = updated.(model)
-		if m.cursor != step.cursor {
-			t.Fatalf("after %s cursor = %d, want %d", key.String(), m.cursor, step.cursor)
+		if m.selectedEntry() != step.entry {
+			t.Fatalf("after %s entry = %+v, want %+v", key.String(), m.selectedEntry(), step.entry)
 		}
 		_, start, end := m.taskLines(m.contentWidth())
 		if start < m.scroll || end >= m.scroll+6 {
 			t.Fatalf("after %s selected block %d..%d outside viewport %d..%d", key.String(), start, end, m.scroll, m.scroll+5)
 		}
-		if view := ansi.Strip(m.taskList(m.contentWidth(), 6)); !strings.Contains(view, "›   "+m.tasks[m.cursor].Title) {
+		selectedLabel := "› ▾ Done"
+		if step.entry.section == "" {
+			selectedLabel = "›   " + m.tasks[m.cursor].Title
+		}
+		if view := ansi.Strip(m.taskList(m.contentWidth(), 6)); !strings.Contains(view, selectedLabel) {
 			t.Fatalf("after %s selected task is not visible:\n%s", key.String(), view)
 		}
 	}
 }
 
 func TestWatchKeepsAlreadyDoneSelectionWhenNewerDoneTaskArrives(t *testing.T) {
-	m := model{cursor: 0, selectedCurrentTask: true, revision: 1, tasks: []protocol.Task{
+	m := model{cursor: 0, expandedSections: map[string]bool{"done": true}, selectedCurrentTask: true, revision: 1, tasks: []protocol.Task{
 		{ID: 1, Title: "selected done", Attention: "done", DoneAt: "2026-01-01T10:00:00Z"},
 		{ID: 2, Title: "active", Attention: "attention"},
 		{ID: 3, Title: "recent done", Attention: "done", DoneAt: "2026-01-02T10:00:00Z"},
@@ -159,7 +171,7 @@ func TestWatchKeepsAlreadyDoneSelectionWhenNewerDoneTaskArrives(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("watch response should start next watch")
 	}
-	if got.cursor != 1 || got.tasks[got.cursor].ID != 1 || got.cursorPosition() != 3 {
-		t.Fatalf("selected cursor = %d, rendered position = %d; want task 1 at cursor 1, rendered position 3", got.cursor, got.cursorPosition())
+	if got.cursor != 1 || got.tasks[got.cursor].ID != 1 || got.cursorPosition() != 4 {
+		t.Fatalf("selected cursor = %d, rendered position = %d; want task 1 at cursor 1, rendered position 4", got.cursor, got.cursorPosition())
 	}
 }

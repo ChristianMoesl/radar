@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -122,6 +121,8 @@ type model struct {
 	sources             []protocol.SourceStatus
 	sourcesExpanded     bool
 	cursor              int
+	selectedSection     string
+	expandedSections    map[string]bool
 	selectedCurrentTask bool
 	mode                string
 	detail              detailState
@@ -130,6 +131,7 @@ type model struct {
 	cleanupDetails      bool
 	cleanupScroll       int
 	links               []linkChoice
+	linkTask            protocol.Task
 	linkCursor          int
 	linkScroll          int
 	worktrees           []protocol.SourceRef
@@ -223,7 +225,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
-		if m.operation.kind != "" && !operationNavigationKey(msg.String()) {
+		if m.operation.kind != "" && (!operationNavigationKey(msg.String()) || (msg.String() == "enter" && (m.mode != "" || m.selectedSection == ""))) {
 			return m, nil
 		}
 		if strings.HasPrefix(m.mode, "workspace_") && !m.operationOnRow() {
@@ -330,6 +332,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// A confirmation is modal: Enter and main-view shortcuts do nothing.
 			return m, nil
 		}
+		m.ensureVisibleSelection()
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			return m, tea.Quit
@@ -339,8 +342,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			m.message = ""
 		case "d":
-			if len(m.tasks) > 0 {
-				task := m.tasks[m.cursor]
+			if task, ok := m.selectedTask(); ok {
 				ref, ok := authoredTaskRef(task)
 				if !ok {
 					m.message = "Selected task does not support authored lifecycle changes"
@@ -350,9 +352,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = nil
 				return m, m.setAuthoredTaskDone(task, ref.Metadata["state"] != "done")
 			}
+		case "m":
+			if task, ok := m.selectedTask(); ok {
+				m.loading = true
+				m.err = nil
+				return m, m.setTaskIgnored(task, !task.Ignored)
+			}
 		case "D":
-			if len(m.tasks) > 0 {
-				task := m.tasks[m.cursor]
+			if task, ok := m.selectedTask(); ok {
 				if _, ok := authoredTaskRef(task); !ok {
 					m.message = "Selected task has no authored note to delete"
 					return m, nil
@@ -362,8 +369,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 		case "p":
-			if len(m.tasks) > 0 {
-				task := m.tasks[m.cursor]
+			if task, ok := m.selectedTask(); ok {
 				ref, ok := authoredTaskRef(task)
 				if !ok {
 					m.message = "Selected task does not support authored priority changes"
@@ -384,30 +390,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "c":
 			return m.newWorkspace()
 		case "w":
-			if len(m.tasks) > 0 {
-				return m.editWorkspace(m.tasks[m.cursor])
+			if task, ok := m.selectedTask(); ok {
+				return m.editWorkspace(task)
 			}
 		case "f":
 			return m, m.openConfig()
 		case "i", "right":
-			if len(m.tasks) > 0 {
+			if task, ok := m.selectedTask(); ok {
 				m.mode = "detail"
-				m.detail = detailState{task: m.tasks[m.cursor], available: true}
+				m.detail = detailState{task: task, available: true}
 			}
 		case "o":
-			if len(m.tasks) > 0 {
-				m.links = taskLinks(m.tasks[m.cursor])
+			if task, ok := m.selectedTask(); ok {
+				m.links = taskLinks(task)
 				m.linkCursor, m.linkScroll = 0, 0
 				if len(m.links) == 0 {
 					m.message = "No link on selected task"
 					return m, nil
 				}
+				m.linkTask = task
 				m.mode = "open_link"
 				m.message = ""
 			}
 		case "x":
-			if len(m.tasks) > 0 {
-				m.cleanupTask = m.tasks[m.cursor]
+			if task, ok := m.selectedTask(); ok {
+				m.cleanupTask = task
 				cmd := m.startOperation(m.cleanupTask, "cleanup-check", "Checking local resources…", "Resource check failed", m.previewCleanup(m.cleanupTask))
 				return m, cmd
 			}
@@ -428,11 +435,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveCursor(1)
 		case "k", "up", "ctrl+p":
 			m.moveCursor(-1)
-		case "ctrl+d":
+		case "ctrl+d", "pgdown":
 			if m.mode == "" || m.operationOnRow() {
 				m.moveCursorPage(1)
 			}
-		case "ctrl+u":
+		case "ctrl+u", "pgup":
 			if m.mode == "" || m.operationOnRow() {
 				m.moveCursorPage(-1)
 			}
@@ -601,138 +608,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 const maxContentWidth = 140
 
-var taskGroupKeys = []string{"immediate", "attention", "in_progress", "low_priority", "done"}
-
-func (m *model) moveCursor(delta int) {
-	order := m.taskCursorOrder()
-	if len(order) == 0 {
-		m.syncTaskScroll()
-		return
-	}
-
-	position := -1
-	for i, index := range order {
-		if index == m.cursor {
-			position = i
-			break
-		}
-	}
-	if position == -1 {
-		m.cursor = order[0]
-		m.syncTaskScroll()
-		return
-	}
-
-	position = max(0, min(position+delta, len(order)-1))
-	m.cursor = order[position]
-	m.syncTaskScroll()
-}
-
-func (m *model) moveCursorToEdge(last bool) {
-	order := m.taskCursorOrder()
-	if len(order) == 0 {
-		m.syncTaskScroll()
-		return
-	}
-	if last {
-		m.cursor = order[len(order)-1]
-		m.syncTaskScroll()
-		return
-	}
-	m.cursor = order[0]
-	m.syncTaskScroll()
-}
-
-func (m *model) moveCursorPage(direction int) {
-	order := m.taskCursorOrder()
-	positions, lineCount := m.taskRowPositions()
-	currentLine, ok := positions[m.cursor]
-	if len(order) == 0 || !ok || direction == 0 {
-		m.syncTaskScroll()
-		return
-	}
-
-	width := m.contentWidth()
-	height := m.taskListHeight(width)
-	targetLine := max(0, min(currentLine+direction*height, lineCount-1))
-	bestCursor := m.cursor
-	bestDistance := lineCount + height
-	for _, cursor := range order {
-		line := positions[cursor]
-		if (direction < 0 && line >= currentLine) || (direction > 0 && line <= currentLine) {
-			continue
-		}
-		distance := line - targetLine
-		if distance < 0 {
-			distance = -distance
-		}
-		if distance < bestDistance {
-			bestCursor = cursor
-			bestDistance = distance
-		}
-	}
-	if bestCursor == m.cursor {
-		return
-	}
-
-	m.cursor = bestCursor
-	m.scroll = max(0, min(m.scroll+direction*height, max(0, lineCount-height)))
-	m.syncTaskScroll()
-}
-
-// Share section ordering between rendering, navigation, and scroll calculations.
-// Keep indexes into m.tasks so sorting Done does not change task identities.
-func (m model) taskGroupOrder(key string) []int {
-	var order []int
-	for i, task := range m.tasks {
-		if task.Attention == key {
-			order = append(order, i)
-		}
-	}
-	if key == "done" {
-		sort.SliceStable(order, func(i, j int) bool {
-			left, leftErr := time.Parse(time.RFC3339, m.tasks[order[i]].DoneAt)
-			right, rightErr := time.Parse(time.RFC3339, m.tasks[order[j]].DoneAt)
-			if leftErr != nil {
-				return false
-			}
-			return rightErr != nil || left.After(right)
-		})
-	}
-	return order
-}
-
-func (m model) taskCursorOrder() []int {
-	order := make([]int, 0, len(m.tasks))
-	for _, key := range taskGroupKeys {
-		order = append(order, m.taskGroupOrder(key)...)
-	}
-	return order
-}
-
-func (m model) taskRowPositions() (map[int]int, int) {
-	positions := make(map[int]int, len(m.tasks))
-	line := 0
-	for _, key := range taskGroupKeys {
-		groupStarted := false
-		for _, i := range m.taskGroupOrder(key) {
-			task := m.tasks[i]
-			if !groupStarted {
-				if line > 0 {
-					line++
-				}
-				line++
-				groupStarted = true
-			} else {
-				line++ // One blank row between task blocks, not between their refs.
-			}
-			positions[i] = line
-			line += 1 + len(overviewSourceRefs(task))
-		}
-	}
-	return positions, line
-}
-
 func (m model) View() string {
 	if m.mode == "task_delete_confirm" {
 		return m.taskDeletionScreen()
@@ -809,7 +684,7 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, mainHelp(width))
+	sections = append(sections, m.mainHelp(width))
 	return sections
 }
 
@@ -1228,6 +1103,27 @@ func (m model) setAuthoredTaskDone(task protocol.Task, complete bool) tea.Cmd {
 	}
 }
 
+func (m model) setTaskIgnored(task protocol.Task, ignored bool) tea.Cmd {
+	return func() tea.Msg {
+		var response protocol.Response
+		var err error
+		message := "Task unignored"
+		if ignored {
+			response, err = client.IgnoreTask(m.socketPath, task.ID)
+			message = "Task ignored"
+		} else {
+			response, err = client.UnignoreTask(m.socketPath, task.ID)
+		}
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		if !response.OK {
+			return actionMsg{err: fmt.Errorf("%s", response.Error)}
+		}
+		return actionMsg{response: &response, message: message}
+	}
+}
+
 func (m model) setTaskPriority(task protocol.Task, priority string) tea.Cmd {
 	return func() tea.Msg {
 		response, err := client.SetTaskPriority(m.socketPath, task.ID, priority)
@@ -1538,11 +1434,19 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 		return
 	}
 	var selectedTask *protocol.Task
-	selectedPosition := -1
-	if response.Tasks != nil && m.cursor >= 0 && m.cursor < len(m.tasks) {
-		selected := m.tasks[m.cursor]
+	selectedSection := m.selectedSection
+	selectedPosition, activePosition := m.cursorPosition(), -1
+	if selected, ok := m.selectedTask(); response.Tasks != nil && ok {
 		selectedTask = &selected
-		selectedPosition = m.cursorPosition()
+		activePosition = 0
+		for _, entry := range m.overviewLayout().entries {
+			if entry == m.selectedEntry() {
+				break
+			}
+			if entry.section == "" && !historyGroup(m.tasks[entry.task].DisplayGroup()) {
+				activePosition++
+			}
+		}
 	}
 
 	if response.Revision > m.revision {
@@ -1553,13 +1457,19 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 	}
 	if response.Tasks != nil {
 		m.tasks = response.Tasks
-		m.restoreCursor(selectedTask, selectedPosition)
+		m.restoreCursor(selectedTask, selectedSection, selectedPosition, activePosition)
 		if m.mode == "detail" {
+			wasAvailable := m.detail.available
 			cursor, ok := matchingTaskCursor(m.tasks, m.detail.task)
 			m.detail.available = ok
 			if ok {
 				m.detail.task = m.tasks[cursor]
-				m.cursor = cursor
+				// Keep Inspect pinned independently of the overview fallback.
+				// A returning task regains selection, but a completed/ignored
+				// task must not pull the overview back into history on refresh.
+				if !wasAvailable {
+					m.selectTaskCursor(cursor)
+				}
 			}
 		}
 	}
@@ -1568,63 +1478,62 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 	}
 	if selectCurrentTask && !m.selectedCurrentTask && m.mode != "detail" {
 		if cursor, ok := currentTaskCursor(m.tasks); ok {
-			m.cursor = cursor
+			m.selectTaskCursor(cursor)
 		}
 		m.selectedCurrentTask = true
 	}
-	if m.cursor >= len(m.tasks) {
-		m.cursor = max(0, len(m.tasks)-1)
-	}
+	m.ensureVisibleSelection()
 	m.syncTaskScroll()
 	m.clampDetailScroll()
 }
 
-func (m model) cursorPosition() int {
-	for position, cursor := range m.taskCursorOrder() {
-		if cursor == m.cursor {
-			return position
+// Restore the visible selection, not a hidden task index. Task identity follows
+// regrouping; section identity and expansion live independently of snapshots.
+func (m *model) restoreCursor(selectedTask *protocol.Task, selectedSection string, selectedPosition, activePosition int) {
+	layout := m.overviewLayout()
+	if selectedSection != "" {
+		entry := visibleEntry{section: selectedSection}
+		if _, ok := layout.bounds[entry]; ok {
+			m.selectEntry(entry)
+			return
 		}
 	}
-	return -1
-}
-
-func (m *model) restoreCursor(selectedTask *protocol.Task, selectedPosition int) {
-	completed := false
 	if selectedTask != nil {
 		if cursor, ok := matchingTaskCursor(m.tasks, *selectedTask); ok {
-			completed = selectedTask.Attention != "done" && m.tasks[cursor].Attention == "done"
-			if !completed {
-				m.cursor = cursor
+			oldGroup, newGroup := selectedTask.DisplayGroup(), m.tasks[cursor].DisplayGroup()
+			if oldGroup != newGroup && historyGroup(newGroup) {
+				// Prefer the next active task at the vacated active position, then
+				// the previous one, even when a history section is already open.
+				var active []visibleEntry
+				for _, entry := range layout.entries {
+					if entry.section == "" && !historyGroup(m.tasks[entry.task].DisplayGroup()) {
+						active = append(active, entry)
+					}
+				}
+				if len(active) > 0 {
+					m.selectEntry(active[max(0, min(activePosition, len(active)-1))])
+					return
+				}
+				// No active work: select a header, never follow the moved child.
+				for _, entry := range layout.entries {
+					if entry.section != "" {
+						m.selectEntry(entry)
+						return
+					}
+				}
+			} else {
+				// Unignore/reopen follows the selected task into active work.
+				// A refresh hiding a child maps to its collapsed header.
+				m.selectTaskCursor(cursor)
 				return
 			}
 		}
 	}
-
-	order := m.taskCursorOrder()
-	if completed {
-		// Stay at the vacated position among unfinished tasks, or the previous
-		// one at the end. Only fall back to Done when no unfinished tasks remain.
-		var unfinished []int
-		for _, cursor := range order {
-			if m.tasks[cursor].Attention != "done" {
-				unfinished = append(unfinished, cursor)
-			}
-		}
-		if len(unfinished) > 0 {
-			order = unfinished
-		}
-	}
-	if len(order) == 0 {
-		m.cursor = 0
+	if len(layout.entries) == 0 {
+		m.cursor, m.selectedSection, m.scroll = 0, "", 0
 		return
 	}
-	if selectedPosition >= 0 {
-		m.cursor = order[min(selectedPosition, len(order)-1)]
-		return
-	}
-	if m.cursor >= len(m.tasks) {
-		m.cursor = max(0, len(m.tasks)-1)
-	}
+	m.selectEntry(layout.entries[max(0, min(selectedPosition, len(layout.entries)-1))])
 }
 
 func matchingTaskCursor(tasks []protocol.Task, selected protocol.Task) (int, bool) {
@@ -1699,10 +1608,14 @@ func (m model) openConfig() tea.Cmd {
 }
 
 func (m model) activateSelected() (tea.Model, tea.Cmd) {
-	if len(m.tasks) == 0 {
+	if m.selectedSection != "" {
+		m.toggleSection(m.selectedSection)
 		return m, nil
 	}
-	task := m.tasks[m.cursor]
+	task, ok := m.selectedTask()
+	if !ok {
+		return m, nil
+	}
 	multiplexer, _ := app.DefaultIntegrations().Multiplexer()
 	if target := taskrefs.SessionTarget(task, multiplexer); target != "" {
 		m.loading = true
@@ -1961,6 +1874,7 @@ func (m model) header(width int) string {
 		attentionStyle.Render(fmt.Sprintf("👀 %d attention", m.summary.Attention)),
 		progressStyle.Render(fmt.Sprintf("⏳ %d progress", m.summary.InProgress)),
 		lowStyle.Render(fmt.Sprintf("🔇 %d low", m.summary.LowPriority)),
+		lowStyle.Render(fmt.Sprintf("%d ignored", m.summary.Ignored)),
 		doneStyle.Render(fmt.Sprintf("✅ %d done", m.summary.Done)),
 	}, "  ")
 
@@ -1974,6 +1888,7 @@ func (m model) taskList(width int, height int) string {
 }
 
 func (m *model) syncTaskScroll() {
+	m.ensureVisibleSelection()
 	if len(m.tasks) == 0 {
 		m.scroll = 0
 		return
@@ -2022,71 +1937,58 @@ func scrolledLines(lines []string, selectedStart int, selectedEnd int, scroll in
 }
 
 func (m model) taskLines(width int) ([]string, int, int) {
-	groups := []struct {
-		key   string
-		title string
-		style lipgloss.Style
-	}{
-		{key: "immediate", title: "🚨 Need immediate attention", style: urgentStyle},
-		{key: "attention", title: "👀 Need attention", style: attentionStyle},
-		{key: "in_progress", title: "⏳ In progress", style: progressStyle},
-		{key: "low_priority", title: "🔇 Low priority", style: lowStyle},
-		{key: "done", title: "✅ Done (last 3 days)", style: doneStyle},
-	}
-
-	selectedStart := 0
-	selectedEnd := 0
-	var lines []string
-	for _, group := range groups {
-		var groupLines []string
-		groupHeaderIndex := len(lines)
-		if len(lines) > 0 {
-			groupHeaderIndex++
-		}
-		for _, i := range m.taskGroupOrder(group.key) {
-			task := m.tasks[i]
-			if len(groupLines) > 0 {
-				groupLines = append(groupLines, "")
+	layout := m.overviewLayout()
+	lines := make([]string, 0, len(layout.rows))
+	for _, row := range layout.rows {
+		switch {
+		case row.blank:
+			lines = append(lines, "")
+		case row.section != nil:
+			section := row.section
+			label := section.title
+			if section.collapsible {
+				marker := "▸"
+				if m.sectionExpanded(section.key) {
+					marker = "▾"
+				}
+				label = fmt.Sprintf("%s %s (%d)", marker, label, row.count)
+				if section.key == "done" {
+					label += " · last 3 days"
+				}
+				if row.entry == m.selectedEntry() {
+					label = selectedStyle.Render("› " + label)
+				} else {
+					label = section.style.Render("  " + label)
+				}
+			} else {
+				label = section.style.Render(label)
 			}
+			lines = append(lines, truncateLine(label, width))
+		case row.ref != nil:
+			lines = append(lines, taskSourceRefLine(*row.ref, width))
+		default:
+			task := m.tasks[row.entry.task]
+			selected := row.entry == m.selectedEntry()
 			lineWidth := max(1, width)
 			marker, status := m.taskOperationStatus(task)
 			statusWidth := 0
 			if status != "" {
 				statusWidth = min(lipgloss.Width(status)+2, max(0, (lineWidth-4)/2))
 			}
-			line := marker + " " + taskLine(task, i == m.cursor, max(1, lineWidth-4-statusWidth))
+			line := marker + " " + taskLine(task, selected, max(1, lineWidth-4-statusWidth))
 			if statusWidth > 0 {
 				line += "  " + truncateLine(status, max(1, statusWidth-2))
 			}
-			if i == m.cursor {
+			if selected {
 				line = selectedStyle.Render("› " + line)
 			} else {
 				line = "  " + line
 			}
-			block := []string{truncateLine(line, lineWidth)}
-			for _, ref := range overviewSourceRefs(task) {
-				block = append(block, taskSourceRefLine(ref, lineWidth))
-			}
-			if i == m.cursor {
-				groupStart := groupHeaderIndex
-				taskStart := groupStart + len(groupLines) + 1
-				selectedStart = taskStart
-				if len(groupLines) == 0 {
-					selectedStart = groupStart
-				}
-				selectedEnd = taskStart + len(block) - 1
-			}
-			groupLines = append(groupLines, block...)
-		}
-		if len(groupLines) > 0 {
-			if len(lines) > 0 {
-				lines = append(lines, "")
-			}
-			lines = append(lines, group.style.Render(group.title))
-			lines = append(lines, groupLines...)
+			lines = append(lines, truncateLine(line, lineWidth))
 		}
 	}
-	return lines, selectedStart, selectedEnd
+	bounds := layout.bounds[m.selectedEntry()]
+	return lines, bounds.start, bounds.end
 }
 
 func truncateLine(line string, width int) string {

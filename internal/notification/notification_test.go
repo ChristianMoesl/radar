@@ -178,3 +178,17 @@ func TestNotifyTransitionsContinuesAfterSenderError(t *testing.T) {
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
+
+func TestIgnoredTasksNeverEmitAttentionNotifications(t *testing.T) {
+	sender := &recordingSender{}
+	service := NewWithSender(discardLogger(), sender)
+	for _, previous := range []string{"low_priority", "in_progress", "done", "attention"} {
+		for _, attention := range []string{"attention", "immediate"} {
+			service.NotifyTransitions(context.Background(), []protocol.Task{{ID: 1, Ignored: true, Attention: previous}}, []protocol.Task{{ID: 1, Ignored: true, Attention: attention, Reason: "New review request"}})
+			service.NotifyTransitions(context.Background(), nil, []protocol.Task{{ID: 2, Ignored: true, Attention: attention}})
+		}
+	}
+	if len(sender.sent) != 0 {
+		t.Fatalf("ignored notification = %+v", sender.sent)
+	}
+}

@@ -25,8 +25,8 @@ func deletionFixture() model {
 }
 
 func TestTaskDeletionKeyStartsPreviewAndRequiresAuthoredTask(t *testing.T) {
-	for _, tasks := range [][]protocol.Task{nil, {{ID: 7}}, {authoredTaskForTUITest("done", "normal", "done")}} {
-		m := model{tasks: tasks}
+	for _, tasks := range [][]protocol.Task{nil, {{ID: 7, Attention: "attention"}}, {authoredTaskForTUITest("done", "normal", "done")}} {
+		m := model{tasks: tasks, expandedSections: map[string]bool{"done": true}}
 		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
 		got := updated.(model)
 		if len(tasks) > 0 && len(tasks[0].SourceRefs) > 0 {

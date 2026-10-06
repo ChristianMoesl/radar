@@ -1,6 +1,6 @@
 # Obsidian task authoring
 
-Obsidian is Radar's required, always-registered task-authoring provider. Every managed workspace has a canonical note; there is no enable/disable setting. A note owns task identity, title, lifecycle, priority, timestamps, and user content. Radar's task state remains a rebuildable projection.
+Obsidian is Radar's required, always-registered task-authoring provider. Every managed workspace has a canonical note; there is no enable/disable setting. A note owns task identity, title, lifecycle, priority, timestamps, the ignored preference, durable source bindings, and user content. Radar's task state remains a rebuildable projection.
 
 ## Configuration
 
@@ -14,7 +14,7 @@ Add the vault to `radar config-path`:
 }
 ```
 
-Radar expands `~/`, requires an absolute vault containing `.obsidian/`, and creates `<vault>/Tasks/`. Obsidian Desktop is needed only for the **Open in Obsidian** action. An unconfigured vault is shown as disabled on the dashboard, with setup guidance; configured but invalid vaults are errors. Tasks and workspace creation still require a valid vault. Radar never guesses or creates a vault.
+Radar expands `~/`, requires an absolute vault containing `.obsidian/`, and creates `<vault>/Tasks/`. Obsidian Desktop is needed only for the **Open in Obsidian** action. An unconfigured vault is shown as disabled on the dashboard, with setup guidance; configured but invalid vaults are errors. Task creation, ignore/unignore persistence, and workspace creation require a valid vault. Radar never guesses or creates a vault.
 
 ## Task layout
 
@@ -53,6 +53,53 @@ Task creation preserves the original title (apart from surrounding whitespace) i
 
 Mutations re-read and validate the note, modify only managed fields, and replace it atomically. Radar never overwrites malformed notes.
 
+## Ignored preference and durable source bindings
+
+Ignoring is a durable preference to keep tracking the whole aggregated Radar task without requesting your attention. It is independent of `radar-state: open|done` and `radar-priority: normal|urgent`. The optional managed fields are:
+
+```yaml
+radar-ignored: true
+radar-source-refs:
+  - source: jira
+    kind: issue
+    id: jira:issue:ABC-123
+    work_item: true
+  - source: github
+    kind: pull_request
+    id: github:pr:acme/app:7
+    work_item: true
+```
+
+`radar-ignored` must be a YAML boolean (`true` or `false`), not a quoted string, null, or another lifecycle value. An absent field means false. `radar-source-refs` must be a structured YAML sequence of explicit mappings, or `[]`; an absent field leaves an ordinary note without explicit bindings. Ordinary new notes do not need either field. First ignore records the preference and binding intent, including an explicit empty sequence for a note-only task.
+
+Each entry maps to `protocol.SourceBinding`:
+
+| Field | Meaning |
+| --- | --- |
+| `source` | Required source-owned integration name. |
+| `kind` | Required source-owned ref kind. |
+| `id` | Required exact provider-owned identity or locator, never a Radar numeric task ID or task title. |
+| `key` | Optional opaque provider-owned identity that distinguishes the concrete resource lifetime when its locator/name/path can be reused. |
+| `work_item` | Optional YAML boolean, false when absent; true identifies an authoritative contributing work item that must be resolved before automatic completion. |
+
+String fields must be nonempty exact YAML strings without surrounding whitespace or control characters. `source` and `kind` cannot contain colons. Unsupported or duplicate entry fields, duplicate binding identities, non-sequence values, and YAML aliases in these managed preference fields are invalid. Bindings contain tracking intent only: no remote status snapshots, source payloads, credentials, resource activity, or informational completion blockers. Providers own the meaning and validation of identities and lifetime keys; do not derive them from display names or build them by parsing another provider's IDs.
+
+`radar task ignore <task-id>` reuses the unique associated canonical note, including an archived or renamed note. If a source-only task has no note, Radar creates one normal private task note on demand with its meaningful current title, bindings, and ignored preference together. This creates no managed workspace, worktree, branch, tmux/Pi session, sandbox, mount, or port. Discovery does not create notes for every source task. A newly adopted completed task stays completed rather than being resurrected by note creation.
+
+Ignoring an existing note preserves its identity, title, lifecycle, priority, timestamps, completion baseline, body, unknown frontmatter, and permissions. Bindings merge with existing associations rather than replacing them. Repeated no-op requests do not rewrite unchanged notes. Ambiguous authored-note ownership, conflicting bindings, malformed notes, unsafe paths, and title/filename collisions report errors instead of silently selecting a note or overwriting data. If a provider cannot establish a safe concrete resource lifetime, its `SourceRef.BindingError` makes explicit ignore fail clearly; the resource remains normally collectable and inspectable.
+
+`radar task unignore <task-id>` clears only the preference. The note and its bindings remain; it does not delete, detach, recreate, reopen, or relocate the note. Unignore of a never-ignored source-only task does not create a note unnecessarily. Neither operation mutates Jira, GitHub, Datadog, or other external state. Note writes use the shared lock and atomic writer, and mutation publication is revision-fenced against older in-flight collection.
+
+Source refs expose the preference through typed `Ignored` and the sequence through typed `Bindings`, rather than requiring core to interpret Obsidian metadata. The effective group is actual done → Done, otherwise ignored → Ignored, otherwise current attention. An ignored unfinished task is excluded from active counts and actionable notifications. All contributors done can still complete it under normal lifecycle rules, retaining `radar-ignored: true` and the bindings. Reopened work returns to Ignored. Unignore of a done task leaves it done. New comments, urgent signals, runtime activity, source errors, and refreshes do not clear the preference.
+
+### Cold collection and completion safety
+
+Collection reads authored notes and bindings before parallel collection of the other providers, including after a cache reset. `BoundSourceResolver` providers resolve bound items that no longer appear in normal active discovery, such as a PR merged while Radar was stopped. The note's UUID and exact provider-owned bindings reconnect the same aggregate across restarts, cache resets, note renames, archival, and workspace cleanup; titles and cache-local numeric task IDs are not durable association keys.
+
+Previously confirmed terminal source facts can be reused without revalidating every historical completed PR. A binding alone never fabricates an active or done observation. Missing unresolved bound work items, unavailable/failed providers, and incomplete lookup results block unsupported automatic completion. The preference remains effective while those failures are shown as source diagnostics. Supporting local resources remain non-contributing: their disappearance does not complete or delete the authored note, or unignore it.
+
+For explicitly adopted notes, `TaskBindingProvider` reconciliation persists newly established authoritative associations, including after unignore. It retains unresolved bindings when collection misses an item and avoids rewriting unchanged notes. Binding persistence does not override the lifecycle or the existing completion-baseline safeguards described below.
+
 ## Source refs and lifecycle
 
 A valid note emits one authoritative `obsidian:task:<radar-id>` ref with:
@@ -63,6 +110,7 @@ A valid note emits one authoritative `obsidian:task:<radar-id>` ref with:
 - signal `low_priority`, `immediate`, or `done`
 - an `obsidian://open` URL for its current note path
 - canonical note and task-directory metadata
+- typed `Ignored` and `Bindings` values from the optional managed preference fields, without changing the actual source signal or lifecycle
 
 Without authoritative remote work, the note owns the projected lifecycle. A successful full refresh reopens a completed note when any authoritative contributor confirms active work, even if another contributor cannot be refreshed. It automatically completes an open note when every linked authoritative contributing work item is confirmed done. At least one contributor is required. Informational refs and Git, tmux, Pi, or SBX resources do not decide completion. These informational refs and local resources cannot reopen a done note.
 
@@ -113,9 +161,11 @@ The daemon returns a `task_deletion_result` with `task_id`, `source_ref_id`, `or
 
 Recovery is manual: move the payload at `trash_path` back to `original_path` without replacing anything, then refresh. Restored notes retain their source identity and lifecycle. The cache's numeric task ID is not a durable recovery identity. After restoring an archived note, use the normal reopen operation if it needs an active workspace. Vault trash may be emptied by Obsidian or other software; it is not a backup.
 
-No note, workspace-registry, configuration, or cache schema changes are required. Existing private and archived notes remain in place until explicitly deleted, and `.trash/` is outside collection. No migration or reset is needed. Before installing, check the configured vault's existing `.trash` path: it must be absent or a real directory, not a file or symlink. Existing trash contents are left untouched.
+Deletion itself requires no note, workspace-registry, configuration, or cache schema changes. Existing private and archived notes remain in place until explicitly deleted, and `.trash/` is outside collection. No migration or reset is needed. Before installing, check the configured vault's existing `.trash` path: it must be absent or a real directory, not a file or symlink. Existing trash contents are left untouched.
 
 ## Rollout
+
+Ignored preferences add only optional `radar-ignored` and `radar-source-refs` note fields. Absent values mean unignored ordinary notes without explicit bindings, so existing private and archived notes need no bulk rewrite or migration for this feature. This feature adds no migration, legacy field readers, automatic configuration migration, or compatibility command aliases. Before installation, inventory both note locations read-only and validate any existing fields with these names, malformed sequences, and conflicting binding ownership against the current reader. Do not install over incompatible or ambiguous authored data until its handling is agreed. Cache resets must not discard authored preferences or bindings; validate cold reconstruction using isolated copies, not live task mutations.
 
 Mandatory workspace notes do not change the registry, note, or configuration schema. Existing note-less workspaces need a one-time local association before opening them with this version; there is no automatic migration or legacy configuration handling. Inventory the registry, canonical notes, and existing `notes.md` entries before applying those associations. Never overwrite user files or replace existing note identities. Adding private note mounts to existing SBX workspaces requires reconciliation and can interrupt sandbox processes.
 
@@ -162,11 +212,17 @@ Valid tasks remain available during partial collection. Radar preserves previous
 radar task create --title <title>
 radar task done <task-id>
 radar task reopen <task-id>
+radar task ignore <task-id>
+radar task unignore <task-id>
 radar task delete <task-id>
 radar task priority <task-id> urgent|normal
 ```
 
-In the TUI, `n` creates a note, `Enter` opens its planning workspace, `d` changes lifecycle, `D` previews task deletion, `p` changes priority, and `o` opens the canonical note in Obsidian. Deletion confirmation is modal: Enter does nothing, `y` confirms, and `Esc` or `n` cancels.
+In the TUI, `n` creates a note, `Enter` on a task opens its planning workspace or existing session, `d` changes lifecycle, `m` toggles Ignore / Unignore, `D` previews task deletion, `p` changes priority, and `o` opens its source links, including the canonical note in Obsidian. `i` remains read-only Inspect; it shows the stored ignored preference alongside actual attention, source statuses, activity, and cleanup warnings.
+
+The overview places Ignored and Done after the existing active groups, both collapsed by default. Their nonempty headers show a disclosure marker and eligible-task count. Normal navigation selects a header, and Enter expands/collapses only that section without a daemon mutation. The independent expansion choices survive refreshes, mutations, and temporary section emptiness for the current TUI session only. Active headers remain unselectable. Collapsed children and their refs are absent from navigation and layout; task-specific keys do nothing on headers. Completing/ignoring selected active work stays among remaining active tasks or on an available header without expanding history; unignore follows unfinished work back to active categories. Done's existing ordering, retention, and unresolved-workspace exception remain unchanged.
+
+Deletion confirmation is modal: Enter does nothing, `y` confirms, and `Esc` or `n` cancels.
 
 ## Validation
 

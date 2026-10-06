@@ -25,6 +25,14 @@ func ReopenTask(socketPath string, taskID int) (protocol.Response, error) {
 	return CallRequest(socketPath, protocol.Request{Method: "task-reopen", TaskMutation: &protocol.TaskMutation{TaskID: taskID}})
 }
 
+func IgnoreTask(socketPath string, taskID int) (protocol.Response, error) {
+	return CallRequest(socketPath, protocol.Request{Method: "task-ignore", TaskMutation: &protocol.TaskMutation{TaskID: taskID}})
+}
+
+func UnignoreTask(socketPath string, taskID int) (protocol.Response, error) {
+	return CallRequest(socketPath, protocol.Request{Method: "task-unignore", TaskMutation: &protocol.TaskMutation{TaskID: taskID}})
+}
+
 func SetTaskPriority(socketPath string, taskID int, priority string) (protocol.Response, error) {
 	return CallRequest(socketPath, protocol.Request{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: taskID, Priority: priority}})
 }

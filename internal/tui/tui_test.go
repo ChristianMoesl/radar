@@ -272,7 +272,7 @@ func TestAuthoredDoneAndReopenKeys(t *testing.T) {
 }
 
 func TestAuthoredDoneRejectsNonAuthoredTask(t *testing.T) {
-	m := model{tasks: []protocol.Task{{ID: 7}}}
+	m := model{tasks: []protocol.Task{{ID: 7, Attention: "attention"}}}
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
 	got := updated.(model)
 	if cmd != nil || !strings.Contains(got.message, "does not support") {
@@ -301,7 +301,7 @@ func TestPriorityKeyRejectsUnsupportedAndDoneTasks(t *testing.T) {
 		{task: authoredTaskForTUITest("done", "normal", "done"), want: "cannot change priority"},
 	}
 	for _, tt := range tests {
-		m := model{tasks: []protocol.Task{tt.task}}
+		m := model{tasks: []protocol.Task{tt.task}, expandedSections: map[string]bool{"done": true}}
 		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
 		got := updated.(model)
 		if cmd != nil || !strings.Contains(got.message, tt.want) {
@@ -331,7 +331,7 @@ func TestResetIsNotAvailableAsUnconfirmedTUIKey(t *testing.T) {
 }
 
 func TestHAndLDoNotNavigateTaskDetails(t *testing.T) {
-	m := model{tasks: []protocol.Task{{Title: "Task"}}}
+	m := model{tasks: []protocol.Task{{Title: "Task", Attention: "attention"}}}
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
 	got := updated.(model)
 	if cmd != nil || got.mode != "" {
@@ -644,8 +644,8 @@ func TestTaskCursorOrderFollowsRenderedGroups(t *testing.T) {
 		{Title: "progress", Attention: "in_progress"},
 	}}
 
-	got := model.taskCursorOrder()
-	want := []int{1, 3, 0, 2}
+	got := model.overviewLayout().entries
+	want := []visibleEntry{{task: 1}, {task: 3}, {task: 0}, {section: "done"}}
 	if len(got) != len(want) {
 		t.Fatalf("taskCursorOrder() = %v, want %v", got, want)
 	}
@@ -735,7 +735,7 @@ func TestTaskListRendersLowPriorityBeforeDone(t *testing.T) {
 	lines, _, _ := model.taskLines(100)
 	view := ansi.Strip(strings.Join(lines, "\n"))
 	low := strings.Index(view, "Low priority")
-	done := strings.Index(view, "Done (last 3 days)")
+	done := strings.Index(view, "Done (1) · last 3 days")
 	if low < 0 || done < 0 || low > done {
 		t.Fatalf("low priority should render before done:\n%s", view)
 	}
@@ -763,7 +763,7 @@ func TestScrollDoesNotMoveUpUntilCursorHitsTop(t *testing.T) {
 }
 
 func TestActivateSelectedStartsNoteWorkspaceForAuthoredTask(t *testing.T) {
-	m := model{tasks: []protocol.Task{{Title: "One task", SourceRefs: []protocol.SourceRef{{
+	m := model{tasks: []protocol.Task{{Attention: "attention", Title: "One task", SourceRefs: []protocol.SourceRef{{
 		ID: "obsidian:task:1", Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
 		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
 		CanonicalKey: "obsidian:task:1", LinkingKeys: []string{"obsidian:task:1"},
@@ -803,7 +803,7 @@ func TestForkPromptsForMemberWhenWorkspaceHasMultipleMembers(t *testing.T) {
 }
 
 func TestActivateSelectedPrefersRegisteredWorkspaceAnchor(t *testing.T) {
-	m := model{tasks: []protocol.Task{{SourceRefs: []protocol.SourceRef{
+	m := model{tasks: []protocol.Task{{Attention: "attention", SourceRefs: []protocol.SourceRef{
 		{ID: "workspace:one", Source: "workspace", Kind: "workspace", Path: "/work/plan", ProvidesWorkspace: true, WorkspaceEntry: true},
 		{ID: "git:worktree:/work/plan/repo--feature", Source: "git", Kind: "worktree", Path: "/work/plan/repo--feature"},
 	}}}}
@@ -818,7 +818,7 @@ func TestActivateSelectedPrefersRegisteredWorkspaceAnchor(t *testing.T) {
 }
 
 func TestActivateSelectedAsksForWorktreeWhenTaskHasMultipleWorktrees(t *testing.T) {
-	m := model{tasks: []protocol.Task{{SourceRefs: []protocol.SourceRef{
+	m := model{tasks: []protocol.Task{{Attention: "attention", SourceRefs: []protocol.SourceRef{
 		{Source: "git", Kind: "worktree", ProvidesWorkspace: true, Path: "/repo/one"},
 		{Source: "git", Kind: "worktree", ProvidesWorkspace: true, Path: "/repo/two"},
 	}}}}
@@ -834,7 +834,7 @@ func TestActivateSelectedAsksForWorktreeWhenTaskHasMultipleWorktrees(t *testing.
 }
 
 func TestActivateSelectedStartsWorkspaceCreateForJiraOnlyTask(t *testing.T) {
-	m := model{tasks: []protocol.Task{{
+	m := model{tasks: []protocol.Task{{Attention: "attention",
 		Title: "ABC-123 Build the thing",
 		SourceRefs: []protocol.SourceRef{{
 			ID:           "jira:issue:ABC-123",
@@ -889,7 +889,7 @@ func TestWorkspaceNameForTaskUsesPullRequestOriginBranchWithoutOriginPrefix(t *t
 }
 
 func TestActivateSelectedCreatesWorkspaceForPullRequestOnlyTask(t *testing.T) {
-	m := model{tasks: []protocol.Task{{
+	m := model{tasks: []protocol.Task{{Attention: "attention",
 		Title: "Review",
 		SourceRefs: []protocol.SourceRef{{
 			ID:           "github:pr:owner/repo:7",
@@ -948,9 +948,10 @@ func TestTaskLinksDoesNotAssignQuitKey(t *testing.T) {
 func TestOpenLinkHActivatesDisplayedChoice(t *testing.T) {
 	m := model{
 		mode:  "open_link",
-		tasks: []protocol.Task{{Title: "Task"}},
+		tasks: []protocol.Task{{ID: 1, Title: "Task", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "test:task:one", Source: "test", Kind: "task", Role: protocol.SourceRefRoleAuthoritative}}}},
 		links: []linkChoice{{Key: "h", URL: "https://example.test/task"}},
 	}
+	m.linkTask = m.tasks[0]
 
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
 	got := updated.(model)

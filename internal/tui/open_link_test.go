@@ -15,7 +15,7 @@ import (
 func TestTaskLinksIncludesEveryURLAndAction(t *testing.T) {
 	for _, kind := range []string{"urls", "actions", "mixed"} {
 		t.Run(kind, func(t *testing.T) {
-			task := protocol.Task{Title: "Task", URL: "https://example.test/task"}
+			task := protocol.Task{Title: "Task", Attention: "attention", URL: "https://example.test/task"}
 			for i := 0; i < 45; i++ {
 				ref := protocol.SourceRef{Source: "link", Title: fmt.Sprintf("Entry %02d", i), URL: fmt.Sprintf("https://example.test/%d", i)}
 				if kind == "actions" || kind == "mixed" && i%2 == 0 {
@@ -92,7 +92,8 @@ func TestTaskLinksAllocatesUnusedSingleKeysThenLeavesBlanks(t *testing.T) {
 }
 
 func openLinkTestModel() model {
-	m := model{mode: "open_link", width: 100, height: 24, tasks: []protocol.Task{{Title: "Task"}}}
+	m := model{mode: "open_link", width: 100, height: 24, tasks: []protocol.Task{{ID: 1, Title: "Task", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "test:task:one", Source: "test", Kind: "task", Role: protocol.SourceRefRoleAuthoritative}}}}}
+	m.linkTask = m.tasks[0]
 	for i := 0; i < 40; i++ {
 		m.links = append(m.links, linkChoice{Source: "Test", Label: fmt.Sprintf("Entry %02d", i), Detail: fmt.Sprintf("detail-%02d", i), Action: fmt.Sprintf("test-action-%02d", i)})
 	}

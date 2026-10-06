@@ -55,8 +55,12 @@ func sameTask(left, right protocol.Task) bool {
 }
 
 func (m model) operationOnRow() bool {
-	_, ok := matchingTaskCursor(m.tasks, m.operation.task)
-	return m.operation.kind != "" && ok
+	cursor, ok := matchingTaskCursor(m.tasks, m.operation.task)
+	if m.operation.kind == "" || !ok {
+		return false
+	}
+	_, visible := m.overviewLayout().bounds[visibleEntry{task: cursor}]
+	return visible
 }
 
 func (m *model) finishOperation(problem error, clearFailure bool) {
@@ -116,7 +120,7 @@ func (m model) operationDetails(task protocol.Task, width int) string {
 
 func operationNavigationKey(key string) bool {
 	switch key {
-	case "q", "ctrl+c", "esc", "backspace", "i", "right", "s", "j", "down", "ctrl+n", "k", "up", "ctrl+p", "ctrl+d", "ctrl+u", "g", "home", "G", "end", "pgdown", "pgup":
+	case "enter", "q", "ctrl+c", "esc", "backspace", "i", "right", "s", "j", "down", "ctrl+n", "k", "up", "ctrl+p", "ctrl+d", "ctrl+u", "g", "home", "G", "end", "pgdown", "pgup":
 		return true
 	}
 	return false

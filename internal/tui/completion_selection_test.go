@@ -71,8 +71,8 @@ func TestCompletionWithNoUnfinishedTasks(t *testing.T) {
 				if m.cursor != 0 || m.scroll != 0 {
 					t.Fatalf("empty list cursor=%d scroll=%d, want zero", m.cursor, m.scroll)
 				}
-			} else if m.tasks[m.cursor].ID != tt.want {
-				t.Fatalf("selected ID = %d, want %d", m.tasks[m.cursor].ID, tt.want)
+			} else if m.selectedSection != "done" || m.sectionExpanded("done") {
+				t.Fatalf("selected entry = %+v, want collapsed Done header", m.selectedEntry())
 			}
 		})
 	}
@@ -139,7 +139,7 @@ func TestCompletionWaitsForResponseAndRespectsNavigation(t *testing.T) {
 }
 
 func TestReopeningStillFollowsSelectedTask(t *testing.T) {
-	m := model{cursor: 1, tasks: []protocol.Task{{ID: 1, Attention: "low_priority"}, {ID: 2, Attention: "done"}}}
+	m := model{cursor: 1, expandedSections: map[string]bool{"done": true}, tasks: []protocol.Task{{ID: 1, Attention: "low_priority"}, {ID: 2, Attention: "done"}}}
 	m.applyResponse(protocol.Response{Tasks: []protocol.Task{{ID: 2, Attention: "immediate"}, {ID: 1, Attention: "low_priority"}}}, false)
 	if m.tasks[m.cursor].ID != 2 || m.cursorPosition() != 0 {
 		t.Fatalf("reopening did not follow selected task: cursor=%d", m.cursor)
@@ -151,7 +151,7 @@ func TestCompletionKeepsInspectPinnedToTask(t *testing.T) {
 	m := model{mode: "detail", tasks: []protocol.Task{selected, {ID: 2, Attention: "low_priority"}}, detail: detailState{task: selected, available: true}}
 	selected.Attention = "done"
 	m.applyResponse(protocol.Response{Tasks: []protocol.Task{selected, {ID: 2, Attention: "low_priority"}}}, false)
-	if !m.detail.available || m.detail.task.ID != 1 || m.detail.task.Attention != "done" || m.tasks[m.cursor].ID != 1 {
+	if !m.detail.available || m.detail.task.ID != 1 || m.detail.task.Attention != "done" || m.selectedSection != "" || m.tasks[m.cursor].ID != 2 {
 		t.Fatalf("Inspect lost completed task: detail=%+v cursor=%d", m.detail, m.cursor)
 	}
 }
@@ -174,10 +174,12 @@ func TestCompletionPreservesOverviewViewport(t *testing.T) {
 			updated[cursor].Attention = "done"
 			updated[cursor].DoneAt = "2026-08-02T10:00:00Z"
 			m.applyResponse(protocol.Response{Tasks: updated}, false)
-			if m.scroll != previousScroll {
-				t.Fatalf("scroll = %d, want unchanged %d", m.scroll, previousScroll)
+			lines, start, end := m.taskLines(m.contentWidth())
+			// Collapsed Done can shrink the whole list below the old viewport.
+			wantScroll := min(previousScroll, max(0, len(lines)-m.taskListHeight(m.contentWidth())))
+			if m.scroll != wantScroll {
+				t.Fatalf("scroll = %d, want stable/clamped %d", m.scroll, wantScroll)
 			}
-			_, start, end := m.taskLines(m.contentWidth())
 			if start < m.scroll || end >= m.scroll+m.taskListHeight(m.contentWidth()) {
 				t.Fatalf("selection %d..%d outside viewport at %d", start, end, m.scroll)
 			}

@@ -7,6 +7,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"radar/internal/protocol"
 )
 
 func (m model) updateOpenLink(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -36,17 +38,43 @@ func (m model) updateOpenLink(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *model) closeOpenLink() {
 	m.mode = ""
 	m.links = nil
+	m.linkTask = protocol.Task{}
 	m.linkCursor, m.linkScroll = 0, 0
 }
 
+// The picker belongs to its initiating task, independently of the overview's
+// fallback selection. Resolve its latest task ID even when that task has moved
+// into a collapsed section, and never substitute a neighboring overview row.
+func (m model) linkPickerTask() (protocol.Task, bool) {
+	identities := make(map[string]bool)
+	for _, ref := range m.linkTask.SourceRefs {
+		if ref.Role == protocol.SourceRefRoleAuthoritative && ref.ID != "" {
+			identities[ref.Binding().LinkingKey()] = true
+		}
+	}
+	// Prefer source-owned identities over numeric task IDs. Informational
+	// refs can be shared by unrelated tasks; resource names and numeric
+	// task IDs can be reused after the original task disappears.
+	for _, task := range m.tasks {
+		for _, ref := range task.SourceRefs {
+			if ref.Role == protocol.SourceRefRoleAuthoritative && identities[ref.Binding().LinkingKey()] {
+				return task, true
+			}
+		}
+	}
+	return protocol.Task{}, false
+}
+
 func (m model) openChosenLink(link linkChoice) (tea.Model, tea.Cmd) {
-	if m.cursor < 0 || m.cursor >= len(m.tasks) {
+	task, ok := m.linkPickerTask()
+	if !ok {
+		m.err = fmt.Errorf("task no longer available; close the link picker and select a task again")
 		return m, nil
 	}
 	m.closeOpenLink()
 	m.loading = true
 	m.err = nil
-	return m, m.openTask(m.tasks[m.cursor], link)
+	return m, m.openTask(task, link)
 }
 
 func openLinkHelp(width int) string {

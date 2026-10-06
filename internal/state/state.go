@@ -369,6 +369,37 @@ func (s *Store) CollectionTasks() []protocol.Task {
 			byRecord[record.ID] = i
 		}
 	}
+	// Adopted notes remain tracking roots after Done display retention expires.
+	// Keep their cached terminal facts available to bound-source resolvers instead
+	// of querying all archived work again on every refresh.
+	boundRecords := map[string]bool{}
+	for _, ref := range s.state.SourceRefs {
+		if ref.Active && ref.Snapshot.Authored && len(ref.Snapshot.Bindings) > 0 {
+			boundRecords[ref.TaskRecordID] = true
+		}
+	}
+	for _, record := range s.state.Records {
+		if _, present := byRecord[record.ID]; present || !boundRecords[record.ID] {
+			continue
+		}
+		task := cloneTask(record.Snapshot)
+		task.TrackingOnly = true
+		task.ID = record.NumericID
+		task.SourceRefs = nil
+		task.Ignored = false
+		if record.State == "done" {
+			task.Attention = "done"
+			task.DoneAt = record.DoneAt
+		}
+		for _, ref := range s.state.SourceRefs {
+			if ref.TaskRecordID == record.ID && (ref.Active || ref.Snapshot.RetainInactive) {
+				task.SourceRefs = append(task.SourceRefs, cloneSourceRefs([]protocol.SourceRef{ref.Snapshot})...)
+				task.Ignored = task.Ignored || (ref.Active && ref.Snapshot.Authored && ref.Snapshot.Ignored)
+			}
+		}
+		byRecord[record.ID] = len(items)
+		items = append(items, task)
+	}
 	for _, ref := range s.state.SourceRefs {
 		i, ok := byRecord[ref.TaskRecordID]
 		if !ok || ref.Active || !ref.Snapshot.RetainInactive || !authoritativeRef(ref.Snapshot) || ref.Snapshot.Lifecycle != protocol.SourceRefLifecycleWorkItem {
@@ -461,22 +492,7 @@ func (s *Store) Summary() protocol.Summary {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var summary protocol.Summary
-	for _, item := range s.items {
-		switch item.Attention {
-		case "immediate":
-			summary.Immediate++
-		case "attention":
-			summary.Attention++
-		case "in_progress":
-			summary.InProgress++
-		case "done":
-			summary.Done++
-		case "low_priority":
-			summary.LowPriority++
-		}
-	}
-	return summary
+	return protocol.SummarizeTasks(s.items)
 }
 
 func reconcileState(previous persistedState, observed []protocol.Task, now time.Time) persistedState {
@@ -484,7 +500,7 @@ func reconcileState(previous persistedState, observed []protocol.Task, now time.
 }
 
 func reconcileStateForSources(previous persistedState, observed []protocol.Task, now time.Time, sourceScope map[string]bool) persistedState {
-	state := previous
+	state := detachReplacedBindings(previous, observed)
 	state.Version = stateVersion
 	nowText := now.Format(time.RFC3339)
 	if state.Records == nil {
@@ -815,7 +831,10 @@ func linkKeysForSourceRef(ref protocol.SourceRef) []string {
 	if !authoritativeRef(ref) {
 		return nil
 	}
-	keys := make([]string, 0, len(ref.LinkingKeys))
+	keys := make([]string, 0, len(ref.LinkingKeys)+1)
+	if ref.ID != "" {
+		keys = append(keys, ref.Binding().LinkingKey())
+	}
 	seen := map[string]bool{}
 	for _, key := range ref.LinkingKeys {
 		key = strings.TrimSpace(key)
@@ -1173,6 +1192,12 @@ func projectTasks(state persistedState) []protocol.Task {
 		}
 		task.TargetTaskID = 0
 		task.SourceRefs = cloneSourceRefs(sortSourceRefs(mergeSourceRefs(nil, refs)))
+		task.Ignored = false
+		for _, ref := range refs {
+			if authoritativeRef(ref) && ref.Authored && ref.Ignored {
+				task.Ignored = true
+			}
+		}
 		if title := preferredTitle(refs); title != "" {
 			task.Title = title
 		}
@@ -1259,6 +1284,8 @@ func cloneSourceRefs(sourceRefs []protocol.SourceRef) []protocol.SourceRef {
 	cloned := make([]protocol.SourceRef, len(sourceRefs))
 	for i, sourceRef := range sourceRefs {
 		cloned[i] = sourceRef
+		cloned[i].Bindings = append([]protocol.SourceBinding(nil), sourceRef.Bindings...)
+		cloned[i].LinkingKeys = append([]string(nil), sourceRef.LinkingKeys...)
 		cloned[i].CleanupIssues = append([]string(nil), sourceRef.CleanupIssues...)
 		if sourceRef.Metadata != nil {
 			cloned[i].Metadata = cloneMetadata(sourceRef.Metadata)

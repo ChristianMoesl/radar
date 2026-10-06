@@ -154,6 +154,8 @@ func TestStructuredTaskMutations(t *testing.T) {
 		{Method: "task-reopen", TaskMutation: &protocol.TaskMutation{TaskID: 1}},
 		{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: 1, Priority: "urgent"}},
 		{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: 1, Priority: "normal"}},
+		{Method: "task-ignore", TaskMutation: &protocol.TaskMutation{TaskID: 1}},
+		{Method: "task-unignore", TaskMutation: &protocol.TaskMutation{TaskID: 1}},
 	}
 	var revision int64
 	for _, request := range requests {
@@ -176,6 +178,12 @@ func TestStructuredTaskMutations(t *testing.T) {
 		}
 		if request.Method == "task-priority" && response.Task.SourceRefs[0].Metadata["priority"] != request.TaskMutation.Priority {
 			t.Fatalf("incorrect priority in mutation response: %+v", response.Task)
+		}
+		if response.Task.Ignored != (request.Method == "task-ignore") {
+			t.Fatalf("incorrect ignore preference in mutation response: %+v", response.Task)
+		}
+		if request.Method == "task-ignore" && (response.Summary.Ignored != 1 || response.Summary.LowPriority != 0 || response.Task.Attention != "low_priority") {
+			t.Fatalf("ignore response changed lifecycle/signal or did not summarize display group: %+v", response)
 		}
 	}
 	exchange := func(request protocol.Request) protocol.Response {

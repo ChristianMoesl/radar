@@ -102,17 +102,29 @@ func (s Source) EnsureWorkspaceNote(ctx context.Context, desired integration.Des
 	if _, err := os.Stat(desired.Path); err == nil {
 		return nil
 	}
-	directory := filepath.Dir(desired.Path)
-	if err := os.Mkdir(directory, 0o755); err != nil {
+	content, err := workspaceNoteContent(desired)
+	if err != nil {
 		return err
 	}
+	return createWorkspaceNote(desired, content)
+}
+
+func workspaceNoteContent(desired integration.DesiredWorkspaceNote) (string, error) {
 	id := strings.TrimPrefix(desired.LinkingKey, "obsidian:task:")
 	// JSON strings are valid YAML scalars and safely quote punctuation and controls.
 	title, err := json.Marshal(desired.Title)
 	if err != nil {
-		return err
+		return "", err
 	}
 	content := fmt.Sprintf("---\nradar-id: %s\nradar-title: %s\nradar-state: open\nradar-priority: normal\nradar-created-at: %s\nradar-completed-at:\n---\n", id, title, time.Now().UTC().Format(time.RFC3339))
+	return content, nil
+}
+
+func createWorkspaceNote(desired integration.DesiredWorkspaceNote, content string) error {
+	directory := filepath.Dir(desired.Path)
+	if err := os.Mkdir(directory, 0o755); err != nil {
+		return err
+	}
 	if err := atomicCreate(desired.Path, []byte(content), 0o644); err != nil {
 		_ = os.Remove(directory)
 		return err

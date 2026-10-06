@@ -45,7 +45,7 @@ func TestWorkspaceEditorUsesOneBlankRowBeforeRepositories(t *testing.T) {
 }
 
 func TestWorkspaceKeyInspectsSelectedTask(t *testing.T) {
-	m := model{tasks: []protocol.Task{{ID: 7, Title: "Plan"}}}
+	m := model{tasks: []protocol.Task{{ID: 7, Title: "Plan", Attention: "attention"}}}
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
 	got := updated.(model)
 	if cmd == nil || got.mode != "workspace_loading" || got.editor.task.ID != 7 {

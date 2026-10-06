@@ -180,11 +180,11 @@ func TestResourceBadgeRowPositionsMatchRendering(t *testing.T) {
 		t.Fatalf("row count = %d, rendered %d", count, len(lines))
 	}
 	for i, task := range m.tasks {
-		if !strings.Contains(ansi.Strip(lines[positions[i]]), task.Title) {
-			t.Fatalf("task %q at wrong row %d", task.Title, positions[i])
+		if !strings.Contains(ansi.Strip(lines[positions[visibleEntry{task: i}]]), task.Title) {
+			t.Fatalf("task %q at wrong row %d", task.Title, positions[visibleEntry{task: i}])
 		}
 	}
-	if positions[2] != positions[1]+2 {
+	if positions[visibleEntry{task: 2}] != positions[visibleEntry{task: 1}]+2 {
 		t.Fatalf("local-only task should occupy one row followed by one blank row: %v", positions)
 	}
 }

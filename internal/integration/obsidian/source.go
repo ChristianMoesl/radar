@@ -14,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"go.yaml.in/yaml/v3"
-
 	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/integration/obsidian/settings"
@@ -34,6 +32,8 @@ type Source struct {
 }
 
 type note struct {
+	Ignored            bool
+	Bindings           []protocol.SourceBinding
 	ID                 string
 	Title              string
 	State              string
@@ -43,7 +43,9 @@ type note struct {
 	CompletionBaseline string
 	Path               string
 	content            string
-	fields             map[string]int
+	fields             map[string]fieldRange
+	frontmatterEnd     int
+	newline            string
 }
 
 type discoveredNote struct {
@@ -122,20 +124,7 @@ func (s Source) Collect(_ context.Context, req integration.CollectRequest) integ
 		return integration.CollectResult{Observations: previousObservations(req.Previous, nil), SourceStatus: &status}
 	}
 
-	byID := map[string][]int{}
-	byTitle := map[string][]int{}
-	for i := range discovered {
-		if discovered[i].err == nil {
-			byID[discovered[i].note.ID] = append(byID[discovered[i].note.ID], i)
-			byTitle[discovered[i].note.Title] = append(byTitle[discovered[i].note.Title], i)
-		}
-	}
-	for id, indexes := range byID {
-		markDuplicates(discovered, indexes, fmt.Sprintf("duplicate radar-id %s", id))
-	}
-	for title, indexes := range byTitle {
-		markDuplicates(discovered, indexes, fmt.Sprintf("duplicate task title %q", title))
-	}
+	validateNoteOwnership(discovered)
 
 	valid := make([]note, 0, len(discovered))
 	invalidPaths := map[string]bool{}
@@ -263,109 +252,12 @@ func readNote(path string) (note, error) {
 	return current, err
 }
 
-func parseNote(content string) (note, error) {
-	current := note{content: content, fields: map[string]int{}}
-	lines := strings.Split(content, "\n")
-	if len(lines) < 3 || strings.TrimSpace(lines[0]) != "---" {
-		return current, fmt.Errorf("Markdown frontmatter is required")
-	}
-	end := -1
-	for i := 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "---" {
-			end = i
-			break
-		}
-		// Only top-level keys are managed; nested user metadata and title block
-		// scalar contents must not become field indexes.
-		if strings.HasPrefix(lines[i], " ") || strings.HasPrefix(lines[i], "\t") {
-			continue
-		}
-		key, value, ok := strings.Cut(lines[i], ":")
-		if !ok {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		if _, duplicate := current.fields[key]; duplicate {
-			return current, fmt.Errorf("duplicate frontmatter field %q", key)
-		}
-		current.fields[key] = i
-		value = strings.TrimSpace(value)
-		switch key {
-		case "radar-id":
-			current.ID = value
-		case "radar-state":
-			current.State = value
-		case "radar-priority":
-			current.Priority = value
-		case "radar-created-at":
-			current.CreatedAt = value
-		case "radar-completed-at":
-			current.CompletedAt = value
-		case "radar-completion-baseline":
-			current.CompletionBaseline = value
-		}
-	}
-	if end < 0 {
-		return current, fmt.Errorf("Markdown frontmatter is not closed")
-	}
-	for _, field := range []string{"radar-id", "radar-title", "radar-state", "radar-priority", "radar-created-at", "radar-completed-at"} {
-		if _, ok := current.fields[field]; !ok {
-			return current, fmt.Errorf("missing required field %s", field)
-		}
-	}
-	var frontmatter map[string]yaml.Node
-	if err := yaml.Unmarshal([]byte(strings.Join(lines[1:end], "\n")), &frontmatter); err != nil {
-		return current, fmt.Errorf("invalid YAML frontmatter")
-	}
-	title := frontmatter["radar-title"]
-	if title.Kind != yaml.ScalarNode || title.Tag != "!!str" || strings.TrimSpace(title.Value) == "" {
-		return current, fmt.Errorf("radar-title must be a non-empty YAML string")
-	}
-	current.Title = strings.TrimSpace(title.Value)
-	if !validID.MatchString(current.ID) {
-		return current, fmt.Errorf("invalid radar-id %q", current.ID)
-	}
-	if current.State != "open" && current.State != "done" {
-		return current, fmt.Errorf("unsupported radar-state %q", current.State)
-	}
-	if current.Priority != "normal" && current.Priority != "urgent" {
-		return current, fmt.Errorf("unsupported radar-priority %q", current.Priority)
-	}
-	if err := validTimestamp("radar-created-at", current.CreatedAt, false); err != nil {
-		return current, err
-	}
-	if err := validTimestamp("radar-completed-at", current.CompletedAt, current.State == "open"); err != nil {
-		return current, err
-	}
-	if current.State == "done" && current.CompletedAt == "" {
-		return current, fmt.Errorf("radar-completed-at is required when radar-state is done")
-	}
-	if current.State == "open" && current.CompletedAt != "" {
-		return current, fmt.Errorf("radar-completed-at must be empty when radar-state is open")
-	}
-	if value := current.CompletionBaseline; value != "" && value != "pending" && !validCompletionBaseline.MatchString(value) {
-		return current, fmt.Errorf("invalid radar-completion-baseline %q", value)
-	}
-	return current, nil
-}
-
-func validTimestamp(field, value string, allowEmpty bool) error {
-	if value == "" && allowEmpty {
-		return nil
-	}
-	parsed, err := time.Parse(time.RFC3339, value)
-	if err != nil {
-		return fmt.Errorf("%s must be an RFC 3339 timestamp", field)
-	}
-	_, offset := parsed.Zone()
-	if offset != 0 {
-		return fmt.Errorf("%s must be in UTC", field)
-	}
-	return nil
-}
-
 func observationsFor(vault string, current note) []integration.Observation {
 	identity := "obsidian:task:" + current.ID
+	keys := []string{identity}
+	for _, binding := range current.Bindings {
+		keys = append(keys, binding.LinkingKey())
+	}
 	uri := noteURI(vault, current.Path)
 	metadata := map[string]string{
 		"radar_id": current.ID, "note_path": current.Path, "task_directory": filepath.Dir(current.Path),
@@ -384,8 +276,8 @@ func observationsFor(vault string, current note) []integration.Observation {
 			ID: identity, EntityID: identity, Source: "obsidian", SourceLabel: "Obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
 			Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
 			Presentation: protocol.SourceRefPresentation{PreferTitle: true, WorkspaceName: current.Title}, Title: current.Title, URL: uri,
-			Status: current.State, CanonicalKey: identity, LinkingKeys: linking.Keys(identity), Metadata: metadata,
-			WorkspaceAnchorPath: current.Path, Authored: true,
+			Status: current.State, CanonicalKey: identity, LinkingKeys: linking.Keys(keys...), Metadata: metadata,
+			WorkspaceAnchorPath: current.Path, Authored: true, Ignored: current.Ignored, Bindings: current.Bindings,
 		},
 		Signal: signal, Reason: "Obsidian task is " + current.State,
 	}}
@@ -500,30 +392,12 @@ func (s Source) mutateNoteLocked(root string, ref protocol.SourceRef, update fun
 			updates["radar-completed-at"] = time.Now().UTC().Format(time.RFC3339)
 		}
 	}
-	lines := strings.Split(current.content, "\n")
-	for field, value := range updates {
-		index, ok := current.fields[field]
-		if !ok {
-			if field != "radar-completion-baseline" {
-				return note{}, fmt.Errorf("managed field %s is missing from %s", field, path)
-			}
-			// Optional lifecycle bookkeeping is inserted without touching the body
-			// or requiring edits to existing notes.
-			index = 1
-			for strings.TrimSpace(lines[index]) != "---" {
-				index++
-			}
-			lines = append(lines[:index], append([]string{""}, lines[index:]...)...)
-		}
-		lines[index] = field + ": " + value
-		if value == "" {
-			lines[index] = field + ":"
-		}
-	}
-	content := strings.Join(lines, "\n")
-	updated, err := parseNote(content)
+	content, updated, err := updateNoteContent(current, updates)
 	if err != nil {
-		return note{}, fmt.Errorf("updated Obsidian task note is invalid: %w", err)
+		return note{}, err
+	}
+	if content == current.content {
+		return current, nil
 	}
 	info, err := os.Stat(path)
 	if err != nil {

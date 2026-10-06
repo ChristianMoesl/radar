@@ -91,15 +91,26 @@ func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.
 	result.LinkingMarks = linking.NewMarkMatcher(cfg.LinkingMarkPrefixes)
 
 	collections := make([]sourceCollection, len(sources))
-	var wg sync.WaitGroup
-	wg.Add(len(sources))
+	// Authoring is a short local phase: persisted bindings must be known before
+	// remote discovery, including on the very first refresh after cache reset.
+	authored := make([]bool, len(sources))
 	for i, source := range sources {
-		descriptor := source.Descriptor()
-		collections[i].descriptor = descriptor
-		go func(i int, source integration.Source, descriptor integration.Descriptor) {
+		authored[i] = authorsTasks(source)
+		if authored[i] {
+			collections[i] = collectSource(ctx, source, source.Descriptor(), cloneTasks(previous), nil, result.LinkingMarks, logger)
+		}
+	}
+	bindings := collectedBindings(previous, collections)
+	var wg sync.WaitGroup
+	for i, source := range sources {
+		if authored[i] {
+			continue
+		}
+		wg.Add(1)
+		go func(i int, source integration.Source) {
 			defer wg.Done()
-			collections[i] = collectSource(ctx, source, descriptor, cloneTasks(previous), result.LinkingMarks, logger)
-		}(i, source, descriptor)
+			collections[i] = collectSource(ctx, source, source.Descriptor(), cloneTasks(previous), bindings, result.LinkingMarks, logger)
+		}(i, source)
 	}
 	wg.Wait()
 
@@ -108,11 +119,11 @@ func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.
 	for _, collection := range collections {
 		result.SourceNames = append(result.SourceNames, collection.descriptor.Name)
 		result.Sources = append(result.Sources, collection.status.Status)
+		result.Observations = append(result.Observations, collection.result.Observations...)
 		if !collection.status.CanRun {
 			continue
 		}
 		result.Results[collection.descriptor.Name] = collection.result
-		result.Observations = append(result.Observations, collection.result.Observations...)
 	}
 
 	return result
@@ -124,7 +135,7 @@ type sourceCollection struct {
 	result     integration.CollectResult
 }
 
-func collectSource(ctx context.Context, source integration.Source, descriptor integration.Descriptor, previous []protocol.Task, marks linking.MarkMatcher, logger *slog.Logger) sourceCollection {
+func collectSource(ctx context.Context, source integration.Source, descriptor integration.Descriptor, previous []protocol.Task, bindings []protocol.SourceBinding, marks linking.MarkMatcher, logger *slog.Logger) sourceCollection {
 	started := time.Now()
 	collection := sourceCollection{
 		descriptor: descriptor,
@@ -139,16 +150,54 @@ func collectSource(ctx context.Context, source integration.Source, descriptor in
 	}
 	statusDuration := time.Since(statusStarted)
 	if !collection.status.CanRun {
+		if authorsTasks(source) {
+			// Losing access to the preference authority must not turn ignored
+			// tasks back into actionable work. Retain facts, never completeness.
+			for _, task := range previous {
+				for _, ref := range task.SourceRefs {
+					if ref.Source == descriptor.Name && ref.Authored {
+						collection.result.Observations = append(collection.result.Observations, integration.Observation{Ref: ref, Signal: integration.WorkSignal(ref.Signal), Reason: ref.Status})
+					}
+				}
+			}
+		}
 		logger.Debug("source collection skipped", "source", descriptor.Name, "duration", time.Since(started), "status_duration", statusDuration, "status", collection.status.Status.Status)
 		return collection
 	}
 
 	collectStarted := time.Now()
+	discoveryPrevious := previous
+	if !authorsTasks(source) {
+		discoveryPrevious = make([]protocol.Task, 0, len(previous))
+		for _, task := range previous {
+			if !task.TrackingOnly {
+				discoveryPrevious = append(discoveryPrevious, task)
+			}
+		}
+	}
 	collection.result = source.Collect(ctx, integration.CollectRequest{
-		Previous:     previous,
+		Previous:     discoveryPrevious,
 		LinkingMarks: marks,
 		Logger:       logger,
 	})
+	if resolver, ok := source.(integration.BoundSourceResolver); ok {
+		requested := make([]protocol.SourceBinding, 0)
+		for _, binding := range bindings {
+			if binding.Source == descriptor.Name {
+				requested = append(requested, binding)
+			}
+		}
+		if len(requested) > 0 {
+			resolved := resolver.ResolveBindings(ctx, integration.BindingRequest{
+				Bindings: requested, Previous: previous, Result: collection.result, LinkingMarks: marks, Logger: logger,
+			})
+			collection.result.Observations = append(collection.result.Observations, resolved.Observations...)
+			collection.result.Complete = collection.result.Complete && resolved.Complete
+			if resolved.SourceStatus != nil {
+				collection.result.SourceStatus = resolved.SourceStatus
+			}
+		}
+	}
 	if collection.result.SourceStatus != nil {
 		collection.status.Status = *collection.result.SourceStatus
 		if collection.status.Status.Name == "" {
@@ -174,6 +223,7 @@ func cloneTasks(tasks []protocol.Task) []protocol.Task {
 		cloned[i].SourceRefs = make([]protocol.SourceRef, len(task.SourceRefs))
 		for j, ref := range task.SourceRefs {
 			cloned[i].SourceRefs[j] = ref
+			cloned[i].SourceRefs[j].Bindings = append([]protocol.SourceBinding(nil), ref.Bindings...)
 			cloned[i].SourceRefs[j].CleanupIssues = append([]string(nil), ref.CleanupIssues...)
 			cloned[i].SourceRefs[j].LinkingKeys = append([]string(nil), ref.LinkingKeys...)
 			cloned[i].SourceRefs[j].Metadata = cloneStringMap(ref.Metadata)
@@ -236,6 +286,7 @@ func taskFromObservation(observation integration.Observation) protocol.Task {
 	sourceRef.Signal = attention
 	return protocol.Task{
 		TargetTaskID: observation.TargetTaskID,
+		Ignored:      sourceRef.Authored && sourceRef.Ignored,
 		Activity:     sourceRef.Activity,
 		Kind:         taskKindFromObservation(observation),
 		Title:        sourceRef.Title,
@@ -315,4 +366,10 @@ func mergeSourceRefs(left []protocol.SourceRef, right []protocol.SourceRef) []pr
 		}
 	}
 	return left
+}
+
+func authorsTasks(source integration.Source) bool {
+	_, author := source.(integration.TaskAuthoringProvider)
+	_, preferences := source.(integration.TaskIgnoreProvider)
+	return author || preferences
 }

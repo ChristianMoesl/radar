@@ -37,8 +37,8 @@ func TestTaskBlocksHaveOneBlankRowBetweenThem(t *testing.T) {
 		t.Fatalf("navigation counts %d rows, rendered %d", count, len(lines))
 	}
 	for i, task := range m.tasks {
-		if !strings.Contains(ansi.Strip(lines[positions[i]]), task.Title) {
-			t.Fatalf("task %q has wrong navigation position %d", task.Title, positions[i])
+		if !strings.Contains(ansi.Strip(lines[positions[visibleEntry{task: i}]]), task.Title) {
+			t.Fatalf("task %q has wrong navigation position %d", task.Title, positions[visibleEntry{task: i}])
 		}
 	}
 }

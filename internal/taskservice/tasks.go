@@ -35,7 +35,7 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 
 	var result collector.Result
 	if localOnly {
-		result = collector.CollectLocal(ctx, s.store.Tasks(), s.logger, s.integrations.Sources())
+		result = collector.CollectLocal(ctx, s.store.CollectionTasks(), s.logger, s.integrations.Sources())
 	} else {
 		result = collector.Collect(ctx, s.store.CollectionTasks(), s.logger, s.integrations.Sources())
 	}
@@ -54,9 +54,14 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 		s.applyLocal(result)
 	} else {
 		s.store.SetTasks(result.Tasks)
-		// Remote observations captured before a local mutation must not undo it.
-		// Publish the fresh note now; reconcile lifecycle on the next full refresh.
-		if revision == s.authoringRevision && collector.ReconcileAuthoredTasks(ctx, s.store.CollectionTasks(), &result, s.integrations.Sources(), s.logger) {
+		// New contributors must be durably bound before this refresh returns,
+		// even when a mutation fenced its remote snapshot. Only lifecycle is
+		// deferred: stale facts must not undo manual completion or reopening.
+		reconcile := collector.ReconcileAuthoredTasks
+		if revision != s.authoringRevision {
+			reconcile = collector.ReconcileAuthoredBindings
+		}
+		if reconcile(ctx, s.store.CollectionTasks(), &result, s.integrations.Sources(), s.logger) {
 			s.store.SetTasks(result.Tasks)
 		}
 		s.store.SetSources(result.Sources)
@@ -79,6 +84,9 @@ func (s *Service) Reset() error {
 func (s *Service) MutateTask(ctx context.Context, method string, mutation *protocol.TaskMutation) (protocol.Task, error) {
 	if mutation == nil {
 		return protocol.Task{}, fmt.Errorf("task mutation is required")
+	}
+	if method == "task-ignore" || method == "task-unignore" {
+		return s.SetIgnored(ctx, mutation.TaskID, method == "task-ignore")
 	}
 	provider, err := s.integrations.TaskAuthoring()
 	if err != nil {

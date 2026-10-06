@@ -3,7 +3,9 @@ package protocol
 func SummarizeTasks(tasks []Task) Summary {
 	var summary Summary
 	for _, task := range tasks {
-		switch task.Attention {
+		switch task.DisplayGroup() {
+		case "ignored":
+			summary.Ignored++
 		case "immediate":
 			summary.Immediate++
 		case "attention":

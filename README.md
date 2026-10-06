@@ -14,7 +14,7 @@ Instead of checking GitHub, Jira, Datadog, Obsidian, terminals, and worktrees on
 
 ## Why Radar
 
-- **Prioritize, don't just aggregate.** Work is grouped into immediate, attention, in-progress, low-priority, and recently completed sections.
+- **Prioritize, don't just aggregate.** Work is grouped into immediate, attention, in-progress, low-priority, ignored, and recently completed sections.
 - **See the whole task.** A Jira issue, pull request, worktree, tmux session, and sandbox can appear as one linked unit rather than five disconnected entries.
 - **Resume work instantly.** Press <kbd>Enter</kbd> to switch to the task's tmux session, or create a ready-to-use worktree and session from Radar.
 - **Know what changed.** Each row includes the signal behind its state—an alert, review request, unresolved thread, active workspace, or completed source.
@@ -107,7 +107,7 @@ Radar uses these local tools:
 - `tmux` for workspace creation; the default tmux configuration also runs `pi` and `nvim`
 - `sbx` and the [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) Pi extension >=0.6.0 on macOS for repositories that enable sandboxed tool execution
 
-On macOS, the daemon uses the installed Radar notifier companion to send host notifications when a task newly needs immediate attention or attention. Clicking a pull-request notification opens the relevant GitHub pull request; clicking a Datadog alert opens its monitor; other task notifications open their task URL when one is available. Existing actionable tasks are not notified again on every refresh or daemon restart. Muted and deprioritized tasks do not produce notifications. If the companion app is not installed, Radar continues without host notifications.
+On macOS, the daemon uses the installed Radar notifier companion to send host notifications when a task newly needs immediate attention or attention. Clicking a pull-request notification opens the relevant GitHub pull request; clicking a Datadog alert opens its monitor; other task notifications open their task URL when one is available. Existing actionable tasks are not notified again on every refresh or daemon restart. Ignored, muted, and deprioritized tasks do not produce attention notifications. If the companion app is not installed, Radar continues without host notifications.
 
 Radar opens task URLs with the platform URL opener when you press `o` and choose a URL-backed source such as Jira, GitHub, or Datadog:
 
@@ -132,7 +132,9 @@ tmux display-popup -E "radar"
 
 The dashboard uses [Catppuccin Mocha](https://catppuccin.com/palette/) colors while keeping your terminal background. Tasks remain a flowing list with inline metadata and resource badges. A blank line separates tasks without separating their source references. The task area fills the available popup height, keeping Sources and shortcuts at the bottom even when the list is short. Sources starts collapsed to a one-line health summary; failures and other non-healthy states remain visible, with disabled integrations counted separately. Press `s` to show or hide the full source diagnostics without changing the selected task. The list uses the reclaimed rows, and refreshes preserve your choice for the current dashboard session. Outer padding shrinks on smaller terminals, and the footer wraps between shortcuts so every action stays visible.
 
-When the selected task becomes done, the overview stays among unfinished tasks: it selects the next task at that position, or the previous task when completing the last unfinished one. This applies to both `d` and background updates. If no unfinished tasks remain, selection moves to a nearby Done task. Reopening and priority changes still follow the selected task, and Inspect stays on the task being inspected. The Done section lists tasks by completion time, newest first; equal timestamps keep their existing order, and tasks without a valid completion time appear last.
+Ignored and Done have selectable headers and start collapsed. Move to a header with `j`/`k` or `↓`/`↑`, then press `Enter` to expand or collapse it. Counts remain visible; hidden tasks and their source refs are skipped by navigation. Each section remembers its choice during the current dashboard session, including refreshes. Empty sections are omitted. Active section headers remain non-selectable.
+
+When the selected task becomes ignored or done, the overview stays among active tasks: it selects the next task at that position, or the previous task when handling the last active one. If no active tasks remain, selection moves to a visible section header without expanding it. This applies to successful mutations and background updates; delayed responses do not steal focus after you navigate elsewhere. Unignoring unfinished work, reopening, and priority changes follow the selected task, and Inspect stays on the task being inspected. Done remains sorted by completion time, newest first; equal timestamps keep their existing order, and tasks without a valid completion time appear last. Collapsing does not change its three-day display retention or unresolved-workspace exception.
 
 The `o` view lists every source action and link. Move with `j`/`k` or `↓`/`↑` and press `Enter` to open the selection; the list scrolls to keep it visible. Displayed letter/digit shortcuts open entries directly, reserving `j`, `k`, and `q` for navigation and quitting. Entries without an available shortcut leave that column blank and remain selectable. Press `Esc` or `Backspace` to return.
 
@@ -422,6 +424,21 @@ Notes without `radar-completion-baseline` need no migration. Radar adds it when 
 
 Obsidian notes are task records rather than workspaces. Activating an Obsidian task prefills a note-only workspace draft; repositories are optional. Creating a workspace for Jira or GitHub automatically creates its note while preserving the remote association and Pi session identity. There is only one note model: its persisted lifecycle follows authoritative remote work while preserving explicit reopening against previously completed work. Radar preserves unknown frontmatter and the complete note body during atomic mutations. Workspace cleanup never deletes task notes; explicit task deletion moves them to recoverable vault trash. Completed notes move to `Tasks/Archived/<filename>.md` only when no workspace references them. Normal tasks keep their private directories and sandbox isolation; reopening restores that private layout before activation. See [the Obsidian integration contract](docs/integrations/obsidian.md) for the schema and failure behavior.
 
+### Ignoring a task
+
+When your contribution is finished but remote work is still open, press `m` or use:
+
+```sh
+radar task ignore <task-id>
+radar task unignore <task-id>
+```
+
+Ignoring means **keep tracking this task, but do not ask for attention**. It applies to the whole linked task, regardless of source. Radar reuses its canonical Obsidian note or creates one on demand, without creating a workspace, worktree, session, or sandbox. Optional `radar-ignored` and `radar-source-refs` frontmatter persist the preference and exact source associations independently of numeric task IDs, titles, and cache state. Existing notes need no migration.
+
+Ignored unfinished work moves out of active sections/counts and attention notifications into Ignored. Remote comments, review requests, urgent signals, and activity never unignore it. Facts and links remain available in Inspect. When all contributing work completes, normal reconciliation moves it to Done while retaining the preference; later reopening returns it to Ignored. Only explicit unignore clears the preference. Unignore keeps the note and its associations, and does not reopen completed work.
+
+Ignoring is not completion or deletion: it changes no remote records and does not authorize automatic workspace cleanup. Existing completion, archival, and cleanup rules remain in force. Source lookup failures do not prove completion. If Radar cannot safely identify a concrete local resource lifetime, the operation reports that source error rather than applying an ignore to an ambiguous reusable name/path. See [the note schema and binding contract](docs/integrations/obsidian.md).
+
 ### Deleting a task
 
 Press `D` in the overview or run `radar task delete <task-id>`. Radar previews the exact path and asks for confirmation; only `y` confirms, while Enter or `n` cancels in the CLI (Enter does nothing in the TUI). There is no force or confirmation-bypass option.
@@ -438,6 +455,8 @@ To recover a task, move the trashed directory or note back to its original path 
 radar task create --title <title>
 radar task done <task-id>
 radar task reopen <task-id>
+radar task ignore <task-id>
+radar task unignore <task-id>
 radar task delete <task-id>
 radar task priority <task-id> urgent|normal
 radar status

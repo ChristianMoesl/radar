@@ -165,7 +165,7 @@ func (s *Server) handle(conn net.Conn) {
 				}
 			}
 			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), GarbageCollectionResult: &result})
-		case "task-create", "task-done", "task-reopen", "task-priority":
+		case "task-create", "task-done", "task-reopen", "task-priority", "task-ignore", "task-unignore":
 			if s.taskMutation == nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "task mutations are not configured", Revision: s.store.Revision()})
 				continue

@@ -178,6 +178,11 @@ func worktrees(ctx context.Context, root string) ([]worktree, error) {
 }
 
 func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher, workspaceLinks ...workspaceGroupLink) protocol.SourceRef {
+	bindingKey, bindingErr := worktreeBindingKey(w.Path)
+	bindingError := ""
+	if bindingErr != nil {
+		bindingError = bindingErr.Error()
+	}
 	status := worktreeStatus(ctx, w.Path)
 	title := w.Branch
 	if title == "" {
@@ -219,6 +224,8 @@ func (w worktree) SourceRef(ctx context.Context, marks linking.MarkMatcher, work
 	}
 	return protocol.SourceRef{
 		ID:                "git:worktree:" + w.Path,
+		BindingKey:        bindingKey,
+		BindingError:      bindingError,
 		Source:            "git",
 		SourceLabel:       "git",
 		Kind:              "worktree",

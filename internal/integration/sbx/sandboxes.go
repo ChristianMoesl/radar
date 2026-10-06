@@ -128,8 +128,21 @@ func (s sandbox) SourceRef(marks linking.MarkMatcher, registeredWorkspace string
 		"workspace_count": strconv.Itoa(len(s.Workspaces)),
 	}
 
+	// Names and mounted paths can be reused by unrelated sandboxes. Bind the
+	// actual runtime lifetime, including for registered sandboxes: recreation
+	// reconnects through the current workspace/note links, not a stale name.
+	bindingKey := ""
+	bindingError := ""
+	if id != "" {
+		bindingKey = "sbx:sandbox:" + id
+	} else {
+		bindingError = "sandbox listing does not include a container ID; sandbox names and mounted paths can be reused"
+	}
+
 	return protocol.SourceRef{
 		ID:           refID,
+		BindingKey:   bindingKey,
+		BindingError: bindingError,
 		Source:       "sbx",
 		SourceLabel:  "Docker sbx",
 		Kind:         "sandbox",
