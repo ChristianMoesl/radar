@@ -449,8 +449,13 @@ func TestExpiredAnchorRefusesFilesystemRootConfiguration(t *testing.T) {
 	// The fixture stays in its temporary directory; do not write a registry or
 	// anything else into /. Only inspect the registered path through os.Root.
 	registry := workspacegroup.Registry{Workspaces: []workspacegroup.Workspace{group}}
-	if _, err := anchorCleanupEntries("/", registry, group, nil, integration.CleanupExpired); err == nil || !strings.Contains(err.Error(), "unsafe configured workspace root") {
+	if err := validateExpiredAnchor("/", registry, group); err == nil || !strings.Contains(err.Error(), "unsafe configured workspace root") {
 		t.Fatalf("filesystem root accepted: %v", err)
+	}
+	// On macOS, /var may be rejected as a symlink before root-policy
+	// validation runs. Both paths must refuse, without depending on ordering.
+	if _, err := anchorCleanupEntries("/", registry, group, nil, integration.CleanupExpired); err == nil {
+		t.Fatal("filesystem root accepted by cleanup preview")
 	}
 	assertAnchorFileKept(t, filepath.Join(group.Path, ".pnpm-store", "v10", "content"))
 	assertAnchorRegistered(t, root, group.ID)
