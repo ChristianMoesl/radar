@@ -332,16 +332,16 @@ func (p gcProvider) PreviewCleanup(_ context.Context, req integration.CleanupPre
 		}
 		if p.name == "git" {
 			if p.dirty || (p.dirtyPath != "" && ref.Path == p.dirtyPath) {
-				target.Safety = append(target.Safety, protocol.CleanupSafety{Kind: "local_changes", Message: "workspace has local changes", BlocksAutomatic: true})
+				target.Safety = append(target.Safety, protocol.CleanupSafety{Kind: "local_changes", Message: "workspace has local changes", BlocksAutomatic: true, Expires: true})
 			}
 			if p.deleteBranch {
 				target.Operation = map[string]string{"delete_branch": ref.Branch}
 			}
 			if p.unpublished {
-				target.Safety = append(target.Safety, protocol.CleanupSafety{Kind: "unpublished_data", Message: "branch has commits not found on a remote-tracking branch", BlocksAutomatic: true})
+				target.Safety = append(target.Safety, protocol.CleanupSafety{Kind: "unpublished_data", Message: "branch has commits not found on a remote-tracking branch", BlocksAutomatic: true, Expires: true})
 			}
 			if p.publicationUnknown {
-				target.Safety = append(target.Safety, protocol.CleanupSafety{Kind: "safety_check_unavailable", Message: "branch publication or merge could not be verified", BlocksAutomatic: true})
+				target.Safety = append(target.Safety, protocol.CleanupSafety{Kind: "safety_check_unavailable", Message: "branch publication or merge could not be verified", BlocksAutomatic: true, Expires: true})
 			}
 		}
 		targets = append(targets, target)
@@ -349,7 +349,7 @@ func (p gcProvider) PreviewCleanup(_ context.Context, req integration.CleanupPre
 	return targets, nil
 }
 func (p gcProvider) Cleanup(_ context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
-	*p.calls = append(*p.calls, cleanupCall{source: p.name, path: req.Target.Path, force: req.Force})
+	*p.calls = append(*p.calls, cleanupCall{source: p.name, path: req.Target.Path, force: req.Mode.DiscardChanges()})
 	if req.Target.Path == p.failPath {
 		return protocol.CleanupTarget{}, errors.New("failed")
 	}

@@ -99,10 +99,16 @@ func previewCleanup(ctx context.Context, req integration.CleanupPreviewRequest, 
 		}
 		if strings.TrimSpace(status) != "" {
 			target.Safety = append(target.Safety, protocol.CleanupSafety{
-				Kind: "local_changes", Message: "uncommitted changes will be discarded", BlocksAutomatic: true,
+				Kind: "local_changes", Message: "uncommitted changes will be discarded", BlocksAutomatic: true, Expires: true,
 			})
 		}
 		if member, managed := workspacegroup.FindMemberByPath(registry, ref.Path); managed {
+			if err := validateCleanupMember(ctx, root, member); err != nil {
+				return nil, err
+			}
+			group, _ := workspacegroup.FindByMemberPath(registry, ref.Path)
+			target.WorkspaceID = group.ID
+			target.Operation = map[string]string{"repository": member.Repository}
 			target.Presentation.Label = filepath.Base(member.Repository)
 			target.Presentation.Detail = member.Branch
 			removal, err := workspace.PlanManagedWorktreeRemoval(ctx, runner, member)
@@ -111,18 +117,23 @@ func previewCleanup(ctx context.Context, req integration.CleanupPreviewRequest, 
 			}
 			target.Branch = member.Branch
 			if removal.DeleteBranch {
-				target.Operation = map[string]string{"delete_branch": member.Branch}
+				target.Operation["delete_branch"] = member.Branch
 				target.Safety = append(target.Safety, protocol.CleanupSafety{
 					Kind: "deletes_local_data", Summary: "deletes local branch", Message: "deletes local branch " + member.Branch,
 				})
-				published, publicationErr := workspace.BranchPublishedOrMerged(ctx, runner, member.Repository, member.Branch)
+				// Once expired, remote publication cannot affect the decision. Do
+				// not let a remote outage postpone the local-only expiry operation.
+				published, publicationErr := true, error(nil)
+				if req.Mode != integration.CleanupExpired {
+					published, publicationErr = workspace.BranchPublishedOrMerged(ctx, runner, member.Repository, member.Branch)
+				}
 				if publicationErr != nil {
 					target.Safety = append(target.Safety, protocol.CleanupSafety{
-						Kind: "safety_check_unavailable", Message: "branch publication or merge could not be verified", BlocksAutomatic: true,
+						Kind: "safety_check_unavailable", Message: "branch publication or merge could not be verified", BlocksAutomatic: true, Expires: true,
 					})
 				} else if !published {
 					target.Safety = append(target.Safety, protocol.CleanupSafety{
-						Kind: "unpublished_data", Message: "local branch has commits not verified as published or merged", BlocksAutomatic: true,
+						Kind: "unpublished_data", Message: "local branch has commits not verified as published or merged", BlocksAutomatic: true, Expires: true,
 					})
 				}
 			}
@@ -179,9 +190,12 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 	group, managed := workspacegroup.FindByContainingPath(registry, req.Target.Path)
 	_, wasMember := workspacegroup.FindMemberByPath(registry, req.Target.Path)
 	if !managed {
+		if req.Mode == integration.CleanupExpired || req.Target.WorkspaceID != "" {
+			return protocol.CleanupTarget{}, fmt.Errorf("workspace expiry requires a registered worktree")
+		}
 		// Standalone worktrees do not participate in workspace mutation locking
 		// or update a registration that may have appeared during removal.
-		if _, err := workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Force); err != nil {
+		if _, err := workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Mode.DiscardChanges()); err != nil {
 			return protocol.CleanupTarget{}, err
 		}
 		return req.Target, nil
@@ -197,22 +211,40 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		}
 		member, found := workspacegroup.FindMemberByPath(registry, req.Target.Path)
 		if !found {
-			if wasMember {
+			if req.Mode == integration.CleanupExpired {
+				return fmt.Errorf("workspace expiry requires a registered worktree")
+			}
+			if wasMember || req.Target.WorkspaceID != "" {
 				return fmt.Errorf("managed worktree registration changed; preview cleanup again")
 			}
 			// Still unregistered after creation completed: an independently
 			// created worktree or a partial addition may be explicitly cleaned.
-			_, err := workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Force)
+			_, err := workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Mode.DiscardChanges())
 			return err
+		}
+		// A just-created member may be explicitly removed after waiting for
+		// its creator, but expiry always needs a pinned registered preview.
+		if wasMember || req.Mode == integration.CleanupExpired || req.Target.Operation["repository"] != "" {
+			if current.ID != req.Target.WorkspaceID || member.Branch != req.Target.Branch || member.Repository != req.Target.Operation["repository"] {
+				return fmt.Errorf("managed worktree registration changed; preview cleanup again")
+			}
+		}
+		if err := validateCleanupMember(ctx, root, member); err != nil {
+			return err
+		}
+		if req.Mode == integration.CleanupExpired {
+			if err := workspace.ValidateExpiredWorkspace(root, current.ID); err != nil {
+				return err
+			}
 		}
 		if req.Target.Operation["delete_branch"] == "" {
 			// A preview that promised to keep a protected/shared branch must not
 			// start deleting it if the other checkout disappears before execution.
-			_, err = workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, member.Path, req.Force)
+			_, err = workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, member.Path, req.Mode.DiscardChanges())
 		} else {
 			// Automatic cleanup rechecks after preview; explicit user-confirmed
 			// cleanup keeps its existing force semantics.
-			if !req.Force {
+			if !req.Mode.DiscardChanges() {
 				plan, planErr := workspace.PlanManagedWorktreeRemoval(ctx, workspace.ExecRunner{}, member)
 				if planErr != nil {
 					return planErr
@@ -227,7 +259,7 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 					}
 				}
 			}
-			_, err = workspace.RemoveManagedWorktree(ctx, workspace.ExecRunner{}, member, req.Force)
+			_, err = workspace.RemoveManagedWorktree(ctx, workspace.ExecRunner{}, member, req.Mode.DiscardChanges())
 		}
 		if err != nil {
 			return err
@@ -261,7 +293,11 @@ func mainWorkingTree(ctx context.Context, path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return cleanPhysicalPath(gitDir) == filepath.Join(cleanPhysicalPath(path), ".git"), nil
+	common, err := gitOutput(ctx, path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return false, err
+	}
+	return cleanPhysicalPath(gitDir) == cleanPhysicalPath(common), nil
 }
 
 func cleanPhysicalPath(path string) string {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -76,7 +77,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 			ref.Metadata["note_path"] = group.NotePath
 			ref.WorkspaceAnchorPath = group.NotePath
 		}
-		if _, err := anchorCleanupEntries(root, group, disposable); err != nil {
+		if _, err := anchorCleanupEntries(root, registry, group, disposable, integration.CleanupSafe); err != nil {
 			ref.CleanupIssues = append(ref.CleanupIssues, err.Error())
 		}
 		for _, member := range group.Members {
@@ -118,7 +119,7 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 		if !found {
 			continue
 		}
-		entries, err := anchorCleanupEntries(root, group, disposable)
+		entries, err := anchorCleanupEntries(root, registry, group, disposable, req.Mode)
 		if err != nil {
 			return nil, err
 		}
@@ -137,6 +138,13 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 				})
 			} else if err != nil {
 				return nil, err
+			} else if req.Mode == integration.CleanupExpired && !slices.ContainsFunc(req.Task.SourceRefs, func(memberRef protocol.SourceRef) bool {
+				return memberRef.Source == "git" && memberRef.Kind == "worktree" &&
+					memberRef.WorkspaceID == group.ID && sameCleanPath(memberRef.Path, member.Path)
+			}) {
+				// A partial Git collection must not let runtime targets execute
+				// before the anchor discovers that a member was never removed.
+				return nil, fmt.Errorf("registered workspace member is missing its Git cleanup reference: %s", member.Path)
 			}
 		}
 		description := "workspace anchor " + group.Path
@@ -149,7 +157,8 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 			Description:  description, ResourceRole: "workspace", ResourceID: group.ID,
 			ProvidesWorkspace: true, WorkspaceID: group.ID,
 		}
-		addDisposableEntriesPreview(&target, entries)
+		addDisposableEntriesPreview(&target, entries.disposable)
+		addExpiredEntriesPreview(&target, entries.expired)
 		targets = append(targets, target)
 	}
 	return targets, nil
@@ -167,7 +176,7 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 	var removed workspacegroup.Workspace
 	err = workspacegroup.WithNoteLock(root, func() error {
 		var err error
-		removed, err = removeWorkspaceAnchor(root, req.Target)
+		removed, err = removeWorkspaceAnchor(root, req.Target, req.Mode)
 		return err
 	})
 	if err != nil {

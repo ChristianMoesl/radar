@@ -74,6 +74,38 @@ func (s *Service) applyLocal(result collector.Result) {
 	s.store.SetSources(mergeSourceStatuses(s.store.Sources(), result.Sources))
 }
 
+// GuardCleanup lets a reopen win during preview, but prevents lifecycle changes
+// between GC's final eligibility check and the destructive provider operations.
+func (s *Service) GuardCleanup(ctx context.Context, task protocol.Task, execute func() error) error {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
+	// A note can be reopened outside Radar, or a mutation may have written the
+	// note before returning an error. Re-read only the local authoring source;
+	// cached completion alone must not authorize destructive expiry.
+	if author, err := s.integrations.TaskAuthoring(); err == nil {
+		if expected, relevant := authoredRef(task, author.Descriptor().Name); relevant {
+			// No previous snapshots: an unreadable note must not be supplied
+			// from cache. An unrelated invalid note must not block this one.
+			fresh := collector.Collect(ctx, nil, s.logger, []integration.Source{author})
+			verified := false
+			for _, observed := range fresh.Tasks {
+				for _, ref := range observed.SourceRefs {
+					if ref.ID == expected.ID && ref.Signal == "done" && ref.Metadata["completed_at"] == expected.Metadata["completed_at"] {
+						verified = true
+					}
+				}
+			}
+			if !verified {
+				return fmt.Errorf("task lifecycle changed or could not be verified before cleanup")
+			}
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return execute()
+}
+
 func (s *Service) Reset() error {
 	s.applyMu.Lock()
 	defer s.applyMu.Unlock()

@@ -18,10 +18,16 @@ type Issue struct {
 // BlockingMessages is shared by collection and GC. Nonblocking effects (such as
 // deleting a published local branch) are not unresolved issues.
 func BlockingMessages(targets []protocol.CleanupTarget) []string {
+	return AutomaticBlockingMessages(targets, false)
+}
+
+// AutomaticBlockingMessages ignores only explicitly expiring data-loss warnings.
+// Unknown safety kinds and structural failures remain blocking at any age.
+func AutomaticBlockingMessages(targets []protocol.CleanupTarget, expired bool) []string {
 	var messages []string
 	for _, target := range targets {
 		for _, safety := range target.Safety {
-			if safety.BlocksAutomatic {
+			if safety.BlocksAutomatic && !(expired && safety.Expires) {
 				messages = append(messages, safety.Message)
 			}
 		}

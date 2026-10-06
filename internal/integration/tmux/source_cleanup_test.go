@@ -189,7 +189,7 @@ func TestManagedWorkspaceCleanupDoesNotRecursivelyLock(t *testing.T) {
 	preview := protocol.CleanupPreview{Targets: []protocol.CleanupTarget{
 		{Source: "tmux", Kind: "session", Title: group.SessionName, ResourceID: "$7"},
 		{Source: "sbx", Kind: "sandbox", ResourceID: group.Sandbox.Name},
-		{Source: "git", Kind: "worktree", Path: member},
+		{Source: "git", Kind: "worktree", Path: member, WorkspaceID: group.ID, Branch: "feature", Operation: map[string]string{"repository": repo}},
 		{Source: "workspace", Kind: "workspace", SourceRefID: "workspace:" + group.ID, ResourceID: group.ID, Path: anchor},
 	}}
 	done := make(chan error, 1)

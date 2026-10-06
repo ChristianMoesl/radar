@@ -186,7 +186,7 @@ func TestManagedWorktreeCleanupDeletesItsLocalBranch(t *testing.T) {
 	if _, err := os.Stat(worktreePath); err != nil {
 		t.Fatalf("unverified worktree was removed: %v", err)
 	}
-	if _, err := (Source{}).Cleanup(ctx, integration.CleanupRequest{Target: targets[0], Force: true}); err != nil {
+	if _, err := (Source{}).Cleanup(ctx, integration.CleanupRequest{Target: targets[0], Mode: integration.CleanupConfirmed}); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/heads/small-fix")

@@ -234,7 +234,7 @@ func TestDisabledSandboxStillObservesRegisteredRuntimes(t *testing.T) {
 		if len(collected.Observations) != 1 || collected.Observations[0].Ref.Path != anchor || collected.Observations[0].Ref.Title != "managed" {
 			t.Fatalf("managed sandbox was hidden or unmanaged sandbox leaked: %+v", collected)
 		}
-		_, err := source.(integration.CleanupProvider).Cleanup(context.Background(), integration.CleanupRequest{Target: protocol.CleanupTarget{Source: "sbx", Kind: "sandbox", ResourceID: "managed"}, Force: true})
+		_, err := source.(integration.CleanupProvider).Cleanup(context.Background(), integration.CleanupRequest{Target: protocol.CleanupTarget{Source: "sbx", Kind: "sandbox", ResourceID: "managed"}, Mode: integration.CleanupConfirmed})
 		if err != nil {
 			t.Fatalf("explicit cleanup failed while disabled: %v", err)
 		}

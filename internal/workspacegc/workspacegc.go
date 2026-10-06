@@ -12,16 +12,39 @@ import (
 	"time"
 
 	"radar/internal/cleanup"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/state"
 )
 
 const DefaultRetention = 24 * time.Hour
+const ExpiryRetention = 8 * 24 * time.Hour
+
+// ExpiryAt is shared by GC and read-only presentation. Only registered
+// workspaces have an automatic destructive deadline; observed worktrees do not.
+func ExpiryAt(task protocol.Task) (time.Time, bool) {
+	if task.Attention != "done" {
+		return time.Time{}, false
+	}
+	doneAt, err := time.Parse(time.RFC3339, task.DoneAt)
+	if err != nil || doneAt.IsZero() {
+		return time.Time{}, false
+	}
+	for _, ref := range task.SourceRefs {
+		if ref.ProvidesWorkspace && ref.WorkspaceID != "" && ref.Path != "" {
+			return doneAt.Add(ExpiryRetention), true
+		}
+	}
+	return time.Time{}, false
+}
 
 type Options struct {
 	Retention       time.Duration
 	WorkspaceRoot   string
 	IgnoreRetention bool
+	// GuardExecution serializes final lifecycle validation and removal with
+	// authored mutations. Slow previews intentionally run outside this guard.
+	GuardExecution func(context.Context, protocol.Task, func() error) error
 }
 
 type Candidate struct {
@@ -116,7 +139,11 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 	}
 	result := Result{Skipped: append([]Skipped(nil), plan.Skipped...)}
 	for _, candidate := range plan.Candidates {
-		preview, err := cleanupService.Preview(ctx, candidate.Task)
+		mode := integration.CleanupSafe
+		if deadline, ok := ExpiryAt(candidate.Task); candidate.WorkspaceID != "" && ok && !now.Before(deadline) {
+			mode = integration.CleanupExpired
+		}
+		preview, err := cleanupService.Preview(ctx, candidate.Task, mode)
 		if err != nil {
 			if errors.Is(err, cleanup.ErrNoResources) && pathMissing(candidate.Path) {
 				result.Deleted = append(result.Deleted, candidate)
@@ -126,7 +153,7 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			continue
 		}
 		selected, workspaceTarget := targetsForCandidate(preview, candidate)
-		if workspaceTarget == nil && candidate.WorkspaceID == "" && !pathMissing(candidate.Path) {
+		if workspaceTarget == nil && (candidate.WorkspaceID != "" || !pathMissing(candidate.Path)) {
 			result.skip(candidate, fmt.Errorf("matching workspace cleanup target was not found"), logger)
 			continue
 		}
@@ -134,20 +161,45 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			result.Deleted = append(result.Deleted, candidate)
 			continue
 		}
-		if messages := cleanup.BlockingMessages(selected.Targets); len(messages) > 0 {
+		if messages := cleanup.AutomaticBlockingMessages(selected.Targets, mode == integration.CleanupExpired); len(messages) > 0 {
 			result.skip(candidate, errors.New(messages[0]), logger)
 			continue
 		}
-		if _, err := cleanupService.Execute(ctx, selected, cleanup.ExecuteOptions{Force: false}); err != nil {
+		execute := func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if !candidateStillDone(store, candidate) {
+				return fmt.Errorf("task completion changed during cleanup; preview again")
+			}
+			_, err := cleanupService.Execute(ctx, selected, cleanup.ExecuteOptions{Mode: mode})
+			return err
+		}
+		var executeErr error
+		if options.GuardExecution != nil {
+			executeErr = options.GuardExecution(ctx, candidate.Task, execute)
+		} else {
+			executeErr = execute()
+		}
+		if err := executeErr; err != nil {
 			result.skip(candidate, err, logger)
 			continue
 		}
 		result.Deleted = append(result.Deleted, candidate)
 		if logger != nil {
-			logger.Info("workspace gc deleted workspace", "task", candidate.TaskID, "path", candidate.Path)
+			logger.Info("workspace gc deleted workspace", "task", candidate.TaskID, "path", candidate.Path, "expired", mode == integration.CleanupExpired)
 		}
 	}
 	return result, nil
+}
+
+func candidateStillDone(store *state.Store, candidate Candidate) bool {
+	for _, record := range store.Records() {
+		if record.ID == candidate.RecordID {
+			return record.State == "done" && record.DoneAt == candidate.DoneAt
+		}
+	}
+	return false
 }
 
 func targetsForCandidate(preview protocol.CleanupPreview, candidate Candidate) (protocol.CleanupPreview, *protocol.CleanupTarget) {
@@ -155,11 +207,11 @@ func targetsForCandidate(preview protocol.CleanupPreview, candidate Candidate) (
 	var workspaceTarget *protocol.CleanupTarget
 	for _, target := range preview.Targets {
 		groupResource := candidate.WorkspaceID != "" && target.WorkspaceID == candidate.WorkspaceID
-		pathResource := samePath(target.Path, candidate.Path)
+		pathResource := target.WorkspaceID == "" && samePath(target.Path, candidate.Path)
 		if !groupResource && !pathResource {
 			continue
 		}
-		if target.ProvidesWorkspace && workspaceTarget == nil {
+		if target.ProvidesWorkspace && samePath(target.Path, candidate.Path) && workspaceTarget == nil {
 			copy := target
 			workspaceTarget = &copy
 		}

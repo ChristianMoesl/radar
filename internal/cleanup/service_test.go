@@ -33,7 +33,7 @@ func (f fakeProvider) Cleanup(_ context.Context, req integration.CleanupRequest)
 		*f.calls = append(*f.calls, f.name+":"+req.Target.Path)
 	}
 	if f.forces != nil {
-		*f.forces = append(*f.forces, req.Force)
+		*f.forces = append(*f.forces, req.Mode.DiscardChanges())
 	}
 	if req.Target.Path == f.failPath {
 		return protocol.CleanupTarget{}, errors.New("failed")
@@ -46,7 +46,7 @@ func TestPreviewPreservesProviderOrder(t *testing.T) {
 		fakeProvider{name: "tmux", targets: []protocol.CleanupTarget{{Source: "tmux", Path: "/one"}}},
 		fakeProvider{name: "git", targets: []protocol.CleanupTarget{{Source: "git", Path: "/two"}}},
 	})
-	preview, err := service.Preview(context.Background(), protocol.Task{ID: 7, Title: "task"})
+	preview, err := service.Preview(context.Background(), protocol.Task{ID: 7, Title: "task"}, integration.CleanupSafe)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestPreviewPreservesProviderOrder(t *testing.T) {
 }
 
 func TestPreviewRejectsTaskWithoutTargets(t *testing.T) {
-	_, err := New([]integration.CleanupProvider{fakeProvider{name: "git"}}).Preview(context.Background(), protocol.Task{})
+	_, err := New([]integration.CleanupProvider{fakeProvider{name: "git"}}).Preview(context.Background(), protocol.Task{}, integration.CleanupSafe)
 	if err == nil {
 		t.Fatal("Preview() error = nil")
 	}
@@ -71,7 +71,7 @@ func TestExecutePassesForceAndReportsPartialCompletion(t *testing.T) {
 		{Source: "fake", Path: "/two"},
 		{Source: "fake", Path: "/three"},
 	}}
-	result, err := service.Execute(context.Background(), preview, ExecuteOptions{Force: true})
+	result, err := service.Execute(context.Background(), preview, ExecuteOptions{Mode: integration.CleanupConfirmed})
 	if err == nil || !strings.Contains(err.Error(), "stopped after 1 of 3") {
 		t.Fatalf("Execute() error = %v", err)
 	}

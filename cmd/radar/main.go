@@ -745,7 +745,7 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 			} else if root, rootErr := manager.DefaultRoot(); rootErr != nil {
 				logger.Warn("workspace gc failed", "error", rootErr)
 			} else {
-				gcResult, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root})
+				gcResult, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, GuardExecution: tasks.GuardCleanup})
 				if err != nil {
 					logger.Warn("workspace gc failed", "error", err)
 				} else if len(gcResult.Deleted) > 0 {
@@ -789,7 +789,7 @@ func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logg
 			mu.Unlock()
 			return protocol.GarbageCollectionResult{}, err
 		}
-		result, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, IgnoreRetention: true})
+		result, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, IgnoreRetention: true, GuardExecution: tasks.GuardCleanup})
 		if err != nil {
 			mu.Unlock()
 			return protocol.GarbageCollectionResult{}, err

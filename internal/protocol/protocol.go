@@ -65,6 +65,8 @@ type CleanupSafety struct {
 	Kind            string `json:"kind"`
 	Message         string `json:"message"`
 	BlocksAutomatic bool   `json:"blocks_automatic,omitempty"`
+	// Expires identifies local-data warnings, never structural safety failures.
+	Expires bool `json:"expires,omitempty"`
 }
 
 type CleanupPreview struct {

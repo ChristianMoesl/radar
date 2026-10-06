@@ -88,8 +88,8 @@ func previewDisposableAnchor(t *testing.T, task protocol.Task) protocol.CleanupT
 }
 
 func TestDisposableAnchorEntriesClearIssuesAndCleanUp(t *testing.T) {
-	for _, force := range []bool{false, true} {
-		t.Run(map[bool]string{false: "automatic", true: "manual"}[force], func(t *testing.T) {
+	for _, mode := range []integration.CleanupMode{integration.CleanupSafe, integration.CleanupConfirmed} {
+		t.Run(map[bool]string{false: "automatic", true: "manual"}[mode.DiscardChanges()], func(t *testing.T) {
 			root, group, task := disposableAnchorFixture(t)
 			source := Source{}
 			_, err := source.PreviewCleanup(context.Background(), integration.CleanupPreviewRequest{Task: task})
@@ -115,7 +115,7 @@ func TestDisposableAnchorEntriesClearIssuesAndCleanUp(t *testing.T) {
 			if !strings.Contains(target.Description, target.Safety[0].Message) {
 				t.Fatalf("CLI description omitted deletions: %s", target.Description)
 			}
-			if _, err := source.Cleanup(context.Background(), integration.CleanupRequest{Target: target, Force: force}); err != nil {
+			if _, err := source.Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: mode}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := os.Lstat(group.Path); !os.IsNotExist(err) {
@@ -156,7 +156,7 @@ func TestAnchorCleanupRevalidatesBeforeAnyDeletion(t *testing.T) {
 			case "invalid preview":
 				target.Operation["disposable_entries"] = "not JSON"
 			}
-			if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Force: true}); err == nil {
+			if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: integration.CleanupConfirmed}); err == nil {
 				t.Fatal("cleanup bypassed changed safety conditions")
 			}
 			assertAnchorFileKept(t, filepath.Join(group.Path, ".pnpm-store", "v10", "content"))
@@ -228,10 +228,10 @@ func TestAnchorCleanupRejectsUnsafeLocationsAndSymlinkedAnchors(t *testing.T) {
 			group.ID = workspacegroup.ID(group.Path)
 			saveAnchorFixture(t, root, group)
 			target.SourceRefID = "workspace:" + group.ID
-			if _, err := removeWorkspaceAnchor(root, target); err == nil {
+			if _, err := removeWorkspaceAnchor(root, target, integration.CleanupSafe); err == nil {
 				t.Fatal("unsafe anchor accepted")
 			}
-			if _, err := anchorCleanupEntries(root, group, []string{".pnpm-store"}); err == nil {
+			if _, err := anchorCleanupEntries(root, workspacegroup.Registry{Workspaces: []workspacegroup.Workspace{group}}, group, []string{".pnpm-store"}, integration.CleanupSafe); err == nil {
 				t.Fatal("unsafe anchor not reported before execution")
 			}
 			assertAnchorFileKept(t, filepath.Join(outside, ".pnpm-store", "valuable"))
@@ -260,13 +260,13 @@ func TestDisposableNameCannotOverrideManagedMemberOrCanonicalNote(t *testing.T) 
 			if err != nil || len(targets) != 1 || targets[0].Operation["disposable_entries"] != "" {
 				t.Fatalf("managed member declared disposable: %+v, %v", targets, err)
 			}
-			if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: targets[0], Force: true}); err == nil {
+			if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: targets[0], Mode: integration.CleanupConfirmed}); err == nil {
 				t.Fatal("managed member deleted by anchor cleanup")
 			}
 			// A removed member that reappears is not part of the pinned deletion list.
 			group.Members = nil
 			saveAnchorFixture(t, root, group)
-			if _, err := removeWorkspaceAnchor(root, targets[0]); err == nil {
+			if _, err := removeWorkspaceAnchor(root, targets[0], integration.CleanupSafe); err == nil {
 				t.Fatal("reappearing member deleted as disposable")
 			}
 			assertAnchorFileKept(t, filepath.Join(group.Path, ".pnpm-store", "v10", "content"))
@@ -366,7 +366,7 @@ func TestCleanupToleratesAlreadyRemovedDisposableEntriesAndAnchors(t *testing.T)
 			if err := os.RemoveAll(path); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := removeWorkspaceAnchor(root, target); err != nil {
+			if _, err := removeWorkspaceAnchor(root, target, integration.CleanupSafe); err != nil {
 				t.Fatal(err)
 			}
 			if registry, err := workspacegroup.Load(root); err != nil || len(registry.Workspaces) != 0 {

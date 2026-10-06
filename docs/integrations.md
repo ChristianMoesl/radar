@@ -96,7 +96,7 @@ Every emitted `protocol.SourceRef` must have:
 9. `LinkingKeys` for authoritative joins such as `mark:<KEY>`, `workspace:<path>`, or `branch:<repo>:<branch>`.
 10. `ProvidesWorkspace` when the represented entity owns a persistent local working directory. Such a ref must be authoritative, have a non-empty absolute `Path`, and include the cleaned `workspace:<path>` linking key.
 11. `Activity` reports `busy` processing or `waiting` for interaction; its zero value is idle. Task/session reducers use `waiting > busy > idle`. Activity does not change attention or lifecycle and is suppressed on done tasks.
-12. `InUse` when an occupied local resource must block automatic cleanup.
+12. `InUse` to report local-resource occupancy. Occupancy alone is not a cleanup blocker; attached tmux sessions can be removed with eligible completed workspaces.
 13. `Authored` when the task-authoring provider owns mutations for the ref.
 14. `WorkspaceEntry`, `WorkspaceID`, and `WorkspaceAnchorPath` when a provider owns workspace entry, grouping, or a canonical source artifact.
 15. Generic presentation hints when the source owns title precedence or workspace naming.
@@ -155,20 +155,33 @@ The optional `radar-muted` boolean is false when absent; absent bindings leave o
 
 Providers also supply `CleanupTarget.Presentation`: `Singular` and `Plural` name the resource for grouped counts, while optional `Label` and `Detail` identify resources that need individual summary rows. Git emits the repository and branch here; runtime resources and workspace directories are counted together. Any target carrying safety notices gets an individual row regardless of its label. The TUI consumes this presentation without parsing provider-owned operation maps or resource names.
 
-`CleanupSafety.Summary` optionally supplies a short label for a nonblocking effect (for example, “deletes local branch”); the full `Message` remains available in details and CLI output. Blocking safety messages are always shown in full above the summary, deduplicated by message, with markers on affected resources. Presentation fields are transient socket payloads, not a change to the persisted workspace or task schema.
+`CleanupSafety.Summary` optionally supplies a short label for a nonblocking effect (for example, “deletes local branch”); the full `Message` remains available in details and CLI output. Blocking safety messages are always shown in full above the summary, deduplicated by message, with markers on affected resources. `BlocksAutomatic` stops conservative GC. Providers mark only local-data warnings with `Expires: true`: local changes, unpublished commits, unavailable publication verification, or unknown anchor content. Structural safety failures never expire, and unknown/future warning kinds default to conservative blocking. These cleanup fields are transient socket payloads, not a change to the persisted workspace or task schema.
 
-Providers receive an explicit `integration.CleanupRequest`:
+Providers receive explicit typed cleanup modes for preview and execution:
 
 ```go
+type CleanupPreviewRequest struct {
+    Task protocol.Task
+    Mode CleanupMode
+}
+
 type CleanupRequest struct {
     Target protocol.CleanupTarget
-    Force  bool
+    Mode   CleanupMode
 }
 ```
 
-The provider owns removal of only its resource type. tmux removes sessions, SBX removes sandboxes, Git removes worktrees and eligible local branches, and Workspace removes explicitly configured disposable root entries and then the empty managed anchor. Merely observed worktrees, protected branches, remote branches, and canonical Obsidian notes are preserved. Manual cleanup passes `Force: true` after user confirmation. Automatic garbage collection passes `Force: false` and skips any target whose provider emitted a safety item with `BlocksAutomatic`. Muting alone does not mark work complete, archive an open note, authorize cleanup, or establish garbage-collection eligibility. Genuinely done muted work follows the same existing retention and provider safety checks; manual cleanup remains available.
+- `CleanupSafe` is the default conservative GC/collection mode. Every `BlocksAutomatic` warning blocks automatic removal.
+- `CleanupConfirmed` represents the selected task's explicitly confirmed cleanup. It may discard local work but does not authorise deleting arbitrary unknown anchor content or bypassing structural safety checks.
+- `CleanupExpired` is selected by GC only for a registered workspace at or after its eight-day completion-based deadline. It permits discarding expiring local-data warnings, not ownership/path/registration or target-identification failures. `DiscardChanges()` is true for confirmed and expired modes, but expiry is a separate authorisation from broad manual force.
 
-The active provider order is tmux, SBX, Git, then Workspace. Processes stop first, members disappear before the anchor, and unknown anchor contents block removal. The workspace provider alone interprets the global disposable-entry allowlist and its preview operation data; it never overrides member safety checks. Do not orchestrate another integration's resources from a provider.
+Muting alone does not mark work complete, archive an open note, authorise cleanup, or establish GC eligibility. Genuinely done muted work follows the same completion-based retention and expiry policy; manual cleanup remains available.
+
+`internal/workspacegc` owns eligibility and filters the preview to one registered group or standalone workspace path. Its shared read-only `ExpiryAt(task)` helper requires a done task, valid `DoneAt`, and a workspace-owning ref with a registered `WorkspaceID` and path; `ExpiryRetention` is eight days (192 hours). Safe automatic GC can collect after 24 hours done. `radar gc` / TUI `X` bypass only that initial wait, never the destructive eight-day grace period. The daemon checks hourly, so expiry means an attempt at the next GC run, not guaranteed deletion at the deadline. Reopening cancels expiry; filesystem timestamps and background activity do not extend it. Existing already-done workspaces use their existing completion timestamps, with no startup grace or schema/configuration change; disclose and review local data before installing.
+
+The provider owns removal of only its resource type. tmux removes sessions, SBX removes sandboxes, Git removes worktrees and eligible Radar-owned local branches, and Workspace removes authorised anchor contents, the managed note link, and the empty anchor. Standalone observed worktrees do not expire and retain conservative GC and branch-preservation rules. Primary repositories, protected/shared branches, remote resources, canonical Obsidian notes, and external mount targets remain preserved. Expired cleanup can permanently discard local changes, unpublished commits, and unknown anchor files, with **no recovery archive**. Existing canonical completed-note relocation remains unchanged and is not a recovery mechanism for that data. See [workspace cleanup and rollout](workspace-cleanup.md#workspace-expiry).
+
+The active provider order is tmux, SBX, Git, then Workspace. Processes stop first and members disappear before the anchor. Unknown anchor contents block conservative cleanup; expired-mode previews can authorise their removal within validated boundaries. The workspace provider alone interprets the global disposable-entry allowlist and its preview operation data; it never overrides member ownership or canonical-note protections. Recursive deletion is rooted, does not follow symlink targets, and refuses protected data inside the proposed removal boundary. Do not orchestrate another integration's resources from a provider.
 
 ## Checklist
 

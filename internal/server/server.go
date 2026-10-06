@@ -238,14 +238,14 @@ func (s *Server) cleanupPreview(ctx context.Context, taskID int) (protocol.Clean
 	if !ok {
 		return protocol.CleanupPreview{}, fmt.Errorf("task %d not found", taskID)
 	}
-	return s.cleanupService.Preview(ctx, task)
+	return s.cleanupService.Preview(ctx, task, integration.CleanupConfirmed)
 }
 
 func (s *Server) cleanup(ctx context.Context, preview *protocol.CleanupPreview) (protocol.CleanupResult, error) {
 	if preview == nil {
 		return protocol.CleanupResult{}, fmt.Errorf("cleanup targets are required")
 	}
-	result, err := s.cleanupService.Execute(ctx, *preview, cleanup.ExecuteOptions{Force: true})
+	result, err := s.cleanupService.Execute(ctx, *preview, cleanup.ExecuteOptions{Mode: integration.CleanupConfirmed})
 	if err != nil {
 		return result, err
 	}

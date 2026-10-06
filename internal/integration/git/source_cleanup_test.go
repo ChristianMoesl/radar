@@ -64,12 +64,16 @@ func TestWorktreeCleanupWaitsOnlyForManagedResources(t *testing.T) {
 			}
 			unlock := holdWorktreeCleanupNoteLock(t, root)
 			target := protocol.CleanupTarget{Source: "git", Kind: "worktree", Path: path}
+			if tc.managed && !tc.pending {
+				target.WorkspaceID, target.Branch = group.ID, "feature"
+				target.Operation = map[string]string{"repository": repo}
+			}
 			if tc.deleteBranch {
-				target.Operation = map[string]string{"delete_branch": "feature"}
+				target.Operation["delete_branch"] = "feature"
 			}
 			done := make(chan error, 1)
 			go func() {
-				_, err := (Source{}).Cleanup(ctx, integration.CleanupRequest{Target: target, Force: true})
+				_, err := (Source{}).Cleanup(ctx, integration.CleanupRequest{Target: target, Mode: integration.CleanupConfirmed})
 				done <- err
 			}()
 			if tc.managed {

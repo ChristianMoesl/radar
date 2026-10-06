@@ -63,7 +63,7 @@ func TestCreateAutomaticallyPreparesAndPersistsCanonicalNote(t *testing.T) {
 	if err != nil || string(data) != string(after) {
 		t.Fatal("opening changed note")
 	}
-	if _, err := removeWorkspaceAnchor(root, protocol.CleanupTarget{SourceRefID: "workspace:" + group.ID}); err != nil {
+	if _, err := removeWorkspaceAnchor(root, protocol.CleanupTarget{SourceRefID: "workspace:" + group.ID}, integration.CleanupSafe); err != nil {
 		t.Fatal(err)
 	}
 	after, err = os.ReadFile(plan.Note.Path)

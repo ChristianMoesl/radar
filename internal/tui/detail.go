@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -11,6 +12,7 @@ import (
 
 	"radar/internal/cleanup"
 	"radar/internal/protocol"
+	"radar/internal/workspacegc"
 )
 
 // Keep the inspected identity separate from the overview's fallback selection.
@@ -96,6 +98,10 @@ func (m model) detailScreen() string {
 }
 
 func taskDetailView(task protocol.Task, width int) string {
+	return taskDetailViewAt(task, width, time.Now())
+}
+
+func taskDetailViewAt(task protocol.Task, width int, now time.Time) string {
 	var lines []string
 	appendDetailLine := func(label string, value string) {
 		if value != "" {
@@ -125,6 +131,22 @@ func taskDetailView(task protocol.Task, width int) string {
 		for _, key := range keys {
 			appendDetailLine(key, shortenPath(task.Metadata[key]))
 		}
+	}
+	// Expiry is a read-only lifecycle projection, not a cleanup preview. The
+	// deadline does not imply that structural safety checks will permit removal.
+	if expiryAt, ok := workspacegc.ExpiryAt(task); ok {
+		lines = append(lines, "", titleStyle.Render("Workspace expiry"))
+		eligibility := "Eligible at "
+		if !expiryAt.After(now) {
+			eligibility = "Eligible since "
+		}
+		appendDetailLine("Expiry", eligibility+expiryAt.Local().Format("2006-01-02 15:04:05 MST (UTC-07:00)"))
+		lines = append(lines,
+			attentionStyle.Render("  Permanent loss: cleanup can discard local changes, unpublished commits, and unknown workspace files. No recovery archive."),
+			"  Only registered workspaces expire, eight days after completion. Standalone observed workspaces stay conservative.",
+			"  Removal can happen at the next hourly GC run after the deadline; structural safety checks can still block cleanup.",
+			"  Clean workspaces may be removed earlier after 24 hours done. Reopening cancels expiry; file timestamps do not extend it.",
+		)
 	}
 	if issues := cleanup.Unresolved(task); len(issues) > 0 {
 		lines = append(lines, "", titleStyle.Render("Unresolved"))
