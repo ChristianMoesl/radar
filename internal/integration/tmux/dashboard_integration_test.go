@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"radar/internal/integration"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ import (
 // The server uses a private socket and disposable HOME. These are the actual
 // production argv/config, not a fake tmux parser. Keep hermetic stub coverage as
 // well so the normal Go suite remains runnable without an installed tmux.
-func TestRealTmuxPopupAndPrefixBinding(t *testing.T) {
+func TestRealTmuxAttachAndPrefixBinding(t *testing.T) {
 	binary, err := exec.LookPath("tmux")
 	if err != nil {
 		t.Skip("tmux is not installed")
@@ -24,6 +25,10 @@ func TestRealTmuxPopupAndPrefixBinding(t *testing.T) {
 	for _, running := range []bool{false, true} {
 		t.Run(fmt.Sprint("running=", running), func(t *testing.T) {
 			home := setupHome(t)
+			canonicalHome, err := filepath.EvalSymlinks(home)
+			if err != nil {
+				t.Fatal(err)
+			}
 			t.Setenv("TMUX", "")
 			t.Setenv("TERM", "xterm-256color")
 			// Keep Unix socket paths short on macOS.
@@ -64,12 +69,14 @@ func TestRealTmuxPopupAndPrefixBinding(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-			if running {
-				if output, err := tmux("new-session", "-d", "-s", "existing", "-c", home).CombinedOutput(); err != nil {
-					t.Fatalf("start server: %v %s", err, output)
-				}
+			if output, err := tmux("new-session", "-d", "-s", "workspace", "-c", home).CombinedOutput(); err != nil {
+				t.Fatalf("start workspace: %v %s", err, output)
 			}
-			cmd := tmux(dashboardArgs(running, script, home)...)
+			attach, err := (Source{}).AttachCommand(integration.SessionTarget{Name: "workspace"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := tmux(attach.Args[1:]...)
 			terminal, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 140})
 			if err != nil {
 				t.Fatal(err)
@@ -84,7 +91,7 @@ func TestRealTmuxPopupAndPrefixBinding(t *testing.T) {
 				for deadline := time.Now().Add(6 * time.Second); time.Now().Before(deadline); {
 					data, _ := os.ReadFile(marker)
 					if strings.Count(string(data), "\n") >= count {
-						if !strings.Contains(string(data), socket) || !strings.Contains(string(data), "|"+home) {
+						if !strings.Contains(string(data), socket) || !strings.Contains(string(data), "|"+canonicalHome) {
 							t.Fatalf("popup lacks TMUX/current directory: %s", data)
 						}
 						return
@@ -93,7 +100,6 @@ func TestRealTmuxPopupAndPrefixBinding(t *testing.T) {
 				}
 				t.Fatalf("popup %d did not run", count)
 			}
-			waitPopup(1)
 			if output, err := tmux("list-keys", "-T", "prefix", "r").CombinedOutput(); err != nil || !strings.Contains(string(output), "display-popup") {
 				t.Fatalf("prefix binding: %v %s", err, output)
 			}
@@ -108,8 +114,8 @@ func TestRealTmuxPopupAndPrefixBinding(t *testing.T) {
 			if _, err := terminal.Write([]byte{prefix, 'r'}); err != nil {
 				t.Fatal(err)
 			}
-			waitPopup(2)
-			if output, err := tmux("list-sessions", "-F", "#{session_name}").CombinedOutput(); err != nil || running && strings.TrimSpace(string(output)) != "existing" {
+			waitPopup(1)
+			if output, err := tmux("list-sessions", "-F", "#{session_name}").CombinedOutput(); err != nil || running && strings.TrimSpace(string(output)) != "workspace" {
 				t.Fatalf("existing session was not reused: %v %s", err, output)
 			}
 			if _, err := terminal.Write([]byte{prefix, 'd'}); err != nil {

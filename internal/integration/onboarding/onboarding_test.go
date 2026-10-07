@@ -16,6 +16,8 @@ import (
 )
 
 type fakeUI struct {
+	questions     []question
+	defaults      map[string]bool
 	inputs        []string
 	decisions     []bool
 	titles        []string
@@ -27,6 +29,7 @@ type fakeUI struct {
 
 func (u *fakeUI) input(q question) (string, error) {
 	u.titles = append(u.titles, q.title)
+	u.questions = append(u.questions, q)
 	if q.title == u.cancelAt {
 		return "", ErrAborted
 	}
@@ -34,6 +37,9 @@ func (u *fakeUI) input(q question) (string, error) {
 		return "", fmt.Errorf("unexpected input: %s", q.title)
 	}
 	value := u.inputs[0]
+	if value == "<keep>" {
+		value = q.initial
+	}
 	u.inputs = u.inputs[1:]
 	if q.validate != nil {
 		if err := q.validate(value); err != nil {
@@ -47,8 +53,12 @@ func (u *fakeUI) input(q question) (string, error) {
 	}
 	return value, nil
 }
-func (u *fakeUI) confirm(title string) (bool, error) {
+func (u *fakeUI) confirm(title string, initial bool) (bool, error) {
 	u.titles = append(u.titles, title)
+	if u.defaults == nil {
+		u.defaults = map[string]bool{}
+	}
+	u.defaults[title] = initial
 	if title == "Add Radar's prefix + r popup binding?" {
 		return u.tmuxChoice, nil
 	}
@@ -125,6 +135,9 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 
 func fixture(t *testing.T) (wizard, *fakeUI, *fakeSystem, string) {
 	t.Helper()
+	for _, key := range []string{"RADAR_JIRA_BASE_URL", "RADAR_JIRA_EMAIL", "RADAR_JIRA_CLOUD_ID", "RADAR_JIRA_API_BASE_URL", "RADAR_JIRA_API_TOKEN", "RADAR_DATADOG_SITE", "RADAR_DATADOG_API_KEY", "RADAR_DATADOG_APP_KEY"} {
+		t.Setenv(key, "")
+	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
@@ -188,7 +201,7 @@ func TestWizardSavesSettingsAndSeparateSecretsAfterReview(t *testing.T) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
 	})
 	ui.beforeConfirm = func(title string) {
-		if title != "Generate this configuration?" {
+		if title != "Save this configuration?" {
 			return
 		}
 		needed, err := Needed()
@@ -269,7 +282,7 @@ func TestWizardSkipsDeclinedIntegrations(t *testing.T) {
 }
 
 func TestWizardCancellationLeavesNoConfigurationOrDirectories(t *testing.T) {
-	for _, cancel := range []string{"Where do you check out your repositories?", "Jira API token", "Generate this configuration?", "decline save", "decline install"} {
+	for _, cancel := range []string{"Where do you check out your repositories?", "Jira API token", "Save this configuration?", "decline save", "decline install"} {
 		t.Run(cancel, func(t *testing.T) {
 			w, ui, sys, home := fixture(t)
 			ui.cancelAt = cancel
@@ -355,8 +368,8 @@ func TestWizardRecoversGitHubLogin(t *testing.T) {
 	}
 }
 
-func TestWizardNeverOverwritesExistingConfig(t *testing.T) {
-	for _, data := range []string{`{}`, `broken`, ""} {
+func TestWizardRejectsMalformedExistingConfig(t *testing.T) {
+	for _, data := range []string{`null`, `[]`, `broken`, ""} {
 		t.Run(data, func(t *testing.T) {
 			w, ui, _, _ := fixture(t)
 			path, _ := config.EnsureFile()
@@ -381,7 +394,7 @@ func TestWizardDetectsConcurrentConfigBeforeWriting(t *testing.T) {
 	w, ui, _, home := fixture(t)
 	ui.decisions = []bool{false, false, false, true}
 	ui.beforeConfirm = func(title string) {
-		if title == "Generate this configuration?" {
+		if title == "Save this configuration?" {
 			if err := config.Create(config.Default()); err != nil {
 				t.Fatal(err)
 			}
@@ -456,5 +469,144 @@ func TestWizardDecliningFinalReviewPreservesExistingSecrets(t *testing.T) {
 	}
 	if needed, _ := Needed(); !needed {
 		t.Fatal("declining review wrote config")
+	}
+}
+
+func TestRepeatSetupRetainsOrEditsExistingSettingsAndSecrets(t *testing.T) {
+	for _, mode := range []string{"retain", "replace", "disable", "cancel", "concurrent"} {
+		t.Run(mode, func(t *testing.T) {
+			w, ui, _, home := fixture(t)
+			cfg := config.Default()
+			cfg.RepositoryDirs = []string{filepath.Join(home, "repos"), filepath.Join(home, "extra")}
+			if err := os.Mkdir(cfg.RepositoryDirs[1], 0755); err != nil {
+				t.Fatal(err)
+			}
+			cfg.Workspace.RootDir = filepath.Join(home, "workspaces")
+			cfg.Obsidian.VaultPath = filepath.Join(home, "notes")
+			cfg.Model = "custom-model"
+			cfg.Thinking = "high"
+			cfg.Tmux.Windows[0].Name = "custom-pi"
+			yes, no := true, false
+			cfg.GitHub.Enabled = &no
+			cfg.Jira.Enabled = &yes
+			cfg.Datadog.Enabled = &yes
+			cfg.Jira.BaseURL = "https://example.atlassian.net"
+			cfg.Jira.Email = "you@example.com"
+			cfg.Jira.CloudID = "cloud-fixture"
+			cfg.Jira.APIBaseURL = "https://api.example.test/rest/api/3"
+			cfg.LinkingMarkPrefixes = []string{"ABC", "XYZ"}
+			cfg.Datadog.Site = "datadoghq.eu"
+			cfg.Datadog.MonitorQuery = "tag:team:platform"
+			if err := config.Create(cfg); err != nil {
+				t.Fatal(err)
+			}
+			if err := config.SaveSecrets(config.Secrets{"jira": {"api_token": "old-jira"}, "datadog": {"api_key": "old-api", "app_key": "old-app"}, "other": {"token": "untouched"}}); err != nil {
+				t.Fatal(err)
+			}
+			path, _ := config.Path()
+			secretPath, _ := config.SecretsPath()
+			before, _ := os.ReadFile(path)
+			secretBefore, _ := os.ReadFile(secretPath)
+			ui.inputs = []string{"<keep>", "<keep>", "<keep>"}
+			ui.decisions = []bool{false, true, true, mode != "cancel"}
+			token := ""
+			wantToken := "old-jira"
+			if mode == "replace" {
+				token = "new-jira"
+				wantToken = token
+			}
+			if mode == "disable" {
+				ui.decisions = []bool{false, false, false, true}
+			} else {
+				ui.inputs = append(ui.inputs, "<keep>", "<keep>", token, "<keep>", "<keep>", "<keep>", "", "", "<keep>")
+			}
+			w.http.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				switch req.URL.Path {
+				case "/rest/api/3/myself":
+					_, value, _ := req.BasicAuth()
+					if value != wantToken {
+						t.Error("Jira verification did not use selected secret")
+					}
+				case "/api/v1/monitor/search":
+					if req.Header.Get("DD-API-KEY") != "old-api" || req.Header.Get("DD-APPLICATION-KEY") != "old-app" {
+						t.Error("Datadog secrets were not retained")
+					}
+				default:
+					t.Fatalf("unexpected discovery/request on repeat setup: %s", req.URL.Path)
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+			})
+			if mode == "concurrent" {
+				ui.beforeConfirm = func(title string) {
+					if title == "Save this configuration?" {
+						if err := os.WriteFile(path, []byte(`{"model":"changed"}`), 0600); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+			}
+			err := w.run()
+			if mode == "cancel" || mode == "concurrent" {
+				if err == nil {
+					t.Fatal("expected cancellation/conflict")
+				}
+				if mode == "cancel" {
+					after, _ := os.ReadFile(path)
+					if string(after) != string(before) {
+						t.Fatal("cancel changed config")
+					}
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				loaded, err := config.Load()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(loaded.RepositoryDirs, cfg.RepositoryDirs) || !reflect.DeepEqual(loaded.Tmux, cfg.Tmux) || loaded.Model != cfg.Model || loaded.Thinking != cfg.Thinking || !reflect.DeepEqual(loaded.Jira.StatusMapping, cfg.Jira.StatusMapping) {
+					t.Fatal("unmanaged settings lost")
+				}
+				if *loaded.Jira.Enabled != (mode != "disable") || *loaded.Datadog.Enabled != (mode != "disable") {
+					t.Fatal("wrong enablement")
+				}
+				secrets, err := config.LoadSecrets()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if secrets["jira"]["api_token"] != wantToken || secrets["datadog"]["app_key"] != "old-app" || secrets["other"]["token"] != "untouched" {
+					t.Fatal("secrets not preserved/updated correctly")
+				}
+			}
+			if mode != "replace" {
+				after, _ := os.ReadFile(secretPath)
+				if string(after) != string(secretBefore) {
+					t.Fatal("unchanged secrets were rewritten")
+				}
+			}
+			for _, q := range ui.questions {
+				if q.secret && q.initial != "" {
+					t.Fatal("secret was prefilled")
+				}
+			}
+			for _, value := range []string{"old-jira", "new-jira", "old-api", "old-app", "untouched"} {
+				if strings.Contains(ui.transcript.String(), value) {
+					t.Fatal("secret leaked")
+				}
+			}
+			if !ui.defaults["Connect Radar to Jira?"] || !ui.defaults["Connect Radar to Datadog?"] || ui.defaults["Connect Radar to GitHub?"] {
+				t.Fatal("existing integration selections not preselected")
+			}
+		})
+	}
+}
+
+func TestSetupUsesEnvironmentSecretWithoutPersistingIt(t *testing.T) {
+	w, ui, _, _ := fixture(t)
+	t.Setenv("RADAR_JIRA_API_TOKEN", "environment-secret")
+	updates := config.Secrets{}
+	got, err := w.secret("Jira API token", "", "RADAR_JIRA_API_TOKEN", "jira", "api_token", updates)
+	if err != nil || got != "environment-secret" || len(updates) != 0 || len(ui.questions) != 0 || strings.Contains(ui.transcript.String(), got) {
+		t.Fatal("environment secret was prompted, exposed or copied")
 	}
 }

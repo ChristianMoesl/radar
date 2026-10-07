@@ -371,3 +371,23 @@ func TestOperationRunsAsynchronouslyWithTeatest(t *testing.T) {
 		t.Fatal("asynchronous operation lost its initiating task or failure")
 	}
 }
+
+func TestCreatedWorkspaceAttachesOnlyWithReadySession(t *testing.T) {
+	t.Setenv("TMUX", "")
+	m := operationFixture()
+	m.operation = taskOperation{kind: "workspace", label: "Creating workspace…"}
+	updated, cmd := m.Update(workspaceAppliedMsg{created: integration.Workspace{Path: "/work/ready", SessionName: "ready"}})
+	next := updated.(model)
+	if cmd == nil || next.operation.kind != "" {
+		t.Fatal("ready workspace did not finish creation and hand off to attachment")
+	}
+	// ExecProcess returns a deferred terminal-handoff message, not a background
+	// switch command or Quit. No process executes until Bubble Tea receives it.
+	message := cmd()
+	if _, quit := message.(tea.QuitMsg); quit {
+		t.Fatal("outside dashboard quit instead of attaching")
+	}
+	if _, action := message.(actionMsg); action {
+		t.Fatal("outside workspace tried background switch instead of terminal handoff")
+	}
+}

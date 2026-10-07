@@ -25,7 +25,7 @@ type question struct {
 
 type prompter interface {
 	input(question) (string, error)
-	confirm(string) (bool, error)
+	confirm(string, bool) (bool, error)
 	print(string, ...any)
 }
 
@@ -47,9 +47,9 @@ func (u terminalUI) input(q question) (string, error) {
 	}
 	return strings.TrimSpace(result.input.Value()), nil
 }
-func (u terminalUI) confirm(title string) (bool, error) {
+func (u terminalUI) confirm(title string, initial bool) (bool, error) {
 	m := newPrompt(question{title: title})
-	m.confirm = true
+	m.confirm, m.yes = true, initial
 	final, err := tea.NewProgram(m, tea.WithInput(u.in), tea.WithOutput(u.out)).Run()
 	if err != nil {
 		return false, err
@@ -63,7 +63,7 @@ func (u terminalUI) confirm(title string) (bool, error) {
 
 func Run() error {
 	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
-		return fmt.Errorf("first-time setup needs an interactive terminal — run `radar init` in a terminal")
+		return fmt.Errorf("setup needs an interactive terminal — run `radar setup` in a terminal")
 	}
 	return newWizard(terminalUI{in: os.Stdin, out: os.Stdout}, realSystem{}).run()
 }

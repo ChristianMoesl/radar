@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"os/exec"
 
 	"radar/internal/protocol"
 )
@@ -43,7 +44,7 @@ type SessionTarget struct {
 type MultiplexerProvider interface {
 	Source
 	ClientActive() bool
-	OpenDashboard(ctx context.Context) error
+	AttachCommand(target SessionTarget) (*exec.Cmd, error)
 	Current(ctx context.Context) (SessionContext, bool, error)
 	EnsureSession(ctx context.Context, req EnsureSessionRequest) (Session, error)
 	OpenWindow(ctx context.Context, req OpenWindowRequest) error

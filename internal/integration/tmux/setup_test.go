@@ -3,6 +3,7 @@ package tmux
 import (
 	"os"
 	"path/filepath"
+	"radar/internal/integration"
 	"strings"
 	"testing"
 )
@@ -113,22 +114,13 @@ func TestTmuxConfigPlanRejectsChangesMadeDuringReview(t *testing.T) {
 	}
 }
 
-func TestDashboardArgsAndSupportedVersions(t *testing.T) {
-	for _, running := range []bool{false, true} {
-		args := dashboardArgs(running, "/path with space/radar's binary", "/working directory")
-		want := "new-session"
-		if running {
-			want = "attach-session"
-		}
-		if args[0] != want {
-			t.Fatal(args)
-		}
-		if args[len(args)-1] != "'/path with space/radar'\\''s binary'" {
-			t.Fatalf("unsafe executable: %v", args)
-		}
-		if !strings.Contains(strings.Join(args, "|"), "display-popup|-E|-w|90%|-h|90%|-d|/working directory") {
-			t.Fatal(args)
-		}
+func TestAttachArgsAndSupportedVersions(t *testing.T) {
+	args, err := (Source{}).AttachCommand(integration.SessionTarget{Name: "workspace with spaces", ID: "$12"})
+	if err != nil || strings.Join(args.Args, "|") != "tmux|attach-session|-t|$12" {
+		t.Fatalf("attach: %v %v", args, err)
+	}
+	if _, err := (Source{}).AttachCommand(integration.SessionTarget{}); err == nil {
+		t.Fatal("empty target accepted")
 	}
 	for version, want := range map[string]bool{"tmux 3.1c": false, "tmux 3.2": true, "tmux 3.4a": true, "tmux next-3.6": true, "tmux 4.0": true, "unknown": false} {
 		if SupportsPopup(version) != want {

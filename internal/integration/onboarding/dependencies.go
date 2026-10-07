@@ -93,14 +93,14 @@ func (w *wizard) dependencies(ctx context.Context) error {
 		}
 		wasInstalled := w.system.lookPath(dep.name)
 		if err := w.system.run(ctx, argv[0], argv[1:]...); err != nil {
-			return fmt.Errorf("install %s failed — fix the command above and rerun `radar init`: %w", dep.name, err)
+			return fmt.Errorf("install %s failed — fix the command above and rerun `radar setup`: %w", dep.name, err)
 		}
 		ready, err = w.installed(ctx, dep.name)
 		if err != nil {
 			return err
 		}
 		if !ready {
-			return fmt.Errorf("%s is still unavailable or too old on PATH — install the required version, check PATH, then rerun `radar init`", dep.name)
+			return fmt.Errorf("%s is still unavailable or too old on PATH — install the required version, check PATH, then rerun `radar setup`", dep.name)
 		}
 		if dep.name == "tmux" && !wasInstalled {
 			w.installedTmux = true
@@ -192,7 +192,7 @@ func (w wizard) installCommand(name string) ([]string, error) {
 			return args, nil
 		}
 	}
-	return nil, fmt.Errorf("%s is required — install it on PATH and rerun `radar init` (automatic installation needs Homebrew or apt-get)", name)
+	return nil, fmt.Errorf("%s is required — install it on PATH and rerun `radar setup` (automatic installation needs Homebrew or apt-get)", name)
 }
 
 func versionAtLeast(value string, minimum [3]int) bool {

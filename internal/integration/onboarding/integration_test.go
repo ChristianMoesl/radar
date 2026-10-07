@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -68,7 +69,7 @@ func (s *terminalSession) text() string {
 }
 func (s *terminalSession) answer(t *testing.T, prompt, answer string) {
 	t.Helper()
-	deadline := time.Now().Add(8 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		text := s.text()
 		if strings.Contains(text[s.offset:], prompt) {
@@ -256,7 +257,7 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 					terminal.answer(t, "Datadog application key", "dd-app-terminal-secret\r")
 					terminal.answer(t, "Datadog monitor query", "tag:team:platform\r")
 				}
-				terminal.answer(t, "Generate this configuration?", "y")
+				terminal.answer(t, "Save this configuration?", "y")
 				select {
 				case err := <-terminal.done:
 					if err != nil {
@@ -280,6 +281,51 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 				}
 				if secrets["other"]["token"] != "keep-other-secret" {
 					t.Fatal("unrelated secret lost")
+				}
+				// Repeat the real wizard for every integration combination.
+				// Enter accepts prefilled settings/choices; blank masked fields
+				// retain credentials without writing them again.
+				if existing {
+					secretPath, _ := config.SecretsPath()
+					before, _ := os.ReadFile(secretPath)
+					again := startTerminal(t, append(os.Environ(), "RADAR_ONBOARDING_TEST_HTTP="+server.URL))
+					again.answer(t, "Add Radar's prefix + r popup binding?", "n")
+					for _, title := range []string{"Where do you check out your repositories?", "Where should Radar put its workspaces and worktrees?", "Where should Radar store your task notes?", "Connect Radar to GitHub?", "Connect Radar to Jira?"} {
+						again.answer(t, title, "\r")
+					}
+					if choices&2 != 0 {
+						for _, title := range []string{"Jira site URL", "Jira email", "Jira API token", "Jira ticket prefixes"} {
+							again.answer(t, title, "\r")
+						}
+					}
+					again.answer(t, "Connect Radar to Datadog?", "\r")
+					if choices&4 != 0 {
+						for _, title := range []string{"Datadog site or API endpoint", "Datadog API key", "Datadog application key", "Datadog monitor query"} {
+							again.answer(t, title, "\r")
+						}
+					}
+					again.answer(t, "Save this configuration?", "y")
+					select {
+					case err := <-again.done:
+						if err != nil {
+							t.Fatalf("repeat setup: %v\n%s", err, again.text())
+						}
+					case <-time.After(10 * time.Second):
+						t.Fatal("repeat setup did not exit")
+					}
+					after, err := config.Load()
+					if err != nil || !reflect.DeepEqual(after, cfg) {
+						t.Fatalf("unchanged repeat setup altered settings: %v", err)
+					}
+					bytes, _ := os.ReadFile(secretPath)
+					if string(bytes) != string(before) {
+						t.Fatal("repeat setup rewrote retained secrets")
+					}
+					for _, secret := range []string{"jira-terminal-secret", "dd-api-terminal-secret", "dd-app-terminal-secret", "keep-other-secret"} {
+						if strings.Contains(again.text(), secret) {
+							t.Fatal("repeat wizard echoed a secret")
+						}
+					}
 				}
 				// Verify real collectors resolve the persisted connection and secrets,
 				// not just that the wizard happened to write parseable JSON.

@@ -203,14 +203,18 @@ prompts, dependency installers, and service access checks. It lives under the
 integration boundary because it invokes provider CLIs and APIs. `internal/config`
 owns settings/secrets storage; previews contain only Config, never the Secrets
 map. Saving config is the completion marker, with directory locking to prevent
-concurrent setup bundles and exclusive publication to protect existing configs.
-Neither the daemon nor informational commands generate configuration. Existing
-configs are not migrated or rewritten.
+concurrent setup bundles and exclusive publication for first-time setup.
+`radar setup` also edits existing configs: a snapshot detects concurrent changes,
+and a typed delta is applied to the original JSON to preserve unedited settings.
+Secrets are retained on blank input and only explicit replacements are written.
+Neither the daemon nor informational commands generate configuration. Automatic
+setup is limited to missing configs; malformed files are not silently reset.
 
-Tmux owns popup startup and its configuration plan. The multiplexer capability
-exposes `OpenDashboard`; core does not issue tmux commands. Bare `radar` shows the
-TUI directly inside a client; outside, tmux attaches/starts a session and opens
-Radar in a popup. Setup proposes a starter profile only for newly installed tmux,
+Tmux owns session attachment and its configuration plan. The multiplexer capability
+exposes `AttachCommand`; the TUI hands terminal ownership to it through Bubble Tea's
+ExecProcess only when opening a workspace. Bare `radar` always opens the dashboard
+directly. Outside tmux, detaching returns to the dashboard; inside tmux, opening
+switches the current client and closes the dashboard. Setup proposes a starter profile only for newly installed tmux,
 or the minimal prefix + r binding for existing tmux, and preserves user config.
 
 ## GitHub integration

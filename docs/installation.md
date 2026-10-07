@@ -2,15 +2,17 @@
 
 ## Guided first startup
 
-Run `radar` in an interactive terminal, or `radar init` to complete setup without
-opening the dashboard. Setup runs only when `config.json` is missing; empty,
-malformed, and existing configs are never treated as permission to overwrite.
+Run `radar` in an interactive terminal, or `radar setup` to complete setup without
+opening the dashboard. `radar setup` is repeatable: existing settings prefill the
+wizard and are updated only after review and affirmative save confirmation.
+Automatic setup on bare `radar` runs only when `config.json` is missing. Empty or
+malformed config files must be repaired before setup; they are never silently reset.
 `radar config-path`, `version`, and background daemon startup do not generate a
 config. A headless daemon can still collect with in-memory defaults; it never
 prompts or installs anything.
 
 The inline prompts stay in terminal scrollback. Escape/Ctrl+C cancels; yes/no
-prompts default to **no**. Secrets are masked while typing and in answered prompts.
+installation/save prompts default to **no**; existing integration choices are preselected on repeat setup. Secrets are masked while typing and in answered prompts.
 
 1. Check Git, tmux 3.2+, fd (`fdfind` on Debian), Node.js 24+, npm, Pi 0.85.1+,
    pi-radar, and gh. Node.js is a **Pi runtime prerequisite**, not a dependency
@@ -40,9 +42,32 @@ prompts default to **no**. Secrets are masked while typing and in answered promp
 Tool installations and GitHub login happen with their own earlier consent and
 are not rolled back if final review is declined. Cancelling does not save Radar
 config, secrets, or tmux settings. Existing secrets belonging to other integrations
-are preserved. Concurrent setup saves are serialized; config creation refuses to
-replace an existing file. I/O failures are reported, not presented as success;
+are preserved. Concurrent setup saves are serialized. Setup detects config or
+secret-file edits made during review and aborts rather than overwriting them;
+first-time creation still uses exclusive publication. I/O failures are reported, not presented as success;
 independent files already saved before a failure are not destructively rolled back.
+
+## Reconfiguring with `radar setup`
+
+Run the same command again to edit a valid existing configuration. The wizard
+prefills directories, connection metadata, ticket prefixes, queries and enabled
+integration choices. It edits the primary repository directory while retaining
+additional repository directories. Custom tmux layouts, model/thinking choices,
+filters, mappings, sandbox settings and other fields the wizard does not change
+are preserved, including unrecognized JSON fields. Config dotfile symlinks are
+preserved; the target is updated atomically.
+
+Secret inputs are never prefilled. Leave a stored-secret prompt blank to retain
+it, or enter a replacement. Disabling an integration keeps its stored credentials
+for later reuse; setup does not implicitly delete secrets. Environment credentials
+remain overrides, are not copied to disk, and are identified by variable name
+only; unset the variable to replace the saved credential through setup. Existing
+Jira API overrides are retained and verified against that same endpoint.
+
+The final preview is the configuration that will be saved. Cancelling leaves
+config, secrets and tmux settings unchanged. Changing directory settings does
+**not** relocate existing workspaces or notes. `radar setup` replaces `radar init`;
+there is no alias for the old command.
 
 ## Settings and secrets
 
@@ -89,10 +114,13 @@ copied from the environment into files automatically.
 
 ## Tmux dashboard workflow
 
-Inside tmux, bare `radar` shows the dashboard. Outside tmux, Radar attaches to an
-existing session, or creates a `radar` session if none exists, then opens a 90%
-width/height popup in the invoking directory. Closing it leaves the tmux session
-running. Prefix + r reopens it:
+Bare `radar` opens the dashboard in the current terminal, without attaching to or
+starting tmux. Opening a workspace then starts/reuses its session and attaches
+outside tmux, or switches the current client inside tmux. After detaching an
+outside-tmux workspace client, the original dashboard resumes. Attachment errors
+are shown in the dashboard rather than closing it.
+
+For people already using tmux, prefix + r is an optional dashboard popup:
 
 ```tmux
 bind-key r display-popup -E -w 90% -h 90% -d '#{pane_current_path}' 'radar'
@@ -103,7 +131,7 @@ scrollback, one-based window/pane numbering, renumbering, low Escape delay, focu
 events, and a status-bar reminder. If tmux was already installed, it offers only
 the popup binding, explicitly warning that an existing prefix + r binding will
 be replaced. Declining the optional addition leaves tmux configuration unchanged;
-`radar` can still bootstrap its popup when invoked outside tmux.
+`radar` still opens the dashboard directly and can attach when you select a workspace.
 
 After final confirmation, Radar writes `radar/tmux.conf` beside `config.json` and
 appends a `source-file` line to `~/.tmux.conf`, or an existing
@@ -268,7 +296,7 @@ isolated HOME/XDG/PATH, real JSON files, stub installers and a local HTTP server
   secret-file rejection, and explicit environment overrides.
 - Tmux profile preservation, symlinks, XDG locations, idempotence and edits made
   during preview; startup from outside/inside tmux and informational commands.
-- With tmux installed, real isolated-server tests exercise popup startup, reuse of
+- With tmux installed, real isolated-server tests exercise attachment, optional popup bindings, reuse of
   a detached session, and the actual prefix + r keystroke. They skip explicitly
   when tmux is unavailable; the hermetic command/config tests always run.
 

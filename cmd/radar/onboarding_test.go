@@ -2,12 +2,18 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/creack/pty"
+	"radar/internal/protocol"
+	"radar/internal/version"
 )
 
 func TestStartupEntrypoints(t *testing.T) {
@@ -19,49 +25,17 @@ func TestStartupEntrypoints(t *testing.T) {
 		main()
 		os.Exit(0)
 	}
-	for _, scenario := range []struct {
-		name, mode          string
-		configured, running bool
-		wantError           string
-	}{
-		{name: "first start needs terminal", mode: "dashboard", wantError: "interactive terminal"},
-		{name: "explicit init needs terminal", mode: "init", wantError: "interactive terminal"},
-		{name: "version without onboarding", mode: "version"},
-		{name: "config path without onboarding", mode: "config-path"},
-		{name: "start tmux", mode: "dashboard", configured: true},
-		{name: "attach tmux", mode: "dashboard", configured: true, running: true},
+	for _, scenario := range []struct{ mode, wantError string }{
+		{"dashboard", "interactive terminal"}, {"setup", "interactive terminal"},
+		{"init", "usage:"}, {"version", ""}, {"config-path", ""},
 	} {
-		t.Run(scenario.name, func(t *testing.T) {
+		t.Run(scenario.mode, func(t *testing.T) {
 			home := t.TempDir()
-			configDir := filepath.Join(home, ".config", "radar")
-			if scenario.configured {
-				if err := os.MkdirAll(configDir, 0700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{}`), 0600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			bin := filepath.Join(home, "bin")
-			if err := os.Mkdir(bin, 0700); err != nil {
-				t.Fatal(err)
-			}
-			exit := "1"
-			if scenario.running {
-				exit = "0"
-			}
-			script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HOME/calls\"\ncase \"$1\" in\n-V) echo 'tmux 3.6';;\nhas-session) exit " + exit + ";;\n*) exit 0;;\nesac\n"
-			if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte(script), 0755); err != nil {
-				t.Fatal(err)
-			}
-			executable, err := os.Executable()
-			if err != nil {
-				t.Fatal(err)
-			}
+			executable, _ := os.Executable()
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, executable, "-test.run=^TestStartupEntrypoints$")
-			cmd.Env = []string{"HOME=" + home, "PATH=" + bin, "RADAR_STARTUP_TEST=" + scenario.mode}
+			cmd.Env = []string{"HOME=" + home, "PATH=" + home, "RADAR_STARTUP_TEST=" + scenario.mode}
 			output, err := cmd.CombinedOutput()
 			if scenario.wantError != "" {
 				if err == nil || !strings.Contains(string(output), scenario.wantError) {
@@ -70,22 +44,157 @@ func TestStartupEntrypoints(t *testing.T) {
 			} else if err != nil {
 				t.Fatalf("error=%v output=%s", err, output)
 			}
+			if _, err := os.Stat(filepath.Join(home, ".config", "radar", "config.json")); !os.IsNotExist(err) {
+				t.Fatal("informational/noninteractive command wrote config")
+			}
+		})
+	}
+}
+
+// Run the actual dashboard in a PTY against a fixture daemon. Starting it must
+// not attach/start tmux. Only Enter hands off the terminal; detach returns to
+// the same dashboard, whereas switching an existing client closes its popup.
+func TestDashboardOpensDirectlyAndEntersWorkspaceOnDemand(t *testing.T) {
+	for _, scenario := range []struct {
+		name         string
+		inside, fail bool
+	}{{"outside", false, false}, {"inside", true, false}, {"attachment failure", false, true}} {
+		t.Run(scenario.name, func(t *testing.T) {
+			inside := scenario.inside
+			home := t.TempDir()
+			configDir := filepath.Join(home, ".config", "radar")
+			if err := os.MkdirAll(configDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"sbx":{"enabled":false}}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			bin := filepath.Join(home, "bin")
+			if err := os.Mkdir(bin, 0700); err != nil {
+				t.Fatal(err)
+			}
+			script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HOME/calls\"\nexit 0\n"
+			if scenario.fail {
+				script = strings.Replace(script, "exit 0", "exit 23", 1)
+			}
+			if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte(script), 0755); err != nil {
+				t.Fatal(err)
+			}
+			short, err := os.MkdirTemp("/tmp", "radar-start-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.RemoveAll(short)
+			socket := filepath.Join(short, "s")
+			listener, err := net.Listen("unix", socket)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			stopped := make(chan struct{})
+			defer close(stopped)
+			go func() {
+				for {
+					conn, err := listener.Accept()
+					if err != nil {
+						return
+					}
+					go func() {
+						defer conn.Close()
+						var req protocol.Request
+						if json.NewDecoder(conn).Decode(&req) != nil {
+							return
+						}
+						if strings.HasPrefix(req.Method, "watch:") {
+							<-stopped
+							return
+						}
+						response := protocol.Response{OK: true, Version: version.Current(), Revision: 1, Tasks: []protocol.Task{{ID: 1, Kind: "session", Title: "Fixture workspace", Attention: "in_progress", Metadata: map[string]string{"session_id": "$7"}}}}
+						_ = json.NewEncoder(conn).Encode(response)
+					}()
+				}
+			}()
+			executable, _ := os.Executable()
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, executable, "-test.run=^TestStartupEntrypoints$")
+			cmd.Env = []string{"HOME=" + home, "PATH=" + bin, "TERM=xterm-256color", "RADAR_SOCKET=" + socket, "RADAR_STARTUP_TEST=dashboard"}
+			if inside {
+				cmd.Env = append(cmd.Env, "TMUX=fixture")
+			}
+			terminal, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 120})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer terminal.Close()
+			defer cmd.Process.Kill()
+			chunks := make(chan string, 100)
+			go func() {
+				defer close(chunks)
+				buf := make([]byte, 4096)
+				for {
+					n, err := terminal.Read(buf)
+					if n > 0 {
+						select {
+						case chunks <- string(buf[:n]):
+						case <-ctx.Done():
+							return
+						}
+					}
+					if err != nil {
+						return
+					}
+				}
+			}()
+			var output strings.Builder
+			wait := func(text string, count int) {
+				t.Helper()
+				for strings.Count(output.String(), text) < count {
+					select {
+					case chunk, ok := <-chunks:
+						if !ok {
+							t.Fatalf("dashboard closed before %q: %s", text, output.String())
+						}
+						output.WriteString(chunk)
+					case <-ctx.Done():
+						t.Fatalf("waiting for %q: %s", text, output.String())
+					}
+				}
+			}
+			wait("Fixture workspace", 1)
 			calls, _ := os.ReadFile(filepath.Join(home, "calls"))
-			if scenario.configured {
-				want := "new-session"
-				if scenario.running {
-					want = "attach-session"
+			if strings.Contains(string(calls), "attach-session") || strings.Contains(string(calls), "switch-client") || strings.Contains(string(calls), "new-session") || strings.Contains(string(calls), "display-popup") {
+				t.Fatalf("browsing invoked tmux: %s", calls)
+			}
+			if _, err := terminal.WriteString("\r"); err != nil {
+				t.Fatal(err)
+			}
+			if !inside {
+				if scenario.fail {
+					wait("exit status 23", 1)
+				} else {
+					wait("Fixture workspace", 2)
 				}
-				if !strings.Contains(string(calls), want) || !strings.Contains(string(calls), "display-popup") {
-					t.Fatalf("calls: %s", calls)
+				if _, err := terminal.WriteString("q"); err != nil {
+					t.Fatal(err)
 				}
-			} else {
-				if len(calls) > 0 {
-					t.Fatalf("unexpected commands: %s", calls)
+			}
+			if err := cmd.Wait(); err != nil {
+				t.Fatalf("dashboard exit: %v; %s", err, output.String())
+			}
+			calls, _ = os.ReadFile(filepath.Join(home, "calls"))
+			want := "attach-session -t $7"
+			if inside {
+				want = "switch-client -t $7"
+			}
+			var actions []string
+			for _, line := range strings.Split(strings.TrimSpace(string(calls)), "\n") {
+				if !strings.HasPrefix(line, "display-message") {
+					actions = append(actions, line)
 				}
-				if _, err := os.Stat(filepath.Join(configDir, "config.json")); !os.IsNotExist(err) {
-					t.Fatal("informational/noninteractive command wrote config")
-				}
+			}
+			if strings.Join(actions, "\n") != want {
+				t.Fatalf("calls=%s want %s", calls, want)
 			}
 		})
 	}

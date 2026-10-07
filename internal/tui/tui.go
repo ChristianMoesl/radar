@@ -39,6 +39,7 @@ type watchMsg struct {
 type watchRetryMsg struct{}
 
 type actionMsg struct {
+	session  string
 	response *protocol.Response
 	err      error
 	quit     bool
@@ -207,6 +208,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.message = action.message
 		if action.response != nil {
 			m.applyResponse(*action.response, false)
+		}
+		if action.session != "" && action.err == nil {
+			return m, m.switchTmuxSession(action.session)
 		}
 		if action.quit && action.err == nil {
 			return m, tea.Quit
@@ -497,9 +501,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = ""
 		}
 		m.editor = workspaceEditor{}
-		if problem == nil && msg.created.Path != "" && canSwitchMultiplexer() {
+		if problem == nil && msg.created.Path != "" && (canSwitchMultiplexer() || (msg.created.SessionName != "" && msg.created.Warning == "")) {
 			m.finishOperation(nil, true)
-			return m, tea.Quit
+			if canSwitchMultiplexer() {
+				return m, tea.Quit
+			}
+			return m, m.switchTmuxSession(msg.created.SessionName)
 		}
 		var notices []string
 		if msg.result.WorktreesAdded > 0 || msg.result.WorktreesRemoved > 0 {
@@ -594,6 +601,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.message = msg.message
 		if msg.response != nil {
 			m.applyResponse(*msg.response, false)
+		}
+		if msg.session != "" && msg.err == nil {
+			return m, m.switchTmuxSession(msg.session)
 		}
 		if msg.quit && msg.err == nil {
 			return m, tea.Quit
@@ -1647,11 +1657,20 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 }
 
 func (m model) switchTmuxSession(target string) tea.Cmd {
-	return func() tea.Msg {
-		multiplexer, err := app.DefaultIntegrations().Multiplexer()
+	multiplexer, err := app.DefaultIntegrations().Multiplexer()
+	if err != nil {
+		return func() tea.Msg { return actionMsg{err: err} }
+	}
+	if !multiplexer.ClientActive() {
+		command, err := multiplexer.AttachCommand(integration.SessionTarget{Name: target})
 		if err != nil {
-			return actionMsg{err: err}
+			return func() tea.Msg { return actionMsg{err: err} }
 		}
+		return tea.ExecProcess(command, func(err error) tea.Msg {
+			return actionMsg{err: err, refresh: err == nil, message: "Returned from workspace"}
+		})
+	}
+	return func() tea.Msg {
 		if err := multiplexer.Switch(context.Background(), integration.SessionTarget{Name: target}); err != nil {
 			return actionMsg{err: err}
 		}
@@ -1679,7 +1698,10 @@ func (m model) openRegisteredWorkspace(ref protocol.SourceRef) tea.Cmd {
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
+		if switchAfterCreate {
+			return actionMsg{quit: true}
+		}
+		return actionMsg{session: created.SessionName}
 	}
 }
 
@@ -1707,7 +1729,10 @@ func (m model) createSessionForWorktree(task protocol.Task, ref protocol.SourceR
 		if err != nil {
 			return actionMsg{err: err}
 		}
-		return actionMsg{message: "Created " + created.SessionName, refresh: !switchAfterCreate, quit: switchAfterCreate}
+		if switchAfterCreate {
+			return actionMsg{quit: true}
+		}
+		return actionMsg{session: created.SessionName}
 	}
 }
 

@@ -128,7 +128,7 @@ Run Radar in a terminal. On first startup it guides you through tool installatio
 radar
 ```
 
-First startup runs the same guided flow as `radar init`:
+First startup runs the same guided flow as `radar setup`:
 
 1. Check Git, tmux, fd, Node.js, npm, Pi, pi-radar, and GitHub CLI; show and confirm any installation command. Declining a required installation stops setup.
 2. If tmux was installed, preview a starter configuration. For existing tmux, offer only the prefix + r popup binding, preserving other settings.
@@ -136,9 +136,9 @@ First startup runs the same guided flow as `radar init`:
 4. Offer GitHub, Jira, and Datadog. Check GitHub CLI authentication and offer login. For Jira, ask for site/email/token, discover the Cloud ID, verify access, and collect multiple ticket prefixes. For Datadog, ask for site/API endpoint, API key, application key, and a scoped monitor query, then verify monitor access.
 5. Show `config.json`, hidden-secret indicators, and any tmux additions. Save only after explicit confirmation.
 
-Settings go in `~/.config/radar/config.json`; integration secrets go in a separate owner-only `secrets.json` beside it (both respect `$XDG_CONFIG_HOME`). Existing configuration is never overwritten by first-run setup. See [setup, security, and installation requirements](docs/installation.md).
+Settings go in `~/.config/radar/config.json`; integration secrets go in a separate owner-only `secrets.json` beside it (both respect `$XDG_CONFIG_HOME`). `radar setup` can be run again to review and change existing settings. It prefills current values, retains unchanged secrets and custom layouts, and saves only after confirmation. Automatic setup on startup still runs only when config is missing. See [setup, security, and installation requirements](docs/installation.md).
 
-Inside tmux, `radar` displays the dashboard directly. Outside tmux, it attaches to an existing session or creates a `radar` session, then opens the dashboard in a popup. The recommended **prefix + r** binding reopens that popup. A detached tmux server is reused rather than treated as an attached terminal client.
+`radar` opens the dashboard directly in your current terminal, inside or outside tmux. Only opening a workspace activates tmux: outside tmux, Radar attaches to the workspace session and returns to the dashboard when you detach; inside tmux, it switches the current client. The optional **prefix + r** binding opens Radar as a popup when you are already using tmux.
 
 The dashboard uses [Catppuccin Mocha](https://catppuccin.com/palette/) colors while keeping your terminal background. Tasks remain a flowing list with inline metadata and resource badges. A blank line separates tasks without separating their source references. The task area fills the available popup height, keeping Sources and shortcuts at the bottom even when the list is short. Sources starts collapsed to a one-line health summary; failures and other non-healthy states remain visible, with disabled integrations counted separately. Press `s` to show or hide the full source diagnostics without changing the selected task. The list uses the reclaimed rows, and refreshes preserve your choice for the current dashboard session. Outer padding shrinks on smaller terminals, and the footer wraps between shortcuts so every action stays visible.
 

@@ -2,7 +2,6 @@ package onboarding
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -39,18 +38,13 @@ func Needed() (bool, error) {
 }
 
 func (w wizard) run() error {
-	needed, err := Needed()
+	draft, err := config.LoadSetupDraft()
 	if err != nil {
 		return err
 	}
+	cfg := draft.Config
 	path, err := config.Path()
 	if err != nil {
-		return err
-	}
-	if !needed {
-		return fmt.Errorf("configuration already exists at %s — edit it instead of running first-time setup", path)
-	}
-	if _, err := config.LoadSecrets(); err != nil {
 		return err
 	}
 	w.ui.print("\nWelcome to Radar\nLet's prepare your tools, directories and integrations.\nNothing is installed without permission. Config and secrets are saved only after review.\n\n")
@@ -62,24 +56,37 @@ func (w wizard) run() error {
 	if err != nil {
 		return err
 	}
-	cfg := config.Default()
 	w.ui.print("\nDirectories\n")
-	repo, err := w.directory("Where do you check out your repositories?", "An existing directory containing your main repository checkouts.", "~/workspace", true)
+	repoInitial := "~/workspace"
+	if draft.Existing && len(cfg.RepositoryDirs) > 0 {
+		repoInitial = cfg.RepositoryDirs[0]
+	}
+	repo, err := w.directory("Where do you check out your repositories?", "Your primary repository directory. Additional configured repository directories are retained.", repoInitial, true)
 	if err != nil {
 		return err
 	}
-	cfg.RepositoryDirs = []string{repo}
+	if draft.Existing && len(cfg.RepositoryDirs) > 0 {
+		cfg.RepositoryDirs = append([]string{repo}, cfg.RepositoryDirs[1:]...)
+	} else {
+		cfg.RepositoryDirs = []string{repo}
+	}
 	rootInput, err := w.ui.input(question{title: "Where should Radar put its workspaces and worktrees?", hint: "A separate directory for Radar-managed work; it will be created after confirmation.", initial: cfg.Workspace.RootDir, validate: func(value string) error {
 		root, err := directoryPath(value, false)
 		if err != nil {
 			return err
 		}
-		relative, err := filepath.Rel(root, repo)
-		if err != nil {
-			return err
-		}
-		if relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("workspace root must not contain your repository directory — Radar excludes its own workspaces from discovery")
+		for _, repository := range cfg.RepositoryDirs {
+			expanded, err := expandPath(repository)
+			if err != nil {
+				return err
+			}
+			relative, err := filepath.Rel(root, expanded)
+			if err != nil {
+				return err
+			}
+			if relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("workspace root must not contain your repository directory — Radar excludes its own workspaces from discovery")
+			}
 		}
 		return nil
 	}})
@@ -91,15 +98,23 @@ func (w wizard) run() error {
 		return err
 	}
 	cfg.Workspace.RootDir = root
-	notes, err := w.directory("Where should Radar store your task notes?", "Radar creates a Tasks/ folder here. An Obsidian vault works well, but any directory is fine.", "~/Documents/Radar", false)
+	notesInitial := cfg.Obsidian.VaultPath
+	if notesInitial == "" {
+		notesInitial = "~/Documents/Radar"
+	}
+	notes, err := w.directory("Where should Radar store your task notes?", "Radar creates a Tasks/ folder here. An Obsidian vault works well, but any directory is fine.", notesInitial, false)
 	if err != nil {
 		return err
 	}
 	cfg.Obsidian.VaultPath = notes
+	if draft.Existing {
+		w.ui.print("Existing settings and unchanged secrets are retained. Directory changes do not move existing notes or workspaces.\n")
+	}
+	w.ui.print("RADAR_JIRA_* and RADAR_DATADOG_* environment values still override saved settings at runtime. Disabling an integration retains its saved secrets.\n")
 
 	updates := config.Secrets{}
 	w.ui.print("\nIntegrations\n")
-	github, err := w.ui.confirm("Connect Radar to GitHub?")
+	github, err := w.ui.confirm("Connect Radar to GitHub?", draft.Existing && (cfg.GitHub.Enabled == nil || *cfg.GitHub.Enabled))
 	if err != nil {
 		return err
 	}
@@ -119,7 +134,7 @@ func (w wizard) run() error {
 		}
 		w.ui.print("✓ GitHub authenticated (credentials stay with gh)\n")
 	}
-	jira, err := w.ui.confirm("Connect Radar to Jira?")
+	jira, err := w.ui.confirm("Connect Radar to Jira?", draft.Existing && (cfg.Jira.Enabled == nil || *cfg.Jira.Enabled))
 	if err != nil {
 		return err
 	}
@@ -129,7 +144,7 @@ func (w wizard) run() error {
 			return err
 		}
 	}
-	datadog, err := w.ui.confirm("Connect Radar to Datadog?")
+	datadog, err := w.ui.confirm("Connect Radar to Datadog?", draft.Existing && (cfg.Datadog.Enabled == nil || *cfg.Datadog.Enabled))
 	if err != nil {
 		return err
 	}
@@ -140,7 +155,7 @@ func (w wizard) run() error {
 		}
 	}
 
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	data, err := draft.Preview(cfg)
 	if err != nil {
 		return err
 	}
@@ -151,10 +166,10 @@ func (w wizard) run() error {
 	}
 	if len(updates) > 0 {
 		w.ui.print("Secrets will be saved separately to %s (owner-only, 0600; plaintext, not encrypted).\n", secretsPath)
-		if jira {
+		if len(updates["jira"]) > 0 {
 			w.ui.print("  Jira API token: [hidden]\n")
 		}
-		if datadog {
+		if len(updates["datadog"]) > 0 {
 			w.ui.print("  Datadog API key and application key: [hidden]\n")
 		}
 	}
@@ -162,16 +177,12 @@ func (w wizard) run() error {
 	if tmuxPlan != nil {
 		w.ui.print("\nTmux configuration: %s\n%s\nAppend to %s (preserving its existing contents):\n%s\n", tmuxPlan.Path, tmuxPlan.Content, tmuxPlan.UserPath, tmuxPlan.Include)
 	}
-	if err := w.allow("Generate this configuration?"); err != nil {
+	if err := w.allow("Save this configuration?"); err != nil {
 		return err
 	}
 	err = config.WithSetupLock(func() error {
-		// Recheck before any filesystem writes. Create also refuses to clobber a
-		// config that appears while saving the independent secret file.
-		if needed, err := Needed(); err != nil {
+		if err := draft.CheckUnchanged(); err != nil {
 			return err
-		} else if !needed {
-			return fmt.Errorf("config.json appeared during setup — nothing was overwritten")
 		}
 		for _, dir := range []string{root, notes} {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -189,7 +200,7 @@ func (w wizard) run() error {
 		if err := config.SaveSecrets(updates); err != nil {
 			return err
 		}
-		if err := config.Create(cfg); err != nil {
+		if err := draft.Save(cfg); err != nil {
 			return fmt.Errorf("write config.json: %w", err)
 		}
 		return nil
@@ -210,7 +221,7 @@ func (w wizard) run() error {
 }
 
 func (w wizard) allow(title string) error {
-	yes, err := w.ui.confirm(title)
+	yes, err := w.ui.confirm(title, false)
 	if err != nil {
 		return err
 	}
@@ -264,7 +275,7 @@ func (w wizard) tmuxConfig() (*tmux.ConfigPlan, error) {
 		w.ui.print("\nTmux was installed for you. The final review will include a starter config\nwith mouse support, scrollback, one-based windows and a prefix + r Radar popup.\n")
 	} else {
 		w.ui.print("\nRecommended tmux addition (prefix + r opens Radar):\n  bind-key r display-popup -E -w 90%% -h 90%% -d '#{pane_current_path}' 'radar'\nYour other tmux settings are preserved; this replaces any existing prefix + r binding.\n")
-		yes, err := w.ui.confirm("Add Radar's prefix + r popup binding?")
+		yes, err := w.ui.confirm("Add Radar's prefix + r popup binding?", false)
 		if err != nil {
 			return nil, err
 		}

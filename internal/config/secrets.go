@@ -117,12 +117,18 @@ func Create(cfg Config) error {
 }
 
 func writePrivateFile(path string, data []byte, exclusive bool) error {
+	return writeSetupFile(path, data, exclusive, true)
+}
+
+func writeSetupFile(path string, data []byte, exclusive, privateDirectory bool) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return err
+	if privateDirectory {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return err
+		}
 	}
 	file, err := os.CreateTemp(dir, ".radar-write-*")
 	if err != nil {

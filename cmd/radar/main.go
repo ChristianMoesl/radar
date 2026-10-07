@@ -43,9 +43,9 @@ func main() {
 
 	command := os.Args[1]
 	switch command {
-	case "init":
+	case "setup":
 		if len(os.Args) != 2 {
-			fmt.Fprintln(os.Stderr, "usage: radar init")
+			fmt.Fprintln(os.Stderr, "usage: radar setup")
 			os.Exit(2)
 		}
 		runOnboarding()
@@ -106,17 +106,6 @@ func main() {
 }
 
 func runTUI() {
-	ensureOnboarding()
-	multiplexer, err := app.DefaultIntegrations().Multiplexer()
-	if err != nil {
-		fatal(err)
-	}
-	if !multiplexer.ClientActive() {
-		if err := multiplexer.OpenDashboard(context.Background()); err != nil {
-			fatal(err)
-		}
-		return
-	}
 	runTUIWithMode("")
 }
 
@@ -999,7 +988,7 @@ Daemon and status:
   radar restart
 
 Setup:
-  radar init
+  radar setup
 
 Other:
   radar ack <task-id>
