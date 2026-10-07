@@ -34,8 +34,8 @@ type WorkspaceReconciler interface {
 	ApplyReconcile(ctx context.Context, logger *slog.Logger, req WorkspaceReconcileRequest) (WorkspaceReconcileResult, error)
 	ReconcileErrorDetails(err error) (WorkspaceReconcileError, bool)
 	WorkspaceState(ctx context.Context, currentDirectory string) (WorkspaceState, error)
-	InspectWorkspace(ctx context.Context, currentDirectory, workspaceRoot string) (any, error)
-	InspectRepositoryRefs(ctx context.Context, repository string) (any, error)
+	InspectWorkspace(ctx context.Context, currentDirectory, workspaceRoot string) (WorkspaceContext, error)
+	InspectRepositoryRefs(ctx context.Context, repository string) (RepositoryRefs, error)
 }
 
 type WorkspaceRegistration struct {

@@ -112,3 +112,24 @@ func TestFailedUpgradeDaemonDoesNotWaitForUnrelatedHealth(t *testing.T) {
 		t.Fatal("failed daemon not recognized promptly")
 	}
 }
+
+func TestUpgradeCLIFromTUIPreservesReturnPrompt(t *testing.T) {
+	// This test binary is not the installed Radar. The upgrade must refuse it
+	// before contacting releases or touching an installation, but still let the
+	// dashboard's child process return through its existing prompt.
+	stdout, stderr, code := outputCLI(t, []string{"upgrade", "--from-tui"}, "\n")
+	if code != 1 || !strings.Contains(stderr, "Radar upgrade:") || !strings.Contains(stdout, "Press Enter to return to Radar.") {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestNotificationSetupCLIStillSupportsDeferring(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS notification setup")
+	}
+	// Deferring prints guidance only; never launches a helper or system settings.
+	stdout, stderr, code := outputCLI(t, []string{"setup", "notifications"}, "d\n")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "Your notification preference was not changed by deferring.") {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}

@@ -86,18 +86,18 @@ func TestReconciledSameRepositoryWorktreeLinksExistingGitHubPullRequestToWorkspa
 		t.Fatal(err)
 	}
 	desired := inspected.Desired
-	desired.Worktrees = append(desired.Worktrees, workspace.DesiredWorkspaceWorktree{
+	desired.Worktrees = append(desired.Worktrees, integration.DesiredWorkspaceWorktree{
 		Repository: primaryRepo, BranchMode: integration.WorkspaceBranchExisting, Branch: "feature/api",
 	})
-	request := workspace.ReconcileWorkspaceRequest{
+	request := integration.WorkspaceReconcileRequest{
 		Workspace: primaryPath, WorkspaceRoot: workspaceRoot, Revision: inspected.Revision, Desired: desired,
 	}
-	plan, err := workspace.PreviewReconcileWorkspace(ctx, workspace.ExecRunner{}, request)
+	plan, err := (workspace.Source{}).PreviewReconcile(ctx, request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	request.ExpectedPlanID = plan.PlanID
-	result, err := workspace.ApplyReconcileWorkspace(ctx, workspace.ExecRunner{}, nil, request)
+	result, err := (workspace.Source{}).ApplyReconcile(ctx, nil, request)
 	if err != nil {
 		t.Fatal(err)
 	}

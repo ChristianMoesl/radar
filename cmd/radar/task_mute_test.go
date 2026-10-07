@@ -44,6 +44,8 @@ func captureTaskCommandOutput(t *testing.T, output **os.File, run func()) string
 }
 
 func TestTaskMuteAndUnmuteCLIRequests(t *testing.T) {
+	previous := jsonOutput
+	t.Cleanup(func() { jsonOutput = previous })
 	for _, command := range []string{"mute", "unmute"} {
 		t.Run(command, func(t *testing.T) {
 			dir, err := os.MkdirTemp("/tmp", "radar-mute-cli-")
@@ -80,7 +82,7 @@ func TestTaskMuteAndUnmuteCLIRequests(t *testing.T) {
 					_ = conn.Close()
 				}
 			}()
-			output := captureTaskCommandOutput(t, &os.Stdout, func() { runTask([]string{command, "7"}) })
+			output := captureTaskCommandOutput(t, &os.Stdout, func() { runTask([]string{command, "7", "--json"}) })
 			var gotTask protocol.Task
 			if err := json.Unmarshal([]byte(output), &gotTask); err != nil || !reflect.DeepEqual(gotTask, wantTask) {
 				t.Fatalf("CLI task output = %s, error = %v, want %+v", output, err, wantTask)

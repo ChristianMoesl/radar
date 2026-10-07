@@ -8,104 +8,34 @@ import (
 	"sort"
 	"strings"
 
+	"radar/internal/integration"
 	"radar/internal/integration/workspace/group"
 )
 
-type WorkspaceContext struct {
-	CurrentPath        string                       `json:"current_path"`
-	WorkspaceRoot      string                       `json:"workspace_root"`
-	WorkspaceID        string                       `json:"workspace_id"`
-	WorkspaceName      string                       `json:"workspace_name"`
-	WorkspacePath      string                       `json:"workspace_path"`
-	Registered         bool                         `json:"registered"`
-	EnrollmentRequired bool                         `json:"enrollment_required"`
-	SessionName        string                       `json:"session_name,omitempty"`
-	Revision           string                       `json:"revision"`
-	Capabilities       WorkspaceContextCapabilities `json:"capabilities"`
-	Desired            DesiredWorkspaceDescription  `json:"desired"`
-	Note               *WorkspaceContextNote        `json:"note,omitempty"`
-	Sandbox            *WorkspaceContextSandbox     `json:"sandbox,omitempty"`
-	Members            []WorkspaceContextMember     `json:"members"`
-	Repositories       []WorkspaceContextRepository `json:"repositories"`
-}
-
-type WorkspaceContextCapabilities struct {
-	Worktrees        bool `json:"worktrees"`
-	Sandbox          bool `json:"sandbox"`
-	AdditionalMounts bool `json:"additional_mounts"`
-	PortForwarding   bool `json:"port_forwarding"`
-}
-
-type WorkspaceContextMember struct {
-	Repository       string   `json:"repository"`
-	Path             string   `json:"path"`
-	Branch           string   `json:"branch"`
-	Dirty            bool     `json:"dirty"`
-	InstructionFiles []string `json:"instruction_files"`
-	SkillPaths       []string `json:"skill_paths"`
-}
-
-type WorkspaceContextNote struct {
-	Path          string `json:"path"`
-	WorkspacePath string `json:"workspace_path"`
-	LinkingKey    string `json:"linking_key"`
-}
-
-type WorkspaceContextSandbox struct {
-	SharedDirectory      string                       `json:"shared_directory,omitempty"`
-	SharedDirectoryReady bool                         `json:"shared_directory_ready"`
-	Name                 string                       `json:"name"`
-	Agent                string                       `json:"agent"`
-	KitPath              string                       `json:"kit_path,omitempty"`
-	Mounts               []string                     `json:"mounts"`
-	Ports                []workspacegroup.SandboxPort `json:"ports"`
-}
-
-type WorkspaceContextRepository struct {
-	Name          string `json:"name"`
-	Path          string `json:"path"`
-	AlreadyMember bool   `json:"already_member"`
-}
-
-type RepositoryRefs struct {
-	Repository    string             `json:"repository"`
-	DefaultBranch string             `json:"default_branch,omitempty"`
-	BaseRefs      []string           `json:"base_refs"`
-	Branches      []RepositoryBranch `json:"branches"`
-	Warning       string             `json:"warning,omitempty"`
-}
-
-type RepositoryBranch struct {
-	Name            string   `json:"name"`
-	Local           bool     `json:"local"`
-	Origin          bool     `json:"origin"`
-	CheckedOutPaths []string `json:"checked_out_paths,omitempty"`
-}
-
 // InspectWorkspace returns the current logical workspace and repositories Radar
 // can discover without changing workspace, Git, tmux, or SBX state.
-func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, workspaceRoot string) (WorkspaceContext, error) {
+func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, workspaceRoot string) (integration.WorkspaceContext, error) {
 	root := strings.TrimSpace(workspaceRoot)
 	var err error
 	if root == "" {
 		root, err = DefaultRoot()
 		if err != nil {
-			return WorkspaceContext{}, err
+			return integration.WorkspaceContext{}, err
 		}
 	}
 	root, err = filepath.Abs(root)
 	if err != nil {
-		return WorkspaceContext{}, err
+		return integration.WorkspaceContext{}, err
 	}
 	root = filepath.Clean(root)
 
 	registry, err := workspacegroup.Load(root)
 	if err != nil {
-		return WorkspaceContext{}, err
+		return integration.WorkspaceContext{}, err
 	}
 	current, err := filepath.Abs(strings.TrimSpace(currentDirectory))
 	if err != nil {
-		return WorkspaceContext{}, err
+		return integration.WorkspaceContext{}, err
 	}
 	current = filepath.Clean(current)
 	group, registered := workspacegroup.FindByContainingPath(registry, current)
@@ -115,17 +45,17 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 	if !registered {
 		current, err = currentGitTopLevel(ctx, runner, current)
 		if err != nil {
-			return WorkspaceContext{}, fmt.Errorf("current workspace: %w", err)
+			return integration.WorkspaceContext{}, fmt.Errorf("current workspace: %w", err)
 		}
 		group, err = enrollmentPlan(ctx, runner, root, current)
 		if err != nil {
-			return WorkspaceContext{}, err
+			return integration.WorkspaceContext{}, err
 		}
 	}
 
 	repositories, err := DiscoverRepos(ctx, runner, currentDirectory)
 	if err != nil {
-		return WorkspaceContext{}, err
+		return integration.WorkspaceContext{}, err
 	}
 	memberRepositories := make(map[string]bool, len(group.Members))
 	for _, member := range group.Members {
@@ -137,59 +67,59 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 
 	ports, _, err := observedSandboxPorts(ctx, runner, group)
 	if err != nil {
-		return WorkspaceContext{}, err
+		return integration.WorkspaceContext{}, err
 	}
 	revision, err := workspaceRevision(group, ports)
 	if err != nil {
-		return WorkspaceContext{}, err
+		return integration.WorkspaceContext{}, err
 	}
-	result := WorkspaceContext{
+	result := integration.WorkspaceContext{
 		CurrentPath: current, WorkspaceRoot: root, WorkspaceID: group.ID,
 		WorkspaceName: group.Name, WorkspacePath: group.Path, Registered: registered,
 		EnrollmentRequired: !registered, SessionName: group.SessionName, Revision: revision,
-		Capabilities: WorkspaceContextCapabilities{Worktrees: true, Sandbox: group.Sandbox != nil, AdditionalMounts: group.Sandbox != nil, PortForwarding: group.Sandbox != nil},
-		Desired:      DesiredWorkspaceDescription{Worktrees: make([]DesiredWorkspaceWorktree, 0, len(group.Members))},
-		Members:      make([]WorkspaceContextMember, 0, len(group.Members)),
-		Repositories: make([]WorkspaceContextRepository, 0, len(repositories)),
+		Capabilities: integration.WorkspaceContextCapabilities{Worktrees: true, Sandbox: group.Sandbox != nil, AdditionalMounts: group.Sandbox != nil, PortForwarding: group.Sandbox != nil},
+		Desired:      integration.DesiredWorkspaceDescription{Worktrees: make([]integration.DesiredWorkspaceWorktree, 0, len(group.Members))},
+		Members:      make([]integration.WorkspaceContextMember, 0, len(group.Members)),
+		Repositories: make([]integration.WorkspaceContextRepository, 0, len(repositories)),
 	}
 	if group.NotePath != "" {
 		linkingKey := group.NoteKey()
-		result.Note = &WorkspaceContextNote{Path: group.NotePath, WorkspacePath: filepath.Join(group.Path, "notes.md"), LinkingKey: linkingKey}
-		result.Desired.Note = &DesiredWorkspaceNote{Path: group.NotePath, LinkingKey: linkingKey}
+		result.Note = &integration.WorkspaceContextNote{Path: group.NotePath, WorkspacePath: filepath.Join(group.Path, "notes.md"), LinkingKey: linkingKey}
+		result.Desired.Note = &integration.DesiredWorkspaceNote{Path: group.NotePath, LinkingKey: linkingKey}
 	}
 	if group.Sandbox != nil {
-		desiredMounts := make([]DesiredSandboxMount, 0, len(group.Sandbox.AdditionalMounts))
+		desiredMounts := make([]integration.DesiredSandboxMount, 0, len(group.Sandbox.AdditionalMounts))
 		for _, mount := range group.Sandbox.AdditionalMounts {
 			readOnly := mount.ReadOnly
-			desiredMounts = append(desiredMounts, DesiredSandboxMount{Path: mount.Path, ReadOnly: &readOnly})
+			desiredMounts = append(desiredMounts, integration.DesiredSandboxMount{Path: mount.Path, ReadOnly: &readOnly})
 		}
-		result.Desired.Sandbox = &DesiredWorkspaceSandbox{AdditionalMounts: desiredMounts, Ports: append([]workspacegroup.SandboxPort{}, ports...)}
+		result.Desired.Sandbox = &integration.DesiredWorkspaceSandbox{AdditionalMounts: desiredMounts, Ports: integrationPorts(ports)}
 		actual, found, err := findSandbox(ctx, runner, group.Path, group.Sandbox.Name)
 		if err != nil {
-			return WorkspaceContext{}, err
+			return integration.WorkspaceContext{}, err
 		}
-		result.Sandbox = &WorkspaceContextSandbox{
+		result.Sandbox = &integration.WorkspaceContextSandbox{
 			SharedDirectory:      group.Sandbox.SharedDirectory,
 			SharedDirectoryReady: found && sharedDirectoryReady(group.Sandbox.SharedDirectory, sandboxWorkspaceMounts(actual)),
 			Name:                 group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath,
-			Mounts: append([]string(nil), group.Sandbox.Mounts...), Ports: append([]workspacegroup.SandboxPort{}, ports...),
+			Mounts: append([]string(nil), group.Sandbox.Mounts...), Ports: integrationPorts(ports),
 		}
 	}
 	for _, member := range group.Members {
 		changeCount, err := worktreeChangeCount(ctx, runner, member.Path)
 		if err != nil {
-			return WorkspaceContext{}, err
+			return integration.WorkspaceContext{}, err
 		}
-		result.Members = append(result.Members, WorkspaceContextMember{
+		result.Members = append(result.Members, integration.WorkspaceContextMember{
 			Repository: member.Repository, Path: member.Path, Branch: member.Branch, Dirty: changeCount > 0,
 			InstructionFiles: memberInstructionFiles(member.Path), SkillPaths: memberSkillPaths(member.Path),
 		})
-		result.Desired.Worktrees = append(result.Desired.Worktrees, DesiredWorkspaceWorktree{
+		result.Desired.Worktrees = append(result.Desired.Worktrees, integration.DesiredWorkspaceWorktree{
 			Repository: member.Repository, BranchMode: "existing", Branch: member.Branch,
 		})
 	}
 	for _, repository := range repositories {
-		result.Repositories = append(result.Repositories, WorkspaceContextRepository{
+		result.Repositories = append(result.Repositories, integration.WorkspaceContextRepository{
 			Name: filepath.Base(repository), Path: repository, AlreadyMember: memberRepositories[pathKey(repository)],
 		})
 	}
@@ -224,27 +154,27 @@ func memberSkillPaths(root string) []string {
 
 // InspectRepositoryRefs attempts to refresh origin, then returns canonical
 // branch capabilities from the refs available in the local repository.
-func InspectRepositoryRefs(ctx context.Context, runner Runner, repository string) (RepositoryRefs, error) {
+func InspectRepositoryRefs(ctx context.Context, runner Runner, repository string) (integration.RepositoryRefs, error) {
 	repository = strings.TrimSpace(repository)
 	if repository == "" {
-		return RepositoryRefs{}, fmt.Errorf("repository is required")
+		return integration.RepositoryRefs{}, fmt.Errorf("repository is required")
 	}
 	root, err := runner.Run(ctx, repository, "git", "rev-parse", "--show-toplevel")
 	if err != nil {
-		return RepositoryRefs{}, err
+		return integration.RepositoryRefs{}, err
 	}
 	root, err = filepath.Abs(strings.TrimSpace(root))
 	if err != nil {
-		return RepositoryRefs{}, err
+		return integration.RepositoryRefs{}, err
 	}
 	root = filepath.Clean(root)
 	fetchErr := FetchBranches(ctx, runner, root)
 
 	output, err := runner.Run(ctx, root, "git", "for-each-ref", "--format=%(refname)\t%(refname:short)\t%(symref)", "refs/heads", "refs/remotes/origin")
 	if err != nil {
-		return RepositoryRefs{}, err
+		return integration.RepositoryRefs{}, err
 	}
-	branches := map[string]*RepositoryBranch{}
+	branches := map[string]*integration.RepositoryBranch{}
 	remoteBases := []string{}
 	localBases := []string{}
 	defaultBranch := ""
@@ -275,7 +205,7 @@ func InspectRepositoryRefs(ctx context.Context, runner Runner, repository string
 		}
 		branch := branches[name]
 		if branch == nil {
-			branch = &RepositoryBranch{Name: name}
+			branch = &integration.RepositoryBranch{Name: name}
 			branches[name] = branch
 		}
 		branch.Local = branch.Local || isLocal
@@ -284,7 +214,7 @@ func InspectRepositoryRefs(ctx context.Context, runner Runner, repository string
 
 	worktrees, err := runner.Run(ctx, root, "git", "worktree", "list", "--porcelain")
 	if err != nil {
-		return RepositoryRefs{}, err
+		return integration.RepositoryRefs{}, err
 	}
 	var worktreePath string
 	for _, line := range append(strings.Split(worktrees, "\n"), "") {
@@ -309,10 +239,10 @@ func InspectRepositoryRefs(ctx context.Context, runner Runner, repository string
 
 	sortBranches(remoteBases)
 	sortBranches(localBases)
-	result := RepositoryRefs{
+	result := integration.RepositoryRefs{
 		Repository: root, DefaultBranch: defaultBranch,
 		BaseRefs: append(remoteBases, localBases...),
-		Branches: make([]RepositoryBranch, 0, len(branches)),
+		Branches: make([]integration.RepositoryBranch, 0, len(branches)),
 	}
 	if fetchErr != nil {
 		result.Warning = fmt.Sprintf("origin refresh failed; using cached refs: %v", fetchErr)
@@ -334,4 +264,12 @@ func containsRepositoryPath(paths []string, candidate string) bool {
 		}
 	}
 	return false
+}
+
+func integrationPorts(ports []workspacegroup.SandboxPort) []integration.SandboxPort {
+	result := make([]integration.SandboxPort, 0, len(ports))
+	for _, port := range ports {
+		result = append(result, integration.SandboxPort{HostPort: port.HostPort, SandboxPort: port.SandboxPort})
+	}
+	return result
 }

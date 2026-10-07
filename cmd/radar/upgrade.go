@@ -25,15 +25,19 @@ import (
 )
 
 func runUpgrade(args []string) {
-	fromTUI := len(args) == 1 && args[0] == "--from-tui"
-	if len(args) > 0 && !fromTUI {
-		fatal(errors.New("usage: radar upgrade"))
+	flags := outputFlags("radar upgrade")
+	fromTUI := flags.Bool("from-tui", false, "return to the dashboard after the upgrade flow")
+	_ = parseFlags(flags, args)
+	if flags.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "usage: radar upgrade")
+		os.Exit(2)
 	}
+	rejectJSON("upgrade")
 	err := upgrade(os.Stdin, os.Stdout)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Radar upgrade:", err)
 	}
-	if fromTUI {
+	if *fromTUI {
 		fmt.Fprint(os.Stdout, "\nPress Enter to return to Radar. ")
 		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 	}

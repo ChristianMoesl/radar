@@ -226,6 +226,7 @@ const { appendFileSync, existsSync } = require('node:fs');
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(radarLog)}, JSON.stringify({args}) + '\\n');
 if (args[0] === 'activity') process.exit(0);
+if (!args.includes('--json')) throw Error('Radar JSON output must be requested');
 if (args[0] !== 'workspace-context' || args[args.indexOf('--workspace') + 1] !== ${JSON.stringify(workspace)}) throw Error('Unexpected Radar call');
 console.log(JSON.stringify(args.includes('--registration-only') ? {registered: true} : {
   registered: true, workspace_path: ${JSON.stringify(workspace)}, revision: 'fixture-revision', members: [],

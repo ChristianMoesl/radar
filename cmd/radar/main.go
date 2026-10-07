@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -39,80 +38,85 @@ import (
 
 func main() {
 	_ = version.Current()
-	if len(os.Args) == 1 {
+	flags := outputFlags("radar")
+	flags.Usage = usage
+	_ = flags.Parse(os.Args[1:])
+	args := flags.Args()
+	if len(args) == 0 {
+		rejectJSON("(interactive UI)")
 		runTUI()
 		return
 	}
-
-	command := os.Args[1]
+	command, args := args[0], args[1:]
 	switch command {
 	case "upgrade":
-		runUpgrade(os.Args[2:])
+		runUpgrade(args)
 	case "setup":
-		if len(os.Args) == 3 && os.Args[2] == "notifications" {
+		flags := outputFlags("radar setup")
+		_ = parseFlags(flags, args)
+		rejectJSON(command)
+		if flags.NArg() == 1 && flags.Arg(0) == "notifications" {
 			if err := notification.Setup(os.Stdin, os.Stdout); err != nil {
 				fatal(err)
 			}
 			return
 		}
-		if len(os.Args) != 2 {
-			fmt.Fprintln(os.Stderr, "usage: radar setup")
+		if flags.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "usage: radar setup [notifications]")
 			os.Exit(2)
 		}
 		runOnboarding()
 	case "create":
-		runCreate(os.Args[2:])
+		runCreate(args)
 	case "reconcile-workspace":
-		runReconcileWorkspace(os.Args[2:])
+		runReconcileWorkspace(args)
 	case "workspace-context":
-		runWorkspaceContext(os.Args[2:])
+		runWorkspaceContext(args)
 	case "repository-refs":
-		runRepositoryRefs(os.Args[2:])
+		runRepositoryRefs(args)
 	case "task":
-		runTask(os.Args[2:])
+		runTask(args)
 	case "fork":
-		runFork(os.Args[2:])
+		runFork(args)
 	case "cleanup":
-		runCleanup(os.Args[2:])
+		runCleanup(args)
 	case "gc":
-		runGarbageCollection(os.Args[2:])
-	case "daemon":
-		runDaemon()
-	case "stop":
-		stopDaemon()
-	case "restart":
-		restartDaemon()
-	case "summary", "status":
-		callDaemon("summary")
-	case "tasks":
-		callDaemon("tasks")
-	case "refresh":
-		callDaemon("refresh")
-	case "reset":
-		callDaemon("reset")
+		runGarbageCollection(args)
+	case "activity":
+		runActivity(args)
 	case "ack":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: radar ack <task-id>")
+		args = positionalArgs(command, args, 1)
+		callDaemon("ack:" + strconv.Itoa(parseTaskID(args[0])))
+	default:
+		positionalArgs(command, args, 0)
+		switch command {
+		case "daemon":
+			rejectJSON(command)
+			runDaemon()
+		case "stop":
+			stopDaemon()
+		case "restart":
+			restartDaemon()
+		case "summary", "status":
+			callDaemon("summary")
+		case "tasks", "refresh", "reset":
+			callDaemon(command)
+		case "log-path", "logs":
+			printLogPath()
+		case "state-path":
+			printStatePath()
+		case "config-path":
+			printConfigPath()
+		case "rate-limit", "rate-limits":
+			printRateLimit()
+		case "version":
+			printVersion()
+		case "help":
+			usage()
+		default:
+			usage()
 			os.Exit(2)
 		}
-		callDaemon("ack:" + os.Args[2])
-	case "log-path", "logs":
-		printLogPath()
-	case "state-path":
-		printStatePath()
-	case "config-path":
-		printConfigPath()
-	case "rate-limit", "rate-limits":
-		printRateLimit()
-	case "activity":
-		runActivity(os.Args[2:])
-	case "version":
-		printVersion()
-	case "help", "-h", "--help":
-		usage()
-	default:
-		usage()
-		os.Exit(2)
 	}
 }
 
@@ -181,10 +185,7 @@ func runTUIWithMode(mode string) {
 }
 
 func runActivity(args []string) {
-	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: radar activity <idle|busy|waiting>")
-		os.Exit(2)
-	}
+	args = positionalArgs("activity", args, 1)
 	activity, err := protocol.ParseActivity(args[0])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -200,6 +201,9 @@ func runActivity(args []string) {
 	if path, err := socket.Path(); err == nil {
 		_, _ = client.CallWithTimeout(path, "refresh-local", time.Second)
 	}
+	if jsonOutput {
+		printResult(map[string]any{"ok": true, "activity": activity})
+	}
 }
 
 func multiplexerClientActive(integrations integration.Registry) bool {
@@ -208,58 +212,55 @@ func multiplexerClientActive(integrations integration.Registry) bool {
 }
 
 func runTask(args []string) {
+	flags := outputFlags("radar task")
+	flags.Usage = taskUsage
+	_ = flags.Parse(args)
+	args = flags.Args()
 	if len(args) == 0 {
 		taskUsage()
 		os.Exit(2)
 	}
+	command, args := args[0], args[1:]
 	var request protocol.Request
-	switch args[0] {
+	switch command {
 	case "create":
-		flags := flag.NewFlagSet("radar task create", flag.ExitOnError)
+		flags := outputFlags("radar task create")
 		title := flags.String("title", "", "task title")
-		_ = flags.Parse(args[1:])
+		_ = parseFlags(flags, args)
 		if flags.NArg() != 0 || strings.TrimSpace(*title) == "" {
 			taskUsage()
 			os.Exit(2)
 		}
 		request = protocol.Request{Method: "task-create", TaskMutation: &protocol.TaskMutation{Title: *title}}
 	case "delete":
-		if len(args) != 2 {
-			taskUsage()
-			os.Exit(2)
-		}
-		result, err := deleteTask(parseTaskID(args[1]), os.Stdin, os.Stderr, callDaemonRequest)
+		args = positionalArgs("task delete", args, 1)
+		result, err := deleteTask(parseTaskID(args[0]), os.Stdin, os.Stderr, callDaemonRequest)
 		if err != nil {
 			fatal(err)
 		}
 		if result != nil {
-			printJSON(result)
+			printResult(result)
 		}
 		return
 	case "done", "reopen", "mute", "unmute":
-		if len(args) != 2 {
-			taskUsage()
-			os.Exit(2)
-		}
-		id := parseTaskID(args[1])
-		request = protocol.Request{Method: "task-" + args[0], TaskMutation: &protocol.TaskMutation{TaskID: id}}
+		args = positionalArgs("task "+command, args, 1)
+		request = protocol.Request{Method: "task-" + command, TaskMutation: &protocol.TaskMutation{TaskID: parseTaskID(args[0])}}
 	case "priority":
-		if len(args) != 3 || (args[2] != "urgent" && args[2] != "normal") {
+		args = positionalArgs("task priority", args, 2)
+		if args[1] != "urgent" && args[1] != "normal" {
 			taskUsage()
 			os.Exit(2)
 		}
-		id := parseTaskID(args[1])
-		request = protocol.Request{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: id, Priority: args[2]}}
+		request = protocol.Request{Method: "task-priority", TaskMutation: &protocol.TaskMutation{TaskID: parseTaskID(args[0]), Priority: args[1]}}
 	default:
 		taskUsage()
 		os.Exit(2)
 	}
-
 	response := callDaemonRequest(request)
 	if response.Task == nil {
 		fatal(errors.New("task mutation response was empty"))
 	}
-	printJSON(response.Task)
+	printResult(response.Task)
 }
 
 func parseTaskID(value string) int {
@@ -296,13 +297,21 @@ func callDaemonRequest(request protocol.Request) protocol.Response {
 }
 
 func runCreate(args []string) {
-	flags := flag.NewFlagSet("radar create", flag.ExitOnError)
+	flags := outputFlags("radar create")
 	repo := flags.String("repo", "", "repository path")
 	base := flags.String("base", "", "base branch or revision")
 	name := flags.String("name", "", "workspace name")
-	_ = flags.Parse(args)
+	_ = parseFlags(flags, args)
 
+	if flags.NArg() != 0 {
+		createUsage()
+		os.Exit(2)
+	}
 	if *repo == "" && *base == "" && *name == "" {
+		if jsonOutput {
+			createUsage()
+			os.Exit(2)
+		}
 		runTUIWithMode("create")
 		return
 	}
@@ -327,17 +336,17 @@ func runCreate(args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	printJSON(result)
+	printResult(result)
 }
 
 func runReconcileWorkspace(args []string) {
-	flags := flag.NewFlagSet("radar reconcile-workspace", flag.ExitOnError)
+	flags := outputFlags("radar reconcile-workspace")
 	current := flags.String("workspace", "", "path inside the current Radar workspace")
 	requestJSON := flags.String("request", "", "JSON workspace reconciliation request")
 	planID := flags.String("plan", "", "confirmed preview plan ID")
 	planChanges := flags.Int("plan-changes", -1, "confirmed preview change count for diagnostics")
 	preview := flags.Bool("preview", false, "validate and print the plan without changes")
-	_ = flags.Parse(args)
+	_ = parseFlags(flags, args)
 	if flags.NArg() != 0 || strings.TrimSpace(*requestJSON) == "" {
 		reconcileWorkspaceUsage()
 		os.Exit(2)
@@ -392,7 +401,7 @@ func runReconcileWorkspace(args []string) {
 			"plan_id", plan.PlanID, "revision", plan.Revision, "change_count", len(plan.Changes), "auto_confirm", plan.AutoConfirm,
 			"effective_mount_count", plan.EffectiveMountCount)
 		closeLog()
-		printJSON(plan)
+		printResult(plan)
 		return
 	}
 	result, err := manager.ApplyReconcile(context.Background(), logger, request)
@@ -413,7 +422,7 @@ func runReconcileWorkspace(args []string) {
 			}
 		}
 	}
-	printJSON(result)
+	printResult(result)
 }
 
 func refreshLocalSourcesAfterReconcile() error {
@@ -432,10 +441,10 @@ func refreshLocalSourcesAfterReconcile() error {
 }
 
 func runWorkspaceContext(args []string) {
-	flags := flag.NewFlagSet("radar workspace-context", flag.ExitOnError)
+	flags := outputFlags("radar workspace-context")
 	current := flags.String("workspace", "", "path inside the current Radar workspace")
 	registrationOnly := flags.Bool("registration-only", false, "only check registered workspace membership, without inspecting Git or sandbox resources")
-	_ = flags.Parse(args)
+	_ = parseFlags(flags, args)
 	if flags.NArg() != 0 {
 		workspaceContextUsage()
 		os.Exit(2)
@@ -449,10 +458,7 @@ func runWorkspaceContext(args []string) {
 		if err != nil {
 			fatal(err)
 		}
-		printJSON(struct {
-			Registered    bool   `json:"registered"`
-			WorkspacePath string `json:"workspace_path,omitempty"`
-		}{Registered: found, WorkspacePath: registration.Path})
+		printResult(registrationResult{Registered: found, WorkspacePath: registration.Path})
 		return
 	}
 	cfg, err := config.Load()
@@ -463,13 +469,13 @@ func runWorkspaceContext(args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	printJSON(result)
+	printResult(result)
 }
 
 func runRepositoryRefs(args []string) {
-	flags := flag.NewFlagSet("radar repository-refs", flag.ExitOnError)
+	flags := outputFlags("radar repository-refs")
 	repo := flags.String("repo", "", "repository path")
-	_ = flags.Parse(args)
+	_ = parseFlags(flags, args)
 	if flags.NArg() != 0 || strings.TrimSpace(*repo) == "" {
 		repositoryRefsUsage()
 		os.Exit(2)
@@ -482,24 +488,22 @@ func runRepositoryRefs(args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	printJSON(result)
+	printResult(result)
 }
 
 func runFork(args []string) {
-	flags := flag.NewFlagSet("radar fork", flag.ExitOnError)
-	_ = flags.Parse(args)
+	flags := outputFlags("radar fork")
+	_ = parseFlags(flags, args)
 	if flags.NArg() != 0 {
 		forkUsage()
 		os.Exit(2)
 	}
+	rejectJSON("fork")
 	runTUIWithMode("fork")
 }
 
 func runCleanup(args []string) {
-	if len(args) != 1 {
-		cleanupUsage()
-		os.Exit(2)
-	}
+	args = positionalArgs("cleanup", args, 1)
 	taskID, err := strconv.Atoi(args[0])
 	if err != nil || taskID <= 0 {
 		cleanupUsage()
@@ -552,14 +556,11 @@ func runCleanup(args []string) {
 	if response.CleanupResult == nil {
 		fatal(errors.New("cleanup response was empty"))
 	}
-	printJSON(response.CleanupResult)
+	printResult(response.CleanupResult)
 }
 
 func runGarbageCollection(args []string) {
-	if len(args) != 0 {
-		garbageCollectionUsage()
-		os.Exit(2)
-	}
+	positionalArgs("gc", args, 0)
 	path, err := socket.Path()
 	if err != nil {
 		fatal(err)
@@ -583,7 +584,7 @@ func runGarbageCollection(args []string) {
 	if response.GarbageCollectionResult == nil {
 		fatal(errors.New("garbage collection response was empty"))
 	}
-	printJSON(response.GarbageCollectionResult)
+	printResult(response.GarbageCollectionResult)
 }
 
 func runDaemon() {
@@ -651,10 +652,10 @@ func stopDaemon() {
 		fatal(err)
 	}
 	if len(pids) == 0 {
-		fmt.Println("radar daemon was not running")
+		printResult(daemonResult{OK: true, Status: "not running", PIDs: pids})
 		return
 	}
-	fmt.Printf("radar daemon stopped: %v\n", pids)
+	printResult(daemonResult{OK: true, Status: "stopped", PIDs: pids})
 }
 
 func restartDaemon() {
@@ -666,7 +667,7 @@ func restartDaemon() {
 	if err := restartDaemonAndWait(""); err != nil {
 		fatal(err)
 	}
-	fmt.Println("radar daemon restarted")
+	printResult(daemonResult{OK: true, Status: "restarted"})
 }
 
 func ensureDaemonCurrent(socketPath string) error {
@@ -938,19 +939,13 @@ func callDaemon(method string) {
 		fatal(errors.New(res.Error))
 	}
 
-	out, err := json.Marshal(res)
-	if err != nil {
-		fatal(err)
+	if jsonOutput {
+		printResult(res)
+	} else {
+		if err := writeDaemonResult(os.Stdout, method, res); err != nil {
+			fatal(err)
+		}
 	}
-	fmt.Println(string(out))
-}
-
-func printJSON(value any) {
-	out, err := json.Marshal(value)
-	if err != nil {
-		fatal(err)
-	}
-	fmt.Println(string(out))
 }
 
 func printLogPath() {
@@ -958,7 +953,7 @@ func printLogPath() {
 	if err != nil {
 		fatal(err)
 	}
-	fmt.Println(path)
+	printResult(pathResult{Path: path})
 }
 
 func printStatePath() {
@@ -966,7 +961,7 @@ func printStatePath() {
 	if err != nil {
 		fatal(err)
 	}
-	fmt.Println(path)
+	printResult(pathResult{Path: path})
 }
 
 func printConfigPath() {
@@ -974,7 +969,7 @@ func printConfigPath() {
 	if err != nil {
 		fatal(err)
 	}
-	fmt.Println(path)
+	printResult(pathResult{Path: path})
 }
 
 func printRateLimit() {
@@ -987,15 +982,19 @@ func printRateLimit() {
 	if err != nil {
 		fatal(err)
 	}
-	fmt.Println(summary)
+	printResult(rateLimitResult{Summary: summary})
 }
 
 func printVersion() {
-	fmt.Println(version.Text())
+	if jsonOutput {
+		printResult(map[string]string{"version": version.Number, "commit": version.Commit, "built": version.Date})
+	} else {
+		fmt.Println(version.Text())
+	}
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `usage: radar [command]
+	fmt.Fprintln(os.Stderr, `usage: radar [--json] [command]
 
 Interactive:
   radar                         open the terminal UI
@@ -1039,7 +1038,20 @@ Other:
   radar state-path
   radar config-path
   radar rate-limit
-  radar version`)
+  radar version
+
+Output:
+  Human-readable output is the default, including when piped.
+  Add --json before the command or after its arguments for machine-readable output.
+  Path commands print a bare path by default. Activity publication is silent.
+  Interactive UI, setup, upgrade, fork, and daemon modes do not support --json.
+  --json does not bypass confirmation for cleanup or task deletion.
+
+Examples:
+  radar tasks
+  radar tasks --json | jq '.tasks // [] | .[].title'
+  radar task done 42 --json
+  radar workspace-context --json`)
 }
 
 func taskUsage() {
@@ -1049,7 +1061,9 @@ func taskUsage() {
        radar task mute <task-id>
        radar task unmute <task-id>
        radar task delete <task-id>
-       radar task priority <task-id> urgent|normal`)
+       radar task priority <task-id> urgent|normal
+
+Add --json for machine-readable results. Deletion still requires confirmation.`)
 }
 
 func createUsage() {
@@ -1060,26 +1074,27 @@ func createUsage() {
 Options:
   --repo   repository path
   --base   base branch or revision, for example origin/main
-  --name   workspace name; also used to derive a sanitized branch name`)
+  --name   workspace name; also used to derive a sanitized branch name
+  --json   print machine-readable output; requires --name`)
 }
 
 func reconcileWorkspaceUsage() {
 	fmt.Fprintln(os.Stderr, `usage: radar reconcile-workspace [--workspace <path>] --request <json> [--preview]
 
-The request contains the revision and complete desired worktree/sandbox state. Preview and apply print JSON. --workspace defaults to the process working directory.`)
+The request contains the revision and complete desired worktree/sandbox state. Preview and apply print readable summaries; add --json for machine-readable plans and results. --workspace defaults to the process working directory.`)
 }
 
 func workspaceContextUsage() {
 	fmt.Fprintln(os.Stderr, `usage: radar workspace-context [--workspace <path>] [--registration-only]
 
-Print the current logical Radar workspace, its member worktrees, and discovered repositories as JSON.
+Print the current logical Radar workspace, its member worktrees, and discovered repositories. Add --json for the complete machine-readable state.
 With --registration-only, only report registered and workspace_path without inspecting host resources.`)
 }
 
 func repositoryRefsUsage() {
 	fmt.Fprintln(os.Stderr, `usage: radar repository-refs --repo <repo>
 
-Try to fetch and prune origin, then print structured branch and checkout information as JSON.
+Try to fetch and prune origin, then print branch and checkout information. Add --json for machine-readable output.
 If the fetch fails, locally cached refs are returned with a warning.`)
 }
 
@@ -1117,6 +1132,9 @@ func fatal(err error) {
 }
 
 func fatalMessage(err error) string {
+	if !jsonOutput {
+		return "radar: " + err.Error()
+	}
 	if manager, managerErr := app.DefaultIntegrations().WorkspaceManager(); managerErr == nil {
 		if problem, ok := manager.ReconcileErrorDetails(err); ok {
 			if data, marshalErr := json.Marshal(problem); marshalErr == nil {
@@ -1124,7 +1142,8 @@ func fatalMessage(err error) string {
 			}
 		}
 	}
-	return "radar: " + err.Error()
+	data, _ := json.Marshal(map[string]string{"error": err.Error()})
+	return string(data)
 }
 
 func ensureOnboarding() {
@@ -1133,6 +1152,9 @@ func ensureOnboarding() {
 		fatal(err)
 	}
 	if needed {
+		if jsonOutput {
+			fatal(errors.New("setup required; run radar setup before requesting JSON output"))
+		}
 		runOnboarding()
 	}
 }

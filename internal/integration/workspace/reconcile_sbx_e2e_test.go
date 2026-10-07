@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"radar/internal/integration"
 	"runtime"
 	"strings"
 	"testing"
@@ -193,10 +194,11 @@ func reconcileAdditionalMountsE2E(t *testing.T, ctx context.Context, runner Exec
 	if workspaceContext.Desired.Sandbox == nil {
 		t.Fatal("workspace context has no sandbox desired state")
 	}
-	workspaceContext.Desired.Sandbox.AdditionalMounts = mounts
+	desired := reconcileRequest(integration.WorkspaceReconcileRequest{Desired: workspaceContext.Desired}).Desired
+	desired.Sandbox.AdditionalMounts = mounts
 	request := ReconcileWorkspaceRequest{
 		Workspace: primary, WorkspaceRoot: root, Revision: workspaceContext.Revision,
-		Desired: workspaceContext.Desired,
+		Desired: desired,
 	}
 	plan, err := PreviewReconcileWorkspace(ctx, runner, request)
 	if err != nil {

@@ -43,7 +43,8 @@ func authenticate(ctx context.Context, executable string) (integration.Authentic
 		login.Dir = "/"
 	}
 	login.Stdin = os.Stdin
-	login.Stdout = os.Stdout
+	// Login is a diagnostic/interactive flow, not the CLI command result.
+	login.Stdout = os.Stderr
 	login.Stderr = os.Stderr
 	if err := login.Run(); err != nil {
 		return integration.AuthenticationResult{}, fmt.Errorf("%s login failed: %w", executable, err)

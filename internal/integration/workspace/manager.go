@@ -130,7 +130,7 @@ func (Source) WorkspaceState(ctx context.Context, currentDirectory string) (inte
 	}
 	state := integration.WorkspaceState{
 		ID: inspected.WorkspaceID, Name: inspected.WorkspaceName, Path: inspected.WorkspacePath,
-		Revision: inspected.Revision, Desired: integrationDesired(inspected.Desired),
+		Revision: inspected.Revision, Desired: inspected.Desired,
 		Members:      make([]integration.WorkspaceStateMember, 0, len(inspected.Members)),
 		Repositories: make([]string, 0, len(inspected.Repositories)),
 	}
@@ -157,11 +157,11 @@ func (Source) ReconcileErrorDetails(err error) (integration.WorkspaceReconcileEr
 	}, true
 }
 
-func (Source) InspectWorkspace(ctx context.Context, currentDirectory, workspaceRoot string) (any, error) {
+func (Source) InspectWorkspace(ctx context.Context, currentDirectory, workspaceRoot string) (integration.WorkspaceContext, error) {
 	return InspectWorkspace(ctx, ExecRunner{}, currentDirectory, workspaceRoot)
 }
 
-func (Source) InspectRepositoryRefs(ctx context.Context, repository string) (any, error) {
+func (Source) InspectRepositoryRefs(ctx context.Context, repository string) (integration.RepositoryRefs, error) {
 	return InspectRepositoryRefs(ctx, ExecRunner{}, repository)
 }
 
@@ -203,34 +203,6 @@ func reconcileRequest(req integration.WorkspaceReconcileRequest) ReconcileWorksp
 		ExpectedPlanID:          req.ExpectedPlanID, ExpectedPlanChangeCount: req.ExpectedPlanChangeCount,
 		Revision: req.Revision, Desired: DesiredWorkspaceDescription{Note: note, Worktrees: worktrees, Sandbox: sandbox},
 	}
-}
-
-func integrationDesired(value DesiredWorkspaceDescription) integration.DesiredWorkspaceDescription {
-	worktrees := make([]integration.DesiredWorkspaceWorktree, 0, len(value.Worktrees))
-	for _, worktree := range value.Worktrees {
-		worktrees = append(worktrees, integration.DesiredWorkspaceWorktree{
-			Repository: worktree.Repository, BranchMode: worktree.BranchMode,
-			Name: worktree.Name, Branch: worktree.Branch, Base: worktree.Base,
-		})
-	}
-	var note *integration.DesiredWorkspaceNote
-	if value.Note != nil {
-		copy := *value.Note
-		note = &copy
-	}
-	var sandbox *integration.DesiredWorkspaceSandbox
-	if value.Sandbox != nil {
-		mounts := make([]integration.DesiredSandboxMount, 0, len(value.Sandbox.AdditionalMounts))
-		for _, mount := range value.Sandbox.AdditionalMounts {
-			mounts = append(mounts, integration.DesiredSandboxMount{Path: mount.Path, ReadOnly: mount.ReadOnly})
-		}
-		ports := make([]integration.SandboxPort, 0, len(value.Sandbox.Ports))
-		for _, port := range value.Sandbox.Ports {
-			ports = append(ports, integration.SandboxPort{HostPort: port.HostPort, SandboxPort: port.SandboxPort})
-		}
-		sandbox = &integration.DesiredWorkspaceSandbox{AdditionalMounts: mounts, Ports: ports}
-	}
-	return integration.DesiredWorkspaceDescription{Note: note, Worktrees: worktrees, Sandbox: sandbox}
 }
 
 func integrationPlan(value ReconcileWorkspacePlan) integration.WorkspaceReconcilePlan {

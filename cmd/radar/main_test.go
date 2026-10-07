@@ -20,6 +20,9 @@ import (
 )
 
 func TestFatalMessageSerializesWorkspaceReconciliationProblem(t *testing.T) {
+	previous := jsonOutput
+	jsonOutput = true
+	t.Cleanup(func() { jsonOutput = previous })
 	message := fatalMessage(&workspace.ReconcileWorkspaceError{
 		Reason: "dirty_removal", Message: "cannot remove dirty member", Path: "/work/member", ChangeCount: 2,
 	})

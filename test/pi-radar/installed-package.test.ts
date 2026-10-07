@@ -35,6 +35,7 @@ import { relative } from 'node:path';
 const args = process.argv.slice(2);
 appendFileSync(process.env.FIXTURE_LOG, JSON.stringify(args) + '\\n');
 if (args[0] === 'activity') process.exit(0);
+if (!args.includes('--json')) throw Error('Radar JSON output must be requested');
 if (args[0] !== 'workspace-context') process.exit(1);
 const cwd = args[args.indexOf('--workspace') + 1];
 const path = relative(${JSON.stringify(workspace)}, cwd);

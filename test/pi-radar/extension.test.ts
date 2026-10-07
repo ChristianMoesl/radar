@@ -65,6 +65,7 @@ async function harness(t: TestContext, registered: unknown = true) {
     sendUserMessage: (message: string) => messages.push(message),
     exec: async (binary: string, args: string[], options: any) => {
       calls.push({ binary, args, options });
+      if (args[0] !== "activity") assert.ok(args.includes("--json"), `JSON consumer must opt in: ${args}`);
       if (args.includes("--registration-only")) {
         if (registrationFails) throw Error("Radar unavailable");
         return { code: registrationCode, stdout: registrationOutput, stderr: "" };
@@ -168,7 +169,7 @@ test("activates from the session cwd, not the process cwd, exactly once", async 
   await h.start();
   assert.deepEqual([...h.tools.keys()], ["radar_workspace_context", "radar_repository_refs", "radar_reconcile_workspace"]);
   assert.deepEqual([...h.commands.keys()], ["radar-reload-workspace-resources"]);
-  assert.deepEqual(h.calls[0].args, ["workspace-context", "--registration-only", "--workspace", h.ctx.cwd]);
+  assert.deepEqual(h.calls[0].args, ["workspace-context", "--registration-only", "--workspace", h.ctx.cwd, "--json"]);
   assert.equal(h.calls[0].binary, "radar");
   assert.deepEqual(h.calls[1].args, ["activity", "idle"]);
   assert.equal(h.calls.length, 2);

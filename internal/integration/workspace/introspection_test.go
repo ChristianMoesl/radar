@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"radar/internal/integration"
 	"reflect"
 	"strings"
 	"testing"
@@ -194,9 +195,9 @@ func TestInspectNoteOnlyWorkspaceFromAnchor(t *testing.T) {
 }
 
 func TestWorkspaceContextEmptySandboxPortsMarshalAsArray(t *testing.T) {
-	context := WorkspaceContext{
-		Capabilities: WorkspaceContextCapabilities{Worktrees: true, Sandbox: true, AdditionalMounts: true, PortForwarding: true},
-		Desired:      DesiredWorkspaceDescription{Worktrees: []DesiredWorkspaceWorktree{}, Sandbox: &DesiredWorkspaceSandbox{AdditionalMounts: []DesiredSandboxMount{}, Ports: []workspacegroup.SandboxPort{}}},
+	context := integration.WorkspaceContext{
+		Capabilities: integration.WorkspaceContextCapabilities{Worktrees: true, Sandbox: true, AdditionalMounts: true, PortForwarding: true},
+		Desired:      integration.DesiredWorkspaceDescription{Worktrees: []integration.DesiredWorkspaceWorktree{}, Sandbox: &integration.DesiredWorkspaceSandbox{AdditionalMounts: []integration.DesiredSandboxMount{}, Ports: []integration.SandboxPort{}}},
 	}
 	data, err := json.Marshal(context)
 	if err != nil {
@@ -272,7 +273,7 @@ func TestInspectRepositoryRefsReturnsCanonicalBranchesAndCheckouts(t *testing.T)
 	if !reflect.DeepEqual(result.BaseRefs, wantBases) {
 		t.Fatalf("base refs = %#v, want %#v", result.BaseRefs, wantBases)
 	}
-	wantBranches := []RepositoryBranch{
+	wantBranches := []integration.RepositoryBranch{
 		{Name: "main", Local: true, Origin: true, CheckedOutPaths: []string{repo}},
 		{Name: "feature/api", Local: true, Origin: true, CheckedOutPaths: []string{featurePath}},
 	}

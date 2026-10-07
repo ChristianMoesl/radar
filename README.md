@@ -419,7 +419,7 @@ The daemon checks for garbage collection hourly. Clean local workspaces become e
 
 Run `radar gc`, or press `X` in the TUI, to include newly done tasks without waiting for the initial 24 hours. Neither bypasses the eight-day destructive grace period or structural safety checks.
 
-GC results stay compact: the TUI and host notification show only deleted/skipped workspace counts. `radar gc` continues to return its structured JSON result.
+GC results stay compact: the TUI and host notification show only deleted/skipped workspace counts. `radar gc` prints deleted/skipped counts and paths, with skip reasons. Use `radar gc --json` for the structured result.
 
 Cleanup issues are visible before running GC. The overview shows **⚠️ unresolved** when a linked local resource has a cleanup warning or blocker. Press `i` to see **Workspace expiry** for a done task with a registered workspace: its eligibility date/time includes the local timezone and an explicit permanent-loss warning. A past deadline is shown as **Eligible since**; structural blockers may still prevent removal. The **Unresolved** section follows, identifying each affected resource and its exact reason, before **Source refs**. It is hidden when there are no issues. These checks cover uncommitted changes, unverified local commits, persistent verification failures, unrecognised workspace-root files, unsafe workspace locations, and invalid registrations or provider inspection errors. Attached tmux sessions are not unresolved and may be removed with eligible completed workspaces, terminating their running shells or commands. Being active or within the GC retention period is not an unresolved issue. Done tasks with a current unresolved workspace remain visible beyond the usual three-day display limit, so their Inspect details stay accessible. Once the issues clear or the workspace is removed, normal display retention applies again; task completion dates and GC eligibility are unchanged.
 
@@ -475,7 +475,7 @@ Muting is not completion or deletion: it changes no remote records and does not 
 
 Press `D` in the overview or run `radar task delete <task-id>`. Radar previews the exact path and asks for confirmation; only `y` confirms, while Enter or `n` cancels in the CLI (Enter does nothing in the TUI). There is no force or confirmation-bypass option.
 
-Deletion moves the authored Obsidian task to `<vault>/.trash/radar-<unique>/`. A private task directory moves intact, including attachments and symlinks; an archived task moves only its Markdown note, never the shared archive. Note contents and permissions are unchanged, nothing is overwritten, and Radar never permanently erases this trash. The CLI returns JSON with `original_path` and `trash_path`; the TUI reports the recovery path.
+Deletion moves the authored Obsidian task to `<vault>/.trash/radar-<unique>/`. A private task directory moves intact, including attachments and symlinks; an archived task moves only its Markdown note, never the shared archive. Note contents and permissions are unchanged, nothing is overwritten, and Radar never permanently erases this trash. The CLI prints the original and recovery paths (`original_path` and `trash_path` with `--json`); the TUI reports the recovery path.
 
 Clean up every registered workspace referencing the note first, using `x` or `radar cleanup <task-id>`. Deletion does not remove worktrees, branches, sessions, sandboxes, Jira issues, or GitHub PRs. Linked source-backed work can remain visible; remote-only tasks cannot be deleted this way. If the note changes while confirmation is open, Radar refuses the stale plan—retry the delete action to preview it again.
 
@@ -507,7 +507,28 @@ radar state-path
 radar log-path
 ```
 
-Task commands return JSON. Deletion prompts on stderr and reads confirmation from stdin; cancellation produces no JSON result.
+### Output for humans and scripts
+
+Commands print readable tables, labeled details, or action summaries by default. The format does not change when stdout is piped. Add **`--json`** for machine-readable output, either before the command or after its arguments:
+
+```sh
+radar tasks
+radar tasks --json | jq '.tasks // [] | .[] | {id, title}'
+radar --json status | jq '.summary'
+radar task done 42 --json
+radar workspace-context --json | jq '.desired'
+radar repository-refs --repo /path/to/repository --json
+```
+
+JSON retains the full result and its existing field names, without colors, table formatting, or progress text. In particular, `tasks` and `status` return the daemon response object; task mutations return the task itself. Human presentation is not a parsing contract.
+
+- Results go to stdout; warnings, errors, authentication messages, and confirmation prompts go to stderr. JSON results retain structured warning fields. Runtime errors with `--json` are JSON objects on stderr; usage errors and help remain text.
+- Exit status is `0` for a completed command, `1` for runtime errors, and `2` for invalid arguments. Reconciliation can return an incomplete/retryable plan result: scripts must also inspect `ok`, `retryable`, and `reconfirm_required` rather than treating a returned plan as successful convergence.
+- `config-path`, `state-path`, and `log-path` keep their convenient bare-path default; with `--json` they return `{ "path": "..." }`. `version`, `stop`, `restart`, `rate-limit`, and `activity` also accept `--json`. Activity publication remains silent by default.
+- `--json` selects output only: it does not approve destructive actions. Cleanup and deletion still read confirmation from stdin; cancellation produces no result. Authentication may still require interaction. Complete `radar setup` before JSON-mode creation; JSON mode never launches the setup wizard.
+- The dashboard, interactive `create`, `fork`, `setup` (including `setup notifications`), `upgrade`, and foreground `daemon` do not produce JSON results. Use `create --name <name> --json` for a creation result.
+
+Radar's Pi extension and editor integrations must explicitly pass `--json` when decoding results. The CLI and Pi extension should be updated together.
 
 ## GitHub
 

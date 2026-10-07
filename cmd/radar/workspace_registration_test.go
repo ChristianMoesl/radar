@@ -13,6 +13,8 @@ import (
 )
 
 func TestWorkspaceContextRegistrationOnly(t *testing.T) {
+	previousJSON := jsonOutput
+	t.Cleanup(func() { jsonOutput = previousJSON })
 	root := t.TempDir()
 	workspaces := filepath.Join(root, "workspaces")
 	anchor := filepath.Join(workspaces, "fixture")
@@ -57,7 +59,7 @@ func TestWorkspaceContextRegistrationOnly(t *testing.T) {
 			previous := os.Stdout
 			os.Stdout = stdout
 			defer func() { os.Stdout = previous }()
-			runWorkspaceContext([]string{"--workspace", path, "--registration-only"})
+			runWorkspaceContext([]string{"--workspace", path, "--registration-only", "--json"})
 			if _, err := stdout.Seek(0, io.SeekStart); err != nil {
 				t.Fatal(err)
 			}

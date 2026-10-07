@@ -190,7 +190,7 @@ function activityTracker(pi: ExtensionAPI) {
 }
 
 function reconcileArgs(params: Record<string, unknown>, cwd: string, preview: boolean, plan?: Plan): string[] {
-  const args = ["reconcile-workspace", "--workspace", cwd, "--request", JSON.stringify(params)];
+  const args = ["reconcile-workspace", "--workspace", cwd, "--request", JSON.stringify(params), "--json"];
   if (preview) args.push("--preview");
   if (plan) args.push("--plan", plan.plan_id, "--plan-changes", String(plan.changes.length));
   return args;
@@ -280,7 +280,7 @@ async function runRadar(pi: ExtensionAPI, binary: string, args: string[], signal
 
 async function inspectWorkspace(pi: ExtensionAPI, cwd: string, signal?: AbortSignal): Promise<WorkspaceContextResult> {
   const binary = process.env.RADAR_BINARY?.trim() || "radar";
-  const text = await runRadar(pi, binary, ["workspace-context", "--workspace", resolve(cwd)], signal, "radar_workspace_context", "inspect");
+  const text = await runRadar(pi, binary, ["workspace-context", "--workspace", resolve(cwd), "--json"], signal, "radar_workspace_context", "inspect");
   return parseJSON<WorkspaceContextResult>("radar_workspace_context", text, "inspect");
 }
 
@@ -349,7 +349,7 @@ export default function radarExtension(pi: ExtensionAPI) {
     // the tools used to inspect and repair an otherwise registered workspace.
     const binary = process.env.RADAR_BINARY?.trim() || "radar";
     try {
-      const result = await pi.exec(binary, ["workspace-context", "--registration-only", "--workspace", resolve(ctx.cwd)], { timeout: 5000 });
+      const result = await pi.exec(binary, ["workspace-context", "--registration-only", "--workspace", resolve(ctx.cwd), "--json"], { timeout: 5000 });
       if (result.code !== 0 || JSON.parse(result.stdout)?.registered !== true) return;
     } catch {
       // A global installation is inert when Radar is absent or cannot establish
@@ -461,7 +461,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
     async execute(_toolCallId, _params, signal, _onUpdate, ctx: ExtensionContext) {
       const toolName = "radar_workspace_context";
       const binary = process.env.RADAR_BINARY?.trim() || "radar";
-      const text = await runRadar(pi, binary, ["workspace-context", "--workspace", resolve(ctx.cwd)], signal, toolName, "inspect");
+      const text = await runRadar(pi, binary, ["workspace-context", "--workspace", resolve(ctx.cwd), "--json"], signal, toolName, "inspect");
       const result = parseJSON<Record<string, unknown>>(toolName, text, "inspect");
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     },
@@ -483,7 +483,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
       const toolName = "radar_repository_refs";
       const binary = process.env.RADAR_BINARY?.trim() || "radar";
       const repository = String((params as { repository: string }).repository);
-      const text = await runRadar(pi, binary, ["repository-refs", "--repo", repository], signal, toolName, "inspect");
+      const text = await runRadar(pi, binary, ["repository-refs", "--repo", repository, "--json"], signal, toolName, "inspect");
       const result = parseJSON<Record<string, unknown>>(toolName, text, "inspect");
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     },

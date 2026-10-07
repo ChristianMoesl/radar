@@ -136,7 +136,7 @@ esac
 					out, _ := os.ReadFile(stdout)
 					errors, _ := os.ReadFile(stderr)
 					if scenario.wantLogin {
-						if string(out) != "login stdout: user input\n" || !strings.Contains(string(errors), "starting "+executable+" login\nlogin stderr\n") {
+						if len(out) != 0 || !strings.Contains(string(errors), "starting "+executable+" login\nlogin stdout: user input\nlogin stderr\n") {
 							t.Fatalf("stdio not forwarded: stdout=%q stderr=%q", out, errors)
 						}
 					} else if len(out) != 0 || len(errors) != 0 {
