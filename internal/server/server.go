@@ -122,12 +122,12 @@ func (s *Server) handle(conn net.Conn) {
 				_ = encoder.Encode(s.tasksResponse())
 				continue
 			}
-			_ = encoder.Encode(protocol.Response{OK: true, Revision: currentRevision})
+			_ = encoder.Encode(protocol.Response{OK: true, Version: version.Current(), Revision: currentRevision})
 			continue
 		}
 		switch req.Method {
 		case "version":
-			_ = encoder.Encode(protocol.Response{OK: true, Version: version.Current(), Revision: s.store.Revision()})
+			_ = encoder.Encode(protocol.Response{OK: true, Version: version.Current(), PID: os.Getpid(), Revision: s.store.Revision()})
 		case "summary":
 			response := s.tasksResponse()
 			response.Tasks = nil
@@ -268,7 +268,7 @@ func (s *Server) tasksResponse() protocol.Response {
 	tasks, sources, revision := s.store.Snapshot()
 	tasks = s.integrations.FilterTasks(tasks, s.logger)
 	summary := protocol.SummarizeTasks(tasks)
-	return protocol.Response{OK: true, Revision: revision, Summary: &summary, Tasks: tasks, Sources: sources}
+	return protocol.Response{OK: true, Version: version.Current(), Revision: revision, Summary: &summary, Tasks: tasks, Sources: sources}
 }
 
 func (s *Server) filteredTasks() []protocol.Task {

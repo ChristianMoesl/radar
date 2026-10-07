@@ -17,4 +17,9 @@ if (tag !== `v${version}`) {
   process.exit(1);
 }
 
+const moduleText = await readFile(new URL("../extensions/pi-radar/version.ts", import.meta.url), "utf8");
+if (!moduleText.includes(`export const radarPackageVersion = "${version}";`)) {
+  console.error("extensions/pi-radar/version.ts must match package.json (loaded-version reporting)");
+  process.exit(1);
+}
 console.log(`Validated release ${tag}`);

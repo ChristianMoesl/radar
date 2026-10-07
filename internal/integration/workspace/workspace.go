@@ -26,6 +26,7 @@ import (
 	sbxsettings "radar/internal/integration/sbx/settings"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
+	"radar/internal/operationlock"
 	"radar/internal/pi"
 )
 
@@ -520,6 +521,11 @@ func CreateSession(ctx context.Context, runner Runner, path string, sessionName 
 }
 
 func CreateSessionWithOptions(ctx context.Context, runner Runner, options CreateSessionOptions) (Workspace, error) {
+	release, lockErr := operationlock.Acquire(false)
+	if lockErr != nil {
+		return Workspace{}, lockErr
+	}
+	defer release()
 	if err := runner.LookPath("tmux"); err != nil {
 		return Workspace{}, fmt.Errorf("workspace session requires %q: %w", "tmux", err)
 	}

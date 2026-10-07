@@ -6,6 +6,7 @@ import (
 
 	"radar/internal/collector"
 	"radar/internal/integration"
+	"radar/internal/operationlock"
 	"radar/internal/protocol"
 )
 
@@ -22,6 +23,11 @@ func (s *Service) PreviewDeleteTask(ctx context.Context, taskID int) (protocol.T
 }
 
 func (s *Service) DeleteTask(ctx context.Context, preview *protocol.TaskDeletionPreview) (protocol.TaskDeletionResult, error) {
+	release, lockErr := operationlock.Acquire(false)
+	if lockErr != nil {
+		return protocol.TaskDeletionResult{}, lockErr
+	}
+	defer release()
 	if preview == nil {
 		return protocol.TaskDeletionResult{}, fmt.Errorf("confirmed task deletion preview is required")
 	}

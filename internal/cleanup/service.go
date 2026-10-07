@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"radar/internal/integration"
+	"radar/internal/operationlock"
 	"radar/internal/protocol"
 )
 
@@ -40,6 +41,11 @@ func (s Service) Preview(ctx context.Context, task protocol.Task, mode integrati
 }
 
 func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, options ExecuteOptions) (protocol.CleanupResult, error) {
+	release, lockErr := operationlock.Acquire(false)
+	if lockErr != nil {
+		return protocol.CleanupResult{}, lockErr
+	}
+	defer release()
 	if options.Mode != integration.CleanupSafe && options.Mode != integration.CleanupConfirmed && options.Mode != integration.CleanupExpired {
 		return protocol.CleanupResult{}, fmt.Errorf("invalid cleanup mode")
 	}

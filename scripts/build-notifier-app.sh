@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 3 ]]; then
-  echo "usage: $0 <output.app> <version> <amd64|arm64>" >&2
+if [[ $# -ne 2 ]]; then
+  echo "usage: $0 <output.app> <amd64|arm64>" >&2
   exit 2
 fi
 
 output=$1
-version=${2#v}
-goarch=$3
+goarch=$2
 root=$(cd "$(dirname "$0")/.." && pwd)
 source_dir="$root/macos/RadarNotifier"
+version=$(cat "$source_dir/VERSION")
 
 if [[ $(uname -s) != Darwin ]]; then
   echo "RadarNotifier.app must be built on macOS" >&2
@@ -26,8 +26,9 @@ case "$goarch" in
     ;;
 esac
 
-if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  version=0.0.0
+if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  echo "invalid notifier component version: $version" >&2
+  exit 2
 fi
 
 rm -rf "$output"

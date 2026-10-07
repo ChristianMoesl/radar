@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ import (
 	"radar/internal/integration/onboarding"
 	"radar/internal/logging"
 	"radar/internal/notification"
+	"radar/internal/operationlock"
 	"radar/internal/process"
 	"radar/internal/protocol"
 	"radar/internal/server"
@@ -36,6 +38,7 @@ import (
 )
 
 func main() {
+	_ = version.Current()
 	if len(os.Args) == 1 {
 		runTUI()
 		return
@@ -43,7 +46,15 @@ func main() {
 
 	command := os.Args[1]
 	switch command {
+	case "upgrade":
+		runUpgrade(os.Args[2:])
 	case "setup":
+		if len(os.Args) == 3 && os.Args[2] == "notifications" {
+			if err := notification.Setup(os.Stdin, os.Stdout); err != nil {
+				fatal(err)
+			}
+			return
+		}
 		if len(os.Args) != 2 {
 			fmt.Fprintln(os.Stderr, "usage: radar setup")
 			os.Exit(2)
@@ -158,6 +169,13 @@ func runTUIWithMode(mode string) {
 		return
 	}
 	if err := tui.Run(path); err != nil {
+		if errors.Is(err, tui.ErrRelaunch) {
+			executable, e := os.Executable()
+			if e != nil {
+				fatal(e)
+			}
+			fatal(syscall.Exec(executable, os.Args, os.Environ()))
+		}
 		fatal(err)
 	}
 }
@@ -623,6 +641,11 @@ func runDaemon() {
 }
 
 func stopDaemon() {
+	release, err := operationlock.Acquire(false)
+	if err != nil {
+		fatal(err)
+	}
+	defer release()
 	pids, _ := process.DaemonPIDs()
 	if err := process.Stop(); err != nil {
 		fatal(err)
@@ -635,6 +658,11 @@ func stopDaemon() {
 }
 
 func restartDaemon() {
+	release, err := operationlock.Acquire(false)
+	if err != nil {
+		fatal(err)
+	}
+	defer release()
 	if err := restartDaemonAndWait(""); err != nil {
 		fatal(err)
 	}
@@ -642,6 +670,16 @@ func restartDaemon() {
 }
 
 func ensureDaemonCurrent(socketPath string) error {
+	release, err := operationlock.Acquire(false)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if runtime.GOOS == "darwin" {
+		if err := version.CheckInstalled(); err != nil {
+			return err
+		}
+	}
 	res, callErr := client.Call(socketPath, "version")
 	if callErr == nil {
 		if res.OK && res.Version == version.Current() {
@@ -700,7 +738,10 @@ func startDetached(name string, args ...string) error {
 	if err != nil {
 		return err
 	}
-	return process.Release()
+	// Reap while this parent remains alive (notably a long-lived TUI). If the
+	// parent exits first, the detached daemon is adopted by the OS.
+	go func() { _, _ = process.Wait() }()
+	return nil
 }
 
 type refreshScope string
@@ -985,6 +1026,8 @@ Daemon and status:
   radar refresh
   radar reset
   radar stop
+  radar upgrade              macOS: review, adopt/upgrade, or recover a release
+  radar setup notifications  macOS: optional notifier setup/test
   radar restart
 
 Setup:
@@ -1101,5 +1144,10 @@ func runOnboarding() {
 			os.Exit(1)
 		}
 		fatal(err)
+	}
+	if runtime.GOOS == "darwin" {
+		if err := notification.Setup(os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "Notification setup deferred:", err)
+		}
 	}
 }

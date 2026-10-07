@@ -28,7 +28,7 @@ notifier:
 		echo "RadarNotifier.app can only be built on macOS" >&2; \
 		exit 1; \
 	fi
-	scripts/build-notifier-app.sh "$(NOTIFIER_APP)" "$(VERSION)" "$(HOST_GOARCH)"
+	scripts/build-notifier-app.sh "$(NOTIFIER_APP)" "$(HOST_GOARCH)"
 
 install: build
 	install -d "$(BINDIR)"
@@ -36,12 +36,9 @@ install: build
 	install -d "$(PREFIX)/share/radar"
 	install -m 0644 LICENSE "$(PREFIX)/share/radar/LICENSE"
 	scripts/install-agent-instructions.sh "$(AGENT_INSTRUCTIONS_TEMPLATE)"
-	@if [ "$(HOST_OS)" = "Darwin" ]; then \
-		rm -rf "$(LIBEXECDIR)/RadarNotifier.app"; \
-		install -d "$(LIBEXECDIR)"; \
-		cp -R "$(NOTIFIER_APP)" "$(LIBEXECDIR)/RadarNotifier.app"; \
-		"/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister" \
-			-f "$(LIBEXECDIR)/RadarNotifier.app"; \
+	@set -e; if [ "$(HOST_OS)" = "Darwin" ]; then \
+		scripts/install-notifier.sh "$(NOTIFIER_APP)" "$(LIBEXECDIR)/RadarNotifier.app"; \
+		if [ "$(BINDIR)" = "$(HOME)/.local/bin" ] && [ "$(LIBEXECDIR)" = "$(HOME)/.local/libexec/radar" ]; then rm -f "$(LIBEXECDIR)/install.json"; fi; \
 	fi
 
 test:
@@ -62,15 +59,22 @@ dist: clean-dist
 				echo "Darwin release archives must be built on macOS" >&2; \
 				exit 1; \
 			fi; \
-			scripts/build-notifier-app.sh "$${dir}/libexec/radar/RadarNotifier.app" "$(VERSION)" "$${goarch}"; \
+			if [ -n "$(NOTIFIER_ARTIFACT_DIR)" ]; then \
+				mkdir -p "$${dir}/libexec/radar"; \
+				cp -R "$(NOTIFIER_ARTIFACT_DIR)/$${goarch}/RadarNotifier.app" "$${dir}/libexec/radar/RadarNotifier.app"; \
+			else \
+				scripts/build-notifier-app.sh "$${dir}/libexec/radar/RadarNotifier.app" "$${goarch}"; \
+			fi; \
 		fi; \
 		cp README.md "$${dir}/README.md"; \
 		cp LICENSE "$${dir}/LICENSE"; \
 		cp $(AGENT_INSTRUCTIONS_TEMPLATE) "$${dir}/share/radar/AGENTS.md"; \
+		cp scripts/install-notifier.sh "$${dir}/install-notifier.sh"; \
 		cp scripts/install.sh "$${dir}/install.sh"; \
 		cp scripts/install-agent-instructions.sh "$${dir}/install-agent-instructions.sh"; \
 		chmod 0755 "$${dir}/install.sh" "$${dir}/install-agent-instructions.sh"; \
-		tar -C "$(DIST_DIR)" -czf "$(DIST_DIR)/$${name}.tar.gz" "$${name}"; \
+		COPYFILE_DISABLE=1 tar -C "$(DIST_DIR)" -czf "$(DIST_DIR)/$${name}.tar.gz" "$${name}"; \
+		if [ "$${goos}" = darwin ]; then node scripts/release-metadata.mjs artifact "$${dir}" "$(DIST_DIR)/$${name}.tar.gz"; fi; \
 		rm -rf "$${dir}"; \
 	done; \
 	cd "$(DIST_DIR)" && shasum -a 256 *.tar.gz > checksums.txt

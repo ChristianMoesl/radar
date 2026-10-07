@@ -20,6 +20,7 @@ import (
 	sbxsettings "radar/internal/integration/sbx/settings"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
+	"radar/internal/operationlock"
 )
 
 type ReconcileWorkspaceRequest struct {
@@ -483,6 +484,11 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 }
 
 func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Logger, request ReconcileWorkspaceRequest) (ReconcileWorkspaceResult, error) {
+	release, lockErr := operationlock.Acquire(false)
+	if lockErr != nil {
+		return ReconcileWorkspaceResult{}, lockErr
+	}
+	defer release()
 	root, err := workspaceRoot(request.WorkspaceRoot)
 	if err != nil {
 		return ReconcileWorkspaceResult{}, err

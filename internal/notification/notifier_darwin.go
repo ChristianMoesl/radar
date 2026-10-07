@@ -10,6 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
+
+	"radar/internal/update"
 )
 
 const notifierRelativePath = "../libexec/radar/RadarNotifier.app/Contents/MacOS/radar-notifier"
@@ -52,15 +55,20 @@ func (s platformSender) Send(ctx context.Context, notification Notification) err
 	}
 
 	encoded := base64.StdEncoding.EncodeToString(payload)
-	cmd := exec.Command(s.executable, "--notify", encoded)
-	if err := cmd.Start(); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("start radar notifier: %w", err)
+	identity, err := update.FileDigest(s.executable)
+	if err != nil {
+		return err
 	}
-	if err := cmd.Process.Release(); err != nil {
-		return fmt.Errorf("release radar notifier: %w", err)
+	if blocked, err := os.ReadFile(failureMarker(s.executable)); err == nil && string(blocked) == identity {
+		return fmt.Errorf("notifier launch previously failed; use N in Radar to set up/test notifications")
+	}
+	// Do not detach an unobserved process and repeatedly trigger blocked-launch
+	// alerts. Background delivery never requests notification authorization.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := exec.CommandContext(ctx, s.executable, "--notify", encoded).Run(); err != nil {
+		_ = os.WriteFile(failureMarker(s.executable), []byte(identity), 0600)
+		return fmt.Errorf("notifier launch failed; use N in Radar to retry setup: %w", err)
 	}
 	return nil
 }

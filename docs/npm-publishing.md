@@ -2,7 +2,7 @@
 
 Radar releases its CLI binaries and stages `@christianmoesl/pi-radar` from the same `vX.Y.Z` tags. The npm package version is `X.Y.Z`. Development dependencies and artifact creation use the pnpm version pinned in `package.json`; npm CLI uses trusted publishing to stage the artifact for review. An npm maintainer must approve it with 2FA before it becomes public.
 
-The package is MIT-licensed and contains `LICENSE`, `package.json`, `README.md`, and `extensions/pi-radar/index.ts`. Pi loads the TypeScript directly and supplies its runtime imports. The package neither bundles Pi nor installs the Radar binary.
+The package is MIT-licensed and contains `LICENSE`, `package.json`, `README.md`, and the modules under `extensions/pi-radar/` (entrypoint, loaded-version reporter, and version constant). Pi loads the TypeScript directly and supplies its runtime imports. The package neither bundles Pi nor installs the Radar binary.
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ Use the filename only, not `.github/workflows/release.yml`. Values are case-sens
 
 The shipped workflow uses a dedicated `stage-npm` job with `contents: read` and `id-token: write`. npm exchanges that job's GitHub-issued OIDC identity for short-lived, package-scoped staging credentials. It needs neither `NPM_TOKEN` nor `NODE_AUTH_TOKEN`. The job uses a GitHub-hosted runner, a fresh locked dependency installation without caching, version validation, and Pi checks before packing and running `npm stage publish`. It runs only after binary release validation and publication succeed. Stable versions target `latest`; prereleases target `next`, taking effect only after approval.
 
-A green release workflow means the binaries are published and the npm artifact is staged. The GitHub Actions summary explicitly states that npm review and 2FA approval are still required. Existing npm installs continue to receive the previously approved version until then. CLI binary releases do not wait for npm approval.
+A green release workflow means the binaries are published and the npm artifact is staged. The GitHub Actions summary explicitly states that npm review and 2FA approval are still required. Existing npm installs continue to receive the previously approved version until then. CLI binary releases do not wait for npm approval. The coordinated macOS updater, however, offers a release only once the exact matching npm version is public. See [release signatures and notifier artifact reuse](releases.md).
 
 GitHub-hosted Actions runners are supported; custom forge OIDC and self-hosted runners are not. If development pushes to another forge, its mirror must forward release tags to `github.com/ChristianMoesl/radar`, where this workflow must actually run.
 

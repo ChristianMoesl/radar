@@ -8,6 +8,7 @@ import (
 
 	"radar/internal/collector"
 	"radar/internal/integration"
+	"radar/internal/operationlock"
 	"radar/internal/protocol"
 	"radar/internal/state"
 )
@@ -114,6 +115,11 @@ func (s *Service) Reset() error {
 }
 
 func (s *Service) MutateTask(ctx context.Context, method string, mutation *protocol.TaskMutation) (protocol.Task, error) {
+	release, lockErr := operationlock.Acquire(false)
+	if lockErr != nil {
+		return protocol.Task{}, lockErr
+	}
+	defer release()
 	if mutation == nil {
 		return protocol.Task{}, fmt.Errorf("task mutation is required")
 	}

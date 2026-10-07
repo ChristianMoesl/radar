@@ -14,6 +14,8 @@ async function fixture(t: { after: (cleanup: () => Promise<void>) => void }, ver
   const root = await mkdtemp(join(tmpdir(), "radar-release-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "scripts"));
+  await mkdir(join(root, "extensions/pi-radar"), { recursive: true });
+  await writeFile(join(root, "extensions/pi-radar/version.ts"), `export const radarPackageVersion = "${version}";\n`);
   await writeFile(join(root, "package.json"), JSON.stringify({ version }));
   const script = join(root, "scripts", "check-release-version.mjs");
   await writeFile(script, await readFile(join(repository, "scripts", "check-release-version.mjs")));

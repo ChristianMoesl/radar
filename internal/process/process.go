@@ -1,10 +1,12 @@
 package process
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -76,6 +78,15 @@ func DaemonPIDs() ([]int, error) {
 		return []int{pid}, nil
 	}
 
+	// Explicit PID namespaces (tests or separate instances) must not discover
+	// and stop an unrelated host daemon when their own PID file is absent.
+	if os.Getenv("RADAR_PID") != "" {
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		return nil, nil
+	}
+
 	pids, psErr := daemonPIDsFromPS()
 	if psErr == nil {
 		return pids, nil
@@ -141,12 +152,7 @@ func isRadarDaemon(args []string) bool {
 	if name != "radar" && !strings.HasPrefix(name, "radar-") {
 		return false
 	}
-	for _, arg := range args[1:] {
-		if arg == "daemon" {
-			return true
-		}
-	}
-	return false
+	return args[1] == "daemon"
 }
 
 func stopPID(pid int) error {
@@ -176,5 +182,18 @@ func Running(pid int) bool {
 	if err != nil {
 		return false
 	}
-	return process.Signal(syscall.Signal(0)) == nil
+	if process.Signal(syscall.Signal(0)) != nil {
+		return false
+	}
+	// kill(pid, 0) also succeeds for a terminated, not-yet-reaped daemon. An
+	// old TUI can own that child, so an updater cannot reap it itself.
+	if runtime.GOOS == "darwin" {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		output, err := exec.CommandContext(ctx, "ps", "-p", strconv.Itoa(pid), "-o", "stat=").Output()
+		cancel()
+		if err == nil && strings.HasPrefix(strings.TrimSpace(string(output)), "Z") {
+			return false
+		}
+	}
+	return true
 }

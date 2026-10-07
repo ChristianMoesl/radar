@@ -18,6 +18,7 @@ async function harness(t: TestContext, registered: unknown = true) {
     Object.assign(process.env, environment);
     await rm(root, { recursive: true, force: true });
   });
+  process.env.PI_CODING_AGENT_DIR = join(root, "agent");
   process.env.TMPDIR = root;
   delete process.env.RADAR_HOST_TMPDIR;
   delete process.env.RADAR_BINARY;

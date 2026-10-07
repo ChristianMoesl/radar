@@ -1,3 +1,4 @@
+import { reportLoadedVersion } from "./runtime-version.ts";
 import { homedir, tmpdir } from "node:os";
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -356,6 +357,7 @@ export default function radarExtension(pi: ExtensionAPI) {
       return;
     }
     activated = true;
+    await reportLoadedVersion(pi, ctx);
     await activateRadar(pi, ctx);
   });
 }

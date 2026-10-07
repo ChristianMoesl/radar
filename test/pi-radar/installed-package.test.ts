@@ -78,7 +78,9 @@ export default function(pi) {
   await exec("pnpm", ["pack", "--out", tarball], { cwd: repository, timeout: 15000 });
   const { stdout: listing } = await exec("tar", ["-tzf", tarball]);
   assert.deepEqual(listing.trim().split("\n").sort(), [
-    "package/LICENSE", "package/README.md", "package/extensions/pi-radar/index.ts", "package/package.json",
+    "package/LICENSE", "package/README.md", "package/extensions/pi-radar/index.ts",
+    "package/extensions/pi-radar/runtime-version.ts",
+    "package/extensions/pi-radar/version.ts", "package/package.json",
   ]);
   await exec("tar", ["-xzf", tarball, "-C", root]);
   const distribution = join(root, "package");

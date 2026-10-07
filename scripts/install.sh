@@ -24,12 +24,10 @@ if [[ -d "$notifier" ]]; then
     exit 1
   fi
 
-  rm -rf "$libexecdir/RadarNotifier.app"
-  install -d "$libexecdir"
-  cp -R "$notifier" "$libexecdir/RadarNotifier.app"
-
-  lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-  "$lsregister" -f "$libexecdir/RadarNotifier.app"
+  "$root/install-notifier.sh" "$notifier" "$libexecdir/RadarNotifier.app"
+  if [[ "$bindir" = "$HOME/.local/bin" && "$libexecdir" = "$HOME/.local/libexec/radar" ]]; then
+    rm -f "$libexecdir/install.json"
+  fi
 fi
 
 printf 'Installed Radar at %s\n' "$bindir/radar"
@@ -38,3 +36,5 @@ if [[ -d "$libexecdir/RadarNotifier.app" ]]; then
   printf 'Installed Radar notifier at %s\n' "$libexecdir/RadarNotifier.app"
 fi
 printf 'Restart a running daemon with: radar restart\n'
+
+printf "On macOS: run radar setup notifications; use u in Radar for explicit managed-release adoption/upgrades.\n"

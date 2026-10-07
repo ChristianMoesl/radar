@@ -16,6 +16,7 @@ import (
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/logging"
+	"radar/internal/operationlock"
 	"radar/internal/pi"
 )
 
@@ -194,6 +195,11 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 }
 
 func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
+	release, lockErr := operationlock.Acquire(false)
+	if lockErr != nil {
+		return Workspace{}, lockErr
+	}
+	defer release()
 	root, err := workspaceRoot(options.WorkspaceRoot)
 	if err != nil {
 		return Workspace{}, err

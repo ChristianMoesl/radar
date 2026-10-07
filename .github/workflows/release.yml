@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: radar-releases
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -47,17 +51,26 @@ jobs:
       - name: Test
         run: make test
 
+      - name: Reuse or publish immutable notifier component
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RADAR_RELEASE_KEY_ID: ${{ vars.RADAR_RELEASE_KEY_ID }}
+          RADAR_RELEASE_SIGNING_KEY: ${{ secrets.RADAR_RELEASE_SIGNING_KEY }}
+        run: scripts/prepare-release-notifier.sh
+
       - name: Build release archives
-        run: make dist VERSION="${GITHUB_REF_NAME}" COMMIT="$(git rev-parse --short=12 HEAD)"
+        run: make dist VERSION="${GITHUB_REF_NAME}" COMMIT="$(git rev-parse --short=12 HEAD)" NOTIFIER_ARTIFACT_DIR="$PWD/build/release-notifier"
+
+      - name: Authenticate release metadata
+        env:
+          RADAR_RELEASE_KEY_ID: ${{ vars.RADAR_RELEASE_KEY_ID }}
+          RADAR_RELEASE_SIGNING_KEY: ${{ secrets.RADAR_RELEASE_SIGNING_KEY }}
+        run: node scripts/release-metadata.mjs release dist "$GITHUB_REF_NAME"
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${GITHUB_REF_NAME}" dist/* \
-            --verify-tag \
-            --title "${GITHUB_REF_NAME}" \
-            --generate-notes
+        run: scripts/publish-release.sh "$GITHUB_REF_NAME"
 
   stage-npm:
     name: Stage Pi package for npm approval

@@ -207,6 +207,7 @@ type Task struct {
 }
 
 type Response struct {
+	PID                     int                      `json:"pid,omitempty"`
 	OK                      bool                     `json:"ok"`
 	Error                   string                   `json:"error,omitempty"`
 	Revision                int64                    `json:"revision,omitempty"`
@@ -224,6 +225,9 @@ type Response struct {
 
 func (r Response) MarshalJSON() ([]byte, error) {
 	fields := map[string]any{"ok": r.OK}
+	if r.PID != 0 {
+		fields["pid"] = r.PID
+	}
 	if r.Error != "" {
 		fields["error"] = r.Error
 	}

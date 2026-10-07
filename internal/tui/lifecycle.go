@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"os/signal"
 	"sync"
@@ -58,9 +59,14 @@ func runModel(m model, options ...tea.ProgramOption) error {
 		}
 	}()
 
-	_, err := program.Run()
+	final, err := program.Run()
 	// Keep SIGHUP handled until accepted creations finish, even if tmux closes
 	// the popup's terminal or Bubble Tea returns an input/terminal error.
 	m.creations.wait()
+	if result, ok := final.(model); ok && result.relaunch && err == nil {
+		return ErrRelaunch
+	}
 	return err
 }
+
+var ErrRelaunch = errors.New("relaunch the installed Radar")

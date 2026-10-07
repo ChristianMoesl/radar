@@ -65,7 +65,7 @@ pi install npm:@christianmoesl/pi-sbx
 
 `pi-radar` provides Radar workspace tools and context; `pi-sbx` provides sandbox tool routing. **`pi-sbx` >=0.6.0 is required for early sandboxed launch.** Installing the SBX CLI alone does not install either Pi package.
 
-Radar-launched interactive Pi sessions show one combined, non-blocking recommendation per Pi profile for missing packages. It explains each package's benefits and installation command; `/radar-dismiss-install-hint` hides it. The notice never installs packages or changes Pi settings. Only the foreground onboarding wizard installs dependencies, after explicit permission. The notice checks the running Pi's Radar tools and personal/project declarations (including `PI_CODING_AGENT_DIR`), suppresses advice independently for each known configured or explicitly disabled package, and does not appear in RPC/print mode. Having `pi-radar` installed does not hide missing `pi-sbx` advice. This helper gives installation advice, not version enforcement. Pi runs on the host even for sandboxed workspaces, so install both packages in that host Pi profile. For a custom agent directory, prefix each command with `PI_CODING_AGENT_DIR=/path/to/profile`; the suggested commands include the matching directory. Restart Pi after installation.
+Radar-launched interactive Pi sessions show one combined, non-blocking recommendation per Pi profile for missing packages. It explains each package's benefits and installation command; `/radar-dismiss-install-hint` hides it. The notice never installs packages or changes Pi settings. Only foreground onboarding or the explicitly confirmed release updater installs dependencies, after permission. The notice checks the running Pi's Radar tools and personal/project declarations (including `PI_CODING_AGENT_DIR`), suppresses advice independently for each known configured or explicitly disabled package, and does not appear in RPC/print mode. Having `pi-radar` installed does not hide missing `pi-sbx` advice. This helper gives installation advice, not version enforcement. Pi runs on the host even for sandboxed workspaces, so install both packages in that host Pi profile. For a custom agent directory, prefix each command with `PI_CODING_AGENT_DIR=/path/to/profile`; the suggested commands include the matching directory. Restart Pi after installation.
 
 All launches load a small **notice-only helper**, not the integration; early sandboxed launches additionally load the required pi-sbx prerequisite guard described below. Radar caches these helpers under `$XDG_CACHE_HOME/radar/pi/` (or the platform's user cache directory) and records that the notice was shown in `<Pi agent directory>/radar/install-hint-seen`. Removing that marker allows the recommendation to appear again. Existing settings and workspaces are not rewritten; unreadable settings or unavailable notice storage simply skip the advice.
 
@@ -88,6 +88,25 @@ Sandbox routing remains entirely owned by the separately installed `pi-sbx` exte
 **Upgrading from the injected extension:** update the Radar binary and install this package together, then restart existing Pi processes. Radar no longer materializes or passes `--extension` for its integration. Remove any manually configured reference to the old `$XDG_DATA_HOME/radar/pi/radar.ts` (normally `~/.local/share/radar/pi/radar.ts`) so only the installed package loads. The old file is unused and can be removed after old sessions have stopped. No workspace registry or conversation migration is needed.
 
 ## Update
+
+On **macOS**, press **u** in Radar (or run `radar upgrade`) to review and confirm
+a coordinated stable release. The standard `~/.local` installation requires
+explicit adoption; custom/package-manager installations remain manual. Updates
+verify signed metadata, preserve an unchanged notifier, retain recovery files,
+and health-check the new daemon. Pi package updates require separate consent to
+an exact Radar-managed version pin; running Pi sessions still need `/reload`.
+Signing-key setup and public npm approval are prerequisites for an eligible
+release. See [release setup, trust and recovery](docs/releases.md).
+
+Press **N**, or run `radar setup notifications`, for the macOS companion's launch
+approval, notification permission, Settings links and delivery/click test.
+[Step-by-step approval instructions](docs/installation.md#macos-notification-setup)
+explain both permissions. No paid Apple membership is required for this ad-hoc
+signed distribution, but a changed helper can require **Open Anyway** again.
+
+**Linux/Windows remain manual (`make install`).** The existing manual archive
+path also remains available. Checksum files detect corruption, but alone do not
+authenticate the publisher; trust the initial download/source independently.
 
 Download the new release archive, verify it with `checksums.txt`, and run its installer over the existing installation. **If upgrading from the former per-task ignore feature, stop the daemon and run the [explicit task-muting migration](docs/integrations/obsidian.md#migrating-task-muting) before starting the new daemon.** For other updates, run `radar restart` if the daemon is already running. Update unpinned Pi packages in the same host Pi profile:
 

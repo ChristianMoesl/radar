@@ -307,3 +307,45 @@ isolated HOME/XDG/PATH, real YAML configuration files, stub installers and a loc
 
 No test uses real service credentials, installs software on the machine, or talks
 to the user's tmux server. The PTY matrix adds roughly 90 seconds to the suite.
+
+## macOS notification setup
+
+After saving the main setup, macOS users can optionally set up notifications.
+Return at any time with **N** in Radar or `radar setup notifications`. Deferring
+keeps the dashboard usable and does not change notification preferences.
+
+The small `RadarNotifier.app` companion supplies Radar's native application
+identity, task alerts and notification clicks. It is not a second main UI.
+Its version is independent of the CLI: ordinary CLI updates preserve an unchanged
+helper, while genuine helper changes can require fresh launch approval.
+
+**Launch approval and notification permission are separate:**
+
+1. If macOS says **RadarNotifier.app Not Opened**, choose **Done**, not **Move to
+   Trash**. For the official release you chose to trust, go to **Apple menu →
+   System Settings → Privacy & Security → Security → Open Anyway**. Authenticate
+   and confirm **Open**, then retry Radar's test. The approval entry appears after
+   the blocked launch. Ad-hoc signing is not Apple Developer ID/notarization;
+   Apple cannot verify this developer. Never disable Gatekeeper or strip quarantine.
+2. Choose **Allow** when the foreground test requests notification permission.
+   To change it later: **Apple menu → System Settings → Notifications → Radar →
+   Allow notifications**. Launch approval alone does not grant this permission.
+
+The setup offers **Privacy & Security** and **Notifications Settings** actions
+using macOS pane links. Routing can vary by macOS version; the written navigation
+remains available. Opening Settings does not grant permissions or promise to
+select the app/scroll to its approval row.
+
+Send the test and confirm delivery and the click destination. Focus or banner
+settings can hide a banner even with permission granted; also check Notification
+Center. A successful launch is not proof of authorization/delivery/clicks.
+Background notifications do not request permission; after a failed helper launch,
+Radar avoids repeatedly launching that same binary until a successful setup/test.
+
+## Managed macOS releases
+
+Press **u** in Radar to review a release and confirm adoption/upgrade of the
+standard `~/.local` installation. No silent install occurs. Custom/symlink/package-
+manager installs and Linux/Windows remain manual. CLI and Pi updates have separate
+outcomes; active Pi sessions need `/reload` or restart after a package change.
+See [release trust, prerequisites, supported layout and recovery](releases.md).

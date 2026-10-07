@@ -11,9 +11,11 @@ private struct NotificationPayload: Decodable {
 private final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private let payload: NotificationPayload?
     private let reportsStatus: Bool
+    private let requestsPermission: Bool
     private let center = UNUserNotificationCenter.current()
 
-    init(payload: NotificationPayload?, reportsStatus: Bool) {
+    init(payload: NotificationPayload?, reportsStatus: Bool, requestsPermission: Bool) {
+        self.requestsPermission = requestsPermission
         self.payload = payload
         self.reportsStatus = reportsStatus
         super.init()
@@ -66,6 +68,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotifica
             case .authorized, .provisional, .ephemeral:
                 self.add(payload)
             case .notDetermined:
+                guard self.requestsPermission else { self.finish(); return }
                 self.center.requestAuthorization(options: [.alert]) { granted, error in
                     if let error {
                         self.fail("could not request notification permission: \(error)")
@@ -149,7 +152,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotifica
 
 private func notificationPayload() -> NotificationPayload? {
     let arguments = CommandLine.arguments
-    guard arguments.count == 3, arguments[1] == "--notify" else {
+    guard arguments.count == 3, (arguments[1] == "--notify" || arguments[1] == "--test") else {
         return nil
     }
     guard let data = Data(base64Encoded: arguments[2]) else {
@@ -167,7 +170,8 @@ private func notificationPayload() -> NotificationPayload? {
 let application = NSApplication.shared
 private let delegate = AppDelegate(
     payload: notificationPayload(),
-    reportsStatus: CommandLine.arguments.count == 2 && CommandLine.arguments[1] == "--status"
+    reportsStatus: CommandLine.arguments.count == 2 && CommandLine.arguments[1] == "--status",
+    requestsPermission: CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--test"
 )
 application.delegate = delegate
 application.run()

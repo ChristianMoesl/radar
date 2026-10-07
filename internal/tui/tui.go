@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 	"unicode"
@@ -24,6 +25,8 @@ import (
 	"radar/internal/protocol"
 	"radar/internal/sourceactions"
 	"radar/internal/taskrefs"
+	"radar/internal/update"
+	"radar/internal/version"
 )
 
 type fetchMsg struct {
@@ -105,6 +108,8 @@ type createForm struct {
 }
 
 type model struct {
+	releaseNotice       update.Notice
+	relaunch            bool
 	creations           *creationTracker
 	operation           taskOperation
 	operationGeneration uint64
@@ -184,6 +189,9 @@ func newModel(socketPath string) model {
 
 func (m model) Init() tea.Cmd {
 	commands := []tea.Cmd{m.fetch("tasks")}
+	if runtime.GOOS == "darwin" {
+		commands = append(commands, checkReleaseNotice)
+	}
 	if m.mode == "create_repo" {
 		commands = append(commands, m.loadRepos())
 	}
@@ -195,6 +203,17 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case releaseNoticeMsg:
+		m.releaseNotice = update.Notice(msg)
+		m.syncTaskScroll()
+		return m, nil
+	case maintenanceMsg:
+		if version.CheckInstalled() != nil {
+			m.relaunch = true
+			return m, tea.Quit
+		}
+		m.err = msg.err
+		return m, m.fetch("tasks")
 	case operationTickMsg:
 		if m.operation.kind == "" || uint64(msg) != m.operationGeneration {
 			return m, nil
@@ -402,6 +421,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if task, ok := m.selectedTask(); ok {
 				return m.editWorkspace(task)
 			}
+		case "u":
+			if runtime.GOOS == "darwin" {
+				return m, runMaintenance("upgrade", "--from-tui")
+			}
+		case "N":
+			if runtime.GOOS == "darwin" {
+				return m, runMaintenance("setup", "notifications")
+			}
 		case "f":
 			return m, m.openConfig()
 		case "i", "right":
@@ -542,6 +569,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case watchMsg:
+		if msg.err == nil && msg.response.Version != "" && msg.response.Version != version.Current() && version.CheckInstalled() != nil {
+			m.relaunch = true
+			return m, tea.Quit
+		}
 		m.watching = false
 		if msg.err != nil {
 			// Revisions are local to a daemon process. Reconnect from zero so
@@ -1897,7 +1928,11 @@ func (m model) header(width int) string {
 		doneStyle.Render(fmt.Sprintf("✅ %d done", m.summary.Done)),
 	}, "  ")
 
-	return truncateLine(lipgloss.JoinHorizontal(lipgloss.Top, titleStyle.Render("Radar"), "  ", counts), width)
+	header := truncateLine(lipgloss.JoinHorizontal(lipgloss.Top, titleStyle.Render("Radar"), "  ", counts), width)
+	if m.releaseNotice.Version != "" {
+		header += "\n" + truncateLine("Release "+m.releaseNotice.Version+" available — u to review", width)
+	}
+	return header
 }
 
 func (m model) taskList(width int, height int) string {
