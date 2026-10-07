@@ -102,7 +102,8 @@ func TestSourceToggleReclaimsRowsAndKeepsSelectionVisible(t *testing.T) {
 				m := model{width: tc.width, height: tc.height, tasks: longTaskListFixture(), sources: allSourceStatusesFixture(), cursor: cursor}
 				m.syncTaskScroll()
 				collapsedRows := m.taskListHeight(m.contentWidth())
-				footerLine := renderedLineIndex(m.View(), "↑/k/ctrl+p")
+				anchor := mainNavigationAnchor(m)
+				footerLine := renderedLineIndex(m.View(), anchor)
 				for _, expanded := range []bool{true, false} {
 					updated, cmd := m.Update(runeKey('s'))
 					m = updated.(model)
@@ -121,7 +122,7 @@ func TestSourceToggleReclaimsRowsAndKeepsSelectionVisible(t *testing.T) {
 					if lipgloss.Height(view) != tc.height || !strings.Contains(view, "› ") {
 						t.Fatalf("toggle overflowed or hid selection:\n%s", view)
 					}
-					if got := renderedLineIndex(view, "↑/k/ctrl+p"); got != footerLine {
+					if got := renderedLineIndex(view, anchor); got != footerLine {
 						t.Fatalf("toggle moved footer from %d to %d", footerLine, got)
 					}
 					if strings.Contains(view, "1 refs") != expanded || strings.Contains(view, "[s] hide") != expanded {

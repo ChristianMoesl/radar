@@ -5,6 +5,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"radar/internal/protocol"
 )
 
 func confirmationScrollHelp(width int) string {
@@ -52,10 +54,10 @@ var mainKeyHints = [][]keyHint{
 		{"c", "create workspace"},
 		{"w", "workspace resources"},
 		{"x", "cleanup"},
-		{"X", "garbage collect"},
-		{"f", "config"},
 		{"s", "sources"},
 		{"r", "refresh"},
+		{"f", "config"},
+		{"X", "garbage collect"},
 		{"q", "quit"},
 	},
 }
@@ -67,6 +69,14 @@ func mainHelp(width int) string {
 }
 
 func (m model) mainHelp(width int) string {
+	// Context changes must not move the compact viewport or footer.
+	return lipgloss.NewStyle().Height(lipgloss.Height(mainHelp(width))).Render(renderKeyHints(width, m.mainHelpGroups()))
+}
+
+// The compact footer and the right-hand rail share contextual labels and
+// availability. Neither changes the key handlers or adds a new interaction.
+func (m model) mainHelpGroups() [][]keyHint {
+	task, selected := m.selectedTask()
 	groups := make([][]keyHint, len(mainKeyHints))
 	for i, hints := range mainKeyHints {
 		groups[i] = append([]keyHint(nil), hints...)
@@ -85,19 +95,61 @@ func (m model) mainHelp(width int) string {
 			}
 		}
 		groups[0] = append(groups[0], keyHint{"n", "new task"})
-	} else if task, ok := m.selectedTask(); ok {
+	} else if selected {
+		ref, _ := authoredTaskRef(task)
 		for i, hint := range groups[0] {
-			if hint.keys == "m" {
+			switch hint.keys {
+			case "m":
 				groups[0][i].action = "mute"
 				if task.Muted {
 					groups[0][i].action = "unmute"
 				}
+			case "d":
+				groups[0][i].action = "mark done"
+				if ref.Metadata["state"] == "done" {
+					groups[0][i].action = "reopen"
+				}
+			case "p":
+				groups[0][i].action = "make urgent"
+				if ref.Metadata["priority"] == "urgent" {
+					groups[0][i].action = "make normal"
+				}
 			}
 		}
 	}
-	// Context changes must not move the viewport or the footer. Reserve the
-	// same shortcut rows as the complete help, even on a section header.
-	return lipgloss.NewStyle().Height(lipgloss.Height(mainHelp(width))).Render(renderKeyHints(width, groups))
+	for i, group := range groups {
+		groups[i] = nil
+		for _, hint := range group {
+			if m.mainHintAvailable(hint.keys, task, selected) {
+				groups[i] = append(groups[i], hint)
+			}
+		}
+	}
+	return groups
+}
+
+func (m model) mainHintAvailable(key string, task protocol.Task, selected bool) bool {
+	// These hints describe several aliases rather than a single input event.
+	if key == mainKeyHints[0][0].keys || key == mainKeyHints[0][1].keys {
+		return true
+	}
+	if m.operation.kind != "" && (!operationNavigationKey(key) || (key == "enter" && (m.mode != "" || m.selectedSection == ""))) {
+		return false
+	}
+	if key == "enter" && m.selectedSection != "" {
+		return true
+	}
+	switch key {
+	case "enter", "i", "w", "x", "m":
+		return selected
+	case "o":
+		return selected && len(taskLinks(task)) > 0
+	case "d", "D", "p":
+		_, authored := authoredTaskRef(task)
+		return selected && authored && (key != "p" || task.Attention != "done")
+	default:
+		return true
+	}
 }
 
 func renderKeyHints(width int, groups [][]keyHint) string {

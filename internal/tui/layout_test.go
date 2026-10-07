@@ -96,7 +96,7 @@ func TestDashboardFitsTerminalAndKeepsChromeFixed(t *testing.T) {
 				if !strings.Contains(ansi.Strip(view), "› ") {
 					t.Fatalf("selected task disappeared:\n%s", ansi.Strip(view))
 				}
-				for _, anchor := range []string{"Radar", "Sources", "↑/k/ctrl+p"} {
+				for _, anchor := range []string{"Radar", "Sources:", mainNavigationAnchor(m)} {
 					if renderedLineIndex(view, anchor) != renderedLineIndex(initial, anchor) {
 						t.Fatalf("%s moved while scrolling:\n%s", anchor, ansi.Strip(view))
 					}
@@ -226,7 +226,7 @@ func TestDashboardUsesFullHeightRegardlessOfTaskCount(t *testing.T) {
 								t.Fatalf("count=%d loading=%v: height=%d, want %d:\n%s", count, loading, got, size.height, ansi.Strip(view))
 							}
 							assertNoWideLines(t, view, size.width)
-							for _, anchor := range []string{"Radar", "Sources", "↑/k/ctrl+p"} {
+							for _, anchor := range []string{"Radar", "Sources:", mainNavigationAnchor(m)} {
 								if renderedLineIndex(view, anchor) != renderedLineIndex(full, anchor) {
 									t.Fatalf("count=%d loading=%v: %s moved:\n%s", count, loading, anchor, ansi.Strip(view))
 								}
@@ -250,10 +250,10 @@ func TestDashboardUsesFullHeightRegardlessOfTaskCount(t *testing.T) {
 
 func TestTallerPopupGivesExtraRowsToTasks(t *testing.T) {
 	t.Setenv("TMUX", "test")
-	m := model{width: 160, height: 35, tasks: longTaskListFixture(), sources: allSourceStatusesFixture()}
+	m := model{width: 160, height: 45, tasks: longTaskListFixture(), sources: allSourceStatusesFixture()}
 	before := ansi.Strip(m.View())
 	beforeRows := m.taskListHeight(m.contentWidth())
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 50})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 60})
 	m = updated.(model)
 	after := ansi.Strip(m.View())
 	if rows := m.taskListHeight(m.contentWidth()); rows != beforeRows+15 {
@@ -262,13 +262,14 @@ func TestTallerPopupGivesExtraRowsToTasks(t *testing.T) {
 	if strings.Count(after, "attention task") <= strings.Count(before, "attention task") {
 		t.Fatalf("taller popup did not display more tasks:\n%s", after)
 	}
-	for _, anchor := range []string{"Sources", "↑/k/ctrl+p"} {
-		if renderedLineIndex(after, anchor) != renderedLineIndex(before, anchor)+15 {
-			t.Fatalf("%s did not follow the bottom of the resized popup", anchor)
-		}
+	if renderedLineIndex(after, "Sources:") != renderedLineIndex(before, "Sources:")+15 {
+		t.Fatal("Sources did not follow the bottom of the resized popup")
 	}
-	if lipgloss.Height(after) != 50 {
-		t.Fatalf("resized frame height = %d, want 50", lipgloss.Height(after))
+	if renderedLineIndex(after, "Navigate") != renderedLineIndex(before, "Navigate") {
+		t.Fatal("rail navigation moved during vertical resize")
+	}
+	if lipgloss.Height(after) != 60 {
+		t.Fatalf("resized frame height = %d, want 60", lipgloss.Height(after))
 	}
 }
 

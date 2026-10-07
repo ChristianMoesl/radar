@@ -683,7 +683,8 @@ func (m model) View() string {
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
-	afterTaskSections := m.afterTaskSections(contentWidth)
+	listWidth := m.taskListWidth()
+	afterTaskSections := m.afterTaskSections(listWidth)
 	taskRows := m.availableTaskRows(sections, afterTaskSections)
 	var tasks string
 	if m.loading && len(m.tasks) == 0 {
@@ -691,15 +692,18 @@ func (m model) View() string {
 	} else if len(m.tasks) == 0 {
 		tasks = subtleStyle.Render("No tasks need your attention.")
 	} else {
-		tasks = m.taskList(contentWidth, taskRows)
+		tasks = m.taskList(listWidth, taskRows)
 	}
 	if m.height > 0 {
-		// Reserve the whole list viewport even for short or empty lists. Sources
-		// and shortcuts stay at the bottom rather than following the last task.
+		// Reserve the whole viewport even for short or empty lists. Sources
+		// stay at the bottom rather than following the last task.
 		tasks = lipgloss.NewStyle().Height(taskRows).Render(tasks)
 	}
-	sections = append(sections, tasks)
-	sections = append(sections, afterTaskSections...)
+	body := strings.Join(append([]string{tasks}, afterTaskSections...), "\n\n")
+	if m.showsMainRail() {
+		body = m.dashboardColumns(body)
+	}
+	sections = append(sections, body)
 	return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 }
 
@@ -715,7 +719,9 @@ func (m model) afterTaskSections(width int) []string {
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))
 	}
-	sections = append(sections, m.mainHelp(width))
+	if !m.showsMainRail() {
+		sections = append(sections, m.mainHelp(width))
+	}
 	return sections
 }
 
@@ -733,7 +739,7 @@ func (m model) availableTaskRows(before []string, after []string) int {
 	// Joining sections with two newlines adds one blank row per boundary;
 	// each section's own rows are already included in its height above.
 	used += len(before) + len(after)
-	return max(3, m.height-used)
+	return max(1, m.height-used)
 }
 
 // Reduce the outer padding on small terminals without changing task spacing.
@@ -1921,7 +1927,7 @@ func (m model) header(width int) string {
 }
 
 func (m model) taskList(width int, height int) string {
-	lines, selectedStart, selectedEnd := m.taskLines(width)
+	lines, selectedStart, selectedEnd := m.taskViewportLines(width, height)
 	scroll := adjustedTaskScroll(lines, selectedStart, selectedEnd, m.scroll, height)
 	return scrolledLines(lines, selectedStart, selectedEnd, scroll, height)
 }
@@ -1932,13 +1938,24 @@ func (m *model) syncTaskScroll() {
 		m.scroll = 0
 		return
 	}
-	width := m.contentWidth()
-	lines, selectedStart, selectedEnd := m.taskLines(width)
-	m.scroll = adjustedTaskScroll(lines, selectedStart, selectedEnd, m.scroll, m.taskListHeight(width))
+	width := m.taskListWidth()
+	height := m.taskListHeight(width)
+	lines, selectedStart, selectedEnd := m.taskViewportLines(width, height)
+	m.scroll = adjustedTaskScroll(lines, selectedStart, selectedEnd, m.scroll, height)
+}
+
+// If only one row fits, the selected title takes priority over its heading.
+func (m model) taskViewportLines(width, height int) ([]string, int, int) {
+	lines, start, end := m.taskLines(width)
+	if height == 1 {
+		start = m.overviewLayout().bounds[m.selectedEntry()].line
+		end = start
+	}
+	return lines, start, end
 }
 
 func (m model) taskListHeight(width int) int {
-	before := []string{m.header(width)}
+	before := []string{m.header(m.contentWidth())}
 	return m.availableTaskRows(before, m.afterTaskSections(width))
 }
 
@@ -1966,10 +1983,11 @@ func scrolledLines(lines []string, selectedStart int, selectedEnd int, scroll in
 	}
 	scroll = max(0, min(scroll, len(lines)-height))
 	visible := append([]string{}, lines[scroll:scroll+height]...)
-	if scroll > 0 && selectedStart != scroll {
+	if scroll > 0 && (scroll < selectedStart || scroll > selectedEnd) {
 		visible[0] = subtleStyle.Render("↑ more")
 	}
-	if scroll+height < len(lines) && selectedEnd != scroll+height-1 {
+	last := scroll + height - 1
+	if last < len(lines)-1 && (last < selectedStart || last > selectedEnd) {
 		visible[len(visible)-1] = subtleStyle.Render("↓ more")
 	}
 	return strings.Join(visible, "\n")

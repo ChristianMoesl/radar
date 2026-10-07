@@ -746,7 +746,7 @@ func TestScrollDoesNotMoveUpUntilCursorHitsTop(t *testing.T) {
 	for i := range tasks {
 		tasks[i] = protocol.Task{Title: fmt.Sprintf("task %d", i), Attention: "attention"}
 	}
-	model := model{width: 100, height: 10, tasks: tasks}
+	model := model{width: 100, height: 22, tasks: tasks}
 
 	for i := 0; i < 6; i++ {
 		model.moveCursor(1)

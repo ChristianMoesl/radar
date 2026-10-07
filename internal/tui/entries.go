@@ -220,7 +220,7 @@ func (m *model) moveCursorPage(direction int) {
 		m.syncTaskScroll()
 		return
 	}
-	height := m.taskListHeight(m.contentWidth())
+	height := m.taskListHeight(m.taskListWidth())
 	targetLine := max(0, min(current.line+direction*height, len(layout.rows)-1))
 	best := m.selectedEntry()
 	bestDistance := len(layout.rows) + height
