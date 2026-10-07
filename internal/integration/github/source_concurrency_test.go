@@ -16,7 +16,7 @@ func TestSourceCollectFetchesMainAndTrackedPullRequestsConcurrently(t *testing.T
 	resetRateStateForTest(t)
 	rateState.mu.Lock()
 	rateState.fetched = time.Now()
-	rateState.response.Resources.Search = rateLimitResource{Limit: 30, Remaining: 30, Reset: time.Now().Add(time.Minute).Unix()}
+	rateState.response.Resources.GraphQL = rateLimitResource{Limit: 5000, Remaining: 5000, Reset: time.Now().Add(time.Minute).Unix()}
 	rateState.mu.Unlock()
 
 	dir := t.TempDir()
@@ -29,13 +29,9 @@ func TestSourceCollectFetchesMainAndTrackedPullRequestsConcurrently(t *testing.T
 	if err := os.WriteFile(configPath, []byte(`linking_mark_prefixes:
   - ABC
 github:
-  filters:
-    rules:
-      - repos:
-          - acme/*
-        users:
-          - renovate[bot]
-        action: deprioritize`), 0o600); err != nil {
+  track:
+    - repos: [acme/app]
+      authors: ["renovate[bot]"]`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	started := filepath.Join(dir, "started")
@@ -43,7 +39,7 @@ github:
 	installFakeGH(t, `#!/bin/sh
 set -eu
 case "$*" in
-  *"api graphql"*)
+  *"reviewQuery"*)
     touch "`+started+`.graphql"
     i=0
     while [ ! -f "`+release+`" ]; do
@@ -51,13 +47,13 @@ case "$*" in
     done
     echo '{"data":{"viewer":{"login":"me"},"reviewRequested":{"nodes":[]},"authored":{"nodes":[]},"participated":{"nodes":[]}}}'
     ;;
-  "search prs --owner acme --author renovate[bot] --state open --limit 100 --json id,number,title,url,repository,isDraft,state,body,author")
+  *"RadarTrackedPullRequests"*)
     touch "`+started+`.tracked"
     i=0
     while [ ! -f "`+release+`" ]; do
       i=$((i+1)); [ "$i" -lt 100 ] || exit 2; sleep 0.01
     done
-    echo '[]'
+    echo '{"data":{"repository":{"pullRequests":{"nodes":[],"pageInfo":{"hasNextPage":false}}}}}'
     ;;
   *)
     echo "unexpected gh args: $*" >&2

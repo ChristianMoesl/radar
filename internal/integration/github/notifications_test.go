@@ -64,7 +64,7 @@ JSON
 esac
 `)
 
-	cfg := filters.Config{MuteUsers: []string{"gemini-code-assist[bot]"}}
+	cfg := []filters.ActivityRule{{Actors: []string{"gemini-code-assist[bot]"}, Action: "ignore"}}
 	reviewItems, authoredItems, activityItems, err := FetchPullRequests(context.Background(), nil, cfg, testLogger())
 	if err != nil {
 		t.Fatalf("FetchPullRequests() error = %v", err)
@@ -119,12 +119,12 @@ func TestDetectActivityTracksReviewThreadsAndGeneralComments(t *testing.T) {
 		}},
 	}
 
-	activity := detectActivity(pr, "me", previousPullRequestActivity{generalCommentsAckAt: "2026-06-11T09:30:00Z"}, filters.Config{}, true)
+	activity := detectActivity(pr, "me", previousPullRequestActivity{generalCommentsAckAt: "2026-06-11T09:30:00Z"}, nil, true)
 	if activity.unresolvedReviewThreads != 1 || activity.newGeneralComments != 1 || activity.latestGeneralCommentAt != "2026-06-11T10:00:00Z" {
 		t.Fatalf("activity = %+v, want one unresolved thread and one new general comment", activity)
 	}
 
-	activity = detectActivity(pr, "me", previousPullRequestActivity{}, filters.Config{}, false)
+	activity = detectActivity(pr, "me", previousPullRequestActivity{}, nil, false)
 	if activity.unresolvedReviewThreads != 1 || activity.newGeneralComments != 0 {
 		t.Fatalf("participated activity = %+v, want one unresolved participated thread only", activity)
 	}
@@ -172,7 +172,7 @@ func TestRelevantReviewThreadOnlyNeedsAttentionWhenAnotherHumanRespondedLast(t *
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			thread := graphQLReviewThread{Comments: graphQLComments{Nodes: test.comments}}
-			if got := relevantReviewThread(thread, "me", "acme/app", filters.Config{}, test.authored); got != test.want {
+			if got := relevantReviewThread(thread, "me", "acme/app", nil, test.authored); got != test.want {
 				t.Fatalf("relevantReviewThread() = %v, want %v", got, test.want)
 			}
 		})
@@ -195,7 +195,7 @@ func TestDetectActivityFiltersConfiguredBotAliases(t *testing.T) {
 			}}},
 		}},
 	}
-	cfg := filters.Config{MuteUsers: []string{"gemini-code-assist[bot]"}}
+	cfg := []filters.ActivityRule{{Actors: []string{"gemini-code-assist[bot]"}, Action: "ignore"}}
 
 	activity := detectActivity(pr, "me", previousPullRequestActivity{}, cfg, true)
 	if activity.needsAttention() {
@@ -230,7 +230,7 @@ func TestDetectActivityKeepsUnconfiguredBotComments(t *testing.T) {
 		}},
 	}
 
-	activity := detectActivity(pr, "me", previousPullRequestActivity{}, filters.Config{}, true)
+	activity := detectActivity(pr, "me", previousPullRequestActivity{}, nil, true)
 	if activity.newGeneralComments != 1 {
 		t.Fatalf("activity = %+v, want unconfigured bot activity retained", activity)
 	}

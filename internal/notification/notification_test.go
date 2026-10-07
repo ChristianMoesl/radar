@@ -192,3 +192,20 @@ func TestMutedTasksNeverEmitAttentionNotifications(t *testing.T) {
 		t.Fatalf("muted notification = %+v", sender.sent)
 	}
 }
+
+func TestNotificationUsesEffectiveSourceNotMutedRawSignal(t *testing.T) {
+	task := protocol.Task{ID: 1, Attention: "attention", Reason: "needs attention",
+		SourceRefs: []protocol.SourceRef{
+			{ID: "muted-pr", Source: "github", Role: protocol.SourceRefRoleAuthoritative, Signal: "attention", Status: "needs attention", URL: "https://github.com/acme/app/pull/1"},
+			{ID: "jira", Source: "jira", Role: protocol.SourceRefRoleAuthoritative, Signal: "attention", Status: "needs attention", URL: "https://jira.example/browse/ABC-1"},
+		}}
+	view, visible := protocol.ProjectAttention(task, func(ref protocol.SourceRef) protocol.ContributionAction {
+		if ref.ID == "muted-pr" {
+			return protocol.ContributionMute
+		}
+		return protocol.ContributionKeep
+	})
+	if !visible || notificationURL(view) != task.SourceRefs[1].URL {
+		t.Fatalf("wrong notification destination: %+v", view)
+	}
+}

@@ -52,7 +52,7 @@ Mutations re-read and validate the note, modify only managed fields, and replace
 
 ## Muted preference and durable source bindings
 
-Per-task muting is a durable preference to keep tracking the whole aggregated Radar task without requesting your attention. It is independent of `radar-state: open|done` and `radar-priority: normal|urgent`: unfinished work remains visible in the Muted section. Repository/user `mute` filters remain distinct and still hide entire matching tasks from the view and all counts, including Muted and Done. The optional managed fields are:
+Per-task muting is a durable preference to keep tracking the whole aggregated Radar task without requesting your attention. It is independent of `radar-state: open|done` and `radar-priority: normal|urgent`: unfinished work remains visible in the Muted section. GitHub PR `mute` rules remain distinct: they suppress only the matched PR contribution, never this authored note or other independent work. A task supported only by muted PRs is hidden, including from Done. The optional managed fields are:
 
 ```yaml
 radar-muted: true

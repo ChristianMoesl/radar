@@ -357,9 +357,10 @@ func (s *Store) CollectionTasks() []protocol.Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	items := make([]protocol.Task, len(s.items))
+	raw := projectTaskRecords(s.state, true)
+	items := make([]protocol.Task, len(raw))
 	byTaskID := map[int]int{}
-	for i, task := range s.items {
+	for i, task := range raw {
 		items[i] = cloneTask(task)
 		byTaskID[task.ID] = i
 	}
@@ -1080,46 +1081,6 @@ func taskWithSourceSignals(task protocol.Task) protocol.Task {
 	return task
 }
 
-func applySourceSignals(task *protocol.Task, record TaskRecord, refs []protocol.SourceRef) {
-	fallback := record.Snapshot.Attention
-	if signal, reason := firstSignal(refs, "immediate", fallback); signal != "" {
-		task.Attention = signal
-		if reason != "" {
-			task.Reason = reason
-		}
-		return
-	}
-	if signal, reason := firstSignal(refs, "attention", fallback); signal != "" {
-		task.Attention = signal
-		if reason != "" {
-			task.Reason = reason
-		}
-		return
-	}
-	if signal, reason := firstSignal(refs, "in_progress", fallback); signal != "" {
-		task.Attention = signal
-		if task.Reason == "" || record.Snapshot.Attention != signal {
-			task.Reason = reason
-		}
-		return
-	}
-	if signal, reason := firstSignal(refs, "low_priority", fallback); signal != "" {
-		task.Attention = signal
-		if reason != "" {
-			task.Reason = reason
-		}
-	}
-}
-
-func firstSignal(refs []protocol.SourceRef, want string, fallback string) (string, string) {
-	for _, ref := range refs {
-		if sourceSignal(ref, fallback) == want {
-			return want, sourceReason(ref, want)
-		}
-	}
-	return "", ""
-}
-
 func sourceSignal(ref protocol.SourceRef, fallback string) string {
 	if !authoritativeRef(ref) {
 		return ""
@@ -1128,24 +1089,6 @@ func sourceSignal(ref protocol.SourceRef, fallback string) string {
 		return ref.Signal
 	}
 	return fallback
-}
-
-func sourceReason(ref protocol.SourceRef, signal string) string {
-	if ref.Status != "" {
-		return ref.Status
-	}
-	switch signal {
-	case "immediate":
-		return "immediate attention"
-	case "attention":
-		return "needs attention"
-	case "in_progress":
-		return ref.Source + " " + ref.Kind
-	case "done":
-		return "done"
-	default:
-		return ""
-	}
 }
 
 func authoritativeRef(ref protocol.SourceRef) bool {
@@ -1162,6 +1105,10 @@ func hasAuthoritativeProtocolRef(refs []protocol.SourceRef) bool {
 }
 
 func projectTasks(state persistedState) []protocol.Task {
+	return projectTaskRecords(state, false)
+}
+
+func projectTaskRecords(state persistedState, includeHidden bool) []protocol.Task {
 	activeSourceRefsByRecord := map[string][]protocol.SourceRef{}
 	doneSourceRefsByRecord := map[string][]protocol.SourceRef{}
 	for _, ref := range state.SourceRefs {
@@ -1191,6 +1138,9 @@ func projectTasks(state persistedState) []protocol.Task {
 			continue
 		}
 		task.TargetTaskID = 0
+		if record.State != "done" && task.Attention == "done" {
+			task.Attention, task.Reason, task.DoneAt = "", "", ""
+		}
 		task.SourceRefs = cloneSourceRefs(sortSourceRefs(mergeSourceRefs(nil, refs)))
 		task.Muted = false
 		for _, ref := range refs {
@@ -1207,8 +1157,6 @@ func projectTasks(state persistedState) []protocol.Task {
 			if record.Reason != "" {
 				task.Reason = record.Reason
 			}
-		} else {
-			applySourceSignals(&task, record, refs)
 		}
 		task.Activity = protocol.ActivityIdle
 		if record.State != "done" {
@@ -1217,8 +1165,15 @@ func projectTasks(state persistedState) []protocol.Task {
 		if record.Ack.Cursor != "" {
 			task.AcknowledgementCursor = record.Ack.Cursor
 		}
-		if !applyAck(&task, record.Ack) {
-			continue
+		projected, visible := protocol.ProjectAttention(task, nil)
+		if !visible {
+			if !includeHidden {
+				continue
+			}
+			// Hidden active work still participates in normal collection and
+			// acknowledgements. TrackingOnly is reserved for archived bindings.
+		} else {
+			task = projected
 		}
 		tasks = append(tasks, task)
 	}
@@ -1304,48 +1259,6 @@ func cloneMetadata(metadata map[string]string) map[string]string {
 		cloned[key] = value
 	}
 	return cloned
-}
-
-func applyAck(task *protocol.Task, ack TaskAckState) bool {
-	if ack.Cursor == "" || task.Attention == "done" {
-		return true
-	}
-	hasContract := false
-	hideWhenAcknowledged := false
-	fallbackSignal := ""
-	fallbackReason := ""
-	for _, ref := range task.SourceRefs {
-		contract := ref.Acknowledgement
-		if contract == nil {
-			continue
-		}
-		hasContract = true
-		if contract.Blocking || (contract.Cursor != "" && contract.Cursor > ack.Cursor) {
-			return true
-		}
-		if fallbackSignal == "" && contract.FallbackSignal != "" {
-			fallbackSignal = contract.FallbackSignal
-			fallbackReason = contract.FallbackReason
-		}
-		hideWhenAcknowledged = hideWhenAcknowledged || contract.HideWhenAcknowledged
-	}
-	if !hasContract {
-		return true
-	}
-	if fallbackSignal == "" && hideWhenAcknowledged {
-		fallbackSignal, fallbackReason = firstSignal(task.SourceRefs, "in_progress", "")
-	}
-	if fallbackSignal != "" {
-		task.Attention = fallbackSignal
-		task.Reason = fallbackReason
-		for i := range task.SourceRefs {
-			if task.SourceRefs[i].Acknowledgement != nil {
-				task.SourceRefs[i].Status = fallbackReason
-			}
-		}
-		return true
-	}
-	return !hideWhenAcknowledged
 }
 
 func canonicalTaskKey(task protocol.Task) string {

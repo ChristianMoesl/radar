@@ -113,7 +113,7 @@ Radar uses these local tools:
 
 Fresh onboarding creates a Pi-only workspace layout. Neovim is optional; existing editor panes and custom layouts are preserved.
 
-On macOS, the daemon uses the installed Radar notifier companion to send host notifications when a task newly needs immediate attention or attention. Clicking a pull-request notification opens the relevant GitHub pull request; clicking a Datadog alert opens its monitor; other task notifications open their task URL when one is available. Existing actionable tasks are not notified again on every refresh or daemon restart. Tasks hidden by repository/user mute filters, tasks with the per-task muted preference, and deprioritized tasks do not produce attention notifications. If the companion app is not installed, Radar continues without host notifications.
+On macOS, the daemon uses the installed Radar notifier companion to send host notifications when a task newly needs immediate attention or attention. Clicking a pull-request notification opens the relevant GitHub pull request; clicking a Datadog alert opens its monitor; other task notifications open their task URL when one is available. Existing actionable tasks are not notified again on every refresh or daemon restart. Only surviving source contributions can produce attention notifications; a muted/deprioritized PR cannot suppress notifications from other linked work. Tasks with the per-task muted preference do not produce attention notifications. If the companion app is not installed, Radar continues without host notifications.
 
 Radar opens task URLs with the platform URL opener when you press `o` and choose a URL-backed source such as Jira, GitHub, or Datadog:
 
@@ -446,7 +446,7 @@ Muting means **keep tracking this task, but do not ask for attention**. It appli
 
 Muted unfinished work moves out of active sections/counts and attention notifications into Muted. Remote comments, review requests, urgent signals, and activity never unmute it. Facts and links remain available in Inspect. When all contributing work completes, normal reconciliation moves it to Done while retaining the preference; later reopening returns it to Muted. Only explicit unmute clears the preference. Unmute keeps the note and its associations, and does not reopen completed work.
 
-Per-task muting keeps unfinished work visible in the **Muted** section. This is distinct from configured repository/user `mute` filters, which still hide entire matching tasks from the view and every count, including Muted and Done; the `m` key does not change those filters.
+Per-task muting keeps unfinished work visible in the **Muted** section. GitHub `pull_request_rules` are different: `mute` suppresses only the matching PR’s contribution, not its linked note, Jira issue, other PRs, or local work. A task supported only by muted PRs is hidden, including from Done and counts. The `m` key does not change those rules.
 
 Muting is not completion or deletion: it changes no remote records and does not authorize automatic workspace cleanup. Existing completion, archival, and cleanup rules remain in force. Source lookup failures do not prove completion. If Radar cannot safely identify a concrete local resource lifetime, the operation reports that source error rather than applying a muted preference to an ambiguous reusable name/path. See [the note schema and binding contract](docs/integrations/obsidian.md).
 
@@ -490,7 +490,7 @@ Task commands return JSON. Deletion prompts on stderr and reads confirmation fro
 
 ## GitHub
 
-GitHub integration uses the GitHub CLI. Its main GraphQL request includes the current viewer and runs concurrently with configured tracked-PR searches. Make sure authentication works first:
+GitHub integration uses the GitHub CLI. Its main GraphQL request includes the current viewer and runs concurrently with explicit tracked-PR collection. Make sure authentication works first:
 
 ```sh
 gh auth status
@@ -672,30 +672,36 @@ jira:
     In Review: in_progress
   unmapped_status: low_priority
 github:
-  filters:
-    mute_repos:
-      - some-org/noisy-repo
-    deprioritize_repos:
-      - some-org/archive-*
-    mute_users:
-      - dependabot[bot]
-    deprioritize_users:
-      - renovate[bot]
-    rules:
-      - name: Track bot PRs in owned repos
-        repos:
-          - some-org/platform-*
-        users:
-          - renovate[bot]
-          - dependabot[bot]
-        action: deprioritize
+  # Additional discovery; omit authors for all open PRs in these repositories.
+  track:
+    - repos: ["some-org/platform-*"]
+      authors: ["renovate[bot]"]
+  # First matching rule wins for each PR, not for the whole linked task.
+  pull_request_rules:
+    - repos: ["some-org/important"]
+      authors: ["renovate[bot]"]
+      action: keep
+    - authors: ["renovate[bot]"]
+      action: deprioritize
+    - repos: ["some-org/noisy-repo"]
+      action: mute
+  # Suppress otherwise relevant feedback; tracking is not a subscription.
+  activity_rules:
+    - actors: ["review-bot[bot]"]
+      action: ignore
 ```
 
 `linking_mark_prefixes` optionally lists the identifier prefixes Radar may use to link work across sources, for example `["ABC"]` permits `ABC-722`. Omitting it or using `[]` disables only ticket-prefix linking; source identity, branch, and workspace linking still work. Prefixes are normalized to uppercase, must start with a letter, and may contain only letters and numbers. Radar matches only complete `<PREFIX>-<NUMBER>` marks, so unrelated suffixes such as `Origin-096e274f` are ignored.
 
 `obsidian.vault_path` is required for task authoring and workspace creation and identifies the task-notes parent directory; Radar creates its fixed `Tasks/` root. The existing `obsidian.vault_path` setting accepts ordinary directories as well as Obsidian vaults. Setup creates a chosen missing directory only after confirmation; it never creates `.obsidian/`. `repository_dirs` controls where `radar create` discovers base repositories. `workspace.root_dir` controls where Radar creates worktrees. When omitted, it defaults to `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. Existing configs must move the former `workspace_root` value manually; Radar does not read legacy user-config keys. `workspace.auto_confirm` defaults to `true`; Radar's Pi tool still previews and validates workspace reconciliation but applies the plan without asking for confirmation. Set it to `false` to require interactive confirmation. Existing explicit `false` values remain unchanged; the new default applies only when the setting is omitted or a new config is generated. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.yaml` defines its own values. `jira.authoritative_issue_types` defaults to Story, Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection, while `datadog.monitor_statuses` selects the unhealthy states to ingest and defaults to Alert, Warn, and No Data. Datadog keys are read from `secrets.yaml`, with `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY` as environment overrides.
 
-Repository/user `mute` filters hide entire matching tasks from the CLI/TUI view and every count, including Muted and Done. This is distinct from the per-task muted preference (`m` or `radar task mute`), which keeps unfinished work in the Muted section unless a filter hides it. Deprioritized active tasks move to the low-priority section subject to primary urgency; done tasks remain Done and per-task muted unfinished tasks remain Muted. User filters also apply to GitHub comment and review actors: muted or deprioritized actor activity does not promote a PR to attention. Confirmed GitHub bots match both their API login and the equivalent `[bot]` alias, so `gemini-code-assist[bot]` matches the GraphQL login `gemini-code-assist`. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive.
+GitHub settings have three independent jobs: `track` adds PR discovery, `pull_request_rules` controls individual PR contributions, and `activity_rules` filters relevant feedback. Both rule lists accept repository-only, author/actor-only, or combined selectors. Fields combine with AND, values within a field with OR; repo and author must match the **same PR**. Omitted selectors are unrestricted, but a rule needs at least one nonempty selector. First match wins independently per PR or activity actor. Patterns are case-insensitive and support `*`; confirmed bots match both `name` and `name[bot]`.
+
+PR actions are `keep`, `mute`, and `deprioritize`. They affect only the PR’s contribution: other sources retain their signals and visibility, local-only tasks are unaffected, and done work stays done. Muted PRs remain linked and inspectable and still participate in completion/reopening. Activity actions are `keep` and `ignore`. `keep` preserves normal involvement-based relevance, not every discussion; ignoring comments does not cancel a direct review request. PR policy applies after activity rules.
+
+Tracking requires a concrete owner (`some-org/platform-*`, not `*/platform`), with optional exact author logins. Omitting authors includes all open PRs, including drafts. Entries are additive, overlapping results are deduplicated, and repository/PR pagination respects API budgets. Failed or incomplete refreshes retain prior facts and report partial status. Extra tracking does not subscribe you to unrelated discussions.
+
+Generated configuration contains these explanations and commented examples next to empty lists. **Existing configuration must be edited manually:** replace `github.filters` with the new sections. An old user policy that affected both PR authors and activity actors needs separate rules in both lists. Additional PR discovery needs an explicit `track` entry. Reorder old rules for first-match precedence; there are no legacy aliases or automatic migrations. See the [GitHub integration guide](docs/integrations/github.md) for the rollout and matching contract.
 
 ## Local state
 

@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/url"
 	"os/exec"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -109,7 +108,7 @@ const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: S
         isDraft
         headRefName
         body
-        author { login }
+        author { __typename login }
         repository { nameWithOwner }
         reviewThreads(first: 25) { nodes { id isResolved comments(first: 25) { nodes { author { __typename login } createdAt } } } }
       }
@@ -125,7 +124,7 @@ const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: S
         isDraft
         headRefName
         body
-        author { login }
+        author { __typename login }
         repository { nameWithOwner }
         comments(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { author { __typename login } createdAt } }
         reviews(first: 50) { nodes { author { __typename login } createdAt } }
@@ -143,6 +142,7 @@ const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: S
         isDraft
         headRefName
         body
+        author { __typename login }
         repository { nameWithOwner }
         reviewThreads(first: 25) { nodes { id isResolved comments(first: 25) { nodes { author { __typename login } createdAt } } } }
       }
@@ -150,7 +150,7 @@ const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: S
   }
 }`
 
-func FetchPullRequests(ctx context.Context, previous []protocol.Task, cfg filters.Config, logger *slog.Logger) ([]protocol.Task, []protocol.Task, []protocol.Task, error) {
+func FetchPullRequests(ctx context.Context, previous []protocol.Task, cfg []filters.ActivityRule, logger *slog.Logger) ([]protocol.Task, []protocol.Task, []protocol.Task, error) {
 	var response graphQLPullRequestsResponse
 	args := []string{
 		"api", "graphql",
@@ -263,15 +263,13 @@ type previousPullRequestActivity struct {
 	generalCommentsAckAt string
 }
 
-func activityPullRequestItems(prs []searchPullRequest, login string, previous map[string]previousPullRequestActivity, cfg filters.Config) []protocol.Task {
+func activityPullRequestItems(prs []searchPullRequest, login string, previous map[string]previousPullRequestActivity, cfg []filters.ActivityRule) []protocol.Task {
 	items := make([]protocol.Task, 0)
 	for _, pr := range prs {
 		activity := detectActivity(pr, login, previous[prKey(repoName(pr), pr.Number)], cfg, false)
-		if !activity.needsAttention() {
-			continue
-		}
 		repo := repoName(pr)
 		item := protocol.Task{
+			Metadata:  pullRequestMetadata(pr),
 			Kind:      "github_pr_activity",
 			Title:     pr.Title,
 			Repo:      repo,
@@ -281,12 +279,16 @@ func activityPullRequestItems(prs []searchPullRequest, login string, previous ma
 		}
 		item.SourceRefs = []protocol.SourceRef{newGitHubPullRequestSourceRef(item, repo, pr.Number, "pull_request", pr.HeadRefName, pr.Body)}
 		setActivityMetadata(&item.SourceRefs[0], activity, "", "", true)
+		if !activity.needsAttention() {
+			item.Attention, item.Reason = "in_progress", "participated PR"
+			item.SourceRefs[0].Presentation.Hidden = true
+		}
 		items = append(items, item)
 	}
 	return items
 }
 
-func applyActivity(items []protocol.Task, prs []searchPullRequest, login string, previous map[string]previousPullRequestActivity, cfg filters.Config, authored bool) {
+func applyActivity(items []protocol.Task, prs []searchPullRequest, login string, previous map[string]previousPullRequestActivity, cfg []filters.ActivityRule, authored bool) {
 	activityByKey := map[string]pullRequestActivity{}
 	for _, pr := range prs {
 		key := prKey(repoName(pr), pr.Number)
@@ -319,7 +321,7 @@ func applyActivity(items []protocol.Task, prs []searchPullRequest, login string,
 	}
 }
 
-func detectActivity(pr searchPullRequest, login string, previous previousPullRequestActivity, cfg filters.Config, authored bool) pullRequestActivity {
+func detectActivity(pr searchPullRequest, login string, previous previousPullRequestActivity, cfg []filters.ActivityRule, authored bool) pullRequestActivity {
 	activity := pullRequestActivity{}
 	repo := repoName(pr)
 	for _, thread := range pr.ReviewThreads.Nodes {
@@ -342,7 +344,7 @@ func detectActivity(pr searchPullRequest, login string, previous previousPullReq
 	return activity
 }
 
-func relevantReviewThread(thread graphQLReviewThread, login string, repo string, cfg filters.Config, authored bool) bool {
+func relevantReviewThread(thread graphQLReviewThread, login string, repo string, cfg []filters.ActivityRule, authored bool) bool {
 	latestMine := ""
 	latestOther := ""
 	for _, comment := range thread.Comments.Nodes {
@@ -361,25 +363,7 @@ func relevantReviewThread(thread graphQLReviewThread, login string, repo string,
 }
 
 func githubActorAliases(actor user) []string {
-	login := strings.TrimSpace(actor.Login)
-	if login == "" {
-		return nil
-	}
-	if !strings.EqualFold(strings.TrimSpace(actor.Type), "bot") && !isBotLogin(login) {
-		return []string{login}
-	}
-
-	base := login
-	if isBotLogin(login) {
-		base = strings.TrimSpace(login[:len(login)-len("[bot]")])
-	}
-	aliases := []string{login}
-	for _, alias := range []string{base, base + "[bot]"} {
-		if alias != "" && !slices.ContainsFunc(aliases, func(existing string) bool { return strings.EqualFold(existing, alias) }) {
-			aliases = append(aliases, alias)
-		}
-	}
-	return aliases
+	return filters.ActorAliases(actor.Login, actor.Type)
 }
 
 func isBotLogin(login string) bool {
@@ -430,7 +414,7 @@ func pullRequestMetadata(pr searchPullRequest) map[string]string {
 	if pr.Author == nil || pr.Author.Login == "" {
 		return nil
 	}
-	return map[string]string{"author": pr.Author.Login}
+	return map[string]string{"author": pr.Author.Login, "author_type": pr.Author.Type}
 }
 
 func activityStateFromPrevious(previous []protocol.Task) map[string]previousPullRequestActivity {
@@ -526,6 +510,7 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, acti
 			done.Attention = "done"
 			done.Reason = reason
 			done.DoneAt = pr.ClosedAt
+			done.Metadata = cloneMetadata(sourceRef.Metadata)
 			done.SourceRefs = donePullRequestSourceRefs(item.SourceRefs, repo, number, reason)
 			seenDone[sourceRef.ID] = true
 			items = append(items, done)
@@ -556,8 +541,9 @@ func donePullRequestSourceRefs(sourceRefs []protocol.SourceRef, repo string, num
 		if sourceRef.ID != id {
 			continue
 		}
-		ref := githubPullRequestRef(id, repo, number, sourceRef.Title, sourceRef.URL, reason, sourceRef.Branch)
-		ref.Signal = "done"
+		ref := sourceRef
+		ref.Signal, ref.Status = "done", reason
+		ref.Acknowledgement = nil
 		return []protocol.SourceRef{ref}
 	}
 	ref := githubPullRequestRef(id, repo, number, "", "", reason, "")
@@ -576,6 +562,7 @@ func keepTodaysDoneTasks(items []protocol.Task, previous []protocol.Task) []prot
 				continue
 			}
 			done := item
+			done.Metadata = cloneMetadata(sourceRef.Metadata)
 			done.SourceRefs = []protocol.SourceRef{sourceRef}
 			seen[sourceRef.ID] = true
 			items = append(items, done)

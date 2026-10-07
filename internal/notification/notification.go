@@ -71,6 +71,11 @@ func (s Service) NotifyGarbageCollection(ctx context.Context, result protocol.Ga
 
 func notificationURL(task protocol.Task) string {
 	for _, ref := range task.SourceRefs {
+		if ref.ID == task.AttentionSourceRefID && ref.URL != "" {
+			return ref.URL
+		}
+	}
+	for _, ref := range task.SourceRefs {
 		if ref.URL != "" && ref.Signal == task.Attention && ref.Status == task.Reason {
 			return ref.URL
 		}

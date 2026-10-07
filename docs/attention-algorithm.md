@@ -44,9 +44,9 @@ Pi sessions in registered Radar workspaces are the first producer. Pi reports bu
 Radar applies lifecycle and user policy in this order:
 
 1. Terminal completion establishes the actual `done` lifecycle.
-2. Repository/user `mute` filters hide entire matching tasks from the view and all counts, including tasks with the per-task muted preference and done tasks.
-3. For unfinished work, choose the strongest active source signal: `immediate`, `attention`, `in_progress`, then `low_priority`.
-4. Deprioritization may lower naturally classified active work to `low_priority`, but never lowers an urgent primary signal.
+2. Apply acknowledgement fallback and GitHub PR policy independently to each source contribution, retaining the raw refs.
+3. Hide a task only when no independent visible contribution remains. Informational refs do not make it visible.
+4. For unfinished work, choose the strongest surviving signal: `immediate`, `attention`, `in_progress`, then `low_priority`. Deprioritizing one PR cannot lower another source’s signal.
 5. Apply the effective display group: actual done → `done`; otherwise muted → `muted`; otherwise the current attention category.
 
 Muting does not change the source signals, actual completion, or existing filters. Urgency and deprioritization cannot move muted work back into an active display group.
@@ -61,11 +61,11 @@ A merged PR should not hide an active Jira issue when no primary owner exists. O
 
 An open normal Obsidian note starts in `low_priority`. Linked tmux/SBX activity may promote it to `in_progress`, and actionable linked sources may promote it to `attention`. `radar-state: done` is terminal without authoritative remote work. Confirmed active remote contributors reopen a completed note on a full refresh; informational refs and local resources do not. Explicit reopening returns the note to its strongest active source classification. Automatic completion persists this state and its timestamp in the canonical note before projecting done. An explicit reopen records already-completed work on the next successful full refresh, so unchanged historical completion cannot immediately close it again. Observing active work or newly linked work allows later automatic completion. The note stores this baseline across restarts and cache resets.
 
-`radar-priority: urgent` emits a primary immediate signal. Returning it to `normal` restores the current source-derived category. Priority cannot reopen done work, bypass repository/user mute filters or the per-task muted display group, or generate an OS notification for the user's own mutation.
+`radar-priority: urgent` emits a primary immediate signal. Returning it to `normal` restores the current source-derived category. Priority cannot reopen done work, bypass the per-task muted display group, or generate an OS notification for the user’s own mutation. GitHub PR policy cannot suppress the note’s urgency.
 
 ## Muted preference and history sections
 
-Per-task mute means “keep tracking this whole task, but do not ask for my attention until I explicitly unmute it.” It applies to the aggregated task, not one selected issue, PR, or resource ref. Unlike repository/user `mute` filters, this preference does not hide the task entirely: unfinished work remains in Muted unless a filter hides it.
+Per-task mute means “keep tracking this whole task, but do not ask for my attention until I explicitly unmute it.” It applies to the aggregated task, not one selected issue, PR, or resource ref. Unlike GitHub PR `mute` rules, this preference applies to the whole task and keeps unfinished work in Muted. A GitHub rule cannot hide the authored note that owns this preference.
 
 ```sh
 radar task mute <task-id>
@@ -95,7 +95,9 @@ GitHub signals should focus on actionable feedback:
 - Direct review requests need attention.
 - Unresolved review threads need attention when another human is waiting for your response.
 - Comments and reviews on your PR can need attention when their actors are not filtered.
-- `mute_users`, `deprioritize_users`, and matching repository/user rules prevent configured actors' activity from promoting a PR to attention.
+- `github.activity_rules` can ignore relevant activity by repository, actor, or both; `keep` uses normal relevance rather than subscribing to every discussion.
+- `github.pull_request_rules` subsequently controls that PR’s contribution without affecting other linked work.
+- Extra `github.track` entries discover open PRs but do not subscribe the viewer to unrelated discussions.
 - Bot identity does not determine priority by itself; confirmed GitHub bots expose equivalent `name` and `name[bot]` aliases for configuration matching.
 - Automation failures should need attention only when they are actionable for your PR.
 - Open authored PRs without actionable activity are `in_progress`.
@@ -128,11 +130,16 @@ Acknowledgement is for activity that you have already seen.
 - New relevant comments can bring the task back to attention.
 - An unresolved review thread stops needing attention when you are the latest person to respond, and needs attention again if another human replies.
 
-## Filters
+## GitHub policies
 
-Repository/user filters are applied last, when tasks are shown:
+`github.pull_request_rules` match repository/author on the same PR; `github.activity_rules` match repository/actor for relevant activity. First match wins independently for each PR/actor. Fields use AND, list values use OR. Local-only tasks never match GitHub rules.
 
-- `mute`: hide the entire matching task and remove it from all counts, including Muted and Done counts. This is a filter effect, not the per-task muted preference.
-- `deprioritize`: lower naturally classified active work to `low_priority` subject to primary urgency; a `done` task remains `done`, and a muted unfinished task remains in Muted.
+- PR `keep`: normal contribution.
+- PR `mute`: no display/attention contribution from that PR, but retain linking and lifecycle facts. Other independent sources keep the task visible. A PR-only muted task remains hidden even in Done.
+- PR `deprioritize`: cap that PR’s active contribution at `low_priority`; never alter completion or other sources.
+- Activity `ignore`: exclude relevant feedback from that actor in that scope.
+- Activity `keep`: normal involvement-based relevance, not forced attention or an override of PR policy.
 
-Changing filters should affect the displayed view without changing the raw tracked state. In particular, no display filter may turn completed work back into an attention category or defeat an explicit muted preference. Per-task mute/unmute does not change, replace, or broaden repository/user mute or deprioritize rules.
+Acknowledgements also apply per source: acknowledging PR feedback cannot lower an unrelated Jira issue or urgent note. Notification reason and URL follow the effective contributing source, not a suppressed raw PR signal.
+
+Policies do not change raw tracked state or explicit task mute preferences. An open muted PR still prevents automatic completion and can reopen an authored note; muting is not abandoning work. See [the GitHub guide](integrations/github.md) for configuration and rollout.

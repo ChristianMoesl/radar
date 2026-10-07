@@ -145,6 +145,9 @@ func applyDefaults(cfg *Config) {
 }
 
 func validate(cfg Config) error {
+	if err := githubsettings.Validate(cfg.GitHub); err != nil {
+		return err
+	}
 	if err := sbxsettings.ValidateReadyCommand(cfg.SBX.ReadyCommand); err != nil {
 		return err
 	}

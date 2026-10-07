@@ -121,11 +121,11 @@ func TestNotifyActionableTransitionsAppliesConfiguredFilters(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
   - XYZ
 github:
-  filters:
-    mute_repos:
-      - org/muted
-    deprioritize_repos:
-      - org/deprioritized`), 0o600); err != nil {
+  pull_request_rules:
+    - repos: [org/muted]
+      action: mute
+    - repos: [org/deprioritized]
+      action: deprioritize`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -133,9 +133,9 @@ github:
 	sender := &recordingNotificationSender{}
 	service := notification.NewWithSender(logger, sender)
 	notifyActionableTransitions(context.Background(), nil, []protocol.Task{
-		{ID: 1, Title: "Muted", Repo: "org/muted", Attention: "attention"},
-		{ID: 2, Title: "Deprioritized", Repo: "org/deprioritized", Attention: "attention"},
-		{ID: 3, Title: "Useful", Repo: "org/useful", Attention: "attention"},
+		{ID: 1, Title: "Muted", Repo: "org/muted", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:muted", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative, Repo: "org/muted", Signal: "attention"}}},
+		{ID: 2, Title: "Deprioritized", Repo: "org/deprioritized", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:deprioritized", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative, Repo: "org/deprioritized", Signal: "attention"}}},
+		{ID: 3, Title: "Useful", Repo: "org/useful", Attention: "attention", SourceRefs: []protocol.SourceRef{{ID: "github:useful", Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative, Repo: "org/useful", Signal: "attention"}}},
 	}, logger, app.DefaultIntegrations(), service)
 
 	if len(sender.titles) != 1 || sender.titles[0] != "Radar: Useful" {

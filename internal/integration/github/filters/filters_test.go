@@ -1,182 +1,134 @@
 package filters
 
 import (
-	"testing"
-
 	"radar/internal/protocol"
+	"reflect"
+	"testing"
 )
 
-func TestApplyMutesRepos(t *testing.T) {
-	items := []protocol.Task{
-		{ID: 1, Repo: "org/noisy", Attention: "attention"},
-		{ID: 2, Repo: "org/useful", Attention: "attention"},
-	}
+func pr(id, repo, author, signal string) protocol.SourceRef {
+	return protocol.SourceRef{ID: id, Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative,
+		Repo: repo, Signal: signal, Status: "PR feedback", Metadata: map[string]string{"author": author},
+		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityContributing}
+}
 
-	got := Apply(items, Config{MuteRepos: []string{"ORG/NOISY"}})
-	if len(got) != 1 || got[0].ID != 2 {
-		t.Fatalf("expected only useful item, got %#v", got)
+func TestRulesMatchOnePRWithFirstMatchPrecedence(t *testing.T) {
+	rules := []PullRequestRule{
+		{Repos: []string{"acme/api"}, Authors: []string{"renovate[bot]"}, Action: "keep"},
+		{Authors: []string{"renovate[bot]"}, Action: "mute"},
+	}
+	for _, test := range []struct {
+		repo, author string
+		want         protocol.ContributionAction
+	}{
+		{"ACME/API", "Renovate[bot]", "keep"},
+		{"acme/other", "renovate[bot]", "mute"},
+		{"acme/other", "human", "keep"},
+	} {
+		if got := ActionFor(pr("pr", test.repo, test.author, "attention"), rules); got != test.want {
+			t.Fatalf("%+v: %s", test, got)
+		}
+	}
+	refs := []protocol.SourceRef{pr("a", "acme/api", "alice", "in_progress"), pr("b", "acme/web", "renovate[bot]", "attention")}
+	task := protocol.Task{Attention: "attention", SourceRefs: refs}
+	got := Apply([]protocol.Task{task}, []PullRequestRule{{Repos: []string{"acme/api"}, Authors: []string{"renovate[bot]"}, Action: "mute"}})
+	if len(got) != 1 || got[0].Attention != "attention" {
+		t.Fatalf("matched across different PRs: %+v", got)
 	}
 }
 
-func TestApplyDeprioritizesRepos(t *testing.T) {
-	items := []protocol.Task{{ID: 1, Repo: "org/noisy", Attention: "attention", Reason: "review requested"}}
-
-	got := Apply(items, Config{DeprioritizeRepos: []string{"org/noisy"}})
-	if len(got) != 1 {
-		t.Fatalf("expected one item, got %d", len(got))
-	}
-	if got[0].Attention != "low_priority" {
-		t.Fatalf("expected low_priority, got %q", got[0].Attention)
-	}
-	if got[0].Reason != "low priority: review requested" {
-		t.Fatalf("unexpected reason %q", got[0].Reason)
-	}
-}
-
-func TestApplyPrimaryUrgencyWinsOverDeprioritizationButNotMute(t *testing.T) {
-	item := protocol.Task{ID: 1, Repo: "org/noisy", Attention: "immediate", Reason: "urgent", SourceRefs: []protocol.SourceRef{{Authority: protocol.SourceRefAuthorityPrimary, Signal: "immediate"}}}
-
-	got := Apply([]protocol.Task{item}, Config{DeprioritizeRepos: []string{"org/noisy"}})
-	if len(got) != 1 || got[0].Attention != "immediate" {
-		t.Fatalf("deprioritized urgent task = %+v", got)
-	}
-	if got := Apply([]protocol.Task{item}, Config{MuteRepos: []string{"org/noisy"}}); len(got) != 0 {
-		t.Fatalf("muted urgent task = %+v", got)
+func TestPolicyOnlyAffectsMatchingPRContribution(t *testing.T) {
+	noisy := pr("pr", "acme/noisy", "bot", "attention")
+	for _, action := range []protocol.ContributionAction{"mute", "deprioritize"} {
+		for _, other := range []protocol.SourceRef{
+			{ID: "note", Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative, Signal: "immediate", Status: "urgent note"},
+			{ID: "jira", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative, Signal: "attention", Status: "Jira needs attention"},
+			{ID: "worktree", Source: "git", Kind: "worktree", Role: protocol.SourceRefRoleAuthoritative, Repo: "acme/noisy", Signal: "in_progress", Status: "local work"},
+			pr("other-pr", "acme/other", "human", "attention"),
+		} {
+			task := protocol.Task{Attention: "attention", SourceRefs: []protocol.SourceRef{noisy, other}}
+			got := Apply([]protocol.Task{task}, []PullRequestRule{{Repos: []string{"acme/noisy"}, Action: action}})
+			if len(got) != 1 || got[0].Attention != other.Signal || got[0].Reason != other.Status || got[0].AttentionSourceRefID != other.ID {
+				t.Fatalf("%s affected %s: %+v", action, other.Source, got)
+			}
+			if !reflect.DeepEqual(got[0].SourceRefs, task.SourceRefs) {
+				t.Fatal("policy mutated source truth")
+			}
+		}
 	}
 }
 
-func TestApplyDoesNotDeprioritizeDoneTasks(t *testing.T) {
-	items := []protocol.Task{{ID: 1, Repo: "org/noisy", Attention: "done", Reason: "merged"}}
-
-	got := Apply(items, Config{DeprioritizeRepos: []string{"org/noisy"}})
-	if len(got) != 1 {
-		t.Fatalf("expected one item, got %d", len(got))
+func TestLocalAndInformationalRefsDoNotMatchGitHubPolicy(t *testing.T) {
+	local := protocol.SourceRef{ID: "local", Source: "git", Kind: "worktree", Role: protocol.SourceRefRoleAuthoritative, Repo: "acme/noisy", Signal: "in_progress"}
+	rules := []PullRequestRule{{Repos: []string{"acme/noisy"}, Action: "mute"}}
+	if got := Apply([]protocol.Task{{SourceRefs: []protocol.SourceRef{local}}}, rules); len(got) != 1 {
+		t.Fatal("local-only task hidden")
 	}
-	if got[0].Attention != "done" || got[0].Reason != "merged" {
-		t.Fatalf("done task was changed by deprioritize filter: %#v", got[0])
-	}
-}
-
-func TestApplyMatchesUsers(t *testing.T) {
-	items := []protocol.Task{
-		{ID: 1, Attention: "attention", Metadata: map[string]string{"author": "dependabot[bot]"}},
-		{ID: 2, Attention: "attention", Metadata: map[string]string{"author": "person"}},
-	}
-
-	got := Apply(items, Config{MuteUsers: []string{"dependabot[bot]"}})
-	if len(got) != 1 || got[0].ID != 2 {
-		t.Fatalf("expected only person item, got %#v", got)
+	local.Role = protocol.SourceRefRoleInformational
+	if got := Apply([]protocol.Task{{SourceRefs: []protocol.SourceRef{local, pr("pr", "acme/noisy", "bot", "attention")}}}, rules); len(got) != 0 {
+		t.Fatal("informational ref kept muted PR visible")
 	}
 }
 
-func TestApplyMatchesWildcardRepos(t *testing.T) {
-	items := []protocol.Task{
-		{ID: 1, Repo: "org/api-backend", Attention: "attention"},
-		{ID: 2, Repo: "org/app", Attention: "attention"},
+func TestPRMuteHidesStandaloneActiveAndDoneButPreservesAuthoredMute(t *testing.T) {
+	for _, signal := range []string{"attention", "done"} {
+		task := protocol.Task{Attention: signal, Reason: "merged", SourceRefs: []protocol.SourceRef{pr("pr", "acme/app", "bot", signal)}}
+		if got := Apply([]protocol.Task{task}, []PullRequestRule{{Authors: []string{"bot"}, Action: "mute"}}); len(got) != 0 {
+			t.Fatalf("muted PR surfaced: %+v", got)
+		}
+		got := Apply([]protocol.Task{task}, []PullRequestRule{{Authors: []string{"bot"}, Action: "deprioritize"}})
+		if len(got) != 1 {
+			t.Fatal("deprioritization hid task")
+		}
+		if signal == "done" && (got[0].Attention != "done" || got[0].Reason != "merged") {
+			t.Fatal("deprioritization reopened done task")
+		}
 	}
-
-	got := Apply(items, Config{DeprioritizeRepos: []string{"org/api-*"}})
-	if got[0].Attention != "low_priority" {
-		t.Fatalf("expected wildcard repo to be low priority, got %#v", got[0])
-	}
-	if got[1].Attention != "attention" {
-		t.Fatalf("expected non-matching repo to remain attention, got %#v", got[1])
-	}
-}
-
-func TestApplyRuleRequiresRepoAndUser(t *testing.T) {
-	items := []protocol.Task{
-		{ID: 1, Repo: "org/important", Attention: "attention", Metadata: map[string]string{"author": "renovate[bot]"}},
-		{ID: 2, Repo: "org/other", Attention: "attention", Metadata: map[string]string{"author": "renovate[bot]"}},
-		{ID: 3, Repo: "org/important", Attention: "attention", Metadata: map[string]string{"author": "person"}},
-	}
-
-	got := Apply(items, Config{Rules: []Rule{{Repos: []string{"org/important"}, Users: []string{"renovate[bot]"}, Action: "deprioritize"}}})
-	if got[0].Attention != "low_priority" {
-		t.Fatalf("expected matching repo+user item to be low priority, got %#v", got[0])
-	}
-	if got[1].Attention != "attention" || got[2].Attention != "attention" {
-		t.Fatalf("expected partial matches to remain attention, got %#v", got)
+	task := protocol.Task{Muted: true, Attention: "attention", SourceRefs: []protocol.SourceRef{pr("pr", "acme/app", "bot", "attention"),
+		{ID: "note", Source: "obsidian", Role: protocol.SourceRefRoleAuthoritative, Signal: "low_priority", Authored: true, Muted: true}}}
+	got := Apply([]protocol.Task{task}, []PullRequestRule{{Authors: []string{"bot"}, Action: "mute"}})
+	if len(got) != 1 || got[0].DisplayGroup() != "muted" {
+		t.Fatalf("lost explicit task preference: %+v", got)
 	}
 }
 
-func TestApplyMuteWinsOverOtherMatchingRules(t *testing.T) {
-	items := []protocol.Task{{ID: 1, Repo: "org/important", Attention: "attention", Metadata: map[string]string{"author": "renovate[bot]"}}}
-	cfg := Config{
-		MuteUsers: []string{"renovate[bot]"},
-		Rules: []Rule{
-			{Repos: []string{"org/*"}, Users: []string{"renovate[bot]"}, Action: "deprioritize"},
-			{Repos: []string{"org/important"}, Users: []string{"renovate[bot]"}, Action: "keep"},
-		},
+func TestActivityRulesScopesExceptionsAndAliases(t *testing.T) {
+	rules := []ActivityRule{
+		{Repos: []string{"acme/important"}, Actors: []string{"review-bot[bot]"}, Action: "keep"},
+		{Actors: []string{"review-bot[bot]"}, Action: "ignore"},
+		{Repos: []string{"acme/archive-*"}, Action: "ignore"},
 	}
-
-	got := Apply(items, cfg)
-	if len(got) != 0 {
-		t.Fatalf("expected muted item to stay hidden, got %#v", got)
+	aliases := ActorAliases("review-bot", "Bot")
+	if SuppressesActivity(rules, "acme/important", aliases) {
+		t.Fatal("specific keep ignored")
 	}
-}
-
-func TestSuppressesActivityUsesActorAliases(t *testing.T) {
-	cfg := Config{MuteUsers: []string{"gemini-code-assist[bot]"}}
-	aliases := []string{"gemini-code-assist", "gemini-code-assist[bot]"}
-
-	if !SuppressesActivity(cfg, "org/repo", aliases) {
-		t.Fatal("configured bot alias should suppress activity")
+	if !SuppressesActivity(rules, "acme/other", aliases) {
+		t.Fatal("confirmed bot alias did not match")
 	}
-	if SuppressesActivity(cfg, "org/repo", []string{"other-bot", "other-bot[bot]"}) {
-		t.Fatal("unconfigured bot should not be suppressed")
+	if !SuppressesActivity(rules, "acme/archive-one", []string{"human"}) {
+		t.Fatal("repo-only activity rule did not match")
 	}
-}
-
-func TestSuppressesActivityAppliesRepositoryUserRules(t *testing.T) {
-	cfg := Config{Rules: []Rule{{
-		Repos:  []string{"org/important"},
-		Users:  []string{"reviewer"},
-		Action: "deprioritize",
-	}}}
-
-	if !SuppressesActivity(cfg, "org/important", []string{"reviewer"}) {
-		t.Fatal("matching repository and actor should suppress attention")
+	if SuppressesActivity(rules, "acme/other", ActorAliases("review-bot", "User")) {
+		t.Fatal("human given bot alias")
 	}
-	if SuppressesActivity(cfg, "org/other", []string{"reviewer"}) {
-		t.Fatal("partial rule match should not suppress attention")
+	ref := pr("pr", "acme/app", "review-bot", "attention")
+	ref.Metadata["author_type"] = "Bot"
+	if ActionFor(ref, []PullRequestRule{{Authors: []string{"review-bot[bot]"}, Action: "mute"}}) != "mute" {
+		t.Fatal("PR author bot alias did not match")
 	}
 }
 
 func TestWildcardMatch(t *testing.T) {
-	cases := []struct {
-		pattern string
-		value   string
-		want    bool
+	for _, test := range []struct {
+		pattern, value string
+		want           bool
 	}{
-		{"org/*", "org/repo", true},
-		{"org/*-frontend", "org/app-frontend", true},
-		{"*/repo", "org/repo", true},
-		{"org/*", "other/repo", false},
-		{"org/*-frontend", "org/frontend-api", false},
-		{"ORG/*", "org/repo", true},
-	}
-	for _, tc := range cases {
-		if got := wildcardMatch(tc.pattern, tc.value); got != tc.want {
-			t.Fatalf("wildcardMatch(%q, %q) = %v, want %v", tc.pattern, tc.value, got, tc.want)
+		{"org/*", "org/repo", true}, {"org/*-frontend", "org/app-frontend", true},
+		{"*/repo", "org/repo", true}, {"org/*", "other/repo", false},
+		{"org/*-frontend", "org/frontend-api", false}, {"ORG/*", "org/repo", true},
+	} {
+		if got := MatchPattern(test.pattern, test.value); got != test.want {
+			t.Fatalf("%+v: %t", test, got)
 		}
-	}
-}
-
-func TestTaskMutingRemainsVisibleUnlessRepositoryOrUserFilterHidesIt(t *testing.T) {
-	task := protocol.Task{ID: 1, Repo: "acme/app", Attention: "attention", Muted: true, Metadata: map[string]string{"author": "reviewer"}}
-	visible := Apply([]protocol.Task{task}, Config{})
-	if len(visible) != 1 || visible[0].DisplayGroup() != "muted" || protocol.SummarizeTasks(visible).Muted != 1 {
-		t.Fatalf("task preference hidden like a repository filter: %+v", visible)
-	}
-	for _, cfg := range []Config{{MuteRepos: []string{"acme/app"}}, {MuteUsers: []string{"reviewer"}}} {
-		hidden := Apply([]protocol.Task{task}, cfg)
-		if len(hidden) != 0 || protocol.SummarizeTasks(hidden) != (protocol.Summary{}) {
-			t.Fatalf("existing mute filter stopped excluding tasks: %+v", hidden)
-		}
-	}
-	deprioritized := Apply([]protocol.Task{task}, Config{DeprioritizeRepos: []string{"acme/app"}})
-	if len(deprioritized) != 1 || !deprioritized[0].Muted || deprioritized[0].DisplayGroup() != "muted" {
-		t.Fatalf("deprioritize defeated task muting: %+v", deprioritized)
 	}
 }

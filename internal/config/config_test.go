@@ -149,9 +149,9 @@ tmux:
         - command: pi $RADAR_PI_ARGS
         - command: nvim .
 github:
-  filters:
-    mute_repos:
-      - org/noisy
+  pull_request_rules:
+    - repos: [org/noisy]
+      action: mute
 jira:
   authoritative_issue_types:
     - ' Story '
@@ -198,8 +198,8 @@ datadog:
 	if len(cfg.Tmux.Windows) != 1 || cfg.Tmux.Windows[0].Name != "workspace" || cfg.Tmux.Windows[0].Layout != "horizontal" {
 		t.Fatalf("Tmux.Windows = %#v", cfg.Tmux.Windows)
 	}
-	if !reflect.DeepEqual(cfg.GitHub.Filters.MuteRepos, []string{"org/noisy"}) {
-		t.Fatalf("GitHub.Filters.MuteRepos = %#v", cfg.GitHub.Filters.MuteRepos)
+	if !reflect.DeepEqual(cfg.GitHub.PullRequestRules[0].Repos, []string{"org/noisy"}) {
+		t.Fatalf("GitHub.Filters.MuteRepos = %#v", cfg.GitHub.PullRequestRules[0].Repos)
 	}
 	if !reflect.DeepEqual(cfg.Jira.AuthoritativeIssueTypes, []string{"Story", "Bug"}) {
 		t.Fatalf("Jira.AuthoritativeIssueTypes = %#v", cfg.Jira.AuthoritativeIssueTypes)

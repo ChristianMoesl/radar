@@ -264,12 +264,12 @@ tmux:
             pi $RADAR_PI_ARGS
             echo finished
 github:
-  filters:
-    mute_repos: [example/private]
-    rules:
-      - name: quiet
-        users: [bot]
-        action: deprioritize
+  pull_request_rules:
+    - name: quiet
+      authors: [bot]
+      action: deprioritize
+    - repos: [example/private]
+      action: mute
 jira:
   base_url: https://example.atlassian.net
   email: user@example.com
@@ -289,7 +289,7 @@ obsidian:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Workspace.AutoConfirm || cfg.Workspace.Cleanup.DisposableEntries[0] != "cache" || cfg.SBX.EnvFile != "~/private.env" || cfg.GitHub.Filters.Rules[0].Users[0] != "bot" || cfg.Obsidian.VaultPath != "~/notes" || !strings.Contains(cfg.Tmux.Windows[0].Panes[0].Command, "\necho finished\n") {
+	if cfg.Workspace.AutoConfirm || cfg.Workspace.Cleanup.DisposableEntries[0] != "cache" || cfg.SBX.EnvFile != "~/private.env" || cfg.GitHub.PullRequestRules[0].Authors[0] != "bot" || cfg.Obsidian.VaultPath != "~/notes" || !strings.Contains(cfg.Tmux.Windows[0].Panes[0].Command, "\necho finished\n") {
 		t.Fatal("nested fields did not decode")
 	}
 	encoded, err := marshalConfig(cfg)

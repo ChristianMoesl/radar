@@ -22,7 +22,7 @@ const boundPullRequestQuery = `query($owner: String!, $name: String!, $number: I
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       number title url state isDraft closedAt headRefName body
-      author { login }
+      author { __typename login }
       repository { nameWithOwner }
       reviewRequests(first: 50) { nodes { requestedReviewer { ... on User { login } } } }
       comments(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { author { __typename login } createdAt } }
@@ -99,7 +99,7 @@ func (Source) ResolveBindings(ctx context.Context, req integration.BindingReques
 			bindingFailure(&result, req, fmt.Errorf("resolve %s: %w", binding.ID, err))
 			continue
 		}
-		task := boundPullRequestTask(pr, login, req.Previous, cfg.GitHub.Filters)
+		task := boundPullRequestTask(pr, login, req.Previous, cfg.GitHub.ActivityRules)
 		// GitHub repository names are case-insensitive. Keep the authored identity
 		// when the API returns a different capitalization of the same repository.
 		task.SourceRefs[0].ID = binding.ID
@@ -189,7 +189,7 @@ func fetchBoundPullRequest(ctx context.Context, repo string, number int) (boundP
 	return pr, login, nil
 }
 
-func boundPullRequestTask(pr boundPullRequest, login string, previous []protocol.Task, cfg filters.Config) protocol.Task {
+func boundPullRequestTask(pr boundPullRequest, login string, previous []protocol.Task, cfg []filters.ActivityRule) protocol.Task {
 	value := pr.searchPullRequest
 	if pr.State != "OPEN" {
 		reason := "closed"

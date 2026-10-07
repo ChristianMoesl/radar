@@ -131,6 +131,8 @@ const (
 )
 
 type SourceRefPresentation struct {
+	// Hidden retains a source observation that has no independent display contribution.
+	Hidden        bool   `json:"hidden,omitempty"`
 	Label         string `json:"label,omitempty"`
 	PreferTitle   bool   `json:"prefer_title,omitempty"`
 	TitleOrder    *int   `json:"title_order,omitempty"`
@@ -184,6 +186,8 @@ type SourceRef struct {
 }
 
 type Task struct {
+	// AttentionSourceRefID identifies the effective signal, not a filtered-out raw one.
+	AttentionSourceRefID string `json:"attention_source_ref_id,omitempty"`
 	// TrackingOnly retains hidden authored history for source resolvers, not discovery.
 	TrackingOnly          bool              `json:"-"`
 	Muted                 bool              `json:"muted,omitempty"`

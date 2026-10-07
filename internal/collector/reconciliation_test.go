@@ -60,9 +60,9 @@ func TestCollectReturnsRawTasksWithoutDisplayFilters(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte(`linking_mark_prefixes:
   - XYZ
 github:
-  filters:
-    mute_repos:
-      - org/noisy`), 0o600); err != nil {
+  pull_request_rules:
+    - repos: [org/noisy]
+      action: mute`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

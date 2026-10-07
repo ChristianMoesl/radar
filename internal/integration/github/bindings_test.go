@@ -73,11 +73,11 @@ func TestResolveBindingsPreservesReviewAndActivityClassificationAndFilters(t *te
 	}{
 		{"current review request", `{}`, "someone", "attention", true},
 		{"authored activity", `{}`, "me", "attention", false},
-		{"muted bot activity", `{"mute_users":["review-bot[bot]"]}`, "me", "in_progress", false},
-		{"deprioritized bot activity", `{"deprioritize_users":["review-bot[bot]"]}`, "me", "in_progress", false},
+		{"muted bot activity", `{"activity_rules":[{"actors":["review-bot[bot]"],"action":"ignore"}]}`, "me", "in_progress", false},
+		{"deprioritized bot activity", `{"activity_rules":[{"repos":["acme/*"],"actors":["review-bot[bot]"],"action":"ignore"}]}`, "me", "in_progress", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			configureBoundGitHub(t, `{"filters":`+test.filters+`}`)
+			configureBoundGitHub(t, test.filters)
 			pr := boundPRFixture()
 			pr["author"] = map[string]any{"login": test.author}
 			pr["comments"] = map[string]any{"nodes": []any{map[string]any{"author": map[string]any{"__typename": "Bot", "login": "review-bot"}, "createdAt": "2026-01-01T10:00:00Z"}}}
@@ -94,7 +94,7 @@ func TestResolveBindingsPreservesReviewAndActivityClassificationAndFilters(t *te
 }
 
 func TestResolveBindingsKeepsRepositoryAndAuthorTaskFiltersEffective(t *testing.T) {
-	configureBoundGitHub(t, `{"filters":{"mute_repos":["acme/app"],"deprioritize_users":["someone"]}}`)
+	configureBoundGitHub(t, `{"pull_request_rules":[{"repos":["acme/app"],"action":"mute"},{"authors":["someone"],"action":"deprioritize"}]}`)
 	fakeBoundGH(t, boundGHResponse(boundPRFixture()), false)
 	result := NewSource().ResolveBindings(context.Background(), boundGitHubRequest())
 	if !result.Complete || len(result.Observations) != 1 {
@@ -105,7 +105,7 @@ func TestResolveBindingsKeepsRepositoryAndAuthorTaskFiltersEffective(t *testing.
 	if filtered := NewSource().FilterTasks(tasks, testLogger()); len(filtered) != 0 {
 		t.Fatalf("bound PR bypassed repo filter: %+v", filtered)
 	}
-	configureBoundGitHub(t, `{"filters":{"deprioritize_users":["someone"]}}`)
+	configureBoundGitHub(t, `{"pull_request_rules":[{"authors":["someone"],"action":"deprioritize"}]}`)
 	if filtered := NewSource().FilterTasks(tasks, testLogger()); len(filtered) != 1 || filtered[0].Attention != "low_priority" {
 		t.Fatalf("bound PR bypassed author filter: %+v", filtered)
 	}

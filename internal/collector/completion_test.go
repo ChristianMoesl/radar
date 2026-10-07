@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"radar/internal/integration"
+	"radar/internal/integration/github/filters"
 	"radar/internal/integration/obsidian"
 	"radar/internal/protocol"
 	"radar/internal/state"
@@ -429,5 +430,31 @@ func TestAuthoredLifecycleFailedReopenDoesNotProjectSuccess(t *testing.T) {
 		t.Fatal("failed reopen not reported")
 	}
 	f.refresh(completionSource{name: "github", refs: []protocol.SourceRef{pr}})
+	f.assertState(t, "open")
+}
+
+func TestMutedPRStillBlocksCompletesAndReopensAuthoredWork(t *testing.T) {
+	f := newCompletionFixture(t)
+	pr := f.ref("github", "pr:acme/app:7", "attention")
+	pr.Kind, pr.Repo = "pull_request", "acme/app"
+	jira := f.ref("jira", "issue:ABC-7", "done")
+	rules := []filters.PullRequestRule{{Repos: []string{"acme/app"}, Action: "mute"}}
+	refresh := func() {
+		f.refresh(completionSource{name: "github", refs: []protocol.SourceRef{pr}}, completionSource{name: "jira", refs: []protocol.SourceRef{jira}})
+	}
+	refresh()
+	f.assertState(t, "open")
+	view := filters.Apply(f.store.Tasks(), rules)
+	if len(view) != 1 || view[0].Attention != "low_priority" || len(view[0].SourceRefs) != 3 {
+		t.Fatalf("muted PR hid other work or failed to link: %+v", view)
+	}
+	pr.Signal = "done"
+	refresh()
+	f.assertState(t, "done")
+	if view := filters.Apply(f.store.Tasks(), rules); len(view) != 1 || view[0].Attention != "done" {
+		t.Fatalf("muting changed authored completion: %+v", view)
+	}
+	pr.Signal = "in_progress"
+	refresh()
 	f.assertState(t, "open")
 }

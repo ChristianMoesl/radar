@@ -34,8 +34,30 @@ tmux:
         - command: pi $RADAR_PI_ARGS
 # Omit enabled to detect prerequisites automatically; true requires them and false disables collection.
 github:
-  # Mute matching repositories/users or lower their priority; these filters do not delete collected data.
-  filters: {}
+  # Additional open PRs (including drafts) beyond your own PRs, review requests and participation.
+  # Requires repos with a concrete owner; * is allowed in the repository name.
+  # Optional authors are exact logins; omit authors to include everyone. Entries are additive.
+  # Tracking adds visibility, not a subscription to every discussion.
+  # Example entry: {repos: ["acme/platform-*"], authors: ["renovate[bot]"]}
+  track: []
+  # Control each PR's contribution, not the whole linked task. Local-only work is unaffected.
+  # Match repos, authors, or both on the SAME PR. Fields use AND; values within a field use OR.
+  # Omitted selectors are unrestricted; at least one nonempty selector is required.
+  # Patterns are case-insensitive and support *. Confirmed bots match name and name[bot].
+  # First matching rule wins per PR; put keep exceptions before broader policies.
+  # Actions: keep (normal), mute (no contribution), deprioritize (low-priority contribution).
+  # Other sources keep their signals. Muted PRs remain linked and still affect completion.
+  # A task with only muted PRs is hidden, including in Done; explicit task muting is separate.
+  # Example entry: {repos: ["acme/platform-*"], authors: ["renovate[bot]"], action: deprioritize}
+  pull_request_rules: []
+  # Filter otherwise relevant comments/reviews by repos, actors, or both.
+  # Same AND/OR, wildcard, bot-alias and first-match rules as pull_request_rules.
+  # Actions: keep (normal involvement-based relevance) or ignore. keep never forces attention.
+  # Feedback on your PRs and replies in review threads you joined can raise attention.
+  # Unrelated tracked discussions do not. Ignoring activity does not cancel a direct review request.
+  # PR-level mute/deprioritize still applies after activity rules; other sources are unaffected.
+  # Example entry: {actors: ["review-bot[bot]"], action: ignore}
+  activity_rules: []
 # Omit enabled to detect prerequisites automatically; true requires them and false disables collection.
 # Credentials belong in secrets.yaml; RADAR_JIRA_* environment values override saved settings.
 jira:

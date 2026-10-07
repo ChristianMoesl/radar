@@ -12,6 +12,7 @@ import (
 	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/integration/github/filters"
+	githubsettings "radar/internal/integration/github/settings"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
@@ -60,7 +61,7 @@ func (Source) Status(ctx context.Context, logger *slog.Logger) integration.Statu
 
 func (Source) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	result := integration.CollectResult{}
-	filterConfig := filters.Config{}
+	githubConfig := githubsettings.Default()
 	if cfg, err := config.Load(); err != nil {
 		status := protocol.SourceStatus{Name: "github", Status: "error", Detail: err.Error()}
 		return integration.CollectResult{SourceStatus: &status}
@@ -68,7 +69,7 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		if status := integration.OptionalStatus("github", cfg.GitHub.Enabled, ""); !status.CanRun {
 			return integration.CollectResult{SourceStatus: &status.Status}
 		}
-		filterConfig = cfg.GitHub.Filters
+		githubConfig = cfg.GitHub
 	}
 
 	var reviewItems, authoredItems, activityItems, trackedItems []protocol.Task
@@ -77,11 +78,11 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		reviewItems, authoredItems, activityItems, pullRequestErr = FetchPullRequests(ctx, req.Previous, filterConfig, req.Logger)
+		reviewItems, authoredItems, activityItems, pullRequestErr = FetchPullRequests(ctx, req.Previous, githubConfig.ActivityRules, req.Logger)
 	}()
 	go func() {
 		defer wg.Done()
-		trackedItems, trackedErr = FetchRulePullRequests(ctx, filterConfig, req.Logger)
+		trackedItems, trackedErr = FetchTrackedPullRequests(ctx, githubConfig.Track, req.Logger)
 	}()
 	wg.Wait()
 
@@ -89,7 +90,6 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		req.Logger.Warn("github pull request collection failed", "error", pullRequestErr)
 		status := protocol.SourceStatus{Name: "github", Status: "error", Detail: "pull request collection failed"}
 		result.SourceStatus = &status
-		return result
 	}
 
 	observed := make([]protocol.Task, 0, len(reviewItems)+len(authoredItems)+len(activityItems)+len(trackedItems))
@@ -98,14 +98,49 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	observed = append(observed, activityItems...)
 
 	if trackedErr != nil {
-		req.Logger.Warn("github rule pull request collection failed", "error", trackedErr)
-	} else {
-		observed = appendMissingPullRequests(observed, trackedItems)
+		req.Logger.Warn("github tracked pull request collection failed", "error", trackedErr)
+		status := protocol.SourceStatus{Name: "github", Status: "partial", Detail: "tracked pull request collection incomplete: " + trackedErr.Error()}
+		if result.SourceStatus == nil {
+			result.SourceStatus = &status
+		}
 	}
+	observed = appendMissingPullRequests(observed, trackedItems)
 
 	applyLinkingMarks(observed, req.LinkingMarks)
 	result.Observations = observationsFromTasks(observed)
-	result.Complete = trackedErr == nil
+	result.Complete = trackedErr == nil && pullRequestErr == nil
+	if pullRequestErr != nil {
+		// A tracked open-PR snapshot has no personal review/activity facts.
+		// Do not let it erase known attention during a failed personal refresh.
+		// Fresh open observations must still win over cached terminal facts.
+		previous := map[string]protocol.SourceRef{}
+		for _, task := range req.Previous {
+			for _, ref := range task.SourceRefs {
+				if ref.Source == "github" && ref.Signal != "done" {
+					previous[ref.ID] = ref
+				}
+			}
+		}
+		for i, observation := range result.Observations {
+			if ref, ok := previous[observation.Ref.ID]; ok {
+				result.Observations[i] = integration.Observation{Ref: ref, Signal: integration.WorkSignal(ref.Signal), Reason: ref.Status}
+			}
+		}
+	}
+	if !result.Complete {
+		seen := map[string]bool{}
+		for _, observation := range result.Observations {
+			seen[observation.Ref.ID] = true
+		}
+		for _, task := range req.Previous {
+			for _, ref := range task.SourceRefs {
+				if ref.Source == "github" && !seen[ref.ID] {
+					result.Observations = append(result.Observations, integration.Observation{Ref: ref, Signal: integration.WorkSignal(ref.Signal), Reason: ref.Status})
+					seen[ref.ID] = true
+				}
+			}
+		}
+	}
 	return result
 }
 
@@ -119,7 +154,7 @@ func (Source) FilterTasks(tasks []protocol.Task, logger *slog.Logger) []protocol
 		logger.Warn("could not load github filters", "error", err)
 		return tasks
 	}
-	return filters.Apply(tasks, cfg.GitHub.Filters)
+	return filters.Apply(tasks, cfg.GitHub.PullRequestRules)
 }
 
 func (Source) Reconcile(ctx context.Context, req integration.ReconcileRequest) []integration.Observation {
@@ -173,19 +208,27 @@ func cloneMetadata(metadata map[string]string) map[string]string {
 }
 
 func appendMissingPullRequests(tasks []protocol.Task, candidates []protocol.Task) []protocol.Task {
-	seen := map[string]bool{}
-	for _, task := range tasks {
+	seen := map[string]int{}
+	for i, task := range tasks {
 		if task.URL != "" {
-			seen[task.URL] = true
+			seen[task.URL] = i
 		}
 	}
 	for _, task := range candidates {
-		if task.URL != "" && seen[task.URL] {
+		if i, found := seen[task.URL]; task.URL != "" && found {
+			if len(tasks[i].SourceRefs) > 0 && tasks[i].SourceRefs[0].Presentation.Hidden {
+				tasks[i] = task
+			} else if tasks[i].Kind == "github_pr_activity" && len(tasks[i].SourceRefs) > 0 && tasks[i].SourceRefs[0].Acknowledgement != nil {
+				ack := *tasks[i].SourceRefs[0].Acknowledgement
+				ack.HideWhenAcknowledged = false
+				ack.FallbackSignal, ack.FallbackReason = task.Attention, task.Reason
+				tasks[i].SourceRefs[0].Acknowledgement = &ack
+			}
 			continue
 		}
 		tasks = append(tasks, task)
 		if task.URL != "" {
-			seen[task.URL] = true
+			seen[task.URL] = len(tasks) - 1
 		}
 	}
 	return tasks
