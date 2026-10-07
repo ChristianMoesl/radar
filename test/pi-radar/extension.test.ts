@@ -11,7 +11,9 @@ type Handler = (event: any, ctx: any) => any;
 async function harness(t: TestContext, registered: unknown = true) {
   const root = await mkdtemp(join(tmpdir(), "pi-radar-test-"));
   const environment = { ...process.env };
+  const shutdowns: (() => Promise<unknown>)[] = [];
   t.after(async () => {
+    for (const shutdown of shutdowns.reverse()) await shutdown();
     for (const key of Object.keys(process.env)) if (!(key in environment)) delete process.env[key];
     Object.assign(process.env, environment);
     await rm(root, { recursive: true, force: true });
@@ -84,9 +86,28 @@ async function harness(t: TestContext, registered: unknown = true) {
     for (const handler of [...(hooks.get(event) ?? [])]) result = await handler(data, ctx);
     return result;
   }
+  shutdowns.push(() => emit("session_shutdown"));
+  // Model the independently loaded extension instances used by in-process
+  // subagents. No agents, model requests, or real Radar commands are launched.
+  function peer(extension = radar) {
+    const peerHooks = new Map<string, Handler[]>();
+    const peerTools = new Map<string, any>();
+    const peerCtx = { ...ctx, hasUI: false };
+    extension({
+      ...pi,
+      on: (event: string, handler: Handler) => peerHooks.set(event, [...(peerHooks.get(event) ?? []), handler]),
+      registerTool: (tool: any) => peerTools.set(tool.name, tool),
+      registerCommand: () => {},
+    } as unknown as ExtensionAPI);
+    async function emit(event: string, data: any = {}) {
+      for (const handler of [...(peerHooks.get(event) ?? [])]) await handler(data, peerCtx);
+    }
+    shutdowns.push(() => emit("session_shutdown"));
+    return { emit, start: () => emit("session_start", { reason: "startup" }), tools: peerTools };
+  }
   return {
     root, hooks, tools, commands, calls, notices, confirmations, messages, entries, responses, approvals, ctx,
-    emit,
+    emit, peer,
     start: () => emit("session_start", { reason: "startup" }),
     resources: (reason = "startup") => emit("resources_discover", { cwd: ctx.cwd, reason }),
     prompt: () => emit("before_agent_start", { systemPrompt: "Base prompt" }),
@@ -393,6 +414,157 @@ test("Pi coalesces overlapping prompts until the last one closes", async t => {
   await b;
   await tick();
   assert.deepEqual(h.activities(), ["idle", "waiting", "idle"]);
+});
+
+test("child startup and shutdown cannot clear a busy parent", async t => {
+  const h = await harness(t);
+  await h.start();
+  await h.emit("agent_start");
+  const child = h.peer();
+  await child.start();
+  assert.equal(child.tools.size, 3, "child workspace tools remain available");
+  assert.equal(h.activities().at(-1), "busy", "child startup must not publish idle over its parent");
+  await child.emit("session_shutdown");
+  assert.equal(h.activities().at(-1), "busy", "child disposal must not clear its parent");
+  await h.emit("agent_settled");
+  assert.equal(h.activities().at(-1), "idle");
+});
+
+test("parent settlement stays busy until the last background child settles", async t => {
+  const h = await harness(t);
+  await h.start();
+  await h.emit("agent_start");
+  const first = h.peer();
+  const second = h.peer();
+  await first.start();
+  await second.start();
+  await first.emit("agent_start");
+  await second.emit("agent_start");
+  await h.emit("agent_settled");
+  assert.equal(h.activities().at(-1), "busy");
+  await first.emit("agent_settled");
+  await first.emit("session_shutdown");
+  assert.equal(h.activities().at(-1), "busy");
+  await second.emit("agent_settled");
+  assert.equal(h.activities().at(-1), "idle");
+  // Retained child sessions can resume without a new session_start.
+  await second.emit("agent_start");
+  assert.equal(h.activities().at(-1), "busy");
+  await second.emit("agent_settled");
+  assert.equal(h.activities().at(-1), "idle");
+});
+
+test("waiting spans sessions and closing the last prompt restores a busy child", async t => {
+  const h = await harness(t);
+  await h.start();
+  const child = h.peer();
+  await child.start();
+  await child.emit("agent_start");
+  await h.emit("ui_prompt_start");
+  await child.emit("ui_prompt_start");
+  await h.emit("ui_prompt_end");
+  assert.equal(h.activities().at(-1), "waiting");
+  await child.emit("ui_prompt_end");
+  assert.equal(h.activities().at(-1), "busy");
+  await h.emit("ui_prompt_start");
+  await child.emit("agent_settled");
+  await child.emit("session_shutdown");
+  assert.equal(h.activities().at(-1), "waiting");
+  await h.emit("ui_prompt_end");
+  assert.equal(h.activities().at(-1), "idle");
+});
+
+for (const outcome of ["success", "error", "cancelled"]) {
+  test(`child ${outcome} settlement clears only its own activity`, async t => {
+    const h = await harness(t);
+    await h.start();
+    const child = h.peer();
+    await child.start();
+    await child.emit("agent_start");
+    await child.emit("agent_settled", { aborted: outcome === "cancelled", reason: outcome });
+    assert.equal(h.activities().at(-1), "idle");
+    await h.emit("agent_start");
+    await child.emit("session_shutdown");
+    const count = h.activities().length;
+    await child.emit("session_shutdown");
+    await child.emit("agent_start");
+    await child.emit("agent_settled");
+    await child.emit("ui_prompt_start");
+    assert.equal(h.activities().length, count, "a stopped child cannot publish again");
+    assert.equal(h.activities().at(-1), "busy");
+  });
+}
+
+test("sessions share the publication queue even when a prompt update stalls", async t => {
+  const h = await harness(t);
+  await h.start();
+  const child = h.peer();
+  await child.start();
+  await child.emit("agent_start");
+  const release = deferred<typeof success>();
+  const completed: string[] = [];
+  h.activityExec(async state => {
+    if (state === "waiting") await release.promise;
+    completed.push(state);
+    return success;
+  });
+  const waiting = h.emit("ui_prompt_start");
+  await tick();
+  const childSettled = child.emit("agent_settled");
+  const childResumed = child.emit("agent_start");
+  const stopped = h.emit("session_shutdown");
+  await tick();
+  // Neither the child's transitions nor parent shutdown may overtake the
+  // pending waiting write. Shutdown must restore the child's busy state.
+  try {
+    assert.deepEqual(completed, []);
+  } finally {
+    release.resolve(success);
+  }
+  await Promise.all([waiting, childSettled, childResumed, stopped]);
+  assert.deepEqual(completed, ["waiting", "busy"]);
+  await child.emit("agent_settled");
+  assert.equal(h.activities().at(-1), "idle");
+});
+
+test("a failed publication can be retried by a different session", async t => {
+  const h = await harness(t);
+  await h.start();
+  const child = h.peer();
+  await child.start();
+  await child.emit("agent_start");
+  h.activityExec(async () => ({ ...success, code: 1 }));
+  await h.emit("ui_prompt_start");
+  h.activityExec(async () => success);
+  const before = h.activities().length;
+  await child.emit("agent_settled");
+  assert.equal(h.activities().length, before + 1);
+  assert.equal(h.activities().at(-1), "waiting", "retry the aggregate, not the child's idle");
+  await h.emit("ui_prompt_end");
+  assert.equal(h.activities().at(-1), "idle");
+});
+
+test("independent module loads and replacement sessions share activity", async t => {
+  const h = await harness(t);
+  await h.start();
+  await h.emit("agent_start");
+  const independentModule = new URL("../../extensions/pi-radar/index.ts?activity-fixture", import.meta.url).href;
+  const { default: independentlyLoadedRadar } = await import(independentModule);
+  assert.notEqual(independentlyLoadedRadar, radar, "exercise distinct module instances");
+  const child = h.peer(independentlyLoadedRadar);
+  await child.start();
+  assert.equal(h.activities().at(-1), "busy");
+  await child.emit("agent_start");
+  await h.emit("session_shutdown", { reason: "reload" });
+  const replacement = h.peer();
+  await replacement.start();
+  assert.equal(h.activities().at(-1), "busy");
+  await replacement.emit("session_shutdown");
+  await child.emit("session_shutdown");
+  assert.equal(h.activities().at(-1), "idle");
+  const fresh = h.peer(independentlyLoadedRadar);
+  await fresh.start();
+  assert.equal(h.activities().at(-1), "idle", "no contributions survive disposal");
 });
 
 test("Radar's reconciliation confirmation is observed through native Pi hooks", async t => {

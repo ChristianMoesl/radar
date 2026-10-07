@@ -125,45 +125,62 @@ const ResourceEntry = "radar-workspace-resources";
 
 type Activity = "idle" | "busy" | "waiting";
 
+type ProcessActivity = {
+  sessions: Map<symbol, Activity>;
+  published?: Activity;
+  pending: Promise<void>;
+};
+
+// In-process subagents load independent copies of this extension, but all
+// publish to the process's tmux pane. Share state across Pi's module loaders
+// and reloads, not just across invocations of a single cached factory.
+const ProcessActivityKey = Symbol.for("@christianmoesl/pi-radar/activity");
+
 function activityTracker(pi: ExtensionAPI) {
+  const shared = globalThis as typeof globalThis & { [ProcessActivityKey]?: ProcessActivity };
+  const processActivity: ProcessActivity = shared[ProcessActivityKey] ??= { sessions: new Map(), pending: Promise.resolve() };
+  const session = Symbol("Radar activity session");
   let running = false;
   let promptOpen = false;
   let stopped = false;
-  let published: Activity | undefined;
-  let pending = Promise.resolve();
 
   function publish(force = false) {
-    const activity: Activity = promptOpen ? "waiting" : running ? "busy" : "idle";
-    // Pi does not await prompt hooks. Order writes so a slow waiting update
-    // cannot overwrite a newer prompt-end or shutdown update.
-    pending = pending.then(async () => {
-      if (!force && activity === published) return;
+    if (stopped) processActivity.sessions.delete(session);
+    else processActivity.sessions.set(session, promptOpen ? "waiting" : running ? "busy" : "idle");
+    const activities = [...processActivity.sessions.values()];
+    const activity: Activity = activities.includes("waiting") ? "waiting" : activities.includes("busy") ? "busy" : "idle";
+    // Pi does not await prompt hooks. All sessions must share the write queue
+    // and deduplication state: a child's idle/shutdown cannot clear its parent
+    // or siblings, nor can a slow write overtake another session's transition.
+    processActivity.pending = processActivity.pending.then(async () => {
+      if (!force && activity === processActivity.published) return;
       const binary = process.env.RADAR_BINARY?.trim() || "radar";
       try {
         const result = await pi.exec(binary, ["activity", activity], { timeout: 5000 });
-        published = result.code === 0 ? activity : undefined;
+        processActivity.published = result.code === 0 ? activity : undefined;
       } catch {
-        published = undefined;
+        processActivity.published = undefined;
         // Activity is informational: never interfere with prompts or tools.
       }
     });
-    return pending;
+    return processActivity.pending;
   }
 
   return {
     start: () => publish(true),
     running(value: boolean) {
-      if (stopped) return pending;
+      if (stopped) return processActivity.pending;
       running = value;
       return publish();
     },
     prompt(value: boolean) {
-      if (stopped) return pending;
+      if (stopped) return processActivity.pending;
       // Pi coalesces nested/overlapping prompts into one outer span.
       promptOpen = value;
       return publish();
     },
     shutdown() {
+      if (stopped) return processActivity.pending;
       stopped = true;
       running = promptOpen = false;
       return publish(true);
