@@ -50,6 +50,39 @@ func TestGeneratedYAMLMatchesGoldenAndRoundTrips(t *testing.T) {
 	}
 }
 
+func TestGeneratedConfigHeaderSurvivesRepeatedSetup(t *testing.T) {
+	path := setupDraftFixture(t)
+	if _, err := EnsureFile(); err != nil {
+		t.Fatal(err)
+	}
+	header := "# " + strings.ReplaceAll(configHeader, "\n", "\n# ") + "\n"
+	for _, root := range []string{"/first", "/second", "/second"} {
+		draft, err := LoadSetupDraft()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := draft.Config
+		cfg.Workspace.RootDir = root
+		preview, err := draft.Preview(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.HasPrefix(preview, []byte(header)) || bytes.Count(preview, []byte(header)) != 1 {
+			t.Fatalf("expected exactly one header at the start:\n%s", preview)
+		}
+		if err := draft.Save(cfg); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(data, preview) {
+			t.Fatal("saved header differs from preview")
+		}
+	}
+}
+
 func TestSetupUsesSharedGeneratorAndPreservesCommentsOnRepeat(t *testing.T) {
 	path := setupDraftFixture(t)
 	draft, err := LoadSetupDraft()

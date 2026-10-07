@@ -6,6 +6,10 @@ import (
 	"radar/internal/configfile"
 )
 
+const configHeader = "Radar configuration — managed by `radar setup`.\n" +
+	"Re-run `radar setup` to update it, or edit it by hand.\n" +
+	"See README.md (Config) in the radar repo for configuration options."
+
 // Guidance lives beside the schema; values always come from Config/Default.
 var configComments = map[string]string{
 	"repository_dirs":                      "Directories searched for existing repository checkouts, not Radar workspaces.",
@@ -43,6 +47,7 @@ func configDocument(cfg Config) (*yaml.Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	node.HeadComment = configHeader
 	configfile.Annotate(node, configComments)
 	return node, nil
 }

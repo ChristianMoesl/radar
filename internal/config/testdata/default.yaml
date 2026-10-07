@@ -1,3 +1,6 @@
+# Radar configuration — managed by `radar setup`.
+# Re-run `radar setup` to update it, or edit it by hand.
+# See README.md (Config) in the radar repo for configuration options.
 # Directories searched for existing repository checkouts, not Radar workspaces.
 repository_dirs:
   - ~/workspace
