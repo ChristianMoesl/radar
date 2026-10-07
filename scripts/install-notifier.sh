@@ -15,7 +15,7 @@ staged="$(mktemp -d "$(dirname "$destination")/.notifier-install.XXXXXX")"
 trap 'rm -rf "$staged"' EXIT
 cp -R "$source" "$staged/RadarNotifier.app"
 codesign --verify --strict "$staged/RadarNotifier.app"
-# Manual make/archive installation is not a managed upgrade transaction. The
+# Manual make/archive installation is not a managed update transaction. The
 # in-app updater owns staged activation and recovery for managed installations.
 rm -rf "$destination"
 mv "$staged/RadarNotifier.app" "$destination"

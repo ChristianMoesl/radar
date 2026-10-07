@@ -37,4 +37,4 @@ if [[ -d "$libexecdir/RadarNotifier.app" ]]; then
 fi
 printf 'Restart a running daemon with: radar restart\n'
 
-printf "On macOS: run radar setup notifications; use u in Radar for explicit managed-release adoption/upgrades.\n"
+printf "On macOS: run radar setup notifications; use radar update for explicit managed-release adoption/updates.\n"

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestMutationsAndUpgradeExcludeEachOther(t *testing.T) {
+func TestMutationsAndUpdateExcludeEachOther(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("macOS gate")
 	}
@@ -20,7 +20,7 @@ func TestMutationsAndUpgradeExcludeEachOther(t *testing.T) {
 		t.Fatal("interrupted accepted work")
 	}
 	mutation()
-	upgrade, err := Acquire(true)
+	update, err := Acquire(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestMutationsAndUpgradeExcludeEachOther(t *testing.T) {
 		release()
 		t.Fatal("accepted mutation during activation")
 	}
-	upgrade()
+	update()
 	release, err := Acquire(false)
 	if err != nil {
 		t.Fatal(err)

@@ -17,6 +17,9 @@ func TestSetupDefersWithoutLaunchingOrChangingPermissions(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if strings.Contains(out.String(), "N in Radar") {
+		t.Fatal("advertised removed shortcut")
+	}
 	for _, text := range []string{"TWO independent approvals", "Open Anyway", "Allow notifications", "not grant", "Radar remains usable", "radar setup notifications"} {
 		if !strings.Contains(out.String(), text) {
 			t.Fatal(text)

@@ -311,7 +311,7 @@ to the user's tmux server. The PTY matrix adds roughly 90 seconds to the suite.
 ## macOS notification setup
 
 After saving the main setup, macOS users can optionally set up notifications.
-Return at any time with **N** in Radar or `radar setup notifications`. Deferring
+Return at any time with `radar setup notifications`. Deferring
 keeps the dashboard usable and does not change notification preferences.
 
 The small `RadarNotifier.app` companion supplies Radar's native application
@@ -344,7 +344,7 @@ Radar avoids repeatedly launching that same binary until a successful setup/test
 
 ## Managed macOS releases
 
-Press **u** in Radar to review a release and confirm adoption/upgrade of the
+Run `radar update` to review a release and confirm adoption/update of the
 standard `~/.local` installation. No silent install occurs. Custom/symlink/package-
 manager installs and Linux/Windows remain manual. CLI and Pi updates have separate
 outcomes; active Pi sessions need `/reload` or restart after a package change.

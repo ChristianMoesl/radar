@@ -89,7 +89,7 @@ Sandbox routing remains entirely owned by the separately installed `pi-sbx` exte
 
 ## Update
 
-On **macOS**, press **u** in Radar (or run `radar upgrade`) to review and confirm
+On **macOS**, run `radar update` to review and confirm
 a coordinated stable release. The standard `~/.local` installation requires
 explicit adoption; custom/package-manager installations remain manual. Updates
 verify signed metadata, preserve an unchanged notifier, retain recovery files,
@@ -98,7 +98,7 @@ an exact Radar-managed version pin; running Pi sessions still need `/reload`.
 Signing-key setup and public npm approval are prerequisites for an eligible
 release. See [release setup, trust and recovery](docs/releases.md).
 
-Press **N**, or run `radar setup notifications`, for the macOS companion's launch
+Run `radar setup notifications` for the macOS companion's launch
 approval, notification permission, Settings links and delivery/click test.
 [Step-by-step approval instructions](docs/installation.md#macos-notification-setup)
 explain both permissions. No paid Apple membership is required for this ad-hoc
@@ -526,7 +526,7 @@ JSON retains the full result and its existing field names, without colors, table
 - Exit status is `0` for a completed command, `1` for runtime errors, and `2` for invalid arguments. Reconciliation can return an incomplete/retryable plan result: scripts must also inspect `ok`, `retryable`, and `reconfirm_required` rather than treating a returned plan as successful convergence.
 - `config-path`, `state-path`, and `log-path` keep their convenient bare-path default; with `--json` they return `{ "path": "..." }`. `version`, `stop`, `restart`, `rate-limit`, and `activity` also accept `--json`. Activity publication remains silent by default.
 - `--json` selects output only: it does not approve destructive actions. Cleanup and deletion still read confirmation from stdin; cancellation produces no result. Authentication may still require interaction. Complete `radar setup` before JSON-mode creation; JSON mode never launches the setup wizard.
-- The dashboard, interactive `create`, `fork`, `setup` (including `setup notifications`), `upgrade`, and foreground `daemon` do not produce JSON results. Use `create --name <name> --json` for a creation result.
+- The dashboard, interactive `create`, `fork`, `setup` (including `setup notifications`), `update`, and foreground `daemon` do not produce JSON results. Use `create --name <name> --json` for a creation result.
 
 Radar's Pi extension and editor integrations must explicitly pass `--json` when decoding results. The CLI and Pi extension should be updated together.
 

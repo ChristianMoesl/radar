@@ -49,8 +49,8 @@ func main() {
 	}
 	command, args := args[0], args[1:]
 	switch command {
-	case "upgrade":
-		runUpgrade(args)
+	case "update":
+		runUpdate(args)
 	case "setup":
 		flags := outputFlags("radar setup")
 		_ = parseFlags(flags, args)
@@ -1025,12 +1025,12 @@ Daemon and status:
   radar refresh
   radar reset
   radar stop
-  radar upgrade              macOS: review, adopt/upgrade, or recover a release
-  radar setup notifications  macOS: optional notifier setup/test
   radar restart
 
-Setup:
+Setup and maintenance:
   radar setup
+  radar setup notifications  macOS: optional notifier setup/test
+  radar update               macOS: review, adopt/update, or recover a release
 
 Other:
   radar ack <task-id>
@@ -1044,7 +1044,7 @@ Output:
   Human-readable output is the default, including when piped.
   Add --json before the command or after its arguments for machine-readable output.
   Path commands print a bare path by default. Activity publication is silent.
-  Interactive UI, setup, upgrade, fork, and daemon modes do not support --json.
+  Interactive UI, setup, update, fork, and daemon modes do not support --json.
   --json does not bypass confirmation for cleanup or task deletion.
 
 Examples:

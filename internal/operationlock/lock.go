@@ -1,4 +1,4 @@
-// Package operationlock prevents upgrades from interrupting accepted mutations.
+// Package operationlock prevents updates from interrupting accepted mutations.
 package operationlock
 
 import (

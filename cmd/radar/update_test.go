@@ -15,20 +15,20 @@ import (
 	"radar/internal/update"
 )
 
-func TestUpgradeConfirmationDefaultsToNo(t *testing.T) {
+func TestUpdateConfirmationDefaultsToNo(t *testing.T) {
 	for _, input := range []string{"", "\n", "no\n", "yes\n"} {
-		if confirmUpgrade(bufio.NewScanner(strings.NewReader(input)), io.Discard, "Install?") {
+		if confirmUpdate(bufio.NewScanner(strings.NewReader(input)), io.Discard, "Install?") {
 			t.Fatalf("accepted %q", input)
 		}
 	}
-	if !confirmUpgrade(bufio.NewScanner(strings.NewReader("y\n")), io.Discard, "Install?") {
+	if !confirmUpdate(bufio.NewScanner(strings.NewReader("y\n")), io.Discard, "Install?") {
 		t.Fatal("rejected confirmation")
 	}
 }
 
 // No real host daemon/configuration/notifications or Pi profile is used. This
 // tests actual differently-versioned executables, not a mocked health response.
-func TestUpgradeDaemonIdentityAndOldClientGuard(t *testing.T) {
+func TestUpdateDaemonIdentityAndOldClientGuard(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("macOS updater")
 	}
@@ -52,7 +52,7 @@ func TestUpgradeDaemonIdentityAndOldClientGuard(t *testing.T) {
 	t.Setenv("RADAR_STATE", filepath.Join(root, "tasks.json"))
 	t.Setenv("RADAR_DISABLE_COLLECTION", "1")
 	// Unix sockets have a short path limit; do not use the long test directory.
-	socketDir, err := os.MkdirTemp("/tmp", "radar-upgrade-test-")
+	socketDir, err := os.MkdirTemp("/tmp", "radar-update-test-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,12 +60,12 @@ func TestUpgradeDaemonIdentityAndOldClientGuard(t *testing.T) {
 	path := filepath.Join(socketDir, "radar.sock")
 	t.Setenv("RADAR_SOCKET", path)
 	t.Cleanup(func() {
-		if err := stopUpgradeDaemon(path); err != nil {
+		if err := stopUpdateDaemon(path); err != nil {
 			t.Error("stop isolated daemon:", err)
 		}
 	})
 	firstHash, _ := update.FileDigest(binary)
-	if err := startUpgradeDaemon(path, binary, "v0.1.0+"+firstHash); err != nil {
+	if err := startUpdateDaemon(path, binary, "v0.1.0+"+firstHash); err != nil {
 		t.Fatal(err)
 	}
 	before, err := client.CallWithTimeout(path, "version", time.Second)
@@ -80,11 +80,11 @@ func TestUpgradeDaemonIdentityAndOldClientGuard(t *testing.T) {
 	if err != nil || response.OK || !strings.Contains(response.Error, "Radar was replaced") {
 		t.Fatalf("old daemon mutation: %+v %v", response, err)
 	}
-	if err := stopUpgradeDaemon(path); err != nil {
+	if err := stopUpdateDaemon(path); err != nil {
 		t.Fatal(err)
 	}
 	secondHash, _ := update.FileDigest(binary)
-	if err := startUpgradeDaemon(path, binary, "v0.1.1+"+secondHash); err != nil {
+	if err := startUpdateDaemon(path, binary, "v0.1.1+"+secondHash); err != nil {
 		t.Fatal(err)
 	}
 	after, err := client.CallWithTimeout(path, "version", time.Second)
@@ -96,7 +96,7 @@ func TestUpgradeDaemonIdentityAndOldClientGuard(t *testing.T) {
 	}
 }
 
-func TestFailedUpgradeDaemonDoesNotWaitForUnrelatedHealth(t *testing.T) {
+func TestFailedUpdateDaemonDoesNotWaitForUnrelatedHealth(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("macOS updater")
 	}
@@ -105,21 +105,11 @@ func TestFailedUpgradeDaemonDoesNotWaitForUnrelatedHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := time.Now()
-	if err := startUpgradeDaemon("/tmp/nonexistent-radar-upgrade-test.sock", file, "v0.1.1+unknown"); err == nil {
+	if err := startUpdateDaemon("/tmp/nonexistent-radar-update-test.sock", file, "v0.1.1+unknown"); err == nil {
 		t.Fatal("accepted exited daemon")
 	}
 	if time.Since(started) > 5*time.Second {
 		t.Fatal("failed daemon not recognized promptly")
-	}
-}
-
-func TestUpgradeCLIFromTUIPreservesReturnPrompt(t *testing.T) {
-	// This test binary is not the installed Radar. The upgrade must refuse it
-	// before contacting releases or touching an installation, but still let the
-	// dashboard's child process return through its existing prompt.
-	stdout, stderr, code := outputCLI(t, []string{"upgrade", "--from-tui"}, "\n")
-	if code != 1 || !strings.Contains(stderr, "Radar upgrade:") || !strings.Contains(stdout, "Press Enter to return to Radar.") {
-		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
 
@@ -131,5 +121,40 @@ func TestNotificationSetupCLIStillSupportsDeferring(t *testing.T) {
 	stdout, stderr, code := outputCLI(t, []string{"setup", "notifications"}, "d\n")
 	if code != 0 || stderr != "" || !strings.Contains(stdout, "Your notification preference was not changed by deferring.") {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestUpdateCLICommand(t *testing.T) {
+	notInstalled := "Radar update: run the installed ~/.local/bin/radar"
+	if runtime.GOOS != "darwin" {
+		notInstalled = "Radar update: managed updates are macOS-only"
+	}
+	for _, tc := range []struct {
+		name string
+		args []string
+		code int
+		want string
+	}{
+		{"help", []string{"help"}, 0, "radar update"},
+		{"update", []string{"update"}, 1, notInstalled},
+		{"old name is not an alias", []string{"upgrade"}, 2, "radar update"},
+		{"removed TUI flag", []string{"update", "--from-tui"}, 2, "flag provided but not defined: -from-tui"},
+		{"JSON before command", []string{"--json", "update"}, 2, "radar update does not produce a JSON result"},
+		{"JSON after command", []string{"update", "--json"}, 2, "radar update does not produce a JSON result"},
+		{"unexpected argument", []string{"update", "extra"}, 2, "usage: radar update"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, stderr, code := outputCLI(t, tc.args, "")
+			output := stdout + stderr
+			if code != tc.code || !strings.Contains(output, tc.want) {
+				t.Fatalf("exit %d: %s", code, output)
+			}
+			if strings.Contains(output, "radar upgrade") || strings.Contains(output, "Press Enter") {
+				t.Fatalf("obsolete workflow guidance: %s", output)
+			}
+			if tc.name == "help" && !strings.Contains(output, "radar setup notifications") {
+				t.Fatal("missing notification setup command")
+			}
+		})
 	}
 }

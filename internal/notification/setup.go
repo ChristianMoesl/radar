@@ -71,7 +71,7 @@ func setup(in io.Reader, out io.Writer, helper string, run setupCommand) error {
 		}
 		action := strings.ToLower(strings.TrimSpace(scanner.Text()))
 		if action == "d" || action == "" {
-			fmt.Fprintln(out, "You can return with N in Radar or radar setup notifications. Your notification preference was not changed by deferring.")
+			fmt.Fprintln(out, "You can return with radar setup notifications. Your notification preference was not changed by deferring.")
 			return nil
 		}
 		if action != "t" && action != "p" && action != "n" {

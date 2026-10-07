@@ -195,7 +195,7 @@ func TestInstallationOwnershipAndReceipt(t *testing.T) {
 		t.Fatal("accepted bad receipt")
 	}
 }
-func TestUpgradeLockAndPendingJournalProtectRecovery(t *testing.T) {
+func TestUpdateLockAndPendingJournalProtectRecovery(t *testing.T) {
 	s, i := stagedFixture(t, true)
 	unlock, err := AcquireInstallation(s.Prefix)
 	if err != nil {

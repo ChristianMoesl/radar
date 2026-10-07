@@ -60,7 +60,7 @@ func (s platformSender) Send(ctx context.Context, notification Notification) err
 		return err
 	}
 	if blocked, err := os.ReadFile(failureMarker(s.executable)); err == nil && string(blocked) == identity {
-		return fmt.Errorf("notifier launch previously failed; use N in Radar to set up/test notifications")
+		return fmt.Errorf("notifier launch previously failed; run radar setup notifications")
 	}
 	// Do not detach an unobserved process and repeatedly trigger blocked-launch
 	// alerts. Background delivery never requests notification authorization.
@@ -68,7 +68,7 @@ func (s platformSender) Send(ctx context.Context, notification Notification) err
 	defer cancel()
 	if err := exec.CommandContext(ctx, s.executable, "--notify", encoded).Run(); err != nil {
 		_ = os.WriteFile(failureMarker(s.executable), []byte(identity), 0600)
-		return fmt.Errorf("notifier launch failed; use N in Radar to retry setup: %w", err)
+		return fmt.Errorf("notifier launch failed; run radar setup notifications to retry setup: %w", err)
 	}
 	return nil
 }

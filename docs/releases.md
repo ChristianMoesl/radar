@@ -1,4 +1,4 @@
-# Releases and macOS upgrades
+# Releases and macOS updates
 
 Radar's CLI and `@christianmoesl/pi-radar` share a release version. The small
 macOS notifier has its own version and immutable artifacts. Linux/Windows retain
@@ -63,7 +63,7 @@ later without replacing the release contract.
   publishes the CLI release from a draft only after uploading its assets.
 - Approve the staged exact npm version with 2FA. Until it is publicly available,
   the coordinated updater skips that release and may offer an older eligible
-  stable version. Drafts/prereleases are never automatic upgrade candidates;
+  stable version. Drafts/prereleases are never automatic update candidates;
   prerelease archives and npm's `next` staging remain available manually.
 
 `release.json.sig` signs the exact bytes of `release.json` using Ed25519. Metadata
@@ -106,9 +106,10 @@ creating another one. Component artifacts similarly must not be overwritten.
 
 ## User flow and recovery
 
-On macOS, press **u** in Radar (or `radar upgrade` in a terminal). This is one
-shared interactive upgrade path. The dashboard's update notice is non-blocking
-and cached for an hour; the actual upgrade checks trusted metadata and npm again.
+On macOS, run `radar update` in a terminal to review and confirm a release.
+The dashboard shows a non-blocking update notice pointing to this command, without
+a dedicated shortcut. The notice is cached for an hour; `radar update` checks
+trusted metadata and npm again.
 There are no silent installs. An offline/rate-limited check does not block Radar.
 
 The managed layout is deliberately restricted to the user's regular, owned
@@ -128,19 +129,19 @@ The updater does not kill tmux, Pi, sandboxes, or alter workspaces.
 atomically renamed into place; the helper is replaced only if changed. The new
 daemon's actual version/hash is checked before the receipt is committed. Failure
 stops the new daemon and restores previous files when possible. If interrupted,
-run `radar upgrade` again: it offers recovery **before** looking for releases.
+run `radar update` again: it offers recovery **before** looking for releases.
 Keep the recovery directory if it reports an error; do not delete it to bypass
 verification. Recover only from the expected trusted previous binary if the
 installed executable itself cannot run. After a successful update, previous files
-are retained until the next upgrade; they are recovery evidence, not an automatic
+are retained until the next update; they are recovery evidence, not an automatic
 rollback of user data or Pi packages. Other resident clients must reopen; clients
 with this updater-capable code refuse mutations after replacement. Before the
 first adoption, close dashboards that predate this guard. No shim can retrofit
 new locking into already-running old code; leave tmux/Pi/workspaces running.
 
 A helper needing macOS approval is a separate **notification setup required**
-state, not failure of the whole dashboard update. Press **N** for the setup/test
-flow, or run `radar setup notifications`. See [approval directions](installation.md#macos-notification-setup).
+state, not failure of the whole dashboard update. Run
+`radar setup notifications` for the setup/test flow. See [approval directions](installation.md#macos-notification-setup).
 
 ## Pi coordination
 
@@ -160,7 +161,7 @@ PI_CODING_AGENT_DIR=/path/to/profile pi install npm:@christianmoesl/pi-radar@X.Y
 ```
 
 This creates an **explicit Radar-managed pin**; `<agent-dir>/radar/release-pin.json`
-records that ownership so subsequent upgrades can move it with confirmation.
+records that ownership so subsequent updates can move it with confirmation.
 If the user changes the pin, or the declaration is disabled/filtered, project-
 scoped, Git/local/development, it is left alone. No broad `pi update`, Pi-core
 update, pi-sbx update, sandbox-image update or forced session reload occurs.

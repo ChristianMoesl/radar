@@ -207,13 +207,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.releaseNotice = update.Notice(msg)
 		m.syncTaskScroll()
 		return m, nil
-	case maintenanceMsg:
-		if version.CheckInstalled() != nil {
-			m.relaunch = true
-			return m, tea.Quit
-		}
-		m.err = msg.err
-		return m, m.fetch("tasks")
 	case operationTickMsg:
 		if m.operation.kind == "" || uint64(msg) != m.operationGeneration {
 			return m, nil
@@ -420,14 +413,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "w":
 			if task, ok := m.selectedTask(); ok {
 				return m.editWorkspace(task)
-			}
-		case "u":
-			if runtime.GOOS == "darwin" {
-				return m, runMaintenance("upgrade", "--from-tui")
-			}
-		case "N":
-			if runtime.GOOS == "darwin" {
-				return m, runMaintenance("setup", "notifications")
 			}
 		case "f":
 			return m, m.openConfig()
@@ -1930,7 +1915,7 @@ func (m model) header(width int) string {
 
 	header := truncateLine(lipgloss.JoinHorizontal(lipgloss.Top, titleStyle.Render("Radar"), "  ", counts), width)
 	if m.releaseNotice.Version != "" {
-		header += "\n" + truncateLine("Release "+m.releaseNotice.Version+" available — u to review", width)
+		header += "\n" + truncateLine("Run radar update — "+m.releaseNotice.Version+" available", width)
 	}
 	return header
 }

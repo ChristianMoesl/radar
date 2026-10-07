@@ -44,7 +44,7 @@ func CheckNotice(ctx context.Context, current string) Notice {
 	n.Checked = time.Now()
 	m, err := NewClient().Latest(ctx, current)
 	if err != nil {
-		n.Error = "Update check unavailable; press u for details"
+		n.Error = "Update check unavailable; run radar update for details"
 	} else if m != nil {
 		n.Version = m.Version
 	}

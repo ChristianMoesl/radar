@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"runtime"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -126,11 +125,4 @@ func renderKeyHints(width int, groups [][]keyHint) string {
 		}
 	}
 	return strings.Join(lines, "\n")
-}
-
-func init() {
-	if runtime.GOOS == "darwin" {
-		last := len(mainKeyHints[1]) - 1
-		mainKeyHints[1] = append(mainKeyHints[1][:last], keyHint{"u", "upgrade"}, keyHint{"N", "notifications"}, keyHint{"q", "quit"})
-	}
 }

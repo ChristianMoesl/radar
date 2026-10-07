@@ -45,7 +45,7 @@ func Inspect(executable string) (Installation, error) {
 		return Installation{}, err
 	}
 	if runtime.GOOS != "darwin" {
-		return Installation{}, errors.New("in-app upgrades are macOS-only; use make install")
+		return Installation{}, errors.New("managed updates are macOS-only; use make install")
 	}
 	if filepath.Clean(executable) != filepath.Join(prefix, "bin/radar") {
 		return Installation{}, fmt.Errorf("automatic updates support %s/bin/radar only; keep using your existing manual/package-manager installation", prefix)
@@ -142,7 +142,7 @@ func AcquireInstallation(prefix string) (func(), error) {
 	}
 	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		f.Close()
-		return nil, errors.New("another Radar upgrade is running")
+		return nil, errors.New("another Radar update is running")
 	}
 	return func() { _ = unix.Flock(int(f.Fd()), unix.LOCK_UN); _ = f.Close() }, nil
 }
@@ -171,7 +171,7 @@ func ReadJournal(prefix string) (*Journal, error) {
 		return nil, err
 	}
 	if j.Schema != 1 || !digestPattern.MatchString(j.PreviousBinary) || (j.PreviousNotifier != "" && !digestPattern.MatchString(j.PreviousNotifier)) {
-		return nil, errors.New("invalid upgrade recovery journal")
+		return nil, errors.New("invalid update recovery journal")
 	}
 	if err := j.Manifest.Validate(); err != nil {
 		return nil, err
@@ -215,7 +215,7 @@ func Stage(ctx context.Context, c *Client, i Installation, m Manifest, arch stri
 		return nil, err
 	}
 	if uint64(disk.Bavail)*uint64(disk.Bsize) < uint64(2*MaxExpandedSize+a.Size) {
-		return nil, errors.New("upgrade requires at least 1 GiB of free staging/recovery space")
+		return nil, errors.New("update requires at least 1 GiB of free staging/recovery space")
 	}
 	var binStat, stageStat unix.Stat_t
 	if err := unix.Stat(filepath.Join(i.Prefix, "bin"), &binStat); err != nil {
@@ -349,7 +349,7 @@ func (s *Staged) Activate(h Hooks) error {
 	if err := writeJSON(filepath.Join(base, "journal.json"), s.Journal); err != nil {
 		return fmt.Errorf("new daemon is running but durable commit was not confirmed; preserve recovery data: %w", err)
 	}
-	// Preserve the previous files and journal until the next upgrade. No Pi or
+	// Preserve the previous files and journal until the next update. No Pi or
 	// persisted application data is part of this filesystem transaction.
 	return nil
 }
@@ -388,7 +388,7 @@ func Recover(prefix string) error {
 		if backupErr == nil || j.PreviousNotifier == "" {
 			if sum, err := TreeDigest(app); err == nil {
 				if sum != j.Manifest.Artifacts[j.Arch].NotifierSHA256 {
-					return errors.New("notifier changed after interrupted upgrade; refusing to delete it")
+					return errors.New("notifier changed after interrupted update; refusing to delete it")
 				}
 				if err := os.RemoveAll(app); err != nil {
 					return err

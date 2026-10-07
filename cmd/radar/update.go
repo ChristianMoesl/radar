@@ -24,34 +24,26 @@ import (
 	"radar/internal/version"
 )
 
-func runUpgrade(args []string) {
-	flags := outputFlags("radar upgrade")
-	fromTUI := flags.Bool("from-tui", false, "return to the dashboard after the upgrade flow")
+func runUpdate(args []string) {
+	flags := outputFlags("radar update")
 	_ = parseFlags(flags, args)
 	if flags.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "usage: radar upgrade")
+		fmt.Fprintln(os.Stderr, "usage: radar update")
 		os.Exit(2)
 	}
-	rejectJSON("upgrade")
-	err := upgrade(os.Stdin, os.Stdout)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Radar upgrade:", err)
-	}
-	if *fromTUI {
-		fmt.Fprint(os.Stdout, "\nPress Enter to return to Radar. ")
-		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
-	}
-	if err != nil {
+	rejectJSON("update")
+	if err := updateRelease(os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "Radar update:", err)
 		os.Exit(1)
 	}
 }
-func confirmUpgrade(scanner *bufio.Scanner, out io.Writer, text string) bool {
+func confirmUpdate(scanner *bufio.Scanner, out io.Writer, text string) bool {
 	fmt.Fprintf(out, "%s [y/N] ", text)
 	return scanner.Scan() && strings.EqualFold(strings.TrimSpace(scanner.Text()), "y")
 }
-func upgrade(in io.Reader, out io.Writer) error {
+func updateRelease(in io.Reader, out io.Writer) error {
 	if runtime.GOOS != "darwin" {
-		return errors.New("in-app upgrades are macOS-only; use make install on this platform")
+		return errors.New("managed updates are macOS-only; use make install on this platform")
 	}
 	executable, err := os.Executable()
 	if err != nil {
@@ -79,7 +71,7 @@ func upgrade(in io.Reader, out io.Writer) error {
 		return err
 	}
 	if journal != nil && !journal.Committed {
-		if !confirmUpgrade(scanner, out, "Interrupted update found. Restore the previous CLI/notifier (Pi and application data are not rolled back)?") {
+		if !confirmUpdate(scanner, out, "Interrupted update found. Restore the previous CLI/notifier (Pi and application data are not rolled back)?") {
 			return nil
 		}
 		unlock, err := operationlock.Acquire(true)
@@ -87,7 +79,7 @@ func upgrade(in io.Reader, out io.Writer) error {
 			return err
 		}
 		defer unlock()
-		if err := stopUpgradeDaemon(path); err != nil {
+		if err := stopUpdateDaemon(path); err != nil {
 			return err
 		}
 		if err := update.Recover(prefix); err != nil {
@@ -98,14 +90,14 @@ func upgrade(in io.Reader, out io.Writer) error {
 			return err
 		}
 		if journal.ChangeNotifier && journal.PreviousNotifier != "" {
-			if err := registerUpgradeNotifier(filepath.Join(prefix, "libexec/radar/RadarNotifier.app")); err != nil {
+			if err := registerUpdateNotifier(filepath.Join(prefix, "libexec/radar/RadarNotifier.app")); err != nil {
 				return err
 			}
 		}
-		if err := startUpgradeDaemon(path, executable, identity); err != nil {
+		if err := startUpdateDaemon(path, executable, identity); err != nil {
 			return err
 		}
-		fmt.Fprintln(out, "Previous installation restored and its daemon verified. Reopen Radar before attempting another upgrade.")
+		fmt.Fprintln(out, "Previous installation restored and its daemon verified. Reopen Radar before attempting another update.")
 		return nil
 	}
 	installed, err := update.Inspect(executable)
@@ -155,20 +147,20 @@ func upgrade(in io.Reader, out io.Writer) error {
 		if installed.Receipt != nil {
 			old = installed.Receipt.NotifierVersion
 		}
-		fmt.Fprintf(out, "Notifier: %s → %s. macOS may require Open Anyway again; use N in Radar afterward.\n", old, artifact.NotifierVersion)
+		fmt.Fprintf(out, "Notifier: %s → %s. macOS may require Open Anyway again; run radar setup notifications afterward.\n", old, artifact.NotifierVersion)
 	}
 	printPiReleaseState(out, integration, target.PiVersion)
 	fmt.Fprintln(out, "The daemon/dashboard will restart; workspaces, tmux, Pi and sandboxes stay running. Previous files and a recovery journal are retained. Pi is a separate operation, not an atomic part of the CLI update.")
 	if installed.Receipt == nil {
 		fmt.Fprintln(out, "Before first adoption, close Radar dashboards that predate this updater. Leave tmux, Pi sessions and workspaces running.")
 	}
-	if installed.Receipt == nil && !confirmUpgrade(scanner, out, "Adopt this manual/source installation into managed GitHub releases?") {
+	if installed.Receipt == nil && !confirmUpdate(scanner, out, "Adopt this manual/source installation into managed GitHub releases?") {
 		return nil
 	}
 	updatePi := false
 	if integration.CanUpdate && integration.Installed != target.PiVersion {
 		fmt.Fprintf(out, "Exact Pi target: PI_CODING_AGENT_DIR=%q pi install npm:%s@%s\nThis changes only pi-radar to an exact Radar-managed pin. Custom/pinned/disabled/project packages are not adopted.\n", integration.Profile, update.Package, target.PiVersion)
-		updatePi = confirmUpgrade(scanner, out, "Also install/update this Pi package and consent to the exact pin?")
+		updatePi = confirmUpdate(scanner, out, "Also install/update this Pi package and consent to the exact pin?")
 		if updatePi {
 			prerequisiteCtx, prerequisiteCancel := context.WithTimeout(context.Background(), 20*time.Second)
 			prerequisiteErr := pi.CheckReleasePrerequisites(prerequisiteCtx, *target)
@@ -183,7 +175,7 @@ func upgrade(in io.Reader, out io.Writer) error {
 		fmt.Fprintln(out, "Pi will remain as detected above. An older/custom pi-radar integration may not be compatible with the new CLI.")
 		question = "Download, verify and install Radar while leaving Pi unchanged?"
 	}
-	if !confirmUpgrade(scanner, out, question) {
+	if !confirmUpdate(scanner, out, question) {
 		return nil
 	}
 	cancel()
@@ -219,15 +211,15 @@ func upgrade(in io.Reader, out io.Writer) error {
 		return err
 	}
 	originalIdentity := version.Current()
-	health := func(binary, identity string) error { return startUpgradeDaemon(path, binary, identity) }
-	err = staged.Activate(update.Hooks{Stop: func() error { return stopUpgradeDaemon(path) }, Health: health, Register: registerUpgradeNotifier, RestartPrevious: func() error { return health(executable, originalIdentity) }})
+	health := func(binary, identity string) error { return startUpdateDaemon(path, binary, identity) }
+	err = staged.Activate(update.Hooks{Stop: func() error { return stopUpdateDaemon(path) }, Health: health, Register: registerUpdateNotifier, RestartPrevious: func() error { return health(executable, originalIdentity) }})
 	unlock()
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "Radar %s installed; the new daemon is healthy.\n", fresh.Version)
 	if staged.Journal.ChangeNotifier {
-		fmt.Fprintln(out, "Notification setup may be required: press N in Radar. Gatekeeper approval and notification authorization are separate.")
+		fmt.Fprintln(out, "Notification setup may be required: run radar setup notifications. Gatekeeper approval and notification authorization are separate.")
 	}
 	if updatePi {
 		packageCtx, packageCancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -244,17 +236,17 @@ func upgrade(in io.Reader, out io.Writer) error {
 
 // Only stop the daemon answering this socket, never every radar-like process on
 // the host. The PID is returned by the same health endpoint used for verification.
-func stopUpgradeDaemon(path string) error {
+func stopUpdateDaemon(path string) error {
 	r, err := client.CallWithTimeout(path, "version", 2*time.Second)
 	if err != nil {
 		pid, pidErr := process.ReadPID()
 		if os.IsNotExist(pidErr) || (pidErr == nil && !process.Running(pid)) {
 			return nil
 		}
-		return errors.New("daemon is not responding; stop/restart it explicitly before upgrading")
+		return errors.New("daemon is not responding; stop/restart it explicitly before updating")
 	}
 	if !r.OK || r.PID <= 0 || r.PID == os.Getpid() {
-		return errors.New("restart Radar with the current binary before upgrading; daemon identity is unavailable")
+		return errors.New("restart Radar with the current binary before updating; daemon identity is unavailable")
 	}
 	p, err := os.FindProcess(r.PID)
 	if err != nil {
@@ -272,7 +264,7 @@ func stopUpgradeDaemon(path string) error {
 	return errors.New("daemon did not stop; no files should be activated while it is still running")
 }
 
-func startUpgradeDaemon(path, binary, identity string) error {
+func startUpdateDaemon(path, binary, identity string) error {
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
 		return err
@@ -321,7 +313,7 @@ func restoredIdentity(binary, digest string) (string, error) {
 	}
 	return number + "+" + digest, nil
 }
-func registerUpgradeNotifier(app string) error {
+func registerUpdateNotifier(app string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return exec.CommandContext(ctx, "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", "-f", app).Run()
