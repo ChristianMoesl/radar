@@ -494,6 +494,7 @@ radar task priority <task-id> urgent|normal
 radar status
 radar tasks
 radar reconcile-workspace --request <json> [--workspace <path>] [--preview]
+radar recreate-sandboxes [--workspace <path>] [--preview] [--yes]
 radar workspace-context [--workspace <path>]
 radar repository-refs --repo <repo>
 radar cleanup <task-id>
@@ -645,6 +646,37 @@ Activity is independent of task attention: it does not change categorization, so
 Tmux session refs use `#{session_id}` for stable identity, so renaming a tmux session does not create a new Radar task. Selecting a tmux-backed task switches to the stable session target.
 
 ## Docker sbx sandboxes
+
+### Recreate managed sandboxes
+
+Use the CLI to rebuild existing Radar-managed sandboxes from their recorded
+kit, environment-file path, mounts, readiness command, and published ports:
+
+```sh
+radar recreate-sandboxes --preview             # inspect all registered targets
+radar recreate-sandboxes                       # preview and confirm before rebuilding
+radar recreate-sandboxes --workspace /path/to/workspace
+radar recreate-sandboxes --yes --json          # explicitly approved automation
+```
+
+Recreation can pick up newly configured **global SBX secret placeholders** and
+edited environment-file contents. A VM restart alone did not do so on SBX 0.46.0.
+This is destructive: sandbox processes stop and files outside host mounts are
+lost. Host worktrees, notes, and Pi/tmux sessions stay intact. Previously running
+sandboxes are started again; previously stopped ones are left stopped.
+pi-sbx can reconnect to the replacement sandbox under the same name.
+
+SBX deletes sandbox-scoped secrets when removing a sandbox, so the command
+**blocks those targets**, rather than exporting or silently losing credentials.
+It also blocks unrecorded sandbox-specific policies, mount/port drift, missing
+local inputs, and incomplete creation recipes. Missing runtimes are skipped;
+open their workspaces to recover them. Other eligible targets continue after an
+individual failure, with a nonzero exit status for any failed/blocked target.
+`--json` does not bypass confirmation; `--yes` does. This is CLI-only.
+See [recreation safeguards](docs/integrations/sbx.md#explicit-sandbox-recreation)
+for details.
+
+### Configuration and discovery
 
 Radar collects Docker sbx sandboxes with `sbx ls --json` when SBX is installed, unless globally disabled. On WSL2, Radar also detects Windows `sbx.exe` and translates its reported workspace paths with `wslpath`. A native `sbx` takes precedence; command failures never switch installations. Registered workspace sandboxes remain tracked even when the default is disabled. Sandboxes attach to matching tasks through configured linking marks in the sandbox/workspace name and through their primary workspace path. Sandboxes without matches are shown as standalone in-progress tasks.
 

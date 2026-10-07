@@ -10,6 +10,7 @@ type WorkspaceManager interface {
 	WorkspaceCatalog
 	ManagedWorkspaceLifecycle
 	WorkspaceReconciler
+	WorkspaceSandboxRecreator
 }
 
 type WorkspaceCatalog interface {

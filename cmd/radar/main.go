@@ -70,6 +70,8 @@ func main() {
 		runCreate(args)
 	case "reconcile-workspace":
 		runReconcileWorkspace(args)
+	case "recreate-sandboxes":
+		runRecreateSandboxes(args)
 	case "workspace-context":
 		runWorkspaceContext(args)
 	case "repository-refs":
@@ -1012,6 +1014,7 @@ Workspaces:
   radar create
   radar create --repo <repo> --base <branch> --name <name>
   radar reconcile-workspace --request <json> [--workspace <path>] [--preview]
+  radar recreate-sandboxes [--workspace <path>] [--preview] [--yes]
   radar workspace-context [--workspace <path>]
   radar repository-refs --repo <repo>
   radar fork
@@ -1045,7 +1048,7 @@ Output:
   Add --json before the command or after its arguments for machine-readable output.
   Path commands print a bare path by default. Activity publication is silent.
   Interactive UI, setup, update, fork, and daemon modes do not support --json.
-  --json does not bypass confirmation for cleanup or task deletion.
+  --json does not bypass confirmation for cleanup, task deletion, or sandbox recreation.
 
 Examples:
   radar tasks

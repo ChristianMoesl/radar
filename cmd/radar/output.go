@@ -105,6 +105,18 @@ func writeResult(stdout, stderr io.Writer, value any, asJSON bool) error {
 			p.table(rows)
 		}
 		p.warning(v.Warning)
+	case integration.SandboxRecreatePlan:
+		p.line("Sandbox recreation plan (%d target(s)).", len(v.Targets))
+		p.sandboxRecreationTargets(v.Targets)
+		p.line("Recreation stops sandbox processes and discards files outside host mounts.")
+		p.line("Only Radar's recorded configuration is restored; host worktrees and Pi sessions are retained.")
+	case integration.SandboxRecreateResult:
+		if v.Cancelled {
+			p.line("Sandbox recreation cancelled; no changes made.")
+		} else {
+			p.line("Sandbox recreation: %d recreated, %d failed/blocked, %d skipped.", v.Recreated, v.Failed, v.Skipped)
+		}
+		p.sandboxRecreationTargets(v.Targets)
 	case integration.WorkspaceReconcilePlan:
 		p.plan(v)
 	case integration.WorkspaceReconcileResult:
@@ -324,4 +336,16 @@ func yesNo(value bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+func (p textResult) sandboxRecreationTargets(targets []integration.SandboxRecreateTarget) {
+	if len(targets) == 0 {
+		p.line("No Radar-managed sandboxes selected.")
+		return
+	}
+	rows := [][]string{{"STATUS", "SANDBOX", "WORKSPACE", "REASON"}}
+	for _, target := range targets {
+		rows = append(rows, []string{target.Status, target.SandboxName, target.WorkspacePath, target.Reason})
+	}
+	p.table(rows)
 }

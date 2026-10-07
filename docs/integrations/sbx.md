@@ -149,6 +149,67 @@ No registry schema or configuration migration is introduced. The added launch
 helper is content-addressed cache data, and pending pane gates are scoped to
 fresh tmux panes rather than persisted workspace records.
 
+## Explicit sandbox recreation
+
+`radar recreate-sandboxes` previews and confirms recreation of **existing,
+registered Radar-managed sandboxes** under the configured workspace root.
+`--workspace <anchor-or-member>` limits the operation to one registered
+workspace; it never enrolls an unmanaged sandbox. `--preview` is read-only.
+`--yes` explicitly accepts the destructive reset for scripts, independently of
+`workspace.auto_confirm`. `--json` only changes output formatting.
+There is no TUI action.
+
+A live test with SBX 0.46.0 confirmed that adding a global custom secret did not
+update even fresh executions after a VM reboot, but recreating the sandbox
+supplied the new placeholder. Real secret values stay in SBX's host-side secret
+store/proxy, not the environment. The same experiment confirmed that removing
+the sandbox deletes its sandbox-scoped secret configuration.
+
+Before deletion, Radar checks the registered recipe and runtime identity,
+existing mount directories, local kit references, readable env-file, matching
+mounts/IPv4 ports, scoped-secret metadata, and policies. Scoped secrets (including
+custom and env-only entries) block recreation. Sandbox-specific policies also
+block it, except SBX's noneditable, automatically provisioned kit rule. Global
+policies are retained by SBX. Unknown or unreadable safety metadata fails closed;
+Radar neither exports secret values nor offers an override for these blockers.
+Incomplete registrations with only an unknown resolved agent name are blocked:
+a custom agent name is not a substitute for its original kit reference.
+
+Recreation uses the **recorded** primary kit, mixin, env-file path, mounts,
+readiness command and ports, not newly changed user/repository settings.
+SBX reads current env-file contents and resolves the recorded kit reference at
+creation time. Only those recorded settings are reproducible; do not depend on
+manually added SBX creation options surviving a reset. Changed live mounts or
+ports must first be reconciled through Radar. Editing a local kit, env-file or
+remote tag can change what creation does, even when the recorded path/reference
+is unchanged.
+
+The operation serializes with managed workspace mutations, checks its confirmed
+plan again under that lock, and rechecks each runtime's identity and safety
+metadata just before removal. External SBX changes do not share Radar's lock;
+avoid modifying sandbox configuration while recreation runs.
+
+Sandboxes are rebuilt sequentially using the existing bounded removal/create
+retry path (at most three transient-create attempts), with a five-minute limit
+per target. Readiness retains its existing 60-second bound. Published ports are
+restored and each target's previous running/stopped state is restored on success.
+Host worktrees, notes, the workspace registry, and host Pi/tmux sessions are not
+replaced. Commands inside the sandbox are interrupted and never replayed;
+services must be restarted by their normal startup mechanism.
+
+Per-target results distinguish `recreated`, `blocked`, `failed`, and
+`skipped` (absent runtimes). A blocked or failed target makes the command exit 1;
+other eligible targets still run. Empty plans and missing-runtime skips are
+successful no-ops. Canceling the confirmation changes nothing. A changed plan
+requires another invocation and confirmation. Creation failures do not restore
+the old sandbox filesystem; readiness/port-restoration failures retain the new
+runtime for inspection. Inspect the reported workspace and recover it explicitly
+rather than repeatedly resetting healthy targets with a bulk command.
+
+This command adds no configuration or registry schema and requires no migration.
+It uses SBX's scoped-secret and policy JSON metadata as exposed by v0.46.0;
+versions without compatible inspection fail closed before removal.
+
 ## Windows / WSL2
 
 Radar detects Windows Docker Sandboxes when running in WSL2. Install SBX for

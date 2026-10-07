@@ -17,6 +17,7 @@ import (
 )
 
 type listedSandbox struct {
+	ID         string   `json:"id"`
 	Name       string   `json:"name"`
 	Agent      string   `json:"agent"`
 	Status     string   `json:"status"`
@@ -248,6 +249,7 @@ var defaultSandboxReconcilePolicy = sandboxReconcilePolicy{
 }
 
 type sandboxReconcilePolicy struct {
+	forceRecreate   bool
 	createAttempts  int
 	removalChecks   int
 	removalInterval time.Duration
@@ -273,7 +275,7 @@ func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group worksp
 	if err != nil {
 		return err
 	}
-	if found && sameMountSet(sandbox.Mounts, sandboxWorkspaceMounts(actual)) {
+	if found && !policy.forceRecreate && sameMountSet(sandbox.Mounts, sandboxWorkspaceMounts(actual)) {
 		if sandbox.EnvFile != "" {
 			if err := ensureSharedDirectory(group); err != nil {
 				return err
