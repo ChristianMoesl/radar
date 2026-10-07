@@ -1,12 +1,13 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 func TestLoadOptionalSandboxReadyCommand(t *testing.T) {
@@ -16,13 +17,13 @@ func TestLoadOptionalSandboxReadyCommand(t *testing.T) {
 		invalid   bool
 	}{
 		{name: "omitted", sbx: `{}`},
-		{name: "disabled", sbx: `{"ready_command":[]}`, want: []string{}},
-		{name: "argv", sbx: `{"ready_command":["/only/in/sandbox"," spaced argument ","","$(not-a-shell)"]}`, want: []string{"/only/in/sandbox", " spaced argument ", "", "$(not-a-shell)"}},
-		{name: "empty executable", sbx: `{"ready_command":["","sentinel-secret"]}`, invalid: true},
-		{name: "blank executable", sbx: `{"ready_command":["  "]}`, invalid: true},
-		{name: "NUL executable", sbx: `{"ready_command":["sentinel-secret\u0000"]}`, invalid: true},
-		{name: "NUL argument", sbx: `{"ready_command":["ready","sentinel-secret\u0000"]}`, invalid: true},
-		{name: "not argv", sbx: `{"ready_command":"ready"}`, invalid: true},
+		{name: "disabled", sbx: `{ready_command: []}`, want: []string{}},
+		{name: "argv", sbx: `{ready_command: [/only/in/sandbox, ' spaced argument ', "", $(not-a-shell)]}`, want: []string{"/only/in/sandbox", " spaced argument ", "", "$(not-a-shell)"}},
+		{name: "empty executable", sbx: `{ready_command: ["", sentinel-secret]}`, invalid: true},
+		{name: "blank executable", sbx: `{ready_command: ['  ']}`, invalid: true},
+		{name: "NUL executable", sbx: `{ready_command: ["sentinel-secret\0"]}`, invalid: true},
+		{name: "NUL argument", sbx: `{ready_command: [ready, "sentinel-secret\0"]}`, invalid: true},
+		{name: "not argv", sbx: `{ready_command: ready}`, invalid: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -33,7 +34,7 @@ func TestLoadOptionalSandboxReadyCommand(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(path, []byte(`{"sbx":`+tt.sbx+`}`), 0600); err != nil {
+			if err := os.WriteFile(path, []byte(`{sbx: `+tt.sbx+`}`), 0600); err != nil {
 				t.Fatal(err)
 			}
 			cfg, err := Load()
@@ -46,11 +47,11 @@ func TestLoadOptionalSandboxReadyCommand(t *testing.T) {
 			if err != nil || !reflect.DeepEqual(cfg.SBX.ReadyCommand, tt.want) {
 				t.Fatalf("ready command = %#v, %v", cfg.SBX.ReadyCommand, err)
 			}
-			data, err := json.Marshal(cfg.SBX)
+			data, err := yaml.Marshal(cfg.SBX)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(data), `"ready_command"`) != (len(tt.want) > 0) {
+			if strings.Contains(string(data), `ready_command:`) != (len(tt.want) > 0) {
 				t.Fatalf("omitempty = %s", data)
 			}
 		})
@@ -62,8 +63,8 @@ func TestDefaultConfigOmitsSandboxReadyCommand(t *testing.T) {
 	if cfg.SBX.ReadyCommand != nil {
 		t.Fatalf("default = %#v", cfg.SBX.ReadyCommand)
 	}
-	data, err := json.Marshal(cfg)
-	if err != nil || strings.Contains(string(data), `"ready_command"`) {
-		t.Fatalf("default JSON = %s, %v", data, err)
+	data, err := yaml.Marshal(cfg)
+	if err != nil || strings.Contains(string(data), `ready_command:`) {
+		t.Fatalf("default YAML = %s, %v", data, err)
 	}
 }

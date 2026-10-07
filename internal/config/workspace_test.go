@@ -1,11 +1,12 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 func TestLoadDisposableEntries(t *testing.T) {
@@ -14,8 +15,15 @@ func TestLoadDisposableEntries(t *testing.T) {
 		want           []string
 	}{
 		{"omitted", `{}`, []string{}},
-		{"empty", `{"workspace":{"cleanup":{"disposable_entries":[]}}}`, []string{}},
-		{"configured", `{"workspace":{"cleanup":{"disposable_entries":[".pnpm-store","scratch.log","cache files"]}}}`, []string{".pnpm-store", "scratch.log", "cache files"}},
+		{"empty", `workspace:
+  cleanup:
+    disposable_entries: []`, []string{}},
+		{"configured", `workspace:
+  cleanup:
+    disposable_entries:
+      - .pnpm-store
+      - scratch.log
+      - cache files`, []string{".pnpm-store", "scratch.log", "cache files"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -47,7 +55,7 @@ func TestDisposableEntriesDefaultIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"disposable_entries": []`) {
+	if !strings.Contains(string(data), `disposable_entries: []`) {
 		t.Fatalf("generated defaults do not expose an empty allowlist: %s", data)
 	}
 	if got := Default().Workspace.Cleanup.DisposableEntries; len(got) != 0 {
@@ -67,11 +75,11 @@ func TestLoadRejectsInvalidDisposableEntries(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			encoded, err := json.Marshal([]string{name})
+			encoded, err := yaml.Marshal(map[string]any{"workspace": map[string]any{"cleanup": map[string]any{"disposable_entries": []string{name}}}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			data := `{"workspace":{"cleanup":{"disposable_entries":` + string(encoded) + `}}}`
+			data := string(encoded)
 			if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 				t.Fatal(err)
 			}

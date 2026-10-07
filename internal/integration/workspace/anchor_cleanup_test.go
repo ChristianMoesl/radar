@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"log/slog"
 	"os"
@@ -10,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"go.yaml.in/yaml/v3"
 
 	"radar/internal/cleanup"
 	"radar/internal/config"
@@ -27,7 +28,7 @@ func configureDisposableEntries(t *testing.T, names ...string) {
 		t.Fatal(err)
 	}
 	cfg.Workspace.Cleanup.DisposableEntries = names
-	data, err := json.Marshal(cfg)
+	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

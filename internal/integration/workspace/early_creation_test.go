@@ -138,7 +138,8 @@ func earlyCreationFixture(t *testing.T, members int) (*earlyCreationRunner, Crea
 	}
 	for i := range members {
 		repo := t.TempDir()
-		if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"setup":["echo setup"]}`), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`setup:
+  - echo setup`), 0600); err != nil {
 			t.Fatal(err)
 		}
 		if i == 0 {

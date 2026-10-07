@@ -343,8 +343,8 @@ func TestFetchWorktreesOnlyIncludesConfiguredWorkspaceRoot(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	configJSON := []byte(`{"linking_mark_prefixes":["XYZ"],"workspace":{"root_dir":"` + filepath.Join(home, "workspaces") + `"}}`)
-	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), configJSON, 0o600); err != nil {
+	configYAML := []byte(`{linking_mark_prefixes: ["XYZ"],workspace: {root_dir: "` + filepath.Join(home, "workspaces") + `"}}`)
+	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.yaml"), configYAML, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
@@ -380,11 +380,12 @@ func hasCleanupSafety(target protocol.CleanupTarget, kind string) bool {
 
 func writeGitTestConfig(t *testing.T, home string) {
 	t.Helper()
-	path := filepath.Join(home, "config", "radar", "config.json")
+	path := filepath.Join(home, "config", "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"]}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
+  - XYZ`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

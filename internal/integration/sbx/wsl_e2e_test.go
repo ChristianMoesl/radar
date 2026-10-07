@@ -65,7 +65,7 @@ func TestWindowsSBXLifecycleE2E(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), []byte(fmt.Sprintf(`{"workspace":{"root_dir":%q},"linking_mark_prefixes":["ABC"]}`, filepath.Join(root, "registered"))), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.yaml"), []byte(fmt.Sprintf(`{workspace: {root_dir: %q},linking_mark_prefixes: ["ABC"]}`, filepath.Join(root, "registered"))), 0600); err != nil {
 		t.Fatal(err)
 	}
 	refs, status := FetchSandboxes(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), linking.NewMarkMatcher([]string{"ABC"}))

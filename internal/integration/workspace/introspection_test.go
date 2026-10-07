@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"go.yaml.in/yaml/v3"
+
 	"radar/internal/config"
 	"radar/internal/integration/workspace/group"
 )
@@ -75,15 +77,13 @@ func TestInspectWorkspaceReturnsMembersAndDiscoveredRepositories(t *testing.T) {
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	configPath := filepath.Join(configHome, "radar", "config.json")
+	configPath := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(config.Config{
-		RepositoryDirs:      []string{sources},
-		Workspace:           config.WorkspaceConfig{RootDir: root},
-		LinkingMarkPrefixes: []string{"XYZ"},
-	})
+	cfg := config.Default()
+	cfg.RepositoryDirs, cfg.Workspace.RootDir, cfg.LinkingMarkPrefixes = []string{sources}, root, []string{"XYZ"}
+	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,11 +163,13 @@ func TestInspectNoteOnlyWorkspaceFromAnchor(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(config.Config{Workspace: config.WorkspaceConfig{RootDir: root}, LinkingMarkPrefixes: []string{"ABC"}})
+	cfg := config.Default()
+	cfg.Workspace.RootDir, cfg.LinkingMarkPrefixes = root, []string{"ABC"}
+	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.yaml"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	anchor := filepath.Join(root, "plan")

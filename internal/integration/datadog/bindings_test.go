@@ -69,8 +69,12 @@ func TestResolveBindingsNeverRecoversFromIncompleteErrorOrDisabledSearch(t *test
 			case "truncated":
 				searcher.response.Metadata.PageCount = 2
 			case "disabled":
-				path := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar", "config.json")
-				if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["ABC"],"datadog":{"enabled":false,"monitor_query":"tag:team:example"}}`), 0o600); err != nil {
+				path := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar", "config.yaml")
+				if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
+  - ABC
+datadog:
+  enabled: false
+  monitor_query: tag:team:example`), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			case "no query":

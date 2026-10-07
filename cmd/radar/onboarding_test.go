@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+
 	"radar/internal/protocol"
 	"radar/internal/version"
 )
@@ -44,7 +45,7 @@ func TestStartupEntrypoints(t *testing.T) {
 			} else if err != nil {
 				t.Fatalf("error=%v output=%s", err, output)
 			}
-			if _, err := os.Stat(filepath.Join(home, ".config", "radar", "config.json")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(home, ".config", "radar", "config.yaml")); !os.IsNotExist(err) {
 				t.Fatal("informational/noninteractive command wrote config")
 			}
 		})
@@ -66,7 +67,8 @@ func TestDashboardOpensDirectlyAndEntersWorkspaceOnDemand(t *testing.T) {
 			if err := os.MkdirAll(configDir, 0700); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"sbx":{"enabled":false}}`), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(`sbx:
+  enabled: false`), 0600); err != nil {
 				t.Fatal(err)
 			}
 			bin := filepath.Join(home, "bin")

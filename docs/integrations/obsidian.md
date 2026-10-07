@@ -6,12 +6,9 @@ Radar's always-registered Markdown task-authoring provider supports both ordinar
 
 Add the vault to `radar config-path`:
 
-```json
-{
-  "obsidian": {
-    "vault_path": "~/Documents/Obsidian/Work"
-  }
-}
+```yaml
+obsidian:
+  vault_path: ~/Documents/Obsidian/Work
 ```
 
 Radar expands `~/`, requires an existing absolute directory, and creates `<directory>/Tasks/`. First-run setup can create the selected directory after confirmation. `.obsidian/` is not required or created. For a real Obsidian vault, the open action uses an Obsidian deep link; otherwise it opens the Markdown file with the system handler. An unconfigured notes directory is shown as disabled with setup guidance; a configured but unavailable directory is an error. Task creation, mute/unmute persistence, and workspace creation still require a valid notes directory. The existing `obsidian.vault_path` setting, task identities, and note layout are unchanged.

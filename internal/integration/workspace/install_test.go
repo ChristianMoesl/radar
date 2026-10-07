@@ -51,7 +51,7 @@ func TestSandboxInstallAndOverrideMatrix(t *testing.T) {
 						}
 						cfgJSON := `{}`
 						if global != "auto" {
-							cfgJSON = `{"sbx":{"enabled":` + global + `}}`
+							cfgJSON = `{sbx: {enabled: ` + global + `}}`
 						}
 						if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0600); err != nil {
 							t.Fatal(err)
@@ -61,7 +61,7 @@ func TestSandboxInstallAndOverrideMatrix(t *testing.T) {
 							t.Fatal(err)
 						}
 						if repo != "auto" {
-							if err := os.WriteFile(filepath.Join(repository, ".radar.json"), []byte(`{"sbx":{"enabled":`+repo+`}}`), 0600); err != nil {
+							if err := os.WriteFile(filepath.Join(repository, ".radar.yaml"), []byte(`{sbx: {enabled: `+repo+`}}`), 0600); err != nil {
 								t.Fatal(err)
 							}
 						}
@@ -236,7 +236,8 @@ func (r *failingSandboxSetup) Run(ctx context.Context, cwd, name string, args ..
 func TestSandboxProvisioningFailureNeverLaunchesHostSetup(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
 	repo, root := t.TempDir(), t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"setup":["echo setup-marker"]}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`setup:
+  - echo setup-marker`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	runner := &failingSandboxSetup{fakeRunner: fakeRunner{repo: repo}}

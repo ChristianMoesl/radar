@@ -3,8 +3,8 @@ package settings
 import "radar/internal/integration/github/filters"
 
 type Config struct {
-	Enabled *bool          `json:"enabled,omitempty"`
-	Filters filters.Config `json:"filters"`
+	Enabled *bool          `yaml:"enabled,omitempty"`
+	Filters filters.Config `yaml:"filters"`
 }
 
 func Default() Config {

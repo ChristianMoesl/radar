@@ -1,13 +1,13 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"radar/internal/configfile"
 	datadogsettings "radar/internal/integration/datadog/settings"
 	githubsettings "radar/internal/integration/github/settings"
 	jirasettings "radar/internal/integration/jira/settings"
@@ -18,23 +18,23 @@ import (
 )
 
 type Config struct {
-	RepositoryDirs      []string             `json:"repository_dirs,omitempty"`
-	Workspace           WorkspaceConfig      `json:"workspace"`
-	Model               string               `json:"model,omitempty"`
-	Thinking            string               `json:"thinking,omitempty"`
-	LinkingMarkPrefixes []string             `json:"linking_mark_prefixes"`
-	SBX                 SBXConfig            `json:"sbx"`
-	Tmux                sessionlayout.Config `json:"tmux"`
-	GitHub              GitHubConfig         `json:"github"`
-	Jira                JiraConfig           `json:"jira"`
-	Datadog             DatadogConfig        `json:"datadog"`
-	Obsidian            ObsidianConfig       `json:"obsidian"`
+	RepositoryDirs      []string             `yaml:"repository_dirs,omitempty"`
+	Workspace           WorkspaceConfig      `yaml:"workspace"`
+	Model               string               `yaml:"model,omitempty"`
+	Thinking            string               `yaml:"thinking,omitempty"`
+	LinkingMarkPrefixes []string             `yaml:"linking_mark_prefixes"`
+	SBX                 SBXConfig            `yaml:"sbx"`
+	Tmux                sessionlayout.Config `yaml:"tmux"`
+	GitHub              GitHubConfig         `yaml:"github"`
+	Jira                JiraConfig           `yaml:"jira"`
+	Datadog             DatadogConfig        `yaml:"datadog"`
+	Obsidian            ObsidianConfig       `yaml:"obsidian"`
 }
 
 type WorkspaceConfig struct {
-	RootDir     string                 `json:"root_dir"`
-	AutoConfirm bool                   `json:"auto_confirm"`
-	Cleanup     WorkspaceCleanupConfig `json:"cleanup"`
+	RootDir     string                 `yaml:"root_dir"`
+	AutoConfirm bool                   `yaml:"auto_confirm"`
+	Cleanup     WorkspaceCleanupConfig `yaml:"cleanup"`
 }
 
 type SBXConfig = sbxsettings.Config
@@ -57,7 +57,7 @@ func Path() (string, error) {
 		}
 		base = filepath.Join(home, ".config")
 	}
-	return filepath.Join(base, "radar", "config.json"), nil
+	return filepath.Join(base, "radar", "config.yaml"), nil
 }
 
 func Load() (Config, error) {
@@ -76,8 +76,8 @@ func Load() (Config, error) {
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return cfg, nil
 	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return Config{}, err
+	if err := configfile.Decode(data, &cfg); err != nil {
+		return Config{}, fmt.Errorf("read %s: %w", path, err)
 	}
 	applyDefaults(&cfg)
 	if err := validate(cfg); err != nil {
@@ -96,15 +96,7 @@ func EnsureFile() (string, error) {
 	} else if !os.IsNotExist(err) {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", err
-	}
-	data, err := json.MarshalIndent(Default(), "", "  ")
-	if err != nil {
-		return "", err
-	}
-	data = append(data, '\n')
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := Create(Default()); err != nil {
 		return "", err
 	}
 	return path, nil

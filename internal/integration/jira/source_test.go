@@ -84,7 +84,7 @@ func TestCollectMakesConfiguredTitleReferenceAuthoritative(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(searchResponse{})
 	})
 	defer server.Close()
-	configureJiraSource(t, server.URL, `{"authoritative_issue_types":["service request"]}`)
+	configureJiraSource(t, server.URL, `{authoritative_issue_types: [service request]}`)
 
 	result := NewSource().Collect(context.Background(), jiraCollectRequest([]protocol.Task{{ID: 3, Title: "XYZ-7 rollout"}}))
 	if len(result.Observations) != 1 {
@@ -202,7 +202,7 @@ func TestCollectBoundsTitleReferenceFetches(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(searchResponse{Issues: issues})
 	})
 	defer server.Close()
-	configureJiraSource(t, server.URL, `{"authoritative_issue_types":[]}`)
+	configureJiraSource(t, server.URL, `{authoritative_issue_types: []}`)
 	titles := make([]string, 0, maxTitleDiscoveredIssues+1)
 	for i := 1; i <= maxTitleDiscoveredIssues+1; i++ {
 		titles = append(titles, "XYZ-"+strconv.Itoa(i))
@@ -243,7 +243,7 @@ func jiraSourceServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	}))
 }
 
-func configureJiraSource(t *testing.T, apiURL, jiraJSON string) {
+func configureJiraSource(t *testing.T, apiURL, jiraYAML string) {
 	t.Helper()
 	t.Setenv("RADAR_JIRA_API_BASE_URL", apiURL)
 	t.Setenv("RADAR_JIRA_BASE_URL", "https://jira.example.test")
@@ -251,11 +251,11 @@ func configureJiraSource(t *testing.T, apiURL, jiraJSON string) {
 	t.Setenv("RADAR_JIRA_API_TOKEN", "token")
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	path := filepath.Join(configHome, "radar", "config.json")
+	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"jira":`+jiraJSON+`}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{linking_mark_prefixes: ["XYZ"],jira: `+jiraYAML+`}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

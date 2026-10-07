@@ -9,7 +9,7 @@ import (
 // WorkspaceCleanupConfig grants deletion permission, not just permission to
 // ignore files during safety checks. Names match direct anchor children only.
 type WorkspaceCleanupConfig struct {
-	DisposableEntries []string `json:"disposable_entries"`
+	DisposableEntries []string `yaml:"disposable_entries"`
 }
 
 func (cfg WorkspaceCleanupConfig) validate() error {

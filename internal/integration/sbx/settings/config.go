@@ -8,16 +8,16 @@ import (
 const DefaultKitName = "docker.io/christianmoesl/radar-kit:latest"
 
 type Config struct {
-	Enabled          *bool     `json:"enabled,omitempty"`
-	Kit              KitConfig `json:"kit"`
-	AdditionalMounts []string  `json:"additional_mounts"`
-	EnvFile          string    `json:"env_file,omitempty"`
-	ReadyCommand     []string  `json:"ready_command,omitempty"`
+	Enabled          *bool     `yaml:"enabled,omitempty"`
+	Kit              KitConfig `yaml:"kit"`
+	AdditionalMounts []string  `yaml:"additional_mounts"`
+	EnvFile          string    `yaml:"env_file,omitempty"`
+	ReadyCommand     []string  `yaml:"ready_command,omitempty"`
 }
 
 type KitConfig struct {
-	Name string `json:"name"`
-	Path string `json:"path,omitempty"`
+	Name string `yaml:"name"`
+	Path string `yaml:"path,omitempty"`
 }
 
 func Default() Config {

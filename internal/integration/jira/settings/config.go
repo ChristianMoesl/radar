@@ -1,53 +1,43 @@
 package settings
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 )
 
 type Config struct {
-	BaseURL                 string            `json:"base_url,omitempty"`
-	Email                   string            `json:"email,omitempty"`
-	CloudID                 string            `json:"cloud_id,omitempty"`
-	APIBaseURL              string            `json:"api_base_url,omitempty"`
-	Enabled                 *bool             `json:"enabled,omitempty"`
-	AuthoritativeIssueTypes []string          `json:"authoritative_issue_types"`
-	StatusMapping           map[string]string `json:"status_mapping,omitempty"`
-	UnmappedStatus          string            `json:"unmapped_status,omitempty"`
+	BaseURL                 string            `yaml:"base_url,omitempty"`
+	Email                   string            `yaml:"email,omitempty"`
+	CloudID                 string            `yaml:"cloud_id,omitempty"`
+	APIBaseURL              string            `yaml:"api_base_url,omitempty"`
+	Enabled                 *bool             `yaml:"enabled,omitempty"`
+	AuthoritativeIssueTypes []string          `yaml:"authoritative_issue_types"`
+	StatusMapping           map[string]string `yaml:"status_mapping"`
+	UnmappedStatus          string            `yaml:"unmapped_status,omitempty"`
 	unmappedStatusSet       bool
 }
 
-func (c *Config) UnmarshalJSON(data []byte) error {
-	var raw struct {
-		BaseURL                 string          `json:"base_url"`
-		Email                   string          `json:"email"`
-		CloudID                 string          `json:"cloud_id"`
-		APIBaseURL              string          `json:"api_base_url"`
-		Enabled                 *bool           `json:"enabled"`
-		AuthoritativeIssueTypes []string        `json:"authoritative_issue_types"`
-		StatusMapping           json.RawMessage `json:"status_mapping"`
-		UnmappedStatus          *string         `json:"unmapped_status"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
+// Decode into fresh maps so explicit mappings replace defaults, including {}.
+func (c *Config) UnmarshalYAML(node *yaml.Node) error {
+	type plain Config
+	next := plain(*c)
+	next.StatusMapping = nil
+	if err := node.Decode(&next); err != nil {
 		return err
 	}
-	c.BaseURL, c.Email, c.CloudID, c.APIBaseURL = raw.BaseURL, raw.Email, raw.CloudID, raw.APIBaseURL
-	c.Enabled = raw.Enabled
-	if raw.AuthoritativeIssueTypes != nil {
-		c.AuthoritativeIssueTypes = raw.AuthoritativeIssueTypes
+	if next.AuthoritativeIssueTypes == nil {
+		next.AuthoritativeIssueTypes = c.AuthoritativeIssueTypes
 	}
-	if raw.StatusMapping != nil {
-		var mapping map[string]string
-		if err := json.Unmarshal(raw.StatusMapping, &mapping); err != nil {
-			return err
-		}
-		c.StatusMapping = mapping
+	var fields map[string]yaml.Node
+	if err := node.Decode(&fields); err != nil {
+		return err
 	}
-	if raw.UnmappedStatus != nil {
-		c.UnmappedStatus = *raw.UnmappedStatus
-		c.unmappedStatusSet = true
+	if field, ok := fields["unmapped_status"]; ok && field.Tag != "!!null" {
+		next.unmappedStatusSet = true
 	}
+	*c = Config(next)
 	return nil
 }
 

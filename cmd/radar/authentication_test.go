@@ -52,7 +52,7 @@ func TestForegroundAuthentication(t *testing.T) {
 			if err := os.MkdirAll(configDir, 0700); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{}`), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(`{}`), 0600); err != nil {
 				t.Fatal(err)
 			}
 			logPath := filepath.Join(dir, "calls")

@@ -53,11 +53,16 @@ func (s fakeLocalSource) Local() bool { return true }
 
 func TestCollectReturnsRawTasksWithoutDisplayFilters(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	configPath := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar", "config.json")
+	configPath := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(configPath, []byte(`{"linking_mark_prefixes":["XYZ"],"github":{"filters":{"mute_repos":["org/noisy"]}}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`linking_mark_prefixes:
+  - XYZ
+github:
+  filters:
+    mute_repos:
+      - org/noisy`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

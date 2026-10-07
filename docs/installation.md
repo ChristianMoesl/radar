@@ -5,7 +5,7 @@
 Run `radar` in an interactive terminal, or `radar setup` to complete setup without
 opening the dashboard. `radar setup` is repeatable: existing settings prefill the
 wizard and are updated only after review and affirmative save confirmation.
-Automatic setup on bare `radar` runs only when `config.json` is missing. Empty or
+Automatic setup on bare `radar` runs only when `config.yaml` is missing. Empty or
 malformed config files must be repaired before setup; they are never silently reset.
 `radar config-path`, `version`, and background daemon startup do not generate a
 config. A headless daemon can still collect with in-memory defaults; it never
@@ -57,7 +57,7 @@ prefills directories, connection metadata, ticket prefixes, queries and enabled
 integration choices. It edits the primary repository directory while retaining
 additional repository directories. Custom tmux layouts, model/thinking choices,
 filters, mappings, sandbox settings and other fields the wizard does not change
-are preserved, including unrecognized JSON fields. Config dotfile symlinks are
+are preserved, including unrecognized YAML fields. Config dotfile symlinks are
 preserved; the target is updated atomically.
 
 Secret inputs are never prefilled. Leave a stored-secret prompt blank to retain
@@ -75,37 +75,40 @@ there is no alias for the old command.
 ## Settings and secrets
 
 Both live in `$XDG_CONFIG_HOME/radar/`, or `~/.config/radar/` by default.
-`config.json` contains settings and connection metadata:
+Generated YAML includes short comments explaining important settings. You can add
+your own comments; setup and secret updates retain them, along with unedited
+settings and key order. No-op updates leave the file unchanged; edits may normalize
+whitespace. Each file contains one YAML mapping document.
 
-```json
-{
-  "jira": {
-    "enabled": true,
-    "base_url": "https://example.atlassian.net",
-    "email": "you@example.com",
-    "cloud_id": "discovered-cloud-id"
-  },
-  "datadog": {
-    "enabled": true,
-    "site": "datadoghq.eu",
-    "monitor_query": "tag:team:platform"
-  }
-}
+`config.yaml` contains settings and connection metadata:
+
+```yaml
+jira:
+  enabled: true
+  base_url: https://example.atlassian.net
+  email: you@example.com
+  cloud_id: discovered-cloud-id
+datadog:
+  enabled: true
+  site: datadoghq.eu
+  monitor_query: tag:team:platform
 ```
 
-`secrets.json` contains integration-namespaced secrets:
+`secrets.yaml` contains integration-namespaced secrets:
 
-```json
-{
-  "jira": {"api_token": "<token>"},
-  "datadog": {"api_key": "<API key>", "app_key": "<application key>"}
-}
+```yaml
+# Plaintext credentials: keep this file private and out of version control.
+jira:
+  api_token: <token>
+datadog:
+  api_key: <API key>
+  app_key: <application key>
 ```
 
 The directory is `0700`, the files are `0600`, and writes use private temporary
 files and atomic publication. Secrets are **plaintext**, protected by filesystem
 permissions, not encrypted. The reader rejects symlinks, non-regular files, broad
-permissions, and malformed secret JSON without echoing its contents. Repair
+permissions, and malformed secret YAML without echoing its contents. Repair
 permissions with `chmod 600`; edit/rotate secrets locally. GitHub credentials stay
 with gh and Pi provider authentication stays with Pi (`/login`).
 
@@ -136,7 +139,7 @@ the popup binding, explicitly warning that an existing prefix + r binding will
 be replaced. Declining the optional addition leaves tmux configuration unchanged;
 `radar` still opens the dashboard directly and can attach when you select a workspace.
 
-After final confirmation, Radar writes `radar/tmux.conf` beside `config.json` and
+After final confirmation, Radar writes `radar/tmux.conf` beside `config.yaml` and
 appends a `source-file` line to `~/.tmux.conf`, or an existing
 `$XDG_CONFIG_HOME/tmux/tmux.conf` when no `~/.tmux.conf` exists. Existing contents,
 file permissions, and dotfile symlinks are preserved. Custom `tmux -f` configs
@@ -255,10 +258,9 @@ written by older installers. Remove an explicit setting manually to adopt
 automatic activation; Radar cannot distinguish an intentional opt-out from an
 old generated default. Explicit kit selections are preserved too.
 
-The optional fields and omitted automatic defaults do not invalidate existing
-configuration JSON. No config migration, registry migration, note rewrite, or
-cache reset is needed for this change. Workspace records, notes, and task-cache
-schemas are unchanged. Restart a running daemon after updating the binary.
+Configuration uses `config.yaml`, `secrets.yaml`, and repository-local
+`.radar.yaml`. Workspace registries, notes, and task-cache schemas are unchanged.
+Restart a running daemon after updating the binary.
 
 ## Regression coverage
 
@@ -287,7 +289,7 @@ real SBX runtime tests remain separately opt-in.
 ## Onboarding regression matrix
 
 `go test ./...` also drives the real inline wizard through a pseudo-terminal with
-isolated HOME/XDG/PATH, real JSON files, stub installers and a local HTTP server:
+isolated HOME/XDG/PATH, real YAML configuration files, stub installers and a local HTTP server:
 
 - Every GitHub/Jira/Datadog opt-in combination, both with existing tools and with
   simulated tmux/Node installation; existing vs missing GitHub authentication.

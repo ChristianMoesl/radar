@@ -1,13 +1,15 @@
 package config
 
 import (
-	"encoding/json"
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"golang.org/x/sys/unix"
+
+	"radar/internal/configfile"
 )
 
 // Secrets are kept outside Config so previews, diagnostics and config consumers
@@ -19,7 +21,7 @@ func SecretsPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(path), "secrets.json"), nil
+	return filepath.Join(filepath.Dir(path), "secrets.yaml"), nil
 }
 
 func LoadSecrets() (Secrets, error) {
@@ -32,19 +34,19 @@ func LoadSecrets() (Secrets, error) {
 		return Secrets{}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read secrets.json: %w", err)
+		return nil, fmt.Errorf("read secrets.yaml: %w", err)
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
-		return nil, fmt.Errorf("secrets.json must be a regular owner-only file — use chmod 600 on %s", path)
+		return nil, fmt.Errorf("secrets.yaml must be a regular owner-only file — use chmod 600 on %s", path)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read secrets.json: %w", err)
+		return nil, fmt.Errorf("read secrets.yaml: %w", err)
 	}
 	var secrets Secrets
-	// JSON errors can include the input value. Never propagate one from a secret file.
-	if json.Unmarshal(data, &secrets) != nil || secrets == nil {
-		return nil, fmt.Errorf("secrets.json must contain a JSON object of integration secret objects")
+	// YAML errors can include input values. Never propagate them from a secret file.
+	if configfile.Decode(data, &secrets) != nil || secrets == nil {
+		return nil, fmt.Errorf("secrets.yaml must contain a YAML mapping of integration secret mappings")
 	}
 	return secrets, nil
 }
@@ -79,6 +81,10 @@ func SaveSecrets(updates Secrets) error {
 	if err != nil {
 		return err
 	}
+	before, err := secretsDocument(secrets)
+	if err != nil {
+		return fmt.Errorf("encode secrets.yaml")
+	}
 	for integration, values := range updates {
 		if secrets[integration] == nil {
 			secrets[integration] = map[string]string{}
@@ -87,15 +93,35 @@ func SaveSecrets(updates Secrets) error {
 			secrets[integration][key] = value
 		}
 	}
-	data, err := json.MarshalIndent(secrets, "", "  ")
+	next, err := secretsDocument(secrets)
 	if err != nil {
-		return fmt.Errorf("encode secrets.json")
+		return fmt.Errorf("encode secrets.yaml")
 	}
 	path, err := SecretsPath()
 	if err != nil {
 		return err
 	}
-	return writePrivateFile(path, append(data, '\n'), false)
+	original, err := os.ReadFile(path)
+	if err == nil {
+		doc, err := configfile.Parse(original)
+		if err != nil {
+			return fmt.Errorf("secrets.yaml must contain valid YAML mappings")
+		}
+		if !configfile.Patch(doc, before, next) {
+			return nil
+		}
+		next = doc
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read secrets.yaml: %w", err)
+	}
+	data, err := configfile.Encode(next)
+	if err != nil {
+		return fmt.Errorf("encode secrets.yaml")
+	}
+	if bytes.Equal(data, original) {
+		return nil
+	}
+	return writePrivateFile(path, data, false)
 }
 
 // Create writes a validated config without replacing even a concurrently created
@@ -105,7 +131,7 @@ func Create(cfg Config) error {
 	if err := validate(cfg); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	data, err := marshalConfig(cfg)
 	if err != nil {
 		return err
 	}
@@ -113,7 +139,7 @@ func Create(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return writePrivateFile(path, append(data, '\n'), true)
+	return writePrivateFile(path, data, true)
 }
 
 func writePrivateFile(path string, data []byte, exclusive bool) error {

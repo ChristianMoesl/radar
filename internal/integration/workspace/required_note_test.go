@@ -2,12 +2,13 @@ package workspace
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 
 	"radar/internal/config"
 	"radar/internal/integration"
@@ -204,7 +205,7 @@ func TestCreateUsesConfiguredRequiredVaultAndPreviewIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.Obsidian.VaultPath = vault
-	data, err := json.Marshal(cfg)
+	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

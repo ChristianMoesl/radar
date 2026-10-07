@@ -230,7 +230,7 @@ func TestResolveBindingsDeduplicatesPRsAndHonorsDisabledOrPausedSource(t *testin
 	if data, _ := os.ReadFile(marker); string(data) != "lookup\n" {
 		t.Fatalf("duplicate lookups = %q", data)
 	}
-	configureBoundGitHub(t, `{"enabled":false}`)
+	configureBoundGitHub(t, `{enabled: false}`)
 	if got := NewSource().ResolveBindings(context.Background(), req); got.Complete || len(got.Observations) != 0 || got.SourceStatus.Status != "disabled" {
 		t.Fatalf("disabled = %+v", got)
 	}
@@ -250,15 +250,15 @@ func boundGitHubRequest() integration.BindingRequest {
 	return integration.BindingRequest{Bindings: []protocol.SourceBinding{{Source: "github", Kind: "pull_request", ID: "github:pr:acme/app:7", WorkItem: true}}, Result: integration.CollectResult{Complete: true}, LinkingMarks: linking.NewMarkMatcher([]string{"ABC"}), Logger: testLogger()}
 }
 
-func configureBoundGitHub(t *testing.T, githubJSON string) {
+func configureBoundGitHub(t *testing.T, githubYAML string) {
 	t.Helper()
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	path := filepath.Join(configHome, "radar", "config.json")
+	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["ABC"],"github":`+githubJSON+`}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{linking_mark_prefixes: ["ABC"],github: `+githubYAML+`}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -201,7 +201,7 @@ func (w wizard) run() error {
 			return err
 		}
 		if err := draft.Save(cfg); err != nil {
-			return fmt.Errorf("write config.json: %w", err)
+			return fmt.Errorf("write config.yaml: %w", err)
 		}
 		return nil
 	})

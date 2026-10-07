@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"go.yaml.in/yaml/v3"
+
 	"radar/internal/config"
 	"radar/internal/integration"
 	workspacegroup "radar/internal/integration/workspace/group"
@@ -256,7 +258,7 @@ func TestExpiredAnchorPreflightsProtectedContentsIncludingMembers(t *testing.T) 
 						t.Fatal(err)
 					}
 					cfg.SBX.AdditionalMounts = []string{path + ":ro"}
-					data, err := json.Marshal(cfg)
+					data, err := yaml.Marshal(cfg)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -420,7 +422,7 @@ func TestExpiredWorkspacePreflightRechecksLateProtectedMemberContent(t *testing.
 					t.Fatal(err)
 				}
 				cfg.Workspace.RootDir = t.TempDir()
-				data, err := json.Marshal(cfg)
+				data, err := yaml.Marshal(cfg)
 				if err != nil {
 					t.Fatal(err)
 				}

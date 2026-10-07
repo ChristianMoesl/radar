@@ -147,7 +147,7 @@ func TestStatusRequiresQueryAndEnvironmentCredentials(t *testing.T) {
 
 	configureDatadog(t, "tag:team:cap")
 	status = NewSource().Status(context.Background(), testLogger())
-	if status.CanRun || status.Status.Detail != "missing datadog.api_key in secrets.json or RADAR_DATADOG_API_KEY, datadog.app_key in secrets.json or RADAR_DATADOG_APP_KEY" {
+	if status.CanRun || status.Status.Detail != "missing datadog.api_key in secrets.yaml or RADAR_DATADOG_API_KEY, datadog.app_key in secrets.yaml or RADAR_DATADOG_APP_KEY" {
 		t.Fatalf("status without credentials = %+v", status)
 	}
 
@@ -185,7 +185,7 @@ func configureDatadogWithStatuses(t *testing.T, query string, statuses []string)
 	t.Helper()
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	path := filepath.Join(configHome, "radar", "config.json")
+	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}

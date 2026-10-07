@@ -112,10 +112,10 @@ func loadCredentials() (credentials, []string, error) {
 
 	missing := make([]string, 0, 2)
 	if cfg.APIKey == "" {
-		missing = append(missing, "datadog.api_key in secrets.json or RADAR_DATADOG_API_KEY")
+		missing = append(missing, "datadog.api_key in secrets.yaml or RADAR_DATADOG_API_KEY")
 	}
 	if cfg.AppKey == "" {
-		missing = append(missing, "datadog.app_key in secrets.json or RADAR_DATADOG_APP_KEY")
+		missing = append(missing, "datadog.app_key in secrets.yaml or RADAR_DATADOG_APP_KEY")
 	}
 	if cfg.Site == "" {
 		cfg.Site = defaultSite

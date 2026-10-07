@@ -170,11 +170,19 @@ func TestSourceCollectClassifiesEachJiraStatus(t *testing.T) {
 	t.Setenv("RADAR_JIRA_API_TOKEN", "token")
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	path := filepath.Join(configHome, "radar", "config.json")
+	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"jira":{"status_mapping":{"In Progress":"in_progress","In Review":"in_progress","Blocked":"attention","Done":"immediate"},"unmapped_status":"low_priority"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
+  - XYZ
+jira:
+  status_mapping:
+    In Progress: in_progress
+    In Review: in_progress
+    Blocked: attention
+    Done: immediate
+  unmapped_status: low_priority`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

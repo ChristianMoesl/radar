@@ -97,8 +97,8 @@ func newFixture(t testing.TB, sources ...integration.Integration) *fixture {
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	config := fmt.Sprintf(`{"workspace":{"root_dir":%q},"linking_mark_prefixes":["ABC"]}`, filepath.Join(t.TempDir(), "workspaces"))
-	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), []byte(config), 0o600); err != nil {
+	config := fmt.Sprintf(`{workspace: {root_dir: %q},linking_mark_prefixes: ["ABC"]}`, filepath.Join(t.TempDir(), "workspaces"))
+	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.yaml"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))

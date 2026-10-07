@@ -1,39 +1,39 @@
 package workspace
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"radar/internal/configfile"
 	sbxsettings "radar/internal/integration/sbx/settings"
 	"radar/internal/pi"
 )
 
 type RepoConfig struct {
-	CopyFiles []string       `json:"copy_files,omitempty"`
-	Setup     []string       `json:"setup,omitempty"`
-	Model     string         `json:"model,omitempty"`
-	Thinking  string         `json:"thinking,omitempty"`
-	SBX       *SandboxConfig `json:"sbx,omitempty"`
+	CopyFiles []string       `yaml:"copy_files,omitempty"`
+	Setup     []string       `yaml:"setup,omitempty"`
+	Model     string         `yaml:"model,omitempty"`
+	Thinking  string         `yaml:"thinking,omitempty"`
+	SBX       *SandboxConfig `yaml:"sbx,omitempty"`
 }
 
 type SandboxConfig struct {
-	Enabled          *bool             `json:"enabled,omitempty"`
-	ReadyCommand     *[]string         `json:"ready_command,omitempty"`
-	EnvFile          *string           `json:"env_file,omitempty"`
-	Kit              *SandboxKitConfig `json:"kit,omitempty"`
-	AdditionalMounts []string          `json:"additional_mounts,omitempty"`
+	Enabled          *bool             `yaml:"enabled,omitempty"`
+	ReadyCommand     *[]string         `yaml:"ready_command,omitempty"`
+	EnvFile          *string           `yaml:"env_file,omitempty"`
+	Kit              *SandboxKitConfig `yaml:"kit,omitempty"`
+	AdditionalMounts []string          `yaml:"additional_mounts,omitempty"`
 }
 
 type SandboxKitConfig struct {
-	Name string `json:"name"`
-	Path string `json:"path,omitempty"`
+	Name string `yaml:"name"`
+	Path string `yaml:"path,omitempty"`
 }
 
 func loadRepoConfig(repo string) (RepoConfig, error) {
-	path := filepath.Join(repo, ".radar.json")
+	path := filepath.Join(repo, ".radar.yaml")
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return RepoConfig{}, nil
@@ -42,7 +42,7 @@ func loadRepoConfig(repo string) (RepoConfig, error) {
 		return RepoConfig{}, err
 	}
 	var cfg RepoConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := configfile.Decode(data, &cfg); err != nil {
 		return RepoConfig{}, fmt.Errorf("read %s: %w", path, err)
 	}
 	if err := validateRepoConfig(cfg); err != nil {

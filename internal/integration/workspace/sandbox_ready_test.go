@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"go.yaml.in/yaml/v3"
+
 	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/integration/workspace/group"
@@ -91,13 +93,18 @@ func TestRepoSandboxReadyCommandSelectionAndSnapshot(t *testing.T) {
 		want       []string
 	}{
 		{"inherit absent sbx", `{}`, []string{"global", " global arg "}},
-		{"inherit omitted", `{"sbx":{}}`, []string{"global", " global arg "}},
-		{"override", `{"sbx":{"ready_command":["repo", "", " repo arg "]}}`, []string{"repo", "", " repo arg "}},
-		{"disable", `{"sbx":{"ready_command":[]}}`, nil},
+		{"inherit omitted", `sbx: {}`, []string{"global", " global arg "}},
+		{"override", `sbx:
+  ready_command:
+    - repo
+    - ""
+    - ' repo arg '`, []string{"repo", "", " repo arg "}},
+		{"disable", `sbx:
+  ready_command: []`, nil},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := t.TempDir()
-			if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(tt.data), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(tt.data), 0600); err != nil {
 				t.Fatal(err)
 			}
 			cfg, err := loadRepoConfig(repo)
@@ -111,9 +118,9 @@ func TestRepoSandboxReadyCommandSelectionAndSnapshot(t *testing.T) {
 			}
 			global[0] = "changed global"
 			if cfg.SBX != nil && cfg.SBX.ReadyCommand != nil {
-				// A pointer to [] must survive repo JSON serialization to disable inheritance.
-				data, err := json.Marshal(cfg)
-				if err != nil || !strings.Contains(string(data), `"ready_command"`) {
+				// A pointer to [] must survive repo YAML serialization to disable inheritance.
+				data, err := yaml.Marshal(cfg)
+				if err != nil || !strings.Contains(string(data), `ready_command:`) {
 					t.Fatalf("repo marshal = %s, %v", data, err)
 				}
 				if len(*cfg.SBX.ReadyCommand) > 0 {
@@ -247,8 +254,8 @@ func TestMalformedReadyCommandFailsBeforeProvisioning(t *testing.T) {
 				case "apply":
 					_, err = applyWorkspacePlan(context.Background(), runner, nil, ReconcileWorkspaceRequest{}, ReconcileWorkspacePlan{group: group, root: root})
 				case "repo":
-					data, _ := json.Marshal(RepoConfig{SBX: &SandboxConfig{ReadyCommand: &argv}})
-					if err := os.WriteFile(filepath.Join(repo, ".radar.json"), data, 0600); err != nil {
+					data, _ := yaml.Marshal(RepoConfig{SBX: &SandboxConfig{ReadyCommand: &argv}})
+					if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), data, 0600); err != nil {
 						t.Fatal(err)
 					}
 					_, err = loadRepoConfig(repo)
@@ -275,7 +282,13 @@ func TestCreateStartsPiEarlyButReadinessGatesSetupAndRetainsRuntime(t *testing.T
 	for _, fail := range []bool{false, true} {
 		t.Run(fmt.Sprint(fail), func(t *testing.T) {
 			repo, root := t.TempDir(), t.TempDir()
-			if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"setup":["echo setup"],"sbx":{"ready_command":["repo-ready"," repo arg ",""]}}`), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`setup:
+  - echo setup
+sbx:
+  ready_command:
+    - repo-ready
+    - ' repo arg '
+    - ""`), 0600); err != nil {
 				t.Fatal(err)
 			}
 			runner := &readyRunner{Runner: &fakeRunner{repo: repo}}
@@ -342,7 +355,9 @@ func TestRecordedReadyCommandRecoveryAndExistingRuntimeWait(t *testing.T) {
 				// including an old record with no readiness field.
 				options.SandboxReadyCommand = []string{"new-global"}
 				options.Switch = true
-				if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"sbx":{"ready_command":["new-repo"]}}`), 0600); err != nil {
+				if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`sbx:
+  ready_command:
+    - new-repo`), 0600); err != nil {
 					t.Fatal(err)
 				}
 				runner.calls = nil
@@ -378,7 +393,7 @@ func TestOpenReadinessFailureRetainsNewRuntimeAndExistingSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, _ := json.Marshal(map[string]any{"workspace": map[string]any{"root_dir": root}})
+	data, _ := yaml.Marshal(map[string]any{"workspace": map[string]any{"root_dir": root}})
 	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +491,8 @@ func TestApplyReadinessFailureIsRetryableAndSetupUnscheduled(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
 	t.Setenv(hostTempDirEnv, t.TempDir())
 	repo, root := t.TempDir(), t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"setup":["echo setup"]}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`setup:
+  - echo setup`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	for _, create := range []bool{false, true} {
@@ -545,7 +561,11 @@ func TestSourceCreateOptionsPropagatesSandboxReadyCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"sbx":{"ready_command":["generic-ready"," arg ",""]}}`), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(`sbx:
+  ready_command:
+    - generic-ready
+    - ' arg '
+    - ""`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	options, err := (Source{}).createOptions(integration.ManagedWorkspaceRequest{Name: "ABC-123"})
@@ -600,7 +620,8 @@ func TestApplyMountRecreationReadinessGatesPiAndSetup(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
 	t.Setenv(hostTempDirEnv, t.TempDir())
 	repo, root := t.TempDir(), t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"setup":["echo setup"]}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`setup:
+  - echo setup`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	base := &fakeRunner{repo: repo}

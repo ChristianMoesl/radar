@@ -1,0 +1,12 @@
+model: openai-codex/gpt-6-astra
+thinking: high
+# Install dependencies in each new worktree. Commands run inside the sandbox when enabled.
+setup:
+  - go mod download
+  - pnpm install --frozen-lockfile
+# Keep local agent instructions available in member worktrees.
+copy_files:
+  - AGENTS.local.md
+# Require a sandbox rather than running repository setup on the host.
+sbx:
+  enabled: true

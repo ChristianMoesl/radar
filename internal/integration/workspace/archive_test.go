@@ -22,8 +22,8 @@ func archiveWorkspaceFixture(t *testing.T) (string, obsidian.Source, protocol.So
 	if err := os.MkdirAll(filepath.Join(vault, ".obsidian"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := fmt.Sprintf(`{"workspace":{"root_dir":%q},"obsidian":{"vault_path":%q},"linking_mark_prefixes":["ABC"]}`, root, vault)
-	if err := os.WriteFile(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar", "config.json"), []byte(cfg), 0o600); err != nil {
+	cfg := fmt.Sprintf(`{workspace: {root_dir: %q},obsidian: {vault_path: %q},linking_mark_prefixes: ["ABC"]}`, root, vault)
+	if err := os.WriteFile(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar", "config.yaml"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	source := obsidian.NewSourceAt(vault)

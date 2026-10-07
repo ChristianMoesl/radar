@@ -22,11 +22,20 @@ func TestSourceCollectFetchesMainAndTrackedPullRequestsConcurrently(t *testing.T
 	dir := t.TempDir()
 	configHome := filepath.Join(dir, "config")
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	configPath := filepath.Join(configHome, "radar", "config.json")
+	configPath := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(configPath, []byte(`{"linking_mark_prefixes":["ABC"],"github":{"filters":{"rules":[{"repos":["acme/*"],"users":["renovate[bot]"],"action":"deprioritize"}]}}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`linking_mark_prefixes:
+  - ABC
+github:
+  filters:
+    rules:
+      - repos:
+          - acme/*
+        users:
+          - renovate[bot]
+        action: deprioritize`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	started := filepath.Join(dir, "started")

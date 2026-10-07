@@ -3,7 +3,6 @@ package workspace
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 
 	"radar/internal/config"
 	"radar/internal/integration"
@@ -41,13 +42,15 @@ func TestRepoSandboxEnvFileInheritance(t *testing.T) {
 		name, config, want string
 	}{
 		{"no sbx", `{}`, "/user/env"},
-		{"absent", `{"sbx":{}}`, "/user/env"},
-		{"override", `{"sbx":{"env_file":"/repo/env file"}}`, "/repo/env file"},
-		{"disable", `{"sbx":{"env_file":""}}`, ""},
+		{"absent", `sbx: {}`, "/user/env"},
+		{"override", `sbx:
+  env_file: /repo/env file`, "/repo/env file"},
+		{"disable", `sbx:
+  env_file: ""`, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repo := t.TempDir()
-			if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(test.config), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(test.config), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			cfg, err := loadRepoConfig(repo)
@@ -66,8 +69,8 @@ func TestRepoSandboxEnvFileRejectsRelativePaths(t *testing.T) {
 	for _, path := range []string{"env", "./env", "../env", "~", "~someone/env", " "} {
 		t.Run(path, func(t *testing.T) {
 			repo := t.TempDir()
-			data, _ := json.Marshal(RepoConfig{SBX: &SandboxConfig{EnvFile: &path}})
-			if err := os.WriteFile(filepath.Join(repo, ".radar.json"), data, 0o600); err != nil {
+			data, _ := yaml.Marshal(RepoConfig{SBX: &SandboxConfig{EnvFile: &path}})
+			if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), data, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := loadRepoConfig(repo); err == nil || !strings.Contains(err.Error(), "absolute or start with ~/") {
@@ -119,15 +122,15 @@ func TestCreateRecordsAndPassesSelectedSandboxEnvFile(t *testing.T) {
 				options.SandboxEnvFile = "~/" + filepath.Base(env)
 			case "repo", "first member":
 				options.SandboxEnvFile = "/missing inherited file"
-				data, _ := json.Marshal(RepoConfig{SBX: &SandboxConfig{EnvFile: &env}})
-				if err := os.WriteFile(filepath.Join(repo, ".radar.json"), data, 0o600); err != nil {
+				data, _ := yaml.Marshal(RepoConfig{SBX: &SandboxConfig{EnvFile: &env}})
+				if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), data, 0o600); err != nil {
 					t.Fatal(err)
 				}
 				if mode == "first member" {
 					second := t.TempDir()
 					other := "/missing second repo env"
-					data, _ := json.Marshal(RepoConfig{SBX: &SandboxConfig{EnvFile: &other}})
-					if err := os.WriteFile(filepath.Join(second, ".radar.json"), data, 0o600); err != nil {
+					data, _ := yaml.Marshal(RepoConfig{SBX: &SandboxConfig{EnvFile: &other}})
+					if err := os.WriteFile(filepath.Join(second, ".radar.yaml"), data, 0o600); err != nil {
 						t.Fatal(err)
 					}
 					options.Worktrees = []DesiredWorkspaceWorktree{{Repository: second, BranchMode: integration.WorkspaceBranchNew, Name: "ABC-123", Base: "origin/main"}}
@@ -135,7 +138,8 @@ func TestCreateRecordsAndPassesSelectedSandboxEnvFile(t *testing.T) {
 			case "disabled":
 				want = ""
 				options.SandboxEnvFile = "/missing inherited file"
-				if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"sbx":{"env_file":""}}`), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`sbx:
+  env_file: ""`), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -356,7 +360,8 @@ func TestExistingWorkspaceRecoveryUsesRecordedSandboxEnvFile(t *testing.T) {
 		// Neither changed user settings nor changed repository settings can
 		// backfill/replace the recorded env-file during missing-runtime recovery.
 		options.SandboxEnvFile = "/missing new user env"
-		if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"sbx":{"env_file":"/missing new repo env"}}`), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`sbx:
+  env_file: /missing new repo env`), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		runner.calls = nil
@@ -429,7 +434,9 @@ func TestSourceCreateOptionsPropagatesGlobalSandboxEnvFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"sbx":{"enabled":true,"env_file":"/missing generic env file"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`sbx:
+  enabled: true
+  env_file: /missing generic env file`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	options, err := (Source{}).createOptions(integration.ManagedWorkspaceRequest{Name: "ABC-123"})

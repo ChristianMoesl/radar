@@ -105,7 +105,7 @@ func TestReleaseInstallAndFirstLaunch(t *testing.T) {
 			}
 			instructions := filepath.Join(configHome, "radar", "AGENTS.md")
 			assertInstalledInstructions(t, instructions)
-			configPath := filepath.Join(configHome, "radar", "config.json")
+			configPath := filepath.Join(configHome, "radar", "config.yaml")
 			if _, err := os.Stat(configPath); !os.IsNotExist(err) {
 				t.Fatal("installer should leave config creation to first launch")
 			}
@@ -166,11 +166,11 @@ func TestReleaseInstallAndFirstLaunch(t *testing.T) {
 				t.Fatal("installed daemon did not become ready with usable source status")
 			}
 			if _, err := os.Stat(configPath); !os.IsNotExist(err) {
-				t.Fatal("background daemon must not create config.json and bypass first-run consent")
+				t.Fatal("background daemon must not create config.yaml and bypass first-run consent")
 			}
 
 			// An upgrade must preserve both user-owned files byte for byte.
-			customConfig := []byte(`{"sbx":{"enabled":false},"github":{"enabled":false}}` + "\n")
+			customConfig := []byte(`{sbx: {enabled: false}, github: {enabled: false}}` + "\n")
 			customInstructions := []byte("User-owned instructions\n")
 			if err := os.WriteFile(configPath, customConfig, 0600); err != nil {
 				t.Fatal(err)

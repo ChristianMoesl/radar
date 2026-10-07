@@ -21,7 +21,7 @@ func testVault(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(home, "config", "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "config", "radar", "config.json"), []byte(fmt.Sprintf(`{"workspace":{"root_dir":%q},"linking_mark_prefixes":["ABC"]}`, filepath.Join(home, "workspaces"))), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "config", "radar", "config.yaml"), []byte(fmt.Sprintf(`{workspace: {root_dir: %q},linking_mark_prefixes: ["ABC"]}`, filepath.Join(home, "workspaces"))), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	vault := filepath.Join(home, "Work Vault")

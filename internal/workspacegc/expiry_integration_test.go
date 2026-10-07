@@ -2,7 +2,6 @@ package workspacegc_test
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"log/slog"
 	"os"
@@ -11,6 +10,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"go.yaml.in/yaml/v3"
 
 	"radar/internal/cleanup"
 	"radar/internal/integration"
@@ -53,8 +54,8 @@ func TestExpiredBundleDeletesLocalWorkButKeepsExternalData(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	config, _ := json.Marshal(map[string]any{"workspace": map[string]string{"root_dir": root}})
-	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), config, 0o600); err != nil {
+	config, _ := yaml.Marshal(map[string]any{"workspace": map[string]string{"root_dir": root}})
+	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.yaml"), config, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	git := func(dir string, args ...string) {

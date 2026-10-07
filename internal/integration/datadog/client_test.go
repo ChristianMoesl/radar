@@ -90,7 +90,7 @@ func TestCredentialsReportMissingRequiredEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(missing) != 2 || missing[0] != "datadog.api_key in secrets.json or RADAR_DATADOG_API_KEY" || missing[1] != "datadog.app_key in secrets.json or RADAR_DATADOG_APP_KEY" {
+	if len(missing) != 2 || missing[0] != "datadog.api_key in secrets.yaml or RADAR_DATADOG_API_KEY" || missing[1] != "datadog.app_key in secrets.yaml or RADAR_DATADOG_APP_KEY" {
 		t.Fatalf("missing = %v", missing)
 	}
 	if cfg.Site != defaultSite {

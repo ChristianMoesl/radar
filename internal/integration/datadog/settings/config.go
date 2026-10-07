@@ -6,10 +6,10 @@ import (
 )
 
 type Config struct {
-	Site            string   `json:"site,omitempty"`
-	Enabled         *bool    `json:"enabled,omitempty"`
-	MonitorQuery    string   `json:"monitor_query"`
-	MonitorStatuses []string `json:"monitor_statuses"`
+	Site            string   `yaml:"site,omitempty"`
+	Enabled         *bool    `yaml:"enabled,omitempty"`
+	MonitorQuery    string   `yaml:"monitor_query"`
+	MonitorStatuses []string `yaml:"monitor_statuses"`
 }
 
 func Default() Config {

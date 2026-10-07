@@ -60,12 +60,13 @@ func TestSecretsRejectUnsafeFilesWithoutLeakingValues(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 				t.Fatal(err)
 			}
-			raw := `{"jira":{"api_token":"do-not-echo"}}`
+			raw := `jira:
+  api_token: do-not-echo`
 			switch scenario {
 			case "invalid":
 				raw = `do-not-echo`
 			case "wrong type":
-				raw = `{"jira":"do-not-echo"}`
+				raw = `jira: do-not-echo`
 			case "null":
 				raw = `null`
 			}
@@ -143,7 +144,7 @@ func TestSecretsDefaultAndXDGPaths(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "")
 	path, err := SecretsPath()
-	if err != nil || path != filepath.Join(home, ".config", "radar", "secrets.json") {
+	if err != nil || path != filepath.Join(home, ".config", "radar", "secrets.yaml") {
 		t.Fatalf("path = %s %v", path, err)
 	}
 }

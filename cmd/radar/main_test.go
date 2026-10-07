@@ -114,19 +114,18 @@ func (s *recordingNotificationSender) Send(_ context.Context, message notificati
 func TestNotifyActionableTransitionsAppliesConfiguredFilters(t *testing.T) {
 	configHome := filepath.Join(t.TempDir(), "config")
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	path := filepath.Join(configHome, "radar", "config.json")
+	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{
-  "linking_mark_prefixes": ["XYZ"],
-  "github": {
-    "filters": {
-      "mute_repos": ["org/muted"],
-      "deprioritize_repos": ["org/deprioritized"]
-    }
-  }
-}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
+  - XYZ
+github:
+  filters:
+    mute_repos:
+      - org/muted
+    deprioritize_repos:
+      - org/deprioritized`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

@@ -1,12 +1,13 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 func TestDefaultUsesProductDefaults(t *testing.T) {
@@ -56,9 +57,12 @@ func TestLoadInheritsWorkspaceAndJiraDefaults(t *testing.T) {
 	}{
 		{"missing file", ""},
 		{"omitted sections", `{}`},
-		{"empty sections", `{"tmux":{},"jira":{}}`},
-		{"empty windows", `{"tmux":{"windows":[]}}`},
-		{"partial Jira", `{"jira":{"enabled":true}}`},
+		{"empty sections", `tmux: {}
+jira: {}`},
+		{"empty windows", `tmux:
+  windows: []`},
+		{"partial Jira", `jira:
+  enabled: true`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -116,42 +120,50 @@ func TestLoadReadsConfigFile(t *testing.T) {
 	configHome := filepath.Join(home, "config")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	path := filepath.Join(configHome, "radar", "config.json")
+	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{
-  "linking_mark_prefixes": ["xyz"],
-  "repository_dirs": ["~/repos"],
-  "workspace": {"root_dir": "~/streams", "auto_confirm": true},
-  "model": "github-copilot/claude-sonnet-4.5",
-  "thinking": "high",
-  "sbx": {
-    "enabled": true,
-    "kit": {"name": "radar", "path": "~/kits/radar"},
-    "additional_mounts": ["~/shared", "/opt/tools"]
-  },
-  "tmux": {
-    "windows": [{
-      "name": "workspace",
-      "layout": "horizontal",
-      "panes": [
-        {"command": "pi $RADAR_PI_ARGS"},
-        {"command": "nvim ."}
-      ]
-    }]
-  },
-  "github": {"filters": {"mute_repos": ["org/noisy"]}},
-  "jira": {
-    "authoritative_issue_types": [" Story ", "Bug"],
-    "status_mapping": {"Blocked": "attention"},
-    "unmapped_status": "immediate"
-  },
-  "datadog": {
-    "monitor_query": "tag:team:platform",
-    "monitor_statuses": [" alert ", "warn"]
-  }
-}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
+  - xyz
+repository_dirs:
+  - ~/repos
+workspace:
+  root_dir: ~/streams
+  auto_confirm: true
+model: github-copilot/claude-sonnet-4.5
+thinking: high
+sbx:
+  enabled: true
+  kit:
+    name: radar
+    path: ~/kits/radar
+  additional_mounts:
+    - ~/shared
+    - /opt/tools
+tmux:
+  windows:
+    - name: workspace
+      layout: horizontal
+      panes:
+        - command: pi $RADAR_PI_ARGS
+        - command: nvim .
+github:
+  filters:
+    mute_repos:
+      - org/noisy
+jira:
+  authoritative_issue_types:
+    - ' Story '
+    - Bug
+  status_mapping:
+    Blocked: attention
+  unmapped_status: immediate
+datadog:
+  monitor_query: tag:team:platform
+  monitor_statuses:
+    - ' alert '
+    - warn`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -213,20 +225,20 @@ func TestLoadSandboxKitDefaultsAndOverrides(t *testing.T) {
 		sbx  string
 		want SBXKitConfig
 	}{
-		{"enabled only", `{"enabled":true}`, SBXKitConfig{Name: defaultKit}},
-		{"empty kit", `{"enabled":true,"kit":{}}`, SBXKitConfig{Name: defaultKit}},
-		{"blank name", `{"enabled":true,"kit":{"name":"  "}}`, SBXKitConfig{Name: defaultKit}},
-		{"explicit shell", `{"enabled":true,"kit":{"name":"shell"}}`, SBXKitConfig{Name: "shell"}},
-		{"custom kit", `{"enabled":true,"kit":{"name":"custom","path":"~/kits/custom"}}`, SBXKitConfig{Name: "custom", Path: "~/kits/custom"}},
+		{"enabled only", `{enabled: true}`, SBXKitConfig{Name: defaultKit}},
+		{"empty kit", `{enabled: true, kit: {}}`, SBXKitConfig{Name: defaultKit}},
+		{"blank name", `{enabled: true, kit: {name: '  '}}`, SBXKitConfig{Name: defaultKit}},
+		{"explicit shell", `{enabled: true, kit: {name: shell}}`, SBXKitConfig{Name: "shell"}},
+		{"custom kit", `{enabled: true, kit: {name: custom, path: ~/kits/custom}}`, SBXKitConfig{Name: "custom", Path: "~/kits/custom"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			configHome := t.TempDir()
 			t.Setenv("XDG_CONFIG_HOME", configHome)
-			path := filepath.Join(configHome, "radar", "config.json")
+			path := filepath.Join(configHome, "radar", "config.yaml")
 			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			data := `{"linking_mark_prefixes":["ABC"],"sbx":` + tt.sbx + `}`
+			data := `{linking_mark_prefixes: ["ABC"],sbx: ` + tt.sbx + `}`
 			if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -254,11 +266,13 @@ func TestLoadDoesNotTreatWorkspaceRootAsAlias(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 	t.Setenv("XDG_DATA_HOME", "")
-	path := filepath.Join(configHome, "radar", "config.json")
+	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"workspace_root":"~/old-workspaces"}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
+  - XYZ
+workspace_root: ~/old-workspaces`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -276,7 +290,7 @@ func TestLoadAllowsNoLinkingMarkPrefixes(t *testing.T) {
 	configHome := filepath.Join(home, "config")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	path := filepath.Join(configHome, "radar", "config.json")
+	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -293,11 +307,12 @@ func TestLoadRejectsInvalidLinkingMarkPrefix(t *testing.T) {
 	configHome := filepath.Join(home, "config")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	path := filepath.Join(configHome, "radar", "config.json")
+	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ-"]}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
+  - XYZ-`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "linking_mark_prefixes[0]") {
@@ -310,11 +325,13 @@ func TestLoadRejectsInvalidThinking(t *testing.T) {
 	configHome := filepath.Join(home, "config")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	path := filepath.Join(configHome, "radar", "config.json")
+	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"thinking":"maximum"}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
+  - XYZ
+thinking: maximum`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -328,11 +345,14 @@ func TestLoadPreservesExplicitlyEmptyAuthoritativeJiraIssueTypes(t *testing.T) {
 	configHome := filepath.Join(home, "config")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	path := filepath.Join(configHome, "radar", "config.json")
+	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"jira":{"authoritative_issue_types":[]}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
+  - XYZ
+jira:
+  authoritative_issue_types: []`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -350,11 +370,15 @@ func TestLoadDoesNotTreatRemovedIssueTypesAsAlias(t *testing.T) {
 	configHome := filepath.Join(home, "config")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	path := filepath.Join(configHome, "radar", "config.json")
+	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"jira":{"issue_types":["Story"]}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
+  - XYZ
+jira:
+  issue_types:
+    - Story`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -372,11 +396,16 @@ func TestLoadRejectsEmptyJiraIssueType(t *testing.T) {
 	configHome := filepath.Join(home, "config")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	path := filepath.Join(configHome, "radar", "config.json")
+	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"jira":{"authoritative_issue_types":["Story", " "]}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
+  - XYZ
+jira:
+  authoritative_issue_types:
+    - Story
+    - ' '`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -391,7 +420,7 @@ func TestLoadAllowsExplicitlyEmptyJiraStatusMapping(t *testing.T) {
 		configHome := filepath.Join(home, "config")
 		t.Setenv("HOME", home)
 		t.Setenv("XDG_CONFIG_HOME", configHome)
-		path := filepath.Join(configHome, "radar", "config.json")
+		path := filepath.Join(configHome, "radar", "config.yaml")
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -399,7 +428,11 @@ func TestLoadAllowsExplicitlyEmptyJiraStatusMapping(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeConfig(`{"linking_mark_prefixes":["XYZ"],"jira":{"status_mapping":{},"unmapped_status":"attention"}}`)
+	writeConfig(`linking_mark_prefixes:
+  - XYZ
+jira:
+  status_mapping: {}
+  unmapped_status: attention`)
 
 	cfg, err := Load()
 	if err != nil {
@@ -416,11 +449,11 @@ func TestLoadRejectsInvalidJiraStatusMapping(t *testing.T) {
 		jira  string
 		field string
 	}{
-		{name: "empty status", jira: `{"status_mapping":{" ":"attention"}}`, field: "jira.status_mapping"},
-		{name: "unsupported mapping", jira: `{"status_mapping":{"Blocked":"done"}}`, field: `jira.status_mapping["Blocked"]`},
-		{name: "unsupported fallback", jira: `{"unmapped_status":"done"}`, field: "jira.unmapped_status"},
-		{name: "empty fallback", jira: `{"unmapped_status":""}`, field: "jira.unmapped_status"},
-		{name: "duplicate normalized status", jira: `{"status_mapping":{"Blocked":"attention"," blocked ":"immediate"}}`, field: "match case-insensitively"},
+		{name: "empty status", jira: `{status_mapping: {' ': attention}}`, field: "jira.status_mapping"},
+		{name: "unsupported mapping", jira: `{status_mapping: {Blocked: done}}`, field: `jira.status_mapping["Blocked"]`},
+		{name: "unsupported fallback", jira: `{unmapped_status: done}`, field: "jira.unmapped_status"},
+		{name: "empty fallback", jira: `{unmapped_status: ""}`, field: "jira.unmapped_status"},
+		{name: "duplicate normalized status", jira: `{status_mapping: {Blocked: attention, ' blocked ': immediate}}`, field: "match case-insensitively"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -428,11 +461,11 @@ func TestLoadRejectsInvalidJiraStatusMapping(t *testing.T) {
 			configHome := filepath.Join(home, "config")
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", configHome)
-			path := filepath.Join(configHome, "radar", "config.json")
+			path := filepath.Join(configHome, "radar", "config.yaml")
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"jira":`+tt.jira+`}`), 0o600); err != nil {
+			if err := os.WriteFile(path, []byte(`{linking_mark_prefixes: ["XYZ"],jira: `+tt.jira+`}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := Load(); err == nil || !strings.Contains(err.Error(), tt.field) {
@@ -458,11 +491,11 @@ func TestLoadRejectsInvalidDatadogMonitorStatuses(t *testing.T) {
 			configHome := filepath.Join(home, "config")
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", configHome)
-			path := filepath.Join(configHome, "radar", "config.json")
+			path := filepath.Join(configHome, "radar", "config.yaml")
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			contents := `{"linking_mark_prefixes":["XYZ"],"datadog":{"monitor_statuses":` + tt.statuses + `}}`
+			contents := `{linking_mark_prefixes: ["XYZ"],datadog: {monitor_statuses: ` + tt.statuses + `}}`
 			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -483,7 +516,7 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path != filepath.Join(home, "config", "radar", "config.json") {
+	if path != filepath.Join(home, "config", "radar", "config.yaml") {
 		t.Fatalf("path = %q", path)
 	}
 	data, err := os.ReadFile(path)
@@ -491,7 +524,7 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	var generated Config
-	if err := json.Unmarshal(data, &generated); err != nil {
+	if err := yaml.Unmarshal(data, &generated); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(generated.Jira.AuthoritativeIssueTypes, []string{"Story", "Task", "Bug", "Sub-task"}) {
@@ -518,13 +551,13 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	if !reflect.DeepEqual(generated.Datadog.MonitorStatuses, []string{"Alert", "Warn", "No Data"}) {
 		t.Fatalf("generated Datadog.MonitorStatuses = %#v, want default unhealthy statuses", generated.Datadog.MonitorStatuses)
 	}
-	if !strings.Contains(string(data), `"jira"`) || !strings.Contains(string(data), `"authoritative_issue_types"`) {
+	if !strings.Contains(string(data), `jira:`) || !strings.Contains(string(data), `authoritative_issue_types:`) {
 		t.Fatalf("generated config is missing Jira settings: %s", data)
 	}
-	if !strings.Contains(string(data), `"datadog"`) || !strings.Contains(string(data), `"monitor_query"`) || !strings.Contains(string(data), `"monitor_statuses"`) {
+	if !strings.Contains(string(data), `datadog:`) || !strings.Contains(string(data), `monitor_query:`) || !strings.Contains(string(data), `monitor_statuses:`) {
 		t.Fatalf("generated config is missing Datadog settings: %s", data)
 	}
-	if !strings.Contains(string(data), `"workspace"`) || !strings.Contains(string(data), `"root_dir"`) || !strings.Contains(string(data), `"auto_confirm"`) {
+	if !strings.Contains(string(data), `workspace:`) || !strings.Contains(string(data), `root_dir:`) || !strings.Contains(string(data), `auto_confirm:`) {
 		t.Fatalf("generated config is missing workspace settings: %s", data)
 	}
 }
@@ -584,7 +617,7 @@ func TestOptionalEnableSettingsSurviveLoadAndInstallerReruns(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			contents := `{"sbx":{"enabled":` + value + `},"github":{"enabled":` + value + `},"jira":{"enabled":` + value + `},"datadog":{"enabled":` + value + `}}`
+			contents := `{sbx: {enabled: ` + value + `},"github":{"enabled":` + value + `},"jira":{"enabled":` + value + `},"datadog":{"enabled":` + value + `}}`
 			if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -622,9 +655,12 @@ func TestWorkspaceAutoConfirmDefaultAndExplicitOverride(t *testing.T) {
 	}{
 		{"missing file", "", true},
 		{"omitted workspace", `{}`, true},
-		{"omitted setting", `{"workspace":{"root_dir":"~/work"}}`, true},
-		{"enabled", `{"workspace":{"auto_confirm":true}}`, true},
-		{"disabled", `{"workspace":{"auto_confirm":false}}`, false},
+		{"omitted setting", `workspace:
+  root_dir: ~/work`, true},
+		{"enabled", `workspace:
+  auto_confirm: true`, true},
+		{"disabled", `workspace:
+  auto_confirm: false`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -656,9 +692,9 @@ func TestWorkspaceAutoConfirmDefaultAndExplicitOverride(t *testing.T) {
 func TestLoadOptionalSandboxEnvFile(t *testing.T) {
 	for _, test := range []struct{ name, sbx, want string }{
 		{"absent", `{}`, ""},
-		{"empty", `{"env_file":""}`, ""},
-		{"absolute", `{"env_file":"/missing env file"}`, "/missing env file"},
-		{"home", `{"env_file":"~/missing env file"}`, "~/missing env file"},
+		{"empty", `{env_file: ""}`, ""},
+		{"absolute", `{env_file: /missing env file}`, "/missing env file"},
+		{"home", `{env_file: ~/missing env file}`, "~/missing env file"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -669,18 +705,18 @@ func TestLoadOptionalSandboxEnvFile(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(path, []byte(`{"sbx":`+test.sbx+`}`), 0o600); err != nil {
+			if err := os.WriteFile(path, []byte(`{sbx: `+test.sbx+`}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			cfg, err := Load()
 			if err != nil || cfg.SBX.EnvFile != test.want {
 				t.Fatalf("env_file = %q, %v, want %q", cfg.SBX.EnvFile, err, test.want)
 			}
-			data, err := json.Marshal(cfg.SBX)
+			data, err := yaml.Marshal(cfg.SBX)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(data), `"env_file"`) != (test.want != "") {
+			if strings.Contains(string(data), `env_file:`) != (test.want != "") {
 				t.Fatalf("env_file omitempty: %s", data)
 			}
 		})

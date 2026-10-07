@@ -2,13 +2,14 @@ package workspace
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 
 	"radar/internal/config"
 )
@@ -231,22 +232,25 @@ func TestDiscoverReposPrefersSourceRepoForCurrentWorkspace(t *testing.T) {
 
 func writeLinkingMarkConfig(t *testing.T, home string) {
 	t.Helper()
-	path := filepath.Join(home, "config", "radar", "config.json")
+	path := filepath.Join(home, "config", "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"]}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
+  - XYZ`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func writeDiscoveryConfig(t *testing.T, home string, repositoryDirs []string) {
 	t.Helper()
-	path := filepath.Join(home, "config", "radar", "config.json")
+	path := filepath.Join(home, "config", "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(config.Config{RepositoryDirs: repositoryDirs, LinkingMarkPrefixes: []string{"XYZ"}})
+	cfg := config.Default()
+	cfg.RepositoryDirs, cfg.LinkingMarkPrefixes = repositoryDirs, []string{"XYZ"}
+	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,11 +281,14 @@ func TestDefaultRootUsesConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
-	path := filepath.Join(home, "config", "radar", "config.json")
+	path := filepath.Join(home, "config", "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"linking_mark_prefixes":["XYZ"],"workspace":{"root_dir":"~/streams"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
+  - XYZ
+workspace:
+  root_dir: ~/streams`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got, err := DefaultRoot()

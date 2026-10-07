@@ -134,20 +134,17 @@ change automatic GC's 24-hour retention period or eight-day expiry deadline.
 For disposable caches such as `.pnpm-store`, add an explicit deletion allowlist
 in the **user** config (`radar config-path`):
 
-```json
-{
-  "workspace": {
-    "cleanup": {
-      "disposable_entries": [".pnpm-store"]
-    }
-  }
-}
+```yaml
+workspace:
+  cleanup:
+    disposable_entries:
+      - .pnpm-store
 ```
 
 The default is `[]`. This setting **authorises deletion**, not just ignoring a
 safety warning: when an otherwise eligible workspace is cleaned up, Radar removes
 each listed entry, including a directory's contents. It applies to all registered
-workspaces, including note-only workspaces, and is not a repository `.radar.json`
+workspaces, including note-only workspaces, and is not a repository `.radar.yaml`
 setting. Existing user configs are not rewritten; no registry or cache migration
 is needed.
 

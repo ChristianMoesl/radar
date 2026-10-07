@@ -123,7 +123,7 @@ func TestStructuredTaskMutations(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configHome, "radar"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), []byte(fmt.Sprintf(`{"workspace":{"root_dir":%q},"linking_mark_prefixes":["ABC"]}`, filepath.Join(t.TempDir(), "workspaces"))), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.yaml"), []byte(fmt.Sprintf(`{workspace: {root_dir: %q},linking_mark_prefixes: ["ABC"]}`, filepath.Join(t.TempDir(), "workspaces"))), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -363,11 +363,16 @@ func TestAckResponseAppliesFilters(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
 	t.Setenv("RADAR_STATE", filepath.Join(tmp, "state", "tasks.json"))
 
-	configPath := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar", "config.json")
+	configPath := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(configPath, []byte(`{"linking_mark_prefixes":["XYZ"],"github":{"filters":{"mute_repos":["org/noisy"]}}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`linking_mark_prefixes:
+  - XYZ
+github:
+  filters:
+    mute_repos:
+      - org/noisy`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

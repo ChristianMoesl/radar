@@ -8,7 +8,7 @@ import (
 )
 
 type Config struct {
-	VaultPath string `json:"vault_path"`
+	VaultPath string `yaml:"vault_path"`
 }
 
 func (c Config) ValidateAndPrepare() (string, error) {

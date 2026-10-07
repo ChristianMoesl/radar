@@ -1,11 +1,12 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 func setupDraftFixture(t *testing.T) string {
@@ -21,11 +22,20 @@ func setupDraftFixture(t *testing.T) string {
 
 func TestSetupDraftPreservesUneditedSettingsAndSymlink(t *testing.T) {
 	path := setupDraftFixture(t)
-	target := filepath.Join(os.Getenv("HOME"), "dotfiles", "radar.json")
+	target := filepath.Join(os.Getenv("HOME"), "dotfiles", "radar.yaml")
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 		t.Fatal(err)
 	}
-	original := `{"future":{"large":9007199254740993},"model":"custom-model","jira":{"status_mapping":{"Ready":"low_priority"},"future":"keep"},"workspace":{"auto_confirm":false,"future":"keep"}}`
+	original := `future:
+  large: 9007199254740993
+model: custom-model
+jira:
+  status_mapping:
+    Ready: low_priority
+  future: keep
+workspace:
+  auto_confirm: false
+  future: keep`
 	if err := os.WriteFile(target, []byte(original), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +53,7 @@ func TestSetupDraftPreservesUneditedSettingsAndSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`9007199254740993`, `"custom-model"`, `"Ready": "low_priority"`, `"auto_confirm": false`, `"future": "keep"`} {
+	for _, want := range []string{`9007199254740993`, `custom-model`, `Ready: low_priority`, `auto_confirm: false`, `future: keep`} {
 		if !strings.Contains(string(preview), want) {
 			t.Fatalf("missing %s from %s", want, preview)
 		}
@@ -88,7 +98,7 @@ func TestSetupDraftRejectsConcurrentConfigOrSecrets(t *testing.T) {
 			case "deleted":
 				err = os.Remove(path)
 			default:
-				err = os.WriteFile(path, []byte(`{"model":"concurrent"}`), 0600)
+				err = os.WriteFile(path, []byte(`model: concurrent`), 0600)
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -102,7 +112,9 @@ func TestSetupDraftRejectsConcurrentConfigOrSecrets(t *testing.T) {
 
 func TestSetupDraftCanRemoveAnEditedOptionalField(t *testing.T) {
 	path := setupDraftFixture(t)
-	if err := os.WriteFile(path, []byte(`{"jira":{"api_base_url":"https://example.test/rest/api/3","future":true}}`), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(`jira:
+  api_base_url: https://example.test/rest/api/3
+  future: true`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	draft, err := LoadSetupDraft()
@@ -116,7 +128,7 @@ func TestSetupDraftCanRemoveAnEditedOptionalField(t *testing.T) {
 		t.Fatal(err)
 	}
 	var object map[string]map[string]any
-	if err := json.Unmarshal(data, &object); err != nil {
+	if err := yaml.Unmarshal(data, &object); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := object["jira"]["api_base_url"]; ok || object["jira"]["future"] != true {

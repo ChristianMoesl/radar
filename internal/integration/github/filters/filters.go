@@ -7,18 +7,18 @@ import (
 )
 
 type Config struct {
-	MuteRepos         []string `json:"mute_repos,omitempty"`
-	DeprioritizeRepos []string `json:"deprioritize_repos,omitempty"`
-	MuteUsers         []string `json:"mute_users,omitempty"`
-	DeprioritizeUsers []string `json:"deprioritize_users,omitempty"`
-	Rules             []Rule   `json:"rules,omitempty"`
+	MuteRepos         []string `yaml:"mute_repos,omitempty"`
+	DeprioritizeRepos []string `yaml:"deprioritize_repos,omitempty"`
+	MuteUsers         []string `yaml:"mute_users,omitempty"`
+	DeprioritizeUsers []string `yaml:"deprioritize_users,omitempty"`
+	Rules             []Rule   `yaml:"rules,omitempty"`
 }
 
 type Rule struct {
-	Name   string   `json:"name,omitempty"`
-	Repos  []string `json:"repos,omitempty"`
-	Users  []string `json:"users,omitempty"`
-	Action string   `json:"action"`
+	Name   string   `yaml:"name,omitempty"`
+	Repos  []string `yaml:"repos,omitempty"`
+	Users  []string `yaml:"users,omitempty"`
+	Action string   `yaml:"action"`
 }
 
 const (

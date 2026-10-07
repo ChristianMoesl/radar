@@ -117,12 +117,12 @@ func TestCreateBuildsWorktreeAndTmuxSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("SECRET=local\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
-  "copy_files": [".env"],
-  "setup": ["pnpm install --frozen-lockfile"],
-  "model": "anthropic/claude-sonnet-4",
-  "thinking": "high"
-}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`copy_files:
+  - .env
+setup:
+  - pnpm install --frozen-lockfile
+model: anthropic/claude-sonnet-4
+thinking: high`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{repo: repo}
@@ -406,9 +406,8 @@ func TestCreateStartsPiOnHostWithConfiguredSandbox(t *testing.T) {
 	t.Setenv("HOME", home)
 	repo := t.TempDir()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
-  "sbx": {"enabled": true}
-}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`sbx:
+  enabled: true`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{repo: repo}
@@ -447,10 +446,11 @@ func TestCreateSchedulesSetupInsideConfiguredSandbox(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
 	repo := t.TempDir()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{
-  "setup": ["pnpm install --frozen-lockfile", "pnpm build"],
-  "sbx": {"enabled": true}
-}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`setup:
+  - pnpm install --frozen-lockfile
+  - pnpm build
+sbx:
+  enabled: true`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{repo: repo}
@@ -505,7 +505,8 @@ func TestCreateDoesNotScheduleSetupWithoutCommands(t *testing.T) {
 
 func TestCreatePreservesWorkspaceWhenSetupCannotBeScheduled(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"setup":["pnpm install"]}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`setup:
+  - pnpm install`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{repo: repo, failSetupWindow: true}
@@ -541,7 +542,8 @@ func TestCreateDoesNotRerunSetupWhenOpeningExistingWorkspace(t *testing.T) {
 	if err := os.MkdirAll(memberPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"setup":["pnpm install"]}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`setup:
+  - pnpm install`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	group := workspacegroup.Workspace{
@@ -605,14 +607,17 @@ func TestCreateSandboxKitDefaultsAndOverrides(t *testing.T) {
 		wantKit    string
 	}{
 		{"user enabled", true, "", `{}`, sbxsettings.DefaultKitName},
-		{"repository enabled", false, "", `{"sbx":{"enabled":true}}`, sbxsettings.DefaultKitName},
+		{"repository enabled", false, "", `sbx:
+  enabled: true`, sbxsettings.DefaultKitName},
 		{"user shell override", true, "shell", `{}`, "shell"},
-		{"repository shell override", true, sbxsettings.DefaultKitName, `{"sbx":{"kit":{"name":"shell"}}}`, "shell"},
+		{"repository shell override", true, sbxsettings.DefaultKitName, `sbx:
+  kit:
+    name: shell`, "shell"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			withWorkspaceGOOS(t, "darwin")
 			repo, root := t.TempDir(), t.TempDir()
-			if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(tt.repoConfig), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(tt.repoConfig), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			runner := &fakeRunner{repo: repo}
@@ -720,7 +725,8 @@ func TestCreateRejectsConfiguredSandboxOutsideMacOS(t *testing.T) {
 	withWorkspaceGOOS(t, "linux")
 	repo := t.TempDir()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"sbx":{"enabled":true}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`sbx:
+  enabled: true`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{repo: repo}
@@ -742,7 +748,8 @@ func TestCreateRejectsConfiguredSandboxOutsideMacOS(t *testing.T) {
 func TestCreateForksPiSession(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"model":"google/gemini-2.5-pro","thinking":"xhigh"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`model: google/gemini-2.5-pro
+thinking: xhigh`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{repo: repo}
@@ -767,7 +774,7 @@ func TestCreateForksPiSession(t *testing.T) {
 func TestCreateRejectsInvalidRepoThinking(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, ".radar.json"), []byte(`{"thinking":"maximum"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`thinking: maximum`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{repo: repo}
@@ -826,7 +833,7 @@ func TestCreateDoesNotCopyEnvWithoutRepoConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(registeredMemberPath(t, root, workspace.Path), ".env")); !os.IsNotExist(err) {
-		t.Fatalf(".env was copied without .radar.json config: %v", err)
+		t.Fatalf(".env was copied without .radar.yaml config: %v", err)
 	}
 	assertCalledContains(t, runner.calls, "tmux", "pi --model 'github-copilot/claude-sonnet-4.5' --thinking 'low' --session-id '"+workspace.SessionName+"'")
 }
@@ -1227,7 +1234,8 @@ func TestWSLManagedWorkspaceFailsBeforeProvisioning(t *testing.T) {
 	if err := os.Mkdir(repository, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repository, ".radar.json"), []byte(`{"sbx":{"enabled":true}}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(repository, ".radar.yaml"), []byte(`sbx:
+  enabled: true`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{repo: repository}

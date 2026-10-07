@@ -8,17 +8,17 @@ import (
 const PiArgsPlaceholder = "$RADAR_PI_ARGS"
 
 type Config struct {
-	Windows []Window `json:"windows"`
+	Windows []Window `json:"windows" yaml:"windows"`
 }
 
 type Window struct {
-	Name   string `json:"name"`
-	Layout string `json:"layout,omitempty"`
-	Panes  []Pane `json:"panes"`
+	Name   string `json:"name" yaml:"name"`
+	Layout string `json:"layout,omitempty" yaml:"layout,omitempty"`
+	Panes  []Pane `json:"panes" yaml:"panes"`
 }
 
 type Pane struct {
-	Command string `json:"command"`
+	Command string `json:"command" yaml:"command"`
 }
 
 func Default() Config {

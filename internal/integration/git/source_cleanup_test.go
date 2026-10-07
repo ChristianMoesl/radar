@@ -37,11 +37,11 @@ func TestWorktreeCleanupWaitsOnlyForManagedResources(t *testing.T) {
 			root := filepath.Join(home, "workspaces")
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
-			configPath := filepath.Join(home, "config", "radar", "config.json")
+			configPath := filepath.Join(home, "config", "radar", "config.yaml")
 			if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(configPath, fmt.Appendf(nil, `{"workspace":{"root_dir":%q},"linking_mark_prefixes":["ABC"]}`, root), 0o600); err != nil {
+			if err := os.WriteFile(configPath, fmt.Appendf(nil, `{workspace: {root_dir: %q},linking_mark_prefixes: ["ABC"]}`, root), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			repo := filepath.Join(home, "repo")

@@ -2,11 +2,13 @@ package config
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
+
+	"go.yaml.in/yaml/v3"
+
+	"radar/internal/configfile"
 )
 
 // SetupDraft retains the original document so setup changes only fields the
@@ -16,7 +18,7 @@ type SetupDraft struct {
 	Config                 Config
 	Existing               bool
 	configFile, secretFile setupFile
-	original               map[string]any
+	original               *yaml.Node
 }
 
 type setupFile struct {
@@ -61,14 +63,13 @@ func LoadSetupDraft() (*SetupDraft, error) {
 		return nil, err
 	}
 	if f.exists {
-		var object map[string]json.RawMessage
-		if json.Unmarshal(f.data, &object) != nil || object == nil {
-			return nil, fmt.Errorf("config.json must contain a valid JSON object — repair it before running setup")
+		if _, err := configfile.Parse(f.data); err != nil {
+			return nil, fmt.Errorf("config.yaml is invalid — repair it before running setup: %w", err)
 		}
 	}
 	cfg, err := Load()
 	if err != nil {
-		return nil, fmt.Errorf("config.json is invalid — repair it before running setup: %w", err)
+		return nil, fmt.Errorf("config.yaml is invalid — repair it before running setup: %w", err)
 	}
 	if _, err := LoadSecrets(); err != nil {
 		return nil, err
@@ -81,7 +82,11 @@ func LoadSetupDraft() (*SetupDraft, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &SetupDraft{Config: cfg, Existing: f.exists, configFile: f, secretFile: secrets, original: configObject(cfg)}
+	original, err := configDocument(cfg)
+	if err != nil {
+		return nil, err
+	}
+	d := &SetupDraft{Config: cfg, Existing: f.exists, configFile: f, secretFile: secrets, original: original}
 	if err := d.CheckUnchanged(); err != nil {
 		return nil, err
 	}
@@ -107,57 +112,30 @@ func (d *SetupDraft) CheckUnchanged() error {
 	return d.secretFile.unchanged()
 }
 
-func configObject(cfg Config) map[string]any {
-	data, _ := json.Marshal(cfg)
-	var object map[string]any
-	_ = json.Unmarshal(data, &object)
-	return object
-}
-
-// Preview is also the exact document saved after approval. Apply the typed
-// delta to the original JSON, rather than serializing defaults over user data.
+// Preview is also the exact document saved after approval. Patch the YAML tree
+// rather than serializing defaults over user settings and comments.
 func (d *SetupDraft) Preview(cfg Config) ([]byte, error) {
 	if err := validate(cfg); err != nil {
 		return nil, err
 	}
-	next := configObject(cfg)
-	if d.Existing {
-		var document map[string]any
-		decoder := json.NewDecoder(bytes.NewReader(d.configFile.data))
-		decoder.UseNumber()
-		if err := decoder.Decode(&document); err != nil {
-			return nil, err
-		}
-		patchSetupObject(document, d.original, next)
-		next = document
+	next, err := configDocument(cfg)
+	if err != nil {
+		return nil, err
 	}
-	data, err := json.MarshalIndent(next, "", "  ")
-	return append(data, '\n'), err
+	if !d.Existing {
+		return configfile.Encode(next)
+	}
+	document, err := configfile.Parse(d.configFile.data)
+	if err != nil {
+		return nil, err
+	}
+	if !configfile.Patch(document, d.original, next) {
+		return append([]byte(nil), d.configFile.data...), nil
+	}
+	return configfile.Encode(document)
 }
 
-func patchSetupObject(document, before, after map[string]any) {
-	for key := range before {
-		if _, ok := after[key]; !ok {
-			delete(document, key)
-		}
-	}
-	for key, value := range after {
-		old, ok := before[key]
-		if ok && reflect.DeepEqual(old, value) {
-			continue
-		}
-		oldObject, oldOK := old.(map[string]any)
-		newObject, newOK := value.(map[string]any)
-		existing, existingOK := document[key].(map[string]any)
-		if oldOK && newOK && existingOK {
-			patchSetupObject(existing, oldObject, newObject)
-		} else {
-			document[key] = value
-		}
-	}
-}
-
-// Save only publishes config.json. The caller holds WithSetupLock and saves
+// Save only publishes config.yaml. The caller holds WithSetupLock and saves
 // approved secrets first; config remains the first-run completion marker.
 func (d *SetupDraft) Save(cfg Config) error {
 	if err := d.configFile.unchanged(); err != nil {
@@ -166,6 +144,9 @@ func (d *SetupDraft) Save(cfg Config) error {
 	data, err := d.Preview(cfg)
 	if err != nil {
 		return err
+	}
+	if d.Existing && bytes.Equal(data, d.configFile.data) {
+		return nil
 	}
 	return writeSetupFile(d.configFile.target, data, !d.Existing, !d.Existing)
 }

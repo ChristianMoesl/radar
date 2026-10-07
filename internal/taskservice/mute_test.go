@@ -174,7 +174,8 @@ func newMuteFixture(t *testing.T, source *testSource) (*Service, *state.Store, *
 	if err := os.Mkdir(filepath.Join(configHome, "radar"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.json"), []byte(`{"linking_mark_prefixes":["ABC"]}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(configHome, "radar", "config.yaml"), []byte(`linking_mark_prefixes:
+  - ABC`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))

@@ -2,7 +2,6 @@ package app_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 
 	"radar/internal/app"
 	"radar/internal/collector"
@@ -144,7 +145,7 @@ func TestOptionalIntegrationActivationMatrix(t *testing.T) {
 				if name == "sbx" && scenario.setup == "ready" {
 					setupTool(t, "sbx", `printf '{"sandboxes":[]}'`)
 				}
-				data, _ := json.Marshal(map[string]any{name: options})
+				data, _ := yaml.Marshal(map[string]any{name: options})
 				setupConfig(t, string(data))
 				var got integration.StatusResult
 				for _, source := range app.DefaultIntegrations().Sources() {

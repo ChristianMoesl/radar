@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"go.yaml.in/yaml/v3"
+
 	workspacegroup "radar/internal/integration/workspace/group"
 )
 
@@ -22,7 +24,7 @@ func TestWorkspaceContextRegistrationOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	cfg, err := json.Marshal(map[string]any{
+	cfg, err := yaml.Marshal(map[string]any{
 		"workspace":             map[string]string{"root_dir": workspaces},
 		"obsidian":              map[string]string{"vault_path": vault},
 		"linking_mark_prefixes": []string{"ABC"},
@@ -30,7 +32,7 @@ func TestWorkspaceContextRegistrationOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "config.json"), cfg, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), cfg, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", filepath.Dir(configDir))

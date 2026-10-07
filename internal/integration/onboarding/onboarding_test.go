@@ -212,7 +212,7 @@ func TestWizardSavesSettingsAndSeparateSecretsAfterReview(t *testing.T) {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatal("secrets written before confirmation")
 		}
-		if !strings.Contains(ui.transcript.String(), `"cloud_id": "cloud-fixture"`) {
+		if !strings.Contains(ui.transcript.String(), `cloud_id: cloud-fixture`) {
 			t.Fatal("config preview not shown before confirmation")
 		}
 	}
@@ -243,7 +243,7 @@ func TestWizardSavesSettingsAndSeparateSecretsAfterReview(t *testing.T) {
 	data, _ := os.ReadFile(configPath)
 	for _, secret := range []string{"jira-fixture-secret", "dd-api-fixture-secret", "dd-app-fixture-secret"} {
 		if strings.Contains(ui.transcript.String(), secret) || strings.Contains(string(data), secret) || strings.Contains(strings.Join(sys.calls, "\n"), secret) {
-			t.Fatal("secret leaked outside secrets.json")
+			t.Fatal("secret leaked outside secrets.yaml")
 		}
 	}
 	if len(requests) != 3 {
@@ -298,7 +298,7 @@ func TestWizardCancellationLeavesNoConfigurationOrDirectories(t *testing.T) {
 			if err := w.run(); !errors.Is(err, ErrAborted) {
 				t.Fatalf("error = %v", err)
 			}
-			for _, path := range []string{filepath.Join(home, "config", "radar", "config.json"), filepath.Join(home, "config", "radar", "secrets.json"), filepath.Join(home, "workspaces"), filepath.Join(home, "notes")} {
+			for _, path := range []string{filepath.Join(home, "config", "radar", "config.yaml"), filepath.Join(home, "config", "radar", "secrets.yaml"), filepath.Join(home, "workspaces"), filepath.Join(home, "notes")} {
 				if _, err := os.Stat(path); !os.IsNotExist(err) {
 					t.Fatalf("cancellation left %s", path)
 				}
@@ -539,7 +539,7 @@ func TestRepeatSetupRetainsOrEditsExistingSettingsAndSecrets(t *testing.T) {
 			if mode == "concurrent" {
 				ui.beforeConfirm = func(title string) {
 					if title == "Save this configuration?" {
-						if err := os.WriteFile(path, []byte(`{"model":"changed"}`), 0600); err != nil {
+						if err := os.WriteFile(path, []byte(`model: changed`), 0600); err != nil {
 							t.Fatal(err)
 						}
 					}

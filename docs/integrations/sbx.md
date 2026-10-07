@@ -14,12 +14,9 @@ SBX supplies local Docker sandbox resources and shell actions.
 
 Pass one machine-local environment file through to SBX with Radar's user config:
 
-```json
-{
-  "sbx": {
-    "env_file": "~/.config/sbx/sandbox.env"
-  }
-}
+```yaml
+sbx:
+  env_file: ~/.config/sbx/sandbox.env
 ```
 
 The path must be absolute or begin with `~/`. Radar expands it to a host-native
@@ -32,7 +29,7 @@ injection; the values are not baked into the image. For creation failures with
 an env-file, Radar withholds raw SBX diagnostics because a parser error could
 echo a private value; retry classification and attempt counts remain available.
 
-A repository's `.radar.json` can select another file with the same field. Omission
+A repository's `.radar.yaml` can select another file with the same field. Omission
 inherits the user setting; `"env_file": ""` explicitly disables it. Multi-repository
 creation uses the first member's repository settings, matching kit selection.
 Only one file is selected, not a merged list.
@@ -66,13 +63,12 @@ and private keys in the host's signing agent.
 The default is no readiness command: **Radar performs no check and does not wait**.
 To gate a workspace using the development kit's startup scripts:
 
-```json
-{
-  "sbx": {
-    "env_file": "~/.config/sbx/sandbox.env",
-    "ready_command": ["sandbox-startup", "wait"]
-  }
-}
+```yaml
+sbx:
+  env_file: ~/.config/sbx/sandbox.env
+  ready_command:
+    - sandbox-startup
+    - wait
 ```
 
 The command is an argv array, not shell text. Radar runs it with

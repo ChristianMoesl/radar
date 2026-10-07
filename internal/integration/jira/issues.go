@@ -200,7 +200,7 @@ func loadConnection() (Config, []string, error) {
 		missing = append(missing, "jira.email or RADAR_JIRA_EMAIL")
 	}
 	if cfg.APIToken == "" {
-		missing = append(missing, "jira.api_token in secrets.json or RADAR_JIRA_API_TOKEN")
+		missing = append(missing, "jira.api_token in secrets.yaml or RADAR_JIRA_API_TOKEN")
 	}
 	if cfg.APIBaseURL == "" {
 		missing = append(missing, "jira.cloud_id/api_base_url or RADAR_JIRA_CLOUD_ID/RADAR_JIRA_API_BASE_URL")
