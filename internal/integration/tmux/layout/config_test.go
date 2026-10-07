@@ -5,16 +5,16 @@ import (
 	"testing"
 )
 
-func TestDefaultUsesSeparatePiAndNvimWindows(t *testing.T) {
+func TestDefaultUsesSinglePiWindow(t *testing.T) {
 	cfg := Default()
-	if len(cfg.Windows) != 2 {
-		t.Fatalf("windows = %d, want 2", len(cfg.Windows))
+	if len(cfg.Windows) != 1 {
+		t.Fatalf("windows = %d, want 1", len(cfg.Windows))
 	}
-	if cfg.Windows[0].Name != "pi" || cfg.Windows[0].Panes[0].Command != "pi "+PiArgsPlaceholder {
+	if cfg.Windows[0].Name != "pi" || len(cfg.Windows[0].Panes) != 1 || cfg.Windows[0].Panes[0].Command != "pi "+PiArgsPlaceholder {
 		t.Fatalf("first window = %#v, want Pi window", cfg.Windows[0])
 	}
-	if cfg.Windows[1].Name != "nvim" || cfg.Windows[1].Panes[0].Command != "nvim ." {
-		t.Fatalf("second window = %#v, want nvim window", cfg.Windows[1])
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
 	}
 }
 

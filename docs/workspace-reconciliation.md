@@ -29,7 +29,7 @@ Every managed workspace has a stable anchor below `workspace_root`:
 └── api--feature-auth/
 ```
 
-The anchor is Pi, tmux, nvim, and SBX's working directory. Members are real Git worktrees and direct children named from repository and branch. A workspace may contain zero members. No member is primary or protected because it was added first.
+The anchor is Pi, tmux, configured editors, and SBX's working directory. Members are real Git worktrees and direct children named from repository and branch. A workspace may contain zero members. No member is primary or protected because it was added first.
 
 `<workspace_root>/.radar-workspaces.json` remains the single authoritative registry file. It stores every anchor, canonical note path, runtime settings, sandbox intent, and worktree member. The registry is versioned and rejects the former primary-worktree schema rather than interpreting or migrating it implicitly.
 

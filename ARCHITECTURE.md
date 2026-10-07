@@ -224,7 +224,7 @@ Current GitHub collectors:
 
 ## Jira integration
 
-Jira access uses Jira Cloud REST APIs with two collection inputs. Assigned non-done issues are searched only for `jira.authoritative_issue_types`, which defaults to Task, Bug, and Sub-task. An explicit empty list skips assigned search. Radar also scans projected titles and active non-Jira source-ref titles for ticket keys and fetches up to 50 distinct issues through one batched Jira search, preserving deterministic title order regardless of assignee or issue type. The assigned and title-reference searches run concurrently and their results are deduplicated afterward.
+Jira access uses Jira Cloud REST APIs with two collection inputs. Assigned non-done issues are searched only for `jira.authoritative_issue_types`, which defaults to Story, Task, Bug, and Sub-task. An explicit empty list skips assigned search. Radar also scans projected titles and active non-Jira source-ref titles for ticket keys and fetches up to 50 distinct issues through one batched Jira search, preserving deterministic title order regardless of assignee or issue type. The assigned and title-reference searches run concurrently and their results are deduplicated afterward.
 
 An assigned issue or a title discovery whose issue type matches the configured set is authoritative. Other title discoveries use per-task `jira:mention:<radar-task-id>:<key>` identities and are informational. They retain Jira URL/status/type/priority metadata but have no signal, canonical key, or linking keys. Batch failures and requested keys missing from a batch preserve previously known refs and report partial source status; complete refreshes remove derived refs whose keys disappeared. Explicit attachments remain durable. When a title contains multiple authoritative keys, the first supplies the Jira title and all must complete before the task completes.
 
@@ -256,7 +256,7 @@ New integrations are source-compiled packages under `internal/integration/<name>
 
 ## Workspaces
 
-A managed Radar workspace is a stable anchor directory with zero or more nested Git worktree members, one tmux session, one Pi session, a required canonical Obsidian note link, and at most one SBX sandbox. The anchor, not a Git member, owns workspace identity and remains Pi, tmux, nvim, and SBX's working directory for the workspace lifetime.
+A managed Radar workspace is a stable anchor directory with zero or more nested Git worktree members, one tmux session, one Pi session, a required canonical Obsidian note link, and at most one SBX sandbox. The anchor, not a Git member, owns workspace identity and remains Pi, tmux, configured editors, and SBX's working directory for the workspace lifetime.
 
 `<workspace_root>/.radar-workspaces.json` is the single authoritative durable registry. Each record stores the anchor path, task linking key, canonical note path, persisted runtime settings, sandbox intent, and member records. IDs derive from anchor paths. Members must be direct children and repository-and-branch identities remain globally unique. The version 2 registry accepts empty member sets and rejects version 1 primary-worktree data without aliases or implicit migration.
 

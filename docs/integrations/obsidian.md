@@ -133,7 +133,7 @@ Pressing `Enter` on an Obsidian-only task reuses its note in a workspace draft. 
 └── notes.md -> <Vault>/Tasks/Plan authentication--2c965c99/Plan authentication.md
 ```
 
-`notes.md` is an absolute symlink to the canonical note. Pi, tmux, and nvim start in the workspace directory without an automatic prompt. The same Pi session remains active when Git worktrees are later added as child directories through workspace reconciliation.
+`notes.md` is an absolute symlink to the canonical note. Pi, tmux, and any configured editor start in the workspace directory without an automatic prompt. The same Pi session remains active when Git worktrees are later added as child directories through workspace reconciliation.
 
 When SBX is enabled, Radar mounts the workspace and only the task's private directory. The sandbox can edit `notes.md` without seeing sibling task directories or the rest of the vault. A note rename repairs the symlink during local workspace refresh.
 

@@ -35,10 +35,10 @@ func TestDefaultUsesProductDefaults(t *testing.T) {
 	if cfg.SBX.AdditionalMounts == nil || len(cfg.SBX.AdditionalMounts) != 0 {
 		t.Fatalf("SBX.AdditionalMounts = %#v, want empty list", cfg.SBX.AdditionalMounts)
 	}
-	if len(cfg.Tmux.Windows) != 2 || cfg.Tmux.Windows[0].Name != "pi" || cfg.Tmux.Windows[1].Name != "nvim" {
-		t.Fatalf("Tmux.Windows = %#v, want default Pi and nvim windows", cfg.Tmux.Windows)
+	if len(cfg.Tmux.Windows) != 1 || cfg.Tmux.Windows[0].Name != "pi" || len(cfg.Tmux.Windows[0].Panes) != 1 || cfg.Tmux.Windows[0].Panes[0].Command != "pi $RADAR_PI_ARGS" {
+		t.Fatalf("Tmux.Windows = %#v, want a single default Pi window", cfg.Tmux.Windows)
 	}
-	if !reflect.DeepEqual(cfg.Jira.AuthoritativeIssueTypes, []string{"Task", "Bug", "Sub-task"}) {
+	if !reflect.DeepEqual(cfg.Jira.AuthoritativeIssueTypes, []string{"Story", "Task", "Bug", "Sub-task"}) {
 		t.Fatalf("Jira.AuthoritativeIssueTypes = %#v, want defaults", cfg.Jira.AuthoritativeIssueTypes)
 	}
 	if cfg.Jira.SignalForStatus(" in review ") != "in_progress" || cfg.Jira.SignalForStatus("Selected for Development") != "low_priority" {
@@ -46,6 +46,52 @@ func TestDefaultUsesProductDefaults(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cfg.Datadog.MonitorStatuses, []string{"Alert", "Warn", "No Data"}) {
 		t.Fatalf("Datadog.MonitorStatuses = %#v, want default unhealthy statuses", cfg.Datadog.MonitorStatuses)
+	}
+}
+
+func TestLoadInheritsWorkspaceAndJiraDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data string
+	}{
+		{"missing file", ""},
+		{"omitted sections", `{}`},
+		{"empty sections", `{"tmux":{},"jira":{}}`},
+		{"empty windows", `{"tmux":{"windows":[]}}`},
+		{"partial Jira", `{"jira":{"enabled":true}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			path, err := Path()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.data != "" {
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(tc.data), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defaults := Default()
+			if !reflect.DeepEqual(cfg.Tmux, defaults.Tmux) {
+				t.Fatalf("Tmux = %#v, want default Pi window", cfg.Tmux)
+			}
+			if !reflect.DeepEqual(cfg.Jira.AuthoritativeIssueTypes, defaults.Jira.AuthoritativeIssueTypes) ||
+				!reflect.DeepEqual(cfg.Jira.StatusMapping, defaults.Jira.StatusMapping) || cfg.Jira.UnmappedStatus != defaults.Jira.UnmappedStatus {
+				t.Fatalf("Jira = %#v, want default issue types and status policy", cfg.Jira)
+			}
+			if tc.data != "" {
+				if data, err := os.ReadFile(path); err != nil || string(data) != tc.data {
+					t.Fatalf("Load rewrote configuration: %s, %v", data, err)
+				}
+			}
+		})
 	}
 }
 
@@ -316,7 +362,7 @@ func TestLoadDoesNotTreatRemovedIssueTypesAsAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(cfg.Jira.AuthoritativeIssueTypes, []string{"Task", "Bug", "Sub-task"}) {
+	if !reflect.DeepEqual(cfg.Jira.AuthoritativeIssueTypes, []string{"Story", "Task", "Bug", "Sub-task"}) {
 		t.Fatalf("legacy issue_types changed config: %#v", cfg.Jira.AuthoritativeIssueTypes)
 	}
 }
@@ -448,11 +494,14 @@ func TestEnsureFileCreatesConfig(t *testing.T) {
 	if err := json.Unmarshal(data, &generated); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(generated.Jira.AuthoritativeIssueTypes, []string{"Task", "Bug", "Sub-task"}) {
+	if !reflect.DeepEqual(generated.Jira.AuthoritativeIssueTypes, []string{"Story", "Task", "Bug", "Sub-task"}) {
 		t.Fatalf("generated Jira.AuthoritativeIssueTypes = %#v, want defaults", generated.Jira.AuthoritativeIssueTypes)
 	}
-	if generated.Jira.SignalForStatus("In Progress") != "in_progress" || generated.Jira.UnmappedStatus != "low_priority" {
+	if !reflect.DeepEqual(generated.Jira.StatusMapping, map[string]string{"In Progress": "in_progress", "In Review": "in_progress"}) || generated.Jira.UnmappedStatus != "low_priority" {
 		t.Fatalf("generated Jira status config = %#v, fallback %q", generated.Jira.StatusMapping, generated.Jira.UnmappedStatus)
+	}
+	if !reflect.DeepEqual(generated.Tmux, Default().Tmux) {
+		t.Fatalf("generated Tmux = %#v, want default Pi window", generated.Tmux)
 	}
 	if generated.LinkingMarkPrefixes == nil || len(generated.LinkingMarkPrefixes) != 0 {
 		t.Fatalf("generated LinkingMarkPrefixes = %#v, want empty list", generated.LinkingMarkPrefixes)

@@ -99,6 +99,31 @@ func TestCollectMakesConfiguredTitleReferenceAuthoritative(t *testing.T) {
 	}
 }
 
+func TestCollectIncludesAssignedStoriesByDefault(t *testing.T) {
+	server := jiraSourceServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var request searchRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		want := `assignee = currentUser() AND statusCategory != Done AND issuetype IN ("Story", "Task", "Bug", "Sub-task") ORDER BY updated DESC`
+		if request.JQL != want {
+			t.Errorf("JQL = %q, want %q", request.JQL, want)
+		}
+		_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("ABC-123", "Story", "In Review")}})
+	})
+	defer server.Close()
+	configureJiraSource(t, server.URL, `{}`)
+
+	result := NewSource().Collect(context.Background(), jiraCollectRequest(nil))
+	if !result.Complete || len(result.Observations) != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	got := result.Observations[0]
+	if got.Ref.Role != protocol.SourceRefRoleAuthoritative || got.Signal != integration.SignalInProgress || got.Ref.CanonicalKey != "jira:issue:ABC-123" {
+		t.Fatalf("observation = %+v", got)
+	}
+}
+
 func TestCollectDeduplicatesAssignedTitleReference(t *testing.T) {
 	var requests []searchRequest
 	var requestsMu sync.Mutex

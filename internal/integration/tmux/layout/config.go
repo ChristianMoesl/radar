@@ -24,7 +24,6 @@ type Pane struct {
 func Default() Config {
 	return Config{Windows: []Window{
 		{Name: "pi", Panes: []Pane{{Command: "pi " + PiArgsPlaceholder}}},
-		{Name: "nvim", Panes: []Pane{{Command: "nvim ."}}},
 	}}
 }
 

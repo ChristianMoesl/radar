@@ -171,9 +171,11 @@ authentication in the foreground.
 
 - Task authoring and every new workspace require an explicitly configured,
   task-notes directory. An existing Obsidian vault is optional; Radar does not guess one.
-- Workspace sessions require tmux. New sessions using the standard `pi` and
-  `nvim` pane commands check these tools before provisioning. Unused pane tools
-  are not required; arbitrary custom shell commands remain the user's responsibility.
+- Workspace sessions require tmux and default to one Pi window running
+  `pi $RADAR_PI_ARGS`. Neovim is not required unless explicitly configured.
+  New sessions check configured `pi` and `nvim` pane commands before provisioning.
+  Unused pane tools are not required; arbitrary custom shell commands remain
+  the user's responsibility.
 - Git members require Git. Repository discovery requires `fd`.
 - Pi's Radar tools/activity require the separately installed `pi-radar` package;
   sandbox tool routing requires `pi-sbx` >=0.6.0 for early sandboxed launch.

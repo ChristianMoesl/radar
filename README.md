@@ -203,7 +203,7 @@ Radar creates one stable anchor with nested worktree members:
 └── repository--my-feature/
 ```
 
-Pi, tmux, nvim, and optional SBX start in the anchor. Repo-specific copy and setup rules run in the member. Additional members become siblings and no member is primary.
+Pi, tmux, any configured editor, and optional SBX start in the anchor. Repo-specific copy and setup rules run in the member. Additional members become siblings and no member is primary.
 
 Activating an Obsidian-only task prefills its note in the same workspace editor, without requiring repository selection:
 
@@ -263,7 +263,7 @@ Configure repo-specific workspace setup with a repo-local `.radar.json` file:
 }
 ```
 
-`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree in a temporary setup window after tmux and any sandbox are available. Without sandboxing they run on the host. On macOS, when sandboxing is enabled (automatically when `sbx` is installed, or explicitly with `sbx.enabled`), Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] [--env-file <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The anchor is always the first, writable SBX workspace argument, even when additional read-only mounts sort earlier. The sandbox mounts the anchor, the private task directory when present, each distinct external writable Git common directory, and global and repository `sbx.additional_mounts`. Nested members are already visible through the anchor. Pi and nvim run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's regular tools through `sbx exec`. The separately installed `pi-radar` package provides host-side workspace tools and context without launch-time injection. Install `pi-sbx` >=0.6.0 with `pi install npm:@christianmoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
+`copy_files` paths are relative to the repository root. `setup` commands run in order from the new worktree in a temporary setup window after tmux and any sandbox are available. Without sandboxing they run on the host. On macOS, when sandboxing is enabled (automatically when `sbx` is installed, or explicitly with `sbx.enabled`), Radar first creates an SBX sandbox for the workspace with `sbx create --name <sandbox-name> [--kit <path>] [--env-file <path>] <kit-name>`, then runs setup commands inside it with `sbx exec`. The deterministic sandbox name is capped at 63 characters. The anchor is always the first, writable SBX workspace argument, even when additional read-only mounts sort earlier. The sandbox mounts the anchor, the private task directory when present, each distinct external writable Git common directory, and global and repository `sbx.additional_mounts`. Nested members are already visible through the anchor. Pi and any configured editor run on the host; the globally installed [`pi-sbx`](https://github.com/ChristianMoesl/pi-sbx) extension discovers the matching sandbox and routes Pi's regular tools through `sbx exec`. The separately installed `pi-radar` package provides host-side workspace tools and context without launch-time injection. Install `pi-sbx` >=0.6.0 with `pi install npm:@christianmoesl/pi-sbx`. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for the workspace session.
 
 Changing the worktree membership or requested additional mounts of a sandboxed workspace reconciles the complete mount set by removing and recreating the sandbox under the same name. This interrupts processes inside the sandbox, so the Pi tool warns before confirmation. Radar waits for removal to converge and retries transient SBX container-start failures up to three times with bounded backoff and cleanup between attempts. Plans show the effective mount count and warn at 20 or more mounts without enforcing a limit. Radar then reconciles the complete desired loopback port set with `sbx ports`. If reconciliation fails, Radar keeps completed work and desired registry state and returns `ok: false` with `retryable: true`; the Pi tool reports completed work and asks the agent to re-inspect before retrying. Reconciliation phases and counts are recorded at `radar log-path` without logging complete mount commands.
 
@@ -354,7 +354,7 @@ explicitly too. Put all tool-critical initialization in that image contract,
 not solely in Radar's arbitrary readiness command. Existing registrations
 without a Radar command keep that setting; no automatic backfill is performed.
 
-Configure workspace windows, panes, layouts, and commands in the user config:
+By default, workspace sessions use one `pi` window with a single pane running `pi $RADAR_PI_ARGS`; Neovim is not required. This default also applies when `tmux.windows` is omitted or empty. Existing explicit layouts are preserved. Configure additional workspace windows, panes, layouts, and commands in the user config, for example to add an optional Neovim pane:
 
 ```json
 {
@@ -527,23 +527,22 @@ RADAR_JIRA_CLOUD_ID="..."
 # alternatively: RADAR_JIRA_API_BASE_URL="https://api.atlassian.com/ex/jira/<cloud-id>/rest/api/3"
 ```
 
-`jira.authoritative_issue_types` controls which automatically collected or title-discovered Jira issues can control a Radar task. It defaults to `Task`, `Bug`, and `Sub-task`:
+`jira.authoritative_issue_types` controls which automatically collected or title-discovered Jira issues can control a Radar task. It defaults to `Story`, `Task`, `Bug`, and `Sub-task`:
 
 ```json
 {
   "jira": {
-    "authoritative_issue_types": ["Task", "Bug", "Sub-task"],
+    "authoritative_issue_types": ["Story", "Task", "Bug", "Sub-task"],
     "status_mapping": {
       "In Progress": "in_progress",
-      "In Review": "in_progress",
-      "Blocked": "attention"
+      "In Review": "in_progress"
     },
     "unmapped_status": "low_priority"
   }
 }
 ```
 
-Names are trimmed and matched case-insensitively. An explicitly empty array skips assigned Jira search and makes every automatically title-discovered issue informational. Omitting the option uses the three default types. The former `jira.issue_types` option is not supported.
+Names are trimmed and matched case-insensitively. An explicitly empty array skips assigned Jira search and makes every automatically title-discovered issue informational. Omitting the option uses the four default types. The former `jira.issue_types` option is not supported.
 
 Authoritative Jira refs can provide the task title, identity, attention, linking, and contributing lifecycle. An out-of-scope title discovery is shown as an informational **Jira reference** with its URL, status, issue type, priority, and status category, but it cannot rename, merge, reprioritize, complete, or reopen the task. Removing a key from all current title-bearing facts removes its derived reference on a complete refresh. When a Jira ref joins an Obsidian-authored task, authoritative active work reopens a completed note. Confirmed completion of all contributing work items is written back to that note before Radar projects it as done, unless its completion baseline protects an explicit reopening.
 
@@ -659,7 +658,7 @@ Example:
     "monitor_statuses": ["Alert", "Warn", "No Data"]
   },
   "jira": {
-    "authoritative_issue_types": ["Task", "Bug", "Sub-task"],
+    "authoritative_issue_types": ["Story", "Task", "Bug", "Sub-task"],
     "status_mapping": {
       "In Progress": "in_progress",
       "In Review": "in_progress"
@@ -687,7 +686,7 @@ Example:
 
 `linking_mark_prefixes` optionally lists the identifier prefixes Radar may use to link work across sources, for example `["ABC"]` permits `ABC-722`. Omitting it or using `[]` disables only ticket-prefix linking; source identity, branch, and workspace linking still work. Prefixes are normalized to uppercase, must start with a letter, and may contain only letters and numbers. Radar matches only complete `<PREFIX>-<NUMBER>` marks, so unrelated suffixes such as `Origin-096e274f` are ignored.
 
-`obsidian.vault_path` is required for task authoring and workspace creation and identifies the task-notes parent directory; Radar creates its fixed `Tasks/` root. The existing `obsidian.vault_path` setting accepts ordinary directories as well as Obsidian vaults. Setup creates a chosen missing directory only after confirmation; it never creates `.obsidian/`. `repository_dirs` controls where `radar create` discovers base repositories. `workspace.root_dir` controls where Radar creates worktrees. When omitted, it defaults to `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. Existing configs must move the former `workspace_root` value manually; Radar does not read legacy user-config keys. `workspace.auto_confirm` defaults to `true`; Radar's Pi tool still previews and validates workspace reconciliation but applies the plan without asking for confirmation. Set it to `false` to require interactive confirmation. Existing explicit `false` values remain unchanged; the new default applies only when the setting is omitted or a new config is generated. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.authoritative_issue_types` defaults to Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection, while `datadog.monitor_statuses` selects the unhealthy states to ingest and defaults to Alert, Warn, and No Data. Datadog keys are read from `secrets.json`, with `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY` as environment overrides.
+`obsidian.vault_path` is required for task authoring and workspace creation and identifies the task-notes parent directory; Radar creates its fixed `Tasks/` root. The existing `obsidian.vault_path` setting accepts ordinary directories as well as Obsidian vaults. Setup creates a chosen missing directory only after confirmation; it never creates `.obsidian/`. `repository_dirs` controls where `radar create` discovers base repositories. `workspace.root_dir` controls where Radar creates worktrees. When omitted, it defaults to `$XDG_DATA_HOME/radar/workspaces`, falling back to `~/.local/share/radar/workspaces`. Existing configs must move the former `workspace_root` value manually; Radar does not read legacy user-config keys. `workspace.auto_confirm` defaults to `true`; Radar's Pi tool still previews and validates workspace reconciliation but applies the plan without asking for confirmation. Set it to `false` to require interactive confirmation. Existing explicit `false` values remain unchanged; the new default applies only when the setting is omitted or a new config is generated. `model` and `thinking` are passed to Pi as `--model` and `--thinking` for new workspace sessions unless the repository's `.radar.json` defines its own values. `jira.authoritative_issue_types` defaults to Story, Task, Bug, and Sub-task; an explicit empty array disables assigned Jira collection and makes automatic title discoveries informational. `datadog.monitor_query` is the user-owned scope for Datadog monitor collection, while `datadog.monitor_statuses` selects the unhealthy states to ingest and defaults to Alert, Warn, and No Data. Datadog keys are read from `secrets.json`, with `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY` as environment overrides.
 
 Repository/user `mute` filters hide entire matching tasks from the CLI/TUI view and every count, including Muted and Done. This is distinct from the per-task muted preference (`m` or `radar task mute`), which keeps unfinished work in the Muted section unless a filter hides it. Deprioritized active tasks move to the low-priority section subject to primary urgency; done tasks remain Done and per-task muted unfinished tasks remain Muted. User filters also apply to GitHub comment and review actors: muted or deprioritized actor activity does not promote a PR to attention. Confirmed GitHub bots match both their API login and the equivalent `[bot]` alias, so `gemini-code-assist[bot]` matches the GraphQL login `gemini-code-assist`. Repository and user patterns support `*` wildcards, and rule matches are case-insensitive.
 

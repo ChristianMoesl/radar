@@ -124,7 +124,12 @@ func TestMissingWorkspacePrerequisitesLeaveNoResources(t *testing.T) {
 			}
 			root := filepath.Join(tmp, "workspaces")
 			runner := &setupRunner{missing: missing}
+			layout := sessionlayout.Default()
+			if missing == "nvim" {
+				layout.Windows = append(layout.Windows, sessionlayout.Window{Name: "editor", Panes: []sessionlayout.Pane{{Command: "nvim ."}}})
+			}
 			_, err := Create(context.Background(), runner, CreateOptions{
+				Tmux: layout,
 				Name: "setup-check", WorkspaceRoot: root, Sandbox: missing == "sbx", NoteAuthor: obsidian.NewSourceAt(vault),
 			})
 			if err == nil || !strings.Contains(err.Error(), missing) {
@@ -140,6 +145,19 @@ func TestMissingWorkspacePrerequisitesLeaveNoResources(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDefaultWorkspaceDoesNotRequireEditor(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	runner := &setupRunner{missing: "nvim"}
+	_, err := Create(context.Background(), runner, CreateOptions{
+		Name: "pi-only", WorkspaceRoot: t.TempDir(), NoteAuthor: testNoteAuthor(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCalledContains(t, runner.calls, "tmux", "pi ")
+	assertNotCalledContains(t, runner.calls, "tmux", "nvim")
 }
 
 func TestCustomLayoutDoesNotRequireUnusedEditor(t *testing.T) {

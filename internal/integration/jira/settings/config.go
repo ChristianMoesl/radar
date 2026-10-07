@@ -73,7 +73,7 @@ func (c Config) IsAuthoritativeIssueType(issueType string) bool {
 
 func Default() Config {
 	return Config{
-		AuthoritativeIssueTypes: []string{"Task", "Bug", "Sub-task"},
+		AuthoritativeIssueTypes: []string{"Story", "Task", "Bug", "Sub-task"},
 		StatusMapping: map[string]string{
 			"In Progress": "in_progress",
 			"In Review":   "in_progress",

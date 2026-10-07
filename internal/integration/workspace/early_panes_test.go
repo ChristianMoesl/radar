@@ -133,15 +133,29 @@ func TestEarlyTmuxWorkspacePreservesLayoutAndPiPosition(t *testing.T) {
 	}
 }
 
-func TestEarlyTmuxWorkspaceDefaultsAndFreshGates(t *testing.T) {
+func TestEarlyTmuxWorkspaceDefaultsToPiOnly(t *testing.T) {
+	runner := &paneGateRunner{}
+	if err := createEarlyTmuxWorkspace(context.Background(), runner, "", "/workspace", "pi-only", sessionlayout.Config{}, "--name test"); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.pending) != 0 {
+		t.Fatalf("Pi-only workspace has auxiliary gates: %v", runner.pending)
+	}
+	assertCalledContains(t, runner.calls, "tmux", "pi --name test")
+	assertNotCalledContains(t, runner.calls, "tmux", "new-window")
+}
+
+func TestEarlyTmuxWorkspaceFreshGates(t *testing.T) {
+	cfg := sessionlayout.Default()
+	cfg.Windows = append(cfg.Windows, sessionlayout.Window{Name: "editor", Panes: []sessionlayout.Pane{{Command: "editor ."}}})
 	var previous string
 	for range 2 {
 		runner := &paneGateRunner{}
-		if err := createEarlyTmuxWorkspace(context.Background(), runner, "", "/workspace", "same-name", sessionlayout.Config{}, "--name test"); err != nil {
+		if err := createEarlyTmuxWorkspace(context.Background(), runner, "", "/workspace", "same-name", cfg, "--name test"); err != nil {
 			t.Fatal(err)
 		}
 		if len(runner.pending) != 1 || runner.pending["%2"] == "" {
-			t.Fatalf("default auxiliary gate = %v", runner.pending)
+			t.Fatalf("auxiliary gate = %v", runner.pending)
 		}
 		gate := runner.pending["%2"]
 		if gate == previous {
@@ -426,7 +440,9 @@ func TestEarlyPaneConstructorCancellationCleansUnrecordedGate(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	runner := &canceledPaneConstructorRunner{cancel: cancel}
-	err := createEarlyTmuxWorkspace(ctx, runner, "", "/workspace", "fixture", sessionlayout.Config{}, "--name fixture")
+	cfg := sessionlayout.Default()
+	cfg.Windows = append(cfg.Windows, sessionlayout.Window{Name: "editor", Panes: []sessionlayout.Pane{{Command: "editor ."}}})
+	err := createEarlyTmuxWorkspace(ctx, runner, "", "/workspace", "fixture", cfg, "--name fixture")
 	if !errors.Is(err, context.Canceled) || !runner.cleaned {
 		t.Fatalf("canceled constructor stranded an unrecorded pane: err=%v cleaned=%t", err, runner.cleaned)
 	}

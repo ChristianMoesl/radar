@@ -11,7 +11,6 @@ import (
 
 	"radar/internal/config"
 	"radar/internal/integration/tmux"
-	sessionlayout "radar/internal/integration/tmux/layout"
 )
 
 type wizard struct {
@@ -64,9 +63,6 @@ func (w wizard) run() error {
 		return err
 	}
 	cfg := config.Default()
-	// A fresh setup needs Pi, not an opinionated editor. Existing configurations
-	// and the editor panes they explicitly request remain untouched.
-	cfg.Tmux = sessionlayout.Config{Windows: []sessionlayout.Window{{Name: "pi", Panes: []sessionlayout.Pane{{Command: "pi " + sessionlayout.PiArgsPlaceholder}}}}}
 	w.ui.print("\nDirectories\n")
 	repo, err := w.directory("Where do you check out your repositories?", "An existing directory containing your main repository checkouts.", "~/workspace", true)
 	if err != nil {

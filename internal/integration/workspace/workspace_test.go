@@ -895,7 +895,7 @@ func TestCreateSessionCreatesTmuxSessionForWorktree(t *testing.T) {
 		t.Fatalf("unexpected session workspace: %#v", created)
 	}
 	assertCalled(t, runner.calls, "tmux", "new-session -d -s repo-small-fix")
-	assertCalled(t, runner.calls, "tmux", "new-window -t repo-small-fix:")
+	assertNotCalledContains(t, runner.calls, "tmux", "new-window")
 	assertCalled(t, runner.calls, "tmux", "switch-client -t repo-small-fix")
 }
 
@@ -986,7 +986,7 @@ func TestCreateSessionUsesLinkedSandboxForHostPiTools(t *testing.T) {
 	assertNotCalledContains(t, runner.calls, "tmux", "sbx exec")
 	assertNotCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_SESSION_DIR=")
 	assertNotCalledContains(t, runner.calls, "tmux", "pi --approve")
-	assertCalled(t, runner.calls, "tmux", "new-window -t repo-small-fix:")
+	assertNotCalledContains(t, runner.calls, "tmux", "new-window")
 }
 
 func TestSandboxCommandErrorSuggestsLoginForAuthFailure(t *testing.T) {
