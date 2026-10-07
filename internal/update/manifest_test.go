@@ -42,6 +42,22 @@ func signed(t *testing.T, m Manifest) ([]byte, []byte, map[string]string) {
 	sig, _ := json.Marshal(Signature{KeyID: "test", Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(priv, data))})
 	return data, sig, map[string]string{"test": base64.StdEncoding.EncodeToString(pub)}
 }
+func TestEmbeddedReleaseTrustStore(t *testing.T) {
+	keys := TrustedKeys()
+	if len(keys) == 0 {
+		t.Fatal("release builds must include a provisioned public trust root")
+	}
+	for id, encoded := range keys {
+		if strings.TrimSpace(id) == "" {
+			t.Fatal("release signing key ID must not be empty")
+		}
+		raw, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil || len(raw) != ed25519.PublicKeySize {
+			t.Fatalf("release key %q must be a base64-encoded raw Ed25519 public key", id)
+		}
+	}
+}
+
 func TestManifestAuthentication(t *testing.T) {
 	m := fixtureManifest("v0.2.0")
 	data, sig, keys := signed(t, m)

@@ -28,8 +28,8 @@ const StateEpoch = 1 // Bump for incompatible persisted-data changes: updates mu
 const MaxArchiveSize = 128 << 20
 const MaxExpandedSize = 512 << 20
 
-// Empty until the maintainer commits the initial public key. No TOFU, environment
-// override, or unsigned fallback: development builds fail closed.
+// Public trust roots are committed independently of release metadata. No TOFU,
+// environment override, or unsigned fallback: an empty trust store fails closed.
 //
 //go:embed keys.json
 var keyFiles embed.FS

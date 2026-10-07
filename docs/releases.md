@@ -4,16 +4,32 @@ Radar's CLI and `@christianmoesl/pi-radar` share a release version. The small
 macOS notifier has its own version and immutable artifacts. Linux/Windows retain
 manual `make install`; existing Linux release archives are still generated.
 
-## Maintainer setup — required before the first managed release
+## Maintainer trust and publishing setup
 
-`internal/update/keys.json` intentionally starts empty. Development builds fail
-closed instead of trusting unsigned metadata, accepting a key supplied by a
-release, or silently enrolling a new trust root. A signing-key setup is still
-required; an empty trust store is **not** a production-ready updater.
+`internal/update/keys.json` contains the embedded public trust roots. The initial
+key ID is **`release-1`**; the SHA-256 fingerprint of its raw 32-byte public key is:
 
-1. Create an Ed25519 private key in a secure location outside this repository,
-   for example with `openssl genpkey -algorithm ED25519 -out <private-key.pem>`.
-   Keep a secure backup. Never commit it or paste it into logs/issue notes.
+```text
+c0d9b82fb205070a4d26a1f18b42c4bef1c355292a3fa2d72c8211346a61c6e9
+```
+
+Verify that fingerprint through a trusted channel before bootstrapping an
+installation. This documentation and a key accompanying an untrusted download
+cannot themselves establish trust. The private key is never stored in this
+repository. Builds with an empty trust store still fail closed: no unsigned
+metadata, release-supplied trust root, or silent enrollment is accepted.
+Configuring CI alone does not update an older binary's embedded keys.
+
+For initial key provisioning or an intentional rotation (follow the bridge-release
+policy below), and when configuring the publishing repository:
+
+1. Create an Ed25519 private key in an owner-only directory outside **all** Git
+   repositories and unencrypted sync folders. Resolve symlinked parent directories
+   first; a dotfiles-managed `~/.config` may itself point into a Git checkout. Set
+   directory permissions to `0700`, use `umask 077`, and create a new private-key
+   file without overwriting an existing key, for example with
+   `openssl genpkey -algorithm ED25519 -out <new-private-key.pem>`.
+   Keep a secure encrypted backup. Never commit it or paste it into logs/issue notes.
 2. Export its **raw 32-byte public key**, base64 encoded, and commit it in
    `internal/update/keys.json`, keyed by a stable key ID, for example:
 
