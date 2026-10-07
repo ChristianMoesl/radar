@@ -23,9 +23,12 @@ installation/save prompts default to **no**; existing integration choices are pr
    No downloaded bootstrap shell is run. Install/update failures, declining,
    or binaries still missing/too old on PATH stop setup. Linux distributions
    whose apt repositories do not provide Node 24+ need Node installed separately.
-   No sudo npm install or silent PATH/shell-profile changes are made. If SBX is
-   already installed on macOS, setup also checks pi-sbx 0.6.0+ so automatic
-   sandbox activation does not produce an unusable early Pi session. Existing
+   No sudo npm install or silent PATH/shell-profile changes are made. pi-sbx is
+   **not a required Radar tool**: it is checked separately only when SBX is enabled
+   for workspaces, using the same effective setting as workspace creation.
+   `sbx.enabled: false` skips it even if the SBX CLI is installed. Automatic mode
+   still enables SBX on macOS when its CLI is installed; those sandboxed sessions
+   need pi-sbx 0.6.0+. Existing
    Git/local package sources are never silently replaced by duplicate npm installs.
 3. Offer the tmux configuration described below.
 4. Ask for the existing repository directory, workspace root, and notes parent

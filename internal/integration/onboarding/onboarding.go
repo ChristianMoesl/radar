@@ -49,7 +49,7 @@ func (w wizard) run() error {
 	}
 	w.ui.print("\nWelcome to Radar\nLet's prepare your tools, directories and integrations.\nNothing is installed without permission. Config and secrets are saved only after review.\n\n")
 	ctx := context.Background()
-	if err := w.dependencies(ctx); err != nil {
+	if err := w.dependencies(ctx, cfg.SBX); err != nil {
 		return err
 	}
 	tmuxPlan, err := w.tmuxConfig()

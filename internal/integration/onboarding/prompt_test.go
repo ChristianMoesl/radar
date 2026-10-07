@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"radar/internal/config"
 	"strings"
 	"testing"
 
@@ -108,7 +109,7 @@ func TestInstalledSBXRequiresVersionedPiSBXWithoutChangingItsSource(t *testing.T
 	w, ui, sys, home := fixture(t)
 	delete(sys.missing, "sbx")
 	ui.decisions = []bool{false}
-	if err := w.dependencies(context.Background()); !errors.Is(err, ErrAborted) {
+	if err := w.dependencies(context.Background(), config.Default().SBX); !errors.Is(err, ErrAborted) {
 		t.Fatalf("missing sandbox extension: %v", err)
 	}
 	if !strings.Contains(ui.transcript.String(), "pi-sbx 0.6.0+") {
@@ -135,5 +136,74 @@ func TestInstalledSBXRequiresVersionedPiSBXWithoutChangingItsSource(t *testing.T
 	}
 	if _, err := packageInstalled("pi-sbx"); err == nil {
 		t.Fatal("missing Git install must not be replaced with duplicate npm source")
+	}
+}
+
+func TestPiSBXIsOnlyCheckedForEffectiveSandboxUsage(t *testing.T) {
+	yes, no := true, false
+	for _, tc := range []struct {
+		name, platform  string
+		enabled         *bool
+		installed, want bool
+	}{
+		{"disabled with CLI installed", "darwin", &no, true, false},
+		{"disabled without CLI", "darwin", &no, false, false},
+		{"automatic without CLI", "darwin", nil, false, false},
+		{"automatic macOS sandbox", "darwin", nil, true, true},
+		{"automatic Linux without sandboxing", "linux", nil, true, false},
+		{"explicit sandbox enabled", "darwin", &yes, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w, ui, sys, _ := fixture(t)
+			sys.goos = tc.platform
+			sys.missing["sbx"] = !tc.installed
+			sandbox := config.Default().SBX
+			sandbox.Enabled = tc.enabled
+			ui.decisions = []bool{false} // A missing required sandbox dependency must need consent.
+			err := w.dependencies(context.Background(), sandbox)
+			if tc.want {
+				if !errors.Is(err, ErrAborted) {
+					t.Fatalf("missing sandbox dependency: %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("non-sandbox setup blocked: %v", err)
+			}
+			output := ui.transcript.String()
+			baseline, _, _ := strings.Cut(output, "\nSBX sandboxing")
+			if strings.Contains(baseline, "pi-sbx") {
+				t.Fatal("pi-sbx was listed as a required Radar tool")
+			}
+			if strings.Contains(output, "pi-sbx") != tc.want {
+				t.Fatalf("sandbox dependency check does not match effective enablement: %s", output)
+			}
+		})
+	}
+}
+
+func TestRepeatSetupWithSBXDisabledDoesNotRequirePiSBX(t *testing.T) {
+	w, ui, sys, home := fixture(t)
+	delete(sys.missing, "sbx")
+	cfg := config.Default()
+	no := false
+	cfg.SBX.Enabled = &no
+	cfg.RepositoryDirs = []string{filepath.Join(home, "repos")}
+	cfg.Workspace.RootDir = filepath.Join(home, "workspaces")
+	cfg.Obsidian.VaultPath = filepath.Join(home, "notes")
+	if err := config.Create(cfg); err != nil {
+		t.Fatal(err)
+	}
+	ui.decisions = []bool{false, false, false, true}
+	if err := w.run(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(ui.transcript.String(), "pi-sbx") {
+		t.Fatal("disabled sandboxing still required pi-sbx")
+	}
+	saved, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.SBX.Enabled == nil || *saved.SBX.Enabled {
+		t.Fatal("setup changed explicit sandbox disablement")
 	}
 }

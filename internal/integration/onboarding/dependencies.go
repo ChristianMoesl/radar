@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"radar/internal/command"
+	"radar/internal/config"
 	"radar/internal/integration/tmux"
 )
 
@@ -62,19 +63,28 @@ var dependencies = []dependency{
 	{"gh", "GitHub authentication and pull requests"},
 }
 
-func (w *wizard) dependencies(ctx context.Context) error {
+func (w *wizard) dependencies(ctx context.Context, sandbox config.SBXConfig) error {
 	w.ui.print("Required tools\n")
-	required := append([]dependency(nil), dependencies...)
-	// An installed SBX opts macOS workspaces into sandboxing. Early startup
-	// then needs pi-sbx too; do not generate a config that blocks its own Pi pane.
-	if w.system.platform() == "darwin" && w.system.lookPath("sbx") {
-		required = append(required, dependency{"pi-sbx", "pi-sbx 0.6.0+ routes Pi tools for the installed SBX runtime"})
-	}
-	for _, dep := range required {
+	for _, dep := range dependencies {
 		w.ui.print("  %-10s %s\n", dep.name, dep.reason)
 	}
 	w.ui.print("\n")
-	for _, dep := range required {
+	checks := append([]dependency(nil), dependencies...)
+	// pi-sbx belongs to optional sandboxing, not Radar's baseline tool set.
+	// Use the same effective default as workspace creation, including explicit
+	// disablement even when the SBX executable happens to be installed.
+	if sandbox.WorkspaceEnabled(w.system.platform(), func(name string) error {
+		if w.system.lookPath(name) {
+			return nil
+		}
+		return exec.ErrNotFound
+	}) {
+		checks = append(checks, dependency{"pi-sbx", "pi-sbx 0.6.0+ routes Pi tools when SBX sandboxing is used"})
+	}
+	for _, dep := range checks {
+		if dep.name == "pi-sbx" {
+			w.ui.print("\nSBX sandboxing is enabled — checking its optional integration dependency.\n")
+		}
 		ready, err := w.installed(ctx, dep.name)
 		if err != nil {
 			return err
