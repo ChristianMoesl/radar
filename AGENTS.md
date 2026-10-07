@@ -14,6 +14,8 @@ After the committed work has been pushed to `origin/main`, run `make install` so
 
 Build Radar as a streamlined tool with one clear way to do each task.
 
+Strive for small, focused changes with high user impact. Improve what already exists before inventing something new. Avoid overengineering: introduce new concepts, abstractions, or architecture only when their practical benefit clearly outweighs the added complexity.
+
 Limit optional alternatives wherever possible. Do not add duplicate command paths, aliases, parallel workflows, configuration switches, or fallback behavior unless the user explicitly asks for them or there is a strong product reason.
 
 Prefer simple, opinionated flows over broad configurability. When a new capability overlaps with an existing one, replace or reshape the existing path rather than adding another way to do the same thing.
