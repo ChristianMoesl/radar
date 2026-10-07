@@ -19,14 +19,15 @@ import (
 )
 
 type workspaceEditor struct {
-	active  bool
-	task    protocol.Task
-	state   integration.WorkspaceState
-	create  integration.ManagedWorkspaceRequest
-	desired integration.DesiredWorkspaceDescription
-	plan    integration.WorkspaceReconcilePlan
-	cursor  int
-	scroll  int
+	active     bool
+	task       protocol.Task
+	state      integration.WorkspaceState
+	create     integration.ManagedWorkspaceRequest
+	desired    integration.DesiredWorkspaceDescription
+	plan       integration.WorkspaceReconcilePlan
+	cursor     int
+	scroll     int
+	listScroll int
 }
 
 type workspaceStateMsg struct {
@@ -126,12 +127,16 @@ func (m model) updateWorkspace(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.editor.scroll++
 		case "k", "up", "ctrl+p":
 			m.editor.scroll--
-		case "ctrl+d":
+		case "ctrl+d", "pgdown":
 			m.editor.scroll += m.workspacePageRows()
-		case "ctrl+u":
+		case "ctrl+u", "pgup":
 			m.editor.scroll -= m.workspacePageRows()
+		case "home":
+			m.editor.scroll = 0
+		case "end":
+			m.editor.scroll = len(m.workspaceConfirmationLines(m.contentWidth()))
 		}
-		m.editor.scroll = max(0, min(m.editor.scroll, len(m.workspaceConfirmationLines(m.contentWidth()))-m.workspacePageRows()))
+		m.syncSelectionScroll()
 		if key.String() == "y" || key.String() == "enter" {
 			return m.applyWorkspace()
 		}
@@ -183,6 +188,7 @@ func (m model) updateWorkspace(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.previewWorkspace()
 	}
+	m.syncSelectionScroll()
 	return m, nil
 }
 
@@ -287,26 +293,17 @@ func (m model) workspaceView(width int) string {
 	}
 	if m.mode == "workspace_confirm" {
 		lines := m.workspaceConfirmationLines(width)
-		start := max(0, min(m.editor.scroll, len(lines)-1))
-		end := min(len(lines), start+m.workspacePageRows())
-		return strings.Join(lines[start:end], "\n") + fmt.Sprintf("\n\nj/k scroll • %d-%d of %d • y/enter apply • n/esc back", start+1, end, len(lines))
+		rows := m.workspacePageRows()
+		start := max(0, min(m.editor.scroll, len(lines)-rows))
+		end := min(len(lines), start+rows)
+		position := subtleStyle.Render(fmt.Sprintf("%d-%d of %d", start+1, end, len(lines)))
+		return strings.Join(lines[start:end], "\n") + "\n" + position + "\n\n" + workspaceConfirmationHelp(width)
 	}
 
-	lines := []string{titleStyle.Render("Workspace: " + m.workspaceEditorName()), ""}
-	if details := m.operationDetails(m.editor.task, width); details != "" {
-		lines = append(lines, details, "")
-	}
-	lines = append(lines, "Repositories")
-	if len(m.editor.desired.Worktrees) == 0 {
-		lines = append(lines, "  none")
-	}
-	start := max(0, m.editor.cursor-max(3, m.workspacePageRows()-6)+1)
-	end := min(len(m.editor.desired.Worktrees), start+max(3, m.workspacePageRows()-6))
-	if start > 0 {
-		lines = append(lines, fmt.Sprintf("  %d more above", start))
-	}
-	for index := start; index < end; index++ {
-		member := m.editor.desired.Worktrees[index]
+	heading, footer := m.workspaceListHeading(width), m.workspaceListFooter(width)
+	rows := m.modalListRows(width, heading, footer)
+	labels := make([]string, len(m.editor.desired.Worktrees))
+	for index, member := range m.editor.desired.Worktrees {
 		branch := member.Branch
 		if member.BranchMode == integration.WorkspaceBranchNew {
 			branch = member.Name + " [new from " + member.Base + "]"
@@ -314,28 +311,33 @@ func (m model) workspaceView(width int) string {
 		label := filepath.Base(member.Repository) + "  " + branch
 		for _, actual := range m.editor.state.Members {
 			if actual.Repository == member.Repository && actual.Branch == member.Branch && actual.Dirty {
-				label += "  [dirty]"
+				label = "[dirty] " + label
 			}
 		}
-		if index == m.editor.cursor {
-			label = selectedStyle.Render("› " + label)
-		} else {
-			label = "  " + label
-		}
-		lines = append(lines, label)
+		labels[index] = label
 	}
-	if end < len(m.editor.desired.Worktrees) {
-		lines = append(lines, fmt.Sprintf("  %d more below", len(m.editor.desired.Worktrees)-end))
+	return heading + "\n" + selectionView(labels, m.editor.cursor, m.editor.listScroll, rows, width, "  none") + "\n\n" + footer
+}
+
+func (m model) workspaceListHeading(width int) string {
+	lines := []string{titleStyle.Render(singleLine("Workspace: "+m.workspaceEditorName(), width)), ""}
+	if details := m.operationDetails(m.editor.task, width); details != "" {
+		lines = append(lines, details, "")
 	}
-	if sandbox := m.editor.desired.Sandbox; sandbox != nil {
-		lines = append(lines, "", fmt.Sprintf("Sandbox: %d requested mounts, %d ports, unchanged", len(sandbox.AdditionalMounts), len(sandbox.Ports)))
-	}
+	lines = append(lines, "Repositories")
+	return strings.Join(lines, "\n")
+}
+
+func (m model) workspaceListFooter(width int) string {
 	submit := "review"
 	if m.editor.state.Path == "" {
 		submit = "create"
 	}
-	lines = append(lines, "", "a add repository • x remove selected • enter "+submit+" • esc cancel")
-	return strings.Join(lines, "\n")
+	footer := wrappedHelp("↑/k ↓/j select • a add repository • x remove selected • enter "+submit+" • esc cancel", width)
+	if sandbox := m.editor.desired.Sandbox; sandbox != nil {
+		footer = wrappedHelp(fmt.Sprintf("Sandbox: %d requested mounts, %d ports, unchanged", len(sandbox.AdditionalMounts), len(sandbox.Ports)), width) + "\n" + footer
+	}
+	return footer
 }
 
 func (m model) refreshWorkspaceResult(message string, problem error) tea.Cmd {
@@ -351,11 +353,13 @@ func (m model) refreshWorkspaceResult(message string, problem error) tea.Cmd {
 	}
 }
 
+func workspaceConfirmationHelp(width int) string {
+	return wrappedHelp(confirmationScrollHelp(width)+" • y/enter apply • n/esc back", width)
+}
+
 func (m model) workspacePageRows() int {
-	if m.height == 0 {
-		return 20
-	}
-	return max(4, m.height-m.frameHeight()-8)
+	width := m.contentWidth()
+	return m.modalListRows(width, "", workspaceConfirmationHelp(width))
 }
 
 func (m model) workspaceConfirmationLines(width int) []string {

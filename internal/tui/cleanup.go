@@ -202,7 +202,7 @@ func (m model) cleanupViewport() (lines []string, footer string, rows int) {
 		rows = max(1, m.height-m.frameHeight()-lipgloss.Height(footer)-2)
 	}
 	if len(lines) > rows {
-		footer = cleanupWrap(helpStyle.Render("↑/↓ Scroll · PgUp/PgDn Page"), width) + "\n" + footer
+		footer = cleanupWrap(helpStyle.Render(confirmationScrollHelp(width)), width) + "\n" + footer
 		if m.height > 0 {
 			rows = max(1, m.height-m.frameHeight()-lipgloss.Height(footer)-2)
 		}

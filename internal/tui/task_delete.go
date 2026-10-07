@@ -108,7 +108,7 @@ func (m model) taskDeletionViewport() (lines []string, footer string, rows int) 
 		rows = max(1, m.height-m.frameHeight()-lipgloss.Height(footer)-2)
 	}
 	if len(lines) > rows {
-		footer = ansi.Wrap(helpStyle.Render("↑/↓ Scroll · PgUp/PgDn Page"), max(1, width), "") + "\n" + footer
+		footer = ansi.Wrap(helpStyle.Render(confirmationScrollHelp(width)), max(1, width), "") + "\n" + footer
 		rows = max(1, m.height-m.frameHeight()-lipgloss.Height(footer)-2)
 	}
 	return lines, footer, rows

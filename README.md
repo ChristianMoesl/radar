@@ -173,6 +173,8 @@ bind-key F display-popup -E "radar fork"
 | <kbd>r</kbd> | Refresh sources |
 | <kbd>q</kbd> / <kbd>Esc</kbd> | Quit |
 
+Navigation stops at the first and last item rather than wrapping. Repository, branch, fork-member, worktree-session, and workspace-resource lists adapt to terminal height, keep the selection visible when scrolling or resizing, and show a position indicator. Long list labels are displayed on one line; their full values are preserved for actions. In searchable pickers, typing—including `j` and `k`—still filters the list; use ↑/↓ or Ctrl+P/N to move. The dashboard, Inspect, and scrollable confirmations support Page Up/Down or Ctrl+U/D; Home/End jumps to their top/bottom.
+
 The workspace editor starts with a name and a draft. Add zero or more repositories, then press Enter to create and open the workspace without a confirmation dialog. Radar still validates the complete plan before applying it. Every workspace automatically gets a canonical Obsidian note exposed as `notes.md`. Press `w` to edit an existing workspace, `a` to add a repository, `x` to remove the selected repository. Repository addition uses repository search and branch selection. New branch names are prefilled once from the workspace name using Radar's branch-name sanitization. You can edit or clear the suggestion without changing the workspace name; Radar does not overwrite your edits. Each added repository starts with its own suggestion. It tries to refresh origin before listing branches. If that fetch fails, Radar shows a warning and continues with locally cached refs, so previously fetched branches remain available offline. Repository paths are shortened to `~/...` when they are inside your home directory.
 
 ## Workspaces

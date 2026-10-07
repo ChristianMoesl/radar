@@ -77,6 +77,7 @@ type picker struct {
 	query   string
 	options []string
 	cursor  int
+	scroll  int
 	loading bool
 }
 
@@ -138,6 +139,7 @@ type model struct {
 	worktrees           []protocol.SourceRef
 	worktreeTask        protocol.Task
 	worktreeCursor      int
+	worktreeScroll      int
 	message             string
 	authoredTitle       string
 	scroll              int
@@ -224,6 +226,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.syncTaskScroll()
 		m.clampDetailScroll()
+		m.syncSelectionScroll()
 		if m.mode == "open_link" {
 			m.syncLinkScroll()
 		}
@@ -276,7 +279,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc", "backspace":
 				m.mode = ""
 				m.worktrees = nil
-				m.worktreeCursor = 0
+				m.worktreeCursor, m.worktreeScroll = 0, 0
 				return m, nil
 			case "q", "ctrl+c":
 				return m, tea.Quit
@@ -284,11 +287,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.worktreeCursor < len(m.worktrees)-1 {
 					m.worktreeCursor++
 				}
+				m.syncSelectionScroll()
 				return m, nil
 			case "k", "up", "ctrl+p":
 				if m.worktreeCursor > 0 {
 					m.worktreeCursor--
 				}
+				m.syncSelectionScroll()
 				return m, nil
 			case "enter":
 				if len(m.worktrees) == 0 {
@@ -299,7 +304,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = ""
 				m.worktrees = nil
 				m.worktreeTask = protocol.Task{}
-				m.worktreeCursor = 0
+				m.worktreeCursor, m.worktreeScroll = 0, 0
 				cmd := m.startOperation(task, "session", "Starting session…", "Session start failed", taskAction(m.createSessionForWorktree(task, ref)))
 				return m, cmd
 			default:
@@ -559,7 +564,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.create.repoList.loading = false
 		if msg.err == nil {
 			m.create.repoList.options = msg.repos
-			m.create.repoList.cursor = 0
+			m.create.repoList.cursor, m.create.repoList.scroll = 0, 0
 		}
 	case branchesMsg:
 		m.err = msg.err
@@ -570,13 +575,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.create.branchList.loading = false
 			if msg.err == nil {
 				m.create.branchList.options = existingBranchNames(msg.branches)
-				m.create.branchList.cursor = 0
+				m.create.branchList.cursor, m.create.branchList.scroll = 0, 0
 			}
 		} else {
 			m.create.baseList.loading = false
 			if msg.err == nil {
 				m.create.baseList.options = msg.branches
-				m.create.baseList.cursor = 0
+				m.create.baseList.cursor, m.create.baseList.scroll = 0, 0
 			}
 		}
 	case taskDeletionPreviewMsg:
@@ -652,13 +657,13 @@ func (m model) View() string {
 
 	if m.mode == "worktree_session" {
 		sections = append(sections, m.worktreeSessionView(contentWidth))
-		sections = append(sections, helpStyle.Render("↑/k ↓/j move • enter create session • esc cancel • q quit"))
+		sections = append(sections, worktreeSessionHelp(contentWidth))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
 	if strings.HasPrefix(m.mode, "create_") || m.mode == "fork_member" {
 		sections = append(sections, m.createView(contentWidth))
-		sections = append(sections, helpStyle.Render("type to filter • ↑/ctrl+p ↓/ctrl+n move • enter select/submit • esc cancel"))
+		sections = append(sections, m.createHelp(contentWidth))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
@@ -723,6 +728,9 @@ func (m model) frameStyle() lipgloss.Style {
 	}
 	if m.height > 0 && m.height < 30 {
 		style = style.PaddingTop(1).PaddingBottom(1)
+	}
+	if m.height > 0 && m.height < 20 {
+		style = style.PaddingTop(0).PaddingBottom(0)
 	}
 	return style
 }
@@ -959,10 +967,11 @@ func (m *model) moveCreateCursor(delta int) {
 	}
 	matches := filteredOptions(*list)
 	if len(matches) == 0 {
-		list.cursor = 0
+		list.cursor, list.scroll = 0, 0
 		return
 	}
-	list.cursor = (list.cursor + delta + len(matches)) % len(matches)
+	list.cursor = max(0, min(list.cursor+delta, len(matches)-1))
+	m.syncSelectionScroll()
 }
 
 func (m model) selectCreateStep() (tea.Model, tea.Cmd) {
@@ -1207,19 +1216,19 @@ func (m *model) appendCreateQuery(value string) {
 	switch m.mode {
 	case "fork_member":
 		m.create.memberList.query += value
-		m.create.memberList.cursor = 0
+		m.create.memberList.cursor, m.create.memberList.scroll = 0, 0
 	case "create_repo":
 		m.create.repoList.query += value
-		m.create.repoList.cursor = 0
+		m.create.repoList.cursor, m.create.repoList.scroll = 0, 0
 	case "create_intent":
 		m.create.intentList.query += value
-		m.create.intentList.cursor = 0
+		m.create.intentList.cursor, m.create.intentList.scroll = 0, 0
 	case "create_branch":
 		m.create.branchList.query += value
-		m.create.branchList.cursor = 0
+		m.create.branchList.cursor, m.create.branchList.scroll = 0, 0
 	case "create_base":
 		m.create.baseList.query += value
-		m.create.baseList.cursor = 0
+		m.create.baseList.cursor, m.create.baseList.scroll = 0, 0
 	case "create_name":
 		m.create.name += value
 	}
@@ -1229,19 +1238,19 @@ func (m *model) backspaceCreateQuery() {
 	switch m.mode {
 	case "fork_member":
 		m.create.memberList.query = dropLastRune(m.create.memberList.query)
-		m.create.memberList.cursor = 0
+		m.create.memberList.cursor, m.create.memberList.scroll = 0, 0
 	case "create_repo":
 		m.create.repoList.query = dropLastRune(m.create.repoList.query)
-		m.create.repoList.cursor = 0
+		m.create.repoList.cursor, m.create.repoList.scroll = 0, 0
 	case "create_intent":
 		m.create.intentList.query = dropLastRune(m.create.intentList.query)
-		m.create.intentList.cursor = 0
+		m.create.intentList.cursor, m.create.intentList.scroll = 0, 0
 	case "create_branch":
 		m.create.branchList.query = dropLastRune(m.create.branchList.query)
-		m.create.branchList.cursor = 0
+		m.create.branchList.cursor, m.create.branchList.scroll = 0, 0
 	case "create_base":
 		m.create.baseList.query = dropLastRune(m.create.baseList.query)
-		m.create.baseList.cursor = 0
+		m.create.baseList.cursor, m.create.baseList.scroll = 0, 0
 	case "create_name":
 		m.create.name = dropLastRune(m.create.name)
 	}
@@ -1319,51 +1328,66 @@ func (m model) taskAuthoringView(width int) string {
 	}, "\n")
 }
 
-func (m model) createView(width int) string {
+func (m model) createPickerHeading(width int) string {
+	title, label := "Create workspace", "Repository"
 	switch m.mode {
 	case "fork_member":
-		return m.pickerView(width, "Fork workspace", "Member worktree", m.create.memberList)
-	case "create_repo":
-		return m.pickerView(width, "Create workspace", "Repository", m.create.repoList)
+		title, label = "Fork workspace", "Member worktree"
 	case "create_intent":
-		return strings.Join([]string{
-			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
-			m.pickerView(width, "Create workspace", "Action", m.create.intentList),
-		}, "\n")
+		label = "Action"
 	case "create_branch":
-		return strings.Join([]string{
-			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
-			m.pickerView(width, "Create workspace", "Existing branch", m.create.branchList),
-		}, "\n")
+		label = "Existing branch"
 	case "create_base":
-		title := "Create workspace"
+		label = "Starting reference"
 		if m.create.forkPiSession != "" {
 			title = "Fork workspace"
 		}
-		return strings.Join([]string{
-			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
-			m.pickerView(width, title, "Starting reference", m.create.baseList),
-		}, "\n")
-	case "create_name":
+	}
+	lines := []string{}
+	if m.mode == "create_intent" || m.mode == "create_branch" || m.mode == "create_base" {
+		lines = append(lines, subtleStyle.Render(singleLine("Repository "+shortenPath(m.create.repo), width)))
+	}
+	lines = append(lines, titleStyle.Render(singleLine(title, width)))
+	if list := m.activePicker(); list != nil {
+		// Keep the most recently typed query characters visible without wrapping.
+		query := strings.Join(strings.Fields(label+": "+list.query), " ")
+		lines = append(lines, inputTail(query, width))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m model) createView(width int) string {
+	if list := m.activePicker(); list != nil {
+		heading := m.createPickerHeading(width)
+		rows := m.modalListRows(width, heading, m.createHelp(width))
+		matches, empty := filteredOptions(*list), "No matches"
+		if list.loading {
+			matches, empty = nil, "Loading…"
+		}
+		labels := make([]string, len(matches))
+		for i, match := range matches {
+			labels[i] = shortenPath(match)
+		}
+		return heading + "\n" + selectionView(labels, list.cursor, list.scroll, rows, width, empty)
+	}
+	if m.mode == "create_name" {
 		name := m.create.name
 		if name == "" {
 			name = subtleStyle.Render("type a branch name")
 		}
-		title := "Create workspace"
 		lines := []string{
-			titleStyle.Render(title),
-			subtleStyle.Render("Repository " + shortenPath(m.create.repo)),
-			subtleStyle.Render("Start      " + m.create.base),
+			titleStyle.Render("Create workspace"),
+			subtleStyle.Render(singleLine("Repository "+shortenPath(m.create.repo), width)),
+			subtleStyle.Render(singleLine("Start      "+m.create.base, width)),
 		}
 		if m.create.forkPiSession != "" {
 			lines[0] = titleStyle.Render("Fork workspace")
-			lines = append(lines, subtleStyle.Render("Pi fork    "+m.create.forkPiSession))
+			lines = append(lines, subtleStyle.Render(singleLine("Pi fork    "+m.create.forkPiSession, width)))
 		}
-		lines = append(lines, selectedStyle.Width(width-4).Render("› New branch "+name))
+		lines = append(lines, selectedStyle.Width(width).Render(inputTail("› New branch "+name, width)))
 		return strings.Join(lines, "\n")
-	default:
-		return ""
 	}
+	return ""
 }
 
 func cleanupSafetyMessage(message string) string {
@@ -1382,55 +1406,25 @@ func cleanupSuccessMessage(preview protocol.CleanupPreview) string {
 	return fmt.Sprintf("Cleaned up %d local resource(s)", len(preview.Targets))
 }
 
+func worktreeSessionHeading(width int) string {
+	return titleStyle.Render(singleLine("Create tmux session for worktree", width))
+}
+
 func (m model) worktreeSessionView(width int) string {
-	if len(m.worktrees) == 0 {
-		return subtleStyle.Render("No git worktrees on selected task.")
-	}
-	lines := []string{titleStyle.Render("Create tmux session for worktree")}
+	heading := worktreeSessionHeading(width)
+	rows := m.modalListRows(width, heading, worktreeSessionHelp(width))
+	labels := make([]string, len(m.worktrees))
 	for i, ref := range m.worktrees {
 		label := sourceRefLabel(ref)
 		if ref.Path != "" {
 			label = shortenPath(ref.Path)
 		}
 		if ref.Branch != "" {
-			label += "  " + subtleStyle.Render(ref.Branch)
+			label += "  " + ref.Branch
 		}
-		if i == m.worktreeCursor {
-			label = selectedStyle.Width(width - 4).Render("› " + label)
-		} else {
-			label = "  " + label
-		}
-		lines = append(lines, label)
+		labels[i] = label
 	}
-	return strings.Join(lines, "\n")
-}
-
-func (m model) pickerView(width int, title string, label string, list picker) string {
-	lines := []string{titleStyle.Render(title), label + ": " + list.query}
-	if list.loading {
-		lines = append(lines, subtleStyle.Render("Loading…"))
-		return strings.Join(lines, "\n")
-	}
-	matches := filteredOptions(list)
-	if len(matches) == 0 {
-		lines = append(lines, subtleStyle.Render("No matches"))
-		return strings.Join(lines, "\n")
-	}
-	limit := min(len(matches), 10)
-	start := 0
-	if list.cursor >= limit {
-		start = list.cursor - limit + 1
-	}
-	for i := start; i < start+limit; i++ {
-		line := shortenPath(matches[i])
-		if i == list.cursor {
-			line = selectedStyle.Width(width - 4).Render("› " + line)
-		} else {
-			line = "  " + line
-		}
-		lines = append(lines, line)
-	}
-	return strings.Join(lines, "\n")
+	return heading + "\n" + selectionView(labels, m.worktreeCursor, m.worktreeScroll, rows, width, "No git worktrees on selected task.")
 }
 
 func shortenPath(path string) string {
@@ -1649,7 +1643,7 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 		m.mode = "worktree_session"
 		m.worktrees = worktrees
 		m.worktreeTask = task
-		m.worktreeCursor = 0
+		m.worktreeCursor, m.worktreeScroll = 0, 0
 		m.message = ""
 		m.err = nil
 		return m, nil

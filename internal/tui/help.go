@@ -7,6 +7,29 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+func confirmationScrollHelp(width int) string {
+	// Keep actions and useful body rows visible on narrow confirmation screens.
+	if width < 60 {
+		return "↑/k ↓/j scroll • PgUp/PgDn page"
+	}
+	return "↑/k ↓/j scroll • PgUp/PgDn/ctrl+u/d page • Home/End top/bottom"
+}
+
+func wrappedHelp(text string, width int) string {
+	return helpStyle.Render(ansi.Wrap(text, max(1, width), ""))
+}
+
+func (m model) createHelp(width int) string {
+	if m.mode == "create_name" {
+		return wrappedHelp("type a branch name • enter submit • esc cancel", width)
+	}
+	return wrappedHelp("type to filter • ↑/ctrl+p ↓/ctrl+n move • enter select • esc cancel", width)
+}
+
+func worktreeSessionHelp(width int) string {
+	return wrappedHelp("↑/k ↓/j move • enter create session • esc/backspace back • q quit", width)
+}
+
 type keyHint struct {
 	keys   string
 	action string
@@ -15,7 +38,7 @@ type keyHint struct {
 var mainKeyHints = [][]keyHint{
 	{
 		{"↑/k/ctrl+p ↓/j/ctrl+n", "select"},
-		{"ctrl+u/d", "page"},
+		{"PgUp/PgDn/ctrl+u/d", "page"},
 		{"enter", "open"},
 		{"n", "new task"},
 		{"d", "done/reopen"},

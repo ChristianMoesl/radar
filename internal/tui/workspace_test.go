@@ -36,7 +36,11 @@ func TestWorkspaceEditorUsesOneBlankRowBeforeRepositories(t *testing.T) {
 					want += "Workspace preparation failed\nrepository unavailable\n\n"
 				}
 				want += "Repositories\n› app  feature\n"
-				if got := ansi.Strip(m.workspaceView(100)); !strings.HasPrefix(got, want) {
+				lines := strings.Split(ansi.Strip(m.workspaceView(100)), "\n")
+				for i := range lines {
+					lines[i] = strings.TrimRight(lines[i], " ")
+				}
+				if got := strings.Join(lines, "\n"); !strings.HasPrefix(got, want) {
 					t.Fatalf("workspace view = %q, want prefix %q", got, want)
 				}
 			})
