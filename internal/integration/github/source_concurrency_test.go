@@ -13,11 +13,7 @@ import (
 )
 
 func TestSourceCollectFetchesMainAndTrackedPullRequestsConcurrently(t *testing.T) {
-	resetRateStateForTest(t)
-	rateState.mu.Lock()
-	rateState.fetched = time.Now()
-	rateState.response.Resources.GraphQL = rateLimitResource{Limit: 5000, Remaining: 5000, Reset: time.Now().Add(time.Minute).Unix()}
-	rateState.mu.Unlock()
+	trackingBudget(t)
 
 	dir := t.TempDir()
 	configHome := filepath.Join(dir, "config")
@@ -62,9 +58,17 @@ case "$*" in
 esac
 `)
 
+	ctx, cancel := context.WithCancel(context.Background())
 	resultCh := make(chan integration.CollectResult, 1)
+	finished := make(chan struct{})
+	t.Cleanup(func() {
+		// Finish cache-writing goroutines before Setenv restores the real home.
+		cancel()
+		<-finished
+	})
 	go func() {
-		resultCh <- (Source{}).Collect(context.Background(), integration.CollectRequest{
+		defer close(finished)
+		resultCh <- (Source{}).Collect(ctx, integration.CollectRequest{
 			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		})
 	}()

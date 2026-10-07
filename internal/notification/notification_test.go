@@ -209,3 +209,26 @@ func TestNotificationUsesEffectiveSourceNotMutedRawSignal(t *testing.T) {
 		t.Fatalf("wrong notification destination: %+v", view)
 	}
 }
+
+func TestNotificationDoesNotUseSuppressedURLWhenWinnerHasNoURL(t *testing.T) {
+	prURL := "https://github.com/acme/app/pull/1"
+	task := protocol.Task{ID: 1, Title: "Local work", Attention: "attention", URL: prURL,
+		SourceRefs: []protocol.SourceRef{
+			{ID: "pr", Source: "github", Role: protocol.SourceRefRoleAuthoritative, Signal: "attention", Status: "review requested", URL: prURL},
+			{ID: "local", Source: "git", Role: protocol.SourceRefRoleAuthoritative, Signal: "attention", Status: "local work needs attention"},
+		}}
+	view, visible := protocol.ProjectAttention(task, func(ref protocol.SourceRef) protocol.ContributionAction {
+		if ref.ID == "pr" {
+			return protocol.ContributionMute
+		}
+		return protocol.ContributionKeep
+	})
+	if !visible || view.AttentionSourceRefID != "local" {
+		t.Fatalf("missing local contribution: %+v", view)
+	}
+	sender := &recordingSender{}
+	NewWithSender(discardLogger(), sender).NotifyTransitions(context.Background(), nil, []protocol.Task{view})
+	if len(sender.sent) != 1 || sender.sent[0].URL != "" || sender.sent[0].Body != "local work needs attention" {
+		t.Fatalf("notification fell back to suppressed source: %+v", sender.sent)
+	}
+}

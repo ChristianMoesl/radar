@@ -59,9 +59,8 @@ func ProjectAttention(task Task, policy ContributionPolicy) (Task, bool) {
 		if signal == "done" {
 			continue // A completed contributor cannot finish another active source.
 		}
-		if reason == "" && signal == task.Attention {
-			reason = task.Reason
-		}
+		// The aggregate reason may belong to a suppressed contributor, even
+		// when it has the same signal. Derive fallback text from this ref only.
 		if reason == "" {
 			reason = ref.Source + " " + ref.Kind
 		}

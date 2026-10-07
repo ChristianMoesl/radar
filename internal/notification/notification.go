@@ -70,10 +70,15 @@ func (s Service) NotifyGarbageCollection(ctx context.Context, result protocol.Ga
 }
 
 func notificationURL(task protocol.Task) string {
-	for _, ref := range task.SourceRefs {
-		if ref.ID == task.AttentionSourceRefID && ref.URL != "" {
-			return ref.URL
+	if task.AttentionSourceRefID != "" {
+		for _, ref := range task.SourceRefs {
+			if ref.ID == task.AttentionSourceRefID {
+				// An effective local source may have no URL. Do not substitute
+				// a suppressed source just because it has a click destination.
+				return ref.URL
+			}
 		}
+		return ""
 	}
 	for _, ref := range task.SourceRefs {
 		if ref.URL != "" && ref.Signal == task.Attention && ref.Status == task.Reason {

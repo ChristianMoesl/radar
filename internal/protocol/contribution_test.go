@@ -63,3 +63,32 @@ func TestContributionPolicyDoesNotInheritStaleAttentionOrChangeDone(t *testing.T
 		t.Fatalf("done changed: %+v", got)
 	}
 }
+
+func TestContributionReasonNeverFallsBackToAnotherSourcesProjection(t *testing.T) {
+	for _, action := range []ContributionAction{ContributionMute, ContributionDeprioritize} {
+		for _, signal := range []string{"in_progress", "attention"} {
+			t.Run(string(action)+"/"+signal, func(t *testing.T) {
+				task := Task{Attention: signal, Reason: "PR activity", SourceRefs: []SourceRef{
+					{ID: "pr", Source: "github", Kind: "pull_request", Role: SourceRefRoleAuthoritative, Signal: signal, Status: "PR activity"},
+					{ID: "local", Source: "workspace", Kind: "workspace", Role: SourceRefRoleAuthoritative, Signal: signal},
+				}}
+				// State projects without policy first; integration policy then reprojects.
+				base, _ := ProjectAttention(task, nil)
+				policy := func(ref SourceRef) ContributionAction {
+					if ref.ID == "pr" {
+						return action
+					}
+					return ContributionKeep
+				}
+				got, visible := ProjectAttention(base, policy)
+				if !visible || got.AttentionSourceRefID != "local" || got.Attention != signal || got.Reason != "workspace workspace" {
+					t.Fatalf("local work inherited suppressed PR reason: %+v", got)
+				}
+				again, _ := ProjectAttention(got, policy)
+				if !reflect.DeepEqual(got, again) || !reflect.DeepEqual(got.SourceRefs, task.SourceRefs) {
+					t.Fatal("projection changed source facts or was not idempotent")
+				}
+			})
+		}
+	}
+}

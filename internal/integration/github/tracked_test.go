@@ -20,7 +20,19 @@ func trackingBudget(t *testing.T) {
 	rateState.fetched = time.Now()
 	rateState.response.Resources.GraphQL = rateLimitResource{Limit: 5000, Remaining: 5000, Reset: time.Now().Add(time.Hour).Unix()}
 	rateState.mu.Unlock()
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	// os.UserCacheDir ignores XDG_CACHE_HOME on macOS and uses HOME instead.
+	// Isolate both so tests never read or overwrite the real GitHub caches.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relative, err := filepath.Rel(home, cacheDir)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		t.Fatalf("cache escaped temporary home: %q, %v", cacheDir, err)
+	}
 }
 
 func trackedFixture(number int) searchPullRequest {
