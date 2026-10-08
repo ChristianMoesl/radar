@@ -12,6 +12,8 @@ Git supplies local code-workspace facts and worktree cleanup.
 
 ## Collection and refs
 
+Radar stores registered Git members under a stable workspace anchor, using `<workspace_root>/<workspace>/<repo>--<branch>`. It sanitizes the repository and workspace names as one path component. Names longer than 120 characters are truncated and receive a deterministic eight-character hash suffix. Registered members emit a shared `workspace-group:<id>` linking key, so worktrees from different repositories appear in one task even without a configured linking mark. Radar also attaches worktrees by configured linking marks such as `ABC-123`. Regular repositories outside the configured workspace root are ignored. Branch names do not affect collection, so a workspace checked out directly on `main` remains visible.
+
 Local refreshes inspect configured repositories and emit `git:worktree:<absolute-path>` refs. Unmanaged worktrees set `ProvidesWorkspace`; registered members carry their workspace ID and link to the managed anchor without competing as the entry workspace.
 
 ## Cleanup and expiry

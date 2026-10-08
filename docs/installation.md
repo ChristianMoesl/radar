@@ -1,4 +1,13 @@
-# Installation defaults and setup requirements
+# Installation and updates
+
+[Documentation](README.md) · [Quick start](../README.md#get-started)
+
+- [Install on macOS](#one-command-macos-installation)
+- [Manual installation](#manual-installation)
+- [First-run setup](#guided-first-startup)
+- [Reconfigure](#reconfiguring-with-radar-setup)
+- [Notification approval](#macos-notification-setup)
+- [Updates](#managed-macos-releases)
 
 ## One-command macOS installation
 
@@ -55,8 +64,10 @@ Node does not switch to weaker verification.
 
 ## Manual installation
 
-Linux/Windows, source builds and custom prefixes retain their manual path. For a
-trusted release archive:
+For Linux, Windows/WSL, source builds or a custom prefix, use the manual path.
+[Published archives](https://github.com/ChristianMoesl/radar/releases) cover
+macOS and Linux on arm64/amd64; on Windows, run Radar inside WSL. Download the
+matching archive and `checksums.txt` from a release you trust:
 
 ```sh
 archive=radar_<version>_<os>_<arch>.tar.gz
@@ -70,7 +81,16 @@ download. Trust the release/source independently. Archive `install.sh` uses
 `~/.local` by default; `PREFIX`, `BINDIR` and `LIBEXECDIR` remain available for
 manual installations. It does not edit shell profiles or install prerequisites.
 An existing configuration/instruction file is preserved. A manual source install
-uses `make install`; Node is Pi's runtime, not a Go binary runtime requirement.
+uses `make install`; see [build prerequisites](../CONTRIBUTING.md#development-setup).
+Node is Pi's runtime, not a Go binary runtime requirement. Ensure `~/.local/bin`
+(or your chosen binary directory) is on PATH, then run `radar` for guided setup.
+Linux URL actions need `xdg-open`, usually from `xdg-utils`.
+See [Windows/WSL sandbox limits](integrations/sbx.md#windows--wsl2).
+
+Both source and archive installation add the MIT notice under `share/radar/LICENSE`
+and default agent instructions under the Radar config directory. Existing
+instructions are never overwritten. macOS archives include the notifier app
+under `libexec/radar` and register it with Launch Services.
 
 ## Guided first startup
 
@@ -302,27 +322,10 @@ tracked-PR rules also default to an empty list, not example repository searches.
 
 ## Installing and updating Pi packages
 
-Install both packages in a host terminal, in the Pi profile used for Radar
-sessions (Pi 0.85.1 or newer, Node.js 24+):
-
-```sh
-pi install npm:@christianmoesl/pi-radar
-pi install npm:@christianmoesl/pi-sbx
-```
-
-For a custom profile, prefix each command with
-`PI_CODING_AGENT_DIR=/path/to/profile`. These user-scoped installs also serve
-sandboxed workspaces because Pi itself runs on the host. Restart Pi afterwards.
-The existing `<Pi agent directory>/radar/install-hint-seen` marker still owns
-notice suppression; this recommendation does not reset it or migrate profiles.
-
-Update unpinned packages with `pi update npm:@christianmoesl/pi-radar` and
-`pi update npm:@christianmoesl/pi-sbx`, in the same host Pi profile, then restart
-Pi. Bare `pi update` updates Pi itself, not these packages. Versioned npm sources
-are pinned and skipped by package updates; install the desired version explicitly
-with `pi install npm:@christianmoesl/pi-sbx@<version>` (>=0.6.0 for early sandboxed
-launch), or `pi install npm:@christianmoesl/pi-radar@<version>`. The two extensions
-have independent release versions.
+First-run setup offers `pi-radar`; sandboxed workspaces also need `pi-sbx`.
+Pi and both extensions are installed on the **host**, including when tools run
+inside a sandbox. See the [Pi guide](integrations/pi.md) for manual installation,
+custom profiles, switching package sources and version-pinned updates.
 
 ## Upgrading and data handling
 
@@ -395,6 +398,12 @@ After saving the main setup, macOS users can optionally set up notifications.
 Return at any time with `radar setup notifications`. Deferring
 keeps the dashboard usable and does not change notification preferences.
 
+The daemon notifies you when a task newly needs attention, not on every refresh
+or restart. A PR notification opens its pull request, a Datadog alert opens its
+monitor, and other notifications use the task URL when available. Muted tasks do
+not notify; suppressing one PR's contribution does not suppress other linked
+sources. Radar remains usable without the companion.
+
 The small `RadarNotifier.app` companion supplies Radar's native application
 identity, task alerts and notification clicks. It is not a second main UI.
 Its version is independent of the CLI: ordinary CLI updates preserve an unchanged
@@ -429,4 +438,26 @@ Run `radar update` to review a release and confirm adoption/update of the
 standard `~/.local` installation. No silent install occurs. Custom/symlink/package-
 manager installs and Linux/Windows remain manual. CLI and Pi updates have separate
 outcomes; active Pi sessions need `/reload` or restart after a package change.
-See [release trust, prerequisites, supported layout and recovery](releases.md).
+See [release trust, prerequisites, supported layout and recovery](releases.md#user-flow-and-recovery).
+
+### Manual updates
+
+For manual installations, download a trusted release archive and run its
+installer over the existing installation, or build with `make install`.
+Run `radar restart` if the daemon is already running. Update the host Pi packages
+separately; see [Pi package updates](integrations/pi.md#package-updates).
+Bare `pi update` is not the package-update command.
+
+### Before upgrading older installations
+
+- **Task muting:** users of the former per-task ignore feature must stop the daemon
+  and run the [explicit migration](integrations/obsidian.md#migrating-task-muting)
+  before starting the new version. A cache reset does not migrate note preferences.
+- **Workspace expiry:** already-completed registered workspaces keep their original
+  completion time. Those eight days past completion can be deleted at the next
+  GC run, including local changes and unpublished commits. There is no recovery
+  archive or new startup grace period. Review and preserve work or reopen the task
+  before installing; see [expiry rollout](workspace-cleanup.md#before-installing-this-policy).
+- **Configuration and notes:** review integration-specific rollout instructions
+  for old configuration keys, note titles and workspace links. Radar does not
+  silently migrate authored data or user configuration.

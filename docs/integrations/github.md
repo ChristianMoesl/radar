@@ -2,6 +2,21 @@
 
 GitHub supplies code-review work items through the `gh` CLI.
 
+## Getting started
+
+GitHub integration uses the GitHub CLI. Its main GraphQL request includes the current viewer and runs concurrently with explicit tracked-PR collection. Make sure authentication works first:
+
+```sh
+gh auth status
+```
+
+Radar currently tracks:
+
+- PR review requests assigned directly to you as `needs attention`
+- open PRs authored by you as `in progress`
+
+Radar checks GitHub rate limits before collection. When a budget is low, Radar pauses GitHub collection until GitHub's reset time. TUI and CLI status reads use cached daemon state and do not trigger GitHub requests.
+
 ## Capabilities
 
 `Source`, `StatusReporter`, `Reconciler`, `TaskFilterProvider`, `RateLimitReporter`, `WorkspaceSeedProvider`, `BoundSourceResolver`, `DevelopmentLinkResolver`, and the `CodeReviewProvider` composite role.
@@ -49,6 +64,30 @@ Missing active PRs become done only after a confirmed terminal state. Failed pag
 ## Workspace behavior
 
 The workspace seed capability finds a matching local repository, resolves the PR head, fetches pull refs when necessary, and returns a generic existing-branch seed. Jira development links are resolved here so Jira never parses GitHub identities.
+
+## Configuration example
+
+```yaml
+github:
+  track:
+    - repos: ["acme/platform-*"]
+      authors: ["renovate[bot]"]
+  pull_request_rules:
+    - repos: ["acme/important"]
+      authors: ["renovate[bot]"]
+      action: keep
+    - authors: ["renovate[bot]"]
+      action: deprioritize
+    - repos: ["acme/noisy-repo"]
+      action: mute
+  activity_rules:
+    - actors: ["review-bot[bot]"]
+      action: ignore
+```
+
+Tracking is not a subscription to unrelated discussions. For matching rules,
+fields combine with AND and values within a field with OR; the first match wins.
+See [configuration](../configuration.md) for other settings.
 
 ## Rollout
 

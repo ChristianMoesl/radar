@@ -174,6 +174,19 @@ primary-repository, or member ownership protections.
 
 ## Explicit cleanup versus garbage collection
 
+Use `radar cleanup <task-id>` or `x` in the dashboard. The preview covers every
+linked worktree plus shared tmux/SBX resources once. A standalone local-resource
+task removes only that resource. Remote branches, PRs/issues and canonical notes
+remain untouched.
+
+The dashboard preview shows safety warnings, then **REMOVE** and **KEEP**.
+Press `d` for full paths/branches and arrows or Page Up/Down to scroll. Only `y`
+confirms; Enter does nothing, and Escape or `n` cancels. Read all warnings before
+confirming: manual cleanup can discard local changes and unpublished commits.
+
+GC results show deleted/skipped counts. `radar gc` also prints paths and skip
+reasons; use `radar gc --json` for structured results.
+
 GC cleans only completed, eligible workspaces. `radar gc` and TUI `X` can bypass
 the initial 24-hour safe-cleanup wait, but **never** the eight-day destructive
 grace period or hard structural safety conditions. Before expiry they retain

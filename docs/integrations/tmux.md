@@ -10,9 +10,35 @@ tmux supplies local interactive-session facts and multiplexer operations.
 
 The `tmux.windows` session-layout schema uses generic window, pane, command, and layout settings. Exactly one pane command contains `$RADAR_PI_ARGS`.
 
+## Workspace layout
+
+By default, workspace sessions use one `pi` window with a single pane running `pi $RADAR_PI_ARGS`; Neovim is not required. This default also applies when `tmux.windows` is omitted or empty. Existing explicit layouts are preserved. Configure additional workspace windows, panes, layouts, and commands in the user config, for example to add an optional Neovim pane:
+
+```yaml
+tmux:
+  windows:
+    - name: workspace
+      layout: horizontal
+      panes:
+        - command: pi $RADAR_PI_ARGS
+        - command: nvim .
+```
+
+Every window requires a unique `name` and at least one pane command. Commands run from the workspace directory. The configuration must contain `$RADAR_PI_ARGS` exactly once; Radar replaces it with shell-quoted model, thinking, session, and optional fork arguments before starting tmux. A task-created workspace derives Pi's session identity from the stable task linking key while keeping the readable workspace name as Pi's display name. Renaming the task therefore does not move its Pi history to another task, and different tasks using the same branch do not share a Pi session. Supported layouts are `horizontal`, `vertical`, `main-horizontal`, `main-vertical`, and `tiled`. Omitting `layout` leaves tmux's initial pane layout unchanged. The pane containing `$RADAR_PI_ARGS` is focused after creation.
+
+When run inside tmux, Radar switches to the new session.
+
 ## Collection and refs
 
-Local refreshes emit stable session refs based on tmux server and session identity. Session names and paths contribute mark/workspace linking keys. Attached sessions set generic `InUse`, which blocks automatic cleanup without core metadata parsing.
+Radar collects tmux sessions from the local tmux server and attaches them to matching tasks when their name contains a configured linking mark, or when the session working directory matches a Git worktree path. Sessions without matches are shown as standalone in-progress tasks.
+
+Pi sessions inside registered Radar workspaces publish generic activity through the installed `pi-radar` extension (Pi 0.85.1 or newer). The task row shows `● busy` while the agent works and amber `! waiting` instead while an extension UI prompt is open. Closing the prompt restores busy or idle; idle has no badge. Parent sessions and in-process subagents that activate the extension share one activity publisher: the pane stays busy until all their runs settle, and one session's startup or shutdown cannot clear another's activity. Waiting takes precedence across those sessions, other panes, and linked sessions. Task details expose the same activity, and existing workspace navigation takes you back to the agent to respond.
+
+Activity is independent of task attention: it does not change categorization, sorting, acknowledgements, notifications, or approval policy. Prompt titles and answers are not published. Transitions request a bounded local refresh rather than waiting for the regular 15-second poll. Native Pi prompt hooks cover confirmations, selections, input, editors, and custom UI across extensions—not arbitrary shell stdin, external browser approvals, or conversational questions. Custom UI may also include automatically completing loaders. See [activity details](#activity) for lifecycle limits and coordinated upgrade steps.
+
+Tmux session refs use `#{session_id}` for stable identity, so renaming a tmux session does not create a new Radar task. Selecting a tmux-backed task switches to the stable session target.
+
+Local refreshes emit stable session refs based on tmux server and session identity. Session names and paths contribute mark/workspace linking keys. Attached sessions do not block cleanup of eligible completed workspaces; removing a session terminates its running shells and commands. See [cleanup safety](../workspace-cleanup.md).
 
 The multiplexer capability owns current-client detection, task target selection, switching, session/window creation, and matching. Cleanup removes the opaque session resource ID.
 

@@ -73,7 +73,7 @@ agent="$(mktemp -d)"
 PI_CODING_AGENT_DIR="$agent" pi install "npm:@christianmoesl/pi-radar@$version"
 ```
 
-Use that same agent directory when launching Pi inside a registered Radar workspace and outside it. Verify that Radar tools appear only inside the workspace and remain available after `/reload`. Do not leave both the old Git source and npm source configured in an existing Pi installation; see [Pi integration](../README.md#pi-integration).
+Use that same agent directory when launching Pi inside a registered Radar workspace and outside it. Verify that Radar tools appear only inside the workspace and remain available after `/reload`. Do not leave both the old Git source and npm source configured in an existing Pi installation; see [Pi integration](integrations/pi.md#package-scope-and-switching-sources).
 
 If staging fails to authenticate, check the workflow filename, repository identity, allowed action, hosted runner, OIDC permission, npm version, and version/tag match. npm does not validate publisher settings when they are saved. If staging succeeds but an install cannot find the new version, confirm it has been approved and allow time for registry availability. Never replace published versions or move release tags.
 

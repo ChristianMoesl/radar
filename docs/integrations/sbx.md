@@ -10,6 +10,39 @@ SBX supplies local Docker sandbox resources and shell actions.
 
 `sbx.enabled`, `sbx.kit`, `sbx.additional_mounts`, optional `sbx.env_file`, and optional `sbx.ready_command` configure managed runtimes. Repository-local settings use the same shape. Omitted `enabled` automatically enables new workspaces on macOS when `sbx` is on PATH. Explicit repository `enabled` overrides explicit global `enabled`; otherwise automatic detection applies. Explicit enablement with missing tools or unsupported platforms fails before provisioning; runtime/authentication failures never fall back to the host. On dashboard startup, Radar detects reported SBX authentication failures and runs the provider-owned login flow before opening the TUI. `radar create`, `radar fork`, and CLI cleanup of sandbox targets also check authentication before proceeding. The check is bounded and only authentication failures trigger login; missing tools, healthy sessions, and unrelated runtime failures do not. Successful startup login refreshes local sources. Background collection never prompts. You can also sign in manually with `sbx login`.
 
+### Kits and mounts
+
+New workspaces use `docker.io/christianmoesl/radar-kit:latest` (SBX 0.43.0+).
+No kit selection is needed. A user config or repository `.radar.yaml` can add:
+
+```yaml
+sbx:
+  additional_mounts:
+    - ~/shared-tools
+  env_file: ~/.config/sbx/sandbox.env
+  ready_command: [sandbox-startup, wait]
+```
+
+Repository `enabled` and `kit` settings override the user settings; repository
+mounts are appended to global mounts. `kit.name` selects an agent, sandbox-kit
+reference or pinned digest. Optional `kit.path` expands `~/` and is passed as
+`--kit <path>`. Additional-mount paths must be absolute or start with `~/`;
+Radar creates missing directories and ignores empty, duplicate and redundant
+child entries. Existing workspace registrations keep their recorded runtime.
+
+The anchor is the first writable workspace mount. Radar also mounts the private
+task directory, external Git common directories and configured/requested mounts;
+nested members are already visible through the anchor. Sandbox names are capped
+at 63 characters. Pi and editors run on the host; pi-sbx owns tool routing.
+
+Changing effective membership or mounts recreates the sandbox under the same
+name, interrupting its processes. Plans warn at 20 or more mounts, without a hard
+limit. Transient creation failures get up to three bounded retries, then the
+operation retains completed work and reports recovery guidance. Ports are
+reconciled with `sbx ports` on host IPv4 loopback. See
+[workspace reconciliation](../workspace-reconciliation.md#sbx-mounts) for the
+complete desired-state and partial-failure contract.
+
 ### Environment files
 
 Pass one machine-local environment file through to SBX with Radar's user config:
@@ -158,6 +191,13 @@ workspace; it never enrolls an unmanaged sandbox. `--preview` is read-only.
 `--yes` explicitly accepts the destructive reset for scripts, independently of
 `workspace.auto_confirm`. `--json` only changes output formatting.
 There is no TUI action.
+
+```sh
+radar recreate-sandboxes --preview
+radar recreate-sandboxes
+radar recreate-sandboxes --workspace /path/to/workspace
+radar recreate-sandboxes --yes --json   # Explicitly approved automation
+```
 
 A live test with SBX 0.46.0 confirmed that adding a global custom secret did not
 update even fresh executions after a VM reboot, but recreating the sandbox
