@@ -1,5 +1,77 @@
 # Installation defaults and setup requirements
 
+## One-command macOS installation
+
+In a normal Terminal window, without sudo:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ChristianMoesl/radar/main/install.sh | bash
+```
+
+The root `install.sh` is the official first-install bootstrap, not an updater. It
+detects Apple Silicon/Intel, selects a stable release with both complete macOS
+archives **and its exact public npm package**, authenticates the signed metadata,
+verifies the selected archive/binary/notifier identities, and safely extracts it.
+It calls the existing archive installer and starts bare `radar` from your HOME,
+so the existing guided first-run flow handles remaining tools and settings.
+
+No version choice, copied hashes, separate notifier download, Go/Swift compiler,
+pnpm or preinstalled GitHub CLI is needed. Release selection can skip a newer
+incomplete release in favor of an older ready one. If no coordinated release is
+ready, it says to try later and installs no Radar files. Maintainers must finish
+npm staging/approval; users do not configure release publishing.
+
+- **Homebrew/Node:** the installer offers Homebrew when Node or baseline workspace
+  tools need a package manager, then Node.js 24+ if missing/old. Each installation
+  needs explicit approval and can be refused. The official Homebrew script may
+  require normal macOS administrative/Command Line Tools approval. Failure or
+  refusal stops; already-consented prerequisite installations are not rolled back.
+- **PATH:** a separate offer appends one marked PATH block to the user's zsh or
+  Bash profile, preserving existing content, modes and symlink targets. It includes
+  an activated Homebrew path when needed. Declining leaves the profile untouched
+  and prints `~/.local/bin/radar` as the command. Radar still starts immediately.
+- **Existing installations:** refuse to overwrite an existing CLI/helper or update
+  transaction. Use `radar update` for eligible installations; custom/symlink/
+  package-manager paths remain manual. The bootstrap never changes workspace data.
+- **Consent:** prompts read the controlling terminal even when the script is piped.
+  Headless execution cannot approve installations or profile edits. No env/flag
+  bypass changes publisher trust, endpoints, release selection or prompts.
+- **Notifications:** the installer preserves Gatekeeper policy. Launch approval and
+  notification authorization still require the user's macOS actions; setup guides
+  them. It never strips quarantine or grants permissions on the user's behalf.
+
+The bootstrap's committed Ed25519 roots must match `internal/update/keys.json`;
+tests check that alignment and the state epoch. Root rotation must update both.
+Downloads have HTTPS-only redirects, time/size limits and strict release/archive
+validation. Unsigned, unknown-key, tampered or incompatible releases fail closed;
+checksums alone never authorize installation.
+
+The official bootstrap source is an **initial trust anchor**, delivered over
+GitHub HTTPS. Inspect/trust it before execution. Release signatures do not make
+a substituted malicious bootstrap safe, and the bootstrap does not download a
+new trust root from the release. Its embedded verifier needs Node because stock
+macOS crypto utilities do not provide a consistent Ed25519 interface; refusing
+Node does not switch to weaker verification.
+
+## Manual installation
+
+Linux/Windows, source builds and custom prefixes retain their manual path. For a
+trusted release archive:
+
+```sh
+archive=radar_<version>_<os>_<arch>.tar.gz
+grep -F "  $archive" checksums.txt | shasum -a 256 -c -
+tar -xzf "$archive"
+"${archive%.tar.gz}/install.sh"
+```
+
+Checksums detect corruption but do not independently authenticate an initial
+download. Trust the release/source independently. Archive `install.sh` uses
+`~/.local` by default; `PREFIX`, `BINDIR` and `LIBEXECDIR` remain available for
+manual installations. It does not edit shell profiles or install prerequisites.
+An existing configuration/instruction file is preserved. A manual source install
+uses `make install`; Node is Pi's runtime, not a Go binary runtime requirement.
+
 ## Guided first startup
 
 Run `radar` in an interactive terminal, or `radar setup` to complete setup without
@@ -20,7 +92,9 @@ installation/save prompts default to **no**; existing integration choices are pr
    Pi window, without altering existing user layouts.
 2. Show each necessary installation command and ask permission. Homebrew and
    apt-get installs are supported; Pi uses npm and pi-radar uses `pi install`.
-   No downloaded bootstrap shell is run. Install/update failures, declining,
+   The wizard itself does not run a downloaded bootstrap shell; the separately
+   consented macOS first-install bootstrap can offer Homebrew beforehand.
+   Install/update failures, declining,
    or binaries still missing/too old on PATH stop setup. Linux distributions
    whose apt repositories do not provide Node 24+ need Node installed separately.
    No sudo npm install or silent PATH/shell-profile changes are made. pi-sbx is
@@ -265,6 +339,13 @@ Restart a running daemon after updating the binary.
 ## Regression coverage
 
 `make test` includes:
+
+- One-command bootstrap under macOS system Bash and a controlling PTY, including
+  piped source, Homebrew/Node refusals/failures, PATH consent and preserved profiles,
+  Apple Silicon/Intel, signed readiness selection, incomplete npm/upload gating,
+  signature/hash/tree/architecture errors and hostile/truncated archives. Network,
+  Homebrew, Launch Services and binary execution boundaries are test-local; no
+  test installs host tools or grants native permissions.
 
 - Actual release installer and source-install recipe, isolated HOME/XDG paths,
   default/custom prefixes, custom binary directories, and paths with spaces.

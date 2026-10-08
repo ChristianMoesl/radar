@@ -14,7 +14,10 @@ c0d9b82fb205070a4d26a1f18b42c4bef1c355292a3fa2d72c8211346a61c6e9
 ```
 
 Verify that fingerprint through a trusted channel before bootstrapping an
-installation. This documentation and a key accompanying an untrusted download
+installation. The one-command macOS bootstrap embeds the same trust roots in
+root `install.sh`; update both roots during rotation (tests enforce alignment).
+Publishing changes to main makes that script available at the README's installer
+URL; no immutable CLI/component assets need to be replaced. This documentation and a key accompanying an untrusted download
 cannot themselves establish trust. The private key is never stored in this
 repository. Builds with an empty trust store still fail closed: no unsigned
 metadata, release-supplied trust root, or silent enrollment is accepted.
@@ -266,7 +269,10 @@ archives, architecture, unchanged apps, crash boundaries, concurrent operations,
 Pi declarations and loaded-version reporting. They do not establish Gatekeeper
 behavior across every macOS version or delivery route.
 
-Before shipping, test an actual GitHub/browser download and the real updater's
+Before shipping, test the one-command bootstrap on a clean macOS GUI machine:
+Homebrew absent/present, Node absent/old/present, each refusal, consented PATH edits,
+and Apple launch/notification approval. Hermetic tests do not establish that real
+Homebrew/native approval flow. Also test an actual GitHub/browser download and the real updater's
 N→N+1 route on supported macOS architectures: unchanged and changed notifier,
 manual launch approval, notification authorization/delivery/click, daemon/TUI
 restart, active Pi sessions, interrupted recovery and Pi failure. The prior

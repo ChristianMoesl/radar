@@ -42,17 +42,41 @@ Instead of checking GitHub, Jira, Datadog, Obsidian, terminals, and worktrees on
 
 ## Install
 
-Download the matching archive from the [latest release](https://github.com/ChristianMoesl/radar/releases/latest), verify it with `checksums.txt`, and run its installer:
+### macOS
+
+Run this in a normal Terminal window, without sudo:
 
 ```sh
-archive=radar_<version>_<os>_<arch>.tar.gz
-grep -F "  $archive" checksums.txt | shasum -a 256 -c -
-tar -xzf "$archive"
-"${archive%.tar.gz}/install.sh"
-radar version
+curl -fsSL https://raw.githubusercontent.com/ChristianMoesl/radar/main/install.sh | bash
 ```
 
-The installer uses `~/.local` by default. Set `PREFIX` to install elsewhere. It installs the MIT license notice under `share/radar/LICENSE` in that prefix. It also creates `$XDG_CONFIG_HOME/radar/AGENTS.md`, falling back to `~/.config/radar/AGENTS.md`, with default instructions for Radar-managed agent sessions. An existing instruction file is never changed. macOS archives also install the `RadarNotifier.app` companion under `libexec/radar` and register it with Launch Services.
+The installer selects the correct architecture and a fully published stable
+release, verifies the publisher signature and archive, installs under `~/.local`,
+and starts Radar's guided setup. It offers Homebrew/Node.js installation when
+needed and asks separately before adding commands to your shell's PATH. **Every
+offer can be refused.** Homebrew may request normal administrator approval;
+Radar itself is installed without sudo. There is no unsigned fallback.
+
+Follow the setup prompts for tools, directories, integrations and notifications.
+Afterwards, just run **`radar`** in a new terminal. macOS may require **Open Anyway** for the ad-hoc
+signed notification companion; the setup explains that approval. Future updates
+use **`radar update`**, not the bootstrap installer.
+
+The official bootstrap script is the initial trust anchor; inspect/trust that
+source before running it. Signed metadata authenticates release downloads, not
+an untrusted copy of the bootstrap itself. See
+[installation details](docs/installation.md#one-command-macos-installation).
+
+### Manual installations
+
+Linux/Windows and custom prefixes retain the manual archive/source installation.
+Download the matching archive from a [trusted release](https://github.com/ChristianMoesl/radar/releases),
+verify its checksum, extract it and run its `install.sh`. Set `PREFIX` to install
+elsewhere. See [manual installation](docs/installation.md#manual-installation).
+
+Both paths install the MIT license notice and default Radar agent instructions.
+Existing instructions and configuration are preserved. macOS archives include
+`RadarNotifier.app`; there is no separate helper download.
 
 ### Pi integration
 
