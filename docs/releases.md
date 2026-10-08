@@ -46,9 +46,12 @@ policy below), and when configuring the publishing repository:
    verify that the signing key matches the committed public key.
 4. Configure the [stage-only npm trusted publisher](npm-publishing.md). Keep npm's
    human review/2FA approval. No npm token or automated approval is introduced.
-5. Ensure the development forge mirrors **release tags** into
-   `github.com/ChristianMoesl/radar`. A push to the development origin alone is
-   not proof that GitHub Actions ran. Humans perform pushes for this repository.
+5. Ensure the development forge mirrors **both CLI and notifier tags** into
+   `github.com/ChristianMoesl/radar`. All component refs must also exist in the
+   authoritative development origin: a full mirror can delete GitHub-only tags
+   and turn their releases into drafts. CI never creates component refs. A push
+   to the development origin alone is not proof that GitHub Actions ran. Humans
+   perform pushes for this repository.
 
 For rotation, first ship a CLI trusting both old and new public keys, signed
 with the old key. Only switch signing to the new key after users can receive
@@ -63,17 +66,23 @@ later without replacing the release contract.
 
 ## Cut a release
 
-- Choose an unused version. `0.1.0` already exists on npm, and the `v0.1.1` tag
-  was used for a failed publication. The first corrected baseline prepares
-  **`0.1.2`**. Do not move `v0.1.1` or republish an existing version.
+- Choose an unused version. `0.1.0` exists on npm, `v0.1.1` was used for a failed
+  publication, and the corrected **`v0.1.2` CLI is published**. Finish its npm
+  staging/approval by retrying only the failed npm job, not by cutting another
+  version. Never move a used tag or republish an existing version.
 - Update `package.json` and `extensions/pi-radar/version.ts` together. The latter
   is the version actually loaded into Pi, not a late read of a replaced manifest.
   `pnpm check:release vX.Y.Z` verifies alignment before tagging/publishing.
 - Change `macos/RadarNotifier/VERSION` only for an actual component change,
   including deliberate SDK/compiler/security rebuilds. Swift/plist/icon/build
   inputs cannot change under an existing component version.
-- Run `pnpm check`, `make test`, and release builds on macOS. `make release
-  VERSION=vX.Y.Z` remains the human-operated signed-tag/push workflow. `make test`
+- Run `pnpm check`, `make test`, and release builds on macOS. An authenticated
+  `gh` session is required to inventory all component releases, including drafts.
+  `make release VERSION=vX.Y.Z` remains the human-operated workflow: it verifies
+  component history/ref identity, signs a new component tag only for an unused
+  version, then atomically pushes **both** `notifier-v<version>` and `vX.Y.Z` to
+  `origin`. Existing component refs are reused exactly, never retagged at HEAD.
+  A failed atomic push stops; there is no separate-push fallback. `make test`
   limits Go package concurrency to two so subprocess/PTY fixtures are not starved
   during release checks. The release script restores the caller's exact terminal
   modes after each validation stage and on exit; validation failures stop before
@@ -104,9 +113,24 @@ Binary rollback never rolls back task notes, configuration or other user data.
 ## Immutable notification component
 
 `scripts/prepare-release-notifier.sh` creates or retrieves a dedicated component
-release with signed `notifier.json` and per-architecture archives. It validates
-source fingerprints and artifact hashes before reusing it. Rebuilding from
-identical source is not a substitute for reusing the original artifact.
+release with signed `notifier.json` and per-architecture archives. It requires an
+existing mirrored component tag and uses `--verify-tag`, never `--target` to
+create a GitHub-only ref. The CLI workflow is still triggered only by `v*` tags;
+pushing a notifier tag does not launch another release job. Default source builds
+also derive the CLI version only from `v*` tags, not the independent component.
+
+Before deciding to build, `scripts/notifier-release-state.mjs` inspects **every
+page** of GitHub releases, including drafts. A missing tag or previously published
+release that became a draft is a repair condition, not permission to rebuild.
+An ambiguous history is rejected. A single currently published release is reused
+by its immutable **asset IDs**, even when retired drafts with that tag remain.
+A unique never-published draft can be resumed only after all expected assets,
+Ed25519 authentication, source fingerprints, archive hashes and extracted tree
+identities pass. Incomplete/tampered drafts are not repaired by overwriting them.
+Reusing a published component does not edit its release metadata.
+
+Rebuilding from identical source is not a substitute for reusing original
+artifacts: tar/gzip metadata can change even when the helper tree is identical.
 
 `scripts/release-metadata.mjs` produces/verifies the component metadata and signs
 release metadata. Main CI passes `NOTIFIER_ARTIFACT_DIR` into `make dist`, which
@@ -136,6 +160,36 @@ duplicate mirrored tag events, compare those fields: the commit alone can hide
 changes to an annotated tag object. Concurrency serializes runs but is not event
 deduplication. Inspect mirror settings/delivery evidence before changing mirroring;
 do not bypass immutable-asset verification to make a duplicate run appear successful.
+
+### Repair a component tag missing from the source forge
+
+Do not delete releases, overwrite artifacts, move the GitHub tag, or disable
+mirror behavior to work around this problem. Inspect the current published
+component and its exact GitHub ref first. Historical drafts remain evidence; a
+previously published draft is never silently republished.
+
+If the authoritative origin is missing the currently published component's tag,
+import that **exact ref**, without force, and publish it with the fix:
+
+```sh
+tag="notifier-v$(cat macos/RadarNotifier/VERSION)"
+git fetch https://github.com/ChristianMoesl/radar "refs/tags/$tag:refs/tags/$tag"
+git rev-parse "refs/tags/$tag" # Compare the object ID with GitHub before pushing.
+git push --atomic origin main "refs/tags/$tag"
+```
+
+These are human-operated commands. If a local/source ref differs, stop for
+inspection; never use `+`, `--force`, or a replacement tag. Verify the source
+forge and GitHub retain the same object ID and release/asset IDs after mirroring.
+This preserves the existing public component without creating another release.
+After the October 2026 incident, `notifier-v1.0.0` has one active published
+release and a retired historical draft; keep both asset sets untouched and reuse
+the active published release. Fixing ref ownership does not rewrite that history
+or claim the earlier archive regeneration never happened.
+
+No new CLI/component version is needed for this ref repair. Complete any pending
+npm approval separately; the binary job for an already-published CLI must not be
+rebuilt merely to retry npm authentication.
 
 ## User flow and recovery
 

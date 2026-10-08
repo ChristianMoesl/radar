@@ -26,6 +26,25 @@ func releaseFixture(t *testing.T, failure string) *exec.Cmd {
 	if err := os.Mkdir(bin, 0700); err != nil {
 		t.Fatal(err)
 	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required for notifier release preflight")
+	}
+	if err := os.Symlink(node, filepath.Join(bin, "node")); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{
+		"macos/RadarNotifier/VERSION":        []byte("1.2.3\n"),
+		"scripts/notifier-release-state.mjs": mustReadScript(t, "notifier-release-state.mjs"),
+	} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	const git = `#!/bin/sh
 printf 'git %s\n' "$*" >> "$RELEASE_CALLS"
 case "$*" in
@@ -34,7 +53,15 @@ case "$*" in
   'status --porcelain') ;;
   'rev-parse HEAD'|'rev-parse origin/main'|'rev-parse --short=12 HEAD') printf 'fixture-commit\n';;
   'rev-parse -q --verify refs/tags/v0.1.1'|'ls-remote --exit-code --tags origin refs/tags/v0.1.1') exit 1;;
-  'fetch origin main --tags'|'tag -s v0.1.1 -m v0.1.1'|'push origin main'|'push origin v0.1.1') ;;
+  'rev-parse -q --verify refs/tags/notifier-v1.2.3')
+    case "$RELEASE_MODE" in
+      existing) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n';;
+      mismatch) printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n';;
+      *) exit 1;;
+    esac;;
+  'push --atomic origin refs/tags/notifier-v1.2.3 refs/tags/v0.1.1')
+    if [ "$RELEASE_FAILURE" = push ]; then exit 11; fi;;
+  'fetch origin main --tags'|'tag -s v0.1.1 -m v0.1.1'|'tag -s notifier-v1.2.3 -m Radar notifier 1.2.3') ;;
   *) echo 'unexpected git command' >&2; exit 99;;
 esac
 `
@@ -57,7 +84,26 @@ if [ "$RELEASE_FAILURE" = "$1" ]; then
   exit 9
 fi
 `
-	for name, script := range map[string]string{"git": git, "pnpm": pnpm, "make": make} {
+	const gh = `#!/bin/sh
+printf 'gh %s\n' "$*" >> "$RELEASE_CALLS"
+case "$*" in
+  'api repos/ChristianMoesl/radar/releases --paginate --slurp')
+    case "$RELEASE_MODE" in
+      'inventory failure') echo 'HTTP 503' >&2; exit 7;;
+      retired) printf '[[{"id":42,"tag_name":"notifier-v1.2.3","draft":true,"published_at":"2026-01-01T00:00:00Z"}]]\n';;
+      existing|missing|mismatch) printf '[[{"id":42,"tag_name":"notifier-v1.2.3","draft":false,"published_at":"2026-01-01T00:00:00Z"}]]\n';;
+      *) printf '[[]]\n';;
+    esac;;
+  'api repos/ChristianMoesl/radar/git/ref/tags/notifier-v1.2.3')
+    case "$RELEASE_MODE" in
+      existing|missing|mismatch) printf '{"object":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}\n';;
+      'tag auth failure') echo 'HTTP 401' >&2; exit 7;;
+      *) echo 'HTTP 404' >&2; exit 1;;
+    esac;;
+  *) echo 'unexpected gh command' >&2; exit 99;;
+esac
+`
+	for name, script := range map[string]string{"git": git, "gh": gh, "pnpm": pnpm, "make": make} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -69,7 +115,7 @@ fi
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)
 	cmd := exec.CommandContext(ctx, "/bin/bash", script, "v0.1.1")
-	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + root, "RELEASE_ROOT=" + root, "RELEASE_CALLS=" + filepath.Join(root, "calls"), "RELEASE_FAILURE=" + failure}
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + root, "RELEASE_ROOT=" + root, "RELEASE_CALLS=" + filepath.Join(root, "calls"), "RELEASE_FAILURE=" + failure, "RELEASE_MODE=fresh"}
 	cmd.Dir = root
 	return cmd
 }
@@ -131,6 +177,99 @@ func TestReleaseRestoresTerminalAndPreservesValidationResult(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReleaseOwnsNotifierRefsBeforeMirroring(t *testing.T) {
+	for _, mode := range []string{"fresh", "existing", "missing", "mismatch", "retired", "inventory failure", "tag auth failure"} {
+		t.Run(mode, func(t *testing.T) {
+			cmd := releaseFixture(t, "")
+			cmd.Env = append(cmd.Env, "RELEASE_MODE="+mode)
+			output, err := cmd.CombinedOutput()
+			want := 1
+			if mode == "fresh" || mode == "existing" {
+				want = 0
+			} else if mode == "inventory failure" {
+				want = 7
+			}
+			assertReleaseExit(t, err, want, output)
+			data, err := os.ReadFile(filepath.Join(cmd.Dir, "calls"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := string(data)
+			if want != 0 {
+				if strings.Contains(calls, "git tag ") || strings.Contains(calls, "git push ") || strings.Contains(calls, "make dist ") {
+					t.Fatalf("unsafe notifier preflight reached build/publication: %s", calls)
+				}
+				return
+			}
+			componentTag := strings.Index(calls, "git tag -s notifier-v1.2.3")
+			if (componentTag >= 0) != (mode == "fresh") {
+				t.Fatalf("existing notifier ref must not be recreated: %s", calls)
+			}
+			cliTag := strings.Index(calls, "git tag -s v0.1.1")
+			dist := strings.Index(calls, "make dist ")
+			push := strings.Index(calls, "git push --atomic origin refs/tags/notifier-v1.2.3 refs/tags/v0.1.1")
+			if cliTag <= dist || push <= cliTag || mode == "fresh" && (componentTag <= dist || componentTag >= cliTag) || strings.Count(calls, "git push ") != 1 {
+				t.Fatalf("refs must be published atomically only after validation: %s", calls)
+			}
+		})
+	}
+}
+
+func TestReleaseAtomicPushFailureHasNoSeparatePushFallback(t *testing.T) {
+	cmd := releaseFixture(t, "push")
+	output, err := cmd.CombinedOutput()
+	assertReleaseExit(t, err, 11, output)
+	calls, err := os.ReadFile(filepath.Join(cmd.Dir, "calls"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(calls), "git push ") != 1 || !strings.Contains(string(calls), "git push --atomic origin refs/tags/notifier-v1.2.3 refs/tags/v0.1.1") {
+		t.Fatalf("failed atomic publication must not fall back to separate pushes: %s", calls)
+	}
+}
+
+func TestBuildVersionIgnoresIndependentNotifierTags(t *testing.T) {
+	root := t.TempDir()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"HOME=" + root, "PATH=" + os.Getenv("PATH"), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_AUTHOR_NAME=Fixture", "GIT_COMMITTER_NAME=Fixture", "GIT_AUTHOR_EMAIL=fixture@example.invalid", "GIT_COMMITTER_EMAIL=fixture@example.invalid", "GIT_AUTHOR_DATE=2020-01-01T12:01:23Z", "GIT_COMMITTER_DATE=2020-01-01T12:01:23Z"}
+	for _, args := range [][]string{{"init", "-q"}, {"-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm", "fixture"}, {"tag", "v1.2.3"}, {"-c", "tag.gpgsign=false", "tag", "-a", "notifier-v9.9.9", "-m", "independent component"}} {
+		cmd := exec.Command(git, args...)
+		cmd.Dir, cmd.Env = root, env
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("fixture git command failed: %v; %s", err, output)
+		}
+	}
+	makefile, err := filepath.Abs("../Makefile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, explicit := range []string{"", "VERSION=v3.4.5"} {
+		args := []string{"--no-print-directory", "-sf", makefile, "-n", "build-radar"}
+		want := "Number=v1.2.3"
+		if explicit != "" {
+			args, want = append(args, explicit), "Number=v3.4.5"
+		}
+		cmd := exec.Command("make", args...)
+		cmd.Dir, cmd.Env = root, env
+		output, err := cmd.CombinedOutput()
+		if err != nil || !strings.Contains(string(output), want) || strings.Contains(string(output), "Number=notifier-") {
+			t.Fatalf("independent component tag contaminated CLI version: %v; %s", err, output)
+		}
+	}
+}
+
+func mustReadScript(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func TestMakeTestBoundsPackageParallelism(t *testing.T) {
