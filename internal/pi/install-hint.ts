@@ -53,6 +53,22 @@ export async function sbxConfigured(agentDir: string, cwd: string): Promise<bool
   return packageConfigured(agentDir, cwd, "pi-sbx");
 }
 
+// The workspace's effective resource bundle already incorporates user/repository
+// choices. Do not guess enablement from PATH or parse Radar's YAML independently.
+async function sandboxRelevant(pi: ExtensionAPI, cwd: string): Promise<boolean> {
+  try {
+    const result = await pi.exec(process.env.RADAR_BINARY?.trim() || "radar",
+      ["workspace-context", "--workspace", resolve(cwd), "--json"], { timeout: 5000 });
+    if (result.code !== 0) return false;
+    const context = JSON.parse(result.stdout);
+    if (context.registered !== true || context.capabilities?.sandbox !== true || context.sandbox == null) return false;
+    // Introspection can preserve a sandbox's desired state after the CLI was
+    // removed. Probe the native CLI without touching or provisioning a sandbox.
+    const sbx = await pi.exec("sbx", ["--help"], { timeout: 2000 });
+    return sbx.code === 0;
+  } catch { return false; }
+}
+
 export default function installHint(pi: ExtensionAPI) {
   // This event follows every extension's session_start, including pi-radar's
   // asynchronous activation. Checking all tools also respects tool filtering.
@@ -69,7 +85,8 @@ export default function installHint(pi: ExtensionAPI) {
       const radarPresent = pi.getAllTools().some(tool => tool.name === "radar_workspace_context")
         || await radarConfigured(agentDir, ctx.cwd);
       const sbxPresent = await sbxConfigured(agentDir, ctx.cwd);
-      if (radarPresent && sbxPresent) return;
+      const recommendSBX = !sbxPresent && await sandboxRelevant(pi, ctx.cwd);
+      if (radarPresent && !recommendSBX) return;
       const marker = join(agentDir, "radar", "install-hint-seen");
       await mkdir(dirname(marker), { recursive: true, mode: 0o700 });
       // Claim one combined notice per Pi profile, even across concurrent launches.
@@ -88,7 +105,7 @@ export default function installHint(pi: ExtensionAPI) {
           `Install in a host terminal: ${profile}pi install npm:@christianmoesl/pi-radar`,
         );
       }
-      if (!sbxPresent) {
+      if (recommendSBX) {
         advice.push(
           "Recommended: pi-sbx routes Pi's tools into SBX; >=0.6.0 is required for early sandboxed launch.",
           `Install in a host terminal: ${profile}pi install npm:@christianmoesl/pi-sbx`,

@@ -4,12 +4,12 @@ Radar has a Go CLI and an installable TypeScript Pi extension. Contributions sho
 
 ## Development setup
 
-Install the local development tools:
-
-```sh
-brew install go fd git tmux neovim
-curl -fsSL https://pi.dev/install.sh | sh
-```
+Install Go and Git for source development (on macOS, `brew install go git`).
+`make install` checks and offers to install required runtime tools: Git, tmux,
+fd, Node.js 24+, npm, Pi and gh. Permission defaults to Yes, but installations
+still require a terminal and explicit acceptance. Suitable existing tools are
+retained. Onboarding validates these tools rather than installing them; it
+installs the required `pi-radar` package separately. Neovim is optional.
 
 Linux developers also need `xdg-open`, usually provided by the system `xdg-utils` package:
 
@@ -31,7 +31,7 @@ radar version
 `go test ./scripts ./internal/app ./internal/config ./internal/collector ./internal/integration/...`
 exercises release and source installers, first daemon launch, optional-integration
 activation, repository precedence, and missing workspace prerequisites. Fixtures
-isolate HOME/XDG directories, PATH and credentials; they never call real remote
+isolate HOME/XDG directories, PATH, shell startup hooks and credentials; they never call real remote
 services or create real sandboxes. CI runs this suite on Linux and macOS. See
 [installation defaults](docs/installation.md) for the supported setup matrix.
 

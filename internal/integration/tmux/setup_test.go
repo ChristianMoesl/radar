@@ -49,6 +49,12 @@ func TestTmuxConfigPlansPreserveUserSettingsAndAreIdempotent(t *testing.T) {
 			if _, err := os.Stat(plan.Path); !os.IsNotExist(err) {
 				t.Fatal("preview wrote config")
 			}
+			if !strings.Contains(plan.Content, "set -s extended-keys on") || !strings.Contains(plan.Content, "#{>=:#{version},3.5}") {
+				t.Fatal("missing version-safe extended keys")
+			}
+			if kind == "fresh" && !strings.Contains(plan.Content, "set -g prefix C-b") {
+				t.Fatal("missing starter prefix")
+			}
 			if !strings.Contains(plan.Content, "bind-key r display-popup") {
 				t.Fatal("missing popup binding")
 			}
@@ -80,6 +86,10 @@ func TestTmuxConfigPlansPreserveUserSettingsAndAreIdempotent(t *testing.T) {
 			}
 			if err := again.Apply(); err != nil {
 				t.Fatal(err)
+			}
+			managed, _ := os.ReadFile(plan.Path)
+			if strings.Count(string(managed), "set -s extended-keys on") != 1 {
+				t.Fatal("repeated apply duplicated keys")
 			}
 			after, _ := os.ReadFile(target)
 			if string(after) != string(user) {

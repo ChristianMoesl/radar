@@ -35,17 +35,28 @@ async function harness(t: TestContext) {
     } },
     shutdown: () => assert.fail("advice must not enforce package requirements"),
   };
+  const workspace = { registered: true, capabilities: { sandbox: true }, sandbox: {} as object | null };
+  let inspectionFails = false;
   const pi = {
     on: (name: string, handler: (event: any, ctx: any) => any) => hooks.set(name, handler),
     getAllTools: () => tools,
     registerCommand: (name: string, command: any) => commands.set(name, command),
     registerTool: () => assert.fail("advice must not register model tools"),
-    exec: () => assert.fail("advice must not execute or install anything"),
+    exec: async (name: string, args: string[]) => {
+      if (name === "sbx") {
+        assert.deepEqual(args, ["--help"]);
+        if (inspectionFails) throw new Error("SBX CLI is unavailable");
+        return { code: 0, stdout: "SBX help" };
+      }
+      assert.equal(name, process.env.RADAR_BINARY?.trim() || "radar");
+      assert.deepEqual(args, ["workspace-context", "--workspace", cwd, "--json"]);
+      return { code: 0, stdout: JSON.stringify(workspace) };
+    },
   };
   const load = () => installHint(pi as unknown as ExtensionAPI);
   load();
   return {
-    root, agent, cwd, commands, tools, ctx, displayed, load,
+    root, agent, cwd, commands, tools, ctx, displayed, load, workspace, failInspection: () => { inspectionFails = true; },
     marker: join(agent, "radar", "install-hint-seen"),
     widget: () => widget,
     text: () => widget!.join("\n"),
@@ -235,3 +246,20 @@ test("concurrent launches claim only one combined notice", async t => {
   assert.match(h.text(), /pi install npm:@christianmoesl\/pi-radar/);
   assert.match(h.text(), /pi install npm:@christianmoesl\/pi-sbx/);
 });
+
+for (const condition of ["disabled", "absent CLI", "non-sandbox workspace", "unregistered"]) {
+  test(`no pi-sbx advice when ${condition}`, async t => {
+    const h = await harness(t);
+    if (condition === "absent CLI") h.failInspection();
+    else if (condition === "unregistered") h.workspace.registered = false;
+    else { h.workspace.capabilities.sandbox = false; h.workspace.sandbox = null; }
+    h.tools.push({ name: "radar_workspace_context" });
+    await h.discover();
+    assert.equal(h.displayed.length, 0);
+    await assert.rejects(stat(h.marker), { code: "ENOENT" });
+    h.tools.length = 0;
+    await h.discover();
+    assert.match(h.text(), /pi-radar/);
+    assert.doesNotMatch(h.text(), /pi-sbx/);
+  });
+}

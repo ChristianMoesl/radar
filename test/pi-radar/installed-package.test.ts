@@ -80,6 +80,7 @@ export default function(pi) {
   const { stdout: listing } = await exec("tar", ["-tzf", tarball]);
   assert.deepEqual(listing.trim().split("\n").sort(), [
     "package/LICENSE", "package/README.md", "package/extensions/pi-radar/index.ts",
+    "package/extensions/pi-radar/onboarding.ts",
     "package/extensions/pi-radar/runtime-version.ts",
     "package/extensions/pi-radar/version.ts", "package/package.json",
   ]);

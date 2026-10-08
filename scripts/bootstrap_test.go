@@ -48,9 +48,9 @@ func TestOneCommandBootstrap(t *testing.T) {
 	for _, state := range []string{
 		"ready", "Intel", "piped script", "PATH accepted", "profile already configured", "profile symlink", "broken profile symlink", "profile declined", "bash profile", "unsupported shell",
 		"install Node", "install Homebrew and Node", "Homebrew for tools", "Homebrew for tools declined", "Homebrew declined", "Node declined", "Homebrew failed", "Node failed", "Node still old",
-		"already installed", "managed journal", "root", "Linux", "unsupported architecture", "symlink prefix", "shared prefix",
+		"already installed", "repair missing gh", "managed journal", "root", "Linux", "unsupported architecture", "symlink prefix", "shared prefix",
 		"npm pending", "wrong npm version", "missing architecture asset", "duplicate asset", "newer incomplete", "later release page",
-		"unsigned", "unknown publisher", "bad signature", "wrong tag", "bad epoch", "extra manifest field", "wrong filename", "old macOS",
+		"old installer", "unsigned", "unknown publisher", "bad signature", "wrong tag", "bad epoch", "extra manifest field", "wrong filename", "old macOS",
 		"archive hash", "binary identity", "bundle identity", "wrong CPU", "traversal", "symlink entry", "duplicate entry", "special entry", "unexpected file", "truncated tar", "oversized entry", "HTTP redirect", "codesign failed",
 	} {
 		t.Run(state, func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestOneCommandBootstrap(t *testing.T) {
 				"Node still old": "Node.js 24+ is still unavailable", "already installed": "Radar is already installed", "managed journal": "Existing Radar update state",
 				"root": "without sudo", "Linux": "for macOS", "unsupported architecture": "Unsupported macOS architecture",
 				"symlink prefix": "private-to-your-user directories", "shared prefix": "private-to-your-user directories",
-				"old macOS": "requires macOS 13.0+", "archive hash": "archive size/hash verification failed",
+				"old installer": "predates prerequisite-aware installation", "old macOS": "requires macOS 13.0+", "archive hash": "archive size/hash verification failed",
 				"binary identity": "binary identity mismatch", "bundle identity": "bundle identity mismatch", "wrong CPU": "architecture mismatch",
 				"traversal": "Unsafe or duplicate archive path", "duplicate entry": "Unsafe or duplicate archive path",
 				"symlink entry": "special files", "special entry": "special files", "unexpected file": "Unexpected release file",
@@ -78,6 +78,25 @@ func TestOneCommandBootstrap(t *testing.T) {
 			home := cmd.Dir
 			calls, _ := os.ReadFile(filepath.Join(home, "calls"))
 			installed := filepath.Join(home, ".local", "bin", "radar")
+			if state == "already installed" || state == "repair missing gh" {
+				data, _ := os.ReadFile(installed)
+				if string(data) != "existing executable" || strings.Contains(string(calls), "register notifier") || strings.Contains(string(calls), "radar launched") {
+					t.Fatalf("prerequisite repair changed Radar: %s; %s", data, calls)
+				}
+				if state == "repair missing gh" {
+					if strings.Count(string(calls), "brew install gh") != 1 {
+						t.Fatalf("missing repair: %s", calls)
+					}
+					receipt, _ := os.ReadFile(filepath.Join(home, ".local", "libexec", "radar", "install.json"))
+					if string(receipt) != "preserve receipt" {
+						t.Fatal("repair changed update receipt")
+					}
+				}
+				if !strings.Contains(string(output), "Required tools are ready") {
+					t.Fatalf("repair did not complete: %s", output)
+				}
+				return
+			}
 			if success {
 				assertMode(t, installed, 0755)
 				if !strings.Contains(string(calls), "radar launched") || !strings.Contains(string(output), "Verified Radar v1.2.3") {
@@ -233,15 +252,24 @@ case "$*" in
    echo 'brew install node' >> "$HOME/calls"
    if [ "$BOOTSTRAP_STATE" = 'Node failed' ]; then exit 7; fi
    if [ "$BOOTSTRAP_STATE" != 'Node still old' ]; then cp "$HOME/node.stub" "$HOME/brew/bin/node"; fi;;
+ 'install gh') echo 'brew install gh' >> "$HOME/calls"; printf '#!/bin/sh\necho gh 2.70\n' > "$HOME/brew/bin/gh"; chmod +x "$HOME/brew/bin/gh";;
+ 'install fd') printf '#!/bin/sh\necho fd 10.0\n' > "$HOME/brew/bin/fd"; chmod +x "$HOME/brew/bin/fd";;
  *) echo 'unexpected brew invocation' >&2; exit 99;;
 esac
 `
 	write(filepath.Join(home, "brew.stub"), brewStub, 0700)
-	for _, name := range []string{"git", "tmux", "fd", "npm", "gh"} {
+	for _, name := range []string{"git", "tmux", "fd", "npm", "pi", "gh"} {
 		if (state == "Homebrew for tools" || state == "Homebrew for tools declined") && name == "fd" {
 			continue
 		}
-		write(filepath.Join(bin, name), "#!/bin/sh\nexit 0\n", 0700)
+		version := "ready"
+		if name == "tmux" {
+			version = "tmux 3.6"
+		}
+		if name == "pi" {
+			version = "0.85.1"
+		}
+		write(filepath.Join(bin, name), "#!/bin/sh\necho '"+version+"'\n", 0700)
 	}
 	write(filepath.Join(bin, "uname"), `#!/bin/sh
 if [ "$1" = -s ]; then
@@ -276,11 +304,19 @@ BREW
 	if missingNode && state != "install Homebrew and Node" && state != "Homebrew declined" && state != "Homebrew failed" {
 		write(filepath.Join(bin, "brew"), brewStub, 0700)
 	}
-	if state == "already installed" {
+	if state == "already installed" || state == "repair missing gh" {
 		if err := os.MkdirAll(filepath.Join(home, ".local", "bin"), 0700); err != nil {
 			t.Fatal(err)
 		}
 		write(filepath.Join(home, ".local", "bin", "radar"), "existing executable", 0700)
+	}
+	if state == "repair missing gh" {
+		write(filepath.Join(bin, "gh"), "#!/bin/sh\nexit 1\n", 0700)
+		write(filepath.Join(bin, "brew"), brewStub, 0700)
+		if err := os.MkdirAll(filepath.Join(home, ".local", "libexec", "radar"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		write(filepath.Join(home, ".local", "libexec", "radar", "install.json"), "preserve receipt", 0600)
 	}
 	if state == "managed journal" {
 		if err := os.MkdirAll(filepath.Join(home, ".local", "libexec", "radar", ".upgrade"), 0700); err != nil {
@@ -401,18 +437,20 @@ BREW
 	switch state {
 	case "PATH accepted", "profile already configured", "profile symlink", "broken profile symlink", "bash profile":
 		answers = "y\n"
+	case "repair missing gh":
+		answers = "\n"
 	case "install Node":
-		answers = "y\ny\n"
+		answers = "\ny\n"
 	case "install Homebrew and Node":
 		answers = "y\ny\ny\n"
 	case "Homebrew for tools":
-		answers = "y\ny\n"
+		answers = "y\n\ny\n"
 	case "Homebrew declined", "Homebrew for tools declined", "Node declined":
 		success = false
 	case "Homebrew failed", "Node failed", "Node still old":
 		answers = "y\n"
 		success = false
-	case "ready", "Intel", "piped script", "profile declined", "unsupported shell", "newer incomplete", "later release page":
+	case "already installed", "ready", "Intel", "piped script", "profile declined", "unsupported shell", "newer incomplete", "later release page":
 	default:
 		success = false
 	}
@@ -445,7 +483,10 @@ func bootstrapArchive(t *testing.T, version, arch, state, tools string) ([]byte,
 		cpu = 0x01000007
 	}
 	binary.LittleEndian.PutUint32(binaryData[4:], cpu)
-	files := map[string][]byte{"bin/radar": binaryData, "README.md": []byte("fixture"), "LICENSE": []byte("fixture license"), "share/radar/AGENTS.md": []byte("fixture default instructions"), "install.sh": mustReadScript(t, "install.sh"), "install-agent-instructions.sh": mustReadScript(t, "install-agent-instructions.sh")}
+	files := map[string][]byte{"bin/radar": binaryData, "README.md": []byte("fixture"), "LICENSE": []byte("fixture license"), "share/radar/AGENTS.md": []byte("fixture default instructions"), "install.sh": bundledInstaller(t), "install-agent-instructions.sh": mustReadScript(t, "install-agent-instructions.sh")}
+	if state == "old installer" {
+		files["install.sh"] = []byte("#!/bin/sh\nexit 99\n")
+	}
 	notifier := string(mustReadScript(t, "install-notifier.sh"))
 	notifier = strings.ReplaceAll(notifier, "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", filepath.Join(tools, "register"))
 	// Quote the test path with spaces, just as the production absolute path has no spaces.

@@ -39,20 +39,22 @@ func TestPromptValidationAndCancellation(t *testing.T) {
 		t.Fatal("ctrl-c did not abort")
 	}
 }
-func TestConfirmationDefaultsToNoAndSupportsKeyboard(t *testing.T) {
-	m := newPrompt(question{title: "Install?"})
-	m.confirm = true
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	result := updated.(promptModel)
-	if !result.accepted || result.yes {
-		t.Fatal("bare Enter should not consent")
-	}
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
-	result = updated.(promptModel)
-	updated, _ = result.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	result = updated.(promptModel)
-	if !result.accepted || !result.yes {
-		t.Fatal("arrow/Enter did not accept")
+func TestConfirmationHonorsDefaultAndSupportsKeyboard(t *testing.T) {
+	for _, initial := range []bool{false, true} {
+		m := newPrompt(question{title: "Confirmation"})
+		m.confirm, m.yes = true, initial
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		result := updated.(promptModel)
+		if !result.accepted || result.yes != initial {
+			t.Fatal("Enter did not accept the chosen default")
+		}
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+		result = updated.(promptModel)
+		updated, _ = result.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		result = updated.(promptModel)
+		if !result.accepted || result.yes == initial {
+			t.Fatal("arrow/Enter did not change selection")
+		}
 	}
 }
 
@@ -88,20 +90,18 @@ func TestRadarPackageInspectionDoesNotOverrideDisabledResources(t *testing.T) {
 		t.Fatal("disabled extension should require an explicit user fix")
 	}
 }
-func TestPackageManagerCommands(t *testing.T) {
-	_, ui, sys, _ := fixture(t)
-	sys.goos = "linux"
-	sys.missing["brew"] = true
-	w := newWizard(ui, sys)
-	for dep, want := range map[string]string{"node": "apt-get install -y nodejs npm", "fd": "apt-get install -y fd-find", "pi": "npm install --global --ignore-scripts @earendil-works/pi-coding-agent", "pi-radar": "pi install npm:@christianmoesl/pi-radar"} {
-		argv, err := w.installCommand(dep)
-		if err != nil || !strings.HasSuffix(strings.Join(argv, " "), want) {
-			t.Fatalf("%s: %v %v", dep, argv, err)
+func TestOnlyPiExtensionsHaveOnboardingInstallCommands(t *testing.T) {
+	w, _, _, _ := fixture(t)
+	for _, dep := range []string{"node", "fd", "pi", "git", "gh", "tmux", "npm"} {
+		if _, err := w.installCommand(dep); err == nil {
+			t.Fatalf("onboarding can install baseline tool %s", dep)
 		}
 	}
-	sys.missing["apt-get"] = true
-	if _, err := w.installCommand("tmux"); err == nil {
-		t.Fatal("must not invent an installer")
+	for _, dep := range []string{"pi-radar", "pi-sbx"} {
+		argv, err := w.installCommand(dep)
+		if err != nil || strings.Join(argv, " ") != "pi install npm:@christianmoesl/"+dep {
+			t.Fatalf("%s: %v %v", dep, argv, err)
+		}
 	}
 }
 
@@ -152,6 +152,7 @@ func TestPiSBXIsOnlyCheckedForEffectiveSandboxUsage(t *testing.T) {
 		{"automatic macOS sandbox", "darwin", nil, true, true},
 		{"automatic Linux without sandboxing", "linux", nil, true, false},
 		{"explicit sandbox enabled", "darwin", &yes, true, true},
+		{"explicit enabled without CLI", "darwin", &yes, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w, ui, sys, _ := fixture(t)

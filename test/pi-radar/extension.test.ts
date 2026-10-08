@@ -168,7 +168,7 @@ test("activates from the session cwd, not the process cwd, exactly once", async 
   await h.start();
   await h.start();
   assert.deepEqual([...h.tools.keys()], ["radar_workspace_context", "radar_repository_refs", "radar_reconcile_workspace"]);
-  assert.deepEqual([...h.commands.keys()], ["radar-reload-workspace-resources"]);
+  assert.deepEqual([...h.commands.keys()], ["radar-onboarding", "radar-reload-workspace-resources"]);
   assert.deepEqual(h.calls[0].args, ["workspace-context", "--registration-only", "--workspace", h.ctx.cwd, "--json"]);
   assert.equal(h.calls[0].binary, "radar");
   assert.deepEqual(h.calls[1].args, ["activity", "idle"]);

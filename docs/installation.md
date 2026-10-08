@@ -22,7 +22,7 @@ detects Apple Silicon/Intel, selects a stable release with both complete macOS
 archives **and its exact public npm package**, authenticates the signed metadata,
 verifies the selected archive/binary/notifier identities, and safely extracts it.
 It calls the existing archive installer and starts bare `radar` from your HOME,
-so the existing guided first-run flow handles remaining tools and settings.
+after installing the required CLI tools. Guided setup handles Pi extensions and settings.
 
 No version choice, copied hashes, separate notifier download, Go/Swift compiler,
 pnpm or preinstalled GitHub CLI is needed. Release selection can skip a newer
@@ -30,18 +30,22 @@ incomplete release in favor of an older ready one. If no coordinated release is
 ready, it says to try later and installs no Radar files. Maintainers must finish
 npm staging/approval; users do not configure release publishing.
 
-- **Homebrew/Node:** the installer offers Homebrew when Node or baseline workspace
-  tools need a package manager, then Node.js 24+ if missing/old. Each installation
-  needs explicit approval and can be refused. The official Homebrew script may
+- **Required tools:** the installer provisions Git, tmux 3.2+, fd, Node.js 24+,
+  npm, Pi 0.85.1+, and gh (GitHub CLI). Already suitable tools are retained. It
+  offers Homebrew when needed, and Node before authenticating the release.
+  Each installation needs explicit approval, defaults to **Yes**, and can be refused. The official Homebrew script may
   require normal macOS administrative/Command Line Tools approval. Failure or
   refusal stops; already-consented prerequisite installations are not rolled back.
 - **PATH:** a separate offer appends one marked PATH block to the user's zsh or
   Bash profile, preserving existing content, modes and symlink targets. It includes
   an activated Homebrew path when needed. Declining leaves the profile untouched
   and prints `~/.local/bin/radar` as the command. Radar still starts immediately.
-- **Existing installations:** refuse to overwrite an existing CLI/helper or update
-  transaction. Use `radar update` for eligible installations; custom/symlink/
-  package-manager paths remain manual. The bootstrap never changes workspace data.
+- **Existing installations:** rerunning the bootstrap repairs required tools only;
+  it does not replace Radar, its notifier, update state, settings or workspace data.
+  It authenticates a release before using its prerequisite helper. An orphaned
+  notifier/update transaction without an installed CLI still needs inspection.
+  Use `radar update` to update eligible Radar installations; custom/symlink/
+  package-manager paths remain manual.
 - **Consent:** prompts read the controlling terminal even when the script is piped.
   Headless execution cannot approve installations or profile edits. No env/flag
   bypass changes publisher trust, endpoints, release selection or prompts.
@@ -79,7 +83,13 @@ tar -xzf "$archive"
 Checksums detect corruption but do not independently authenticate an initial
 download. Trust the release/source independently. Archive `install.sh` uses
 `~/.local` by default; `PREFIX`, `BINDIR` and `LIBEXECDIR` remain available for
-manual installations. It does not edit shell profiles or install prerequisites.
+manual installations. It does not edit shell profiles. Both the archive installer
+and `make install` check/install required CLI tools with explicit, default-Yes
+permission, using the same prerequisite helper. Homebrew and Linux apt-get are
+supported; Pi is installed with npm without sudo or lifecycle scripts. If the
+package manager cannot supply Node 24+ or another required version, install it
+on PATH and rerun the installer. A headless installation succeeds only when all
+prerequisites are already available; piped input never approves installation.
 An existing configuration/instruction file is preserved. A manual source install
 uses `make install`; see [build prerequisites](../CONTRIBUTING.md#development-setup).
 Node is Pi's runtime, not a Go binary runtime requirement. Ensure `~/.local/bin`
@@ -103,38 +113,43 @@ malformed config files must be repaired before setup; they are never silently re
 config. A headless daemon can still collect with in-memory defaults; it never
 prompts or installs anything.
 
-The inline prompts stay in terminal scrollback. Escape/Ctrl+C cancels; yes/no
-installation/save prompts default to **no**; existing integration choices are preselected on repeat setup. Secrets are masked while typing and in answered prompts.
+The inline prompts stay in terminal scrollback. Escape/Ctrl+C cancels. Software
+installation prompts default to **Yes**; final save, login, profile edits and
+new integration opt-ins retain their explicit consent/defaults. Existing
+integration choices are preselected on repeat setup. Secrets are masked.
 
-1. Check Git, tmux 3.2+, fd (`fdfind` on Debian), Node.js 24+, npm, Pi 0.85.1+,
-   pi-radar, and gh. Node.js is a **Pi runtime prerequisite**, not a dependency
-   of Radar's Go binary. Neovim is not required: the generated layout has one
-   Pi window, without altering existing user layouts.
-2. Show each necessary installation command and ask permission. Homebrew and
-   apt-get installs are supported; Pi uses npm and pi-radar uses `pi install`.
-   The wizard itself does not run a downloaded bootstrap shell; the separately
-   consented macOS first-install bootstrap can offer Homebrew beforehand.
-   Install/update failures, declining,
-   or binaries still missing/too old on PATH stop setup. Linux distributions
-   whose apt repositories do not provide Node 24+ need Node installed separately.
-   No sudo npm install or silent PATH/shell-profile changes are made. pi-sbx is
-   **not a required Radar tool**: it is checked separately only when SBX is enabled
-   for workspaces, using the same effective setting as workspace creation.
-   `sbx.enabled: false` skips it even if the SBX CLI is installed. Automatic mode
-   still enables SBX on macOS when its CLI is installed; those sandboxed sessions
-   need pi-sbx 0.6.0+. Existing
-   Git/local package sources are never silently replaced by duplicate npm installs.
+1. **Check, don't install, CLI tools:** Git, tmux 3.2+, fd (`fdfind` on Debian),
+   Node.js 24+, npm, Pi 0.85.1+, and gh. Setup lists all missing/unusable tools
+   together and stops before saving. Rerun your platform's installer or
+   `make install` from the source checkout, then `radar setup`. The one-command
+   bootstrap is macOS-only. gh is required even if GitHub integration is disabled;
+   installing it does not log in or enable the integration. Node is Pi's runtime,
+   not a Go binary runtime requirement; Neovim is not required.
+2. **Install Pi extensions:** `pi-radar` is mandatory for completed setup. Show
+   the `pi install` command and ask permission; refusal, installation failure or
+   failed verification stops setup. `pi-sbx` is checked only when SBX is both
+   installed and effectively enabled for workspaces. `sbx.enabled: false` skips
+   it even with the CLI installed. Automatic mode enables SBX on macOS with its
+   CLI installed; those sessions need pi-sbx 0.6.0+. Existing Git/local package
+   sources and explicit extension disablement are never silently overridden.
 3. Offer the tmux configuration described below.
-4. Ask for the existing repository directory, workspace root, and notes parent
-   directory. Notes live under its `Tasks/` folder. An Obsidian vault is optional.
+4. Ask for the repository directory, workspace root, and notes parent directory.
+   All may be missing, including nested parent directories: they are created
+   after final confirmation, not while typing. Notes live under `Tasks/` in the
+   notes parent. An Obsidian vault is optional. Files cannot be used as directories,
+   and the workspace root must not contain the repository directory.
 5. Ask whether to connect GitHub, Jira, and Datadog. Declining writes an explicit
    `enabled: false`; opting in verifies access and writes `true`. GitHub uses
    `gh auth status` and offers `gh auth login` when needed. Jira uses site URL,
    email, hidden API token, automatic Cloud ID discovery, and comma/space-separated
    ticket prefixes. Datadog uses a supported site/API endpoint, hidden API and
    application keys, and a required monitor query such as `tag:team:platform`.
-6. Preview the full config, any tmux additions, and the secret destination (never
-   token values). Only affirmative confirmation saves the files and directories.
+6. Review separate **Radar settings**, **Credentials**, **Radar tmux settings**,
+   **User tmux configuration**, and **Directories** sections. Each file shows its
+   path and CREATE / UPDATE / APPEND INCLUDE / UNCHANGED action, with full
+   non-secret contents or masked credential names. Missing directories are listed
+   separately. An **Already completed** notice distinguishes prior installation/
+   authentication from pending writes. Only affirmative confirmation saves.
 
 Tool installations and GitHub login happen with their own earlier consent and
 are not rolled back if final review is declined. Cancelling does not save Radar
@@ -226,11 +241,16 @@ For people already using tmux, prefix + r is an optional dashboard popup:
 bind-key r display-popup -E -w 90% -h 90% -d '#{pane_current_path}' 'radar'
 ```
 
-If setup installs tmux, it proposes a starter config with mouse support, larger
-scrollback, one-based window/pane numbering, renumbering, low Escape delay, focus
-events, and a status-bar reminder. If tmux was already installed, it offers only
-the popup binding, explicitly warning that an existing prefix + r binding will
-be replaced. Declining the optional addition leaves tmux configuration unchanged;
+If no tmux configuration exists, setup proposes a starter config with **Ctrl+B**
+as its prefix: press Ctrl+B, release, then R to open Radar. It also enables mouse
+support, larger scrollback, one-based window/pane numbering, renumbering, low
+Escape delay, focus events, and a status-bar reminder. The starter is independent
+of which installer provisioned tmux. Existing configurations receive an optional
+popup/extended-keys addition, warning that an existing prefix + r binding is replaced.
+
+Generated snippets enable `extended-keys on` for Pi's modified Enter keys. tmux
+3.5+ also gets `extended-keys-format csi-u`; a tmux version condition omits that
+option on supported 3.2–3.4 installations. A supporting terminal is still needed. Declining the optional addition leaves tmux configuration unchanged;
 `radar` still opens the dashboard directly and can attach when you select a workspace.
 
 After final confirmation, Radar writes `radar/tmux.conf` beside `config.yaml` and
@@ -311,7 +331,9 @@ authentication in the foreground.
   interactive Pi sessions show one non-blocking install notice per Pi profile,
   recommending each missing package independently. Configured or explicitly
   disabled package declarations suppress only that package's advice, so installed
-  `pi-radar` does not hide missing `pi-sbx` advice. This notice does not enforce
+  `pi-radar` does not hide relevant missing `pi-sbx` advice. SBX advice appears
+  only for an inspected sandbox-enabled workspace with a usable SBX CLI; missing,
+  disabled or uncertain sandbox context stays quiet. This notice does not enforce
   versions, auto-install packages, or change Pi settings. Hide it with
   `/radar-dismiss-install-hint`.
 - URL actions require the platform opener (`xdg-open` on Linux, `open` on macOS).
@@ -322,7 +344,7 @@ tracked-PR rules also default to an empty list, not example repository searches.
 
 ## Installing and updating Pi packages
 
-First-run setup offers `pi-radar`; sandboxed workspaces also need `pi-sbx`.
+First-run setup requires `pi-radar`; sandboxed workspaces also need `pi-sbx`.
 Pi and both extensions are installed on the **host**, including when tools run
 inside a sandbox. See the [Pi guide](integrations/pi.md) for manual installation,
 custom profiles, switching package sources and version-pinned updates.

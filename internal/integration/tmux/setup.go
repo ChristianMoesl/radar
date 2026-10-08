@@ -12,6 +12,8 @@ import (
 
 const popupBinding = "bind-key r display-popup -E -w 90% -h 90% -d '#{pane_current_path}' 'radar'\n"
 const starterSettings = `# Comfortable defaults for a new tmux installation.
+set -g prefix C-b
+bind-key C-b send-prefix
 set -g mouse on
 set -g history-limit 50000
 set -g base-index 1
@@ -23,7 +25,11 @@ set -g status-right 'Radar: prefix + r | %H:%M'
 
 `
 
+// CSI-u was added in 3.5; extended keys also work with xterm encoding on 3.2–3.4.
+const extendedKeys = "set -s extended-keys on\nif-shell -F '#{>=:#{version},3.5}' 'set -s extended-keys-format csi-u'\n"
+
 type ConfigPlan struct {
+	Starter                          bool
 	Path, UserPath, Content, Include string
 	oldUser, oldManaged              []byte
 	userMode                         os.FileMode
@@ -75,21 +81,26 @@ func PlanConfig(starter bool) (ConfigPlan, error) {
 		}
 	}
 	plan.Content = "# Radar-managed tmux settings. Prefix + r opens the dashboard.\n"
-	if starter {
+	plan.Starter = starter && !plan.userExists
+	if plan.Starter {
 		plan.Content += starterSettings
 	}
-	plan.Content += popupBinding
+	plan.Content += extendedKeys + popupBinding
 	plan.Include = "source-file " + shellQuote(plan.Path)
 	if info, err := os.Lstat(plan.Path); err == nil {
 		if !info.Mode().IsRegular() {
 			return ConfigPlan{}, fmt.Errorf("Radar tmux config must be a regular file: %s", plan.Path)
 		}
 		plan.managedExists = true
+		plan.Starter = false
 		plan.oldManaged, err = os.ReadFile(plan.Path)
 		if err != nil {
 			return ConfigPlan{}, err
 		}
 		plan.Content = string(plan.oldManaged)
+		if !strings.Contains(plan.Content, extendedKeys) {
+			plan.Content = strings.TrimRight(plan.Content, "\n") + "\n\n" + extendedKeys
+		}
 		if !strings.Contains(plan.Content, popupBinding) {
 			plan.Content = strings.TrimRight(plan.Content, "\n") + "\n\n" + popupBinding
 		}

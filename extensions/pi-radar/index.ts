@@ -1,3 +1,4 @@
+import { registerOnboarding } from "./onboarding.ts";
 import { reportLoadedVersion } from "./runtime-version.ts";
 import { homedir, tmpdir } from "node:os";
 import { readdir, readFile } from "node:fs/promises";
@@ -365,6 +366,7 @@ export default function radarExtension(pi: ExtensionAPI) {
 // Pi recreates extension instances on reload and session replacement. Register
 // workspace-only resources after session_start supplies the actual session cwd.
 function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
+  registerOnboarding(pi);
   const activity = activityTracker(pi);
   let previousResources: ResourceSnapshot = { contextPaths: [], skillPaths: [] };
   let knownContext: WorkspaceContextResult | undefined;

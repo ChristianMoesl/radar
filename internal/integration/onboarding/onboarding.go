@@ -13,10 +13,9 @@ import (
 )
 
 type wizard struct {
-	ui            prompter
-	system        system
-	http          *http.Client
-	installedTmux bool
+	ui     prompter
+	system system
+	http   *http.Client
 }
 
 func newWizard(ui prompter, system system) wizard {
@@ -61,7 +60,7 @@ func (w wizard) run() error {
 	if draft.Existing && len(cfg.RepositoryDirs) > 0 {
 		repoInitial = cfg.RepositoryDirs[0]
 	}
-	repo, err := w.directory("Where do you check out your repositories?", "Your primary repository directory. Additional configured repository directories are retained.", repoInitial, true)
+	repo, err := w.directory("Where do you check out your repositories?", "Your primary repository directory. Additional configured repository directories are retained.", repoInitial)
 	if err != nil {
 		return err
 	}
@@ -71,7 +70,7 @@ func (w wizard) run() error {
 		cfg.RepositoryDirs = []string{repo}
 	}
 	rootInput, err := w.ui.input(question{title: "Where should Radar put its workspaces and worktrees?", hint: "A separate directory for Radar-managed work; it will be created after confirmation.", initial: cfg.Workspace.RootDir, validate: func(value string) error {
-		root, err := directoryPath(value, false)
+		root, err := directoryPath(value)
 		if err != nil {
 			return err
 		}
@@ -93,7 +92,7 @@ func (w wizard) run() error {
 	if err != nil {
 		return err
 	}
-	root, err := directoryPath(rootInput, false)
+	root, err := directoryPath(rootInput)
 	if err != nil {
 		return err
 	}
@@ -102,7 +101,7 @@ func (w wizard) run() error {
 	if notesInitial == "" {
 		notesInitial = "~/Documents/Radar"
 	}
-	notes, err := w.directory("Where should Radar store your task notes?", "Radar creates a Tasks/ folder here. An Obsidian vault works well, but any directory is fine.", notesInitial, false)
+	notes, err := w.directory("Where should Radar store your task notes?", "Radar creates a Tasks/ folder here. An Obsidian vault works well, but any directory is fine.", notesInitial)
 	if err != nil {
 		return err
 	}
@@ -159,23 +158,8 @@ func (w wizard) run() error {
 	if err != nil {
 		return err
 	}
-	w.ui.print("\nReview %s\n%s\n\n", path, data)
-	secretsPath, err := config.SecretsPath()
-	if err != nil {
+	if err := w.review(path, data, cfg, updates, tmuxPlan); err != nil {
 		return err
-	}
-	if len(updates) > 0 {
-		w.ui.print("Secrets will be saved separately to %s (owner-only, 0600; plaintext, not encrypted).\n", secretsPath)
-		if len(updates["jira"]) > 0 {
-			w.ui.print("  Jira API token: [hidden]\n")
-		}
-		if len(updates["datadog"]) > 0 {
-			w.ui.print("  Datadog API key and application key: [hidden]\n")
-		}
-	}
-	w.ui.print("Task notes: %s\n", config.ObsidianTaskRoot(notes))
-	if tmuxPlan != nil {
-		w.ui.print("\nTmux configuration: %s\n%s\nAppend to %s (preserving its existing contents):\n%s\n", tmuxPlan.Path, tmuxPlan.Content, tmuxPlan.UserPath, tmuxPlan.Include)
 	}
 	if err := w.allow("Save this configuration?"); err != nil {
 		return err
@@ -184,7 +168,7 @@ func (w wizard) run() error {
 		if err := draft.CheckUnchanged(); err != nil {
 			return err
 		}
-		for _, dir := range []string{root, notes} {
+		for _, dir := range []string{repo, root, notes} {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return fmt.Errorf("create directory: %w", err)
 			}
@@ -216,12 +200,27 @@ func (w wizard) run() error {
 			}
 		}
 	}
-	w.ui.print("\n✓ Wrote %s\nReady — run `radar` to open your dashboard.\nPi model/provider authentication is separate: use `/login` in Pi if needed.\n", path)
+	w.ui.print("\n✓ Wrote %s\n", path)
+	if len(updates) > 0 {
+		secretsPath, _ := config.SecretsPath()
+		w.ui.print("✓ Saved credentials to %s\n", secretsPath)
+	}
+	if tmuxPlan != nil {
+		w.ui.print("✓ Tmux settings: %s (included by %s)\n", tmuxPlan.Path, tmuxPlan.UserPath)
+		if tmuxPlan.Starter {
+			w.ui.print("Open Radar from a workspace: Ctrl+B, release, then R.\n")
+		} else {
+			w.ui.print("Open Radar from a workspace: your tmux prefix, then R.\n")
+		}
+	}
+	w.ui.print("Ready — run `radar` to open your dashboard.\nPi model/provider authentication is separate: use `/login` in Pi if needed.\n")
 	return nil
 }
 
-func (w wizard) allow(title string) error {
-	yes, err := w.ui.confirm(title, false)
+func (w wizard) allowInstall(title string) error { return w.confirmRequired(title, true) }
+func (w wizard) allow(title string) error        { return w.confirmRequired(title, false) }
+func (w wizard) confirmRequired(title string, initial bool) error {
+	yes, err := w.ui.confirm(title, initial)
 	if err != nil {
 		return err
 	}
@@ -231,18 +230,18 @@ func (w wizard) allow(title string) error {
 	return nil
 }
 
-func (w wizard) directory(title, hint, initial string, mustExist bool) (string, error) {
+func (w wizard) directory(title, hint, initial string) (string, error) {
 	value, err := w.ui.input(question{title: title, hint: hint, initial: initial, validate: func(value string) error {
-		_, err := directoryPath(value, mustExist)
+		_, err := directoryPath(value)
 		return err
 	}})
 	if err != nil {
 		return "", err
 	}
-	return directoryPath(value, mustExist)
+	return directoryPath(value)
 }
 
-func directoryPath(value string, mustExist bool) (string, error) {
+func directoryPath(value string) (string, error) {
 	path, err := expandPath(value)
 	if err != nil {
 		return "", err
@@ -259,9 +258,6 @@ func directoryPath(value string, mustExist bool) (string, error) {
 		if !os.IsNotExist(err) {
 			return "", fmt.Errorf("cannot access directory: %w", err)
 		}
-		if mustExist {
-			return "", fmt.Errorf("repository directory does not exist")
-		}
 		parent := filepath.Dir(current)
 		if parent == current {
 			return "", fmt.Errorf("directory has no accessible parent")
@@ -271,10 +267,14 @@ func directoryPath(value string, mustExist bool) (string, error) {
 }
 
 func (w wizard) tmuxConfig() (*tmux.ConfigPlan, error) {
-	if w.installedTmux {
-		w.ui.print("\nTmux was installed for you. The final review will include a starter config\nwith mouse support, scrollback, one-based windows and a prefix + r Radar popup.\n")
+	plan, err := tmux.PlanConfig(true)
+	if err != nil {
+		return nil, err
+	}
+	if plan.Starter {
+		w.ui.print("\nNo tmux configuration found. Review will include a starter config with extended keys,\nmouse support and the Radar popup: Ctrl+B, release, then R.\n")
 	} else {
-		w.ui.print("\nRecommended tmux addition (prefix + r opens Radar):\n  bind-key r display-popup -E -w 90%% -h 90%% -d '#{pane_current_path}' 'radar'\nYour other tmux settings are preserved; this replaces any existing prefix + r binding.\n")
+		w.ui.print("\nRecommended tmux additions: extended keys and a prefix + r Radar popup.\nYour prefix and other settings are preserved; this replaces any existing prefix + r binding.\n")
 		yes, err := w.ui.confirm("Add Radar's prefix + r popup binding?", false)
 		if err != nil {
 			return nil, err
@@ -282,10 +282,6 @@ func (w wizard) tmuxConfig() (*tmux.ConfigPlan, error) {
 		if !yes {
 			return nil, nil
 		}
-	}
-	plan, err := tmux.PlanConfig(w.installedTmux)
-	if err != nil {
-		return nil, err
 	}
 	return &plan, nil
 }

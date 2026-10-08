@@ -136,7 +136,7 @@ func writeTool(t *testing.T, bin, name, body string) {
 func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 	// All eight opt-in combinations, each on a fresh machine and an existing
 	// tmux setup (including an existing conflicting r binding and custom prefix).
-	for _, initial := range []string{"existing tools", "install tmux and node"} {
+	for _, initial := range []string{"existing tools", "installer-provisioned tools"} {
 		for choices := 0; choices < 8; choices++ {
 			t.Run(fmt.Sprintf("%s/github=%t/jira=%t/datadog=%t", initial, choices&1 != 0, choices&2 != 0, choices&4 != 0), func(t *testing.T) {
 				_, _, _, home := fixture(t)
@@ -171,13 +171,6 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 					if err := os.WriteFile(filepath.Join(home, "github-authenticated"), nil, 0600); err != nil {
 						t.Fatal(err)
 					}
-				} else {
-					for _, name := range []string{"tmux", "node"} {
-						if err := os.Rename(filepath.Join(bin, name), filepath.Join(home, name+"-fixture")); err != nil {
-							t.Fatal(err)
-						}
-					}
-					writeTool(t, bin, "brew", `case "$2" in tmux|node) /bin/cp "$HOME/$2-fixture" "$HOME/bin/$2";; *) exit 99;; esac`)
 				}
 				// Pre-existing unrelated secrets must survive every option combination.
 				if err := config.SaveSecrets(config.Secrets{"other": {"token": "keep-other-secret"}}); err != nil {
@@ -219,10 +212,7 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 				}))
 				defer server.Close()
 				terminal := startTerminal(t, append(os.Environ(), "RADAR_ONBOARDING_TEST_HTTP="+server.URL))
-				if !existing {
-					terminal.answer(t, "Install or update tmux now?", "y")
-					terminal.answer(t, "Install or update node now?", "y")
-				} else {
+				if existing {
 					// Exercise both accepting and declining the proposal for existing tmux.
 					answer := "n"
 					if choices%2 == 0 {

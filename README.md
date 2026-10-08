@@ -18,8 +18,9 @@ On **macOS**, run this in a terminal without sudo:
 curl -fsSL https://raw.githubusercontent.com/ChristianMoesl/radar/main/install.sh | bash
 ```
 
-The installer verifies the release and starts guided setup. It asks before
-installing Homebrew or Node.js and before changing your PATH. You can decline
+The installer verifies the release, installs required CLI tools (including Pi,
+fd and gh), and starts guided setup. Installation prompts default to Yes but
+still ask permission; PATH changes have a separate confirmation. You can decline
 any offer; declining a required dependency stops installation.
 
 [Linux, Windows/WSL and manual installation →](docs/installation.md#manual-installation)
@@ -30,10 +31,13 @@ Setup walks you through the tools you need and asks you to:
 
 - Choose where your repositories, workspaces and task notes live. **Obsidian is optional.**
 - Connect GitHub, Jira or Datadog—or skip them and start with local work.
-- Review your settings before saving. You can change them later with `radar setup`.
+- Install the required `pi-radar` extension.
+- Review each file and directory change before saving. You can change them later with `radar setup`.
 
 On macOS, follow the optional [notification approval steps](docs/installation.md#macos-notification-setup).
 After setup, open a new terminal and run **`radar`** whenever you want your dashboard.
+Inside a workspace with the generated tmux config, press **Ctrl+B**, release, then **R**.
+Pi offers a short introduction once; choosing No means it will not ask again.
 
 ### 3. Open your first workspace
 

@@ -282,17 +282,17 @@ func TestWizardSkipsDeclinedIntegrations(t *testing.T) {
 }
 
 func TestWizardCancellationLeavesNoConfigurationOrDirectories(t *testing.T) {
-	for _, cancel := range []string{"Where do you check out your repositories?", "Jira API token", "Save this configuration?", "decline save", "decline install"} {
+	for _, cancel := range []string{"Where do you check out your repositories?", "Jira API token", "Save this configuration?", "decline save", "decline extension install"} {
 		t.Run(cancel, func(t *testing.T) {
-			w, ui, sys, home := fixture(t)
+			w, ui, _, home := fixture(t)
 			ui.cancelAt = cancel
 			ui.decisions = []bool{false, false, false, false}
 			if cancel == "Jira API token" {
 				ui.decisions = []bool{false, true}
 				ui.inputs = append(ui.inputs, "https://example.atlassian.net", "you@example.com")
 			}
-			if cancel == "decline install" {
-				sys.missing["tmux"] = true
+			if cancel == "decline extension install" {
+				_ = os.Remove(filepath.Join(home, ".pi", "agent", "settings.json"))
 				ui.decisions = []bool{false}
 			}
 			if err := w.run(); !errors.Is(err, ErrAborted) {
@@ -307,30 +307,40 @@ func TestWizardCancellationLeavesNoConfigurationOrDirectories(t *testing.T) {
 	}
 }
 
-func TestWizardInstallsWithConsentAndChecksAgain(t *testing.T) {
-	w, ui, sys, _ := fixture(t)
+func TestWizardReportsAllMissingToolsWithoutInstalling(t *testing.T) {
+	w, ui, sys, home := fixture(t)
 	sys.missing["tmux"] = true
+	sys.missing["gh"] = true
 	sys.nodeVersion = "v22.0.0"
-	ui.decisions = []bool{true, true, false, false, false, true}
-	if err := w.run(); err != nil {
-		t.Fatal(err)
+	err := w.run()
+	if err == nil {
+		t.Fatal("incomplete installation accepted")
 	}
-	calls := strings.Join(sys.calls, "\n")
-	if !strings.Contains(calls, "brew install tmux") || !strings.Contains(calls, "brew upgrade node") || strings.Count(calls, "node --version") != 2 {
-		t.Fatalf("calls: %s", calls)
+	for _, want := range []string{"tmux", "gh", "node", "make install", "radar setup"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("missing %s: %v", want, err)
+		}
 	}
-	if !strings.Contains(ui.transcript.String(), "Pi runtime prerequisite") {
-		t.Fatal("missing Node explanation")
+	if len(ui.titles) != 0 {
+		t.Fatalf("incomplete setup prompted: %v", ui.titles)
+	}
+	for _, call := range sys.calls {
+		if strings.Contains(call, "install") || strings.HasPrefix(call, "brew ") {
+			t.Fatal(call)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, "config", "radar", "config.yaml")); !os.IsNotExist(err) {
+		t.Fatal("setup saved")
 	}
 }
 
 func TestWizardAbortsFailedInstallationAndAuthentication(t *testing.T) {
 	for _, mode := range []string{"install", "login", "jira"} {
 		t.Run(mode, func(t *testing.T) {
-			w, ui, sys, _ := fixture(t)
+			w, ui, sys, home := fixture(t)
 			switch mode {
 			case "install":
-				sys.missing["tmux"] = true
+				_ = os.Remove(filepath.Join(home, ".pi", "agent", "settings.json"))
 				sys.installErr = errors.New("fixture failure")
 				ui.decisions = []bool{true}
 			case "login":
@@ -427,12 +437,12 @@ func TestValidation(t *testing.T) {
 	if !versionAtLeast("v24.1.0\n", [3]int{24, 0, 0}) {
 		t.Fatal("rejected Node 24")
 	}
-	if _, err := directoryPath("relative/path", false); err == nil {
+	if _, err := directoryPath("relative/path"); err == nil {
 		t.Fatal("accepted relative directory")
 	}
 	file := filepath.Join(t.TempDir(), "file")
 	_ = os.WriteFile(file, nil, 0600)
-	if _, err := directoryPath(filepath.Join(file, "child"), false); err == nil {
+	if _, err := directoryPath(filepath.Join(file, "child")); err == nil {
 		t.Fatal("accepted file parent")
 	}
 }
@@ -608,5 +618,55 @@ func TestSetupUsesEnvironmentSecretWithoutPersistingIt(t *testing.T) {
 	got, err := w.secret("Jira API token", "", "RADAR_JIRA_API_TOKEN", "jira", "api_token", updates)
 	if err != nil || got != "environment-secret" || len(updates) != 0 || len(ui.questions) != 0 || strings.Contains(ui.transcript.String(), got) {
 		t.Fatal("environment secret was prompted, exposed or copied")
+	}
+}
+
+func TestMissingDirectoriesArePreviewedThenCreatedOnlyOnSave(t *testing.T) {
+	for _, save := range []bool{false, true} {
+		t.Run(fmt.Sprint(save), func(t *testing.T) {
+			w, ui, _, home := fixture(t)
+			repo := filepath.Join(home, "new parent", "repos")
+			ui.inputs[0] = repo
+			ui.decisions = []bool{false, false, false, save}
+			ui.beforeConfirm = func(title string) {
+				if title != "Save this configuration?" {
+					return
+				}
+				for _, path := range []string{repo, filepath.Join(home, "workspaces"), filepath.Join(home, "notes")} {
+					if _, err := os.Stat(path); !os.IsNotExist(err) {
+						t.Fatalf("preview created %s", path)
+					}
+				}
+				for _, want := range []string{"Radar settings · CREATE", "Credentials · NOT NEEDED", "Radar tmux settings · CREATE", "User tmux configuration · CREATE", "── Directories", "[CREATE] " + repo, "Tasks", "Already completed"} {
+					if !strings.Contains(ui.transcript.String(), want) {
+						t.Fatalf("missing review %q: %s", want, ui.transcript.String())
+					}
+				}
+			}
+			err := w.run()
+			if save && err != nil || !save && !errors.Is(err, ErrAborted) {
+				t.Fatal(err)
+			}
+			for _, path := range []string{repo, filepath.Join(home, "workspaces"), filepath.Join(home, "notes", "Tasks")} {
+				_, err := os.Stat(path)
+				if save && err != nil || !save && !os.IsNotExist(err) {
+					t.Fatalf("path %s: %v", path, err)
+				}
+			}
+		})
+	}
+}
+
+func TestInstallConsentDefaultsToYesButSaveDoesNot(t *testing.T) {
+	w, ui, _, _ := fixture(t)
+	ui.decisions = []bool{true, true}
+	if err := w.allowInstall("Install extension?"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.allow("Save this configuration?"); err != nil {
+		t.Fatal(err)
+	}
+	if !ui.defaults["Install extension?"] || ui.defaults["Save this configuration?"] {
+		t.Fatal(ui.defaults)
 	}
 }

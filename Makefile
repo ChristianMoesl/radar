@@ -31,6 +31,7 @@ notifier:
 	scripts/build-notifier-app.sh "$(NOTIFIER_APP)" "$(HOST_GOARCH)"
 
 install: build
+	bash -c 'set -euo pipefail; source scripts/install-prerequisites.sh; radar_install_prerequisites'
 	install -d "$(BINDIR)"
 	install -m 0755 "$(BINARY)" "$(BINDIR)/$(BINARY)"
 	install -d "$(PREFIX)/share/radar"
@@ -72,7 +73,7 @@ dist: clean-dist
 		cp LICENSE "$${dir}/LICENSE"; \
 		cp $(AGENT_INSTRUCTIONS_TEMPLATE) "$${dir}/share/radar/AGENTS.md"; \
 		cp scripts/install-notifier.sh "$${dir}/install-notifier.sh"; \
-		cp scripts/install.sh "$${dir}/install.sh"; \
+		{ cat scripts/install-prerequisites.sh; sed '/^source /d' scripts/install.sh; } > "$${dir}/install.sh"; \
 		cp scripts/install-agent-instructions.sh "$${dir}/install-agent-instructions.sh"; \
 		chmod 0755 "$${dir}/install.sh" "$${dir}/install-agent-instructions.sh"; \
 		COPYFILE_DISABLE=1 tar -C "$(DIST_DIR)" -czf "$(DIST_DIR)/$${name}.tar.gz" "$${name}"; \

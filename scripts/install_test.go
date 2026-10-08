@@ -28,6 +28,7 @@ func TestReleaseInstallAndFirstLaunch(t *testing.T) {
 		{"../Makefile", "Makefile"},
 		{"../LICENSE", "LICENSE"},
 		{"install.sh", "install.sh"},
+		{"install-prerequisites.sh", "scripts/install-prerequisites.sh"},
 		{"install-agent-instructions.sh", "install-agent-instructions.sh"},
 		{"install-agent-instructions.sh", "scripts/install-agent-instructions.sh"},
 		{"../internal/pi/default-AGENTS.md", "share/radar/AGENTS.md"},
@@ -36,6 +37,9 @@ func TestReleaseInstallAndFirstLaunch(t *testing.T) {
 		data, err := os.ReadFile(file.source)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if file.destination == "install.sh" {
+			data = bundledInstaller(t)
 		}
 		path := filepath.Join(archive, file.destination)
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -59,7 +63,7 @@ func TestReleaseInstallAndFirstLaunch(t *testing.T) {
 			home := filepath.Join(t.TempDir(), "user home")
 			configHome := filepath.Join(home, ".config")
 			prefix := filepath.Join(home, ".local")
-			env := append(filteredEnvironment("HOME", "XDG_CONFIG_HOME", "PREFIX", "BINDIR", "LIBEXECDIR"), "HOME="+home)
+			env := append(filteredEnvironment("BASH_ENV", "ENV", "HOME", "XDG_CONFIG_HOME", "PREFIX", "BINDIR", "LIBEXECDIR"), "HOME="+home, "PATH="+readyTools(t)+":"+os.Getenv("PATH"))
 			if scenario.xdg {
 				configHome = filepath.Join(home, "settings")
 				env = append(env, "XDG_CONFIG_HOME="+configHome)
@@ -187,4 +191,29 @@ func TestReleaseInstallAndFirstLaunch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func readyTools(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for name, version := range map[string]string{"git": "git version 2.50", "tmux": "tmux 3.6", "fd": "fd 10.0", "node": "v24.0.0", "npm": "11.0", "pi": "0.85.1", "gh": "gh version 2.70"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\necho '"+version+"'\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// Match make dist: helper functions are embedded in the existing archive member,
+// not added as a new file that already-installed updaters would reject.
+func bundledInstaller(t *testing.T) []byte {
+	t.Helper()
+	var out strings.Builder
+	out.Write(mustReadScript(t, "install-prerequisites.sh"))
+	for _, line := range strings.Split(string(mustReadScript(t, "install.sh")), "\n") {
+		if !strings.HasPrefix(line, "source ") {
+			out.WriteString(line + "\n")
+		}
+	}
+	return []byte(out.String())
 }

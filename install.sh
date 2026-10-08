@@ -13,11 +13,12 @@ main() {
     *) echo 'Unsupported macOS architecture.' >&2; return 1;;
   esac
   prefix="$HOME/.local"
+  repair=false
   if command -v radar >/dev/null 2>&1 || [[ -e "$prefix/bin/radar" || -L "$prefix/bin/radar" ]]; then
-    echo 'Radar is already installed. Use radar update for managed updates; other installations stay manual.' >&2
-    return 1
+    repair=true
+    echo 'Radar is already installed. Checking prerequisites only; Radar and its configuration will not be replaced.' >&2
   fi
-  if [[ -e "$prefix/libexec/radar/install.json" || -L "$prefix/libexec/radar/install.json" || -e "$prefix/libexec/radar/.upgrade" || -L "$prefix/libexec/radar/.upgrade" || -e "$prefix/libexec/radar/RadarNotifier.app" || -L "$prefix/libexec/radar/RadarNotifier.app" ]]; then
+  if [[ $repair = false ]] && [[ -e "$prefix/libexec/radar/install.json" || -L "$prefix/libexec/radar/install.json" || -e "$prefix/libexec/radar/.upgrade" || -L "$prefix/libexec/radar/.upgrade" || -e "$prefix/libexec/radar/RadarNotifier.app" || -L "$prefix/libexec/radar/RadarNotifier.app" ]]; then
     echo 'Existing Radar update state needs inspection; this fresh-install bootstrap will not replace it.' >&2
     return 1
   fi
@@ -31,9 +32,9 @@ main() {
   trap 'exit 143' TERM
   ask() {
     local answer=
-    printf '%s [y/N] ' "$1" >&2
+    printf '%s [%s] ' "$1" "${2:-Y/n}" >&2
     read -r answer <&3 || return 1
-    [[ "$answer" = y || "$answer" = Y ]]
+    [[ "$answer" = y || "$answer" = Y || ( -z "$answer" && "${2:-Y/n}" = Y/n ) ]]
   }
   download() {
     curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
@@ -44,8 +45,9 @@ main() {
   }
   brew=
   brew_prefix=
-  # Offer the package manager before onboarding needs it, even if Node is ready.
-  if ! node_ready || ! command -v npm >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1 || ! command -v fd >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1; then
+  # Activate an existing Homebrew for both the archive installer and Radar.
+  # Offer it for missing tools, even if Node is already ready.
+  if ! node_ready || ! command -v npm >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1 || ! command -v fd >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1 || command -v brew >/dev/null 2>&1 || [[ -x "$native_brew" ]]; then
     if command -v brew >/dev/null 2>&1; then
       brew=$(command -v brew)
     elif [[ -x "$native_brew" ]]; then
@@ -214,6 +216,10 @@ while (offset + 512 <= tar.length) {
   offset += Math.ceil(size / 512) * 512;
 }
 if (!ended || required.some(p => !files.has(p)) || !files.get('bin/radar').executable || !files.get('install.sh').executable) throw new Error('Incomplete release archive');
+// Bootstrap sources the authenticated installer's functions, never an older
+// imperative installer that would overwrite Radar during prerequisite repair.
+const installer = decoder.decode(files.get('install.sh').data);
+if (!installer.includes('\nradar_install_archive() {\n') || !installer.includes('\nradar_install_prerequisites() {\n')) throw new Error('This release predates prerequisite-aware installation. Please try again after a new release is published.');
 if (sha(files.get('bin/radar').data) !== artifact.binary_sha256) throw new Error('Radar binary identity mismatch');
 const bundlePrefix = 'libexec/radar/RadarNotifier.app/';
 const bundle = [...files.keys()].filter(p => p.startsWith(bundlePrefix)).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
@@ -238,13 +244,19 @@ console.error(`Verified Radar ${selected.version}, its publisher signature and n
 NODE
   release_dir=$(env -u NODE_OPTIONS -u NODE_PATH node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1])).directory' "$work/selected.json")
   codesign --verify --strict "$release_dir/libexec/radar/RadarNotifier.app"
-  env -u PREFIX -u BINDIR -u LIBEXECDIR /bin/bash "$release_dir/install.sh"
+  source "$release_dir/install.sh"
+  radar_install_prerequisites
+  if [[ $repair = true ]]; then
+    echo 'Required tools are ready. Run radar setup again. Use radar update to update Radar itself.' >&2
+    return 0
+  fi
+  (unset PREFIX BINDIR LIBEXECDIR; radar_install_archive "$release_dir")
   profile=
   case "${SHELL:-/bin/zsh}" in
     */zsh) profile="${ZDOTDIR:-$HOME}/.zshrc";;
     */bash) profile="$HOME/.bash_profile";;
   esac
-  if [[ -n "$profile" ]] && ask "Add Radar commands to $profile for future terminals?"; then
+  if [[ -n "$profile" ]] && ask "Add Radar commands to $profile for future terminals?" y/N; then
     if env -u NODE_OPTIONS -u NODE_PATH node --input-type=module - "$profile" "$brew_prefix" <<'NODE'
 import { constants, existsSync, lstatSync, openSync, fstatSync, readFileSync, writeSync, closeSync, realpathSync } from 'node:fs';
 const [profile, brew] = process.argv.slice(2);
@@ -275,7 +287,7 @@ NODE
     echo 'Shell profile left unchanged. Start later with: ~/.local/bin/radar' >&2
   fi
   export PATH="$prefix/bin:$PATH"
-  echo 'Starting Radar — its setup will offer the remaining tools and integrations.' >&2
+  echo 'Starting Radar — its setup will configure Pi extensions, directories and integrations.' >&2
   (cd "$HOME" && "$prefix/bin/radar" <&3)
 }
 main "$@"

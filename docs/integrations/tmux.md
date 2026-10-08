@@ -10,6 +10,11 @@ tmux supplies local interactive-session facts and multiplexer operations.
 
 The `tmux.windows` session-layout schema uses generic window, pane, command, and layout settings. Exactly one pane command contains `$RADAR_PI_ARGS`.
 
+New onboarding-generated tmux configurations use **Ctrl+B, release, then R**
+to open Radar's popup. Existing prefixes are preserved. Generated snippets also
+enable extended keys for Pi, with CSI-u encoding on tmux 3.5+ and xterm encoding
+on supported 3.2–3.4. See [setup and config preservation](../installation.md#tmux-dashboard-workflow).
+
 ## Workspace layout
 
 By default, workspace sessions use one `pi` window with a single pane running `pi $RADAR_PI_ARGS`; Neovim is not required. This default also applies when `tmux.windows` is omitted or empty. Existing explicit layouts are preserved. Configure additional workspace windows, panes, layouts, and commands in the user config, for example to add an optional Neovim pane:

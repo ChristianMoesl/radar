@@ -59,7 +59,6 @@ var dependencies = []dependency{
 	{"node", "Node.js 24+ is a Pi runtime prerequisite; Radar itself does not need it"},
 	{"npm", "installing Pi and its packages"},
 	{"pi", "Pi 0.85.1+ runs your workspace coding sessions"},
-	{"pi-radar", "Pi's Radar workspace tools and context"},
 	{"gh", "GitHub authentication and pull requests"},
 }
 
@@ -69,11 +68,25 @@ func (w *wizard) dependencies(ctx context.Context, sandbox config.SBXConfig) err
 		w.ui.print("  %-10s %s\n", dep.name, dep.reason)
 	}
 	w.ui.print("\n")
-	checks := append([]dependency(nil), dependencies...)
+	var missing []string
+	for _, dep := range dependencies {
+		ready, err := w.installed(ctx, dep.name)
+		if err != nil {
+			return err
+		}
+		if !ready {
+			missing = append(missing, dep.name+" — "+dep.reason)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("required tools are missing or too old:\n  %s\nRerun the installer for your platform (the bundled install.sh for a release archive, or `make install` from your source checkout), then run `radar setup` again. The one-command bootstrap is macOS-only. Setup does not install CLI tools", strings.Join(missing, "\n  "))
+	}
+	w.ui.print("✓ Required CLI tools ready\n\nPi extensions\n")
+	checks := []dependency{{"pi-radar", "Pi's mandatory Radar workspace tools and context"}}
 	// pi-sbx belongs to optional sandboxing, not Radar's baseline tool set.
 	// Use the same effective default as workspace creation, including explicit
 	// disablement even when the SBX executable happens to be installed.
-	if sandbox.WorkspaceEnabled(w.system.platform(), func(name string) error {
+	if w.system.lookPath("sbx") && sandbox.WorkspaceEnabled(w.system.platform(), func(name string) error {
 		if w.system.lookPath(name) {
 			return nil
 		}
@@ -98,10 +111,9 @@ func (w *wizard) dependencies(ctx context.Context, sandbox config.SBXConfig) err
 			return err
 		}
 		w.ui.print("! %s is missing or below its required version.\n  %s\n  Command: %s\n", dep.name, dep.reason, strings.Join(argv, " "))
-		if err := w.allow("Install or update " + dep.name + " now?"); err != nil {
+		if err := w.allowInstall("Install or update " + dep.name + " now?"); err != nil {
 			return err
 		}
-		wasInstalled := w.system.lookPath(dep.name)
 		if err := w.system.run(ctx, argv[0], argv[1:]...); err != nil {
 			return fmt.Errorf("install %s failed — fix the command above and rerun `radar setup`: %w", dep.name, err)
 		}
@@ -111,9 +123,6 @@ func (w *wizard) dependencies(ctx context.Context, sandbox config.SBXConfig) err
 		}
 		if !ready {
 			return fmt.Errorf("%s is still unavailable or too old on PATH — install the required version, check PATH, then rerun `radar setup`", dep.name)
-		}
-		if dep.name == "tmux" && !wasInstalled {
-			w.installedTmux = true
 		}
 		w.ui.print("✓ %s ready\n", dep.name)
 	}
@@ -167,42 +176,11 @@ func (w wizard) installed(ctx context.Context, name string) (bool, error) {
 
 func (w wizard) installCommand(name string) ([]string, error) {
 	switch name {
-	case "pi":
-		return []string{"npm", "install", "--global", "--ignore-scripts", "@earendil-works/pi-coding-agent"}, nil
 	case "pi-radar", "pi-sbx":
 		return []string{"pi", "install", "npm:@christianmoesl/" + name}, nil
+	default:
+		return nil, fmt.Errorf("%s must be installed by the installer, not onboarding", name)
 	}
-	if w.system.lookPath("brew") {
-		pkg := name
-		if pkg == "npm" {
-			pkg = "node"
-		}
-		verb := "install"
-		if (name == "node" || name == "tmux") && w.system.lookPath(name) {
-			verb = "upgrade"
-		}
-		return []string{"brew", verb, pkg}, nil
-	}
-	if w.system.platform() == "linux" {
-		if w.system.lookPath("apt-get") {
-			pkg := name
-			if pkg == "fd" {
-				pkg = "fd-find"
-			}
-			if pkg == "node" {
-				pkg = "nodejs"
-			}
-			args := []string{"apt-get", "install", "-y", pkg}
-			if name == "node" {
-				args = append(args, "npm")
-			}
-			if os.Geteuid() != 0 {
-				args = append([]string{"sudo"}, args...)
-			}
-			return args, nil
-		}
-	}
-	return nil, fmt.Errorf("%s is required — install it on PATH and rerun `radar setup` (automatic installation needs Homebrew or apt-get)", name)
 }
 
 func versionAtLeast(value string, minimum [3]int) bool {
