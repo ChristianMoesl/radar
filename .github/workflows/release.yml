@@ -33,6 +33,21 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      # Keep tag-object hashes as well as the peeled commit when diagnosing
+      # mirrored push events. Never dump the full event payload or credentials.
+      - name: Record release trigger
+        run: |
+          node <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          console.log(JSON.stringify({
+            run_id: process.env.GITHUB_RUN_ID, run_attempt: process.env.GITHUB_RUN_ATTEMPT,
+            ref: process.env.GITHUB_REF, commit: process.env.GITHUB_SHA,
+            before: event.before, after: event.after,
+            created: event.created, deleted: event.deleted, forced: event.forced,
+          }, null, 2));
+          NODE
+
       - name: Validate package release version
         run: pnpm check:release "${GITHUB_REF_NAME}"
 

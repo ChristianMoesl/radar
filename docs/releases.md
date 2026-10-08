@@ -63,8 +63,9 @@ later without replacing the release contract.
 
 ## Cut a release
 
-- Choose an unused version. `0.1.0` already exists on npm; the implementation
-  prepares `0.1.1`, not a republish of `0.1.0`.
+- Choose an unused version. `0.1.0` already exists on npm, and the `v0.1.1` tag
+  was used for a failed publication. The first corrected baseline prepares
+  **`0.1.2`**. Do not move `v0.1.1` or republish an existing version.
 - Update `package.json` and `extensions/pi-radar/version.ts` together. The latter
   is the version actually loaded into Pi, not a late read of a replaced manifest.
   `pnpm check:release vX.Y.Z` verifies alignment before tagging/publishing.
@@ -124,6 +125,17 @@ Do not delete a published release to force a retry: use a new version. Inspect
 incomplete **drafts** explicitly. After binary publication succeeds, retry only
 the failed npm job, and review an existing successful npm stage instead of
 creating another one. Component artifacts similarly must not be overwritten.
+If a publication fix requires source changes after a tag was pushed, cut a new
+version rather than moving that tag. Reuse an already-published notifier component
+unchanged; a failed CLI release does not invalidate its immutable component.
+
+The publication script is tested with macOS system Bash, including stable releases
+with no prerelease flag. The workflow's **Record release trigger** step logs only
+run/ref/commit and push before/after hashes and creation/deletion/force flags. For
+duplicate mirrored tag events, compare those fields: the commit alone can hide
+changes to an annotated tag object. Concurrency serializes runs but is not event
+deduplication. Inspect mirror settings/delivery evidence before changing mirroring;
+do not bypass immutable-asset verification to make a duplicate run appear successful.
 
 ## User flow and recovery
 

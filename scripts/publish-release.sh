@@ -2,8 +2,8 @@
 set -euo pipefail
 tag=${1:?release tag required}
 repo=ChristianMoesl/radar
-flags=()
-if [[ "$tag" == *-* ]]; then flags+=(--prerelease); fi
+set --
+if [[ "$tag" == *-* ]]; then set -- --prerelease; fi
 # A retry never clobbers published bytes. If CI rebuilt something differently,
 # fail and retain the original release rather than silently replacing it.
 if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
@@ -15,6 +15,6 @@ if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
   done
 else
   gh release create "$tag" dist/*.tar.gz dist/checksums.txt dist/release.json dist/release.json.sig \
-    --repo "$repo" --verify-tag --title "$tag" --generate-notes --draft "${flags[@]}"
+    --repo "$repo" --verify-tag --title "$tag" --generate-notes --draft "$@"
 fi
 gh release edit "$tag" --repo "$repo" --draft=false

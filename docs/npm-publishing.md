@@ -6,7 +6,7 @@ The package is MIT-licensed and contains `LICENSE`, `package.json`, `README.md`,
 
 ## Prerequisites
 
-- The package was bootstrap-published as `0.1.0`. Use a new unpublished version, such as `0.1.1`, for the first staged release; do not republish the bootstrap version.
+- The package was bootstrap-published as `0.1.0`. The failed `v0.1.1` release tag is already used; prepare `0.1.2` for the corrected baseline. Use a new unpublished version and never move a used tag or republish the bootstrap version.
 - The approving npm account needs publish access to `@christianmoesl/pi-radar` and 2FA enabled.
 - Staged publishing requires npm **11.15.0 or newer** and Node **22.14.0 or newer**. The workflow uses Node 24 and npm `^11.15.0`; use a compatible npm CLI for local review and approval.
 - Configure the package's trusted publisher below. Do not add an npm publishing token to GitHub secrets.
@@ -68,7 +68,7 @@ Trusted publishing generates provenance for this public package from its public 
 After approval, inspect the public npm version/provenance and smoke-test an isolated Pi configuration with the separately installed Radar CLI:
 
 ```sh
-version=0.1.1 # Replace with the version just approved.
+version=0.1.2 # Replace with the version just approved.
 agent="$(mktemp -d)"
 PI_CODING_AGENT_DIR="$agent" pi install "npm:@christianmoesl/pi-radar@$version"
 ```
