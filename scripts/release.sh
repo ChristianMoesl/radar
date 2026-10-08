@@ -1,6 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Validation includes terminal subprocesses. Preserve the caller's exact modes,
+# including newline processing, even if a fixture exits while still in raw mode.
+terminal_state=
+if [[ -t 0 ]]; then
+  terminal_state=$(stty -g)
+fi
+restore_terminal() {
+  if [[ -n "$terminal_state" ]]; then
+    stty "$terminal_state" || true
+  fi
+}
+trap restore_terminal EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+validate() {
+  local status=0
+  "$@" || status=$?
+  restore_terminal
+  return "$status"
+}
+
 usage() {
   echo "usage: make release VERSION=vX.Y.Z" >&2
 }
@@ -19,7 +40,7 @@ fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-pnpm check:release "$version"
+validate pnpm check:release "$version"
 
 branch="$(git branch --show-current)"
 if [[ "$branch" != "main" ]]; then
@@ -53,10 +74,10 @@ fi
 
 commit="$(git rev-parse --short=12 HEAD)"
 
-pnpm install --frozen-lockfile
-pnpm check
-make test
-make dist VERSION="$version" COMMIT="$commit"
+validate pnpm install --frozen-lockfile
+validate pnpm check
+validate make test
+validate make dist VERSION="$version" COMMIT="$commit"
 
 git tag -s "$version" -m "$version"
 git push origin main

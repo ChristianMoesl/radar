@@ -72,8 +72,13 @@ later without replacing the release contract.
   including deliberate SDK/compiler/security rebuilds. Swift/plist/icon/build
   inputs cannot change under an existing component version.
 - Run `pnpm check`, `make test`, and release builds on macOS. `make release
-  VERSION=vX.Y.Z` remains the human-operated signed-tag/push workflow. Verify
-  that the tag arrives on GitHub. Never move or reuse a published tag/version.
+  VERSION=vX.Y.Z` remains the human-operated signed-tag/push workflow. `make test`
+  limits Go package concurrency to two so subprocess/PTY fixtures are not starved
+  during release checks. The release script restores the caller's exact terminal
+  modes after each validation stage and on exit; validation failures stop before
+  tagging/pushing. If the terminal was already left in raw mode, run `stty sane`
+  before retrying. Verify that the tag arrives on GitHub. Never move or reuse a
+  published tag/version.
 - CI serializes releases, authenticates/reuses the `notifier-v<version>` component
   release, builds the existing macOS/Linux archives, signs `release.json`, and
   publishes the CLI release from a draft only after uploading its assets.

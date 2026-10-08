@@ -41,8 +41,10 @@ install: build
 		if [ "$(BINDIR)" = "$(HOME)/.local/bin" ] && [ "$(LIBEXECDIR)" = "$(HOME)/.local/libexec/radar" ]; then rm -f "$(LIBEXECDIR)/install.json"; fi; \
 	fi
 
+# Subprocess/PTY fixtures share short deadlines. Bound package concurrency so
+# release checks do not exhaust process-launch capacity on macOS.
 test:
-	$(GO) test ./...
+	$(GO) test -p 2 ./...
 
 dist: clean-dist
 	@set -eu; \
