@@ -200,7 +200,7 @@ test("loads scoped instructions and trusted skills; excludes duplicate skill nam
     await writeFile(join(skills, directory, "SKILL.md"), `---\nname: ${name}\ndescription: Fixture skill\n---\nFixture`);
   }
   await writeFile(instruction, "Repository fixture instructions");
-  h.setContext({ registered: true, members: [{ instruction_files: [instruction], skill_paths: [skills] }] });
+  h.setContext({ registered: true, members: [{ repository: join(h.root, "source"), path: join(h.root, "member"), instruction_files: [instruction], skill_paths: [skills] }] });
   await h.start();
   const resources = await h.resources();
   assert.deepEqual(resources.skillPaths, [join(skills, "one", "SKILL.md")]);
@@ -213,6 +213,81 @@ test("loads scoped instructions and trusted skills; excludes duplicate skill nam
   h.ctx.isProjectTrusted = () => false;
   assert.deepEqual((await h.resources("reload")).skillPaths, []);
   assert.ok(h.notices.some(notice => notice.includes("workspace is not trusted")));
+});
+
+test("loads duplicate skills from the first worktree of a repository without warnings", async (t) => {
+  const h = await harness(t);
+  const repository = join(h.root, "source");
+  // Deliberately differ from path sort order to test context member precedence.
+  const members = ["z-first", "a-second", "b-third"].map((directory) => {
+    const path = join(h.root, directory);
+    return { repository, path, skill_paths: [join(path, ".pi", "skills"), join(path, ".agents", "skills")] };
+  });
+  const sharedPaths: string[] = [];
+  for (const [index, member] of members.entries()) {
+    const root = member.skill_paths[index % 2];
+    await mkdir(join(root, "shared"), { recursive: true });
+    const path = join(root, "shared", "SKILL.md");
+    await writeFile(path, `---\nname: shared\ndescription: Fixture skill\n---\nBranch ${index}`);
+    sharedPaths.push(path);
+  }
+  const uniqueRoot = join(members[1].skill_paths[1], "later-only");
+  await mkdir(uniqueRoot, { recursive: true });
+  const uniquePath = join(uniqueRoot, "SKILL.md");
+  await writeFile(uniquePath, "---\nname: later-only\ndescription: Fixture skill\n---\nFixture");
+  h.setContext({ members });
+  await h.start();
+  const expected = [sharedPaths[0], uniquePath].sort();
+  assert.deepEqual((await h.resources()).skillPaths, expected);
+  assert.deepEqual((await h.resources("reload")).skillPaths, expected);
+  assert.equal(h.notices.length, 0);
+
+  // Removing the selected member promotes the next copy without stale paths.
+  h.setContext({ members: members.slice(1) });
+  assert.deepEqual((await h.resources("reload")).skillPaths, [sharedPaths[1], uniquePath].sort());
+  assert.ok(h.notices.some(notice => notice.includes(`removed skill ${sharedPaths[0]}`)));
+  assert.ok(!h.notices.some(notice => notice.includes("duplicate skill")));
+});
+
+test("still excludes duplicate skill names across repositories after collapsing worktree copies", async (t) => {
+  const h = await harness(t);
+  const members = [];
+  const paths: string[] = [];
+  for (const [directory, source] of [["first", "source-one"], ["second", "source-one"], ["third", "source-two"]]) {
+    const path = join(h.root, directory);
+    const root = join(path, ".agents", "skills");
+    await mkdir(join(root, "shared"), { recursive: true });
+    const skill = join(root, "shared", "SKILL.md");
+    await writeFile(skill, "---\nname: shared\ndescription: Fixture skill\n---\nFixture");
+    paths.push(skill);
+    members.push({ repository: join(h.root, source), path, skill_paths: [root] });
+  }
+  h.setContext({ members });
+  await h.start();
+  assert.deepEqual((await h.resources()).skillPaths, []);
+  assert.deepEqual(h.notices, [`Radar did not load duplicate skill shared: ${paths[0]}, ${paths[2]}`]);
+});
+
+test("does not hide collisions inside the first worktree when another copy exists", async (t) => {
+  const h = await harness(t);
+  const repository = join(h.root, "source");
+  const members = [];
+  const paths: string[] = [];
+  for (const directory of ["first", "second"]) {
+    const path = join(h.root, directory);
+    const roots = [join(path, ".pi", "skills"), join(path, ".agents", "skills")];
+    for (const root of roots) {
+      await mkdir(join(root, "shared"), { recursive: true });
+      const skill = join(root, "shared", "SKILL.md");
+      await writeFile(skill, "---\nname: shared\ndescription: Fixture skill\n---\nFixture");
+      paths.push(skill);
+    }
+    members.push({ repository, path, skill_paths: roots });
+  }
+  h.setContext({ members });
+  await h.start();
+  assert.deepEqual((await h.resources()).skillPaths, []);
+  assert.deepEqual(h.notices, [`Radar did not load duplicate skill shared: ${paths[0]}, ${paths[1]}`]);
 });
 
 test("restores shared TMPDIR before Pi replaces the session", async (t) => {

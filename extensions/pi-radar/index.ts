@@ -319,17 +319,34 @@ async function skillName(path: string): Promise<string | undefined> {
 
 async function discoverResources(context: WorkspaceContextResult, notify?: (message: string, level: "info" | "warning" | "error") => void): Promise<ResourceSnapshot> {
   const contextPaths = [...new Set((context.members ?? []).flatMap((member) => member.instruction_files ?? []))].sort();
-  const candidates = (await Promise.all([...new Set((context.members ?? []).flatMap((member) => member.skill_paths ?? []))].map(skillFiles))).flat();
+  const roots = new Map<string, WorkspaceMember>();
+  for (const member of context.members ?? []) {
+    for (const root of member.skill_paths ?? []) if (!roots.has(root)) roots.set(root, member);
+  }
+  const candidates = (await Promise.all([...roots].map(async ([root, member]) =>
+    (await skillFiles(root)).map((path) => ({ path, member })),
+  ))).flat();
+  const firstMembers = new Map<string, Map<string, string>>();
+  const selectedPaths: string[] = [];
   const byName = new Map<string, string[]>();
-  for (const path of candidates) {
+  for (const { path, member } of candidates) {
     const name = await skillName(path);
-    if (!name) continue;
-    byName.set(name, [...(byName.get(name) ?? []), path]);
+    if (name && member.repository) {
+      const skills = firstMembers.get(member.repository) ?? new Map<string, string>();
+      const firstMember = skills.get(name);
+      // Member order determines precedence, not the final sorted resource paths.
+      // Keep collisions within the chosen worktree so they still produce warnings.
+      if (firstMember !== undefined && firstMember !== member.path) continue;
+      skills.set(name, member.path);
+      firstMembers.set(member.repository, skills);
+    }
+    selectedPaths.push(path);
+    if (name) byName.set(name, [...(byName.get(name) ?? []), path]);
   }
   const duplicates = [...byName.entries()].filter(([, paths]) => paths.length > 1);
   for (const [name, paths] of duplicates) notify?.(`Radar did not load duplicate skill ${name}: ${paths.join(", ")}`, "warning");
   const duplicatePaths = new Set(duplicates.flatMap(([, paths]) => paths));
-  const skillPaths = candidates.filter((path) => !duplicatePaths.has(path)).sort();
+  const skillPaths = selectedPaths.filter((path) => !duplicatePaths.has(path)).sort();
   return { contextPaths, skillPaths };
 }
 

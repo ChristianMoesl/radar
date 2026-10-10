@@ -424,7 +424,7 @@ Requirements:
 - Refresh available skills after a member is added or removed.
 - Keep each skill's source path and member repository visible in Pi's resource display.
 - Remove skills from members that leave the workspace.
-- Detect duplicate skill names and report both paths. Never silently choose one.
+- For duplicate skill names across worktrees of the same repository, silently use the first member containing that name in workspace-context order (sorted by worktree path). Preserve skills unique to later members. Exclude and report conflicts within the selected worktree or between different repositories.
 - Preserve Pi's project-trust behavior before loading skills from a newly added repository.
 - Do not load member `.pi/extensions`, `.pi/settings.json`, prompts, or themes. Multiple repositories can contain executable or conflicting configuration, and the workspace root remains the Pi project.
 
