@@ -1,0 +1,56 @@
+name: Homebrew formula
+
+# npm publication needs human approval after the binary release. Run this only
+# once that approval is complete; no tap token or automated push is involved.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Latest coordinated stable release (vX.Y.Z)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  formula:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test generator
+        run: go test ./scripts/homebrew
+      - name: Generate from authenticated public release
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          mkdir -p build/homebrew/Formula
+          go run ./scripts/homebrew "$RELEASE_VERSION" > build/homebrew/Formula/radar.rb
+      - name: Install and test in a local tap
+        run: |
+          brew tap-new --no-git ChristianMoesl/tap
+          cp build/homebrew/Formula/radar.rb "$(brew --repository ChristianMoesl/tap)/Formula/radar.rb"
+          brew trust --formula ChristianMoesl/tap/radar
+          brew style ChristianMoesl/tap/radar
+          brew install --formula ChristianMoesl/tap/radar
+          brew test ChristianMoesl/tap/radar
+      - name: Upload reviewed tap candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-formula
+          path: build/homebrew/Formula/radar.rb
+      - name: Publishing instructions
+        run: |
+          {
+            echo '## Homebrew candidate validated on the runner architecture'
+            echo
+            echo 'Download homebrew-formula, review Formula/radar.rb, and commit it to ChristianMoesl/homebrew-tap.'
+            echo 'A human must push the tap. This workflow does not publish it or approve npm staging.'
+            echo 'Intel/Apple Silicon and real macOS notification approval still need release smoke tests.'
+          } >> "$GITHUB_STEP_SUMMARY"

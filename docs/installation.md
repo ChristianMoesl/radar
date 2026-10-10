@@ -2,12 +2,77 @@
 
 [Documentation](README.md) · [Quick start](../README.md#get-started)
 
-- [Install on macOS](#one-command-macos-installation)
+- [Homebrew on macOS](#homebrew)
+- [Standalone macOS installer](#one-command-macos-installation)
 - [Manual installation](#manual-installation)
 - [First-run setup](#guided-first-startup)
 - [Reconfigure](#reconfiguring-with-radar-setup)
 - [Notification approval](#macos-notification-setup)
 - [Updates](#managed-macos-releases)
+
+## Homebrew
+
+On macOS (Apple Silicon or Intel), with [Homebrew](https://brew.sh) installed:
+
+```sh
+brew install ChristianMoesl/tap/radar
+radar
+```
+
+The tap is [ChristianMoesl/homebrew-tap](https://github.com/ChristianMoesl/homebrew-tap).
+It installs prebuilt Radar binaries, the notification companion, manual pages,
+fd, tmux and gh.
+Git is expected on PATH. **Pi, Node.js and npm are user-managed**, not formula
+dependencies: install Node.js 24+ with npm using your preferred method, then
+[Pi](https://pi.dev) 0.85.1+ (for example,
+`npm install -g @earendil-works/pi-coding-agent`). Existing compatible installations
+are reused regardless of package manager. Setup validates them before configuring
+Pi extensions; it never installs Node or Pi core itself.
+
+No Go or Swift compiler is needed for Radar. The release requires macOS 13 or
+newer; Homebrew and its dependencies may require a newer supported macOS version
+or build tools of their own.
+
+Homebrew only installs into its prefix and registers the notification companion
+with Launch Services. It does not launch Radar, edit your shell profile, write
+user configuration or install Pi extensions. Run `radar`: first launch or missing
+required tools automatically starts setup. You can also run `radar setup`: the normal
+consent/review flow installs the required `pi-radar` extension, creates default
+`AGENTS.md` instructions if absent, and saves configuration. Existing instructions
+(including symlinks) are preserved. Native notification launch approval and
+permission remain separate user actions; see [notification setup](#macos-notification-setup).
+
+### Homebrew updates
+
+```sh
+brew update
+brew upgrade radar
+radar restart # if the daemon is running
+```
+
+Use Homebrew, **not `radar update`**, to replace Homebrew-managed files. Review the
+release notes and [older-installation rollout guidance](#before-upgrading-older-installations)
+before upgrading: Homebrew does not run Radar's managed-update data preflight or
+transactional rollback. Close/reopen dashboards after updating. Homebrew upgrade
+and uninstall leave your configuration, notes and workspaces alone; automatic
+workspace expiry still follows the configured Radar policy when Radar runs.
+
+Git, Node/npm and Pi core remain managed by your chosen installation method;
+`brew upgrade radar` does **not** install or update them. The host `pi-radar`
+extension is profile-managed and is not updated by that command either. Follow the
+[Pi package update instructions](integrations/pi.md#package-updates), respecting
+custom/pinned/project package sources. Active Pi sessions need `/reload` or
+restart after an extension update. Do not use bare `pi update`.
+
+### Switching from another installation
+
+Check `which -a radar` before and after installing. An older `~/.local/bin/radar`
+can shadow Homebrew's binary. Stop the old daemon with that binary, deliberately
+resolve PATH precedence, and use the Homebrew binary for setup/restart. Neither
+the formula nor setup removes an existing Radar install or migrates its managed
+update receipt. Keep your existing config, notes and workspace data. Use one
+installation/update owner; the standalone bootstrap does not repair a Homebrew
+installation.
 
 ## One-command macOS installation
 
@@ -17,7 +82,7 @@ In a normal Terminal window, without sudo:
 curl -fsSL https://raw.githubusercontent.com/ChristianMoesl/radar/main/install.sh | bash
 ```
 
-The root `install.sh` is the official first-install bootstrap, not an updater. It
+The root `install.sh` is the standalone first-install bootstrap, not an updater. It
 detects Apple Silicon/Intel, selects a stable release with both complete macOS
 archives **and its exact public npm package**, authenticates the signed metadata,
 verifies the selected archive/binary/notifier identities, and safely extracts it.
@@ -107,8 +172,13 @@ under `libexec/radar` and register it with Launch Services.
 Run `radar` in an interactive terminal, or `radar setup` to complete setup without
 opening the dashboard. `radar setup` is repeatable: existing settings prefill the
 wizard and are updated only after review and affirmative save confirmation.
-Automatic setup on bare `radar` runs only when `config.yaml` is missing. Empty or
-malformed config files must be repaired before setup; they are never silently reset.
+Bare `radar` starts setup when `config.yaml` is missing or any required CLI tool
+cannot be found on PATH, even with an existing configuration. Normal dashboard
+startup checks executable availability only—it does not run version probes or
+inspect/install Pi packages. Setup checks usability and minimum versions and
+reports missing or outdated tools before any configuration is saved. Explicit
+`radar setup` also performs those full checks. Empty or malformed config files
+must be repaired before setup; they are never silently reset.
 `radar config-path`, `version`, and background daemon startup do not generate a
 config. A headless daemon can still collect with in-memory defaults; it never
 prompts or installs anything.
@@ -120,9 +190,10 @@ integration choices are preselected on repeat setup. Secrets are masked.
 
 1. **Check, don't install, CLI tools:** Git, tmux 3.2+, fd (`fdfind` on Debian),
    Node.js 24+, npm, Pi 0.85.1+, and gh. Setup lists all missing/unusable tools
-   together and stops before saving. Rerun your platform's installer or
-   `make install` from the source checkout, then `radar setup`. The one-command
-   bootstrap is macOS-only. gh is required even if GitHub integration is disabled;
+   together and stops before saving. For Homebrew, Git is expected on PATH and
+   Pi/Node/npm are user-managed; repair fd/tmux/gh using Homebrew. Otherwise rerun
+   your platform's installer or `make install` from the source checkout, then
+   `radar` or `radar setup`. The one-command bootstrap is macOS-only. gh is required even if GitHub integration is disabled;
    installing it does not log in or enable the integration. Node is Pi's runtime,
    not a Go binary runtime requirement; Neovim is not required.
 2. **Install Pi extensions:** `pi-radar` is mandatory for completed setup. Show
@@ -144,7 +215,7 @@ integration choices are preselected on repeat setup. Secrets are masked.
    email, hidden API token, automatic Cloud ID discovery, and comma/space-separated
    ticket prefixes. Datadog uses a supported site/API endpoint, hidden API and
    application keys, and a required monitor query such as `tag:team:platform`.
-6. Review separate **Radar settings**, **Credentials**, **Radar tmux settings**,
+6. Review separate **Radar settings**, **Agent instructions**, **Credentials**, **Radar tmux settings**,
    **User tmux configuration**, and **Directories** sections. Each file shows its
    path and CREATE / UPDATE / APPEND INCLUDE / UNCHANGED action, with full
    non-secret contents or masked credential names. Missing directories are listed
@@ -357,6 +428,10 @@ written by older installers. Remove an explicit setting manually to adopt
 automatic activation; Radar cannot distinguish an intentional opt-out from an
 old generated default. Explicit kit selections are preserved too.
 
+Setup now creates the same default `AGENTS.md` instructions as the source/archive
+installers, only if absent and only after final confirmation. Existing files and
+symlinks are retained; no data or configuration schema migration is required.
+
 Configuration uses `config.yaml`, `secrets.yaml`, and repository-local
 `.radar.yaml`. Workspace registries, notes, and task-cache schemas are unchanged.
 Restart a running daemon after updating the binary.
@@ -457,8 +532,9 @@ Radar avoids repeatedly launching that same binary until a successful setup/test
 ## Managed macOS releases
 
 Run `radar update` to review a release and confirm adoption/update of the
-standard `~/.local` installation. No silent install occurs. Custom/symlink/package-
-manager installs and Linux/Windows remain manual. CLI and Pi updates have separate
+standard `~/.local` installation. No silent install occurs. Homebrew installations
+use `brew upgrade radar`; other custom/symlink/package-manager installs and
+Linux/Windows remain manual. CLI and Pi updates have separate
 outcomes; active Pi sessions need `/reload` or restart after a package change.
 See [release trust, prerequisites, supported layout and recovery](releases.md#user-flow-and-recovery).
 
@@ -514,6 +590,8 @@ export MANPATH="$HOME/.local/share/man:${MANPATH:-}"
 
 Use your chosen manual directory instead for custom-prefix installations.
 Installers report the location but do not change `MANPATH` or require root.
+Homebrew installs both pages into its standard manual directories, so `man radar`
+and `man radar-config` use the same discovery as other Homebrew packages.
 A local man reader is required to display pages; the Pi documentation tool does
 not need one. Keyword-search databases (`man -k`) are managed by your system,
 not by Radar's user-local installer.

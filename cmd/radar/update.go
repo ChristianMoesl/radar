@@ -54,7 +54,7 @@ func updateRelease(in io.Reader, out io.Writer) error {
 		return err
 	}
 	if executable != filepath.Join(prefix, "bin/radar") {
-		return errors.New("run the installed ~/.local/bin/radar; development, symlink and package-manager installations stay manual")
+		return errors.New("run the installed ~/.local/bin/radar for managed updates; Homebrew installations use brew upgrade radar, and other development, symlink and package-manager installations stay manual")
 	}
 	release, err := update.AcquireInstallation(prefix)
 	if err != nil {

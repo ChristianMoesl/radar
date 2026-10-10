@@ -129,7 +129,7 @@ func runTUI() {
 }
 
 func runTUIWithMode(mode string) {
-	ensureOnboarding()
+	ensureOnboarding(true)
 	path, err := socket.Path()
 	if err != nil {
 		fatal(err)
@@ -324,7 +324,7 @@ func runCreate(args []string) {
 		os.Exit(2)
 	}
 
-	ensureOnboarding()
+	ensureOnboarding(false)
 	integrations := app.DefaultIntegrations()
 	if _, err := integrations.EnsureAuthentication(context.Background(), integration.AuthenticationRequest{Operation: "create"}); err != nil {
 		fatal(err)
@@ -1154,10 +1154,18 @@ func fatalMessage(err error) string {
 	return string(data)
 }
 
-func ensureOnboarding() {
+func ensureOnboarding(checkTools bool) {
 	needed, err := onboarding.Needed()
 	if err != nil {
 		fatal(err)
+	}
+	// Only dashboard entry checks PATH on every launch. Scripted create, JSON,
+	// informational commands and the daemon retain their existing behavior.
+	if !needed && checkTools {
+		if missing := onboarding.MissingTools(); len(missing) > 0 {
+			fmt.Fprintf(os.Stderr, "Required tools missing from PATH: %s. Starting Radar setup.\n", strings.Join(missing, ", "))
+			needed = true
+		}
 	}
 	if needed {
 		if jsonOutput {

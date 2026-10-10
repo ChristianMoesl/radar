@@ -55,6 +55,9 @@ func TestForegroundAuthentication(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(`{}`), 0600); err != nil {
 				t.Fatal(err)
 			}
+			// Keep the configured user's CLI prerequisites available so dashboard
+			// startup reaches SBX authentication rather than setup recovery.
+			writeStartupTools(t, dir, "")
 			logPath := filepath.Join(dir, "calls")
 			script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$RADAR_TEST_AUTH_LOG\"\n" +
 				"case \"$1\" in\nls) echo \"Sign-in required\" >&2; exit 1;;\nlogin) exit "

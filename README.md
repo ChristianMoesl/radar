@@ -12,7 +12,23 @@ dashboard. Open a task to jump into its workspace—with Git worktrees, tmux and
 
 ### 1. Install
 
-On **macOS**, run this in a terminal without sudo:
+On **macOS**, choose Homebrew or the standalone installer. Run without sudo.
+
+**Homebrew** (Apple Silicon or Intel):
+
+```sh
+brew install ChristianMoesl/tap/radar
+radar
+```
+
+Homebrew installs Radar, its notification companion, fd, tmux and gh. Git is
+expected on PATH; install [Pi](https://pi.dev) yourself with Node.js 24+ and npm.
+`radar` automatically starts setup on first launch or when a required tool is
+missing. Setup checks prerequisites and asks before changing configuration or
+installing Pi extensions. Update with `brew upgrade radar`, not `radar update`.
+[Homebrew setup and updates →](docs/installation.md#homebrew)
+
+**Standalone installer:**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ChristianMoesl/radar/main/install.sh | bash

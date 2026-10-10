@@ -135,6 +135,79 @@ with a different epoch rejects the release; implement/document a read-only
 preflight and obtain an explicit migration/reset decision for a manual rollout.
 Binary rollback never rolls back task notes, configuration or other user data.
 
+## Homebrew tap publishing
+
+The public tap is `ChristianMoesl/homebrew-tap`, with `Formula/radar.rb`. Users
+install with `brew install ChristianMoesl/tap/radar`. The formula source template
+and generator live in this repository under `scripts/homebrew/`; do not maintain
+a second hand-written copy of the packaging logic in the tap.
+
+### First publication
+
+Create the public `ChristianMoesl/homebrew-tap` repository and add a short README
+with the install command. **The first formula must use a new Radar release that
+includes Homebrew support**, including setup's default-agent-instruction creation.
+Older releases such as `v0.1.2` do not provide that setup behavior. Do not announce
+the README's Homebrew option until the tap formula has been published and tested.
+No tap repository or formula is created by the normal CLI release workflow.
+
+### Each release
+
+1. Publish a new stable Radar release normally and approve its exact npm package.
+   Do not bypass staged npm approval or regenerate immutable archives.
+2. Run the **Homebrew formula** Actions workflow with `vX.Y.Z`. It checks out that
+   release's source, runs the generator tests, and generates a formula only when
+   the requested version is the latest coordinated public release. A missing
+   matching npm package, invalid signature, incompatible state epoch, unpublished
+   architecture or wrong archive hash stops the job. Both macOS archives are
+   downloaded and authenticated. No older-version fallback is emitted.
+3. The workflow installs/tests the candidate in a temporary runner-local tap and
+   uploads `Formula/radar.rb` as the `homebrew-formula` artifact. It does **not**
+   create/push a tap repository. It needs no cross-repository token or npm secret.
+4. Review the formula diff (version, both URLs/hashes, prerequisite minimums and
+   install hooks), copy it into `ChristianMoesl/homebrew-tap/Formula/radar.rb`, and
+   have a human commit/push it. Never overwrite an existing version's artifacts.
+5. Check `brew update && brew install ChristianMoesl/tap/radar` from the public tap.
+   For existing installations check `brew upgrade radar`, daemon restart and the
+   separately managed Pi extension. The standard release workflow cannot publish
+   the formula early: npm approval happens after it finishes.
+
+For local preparation, run from the **requested release's source checkout** with
+Go available (the tag must match `package.json`):
+
+```sh
+mkdir -p build/homebrew/Formula
+go run ./scripts/homebrew vX.Y.Z > build/homebrew/Formula/radar.rb.tmp &&
+  mv build/homebrew/Formula/radar.rb.tmp build/homebrew/Formula/radar.rb
+```
+
+A failed generator writes no partial formula and does not alter a tap. Its network
+endpoints/trust keys are the same committed ones as the updater, without an
+unsigned mode or configurable production trust override. Formula users trust
+Homebrew and the tap's reviewed Git history; Homebrew verifies the recorded
+SHA-256, rather than running Radar's signed-manifest updater during installation.
+This is a separate distribution trust path, not a claim that hashes alone prove
+publisher identity. Maintainers authenticate those hashes before publishing.
+
+Homebrew owns the binary and notifier under its Cellar; runtime notifier lookup
+resolves the `bin/radar` symlink and uses the same `libexec/radar` layout as release
+archives. Install verifies the app's code signature; post-install registers the
+`opt` app path without launching it or modifying Gatekeeper. Cellar paths change
+on upgrade, so app-specific launch approval may need repeating even if component
+bytes are unchanged. The standalone updater's unchanged-app optimization is not
+promised for Homebrew. The formula declares only fd, tmux and gh as tool dependencies. Git is expected
+on PATH; Node/npm and Pi are user-managed and verified during setup, never
+installed or upgraded by Radar's Homebrew formula. User configuration and Pi
+profile changes belong to the interactive setup/review, never formula hooks.
+
+The Actions smoke test covers the runner's architecture, not both native Macs.
+Before general distribution validate Apple Silicon and Intel, first-run setup,
+existing/symlinked `AGENTS.md` preservation, notifications/approval/clicks,
+upgrade/daemon restart, existing `~/.local` PATH conflicts, and uninstall leaving
+user files untouched. Review data rollout instructions before a brew upgrade:
+Homebrew does not offer Radar's managed updater's migration guard or rollback.
+Linux/WSL keep their existing manual install route; this formula is macOS-only.
+
 ## Immutable notification component
 
 `scripts/prepare-release-notifier.sh` creates or retrieves a dedicated component
@@ -226,8 +299,8 @@ There are no silent installs. An offline/rate-limited check does not block Radar
 
 The managed layout is deliberately restricted to the user's regular, owned
 `~/.local/bin/radar` and `~/.local/libexec/radar/RadarNotifier.app`. Symlinks,
-Homebrew/other package managers, custom prefixes, and checkout executables remain
-manual. An existing source/archive install requires explicit adoption. `make
+Homebrew/other package managers, custom prefixes, and checkout executables are not
+adopted. Homebrew installs use `brew upgrade radar`; other layouts remain manual. An existing source/archive install requires explicit adoption. `make
 install` and the archive installer remain manual operations and remove the
 managed receipt; they do not silently enroll into release management.
 

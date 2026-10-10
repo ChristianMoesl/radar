@@ -62,6 +62,31 @@ var dependencies = []dependency{
 	{"gh", "GitHub authentication and pull requests"},
 }
 
+// MissingTools checks only executable availability on PATH. Dashboard startup
+// must not launch shims, prompt for developer tools, or run slow version probes.
+// Setup remains responsible for checking usability and minimum versions.
+func MissingTools() []string { return missingTools(realSystem{}) }
+
+func missingTools(sys system) []string {
+	var missing []string
+	for _, dep := range dependencies {
+		if toolBinary(sys, dep.name) == "" {
+			missing = append(missing, dep.name)
+		}
+	}
+	return missing
+}
+
+func toolBinary(sys system, name string) string {
+	if sys.lookPath(name) {
+		return name
+	}
+	if name == "fd" && sys.platform() == "linux" && sys.lookPath("fdfind") {
+		return "fdfind"
+	}
+	return ""
+}
+
 func (w *wizard) dependencies(ctx context.Context, sandbox config.SBXConfig) error {
 	w.ui.print("Required tools\n")
 	for _, dep := range dependencies {
@@ -79,7 +104,7 @@ func (w *wizard) dependencies(ctx context.Context, sandbox config.SBXConfig) err
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("required tools are missing or too old:\n  %s\nRerun the installer for your platform (the bundled install.sh for a release archive, or `make install` from your source checkout), then run `radar setup` again. The one-command bootstrap is macOS-only. Setup does not install CLI tools", strings.Join(missing, "\n  "))
+		return fmt.Errorf("required tools are missing or too old:\n  %s\n\nGit is expected on PATH. Pi is user-managed: install Node.js 24+ with npm first, then install Pi (https://pi.dev; `npm install -g @earendil-works/pi-coding-agent`).\nThe Homebrew Radar formula supplies fd, tmux and gh, not Git, Node or Pi. Repair those dependencies with `brew install fd tmux gh` or `brew upgrade fd tmux gh`.\nSource/archive users can rerun their bundled installer or `make install`. Check PATH for shadowed tools, then run `radar` or `radar setup` again. Setup does not install CLI tools", strings.Join(missing, "\n  "))
 	}
 	w.ui.print("✓ Required CLI tools ready\n\nPi extensions\n")
 	checks := []dependency{{"pi-radar", "Pi's mandatory Radar workspace tools and context"}}
@@ -150,12 +175,9 @@ func (w wizard) installed(ctx context.Context, name string) (bool, error) {
 		version, err := w.system.output(ctx, name, "--version")
 		return err == nil && versionAtLeast(version, [3]int{0, 85, 1}), nil
 	case "fd":
-		binary := "fd"
-		if !w.system.lookPath(binary) {
-			if w.system.platform() != "linux" || !w.system.lookPath("fdfind") {
-				return false, nil
-			}
-			binary = "fdfind"
+		binary := toolBinary(w.system, name)
+		if binary == "" {
+			return false, nil
 		}
 		_, err := w.system.output(ctx, binary, "--version")
 		return err == nil, nil

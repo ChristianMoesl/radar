@@ -670,3 +670,90 @@ func TestInstallConsentDefaultsToYesButSaveDoesNot(t *testing.T) {
 		t.Fatal(ui.defaults)
 	}
 }
+
+func TestWizardCreatesAgentInstructionsOnlyAfterConsent(t *testing.T) {
+	for _, save := range []bool{false, true} {
+		t.Run(fmt.Sprint(save), func(t *testing.T) {
+			w, ui, _, home := fixture(t)
+			path := filepath.Join(home, "config", "radar", "AGENTS.md")
+			ui.decisions = []bool{false, false, false, save}
+			ui.beforeConfirm = func(title string) {
+				if title != "Save this configuration?" {
+					return
+				}
+				if _, err := os.Lstat(path); !os.IsNotExist(err) {
+					t.Fatal("instructions written before consent")
+				}
+				if !strings.Contains(ui.transcript.String(), "Agent instructions · CREATE") || !strings.Contains(ui.transcript.String(), "# Radar agent instructions") {
+					t.Fatal("instructions missing from preview")
+				}
+			}
+			err := w.run()
+			if !save {
+				if !errors.Is(err, ErrAborted) {
+					t.Fatalf("expected cancellation, got %v", err)
+				}
+				if _, err := os.Lstat(path); !os.IsNotExist(err) {
+					t.Fatal("cancelled setup wrote instructions")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || !strings.Contains(string(data), "# Radar agent instructions") {
+				t.Fatalf("missing instructions: %v", err)
+			}
+		})
+	}
+}
+
+func TestWizardPreservesInstructionsCreatedDuringReview(t *testing.T) {
+	w, ui, _, home := fixture(t)
+	path := filepath.Join(home, "config", "radar", "AGENTS.md")
+	ui.decisions = []bool{false, false, false, true}
+	ui.beforeConfirm = func(title string) {
+		if title == "Save this configuration?" {
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("my instructions"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := w.run(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "my instructions" {
+		t.Fatalf("replaced user instructions: %q, %v", data, err)
+	}
+}
+
+func TestMissingToolsIsReadOnlyAndSharesPrerequisiteList(t *testing.T) {
+	for _, tc := range []struct {
+		name, platform string
+		missing        map[string]bool
+		want           []string
+	}{
+		{name: "ready"},
+		{name: "missing Pi and Node", missing: map[string]bool{"node": true, "npm": true, "pi": true}, want: []string{"node", "npm", "pi"}},
+		{name: "Git still required", missing: map[string]bool{"git": true}, want: []string{"git"}},
+		{name: "missing tmux", missing: map[string]bool{"tmux": true}, want: []string{"tmux"}},
+		{name: "Debian fdfind accepted", platform: "linux", missing: map[string]bool{"fd": true}},
+		{name: "both fd names missing", platform: "linux", missing: map[string]bool{"fd": true, "fdfind": true}, want: []string{"fd"}},
+		{name: "fdfind not accepted on macOS", platform: "darwin", missing: map[string]bool{"fd": true}, want: []string{"fd"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sys := &fakeSystem{goos: tc.platform, missing: tc.missing, nodeVersion: "v22.0.0"}
+			if got := missingTools(sys); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("missing=%v want=%v", got, tc.want)
+			}
+			if len(sys.calls) != 0 {
+				t.Fatalf("PATH inspection executed commands: %v", sys.calls)
+			}
+		})
+	}
+}

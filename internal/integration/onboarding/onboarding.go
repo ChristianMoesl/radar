@@ -10,6 +10,7 @@ import (
 
 	"radar/internal/config"
 	"radar/internal/integration/tmux"
+	"radar/internal/pi"
 )
 
 type wizard struct {
@@ -183,6 +184,9 @@ func (w wizard) run() error {
 		}
 		if err := config.SaveSecrets(updates); err != nil {
 			return err
+		}
+		if err := pi.InstallInstructions(filepath.Join(filepath.Dir(path), "AGENTS.md")); err != nil {
+			return fmt.Errorf("write agent instructions: %w", err)
 		}
 		if err := draft.Save(cfg); err != nil {
 			return fmt.Errorf("write config.yaml: %w", err)

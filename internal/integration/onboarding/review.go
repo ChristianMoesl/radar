@@ -3,10 +3,12 @@ package onboarding
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"radar/internal/config"
 	"radar/internal/integration/tmux"
+	"radar/internal/pi"
 )
 
 func fileAction(path string, data []byte) (string, error) {
@@ -34,6 +36,14 @@ func (w wizard) review(path string, data []byte, cfg config.Config, updates conf
 		return err
 	}
 	w.reviewBlock("Radar settings", path, action, strings.TrimSpace(string(data)))
+	instructionsPath := filepath.Join(filepath.Dir(path), "AGENTS.md")
+	if _, err := os.Lstat(instructionsPath); os.IsNotExist(err) {
+		w.reviewBlock("Agent instructions", instructionsPath, "CREATE", strings.TrimSpace(pi.DefaultInstructions))
+	} else if err != nil {
+		return err
+	} else {
+		w.reviewBlock("Agent instructions", instructionsPath, "UNCHANGED", "Existing instructions are preserved.")
+	}
 	secretsPath, err := config.SecretsPath()
 	if err != nil {
 		return err
