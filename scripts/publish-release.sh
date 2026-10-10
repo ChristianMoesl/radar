@@ -14,7 +14,10 @@ if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
     cmp "$file" "$existing/$(basename "$file")" || { echo 'Release already exists with different/incomplete assets; inspect it manually. Nothing overwritten.' >&2; exit 1; }
   done
 else
+  notes=$(mktemp)
+  trap 'rm -f "$notes"' EXIT
+  node "$(dirname "$0")/release-notes.mjs" "$tag" > "$notes"
   gh release create "$tag" dist/*.tar.gz dist/checksums.txt dist/release.json dist/release.json.sig \
-    --repo "$repo" --verify-tag --title "$tag" --generate-notes --draft "$@"
+    --repo "$repo" --verify-tag --title "$tag" --notes-file "$notes" --draft "$@"
 fi
 gh release edit "$tag" --repo "$repo" --draft=false

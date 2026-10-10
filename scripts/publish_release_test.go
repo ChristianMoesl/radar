@@ -18,6 +18,10 @@ import (
 // The real publication script runs under system Bash, including macOS Bash 3.2.
 // Only gh is replaced, so no test can touch a real release or use credentials.
 func TestPublishReleaseUnderSystemBash(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required to generate release notes")
+	}
 	for _, test := range []struct {
 		name, state string
 		prerelease  bool
@@ -30,6 +34,7 @@ func TestPublishReleaseUnderSystemBash(t *testing.T) {
 		{name: "incomplete assets", state: "missing", wantExit: 1},
 		{name: "failed download", state: "download failure", wantExit: 7},
 		{name: "failed creation", state: "create failure", wantExit: 7},
+		{name: "failed notes generation", state: "notes failure", wantExit: 1},
 		{name: "failed publication", state: "edit failure", wantExit: 7},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -42,6 +47,23 @@ func TestPublishReleaseUnderSystemBash(t *testing.T) {
 			tag := "v1.2.3"
 			if test.prerelease {
 				tag += "-rc.1"
+			}
+			if err := os.Symlink(node, filepath.Join(root, "bin", "node")); err != nil {
+				t.Fatal(err)
+			}
+			gitEnv := []string{"HOME=" + root, "PATH=" + os.Getenv("PATH"), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_AUTHOR_NAME=Fixture", "GIT_COMMITTER_NAME=Fixture", "GIT_AUTHOR_EMAIL=fixture@example.invalid", "GIT_COMMITTER_EMAIL=fixture@example.invalid", "GIT_AUTHOR_DATE=2020-01-01T12:01:23Z", "GIT_COMMITTER_DATE=2020-01-01T12:01:23Z"}
+			for _, args := range [][]string{{"init", "-q"}, {"commit", "--allow-empty", "-qm", "feat: publication fixture"}, {"tag", tag}} {
+				cmd := exec.Command("git", args...)
+				cmd.Dir, cmd.Env = root, gitEnv
+				if output, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("fixture git failed: %v; %s", err, output)
+				}
+			}
+			if test.state == "notes failure" || test.state == "complete" {
+				// Retries must not need Git history or regenerate the description.
+				if err := os.RemoveAll(filepath.Join(root, ".git")); err != nil {
+					t.Fatal(err)
+				}
 			}
 			files := []string{}
 			for _, target := range []string{"darwin_amd64", "darwin_arm64", "linux_amd64", "linux_arm64"} {
@@ -103,6 +125,8 @@ func TestPublishReleaseUnderSystemBash(t *testing.T) {
 			}
 			wantCommands := []string{"view"}
 			switch test.state {
+			case "notes failure":
+				// Generation fails before any creation or publication.
 			case "absent", "create failure", "edit failure":
 				wantCommands = append(wantCommands, "create")
 				if test.state != "create failure" {
@@ -125,7 +149,22 @@ func TestPublishReleaseUnderSystemBash(t *testing.T) {
 					for _, file := range files {
 						want = append(want, "dist/"+file)
 					}
-					want = append(want, "--repo", "ChristianMoesl/radar", "--verify-tag", "--title", tag, "--generate-notes", "--draft")
+					want = append(want, "--repo", "ChristianMoesl/radar", "--verify-tag", "--title", tag)
+					// The notes file is temporary, but must exist during creation and
+					// be cleaned up by the real Bash script afterwards.
+					notesIndex := len(want)
+					if len(args) <= notesIndex+1 || args[notesIndex] != "--notes-file" {
+						t.Fatalf("missing generated notes file: %q", args)
+					}
+					notesPath := args[notesIndex+1]
+					want = append(want, "--notes-file", notesPath, "--draft")
+					if _, err := os.Stat(notesPath); !os.IsNotExist(err) {
+						t.Fatalf("temporary notes not cleaned up: %v", err)
+					}
+					notes, err := os.ReadFile(filepath.Join(root, "created-notes.md"))
+					if err != nil || !strings.Contains(string(notes), "## Features\n\n- publication fixture") {
+						t.Fatalf("release did not receive commit notes: %v; %s", err, notes)
+					}
 					if test.prerelease {
 						want = append(want, "--prerelease")
 					}
@@ -237,7 +276,7 @@ func TestPublishReleaseCLIHelper(t *testing.T) {
 	state := os.Getenv("PUBLISH_STATE")
 	switch args[1] {
 	case "view":
-		if state == "absent" || state == "create failure" || state == "edit failure" {
+		if state == "absent" || state == "create failure" || state == "edit failure" || state == "notes failure" {
 			os.Exit(1)
 		}
 	case "download":
@@ -255,6 +294,17 @@ func TestPublishReleaseCLIHelper(t *testing.T) {
 			}
 		}
 	case "create":
+		for i, arg := range args {
+			if arg == "--notes-file" && i+1 < len(args) {
+				data, err := os.ReadFile(args[i+1])
+				if err != nil {
+					panic(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, "created-notes.md"), data, 0600); err != nil {
+					panic(err)
+				}
+			}
+		}
 		if state == "create failure" {
 			os.Exit(7)
 		}

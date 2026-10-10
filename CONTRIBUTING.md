@@ -85,6 +85,28 @@ make release VERSION=v0.1.1
 
 The release script validates the version against `package.json`, installs locked Pi dependencies, runs the Pi and Go suites, builds the release archives, creates a signed annotated tag, and pushes it. The GitHub release workflow repeats the version and test checks, then publishes `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64` tarballs, plus `checksums.txt`, with generated notes from the changes since the previous tag. After the binary release succeeds, a dedicated GitHub-hosted job stages the packed Pi extension with `npm stage publish` using npm trusted publishing. Stable versions target npm's `latest` dist-tag; prereleases target `next`. A successful workflow means the binaries are published and the npm package is awaiting review, not publicly available yet. Review the package in npm's **Staged Packages** tab and approve with 2FA to make it available. The workflow summary records this approval requirement.
 
+### Release notes
+
+GitHub release notes are generated from commit messages, including direct commits to `main`, rather than GitHub's PR-based generator:
+
+- `feat:` → **Features**, `fix:` → **Fixed**, and other changes → **Changes**. Scopes are retained; conventional prefixes are removed.
+- Routine `chore:`, `ci:`, and `test:` commits and merge commits are omitted. `!`, `BREAKING CHANGE:`, or `BREAKING-CHANGE:` overrides that filtering and puts the entry under **Breaking changes**.
+- Entries link to their commits; empty sections are omitted. A full-changelog link is always included.
+- The baseline is the closest reachable prior `vX.Y.Z` tag in Git history (not GitHub release creation order). Stable releases skip prerelease tags; prereleases may use a prior stable or prerelease tag. Notifier tags, invalid version tags, and tags on the target commit are excluded. The first release includes the entire history.
+
+Preview notes from a checkout with full history and tags:
+
+```sh
+node scripts/release-notes.mjs v0.2.1
+```
+
+Publication retries preserve the existing description and immutable assets. To deliberately backfill **only** an existing release's description, preview the output first, then:
+
+```sh
+node scripts/release-notes.mjs v0.2.1 > /tmp/radar-release-notes.md
+gh release edit v0.2.1 --repo ChristianMoesl/radar --notes-file /tmp/radar-release-notes.md
+```
+
 Before the first staged release, complete the [npm trusted publishing setup](docs/npm-publishing.md). Leave **Allow npm publish** unchecked; CI needs only stage-only permission, not a GitHub npm publishing secret. Staged publishing requires npm 11.15.0 or newer and an npm account with publish access and 2FA enabled. The release tag must reach the GitHub repository even if development uses another Git remote.
 
 Release assets and npm versions should not be replaced after publishing. If a release is wrong, publish a new patch version. If staging fails after the binary release succeeds, fix the cause and re-run only the failed staging job; do not recreate the GitHub release or move its tag. If staging succeeds, approve or reject that stage rather than re-running the job. See the [staged review and recovery instructions](docs/npm-publishing.md#review-and-approve).
