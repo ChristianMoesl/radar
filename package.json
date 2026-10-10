@@ -1,6 +1,6 @@
 {
   "name": "@christianmoesl/pi-radar",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Radar workspace tools and context for Pi coding agent",
   "license": "MIT",
   "type": "module",
