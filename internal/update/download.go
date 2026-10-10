@@ -264,7 +264,7 @@ func Extract(archive, destination, root string) error {
 }
 func allowedFile(p string) bool {
 	switch p {
-	case "bin/radar", "README.md", "LICENSE", "install.sh", "install-agent-instructions.sh", "install-notifier.sh", "share/radar/AGENTS.md":
+	case "bin/radar", "README.md", "LICENSE", "install.sh", "install-agent-instructions.sh", "install-notifier.sh", "share/radar/AGENTS.md", "share/man/man1/radar.1", "share/man/man5/radar-config.5":
 		return true
 	}
 	return strings.HasPrefix(p, "libexec/radar/RadarNotifier.app/Contents/")

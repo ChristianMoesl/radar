@@ -26,6 +26,17 @@ make install
 radar version
 ```
 
+## Documentation
+
+Edit the existing Markdown guides; do not maintain separate AI or roff manuals.
+The CLI embeds public docs from the checkout, and `make manpages` converts the
+CLI/configuration guides into `build/man/man1/radar.1` and
+`build/man/man5/radar-config.5` with the pinned Go Markdown converter. No extra
+system build dependency is needed. `make build`, `make install` and `make dist`
+include generation; generated files are not committed. Tests cover bundled
+links, canonical topic access, deterministic man output and installer/update
+rollback. If `groff` is available, tests also render both pages.
+
 ## Installation regression tests
 
 `go test ./scripts ./internal/app ./internal/config ./internal/collector ./internal/integration/...`

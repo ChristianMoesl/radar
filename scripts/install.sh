@@ -8,6 +8,7 @@ radar_install_archive() {
   local root=$1
   local prefix=${PREFIX:-"$HOME/.local"}
   local bindir=${BINDIR:-"$prefix/bin"}
+  local mandir=${MANDIR:-"$prefix/share/man"}
   local libexecdir=${LIBEXECDIR:-"$prefix/libexec/radar"}
 
   if [[ ! -x "$root/bin/radar" ]]; then
@@ -15,8 +16,16 @@ radar_install_archive() {
     exit 1
   fi
 
+  local page
+  for page in man1/radar.1 man5/radar-config.5; do
+    [[ -s "$root/share/man/$page" ]] || { echo "release archive is missing manual $page" >&2; return 1; }
+  done
+
   install -d "$bindir"
   install -m 0755 "$root/bin/radar" "$bindir/radar"
+  install -d "$mandir/man1" "$mandir/man5"
+  install -m 0644 "$root/share/man/man1/radar.1" "$mandir/man1/radar.1"
+  install -m 0644 "$root/share/man/man5/radar-config.5" "$mandir/man5/radar-config.5"
   install -d "$prefix/share/radar"
   install -m 0644 "$root/LICENSE" "$prefix/share/radar/LICENSE"
   "$root/install-agent-instructions.sh" "$root/share/radar/AGENTS.md"
@@ -34,6 +43,7 @@ radar_install_archive() {
     fi
   fi
 
+  printf 'Manuals: man radar; man radar-config (if not found, use man -M "%s" radar)\n' "$mandir"
   printf 'Installed Radar at %s\n' "$bindir/radar"
   printf 'Radar agent instructions are available at %s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/radar/AGENTS.md"
   if [[ -d "$libexecdir/RadarNotifier.app" ]]; then

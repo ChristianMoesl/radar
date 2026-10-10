@@ -164,8 +164,8 @@ export default function(pi) {
     };
   }
   function assertActive(value: any) {
-    assert.equal(value.tools.filter((name: string) => name.startsWith("radar_")).length, 3);
-    assert.equal(value.active.filter((name: string) => name.startsWith("radar_")).length, 3);
+    assert.equal(value.tools.filter((name: string) => name.startsWith("radar_")).length, 4);
+    assert.equal(value.active.filter((name: string) => name.startsWith("radar_")).length, 4);
     assert.ok(value.skills.includes("fixture"));
     assert.equal(value.tmpdir, shared);
     assert.ok(value.commands.includes("radar-reload-workspace-resources"));

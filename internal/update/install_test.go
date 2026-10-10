@@ -42,7 +42,14 @@ func stagedFixture(t *testing.T, changeNotifier bool) (*Staged, Installation) {
 	a.BinarySHA256, _ = FileDigest(filepath.Join(root, "bin/radar"))
 	a.NotifierSHA256, _ = TreeDigest(filepath.Join(root, notifierPath))
 	m.Artifacts["arm64"] = a
-	s := &Staged{Prefix: prefix, Root: root, Journal: Journal{Schema: 1, Manifest: m, Arch: "arm64", PreviousBinary: i.BinarySHA256, PreviousNotifier: i.NotifierSHA256, ChangeNotifier: changeNotifier}}
+	for _, path := range manualPaths {
+		put(t, filepath.Join(root, path), "new manual "+path, 0644)
+	}
+	manuals, err := inspectManuals(prefix, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Staged{Prefix: prefix, Root: root, Journal: Journal{Schema: journalSchema, Manuals: manuals, Manifest: m, Arch: "arm64", PreviousBinary: i.BinarySHA256, PreviousNotifier: i.NotifierSHA256, ChangeNotifier: changeNotifier}}
 	return s, i
 }
 func TestActivationLeavesUnchangedNotifierUntouched(t *testing.T) {
@@ -221,7 +228,13 @@ func TestStageAuthenticatedArchiveBeforeActivation(t *testing.T) {
 	}
 	name := "radar_v0.2.0_darwin_arm64"
 	binary := machOBinary("arm64")
-	archive := makeArchive(t, []*tar.Header{{Name: name + "/bin/radar", Typeflag: tar.TypeReg, Mode: 0755}, {Name: name + "/" + notifierPath + "/Contents/MacOS/radar-notifier", Typeflag: tar.TypeReg, Mode: 0755}}, [][]byte{binary, binary})
+	headers := []*tar.Header{{Name: name + "/bin/radar", Typeflag: tar.TypeReg, Mode: 0755}, {Name: name + "/" + notifierPath + "/Contents/MacOS/radar-notifier", Typeflag: tar.TypeReg, Mode: 0755}}
+	contents := [][]byte{binary, binary}
+	for _, path := range manualPaths {
+		headers = append(headers, &tar.Header{Name: name + "/" + path, Typeflag: tar.TypeReg, Mode: 0644})
+		contents = append(contents, []byte("manual"))
+	}
+	archive := makeArchive(t, headers, contents)
 	bytes, err := os.ReadFile(archive)
 	if err != nil {
 		t.Fatal(err)

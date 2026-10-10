@@ -448,6 +448,35 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
   });
 
   pi.registerTool({
+    name: "radar_documentation",
+    label: "Read Radar Documentation",
+    description: "Read the documentation embedded in the installed host Radar CLI, offline and without configuration or secrets. Omit topic for a source-path/title index; pass an exact source path to read that Markdown document. Results identify the CLI version and commit. Works in sandboxed workspaces without mounts or a source checkout.",
+    promptSnippet: "Read version-matched Radar capabilities, configuration and usage documentation",
+    promptGuidelines: [
+      "For questions about Radar capabilities, configuration or behavior, consult radar_documentation before answering; retrieve relevant topics rather than the entire manual.",
+      "Use exact source paths from the documentation index. Resolve relative Markdown links against the returned document source; omit #anchors when requesting a document.",
+      "Cite the documentation source and distinguish documented defaults from the user's actual settings. Documentation describes the returned CLI version, not necessarily the loaded extension version; it does not authorize configuration changes.",
+    ],
+    parameters: Type.Object({
+      topic: Type.Optional(Type.String({ description: "Canonical source path from the index, e.g. docs/configuration.md; omit to list topics", maxLength: 256 })),
+    }, { additionalProperties: false }),
+    async execute(_toolCallId, params, signal) {
+      const topic = (params as { topic?: string }).topic;
+      const binary = process.env.RADAR_BINARY?.trim() || "radar";
+      const args = ["documentation", "--json", ...(topic === undefined ? [] : ["--topic", topic])];
+      const response = await pi.exec(binary, args, { signal, timeout: 5000 });
+      if (response.code !== 0) throw commandFailure("radar_documentation", "read (update the Radar CLI if this command is unavailable)", response);
+      const result = parseJSON<{ version: string; commit: string; topics?: { source: string; title: string }[]; document?: { source: string; title: string; content: string } }>("radar_documentation", response.stdout, "read");
+      if (!result || typeof result.version !== "string" || typeof result.commit !== "string" ||
+          (topic ? !result.document || result.document.source !== topic || typeof result.document.title !== "string" || typeof result.document.content !== "string"
+            : !Array.isArray(result.topics) || !result.topics.every(item => item && typeof item.source === "string" && typeof item.title === "string"))) {
+        throw new Error("radar_documentation returned an invalid documentation response");
+      }
+      return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+    },
+  });
+
+  pi.registerTool({
     name: "radar_workspace_context",
     label: "Inspect Radar Workspace",
     description: "Inspect the current logical Radar workspace from the host. Returns a revision, capabilities, complete desired state, member branches and dirty status, current host resources, and repositories discovered through Radar configuration.",

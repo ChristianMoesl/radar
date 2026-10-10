@@ -49,7 +49,8 @@ test("first welcome is concise, then shared across new workspaces and reloads", 
   assert.equal(h.prompts(), 1);
   assert.match(h.notices[0], /Ctrl\+B, release, then R/);
   assert.match(h.notices[0], /find tasks, create workspaces/);
-  assert.equal(h.notices[0].split("\n").length, 3);
+  assert.match(h.notices[0], /Ask Pi.*man radar and man radar-config/);
+  assert.equal(h.notices[0].split("\n").length, 4);
   assert.equal(await readFile(h.marker, "utf8"), "completed\n");
   assert.equal((await stat(h.marker)).mode & 0o777, 0o600);
   h.load();

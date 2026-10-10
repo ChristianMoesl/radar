@@ -50,20 +50,40 @@ func TestReleaseInstallAndFirstLaunch(t *testing.T) {
 		}
 	}
 
+	manuals := exec.Command("go", "run", "../internal/cmd/manpages", "--output", filepath.Join(archive, "share/man"), "--version", "v1.2.3")
+	if output, err := manuals.CombinedOutput(); err != nil {
+		t.Fatalf("manuals: %v %s", err, output)
+	}
+	for _, page := range []string{"man1/radar.1", "man5/radar-config.5"} {
+		data, err := os.ReadFile(filepath.Join(archive, "share/man", page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(archive, "build/man", page)
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, data, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	for _, scenario := range []struct {
-		name                        string
-		xdg, prefix, bindir, source bool
+		name                                string
+		xdg, prefix, bindir, source, mandir bool
 	}{
 		{name: "home defaults"},
 		{name: "XDG and custom prefix", xdg: true, prefix: true},
 		{name: "custom binary directory", xdg: true, prefix: true, bindir: true},
+		{name: "custom manual directory", xdg: true, prefix: true, mandir: true},
+		{name: "custom source manual directory", xdg: true, prefix: true, mandir: true, source: true},
 		{name: "source install with spaces", xdg: true, prefix: true, bindir: true, source: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			home := filepath.Join(t.TempDir(), "user home")
 			configHome := filepath.Join(home, ".config")
 			prefix := filepath.Join(home, ".local")
-			env := append(filteredEnvironment("BASH_ENV", "ENV", "HOME", "XDG_CONFIG_HOME", "PREFIX", "BINDIR", "LIBEXECDIR"), "HOME="+home, "PATH="+readyTools(t)+":"+os.Getenv("PATH"))
+			env := append(filteredEnvironment("BASH_ENV", "ENV", "HOME", "XDG_CONFIG_HOME", "PREFIX", "BINDIR", "LIBEXECDIR", "MANDIR"), "HOME="+home, "PATH="+readyTools(t)+":"+os.Getenv("PATH"))
 			if scenario.xdg {
 				configHome = filepath.Join(home, "settings")
 				env = append(env, "XDG_CONFIG_HOME="+configHome)
@@ -76,6 +96,11 @@ func TestReleaseInstallAndFirstLaunch(t *testing.T) {
 			if scenario.bindir {
 				bindir = filepath.Join(home, "executables")
 				env = append(env, "BINDIR="+bindir)
+			}
+			mandir := filepath.Join(prefix, "share/man")
+			if scenario.mandir {
+				mandir = filepath.Join(home, "custom manual directory")
+				env = append(env, "MANDIR="+mandir)
 			}
 			install := func() {
 				t.Helper()
@@ -94,6 +119,14 @@ func TestReleaseInstallAndFirstLaunch(t *testing.T) {
 			install()
 			executable := filepath.Join(bindir, "radar")
 			assertMode(t, executable, 0755)
+			for _, page := range []string{"man1/radar.1", "man5/radar-config.5"} {
+				installed := filepath.Join(mandir, page)
+				assertMode(t, installed, 0644)
+				data, err := os.ReadFile(installed)
+				if err != nil || !bytes.Contains(data, []byte("Radar v1.2.3")) {
+					t.Fatalf("installed manual: %v %s", err, data)
+				}
+			}
 			licensePath := filepath.Join(prefix, "share", "radar", "LICENSE")
 			assertMode(t, licensePath, 0644)
 			license, err := os.ReadFile(licensePath)

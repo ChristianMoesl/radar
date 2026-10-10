@@ -48,7 +48,7 @@ func TestOneCommandBootstrap(t *testing.T) {
 	for _, state := range []string{
 		"ready", "Intel", "piped script", "PATH accepted", "profile already configured", "profile symlink", "broken profile symlink", "profile declined", "bash profile", "unsupported shell",
 		"install Node", "install Homebrew and Node", "Homebrew for tools", "Homebrew for tools declined", "Homebrew declined", "Node declined", "Homebrew failed", "Node failed", "Node still old",
-		"already installed", "repair missing gh", "managed journal", "root", "Linux", "unsupported architecture", "symlink prefix", "shared prefix",
+		"already installed", "repair missing gh", "managed journal", "root", "Linux", "unsupported architecture", "symlink prefix", "shared prefix", "symlink manual directory", "symlink manual file",
 		"npm pending", "wrong npm version", "missing architecture asset", "duplicate asset", "newer incomplete", "later release page",
 		"old installer", "unsigned", "unknown publisher", "bad signature", "wrong tag", "bad epoch", "extra manifest field", "wrong filename", "old macOS",
 		"archive hash", "binary identity", "bundle identity", "wrong CPU", "traversal", "symlink entry", "duplicate entry", "special entry", "unexpected file", "truncated tar", "oversized entry", "HTTP redirect", "codesign failed",
@@ -65,6 +65,7 @@ func TestOneCommandBootstrap(t *testing.T) {
 				"Homebrew declined": "Homebrew declined", "Homebrew for tools declined": "Homebrew declined", "Node declined": "Node.js declined",
 				"Node still old": "Node.js 24+ is still unavailable", "already installed": "Radar is already installed", "managed journal": "Existing Radar update state",
 				"root": "without sudo", "Linux": "for macOS", "unsupported architecture": "Unsupported macOS architecture",
+				"symlink manual directory": "private-to-your-user directories", "symlink manual file": "private-to-your-user files",
 				"symlink prefix": "private-to-your-user directories", "shared prefix": "private-to-your-user directories",
 				"old installer": "predates prerequisite-aware installation", "old macOS": "requires macOS 13.0+", "archive hash": "archive size/hash verification failed",
 				"binary identity": "binary identity mismatch", "bundle identity": "bundle identity mismatch", "wrong CPU": "architecture mismatch",
@@ -99,6 +100,8 @@ func TestOneCommandBootstrap(t *testing.T) {
 			}
 			if success {
 				assertMode(t, installed, 0755)
+				assertMode(t, filepath.Join(home, ".local/share/man/man1/radar.1"), 0644)
+				assertMode(t, filepath.Join(home, ".local/share/man/man5/radar-config.5"), 0644)
 				if !strings.Contains(string(calls), "radar launched") || !strings.Contains(string(output), "Verified Radar v1.2.3") {
 					t.Fatalf("verified installation must launch the existing first-run flow: %s; %s", calls, output)
 				}
@@ -331,6 +334,21 @@ BREW
 			t.Fatal(err)
 		}
 	}
+	if state == "symlink manual directory" || state == "symlink manual file" {
+		target := filepath.Join(home, ".local/share/man")
+		external := t.TempDir()
+		if state == "symlink manual file" {
+			target = filepath.Join(target, "man1/radar.1")
+			external = filepath.Join(external, "radar.1")
+			write(external, "do not overwrite", 0644)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(external, target); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if state == "symlink prefix" {
 		if err := os.Symlink(brewPrefix, filepath.Join(home, ".local")); err != nil {
 			t.Fatal(err)
@@ -483,7 +501,7 @@ func bootstrapArchive(t *testing.T, version, arch, state, tools string) ([]byte,
 		cpu = 0x01000007
 	}
 	binary.LittleEndian.PutUint32(binaryData[4:], cpu)
-	files := map[string][]byte{"bin/radar": binaryData, "README.md": []byte("fixture"), "LICENSE": []byte("fixture license"), "share/radar/AGENTS.md": []byte("fixture default instructions"), "install.sh": bundledInstaller(t), "install-agent-instructions.sh": mustReadScript(t, "install-agent-instructions.sh")}
+	files := map[string][]byte{"bin/radar": binaryData, "README.md": []byte("fixture"), "LICENSE": []byte("fixture license"), "share/radar/AGENTS.md": []byte("fixture default instructions"), "share/man/man1/radar.1": []byte("fixture manual"), "share/man/man5/radar-config.5": []byte("fixture config manual"), "install.sh": bundledInstaller(t), "install-agent-instructions.sh": mustReadScript(t, "install-agent-instructions.sh")}
 	if state == "old installer" {
 		files["install.sh"] = []byte("#!/bin/sh\nexit 99\n")
 	}

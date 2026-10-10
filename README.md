@@ -62,3 +62,12 @@ can lose uncommitted work after eight days. Read the [cleanup policy](docs/works
 | Use the CLI, inspect state or find logs | [Command-line reference](docs/cli.md) |
 
 [All documentation](docs/README.md) · [Contributing](CONTRIBUTING.md) · [MIT License](LICENSE)
+
+
+### Offline help
+
+Use `man radar` and `man radar-config` for the installed reference. Inside a
+Radar workspace, you can also ask Pi “What can Radar do?” or “How do I configure
+my workspaces?”. The Radar extension reads documentation embedded in your
+installed CLI. See [manual discovery](docs/installation.md#manual-pages) and
+[Pi documentation access](docs/integrations/pi.md#ask-pi-about-radar).

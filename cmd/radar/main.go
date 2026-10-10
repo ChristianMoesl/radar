@@ -49,6 +49,8 @@ func main() {
 	}
 	command, args := args[0], args[1:]
 	switch command {
+	case "documentation":
+		runDocumentation(args)
 	case "update":
 		runUpdate(args)
 	case "setup":
@@ -1042,6 +1044,9 @@ Other:
   radar config-path
   radar rate-limit
   radar version
+  radar documentation [--topic <source>] [--json]
+
+Manuals: man radar; man radar-config
 
 Output:
   Human-readable output is the default, including when piped.

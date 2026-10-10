@@ -38,13 +38,33 @@ Use the workspace anchor to share its conversation history; member directories h
 
 Sandbox routing remains entirely owned by the separately installed `pi-sbx` extension. `pi-radar` neither selects sandboxes nor overrides Pi's shell or filesystem tools.
 
+## Ask Pi about Radar
+
+In a registered workspace, ask questions such as “What can Radar do?” or
+“How do I configure my workspaces?”. Pi uses the read-only
+`radar_documentation` tool to retrieve an index or a specific Markdown topic
+from the **installed host CLI**. No network, man-page reader, source checkout,
+extra sandbox mounts, configuration file or credentials are needed.
+
+The tool returns the CLI version/commit and canonical documentation source paths.
+Pi should consult relevant topics, cite their sources and distinguish documented
+defaults from your actual configuration. Relative Markdown links resolve against
+the returned source path; request the resulting source path without its anchor.
+The loaded Pi extension can have a different version: these docs describe the
+CLI, not a promise that every extension capability is already loaded. Update the
+CLI if the documentation command is unavailable; reload Pi after extension updates.
+Documentation access does not authorize configuration changes. Outside a
+registered workspace the extension remains inactive; use `man radar` or
+`man radar-config` for the terminal reference.
+
 ## First-use introduction
 
 The first interactive Pi session in a registered Radar workspace asks:
-**“Would you like a quick introduction to Radar?”** Yes shows three short lines
+**“Would you like a quick introduction to Radar?”** Yes shows four short lines
 about opening the dashboard, finding tasks and creating/switching workspaces.
 The configured tmux prefix is used when a Radar popup binding is available;
-otherwise it explains how to open `radar` in another terminal. New starter
+otherwise it explains how to open `radar` in another terminal. The introduction
+also suggests asking Pi about Radar and points to the terminal man pages. New starter
 configurations use **Ctrl+B, release, then R**.
 
 **No means don't ask again.** Both answers suppress future automatic invitations

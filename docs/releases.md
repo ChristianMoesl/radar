@@ -301,3 +301,32 @@ restart, active Pi sessions, interrupted recovery and Pi failure. The prior
 synthetic-quarantine experiment on one Apple Silicon Mac confirmed reapproval
 friction and retained notification permission; it is not a replacement for those
 release tests. Disclose any architecture/minimum-OS paths not yet exercised.
+
+
+## Documentation delivery and recovery layout
+
+`make manpages` generates `radar(1)` and `radar-config(5)` from the Markdown
+sources using a pinned Go build dependency. `make build`, `make install` and
+`make dist` include that step; generated files live under `build/man` and are
+not committed. Release archives contain `share/man/man1/radar.1` and
+`share/man/man5/radar-config.5`. The binary embeds the public Markdown docs for
+Pi's read-only documentation transport. The npm extension does not duplicate
+the docs or rely on a sandbox-visible host path.
+
+Both archive validators allow only these exact additional files. The archive
+checksum/signature covers them. Managed updates require both pages, back up
+existing ones, and restore them (or remove newly installed pages) on failure.
+Symlinks, shared-writable manual installation paths and externally edited pages
+during recovery are rejected rather than overwritten.
+
+The update journal at `~/.local/libexec/radar/.upgrade/journal.json` now uses
+**schema 2**, recording the previous/next digests for both manuals. Receipts,
+workspace state, configuration and notes keep their existing formats. There is
+no automatic journal migration. Before installing this version, inspect any
+existing journal: finish/recover an **uncommitted** schema-1 transaction with
+the previous Radar version; for a **committed** schema-1 transaction, explicitly
+remove its `.upgrade` recovery directory only after deciding its retained backup
+is no longer needed. Unsupported journals fail closed. Installations with no
+journal need no reset. An older updater also rejects the new archive members;
+use a reviewed manual/source installation or the current bootstrap for this
+first upgrade, rather than expecting an old binary to accept the new contract.

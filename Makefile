@@ -1,9 +1,10 @@
-.PHONY: build build-radar notifier install test dist release clean-dist clean
+.PHONY: build build-radar manpages notifier install test dist release clean-dist clean
 
 GO ?= go
 BINARY := radar
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
+MANDIR ?= $(PREFIX)/share/man
 LIBEXECDIR ?= $(PREFIX)/libexec/radar
 AGENT_INSTRUCTIONS_TEMPLATE := internal/pi/default-AGENTS.md
 BUILD_DIR ?= build
@@ -18,10 +19,13 @@ DIST_TARGETS ?= $(RELEASE_TARGETS)
 HOST_OS := $(shell uname -s)
 HOST_GOARCH := $(shell $(GO) env GOARCH)
 
-build: build-radar $(if $(filter Darwin,$(HOST_OS)),notifier)
+build: build-radar manpages $(if $(filter Darwin,$(HOST_OS)),notifier)
 
 build-radar:
 	CGO_ENABLED=0 $(GO) build -trimpath -buildvcs=false -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/radar
+
+manpages:
+	$(GO) run ./internal/cmd/manpages --output "$(BUILD_DIR)/man" --version "$(VERSION)"
 
 notifier:
 	@if [ "$(HOST_OS)" != "Darwin" ]; then \
@@ -34,6 +38,10 @@ install: build
 	bash -c 'set -euo pipefail; source scripts/install-prerequisites.sh; radar_install_prerequisites'
 	install -d "$(BINDIR)"
 	install -m 0755 "$(BINARY)" "$(BINDIR)/$(BINARY)"
+	install -d "$(MANDIR)/man1" "$(MANDIR)/man5"
+	install -m 0644 "$(BUILD_DIR)/man/man1/radar.1" "$(MANDIR)/man1/radar.1"
+	install -m 0644 "$(BUILD_DIR)/man/man5/radar-config.5" "$(MANDIR)/man5/radar-config.5"
+	@printf 'Manuals: man radar; man radar-config (if not found, use man -M "%s" radar)\n' "$(MANDIR)"
 	install -d "$(PREFIX)/share/radar"
 	install -m 0644 LICENSE "$(PREFIX)/share/radar/LICENSE"
 	scripts/install-agent-instructions.sh "$(AGENT_INSTRUCTIONS_TEMPLATE)"
@@ -47,7 +55,7 @@ install: build
 test:
 	$(GO) test -p 2 ./...
 
-dist: clean-dist
+dist: clean-dist manpages
 	@set -eu; \
 	for target in $(DIST_TARGETS); do \
 		goos=$${target%/*}; \
@@ -69,6 +77,8 @@ dist: clean-dist
 				scripts/build-notifier-app.sh "$${dir}/libexec/radar/RadarNotifier.app" "$${goarch}"; \
 			fi; \
 		fi; \
+		mkdir -p "$${dir}/share/man"; \
+		cp -R "$(BUILD_DIR)/man/man1" "$(BUILD_DIR)/man/man5" "$${dir}/share/man/"; \
 		cp README.md "$${dir}/README.md"; \
 		cp LICENSE "$${dir}/LICENSE"; \
 		cp $(AGENT_INSTRUCTIONS_TEMPLATE) "$${dir}/share/radar/AGENTS.md"; \

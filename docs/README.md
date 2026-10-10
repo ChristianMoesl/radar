@@ -2,6 +2,8 @@
 
 New to Radar? Start with the [quick start](../README.md#get-started).
 
+Offline: use `man radar` and `man radar-config`, or [ask Pi about Radar](integrations/pi.md#ask-pi-about-radar) in a workspace.
+
 ## Getting started and everyday use
 
 - [Installation and setup](installation.md) — macOS installer, manual platforms, prerequisites and consent.

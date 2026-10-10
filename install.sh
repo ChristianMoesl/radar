@@ -151,8 +151,14 @@ function ownedDirectory(path) {
 // Never follow a custom/symlink installation or overwrite a managed transaction.
 if (resolve(home) !== home || realpathSync(home) !== home) throw new Error('HOME must be an absolute canonical path');
 ownedDirectory(home);
-for (const p of ['.local', '.local/bin', '.local/libexec', '.local/libexec/radar']) {
+for (const p of ['.local', '.local/bin', '.local/libexec', '.local/libexec/radar', '.local/share', '.local/share/man', '.local/share/man/man1', '.local/share/man/man5']) {
   try { ownedDirectory(join(home, p)); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+}
+for (const p of ['.local/share/man/man1/radar.1', '.local/share/man/man5/radar-config.5']) {
+  try {
+    const s = lstatSync(join(home, p));
+    if (!s.isFile() || s.uid !== process.getuid() || (s.mode & 0o022)) throw new Error('Manual pages must be regular, private-to-your-user files, not shared or symlink paths');
+  } catch (e) { if (e.code !== 'ENOENT') throw e; }
 }
 let selected;
 const releases = [];
@@ -190,7 +196,7 @@ const root = artifact.file.slice(0, -7), files = new Map(), dirs = [], seen = ne
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const text = b => decoder.decode(b.subarray(0, b.indexOf(0) < 0 ? b.length : b.indexOf(0)));
 const octal = b => { const s = text(b).trim(); if (!/^[0-7]+$/.test(s)) throw new Error('Unsupported tar numeric encoding'); return parseInt(s, 8); };
-const required = ['bin/radar', 'README.md', 'LICENSE', 'install.sh', 'install-agent-instructions.sh', 'install-notifier.sh', 'share/radar/AGENTS.md'];
+const required = ['bin/radar', 'README.md', 'LICENSE', 'install.sh', 'install-agent-instructions.sh', 'install-notifier.sh', 'share/radar/AGENTS.md', 'share/man/man1/radar.1', 'share/man/man5/radar-config.5'];
 let offset = 0, expanded = 0, count = 0, ended = false;
 while (offset + 512 <= tar.length) {
   const h = tar.subarray(offset, offset + 512); offset += 512;
@@ -250,7 +256,7 @@ NODE
     echo 'Required tools are ready. Run radar setup again. Use radar update to update Radar itself.' >&2
     return 0
   fi
-  (unset PREFIX BINDIR LIBEXECDIR; radar_install_archive "$release_dir")
+  (unset PREFIX BINDIR LIBEXECDIR MANDIR; radar_install_archive "$release_dir")
   profile=
   case "${SHELL:-/bin/zsh}" in
     */zsh) profile="${ZDOTDIR:-$HOME}/.zshrc";;

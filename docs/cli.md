@@ -10,6 +10,7 @@ radar setup                   # Configure or reconfigure
 radar setup notifications     # macOS launch/notification approval
 radar update                  # Confirm a managed macOS release
 radar version
+radar documentation [--topic <source>] [--json]
 radar create                  # Interactive workspace creation
 radar fork
 radar task create --title <title>
@@ -35,6 +36,27 @@ radar config-path
 radar state-path
 radar log-path
 ```
+
+## Offline documentation
+
+Use **`man radar`** for this command reference and **`man radar-config`** for
+configuration guidance. Both are generated from the same Markdown documentation
+as the installed CLI's embedded manual. See [manual installation and discovery](installation.md#manual-pages).
+
+The Pi extension reads the embedded Markdown through a non-interactive transport:
+
+```sh
+radar documentation --json
+radar documentation --topic docs/configuration.md --json
+```
+
+Without a topic, the result contains `version`, `commit` and a `topics` list of
+canonical `source` paths and `title` values. With a topic, it contains `version`,
+`commit` and `document` (`source`, `title`, `content`). Only listed public docs
+can be read; arbitrary host paths are rejected. Relative Markdown links resolve
+against the source path; omit the `#anchor` when retrieving a document. Without
+`--json`, the command prints the index or Markdown directly. It never starts a
+daemon, prompts for setup, reads credentials or accesses the network.
 
 ## Output for humans and scripts
 

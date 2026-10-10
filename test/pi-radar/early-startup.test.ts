@@ -340,7 +340,7 @@ export default function(pi) {
       assert.ok(value.active.includes(name), name);
     }
     assert.deepEqual(value.tools.filter((tool: RecordValue) => tool.name.startsWith("radar_")).map((tool: RecordValue) => tool.name).sort(), [
-      "radar_reconcile_workspace", "radar_repository_refs", "radar_workspace_context",
+      "radar_documentation", "radar_reconcile_workspace", "radar_repository_refs", "radar_workspace_context",
     ]);
     assert.ok(value.commands.some((command: RecordValue) => command.name === "radar-reload-workspace-resources"));
     return value;

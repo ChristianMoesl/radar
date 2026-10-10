@@ -35,6 +35,7 @@ async function harness(t: TestContext, registered: unknown = true) {
   const entries: any[] = [];
   const responses: any[] = [];
   const approvals: boolean[] = [];
+  let documentationResponse: any = { code: 0, stdout: JSON.stringify({version: "v1.2.3", commit: "abc123", topics: [{source: "docs/configuration.md", title: "Configuration"}]}), stderr: "" };
   let context: any = { registered: true, workspace_path: root, members: [] };
   let inspectionFails = false;
   let registrationFails = false;
@@ -78,6 +79,7 @@ async function harness(t: TestContext, registered: unknown = true) {
         assert.ok(responses.length, "unexpected reconciliation operation");
         return { code: 0, stdout: JSON.stringify(responses.shift()), stderr: "" };
       }
+      if (args[0] === "documentation") return documentationResponse;
       if (args[0] === "activity" && activityExec) return activityExec(args[1]);
       return { code: 0, stdout: "{}", stderr: "" };
     },
@@ -108,6 +110,7 @@ async function harness(t: TestContext, registered: unknown = true) {
     return { emit, start: () => emit("session_start", { reason: "startup" }), tools: peerTools };
   }
   return {
+    setDocumentationResponse: (value: any) => { documentationResponse = value; },
     root, hooks, tools, commands, calls, notices, confirmations, messages, entries, responses, approvals, ctx,
     emit, peer,
     start: () => emit("session_start", { reason: "startup" }),
@@ -167,7 +170,7 @@ test("activates from the session cwd, not the process cwd, exactly once", async 
   h.ctx.cwd = join(h.root, "member", "src");
   await h.start();
   await h.start();
-  assert.deepEqual([...h.tools.keys()], ["radar_workspace_context", "radar_repository_refs", "radar_reconcile_workspace"]);
+  assert.deepEqual([...h.tools.keys()], ["radar_documentation", "radar_workspace_context", "radar_repository_refs", "radar_reconcile_workspace"]);
   assert.deepEqual([...h.commands.keys()], ["radar-onboarding", "radar-reload-workspace-resources"]);
   assert.deepEqual(h.calls[0].args, ["workspace-context", "--registration-only", "--workspace", h.ctx.cwd, "--json"]);
   assert.equal(h.calls[0].binary, "radar");
@@ -183,7 +186,7 @@ test("keeps repair tools available when full workspace inspection fails", async 
   const h = await harness(t);
   h.failInspection();
   await h.start();
-  assert.equal(h.tools.size, 3);
+  assert.equal(h.tools.size, 4);
   assert.deepEqual(await h.resources(), { skillPaths: [] });
   assert.ok((await h.prompt()).systemPrompt.includes("Radar fixture instructions"));
 });
@@ -424,7 +427,7 @@ test("child startup and shutdown cannot clear a busy parent", async t => {
   await h.emit("agent_start");
   const child = h.peer();
   await child.start();
-  assert.equal(child.tools.size, 3, "child workspace tools remain available");
+  assert.equal(child.tools.size, 4, "child workspace tools remain available");
   assert.equal(h.activities().at(-1), "busy", "child startup must not publish idle over its parent");
   await child.emit("session_shutdown");
   assert.equal(h.activities().at(-1), "busy", "child disposal must not clear its parent");
@@ -584,4 +587,42 @@ test("Radar's reconciliation confirmation is observed through native Pi hooks", 
   assert.equal((await result).details.cancelled, true);
   await tick();
   assert.equal(h.activities().at(-1), "busy");
+});
+
+
+test("documentation uses the host CLI and versioned sources, not routed file tools", async (t) => {
+  const h = await harness(t);
+  await h.start();
+  h.failInspection(); // Documentation must not need healthy workspace resources.
+  process.env.RADAR_BINARY = "/host path/radar";
+  const tool = h.tools.get("radar_documentation");
+  const signal = new AbortController().signal;
+  const result = await tool.execute("docs", {}, signal, undefined, h.ctx);
+  assert.equal(result.details.version, "v1.2.3");
+  assert.deepEqual(JSON.parse(result.content[0].text), result.details);
+  assert.deepEqual(h.calls.at(-1), {binary: "/host path/radar", args: ["documentation", "--json"], options: {signal, timeout: 5000}});
+  const document = {source: "docs/configuration.md", title: "Configuration", content: "# Configuration"};
+  h.setDocumentationResponse({code: 0, stdout: JSON.stringify({version: "v1.2.3", commit: "abc", document}), stderr: ""});
+  assert.deepEqual((await tool.execute("docs", {topic: document.source}, signal)).details.document, document);
+  assert.deepEqual(h.calls.at(-1)?.args, ["documentation", "--json", "--topic", document.source]);
+  assert.ok(tool.promptGuidelines.some((line: string) => line.includes("consult radar_documentation before answering")));
+  assert.equal(h.confirmations.length, 0);
+});
+
+test("documentation fails clearly for an old CLI, malformed data and cancellation", async (t) => {
+  const h = await harness(t);
+  await h.start();
+  const tool = h.tools.get("radar_documentation");
+  for (const response of [
+    {code: 2, stdout: "", stderr: "unknown command"},
+    {code: 0, stdout: "not JSON", stderr: ""},
+    {code: 0, stdout: "null", stderr: ""},
+    {code: 0, stdout: "{}", stderr: ""},
+    {code: 130, stdout: "", stderr: "aborted"},
+  ]) {
+    h.setDocumentationResponse(response);
+    await assert.rejects(tool.execute("docs", {}, undefined), /radar_documentation/);
+  }
+  h.setDocumentationResponse({code: 0, stdout: JSON.stringify({version: "v1.2.3", commit: "abc", document: {source: "wrong", title: "Wrong", content: "text"}}), stderr: ""});
+  await assert.rejects(tool.execute("docs", {topic: "docs/configuration.md"}), /invalid documentation response/);
 });

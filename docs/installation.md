@@ -483,3 +483,43 @@ Bare `pi update` is not the package-update command.
 - **Configuration and notes:** review integration-specific rollout instructions
   for old configuration keys, note titles and workspace links. Radar does not
   silently migrate authored data or user configuration.
+
+
+## Manual pages
+
+Radar installs **`radar(1)`** and **`radar-config(5)`** alongside the binary:
+
+```sh
+man radar
+man radar-config
+```
+
+The default location is `~/.local/share/man/man1/radar.1` and
+`~/.local/share/man/man5/radar-config.5`. Source and archive installations use
+`$PREFIX/share/man`; set `MANDIR` to override that location. The macOS bootstrap
+and managed updater use the standard `~/.local/share/man` location.
+
+Discovery depends on your system's man implementation and search configuration.
+If the user-local directory is not found automatically, use:
+
+```sh
+man -M "$HOME/.local/share/man" radar
+```
+
+Or add it to your shell configuration while retaining the system search path:
+
+```sh
+export MANPATH="$HOME/.local/share/man:${MANPATH:-}"
+```
+
+Use your chosen manual directory instead for custom-prefix installations.
+Installers report the location but do not change `MANPATH` or require root.
+A local man reader is required to display pages; the Pi documentation tool does
+not need one. Keyword-search databases (`man -k`) are managed by your system,
+not by Radar's user-local installer.
+
+Pages are generated at build time from `docs/cli.md` and `docs/configuration.md`;
+no Markdown converter is required on the user's system. CLI documentation is
+embedded from the same checkout, so offline answers match the installed build.
+Manual pages are included in signed release archives and replaced/restored with
+the CLI during managed updates. Existing configuration and notes are untouched.

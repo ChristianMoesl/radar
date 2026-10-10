@@ -16,6 +16,8 @@ import (
 
 const notifierPath = "libexec/radar/RadarNotifier.app"
 const receiptPath = "libexec/radar/install.json"
+const journalSchema = 2
+
 const transactionPath = "libexec/radar/.upgrade"
 
 type Receipt struct {
@@ -148,14 +150,15 @@ func AcquireInstallation(prefix string) (func(), error) {
 }
 
 type Journal struct {
-	Schema           int      `json:"schema"`
-	Committed        bool     `json:"committed"`
-	Manifest         Manifest `json:"manifest"`
-	Arch             string   `json:"arch"`
-	PreviousBinary   string   `json:"previous_binary"`
-	PreviousNotifier string   `json:"previous_notifier"`
-	PreviousReceipt  *Receipt `json:"previous_receipt"`
-	ChangeNotifier   bool     `json:"change_notifier"`
+	Manuals          map[string]ManualChange `json:"manuals"`
+	Schema           int                     `json:"schema"`
+	Committed        bool                    `json:"committed"`
+	Manifest         Manifest                `json:"manifest"`
+	Arch             string                  `json:"arch"`
+	PreviousBinary   string                  `json:"previous_binary"`
+	PreviousNotifier string                  `json:"previous_notifier"`
+	PreviousReceipt  *Receipt                `json:"previous_receipt"`
+	ChangeNotifier   bool                    `json:"change_notifier"`
 }
 
 func ReadJournal(prefix string) (*Journal, error) {
@@ -170,7 +173,13 @@ func ReadJournal(prefix string) (*Journal, error) {
 	if err := DecodeStrict(data, &j); err != nil {
 		return nil, err
 	}
-	if j.Schema != 1 || !digestPattern.MatchString(j.PreviousBinary) || (j.PreviousNotifier != "" && !digestPattern.MatchString(j.PreviousNotifier)) {
+	if j.Schema != journalSchema {
+		return nil, errors.New("unsupported update recovery journal; recover an unfinished update with the previous Radar version, or explicitly remove a completed recovery directory before updating")
+	}
+	if err := validateManuals(j.Manuals); err != nil {
+		return nil, err
+	}
+	if !digestPattern.MatchString(j.PreviousBinary) || (j.PreviousNotifier != "" && !digestPattern.MatchString(j.PreviousNotifier)) {
 		return nil, errors.New("invalid update recovery journal")
 	}
 	if err := j.Manifest.Validate(); err != nil {
@@ -251,7 +260,11 @@ func Stage(ctx context.Context, c *Client, i Installation, m Manifest, arch stri
 	if err != nil || info.Mode()&0111 == 0 {
 		return nil, errors.New("staged binary is not executable")
 	}
-	return &Staged{Prefix: i.Prefix, Root: staged, Journal: Journal{Schema: 1, Manifest: m, Arch: arch, PreviousBinary: i.BinarySHA256, PreviousNotifier: i.NotifierSHA256, PreviousReceipt: i.Receipt, ChangeNotifier: i.NotifierSHA256 != a.NotifierSHA256}}, nil
+	manuals, err := inspectManuals(i.Prefix, staged)
+	if err != nil {
+		return nil, err
+	}
+	return &Staged{Prefix: i.Prefix, Root: staged, Journal: Journal{Schema: journalSchema, Manuals: manuals, Manifest: m, Arch: arch, PreviousBinary: i.BinarySHA256, PreviousNotifier: i.NotifierSHA256, PreviousReceipt: i.Receipt, ChangeNotifier: i.NotifierSHA256 != a.NotifierSHA256}}, nil
 }
 
 // Hooks run under the caller's exclusive mutation gate. Health starts/checks the
@@ -276,6 +289,9 @@ func (s *Staged) Activate(h Hooks) error {
 	}
 	if current.BinarySHA256 != s.Journal.PreviousBinary || current.NotifierSHA256 != s.Journal.PreviousNotifier {
 		return errors.New("installation changed during download; review again")
+	}
+	if err := s.backupManuals(); err != nil {
+		return err
 	}
 	if err := os.Link(binary, filepath.Join(base, "previous-radar")); err != nil {
 		return err
@@ -332,6 +348,9 @@ func (s *Staged) Activate(h Hooks) error {
 	if err := syncDir(filepath.Dir(binary)); err != nil {
 		return fail(err)
 	}
+	if err := s.activateManuals(); err != nil {
+		return fail(err)
+	}
 	a := s.Journal.Manifest.Artifacts[s.Journal.Arch]
 	if s.Journal.ChangeNotifier && h.Register != nil {
 		if err := h.Register(app); err != nil {
@@ -361,6 +380,9 @@ func Recover(prefix string) error {
 	}
 	if j.Committed {
 		return nil
+	}
+	if err := checkManualInstallPaths(prefix); err != nil {
+		return err
 	}
 	base := filepath.Join(prefix, transactionPath)
 	binary := filepath.Join(prefix, "bin/radar")
@@ -411,6 +433,9 @@ func Recover(prefix string) error {
 			return err
 		}
 	}
+	if err := recoverManuals(prefix, j.Manuals); err != nil {
+		return err
+	}
 	if j.PreviousReceipt != nil {
 		if err := writeJSON(filepath.Join(prefix, receiptPath), j.PreviousReceipt); err != nil {
 			return err
@@ -445,17 +470,41 @@ func verifyArchitecture(path, arch string) error {
 	return nil
 }
 
+type installationPath struct {
+	relative            string
+	required, directory bool
+}
+
 func checkInstallPaths(prefix string) error {
-	for index, p := range []string{prefix, filepath.Join(prefix, "bin"), filepath.Join(prefix, "bin/radar"), filepath.Join(prefix, "libexec"), filepath.Join(prefix, "libexec/radar")} {
+	if err := checkOwnedPaths(prefix, []installationPath{
+		{"", true, true}, {"bin", true, true}, {"bin/radar", true, false},
+		{"libexec", false, true}, {"libexec/radar", false, true},
+	}); err != nil {
+		return err
+	}
+	return checkManualInstallPaths(prefix)
+}
+
+func checkManualInstallPaths(prefix string) error {
+	return checkOwnedPaths(prefix, []installationPath{
+		{"share", false, true}, {"share/man", false, true},
+		{"share/man/man1", false, true}, {"share/man/man5", false, true},
+		{manualPaths[0], false, false}, {manualPaths[1], false, false},
+	})
+}
+
+func checkOwnedPaths(prefix string, paths []installationPath) error {
+	for _, entry := range paths {
+		p := filepath.Join(prefix, entry.relative)
 		info, err := os.Lstat(p)
-		if os.IsNotExist(err) && index >= 3 {
+		if os.IsNotExist(err) && !entry.required {
 			continue
 		}
 		if err != nil {
 			return err
 		}
-		if info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0022 != 0 {
-			return fmt.Errorf("unsupported writable/shared or symlink installation path: %s", p)
+		if (entry.directory && !info.IsDir()) || (!entry.directory && !info.Mode().IsRegular()) || info.Mode().Perm()&0022 != 0 {
+			return fmt.Errorf("unsupported writable/shared, symlink or non-regular installation path: %s", p)
 		}
 		var stat unix.Stat_t
 		if err := unix.Lstat(p, &stat); err != nil {
@@ -465,6 +514,5 @@ func checkInstallPaths(prefix string) error {
 			return fmt.Errorf("installation is not owned by the current user: %s", p)
 		}
 	}
-
 	return nil
 }

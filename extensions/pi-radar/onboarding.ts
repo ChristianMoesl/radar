@@ -20,7 +20,7 @@ async function introduction(pi: ExtensionAPI): Promise<string> {
       }
     } catch { /* A missing/custom popup must not produce misleading instructions. */ }
   }
-  return `${opening}\nUse Radar to find tasks, create workspaces, and switch between ongoing work.\nReopen this introduction with /radar-onboarding.`;
+  return `${opening}\nUse Radar to find tasks, create workspaces, and switch between ongoing work.\nAsk Pi “What can Radar do?” or “How do I configure my workspaces?”; terminal reference: man radar and man radar-config.\nReopen this introduction with /radar-onboarding.`;
 }
 
 // Registered only after pi-radar establishes workspace membership. No model
