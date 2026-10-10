@@ -17,9 +17,15 @@ import (
 
 const PrivacySettings = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension"
 const NotificationSettings = "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
+const launchServicesRegister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 const SetupInstructions = `Radar's small notification companion supplies the macOS app identity,
 native task alerts, and notification clicks. It is not another dashboard.
 Radar remains usable if you defer notification setup.
+
+Choosing Set up / test verifies the companion's code signature, registers it
+with Launch Services, then launches the test. Homebrew cannot register the app
+from its sandboxed install hooks; this user-initiated step works for all installs.
+Registration does not grant either macOS permission or change Gatekeeper policy.
 
 There are TWO independent approvals:
 
@@ -87,6 +93,20 @@ func setup(in io.Reader, out io.Writer, helper string, run setupCommand) error {
 				fmt.Fprintf(out, "Could not open Settings: %v. Follow the written directions instead.\n", err)
 			}
 			cancel()
+			continue
+		}
+		// Homebrew's install sandbox deliberately blocks Launch Services. Perform
+		// registration only after the user selects the foreground test, never
+		// from an install hook, daemon, settings link or deferred setup.
+		bundle := filepath.Dir(filepath.Dir(filepath.Dir(helper)))
+		if output, err := run(ctx, "/usr/bin/codesign", "--verify", "--strict", bundle); err != nil {
+			cancel()
+			fmt.Fprintf(out, "Could not verify the notification companion: %v %s\nRepair the installed companion before retrying. No registration or test was attempted.\n", err, strings.TrimSpace(string(output)))
+			continue
+		}
+		if output, err := run(ctx, launchServicesRegister, "-f", bundle); err != nil {
+			cancel()
+			fmt.Fprintf(out, "Could not register the notification companion: %v %s\nRun `radar setup notifications` in a normal host terminal and retry. No notification test was launched.\n", err, strings.TrimSpace(string(output)))
 			continue
 		}
 		payload, _ := json.Marshal(Notification{Title: "Radar notification test", Body: "Click to open Radar's GitHub page.", URL: "https://github.com/ChristianMoesl/radar"})

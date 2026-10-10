@@ -33,8 +33,10 @@ No Go or Swift compiler is needed for Radar. The release requires macOS 13 or
 newer; Homebrew and its dependencies may require a newer supported macOS version
 or build tools of their own.
 
-Homebrew only installs into its prefix and registers the notification companion
-with Launch Services. It does not launch Radar, edit your shell profile, write
+Homebrew only installs into its prefix. Its sandboxed hooks cannot register apps
+with Launch Services; `radar setup notifications` verifies and registers the
+companion only when you choose **Set up / test** in a normal host terminal.
+Homebrew does not launch Radar, edit your shell profile, write
 user configuration or install Pi extensions. Run `radar`: first launch or missing
 required tools automatically starts setup. You can also run `radar setup`: the normal
 consent/review flow installs the required `pi-radar` extension, creates default
@@ -492,7 +494,11 @@ to the user's tmux server. The PTY matrix adds roughly 90 seconds to the suite.
 ## macOS notification setup
 
 After saving the main setup, macOS users can optionally set up notifications.
-Return at any time with `radar setup notifications`. Deferring
+Return at any time with `radar setup notifications`. Choosing **Set up / test**
+verifies the companion's code signature and registers its installed app bundle
+with Launch Services before launching it. Registration failure is reported and
+stops that test; retry explicitly after fixing the problem. Deferring setup or
+opening a settings link does not verify, register or launch the companion. Deferring
 keeps the dashboard usable and does not change notification preferences.
 
 The daemon notifies you when a task newly needs attention, not on every refresh

@@ -32,11 +32,6 @@ class Radar < Formula
     pkgshare.install "share/radar/AGENTS.md", "LICENSE"
   end
 
-  post_install_steps do
-    run "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
-        args: ["-f", "{{"{{opt_prefix}}"}}/libexec/radar/RadarNotifier.app"]
-  end
-
   def caveats
     <<~EOS
       Git must be available on PATH. Install Pi >= {{.MinPi}} yourself with
@@ -52,7 +47,8 @@ class Radar < Formula
       if the daemon is running. Update your host pi-radar package separately;
       active Pi sessions need /reload or restart.
 
-      Notifications may need macOS launch approval and notification permission:
+      To register the notification companion and request macOS launch approval
+      and notification permission, run outside Homebrew:
         radar setup notifications
       Never disable Gatekeeper or remove quarantine to bypass approval.
 

@@ -51,11 +51,11 @@ func TestRenderFormula(t *testing.T) {
 		`on_arm do`, `on_intel do`, `depends_on macos: :ventura`,
 		`depends_on "tmux"`, `depends_on "fd"`, `depends_on "gh"`,
 		`Node.js >= 24`, `Pi >= 0.85.1`, `Git must be available on PATH`,
-		`does not`, `install or update Git, Node or Pi`, `post_install_steps do`, `{{opt_prefix}}/libexec/radar`,
+		`does not`, `install or update Git, Node or Pi`, `run outside Homebrew`,
 		`bin.install "bin/radar"`, `(libexec/"radar").install "libexec/radar/RadarNotifier.app"`,
 		`man1.install "share/man/man1/radar.1"`, `man5.install "share/man/man5/radar-config.5"`,
 		`pkgshare.install "share/radar/AGENTS.md", "LICENSE"`,
-		`lsregister`, `radar setup`, `brew upgrade radar`, `radar restart`, `which -a radar`,
+		`radar setup`, `brew upgrade radar`, `radar restart`, `which -a radar`,
 	} {
 		if !strings.Contains(string(data), wanted) {
 			t.Errorf("missing formula behavior %q", wanted)
@@ -67,7 +67,7 @@ func TestRenderFormula(t *testing.T) {
 			t.Errorf("missing authenticated %s URL/hash", arch)
 		}
 	}
-	for _, forbidden := range []string{"npm install", "install.sh", "xattr", "ENV[\"HOME\"]", "radar update\"", `depends_on "node"`, `depends_on "pi-coding-agent"`, `depends_on "git"`, `Formula["node"]`, `Formula["pi-coding-agent"]`} {
+	for _, forbidden := range []string{"post_install", "lsregister", "npm install", "install.sh", "xattr", "ENV[\"HOME\"]", "radar update\"", `depends_on "node"`, `depends_on "pi-coding-agent"`, `depends_on "git"`, `Formula["node"]`, `Formula["pi-coding-agent"]`} {
 		if strings.Contains(string(data), forbidden) {
 			t.Errorf("formula must not run user installers/updaters or bypass Gatekeeper: %q", forbidden)
 		}
