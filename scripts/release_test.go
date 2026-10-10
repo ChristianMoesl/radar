@@ -175,6 +175,15 @@ func TestReleaseRestoresTerminalAndPreservesValidationResult(t *testing.T) {
 			if published != (failure == "") {
 				t.Fatalf("tag/push boundary violated: %s", calls)
 			}
+			reminder := "Action required after CI finishes: approve @christianmoesl/pi-radar@0.1.1 with 2FA."
+			link := "Open Staged Packages: https://www.npmjs.com/settings/christianmoesl/staged-packages"
+			if failure == "" {
+				if !strings.Contains(string(output), reminder) || !strings.Contains(string(output), link) {
+					t.Fatalf("successful release must show the versioned 2FA reminder and npm link: %s", output)
+				}
+			} else if strings.Contains(string(output), reminder) || strings.Contains(string(output), link) {
+				t.Fatalf("failed release must not print the publication reminder: %s", output)
+			}
 			if failure == "" || failure == "test" || failure == "dist" {
 				if !strings.Contains(string(output), "line one\r\nline two\r\n") {
 					t.Fatalf("validation did not restore newline processing before the next stage: %q", output)

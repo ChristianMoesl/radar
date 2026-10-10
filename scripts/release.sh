@@ -143,4 +143,5 @@ git push --atomic origin "$release_commit:refs/heads/main" "$notifier_ref" "refs
 
 echo "released $version from $commit"
 echo "GitHub Actions will publish the binaries and stage the Pi package for npm review."
-echo "Approve the staged package with 2FA on npmjs.com before it becomes publicly available."
+echo "Action required after CI finishes: approve @christianmoesl/pi-radar@${version#v} with 2FA."
+echo "Open Staged Packages: https://www.npmjs.com/settings/christianmoesl/staged-packages"
