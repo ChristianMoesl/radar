@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -17,15 +17,15 @@ async function fixture(t: { after: (cleanup: () => Promise<void>) => void }, ver
   await mkdir(join(root, "extensions/pi-radar"), { recursive: true });
   await writeFile(join(root, "extensions/pi-radar/version.ts"), `export const radarPackageVersion = "${version}";\n`);
   await writeFile(join(root, "package.json"), JSON.stringify({ version }));
-  const script = join(root, "scripts", "check-release-version.mjs");
-  await writeFile(script, await readFile(join(repository, "scripts", "check-release-version.mjs")));
+  const script = join(root, "scripts", "release-version.mjs");
+  await writeFile(script, await readFile(join(repository, "scripts", "release-version.mjs")));
   return { root, script };
 }
 
 for (const version of ["0.1.0", "1.2.3", "1.2.3-rc.1", "1.2.3-beta", "1.2.3-0.alpha-1"]) {
   test(`release version accepts matching v${version}`, async t => {
     const { script } = await fixture(t, version);
-    const { stdout } = await exec(process.execPath, [script, `v${version}`]);
+    const { stdout } = await exec(process.execPath, [script, "check", `v${version}`]);
     assert.match(stdout, /Validated release/);
   });
 }
@@ -33,7 +33,7 @@ for (const version of ["0.1.0", "1.2.3", "1.2.3-rc.1", "1.2.3-beta", "1.2.3-0.al
 for (const tag of [undefined, "0.1.0", "v0.2.0", "v0.1.0-rc.1", "v0.1.0+build.1"]) {
   test(`release version rejects tag ${tag ?? "<missing>"}`, async t => {
     const { script } = await fixture(t, "0.1.0");
-    await assert.rejects(exec(process.execPath, [script, ...(tag ? [tag] : [])]), error => {
+    await assert.rejects(exec(process.execPath, [script, "check", ...(tag ? [tag] : [])]), error => {
       assert.match(String(error), /release tag must match package.json version/);
       return true;
     });
@@ -43,14 +43,14 @@ for (const tag of [undefined, "0.1.0", "v0.2.0", "v0.1.0-rc.1", "v0.1.0+build.1"
 for (const version of ["01.2.3", "1.02.3", "1.2.03", "1.2", "1.2.3-", "1.2.3-rc..1", "1.2.3-01", "1.2.3+build.1"]) {
   test(`release version rejects invalid package version ${version}`, async t => {
     const { script } = await fixture(t, version);
-    await assert.rejects(exec(process.execPath, [script, `v${version}`]), error => {
+    await assert.rejects(exec(process.execPath, [script, "check", `v${version}`]), error => {
       assert.match(String(error), /package.json version must be a release version/);
       return true;
     });
   });
 }
 
-test("local release validates package version before fetching, tagging or pushing", async t => {
+test("local release rejects malformed versions before fetching, tagging or pushing", async t => {
   const { root } = await fixture(t, "0.1.0");
   await writeFile(join(root, "scripts", "release.sh"), await readFile(join(repository, "scripts", "release.sh")));
   const bin = join(root, "bin");
@@ -65,13 +65,13 @@ fi
 `, { mode: 0o755 });
   await writeFile(join(bin, "pnpm"), `#!/bin/sh
 [ "$1" = check:release ] || exit 1
-exec node "$FIXTURE_ROOT/scripts/check-release-version.mjs" "$2"
+exec node "$FIXTURE_ROOT/scripts/release-version.mjs" check "$2"
 `, { mode: 0o755 });
-  await assert.rejects(exec("bash", [join(root, "scripts", "release.sh"), "v0.2.0"], {
+  await assert.rejects(exec("bash", [join(root, "scripts", "release.sh"), "v0.2.0-01"], {
     cwd: root,
     env: { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, FIXTURE_ROOT: root },
   }), error => {
-    assert.match(String(error), /release tag must match package.json version/);
+    assert.match(String(error), /release version must be vX.Y.Z/);
     return true;
   });
   await assert.rejects(readFile(join(root, "git-calls")), { code: "ENOENT" });
@@ -150,4 +150,49 @@ test("failed npm staging fails the job without claiming approval is ready", asyn
   await assert.rejects(staging.run({ FAIL_STAGE: "1" }));
   assert.deepEqual((await staging.calls()).map(call => call.command), ["pnpm", "npm"]);
   await assert.rejects(readFile(staging.summary), { code: "ENOENT" });
+});
+
+for (const moduleVersion of ["0.1.0", "0.2.0"]) {
+  test(`preparation synchronizes both copies, including a partial bump from ${moduleVersion}`, async t => {
+    const { root, script } = await fixture(t, moduleVersion);
+    const manifest = { name: "fixture", version: "0.2.0", scripts: { test: "unchanged" }, pi: { extensions: ["entry.ts"] } };
+    await writeFile(join(root, "package.json"), JSON.stringify(manifest, null, 4) + "\n");
+    await exec(process.execPath, [script, "prepare", "v0.2.0"]);
+    assert.deepEqual(JSON.parse(await readFile(join(root, "package.json"), "utf8")), manifest);
+    assert.equal(await readFile(join(root, "package.json"), "utf8"), JSON.stringify(manifest, null, 4) + "\n");
+    await exec(process.execPath, [script, "check", "v0.2.0"]);
+    await exec(process.execPath, [script, "prepare", "v0.3.0-rc.1"]);
+    assert.deepEqual(JSON.parse(await readFile(join(root, "package.json"), "utf8")), { ...manifest, version: "0.3.0-rc.1" });
+    await exec(process.execPath, [script, "check", "v0.3.0-rc.1"]);
+  });
+}
+
+for (const version of ["v01.2.3", "v1.02.3", "v1.2.03", "v1.2", "v1.2.3-", "v1.2.3-rc..1", "v1.2.3-01", "v1.2.3+build.1", "1.2.3"]) {
+  test(`preparation rejects ${version} without changing either file`, async t => {
+    const { root, script } = await fixture(t, "0.1.0");
+    const paths = [join(root, "package.json"), join(root, "extensions/pi-radar/version.ts")];
+    const before = await Promise.all(paths.map(path => readFile(path, "utf8")));
+    await assert.rejects(exec(process.execPath, [script, "prepare", version]));
+    assert.deepEqual(await Promise.all(paths.map(path => readFile(path, "utf8"))), before);
+  });
+}
+
+test("a malformed module or symlink cannot cause a partial version rewrite", async t => {
+  const { root, script } = await fixture(t, "0.1.0");
+  const manifest = await readFile(join(root, "package.json"), "utf8");
+  const module = join(root, "extensions/pi-radar/version.ts");
+  await writeFile(module, "not a version declaration\n");
+  await assert.rejects(exec(process.execPath, [script, "prepare", "v0.2.0"]));
+  assert.equal(await readFile(join(root, "package.json"), "utf8"), manifest);
+  await rm(module);
+  await symlink(join(root, "package.json"), module);
+  await assert.rejects(exec(process.execPath, [script, "prepare", "v0.2.0"]), /regular file/);
+  assert.equal(await readFile(join(root, "package.json"), "utf8"), manifest);
+});
+
+test("CI check remains read-only and rejects a stale loaded-version constant", async t => {
+  const { root, script } = await fixture(t, "0.1.0");
+  await writeFile(join(root, "package.json"), JSON.stringify({ version: "0.2.0" }));
+  await assert.rejects(exec(process.execPath, [script, "check", "v0.2.0"]), /loaded-version reporting/);
+  assert.match(await readFile(join(root, "extensions/pi-radar/version.ts"), "utf8"), /"0\.1\.0"/);
 });

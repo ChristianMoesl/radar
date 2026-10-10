@@ -40,7 +40,7 @@ fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-validate pnpm check:release "$version"
+validate node scripts/release-version.mjs validate "$version"
 
 branch="$(git branch --show-current)"
 if [[ "$branch" != "main" ]]; then
@@ -48,17 +48,18 @@ if [[ "$branch" != "main" ]]; then
   exit 1
 fi
 
-if [[ -n "$(git status --porcelain)" ]]; then
+worktree_status="$(git status --porcelain)"
+if [[ -n "$worktree_status" ]]; then
   echo "working tree must be clean before releasing" >&2
   git status --short >&2
   exit 1
 fi
 
+starting_commit="$(git rev-parse HEAD)"
 git fetch origin main --tags
 
-if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
-  echo "local main must match origin/main before releasing" >&2
-  echo "run: git pull --ff-only origin main" >&2
+if ! git merge-base --is-ancestor origin/main HEAD; then
+  echo "local main is behind or diverged from origin/main; reconcile it before releasing" >&2
   exit 1
 fi
 
@@ -70,6 +71,12 @@ fi
 if git ls-remote --exit-code --tags origin "refs/tags/$version" >/dev/null 2>&1; then
   echo "tag already exists on origin: $version" >&2
   exit 1
+else
+  status=$?
+  if [[ $status != 2 ]]; then
+    echo "could not verify that $version is unused on origin" >&2
+    exit "$status"
+  fi
 fi
 
 notifier_version=$(cat macos/RadarNotifier/VERSION)
@@ -95,19 +102,44 @@ elif ! grep -q 'HTTP 404' "$notifier_state/error" || [[ "$notifier_release" != n
   exit 1
 fi
 
+# Preflight includes network requests; don't overwrite edits made while waiting.
+worktree_status="$(git status --porcelain)"
+if [[ "$(git branch --show-current)" != main || "$(git rev-parse HEAD)" != "$starting_commit" || -n "$worktree_status" ]]; then
+  echo "repository changed during preflight; refusing to prepare release versions" >&2
+  exit 1
+fi
+# A failed validation leaves this local commit available for inspection/retry;
+# no reset, tag or remote update is performed to hide a failure.
+validate node scripts/release-version.mjs prepare "$version"
+worktree_status="$(git status --porcelain -- . ':!package.json' ':!extensions/pi-radar/version.ts')"
+if [[ "$(git branch --show-current)" != main || "$(git rev-parse HEAD)" != "$starting_commit" || -n "$worktree_status" ]]; then
+  echo "repository changed while preparing the version; inspect local changes before retrying" >&2
+  exit 1
+fi
+if ! git diff --quiet HEAD -- package.json extensions/pi-radar/version.ts; then
+  git commit --only -m "chore: release $version" -- package.json extensions/pi-radar/version.ts
+fi
+release_commit="$(git rev-parse HEAD)"
 commit="$(git rev-parse --short=12 HEAD)"
+validate pnpm check:release "$version"
 
 validate pnpm install --frozen-lockfile
 validate pnpm check
 validate make test
 validate make dist VERSION="$version" COMMIT="$commit"
 
-if ! git rev-parse -q --verify "$notifier_ref" >/dev/null; then
-  git tag -s "$notifier_tag" -m "Radar notifier $notifier_version"
+worktree_status="$(git status --porcelain)"
+if [[ "$(git branch --show-current)" != main || "$(git rev-parse HEAD)" != "$release_commit" || -n "$worktree_status" ]]; then
+  echo "repository changed during validation; refusing to tag or push unvalidated changes" >&2
+  exit 1
 fi
-git tag -s "$version" -m "$version"
-# Both refs reach origin in one transaction before any mirror hooks run.
-git push --atomic origin "$notifier_ref" "refs/tags/$version"
+if ! git rev-parse -q --verify "$notifier_ref" >/dev/null; then
+  git tag -s "$notifier_tag" "$release_commit" -m "Radar notifier $notifier_version"
+fi
+git tag -s "$version" "$release_commit" -m "$version"
+# Main and both tags reach origin in one transaction before mirror hooks run.
+# Pin the tested commit explicitly; a concurrent remote update rejects the push.
+git push --atomic origin "$release_commit:refs/heads/main" "$notifier_ref" "refs/tags/$version"
 
 echo "released $version from $commit"
 echo "GitHub Actions will publish the binaries and stage the Pi package for npm review."

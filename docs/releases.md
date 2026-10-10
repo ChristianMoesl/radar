@@ -73,25 +73,47 @@ later without replacing the release contract.
   publication, and the corrected **`v0.1.2` CLI is published**. Finish its npm
   staging/approval by retrying only the failed npm job, not by cutting another
   version. Never move a used tag or republish an existing version.
-- Update `package.json` and `extensions/pi-radar/version.ts` together. The latter
-  is the version actually loaded into Pi, not a late read of a replaced manifest.
-  `pnpm check:release vX.Y.Z` verifies alignment before tagging/publishing.
+- From a **clean `main` checkout on macOS**, run:
+
+  ```sh
+  make release VERSION=vX.Y.Z
+  ```
+
+  Do **not** manually bump the version files or run `npm version` / `pnpm version`
+  first: those commands can create a tag before Radar validates the release.
+  An authenticated `gh` session and working Git tag signing are required.
+- The command validates the target version, fetches refs, rejects used tags,
+  and verifies notifier history/ref identity **before modifying files**. Local
+  `main` may be ahead of `origin/main`; behind/diverged branches and staged,
+  unstaged or untracked changes are rejected. It never merges or resets work.
+- It synchronizes `package.json` and `extensions/pi-radar/version.ts`, repairing
+  even a previously committed partial bump, and creates `chore: release vX.Y.Z`
+  only when those files change. That commit contains only the two version files.
+  The module still captures the actually loaded version for Pi sessions;
+  `pnpm check:release vX.Y.Z` remains a **read-only** check in CI.
+- It installs locked development dependencies and runs `pnpm check`, `make test`
+  and release builds against the prepared commit. Only after validation succeeds
+  does it sign the CLI tag (and a notifier tag for a genuinely new component),
+  then atomically push **main, `notifier-v<version>`, and `vX.Y.Z`** to `origin`.
+  The exact validated commit is used for build metadata and tags. Repository
+  changes during validation abort publication. A remote advance rejects the
+  non-forced atomic push; there is no separate-push fallback.
+- A validation/build failure leaves the version commit **local**, without tags
+  or a push. Fix the failure, commit any fixes, and rerun the same command: an
+  already-aligned version does not produce a duplicate bump commit. A failed
+  version write or Git commit may leave edits for inspection; nothing is silently
+  discarded. If tagging/pushing failed, inspect the remaining local/remote refs
+  first; never move a used tag or force publication.
 - Change `macos/RadarNotifier/VERSION` only for an actual component change,
-  including deliberate SDK/compiler/security rebuilds. Swift/plist/icon/build
-  inputs cannot change under an existing component version.
-- Run `pnpm check`, `make test`, and release builds on macOS. An authenticated
-  `gh` session is required to inventory all component releases, including drafts.
-  `make release VERSION=vX.Y.Z` remains the human-operated workflow: it verifies
-  component history/ref identity, signs a new component tag only for an unused
-  version, then atomically pushes **both** `notifier-v<version>` and `vX.Y.Z` to
-  `origin`. Existing component refs are reused exactly, never retagged at HEAD.
-  A failed atomic push stops; there is no separate-push fallback. `make test`
-  limits Go package concurrency to two so subprocess/PTY fixtures are not starved
-  during release checks. The release script restores the caller's exact terminal
-  modes after each validation stage and on exit; validation failures stop before
-  tagging/pushing. If the terminal was already left in raw mode, run `stty sane`
-  before retrying. Verify that the tag arrives on GitHub. Never move or reuse a
-  published tag/version.
+  including deliberate SDK/compiler/security rebuilds. Existing component refs
+  and published artifacts are reused exactly, never retagged or rebuilt at HEAD.
+  Swift/plist/icon/build inputs cannot change under an existing component version.
+- `make test` limits Go package concurrency to two so subprocess/PTY fixtures are
+  not starved during release checks. The release script restores the caller's
+  exact terminal modes after each validation stage and on exit. If the terminal
+  was already left in raw mode, run `stty sane` before retrying. Humans run this
+  publishing command; agents may prepare changes but must not execute its push.
+  Verify that the tags arrive on GitHub through the development forge's mirror.
 - CI serializes releases, authenticates/reuses the `notifier-v<version>` component
   release, builds the existing macOS/Linux archives, signs `release.json`, and
   publishes the CLI release from a draft only after uploading its assets.

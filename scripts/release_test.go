@@ -35,6 +35,9 @@ func releaseFixture(t *testing.T, failure string) *exec.Cmd {
 	}
 	for name, data := range map[string][]byte{
 		"macos/RadarNotifier/VERSION":        []byte("1.2.3\n"),
+		"package.json":                       []byte(`{"version":"0.1.0"}`),
+		"extensions/pi-radar/version.ts":     []byte("export const radarPackageVersion = \"0.1.0\";\n"),
+		"scripts/release-version.mjs":        mustReadScript(t, "release-version.mjs"),
 		"scripts/notifier-release-state.mjs": mustReadScript(t, "notifier-release-state.mjs"),
 	} {
 		path := filepath.Join(root, name)
@@ -50,18 +53,20 @@ printf 'git %s\n' "$*" >> "$RELEASE_CALLS"
 case "$*" in
   'rev-parse --show-toplevel') printf '%s\n' "$RELEASE_ROOT";;
   'branch --show-current') printf 'main\n';;
-  'status --porcelain') ;;
+  'status --porcelain'|'status --porcelain -- . :!package.json :!extensions/pi-radar/version.ts'|'merge-base --is-ancestor origin/main HEAD') ;;
   'rev-parse HEAD'|'rev-parse origin/main'|'rev-parse --short=12 HEAD') printf 'fixture-commit\n';;
-  'rev-parse -q --verify refs/tags/v0.1.1'|'ls-remote --exit-code --tags origin refs/tags/v0.1.1') exit 1;;
+  'rev-parse -q --verify refs/tags/v0.1.1'|'diff --quiet HEAD -- package.json extensions/pi-radar/version.ts') exit 1;;
+  'ls-remote --exit-code --tags origin refs/tags/v0.1.1') exit 2;;
+  'commit --only -m chore: release v0.1.1 -- package.json extensions/pi-radar/version.ts') ;;
   'rev-parse -q --verify refs/tags/notifier-v1.2.3')
     case "$RELEASE_MODE" in
       existing) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n';;
       mismatch) printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n';;
       *) exit 1;;
     esac;;
-  'push --atomic origin refs/tags/notifier-v1.2.3 refs/tags/v0.1.1')
+  'push --atomic origin fixture-commit:refs/heads/main refs/tags/notifier-v1.2.3 refs/tags/v0.1.1')
     if [ "$RELEASE_FAILURE" = push ]; then exit 11; fi;;
-  'fetch origin main --tags'|'tag -s v0.1.1 -m v0.1.1'|'tag -s notifier-v1.2.3 -m Radar notifier 1.2.3') ;;
+  'fetch origin main --tags'|'tag -s v0.1.1 fixture-commit -m v0.1.1'|'tag -s notifier-v1.2.3 fixture-commit -m Radar notifier 1.2.3') ;;
   *) echo 'unexpected git command' >&2; exit 99;;
 esac
 `
@@ -209,7 +214,7 @@ func TestReleaseOwnsNotifierRefsBeforeMirroring(t *testing.T) {
 			}
 			cliTag := strings.Index(calls, "git tag -s v0.1.1")
 			dist := strings.Index(calls, "make dist ")
-			push := strings.Index(calls, "git push --atomic origin refs/tags/notifier-v1.2.3 refs/tags/v0.1.1")
+			push := strings.Index(calls, "git push --atomic origin fixture-commit:refs/heads/main refs/tags/notifier-v1.2.3 refs/tags/v0.1.1")
 			if cliTag <= dist || push <= cliTag || mode == "fresh" && (componentTag <= dist || componentTag >= cliTag) || strings.Count(calls, "git push ") != 1 {
 				t.Fatalf("refs must be published atomically only after validation: %s", calls)
 			}
@@ -225,7 +230,7 @@ func TestReleaseAtomicPushFailureHasNoSeparatePushFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(calls), "git push ") != 1 || !strings.Contains(string(calls), "git push --atomic origin refs/tags/notifier-v1.2.3 refs/tags/v0.1.1") {
+	if strings.Count(string(calls), "git push ") != 1 || !strings.Contains(string(calls), "git push --atomic origin fixture-commit:refs/heads/main refs/tags/notifier-v1.2.3 refs/tags/v0.1.1") {
 		t.Fatalf("failed atomic publication must not fall back to separate pushes: %s", calls)
 	}
 }
