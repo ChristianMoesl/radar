@@ -13,9 +13,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"radar/internal/update"
 )
@@ -85,6 +90,48 @@ func TestRenderFormula(t *testing.T) {
 		if strings.Contains(string(data), forbidden) {
 			t.Errorf("formula must not run user installers/updaters or bypass Gatekeeper: %q", forbidden)
 		}
+	}
+}
+
+func TestFormulaNotificationProbeUsesHelpAndSkip(t *testing.T) {
+	data, err := renderFormula(fixtureManifest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := regexp.MustCompile(`pipe_output\("#\{testpath\}/radar-link setup notifications", ("(?:[^"\\]|\\.)*")\)`)
+	match := probe.FindSubmatch(data)
+	if match == nil {
+		t.Fatal("formula must probe notification setup through the installed binary's symlink")
+	}
+	input, err := strconv.Unquote(string(match[1]))
+	if err != nil || input != "h\ns\n" {
+		t.Fatalf("notification probe must choose Help then Skip, never launch the companion: %q; %v", input, err)
+	}
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	prefix, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(prefix, "bin", "radar")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "../../cmd/radar")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build notification probe: %v; %s", err, output)
+	}
+	link := filepath.Join(prefix, "radar-link")
+	if err := os.Symlink(binary, link); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(ctx, link, "setup", "notifications")
+	cmd.Stdin = strings.NewReader(input)
+	cmd.Env = append(os.Environ(), "HOME="+prefix, "XDG_CONFIG_HOME="+filepath.Join(prefix, "config"), "PI_CODING_AGENT_DIR="+filepath.Join(prefix, "pi"))
+	output, err := cmd.CombinedOutput()
+	helper := filepath.Join(prefix, "libexec/radar/RadarNotifier.app/Contents/MacOS/radar-notifier")
+	if err != nil || !strings.Contains(string(output), "Companion: "+helper) || !strings.Contains(string(output), "Skipped — notification settings left as they are.") || strings.Contains(string(output), "Choose one of the actions above.") {
+		t.Fatalf("formula notification probe does not match the real CLI: %v; %s", err, output)
 	}
 }
 

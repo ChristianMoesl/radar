@@ -50,14 +50,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
+      # Packaging is maintained at this workflow revision; release authentication
+      # still uses the requested tag's generator and committed trust roots.
+      - uses: actions/checkout@v7.0.1
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.version }}
+          path: build/release-source
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version-file: go.mod
+          go-version-file: build/release-source/go.mod
           cache: true
-          cache-dependency-path: go.sum
+          cache-dependency-path: build/release-source/go.sum
       - name: Test generator
         run: go test ./scripts/homebrew
       - name: Generate from authenticated public release
@@ -65,7 +69,8 @@ jobs:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           mkdir -p build/homebrew/Formula
-          go run ./scripts/homebrew "$RELEASE_VERSION" > build/homebrew/Formula/radar.rb
+          cp scripts/homebrew/radar.rb.tmpl build/release-source/scripts/homebrew/radar.rb.tmpl
+          (cd build/release-source && go run ./scripts/homebrew "$RELEASE_VERSION") > build/homebrew/Formula/radar.rb
       - uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
       - name: Update Homebrew
         run: brew update
@@ -100,8 +105,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # Keep automation from this workflow revision, but authenticate the formula
-      # with the release's own generator, not a newer generator against old code.
+      # Use the same maintained template as native validation, authenticated by
+      # the release's own generator rather than a newer validator against old code.
       - uses: actions/checkout@v7.0.1
       - uses: actions/checkout@v7.0.1
         with:
@@ -123,6 +128,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
+          cp scripts/homebrew/radar.rb.tmpl build/release-source/scripts/homebrew/radar.rb.tmpl
           (cd build/release-source && go run ./scripts/homebrew "$RELEASE_VERSION") > build/homebrew/verified.rb
           cmp build/homebrew/Formula/radar.rb build/homebrew/verified.rb
       - name: Publish a normal tap commit without overwrites or downgrades

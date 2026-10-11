@@ -286,7 +286,7 @@ globalThis.fetch = async (url, options) => {
   assert.ok((await readFile(calls, "utf8")).trim().split("\n").every(method => method === "GET"));
 });
 
-test("the publication reauthentication shell rejects changed artifacts and stale releases", async t => {
+test("publication uses maintained packaging with release authentication and rejects changed artifacts or stale releases", async t => {
   const workflow = await readFile(join(root, ".github/workflows/homebrew.yml"), "utf8");
   const lines = workflow.split("\n");
   const start = lines.findIndex(line => line.includes("- name: Reauthenticate the validated candidate"));
@@ -303,19 +303,28 @@ test("the publication reauthentication shell rejects changed artifacts and stale
   const bin = join(dir, "bin");
   const candidate = join(dir, "build/homebrew/Formula/radar.rb");
   await mkdir(bin);
-  await mkdir(join(dir, "build/release-source"), { recursive: true });
+  await mkdir(join(dir, "build/release-source/scripts/homebrew"), { recursive: true });
+  await mkdir(join(dir, "scripts/homebrew"), { recursive: true });
   await mkdir(join(dir, "build/homebrew/Formula"), { recursive: true });
+  await writeFile(join(dir, "build/release-source/release-fixture"), "release-owned validator\n");
+  const maintainedTemplate = join(dir, "scripts/homebrew/radar.rb.tmpl");
+  const releaseTemplate = join(dir, "build/release-source/scripts/homebrew/radar.rb.tmpl");
   const original = formula("v1.2.3");
   const generated = join(dir, "generated.rb");
   await writeFile(generated, original);
   await writeFile(join(bin, "go"), `#!/bin/sh
 [ "$*" = 'run ./scripts/homebrew v1.2.3' ] || exit 7
+[ -f release-fixture ] || exit 8
+[ "$(cat scripts/homebrew/radar.rb.tmpl)" = 'maintained packaging' ] || exit 9
 [ "$FIXTURE_STATUS" != stale ] || exit 1
 cat "$FIXTURE_GENERATED"
 `, { mode: 0o755 });
-  for (const scenario of ["match", "changed artifact", "stale"]) {
+  for (const scenario of ["match", "changed artifact", "stale", "missing template"]) {
     const bytes = scenario === "changed artifact" ? original + "# changed after native tests\n" : original;
     await writeFile(candidate, bytes);
+    await writeFile(maintainedTemplate, "maintained packaging\n");
+    await writeFile(releaseTemplate, "old packaging\n");
+    if (scenario === "missing template") await rm(maintainedTemplate);
     const promise = exec("bash", ["-e", "-u", "-o", "pipefail", "-c", commands.join("\n")], {
       cwd: dir, env: { PATH: `${bin}:/usr/bin:/bin`, RELEASE_VERSION: "v1.2.3", FIXTURE_STATUS: scenario, FIXTURE_GENERATED: generated },
     });
@@ -426,6 +435,10 @@ test("publication waits for the whole native matrix and reauthenticates the exac
   assert.ok(reauthenticate >= 0 && reauthenticate < write);
   assert.ok(workflow.slice(reauthenticate, write).includes("go run ./scripts/homebrew"));
   assert.ok(workflow.slice(reauthenticate, write).includes("cmp build/homebrew/Formula/radar.rb build/homebrew/verified.rb"));
+  const templateCopy = "cp scripts/homebrew/radar.rb.tmpl build/release-source/scripts/homebrew/radar.rb.tmpl";
+  assert.equal(workflow.split(templateCopy).length - 1, 2, "native validation and publication must use the same maintained template");
+  const taggedGenerator = '(cd build/release-source && go run ./scripts/homebrew "$RELEASE_VERSION")';
+  assert.equal(workflow.split(taggedGenerator).length - 1, 2, "both jobs must authenticate with the requested release's own generator");
   assert.ok(!workflow.slice(0, write).includes("HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}"));
   assert.ok(workflow.slice(write).includes("HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}"));
   assert.ok(workflow.slice(write).includes("scripts/homebrew/publish.sh"));

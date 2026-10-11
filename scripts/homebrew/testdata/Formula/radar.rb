@@ -77,10 +77,10 @@ class Radar < Formula
     assert_match "v#{version}", shell_output("#{bin}/radar version")
     assert_match "radar/config.yaml", shell_output("#{bin}/radar config-path")
     if OS.mac?
-      # Deferring only prints guidance; it never opens Settings or requests permission.
+      # Help shows the companion path; Skip never opens Settings or requests permission.
       # Launch through a symlink to exercise Homebrew's Cellar-relative asset lookup.
       (testpath/"radar-link").make_symlink bin/"radar"
-      output = pipe_output("#{testpath}/radar-link setup notifications", "d\n")
+      output = pipe_output("#{testpath}/radar-link setup notifications", "h\ns\n")
       assert_match "#{libexec}/radar/RadarNotifier.app/Contents/MacOS/radar-notifier", output
       assert_predicate libexec/"radar/RadarNotifier.app/Contents/MacOS/radar-notifier", :executable?
       system "/usr/bin/codesign", "--verify", "--strict", libexec/"radar/RadarNotifier.app"

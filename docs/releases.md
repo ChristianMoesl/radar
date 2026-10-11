@@ -285,15 +285,19 @@ path. Dispatch from other refs validates only; the publishing job is main-only.
    npm version becomes public. Already-published versions, drafts/prereleases,
    staged npm packages, and old macOS-only manifests are skipped. This cheap
    index check is not publisher authentication and cannot publish a formula.
-3. The workflow checks out the release's source, runs generator tests, and
-   authenticates/downloads all three archives (macOS arm64, Linux amd64/arm64).
+3. The workflow tests the maintained formula template at its own revision, then
+   supplies that template to the requested release's source generator. Packaging
+   tests can therefore be repaired without moving a release tag or replacing CLI
+   assets. The release's own validator and committed trust roots still
+   authenticate/download all three archives (macOS arm64, Linux amd64/arm64).
    Invalid signatures, incompatible state epochs, unpublished artifacts, or
    wrong hashes stop validation; there is no unsigned-checksum fallback.
 4. All three native jobs run Homebrew style/install/test/uninstall. Their combined
    success gates publication. The macOS job retains the exact generated formula
    as the `homebrew-formula` artifact for inspection.
-5. The publication job runs the **release's own generator again** and compares its
-   bytes with the tested artifact before receiving the tap credential. A now-stale
+5. The publication job runs the **release's own generator again with the same
+   maintained template** and compares its bytes with the tested artifact before
+   receiving the tap credential. A now-stale
    release or a different artifact stops publication. It then creates one normal
    Git commit updating `Formula/radar.rb` on tap `main` over SSH. A normal,
    main-only push refuses concurrent branch updates; there is no force push or
@@ -322,7 +326,9 @@ Once the tap already has the requested version, publication is a no-op. Historic
 immutable releases must not be rewritten to add Linux metadata.
 
 For local preparation, run from the **requested release's source checkout** with
-Go available (the tag must match `package.json`):
+Go available (the tag must match `package.json`). For a packaging-only repair,
+copy `scripts/homebrew/radar.rb.tmpl` from the maintained workflow revision into
+that checkout first; leave its generator code and trust roots unchanged:
 
 ```sh
 mkdir -p build/homebrew/Formula
