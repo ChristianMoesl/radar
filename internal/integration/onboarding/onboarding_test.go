@@ -12,6 +12,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
 	"radar/internal/config"
 )
 
@@ -77,6 +80,12 @@ func (u *fakeUI) confirm(title string, initial bool) (bool, error) {
 }
 func (u *fakeUI) print(format string, args ...any) { fmt.Fprintf(&u.transcript, format, args...) }
 
+func (u *fakeUI) style() lipgloss.Style {
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(termenv.Ascii)
+	return r.NewStyle()
+}
+
 type fakeSystem struct {
 	missing      map[string]bool
 	calls        []string
@@ -84,6 +93,8 @@ type fakeSystem struct {
 	loginMissing bool
 	goos         string
 	nodeVersion  string
+	versions     map[string]string
+	outputErrors map[string]error
 }
 
 func (s *fakeSystem) platform() string {
@@ -95,6 +106,12 @@ func (s *fakeSystem) platform() string {
 func (s *fakeSystem) lookPath(name string) bool { return !s.missing[name] }
 func (s *fakeSystem) output(_ context.Context, name string, args ...string) (string, error) {
 	s.calls = append(s.calls, name+" "+strings.Join(args, " "))
+	if err := s.outputErrors[name]; err != nil {
+		return "", err
+	}
+	if output, ok := s.versions[name]; ok {
+		return output, nil
+	}
 	if name == "tmux" {
 		return "tmux 3.6", nil
 	}
@@ -313,11 +330,11 @@ func TestWizardReportsAllMissingToolsWithoutInstalling(t *testing.T) {
 	sys.missing["gh"] = true
 	sys.nodeVersion = "v22.0.0"
 	err := w.run()
-	if err == nil {
-		t.Fatal("incomplete installation accepted")
+	if !errors.Is(err, ErrToolsNotReady) {
+		t.Fatalf("expected reported tool failure: %v", err)
 	}
-	for _, want := range []string{"tmux", "gh", "node", "make install", "radar setup"} {
-		if !strings.Contains(err.Error(), want) {
+	for _, want := range []string{"tmux", "gh", "Node.js", "brew install tmux gh", "existing Node.js installation", "run radar again"} {
+		if !strings.Contains(ui.transcript.String(), want) {
 			t.Fatalf("missing %s: %v", want, err)
 		}
 	}
@@ -371,6 +388,9 @@ func TestWizardRecoversGitHubLogin(t *testing.T) {
 	ui.decisions = []bool{true, true, false, false, true}
 	if err := w.run(); err != nil {
 		t.Fatal(err)
+	}
+	if !ui.defaults["GitHub CLI is not authenticated. Run `gh auth login`?"] {
+		t.Fatal("GitHub login must default to Yes")
 	}
 	calls := strings.Join(sys.calls, "\n")
 	if strings.Count(calls, "gh auth status") != 2 || !strings.Contains(calls, "gh auth login --hostname github.com") {

@@ -52,8 +52,8 @@ func TestTmuxConfigPlansPreserveUserSettingsAndAreIdempotent(t *testing.T) {
 			if !strings.Contains(plan.Content, "set -s extended-keys on") || !strings.Contains(plan.Content, "#{>=:#{version},3.5}") {
 				t.Fatal("missing version-safe extended keys")
 			}
-			if kind == "fresh" && !strings.Contains(plan.Content, "set -g prefix C-b") {
-				t.Fatal("missing starter prefix")
+			if kind == "fresh" && (strings.Contains(plan.Content, "set -g prefix") || strings.Contains(plan.Content, "send-prefix")) {
+				t.Fatal("starter settings must leave the prefix at tmux defaults")
 			}
 			if !strings.Contains(plan.Content, "bind-key r display-popup") {
 				t.Fatal("missing popup binding")

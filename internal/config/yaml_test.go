@@ -190,7 +190,7 @@ func TestSecretYAMLRoundTripCommentsAndRedaction(t *testing.T) {
 		t.Fatal("secret string values changed")
 	}
 	data, _ := os.ReadFile(path)
-	if !strings.Contains(string(data), "# Plaintext credentials") || !strings.Contains(string(data), "RADAR_JIRA_API_TOKEN") {
+	if !strings.Contains(string(data), "# Plaintext credentials") || !strings.Contains(string(data), "# Jira credentials.") {
 		t.Fatal("missing secret guidance")
 	}
 	original := "# Private account\njira:\n  # rotate monthly\n  api_token: 'old' # personal token\nother:\n  token: unchanged # do not rotate\n"

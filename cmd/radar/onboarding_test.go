@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/creack/pty"
 
 	"radar/internal/protocol"
@@ -263,9 +264,15 @@ func TestConfiguredDashboardStartsSetupForMissingTools(t *testing.T) {
 			if err == nil {
 				t.Fatal("missing prerequisite should stop before saving")
 			}
-			for _, want := range []string{"Required tools missing from PATH: " + missing, "Starting Radar setup", "Welcome to Radar", "required tools are missing or too old", "Setup does not install CLI tools"} {
-				if !strings.Contains(string(output), want) {
+			text := ansi.Strip(string(output))
+			for _, want := range []string{"Radar setup", "missing", "Then run radar again to continue setup."} {
+				if !strings.Contains(text, want) {
 					t.Fatalf("missing %q: %s", want, output)
+				}
+			}
+			for _, unwanted := range []string{"radar:", "Welcome to Radar", "Required tools missing from PATH", "missing or too old", "make install", "npm install -g"} {
+				if strings.Contains(text, unwanted) {
+					t.Fatalf("redundant or outdated guidance %q: %s", unwanted, output)
 				}
 			}
 			saved, err := os.ReadFile(configPath)

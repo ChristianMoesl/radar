@@ -29,19 +29,19 @@ var configComments = map[string]string{
 	"github.track":                         "Additional open PRs (including drafts) beyond your own PRs, review requests and participation.\nRequires repos with a concrete owner; * is allowed in the repository name.\nOptional authors are exact logins; omit authors to include everyone. Entries are additive.\nTracking adds visibility, not a subscription to every discussion.\nExample entry: {repos: [\"acme/platform-*\"], authors: [\"renovate[bot]\"]}",
 	"github.pull_request_rules":            "Control each PR's contribution, not the whole linked task. Local-only work is unaffected.\nMatch repos, authors, or both on the SAME PR. Fields use AND; values within a field use OR.\nOmitted selectors are unrestricted; at least one nonempty selector is required.\nPatterns are case-insensitive and support *. Confirmed bots match name and name[bot].\nFirst matching rule wins per PR; put keep exceptions before broader policies.\nActions: keep (normal), mute (no contribution), deprioritize (low-priority contribution).\nOther sources keep their signals. Muted PRs remain linked and still affect completion.\nA task with only muted PRs is hidden, including in Done; explicit task muting is separate.\nExample entry: {repos: [\"acme/platform-*\"], authors: [\"renovate[bot]\"], action: deprioritize}",
 	"github.activity_rules":                "Filter otherwise relevant comments/reviews by repos, actors, or both.\nSame AND/OR, wildcard, bot-alias and first-match rules as pull_request_rules.\nActions: keep (normal involvement-based relevance) or ignore. keep never forces attention.\nFeedback on your PRs and replies in review threads you joined can raise attention.\nUnrelated tracked discussions do not. Ignoring activity does not cancel a direct review request.\nPR-level mute/deprioritize still applies after activity rules; other sources are unaffected.\nExample entry: {actors: [\"review-bot[bot]\"], action: ignore}",
-	"jira":                                 "Omit enabled to detect prerequisites automatically; true requires them and false disables collection.\nCredentials belong in secrets.yaml; RADAR_JIRA_* environment values override saved settings.",
+	"jira":                                 "Omit enabled to detect prerequisites automatically; true requires them and false disables collection.\nCredentials belong in secrets.yaml.",
 	"jira.authoritative_issue_types":       "Issue types collected as assigned work. An empty list disables assigned collection and makes title discoveries informational.",
 	"jira.status_mapping":                  "Map Jira status names to low_priority, in_progress, attention, or immediate. Use {} for no explicit mappings.",
 	"jira.unmapped_status":                 "Signal used for Jira statuses not listed above.",
-	"datadog":                              "Omit enabled to detect prerequisites automatically; true requires them and false disables collection.\nCredentials belong in secrets.yaml; RADAR_DATADOG_* environment values override saved settings.",
+	"datadog":                              "Omit enabled to detect prerequisites automatically; true requires them and false disables collection.\nCredentials belong in secrets.yaml.",
 	"datadog.monitor_query":                "Scope monitor collection to the monitors you own. An empty query disables automatic collection.",
 	"datadog.monitor_statuses":             "Unhealthy monitor states to collect: Alert, Warn, and/or No Data.",
 	"obsidian.vault_path":                  "Task notes are stored in a Tasks/ folder here. An ordinary directory or an Obsidian vault works.",
 }
 
 var secretComments = map[string]string{
-	"jira":    "Jira credentials. RADAR_JIRA_API_TOKEN overrides the saved token.",
-	"datadog": "Datadog credentials. RADAR_DATADOG_API_KEY and RADAR_DATADOG_APP_KEY override these values.",
+	"jira":    "Jira credentials.",
+	"datadog": "Datadog credentials.",
 }
 
 func configDocument(cfg Config) (*yaml.Node, error) {
@@ -67,7 +67,7 @@ func secretsDocument(secrets Secrets) (*yaml.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	node.HeadComment = "Plaintext credentials: keep this file private (chmod 600) and out of version control.\nEnvironment credentials override saved values."
+	node.HeadComment = "Plaintext credentials: keep this file private (chmod 600) and out of version control."
 	configfile.Annotate(node, secretComments)
 	return node, nil
 }

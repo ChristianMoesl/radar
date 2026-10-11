@@ -47,11 +47,12 @@ func (w wizard) run() error {
 	if err != nil {
 		return err
 	}
-	w.ui.print("\nWelcome to Radar\nLet's prepare your tools, directories and integrations.\nNothing is installed without permission. Config and secrets are saved only after review.\n\n")
+	w.ui.print("\n%s\n\n", w.ui.style().Bold(true).Render("Radar setup"))
 	ctx := context.Background()
 	if err := w.dependencies(ctx, cfg.SBX); err != nil {
 		return err
 	}
+	w.ui.print("\nConfig and secrets are saved only after review.\n")
 	tmuxPlan, err := w.tmuxConfig()
 	if err != nil {
 		return err
@@ -110,11 +111,11 @@ func (w wizard) run() error {
 	if draft.Existing {
 		w.ui.print("Existing settings and unchanged secrets are retained. Directory changes do not move existing notes or workspaces.\n")
 	}
-	w.ui.print("RADAR_JIRA_* and RADAR_DATADOG_* environment values still override saved settings at runtime. Disabling an integration retains its saved secrets.\n")
+	w.ui.print("Disabling an integration retains its saved credentials.\n")
 
 	updates := config.Secrets{}
 	w.ui.print("\nIntegrations\n")
-	github, err := w.ui.confirm("Connect Radar to GitHub?", draft.Existing && (cfg.GitHub.Enabled == nil || *cfg.GitHub.Enabled))
+	github, err := w.ui.confirm("Connect Radar to GitHub?", !draft.Existing || cfg.GitHub.Enabled == nil || *cfg.GitHub.Enabled)
 	if err != nil {
 		return err
 	}
@@ -122,7 +123,7 @@ func (w wizard) run() error {
 	if github {
 		w.ui.print("Checking GitHub authentication…\n")
 		if _, err := w.system.output(ctx, "gh", "auth", "status", "--hostname", "github.com"); err != nil {
-			if err := w.allow("GitHub CLI is not authenticated. Run `gh auth login`?"); err != nil {
+			if err := w.confirmRequired("GitHub CLI is not authenticated. Run `gh auth login`?", true); err != nil {
 				return err
 			}
 			if err := w.system.run(ctx, "gh", "auth", "login", "--hostname", "github.com"); err != nil {
@@ -134,7 +135,7 @@ func (w wizard) run() error {
 		}
 		w.ui.print("✓ GitHub authenticated (credentials stay with gh)\n")
 	}
-	jira, err := w.ui.confirm("Connect Radar to Jira?", draft.Existing && (cfg.Jira.Enabled == nil || *cfg.Jira.Enabled))
+	jira, err := w.ui.confirm("Connect Radar to Jira?", !draft.Existing || cfg.Jira.Enabled == nil || *cfg.Jira.Enabled)
 	if err != nil {
 		return err
 	}
@@ -144,7 +145,7 @@ func (w wizard) run() error {
 			return err
 		}
 	}
-	datadog, err := w.ui.confirm("Connect Radar to Datadog?", draft.Existing && (cfg.Datadog.Enabled == nil || *cfg.Datadog.Enabled))
+	datadog, err := w.ui.confirm("Connect Radar to Datadog?", !draft.Existing || cfg.Datadog.Enabled == nil || *cfg.Datadog.Enabled)
 	if err != nil {
 		return err
 	}

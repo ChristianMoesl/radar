@@ -23,11 +23,18 @@ The tap is [ChristianMoesl/homebrew-tap](https://github.com/ChristianMoesl/homeb
 It installs prebuilt Radar binaries, the notification companion, manual pages,
 fd, tmux and gh.
 Git is expected on PATH. **Pi, Node.js and npm are user-managed**, not formula
-dependencies: install Node.js 24+ with npm using your preferred method, then
-[Pi](https://pi.dev) 0.85.1+ (for example,
-`npm install -g @earendil-works/pi-coding-agent`). Existing compatible installations
-are reused regardless of package manager. Setup validates them before configuring
-Pi extensions; it never installs Node or Pi core itself.
+dependencies. For a fresh machine missing Node/npm and [Pi](https://pi.dev) 0.85.1+,
+use:
+
+```sh
+brew install node && curl -fsSL https://pi.dev/install.sh | sh
+```
+
+If compatible Node.js 24+ and npm are already installed, run only Pi's official
+installer: `curl -fsSL https://pi.dev/install.sh | sh`. Pi's own Node minimum may
+be lower; Radar's Pi integration still requires 24+. Existing compatible
+installations are reused regardless of package manager. Setup checks them before
+configuring Pi extensions; it never installs Node or Pi core itself.
 
 No Go or Swift compiler is needed for Radar. The release requires macOS 13 or
 newer; Homebrew and its dependencies may require a newer supported macOS version
@@ -186,16 +193,22 @@ config. A headless daemon can still collect with in-memory defaults; it never
 prompts or installs anything.
 
 The inline prompts stay in terminal scrollback. Escape/Ctrl+C cancels. Software
-installation prompts default to **Yes**; final save, login, profile edits and
-new integration opt-ins retain their explicit consent/defaults. Existing
-integration choices are preselected on repeat setup. Secrets are masked.
+installation prompts, GitHub login, and new GitHub/Jira/Datadog connections
+default to **Yes**, but still require confirmation. Final save and profile edits
+retain their explicit consent/defaults. Existing integration choices are
+preselected on repeat setup. Secrets are masked. A new tmux configuration leaves
+the prefix at tmux's own default; existing prefix settings are preserved.
 
 1. **Check, don't install, CLI tools:** Git, tmux 3.2+, fd (`fdfind` on Debian),
-   Node.js 24+, npm, Pi 0.85.1+, and gh. Setup lists all missing/unusable tools
-   together and stops before saving. For Homebrew, Git is expected on PATH and
-   Pi/Node/npm are user-managed; repair fd/tmux/gh using Homebrew. Otherwise rerun
-   your platform's installer or `make install` from the source checkout, then
-   `radar` or `radar setup`. The one-command bootstrap is macOS-only. gh is required even if GitHub integration is disabled;
+   Node.js 24+, npm, Pi 0.85.1+, and gh. One status list distinguishes ready,
+   missing, outdated and failed checks, followed by relevant repair guidance.
+   Green checks and amber attention markers use plain text with `NO_COLOR` or
+   redirected output. Missing tools get a copyable installation command when
+   available; existing broken/outdated installations are repaired through their
+   own installation method, not replaced by another package manager. Pi's primary
+   recommendation is its official installer. Setup stops before saving when any
+   required tool needs attention; rerun `radar` after repairs.
+   gh is required even if GitHub integration is disabled;
    installing it does not log in or enable the integration. Node is Pi's runtime,
    not a Go binary runtime requirement; Neovim is not required.
 2. **Install Pi extensions:** `pi-radar` is mandatory for completed setup. Show

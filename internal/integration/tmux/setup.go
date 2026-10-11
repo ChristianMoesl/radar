@@ -12,8 +12,6 @@ import (
 
 const popupBinding = "bind-key r display-popup -E -w 90% -h 90% -d '#{pane_current_path}' 'radar'\n"
 const starterSettings = `# Comfortable defaults for a new tmux installation.
-set -g prefix C-b
-bind-key C-b send-prefix
 set -g mouse on
 set -g history-limit 50000
 set -g base-index 1

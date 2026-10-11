@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/term"
+	"github.com/muesli/termenv"
 )
 
 var ErrAborted = errors.New("setup cancelled — no Radar configuration was written")
@@ -27,6 +28,7 @@ type prompter interface {
 	input(question) (string, error)
 	confirm(string, bool) (bool, error)
 	print(string, ...any)
+	style() lipgloss.Style
 }
 
 type terminalUI struct {
@@ -35,6 +37,18 @@ type terminalUI struct {
 }
 
 func (u terminalUI) print(format string, args ...any) { fmt.Fprintf(u.out, format, args...) }
+
+// Bind styling to the actual output, not the process-global renderer. Never
+// emit ANSI for redirected output or override an explicit NO_COLOR setting.
+func (u terminalUI) style() lipgloss.Style {
+	r := lipgloss.NewRenderer(u.out)
+	out, ok := u.out.(*os.File)
+	if !ok || !term.IsTerminal(out.Fd()) || os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
+		r.SetColorProfile(termenv.Ascii)
+	}
+	return r.NewStyle()
+}
+
 func (u terminalUI) input(q question) (string, error) {
 	m := newPrompt(q)
 	final, err := tea.NewProgram(m, tea.WithInput(u.in), tea.WithOutput(u.out)).Run()

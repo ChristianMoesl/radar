@@ -15,7 +15,6 @@ import (
 
 	"radar/internal/command"
 	"radar/internal/config"
-	"radar/internal/integration/tmux"
 )
 
 const radarPackage = "@christianmoesl/pi-radar"
@@ -52,16 +51,6 @@ func (realSystem) run(ctx context.Context, name string, args ...string) error {
 
 type dependency struct{ name, reason string }
 
-var dependencies = []dependency{
-	{"git", "repository and worktree management"},
-	{"tmux", "tmux 3.2+ for workspace sessions and dashboard popups"},
-	{"fd", "repository discovery"},
-	{"node", "Node.js 24+ is a Pi runtime prerequisite; Radar itself does not need it"},
-	{"npm", "installing Pi and its packages"},
-	{"pi", "Pi 0.85.1+ runs your workspace coding sessions"},
-	{"gh", "GitHub authentication and pull requests"},
-}
-
 // MissingTools checks only executable availability on PATH. Dashboard startup
 // must not launch shims, prompt for developer tools, or run slow version probes.
 // Setup remains responsible for checking usability and minimum versions.
@@ -69,9 +58,9 @@ func MissingTools() []string { return missingTools(realSystem{}) }
 
 func missingTools(sys system) []string {
 	var missing []string
-	for _, dep := range dependencies {
-		if toolBinary(sys, dep.name) == "" {
-			missing = append(missing, dep.name)
+	for _, name := range requiredTools {
+		if toolBinary(sys, name) == "" {
+			missing = append(missing, name)
 		}
 	}
 	return missing
@@ -88,25 +77,10 @@ func toolBinary(sys system, name string) string {
 }
 
 func (w *wizard) dependencies(ctx context.Context, sandbox config.SBXConfig) error {
-	w.ui.print("Required tools\n")
-	for _, dep := range dependencies {
-		w.ui.print("  %-10s %s\n", dep.name, dep.reason)
+	if err := w.requiredTools(ctx); err != nil {
+		return err
 	}
-	w.ui.print("\n")
-	var missing []string
-	for _, dep := range dependencies {
-		ready, err := w.installed(ctx, dep.name)
-		if err != nil {
-			return err
-		}
-		if !ready {
-			missing = append(missing, dep.name+" — "+dep.reason)
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("required tools are missing or too old:\n  %s\n\nGit is expected on PATH. Pi is user-managed: install Node.js 24+ with npm first, then install Pi (https://pi.dev; `npm install -g @earendil-works/pi-coding-agent`).\nThe Homebrew Radar formula supplies fd, tmux and gh, not Git, Node or Pi. Repair those dependencies with `brew install fd tmux gh` or `brew upgrade fd tmux gh`.\nSource/archive users can rerun their bundled installer or `make install`. Check PATH for shadowed tools, then run `radar` or `radar setup` again. Setup does not install CLI tools", strings.Join(missing, "\n  "))
-	}
-	w.ui.print("✓ Required CLI tools ready\n\nPi extensions\n")
+	w.ui.print("\nPi extensions\n")
 	checks := []dependency{{"pi-radar", "Pi's mandatory Radar workspace tools and context"}}
 	// pi-sbx belongs to optional sandboxing, not Radar's baseline tool set.
 	// Use the same effective default as workspace creation, including explicit
@@ -155,45 +129,11 @@ func (w *wizard) dependencies(ctx context.Context, sandbox config.SBXConfig) err
 }
 
 func (w wizard) installed(ctx context.Context, name string) (bool, error) {
-	switch name {
-	case "tmux":
-		if !w.system.lookPath(name) {
-			return false, nil
-		}
-		version, err := w.system.output(ctx, name, "-V")
-		return err == nil && tmux.SupportsPopup(version), nil
-	case "node":
-		if !w.system.lookPath(name) {
-			return false, nil
-		}
-		version, err := w.system.output(ctx, name, "--version")
-		return err == nil && versionAtLeast(version, [3]int{24, 0, 0}), nil
-	case "pi":
-		if !w.system.lookPath(name) {
-			return false, nil
-		}
-		version, err := w.system.output(ctx, name, "--version")
-		return err == nil && versionAtLeast(version, [3]int{0, 85, 1}), nil
-	case "fd":
-		binary := toolBinary(w.system, name)
-		if binary == "" {
-			return false, nil
-		}
-		_, err := w.system.output(ctx, binary, "--version")
-		return err == nil, nil
-	case "pi-radar", "pi-sbx":
-		// Read-only inspection of the user profile, never execute extension code or
-		// rely on a project-only install that new workspaces will not inherit.
+	if name == "pi-radar" || name == "pi-sbx" {
+		// Inspect the user profile without executing extension code.
 		return packageInstalled(name)
-	default:
-		if !w.system.lookPath(name) {
-			return false, nil
-		}
-		// A PATH entry can still be an unusable shim (for example macOS Git
-		// before Command Line Tools are installed). Prove it can execute.
-		_, err := w.system.output(ctx, name, "--version")
-		return err == nil, nil
 	}
+	return w.checkTool(ctx, name).state == toolReady, nil
 }
 
 func (w wizard) installCommand(name string) ([]string, error) {
@@ -206,7 +146,7 @@ func (w wizard) installCommand(name string) ([]string, error) {
 }
 
 func versionAtLeast(value string, minimum [3]int) bool {
-	match := regexp.MustCompile(`(?:^|\s)v?([0-9]+)\.([0-9]+)\.([0-9]+)(?:\s|$)`).FindStringSubmatch(strings.TrimSpace(value))
+	match := cliVersionPattern.FindStringSubmatch(strings.TrimSpace(value))
 	if match == nil {
 		return false
 	}

@@ -1174,7 +1174,6 @@ func ensureOnboarding(checkTools bool) {
 	// informational commands and the daemon retain their existing behavior.
 	if !needed && checkTools {
 		if missing := onboarding.MissingTools(); len(missing) > 0 {
-			fmt.Fprintf(os.Stderr, "Required tools missing from PATH: %s. Starting Radar setup.\n", strings.Join(missing, ", "))
 			needed = true
 		}
 	}
@@ -1188,6 +1187,10 @@ func ensureOnboarding(checkTools bool) {
 
 func runOnboarding() {
 	if err := onboarding.Run(); err != nil {
+		if errors.Is(err, onboarding.ErrToolsNotReady) {
+			// Setup already printed the tool statuses and repair instructions.
+			os.Exit(1)
+		}
 		if errors.Is(err, onboarding.ErrAborted) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
