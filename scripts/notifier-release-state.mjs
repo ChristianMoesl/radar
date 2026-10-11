@@ -28,7 +28,7 @@ try {
   else if (field === 'draft' && release) console.log(release.draft);
   else if (field === 'assets' && release) {
     const version = tag.slice('notifier-v'.length);
-    const expected = ['notifier.json', 'notifier.json.sig', ...['amd64', 'arm64'].map(a => `radar-notifier_${version}_${a}.tar.gz`)];
+    const expected = ['notifier.json', 'notifier.json.sig', ...['arm64'].map(a => `radar-notifier_${version}_${a}.tar.gz`)];
     const assets = release.assets;
     if (!Array.isArray(assets) || assets.length !== expected.length
       || assets.some(a => !a || !Number.isSafeInteger(a.id) || a.id <= 0 || !expected.includes(a.name))

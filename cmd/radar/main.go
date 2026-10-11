@@ -36,7 +36,18 @@ import (
 	"radar/internal/workspacegc"
 )
 
+func checkPlatform(goos, goarch string) error {
+	if goos == "darwin" && goarch != "arm64" {
+		return errors.New("Radar requires Apple Silicon (arm64) on macOS; Intel Macs are not supported")
+	}
+	return nil
+}
+
 func main() {
+	if err := checkPlatform(runtime.GOOS, runtime.GOARCH); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	_ = version.Current()
 	flags := outputFlags("radar")
 	flags.Usage = usage

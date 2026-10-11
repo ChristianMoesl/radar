@@ -89,8 +89,8 @@ func TestNotifierReleasePreservesHistoryAndRefs(t *testing.T) {
 				t.Fatalf("existing or unavailable components must never be rebuilt: %s; %s", built, output)
 			}
 			if state == "published" || state == "published with historical draft" || state == "complete draft" {
-				if downloads != 4 {
-					t.Fatalf("expected all four selected immutable asset IDs, got %d", downloads)
+				if downloads != 3 {
+					t.Fatalf("expected all three selected immutable asset IDs, got %d", downloads)
 				}
 			}
 			if !reflect.DeepEqual(publishedFixtureBytes(t, cmd.Dir), before) {
@@ -172,7 +172,7 @@ chmod 755 "$1/Contents/MacOS/notifier"
 	if err := os.WriteFile(filepath.Join(root, "internal", "update", "keys.json"), trust, 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, arch := range []string{"amd64", "arm64"} {
+	for _, arch := range []string{"arm64"} {
 		directory := filepath.Join(root, "seed", arch, "RadarNotifier.app", "Contents", "MacOS")
 		if err := os.MkdirAll(directory, 0700); err != nil {
 			t.Fatal(err)
@@ -193,7 +193,7 @@ chmod 755 "$1/Contents/MacOS/notifier"
 	if output, err := sign.CombinedOutput(); err != nil {
 		t.Fatalf("fixture signing failed: %v; %s", err, output)
 	}
-	files := []string{"notifier.json", "notifier.json.sig", "radar-notifier_1.2.3_amd64.tar.gz", "radar-notifier_1.2.3_arm64.tar.gz"}
+	files := []string{"notifier.json", "notifier.json.sig", "radar-notifier_1.2.3_arm64.tar.gz"}
 	assets := make([]map[string]any, 0, len(files))
 	for i, name := range files {
 		data, err := os.ReadFile(filepath.Join(root, "seed", name))
@@ -217,13 +217,13 @@ chmod 755 "$1/Contents/MacOS/notifier"
 		}
 	}
 	if state == "bundle tampering" {
-		data := []byte("fixture notifier amd64\n")
+		data := []byte("fixture notifier arm64\n")
 		writeNotifierArchive(t, filepath.Join(root, "published", files[2]), append(data, 'x'))
 		// Re-sign the archive hash but keep the original expected extracted tree.
 		resign := exec.Command(node, "--input-type=module", "-e", `
 import {readFileSync,writeFileSync} from 'node:fs'; import {createHash,sign,createPrivateKey} from 'node:crypto';
-const dir=process.argv[1]; const m=JSON.parse(readFileSync(dir+'/notifier.json')); const b=readFileSync(dir+'/'+m.artifacts.amd64.file);
-m.artifacts.amd64.size=b.length; m.artifacts.amd64.sha256=createHash('sha256').update(b).digest('hex');
+const dir=process.argv[1]; const m=JSON.parse(readFileSync(dir+'/notifier.json')); const b=readFileSync(dir+'/'+m.artifacts.arm64.file);
+m.artifacts.arm64.size=b.length; m.artifacts.arm64.sha256=createHash('sha256').update(b).digest('hex');
 const bytes=Buffer.from(JSON.stringify(m)+'\n'); writeFileSync(dir+'/notifier.json',bytes);
 writeFileSync(dir+'/notifier.json.sig',JSON.stringify({key_id:'fixture',signature:sign(null,bytes,createPrivateKey(process.env.RADAR_RELEASE_SIGNING_KEY)).toString('base64')}));
 `, filepath.Join(root, "published"))
@@ -233,13 +233,13 @@ writeFileSync(dir+'/notifier.json.sig',JSON.stringify({key_id:'fixture',signatur
 		}
 	}
 	if state == "missing asset" {
-		assets = assets[:3]
+		assets = assets[:2]
 	}
 	if state == "duplicate asset" {
-		assets[3] = assets[2]
+		assets[2] = assets[1]
 	}
 	if state == "unexpected asset" {
-		assets[3] = map[string]any{"id": 103, "name": "../unexpected.tar.gz"}
+		assets[2] = map[string]any{"id": 102, "name": "../unexpected.tar.gz"}
 	}
 	release := map[string]any{"id": 42, "tag_name": "notifier-v1.2.3", "draft": false, "published_at": "2026-01-01T00:00:00Z", "assets": assets}
 	matches := []map[string]any{release}
@@ -374,7 +374,7 @@ func TestNotifierReleaseGHHelper(t *testing.T) {
 		if state == "download failure" {
 			os.Exit(7)
 		}
-		ids := map[string]string{"100": "notifier.json", "101": "notifier.json.sig", "102": "radar-notifier_1.2.3_amd64.tar.gz", "103": "radar-notifier_1.2.3_arm64.tar.gz"}
+		ids := map[string]string{"100": "notifier.json", "101": "notifier.json.sig", "102": "radar-notifier_1.2.3_arm64.tar.gz"}
 		name := ids[strings.TrimPrefix(args[1], "repos/ChristianMoesl/radar/releases/assets/")]
 		if name == "" {
 			panic("unselected historical release asset ID was requested")

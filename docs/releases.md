@@ -123,7 +123,7 @@ later without replacing the release contract.
   prerelease archives and npm's `next` staging remain available manually.
 
 `release.json.sig` signs the exact bytes of `release.json` using Ed25519. Metadata
-binds versions, both macOS architectures, minimum OS/Pi/Node requirements, archive
+binds versions, the macOS arm64 artifact, minimum OS/Pi/Node requirements, archive
 size/hash, binary hash and notifier tree identity. SHA-256 checksum lists alone
 are not publisher authentication. Initial installation still requires trusting
 the bootstrap source/key through a trusted channel; a key shipped alongside an
@@ -159,14 +159,14 @@ No tap repository or formula is created by the normal CLI release workflow.
    release's source, runs the generator tests, and generates a formula only when
    the requested version is the latest coordinated public release. A missing
    matching npm package, invalid signature, incompatible state epoch, unpublished
-   architecture or wrong archive hash stops the job. Both macOS archives are
+   architecture or wrong archive hash stops the job. The macOS arm64 archive is
    downloaded and authenticated. No older-version fallback is emitted.
 3. The workflow updates Homebrew, installs/tests/uninstalls the candidate in
-   temporary runner-local taps on Apple Silicon and Intel, and uploads
-   `Formula/radar.rb` in each `homebrew-formula-<runner>` artifact. Both jobs must
-   pass and their formulas must match before publication. It does **not**
+   a temporary runner-local tap on Apple Silicon, and uploads
+   `Formula/radar.rb` in the `homebrew-formula` artifact. The job must
+   pass before publication. It does **not**
    create/push a tap repository. It needs no cross-repository token or npm secret.
-4. Review the formula diff (version, both URLs/hashes, prerequisite minimums and
+4. Review the formula diff (version, the arm64 URL/hash, prerequisite minimums and
    install hooks), copy it into `ChristianMoesl/homebrew-tap/Formula/radar.rb`, and
    have a human commit/push it. Never overwrite an existing version's artifacts.
 5. Check `brew update && brew install ChristianMoesl/tap/radar` from the public tap.
@@ -206,7 +206,7 @@ user-managed and verified during setup, never installed or upgraded by Radar's
 Homebrew formula. User configuration and Pi profile changes belong to the
 interactive setup/review, never formula hooks.
 
-The Actions smoke tests cover native Apple Silicon and Intel installation,
+The Actions smoke tests cover native Apple Silicon installation,
 CLI/manual/notifier checks and uninstall with current Homebrew. They do not prove
 interactive launch approval or delivery/clicks. Before general distribution
 validate first-run setup, existing/symlinked `AGENTS.md` preservation,
@@ -214,6 +214,28 @@ notifications/approval/clicks, upgrade/daemon restart, existing `~/.local` PATH
 conflicts, and uninstall leaving user files untouched. Review data rollout instructions before a brew upgrade:
 Homebrew does not offer Radar's managed updater's migration guard or rollback.
 Linux/WSL keep their existing manual install route; this formula is macOS-only.
+
+## macOS architecture policy
+
+macOS support is Apple Silicon (arm64) only. Linux amd64 and arm64 releases and
+sandbox images are unchanged. Build/install entry points reject Intel macOS;
+Rosetta shells must be replaced with a native arm64 terminal.
+
+New CLI and notifier releases publish only arm64 macOS archives. Existing signed
+releases and component artifacts stay immutable, including their historical
+Intel assets. Consumers validate and select only the supported arm64 artifact;
+other entries in a signed artifact map are never downloaded or installed.
+
+Older standalone Radar updaters and bootstrap scripts required both macOS
+architectures. They cannot select a new arm64-only release: use the current
+bootstrap or source installer for the one-time upgrade. Homebrew installations
+continue to use `brew upgrade radar`. This changes no configuration, receipt or
+recovery-journal layout; arm64 journals remain readable, and Intel journals are
+intentionally unsupported. Recover any interrupted update before changing binaries.
+
+The notifier build inputs changed, so the next release uses component **1.1.0**
+rather than replacing 1.0.0. A source install or later binary upgrade can therefore
+require macOS launch/notification approval again. No approval is bypassed.
 
 ## Immutable notification component
 
@@ -312,7 +334,7 @@ install` and the archive installer remain manual operations and remove the
 managed receipt; they do not silently enroll into release management.
 
 After confirmation, Radar verifies bounded downloads and safely extracts on the
-destination filesystem. It checks both Mach-O architectures and the notifier's
+destination filesystem. It checks that both CLI and notifier Mach-O binaries are arm64 and verifies the notifier's
 code signature before stopping anything. It declines while accepted workspace
 mutations are running. During activation, new mutations get a retry message.
 The updater does not kill tmux, Pi, sandboxes, or alter workspaces.

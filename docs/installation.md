@@ -12,7 +12,7 @@
 
 ## Homebrew
 
-On macOS (Apple Silicon or Intel), with [Homebrew](https://brew.sh) installed:
+On macOS (Apple Silicon only), with [Homebrew](https://brew.sh) installed:
 
 ```sh
 brew install ChristianMoesl/tap/radar
@@ -85,8 +85,8 @@ curl -fsSL https://raw.githubusercontent.com/ChristianMoesl/radar/main/install.s
 ```
 
 The root `install.sh` is the standalone first-install bootstrap, not an updater. It
-detects Apple Silicon/Intel, selects a stable release with both complete macOS
-archives **and its exact public npm package**, authenticates the signed metadata,
+detects Apple Silicon, selects a stable release with a complete macOS arm64
+archive **and its exact public npm package**, authenticates the signed metadata,
 verifies the selected archive/binary/notifier identities, and safely extracts it.
 It calls the existing archive installer and starts bare `radar` from your HOME,
 after installing the required CLI tools. Guided setup handles Pi extensions and settings.
@@ -137,8 +137,8 @@ Node does not switch to weaker verification.
 
 For Linux, Windows/WSL, source builds or a custom prefix, use the manual path.
 [Published archives](https://github.com/ChristianMoesl/radar/releases) cover
-macOS and Linux on arm64/amd64; on Windows, run Radar inside WSL. Download the
-matching archive and `checksums.txt` from a release you trust:
+macOS on Apple Silicon (arm64), and Linux on arm64/amd64; on Windows, run Radar
+inside WSL. Intel Macs are not supported. Download the matching archive and `checksums.txt` from a release you trust:
 
 ```sh
 archive=radar_<version>_<os>_<arch>.tar.gz
@@ -444,7 +444,7 @@ Restart a running daemon after updating the binary.
 
 - One-command bootstrap under macOS system Bash and a controlling PTY, including
   piped source, Homebrew/Node refusals/failures, PATH consent and preserved profiles,
-  Apple Silicon/Intel, signed readiness selection, incomplete npm/upload gating,
+  Apple Silicon and explicit Intel rejection, signed readiness selection, incomplete npm/upload gating,
   signature/hash/tree/architecture errors and hostile/truncated archives. Network,
   Homebrew, Launch Services and binary execution boundaries are test-local; no
   test installs host tools or grants native permissions.

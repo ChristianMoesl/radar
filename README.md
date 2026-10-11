@@ -14,7 +14,7 @@ dashboard. Open a task to jump into its workspace—with Git worktrees, tmux and
 
 On **macOS**, choose Homebrew or the standalone installer. Run without sudo.
 
-**Homebrew** (Apple Silicon or Intel):
+**Homebrew** (Apple Silicon only):
 
 ```sh
 brew install ChristianMoesl/tap/radar

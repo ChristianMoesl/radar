@@ -148,14 +148,11 @@ func (m Manifest) Validate() error {
 	if !regexp.MustCompile(`^[0-9]+\.[0-9]+$`).MatchString(m.MinMacOS) {
 		return errors.New("invalid minimum macOS")
 	}
-	if len(m.Artifacts) != 2 {
-		return errors.New("release must provide both macOS architectures")
-	}
-	for _, arch := range []string{"amd64", "arm64"} {
-		a, ok := m.Artifacts[arch]
-		if !ok || a.File != "radar_"+m.Version+"_darwin_"+arch+".tar.gz" || a.Size <= 0 || a.Size > MaxArchiveSize || !digestPattern.MatchString(a.SHA256) || !digestPattern.MatchString(a.BinarySHA256) || !Stable(a.NotifierVersion) || !digestPattern.MatchString(a.NotifierSHA256) {
-			return fmt.Errorf("invalid %s artifact", arch)
-		}
+	// Eligibility is based only on the supported macOS artifact. Other entries
+	// in the signed artifact map are never selected, downloaded or installed.
+	a, ok := m.Artifacts["arm64"]
+	if !ok || a.File != "radar_"+m.Version+"_darwin_arm64.tar.gz" || a.Size <= 0 || a.Size > MaxArchiveSize || !digestPattern.MatchString(a.SHA256) || !digestPattern.MatchString(a.BinarySHA256) || !Stable(a.NotifierVersion) || !digestPattern.MatchString(a.NotifierSHA256) {
+		return errors.New("invalid arm64 artifact")
 	}
 	return nil
 }

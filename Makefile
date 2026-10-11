@@ -14,14 +14,20 @@ VERSION ?= $(shell git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev
 COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X radar/internal/version.Number=$(VERSION) -X radar/internal/version.Commit=$(COMMIT) -X radar/internal/version.Date=$(DATE)
-RELEASE_TARGETS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
+RELEASE_TARGETS := linux/amd64 linux/arm64 darwin/arm64
 DIST_TARGETS ?= $(RELEASE_TARGETS)
+ifneq ($(filter-out $(RELEASE_TARGETS),$(DIST_TARGETS)),)
+$(error Unsupported release target; supported targets: $(RELEASE_TARGETS))
+endif
 HOST_OS := $(shell uname -s)
 HOST_GOARCH := $(shell $(GO) env GOARCH)
 
 build: build-radar manpages $(if $(filter Darwin,$(HOST_OS)),notifier)
 
 build-radar:
+	@if [ "$(shell $(GO) env GOOS)" = darwin ] && [ "$(HOST_GOARCH)" != arm64 ]; then \
+		echo "Radar requires Apple Silicon (arm64) on macOS" >&2; exit 1; \
+	fi
 	CGO_ENABLED=0 $(GO) build -trimpath -buildvcs=false -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/radar
 
 manpages:

@@ -64,7 +64,7 @@ func TestOneCommandBootstrap(t *testing.T) {
 			wantMessage := map[string]string{
 				"Homebrew declined": "Homebrew declined", "Homebrew for tools declined": "Homebrew declined", "Node declined": "Node.js declined",
 				"Node still old": "Node.js 24+ is still unavailable", "already installed": "Radar is already installed", "managed journal": "Existing Radar update state",
-				"root": "without sudo", "Linux": "for macOS", "unsupported architecture": "Unsupported macOS architecture",
+				"root": "without sudo", "Linux": "for macOS", "Intel": "Apple Silicon", "unsupported architecture": "Unsupported macOS architecture",
 				"symlink manual directory": "private-to-your-user directories", "symlink manual file": "private-to-your-user files",
 				"symlink prefix": "private-to-your-user directories", "shared prefix": "private-to-your-user directories",
 				"old installer": "predates prerequisite-aware installation", "old macOS": "requires macOS 13.0+", "archive hash": "archive size/hash verification failed",
@@ -366,7 +366,7 @@ BREW
 		t.Helper()
 		artifacts := map[string]update.Artifact{}
 		assets := []map[string]any{}
-		for _, arch := range []string{"arm64", "amd64"} {
+		for _, arch := range []string{"arm64"} {
 			archive, binaryHash, treeHash := bootstrapArchive(t, version, arch, state, bin)
 			file := "radar_" + version + "_darwin_" + arch + ".tar.gz"
 			artifacts[arch] = update.Artifact{File: file, Size: int64(len(archive)), SHA256: bootstrapHash(archive), BinarySHA256: binaryHash, NotifierVersion: "1.0.0", NotifierSHA256: treeHash}
@@ -428,7 +428,7 @@ BREW
 			put("https://registry.npmjs.org/%40christianmoesl%2Fpi-radar/"+m.PiVersion, version+"-npm.json", pkg)
 		}
 		if state == "missing architecture asset" || state == "newer incomplete" && version == "v1.2.4" {
-			assets = assets[:1]
+			assets = assets[:0]
 		}
 		if state == "duplicate asset" {
 			assets = append(assets, assets[0])
@@ -468,7 +468,7 @@ BREW
 	case "Homebrew failed", "Node failed", "Node still old":
 		answers = "y\n"
 		success = false
-	case "already installed", "ready", "Intel", "piped script", "profile declined", "unsupported shell", "newer incomplete", "later release page":
+	case "already installed", "ready", "piped script", "profile declined", "unsupported shell", "newer incomplete", "later release page":
 	default:
 		success = false
 	}

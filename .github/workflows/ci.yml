@@ -95,4 +95,4 @@ jobs:
         run: brew style scripts/homebrew/testdata/Formula/radar.rb
 
       - name: Check macOS release packaging
-        run: make dist VERSION=ci DIST_TARGETS="darwin/amd64 darwin/arm64"
+        run: make dist VERSION=ci DIST_TARGETS="darwin/arm64"

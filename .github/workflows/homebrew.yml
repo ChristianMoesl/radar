@@ -15,11 +15,7 @@ permissions:
 
 jobs:
   formula:
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [macos-latest, macos-15-intel]
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -51,14 +47,14 @@ jobs:
       - name: Upload reviewed tap candidate
         uses: actions/upload-artifact@v4
         with:
-          name: homebrew-formula-${{ matrix.runner }}
+          name: homebrew-formula
           path: build/homebrew/Formula/radar.rb
       - name: Publishing instructions
         run: |
           {
             echo '## Homebrew candidate validated on this runner architecture'
             echo
-            echo 'Wait for both architecture jobs to pass, compare their homebrew-formula artifacts, review Formula/radar.rb, and commit it to ChristianMoesl/homebrew-tap main.'
+            echo 'Wait for the Apple Silicon job to pass, download its homebrew-formula artifact, review Formula/radar.rb, and commit it to ChristianMoesl/homebrew-tap main.'
             echo 'A human must push the tap. This workflow does not publish it or approve npm staging.'
             echo 'Real macOS launch approval and notification delivery/clicks still need interactive smoke tests.'
           } >> "$GITHUB_STEP_SUMMARY"

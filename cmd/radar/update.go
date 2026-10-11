@@ -42,8 +42,8 @@ func confirmUpdate(scanner *bufio.Scanner, out io.Writer, text string) bool {
 	return scanner.Scan() && strings.EqualFold(strings.TrimSpace(scanner.Text()), "y")
 }
 func updateRelease(in io.Reader, out io.Writer) error {
-	if runtime.GOOS != "darwin" {
-		return errors.New("managed updates are macOS-only; use make install on this platform")
+	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
+		return errors.New("managed updates require Apple Silicon macOS; Linux installations use make install")
 	}
 	executable, err := os.Executable()
 	if err != nil {

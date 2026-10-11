@@ -127,7 +127,7 @@ func TestNotificationSetupCLIStillSupportsDeferring(t *testing.T) {
 func TestUpdateCLICommand(t *testing.T) {
 	notInstalled := "Radar update: run the installed ~/.local/bin/radar"
 	if runtime.GOOS != "darwin" {
-		notInstalled = "Radar update: managed updates are macOS-only"
+		notInstalled = "Radar update: managed updates require Apple Silicon macOS"
 	}
 	for _, tc := range []struct {
 		name string

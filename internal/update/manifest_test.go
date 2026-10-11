@@ -27,7 +27,7 @@ import (
 func hash(data []byte) string { s := sha256.Sum256(data); return hex.EncodeToString(s[:]) }
 func fixtureManifest(v string) Manifest {
 	m := Manifest{Schema: 1, Version: v, StateEpoch: StateEpoch, MinMacOS: "13.0", PiVersion: strings.TrimPrefix(v, "v"), MinPi: "0.85.1", MinNode: 24, Artifacts: map[string]Artifact{}}
-	for _, arch := range []string{"amd64", "arm64"} {
+	for _, arch := range []string{"arm64"} {
 		m.Artifacts[arch] = Artifact{File: "radar_" + v + "_darwin_" + arch + ".tar.gz", Size: 1, SHA256: hash([]byte("archive")), BinarySHA256: hash([]byte("new")), NotifierVersion: "1.0.0", NotifierSHA256: hash([]byte("bundle"))}
 	}
 	return m
@@ -256,13 +256,17 @@ func TestVerifyArchitecture(t *testing.T) {
 	if err := verifyArchitecture(file, "amd64"); err == nil {
 		t.Fatal("accepted wrong architecture")
 	}
+	os.WriteFile(file, machOBinary("amd64"), 0755)
+	if err := verifyArchitecture(file, "arm64"); err == nil {
+		t.Fatal("accepted Intel Mach-O as arm64")
+	}
 	os.WriteFile(file, []byte("#!/bin/sh\n"), 0755)
 	if err := verifyArchitecture(file, "arm64"); err == nil {
 		t.Fatal("accepted non-Mach-O")
 	}
 }
 
-func TestEligibilityRequiresAllUploadedArchitectures(t *testing.T) {
+func TestEligibilityRequiresUploadedARM64(t *testing.T) {
 	m := fixtureManifest("v0.2.0")
 	if err := checkAssets(m, nil); err == nil {
 		t.Fatal("missing assets eligible")
@@ -319,5 +323,35 @@ func TestNodeReleaseSignatureIsAcceptedByGo(t *testing.T) {
 	parsed, err := ParseManifest(data, sig, keys)
 	if err != nil || parsed.Version != "v0.2.0" {
 		t.Fatalf("%+v %v", parsed, err)
+	}
+}
+
+func TestUnsupportedArchitectureNeverDownloadsOrStages(t *testing.T) {
+	m := fixtureManifest("v0.2.0")
+	m.Artifacts["amd64"] = m.Artifacts["arm64"]
+	// Even a signed manifest entry cannot opt an unsupported target back in.
+	c := &Client{}
+	for _, arch := range []string{"amd64", "unknown"} {
+		if err := c.Download(context.Background(), m, arch, filepath.Join(t.TempDir(), "archive")); err == nil {
+			t.Fatalf("download accepted %s", arch)
+		}
+		if _, err := Stage(context.Background(), c, Installation{}, m, arch); err == nil {
+			t.Fatalf("staging accepted %s", arch)
+		}
+	}
+}
+
+func TestMacOSReadinessOnlyRequiresARM64(t *testing.T) {
+	m := fixtureManifest("v0.2.0")
+	if err := m.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	a := m.Artifacts["arm64"]
+	m.Artifacts["unsupported"] = Artifact{}
+	if err := m.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkAssets(m, []releaseAsset{{Name: a.File, Size: a.Size, State: "uploaded"}}); err != nil {
+		t.Fatal("unsupported artifacts must not gate ARM readiness:", err)
 	}
 }

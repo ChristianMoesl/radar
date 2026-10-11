@@ -34,7 +34,7 @@ radar_install_prerequisites() {
   # Activate an existing native Homebrew before judging tools on PATH.
   if [[ $(uname -s) = Darwin ]]; then
     native_brew=/opt/homebrew/bin/brew
-    [[ $(uname -m) != x86_64 ]] || native_brew=/usr/local/bin/brew
+    [[ $(uname -m) = arm64 ]] || { echo 'Radar requires Apple Silicon (arm64) on macOS.' >&2; return 1; }
     if command -v brew >/dev/null 2>&1; then
       native_brew=$(command -v brew)
     fi

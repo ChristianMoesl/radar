@@ -155,6 +155,9 @@ func (c *Client) Latest(ctx context.Context, current string) (*Manifest, error) 
 }
 
 func (c *Client) Download(ctx context.Context, m Manifest, arch, destination string) error {
+	if arch != "arm64" {
+		return errors.New("macOS releases require Apple Silicon (arm64)")
+	}
 	a, ok := m.Artifacts[arch]
 	if !ok {
 		return errors.New("unsupported architecture")
@@ -271,16 +274,15 @@ func allowedFile(p string) bool {
 }
 
 func checkAssets(m Manifest, assets []releaseAsset) error {
-	for _, a := range m.Artifacts {
-		count := 0
-		for _, asset := range assets {
-			if asset.Name == a.File && asset.Size == a.Size && asset.State == "uploaded" {
-				count++
-			}
+	a := m.Artifacts["arm64"]
+	count := 0
+	for _, asset := range assets {
+		if asset.Name == a.File && asset.Size == a.Size && asset.State == "uploaded" {
+			count++
 		}
-		if count != 1 {
-			return fmt.Errorf("release artifact %s is not publicly uploaded with the expected size", a.File)
-		}
+	}
+	if count != 1 {
+		return fmt.Errorf("release artifact %s is not publicly uploaded with the expected size", a.File)
 	}
 	return nil
 }

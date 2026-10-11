@@ -138,3 +138,48 @@ radar_install_prerequisites`
 		})
 	}
 }
+
+func TestInstallersRejectIntelMacBeforeAnyChanges(t *testing.T) {
+	for _, script := range []string{"prerequisites", "notifier", "notifier build"} {
+		t.Run(script, func(t *testing.T) {
+			bin := t.TempDir()
+			if err := os.WriteFile(filepath.Join(bin, "uname"), []byte("#!/bin/sh\nif [ \"$1\" = -s ]; then echo Darwin; else echo x86_64; fi\n"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			home := t.TempDir()
+			command := "source ./install-prerequisites.sh; radar_install_prerequisites"
+			if script == "notifier" {
+				command = "bash ./install-notifier.sh missing.app \"$HOME/output.app\""
+			} else if script == "notifier build" {
+				command = "bash ./build-notifier-app.sh \"$HOME/output.app\" amd64"
+			}
+			cmd := exec.Command("bash", "-c", command)
+			cmd.Env = append(filteredEnvironment("BASH_ENV", "ENV", "HOME", "PATH"), "HOME="+home, "PATH="+bin+":"+os.Getenv("PATH"))
+			output, err := cmd.CombinedOutput()
+			if err == nil {
+				t.Fatalf("accepted Intel macOS: %s", output)
+			}
+			if _, err := os.Stat(filepath.Join(home, "output.app")); !os.IsNotExist(err) {
+				t.Fatal("created an unsupported installation")
+			}
+		})
+	}
+}
+
+func TestReleaseTargetsPreserveLinuxAndRejectIntelMac(t *testing.T) {
+	for _, target := range []string{"linux/amd64", "linux/arm64", "darwin/arm64", "darwin/amd64"} {
+		cmd := exec.Command("make", "-n", "dist", "DIST_TARGETS="+target)
+		cmd.Dir = ".."
+		output, err := cmd.CombinedOutput()
+		if (err == nil) != (target != "darwin/amd64") {
+			t.Fatalf("target %s: %v: %s", target, err, output)
+		}
+	}
+	cmd := exec.Command("make", "build-radar")
+	cmd.Dir = ".."
+	cmd.Env = append(filteredEnvironment("GOOS", "GOARCH"), "GOOS=darwin", "GOARCH=amd64")
+	output, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "requires Apple Silicon") {
+		t.Fatalf("Intel source build was not rejected: %v: %s", err, output)
+	}
+}

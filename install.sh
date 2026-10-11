@@ -9,8 +9,7 @@ main() {
   [[ $(id -u) != 0 ]] || { echo 'Run this installer as your normal user, without sudo.' >&2; return 1; }
   case "$(uname -m)" in
     arm64) arch=arm64; native_brew=/opt/homebrew/bin/brew;;
-    x86_64) arch=amd64; native_brew=/usr/local/bin/brew;;
-    *) echo 'Unsupported macOS architecture.' >&2; return 1;;
+    *) echo 'Unsupported macOS architecture: Radar requires Apple Silicon (arm64).' >&2; return 1;;
   esac
   prefix="$HOME/.local"
   repair=false
@@ -137,9 +136,8 @@ function manifest(bytes, sigBytes, version) {
   const m = JSON.parse(bytes);
   fields(m, ['schema', 'version', 'state_epoch', 'min_macos', 'pi_version', 'min_pi', 'min_node', 'artifacts']);
   if (m.schema !== 1 || m.state_epoch !== stateEpoch || m.version !== version || !tag(m.version) || m.pi_version !== version.slice(1) || !stable(m.min_pi) || !Number.isInteger(m.min_node) || m.min_node < 24 || m.min_node > 100 || !/^[0-9]+\.[0-9]+$/.test(m.min_macos)) throw new Error('Unsupported release contract');
-  fields(m.artifacts, ['amd64', 'arm64']);
-  for (const a of ['amd64', 'arm64']) {
-    const f = m.artifacts[a]; fields(f, ['file', 'size', 'sha256', 'binary_sha256', 'notifier_version', 'notifier_sha256']);
+  for (const a of ['arm64']) {
+    const f = m.artifacts?.[a]; fields(f, ['file', 'size', 'sha256', 'binary_sha256', 'notifier_version', 'notifier_sha256']);
     if (f.file !== `radar_${version}_darwin_${a}.tar.gz` || !Number.isSafeInteger(f.size) || f.size <= 0 || f.size > maxArchive || !digest(f.sha256) || !digest(f.binary_sha256) || !digest(f.notifier_sha256) || !stable(f.notifier_version)) throw new Error('Invalid release artifact');
   }
   return m;
@@ -174,7 +172,7 @@ for (const r of releases) {
     const bytes = await get(`${downloads}/${r.tag_name}/release.json`, 1024 * 1024);
     const sig = await get(`${downloads}/${r.tag_name}/release.json.sig`, 4096);
     const m = manifest(bytes, sig, r.tag_name);
-    for (const a of Object.values(m.artifacts)) {
+    for (const a of [m.artifacts.arm64]) {
       if (!Array.isArray(r.assets) || r.assets.filter(f => f.name === a.file && f.size === a.size && f.state === 'uploaded').length !== 1) throw new Error('Incomplete release upload');
     }
     const pkg = JSON.parse(await get(`https://registry.npmjs.org/${encodeURIComponent(packageName)}/${m.pi_version}`, 1024 * 1024));
@@ -232,7 +230,7 @@ const bundle = [...files.keys()].filter(p => p.startsWith(bundlePrefix)).sort((a
 if (!bundle.length || sha(Buffer.from(bundle.map(p => `${p.slice(bundlePrefix.length)}\0${files.get(p).executable ? 1 : 0}\0${sha(files.get(p).data)}\n`).join(''))) !== artifact.notifier_sha256) throw new Error('Notifier bundle identity mismatch');
 for (const p of ['bin/radar', bundlePrefix + 'Contents/MacOS/radar-notifier']) {
   const b = files.get(p)?.data;
-  if (!b || b.length < 32 || b.readUInt32LE(0) !== 0xfeedfacf || b.readUInt32LE(4) !== (arch === 'arm64' ? 0x0100000c : 0x01000007)) throw new Error('Release binary architecture mismatch');
+  if (!b || b.length < 32 || b.readUInt32LE(0) !== 0xfeedfacf || b.readUInt32LE(4) !== 0x0100000c) throw new Error('Release binary architecture mismatch');
 }
 const destination = join(work, 'release'); mkdirSync(destination, { mode: 0o700 });
 for (const p of dirs) mkdirSync(join(destination, p), { recursive: true, mode: 0o755 });

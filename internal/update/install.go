@@ -46,8 +46,8 @@ func Inspect(executable string) (Installation, error) {
 	if err != nil {
 		return Installation{}, err
 	}
-	if runtime.GOOS != "darwin" {
-		return Installation{}, errors.New("managed updates are macOS-only; use make install")
+	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
+		return Installation{}, errors.New("managed updates require Apple Silicon macOS; Linux installations use make install")
 	}
 	if filepath.Clean(executable) != filepath.Join(prefix, "bin/radar") {
 		return Installation{}, fmt.Errorf("automatic updates support %s/bin/radar only; keep using your existing manual/package-manager installation", prefix)
@@ -185,7 +185,7 @@ func ReadJournal(prefix string) (*Journal, error) {
 	if err := j.Manifest.Validate(); err != nil {
 		return nil, err
 	}
-	if _, ok := j.Manifest.Artifacts[j.Arch]; !ok {
+	if _, ok := j.Manifest.Artifacts[j.Arch]; j.Arch != "arm64" || !ok {
 		return nil, errors.New("invalid recovery architecture")
 	}
 	return &j, nil
@@ -197,6 +197,9 @@ type Staged struct {
 }
 
 func Stage(ctx context.Context, c *Client, i Installation, m Manifest, arch string) (*Staged, error) {
+	if arch != "arm64" {
+		return nil, errors.New("macOS releases require Apple Silicon (arm64)")
+	}
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
@@ -455,16 +458,15 @@ func Recover(prefix string) error {
 }
 
 func verifyArchitecture(path, arch string) error {
+	if arch != "arm64" {
+		return errors.New("macOS releases require Apple Silicon (arm64)")
+	}
 	f, err := macho.Open(path)
 	if err != nil {
 		return fmt.Errorf("not a macOS executable: %w", err)
 	}
 	defer f.Close()
-	cpu := macho.CpuArm64
-	if arch == "amd64" {
-		cpu = macho.CpuAmd64
-	}
-	if f.Type != macho.TypeExec || f.Cpu != cpu {
+	if f.Type != macho.TypeExec || f.Cpu != macho.CpuArm64 {
 		return errors.New("staged executable architecture does not match the release")
 	}
 	return nil

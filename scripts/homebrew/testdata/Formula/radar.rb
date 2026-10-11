@@ -5,6 +5,7 @@ class Radar < Formula
   version "1.2.3"
   license "MIT"
 
+  depends_on arch: :arm64
   depends_on "fd"
   depends_on "gh"
   depends_on macos: :ventura
@@ -14,10 +15,6 @@ class Radar < Formula
     on_arm do
       url "https://github.com/ChristianMoesl/radar/releases/download/v1.2.3/radar_v1.2.3_darwin_arm64.tar.gz"
       sha256 "f69162950f235e3cdbbad33f1f912d1a504be90d8a37d002c735d6f3e3882265"
-    end
-    on_intel do
-      url "https://github.com/ChristianMoesl/radar/releases/download/v1.2.3/radar_v1.2.3_darwin_amd64.tar.gz"
-      sha256 "5861314d7fccb39c2192173240eab44fa35ca66426201ca2acd0630a6258dd51"
     end
   end
 

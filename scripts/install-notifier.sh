@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 [[ $# = 2 ]] || { echo "usage: $0 source.app destination.app" >&2; exit 2; }
+[[ $(uname -s) = Darwin && $(uname -m) = arm64 ]] || { echo 'Radar notifier requires Apple Silicon (arm64) macOS.' >&2; exit 1; }
 source=$1
 destination=$2
 # Do not touch an identical installed bundle: even harmless copies can force

@@ -66,7 +66,7 @@ func TestPublishReleaseUnderSystemBash(t *testing.T) {
 				}
 			}
 			files := []string{}
-			for _, target := range []string{"darwin_amd64", "darwin_arm64", "linux_amd64", "linux_arm64"} {
+			for _, target := range []string{"darwin_arm64", "linux_amd64", "linux_arm64"} {
 				files = append(files, "radar_"+tag+"_"+target+".tar.gz")
 			}
 			files = append(files, "checksums.txt", "release.json", "release.json.sig")

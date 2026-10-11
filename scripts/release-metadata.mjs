@@ -52,7 +52,7 @@ function run([command, directory, argument]) {
   } else if (command === 'release') {
     const pkg = read(join(root, 'package.json'));
     if (argument !== `v${pkg.version}` || !/^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(argument)) throw new Error('releases require a matching npm version');
-    const artifacts = Object.fromEntries(['amd64', 'arm64'].map(arch => [arch, read(join(directory, `radar_${argument}_darwin_${arch}.tar.gz.json`))]));
+    const artifacts = Object.fromEntries(['arm64'].map(arch => [arch, read(join(directory, `radar_${argument}_darwin_${arch}.tar.gz.json`))]));
     const minPi = pkg.peerDependencies['@earendil-works/pi-coding-agent'].match(/^>=([0-9]+\.[0-9]+\.[0-9]+)$/)?.[1];
     const minNode = Number(pkg.engines.node.match(/^>=([0-9]+)$/)?.[1]);
     const epoch = Number(readFileSync(join(root, 'internal/update/manifest.go'), 'utf8').match(/^const StateEpoch = ([0-9]+)/m)?.[1]);
@@ -60,7 +60,7 @@ function run([command, directory, argument]) {
     signFile(join(directory, 'release.json'), { schema: 1, version: argument, state_epoch: epoch, min_macos: '13.0', pi_version: pkg.version, min_pi: minPi, min_node: minNode, artifacts });
   } else if (command === 'component') {
     const version = componentVersion();
-    const artifacts = Object.fromEntries(['amd64', 'arm64'].map(arch => {
+    const artifacts = Object.fromEntries(['arm64'].map(arch => {
       const file = `radar-notifier_${version}_${arch}.tar.gz`, archive = join(directory, file);
       return [arch, { file, size: lstatSync(archive).size, sha256: sha(readFileSync(archive)), tree_sha256: treeDigest(join(directory, arch, 'RadarNotifier.app')) }];
     }));
@@ -68,7 +68,7 @@ function run([command, directory, argument]) {
   } else if (command === 'verify-component') {
     const manifest = verifyFile(join(directory, 'notifier.json'));
     if (manifest.schema !== 1 || manifest.version !== componentVersion() || manifest.source_sha256 !== sourceDigest()) throw new Error('notifier inputs changed: bump its component version instead of replacing an existing artifact');
-    for (const arch of ['amd64', 'arm64']) {
+    for (const arch of ['arm64']) {
       const a = manifest.artifacts[arch];
       if (a.file !== `radar-notifier_${manifest.version}_${arch}.tar.gz`) throw new Error('invalid notifier filename');
       const bytes = readFileSync(join(directory, a.file));

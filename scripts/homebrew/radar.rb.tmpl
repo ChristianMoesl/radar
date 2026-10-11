@@ -5,6 +5,7 @@ class Radar < Formula
   version "{{.PiVersion}}"
   license "MIT"
 
+  depends_on arch: :arm64
   depends_on "fd"
   depends_on "gh"
   depends_on macos: :ventura
@@ -14,10 +15,6 @@ class Radar < Formula
     on_arm do
       url "https://github.com/ChristianMoesl/radar/releases/download/{{.Version}}/{{(index .Artifacts "arm64").File}}"
       sha256 "{{(index .Artifacts "arm64").SHA256}}"
-    end
-    on_intel do
-      url "https://github.com/ChristianMoesl/radar/releases/download/{{.Version}}/{{(index .Artifacts "amd64").File}}"
-      sha256 "{{(index .Artifacts "amd64").SHA256}}"
     end
   end
 

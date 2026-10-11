@@ -78,11 +78,9 @@ func generate(ctx context.Context, client *update.Client, tag string, out io.Wri
 		return err
 	}
 	defer os.RemoveAll(dir)
-	// Check actual bytes for both architectures, not only GitHub asset metadata.
-	for _, arch := range []string{"arm64", "amd64"} {
-		if err := client.Download(ctx, *manifest, arch, filepath.Join(dir, arch+".tar.gz")); err != nil {
-			return fmt.Errorf("verify %s archive: %w", arch, err)
-		}
+	// Check the supported archive bytes, not only GitHub asset metadata.
+	if err := client.Download(ctx, *manifest, "arm64", filepath.Join(dir, "arm64.tar.gz")); err != nil {
+		return fmt.Errorf("verify arm64 archive: %w", err)
 	}
 	_, err = out.Write(formula)
 	return err

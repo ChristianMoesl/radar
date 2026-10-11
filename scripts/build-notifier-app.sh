@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
-  echo "usage: $0 <output.app> <amd64|arm64>" >&2
+  echo "usage: $0 <output.app> <arm64>" >&2
   exit 2
 fi
 
@@ -18,7 +18,6 @@ if [[ $(uname -s) != Darwin ]]; then
 fi
 
 case "$goarch" in
-  amd64) swift_arch=x86_64 ;;
   arm64) swift_arch=arm64 ;;
   *)
     echo "unsupported notifier architecture: $goarch" >&2

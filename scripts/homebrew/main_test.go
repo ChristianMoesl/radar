@@ -27,7 +27,7 @@ func digest(data []byte) string {
 
 func fixtureManifest() update.Manifest {
 	m := update.Manifest{Schema: 1, Version: "v1.2.3", StateEpoch: update.StateEpoch, MinMacOS: "13.0", PiVersion: "1.2.3", MinPi: "0.85.1", MinNode: 24, Artifacts: map[string]update.Artifact{}}
-	for _, arch := range []string{"arm64", "amd64"} {
+	for _, arch := range []string{"arm64"} {
 		m.Artifacts[arch] = update.Artifact{File: "radar_v1.2.3_darwin_" + arch + ".tar.gz", Size: int64(len(arch)), SHA256: digest([]byte(arch)), BinarySHA256: digest([]byte("binary")), NotifierVersion: "1.0.0", NotifierSHA256: digest([]byte("notifier"))}
 	}
 	return m
@@ -48,7 +48,7 @@ func TestRenderFormula(t *testing.T) {
 	}
 	for _, wanted := range []string{
 		`class Radar < Formula`, `version "1.2.3"`, `license "MIT"`,
-		`on_arm do`, `on_intel do`, `depends_on macos: :ventura`,
+		`on_arm do`, `depends_on arch: :arm64`, `depends_on macos: :ventura`,
 		`depends_on "tmux"`, `depends_on "fd"`, `depends_on "gh"`,
 		`Node.js >= 24`, `Pi >= 0.85.1`, `Git must be available on PATH`,
 		`does not`, `install or update Git, Node or Pi`, `run outside Homebrew`,
@@ -61,13 +61,13 @@ func TestRenderFormula(t *testing.T) {
 			t.Errorf("missing formula behavior %q", wanted)
 		}
 	}
-	for _, arch := range []string{"arm64", "amd64"} {
+	for _, arch := range []string{"arm64"} {
 		a := m.Artifacts[arch]
 		if !strings.Contains(string(data), "/releases/download/v1.2.3/"+a.File) || !strings.Contains(string(data), a.SHA256) {
 			t.Errorf("missing authenticated %s URL/hash", arch)
 		}
 	}
-	for _, forbidden := range []string{"post_install", "lsregister", "npm install", "install.sh", "xattr", "ENV[\"HOME\"]", "radar update\"", `depends_on "node"`, `depends_on "pi-coding-agent"`, `depends_on "git"`, `Formula["node"]`, `Formula["pi-coding-agent"]`} {
+	for _, forbidden := range []string{"on_intel", "darwin_amd64", "post_install", "lsregister", "npm install", "install.sh", "xattr", "ENV[\"HOME\"]", "radar update\"", `depends_on "node"`, `depends_on "pi-coding-agent"`, `depends_on "git"`, `Formula["node"]`, `Formula["pi-coding-agent"]`} {
 		if strings.Contains(string(data), forbidden) {
 			t.Errorf("formula must not run user installers/updaters or bypass Gatekeeper: %q", forbidden)
 		}
@@ -81,7 +81,7 @@ func TestRenderRejectsUnsupportedPoliciesAndRubyInjection(t *testing.T) {
 		func(m *update.Manifest) { m.Version = "v1.2.3-rc.1" },
 		func(m *update.Manifest) { m.MinPi = `#{system("bad")}` },
 		func(m *update.Manifest) { m.PiVersion = `1.2.3"; system("bad")` },
-		func(m *update.Manifest) { delete(m.Artifacts, "amd64") },
+		func(m *update.Manifest) { delete(m.Artifacts, "arm64") },
 	} {
 		m := fixtureManifest()
 		mutate(&m)
@@ -92,7 +92,7 @@ func TestRenderRejectsUnsupportedPoliciesAndRubyInjection(t *testing.T) {
 }
 
 func TestGenerateOnlyCompleteAuthenticatedReleases(t *testing.T) {
-	for _, scenario := range []string{"ready", "unsigned", "unknown key", "wrong tag", "draft", "prerelease", "missing asset", "npm staged", "wrong npm", "corrupt arm64", "corrupt amd64", "missing archive", "incompatible epoch"} {
+	for _, scenario := range []string{"ready", "unsigned", "unknown key", "wrong tag", "draft", "prerelease", "missing asset", "npm staged", "wrong npm", "corrupt arm64", "missing archive", "incompatible epoch"} {
 		t.Run(scenario, func(t *testing.T) {
 			manifest := fixtureManifest()
 			if scenario == "incompatible epoch" {
@@ -105,8 +105,8 @@ func TestGenerateOnlyCompleteAuthenticatedReleases(t *testing.T) {
 			data, _ := json.Marshal(manifest)
 			signature, _ := json.Marshal(update.Signature{KeyID: "test", Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(private, data))})
 			var assets []map[string]any
-			for _, arch := range []string{"arm64", "amd64"} {
-				if scenario == "missing asset" && arch == "amd64" {
+			for _, arch := range []string{"arm64"} {
+				if scenario == "missing asset" {
 					continue
 				}
 				a := manifest.Artifacts[arch]
@@ -134,7 +134,7 @@ func TestGenerateOnlyCompleteAuthenticatedReleases(t *testing.T) {
 						fmt.Fprint(w, `{"name":"@christianmoesl/pi-radar","version":"1.2.3"}`)
 					}
 				default:
-					for _, arch := range []string{"arm64", "amd64"} {
+					for _, arch := range []string{"arm64"} {
 						if r.URL.Path == "/v1.2.3/"+manifest.Artifacts[arch].File {
 							downloads[arch]++
 							if scenario == "corrupt "+arch {
@@ -171,7 +171,7 @@ func TestGenerateOnlyCompleteAuthenticatedReleases(t *testing.T) {
 			if err != nil || !strings.Contains(output.String(), `version "1.2.3"`) {
 				t.Fatalf("generate: %v, %s", err, output.String())
 			}
-			for _, arch := range []string{"arm64", "amd64"} {
+			for _, arch := range []string{"arm64"} {
 				if downloads[arch] != 1 {
 					t.Fatalf("did not verify %s archive", arch)
 				}

@@ -18,7 +18,7 @@ release_id=$(node scripts/notifier-release-state.mjs "$directory/releases.json" 
 # CI must not create a GitHub-only tag that a later full mirror can delete.
 gh api "repos/$repo/git/ref/tags/$tag" >/dev/null
 if [[ "$release_id" == new ]]; then
-  for arch in amd64 arm64; do
+  for arch in arm64; do
     scripts/build-notifier-app.sh "$directory/$arch/RadarNotifier.app" "$arch"
     COPYFILE_DISABLE=1 tar -czf "$directory/radar-notifier_${version}_${arch}.tar.gz" -C "$directory/$arch" RadarNotifier.app
   done
@@ -35,7 +35,7 @@ else
     gh api "repos/$repo/releases/assets/$asset_id" --header 'Accept: application/octet-stream' >"$directory/$filename"
   done <"$directory/assets.tsv"
   node scripts/release-metadata.mjs verify-component "$directory"
-  for arch in amd64 arm64; do
+  for arch in arm64; do
     mkdir -p "$directory/$arch"
     tar -xzf "$directory/radar-notifier_${version}_${arch}.tar.gz" -C "$directory/$arch"
   done
