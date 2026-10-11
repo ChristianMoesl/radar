@@ -33,6 +33,11 @@ radar
 ```
 
 The tap is [ChristianMoesl/homebrew-tap](https://github.com/ChristianMoesl/homebrew-tap).
+Post-install caveats show only prerequisites, startup/update commands and the
+platform-specific next step; this guide contains the full setup and approval details.
+Homebrew provides the colored heading. The caveat body stays plain text, as required
+by Homebrew's audit rules and `brew info --json` output.
+
 It installs prebuilt Radar binaries, manual pages, fd, tmux and gh. The
 notification companion is macOS-only. Linux URL actions require `xdg-open` on
 PATH (usually supplied by the distribution's `xdg-utils` package); it is not

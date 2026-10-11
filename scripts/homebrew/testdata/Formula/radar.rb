@@ -42,34 +42,29 @@ class Radar < Formula
   end
 
   def caveats
-    notification_caveat = if OS.mac?
+    platform_note = if OS.mac?
       <<~EOS
-        To register the notification companion and request macOS launch approval
-        and notification permission, run outside Homebrew:
+        Optional macOS notifications:
           radar setup notifications
-        Never disable Gatekeeper or remove quarantine to bypass approval.
+        Follow macOS approval prompts; never bypass Gatekeeper.
       EOS
     else
-      "Linux does not include the macOS notification companion. URL actions require xdg-open on PATH.\n"
+      "Linux URL actions need xdg-open on PATH.\n"
     end
 
     <<~EOS
-      Git must be available on PATH. Install Pi >= 0.85.1 yourself with
-      Node.js >= 24 and npm (https://pi.dev). This formula does not
-      install or update Git, Node or Pi.
+      Start:
+        radar
+      Needs Git, Node.js >= 24, npm and Pi >= 0.85.1 on PATH (https://pi.dev).
 
-      Run radar: first launch or missing required tools automatically opens setup.
-      Setup checks prerequisites, reviews configuration, creates missing default
-      agent instructions, and asks to install the pi-radar extension in your profile.
-      Homebrew does not edit user configuration, Pi settings or shell profiles.
+      Update:
+        brew upgrade radar
+        radar restart  # only if running
+      Reload active Pi sessions with /reload.
 
-      Update with brew upgrade radar, not radar update. Then run radar restart
-      if the daemon is running. Update your host pi-radar package separately;
-      active Pi sessions need /reload or restart.
-
-      #{notification_caveat}
-      If you previously installed Radar into ~/.local/bin, check `which -a radar`
-      and resolve PATH precedence before setup. No existing install is removed.
+      #{platform_note}
+      Help: radar --help
+      Docs: https://github.com/ChristianMoesl/radar/blob/main/docs/installation.md
     EOS
   end
 

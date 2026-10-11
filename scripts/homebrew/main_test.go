@@ -69,16 +69,36 @@ func TestRenderFormula(t *testing.T) {
 		`class Radar < Formula`, `version "1.2.3"`, `license "MIT"`,
 		`on_linux do`, `on_intel do`, `on_arm do`, `depends_on arch: :arm64`, `depends_on macos: :ventura`,
 		`depends_on "tmux"`, `depends_on "fd"`, `depends_on "gh"`,
-		`Node.js >= 24`, `Pi >= 0.85.1`, `Git must be available on PATH`,
-		`does not`, `install or update Git, Node or Pi`, `run outside Homebrew`,
+		`Node.js >= 24`, `Pi >= 0.85.1`, `Needs Git`, `on PATH`,
 		`bin.install "bin/radar"`, `(libexec/"radar").install "libexec/radar/RadarNotifier.app"`,
 		`man1.install "share/man/man1/radar.1"`, `man5.install "share/man/man5/radar-config.5"`,
 		`pkgshare.install "share/radar/AGENTS.md", "LICENSE"`,
-		`radar setup`, `brew upgrade radar`, `radar restart`, `which -a radar`, `if OS.mac?`, `xdg-open on PATH`, `refute_path_exists libexec/"radar/RadarNotifier.app"`,
+		`radar setup`, `brew upgrade radar`, `radar restart`, `if OS.mac?`, `xdg-open on PATH`, `refute_path_exists libexec/"radar/RadarNotifier.app"`,
 	} {
 		if !strings.Contains(string(data), wanted) {
 			t.Errorf("missing formula behavior %q", wanted)
 		}
+	}
+	_, caveatBody, found := strings.Cut(string(data), "  def caveats\n")
+	if !found {
+		t.Fatal("missing caveats method")
+	}
+	caveats, _, found := strings.Cut(caveatBody, "  test do\n")
+	if !found {
+		t.Fatal("missing formula test after caveats")
+	}
+	for _, text := range []string{"Start:", "Update:", "radar restart  # only if running", "Reload active Pi sessions with /reload.", "Optional macOS notifications:", "never bypass Gatekeeper", "Help: radar --help", "Docs: https://github.com/ChristianMoesl/radar/blob/main/docs/installation.md"} {
+		if !strings.Contains(caveats, text) {
+			t.Errorf("missing post-install action %q", text)
+		}
+	}
+	for _, forbidden := range []string{"\x1b", `\e[`, `\033[`, "Tty.", "Update your host pi-radar package separately", "first launch or missing required tools"} {
+		if strings.Contains(caveats, forbidden) {
+			t.Errorf("caveats must be compact plain text with no obsolete guidance: %q", forbidden)
+		}
+	}
+	if len(strings.Split(caveats, "\n")) > 30 {
+		t.Fatal("post-install caveats grew beyond the compact action list")
 	}
 	for _, arch := range formulaArtifacts {
 		a := m.Artifacts[arch]
