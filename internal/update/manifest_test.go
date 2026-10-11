@@ -309,7 +309,14 @@ func TestNodeReleaseSignatureIsAcceptedByGo(t *testing.T) {
 	pemKey := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
 	dist := filepath.Join(root, "dist")
 	m := fixtureManifest("v0.2.0")
-	for _, a := range m.Artifacts {
+	for _, key := range []string{"linux_amd64", "linux_arm64"} {
+		m.Artifacts[key] = Artifact{File: "radar_v0.2.0_" + key + ".tar.gz", BinarySHA256: strings.Repeat("b", 64)}
+	}
+	for key, a := range m.Artifacts {
+		archive := []byte(key)
+		sum := sha256.Sum256(archive)
+		a.Size, a.SHA256 = int64(len(archive)), hex.EncodeToString(sum[:])
+		put(t, filepath.Join(dist, a.File), string(archive), 0644)
 		data, _ := json.Marshal(a)
 		put(t, filepath.Join(dist, a.File+".json"), string(data), 0644)
 	}
@@ -323,6 +330,65 @@ func TestNodeReleaseSignatureIsAcceptedByGo(t *testing.T) {
 	parsed, err := ParseManifest(data, sig, keys)
 	if err != nil || parsed.Version != "v0.2.0" {
 		t.Fatalf("%+v %v", parsed, err)
+	}
+	for _, key := range []string{"arm64", "linux_amd64", "linux_arm64"} {
+		if err := parsed.ValidateArtifact(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	verifyRelease := func(t *testing.T, tag string, wantError string) {
+		t.Helper()
+		verify := exec.Command("node", filepath.Join(root, "scripts/release-metadata.mjs"), "verify-release", dist, tag)
+		output, err := verify.CombinedOutput()
+		if wantError == "" {
+			if err != nil {
+				t.Fatalf("verify-release: %v %s", err, output)
+			}
+		} else if err == nil || !strings.Contains(string(output), wantError) {
+			t.Fatalf("verify-release wanted %q, got %v %s", wantError, err, output)
+		}
+	}
+	verifyRelease(t, "v0.2.0", "")
+	verifyRelease(t, "v0.2.1", "does not match requested tag")
+	put(t, filepath.Join(root, "internal/update/keys.json"), "{}", 0644)
+	verifyRelease(t, "v0.2.0", "untrusted signing key")
+	put(t, filepath.Join(root, "internal/update/keys.json"), string(keyData), 0644)
+	put(t, filepath.Join(dist, "release.json"), string(append(data, ' ')), 0644)
+	verifyRelease(t, "v0.2.0", "invalid signature")
+	put(t, filepath.Join(dist, "release.json"), string(data), 0644)
+	for _, key := range []string{"arm64", "linux_amd64", "linux_arm64"} {
+		t.Run("verify-release requires "+key, func(t *testing.T) {
+			var incomplete Manifest
+			if err := json.Unmarshal(data, &incomplete); err != nil {
+				t.Fatal(err)
+			}
+			delete(incomplete.Artifacts, key)
+			bytes, _ := json.Marshal(incomplete)
+			signature, _ := json.Marshal(Signature{KeyID: "test", Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(priv, bytes))})
+			put(t, filepath.Join(dist, "release.json"), string(bytes), 0644)
+			put(t, filepath.Join(dist, "release.json.sig"), string(signature), 0644)
+			verifyRelease(t, "v0.2.0", "invalid or missing "+key+" artifact")
+		})
+	}
+	put(t, filepath.Join(dist, "release.json"), string(data), 0644)
+	put(t, filepath.Join(dist, "release.json.sig"), string(sig), 0644)
+	// Old published manifests must not be rewritten; a new release requires all
+	// three sidecars, and mismatched sidecars must fail before signing.
+	original, _ := os.ReadFile(filepath.Join(dist, "release.json"))
+	put(t, filepath.Join(dist, "radar_v0.2.0_linux_arm64.tar.gz"), "tampered", 0644)
+	verifyRelease(t, "v0.2.0", "release archive verification failed: linux_arm64")
+	if output, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("signed mismatched archive: %s", output)
+	}
+	after, _ := os.ReadFile(filepath.Join(dist, "release.json"))
+	if !bytes.Equal(original, after) {
+		t.Fatal("failed signing replaced metadata")
+	}
+	if err := os.Remove(filepath.Join(dist, "radar_v0.2.0_linux_arm64.tar.gz.json")); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("signed incomplete release: %s", output)
 	}
 }
 

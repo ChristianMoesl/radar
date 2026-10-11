@@ -2,7 +2,7 @@
 
 [Documentation](README.md) · [Quick start](../README.md#get-started)
 
-- [Homebrew on macOS](#homebrew)
+- [Homebrew on Linux and macOS](#homebrew)
 - [Standalone macOS installer](#one-command-macos-installation)
 - [Manual installation](#manual-installation)
 - [First-run setup](#guided-first-startup)
@@ -12,7 +12,19 @@
 
 ## Homebrew
 
-On macOS (Apple Silicon only), with [Homebrew](https://brew.sh) installed:
+Homebrew is the recommended Linux installation method (amd64/arm64) and also
+supports macOS (Apple Silicon only, Ventura+).
+
+**Linux publication gate:** support in this checkout is not proof it is live in
+[ChristianMoesl/homebrew-tap](https://github.com/ChristianMoesl/homebrew-tap).
+A new signed release with both Linux archives, exact npm approval, all native
+Homebrew validation jobs, and human publication of the generated tap formula are
+required first. Do not republish an older release's metadata or archives. Until
+then, use [manual installation](#manual-installation). See the
+[maintainer rollout checklist](releases.md#linux-homebrew-rollout).
+
+After publication, with [Homebrew](https://brew.sh) installed and its `brew shellenv`
+applied in your shell as directed by Homebrew:
 
 ```sh
 brew install ChristianMoesl/tap/radar
@@ -20,8 +32,10 @@ radar
 ```
 
 The tap is [ChristianMoesl/homebrew-tap](https://github.com/ChristianMoesl/homebrew-tap).
-It installs prebuilt Radar binaries, the notification companion, manual pages,
-fd, tmux and gh.
+It installs prebuilt Radar binaries, manual pages, fd, tmux and gh. The
+notification companion is macOS-only. Linux URL actions require `xdg-open` on
+PATH (usually supplied by the distribution's `xdg-utils` package); it is not
+installed by the formula.
 Git is expected on PATH. **Pi, Node.js and npm are user-managed**, not formula
 dependencies. For a fresh machine missing Node/npm and [Pi](https://pi.dev) 0.85.1+,
 use:
@@ -36,11 +50,13 @@ be lower; Radar's Pi integration still requires 24+. Existing compatible
 installations are reused regardless of package manager. Setup checks them before
 configuring Pi extensions; it never installs Node or Pi core itself.
 
-No Go or Swift compiler is needed for Radar. The release requires macOS 13 or
-newer; Homebrew and its dependencies may require a newer supported macOS version
-or build tools of their own.
+No Go or Swift compiler is needed for Radar. macOS releases require macOS 13 or
+newer. On Linux, use a distribution and architecture supported by Homebrew;
+Homebrew and its dependencies have their own OS/build-tool requirements.
+Homebrew's installation may require administrative setup; Radar's formula does
+not use sudo.
 
-Homebrew only installs into its prefix. Its sandboxed hooks cannot register apps
+Homebrew only installs into its prefix. On macOS, its sandboxed hooks cannot register apps
 with Launch Services; `radar setup notifications` verifies and registers the
 companion only when you choose **Set up & test** in a normal host terminal.
 Homebrew does not launch Radar, edit your shell profile, write
@@ -48,7 +64,7 @@ user configuration or install Pi extensions. Run `radar`: first launch or missin
 required tools automatically starts setup. You can also run `radar setup`: the normal
 consent/review flow installs the required `pi-radar` extension, creates default
 `AGENTS.md` instructions if absent, and saves configuration. Existing instructions
-(including symlinks) are preserved. Native notification launch approval and
+(including symlinks) are preserved. On macOS, native notification launch approval and
 permission remain separate user actions; see [notification setup](#macos-notification-setup).
 
 ### Homebrew updates
@@ -142,7 +158,8 @@ Node does not switch to weaker verification.
 
 ## Manual installation
 
-For Linux, Windows/WSL, source builds or a custom prefix, use the manual path.
+For Windows/WSL, source builds, a custom prefix, or Linux before the Homebrew
+publication gate is complete (or when not using Homebrew), use the manual path.
 [Published archives](https://github.com/ChristianMoesl/radar/releases) cover
 macOS on Apple Silicon (arm64), and Linux on arm64/amd64; on Windows, run Radar
 inside WSL. Intel Macs are not supported. Download the matching archive and `checksums.txt` from a release you trust:
@@ -498,7 +515,8 @@ Restart a running daemon after updating the binary.
   with no login for healthy sessions or unrelated errors.
 
 Tests use fake CLIs and local fixtures, not real authentication, remote APIs, or
-sandbox provisioning. CI also builds native macOS notifier/release archives;
+sandbox provisioning. CI also builds native macOS notifier/release archives and installs/tests/uninstalls
+native Linux archives with real Homebrew on amd64 and arm64;
 real SBX runtime tests remain separately opt-in.
 
 ## Onboarding regression matrix
@@ -583,7 +601,8 @@ Radar avoids repeatedly launching that same binary until a successful setup/test
 Run `radar update` to review a release and confirm adoption/update of the
 standard `~/.local` installation. No silent install occurs. Homebrew installations
 use `brew upgrade radar`; other custom/symlink/package-manager installs and
-Linux/Windows remain manual. CLI and Pi updates have separate
+Windows and non-Homebrew Linux installs remain manual. The built-in updater
+does not support Linux; Linux Homebrew installs use `brew upgrade radar`. CLI and Pi updates have separate
 outcomes; active Pi sessions need `/reload` or restart after a package change.
 See [release trust, prerequisites, supported layout and recovery](releases.md#user-flow-and-recovery).
 

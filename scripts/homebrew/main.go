@@ -22,6 +22,8 @@ import (
 //go:embed radar.rb.tmpl
 var formulaTemplate string
 
+var formulaArtifacts = []string{"arm64", "linux_amd64", "linux_arm64"}
+
 func main() {
 	if len(os.Args) != 2 {
 		fmt.Fprintln(os.Stderr, "usage: go run ./scripts/homebrew vX.Y.Z > radar.rb")
@@ -62,7 +64,7 @@ func generate(ctx context.Context, client *update.Client, tag string, out io.Wri
 	// Reuse the updater's signed-manifest, state-epoch, public-asset and npm
 	// readiness checks. Never silently generate an older version when the
 	// requested release is still staged or incomplete.
-	manifest, err := client.Latest(ctx, "")
+	manifest, err := client.LatestForArtifacts(ctx, "", formulaArtifacts)
 	if err != nil {
 		return err
 	}
@@ -79,8 +81,10 @@ func generate(ctx context.Context, client *update.Client, tag string, out io.Wri
 	}
 	defer os.RemoveAll(dir)
 	// Check the supported archive bytes, not only GitHub asset metadata.
-	if err := client.Download(ctx, *manifest, "arm64", filepath.Join(dir, "arm64.tar.gz")); err != nil {
-		return fmt.Errorf("verify arm64 archive: %w", err)
+	for _, key := range formulaArtifacts {
+		if err := client.DownloadArtifact(ctx, *manifest, key, filepath.Join(dir, key+".tar.gz")); err != nil {
+			return fmt.Errorf("verify %s archive: %w", key, err)
+		}
 	}
 	_, err = out.Write(formula)
 	return err
@@ -89,6 +93,11 @@ func generate(ctx context.Context, client *update.Client, tag string, out io.Wri
 func renderFormula(manifest update.Manifest) ([]byte, error) {
 	if err := manifest.Validate(); err != nil {
 		return nil, err
+	}
+	for _, key := range formulaArtifacts {
+		if err := manifest.ValidateArtifact(key); err != nil {
+			return nil, err
+		}
 	}
 	// A new macOS baseline needs an explicit Homebrew dependency change too.
 	if manifest.MinMacOS != "13.0" {

@@ -96,3 +96,30 @@ jobs:
 
       - name: Check macOS release packaging
         run: make dist VERSION=ci DIST_TARGETS="darwin/arm64"
+
+  linux-homebrew:
+    name: Linux Homebrew install (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: Homebrew/actions/setup-homebrew@master
+      - name: Build native source archive
+        run: make dist VERSION=v1.2.3 DIST_TARGETS="linux/${{ matrix.arch }}"
+      - name: Install, test and uninstall with real Homebrew
+        run: scripts/homebrew/smoke-test.sh "dist/radar_v1.2.3_linux_${{ matrix.arch }}.tar.gz"

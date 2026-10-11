@@ -12,23 +12,30 @@ dashboard. Open a task to jump into its workspace—with Git worktrees, tmux and
 
 ### 1. Install
 
-On **macOS**, choose Homebrew or the standalone installer. Run without sudo.
+**Homebrew is recommended on Linux** (amd64/arm64) and is also available on
+**macOS** (Apple Silicon, Ventura+). Run without sudo.
 
-**Homebrew** (Apple Silicon only):
+**Linux rollout gate:** this source adds Linux support, but the public tap is not
+updated by these changes. Until a new signed release and the manually published
+Linux-capable tap formula ship, use the [manual Linux path](docs/installation.md#manual-installation).
+After publication, with [Homebrew](https://brew.sh) installed:
+
+**Homebrew:**
 
 ```sh
 brew install ChristianMoesl/tap/radar
 radar
 ```
 
-Homebrew installs Radar, its notification companion, fd, tmux and gh. Git is
+Homebrew installs Radar, manual pages, fd, tmux and gh. On macOS it also installs
+the notification companion. Linux URL actions need `xdg-open` on PATH. Git is
 expected on PATH; install [Pi](https://pi.dev) yourself with Node.js 24+ and npm.
 `radar` automatically starts setup on first launch or when a required tool is
 missing. Setup checks prerequisites and asks before changing configuration or
 installing Pi extensions. Update with `brew upgrade radar`, not `radar update`.
 [Homebrew setup and updates →](docs/installation.md#homebrew)
 
-**Standalone installer:**
+**Standalone macOS installer:**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ChristianMoesl/radar/main/install.sh | bash
@@ -39,7 +46,7 @@ fd and gh), and starts guided setup. Installation prompts default to Yes but
 still ask permission; PATH changes have a separate confirmation. You can decline
 any offer; declining a required dependency stops installation.
 
-[Linux, Windows/WSL and manual installation →](docs/installation.md#manual-installation)
+[Windows/WSL, custom prefixes and manual installation →](docs/installation.md#manual-installation)
 
 ### 2. Make it yours
 

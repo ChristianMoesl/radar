@@ -44,7 +44,14 @@ function verifyFile(file) {
   return JSON.parse(bytes);
 }
 function artifact(directory, archive) {
-  return { file: basename(archive), size: lstatSync(archive).size, sha256: sha(readFileSync(archive)), binary_sha256: sha(readFileSync(join(directory, 'bin/radar'))), notifier_version: componentVersion(), notifier_sha256: treeDigest(join(directory, 'libexec/radar/RadarNotifier.app')) };
+  const file = basename(archive);
+  if (!/^radar_.+_(darwin_arm64|linux_amd64|linux_arm64)\.tar\.gz$/.test(file)) throw new Error('unsupported release artifact');
+  const result = { file, size: lstatSync(archive).size, sha256: sha(readFileSync(archive)), binary_sha256: sha(readFileSync(join(directory, 'bin/radar'))) };
+  if (file.endsWith('_darwin_arm64.tar.gz')) {
+    result.notifier_version = componentVersion();
+    result.notifier_sha256 = treeDigest(join(directory, 'libexec/radar/RadarNotifier.app'));
+  }
+  return result;
 }
 function run([command, directory, argument]) {
   if (command === 'artifact') {
@@ -52,12 +59,29 @@ function run([command, directory, argument]) {
   } else if (command === 'release') {
     const pkg = read(join(root, 'package.json'));
     if (argument !== `v${pkg.version}` || !/^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(argument)) throw new Error('releases require a matching npm version');
-    const artifacts = Object.fromEntries(['arm64'].map(arch => [arch, read(join(directory, `radar_${argument}_darwin_${arch}.tar.gz.json`))]));
+    const artifacts = Object.fromEntries([
+      ['arm64', 'darwin_arm64'], ['linux_amd64', 'linux_amd64'], ['linux_arm64', 'linux_arm64'],
+    ].map(([key, platform]) => {
+      const file = `radar_${argument}_${platform}.tar.gz`;
+      const metadata = read(join(directory, `${file}.json`));
+      const archive = readFileSync(join(directory, file));
+      if (metadata.file !== file || metadata.size !== archive.length || metadata.sha256 !== sha(archive)) throw new Error(`artifact metadata does not match archive: ${file}`);
+      return [key, metadata];
+    }));
     const minPi = pkg.peerDependencies['@earendil-works/pi-coding-agent'].match(/^>=([0-9]+\.[0-9]+\.[0-9]+)$/)?.[1];
     const minNode = Number(pkg.engines.node.match(/^>=([0-9]+)$/)?.[1]);
     const epoch = Number(readFileSync(join(root, 'internal/update/manifest.go'), 'utf8').match(/^const StateEpoch = ([0-9]+)/m)?.[1]);
     if (!minPi || !minNode || !epoch) throw new Error('unsupported prerequisite/epoch policy; update the release contract explicitly');
     signFile(join(directory, 'release.json'), { schema: 1, version: argument, state_epoch: epoch, min_macos: '13.0', pi_version: pkg.version, min_pi: minPi, min_node: minNode, artifacts });
+  } else if (command === 'verify-release') {
+    const manifest = verifyFile(join(directory, 'release.json'));
+    if (manifest.schema !== 1 || manifest.version !== argument) throw new Error('release metadata does not match requested tag');
+    for (const [key, platform] of [['arm64', 'darwin_arm64'], ['linux_amd64', 'linux_amd64'], ['linux_arm64', 'linux_arm64']]) {
+      const a = manifest.artifacts[key];
+      if (a?.file !== `radar_${argument}_${platform}.tar.gz`) throw new Error(`invalid or missing ${key} artifact`);
+      const bytes = readFileSync(join(directory, a.file));
+      if (bytes.length !== a.size || sha(bytes) !== a.sha256) throw new Error(`release archive verification failed: ${key}`);
+    }
   } else if (command === 'component') {
     const version = componentVersion();
     const artifacts = Object.fromEntries(['arm64'].map(arch => {
@@ -75,7 +99,7 @@ function run([command, directory, argument]) {
       if (bytes.length !== a.size || sha(bytes) !== a.sha256) throw new Error('notifier archive verification failed');
       if (argument === 'extracted' && treeDigest(join(directory, arch, 'RadarNotifier.app')) !== a.tree_sha256) throw new Error('notifier bundle identity mismatch');
     }
-  } else throw new Error('usage: release-metadata.mjs artifact|release|component|verify-component <directory> [archive|tag|extracted]');
+  } else throw new Error('usage: release-metadata.mjs artifact|release|verify-release|component|verify-component <directory> [archive|tag|extracted]');
 }
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try { run(process.argv.slice(2)); } catch (error) { console.error(error.message); process.exitCode = 1; }

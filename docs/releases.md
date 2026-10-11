@@ -1,8 +1,10 @@
 # Releases and macOS updates
 
 Radar's CLI and `@christianmoesl/pi-radar` share a release version. The small
-macOS notifier has its own version and immutable artifacts. Linux/Windows retain
-manual `make install`; existing Linux release archives are still generated.
+macOS notifier has its own version and immutable artifacts. Homebrew is the
+recommended Linux installation/update owner after the [publication gate](#linux-homebrew-rollout).
+Linux manual archives/source builds and Windows/WSL remain available. The built-in
+`radar update` transaction remains macOS-only.
 
 ## Maintainer trust and publishing setup
 
@@ -115,16 +117,23 @@ later without replacing the release contract.
   publishing command; agents may prepare changes but must not execute its push.
   Verify that the tags arrive on GitHub through the development forge's mirror.
 - CI serializes releases, authenticates/reuses the `notifier-v<version>` component
-  release, builds the existing macOS/Linux archives, signs `release.json`, and
-  publishes the CLI release from a draft only after uploading its assets.
+  release, builds the existing macOS/Linux archives, signs `release.json`,
+  retains the authenticated assets privately, and validates native Linux
+  Homebrew install/test/uninstall on amd64 and arm64 before publishing the CLI
+  release from a draft. npm staging depends on this publication gate.
 - Approve the staged exact npm version with 2FA. Until it is publicly available,
   the coordinated updater skips that release and may offer an older eligible
   stable version. Drafts/prereleases are never automatic update candidates;
   prerelease archives and npm's `next` staging remain available manually.
 
 `release.json.sig` signs the exact bytes of `release.json` using Ed25519. Metadata
-binds versions, the macOS arm64 artifact, minimum OS/Pi/Node requirements, archive
-size/hash, binary hash and notifier tree identity. SHA-256 checksum lists alone
+binds versions, the macOS arm64 and Linux amd64/arm64 artifacts, minimum
+macOS/Pi/Node requirements, archive size/hash, and binary hashes. The macOS entry
+also binds notifier version/tree identity. Schema 1 retains the existing `arm64`
+macOS key; `linux_amd64` and `linux_arm64` are explicit signed artifact keys with
+no notifier fields. macOS updater/bootstrap eligibility still uses only `arm64`.
+The formula generator requires all three keys and refuses old manifests lacking
+Linux artifacts; it never falls back to unsigned `checksums.txt`. SHA-256 checksum lists alone
 are not publisher authentication. Initial installation still requires trusting
 the bootstrap source/key through a trusted channel; a key shipped alongside an
 otherwise untrusted download cannot establish that trust by itself.
@@ -151,6 +160,42 @@ Older releases such as `v0.1.2` do not provide that setup behavior. Do not annou
 the README's Homebrew option until the tap formula has been published and tested.
 No tap repository or formula is created by the normal CLI release workflow.
 
+### Linux Homebrew rollout
+
+This source change does **not** publish Linux support to the public tap. Before
+announcing Linux Homebrew availability:
+
+1. Cut a **new** CLI release containing Linux sidecars in signed `release.json`.
+   Never overwrite immutable old release metadata/archives or regenerate the
+   unchanged macOS notifier component.
+2. Require native amd64/arm64 Linux Homebrew release jobs to pass before GitHub
+   publication, then approve the exact staged npm package normally.
+3. Run the manual Homebrew workflow for that release. Require all three native
+   platform jobs to pass, review the single generated formula, and have a human
+   publish it to the tap. Source CI alone does not validate public metadata/npm.
+4. Smoke-test public tap install/test/uninstall on Linux amd64/arm64 and macOS
+   Apple Silicon; test upgrades from the prior tap formula, PATH precedence and
+   daemon restart separately. macOS launch approval/delivery/click still needs a
+   GUI machine. Only then remove the pending-publication notices in user docs.
+
+Existing state/config/notes formats and updater receipts are unchanged. No data
+migration or automatic adoption of another installer is introduced.
+
+Source CI tests real Homebrew on native Linux runners using a local-archive
+fixture derived from the production formula. For a disposable Linux environment
+with Homebrew and Node already available, run:
+
+```sh
+make dist VERSION=v1.2.3 DIST_TARGETS="linux/arm64" # use linux/amd64 on x86_64
+scripts/homebrew/smoke-test.sh dist/radar_v1.2.3_linux_arm64.tar.gz
+```
+
+The script uses a unique temporary tap and runs style/install/test/uninstall,
+then removes the tap. It never installs Homebrew or publishes a formula. Its
+`file://` formula is **CI-only**, not publisher-authenticated. Release CI first
+verifies all archives against signed metadata using committed trust roots; only
+the production generator can emit a tap candidate after public/npm readiness.
+
 ### Each release
 
 1. Publish a new stable Radar release normally and approve its exact npm package.
@@ -159,14 +204,14 @@ No tap repository or formula is created by the normal CLI release workflow.
    release's source, runs the generator tests, and generates a formula only when
    the requested version is the latest coordinated public release. A missing
    matching npm package, invalid signature, incompatible state epoch, unpublished
-   architecture or wrong archive hash stops the job. The macOS arm64 archive is
+   architecture or wrong archive hash stops the job. All three archives (macOS arm64, Linux amd64/arm64) are
    downloaded and authenticated. No older-version fallback is emitted.
 3. The workflow updates Homebrew, installs/tests/uninstalls the candidate in
-   a temporary runner-local tap on Apple Silicon, and uploads
-   `Formula/radar.rb` in the `homebrew-formula` artifact. The job must
+   a temporary runner-local tap on Apple Silicon and native Linux amd64/arm64, and uploads
+   `Formula/radar.rb` in the macOS job's `homebrew-formula` artifact. All three jobs must
    pass before publication. It does **not**
    create/push a tap repository. It needs no cross-repository token or npm secret.
-4. Review the formula diff (version, the arm64 URL/hash, prerequisite minimums and
+4. Review the formula diff (version, all three platform URLs/hashes, prerequisite minimums and
    install hooks), copy it into `ChristianMoesl/homebrew-tap/Formula/radar.rb`, and
    have a human commit/push it. Never overwrite an existing version's artifacts.
 5. Check `brew update && brew install ChristianMoesl/tap/radar` from the public tap.
@@ -191,9 +236,10 @@ SHA-256, rather than running Radar's signed-manifest updater during installation
 This is a separate distribution trust path, not a claim that hashes alone prove
 publisher identity. Maintainers authenticate those hashes before publishing.
 
-Homebrew owns the binary and notifier under its Cellar; runtime notifier lookup
-resolves the `bin/radar` symlink and uses the same `libexec/radar` layout as release
-archives. Install verifies the app's code signature but does not register it:
+Homebrew owns the binary under its Cellar, and on macOS also owns the notifier.
+macOS runtime notifier lookup resolves the `bin/radar` symlink and uses the same
+`libexec/radar` layout as release archives. macOS installation verifies the app's
+code signature but does not register it:
 current Homebrew sandboxes its post-install hooks and intentionally blocks Launch
 Services registration. The foreground `radar setup notifications` flow verifies
 and registers the bundle only after the user selects **Set up & test**. It does
@@ -206,14 +252,16 @@ user-managed and verified during setup, never installed or upgraded by Radar's
 Homebrew formula. User configuration and Pi profile changes belong to the
 interactive setup/review, never formula hooks.
 
-The Actions smoke tests cover native Apple Silicon installation,
-CLI/manual/notifier checks and uninstall with current Homebrew. They do not prove
-interactive launch approval or delivery/clicks. Before general distribution
+The Actions smoke tests cover native macOS Apple Silicon and Linux amd64/arm64
+installation, CLI/manual checks and uninstall with current Homebrew. macOS also
+checks notifier lookup and code signing. They do not prove interactive launch
+approval or delivery/clicks. Before general distribution
 validate first-run setup, existing/symlinked `AGENTS.md` preservation,
 notifications/approval/clicks, upgrade/daemon restart, existing `~/.local` PATH
 conflicts, and uninstall leaving user files untouched. Review data rollout instructions before a brew upgrade:
 Homebrew does not offer Radar's managed updater's migration guard or rollback.
-Linux/WSL keep their existing manual install route; this formula is macOS-only.
+Linux Homebrew installations use `brew upgrade radar` after the publication gate;
+manual Linux and Windows/WSL installations retain their existing update route.
 
 ## macOS architecture policy
 
@@ -223,8 +271,9 @@ Rosetta shells must be replaced with a native arm64 terminal.
 
 New CLI and notifier releases publish only arm64 macOS archives. Existing signed
 releases and component artifacts stay immutable, including their historical
-Intel assets. Consumers validate and select only the supported arm64 artifact;
-other entries in a signed artifact map are never downloaded or installed.
+Intel assets. The macOS updater/bootstrap validate and select only the supported
+macOS arm64 artifact; they never download or install the Linux entries. The
+Homebrew generator separately validates all three supported platform artifacts.
 
 Older standalone Radar updaters and bootstrap scripts required both macOS
 architectures. They cannot select a new arm64-only release: use the current

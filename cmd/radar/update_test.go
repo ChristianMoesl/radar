@@ -154,7 +154,7 @@ func TestUpdateCLICommand(t *testing.T) {
 			if strings.Contains(output, "radar upgrade") || strings.Contains(output, "Press Enter") {
 				t.Fatalf("obsolete workflow guidance: %s", output)
 			}
-			if tc.name == "update" && runtime.GOOS == "darwin" && !strings.Contains(output, "brew upgrade radar") {
+			if tc.name == "update" && !strings.Contains(output, "brew upgrade radar") {
 				t.Fatal("missing Homebrew upgrade guidance")
 			}
 			if tc.name == "help" && !strings.Contains(output, "radar setup notifications") {

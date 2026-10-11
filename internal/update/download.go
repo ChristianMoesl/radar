@@ -101,6 +101,15 @@ func (c *Client) NPMReady(ctx context.Context, m Manifest) error {
 	return nil
 }
 func (c *Client) Latest(ctx context.Context, current string) (*Manifest, error) {
+	return c.LatestForArtifacts(ctx, current, []string{"arm64"})
+}
+
+// LatestForArtifacts shares release authenticity/readiness checks with packaging
+// tools. It does not extend the built-in updater's platform or install support.
+func (c *Client) LatestForArtifacts(ctx context.Context, current string, keys []string) (*Manifest, error) {
+	if len(keys) == 0 {
+		return nil, errors.New("at least one artifact key is required")
+	}
 	if len(c.Keys) == 0 {
 		return nil, errors.New("release signing is not configured in this build; see docs/releases.md")
 	}
@@ -135,7 +144,7 @@ func (c *Client) Latest(ctx context.Context, current string) (*Manifest, error) 
 	for _, tag := range tags {
 		m, err := c.ReadManifest(ctx, tag)
 		if err == nil {
-			err = checkAssets(m, assets[tag])
+			err = checkAssetsForArtifacts(m, assets[tag], keys)
 		}
 		if err == nil {
 			err = c.NPMReady(ctx, m)
@@ -158,10 +167,19 @@ func (c *Client) Download(ctx context.Context, m Manifest, arch, destination str
 	if arch != "arm64" {
 		return errors.New("macOS releases require Apple Silicon (arm64)")
 	}
-	a, ok := m.Artifacts[arch]
-	if !ok {
-		return errors.New("unsupported architecture")
+	return c.DownloadArtifact(ctx, m, arch, destination)
+}
+
+// DownloadArtifact verifies bounded archive bytes against an explicitly selected
+// signed artifact. Managed updates continue to call the macOS-only Download.
+func (c *Client) DownloadArtifact(ctx context.Context, m Manifest, key, destination string) error {
+	if err := m.Validate(); err != nil {
+		return err
 	}
+	if err := m.ValidateArtifact(key); err != nil {
+		return err
+	}
+	a := m.Artifacts[key]
 	req, err := http.NewRequestWithContext(ctx, "GET", c.Downloads+"/"+m.Version+"/"+a.File, nil)
 	if err != nil {
 		return err
@@ -274,15 +292,24 @@ func allowedFile(p string) bool {
 }
 
 func checkAssets(m Manifest, assets []releaseAsset) error {
-	a := m.Artifacts["arm64"]
-	count := 0
-	for _, asset := range assets {
-		if asset.Name == a.File && asset.Size == a.Size && asset.State == "uploaded" {
-			count++
+	return checkAssetsForArtifacts(m, assets, []string{"arm64"})
+}
+
+func checkAssetsForArtifacts(m Manifest, assets []releaseAsset, keys []string) error {
+	for _, key := range keys {
+		if err := m.ValidateArtifact(key); err != nil {
+			return err
 		}
-	}
-	if count != 1 {
-		return fmt.Errorf("release artifact %s is not publicly uploaded with the expected size", a.File)
+		a := m.Artifacts[key]
+		count := 0
+		for _, asset := range assets {
+			if asset.Name == a.File && asset.Size == a.Size && asset.State == "uploaded" {
+				count++
+			}
+		}
+		if count != 1 {
+			return fmt.Errorf("release artifact %s is not publicly uploaded with the expected size", a.File)
+		}
 	}
 	return nil
 }

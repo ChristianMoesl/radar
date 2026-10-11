@@ -93,7 +93,7 @@ dist: clean-dist manpages
 		cp scripts/install-agent-instructions.sh "$${dir}/install-agent-instructions.sh"; \
 		chmod 0755 "$${dir}/install.sh" "$${dir}/install-agent-instructions.sh"; \
 		COPYFILE_DISABLE=1 tar -C "$(DIST_DIR)" -czf "$(DIST_DIR)/$${name}.tar.gz" "$${name}"; \
-		if [ "$${goos}" = darwin ]; then node scripts/release-metadata.mjs artifact "$${dir}" "$(DIST_DIR)/$${name}.tar.gz"; fi; \
+		node scripts/release-metadata.mjs artifact "$${dir}" "$(DIST_DIR)/$${name}.tar.gz"; \
 		rm -rf "$${dir}"; \
 	done; \
 	cd "$(DIST_DIR)" && shasum -a 256 *.tar.gz > checksums.txt

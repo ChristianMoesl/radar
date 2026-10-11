@@ -53,8 +53,8 @@ type Artifact struct {
 	Size            int64  `json:"size"`
 	SHA256          string `json:"sha256"`
 	BinarySHA256    string `json:"binary_sha256"`
-	NotifierVersion string `json:"notifier_version"`
-	NotifierSHA256  string `json:"notifier_sha256"` // canonical bundle tree, not archive bytes
+	NotifierVersion string `json:"notifier_version,omitempty"`
+	NotifierSHA256  string `json:"notifier_sha256,omitempty"` // canonical bundle tree, not archive bytes
 }
 
 type Manifest struct {
@@ -148,11 +148,33 @@ func (m Manifest) Validate() error {
 	if !regexp.MustCompile(`^[0-9]+\.[0-9]+$`).MatchString(m.MinMacOS) {
 		return errors.New("invalid minimum macOS")
 	}
-	// Eligibility is based only on the supported macOS artifact. Other entries
-	// in the signed artifact map are never selected, downloaded or installed.
-	a, ok := m.Artifacts["arm64"]
-	if !ok || a.File != "radar_"+m.Version+"_darwin_arm64.tar.gz" || a.Size <= 0 || a.Size > MaxArchiveSize || !digestPattern.MatchString(a.SHA256) || !digestPattern.MatchString(a.BinarySHA256) || !Stable(a.NotifierVersion) || !digestPattern.MatchString(a.NotifierSHA256) {
-		return errors.New("invalid arm64 artifact")
+	// The built-in updater remains macOS-only. Linux entries are validated only
+	// when explicitly requested by the Homebrew generator.
+	return m.ValidateArtifact("arm64")
+}
+
+// ValidateArtifact validates a signed artifact key, including its fixed filename.
+// arm64 is the macOS key; Linux artifacts have explicit platform-qualified keys.
+func (m Manifest) ValidateArtifact(key string) error {
+	platform := ""
+	switch key {
+	case "arm64":
+		platform = "darwin_arm64"
+	case "linux_amd64", "linux_arm64":
+		platform = key
+	default:
+		return fmt.Errorf("unsupported artifact key %s", key)
+	}
+	a, ok := m.Artifacts[key]
+	if !ok || a.File != "radar_"+m.Version+"_"+platform+".tar.gz" || a.Size <= 0 || a.Size > MaxArchiveSize || !digestPattern.MatchString(a.SHA256) || !digestPattern.MatchString(a.BinarySHA256) {
+		return fmt.Errorf("invalid or missing %s artifact", key)
+	}
+	if key == "arm64" {
+		if !Stable(a.NotifierVersion) || !digestPattern.MatchString(a.NotifierSHA256) {
+			return errors.New("invalid arm64 notifier identity")
+		}
+	} else if a.NotifierVersion != "" || a.NotifierSHA256 != "" {
+		return fmt.Errorf("Linux artifact %s must not contain a macOS notifier", key)
 	}
 	return nil
 }

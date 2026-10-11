@@ -43,7 +43,7 @@ func confirmUpdate(scanner *bufio.Scanner, out io.Writer, text string) bool {
 }
 func updateRelease(in io.Reader, out io.Writer) error {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
-		return errors.New("managed updates require Apple Silicon macOS; Linux installations use make install")
+		return errors.New("managed updates require Apple Silicon macOS; Homebrew installations use brew upgrade radar, and source/archive Linux installations stay manual")
 	}
 	executable, err := os.Executable()
 	if err != nil {

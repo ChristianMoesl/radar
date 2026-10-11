@@ -15,7 +15,11 @@ permissions:
 
 jobs:
   formula:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +37,7 @@ jobs:
         run: |
           mkdir -p build/homebrew/Formula
           go run ./scripts/homebrew "$RELEASE_VERSION" > build/homebrew/Formula/radar.rb
+      - uses: Homebrew/actions/setup-homebrew@master
       - name: Update Homebrew
         run: brew update
       - name: Install and test in a local tap
@@ -46,6 +51,7 @@ jobs:
           brew uninstall ChristianMoesl/tap/radar
       - name: Upload reviewed tap candidate
         uses: actions/upload-artifact@v4
+        if: matrix.os == 'macos-latest'
         with:
           name: homebrew-formula
           path: build/homebrew/Formula/radar.rb
@@ -54,7 +60,7 @@ jobs:
           {
             echo '## Homebrew candidate validated on this runner architecture'
             echo
-            echo 'Wait for the Apple Silicon job to pass, download its homebrew-formula artifact, review Formula/radar.rb, and commit it to ChristianMoesl/homebrew-tap main.'
+            echo 'Wait for all three jobs (macOS arm64, Linux amd64/arm64) to pass, download the homebrew-formula artifact, review Formula/radar.rb, and commit it to ChristianMoesl/homebrew-tap main.'
             echo 'A human must push the tap. This workflow does not publish it or approve npm staging.'
             echo 'Real macOS launch approval and notification delivery/clicks still need interactive smoke tests.'
           } >> "$GITHUB_STEP_SUMMARY"

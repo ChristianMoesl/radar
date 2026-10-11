@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   release:
-    name: Build and publish binaries
+    name: Build and authenticate binaries
     runs-on: macos-latest
     permissions:
       contents: write
@@ -82,6 +82,61 @@ jobs:
           RADAR_RELEASE_SIGNING_KEY: ${{ secrets.RADAR_RELEASE_SIGNING_KEY }}
         run: node scripts/release-metadata.mjs release dist "$GITHUB_REF_NAME"
 
+      - name: Retain authenticated assets for native Linux validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+            dist/release.json
+            dist/release.json.sig
+
+  linux-homebrew:
+    name: Validate release with Linux Homebrew (${{ matrix.arch }})
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+      - name: Verify signed release archives
+        run: node scripts/release-metadata.mjs verify-release dist "$GITHUB_REF_NAME"
+      - uses: Homebrew/actions/setup-homebrew@master
+      - name: Install, test and uninstall native release archive
+        run: scripts/homebrew/smoke-test.sh "dist/radar_${GITHUB_REF_NAME}_linux_${{ matrix.arch }}.tar.gz"
+
+  publish:
+    name: Publish validated binaries
+    needs: [release, linux-homebrew]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+      - name: Verify signed release archives
+        run: node scripts/release-metadata.mjs verify-release dist "$GITHUB_REF_NAME"
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -89,7 +144,7 @@ jobs:
 
   stage-npm:
     name: Stage Pi package for npm approval
-    needs: release
+    needs: publish
     runs-on: ubuntu-latest
     permissions:
       contents: read
