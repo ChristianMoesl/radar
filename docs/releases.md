@@ -196,7 +196,7 @@ resolves the `bin/radar` symlink and uses the same `libexec/radar` layout as rel
 archives. Install verifies the app's code signature but does not register it:
 current Homebrew sandboxes its post-install hooks and intentionally blocks Launch
 Services registration. The foreground `radar setup notifications` flow verifies
-and registers the bundle only after the user selects **Set up / test**. It does
+and registers the bundle only after the user selects **Set up & test**. It does
 not modify Gatekeeper or grant notification permission. Cellar paths change on
 upgrade, so users should rerun notification setup and app-specific launch approval
 may need repeating even if component bytes are unchanged. The standalone updater's

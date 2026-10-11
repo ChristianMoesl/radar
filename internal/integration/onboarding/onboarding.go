@@ -205,20 +205,15 @@ func (w wizard) run() error {
 			}
 		}
 	}
-	w.ui.print("\n✓ Wrote %s\n", path)
-	if len(updates) > 0 {
-		secretsPath, _ := config.SecretsPath()
-		w.ui.print("✓ Saved credentials to %s\n", secretsPath)
-	}
+	w.ui.print("\n✓ Radar configured\n")
 	if tmuxPlan != nil {
-		w.ui.print("✓ Tmux settings: %s (included by %s)\n", tmuxPlan.Path, tmuxPlan.UserPath)
 		if tmuxPlan.Starter {
-			w.ui.print("Open Radar from a workspace: Ctrl+B, release, then R.\n")
+			w.ui.print("Open from tmux: Ctrl+B, release, then R.\n")
 		} else {
-			w.ui.print("Open Radar from a workspace: your tmux prefix, then R.\n")
+			w.ui.print("Open from tmux: your prefix, then R.\n")
 		}
 	}
-	w.ui.print("Ready — run `radar` to open your dashboard.\nPi model/provider authentication is separate: use `/login` in Pi if needed.\n")
+	w.ui.print("Run radar to open the dashboard. Use /login in Pi if needed.\n")
 	return nil
 }
 

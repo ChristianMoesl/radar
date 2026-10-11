@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 const PrivacySettings = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension"
@@ -22,7 +24,7 @@ const SetupInstructions = `Radar's small notification companion supplies the mac
 native task alerts, and notification clicks. It is not another dashboard.
 Radar remains usable if you defer notification setup.
 
-Choosing Set up / test verifies the companion's code signature, registers it
+Choosing Set up & test verifies the companion's code signature, registers it
 with Launch Services, then launches the test. Homebrew cannot register the app
 from its sandboxed install hooks; this user-initiated step works for all installs.
 Registration does not grant either macOS permission or change Gatekeeper policy.
@@ -66,79 +68,167 @@ func Setup(in io.Reader, out io.Writer) error {
 
 type setupCommand func(context.Context, string, ...string) ([]byte, error)
 
+const privacyDirections = "System Settings → Privacy & Security → Security → Open Anyway."
+const notificationDirections = "System Settings → Notifications → Radar → Allow notifications."
+
 func setup(in io.Reader, out io.Writer, helper string, run setupCommand) error {
-	fmt.Fprint(out, SetupInstructions)
-	fmt.Fprintf(out, "Companion: %s\n", helper)
+	fmt.Fprint(out, "\nNotifications · Optional\n\nGet desktop alerts when tasks need attention.\nmacOS may ask you to approve RadarNotifier and allow notifications.\n")
 	scanner := bufio.NewScanner(in)
+	attempted, help := false, false
+	settings, diagnostics := "", ""
 	for {
-		fmt.Fprint(out, "\n[t] Set up / test  [p] Privacy & Security  [n] Notifications Settings  [d] Done / defer\n> ")
+		primary := "Set up & test"
+		if attempted {
+			primary = "Retry"
+		}
+		fmt.Fprintf(out, "\n[t/Enter] %s", primary)
+		if help || settings == PrivacySettings {
+			fmt.Fprint(out, "  [p] Privacy & Security")
+		}
+		if help || settings == NotificationSettings {
+			fmt.Fprint(out, "  [n] Notification Settings")
+		}
+		fmt.Fprint(out, "  [s] Skip for now  [h] Help\n> ")
 		if !scanner.Scan() {
 			return scanner.Err()
 		}
 		action := strings.ToLower(strings.TrimSpace(scanner.Text()))
-		if action == "d" || action == "" {
-			fmt.Fprintln(out, "You can return with radar setup notifications. Your notification preference was not changed by deferring.")
+		switch action {
+		case "s":
+			fmt.Fprintln(out, "Skipped — notification settings left as they are. Resume with radar setup notifications.")
 			return nil
-		}
-		if action != "t" && action != "p" && action != "n" {
+		case "h":
+			fmt.Fprint(out, "\n", SetupInstructions)
+			fmt.Fprintf(out, "Companion: %s\n", helper)
+			if diagnostics != "" {
+				fmt.Fprintf(out, "\nLast check:\n%s\n", diagnostics)
+			}
+			help = true
 			continue
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		if action != "t" {
-			link := PrivacySettings
+		case "p", "n":
+			link, directions := PrivacySettings, privacyDirections
 			if action == "n" {
-				link = NotificationSettings
+				link, directions = NotificationSettings, notificationDirections
 			}
-			if _, err := run(ctx, "open", link); err != nil {
-				fmt.Fprintf(out, "Could not open Settings: %v. Follow the written directions instead.\n", err)
+			if !help && settings != link {
+				fmt.Fprintln(out, "Choose Help for settings shortcuts and approval instructions.")
+				continue
 			}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			output, err := run(ctx, "open", link)
 			cancel()
+			if err != nil {
+				diagnostics = setupFailure(out, "Could not open Settings", err, output)
+				fmt.Fprintln(out, "Open manually:", directions)
+			} else {
+				fmt.Fprintln(out, directions)
+				fmt.Fprintln(out, "Opening Settings does not grant permission. Return here when ready.")
+			}
+			continue
+		case "", "t":
+			// Enter is an explicit selection of the visible primary action.
+			// EOF, Help, Skip and settings links never launch a test.
+		default:
+			fmt.Fprintln(out, "Choose one of the actions above.")
 			continue
 		}
+
+		attempted, help = true, false
+		settings, diagnostics = "", ""
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		// Homebrew's install sandbox deliberately blocks Launch Services. Perform
 		// registration only after the user selects the foreground test, never
 		// from an install hook, daemon, settings link or deferred setup.
 		bundle := filepath.Dir(filepath.Dir(filepath.Dir(helper)))
 		if output, err := run(ctx, "/usr/bin/codesign", "--verify", "--strict", bundle); err != nil {
 			cancel()
-			fmt.Fprintf(out, "Could not verify the notification companion: %v %s\nRepair the installed companion before retrying. No registration or test was attempted.\n", err, strings.TrimSpace(string(output)))
+			diagnostics = setupFailure(out, "Could not verify the notification companion", err, output)
+			fmt.Fprintln(out, "Repair the installed companion before retrying. No registration or test was attempted.")
 			continue
 		}
 		if output, err := run(ctx, launchServicesRegister, "-f", bundle); err != nil {
 			cancel()
-			fmt.Fprintf(out, "Could not register the notification companion: %v %s\nRun `radar setup notifications` in a normal host terminal and retry. No notification test was launched.\n", err, strings.TrimSpace(string(output)))
+			diagnostics = setupFailure(out, "Could not register the notification companion", err, output)
+			fmt.Fprintln(out, "Run radar setup notifications in a normal host terminal, then retry. No test was launched.")
 			continue
 		}
 		payload, _ := json.Marshal(Notification{Title: "Radar notification test", Body: "Click to open Radar's GitHub page.", URL: "https://github.com/ChristianMoesl/radar"})
 		output, err := run(ctx, helper, "--test", base64.StdEncoding.EncodeToString(payload))
 		cancel()
 		if err != nil {
-			fmt.Fprintf(out, "Helper launch/test did not finish: %v %s\nThis may be missing files, launch approval, or another error—not proof of a notification-permission denial. Follow the instructions and retry when ready.\n", err, strings.TrimSpace(string(output)))
+			diagnostics = setupFailure(out, "Could not run the notification test", err, output)
+			// A launch error can also mean a missing file or another failure. Do
+			// not claim Gatekeeper blocked it or notification permission is denied.
+			fmt.Fprintln(out, "If macOS blocked RadarNotifier, choose Done (not Move to Trash), then:")
+			fmt.Fprintln(out, privacyDirections)
+			fmt.Fprintln(out, "Approve only the app you trust. Otherwise fix the reported error before retrying.")
+			settings = PrivacySettings
 			continue
 		}
 		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 		output, err = run(ctx, helper, "--status")
 		cancel()
 		if err != nil {
-			fmt.Fprintf(out, "Could not check notification authorization: %v\n", err)
+			diagnostics = setupFailure(out, "Could not check notification permission", err, output)
+			fmt.Fprintln(out, "Retry or check Radar in Notification Settings.")
+			settings = NotificationSettings
 			continue
 		}
-		fmt.Fprintf(out, "macOS status: %s\n", strings.TrimSpace(string(output)))
-		if !strings.Contains(string(output), "authorization=authorized") && !strings.Contains(string(output), "authorization=provisional") && !strings.Contains(string(output), "authorization=ephemeral") {
-			fmt.Fprintln(out, "Notification setup is not authorized yet. Enable Radar in Notifications Settings and retry.")
+		diagnostics = "macOS status: " + strings.TrimSpace(ansi.Strip(string(output)))
+		switch notificationAuthorization(output) {
+		case "authorized", "provisional", "ephemeral":
+			// Permission alone does not prove delivery or click handling.
+		case "denied":
+			fmt.Fprintln(out, "! Notifications are turned off for Radar.")
+			fmt.Fprintln(out, notificationDirections)
+			settings = NotificationSettings
+			continue
+		case "not_determined":
+			fmt.Fprintln(out, "! Notification permission has not been granted yet.")
+			fmt.Fprintln(out, "Choose Allow when macOS asks, or enable Radar in Notification Settings.")
+			settings = NotificationSettings
+			continue
+		default:
+			fmt.Fprintln(out, "! Could not determine notification permission. Retry or check Notification Settings; details are in Help.")
+			settings = NotificationSettings
 			continue
 		}
-		fmt.Fprint(out, "Did you receive the test and did clicking it open Radar's GitHub page? [y/N] ")
+		fmt.Fprint(out, "Did the notification arrive and open the test page when clicked? [y/N] ")
 		if !scanner.Scan() {
 			return scanner.Err()
 		}
 		if strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {
 			clearLaunchFailure(helper)
-			fmt.Fprintln(out, "Notification delivery and click confirmed. Notifications are ready.")
-		} else {
-			fmt.Fprintln(out, "Not confirmed. Check Notification Center, Focus and banner settings; then retry. Authorization alone does not prove delivery/click behavior.")
+			fmt.Fprintln(out, "✓ Notifications ready")
+			return nil
+		}
+		fmt.Fprintln(out, "Not confirmed. Check Notification Center, Focus and banner settings, then retry.")
+		settings = NotificationSettings
+	}
+}
+
+// Preserve the full diagnostic in Help, but keep the normal failure readable.
+func setupFailure(out io.Writer, message string, err error, output []byte) string {
+	details := message + ": " + ansi.Strip(err.Error())
+	if body := strings.TrimSpace(ansi.Strip(string(output))); body != "" {
+		details += "\n" + body
+	}
+	brief := strings.Join(strings.Fields(details), " ")
+	fmt.Fprintf(out, "! %s\n", ansi.Truncate(brief, 160, "… (details in Help)"))
+	return details
+}
+
+func notificationAuthorization(output []byte) string {
+	status := ""
+	for _, field := range strings.Fields(string(output)) {
+		if value, ok := strings.CutPrefix(field, "authorization="); ok {
+			if status != "" || value == "" {
+				return "" // Missing, duplicate or malformed status is not approval.
+			}
+			status = value
 		}
 	}
+	return status
 }
 
 func failureMarker(helper string) string {

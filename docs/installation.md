@@ -42,7 +42,7 @@ or build tools of their own.
 
 Homebrew only installs into its prefix. Its sandboxed hooks cannot register apps
 with Launch Services; `radar setup notifications` verifies and registers the
-companion only when you choose **Set up / test** in a normal host terminal.
+companion only when you choose **Set up & test** in a normal host terminal.
 Homebrew does not launch Radar, edit your shell profile, write
 user configuration or install Pi extensions. Run `radar`: first launch or missing
 required tools automatically starts setup. You can also run `radar setup`: the normal
@@ -507,7 +507,13 @@ to the user's tmux server. The PTY matrix adds roughly 90 seconds to the suite.
 ## macOS notification setup
 
 After saving the main setup, macOS users can optionally set up notifications.
-Return at any time with `radar setup notifications`. Choosing **Set up / test**
+The initial screen shows only the purpose, a short macOS approval notice, and
+**Set up & test**, **Skip for now**, and **Help**. Press **t** or **Enter** to start,
+**s** to skip without changing preferences, or **h** for detailed instructions.
+EOF never starts a test. Successful setup ends immediately after you confirm
+that the notification arrived and its click opened the test page.
+
+Return at any time with `radar setup notifications`. Choosing **Set up & test**
 verifies the companion's code signature and registers its installed app bundle
 with Launch Services before launching it. Registration failure is reported and
 stops that test; retry explicitly after fixing the problem. Deferring setup or
@@ -537,10 +543,15 @@ helper, while genuine helper changes can require fresh launch approval.
    To change it later: **Apple menu → System Settings → Notifications → Radar →
    Allow notifications**. Launch approval alone does not grant this permission.
 
-The setup offers **Privacy & Security** and **Notifications Settings** actions
-using macOS pane links. Routing can vary by macOS version; the written navigation
-remains available. Opening Settings does not grant permissions or promise to
-select the app/scroll to its approval row.
+The setup offers **Privacy & Security** and **Notification Settings** shortcuts
+under **Help**, and the relevant shortcut beside **Retry** when a check needs
+attention. Signature/registration failures stop the attempt with repair guidance;
+a generic launch failure is not treated as proof of a Gatekeeper block or denied
+notification permission. Long diagnostics and the companion path are available
+in Help instead of the initial screen. Settings links never launch or register
+the companion. Routing can vary by macOS version; written navigation remains
+available when a link fails. Opening Settings does not grant permissions or
+promise to select the app/scroll to its approval row.
 
 Send the test and confirm delivery and the click destination. Focus or banner
 settings can hide a banner even with permission granted; also check Notification

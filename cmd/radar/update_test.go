@@ -118,8 +118,8 @@ func TestNotificationSetupCLIStillSupportsDeferring(t *testing.T) {
 		t.Skip("macOS notification setup")
 	}
 	// Deferring prints guidance only; never launches a helper or system settings.
-	stdout, stderr, code := outputCLI(t, []string{"setup", "notifications"}, "d\n")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, "Your notification preference was not changed by deferring.") {
+	stdout, stderr, code := outputCLI(t, []string{"setup", "notifications"}, "s\n")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "notification settings left as they are") {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }

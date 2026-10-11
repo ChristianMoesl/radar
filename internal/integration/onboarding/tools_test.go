@@ -206,3 +206,25 @@ func TestFreshIntegrationPromptsDefaultToYes(t *testing.T) {
 		}
 	}
 }
+
+func TestSetupCompletionIsCompact(t *testing.T) {
+	w, ui, _, _ := fixture(t)
+	ui.decisions = []bool{false, false, false, true}
+	if err := w.run(); err != nil {
+		t.Fatal(err)
+	}
+	_, completion, ok := strings.Cut(ui.transcript.String(), "✓ Radar configured\n")
+	if !ok || strings.Count(completion, "\n") > 3 {
+		t.Fatalf("completion is not concise: %s", completion)
+	}
+	for _, want := range []string{"Ctrl+B, release, then R", "Run radar", "/login in Pi"} {
+		if !strings.Contains(completion, want) {
+			t.Fatalf("completion lost %q: %s", want, completion)
+		}
+	}
+	for _, unwanted := range []string{"config.yaml", "secrets.yaml", "tmux.conf"} {
+		if strings.Contains(completion, unwanted) {
+			t.Fatalf("completion repeats reviewed path %q: %s", unwanted, completion)
+		}
+	}
+}
