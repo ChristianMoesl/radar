@@ -1,4 +1,4 @@
 **
-!Dockerfile
 !sandbox/
+!sandbox/Dockerfile
 !sandbox/startup.py

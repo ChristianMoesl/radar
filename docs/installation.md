@@ -215,29 +215,39 @@ the prefix at tmux's own default; existing prefix settings are preserved.
    not a Go binary runtime requirement; Neovim is not required.
 2. **Install Pi extensions:** `pi-radar` is mandatory for completed setup. Show
    the `pi install` command and ask permission; refusal, installation failure or
-   failed verification stops setup. `pi-sbx` is checked only when SBX is both
-   installed and effectively enabled for workspaces. `sbx.enabled: false` skips
-   it even with the CLI installed. Automatic mode enables SBX on macOS with its
-   CLI installed; those sessions need pi-sbx 0.6.0+. Existing Git/local package
-   sources and explicit extension disablement are never silently overridden.
-3. Offer the tmux configuration described below.
-4. Ask for the repository directory, workspace root, and notes parent directory.
+   failed verification stops setup. Existing Git/local package sources and
+   explicit extension disablement are never silently overridden.
+3. **Sandboxed workspaces:** on macOS, offer SBX (recommended for new installs;
+   existing choices are preselected). Check SBX 0.43.0+, guide installation or
+   updates if needed, offer login, and install/verify pi-sbx 0.6.0+ with consent.
+   Declining SBX skips these checks and writes an explicit opt-out. When no
+   sandbox recipe is explicitly configured, propose a complete editable local
+   kit, an env-file and an empty read-only `startup.d`, using
+   `[sandbox-startup, run]` for readiness. Preserve existing custom recipes/files.
+   With separate consent, prepare and remove a temporary sandbox to verify
+   startup, basic tools and file sharing before saving; show bounded progress.
+   Failure offers retry, explicit opt-out or cancellation—never silent host
+   fallback. Cleanup failures stop setup with recovery instructions.
+   See [local kits, customization and credentials](integrations/sbx.md#guided-setup-and-your-local-kit).
+4. Offer the tmux configuration described below.
+5. Ask for the repository directory, workspace root, and notes parent directory.
    All may be missing, including nested parent directories: they are created
    after final confirmation, not while typing. Notes live under `Tasks/` in the
    notes parent. An Obsidian vault is optional. Files cannot be used as directories,
    and the workspace root must not contain the repository directory.
-5. Ask whether to connect GitHub, Jira, and Datadog. Declining writes an explicit
+6. Ask whether to connect GitHub, Jira, and Datadog. Declining writes an explicit
    `enabled: false`; opting in verifies access and writes `true`. GitHub uses
    `gh auth status` and offers `gh auth login` when needed. Jira uses site URL,
    email, hidden API token, automatic Cloud ID discovery, and comma/space-separated
    ticket prefixes. Datadog uses a supported site/API endpoint, hidden API and
    application keys, and a required monitor query such as `tag:team:platform`.
-6. Review one compact table of files: **CREATE**, **UPDATE**, **APPEND**, or
+7. Review one compact table of files: **CREATE**, **UPDATE**, **APPEND**, or
    **UNCHANGED**, with each path and a short purpose. Creates are green, changes
    amber, and unchanged rows dim; labels remain readable without color. Only new
    directories are listed. Credentials remain plaintext and owner-only; values
-   are never displayed. If setup installed an extension or completed GitHub
-   login, one short notice explains that cancelling does not undo those actions.
+   are never displayed. The summary includes the effective sandbox default and proposed starter files.
+   Completed installations, logins and sandbox preparation are reported as
+   side effects that cancelling cannot undo.
    Press **Enter** to save or **c** to cancel (**Esc** also cancels from the summary).
    Press **v** to select a file with the arrow keys and **Enter**: new files show
    their contents, updates/appends show a diff, and credential details contain
@@ -245,11 +255,12 @@ the prefix at tmux's own default; existing prefix settings are preserved.
    **Esc** returns to the file list, then the summary; Enter in details never
    saves. Ctrl+C/Ctrl+D cancel from any review screen.
 
-Tool installations and GitHub login happen with their own earlier consent and
-are not rolled back if final review is declined. Cancelling does not save Radar
-config, secrets, or tmux settings. Existing secrets belonging to other integrations
+Tool installations, logins and sandbox preparation happen with their own earlier
+consent. Downloads and custom startup-script side effects are not rolled back if
+final review is declined. Cancelling does not save Radar
+config, secrets, sandbox starter files, or tmux settings. Existing secrets belonging to other integrations
 are preserved. Concurrent setup saves are serialized. Setup detects config or
-secret-file edits made during review and aborts rather than overwriting them;
+secret-file or proposed sandbox-starter edits made during review and aborts rather than overwriting them;
 first-time creation still uses exclusive publication. I/O failures are reported, not presented as success;
 independent files already saved before a failure are not destructively rolled back.
 
@@ -259,7 +270,7 @@ Run the same command again to edit a valid existing configuration. The wizard
 prefills directories, connection metadata, ticket prefixes, queries and enabled
 integration choices. It edits the primary repository directory while retaining
 additional repository directories. Custom tmux layouts, model/thinking choices,
-filters, mappings, sandbox settings and other fields the wizard does not change
+filters, mappings, sandbox recipes and other fields the wizard does not change
 are preserved, including unrecognized YAML fields. Config dotfile symlinks are
 preserved; the target is updated atomically.
 
@@ -389,7 +400,7 @@ Dashboard startup recovers reported SBX authentication failures by launching
 `sbx login` (`sbx.exe login` for Windows SBX from WSL2) before opening the TUI,
 then refreshing local sources. `radar create` and `radar fork` also check SBX
 authentication in the foreground. Background collection never opens login
-prompts, and unrelated runtime failures do not trigger login. First-run setup offers GitHub login; it can also be run manually with `gh auth login`. SBX runtime failures never cause a
+prompts, and unrelated runtime failures do not trigger login. Setup offers GitHub and SBX login; they can also be run manually with `gh auth login` and `sbx login`. SBX runtime failures never cause a
 sandboxed setup command to execute on the host instead.
 
 ## Repository precedence and existing workspaces

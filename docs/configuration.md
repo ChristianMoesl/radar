@@ -102,7 +102,9 @@ GitHub, Jira, Datadog and SBX each accept `enabled`:
 | `true` | Enabled; missing prerequisites are an error |
 
 For example, `github: {enabled: false}` disables GitHub collection. Setup records
-your explicit choices for GitHub, Jira and Datadog. API failures do not silently
+your explicit choices for GitHub, Jira, Datadog and (on macOS) SBX. New SBX
+setups get a complete user-owned kit and wired startup directory; existing
+explicit sandbox recipes are preserved. API failures do not silently
 disable an integration. See [activation rules](installation.md#optional-integrations)
 for prerequisites and [repository precedence](installation.md#repository-precedence-and-existing-workspaces)
 for SBX overrides and existing-workspace behavior.
@@ -113,7 +115,7 @@ Integration-specific configuration belongs in its guide:
 - [Jira issue types, status mapping and credentials](integrations/jira.md)
 - [Datadog monitor scope and credentials](integrations/datadog.md)
 - [Task notes and Obsidian](integrations/obsidian.md)
-- [SBX kits, mounts, environment and readiness](integrations/sbx.md)
+- [SBX local kits, credentials, custom images and startup scripts](integrations/sbx.md)
 
 Existing configuration is never automatically migrated. Review the relevant
 integration's rollout instructions when updating older settings.

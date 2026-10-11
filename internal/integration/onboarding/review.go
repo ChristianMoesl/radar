@@ -27,6 +27,7 @@ type setupReview struct {
 	directories []string
 	credentials bool
 	completed   []string
+	sandbox     string
 }
 
 func reviewFileChange(path, purpose string, after []byte) (reviewFile, error) {
@@ -53,6 +54,8 @@ func (w wizard) review(path string, data []byte, cfg config.Config, updates conf
 		return err
 	}
 	report.completed = append([]string(nil), w.completed...)
+	report.sandbox = w.sandboxSummary
+	report.files = append(report.files, w.sandboxPlan.reviewFiles()...)
 	return w.ui.review(report)
 }
 
@@ -162,6 +165,9 @@ func (r setupReview) summary(style lipgloss.Style) string {
 	var out strings.Builder
 	fmt.Fprintln(&out, style.Bold(true).Render("Review changes"))
 	fmt.Fprint(&out, "Nothing below is written until you save.\n\n")
+	if r.sandbox != "" {
+		fmt.Fprintln(&out, r.sandbox+"\n")
+	}
 	width := 0
 	for _, file := range r.files {
 		width = max(width, ansi.StringWidth(pathdisplay.HomeRelative(file.path)))

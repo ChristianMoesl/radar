@@ -21,7 +21,7 @@ linking_mark_prefixes: []
 # Sandbox settings for new workspaces; existing workspaces keep their runtime.
 # Omit enabled for automatic detection, or set true/false to require/disable sandboxing.
 sbx:
-  # Sandbox kit to launch. An optional path selects a local kit definition.
+  # name selects a complete kit (local directory or OCI reference). Optional path adds a mixin, not the primary kit.
   kit:
     name: docker.io/christianmoesl/radar-kit:latest
   # Extra host directories mounted into the sandbox; repository mounts are appended. Use absolute or ~/ paths, with :ro for read-only access.

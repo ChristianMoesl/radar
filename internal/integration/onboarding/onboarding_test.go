@@ -28,6 +28,7 @@ type fakeUI struct {
 	cancelAt      string
 	beforeConfirm func(string)
 	tmuxChoice    bool
+	sandboxChoice bool
 	reviewed      *setupReview
 }
 
@@ -72,6 +73,9 @@ func (u *fakeUI) confirm(title string, initial bool) (bool, error) {
 	if title == u.cancelAt {
 		return false, ErrAborted
 	}
+	if title == sandboxQuestion {
+		return u.sandboxChoice, nil
+	}
 	if len(u.decisions) == 0 {
 		return false, fmt.Errorf("unexpected confirmation: %s", title)
 	}
@@ -109,8 +113,19 @@ type fakeSystem struct {
 	nodeVersion  string
 	versions     map[string]string
 	outputErrors map[string]error
+	sandboxFn    func(context.Context, ...string) (string, error)
 }
 
+func (s *fakeSystem) sandbox(ctx context.Context, args ...string) (string, error) {
+	s.calls = append(s.calls, "sbx "+strings.Join(args, " "))
+	if s.sandboxFn != nil {
+		return s.sandboxFn(ctx, args...)
+	}
+	if len(args) > 0 && args[0] == "version" {
+		return "sbx version: v0.46.0 fixture", nil
+	}
+	return `{"sandboxes":[]}`, nil
+}
 func (s *fakeSystem) platform() string {
 	if s.goos != "" {
 		return s.goos

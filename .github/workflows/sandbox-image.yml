@@ -3,7 +3,6 @@ name: Sandbox image
 on:
   pull_request:
     paths:
-      - Dockerfile
       - .dockerignore
       - sandbox/**
       - scripts/test-sandbox-runtime.sh
@@ -11,7 +10,6 @@ on:
   push:
     branches: [main]
     paths:
-      - Dockerfile
       - .dockerignore
       - sandbox/**
       - scripts/test-sandbox-runtime.sh
@@ -70,7 +68,7 @@ jobs:
         run: |
           for arch in amd64 arm64; do
             image="$IMAGE:check-$arch"
-            docker buildx build --pull --platform "linux/$arch" --load --tag "$image" .
+            docker buildx build --file sandbox/Dockerfile --pull --platform "linux/$arch" --load --tag "$image" .
             test "$(docker image inspect --format '{{ index .Config.Labels "com.docker.sandboxes.start-docker" }}' "$image")" = true
             test "$(docker image inspect --format '{{ index .Config.Labels "com.docker.sandboxes.flavor" }}' "$image")" = radar
             docker run --rm --platform "linux/$arch" --network none -i "$image" bash -s < sandbox/smoke-test.sh
@@ -101,6 +99,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: sandbox/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}

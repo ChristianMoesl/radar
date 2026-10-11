@@ -2,9 +2,346 @@
 
 SBX supplies local Docker sandbox resources and shell actions.
 
+Start with [guided setup](#guided-setup-and-your-local-kit), then choose
+[startup scripts or a custom image](#preconfigure-with-an-image-or-startup-scripts).
+See [credentials](#credentials-and-access-inside-the-sandbox) for service access
+and [recreation](#explicit-sandbox-recreation) before resetting an existing sandbox.
+
 ## Capabilities
 
 `Source`, `StatusReporter`, `LocalSource`, `RuntimeProvider`, `ActionProvider`, `InteractiveAuthenticator`, and `CleanupProvider`.
+
+## Guided setup and your local kit
+
+Run `radar setup` on supported macOS. New installations recommend SBX; repeat
+setup prefills the existing choice. Setup checks SBX 0.43.0+, offers `sbx login`
+when needed, and installs/verifies pi-sbx 0.6.0+ with consent. Missing or outdated
+SBX gets installation/update guidance, not an unattended installer.
+
+When no sandbox recipe has been explicitly configured, setup proposes these
+user-owned files under Radar's config directory (`XDG_CONFIG_HOME` is respected):
+
+```text
+~/.config/radar/
+├── config.yaml
+└── sandbox/
+    ├── spec.yaml
+    ├── sandbox.env
+    └── startup.d/
+        └── README.md
+```
+
+The resulting SBX settings look like this (setup writes your absolute paths):
+
+```yaml
+sbx:
+  enabled: true
+  kit:
+    name: /Users/you/.config/radar/sandbox
+  env_file: /Users/you/.config/radar/sandbox/sandbox.env
+  additional_mounts:
+    - /Users/you/.config/radar/sandbox/startup.d:ro
+  ready_command: [sandbox-startup, run]
+```
+
+`kit.name` is the **complete local kit directory**, not an image name. `kit.path`
+is reserved for an additional mixin; it is not needed for this starter.
+`spec.yaml` starts from Radar's [kit definition](../../sandbox/kit/spec.yaml),
+using `docker.io/christianmoesl/radar-sandbox:latest`, Bash, and the native startup
+hook. Edit `sandbox.image` to choose your own image or pin an image digest.
+This local file is not automatically replaced by newer published kits.
+
+`sandbox.env` initially contains only:
+
+```dotenv
+SBX_STARTUP_DIR=/Users/you/.config/radar/sandbox/startup.d
+```
+
+Only `startup.d` is mounted read-only, not the whole config directory. The env-file
+is passed to SBX, not mounted. No executable scripts, credentials, extra network
+permissions, exposed ports or host Docker socket are installed by the starter.
+An empty startup directory succeeds immediately.
+
+With separate consent, setup prepares a disposable sandbox, runs the configured
+readiness command, checks Pi's basic sandbox utilities and verifies host↔sandbox
+file sharing. It uses a temporary copy of not-yet-created starter files; existing
+kits, env-files and mounts are used as configured. **Custom startup commands can
+have side effects on services and writable mounts**, even in this temporary
+sandbox. Setup does not change network policy or authorize cloud access for you.
+First preparation may download an image and take several minutes. Version/status
+checks are bounded to 15 seconds, creation to five minutes, readiness to 60
+seconds, and the file-sharing check to 30 seconds. Captured provider output is
+not displayed because it may contain credentials.
+
+The probe is removed even after failed creation or cancellation. If cleanup
+cannot be confirmed, setup stops, retains its temporary mount directory, and
+prints the exact sandbox name and recovery instructions. It never removes an
+existing workspace sandbox. Downloads, logins, extension installations and
+startup-script side effects cannot be rolled back by cancelling setup.
+
+Failures offer retry, an **explicit** choice to continue with SBX disabled, or
+cancellation; they never silently enable host execution. The final review shows
+the effective workspace default and every proposed starter file. Settings and
+starter files are written only after save confirmation. Rerunning setup preserves
+explicit kit, env-file, mount and readiness settings—including a previously
+configured published kit. Existing starter files are never overwritten, and
+concurrent edits to proposed starter files abort saving. Existing env-file
+contents are not displayed. Upgrades do not regenerate this user-owned kit.
+Linux/WSL setup does not enable managed sandboxes.
+
+### Preconfigure with an image or startup scripts
+
+**Both are supported and can be combined.** Choose the smallest durable change:
+
+| Need | Prefer |
+| --- | --- |
+| Reusable tools, system packages, expensive installs or a pinned toolchain | Modify/derive the sandbox image |
+| Git identity, tool config, lightweight boot-time initialization | Add startup scripts; no image rebuild needed |
+| Image choice, entrypoint or native startup behavior | Edit the local `spec.yaml` |
+
+For a startup script, create `startup.d/10-git-config` on the host:
+
+```sh
+#!/bin/sh
+set -eu
+git config --global user.name "Example Developer"
+git config --global user.email "developer@example.com"
+```
+
+Make it executable with `chmod +x <path-to-script>`. Regular executable files run
+in byte-sorted filename order as UID 1000 (`agent`), noninteractively, with
+`startup.d` as their working directory. Scripts must be idempotent: they run
+after restarts, and a failed run can retry from the beginning. Each is a separate
+process, so `export` does not configure later scripts or tools; write persistent
+tool configuration instead. Do not put private keys or tokens in scripts.
+
+The image already includes `/usr/local/bin/sandbox-startup`. The native hook
+starts `run`, and Radar's generated `ready_command` also invokes `run` to ensure
+initialization actually happens. A lock serializes callers; successful startup
+is skipped for the remainder of that boot. `wait` only observes state and cannot
+start or retry hooks. Early Pi tools independently wait through pi-sbx. Keep the
+native hook: Radar's readiness command is not a replacement for early-tool gating.
+
+Editing scripts does not rerun already successful initialization. Restart the
+sandbox to apply changes; after a failed run, `sbx exec <name> sandbox-startup run`
+retries. Logs stay inside the sandbox at `~/.cache/sandbox-startup/output.log`
+and may contain private values. Inspect locally, not in pasted unredacted logs.
+See the [full startup contract](../../sandbox/README.md#startup-hooks).
+
+### Build and use your own image
+
+The easiest starting point is a derived image, which inherits Radar's utilities,
+non-root user, startup runner and private Docker daemon configuration:
+
+```dockerfile
+FROM docker.io/christianmoesl/radar-sandbox:latest
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tree \
+    && rm -rf /var/lib/apt/lists/*
+USER agent
+```
+
+Build and publish it to a registry you control (authenticate with that registry
+first; replace the example account):
+
+```sh
+docker buildx build --platform linux/arm64,linux/amd64 \
+  -t ghcr.io/your-account/radar-dev:v1 --push .
+```
+
+Alternatively, modify `sandbox/Dockerfile` in a Radar checkout and build from
+**the repository root** so `COPY sandbox/startup.py` retains its build context:
+
+```sh
+docker buildx build --file sandbox/Dockerfile \
+  --platform linux/arm64,linux/amd64 \
+  -t ghcr.io/your-account/radar-dev:v1 --push .
+```
+
+Then change your local `spec.yaml`:
+
+```yaml
+sandbox:
+  image: ghcr.io/your-account/radar-dev:v1
+  entrypoint: [bash]
+```
+
+Keep the rest of the kit, including startup hooks. Validate with
+`sbx kit validate /absolute/path/to/your/kit`, then rerun `radar setup` to test it.
+For a reproducible environment, pin the image by digest. Publishing is the normal
+Radar workflow: SBX's image store is separate from the host Docker daemon, so a
+local `docker build --load` alone does not make an image available to SBX. For
+manual SBX experiments, `docker save` and `sbx template load` can import an image;
+manual `sbx create --pull never ...` avoids registry pulls. Radar does not expose
+a pull-policy setting. Prefer a reachable registry reference for managed work.
+
+An unrelated base image must supply Bash, Node.js, `rg`, `fd`, `file`, normal shell
+utilities and the `sandbox-startup` contract. If deliberately replacing that
+contract, update the kit, `SBX_STARTUP_DIR` and readiness settings together;
+pi-sbx will not bypass a configured but missing startup runner. Preserve a
+non-root user and avoid putting credentials in image layers or build arguments.
+
+Changes affect the next sandbox creation, not a running sandbox. Existing Radar
+workspaces retain their recorded kit/env-file/mount/readiness recipe: editing a
+recorded local kit's contents takes effect during approved recreation, but merely
+changing the path in global config does not update that recipe. Use a new
+workspace for a new recipe, or review [recreation](#explicit-sandbox-recreation)
+for existing ones. Save needed VM-local state first. Manual installs inside a
+sandbox are disposable, not a durable substitute for images or scripts.
+
+## Credentials and access inside the sandbox
+
+These are three separate authentication layers:
+
+| Purpose | Owner and location |
+| --- | --- |
+| Run SBX itself | Host Docker session, established with `sbx login` |
+| Radar integrations and Pi's model access | Host `gh`, Radar `secrets.yaml`, and Pi's own authentication |
+| Tools executing inside the sandbox | Explicit SBX service/custom secrets, SSH-agent forwarding, and network policy |
+
+Host `gh auth login` and `sbx login` do **not** by themselves prove that sandboxed
+tools have access. Pi runs on the host: its model credentials need not be copied
+into the image. Do not mount `~/.ssh`, `~/.aws`, the entire home/config directory,
+or Radar's `secrets.yaml` as a general credential shortcut.
+
+Prefer SBX's host-side secret store/proxy: service and custom secrets can expose
+placeholders to the sandbox and substitute the actual credential into permitted
+outbound requests. `sbx.env_file` is **not equivalent**: its values are injected
+into the runtime and are available to sandbox processes. Keep its default use to
+non-secret configuration. Never commit env-files, bake secrets into images, or
+publish your local kit directory if it contains private files.
+
+The commands below were checked against **SBX 0.46.0 CLI help**; credential APIs
+include experimental features. Check your installed `sbx secret --help` and
+subcommand help before use. These examples require your own service permission
+and tokens; setup does not execute them or grant cloud access automatically.
+
+### GitHub CLI and API access
+
+On the host, verify your GitHub session, then explicitly authorize SBX to resolve
+its token on the host:
+
+```sh
+gh auth status
+sbx secret set github --command 'gh auth token'
+```
+
+This creates a **global** service secret, available across sandboxes. Use a
+least-privilege token; add `--sandbox <name>` for a single existing sandbox instead
+when isolation is more important than recreatability. Sandbox-scoped secrets
+block Radar recreation to avoid their loss; plan their lifecycle first.
+
+Verify from the target sandbox without displaying the token:
+
+```sh
+sbx exec <name> gh api user --jq .login
+```
+
+Command-secret resolvers run on the **host**, from a fresh temporary directory.
+Keep helper scripts and their dependencies outside writable sandbox mounts, use
+absolute helper paths, and never mount the host's temporary/config directories
+broadly. Do not use `--show-error` or shell tracing around secret resolution.
+
+### Private npm packages
+
+For a custom HTTP package registry, bind the secret to its exact hostname. For
+example, with an authenticated host 1Password CLI and your own vault/item:
+
+```sh
+sbx secret set-custom --host packages.example.com --env NPM_TOKEN \
+  --ref 'op://Development/npm/token'
+```
+
+This is also global unless scoped with `--sandbox <name>`. The sandbox receives
+`NPM_TOKEN` as a placeholder; the proxy substitutes it in headers for that host.
+Do not use `--value`/`--token` on the command line or paste tokens into shell
+history. Do not broaden the trusted hosts to fix a failed request without first
+checking which registry/download endpoint actually needs authorization.
+
+A startup script can write a non-secret npm configuration referencing the variable:
+
+```sh
+#!/bin/sh
+set -eu
+umask 077
+cat > "$HOME/.npmrc" <<'NPMRC'
+@acme:registry=https://packages.example.com/
+//packages.example.com/:_authToken=${NPM_TOKEN}
+NPMRC
+```
+
+Use `sbx exec <name> npm whoami --registry=https://packages.example.com/` if the
+registry supports that endpoint, or try installing a package you may access.
+This recipe depends on HTTP-header placeholder substitution; protocols that
+require the real secret locally need a separately reviewed credential mechanism.
+
+### Private container images and kits
+
+Registry pull credentials are distinct from sandbox API credentials. For GHCR,
+with an appropriately scoped host token:
+
+```sh
+gh auth token | sbx secret set --registry ghcr.io --password-stdin
+```
+
+By default these are **host-only** credentials for pulling images and kits. They
+are not injected into sandbox tools. Only use `--all-sandboxes` or `--sandbox`
+when access from inside the sandbox is intended as well. Configure other registry
+hosts and usernames according to `sbx secret set --help`.
+
+### SSH access and Git signing
+
+Keep private keys in the host SSH agent. Check `ssh-add -l` on the host and
+`sbx exec <name> ssh-add -l` inside the sandbox to verify forwarding before
+relying on it. SBX supplies a sandbox-side socket; never set it to the host's
+`SSH_AUTH_SOCK` path. An available agent authorizes use of its keys, even though
+private key material remains on the host; only expose the identities you intend.
+
+Startup scripts may configure Git identity, `gpg.format=ssh`, a **public** signing
+key and `commit.gpgsign=true`. Verify with a disposable signed commit in a scratch
+repository. Do not generate or copy private keys into the kit, image or hooks.
+
+### Network policy, verification and rotation
+
+Credentials do not grant network access. Inspect the applicable policy first:
+
+```sh
+sbx policy ls
+sbx policy ls <name>
+```
+
+If you are authorized to grant an endpoint, a narrowly scoped example is:
+
+```sh
+sbx policy allow network --sandbox <name> packages.example.com:443
+```
+
+Sandbox-specific policies also block Radar recreation; global rules survive it
+but grant broader access. Respect organization-managed policy and do not replace
+it with allow-all defaults. Setup never resets or initializes policy for you.
+
+Troubleshoot the failing layer:
+
+- **SBX login/runtime:** `sbx version`, `sbx ls --json`, then `sbx login` if needed.
+- **Missing secret/scope:** `sbx secret ls --global` or `sbx secret ls --sandbox <name>`
+  shows metadata. Do not use `env`, `printenv`, or token-printing commands as a test.
+- **Network denied:** inspect the policy and required destination; a deny rule can
+  take precedence over an allow rule.
+- **Service rejects access:** verify token validity, scope and organization/SSO
+  authorization with a harmless service request; do not print the token.
+- **Startup failure:** inspect private runner status/logs locally, fix the script,
+  then retry `sandbox-startup run`.
+
+Update/rotate credentials at their host-side source, then repeat the harmless
+service check. Do not assume adding a secret changes an existing sandbox:
+**a recorded test with SBX 0.46.0 required recreation to apply a newly added global
+custom secret, even after a restart.** Dynamic-value refresh and introducing a
+new placeholder are different operations. Review `radar recreate-sandboxes
+--preview` before an approved recreation. Sandbox-scoped secrets and custom
+sandbox policies block that operation; Radar does not export them or bypass
+these safeguards. Never delete a sandbox containing scoped credentials or needed
+VM-local state just to troubleshoot authentication.
 
 ## Configuration and authentication
 
@@ -12,15 +349,15 @@ SBX supplies local Docker sandbox resources and shell actions.
 
 ### Kits and mounts
 
-New workspaces use `docker.io/christianmoesl/radar-kit:latest` (SBX 0.43.0+).
-No kit selection is needed. A user config or repository `.radar.yaml` can add:
+Guided setup uses the complete local kit described above. Without an explicit
+kit, new workspaces use `docker.io/christianmoesl/radar-kit:latest` (SBX 0.43.0+). A user config or repository `.radar.yaml` can add:
 
 ```yaml
 sbx:
   additional_mounts:
     - ~/shared-tools
   env_file: ~/.config/sbx/sandbox.env
-  ready_command: [sandbox-startup, wait]
+  ready_command: [sandbox-startup, run]
 ```
 
 Repository `enabled` and `kit` settings override the user settings; repository
@@ -93,15 +430,16 @@ and private keys in the host's signing agent.
 
 ### Optional readiness command
 
-The default is no readiness command: **Radar performs no check and does not wait**.
-To gate a workspace using the development kit's startup scripts:
+The generated local starter uses `[sandbox-startup, run]`. In hand-written
+configuration, omission still means **no Radar readiness command**. To gate a
+workspace using the development kit's startup scripts:
 
 ```yaml
 sbx:
   env_file: ~/.config/sbx/sandbox.env
   ready_command:
     - sandbox-startup
-    - wait
+    - run
 ```
 
 The command is an argv array, not shell text. Radar runs it with
@@ -307,7 +645,8 @@ not by itself solve host symlink transport.
 
 ## Published development kit
 
-With SBX 0.43.0 or newer, enabling `sbx.enabled` selects `docker.io/christianmoesl/radar-kit:latest` for new workspaces unless a user or repository kit overrides it. No `kit.name` or `kit.path` is required to use this default. Set `sbx.kit.name` only to select another kit or pin a digest. The [sandbox guide](../../sandbox/README.md) documents its tool inventory, Pi requirements, private Docker daemon, publication and rollout.
+As an alternative to the generated local kit, with SBX 0.43.0 or newer, enabling
+`sbx.enabled` without an explicit kit selects `docker.io/christianmoesl/radar-kit:latest` for new workspaces unless a user or repository kit overrides it. No `kit.name` or `kit.path` is required to use this default. Set `sbx.kit.name` only to select another kit or pin a digest. The [sandbox guide](../../sandbox/README.md) documents its tool inventory, Pi requirements, private Docker daemon, publication and rollout.
 
 Sandboxing is automatic on supported systems. Existing `sbx.enabled: false` values remain opt-outs; remove the field manually to adopt automatic detection. Explicit kit settings, including `"shell"` in an older generated configuration, are preserved; remove that override manually to opt into the new default. Existing workspaces retain their recorded kit even during sandbox recreation. No configuration or registry migration is performed.
 
@@ -351,7 +690,8 @@ not authenticate a real account; the WSL2 dispatch tests can run on either OS.
 ```sh
 go test ./cmd/radar ./internal/integration/sbx/... ./internal/integration/workspace/... ./internal/pi
 # Extension runtime tests use Node.js with native TypeScript stripping (Node 22.18+).
-# Optional macOS/SBX integration tests:
+# Optional macOS/SBX integration tests (each uses disposable resources):
+RADAR_SBX_SETUP_E2E=1 go test ./internal/integration/onboarding -run '^TestSandboxSetupE2E$' -count=1 -v -timeout 10m
 RADAR_SBX_E2E=1 go test ./internal/integration/workspace -run 'SharedDirectoryRoundTripE2E'
 # Optional WSL2/Windows SBX test (creates and removes one disposable sandbox):
 RADAR_SBX_WSL_E2E=1 go test ./internal/integration/sbx -run TestWindowsSBXLifecycleE2E -count=1

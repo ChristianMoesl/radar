@@ -109,7 +109,7 @@ func TestInstalledSBXRequiresVersionedPiSBXWithoutChangingItsSource(t *testing.T
 	w, ui, sys, home := fixture(t)
 	delete(sys.missing, "sbx")
 	ui.decisions = []bool{false}
-	if err := w.dependencies(context.Background(), config.Default().SBX); !errors.Is(err, ErrAborted) {
+	if err := w.extensions(context.Background(), dependency{"pi-sbx", "pi-sbx 0.6.0+"}); !errors.Is(err, errExtensionDeclined) {
 		t.Fatalf("missing sandbox extension: %v", err)
 	}
 	if !strings.Contains(ui.transcript.String(), "pi-sbx 0.6.0+") {
@@ -139,45 +139,14 @@ func TestInstalledSBXRequiresVersionedPiSBXWithoutChangingItsSource(t *testing.T
 	}
 }
 
-func TestPiSBXIsOnlyCheckedForEffectiveSandboxUsage(t *testing.T) {
-	yes, no := true, false
-	for _, tc := range []struct {
-		name, platform  string
-		enabled         *bool
-		installed, want bool
-	}{
-		{"disabled with CLI installed", "darwin", &no, true, false},
-		{"disabled without CLI", "darwin", &no, false, false},
-		{"automatic without CLI", "darwin", nil, false, false},
-		{"automatic macOS sandbox", "darwin", nil, true, true},
-		{"automatic Linux without sandboxing", "linux", nil, true, false},
-		{"explicit sandbox enabled", "darwin", &yes, true, true},
-		{"explicit enabled without CLI", "darwin", &yes, false, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w, ui, sys, _ := fixture(t)
-			sys.goos = tc.platform
-			sys.missing["sbx"] = !tc.installed
-			sandbox := config.Default().SBX
-			sandbox.Enabled = tc.enabled
-			ui.decisions = []bool{false} // A missing required sandbox dependency must need consent.
-			err := w.dependencies(context.Background(), sandbox)
-			if tc.want {
-				if !errors.Is(err, ErrAborted) {
-					t.Fatalf("missing sandbox dependency: %v", err)
-				}
-			} else if err != nil {
-				t.Fatalf("non-sandbox setup blocked: %v", err)
-			}
-			output := ui.transcript.String()
-			baseline, _, _ := strings.Cut(output, "\nSBX sandboxing")
-			if strings.Contains(baseline, "pi-sbx") {
-				t.Fatal("pi-sbx was listed as a required Radar tool")
-			}
-			if strings.Contains(output, "pi-sbx") != tc.want {
-				t.Fatalf("sandbox dependency check does not match effective enablement: %s", output)
-			}
-		})
+func TestBaselineDependenciesDoNotCheckSBX(t *testing.T) {
+	w, ui, sys, _ := fixture(t)
+	delete(sys.missing, "sbx")
+	if err := w.dependencies(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(ui.transcript.String(), "pi-sbx") {
+		t.Fatal("SBX must be checked after the explicit choice")
 	}
 }
 

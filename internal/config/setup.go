@@ -150,3 +150,35 @@ func (d *SetupDraft) Save(cfg Config) error {
 	}
 	return writeSetupFile(d.configFile.target, data, !d.Existing, !d.Existing)
 }
+
+// HasSetting distinguishes explicit user choices from defaults filled by Load.
+// Setup must not replace an explicitly selected sandbox recipe, even if it
+// happens to equal today's published default.
+func (d *SetupDraft) HasSetting(keys ...string) bool {
+	if !d.Existing {
+		return false
+	}
+	doc, err := configfile.Parse(d.configFile.data)
+	if err != nil {
+		return false
+	} // LoadSetupDraft already validated this snapshot.
+	// Decode this original snapshot, not the default-filled Config. YAML aliases
+	// and merge keys are explicit user configuration too.
+	var values map[string]any
+	if err := doc.Decode(&values); err != nil {
+		return false
+	}
+	var current any = values
+	for _, key := range keys {
+		mapping, ok := current.(map[string]any)
+		if !ok {
+			return false
+		}
+		value, exists := mapping[key]
+		if !exists {
+			return false
+		}
+		current = value
+	}
+	return true
+}

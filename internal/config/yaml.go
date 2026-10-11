@@ -20,7 +20,7 @@ var configComments = map[string]string{
 	"thinking":                             "Pi thinking level; repository settings can override this.",
 	"linking_mark_prefixes":                "Ticket prefixes used to link related work, for example [ABC]. An empty list disables only ticket-prefix linking.",
 	"sbx":                                  "Sandbox settings for new workspaces; existing workspaces keep their runtime.\nOmit enabled for automatic detection, or set true/false to require/disable sandboxing.",
-	"sbx.kit":                              "Sandbox kit to launch. An optional path selects a local kit definition.",
+	"sbx.kit":                              "name selects a complete kit (local directory or OCI reference). Optional path adds a mixin, not the primary kit.",
 	"sbx.additional_mounts":                "Extra host directories mounted into the sandbox; repository mounts are appended. Use absolute or ~/ paths, with :ro for read-only access.",
 	"sbx.env_file":                         "Optional host file passed to SBX as --env-file. Keep credentials out of this configuration.",
 	"sbx.ready_command":                    "Command and arguments run inside the sandbox before member setup. An empty list disables the readiness check.",

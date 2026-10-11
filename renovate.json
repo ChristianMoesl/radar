@@ -6,7 +6,7 @@
   "customManagers": [
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^Dockerfile$/", "/^\\.github/workflows/sandbox-image\\.yml$/"],
+      "managerFilePatterns": ["/^sandbox/Dockerfile$/", "/^\\.github/workflows/sandbox-image\\.yml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n(?:ARG |  )\\w+(?:=|: )(?<currentValue>\\S+)"
       ]

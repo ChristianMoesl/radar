@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"radar/internal/config"
 	"radar/internal/integration/tmux"
@@ -14,10 +16,12 @@ import (
 )
 
 type wizard struct {
-	ui        prompter
-	system    system
-	http      *http.Client
-	completed []string
+	ui             prompter
+	system         system
+	http           *http.Client
+	completed      []string
+	sandboxSummary string
+	sandboxPlan    *sandboxSetupPlan
 }
 
 func newWizard(ui prompter, system system) wizard {
@@ -49,11 +53,16 @@ func (w wizard) run() error {
 		return err
 	}
 	w.ui.print("\n%s\n\n", w.ui.style().Bold(true).Render("Radar setup"))
-	ctx := context.Background()
-	if err := w.dependencies(ctx, cfg.SBX); err != nil {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	if err := w.dependencies(ctx); err != nil {
 		return err
 	}
-	w.ui.print("\nConfig and secrets are saved only after review.\n")
+	w.ui.print("\nConfig, secrets and sandbox starter files are saved only after review.\n")
+	w.sandboxPlan, err = w.sandboxSetup(ctx, draft, path, &cfg)
+	if err != nil {
+		return err
+	}
 	tmuxPlan, err := w.tmuxConfig()
 	if err != nil {
 		return err
@@ -169,6 +178,9 @@ func (w wizard) run() error {
 		if err := draft.CheckUnchanged(); err != nil {
 			return err
 		}
+		if err := w.sandboxPlan.checkUnchanged(); err != nil {
+			return err
+		}
 		for _, dir := range []string{repo, root, notes} {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return fmt.Errorf("create directory: %w", err)
@@ -188,6 +200,9 @@ func (w wizard) run() error {
 		if err := pi.InstallInstructions(filepath.Join(filepath.Dir(path), "AGENTS.md")); err != nil {
 			return fmt.Errorf("write agent instructions: %w", err)
 		}
+		if err := w.sandboxPlan.apply(); err != nil {
+			return err
+		}
 		if err := draft.Save(cfg); err != nil {
 			return fmt.Errorf("write config.yaml: %w", err)
 		}
@@ -205,6 +220,9 @@ func (w wizard) run() error {
 		}
 	}
 	w.ui.print("\n✓ Radar configured\n")
+	if w.sandboxSummary != "" {
+		w.ui.print("%s\n", w.sandboxSummary)
+	}
 	if tmuxPlan != nil {
 		if tmuxPlan.Starter {
 			w.ui.print("Open from tmux: Ctrl+B, release, then R.\n")

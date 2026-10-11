@@ -1,8 +1,10 @@
 package onboarding
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,8 +16,9 @@ import (
 	"time"
 
 	"radar/internal/command"
-	"radar/internal/config"
 )
+
+var errExtensionDeclined = errors.New("extension installation declined")
 
 const radarPackage = "@christianmoesl/pi-radar"
 
@@ -24,6 +27,7 @@ type system interface {
 	platform() string
 	output(context.Context, string, ...string) (string, error)
 	run(context.Context, string, ...string) error
+	sandbox(context.Context, ...string) (string, error)
 }
 type realSystem struct{}
 
@@ -40,6 +44,38 @@ func (realSystem) output(ctx context.Context, name string, args ...string) (stri
 	data, err := cmd.Output()
 	return string(data), err
 }
+
+// Sandbox calls have per-stage deadlines supplied by the wizard. Capture output:
+// custom kits, hooks and env-file parsers can emit secrets, even on failure.
+func (realSystem) sandbox(ctx context.Context, args ...string) (string, error) {
+	var output sandboxCommandOutput
+	cmd := command.CommandContext(ctx, "sbx", args...)
+	cmd.Stdout, cmd.Stderr = &output, &output
+	err := cmd.Run()
+	if output.truncated {
+		return "", errors.New("SBX output exceeded the setup diagnostic limit")
+	}
+	return output.String(), err
+}
+
+// Keep noisy custom startup commands from growing setup's captured output
+// without bound. Truncated status/metadata is never treated as valid JSON.
+type sandboxCommandOutput struct {
+	bytes.Buffer
+	truncated bool
+}
+
+func (b *sandboxCommandOutput) Write(data []byte) (int, error) {
+	n := len(data)
+	remaining := (1 << 20) - b.Len()
+	if len(data) > remaining {
+		b.truncated = true
+		data = data[:remaining]
+	}
+	_, _ = b.Buffer.Write(data)
+	return n, nil
+}
+
 func (realSystem) run(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	if name == "pi" {
@@ -76,26 +112,22 @@ func toolBinary(sys system, name string) string {
 	return ""
 }
 
-func (w *wizard) dependencies(ctx context.Context, sandbox config.SBXConfig) error {
+func (w *wizard) dependencies(ctx context.Context) error {
 	if err := w.requiredTools(ctx); err != nil {
 		return err
 	}
 	w.ui.print("\nPi extensions\n")
-	checks := []dependency{{"pi-radar", "Pi's mandatory Radar workspace tools and context"}}
-	// pi-sbx belongs to optional sandboxing, not Radar's baseline tool set.
-	// Use the same effective default as workspace creation, including explicit
-	// disablement even when the SBX executable happens to be installed.
-	if w.system.lookPath("sbx") && sandbox.WorkspaceEnabled(w.system.platform(), func(name string) error {
-		if w.system.lookPath(name) {
-			return nil
-		}
-		return exec.ErrNotFound
-	}) {
-		checks = append(checks, dependency{"pi-sbx", "pi-sbx 0.6.0+ routes Pi tools when SBX sandboxing is used"})
+	err := w.extensions(ctx, dependency{"pi-radar", "Pi's mandatory Radar workspace tools and context"})
+	if errors.Is(err, errExtensionDeclined) {
+		return ErrAborted
 	}
+	return err
+}
+
+func (w *wizard) extensions(ctx context.Context, checks ...dependency) error {
 	for _, dep := range checks {
 		if dep.name == "pi-sbx" {
-			w.ui.print("\nSBX sandboxing is enabled — checking its optional integration dependency.\n")
+			w.ui.print("\nSBX sandboxing is enabled — checking pi-sbx 0.6.0+.\n")
 		}
 		ready, err := w.installed(ctx, dep.name)
 		if err != nil {
@@ -110,8 +142,12 @@ func (w *wizard) dependencies(ctx context.Context, sandbox config.SBXConfig) err
 			return err
 		}
 		w.ui.print("! %s is missing or below its required version.\n  %s\n  Command: %s\n", dep.name, dep.reason, strings.Join(argv, " "))
-		if err := w.allowInstall("Install or update " + dep.name + " now?"); err != nil {
+		yes, err := w.ui.confirm("Install or update "+dep.name+" now?", true)
+		if err != nil {
 			return err
+		}
+		if !yes {
+			return errExtensionDeclined
 		}
 		if err := w.system.run(ctx, argv[0], argv[1:]...); err != nil {
 			return fmt.Errorf("install %s failed — fix the command above and rerun `radar setup`: %w", dep.name, err)

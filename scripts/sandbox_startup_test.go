@@ -24,7 +24,7 @@ func TestSandboxStartupImageContract(t *testing.T) {
 		path string
 		want string
 	}{
-		{"../Dockerfile", "COPY --chmod=0755 sandbox/startup.py /usr/local/bin/sandbox-startup"},
+		{"../sandbox/Dockerfile", "COPY --chmod=0755 sandbox/startup.py /usr/local/bin/sandbox-startup"},
 		{"../.dockerignore", "!sandbox/startup.py"},
 		{"../sandbox/kit/spec.yaml", "command: [sh, -c, \"sandbox-startup run || true\"]"},
 		{"../sandbox/kit/spec.yaml", "user: \"1000\""},

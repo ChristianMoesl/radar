@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -212,6 +213,9 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 				}))
 				defer server.Close()
 				terminal := startTerminal(t, append(os.Environ(), "RADAR_ONBOARDING_TEST_HTTP="+server.URL))
+				if runtime.GOOS == "darwin" {
+					terminal.answer(t, sandboxQuestion, "n")
+				}
 				if existing {
 					// Exercise both accepting and declining the proposal for existing tmux.
 					answer := "n"
@@ -292,6 +296,9 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 					secretPath, _ := config.SecretsPath()
 					before, _ := os.ReadFile(secretPath)
 					again := startTerminal(t, append(os.Environ(), "RADAR_ONBOARDING_TEST_HTTP="+server.URL))
+					if runtime.GOOS == "darwin" {
+						again.answer(t, sandboxQuestion, "n")
+					}
 					again.answer(t, "Add Radar's prefix + r popup binding?", "n")
 					for _, title := range []string{"Where do you check out your repositories?", "Where should Radar put its workspaces and worktrees?", "Where should Radar store your task notes?", "Connect Radar to GitHub?", "Connect Radar to Jira?"} {
 						again.answer(t, title, "\r")

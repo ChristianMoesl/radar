@@ -4,6 +4,19 @@ The image is a development environment for Go, Node.js and native builds. Pi,
 Radar, tmux and the editor remain on the host; `pi-sbx` routes tool execution into
 this environment. There are no model-provider credentials in the image or kit.
 
+## Start with your editable local kit
+
+`radar setup` can generate a complete local kit under Radar's config directory,
+wire an empty read-only startup directory, and test the environment before saving.
+The starter uses this image, but its `spec.yaml` is yours to edit. Setup and
+upgrades do not overwrite your changes or replace existing custom recipes.
+
+To preconfigure a sandbox, either **modify/derive its image** (toolchains, system
+packages, costly installations), or **add startup scripts** (lightweight runtime
+configuration without an image rebuild). Both can be combined. Follow the
+[customization and credential guide](../docs/integrations/sbx.md#guided-setup-and-your-local-kit)
+for complete examples, image builds and applying changes safely.
+
 ## Use the published kit
 
 On macOS, Radar automatically enables sandboxing when `sbx` is installed. Use
@@ -21,8 +34,9 @@ read the required `notes.md` symlink through WSL-mounted directories. See the
 [WSL2 validation notes](../docs/integrations/sbx.md#windows--wsl2). Setting
 `sbx.enabled: true` reports this limitation; it does not bypass it.
 
-New workspaces default to `docker.io/christianmoesl/radar-kit:latest`; no kit
-selection is required. Set `sbx.enabled: false` to opt out; explicit repository
+Without an explicit kit, new workspaces default to
+`docker.io/christianmoesl/radar-kit:latest`. Guided setup instead records the
+local kit directory when no sandbox recipe was previously configured. Set `sbx.enabled: false` to opt out; explicit repository
 settings override global settings in either direction. Existing explicit false
 values are preserved; remove the field to adopt automatic detection. Explicit
 user and repository kit settings still override the default kit. If an older generated
@@ -66,7 +80,8 @@ failure to dependent callers. It does not replace the upstream container
 initialization, proxy environment, Bash initialization, or private Docker daemon.
 Image and kit contain no personal Git identities, startup scripts, or private keys.
 
-Provide a machine-local env-file and mount a trusted host directory separately:
+Guided setup wires this automatically. For manual configuration, provide a
+machine-local env-file and mount a trusted host directory read-only:
 
 ```dotenv
 SBX_STARTUP_DIR=/absolute/host/startup.d
@@ -76,7 +91,7 @@ Use the absolute path visible **inside** the sandbox; local macOS mounts retain
 the host path. The runner does not expand `$HOME` or `~` in that value. Keep the
 directory outside writable project workspaces and mount it read-only. With
 Radar, set optional `sbx.env_file` and
-`"ready_command": ["sandbox-startup", "wait"]`, and add the directory through
+`"ready_command": ["sandbox-startup", "run"]`, and add the directory through
 the workspace's requested read-only mount controls. The env-file is not mounted
 or baked into the image.
 
@@ -113,9 +128,13 @@ Linux; SBX supplies its own forwarded socket.
 ### Readiness and diagnostics
 
 Native SBX startup hooks are **asynchronous** and do not block arbitrary `exec`
-commands or the agent's entrypoint, even with `background: false`. Radar's optional
-`sbx.ready_command` gates its setup/Pi launch; if omitted or `[]`, Radar does not
-wait. Other clients must run `sandbox-startup wait` before dependent commands.
+commands or the agent's entrypoint, even with `background: false`. Radar's generated
+`sbx.ready_command: [sandbox-startup, run]` ensures initialization before member
+setup and auxiliary panes. `run` starts hooks if needed, serializes concurrent
+callers and skips already successful startup for the current boot; it retries
+a failed sequence from the beginning. If omitted or `[]`, Radar does not wait.
+Early Pi tools have their own pi-sbx readiness gate. Other clients must explicitly
+run or wait before dependent commands; `wait` observes state but never starts hooks.
 
 `wait` defaults to 60 seconds; `--timeout <seconds>` can shorten the image-side
 wait. It exits 0 on success and nonzero on failure or timeout. No stale state
@@ -141,7 +160,7 @@ any explicit recreation.
 
 ## Toolchain
 
-The exact versions and upstream image digests live in [`../Dockerfile`](../Dockerfile):
+The exact versions and upstream image digests live in [`Dockerfile`](Dockerfile):
 
 - **Go:** the latest stable release at the last reviewed update, currently 1.27.1,
   copied from the official Go image. `/usr/local/go/bin` takes precedence over
@@ -197,7 +216,7 @@ project-specific SDKs are not part of this image's contract.
 ## Build and validation
 
 ```sh
-docker buildx build --pull --load -t radar-sandbox:test .
+docker buildx build --file sandbox/Dockerfile --pull --load -t radar-sandbox:test .
 docker run --rm --network none -i radar-sandbox:test bash -s < sandbox/smoke-test.sh
 sbx kit validate sandbox/kit
 ```

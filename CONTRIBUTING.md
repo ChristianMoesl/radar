@@ -120,4 +120,4 @@ docker.io/christianmoesl/radar-kit:<date>-<revision>-<run>-<attempt>
 docker.io/christianmoesl/radar-kit:latest
 ```
 
-Publishing requires the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` GitHub secrets with read/write access to both repositories. Each kit pins the matching image digest and is signed using GitHub Actions OIDC. See [the sandbox guide](sandbox/README.md) for the tool inventory, fnm/Node and Go defaults, local validation, dependency updates and rollout guidance.
+Publishing requires the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` GitHub secrets with read/write access to both repositories. Each kit pins the matching image digest and is signed using GitHub Actions OIDC. Builds use `sandbox/Dockerfile` with the repository root as context. See [the sandbox guide](sandbox/README.md) for the tool inventory, fnm/Node and Go defaults, local validation, dependency updates and rollout guidance.
