@@ -116,7 +116,7 @@ jobs:
           path: dist
       - name: Verify signed release archives
         run: node scripts/release-metadata.mjs verify-release dist "$GITHUB_REF_NAME"
-      - uses: Homebrew/actions/setup-homebrew@master
+      - uses: Homebrew/actions/setup-homebrew@1f8e202ffddf94def7f42f6fa3a482e821489f9c # 2026.07.10.1
       - name: Install, test and uninstall native release archive
         run: scripts/homebrew/smoke-test.sh "dist/radar_${GITHUB_REF_NAME}_linux_${{ matrix.arch }}.tar.gz"
 

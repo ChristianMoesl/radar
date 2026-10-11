@@ -205,18 +205,71 @@ runs. The workflow must be pushed to GitHub's default branch, and Actions/schedu
 workflows must be enabled. It updates the existing tap; it does not create a tap
 repository or its initial formula.
 
-1. Create a **fine-grained GitHub personal access token** restricted to the single
-   repository `ChristianMoesl/homebrew-tap`, with **Contents: Read and write**.
-   Metadata read access is implicit. No npm, pull-request, workflow-write, or
-   Radar repository write permission is needed. Set an expiration and renew it
-   before expiry.
-2. Store it in `ChristianMoesl/radar` under **Settings → Secrets and variables →
-   Actions → Repository secrets**, named **`HOMEBREW_TAP_TOKEN`**. Do not commit the
-   credential or paste it into a task note/chat. Radar's normal `GITHUB_TOKEN`
-   cannot publish to the separate tap repository.
-3. Ensure the token owner is allowed to update tap `main` under its branch rules.
-   The workflow does not bypass protections: denied writes fail for maintainer
-   inspection. Do not disable protection just to make a failed job green.
+Use a **dedicated write-enabled SSH deploy key** for `ChristianMoesl/homebrew-tap`.
+Do not reuse your personal SSH key or add this public key to your GitHub account.
+The workflow needs neither a personal access token nor an npm publishing token.
+
+#### Generate the key pair
+
+Run locally, using an unused filename:
+
+```sh
+key="$HOME/.ssh/radar_homebrew_tap"
+mkdir -p -m 700 "$HOME/.ssh"
+test ! -e "$key" && test ! -e "$key.pub" &&
+  ssh-keygen -t ed25519 -C "radar-homebrew-publisher" -f "$key" -N ""
+```
+
+If either file exists, stop and choose an unused filename; never overwrite an
+existing key. `-N ""` deliberately creates an unencrypted private key because CI
+cannot answer a passphrase prompt. Keep it protected locally and in GitHub's
+Actions secret store. Never commit it or paste it into a task note/chat.
+
+#### Register only the public key in the tap
+
+Print the **public** key:
+
+```sh
+cat "$HOME/.ssh/radar_homebrew_tap.pub"
+```
+
+Open `ChristianMoesl/homebrew-tap` → **Settings → Deploy keys → Add deploy key**:
+
+- **Title:** `Radar Homebrew publisher`
+- **Key:** paste the `.pub` file's single line
+- Enable **Allow write access**, then add the key.
+
+This grants access only to the tap repository. It must be permitted to update
+`main` under the tap's branch rules. The workflow does not bypass protections:
+denied writes fail for maintainer inspection. Do not disable protection just to
+make a failed job green.
+
+#### Store only the private key in Radar Actions
+
+With `gh` authenticated as an account allowed to manage Radar's Actions secrets:
+
+```sh
+gh secret set HOMEBREW_TAP_SSH_KEY --repo ChristianMoesl/radar \
+  < "$HOME/.ssh/radar_homebrew_tap"
+```
+
+The secret belongs to **Radar**, not the tap. The input is the **private** file
+without `.pub`; do not print it. Its name must be **`HOMEBREW_TAP_SSH_KEY`**. The
+old PAT secret is not read or migrated; if you previously configured one, remove
+its unused secret/revoke its token after deploying the new workflow.
+
+Deploy keys do not automatically expire or rotate. To rotate, generate a new
+pair, add the new public key to the tap, replace Radar's secret, verify a successful
+publication, then remove the old tap deploy key and private-key copy.
+
+The private key is loaded only after validation and reauthentication, into a
+runner-local temporary directory with restrictive permissions, then removed on
+success or failure. SSH uses only that identity and the committed GitHub
+Ed25519 host key in `scripts/homebrew/github_known_hosts`, with strict host-key
+checking; it never uses `ssh-keyscan`, ambient identities, or trust-on-first-use.
+If GitHub changes its host key, verify the new key independently against GitHub's
+[official fingerprints](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints)
+and HTTPS metadata before updating the pin; never disable checking to recover.
 
 Without this secret, scheduled runs report that publication is disabled and skip
 expensive jobs. Manual dispatch remains available for validation and the
@@ -242,8 +295,10 @@ path. Dispatch from other refs validates only; the publishing job is main-only.
 5. The publication job runs the **release's own generator again** and compares its
    bytes with the tested artifact before receiving the tap credential. A now-stale
    release or a different artifact stops publication. It then creates one normal
-   GitHub commit updating `Formula/radar.rb` on tap `main`, using the current file
-   SHA to refuse concurrent formula edits. Equal/newer tap versions are never
+   Git commit updating `Formula/radar.rb` on tap `main` over SSH. A normal,
+   main-only push refuses concurrent branch updates; there is no force push or
+   automatic rebase. Staged formula bytes must still match the authenticated
+   candidate. Equal/newer tap versions are never
    overwritten or downgraded. Workflow runs are serialized; repeated polls after
    success are cheap no-ops. Nothing approves npm or replaces release artifacts.
 6. Check `brew update && brew install ChristianMoesl/tap/radar` from the public tap.
@@ -258,8 +313,9 @@ upgrade):
 gh workflow run homebrew.yml --repo ChristianMoesl/radar --ref main -f version=vX.Y.Z
 ```
 
-Inspect a failed run before retrying. An expired/insufficient tap token or branch
-restriction requires credential/access repair; signature, artifact, or npm errors
+Inspect a failed run before retrying. A missing/mismatched deploy key, read-only
+key, encrypted private key, or branch restriction requires credential/access
+repair; signature, artifact, or npm errors
 require fixing the coordinated release, not editing generated hashes or weakening
 checks. A concurrent formula edit fails safely; a later run re-reads tap state.
 Once the tap already has the requested version, publication is a no-op. Historical

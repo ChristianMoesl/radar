@@ -37,7 +37,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REQUESTED_VERSION: ${{ inputs.version }}
-          TAP_TOKEN_CONFIGURED: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+          TAP_SSH_KEY_CONFIGURED: ${{ secrets.HOMEBREW_TAP_SSH_KEY != '' }}
         run: node scripts/homebrew/automation.mjs prepare
 
   formula:
@@ -65,7 +65,7 @@ jobs:
         run: |
           mkdir -p build/homebrew/Formula
           go run ./scripts/homebrew "$RELEASE_VERSION" > build/homebrew/Formula/radar.rb
-      - uses: Homebrew/actions/setup-homebrew@master
+      - uses: Homebrew/actions/setup-homebrew@1f8e202ffddf94def7f42f6fa3a482e821489f9c # 2026.07.10.1
       - name: Update Homebrew
         run: brew update
       - name: Install and test in a local tap
@@ -89,7 +89,7 @@ jobs:
             echo '## Homebrew candidate validated on this runner architecture'
             echo
             echo 'Publication waits for all three jobs (macOS arm64, Linux amd64/arm64), then reauthenticates the exact candidate before updating the tap.'
-            echo 'The homebrew-formula artifact remains available for inspection. Without HOMEBREW_TAP_TOKEN, manual dispatch validates only; it does not publish.'
+            echo 'The homebrew-formula artifact remains available for inspection. Without HOMEBREW_TAP_SSH_KEY, manual dispatch validates only; it does not publish.'
             echo 'Real macOS launch approval and notification delivery/clicks still need interactive smoke tests.'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -126,6 +126,6 @@ jobs:
           cmp build/homebrew/Formula/radar.rb build/homebrew/verified.rb
       - name: Publish a normal tap commit without overwrites or downgrades
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
-        run: node scripts/homebrew/automation.mjs publish "$RELEASE_VERSION" build/homebrew/Formula/radar.rb
+        run: scripts/homebrew/publish.sh "$RELEASE_VERSION" build/homebrew/Formula/radar.rb

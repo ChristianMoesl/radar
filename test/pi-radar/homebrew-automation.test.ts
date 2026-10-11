@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 // @ts-expect-error Plain Node release tooling has no TypeScript declarations.
 import { automationClient, formulaVersion, prepareUpdate, publishUpdate } from "../../scripts/homebrew/automation.mjs";
@@ -33,7 +33,6 @@ function fixture(version = "v1.2.3", current = "v1.2.2") {
     [releaseList, { data: [release(version)] }],
     [manifestURL(version), { data: manifest(version) }],
     [npmURL(version), { data: { name: npmPackage, version: version.slice(1) } }],
-    [tapFile, { data: { commit: { sha: "b".repeat(40) } } }],
   ]);
   const calls: { url: string; method: string; options: RequestInit }[] = [];
   const request = automationClient("fixture-token", async (url: string, options: RequestInit) => {
@@ -99,7 +98,6 @@ test("release pagination is bounded and includes later pages", async () => {
 test("manual dispatch can revalidate an already published version; publication remains idempotent", async () => {
   const f = fixture("v1.2.3", "v1.2.3");
   assert.equal((await prepareUpdate(f.request, "v1.2.3")).ready, true);
-  assert.equal((await publishUpdate(f.request, "v1.2.3", formula("v1.2.3"))).published, false);
   assert.ok(!f.calls.some(call => call.method === "PUT"));
 });
 
@@ -125,42 +123,131 @@ for (const version of ["1.2.3", "v1.2.3-rc.1", "v01.2.3", "v1.2.3\n", "v1.2.3\r\
   });
 }
 
-test("publisher appends exactly the authenticated candidate to tap main using the expected file SHA", async () => {
-  const f = fixture();
+async function gitFixture(t: { after: (cleanup: () => Promise<void>) => void }, current = "v1.2.2") {
+  const directory = await mkdtemp(join(tmpdir(), "radar-homebrew-git-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const remote = join(directory, "remote.git");
+  const seed = join(directory, "seed");
+  const env = {
+    ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0",
+    GIT_AUTHOR_DATE: "2001-01-01T10:22:33Z", GIT_COMMITTER_DATE: "2001-01-01T10:22:33Z",
+  };
+  const git = async (args: string[], cwd?: string) => (await exec("git", args, { cwd, env, timeout: 15_000 })).stdout;
+  await git(["init", "--bare", "--initial-branch=main", remote]);
+  await git(["init", "--initial-branch=main", seed]);
+  await git(["config", "user.name", "Fixture"], seed);
+  await git(["config", "user.email", "fixture@example.invalid"], seed);
+  await mkdir(join(seed, "Formula"));
+  await writeFile(join(seed, "Formula/radar.rb"), formula(current));
+  await writeFile(join(seed, "README.md"), "fixture tap\n");
+  await git(["add", "."], seed);
+  await git(["commit", "-m", "fixture: initialize tap"], seed);
+  await git(["remote", "add", "origin", remote], seed);
+  await git(["push", "origin", "main"], seed); // only a disposable local bare repository
+  const tip = () => git(["--git-dir", remote, "rev-parse", "main"]).then(value => value.trim());
+  const original = await tip();
+  const calls: string[][] = [];
+  const hooks: { beforePush?: () => Promise<void>; stagedBytes?: string } = {};
+  const transport = async (args: string[], cwd?: string) => {
+    calls.push(args);
+    if (args[0] === "clone") {
+      assert.equal(args[args.length - 2], "git@github.com:ChristianMoesl/homebrew-tap.git");
+      return git([...args.slice(0, -2), pathToFileURL(remote).href, args[args.length - 1]], cwd);
+    }
+    if (args[0] === "show" && hooks.stagedBytes !== undefined) return hooks.stagedBytes;
+    if (args[0] === "push" && hooks.beforePush) await hooks.beforePush();
+    return git(args, cwd);
+  };
+  return { directory, remote, seed, git, tip, original, calls, hooks, transport };
+}
+
+test("SSH publisher appends the exact candidate in one normal main-only commit", async t => {
+  const f = await gitFixture(t);
   const candidate = formula("v1.2.3");
-  assert.equal((await publishUpdate(f.request, "v1.2.3", candidate)).published, true);
-  const writes = f.calls.filter(call => call.method === "PUT");
-  assert.equal(writes.length, 1);
-  assert.equal(writes[0].url, tapFile);
-  assert.deepEqual(JSON.parse(String(writes[0].options.body)), {
-    message: "chore: update Radar to v1.2.3", content: Buffer.from(candidate).toString("base64"),
-    sha: "a".repeat(40), branch: "main",
-  });
+  assert.equal((await publishUpdate("v1.2.3", candidate, f.transport)).published, true);
+  assert.equal(await f.git(["--git-dir", f.remote, "show", "main:Formula/radar.rb"]), candidate);
+  assert.equal(await f.git(["--git-dir", f.remote, "show", "main:README.md"]), "fixture tap\n");
+  assert.equal((await f.git(["--git-dir", f.remote, "rev-parse", "main^"])).trim(), f.original);
+  assert.equal(await f.git(["--git-dir", f.remote, "diff", "main^", "main", "--name-only"]), "Formula/radar.rb\n");
+  assert.deepEqual(f.calls.filter(args => args[0] === "push"), [["push", "--no-follow-tags", "origin", "HEAD:refs/heads/main"]]);
+  assert.equal((await f.git(["--git-dir", f.remote, "log", "-1", "--format=%an <%ae>"])).trim(), "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>");
+  const clone = f.calls.find(args => args[0] === "clone")!;
+  await assert.rejects(readFile(join(clone[clone.length - 1], ".git/config")), { code: "ENOENT" });
 });
 
 for (const current of ["v1.2.3", "v1.3.0"]) {
-  test(`publisher never overwrites or downgrades ${current}`, async () => {
-    const f = fixture("v1.2.3", current);
-    assert.equal((await publishUpdate(f.request, "v1.2.3", formula("v1.2.3"))).published, false);
-    assert.ok(!f.calls.some(call => call.method === "PUT"));
+  test(`SSH publisher never overwrites or downgrades ${current}`, async t => {
+    const f = await gitFixture(t, current);
+    assert.equal((await publishUpdate("v1.2.3", formula("v1.2.3"), f.transport)).published, false);
+    assert.equal(await f.tip(), f.original);
+    assert.ok(!f.calls.some(args => args[0] === "push"));
   });
 }
 
-for (const status of [409, 403]) {
-  test(`publisher fails closed on concurrent updates or branch restrictions (HTTP ${status})`, async () => {
-    const f = fixture();
-    f.routes.set(tapFile, { status, data: {} });
-    await assert.rejects(publishUpdate(f.request, "v1.2.3", formula("v1.2.3")), new RegExp(`HTTP ${status}`));
-    assert.equal(f.calls.filter(call => call.method === "PUT").length, 1);
+test("concurrent main edits reject the normal push without force, rebase, or lost changes", async t => {
+  const f = await gitFixture(t);
+  f.hooks.beforePush = async () => {
+    await writeFile(join(f.seed, "README.md"), "concurrent maintainer edit\n");
+    await f.git(["add", "README.md"], f.seed);
+    await f.git(["commit", "-m", "fixture: concurrent edit"], f.seed);
+    await f.git(["push", "origin", "main"], f.seed);
+  };
+  await assert.rejects(publishUpdate("v1.2.3", formula("v1.2.3"), f.transport), /rejected|fetch first|non-fast-forward/);
+  assert.equal(await f.git(["--git-dir", f.remote, "show", "main:Formula/radar.rb"]), formula("v1.2.2"));
+  assert.equal(await f.git(["--git-dir", f.remote, "show", "main:README.md"]), "concurrent maintainer edit\n");
+  assert.equal(f.calls.filter(args => args[0] === "push").length, 1);
+  assert.ok(!f.calls.some(args => args.includes("--force") || args[0] === "rebase"));
+  f.hooks.beforePush = undefined;
+  assert.equal((await publishUpdate("v1.2.3", formula("v1.2.3"), f.transport)).published, true);
+  assert.equal(await f.git(["--git-dir", f.remote, "show", "main:README.md"]), "concurrent maintainer edit\n");
+});
+
+test("server-side write restrictions fail closed without another push attempt", async t => {
+  const f = await gitFixture(t);
+  await writeFile(join(f.remote, "hooks/pre-receive"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  await assert.rejects(publishUpdate("v1.2.3", formula("v1.2.3"), f.transport), /rejected|hook declined/);
+  assert.equal(await f.tip(), f.original);
+  assert.equal(f.calls.filter(args => args[0] === "push").length, 1);
+});
+
+test("staged-byte changes stop before committing or pushing", async t => {
+  const f = await gitFixture(t);
+  f.hooks.stagedBytes = formula("v1.2.3") + "# transformed\n";
+  await assert.rejects(publishUpdate("v1.2.3", formula("v1.2.3"), f.transport), /staged tap formula differs/);
+  assert.equal(await f.tip(), f.original);
+  assert.ok(!f.calls.some(args => args[0] === "push" || args[0] === "commit"));
+});
+
+for (const entry of ["file", "directory"]) {
+  test(`publisher rejects a symlinked formula ${entry}`, async t => {
+    const f = await gitFixture(t);
+    const outside = join(f.directory, "outside");
+    await mkdir(outside);
+    await writeFile(join(outside, "radar.rb"), formula("v1.2.2"));
+    if (entry === "file") {
+      await rm(join(f.seed, "Formula/radar.rb"));
+      await symlink(join(outside, "radar.rb"), join(f.seed, "Formula/radar.rb"));
+    } else {
+      await rm(join(f.seed, "Formula"), { recursive: true });
+      await symlink(outside, join(f.seed, "Formula"));
+    }
+    await f.git(["add", "."], f.seed);
+    await f.git(["commit", "-m", "fixture: symlink"], f.seed);
+    await f.git(["push", "origin", "main"], f.seed);
+    const tip = await f.tip();
+    await assert.rejects(publishUpdate("v1.2.3", formula("v1.2.3"), f.transport), /regular file in a real Formula directory/);
+    assert.equal(await f.tip(), tip);
+    assert.equal(await readFile(join(outside, "radar.rb"), "utf8"), formula("v1.2.2"));
   });
 }
 
-test("publisher rejects wrong-version or local smoke artifacts before reading the tap", async () => {
-  const f = fixture();
+test("publisher rejects wrong-version or local smoke artifacts before using Git", async () => {
+  const calls: string[][] = [];
+  const transport = async (args: string[]) => { calls.push(args); throw new Error("unexpected Git execution"); };
   for (const candidate of [formula("v1.2.4"), formula("v1.2.3").replace("# Generated by radar/scripts/homebrew;", "# LOCAL CI SMOKE FIXTURE ONLY")]) {
-    await assert.rejects(publishUpdate(f.request, "v1.2.3", candidate), /not the generated formula/);
+    await assert.rejects(publishUpdate("v1.2.3", candidate, transport), /not the generated formula/);
   }
-  assert.equal(f.calls.length, 0);
+  assert.equal(calls.length, 0);
   assert.throws(() => formulaVersion('  version "1.2.3"\n  version "1.2.4"'), /one explicit version/);
 });
 
@@ -169,14 +256,14 @@ test("unconfigured scheduled automation skips without network access or publicat
   t.after(() => rm(dir, { recursive: true, force: true }));
   const output = join(dir, "output");
   const { stdout } = await exec(process.execPath, ["scripts/homebrew/automation.mjs", "prepare"], {
-    cwd: root, env: { ...process.env, GH_TOKEN: "", GITHUB_EVENT_NAME: "schedule", TAP_TOKEN_CONFIGURED: "false", GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: join(dir, "summary") },
+    cwd: root, env: { ...process.env, GH_TOKEN: "", GITHUB_EVENT_NAME: "schedule", TAP_SSH_KEY_CONFIGURED: "false", GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: join(dir, "summary") },
   });
-  assert.match(stdout, /disabled until.*HOMEBREW_TAP_TOKEN/);
+  assert.match(stdout, /disabled until.*HOMEBREW_TAP_SSH_KEY/);
   assert.equal(await readFile(output, "utf8"), "ready=false\nversion=\nauto_publish=false\n");
-  await assert.rejects(exec(process.execPath, ["scripts/homebrew/automation.mjs", "publish", "v1.2.3", "unused"], { cwd: root, env: { ...process.env, GH_TOKEN: "" } }), /HOMEBREW_TAP_TOKEN is required/);
+  await assert.rejects(exec(process.execPath, ["scripts/homebrew/automation.mjs", "publish", "v1.2.3", "unused"], { cwd: root, env: { ...process.env, GIT_SSH_COMMAND: "" } }), /configure the SSH deploy key/);
 });
 
-test("manual dispatch still produces a candidate without a publication token", async t => {
+test("manual dispatch still produces a candidate without a publication key", async t => {
   const dir = await mkdtemp(join(tmpdir(), "radar-homebrew-manual-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const { routes } = fixture();
@@ -192,7 +279,7 @@ globalThis.fetch = async (url, options) => {
 };\n`);
   const output = join(dir, "output");
   const { stdout } = await exec(process.execPath, ["--import", preload, "scripts/homebrew/automation.mjs", "prepare"], {
-    cwd: root, env: { ...process.env, GH_TOKEN: "fixture-read-token", GITHUB_EVENT_NAME: "workflow_dispatch", TAP_TOKEN_CONFIGURED: "false", REQUESTED_VERSION: "v1.2.3", GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: join(dir, "summary"), FIXTURE_CALLS: calls },
+    cwd: root, env: { ...process.env, GH_TOKEN: "fixture-read-token", GITHUB_EVENT_NAME: "workflow_dispatch", TAP_SSH_KEY_CONFIGURED: "false", REQUESTED_VERSION: "v1.2.3", GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: join(dir, "summary"), FIXTURE_CALLS: calls },
   });
   assert.equal(await readFile(output, "utf8"), "ready=true\nversion=v1.2.3\nauto_publish=false\n");
   assert.match(stdout, /downloadable formula remain available, but publication is skipped/);
@@ -238,7 +325,96 @@ cat "$FIXTURE_GENERATED"
   }
 });
 
-test("publication waits for the whole native matrix and reauthenticates the exact artifact before receiving the tap token", async () => {
+for (const failPush of [false, true]) {
+  test(`SSH setup pins the host, isolates the key and cleans up after ${failPush ? "failure" : "success"}`, async t => {
+    const dir = await mkdtemp(join(tmpdir(), "radar-homebrew-ssh-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const runner = join(dir, "runner temp");
+    const bin = join(dir, "bin");
+    const identity = join(dir, "fixture-key");
+    await mkdir(runner);
+    await mkdir(bin);
+    await exec("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", identity]);
+    const key = await readFile(identity, "utf8");
+    const candidate = join(dir, "candidate.rb");
+    await writeFile(candidate, formula("v1.2.3"));
+    const calls = join(dir, "calls");
+    await writeFile(join(bin, "git"), `#!${process.execPath}
+const fs = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+const ssh = process.env.GIT_SSH_COMMAND;
+const key = ssh.match(/-i "([^"]+)"/)[1];
+const hosts = ssh.match(/UserKnownHostsFile="([^"]+)"/)[1];
+fs.appendFileSync(process.env.FIXTURE_CALLS, JSON.stringify({args, ssh, key, keyMode: fs.statSync(key).mode & 0o777, directoryMode: fs.statSync(path.dirname(key)).mode & 0o777, hosts: fs.readFileSync(hosts, 'utf8'), secretInEnvironment: process.env.HOMEBREW_TAP_SSH_KEY !== undefined}) + '\\n');
+if (args[0] === 'clone') {
+  const dir = args.at(-1);
+  fs.mkdirSync(path.join(dir, 'Formula'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'Formula/radar.rb'), ${JSON.stringify(formula("v1.2.2"))});
+} else if (args[0] === 'show') {
+  process.stdout.write(fs.readFileSync('Formula/radar.rb', 'utf8'));
+} else if (args[0] === 'push' && process.env.FIXTURE_FAIL_PUSH === 'true') {
+  process.stderr.write('fixture: write denied');
+  process.exit(1);
+}
+`, { mode: 0o755 });
+    const promise = exec("bash", ["scripts/homebrew/publish.sh", "v1.2.3", candidate], {
+      cwd: root, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: runner, HOMEBREW_TAP_SSH_KEY: key, FIXTURE_CALLS: calls, FIXTURE_FAIL_PUSH: String(failPush), GITHUB_STEP_SUMMARY: join(dir, "summary") }, timeout: 10_000,
+    });
+    if (failPush) await assert.rejects(promise, /fixture: write denied/);
+    else assert.match((await promise).stdout, /Published v1\.2\.3.*over SSH/);
+    const events = (await readFile(calls, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+    const hosts = await readFile(join(root, "scripts/homebrew/github_known_hosts"), "utf8");
+    for (const event of events) {
+      assert.equal(event.keyMode, 0o600);
+      assert.equal(event.directoryMode, 0o700);
+      assert.equal(event.secretInEnvironment, false);
+      assert.equal(event.hosts, hosts);
+      for (const option of ["-F /dev/null", "IdentitiesOnly=yes", "IdentityAgent=none", "BatchMode=yes", "StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null", "HostKeyAlgorithms=ssh-ed25519", "PasswordAuthentication=no", "KbdInteractiveAuthentication=no"]) {
+        assert.ok(event.ssh.includes(option), `missing safe SSH option ${option}`);
+      }
+      await assert.rejects(readFile(event.key), { code: "ENOENT" });
+    }
+    assert.equal(events.filter(event => event.args[0] === "push").length, 1);
+    assert.deepEqual(await readdir(runner), []);
+    assert.ok(!(await readFile(calls, "utf8")).includes(key.trim()));
+  });
+}
+
+for (const kind of ["malformed", "encrypted"]) {
+  test(`SSH setup refuses ${kind} keys without prompting and cleans up`, async t => {
+    const dir = await mkdtemp(join(tmpdir(), "radar-homebrew-ssh-invalid-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const runner = join(dir, "runner");
+    await mkdir(runner);
+    let key = "not a private key";
+    if (kind === "encrypted") {
+      const identity = join(dir, "fixture-key");
+      await exec("ssh-keygen", ["-q", "-t", "ed25519", "-N", "fixture-passphrase", "-f", identity]);
+      key = await readFile(identity, "utf8");
+    }
+    await assert.rejects(exec("bash", ["scripts/homebrew/publish.sh", "v1.2.3", "unused"], {
+      cwd: root, env: { ...process.env, RUNNER_TEMP: runner, HOMEBREW_TAP_SSH_KEY: key }, timeout: 5_000,
+    }));
+    assert.deepEqual(await readdir(runner), []);
+  });
+}
+
+test("all Homebrew setup jobs use a pinned action revision instead of the nonexistent master branch", async () => {
+  for (const name of ["ci", "release", "homebrew"]) {
+    const workflow = await readFile(join(root, `.github/workflows/${name}.yml`), "utf8");
+    assert.match(workflow, /Homebrew\/actions\/setup-homebrew@[a-f0-9]{40}/);
+    assert.ok(!workflow.includes("Homebrew/actions/setup-homebrew@master"));
+  }
+});
+
+test("committed host key matches GitHub's documented Ed25519 fingerprint", async () => {
+  const { stdout } = await exec("ssh-keygen", ["-lf", "scripts/homebrew/github_known_hosts", "-E", "sha256"], { cwd: root });
+  assert.match(stdout, /SHA256:\+DiY3wvvV6TuJJhbpZisF\/zLDA0zPMSvHdkr4UvCOqU/);
+  assert.match(stdout, /ED25519/);
+});
+
+test("publication waits for the whole native matrix and reauthenticates the exact artifact before receiving the deploy key", async () => {
   const workflow = await readFile(join(root, ".github/workflows/homebrew.yml"), "utf8");
   assert.match(workflow, /cron: '\*\/15 \* \* \* \*'/);
   assert.match(workflow, /cancel-in-progress: false/);
@@ -250,8 +426,10 @@ test("publication waits for the whole native matrix and reauthenticates the exac
   assert.ok(reauthenticate >= 0 && reauthenticate < write);
   assert.ok(workflow.slice(reauthenticate, write).includes("go run ./scripts/homebrew"));
   assert.ok(workflow.slice(reauthenticate, write).includes("cmp build/homebrew/Formula/radar.rb build/homebrew/verified.rb"));
-  assert.ok(!workflow.slice(0, write).includes("GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}"));
-  assert.ok(workflow.slice(write).includes("GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}"));
+  assert.ok(!workflow.slice(0, write).includes("HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}"));
+  assert.ok(workflow.slice(write).includes("HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}"));
+  assert.ok(workflow.slice(write).includes("scripts/homebrew/publish.sh"));
+  assert.ok(!workflow.includes("HOMEBREW_TAP_TOKEN"));
   assert.match(workflow, /contents: read/);
   assert.ok(!workflow.includes("contents: write"));
 });

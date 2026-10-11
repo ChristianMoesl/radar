@@ -118,7 +118,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: Homebrew/actions/setup-homebrew@master
+      - uses: Homebrew/actions/setup-homebrew@1f8e202ffddf94def7f42f6fa3a482e821489f9c # 2026.07.10.1
       - name: Build native source archive
         run: make dist VERSION=v1.2.3 DIST_TARGETS="linux/${{ matrix.arch }}"
       - name: Install, test and uninstall with real Homebrew
