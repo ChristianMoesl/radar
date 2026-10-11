@@ -1,2 +1,2 @@
 // Updated with package.json by make release; checked before every release/pack test.
-export const radarPackageVersion = "0.3.2";
+export const radarPackageVersion = "0.4.0";
