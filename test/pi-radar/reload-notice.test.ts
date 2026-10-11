@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -166,6 +166,7 @@ test("a symlinked Pi profile still follows the stable npm package link", async t
   const profile = join(root, "profile"), canonical = join(root, "canonical");
   await mkdir(join(canonical, "npm"), { recursive: true });
   await symlink(canonical, profile);
-  const source = join(canonical, "npm/node_modules/.pnpm/old/node_modules/@christianmoesl/pi-radar/extensions/pi-radar/reload-notice.ts");
+  // Node resolves loaded modules through every symlink, including macOS /var.
+  const source = join(await realpath(canonical), "npm/node_modules/.pnpm/old/node_modules/@christianmoesl/pi-radar/extensions/pi-radar/reload-notice.ts");
   assert.equal(installedPackageFile(profile, source), join(profile, "npm/node_modules/@christianmoesl/pi-radar/package.json"));
 });

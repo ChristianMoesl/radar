@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 // @ts-expect-error Plain Node release tooling has no TypeScript declarations.
 import { smokeFormula } from "../../scripts/homebrew/smoke-formula.mjs";
@@ -40,7 +40,7 @@ test("release metadata records both Linux architectures without requiring a noti
 });
 
 test("local smoke formulas use the real template's platform hooks, never a publishable unsigned formula", async t => {
-  const dir = await mkdtemp(join(tmpdir(), "radar-homebrew-smoke-"));
+  const dir = await mkdtemp(join(tmpdir(), "radar-homebrew smoke #-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const fixture = await readFile(join(root, "scripts/homebrew/testdata/Formula/radar.rb"), "utf8");
   for (const arch of ["amd64", "arm64"]) {
@@ -49,7 +49,7 @@ test("local smoke formulas use the real template's platform hooks, never a publi
     const formula = smokeFormula(archive);
     assert.match(formula, /LOCAL CI SMOKE FIXTURE ONLY/);
     assert.match(formula, /version "2\.3\.4"/);
-    assert.ok(formula.includes(`url "file://${archive}"`));
+    assert.ok(formula.includes(`url "${pathToFileURL(await realpath(archive)).href}"`));
     assert.ok(formula.includes(digest("native archive")));
     assert.equal(formula.slice(formula.indexOf("  def install")), fixture.slice(fixture.indexOf("  def install")));
   }
