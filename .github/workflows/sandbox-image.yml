@@ -42,17 +42,17 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Set immutable build tag
         id: version
         run: echo "tag=$(date -u +%Y.%m.%d)-${GITHUB_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4.4.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4.4.1
 
       - name: Install SBX
         run: |
@@ -77,7 +77,7 @@ jobs:
       # PRs (including same-repository PRs) never receive publishing credentials.
       - name: Login to Docker Hub
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -96,7 +96,7 @@ jobs:
       - name: Publish tested image
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         id: image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           file: sandbox/Dockerfile
@@ -106,7 +106,7 @@ jobs:
 
       - name: Set up ORAS
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        uses: oras-project/setup-oras@v2
+        uses: oras-project/setup-oras@v2.0.2
         with:
           version: '1.3.3'
 

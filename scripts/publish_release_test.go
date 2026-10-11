@@ -203,6 +203,33 @@ func publishedFixtureBytes(t *testing.T, root string) map[string]string {
 	return result
 }
 
+func TestPublishReleaseCheckoutHasFullHistory(t *testing.T) {
+	data, err := os.ReadFile("../.github/workflows/release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Uses string
+				With map[string]string
+			}
+		}
+	}
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range workflow.Jobs["publish"].Steps {
+		if strings.HasPrefix(step.Uses, "actions/checkout@") {
+			if step.With["fetch-depth"] != "0" {
+				t.Fatal("publish checkout must fetch full history and tags for release notes")
+			}
+			return
+		}
+	}
+	t.Fatal("publish job must check out the release repository")
+}
+
 func TestReleaseTriggerLogsOnlyEventIdentity(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is required to exercise workflow diagnostics")
