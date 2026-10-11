@@ -44,6 +44,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # Go bootstrap tests execute the installer, which requires Node.js 24+.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Check Go formatting
         run: |
           files=$(gofmt -l .)
@@ -75,6 +81,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      # Keep bootstrap tests independent of the runner's preinstalled Node.js.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
 
       - name: Test installation and integration defaults on macOS
         run: go test ./scripts ./scripts/homebrew ./internal/app ./internal/config ./internal/collector ./internal/pi ./internal/notification ./internal/integration/...
