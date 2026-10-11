@@ -53,7 +53,7 @@ Setup walks you through the tools you need and asks you to:
 On macOS, follow the optional [notification approval steps](docs/installation.md#macos-notification-setup).
 After setup, open a new terminal and run **`radar`** whenever you want your dashboard.
 Inside a workspace with the generated tmux config, press **Ctrl+B**, release, then **R**.
-Pi offers a short introduction once; choosing No means it will not ask again.
+Pi prints a short workspace attachment notice with the configured tmux dashboard shortcut.
 
 ### 3. Open your first workspace
 

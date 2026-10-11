@@ -1,4 +1,4 @@
-import { registerOnboarding } from "./onboarding.ts";
+import { showWorkspaceAttached } from "./workspace-notice.ts";
 import { reportLoadedVersion } from "./runtime-version.ts";
 import { homedir, tmpdir } from "node:os";
 import { readdir, readFile } from "node:fs/promises";
@@ -361,7 +361,7 @@ function resourceChanges(previous: ResourceSnapshot, next: ResourceSnapshot): st
 
 export default function radarExtension(pi: ExtensionAPI) {
   let activated = false;
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (event, ctx) => {
     if (activated) return;
     // Query only the registry: broken Git/SBX resources must not prevent loading
     // the tools used to inspect and repair an otherwise registered workspace.
@@ -377,13 +377,13 @@ export default function radarExtension(pi: ExtensionAPI) {
     activated = true;
     await reportLoadedVersion(pi, ctx);
     await activateRadar(pi, ctx);
+    if (event.reason !== "reload") await showWorkspaceAttached(pi, ctx);
   });
 }
 
 // Pi recreates extension instances on reload and session replacement. Register
 // workspace-only resources after session_start supplies the actual session cwd.
 function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
-  registerOnboarding(pi);
   const activity = activityTracker(pi);
   let previousResources: ResourceSnapshot = { contextPaths: [], skillPaths: [] };
   let knownContext: WorkspaceContextResult | undefined;

@@ -17,7 +17,7 @@ func TestRadarExtensionConfiguresSharedDirectoryOnStartupReloadAndSwitch(t *test
 	}
 	dir := t.TempDir()
 	text := strings.ReplaceAll(extensionSource(t), `import { Type } from "typebox";`, `const Type = new Proxy({}, { get: () => () => ({}) });`)
-	text = strings.ReplaceAll(text, `import { registerOnboarding } from "./onboarding.ts";`, `function registerOnboarding() {}`)
+	text = strings.ReplaceAll(text, `import { showWorkspaceAttached } from "./workspace-notice.ts";`, `async function showWorkspaceAttached() {}`)
 	text = strings.ReplaceAll(text, `import { reportLoadedVersion } from "./runtime-version.ts";`, `async function reportLoadedVersion() {}`)
 	if err := os.WriteFile(filepath.Join(dir, "radar.ts"), []byte(text), 0o600); err != nil {
 		t.Fatal(err)

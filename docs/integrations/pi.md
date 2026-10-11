@@ -57,28 +57,23 @@ Documentation access does not authorize configuration changes. Outside a
 registered workspace the extension remains inactive; use `man radar` or
 `man radar-config` for the terminal reference.
 
-## First-use introduction
+## Workspace attachment notice
 
-The first interactive Pi session in a registered Radar workspace asks:
-**“Would you like a quick introduction to Radar?”** Yes shows four short lines
-about opening the dashboard, finding tasks and creating/switching workspaces.
-The configured tmux prefix is used when a Radar popup binding is available;
-otherwise it explains how to open `radar` in another terminal. The introduction
-also suggests asking Pi about Radar and points to the terminal man pages. New starter
-configurations use **Ctrl+B, release, then R**.
+Each interactive Pi session that starts or resumes inside a registered Radar
+workspace prints one short line, for example:
 
-**No means don't ask again.** Both answers suppress future automatic invitations
-across workspaces and Pi restarts in that profile. Escape cancels without saving
-an answer; `/radar-onboarding` reopens the introduction explicitly. No model call,
-installer, or configuration wizard is run. Headless/RPC sessions never prompt.
+> Radar workspace attached. Press Ctrl+B, then r to open the Radar task dashboard.
 
-The new owner-only `<Pi agent directory>/radar/onboarding-seen` marker is separate
-from installation advice; existing settings, notice markers and workspaces are
-not migrated or reset. Concurrent startups claim one offer. If Pi is forcibly
-terminated while the question is open, the claim stays quiet; the manual command
-still works. Unavailable notice storage never blocks Pi startup. Existing users
-also get the one-time offer after updating `pi-radar` and reloading/restarting Pi;
-`make install` updates the CLI, not a separately installed npm extension.
+The shortcut uses the current tmux session's actual prefix, and appears only when
+its prefix+r binding opens Radar's popup. Without a usable popup binding (or
+outside tmux), the line suggests running `radar` in another terminal instead.
+Reloads, resource refreshes, and headless/RPC sessions do not repeat the notice;
+outside registered Radar workspaces the extension remains inactive.
+
+There is no introduction command, prompt, model call, or saved dismissal state.
+Old introduction markers are unused and left untouched; no cleanup or migration
+is required. Updating `pi-radar` supplies this change; `make install` updates the
+CLI, not a separately installed npm extension.
 
 ## Upgrading from the injected extension
 

@@ -80,9 +80,9 @@ export default function(pi) {
   const { stdout: listing } = await exec("tar", ["-tzf", tarball]);
   assert.deepEqual(listing.trim().split("\n").sort(), [
     "package/LICENSE", "package/README.md", "package/extensions/pi-radar/index.ts",
-    "package/extensions/pi-radar/onboarding.ts",
     "package/extensions/pi-radar/runtime-version.ts",
-    "package/extensions/pi-radar/version.ts", "package/package.json",
+    "package/extensions/pi-radar/version.ts",
+    "package/extensions/pi-radar/workspace-notice.ts", "package/package.json",
   ]);
   await exec("tar", ["-xzf", tarball, "-C", root]);
   const distribution = join(root, "package");
@@ -169,6 +169,7 @@ export default function(pi) {
     assert.ok(value.skills.includes("fixture"));
     assert.equal(value.tmpdir, shared);
     assert.ok(value.commands.includes("radar-reload-workspace-resources"));
+    assert.ok(!value.commands.includes("radar-onboarding"));
   }
   const first = launch(workspace);
   const original = await first.snapshot();

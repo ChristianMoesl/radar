@@ -22,6 +22,8 @@ async function harness(t: TestContext, registered: unknown = true) {
   process.env.TMPDIR = root;
   delete process.env.RADAR_HOST_TMPDIR;
   delete process.env.RADAR_BINARY;
+  delete process.env.TMUX;
+  delete process.env.TMUX_PANE;
   process.env.XDG_CONFIG_HOME = join(root, "config");
   await mkdir(join(root, "config", "radar"), { recursive: true });
   await writeFile(join(root, "config", "radar", "AGENTS.md"), "Radar fixture instructions");
@@ -47,6 +49,7 @@ async function harness(t: TestContext, registered: unknown = true) {
     cwd: root,
     signal: undefined,
     hasUI: true,
+    mode: "rpc",
     isProjectTrusted: () => true,
     sessionManager: { getEntries: () => entries },
     ui: {
@@ -171,7 +174,7 @@ test("activates from the session cwd, not the process cwd, exactly once", async 
   await h.start();
   await h.start();
   assert.deepEqual([...h.tools.keys()], ["radar_documentation", "radar_workspace_context", "radar_repository_refs", "radar_reconcile_workspace"]);
-  assert.deepEqual([...h.commands.keys()], ["radar-onboarding", "radar-reload-workspace-resources"]);
+  assert.deepEqual([...h.commands.keys()], ["radar-reload-workspace-resources"]);
   assert.deepEqual(h.calls[0].args, ["workspace-context", "--registration-only", "--workspace", h.ctx.cwd, "--json"]);
   assert.equal(h.calls[0].binary, "radar");
   assert.deepEqual(h.calls[1].args, ["activity", "idle"]);
@@ -700,4 +703,32 @@ test("documentation fails clearly for an old CLI, malformed data and cancellatio
   }
   h.setDocumentationResponse({code: 0, stdout: JSON.stringify({version: "v1.2.3", commit: "abc", document: {source: "wrong", title: "Wrong", content: "text"}}), stderr: ""});
   await assert.rejects(tool.execute("docs", {topic: "docs/configuration.md"}), /invalid documentation response/);
+});
+
+for (const reason of ["startup", "new", "resume", "fork", "reload"]) {
+  test(`workspace notice follows session activation (${reason}) without a callable introduction`, async t => {
+    const h = await harness(t);
+    h.ctx.mode = "tui";
+    await h.emit("session_start", { reason });
+    await h.emit("session_start", { reason });
+    await h.resources();
+    await h.resources("reload");
+    assert.deepEqual(h.notices, reason === "reload" ? [] : [
+      "Radar workspace attached. Run `radar` in another terminal to open the task dashboard.",
+    ]);
+    assert.deepEqual([...h.commands.keys()], ["radar-reload-workspace-resources"]);
+    assert.deepEqual([...h.tools.keys()], ["radar_documentation", "radar_workspace_context", "radar_repository_refs", "radar_reconcile_workspace"]);
+    assert.deepEqual(h.confirmations, []);
+    assert.deepEqual(h.messages, []);
+  });
+}
+
+test("interactive sessions outside Radar workspaces have no attachment notice", async t => {
+  const h = await harness(t, false);
+  h.ctx.mode = "tui";
+  await h.start();
+  await h.resources();
+  assert.deepEqual(h.notices, []);
+  assert.equal(h.commands.size, 0);
+  assert.equal(h.tools.size, 0);
 });
