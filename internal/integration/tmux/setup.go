@@ -122,17 +122,26 @@ func (p ConfigPlan) Apply() error {
 			return err
 		}
 	}
+	data := p.UserConfigPreview()
+	if bytes.Equal(data, p.oldUser) {
+		return nil
+	}
+	return writeConfig(p.UserPath, data, p.userMode, !p.userExists)
+}
+
+// UserConfigPreview is the exact append-only update shown for review and saved
+// by Apply. Return a copy so callers cannot mutate the concurrency-check snapshot.
+func (p ConfigPlan) UserConfigPreview() []byte {
+	data := append([]byte(nil), p.oldUser...)
 	for _, line := range strings.Split(string(p.oldUser), "\n") {
 		if strings.TrimSpace(line) == p.Include {
-			return nil
+			return data
 		}
 	}
-	data := append([]byte(nil), p.oldUser...)
 	if len(data) > 0 && data[len(data)-1] != '\n' {
 		data = append(data, '\n')
 	}
-	data = append(data, []byte("\n# Radar dashboard (prefix + r)\n"+p.Include+"\n")...)
-	return writeConfig(p.UserPath, data, p.userMode, !p.userExists)
+	return append(data, []byte("\n# Radar dashboard (prefix + r)\n"+p.Include+"\n")...)
 }
 
 func unchangedConfig(path string, existed bool, previous []byte) error {

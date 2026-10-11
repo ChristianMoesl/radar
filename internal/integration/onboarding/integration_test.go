@@ -247,7 +247,20 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 					terminal.answer(t, "Datadog application key", "dd-app-terminal-secret\r")
 					terminal.answer(t, "Datadog monitor query", "tag:team:platform\r")
 				}
-				terminal.answer(t, "Save this configuration?", "y")
+				if choices == 0 && !existing {
+					// Inspect config and credentials through the actual terminal UI.
+					// Viewing either must not save or reveal secret values.
+					terminal.answer(t, "[Enter] Save", "v")
+					terminal.answer(t, "View file details", "\r")
+					terminal.answer(t, "Radar settings · CREATE", "\x1b")
+					terminal.answer(t, "View file details", "\x1b[B\r")
+					terminal.answer(t, "Credentials (values hidden) · UNCHANGED", "\x1b")
+					terminal.answer(t, "View file details", "\x1b")
+					if needed, err := Needed(); err != nil || !needed {
+						t.Fatalf("viewing details saved setup: %v", err)
+					}
+				}
+				terminal.answer(t, "[Enter] Save", "\r")
 				select {
 				case err := <-terminal.done:
 					if err != nil {
@@ -294,7 +307,7 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 							again.answer(t, title, "\r")
 						}
 					}
-					again.answer(t, "Save this configuration?", "y")
+					again.answer(t, "[Enter] Save", "\r")
 					select {
 					case err := <-again.done:
 						if err != nil {

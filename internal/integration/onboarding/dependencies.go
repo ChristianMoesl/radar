@@ -116,6 +116,7 @@ func (w *wizard) dependencies(ctx context.Context, sandbox config.SBXConfig) err
 		if err := w.system.run(ctx, argv[0], argv[1:]...); err != nil {
 			return fmt.Errorf("install %s failed — fix the command above and rerun `radar setup`: %w", dep.name, err)
 		}
+		w.completed = append(w.completed, dep.name+" installed")
 		ready, err = w.installed(ctx, dep.name)
 		if err != nil {
 			return err

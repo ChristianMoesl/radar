@@ -194,8 +194,10 @@ prompts or installs anything.
 
 The inline prompts stay in terminal scrollback. Escape/Ctrl+C cancels. Software
 installation prompts, GitHub login, and new GitHub/Jira/Datadog connections
-default to **Yes**, but still require confirmation. Final save and profile edits
-retain their explicit consent/defaults. Existing integration choices are
+default to **Yes**, but still require confirmation. The final review uses
+**Enter to Save**, **v to View details**, and **c to Cancel**. Saving still requires
+an explicit keypress; viewing details never approves changes. Profile edits retain
+their explicit consent/defaults. Existing integration choices are
 preselected on repeat setup. Secrets are masked. A new tmux configuration leaves
 the prefix at tmux's own default; existing prefix settings are preserved.
 
@@ -230,12 +232,18 @@ the prefix at tmux's own default; existing prefix settings are preserved.
    email, hidden API token, automatic Cloud ID discovery, and comma/space-separated
    ticket prefixes. Datadog uses a supported site/API endpoint, hidden API and
    application keys, and a required monitor query such as `tag:team:platform`.
-6. Review separate **Radar settings**, **Agent instructions**, **Credentials**, **Radar tmux settings**,
-   **User tmux configuration**, and **Directories** sections. Each file shows its
-   path and CREATE / UPDATE / APPEND INCLUDE / UNCHANGED action, with full
-   non-secret contents or masked credential names. Missing directories are listed
-   separately. An **Already completed** notice distinguishes prior installation/
-   authentication from pending writes. Only affirmative confirmation saves.
+6. Review one compact table of files: **CREATE**, **UPDATE**, **APPEND**, or
+   **UNCHANGED**, with each path and a short purpose. Creates are green, changes
+   amber, and unchanged rows dim; labels remain readable without color. Only new
+   directories are listed. Credentials remain plaintext and owner-only; values
+   are never displayed. If setup installed an extension or completed GitHub
+   login, one short notice explains that cancelling does not undo those actions.
+   Press **Enter** to save or **c** to cancel (**Esc** also cancels from the summary).
+   Press **v** to select a file with the arrow keys and **Enter**: new files show
+   their contents, updates/appends show a diff, and credential details contain
+   only masked descriptions. Details are scrollable, not dumped into scrollback.
+   **Esc** returns to the file list, then the summary; Enter in details never
+   saves. Ctrl+C/Ctrl+D cancel from any review screen.
 
 Tool installations and GitHub login happen with their own earlier consent and
 are not rolled back if final review is declined. Cancelling does not save Radar

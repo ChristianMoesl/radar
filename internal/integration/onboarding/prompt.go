@@ -29,6 +29,7 @@ type prompter interface {
 	confirm(string, bool) (bool, error)
 	print(string, ...any)
 	style() lipgloss.Style
+	review(setupReview) error
 }
 
 type terminalUI struct {

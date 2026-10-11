@@ -14,9 +14,10 @@ import (
 )
 
 type wizard struct {
-	ui     prompter
-	system system
-	http   *http.Client
+	ui        prompter
+	system    system
+	http      *http.Client
+	completed []string
 }
 
 func newWizard(ui prompter, system system) wizard {
@@ -132,6 +133,7 @@ func (w wizard) run() error {
 			if _, err := w.system.output(ctx, "gh", "auth", "status", "--hostname", "github.com"); err != nil {
 				return fmt.Errorf("GitHub authentication is still unavailable — run `gh auth status` and retry setup")
 			}
+			w.completed = append(w.completed, "GitHub login")
 		}
 		w.ui.print("✓ GitHub authenticated (credentials stay with gh)\n")
 	}
@@ -161,9 +163,6 @@ func (w wizard) run() error {
 		return err
 	}
 	if err := w.review(path, data, cfg, updates, tmuxPlan); err != nil {
-		return err
-	}
-	if err := w.allow("Save this configuration?"); err != nil {
 		return err
 	}
 	err = config.WithSetupLock(func() error {

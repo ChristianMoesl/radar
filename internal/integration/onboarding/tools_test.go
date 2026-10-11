@@ -197,8 +197,8 @@ func TestFreshIntegrationPromptsDefaultToYes(t *testing.T) {
 			t.Fatalf("%s did not default to Yes", name)
 		}
 	}
-	if ui.defaults["Save this configuration?"] {
-		t.Fatal("final save default changed")
+	if !ui.defaults["Save this configuration?"] {
+		t.Fatal("final save should default to Yes")
 	}
 	for _, unwanted := range []string{"RADAR_JIRA_", "RADAR_DATADOG_", "set -g prefix", "bind-key C-b send-prefix"} {
 		if strings.Contains(ui.transcript.String(), unwanted) {

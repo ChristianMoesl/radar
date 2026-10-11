@@ -28,6 +28,7 @@ type fakeUI struct {
 	cancelAt      string
 	beforeConfirm func(string)
 	tmuxChoice    bool
+	reviewed      *setupReview
 }
 
 func (u *fakeUI) input(q question) (string, error) {
@@ -84,6 +85,19 @@ func (u *fakeUI) style() lipgloss.Style {
 	r := lipgloss.NewRenderer(io.Discard)
 	r.SetColorProfile(termenv.Ascii)
 	return r.NewStyle()
+}
+
+func (u *fakeUI) review(report setupReview) error {
+	u.reviewed = &report
+	u.print("%s\n", report.summary(u.style()))
+	save, err := u.confirm("Save this configuration?", true)
+	if err != nil {
+		return err
+	}
+	if !save {
+		return ErrAborted
+	}
+	return nil
 }
 
 type fakeSystem struct {
@@ -229,8 +243,11 @@ func TestWizardSavesSettingsAndSeparateSecretsAfterReview(t *testing.T) {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatal("secrets written before confirmation")
 		}
-		if !strings.Contains(ui.transcript.String(), `cloud_id: cloud-fixture`) {
-			t.Fatal("config preview not shown before confirmation")
+		if ui.reviewed == nil || !strings.Contains(ui.reviewed.files[0].details, `cloud_id: cloud-fixture`) {
+			t.Fatal("config preview not available before confirmation")
+		}
+		if strings.Contains(ui.transcript.String(), `cloud_id: cloud-fixture`) {
+			t.Fatal("config body was dumped into the summary")
 		}
 	}
 	if err := w.run(); err != nil {
@@ -388,6 +405,9 @@ func TestWizardRecoversGitHubLogin(t *testing.T) {
 	ui.decisions = []bool{true, true, false, false, true}
 	if err := w.run(); err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(ui.transcript.String(), "Already done: GitHub login. Cancelling will not undo these.") {
+		t.Fatal("review did not identify the completed login")
 	}
 	if !ui.defaults["GitHub CLI is not authenticated. Run `gh auth login`?"] {
 		t.Fatal("GitHub login must default to Yes")
@@ -657,7 +677,7 @@ func TestMissingDirectoriesArePreviewedThenCreatedOnlyOnSave(t *testing.T) {
 						t.Fatalf("preview created %s", path)
 					}
 				}
-				for _, want := range []string{"Radar settings · CREATE", "Credentials · NOT NEEDED", "Radar tmux settings · CREATE", "User tmux configuration · CREATE", "── Directories", "[CREATE] " + repo, "Tasks", "Already completed"} {
+				for _, want := range []string{"CREATE", "Radar settings", "Agent instructions", "Popup shortcut and extended keys", "Load Radar's tmux settings", "New directories", "~/new parent/repos", "Tasks"} {
 					if !strings.Contains(ui.transcript.String(), want) {
 						t.Fatalf("missing review %q: %s", want, ui.transcript.String())
 					}
@@ -677,16 +697,16 @@ func TestMissingDirectoriesArePreviewedThenCreatedOnlyOnSave(t *testing.T) {
 	}
 }
 
-func TestInstallConsentDefaultsToYesButSaveDoesNot(t *testing.T) {
+func TestInstallAndReviewConsentDefaultToYes(t *testing.T) {
 	w, ui, _, _ := fixture(t)
 	ui.decisions = []bool{true, true}
 	if err := w.allowInstall("Install extension?"); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.allow("Save this configuration?"); err != nil {
+	if err := ui.review(setupReview{}); err != nil {
 		t.Fatal(err)
 	}
-	if !ui.defaults["Install extension?"] || ui.defaults["Save this configuration?"] {
+	if !ui.defaults["Install extension?"] || !ui.defaults["Save this configuration?"] {
 		t.Fatal(ui.defaults)
 	}
 }
@@ -704,8 +724,17 @@ func TestWizardCreatesAgentInstructionsOnlyAfterConsent(t *testing.T) {
 				if _, err := os.Lstat(path); !os.IsNotExist(err) {
 					t.Fatal("instructions written before consent")
 				}
-				if !strings.Contains(ui.transcript.String(), "Agent instructions · CREATE") || !strings.Contains(ui.transcript.String(), "# Radar agent instructions") {
-					t.Fatal("instructions missing from preview")
+				if !strings.Contains(ui.transcript.String(), "Agent instructions") || strings.Contains(ui.transcript.String(), "# Radar agent instructions") {
+					t.Fatal("instructions should have a summary, not an upfront body dump")
+				}
+				found := false
+				for _, file := range ui.reviewed.files {
+					if file.path == path && file.action == "CREATE" && strings.Contains(file.details, "# Radar agent instructions") {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatal("instruction contents unavailable for review")
 				}
 			}
 			err := w.run()

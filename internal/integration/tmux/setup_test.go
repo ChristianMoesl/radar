@@ -138,3 +138,34 @@ func TestAttachArgsAndSupportedVersions(t *testing.T) {
 		}
 	}
 }
+
+func TestUserConfigPreviewMatchesAppliedAppend(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(map[bool]string{false: "fresh", true: "existing"}[existing], func(t *testing.T) {
+			home := setupHome(t)
+			path := filepath.Join(home, ".tmux.conf")
+			if existing {
+				if err := os.WriteFile(path, []byte("# custom settings\nset -g prefix C-a"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			plan, err := PlanConfig(true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			preview := plan.UserConfigPreview()
+			copy := plan.UserConfigPreview()
+			copy[0] = 'X'
+			if string(plan.UserConfigPreview()) != string(preview) {
+				t.Fatal("preview exposed the internal snapshot")
+			}
+			if err := plan.Apply(); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil || string(got) != string(preview) {
+				t.Fatalf("applied bytes differ from preview: %v", err)
+			}
+		})
+	}
+}
