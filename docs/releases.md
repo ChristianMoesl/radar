@@ -170,9 +170,10 @@ announcing Linux Homebrew availability:
    unchanged macOS notifier component.
 2. Require native amd64/arm64 Linux Homebrew release jobs to pass before GitHub
    publication, then approve the exact staged npm package normally.
-3. Run the manual Homebrew workflow for that release. Require all three native
-   platform jobs to pass, review the single generated formula, and have a human
-   publish it to the tap. Source CI alone does not validate public metadata/npm.
+3. Configure [automatic tap publication](#automatic-publication-setup). After npm
+   approval, the Homebrew workflow detects the release, requires all three native
+   platform jobs to pass, and publishes the authenticated formula to the tap.
+   Source CI alone does not validate public metadata/npm.
 4. Smoke-test public tap install/test/uninstall on Linux amd64/arm64 and macOS
    Apple Silicon; test upgrades from the prior tap formula, PATH precedence and
    daemon restart separately. macOS launch approval/delivery/click still needs a
@@ -196,28 +197,73 @@ then removes the tap. It never installs Homebrew or publishes a formula. Its
 verifies all archives against signed metadata using committed trust roots; only
 the production generator can emit a tap candidate after public/npm readiness.
 
+### Automatic publication setup
+
+The **Homebrew formula** workflow in `.github/workflows/homebrew.yml` checks public
+release/npm readiness approximately every 15 minutes. GitHub may delay scheduled
+runs. The workflow must be pushed to GitHub's default branch, and Actions/scheduled
+workflows must be enabled. It updates the existing tap; it does not create a tap
+repository or its initial formula.
+
+1. Create a **fine-grained GitHub personal access token** restricted to the single
+   repository `ChristianMoesl/homebrew-tap`, with **Contents: Read and write**.
+   Metadata read access is implicit. No npm, pull-request, workflow-write, or
+   Radar repository write permission is needed. Set an expiration and renew it
+   before expiry.
+2. Store it in `ChristianMoesl/radar` under **Settings → Secrets and variables →
+   Actions → Repository secrets**, named **`HOMEBREW_TAP_TOKEN`**. Do not commit the
+   credential or paste it into a task note/chat. Radar's normal `GITHUB_TOKEN`
+   cannot publish to the separate tap repository.
+3. Ensure the token owner is allowed to update tap `main` under its branch rules.
+   The workflow does not bypass protections: denied writes fail for maintainer
+   inspection. Do not disable protection just to make a failed job green.
+
+Without this secret, scheduled runs report that publication is disabled and skip
+expensive jobs. Manual dispatch remains available for validation and the
+`homebrew-formula` artifact without a publishing credential. With the secret,
+manual dispatch from Radar `main` uses the same validated automatic publication
+path. Dispatch from other refs validates only; the publishing job is main-only.
+
 ### Each release
 
 1. Publish a new stable Radar release normally and approve its exact npm package.
    Do not bypass staged npm approval or regenerate immutable archives.
-2. Run the **Homebrew formula** Actions workflow with `vX.Y.Z`. It checks out that
-   release's source, runs the generator tests, and generates a formula only when
-   the requested version is the latest coordinated public release. A missing
-   matching npm package, invalid signature, incompatible state epoch, unpublished
-   architecture or wrong archive hash stops the job. All three archives (macOS arm64, Linux amd64/arm64) are
-   downloaded and authenticated. No older-version fallback is emitted.
-3. The workflow updates Homebrew, installs/tests/uninstalls the candidate in
-   a temporary runner-local tap on Apple Silicon and native Linux amd64/arm64, and uploads
-   `Formula/radar.rb` in the macOS job's `homebrew-formula` artifact. All three jobs must
-   pass before publication. It does **not**
-   create/push a tap repository. It needs no cross-repository token or npm secret.
-4. Review the formula diff (version, all three platform URLs/hashes, prerequisite minimums and
-   install hooks), copy it into `ChristianMoesl/homebrew-tap/Formula/radar.rb`, and
-   have a human commit/push it. Never overwrite an existing version's artifacts.
-5. Check `brew update && brew install ChristianMoesl/tap/radar` from the public tap.
+2. The readiness job detects a newer public all-platform release after the exact
+   npm version becomes public. Already-published versions, drafts/prereleases,
+   staged npm packages, and old macOS-only manifests are skipped. This cheap
+   index check is not publisher authentication and cannot publish a formula.
+3. The workflow checks out the release's source, runs generator tests, and
+   authenticates/downloads all three archives (macOS arm64, Linux amd64/arm64).
+   Invalid signatures, incompatible state epochs, unpublished artifacts, or
+   wrong hashes stop validation; there is no unsigned-checksum fallback.
+4. All three native jobs run Homebrew style/install/test/uninstall. Their combined
+   success gates publication. The macOS job retains the exact generated formula
+   as the `homebrew-formula` artifact for inspection.
+5. The publication job runs the **release's own generator again** and compares its
+   bytes with the tested artifact before receiving the tap credential. A now-stale
+   release or a different artifact stops publication. It then creates one normal
+   GitHub commit updating `Formula/radar.rb` on tap `main`, using the current file
+   SHA to refuse concurrent formula edits. Equal/newer tap versions are never
+   overwritten or downgraded. Workflow runs are serialized; repeated polls after
+   success are cheap no-ops. Nothing approves npm or replaces release artifacts.
+6. Check `brew update && brew install ChristianMoesl/tap/radar` from the public tap.
    For existing installations check `brew upgrade radar`, daemon restart and the
-   separately managed Pi extension. The standard release workflow cannot publish
-   the formula early: npm approval happens after it finishes.
+   separately managed Pi extension.
+
+For an immediate run or to revalidate a published release, manually dispatch the
+same workflow with its stable tag (or omit the version to select the latest ready
+upgrade):
+
+```sh
+gh workflow run homebrew.yml --repo ChristianMoesl/radar --ref main -f version=vX.Y.Z
+```
+
+Inspect a failed run before retrying. An expired/insufficient tap token or branch
+restriction requires credential/access repair; signature, artifact, or npm errors
+require fixing the coordinated release, not editing generated hashes or weakening
+checks. A concurrent formula edit fails safely; a later run re-reads tap state.
+Once the tap already has the requested version, publication is a no-op. Historical
+immutable releases must not be rewritten to add Linux metadata.
 
 For local preparation, run from the **requested release's source checkout** with
 Go available (the tag must match `package.json`):

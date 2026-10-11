@@ -16,8 +16,8 @@ dashboard. Open a task to jump into its workspace—with Git worktrees, tmux and
 **macOS** (Apple Silicon, Ventura+). Run without sudo.
 
 **Linux rollout gate:** this source adds Linux support, but the public tap is not
-updated by these changes. Until a new signed release and the manually published
-Linux-capable tap formula ship, use the [manual Linux path](docs/installation.md#manual-installation).
+updated just by installing this checkout. Until a new signed release and its
+validated Linux-capable tap formula ship, use the [manual Linux path](docs/installation.md#manual-installation).
 After publication, with [Homebrew](https://brew.sh) installed:
 
 **Homebrew:**

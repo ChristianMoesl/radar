@@ -1,20 +1,48 @@
 name: Homebrew formula
 
-# npm publication needs human approval after the binary release. Run this only
-# once that approval is complete; no tap token or automated push is involved.
+# npm approval stays human-owned. Poll public readiness cheaply; generate and
+# publish only newer coordinated releases after all native checks pass.
 on:
+  schedule:
+    - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
       version:
-        description: Latest coordinated stable release (vX.Y.Z)
-        required: true
+        description: Stable release to validate (latest ready release when omitted)
+        required: false
         type: string
+
+concurrency:
+  group: radar-homebrew-publication
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ready: ${{ steps.release.outputs.ready }}
+      version: ${{ steps.release.outputs.version }}
+      auto_publish: ${{ steps.release.outputs.auto_publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Select a newer public coordinated release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          TAP_TOKEN_CONFIGURED: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+        run: node scripts/homebrew/automation.mjs prepare
+
   formula:
+    needs: prepare
+    if: needs.prepare.outputs.ready == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -24,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.version }}
+          ref: ${{ needs.prepare.outputs.version }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -33,7 +61,7 @@ jobs:
         run: go test ./scripts/homebrew
       - name: Generate from authenticated public release
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           mkdir -p build/homebrew/Formula
           go run ./scripts/homebrew "$RELEASE_VERSION" > build/homebrew/Formula/radar.rb
@@ -49,18 +77,55 @@ jobs:
           brew install --formula ChristianMoesl/tap/radar
           brew test ChristianMoesl/tap/radar
           brew uninstall ChristianMoesl/tap/radar
-      - name: Upload reviewed tap candidate
+      - name: Upload validated tap candidate
         uses: actions/upload-artifact@v4
         if: matrix.os == 'macos-latest'
         with:
           name: homebrew-formula
           path: build/homebrew/Formula/radar.rb
-      - name: Publishing instructions
+      - name: Native validation summary
         run: |
           {
             echo '## Homebrew candidate validated on this runner architecture'
             echo
-            echo 'Wait for all three jobs (macOS arm64, Linux amd64/arm64) to pass, download the homebrew-formula artifact, review Formula/radar.rb, and commit it to ChristianMoesl/homebrew-tap main.'
-            echo 'A human must push the tap. This workflow does not publish it or approve npm staging.'
+            echo 'Publication waits for all three jobs (macOS arm64, Linux amd64/arm64), then reauthenticates the exact candidate before updating the tap.'
+            echo 'The homebrew-formula artifact remains available for inspection. Without HOMEBREW_TAP_TOKEN, manual dispatch validates only; it does not publish.'
             echo 'Real macOS launch approval and notification delivery/clicks still need interactive smoke tests.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    needs: [prepare, formula]
+    if: needs.prepare.outputs.ready == 'true' && needs.prepare.outputs.auto_publish == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Keep automation from this workflow revision, but authenticate the formula
+      # with the release's own generator, not a newer generator against old code.
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.version }}
+          path: build/release-source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: build/release-source/go.mod
+          cache: true
+          cache-dependency-path: build/release-source/go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: homebrew-formula
+          path: build/homebrew/Formula
+      - name: Reauthenticate the validated candidate and reject stale releases
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          (cd build/release-source && go run ./scripts/homebrew "$RELEASE_VERSION") > build/homebrew/verified.rb
+          cmp build/homebrew/Formula/radar.rb build/homebrew/verified.rb
+      - name: Publish a normal tap commit without overwrites or downgrades
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: node scripts/homebrew/automation.mjs publish "$RELEASE_VERSION" build/homebrew/Formula/radar.rb

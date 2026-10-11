@@ -18,8 +18,9 @@ supports macOS (Apple Silicon only, Ventura+).
 **Linux publication gate:** support in this checkout is not proof it is live in
 [ChristianMoesl/homebrew-tap](https://github.com/ChristianMoesl/homebrew-tap).
 A new signed release with both Linux archives, exact npm approval, all native
-Homebrew validation jobs, and human publication of the generated tap formula are
-required first. Do not republish an older release's metadata or archives. Until
+Homebrew validation jobs, and publication of the generated tap formula are
+required first. Maintainers can enable [automatic publication](releases.md#automatic-publication-setup)
+after npm approval. Do not republish an older release's metadata or archives. Until
 then, use [manual installation](#manual-installation). See the
 [maintainer rollout checklist](releases.md#linux-homebrew-rollout).
 
