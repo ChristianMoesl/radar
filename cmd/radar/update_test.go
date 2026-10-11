@@ -2,8 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -47,6 +45,7 @@ func TestUpdateDaemonIdentityAndOldClientGuard(t *testing.T) {
 		}
 	}
 	t.Setenv("HOME", root)
+	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(root, "agent"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
@@ -159,86 +158,6 @@ func TestUpdateCLICommand(t *testing.T) {
 			}
 			if tc.name == "help" && !strings.Contains(output, "radar setup notifications") {
 				t.Fatal("missing notification setup command")
-			}
-		})
-	}
-}
-
-func TestAutomaticPiUpdates(t *testing.T) {
-	for _, scenario := range []string{"both", "radar-failure", "version-mismatch", "radar-pinned", "both-pinned"} {
-		t.Run(scenario, func(t *testing.T) {
-			home := t.TempDir()
-			profile := filepath.Join(home, "agent")
-			cwd := filepath.Join(home, "workspace")
-			bin := filepath.Join(home, "bin")
-			for _, path := range []string{profile, cwd, bin} {
-				if err := os.MkdirAll(path, 0700); err != nil {
-					t.Fatal(err)
-				}
-			}
-			t.Setenv("HOME", home)
-			t.Setenv("PI_CODING_AGENT_DIR", profile)
-			t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-			radarPin, sbxPin := "", ""
-			if scenario == "radar-pinned" || scenario == "both-pinned" {
-				radarPin = "@0.1.0"
-			}
-			if scenario == "both-pinned" {
-				sbxPin = "@0.1.0"
-			}
-			settings := fmt.Sprintf(`{"packages":["npm:@christianmoesl/pi-radar%s","npm:@christianmoesl/pi-sbx%s","npm:unrelated"]}`, radarPin, sbxPin)
-			if err := os.WriteFile(filepath.Join(profile, "settings.json"), []byte(settings), 0600); err != nil {
-				t.Fatal(err)
-			}
-			for _, name := range []string{"pi-radar", "pi-sbx"} {
-				dir := filepath.Join(profile, "npm/node_modules/@christianmoesl", name)
-				if err := os.MkdirAll(dir, 0700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(fmt.Sprintf(`{"name":"@christianmoesl/%s","version":"0.1.0"}`, name)), 0600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			script := `#!/bin/sh
-[ "$1" = update ] && [ "$3" = --no-approve ] && [ "$#" = 3 ] || exit 9
-printf '%s\n' "$2" >> "$PI_CODING_AGENT_DIR/calls"
-name="${2#npm:}"
-case "$name" in @christianmoesl/pi-radar|@christianmoesl/pi-sbx) ;; *) exit 10 ;; esac
-if [ "$name" = @christianmoesl/pi-radar ] && [ "$SCENARIO" = radar-failure ]; then exit 1; fi
-version=0.1.1
-if [ "$name" = @christianmoesl/pi-radar ] && [ "$SCENARIO" = version-mismatch ]; then version=0.1.2; fi
-printf '{"name":"%s","version":"%s"}' "$name" "$version" > "$PI_CODING_AGENT_DIR/npm/node_modules/$name/package.json"
-`
-			t.Setenv("SCENARIO", scenario)
-			if err := os.WriteFile(filepath.Join(bin, "pi"), []byte(script), 0700); err != nil {
-				t.Fatal(err)
-			}
-			var out bytes.Buffer
-			err := updatePiPackages(&out, cwd, "0.1.1")
-			failure := scenario == "radar-failure" || scenario == "version-mismatch"
-			if (err != nil) != failure {
-				t.Fatalf("%s: %v", out.String(), err)
-			}
-			if failure && !strings.Contains(err.Error(), "Radar CLI is current") {
-				t.Fatal(err)
-			}
-			calls, _ := os.ReadFile(filepath.Join(profile, "calls"))
-			want := ""
-			if radarPin == "" {
-				want += "npm:@christianmoesl/pi-radar\n"
-			}
-			if sbxPin == "" {
-				want += "npm:@christianmoesl/pi-sbx\n"
-			}
-			if string(calls) != want {
-				t.Fatalf("calls=%q want=%q", calls, want)
-			}
-			actual, _ := os.ReadFile(filepath.Join(profile, "settings.json"))
-			if string(actual) != settings {
-				t.Fatal("changed settings")
-			}
-			if strings.Contains(out.String(), "[y/N]") || strings.Contains(out.String(), "exact pin") {
-				t.Fatal(out.String())
 			}
 		})
 	}

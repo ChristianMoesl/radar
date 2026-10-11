@@ -441,3 +441,77 @@ func (f fakeCleanupSource) PreviewCleanup(_ context.Context, req integration.Cle
 func (fakeCleanupSource) Cleanup(_ context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
 	return req.Target, nil
 }
+
+func TestReadyWorkDoesNotBlockRequestsAndIsJoinedOnShutdown(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp("/tmp", "radar-ready-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	path := filepath.Join(dir, "s")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready, stopped := make(chan struct{}), make(chan struct{})
+	s := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New(nil)).SetOnReady(func(ctx context.Context) {
+		close(ready)
+		<-ctx.Done()
+		close(stopped)
+	})
+	done := make(chan error, 1)
+	go func() { done <- s.ListenAndServe(ctx, path) }()
+	select {
+	case <-ready:
+	case <-time.After(3 * time.Second):
+		t.Fatal("server never became ready")
+	}
+	conn, err := net.DialTimeout("unix", path, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(time.Second))
+	if _, err := conn.Write([]byte("{\"method\":\"version\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	var response protocol.Response
+	if err := json.NewDecoder(conn).Decode(&response); err != nil || !response.OK {
+		t.Fatalf("blocked by startup work: %+v %v", response, err)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("shutdown did not join startup work")
+	}
+	select {
+	case <-stopped:
+	default:
+		t.Fatal("server returned before startup work stopped")
+	}
+}
+
+func TestReadyWorkNeverRunsWhenListenFails(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "not-a-directory")
+	if err := os.WriteFile(file, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	s := New(nil, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New(nil)).SetOnReady(func(context.Context) { called = true })
+	if err := s.ListenAndServe(context.Background(), filepath.Join(file, "socket")); err == nil {
+		t.Fatal("expected bind error")
+	}
+	if called {
+		t.Fatal("startup work ran before server was healthy")
+	}
+}

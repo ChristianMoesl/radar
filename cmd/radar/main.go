@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"radar/internal/logging"
 	"radar/internal/notification"
 	"radar/internal/operationlock"
+	"radar/internal/pi"
 	"radar/internal/process"
 	"radar/internal/protocol"
 	"radar/internal/server"
@@ -608,6 +610,9 @@ func runDaemon() {
 		return
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	logger, file, logPath, err := logging.New()
 	if err != nil {
 		fatal(err)
@@ -641,16 +646,30 @@ func runDaemon() {
 	notificationService := notification.New(logger)
 	collectionMu := &sync.Mutex{}
 	tasks := taskservice.New(store, logger, integrations)
-	refresh := refresher(context.Background(), store, logger, collectionMu, integrations, cleanupService, notificationService, tasks)
-	garbageCollect := garbageCollector(context.Background(), store, logger, collectionMu, integrations, cleanupService, notificationService, tasks)
+	refresh := refresher(ctx, store, logger, collectionMu, integrations, cleanupService, notificationService, tasks)
+	garbageCollect := garbageCollector(ctx, store, logger, collectionMu, integrations, cleanupService, notificationService, tasks)
 	if collectionDisabled() {
 		logger.Info("source collection disabled", "env", "RADAR_DISABLE_COLLECTION")
 	} else {
-		go refreshLoop(context.Background(), refresh)
+		go refreshLoop(ctx, refresh)
 	}
 
-	localRefresh := localRefresher(context.Background(), collectionMu, tasks)
-	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(context.Background(), logger, collectionMu, tasks), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).SetTaskMutation(tasks.MutateTask).SetTaskDeletion(tasks.PreviewDeleteTask, tasks.DeleteTask).ListenAndServe(path); err != nil {
+	// Capture precisely the startup profile, not profiles inferred from Pi
+	// sessions or whichever project the daemon happened to start inside.
+	profile, profileErr := pi.ProfileDir()
+	syncPackages := func(ctx context.Context) {
+		if profileErr != nil {
+			logger.Warn("Pi package synchronization could not resolve startup profile", "error", profileErr)
+			return
+		}
+		syncCtx, cancel := context.WithTimeout(ctx, 22*time.Minute)
+		defer cancel()
+		if err := pi.SyncPackages(syncCtx, profile, version.Number, logger); err != nil {
+			logger.Warn("Pi package synchronization incomplete; retry with radar restart", "profile", profile, "error", err)
+		}
+	}
+	localRefresh := localRefresher(ctx, collectionMu, tasks)
+	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(ctx, logger, collectionMu, tasks), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).SetTaskMutation(tasks.MutateTask).SetTaskDeletion(tasks.PreviewDeleteTask, tasks.DeleteTask).SetOnReady(syncPackages).ListenAndServe(ctx, path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}

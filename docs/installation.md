@@ -84,11 +84,15 @@ and uninstall leave your configuration, notes and workspaces alone; automatic
 workspace expiry still follows the configured Radar policy when Radar runs.
 
 Git, Node/npm and Pi core remain managed by your chosen installation method;
-`brew upgrade radar` does **not** install or update them. The host `pi-radar`
-extension is profile-managed and is not updated by that command either. Follow the
-[Pi package update instructions](integrations/pi.md#package-updates), respecting
-custom/pinned/project package sources. Active Pi sessions need `/reload` or
-restart after an extension update. Do not use bare `pi update`.
+`brew upgrade radar` does **not** install or update them. After the upgraded
+stable Radar release starts/restarts its daemon, Radar automatically synchronizes
+installed, unpinned `pi-radar` and `pi-sbx` packages in the daemon's startup Pi
+profile. Homebrew's hooks never modify Pi profiles themselves. Pins and custom
+sources stay untouched. Failures appear in the daemon log (`radar logs`); restart
+Radar after correcting the cause to retry. See [Pi package updates](integrations/pi.md#package-updates)
+for custom profiles and manual updates. Active Pi sessions remain running;
+`pi-radar` shows a red `/reload` status when its installed version is newer than
+the loaded version. Choose a safe moment to reload. Do not use bare `pi update`.
 
 ### Switching from another installation
 

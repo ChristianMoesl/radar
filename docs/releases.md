@@ -419,9 +419,10 @@ On macOS, run `radar update` in a terminal to review and confirm a release.
 The dashboard shows a non-blocking update notice pointing to this command, without
 a dedicated shortcut. The notice is cached for an hour; `radar update` checks
 trusted metadata and npm again.
-The dashboard never installs updates in the background. Running `radar update`
-also updates eligible unpinned Pi packages without a separate confirmation. An
-offline/rate-limited dashboard check does not block Radar.
+The dashboard never installs Radar CLI releases in the background. After a new
+stable Radar release starts, its daemon synchronizes eligible unpinned Pi
+packages without a separate confirmation. An offline/rate-limited dashboard
+check does not block Radar.
 
 The managed layout is deliberately restricted to the user's regular, owned
 `~/.local/bin/radar` and `~/.local/libexec/radar/RadarNotifier.app`. Symlinks,
@@ -463,33 +464,63 @@ and non-Radar sessions may not report. Reports use per-session files under
 and are removed on session shutdown. No prompts, conversation content, or tokens
 are recorded.
 
-`radar update` automatically updates installed, unfiltered user-level packages
-with these standard unpinned declarations, without a separate Pi confirmation:
+After a stable Radar release starts its daemon successfully, it synchronizes
+installed, unfiltered user-level packages with these standard unpinned declarations
+in the background, without a separate Pi confirmation:
 
-```sh
+```text
 npm:@christianmoesl/pi-radar
 npm:@christianmoesl/pi-sbx
 ```
 
-It runs targeted `pi update <source> --no-approve` commands in the detected host
-profile, leaving the declarations unpinned and ignoring project-local files in
-the update subprocess. All pins are skipped, regardless of how they were created.
+This runs after **any installation method**, including Homebrew: upgrade Radar
+with its installation owner, then restart/reopen Radar. `radar update` only
+performs the standalone CLI update and restart; it no longer runs a second
+package-update pass. The daemon begins synchronization after its socket is
+listening, without delaying requests or making CLI upgrade success depend on npm.
+Development and prerelease builds do not synchronize npm packages automatically,
+because they have no matching stable npm release.
+
+Only the **daemon startup profile** is used: `PI_CODING_AGENT_DIR` inherited when
+Radar starts/restarts, or `~/.pi/agent` if unset. Other profiles are not discovered
+or modified. To select a custom profile deliberately, run:
+
+```sh
+PI_CODING_AGENT_DIR=/path/to/profile radar restart
+```
+
+Radar runs targeted `pi update <source> --no-approve` commands in that profile,
+leaving the declarations unpinned and ignoring project-local files in the update
+subprocess. All pins are skipped, regardless of how they were created.
 Disabled/filtered, project-scoped, Git/local/development, missing and custom
 sources are left alone. Remove a pin manually if you want automatic updates;
 Radar does not adopt or migrate pins.
 
-Package updates follow npm's latest version independently. `pi-radar` should
-match the Radar CLI release; a mismatch after updating is reported for separate
-repair/retry, never resolved by silently creating a pin. `pi-sbx` has its own
-versioning. Both eligible packages are checked even when the CLI is already
-current, so rerunning `radar update` can repair a failed package update or pick
-up a separately released `pi-sbx`. No broad package update, Pi-core update,
-sandbox-image update or forced session reload occurs.
+Successful package versions are recorded with the Radar release in
+`<profile>/radar/package-sync.json`. Ordinary restarts skip packages already
+synchronized for that release and installation. A missing receipt means the next
+stable-release startup performs the first pass. Skipped packages are not marked
+successful, so manually unpinning/installing a package lets the next restart
+synchronize it. A per-profile `package-sync.lock` serializes concurrent starts;
+normal shutdown cancels Pi and its helper processes before releasing the lock.
+The Pi child inherits the lock to prevent overlapping updates after a daemon
+crash. The receipt is written atomically after each verified package update.
+Malformed receipts are reported without changing them; inspect/remove the
+reported receipt and restart Radar to retry. There is no older-format migration.
 
-Pi updates happen after the CLI is healthy and are not an atomic part of that
-transaction. Both packages are attempted independently; failures are reported as
-partial success with targeted repair guidance. Do not assume a failed package
-operation rolled back.
+The Node/Pi minimum versions come from the package manifest embedded in the
+running Radar binary; Radar never upgrades those prerequisites itself.
+`PI_OFFLINE` defers synchronization without recording a successful update.
+
+Package updates follow npm's latest version independently. `pi-radar` should
+match the running Radar release; a mismatch is reported and remains retryable,
+never resolved by silently creating a pin. `pi-sbx` has its own versioning.
+Both eligible packages are attempted independently. Failed operations do not mark
+the affected package successful or roll back a healthy CLI; other successful
+packages are not repeated on retry. Progress/failures go to the daemon log
+(`radar logs` prints its path). After fixing the cause, run `radar restart` to
+retry. No continuous network polling, broad package update, Pi-core update,
+sandbox-image update or forced session reload occurs.
 
 Interactive Radar Pi sessions check the locally installed `pi-radar` version
 every 30 seconds. When it is newer than the loaded version, a red statusbar message

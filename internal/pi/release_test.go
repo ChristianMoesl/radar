@@ -148,7 +148,10 @@ func fakePi(t *testing.T, script string) {
 	t.Helper()
 	bin := t.TempDir()
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-	if err := os.WriteFile(filepath.Join(bin, "pi"), []byte("#!/bin/sh\n"+script), 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "node"), []byte("#!/bin/sh\necho v24.0.0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "pi"), []byte("#!/bin/sh\nif [ \"$1\" = --version ]; then echo 1.0.0; exit 0; fi\n"+script), 0700); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -166,7 +169,7 @@ cat > "$PI_CODING_AGENT_DIR/npm/node_modules/`+name+`/package.json" <<'JSON'
 {"name":"`+name+`","version":"0.1.1"}
 JSON
 `)
-			state, err := UpdateRelease(context.Background(), InspectRelease(cwd, name), cwd)
+			state, err := updateRelease(context.Background(), InspectRelease(cwd, name), cwd, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -207,7 +210,7 @@ func TestPiUpdateDetectsChangesAndFailures(t *testing.T) {
 				script += `echo '{"name":"other","version":"0.1.1"}' > "$PI_CODING_AGENT_DIR/npm/node_modules/@christianmoesl/pi-radar/package.json"`
 			}
 			fakePi(t, script)
-			_, err := UpdateRelease(ctx, before, cwd)
+			_, err := updateRelease(ctx, before, cwd, nil)
 			if (err == nil) != (kind == "unchanged") {
 				t.Fatalf("%s: %v", kind, err)
 			}

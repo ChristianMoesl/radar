@@ -90,11 +90,18 @@ pi update npm:@christianmoesl/pi-sbx
 
 Restart Pi afterwards. `pi update` without a package source updates Pi itself, not these packages. To pin either extension, use `pi install npm:@christianmoesl/pi-radar@<version>` or `pi install npm:@christianmoesl/pi-sbx@<version>`; choose `pi-sbx` >=0.6.0 for early sandboxed launch. Versioned npm sources are pinned and skipped by package updates, so move to a new pinned release by installing its version explicitly. The Radar CLI and `pi-radar` npm package share the same release version (the npm version omits the tag's leading `v`); `pi-sbx` is versioned separately.
 
-For a standard macOS installation, `radar update` updates both installed,
-unpinned user-level npm packages automatically, without a separate extension
-confirmation—even when the CLI is already current. It preserves unpinned
-sources and skips pins, filtered/disabled declarations and custom/project
-installations. See [updates](../installation.md#managed-macos-releases).
+When a stable Radar release starts/restarts its daemon, it synchronizes both
+installed, unpinned user-level npm packages automatically in the background,
+without a separate extension confirmation. This also works after Homebrew
+upgrades. Successful updates are remembered per Radar release and Pi profile;
+normal restarts do not repeat them. Failures are logged (`radar logs`) and retried
+on the next `radar restart`. Pins, filtered/disabled declarations and custom/project
+installations remain untouched.
+
+The profile is selected when the daemon starts: `PI_CODING_AGENT_DIR`, or
+`~/.pi/agent` when unset. Use `PI_CODING_AGENT_DIR=/path/to/profile radar restart`
+for a custom profile; other profiles are not scanned. Development/prerelease
+Radar builds leave package updates manual. See [Pi coordination](../releases.md#pi-coordination).
 
 In an interactive Radar workspace, `pi-radar` checks its locally installed
 version every 30 seconds. If it is newer than the version loaded by the session,
@@ -105,6 +112,6 @@ no idle/subagent detection; choose a safe moment to reload.
 
 ## Installation notices
 
-Radar-launched interactive Pi sessions show one combined, non-blocking recommendation per Pi profile for missing packages. It explains each package's benefits and installation command; `/radar-dismiss-install-hint` hides it. The notice never installs packages or changes Pi settings. Install scripts provision required CLI tools; foreground onboarding installs Pi extensions after permission, while `radar update` automatically updates eligible installed unpinned packages without an extra extension confirmation. The notice checks the running Pi's Radar tools and personal/project declarations (including `PI_CODING_AGENT_DIR`), suppresses advice independently for each known configured or explicitly disabled package, and does not appear in RPC/print mode. Having `pi-radar` installed does not hide relevant missing `pi-sbx` advice. That advice requires an effectively sandbox-enabled workspace and a usable SBX CLI, established by bounded read-only probes; absent/disabled/uncertain sandboxing stays quiet. This helper gives installation advice, not version enforcement. Pi runs on the host even for sandboxed workspaces, so install both packages in that host Pi profile. For a custom agent directory, prefix each command with `PI_CODING_AGENT_DIR=/path/to/profile`; the suggested commands include the matching directory. Restart Pi after installation.
+Radar-launched interactive Pi sessions show one combined, non-blocking recommendation per Pi profile for missing packages. It explains each package's benefits and installation command; `/radar-dismiss-install-hint` hides it. The notice never installs packages or changes Pi settings. Install scripts provision required CLI tools; foreground onboarding installs Pi extensions after permission, while the daemon synchronizes eligible installed unpinned packages after a stable Radar release starts, without an extra extension confirmation. The notice checks the running Pi's Radar tools and personal/project declarations (including `PI_CODING_AGENT_DIR`), suppresses advice independently for each known configured or explicitly disabled package, and does not appear in RPC/print mode. Having `pi-radar` installed does not hide relevant missing `pi-sbx` advice. That advice requires an effectively sandbox-enabled workspace and a usable SBX CLI, established by bounded read-only probes; absent/disabled/uncertain sandboxing stays quiet. This helper gives installation advice, not version enforcement. Pi runs on the host even for sandboxed workspaces, so install both packages in that host Pi profile. For a custom agent directory, prefix each command with `PI_CODING_AGENT_DIR=/path/to/profile`; the suggested commands include the matching directory. Restart Pi after installation.
 
 All launches load a small **notice-only helper**, not the integration; early sandboxed launches additionally load the required [pi-sbx prerequisite guard](sbx.md#early-pi-launch-and-recovery). Radar caches these helpers under `$XDG_CACHE_HOME/radar/pi/` (or the platform's user cache directory) and records that the notice was shown in `<Pi agent directory>/radar/install-hint-seen`. Removing that marker allows the recommendation to appear again. Existing settings and workspaces are not rewritten; unreadable settings or unavailable notice storage simply skip the advice.

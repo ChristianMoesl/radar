@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
+	"radar/internal/command"
 	"radar/internal/update"
 )
 
@@ -146,13 +146,16 @@ func isPackageSource(source, base, name string) bool {
 }
 func InspectRelease(cwd, name string) ReleaseState {
 	profile, err := ProfileDir()
+	if err != nil {
+		return ReleaseState{Profile: profile, Package: name, Reason: err.Error()}
+	}
+	return inspectRelease(profile, cwd, name)
+}
+
+func inspectRelease(profile, cwd, name string) ReleaseState {
 	s := ReleaseState{Profile: profile, Package: name}
 	if !supportedPackage(name) {
 		s.Reason = "Not a Radar-related Pi package"
-		return s
-	}
-	if err != nil {
-		s.Reason = err.Error()
 		return s
 	}
 	settings, err := readSettings(filepath.Join(profile, "settings.json"))
@@ -280,38 +283,26 @@ func loadedReleases(profile string) []LoadedRelease {
 	}
 	return result
 }
-func CheckReleasePrerequisites(ctx context.Context, m update.Manifest) error {
-	for _, spec := range []struct {
-		name    string
-		minimum string
-	}{{"node", fmt.Sprintf("%d.0.0", m.MinNode)}, {"pi", m.MinPi}} {
-		output, err := exec.CommandContext(ctx, spec.name, "--version").Output()
-		if err != nil {
-			return fmt.Errorf("%s is required for the requested Pi update: %w", spec.name, err)
-		}
-		version := strings.TrimSpace(string(output))
-		version = strings.TrimPrefix(version, "v")
-		if !update.Stable(version) || update.Compare(version, spec.minimum) < 0 {
-			return fmt.Errorf("%s >= %s required; Radar will not update Pi core or Node", spec.name, spec.minimum)
-		}
-	}
-	return nil
-}
 
-// UpdateRelease delegates to Pi's targeted package updater: it follows the
+// updateRelease delegates to Pi's targeted package updater: it follows the
 // configured unpinned source without pinning it or updating unrelated packages.
-func UpdateRelease(ctx context.Context, before ReleaseState, cwd string) (ReleaseState, error) {
+func updateRelease(ctx context.Context, before ReleaseState, cwd string, lock *os.File) (ReleaseState, error) {
 	if !before.CanUpdate || !supportedPackage(before.Package) {
 		return before, errors.New("Pi source is not eligible for coordinated updates")
 	}
-	now := InspectRelease(cwd, before.Package)
+	now := inspectRelease(before.Profile, cwd, before.Package)
 	if !now.CanUpdate || now.Source != before.Source || now.Profile != before.Profile || now.Installed != before.Installed {
-		return now, errors.New("Pi installation changed; inspect it before retrying radar update")
+		return now, errors.New("Pi installation changed; inspect it before restarting Radar")
 	}
-	cmd := exec.CommandContext(ctx, "pi", "update", before.Source, "--no-approve")
+	cmd := command.CommandContext(ctx, "pi", "update", before.Source, "--no-approve")
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return before, err
+	}
+	// Keep the profile lock alive in Pi if the daemon is killed abruptly. Normal
+	// shutdown cancels the whole Pi/npm process group before releasing the lock.
+	if lock != nil {
+		cmd.ExtraFiles = []*os.File{lock}
 	}
 	cmd.Dir = home
 	cmd.Env = append(os.Environ(), "PI_CODING_AGENT_DIR="+before.Profile)
@@ -320,7 +311,7 @@ func UpdateRelease(ctx context.Context, before ReleaseState, cwd string) (Releas
 	if err := cmd.Run(); err != nil {
 		return before, fmt.Errorf("Pi package update failed (it may have partially changed): %w; retry PI_CODING_AGENT_DIR=%q pi update %s --no-approve", err, before.Profile, before.Source)
 	}
-	after := InspectRelease(cwd, before.Package)
+	after := inspectRelease(before.Profile, cwd, before.Package)
 	if !after.CanUpdate || after.Source != before.Source || after.Profile != before.Profile || update.Compare(after.Installed, before.Installed) < 0 {
 		return after, errors.New("Pi command finished but the unpinned package could not be verified; repair Pi separately")
 	}

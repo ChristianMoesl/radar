@@ -27,6 +27,7 @@ type Server struct {
 	logger              *slog.Logger
 	refresh             func()
 	localRefresh        func()
+	onReady             func(context.Context)
 	taskMutation        func(context.Context, string, *protocol.TaskMutation) (protocol.Task, error)
 	previewTaskDeletion func(context.Context, int) (protocol.TaskDeletionPreview, error)
 	deleteTask          func(context.Context, *protocol.TaskDeletionPreview) (protocol.TaskDeletionResult, error)
@@ -63,7 +64,14 @@ func (s *Server) SetTaskDeletion(preview func(context.Context, int) (protocol.Ta
 	return s
 }
 
-func (s *Server) ListenAndServe(path string) error {
+// SetOnReady runs background startup work only after the socket is listening.
+// ListenAndServe cancels and joins this work before returning on shutdown.
+func (s *Server) SetOnReady(ready func(context.Context)) *Server {
+	s.onReady = ready
+	return s
+}
+
+func (s *Server) ListenAndServe(ctx context.Context, path string) error {
 	if err := socket.EnsureDir(path); err != nil {
 		return err
 	}
@@ -76,10 +84,24 @@ func (s *Server) ListenAndServe(path string) error {
 	defer listener.Close()
 
 	s.logger.Info("server listening", "socket", path)
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(ctx, func() { _ = listener.Close() })
+	defer stop()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if s.onReady != nil {
+			s.onReady(ctx)
+		}
+	}()
+	defer func() { cancel(); <-done }()
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
 			s.logger.Error("accept failed", "error", err)
 			return err
 		}
