@@ -324,7 +324,9 @@ On macOS, run `radar update` in a terminal to review and confirm a release.
 The dashboard shows a non-blocking update notice pointing to this command, without
 a dedicated shortcut. The notice is cached for an hour; `radar update` checks
 trusted metadata and npm again.
-There are no silent installs. An offline/rate-limited check does not block Radar.
+The dashboard never installs updates in the background. Running `radar update`
+also updates eligible unpinned Pi packages without a separate confirmation. An
+offline/rate-limited dashboard check does not block Radar.
 
 The managed layout is deliberately restricted to the user's regular, owned
 `~/.local/bin/radar` and `~/.local/libexec/radar/RadarNotifier.app`. Symlinks,
@@ -366,25 +368,40 @@ and non-Radar sessions may not report. Reports use per-session files under
 and are removed on session shutdown. No prompts, conversation content, or tokens
 are recorded.
 
-Only a standard user-level npm declaration is eligible for coordinated adoption.
-Pi's targeted `update` follows the configured source, not a requested exact
-version. Radar therefore asks separately before using:
+`radar update` automatically updates installed, unfiltered user-level packages
+with these standard unpinned declarations, without a separate Pi confirmation:
 
 ```sh
-PI_CODING_AGENT_DIR=/path/to/profile pi install npm:@christianmoesl/pi-radar@X.Y.Z
+npm:@christianmoesl/pi-radar
+npm:@christianmoesl/pi-sbx
 ```
 
-This creates an **explicit Radar-managed pin**; `<agent-dir>/radar/release-pin.json`
-records that ownership so subsequent updates can move it with confirmation.
-If the user changes the pin, or the declaration is disabled/filtered, project-
-scoped, Git/local/development, it is left alone. No broad `pi update`, Pi-core
-update, pi-sbx update, sandbox-image update or forced session reload occurs.
+It runs targeted `pi update <source> --no-approve` commands in the detected host
+profile, leaving the declarations unpinned and ignoring project-local files in
+the update subprocess. All pins are skipped, regardless of how they were created.
+Disabled/filtered, project-scoped, Git/local/development, missing and custom
+sources are left alone. Remove a pin manually if you want automatic updates;
+Radar does not adopt or migrate pins.
 
-Pi installation happens after the CLI is healthy and is not an atomic part of
-that transaction. Its failure is reported as partial success, with a targeted
-repair command. Inspect `pi list`/the shown profile if a package operation was
-interrupted; do not assume it rolled back. Existing Pi sessions still need
-`/reload` or restart at a safe point, even after the on-disk version is correct.
+Package updates follow npm's latest version independently. `pi-radar` should
+match the Radar CLI release; a mismatch after updating is reported for separate
+repair/retry, never resolved by silently creating a pin. `pi-sbx` has its own
+versioning. Both eligible packages are checked even when the CLI is already
+current, so rerunning `radar update` can repair a failed package update or pick
+up a separately released `pi-sbx`. No broad package update, Pi-core update,
+sandbox-image update or forced session reload occurs.
+
+Pi updates happen after the CLI is healthy and are not an atomic part of that
+transaction. Both packages are attempted independently; failures are reported as
+partial success with targeted repair guidance. Do not assume a failed package
+operation rolled back.
+
+Interactive Radar Pi sessions check the locally installed `pi-radar` version
+every 30 seconds. When it is newer than the loaded version, a red statusbar message
+says **pi-radar updated · /reload to apply**. Otherwise no status is shown.
+Reloading updates the loaded version and clears the notice. `pi-sbx` has no such
+notice. No npm lookup, idle detection, automatic reload or subagent interruption
+is involved: choose a safe moment for `/reload` yourself.
 
 ## Validation before general distribution
 

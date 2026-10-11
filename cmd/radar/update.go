@@ -119,8 +119,9 @@ func updateRelease(in io.Reader, out io.Writer) error {
 	if target == nil {
 		fmt.Fprintln(out, "No newer coordinated stable release is ready.")
 		cwd, _ := os.Getwd()
-		printPiReleaseState(out, pi.InspectRelease(cwd), strings.TrimPrefix(version.Number, "v"))
-		return nil
+		printPiReleaseState(out, pi.InspectRelease(cwd, update.Package), strings.TrimPrefix(version.Number, "v"))
+		printPiReleaseState(out, pi.InspectRelease(cwd, pi.SandboxPackage), "latest")
+		return updatePiPackages(out, cwd, strings.TrimPrefix(version.Number, "v"))
 	}
 	osVersion, err := exec.CommandContext(ctx, "sw_vers", "-productVersion").Output()
 	if err != nil {
@@ -138,7 +139,8 @@ func updateRelease(in io.Reader, out io.Writer) error {
 		return errors.New("this release does not support the running architecture")
 	}
 	cwd, _ := os.Getwd()
-	integration := pi.InspectRelease(cwd)
+	integration := pi.InspectRelease(cwd, update.Package)
+	sandboxIntegration := pi.InspectRelease(cwd, pi.SandboxPackage)
 	fmt.Fprintf(out, "\nRadar: %s → %s (%s)\nInstall: %s\n", version.Number, target.Version, runtime.GOARCH, prefix)
 	if installed.NotifierSHA256 == artifact.NotifierSHA256 {
 		fmt.Fprintf(out, "Notifier %s unchanged: installed app will not be touched.\n", artifact.NotifierVersion)
@@ -150,6 +152,7 @@ func updateRelease(in io.Reader, out io.Writer) error {
 		fmt.Fprintf(out, "Notifier: %s → %s. macOS may require Open Anyway again; run radar setup notifications afterward.\n", old, artifact.NotifierVersion)
 	}
 	printPiReleaseState(out, integration, target.PiVersion)
+	printPiReleaseState(out, sandboxIntegration, "latest")
 	fmt.Fprintln(out, "The daemon/dashboard will restart; workspaces, tmux, Pi and sandboxes stay running. Previous files and a recovery journal are retained. Pi is a separate operation, not an atomic part of the CLI update.")
 	if installed.Receipt == nil {
 		fmt.Fprintln(out, "Before first adoption, close Radar dashboards that predate this updater. Leave tmux, Pi sessions and workspaces running.")
@@ -157,23 +160,12 @@ func updateRelease(in io.Reader, out io.Writer) error {
 	if installed.Receipt == nil && !confirmUpdate(scanner, out, "Adopt this manual/source installation into managed GitHub releases?") {
 		return nil
 	}
-	updatePi := false
-	if integration.CanUpdate && integration.Installed != target.PiVersion {
-		fmt.Fprintf(out, "Exact Pi target: PI_CODING_AGENT_DIR=%q pi install npm:%s@%s\nThis changes only pi-radar to an exact Radar-managed pin. Custom/pinned/disabled/project packages are not adopted.\n", integration.Profile, update.Package, target.PiVersion)
-		updatePi = confirmUpdate(scanner, out, "Also install/update this Pi package and consent to the exact pin?")
-		if updatePi {
-			prerequisiteCtx, prerequisiteCancel := context.WithTimeout(context.Background(), 20*time.Second)
-			prerequisiteErr := pi.CheckReleasePrerequisites(prerequisiteCtx, *target)
-			prerequisiteCancel()
-			if err := prerequisiteErr; err != nil {
-				return err
-			}
-		}
+	if integration.CanUpdate || sandboxIntegration.CanUpdate {
+		fmt.Fprintln(out, "Installed unpinned pi-radar and pi-sbx packages will update automatically after the CLI is healthy, without a separate confirmation. Pinned/custom/disabled/project packages stay untouched.")
 	}
 	question := "Download, verify and install this Radar release now?"
-	if !updatePi && integration.Installed != target.PiVersion {
-		fmt.Fprintln(out, "Pi will remain as detected above. An older/custom pi-radar integration may not be compatible with the new CLI.")
-		question = "Download, verify and install Radar while leaving Pi unchanged?"
+	if !integration.CanUpdate && integration.Installed != target.PiVersion {
+		fmt.Fprintln(out, "pi-radar will remain as detected above. An older/custom integration may not be compatible with the new CLI.")
 	}
 	if !confirmUpdate(scanner, out, question) {
 		return nil
@@ -221,15 +213,43 @@ func updateRelease(in io.Reader, out io.Writer) error {
 	if staged.Journal.ChangeNotifier {
 		fmt.Fprintln(out, "Notification setup may be required: run radar setup notifications. Gatekeeper approval and notification authorization are separate.")
 	}
-	if updatePi {
-		packageCtx, packageCancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer packageCancel()
-		if err := pi.InstallRelease(packageCtx, integration, cwd, fresh.PiVersion); err != nil {
-			return err
+	if integration.CanUpdate || sandboxIntegration.CanUpdate {
+		prerequisiteCtx, prerequisiteCancel := context.WithTimeout(context.Background(), 20*time.Second)
+		prerequisiteErr := pi.CheckReleasePrerequisites(prerequisiteCtx, fresh)
+		prerequisiteCancel()
+		if prerequisiteErr != nil {
+			return fmt.Errorf("Radar installed successfully, but Pi package updates need attention: %w; repair the prerequisites and rerun radar update", prerequisiteErr)
 		}
-		fmt.Fprintf(out, "Pi package %s verified. Existing Pi sessions still need /reload or restart at a safe point.\n", fresh.PiVersion)
-	} else {
-		fmt.Fprintln(out, "Pi package left unchanged. Any version mismatch needs a separate, targeted Pi update; running sessions were not reloaded.")
+	}
+	return updatePiPackages(out, cwd, fresh.PiVersion)
+}
+
+// Called even when the CLI is current, so independently released pi-sbx updates
+// and failed package operations can be retried without waiting for a Radar release.
+func updatePiPackages(out io.Writer, cwd, radarVersion string) error {
+	var failures []error
+	for _, name := range []string{update.Package, pi.SandboxPackage} {
+		state := pi.InspectRelease(cwd, name)
+		if !state.CanUpdate {
+			fmt.Fprintf(out, "%s: %s\n", name, state.Reason)
+			continue
+		}
+		fmt.Fprintf(out, "Updating %s in %s…\n", name, state.Profile)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		after, err := pi.UpdateRelease(ctx, state, cwd)
+		cancel()
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", name, err))
+			continue
+		}
+		fmt.Fprintf(out, "%s: %s → %s (unpinned).\n", name, state.Installed, after.Installed)
+		if name == update.Package && update.Stable(radarVersion) && after.Installed != radarVersion {
+			failures = append(failures, fmt.Errorf("pi-radar %s does not match Radar %s; the unpinned npm source may not yet match the CLI release, retry radar update once it does", after.Installed, radarVersion))
+		}
+	}
+	fmt.Fprintln(out, "Running Pi sessions were not reloaded. pi-radar shows a red /reload status when a newer version is installed; reload at a safe point.")
+	if len(failures) > 0 {
+		return fmt.Errorf("Radar CLI is current, but Pi package updates need attention: %w", errors.Join(failures...))
 	}
 	return nil
 }
@@ -319,8 +339,8 @@ func registerUpdateNotifier(app string) error {
 	return exec.CommandContext(ctx, "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", "-f", app).Run()
 }
 func printPiReleaseState(out io.Writer, s pi.ReleaseState, target string) {
-	fmt.Fprintf(out, "Pi profile: %s\nPi package installed: %s; target: %s\n%s\n", s.Profile, s.Installed, target, s.Reason)
-	if len(s.Loaded) == 0 {
+	fmt.Fprintf(out, "Pi profile: %s\n%s installed: %s; target: %s\n%s\n", s.Profile, s.Package, s.Installed, target, s.Reason)
+	if s.Package == update.Package && len(s.Loaded) == 0 {
 		fmt.Fprintln(out, "Loaded Pi versions: not reported (older/non-Radar sessions may be running).")
 	}
 	for _, r := range s.Loaded {
@@ -330,7 +350,7 @@ func printPiReleaseState(out io.Writer, s pi.ReleaseState, target string) {
 		}
 		fmt.Fprintf(out, "Pi PID %d at %s loaded %s: %s.\n", r.PID, r.CWD, r.Version, status)
 	}
-	if s.CanUpdate && s.Installed != target && update.Stable(target) {
-		fmt.Fprintf(out, "Exact-version repair (changes the pin; run only with your consent): PI_CODING_AGENT_DIR=%q pi install npm:%s@%s\n", s.Profile, update.Package, target)
+	if s.CanUpdate {
+		fmt.Fprintf(out, "Targeted update: PI_CODING_AGENT_DIR=%q pi update %s --no-approve\n", s.Profile, s.Source)
 	}
 }

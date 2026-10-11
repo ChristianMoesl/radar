@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"radar/internal/update"
 )
 
 func releaseFixture(t *testing.T, packages string) (string, string) {
@@ -17,107 +19,206 @@ func releaseFixture(t *testing.T, packages string) (string, string) {
 	cwd := filepath.Join(home, "workspace")
 	t.Setenv("HOME", home)
 	t.Setenv("PI_CODING_AGENT_DIR", profile)
-	for _, p := range []string{profile, cwd, filepath.Join(profile, "npm/node_modules/@christianmoesl/pi-radar")} {
+	for _, p := range []string{profile, cwd} {
 		if err := os.MkdirAll(p, 0700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	os.WriteFile(filepath.Join(profile, "settings.json"), []byte(`{"packages":`+packages+`}`), 0600)
-	os.WriteFile(filepath.Join(profile, "npm/node_modules/@christianmoesl/pi-radar/package.json"), []byte(`{"name":"@christianmoesl/pi-radar","version":"0.1.0"}`), 0600)
+	writeFixture(t, filepath.Join(profile, "settings.json"), `{"packages":`+packages+`}`)
+	for _, name := range []string{update.Package, SandboxPackage} {
+		writeFixture(t, filepath.Join(profile, "npm/node_modules", name, "package.json"), `{"name":"`+name+`","version":"0.1.0"}`)
+	}
 	return profile, cwd
 }
+
+func writeFixture(t *testing.T, path, data string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReleaseSourceClassification(t *testing.T) {
-	for _, test := range []struct {
-		packages string
-		want     bool
-	}{
-		{`[]`, false}, {`["npm:@christianmoesl/pi-radar"]`, true}, {`["npm:@christianmoesl/pi-radar@0.1.0"]`, false},
-		{`[{"source":"npm:@christianmoesl/pi-radar","extensions":[]}]`, false}, {`[{"source":"npm:@christianmoesl/pi-radar","autoload":false}]`, false},
-		{`["git:github.com/ChristianMoesl/radar"]`, false}, {`["npm:unrelated"]`, false},
-	} {
-		t.Run(test.packages, func(t *testing.T) {
-			_, cwd := releaseFixture(t, test.packages)
-			s := InspectRelease(cwd)
-			if s.CanUpdate != test.want {
-				t.Fatalf("%+v", s)
+	for _, name := range []string{update.Package, SandboxPackage} {
+		for _, tc := range []struct {
+			packages string
+			want     bool
+		}{
+			{`[]`, false}, {`["npm:PACKAGE"]`, true}, {`[{"source":"npm:PACKAGE"}]`, true},
+			{`["npm:PACKAGE@0.1.0"]`, false}, {`["npm:PACKAGE@latest"]`, false},
+			{`[{"source":"npm:PACKAGE","extensions":[]}]`, false}, {`[{"source":"npm:PACKAGE","autoload":false}]`, false},
+			{`["git:github.com/ChristianMoesl/radar"]`, false}, {`["npm:unrelated"]`, false},
+			{`["npm:PACKAGE","npm:PACKAGE"]`, false},
+		} {
+			t.Run(name+tc.packages, func(t *testing.T) {
+				_, cwd := releaseFixture(t, strings.ReplaceAll(tc.packages, "PACKAGE", name))
+				s := InspectRelease(cwd, name)
+				if s.CanUpdate != tc.want {
+					t.Fatalf("%+v", s)
+				}
+			})
+		}
+	}
+}
+
+func TestProjectOverrideAndDevelopmentSymlinkAreNotUpdated(t *testing.T) {
+	for _, name := range []string{update.Package, SandboxPackage} {
+		t.Run(name, func(t *testing.T) {
+			profile, cwd := releaseFixture(t, `["npm:`+name+`"]`)
+			writeFixture(t, filepath.Join(cwd, ".pi/settings.json"), `{"packages":["npm:`+name+`"]}`)
+			if s := InspectRelease(cwd, name); s.CanUpdate || !strings.Contains(s.Reason, "Project-local") {
+				t.Fatal(s)
+			}
+			os.Remove(filepath.Join(cwd, ".pi/settings.json"))
+			packagePath := filepath.Join(profile, "npm/node_modules", name)
+			local := filepath.Join(t.TempDir(), "development")
+			if err := os.Rename(packagePath, local); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(local, packagePath); err != nil {
+				t.Fatal(err)
+			}
+			if s := InspectRelease(cwd, name); s.CanUpdate || !strings.Contains(s.Reason, "development") {
+				t.Fatal(s)
 			}
 		})
 	}
 }
-func TestProjectOverrideAndDevelopmentSymlinkAreNotUpdated(t *testing.T) {
-	profile, cwd := releaseFixture(t, `["npm:@christianmoesl/pi-radar"]`)
-	os.MkdirAll(filepath.Join(cwd, ".pi"), 0700)
-	os.WriteFile(filepath.Join(cwd, ".pi/settings.json"), []byte(`{"packages":["npm:@christianmoesl/pi-radar"]}`), 0600)
-	if s := InspectRelease(cwd); s.CanUpdate || !strings.Contains(s.Reason, "Project-local") {
-		t.Fatal(s)
-	}
-	os.Remove(filepath.Join(cwd, ".pi/settings.json"))
-	packagePath := filepath.Join(profile, "npm/node_modules/@christianmoesl/pi-radar")
-	local := filepath.Join(t.TempDir(), "development")
-	os.Rename(packagePath, local)
-	os.Symlink(local, packagePath)
-	if s := InspectRelease(cwd); s.CanUpdate || !strings.Contains(s.Reason, "development") {
-		t.Fatal(s)
+
+func TestLocalDisabledMissingAndMalformedPackagesAreNotUpdated(t *testing.T) {
+	for _, name := range []string{update.Package, SandboxPackage} {
+		for _, kind := range []string{"local", "disabled", "missing", "malformed", "wrong-name", "project-parent", "bad-settings"} {
+			t.Run(name+kind, func(t *testing.T) {
+				profile, cwd := releaseFixture(t, `["npm:`+name+`"]`)
+				manifest := filepath.Join(profile, "npm/node_modules", name, "package.json")
+				switch kind {
+				case "local":
+					writeFixture(t, filepath.Join(profile, "extensions", strings.TrimPrefix(name, "@christianmoesl/")+".ts"), "// local")
+				case "disabled":
+					writeFixture(t, filepath.Join(profile, "settings.json"), `{"packages":["npm:`+name+`"],"extensions":["-npm:`+name+`"]}`)
+				case "missing":
+					os.RemoveAll(filepath.Dir(manifest))
+				case "malformed":
+					writeFixture(t, manifest, "{")
+				case "wrong-name":
+					writeFixture(t, manifest, `{"name":"other","version":"1.2.3"}`)
+				case "project-parent":
+					writeFixture(t, filepath.Join(filepath.Dir(cwd), ".pi/settings.json"), `{"packages":["npm:`+name+`"]}`)
+				case "bad-settings":
+					writeFixture(t, filepath.Join(profile, "settings.json"), "{")
+				}
+				if s := InspectRelease(cwd, name); s.CanUpdate {
+					t.Fatal(s)
+				}
+			})
+		}
 	}
 }
+
 func TestLoadedVersionIsSeparateAndStaleReportsAreIgnored(t *testing.T) {
-	profile, cwd := releaseFixture(t, `["npm:@christianmoesl/pi-radar"]`)
+	profile, cwd := releaseFixture(t, `["npm:@christianmoesl/pi-radar","npm:@christianmoesl/pi-sbx"]`)
 	dir := filepath.Join(profile, "radar/loaded")
-	os.MkdirAll(dir, 0700)
 	r := LoadedRelease{PID: os.Getpid(), Version: "0.0.9", Profile: profile, CWD: cwd, Updated: time.Now().UnixMilli()}
 	data, _ := json.Marshal(r)
-	os.WriteFile(filepath.Join(dir, "live.json"), data, 0600)
+	writeFixture(t, filepath.Join(dir, "live.json"), string(data))
 	r.Updated -= 600000
 	data, _ = json.Marshal(r)
-	os.WriteFile(filepath.Join(dir, "stale.json"), data, 0600)
-	s := InspectRelease(cwd)
+	writeFixture(t, filepath.Join(dir, "stale.json"), string(data))
+	s := InspectRelease(cwd, update.Package)
 	if s.Installed != "0.1.0" || len(s.Loaded) != 1 || s.Loaded[0].Version != "0.0.9" {
 		t.Fatal(s)
 	}
-}
-func TestOnlyMatchingRadarManagedPinIsEligible(t *testing.T) {
-	profile, cwd := releaseFixture(t, `["npm:@christianmoesl/pi-radar@0.1.0"]`)
-	dir := filepath.Join(profile, "radar")
-	os.MkdirAll(dir, 0700)
-	os.WriteFile(filepath.Join(dir, "release-pin.json"), []byte(`{"source":"npm:@christianmoesl/pi-radar@0.1.0"}`), 0600)
-	if s := InspectRelease(cwd); !s.CanUpdate {
+	if s := InspectRelease(cwd, SandboxPackage); !s.CanUpdate || len(s.Loaded) != 0 {
 		t.Fatal(s)
 	}
-	os.WriteFile(filepath.Join(profile, "settings.json"), []byte(`{"packages":["npm:@christianmoesl/pi-radar@0.2.0"]}`), 0600)
-	if s := InspectRelease(cwd); s.CanUpdate {
-		t.Fatal("silently adopted a user-changed pin")
+}
+
+func TestAllPinsAreLeftAloneRegardlessOfOldMarker(t *testing.T) {
+	profile, cwd := releaseFixture(t, `["npm:@christianmoesl/pi-radar@0.1.0"]`)
+	writeFixture(t, filepath.Join(profile, "radar/release-pin.json"), `{"source":"npm:@christianmoesl/pi-radar@0.1.0"}`)
+	if s := InspectRelease(cwd, update.Package); s.CanUpdate {
+		t.Fatal(s)
 	}
 }
-func TestPiUpdateTargetsOnlyExactHostPackageAndReportsPartialFailure(t *testing.T) {
-	profile, cwd := releaseFixture(t, `["npm:@christianmoesl/pi-radar","npm:other"]`)
+
+func fakePi(t *testing.T, script string) {
+	t.Helper()
 	bin := t.TempDir()
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-	script := `#!/bin/sh
-[ "$1" = install ] && [ "$2" = npm:@christianmoesl/pi-radar@0.1.1 ] || exit 9
+	if err := os.WriteFile(filepath.Join(bin, "pi"), []byte("#!/bin/sh\n"+script), 0700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPiUpdateTargetsOnlyUnpinnedHostPackage(t *testing.T) {
+	for _, name := range []string{update.Package, SandboxPackage} {
+		t.Run(name, func(t *testing.T) {
+			profile, cwd := releaseFixture(t, `["npm:`+name+`","npm:other"]`)
+			settings, _ := os.ReadFile(filepath.Join(profile, "settings.json"))
+			fakePi(t, `
+[ "$1" = update ] && [ "$2" = npm:`+name+` ] && [ "$3" = --no-approve ] && [ "$#" = 3 ] || exit 9
+[ "$(pwd -P)" = "$(cd "$HOME" && pwd -P)" ] || exit 10
 printf '%s\n' "$@" > "$PI_CODING_AGENT_DIR/command"
-cat > "$PI_CODING_AGENT_DIR/settings.json" <<'JSON'
-{"packages":["npm:@christianmoesl/pi-radar@0.1.1","npm:other"]}
+cat > "$PI_CODING_AGENT_DIR/npm/node_modules/`+name+`/package.json" <<'JSON'
+{"name":"`+name+`","version":"0.1.1"}
 JSON
-cat > "$PI_CODING_AGENT_DIR/npm/node_modules/@christianmoesl/pi-radar/package.json" <<'JSON'
-{"name":"@christianmoesl/pi-radar","version":"0.1.1"}
-JSON
-`
-	os.WriteFile(filepath.Join(bin, "pi"), []byte(script), 0700)
-	before := InspectRelease(cwd)
-	if err := InstallRelease(context.Background(), before, cwd, "0.1.1"); err != nil {
-		t.Fatal(err)
+`)
+			state, err := UpdateRelease(context.Background(), InspectRelease(cwd, name), cwd)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !state.CanUpdate || state.Installed != "0.1.1" || state.Source != "npm:"+name {
+				t.Fatal(state)
+			}
+			actual, _ := os.ReadFile(filepath.Join(profile, "settings.json"))
+			if string(actual) != string(settings) {
+				t.Fatal("changed declarations")
+			}
+			if _, err := os.Stat(filepath.Join(profile, "radar/release-pin.json")); !os.IsNotExist(err) {
+				t.Fatal("wrote a pin marker")
+			}
+		})
 	}
-	state := InspectRelease(cwd)
-	if !state.CanUpdate || state.Installed != "0.1.1" || state.Source != "npm:@christianmoesl/pi-radar@0.1.1" {
-		t.Fatal(state)
-	}
-	calls, _ := os.ReadFile(filepath.Join(profile, "command"))
-	if string(calls) != "install\nnpm:@christianmoesl/pi-radar@0.1.1\n" {
-		t.Fatal(string(calls))
-	}
-	os.WriteFile(filepath.Join(bin, "pi"), []byte("#!/bin/sh\nexit 1\n"), 0700)
-	err := InstallRelease(context.Background(), state, cwd, "0.1.2")
-	if err == nil || !strings.Contains(err.Error(), "Radar updated, but Pi install failed") {
-		t.Fatal(err)
+}
+
+func TestPiUpdateDetectsChangesAndFailures(t *testing.T) {
+	for _, kind := range []string{"failure", "cancel", "changed-before", "pinned-after", "downgrade", "wrong-name", "unchanged"} {
+		t.Run(kind, func(t *testing.T) {
+			profile, cwd := releaseFixture(t, `["npm:@christianmoesl/pi-radar"]`)
+			before := InspectRelease(cwd, update.Package)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			script := `echo called > "$PI_CODING_AGENT_DIR/command"` + "\n"
+			switch kind {
+			case "failure":
+				script += "exit 1\n"
+			case "cancel":
+				cancel()
+			case "changed-before":
+				writeFixture(t, filepath.Join(profile, "settings.json"), `{"packages":["npm:@christianmoesl/pi-radar@0.1.0"]}`)
+			case "pinned-after":
+				script += `echo '{"packages":["npm:@christianmoesl/pi-radar@0.1.1"]}' > "$PI_CODING_AGENT_DIR/settings.json"`
+			case "downgrade":
+				script += `echo '{"name":"@christianmoesl/pi-radar","version":"0.0.1"}' > "$PI_CODING_AGENT_DIR/npm/node_modules/@christianmoesl/pi-radar/package.json"`
+			case "wrong-name":
+				script += `echo '{"name":"other","version":"0.1.1"}' > "$PI_CODING_AGENT_DIR/npm/node_modules/@christianmoesl/pi-radar/package.json"`
+			}
+			fakePi(t, script)
+			_, err := UpdateRelease(ctx, before, cwd)
+			if (err == nil) != (kind == "unchanged") {
+				t.Fatalf("%s: %v", kind, err)
+			}
+			if kind == "changed-before" || kind == "cancel" {
+				if _, err := os.Stat(filepath.Join(profile, "command")); !os.IsNotExist(err) {
+					t.Fatal("ran pi")
+				}
+			}
+			if kind == "failure" && !strings.Contains(err.Error(), "may have partially changed") {
+				t.Fatal(err)
+			}
+		})
 	}
 }

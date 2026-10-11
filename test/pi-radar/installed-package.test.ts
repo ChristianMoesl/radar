@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -80,6 +80,7 @@ export default function(pi) {
   const { stdout: listing } = await exec("tar", ["-tzf", tarball]);
   assert.deepEqual(listing.trim().split("\n").sort(), [
     "package/LICENSE", "package/README.md", "package/extensions/pi-radar/index.ts",
+    "package/extensions/pi-radar/reload-notice.ts",
     "package/extensions/pi-radar/runtime-version.ts",
     "package/extensions/pi-radar/version.ts",
     "package/extensions/pi-radar/workspace-notice.ts", "package/package.json",
@@ -174,8 +175,18 @@ export default function(pi) {
   const first = launch(workspace);
   const original = await first.snapshot();
   assertActive(original);
+  const loadedVersions = async () => Promise.all((await readdir(join(agent, "radar/loaded")))
+    .filter(file => file.endsWith(".json"))
+    .map(async file => JSON.parse(await readFile(join(agent, "radar/loaded", file), "utf8")).version));
+  assert.deepEqual(await loadedVersions(), [manifest.version]);
+  // Replacing the on-disk package must not change the resident version. A
+  // user-initiated reload must actually refresh the imported version module.
+  await writeFile(join(distribution, "package.json"), JSON.stringify({ ...manifest, version: "999.0.0" }));
+  await writeFile(join(distribution, "extensions/pi-radar/version.ts"), 'export const radarPackageVersion = "999.0.0";\n');
+  assert.deepEqual(await loadedVersions(), [manifest.version]);
   await first.request("prompt", { message: "/radar-reload-workspace-resources" });
   assertActive(await first.snapshot());
+  assert.deepEqual(await loadedVersions(), ["999.0.0"]);
   await first.request("new_session");
   const fresh = await first.snapshot();
   assertActive(fresh);

@@ -1,5 +1,6 @@
 import { showWorkspaceAttached } from "./workspace-notice.ts";
 import { reportLoadedVersion } from "./runtime-version.ts";
+import { showReloadNotice } from "./reload-notice.ts";
 import { homedir, tmpdir } from "node:os";
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -376,6 +377,7 @@ export default function radarExtension(pi: ExtensionAPI) {
     }
     activated = true;
     await reportLoadedVersion(pi, ctx);
+    await showReloadNotice(pi, ctx);
     await activateRadar(pi, ctx);
     if (event.reason !== "reload") await showWorkspaceAttached(pi, ctx);
   });

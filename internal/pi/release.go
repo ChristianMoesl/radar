@@ -15,9 +15,14 @@ import (
 	"radar/internal/update"
 )
 
-const radarSource = "npm:" + update.Package
+const SandboxPackage = "@christianmoesl/pi-sbx"
+
+func supportedPackage(name string) bool {
+	return name == update.Package || name == SandboxPackage
+}
 
 type ReleaseState struct {
+	Package   string
 	Profile   string
 	Source    string
 	Installed string
@@ -60,7 +65,7 @@ func readSettings(path string) (map[string]json.RawMessage, error) {
 	err = json.Unmarshal(data, &s)
 	return s, err
 }
-func radarDeclaration(s map[string]json.RawMessage, base string) (source string, filtered bool, err error) {
+func packageDeclaration(s map[string]json.RawMessage, base, name string) (source string, filtered bool, err error) {
 	var packages []json.RawMessage
 	if data, ok := s["packages"]; ok {
 		if err := json.Unmarshal(data, &packages); err != nil {
@@ -82,7 +87,7 @@ func radarDeclaration(s map[string]json.RawMessage, base string) (source string,
 			// Do not reinterpret resource filters or deliberate autoload settings.
 			isFiltered = len(object) > 1
 		}
-		if isRadarSource(candidate, base) {
+		if isPackageSource(candidate, base, name) {
 			source = candidate
 			filtered = filtered || isFiltered
 			matches++
@@ -95,7 +100,7 @@ func radarDeclaration(s map[string]json.RawMessage, base string) (source string,
 		}
 	}
 	for _, e := range extensions {
-		if isRadarSource(strings.TrimLeft(e, "!+-"), base) {
+		if isPackageSource(strings.TrimLeft(e, "!+-"), base, name) {
 			source = e
 			filtered = true
 			matches++
@@ -106,12 +111,18 @@ func radarDeclaration(s map[string]json.RawMessage, base string) (source string,
 	}
 	return source, filtered, nil
 }
-func isRadarSource(source, base string) bool {
-	if source == radarSource || strings.HasPrefix(source, radarSource+"@") {
+func isPackageSource(source, base, name string) bool {
+	npmSource := "npm:" + name
+	if source == npmSource || strings.HasPrefix(source, npmSource+"@") {
 		return true
 	}
 	lower := strings.ToLower(source)
-	if strings.Contains(lower, "github.com/christianmoesl/radar") || strings.Contains(lower, "github.com:christianmoesl/radar") || strings.Contains(lower, "/pi-radar/") || strings.HasPrefix(lower, "git:") && strings.Contains(lower, "/radar") || strings.HasSuffix(lower, "/radar.ts") || strings.HasSuffix(lower, "/pi-radar.ts") {
+	short := strings.TrimPrefix(name, "@christianmoesl/")
+	repo := short
+	if name == update.Package {
+		repo = "radar"
+	}
+	if strings.Contains(lower, "github.com/christianmoesl/"+repo) || strings.Contains(lower, "github.com:christianmoesl/"+repo) || strings.Contains(lower, "/"+short+"/") || strings.HasPrefix(lower, "git:") && strings.Contains(lower, "/"+repo) || strings.HasSuffix(lower, "/"+repo+".ts") || strings.HasSuffix(lower, "/"+short+".ts") {
 		return true
 	}
 	if strings.HasPrefix(source, "npm:") || strings.Contains(source, "://") || strings.HasPrefix(source, "git:") {
@@ -131,11 +142,15 @@ func isRadarSource(source, base string) bool {
 	var pkg struct {
 		Name string `json:"name"`
 	}
-	return json.Unmarshal(data, &pkg) == nil && pkg.Name == update.Package
+	return json.Unmarshal(data, &pkg) == nil && pkg.Name == name
 }
-func InspectRelease(cwd string) ReleaseState {
+func InspectRelease(cwd, name string) ReleaseState {
 	profile, err := ProfileDir()
-	s := ReleaseState{Profile: profile}
+	s := ReleaseState{Profile: profile, Package: name}
+	if !supportedPackage(name) {
+		s.Reason = "Not a Radar-related Pi package"
+		return s
+	}
 	if err != nil {
 		s.Reason = err.Error()
 		return s
@@ -145,14 +160,16 @@ func InspectRelease(cwd string) ReleaseState {
 		s.Reason = "Cannot read Pi settings: " + err.Error()
 		return s
 	}
-	s.Source, _, err = radarDeclaration(settings, profile)
+	var filtered bool
+	s.Source, filtered, err = packageDeclaration(settings, profile, name)
 	if err != nil {
 		s.Reason = "Cannot interpret Pi settings"
 		return s
 	}
-	_, filtered, _ := radarDeclaration(settings, profile)
-	s.Loaded = loadedReleases(profile)
-	if hasLocalRadarExtension(profile) {
+	if name == update.Package {
+		s.Loaded = loadedReleases(profile)
+	}
+	if hasLocalPackageExtension(profile, name) {
 		s.Reason = "Local Pi extension: left untouched"
 		return s
 	}
@@ -160,7 +177,7 @@ func InspectRelease(cwd string) ReleaseState {
 	// as well; never install from the selected workspace's working directory.
 	current, _ := filepath.Abs(cwd)
 	for {
-		if hasLocalRadarExtension(filepath.Join(current, ".pi")) {
+		if hasLocalPackageExtension(filepath.Join(current, ".pi"), name) {
 			s.Reason = "Project-local Pi extension: left untouched"
 			return s
 		}
@@ -169,7 +186,7 @@ func InspectRelease(cwd string) ReleaseState {
 			s.Reason = "Cannot read project Pi settings"
 			return s
 		}
-		source, _, err := radarDeclaration(project, filepath.Join(current, ".pi"))
+		source, _, err := packageDeclaration(project, filepath.Join(current, ".pi"), name)
 		if err != nil || source != "" {
 			s.Reason = "Project-local Pi integration: update it explicitly in that project"
 			return s
@@ -184,7 +201,7 @@ func InspectRelease(cwd string) ReleaseState {
 		s.Reason = "Pi integration not configured (optional; left untouched)"
 		return s
 	}
-	packagePath := filepath.Join(profile, "npm/node_modules", update.Package)
+	packagePath := filepath.Join(profile, "npm/node_modules", name)
 	resolved, err := filepath.EvalSymlinks(packagePath)
 	if err != nil {
 		s.Reason = "Pi package is not installed in the host profile; left untouched"
@@ -225,7 +242,7 @@ func InspectRelease(cwd string) ReleaseState {
 		Name    string `json:"name"`
 		Version string `json:"version"`
 	}
-	if json.Unmarshal(data, &pkg) != nil || pkg.Name != update.Package || !update.Stable(pkg.Version) {
+	if json.Unmarshal(data, &pkg) != nil || pkg.Name != name || !update.Stable(pkg.Version) {
 		s.Reason = "Unrecognized installed Pi package"
 		return s
 	}
@@ -234,18 +251,12 @@ func InspectRelease(cwd string) ReleaseState {
 		s.Reason = "Disabled/filtered/custom Pi declaration: left untouched"
 		return s
 	}
-	if s.Source != radarSource {
-		var marker struct {
-			Source string `json:"source"`
-		}
-		data, err := os.ReadFile(filepath.Join(profile, "radar/release-pin.json"))
-		if err != nil || json.Unmarshal(data, &marker) != nil || marker.Source != s.Source || !strings.HasPrefix(s.Source, radarSource+"@") {
-			s.Reason = "Pinned/Git/local Pi declaration: left untouched"
-			return s
-		}
+	if s.Source != "npm:"+name {
+		s.Reason = "Pinned/Git/local/custom Pi declaration: left untouched"
+		return s
 	}
 	s.CanUpdate = true
-	s.Reason = "Exact-version install requires an explicit Radar-managed pin; running sessions need /reload"
+	s.Reason = "Unpinned user package: updates automatically; declaration stays unpinned"
 	return s
 }
 func loadedReleases(profile string) []LoadedRelease {
@@ -286,59 +297,43 @@ func CheckReleasePrerequisites(ctx context.Context, m update.Manifest) error {
 	}
 	return nil
 }
-func InstallRelease(ctx context.Context, before ReleaseState, cwd, target string) error {
-	if !before.CanUpdate || !update.Stable(target) {
-		return errors.New("Pi source is not eligible for coordinated updates")
+
+// UpdateRelease delegates to Pi's targeted package updater: it follows the
+// configured unpinned source without pinning it or updating unrelated packages.
+func UpdateRelease(ctx context.Context, before ReleaseState, cwd string) (ReleaseState, error) {
+	if !before.CanUpdate || !supportedPackage(before.Package) {
+		return before, errors.New("Pi source is not eligible for coordinated updates")
 	}
-	now := InspectRelease(cwd)
+	now := InspectRelease(cwd, before.Package)
 	if !now.CanUpdate || now.Source != before.Source || now.Profile != before.Profile || now.Installed != before.Installed {
-		return errors.New("Pi installation changed; review it again")
+		return now, errors.New("Pi installation changed; inspect it before retrying radar update")
 	}
-	source := radarSource + "@" + target
-	cmd := exec.CommandContext(ctx, "pi", "install", source)
+	cmd := exec.CommandContext(ctx, "pi", "update", before.Source, "--no-approve")
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return err
+		return before, err
 	}
 	cmd.Dir = home
 	cmd.Env = append(os.Environ(), "PI_CODING_AGENT_DIR="+before.Profile)
-	cmd.Stdout, cmd.Stderr, cmd.Stdin = os.Stdout, os.Stderr, os.Stdin
+	// Package updates are non-interactive; never consume CLI approval input.
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Radar updated, but Pi install failed (it may have partially changed): %w; retry the displayed pi install command", err)
+		return before, fmt.Errorf("Pi package update failed (it may have partially changed): %w; retry PI_CODING_AGENT_DIR=%q pi update %s --no-approve", err, before.Profile, before.Source)
 	}
-	settings, err := readSettings(filepath.Join(before.Profile, "settings.json"))
-	if err != nil {
-		return err
+	after := InspectRelease(cwd, before.Package)
+	if !after.CanUpdate || after.Source != before.Source || after.Profile != before.Profile || update.Compare(after.Installed, before.Installed) < 0 {
+		return after, errors.New("Pi command finished but the unpinned package could not be verified; repair Pi separately")
 	}
-	actual, filtered, err := radarDeclaration(settings, before.Profile)
-	data, readErr := os.ReadFile(filepath.Join(before.Profile, "npm/node_modules", update.Package, "package.json"))
-	var pkg struct {
-		Version string `json:"version"`
-	}
-	if err != nil || filtered || actual != source || readErr != nil || json.Unmarshal(data, &pkg) != nil || pkg.Version != target {
-		return errors.New("Pi command finished but the exact package/pin could not be verified; repair Pi separately")
-	}
-	dir := filepath.Join(before.Profile, "radar")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-	marker, _ := json.Marshal(map[string]string{"source": source})
-	file, err := os.CreateTemp(dir, ".release-pin-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	_, writeErr := file.Write(marker)
-	syncErr := file.Sync()
-	closeErr := file.Close()
-	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), filepath.Join(dir, "release-pin.json"))
+	return after, nil
 }
 
-func hasLocalRadarExtension(base string) bool {
-	for _, name := range []string{"radar.ts", "radar.js", "pi-radar.ts", "pi-radar.js", "radar", "pi-radar"} {
+func hasLocalPackageExtension(base, name string) bool {
+	short := strings.TrimPrefix(name, "@christianmoesl/")
+	names := []string{short + ".ts", short + ".js", short}
+	if name == update.Package {
+		names = append(names, "radar.ts", "radar.js", "radar")
+	}
+	for _, name := range names {
 		if _, err := os.Lstat(filepath.Join(base, "extensions", name)); err == nil {
 			return true
 		}

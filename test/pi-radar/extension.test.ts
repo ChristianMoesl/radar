@@ -53,6 +53,8 @@ async function harness(t: TestContext, registered: unknown = true) {
     isProjectTrusted: () => true,
     sessionManager: { getEntries: () => entries },
     ui: {
+      setStatus: (_key: string, _value: string | undefined) => {},
+      theme: { fg: (_color: string, text: string) => text },
       notify: (message: string) => notices.push(message),
       confirm: async (title: string, message: string) => {
         confirmations.push(`${title}\n${message}`);
