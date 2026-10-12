@@ -182,8 +182,8 @@ for (const scenario of ['neither on PATH', 'both on PATH', 'home bin on PATH', '
   test(`directory selection: ${scenario}`, t => {
     const f = fixture(t), local = join(f.home, '.local/bin'), homeBin = join(f.home, 'bin');
     let expected = local, path = [], installDir;
-    if (['both on PATH', 'home bin on PATH', 'trailing slash'].includes(scenario)) mkdirSync(homeBin);
-    if (scenario === 'both on PATH') { mkdirSync(local, { recursive: true }); path = [homeBin, local]; }
+    if (['both on PATH', 'home bin on PATH', 'trailing slash'].includes(scenario)) mkdirSync(homeBin, { mode: 0o755 });
+    if (scenario === 'both on PATH') { mkdirSync(local, { recursive: true, mode: 0o755 }); path = [homeBin, local]; }
     if (scenario === 'home bin on PATH' || scenario === 'home bin missing but on PATH') { path = [homeBin]; expected = homeBin; }
     if (scenario === 'local bin missing but on PATH') path = [local];
     if (scenario === 'trailing slash') { path = [homeBin + '/']; expected = homeBin; }
@@ -276,7 +276,7 @@ for (const scenario of ['read only', 'not searchable', 'empty override', 'colon 
   test(`rejects unsafe destination: ${scenario}`, t => {
     const f = fixture(t), directory = join(f.home, 'destination');
     let installDir = directory;
-    mkdirSync(directory);
+    mkdirSync(directory, { mode: 0o755 });
     if (scenario === 'read only') chmodSync(directory, 0o555);
     if (scenario === 'not searchable') chmodSync(directory, 0o600);
     if (scenario === 'empty override') installDir = '';
@@ -286,10 +286,10 @@ for (const scenario of ['read only', 'not searchable', 'empty override', 'colon 
     if (scenario === 'shared directory') chmodSync(directory, 0o777);
     if (scenario === 'unrelated executable') f.put(join(directory, 'radar'), 'preserve unrelated executable', 0o755);
     if (scenario === 'symlink executable') { f.put(join(f.home, 'external'), 'preserve external'); symlinkSync(join(f.home, 'external'), join(directory, 'radar')); }
-    if (scenario === 'directory executable') mkdirSync(join(directory, 'radar'));
+    if (scenario === 'directory executable') mkdirSync(join(directory, 'radar'), { mode: 0o755 });
     if (scenario === 'symlink receipt') { f.put(join(f.home, 'external'), '{}'); symlinkSync(join(f.home, 'external'), join(directory, '.radar-install.json')); }
     if (scenario === 'invalid receipt') f.put(join(directory, '.radar-install.json'), '{}');
-    if (scenario === 'existing lock') mkdirSync(join(directory, '.radar-install.lock'));
+    if (scenario === 'existing lock') mkdirSync(join(directory, '.radar-install.lock'), { mode: 0o700 });
     const result = f.run({ installDir });
     assert.notEqual(result.status, 0, result.output);
     assert.equal(existsSync(join(f.home, 'requests')), false, 'fail before any download');

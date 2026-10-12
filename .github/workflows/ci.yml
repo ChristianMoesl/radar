@@ -130,7 +130,8 @@ jobs:
         run: |
           useradd --create-home --shell /bin/bash radar-test
           node_binary="$(command -v node)"
-          su -s /bin/bash radar-test -c "\"$node_binary\" --test scripts/linux-install.test.mjs"
+          # Exercise a permissive user umask without relying on distro defaults.
+          su -s /bin/bash radar-test -c "umask 0002; \"$node_binary\" --test scripts/linux-install.test.mjs"
 
   linux-homebrew:
     name: Linux Homebrew install (${{ matrix.arch }})
