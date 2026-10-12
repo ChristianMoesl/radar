@@ -86,56 +86,91 @@ func TestPrerequisiteInstallerAcceptsLinuxFdfind(t *testing.T) {
 	}
 }
 
-func TestPrerequisiteInstallerLinuxAPT(t *testing.T) {
-	for _, mode := range []string{"approve default", "decline", "distribution Node too old"} {
-		t.Run(mode, func(t *testing.T) {
-			bin, home := readyTools(t), t.TempDir()
-			tool := "gh"
-			ready := "#!/bin/sh\necho gh\n"
-			if mode == "distribution Node too old" {
-				tool, ready = "node", "#!/bin/sh\necho v22.0.0\n"
-			}
-			for path, content := range map[string]string{
-				filepath.Join(home, "ready"): ready,
-				filepath.Join(bin, tool):     "#!/bin/sh\nexit 1\n",
-				filepath.Join(bin, "id"):     "#!/bin/sh\necho 501\n",
-				filepath.Join(bin, "sudo"):   "#!/bin/sh\nexec \"$@\"\n",
-				filepath.Join(bin, "apt-get"): `#!/bin/sh
+func TestPrerequisiteInstallerLinuxPackageManagers(t *testing.T) {
+	for _, manager := range []string{"apt-get", "dnf", "pacman"} {
+		t.Run(manager, func(t *testing.T) {
+			for _, mode := range []string{"approve default", "decline", "distribution Node too old"} {
+				t.Run(mode, func(t *testing.T) {
+					bin, home := readyTools(t), t.TempDir()
+					tool := "gh"
+					ready := "#!/bin/sh\necho gh\n"
+					if mode == "distribution Node too old" {
+						tool, ready = "node", "#!/bin/sh\necho v22.0.0\n"
+					}
+					for path, content := range map[string]string{
+						filepath.Join(home, "ready"): ready,
+						filepath.Join(bin, tool):     "#!/bin/sh\nexit 1\n",
+						filepath.Join(bin, "id"):     "#!/bin/sh\necho 501\n",
+						filepath.Join(bin, "sudo"):   "#!/bin/sh\nexec \"$@\"\n",
+						filepath.Join(bin, manager): `#!/bin/sh
 printf '%s\n' "$*" >> "$HOME/calls"
-if [ "$1" = install ]; then /bin/cp "$HOME/ready" "$TOOLS/$TOOL"; fi
+/bin/cp "$HOME/ready" "$TOOLS/$TOOL"
 `,
-			} {
-				if err := os.WriteFile(path, []byte(content), 0755); err != nil {
-					t.Fatal(err)
-				}
-			}
-			script := `set -euo pipefail
+					} {
+						if err := os.WriteFile(path, []byte(content), 0755); err != nil {
+							t.Fatal(err)
+						}
+					}
+					script := `set -euo pipefail
 source ./install-prerequisites.sh
-command() { if [[ "$*" = '-v brew' ]]; then return 1; else builtin command "$@"; fi; }
+command() { if [[ $1 = -v && ( $2 = brew || $2 = apt-get || $2 = dnf || $2 = pacman ) && $2 != $MANAGER ]]; then return 1; else builtin command "$@"; fi; }
 uname() { echo Linux; }
 radar_install_prerequisites`
-			cmd := exec.Command("bash", "-c", script)
-			cmd.Env = append(filteredEnvironment("BASH_ENV", "ENV", "HOME", "PATH"), "HOME="+home, "PATH="+bin+":"+os.Getenv("PATH"), "TOOLS="+bin, "TOOL="+tool)
-			answer := "\n"
-			if mode == "decline" {
-				answer = "n\n"
-			}
-			output, err := runBootstrapPTY(t, cmd, answer)
-			if (err == nil) != (mode == "approve default") {
-				t.Fatalf("%v: %s", err, output)
-			}
-			calls, _ := os.ReadFile(filepath.Join(home, "calls"))
-			want := "install -y gh\n"
-			if mode == "decline" {
-				want = ""
-			}
-			if mode == "distribution Node too old" {
-				want = "install -y nodejs npm\n"
-			}
-			if string(calls) != want {
-				t.Fatalf("APT calls = %q, want %q", calls, want)
+					cmd := exec.Command("bash", "-c", script)
+					cmd.Env = append(filteredEnvironment("BASH_ENV", "ENV", "HOME", "PATH"), "HOME="+home, "PATH="+bin+":"+os.Getenv("PATH"), "TOOLS="+bin, "TOOL="+tool, "MANAGER="+manager)
+					answer := "\n"
+					if mode == "decline" {
+						answer = "n\n"
+					}
+					output, err := runBootstrapPTY(t, cmd, answer)
+					if (err == nil) != (mode == "approve default") {
+						t.Fatalf("%v: %s", err, output)
+					}
+					calls, _ := os.ReadFile(filepath.Join(home, "calls"))
+					want := "install -y gh\n"
+					if mode == "decline" {
+						want = ""
+					}
+					if mode == "distribution Node too old" {
+						want = "install -y nodejs npm\n"
+					}
+					if manager == "pacman" {
+						want = strings.Replace(want, "install -y", "-S --needed --noconfirm", 1)
+					}
+					if string(calls) != want {
+						t.Fatalf("package-manager calls = %q, want %q", calls, want)
+					}
+				})
 			}
 		})
+	}
+}
+
+func TestPrerequisiteInstallerPiUsesUserDirectory(t *testing.T) {
+	bin, home := readyTools(t), t.TempDir()
+	for name, script := range map[string]string{
+		"pi":    "exit 1",
+		"uname": "echo Linux",
+		"sudo":  "exit 99",
+		"npm": `if [ "$1" = --version ]; then echo 11.0; exit; fi
+printf '%s\n' "$*" > "$HOME/calls"
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\necho 0.85.1\n' > "$HOME/.local/bin/pi"
+chmod +x "$HOME/.local/bin/pi"`,
+	} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+script+"\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("bash", "-c", "set -euo pipefail; source ./install-prerequisites.sh; radar_install_prerequisites")
+	cmd.Env = append(filteredEnvironment("BASH_ENV", "ENV", "HOME", "PATH"), "HOME="+home, "PATH="+bin+":"+os.Getenv("PATH"))
+	output, err := runBootstrapPTY(t, cmd, "\n")
+	if err != nil {
+		t.Fatalf("%v: %s", err, output)
+	}
+	calls, _ := os.ReadFile(filepath.Join(home, "calls"))
+	if string(calls) != "install --global --prefix "+filepath.Join(home, ".local")+" --ignore-scripts @earendil-works/pi-coding-agent\n" {
+		t.Fatalf("Pi was not installed without root into its user directory: %s", calls)
 	}
 }
 

@@ -88,6 +88,9 @@ globalThis.fetch = async (address) => {
   shell('node', 'exec "$FIXTURE_NODE" --import "$HOME/fetch.mjs" "$@"');
   shell('uname', `if [ "$1" = -s ]; then echo ${platform === 'darwin' ? 'Darwin' : 'Linux'}; else echo ${arch === 'amd64' ? 'x86_64' : 'aarch64'}; fi`);
   for (const manager of ['sudo', 'brew', 'cargo', 'npm', 'apt-get', 'dnf', 'pacman']) shell(manager, 'echo "unexpected package manager" >> "$HOME/manager-calls"; exit 99');
+  shell('brew', 'if [ "$1" = --prefix ]; then printf "%s" "$HOME/brew"; else echo "unexpected package manager" >> "$HOME/manager-calls"; exit 99; fi');
+  for (const [tool, version] of Object.entries({ git: 'git 2.50', tmux: 'tmux 3.6', fd: 'fd 10.0', npm: '11.0', pi: '0.85.1', gh: 'gh 2.70' })) shell(tool, `echo '${version}'`);
+  const installer = readFileSync(join(root, 'scripts/install-prerequisites.sh'), 'utf8') + '\n' + readFileSync(join(root, 'scripts/install.sh'), 'utf8').replace(/^source .*\n/m, '');
   const routes = {};
   const releases = [];
   const publish = (version = 'v1.2.3') => {
@@ -100,7 +103,7 @@ globalThis.fetch = async (address) => {
       const files = [
         { name: 'bin/radar', data: binary, mode: mutation === 'non-executable binary' ? 0o644 : 0o755 },
         { name: 'README.md', data: 'fixture documentation' }, { name: 'LICENSE', data: 'fixture MIT notice' },
-        { name: 'install.sh', data: '#!/bin/bash\nradar_install_archive() {\n}\nradar_install_prerequisites() {\n}\n', mode: 0o755 },
+        { name: 'install.sh', data: installer, mode: 0o755 },
         { name: 'install-agent-instructions.sh', data: '#!/bin/sh\nexit 99\n', mode: 0o755 },
         { name: 'install-notifier.sh', data: '#!/bin/sh\nexit 99\n', mode: 0o755 },
         { name: 'share/radar/AGENTS.md', data: 'fixture instructions' },
@@ -237,8 +240,22 @@ for (const cpu of ['amd64', 'arm64']) {
 test('headless piped installation never consumes consent or launches Radar', t => {
   const f = fixture(t), result = f.run({ stdin: f.script });
   assert.equal(result.status, 0, result.output); installed(f);
-  assert.doesNotMatch(result.output, /interactive terminal|Starting Radar/);
+  assert.doesNotMatch(result.output, /Starting Radar/);
+  assert.match(result.output, /Run radar in a terminal/);
 });
+
+for (const tool of ['node', 'gh']) {
+  test(`headless installation refuses missing ${tool} without consuming piped approval`, t => {
+    const f = fixture(t);
+    f.shell(tool, 'exit 1');
+    const result = f.run({ stdin: f.script + '\ny\ny\n' });
+    assert.notEqual(result.status, 0, result.output);
+    assert.match(result.output, /interactive terminal/);
+    assert.equal(existsSync(join(f.home, 'manager-calls')), false);
+    assert.equal(existsSync(join(f.home, '.local/bin/radar')), false);
+    assert.equal(existsSync(join(f.home, '.local/bin/.radar-install.lock')), false);
+  });
+}
 
 test('Bash, Zsh and Fish instructions quote a custom directory safely', t => {
   const f = fixture(t), directory = join(f.home, "it's $(touch injected) \\ bin");

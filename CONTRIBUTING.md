@@ -42,10 +42,13 @@ rollback. If `groff` is available, tests also render both pages.
 `node --test scripts/linux-install.test.mjs` tests the rootless Linux bootstrap
 as an ordinary user with signed, local release fixtures and isolated HOME/PATH.
 It covers both release architectures, directory selection, Bash/Zsh/Fish hints,
-conflicts, failed verification, atomic activation and safe reruns without remote
-services or package managers. CI runs it on Debian, Ubuntu, Fedora and Arch;
+conflicts, failed verification, atomic activation, safe reruns and headless
+prerequisite refusals without remote services or real package managers. CI runs it
+on Debian, Ubuntu, Fedora and Arch;
 `make test` also includes it. Node.js 24+ is required. A shared-verifier regression
-case authenticates and extracts a macOS fixture.
+case authenticates and extracts a macOS fixture. Go PTY fixtures cover Linux and
+macOS installation offers, PATH consent and automatic setup launch; package-manager
+commands are stubbed, including apt-get, dnf and pacman.
 
 `go test ./scripts ./internal/app ./internal/config ./internal/collector ./internal/integration/...`
 exercises release and source installers, first daemon launch, optional-integration

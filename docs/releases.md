@@ -16,7 +16,7 @@ c0d9b82fb205070a4d26a1f18b42c4bef1c355292a3fa2d72c8211346a61c6e9
 ```
 
 Verify that fingerprint through a trusted channel before bootstrapping an
-installation. The one-command macOS bootstrap embeds the same trust roots in
+installation. The shared macOS/Linux bootstrap embeds the same trust roots in
 root `install.sh`; update both roots during rotation (tests enforce alignment).
 Publishing changes to main makes that script available at the README's installer
 URL; no immutable CLI/component assets need to be replaced. This documentation and a key accompanying an untrusted download

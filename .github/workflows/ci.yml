@@ -110,7 +110,8 @@ jobs:
     container: ${{ matrix.image }}
     steps:
       # Test setup may install tools as root; the installer suite itself must run
-      # as a normal user and proves that no package-manager command is invoked.
+      # as a normal user and checks that ready tools need no package-manager call
+      # and missing tools cannot consume approval from piped input.
       - name: Prepare container tools
         shell: sh
         run: |

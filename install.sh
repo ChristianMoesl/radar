@@ -9,6 +9,7 @@ import { createHash, createPublicKey, verify } from 'node:crypto';
 import { constants, accessSync, lstatSync, statSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, realpathSync, renameSync, rmSync, openSync, fchmodSync, fsyncSync, closeSync } from 'node:fs';
 import { join, posix, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
+import { spawnSync } from 'node:child_process';
 
 try {
 // Keep these independently committed roots aligned with internal/update/keys.json.
@@ -188,7 +189,6 @@ function installLinux(i, m, files) {
       }
     } catch (error) { if (!['ENOENT', 'ENOTDIR', 'EACCES'].includes(error.code)) throw error; }
   }
-  console.log('Shell configuration was left unchanged. Run Radar in a terminal for guided setup.');
 }
 // Never follow a custom/symlink installation or overwrite a managed transaction.
 if (resolve(home) !== home || realpathSync(home) !== home) throw new Error('HOME must be an absolute canonical path');
@@ -271,13 +271,11 @@ if (!ended || required.some(p => !files.has(p)) || !files.get('bin/radar').execu
 // Bootstrap sources the authenticated installer's functions, never an older
 // imperative installer that would overwrite Radar during prerequisite repair.
 const installer = decoder.decode(files.get('install.sh').data);
-if (platform === 'darwin' && (!installer.includes('\nradar_install_archive() {\n') || !installer.includes('\nradar_install_prerequisites() {\n'))) throw new Error('This release predates prerequisite-aware installation. Please try again after a new release is published.');
+if (!installer.includes('\nradar_install_archive() {\n') || !installer.includes('\nradar_install_prerequisites() {\n')) throw new Error('This release predates prerequisite-aware installation. Please try again after a new release is published.');
 if (sha(files.get('bin/radar').data) !== artifact.binary_sha256) throw new Error('Radar binary identity mismatch');
 if (platform === 'linux') {
   const b = files.get('bin/radar').data;
   if (b.length < 64 || b.subarray(0, 4).toString('hex') !== '7f454c46' || b[4] !== 2 || b[5] !== 1 || b.readUInt16LE(18) !== (arch === 'amd64' ? 62 : 183)) throw new Error('Release binary architecture mismatch');
-  installLinux(linux, selected, files);
-  console.error(`Verified Radar ${selected.version}, its publisher signature and checksums.`);
 } else {
 const bundlePrefix = 'libexec/radar/RadarNotifier.app/';
 const bundle = [...files.keys()].filter(p => p.startsWith(bundlePrefix)).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
@@ -286,6 +284,7 @@ for (const p of ['bin/radar', bundlePrefix + 'Contents/MacOS/radar-notifier']) {
   const b = files.get(p)?.data;
   if (!b || b.length < 32 || b.readUInt32LE(0) !== 0xfeedfacf || b.readUInt32LE(4) !== 0x0100000c) throw new Error('Release binary architecture mismatch');
 }
+}
 const destination = join(work, 'release'); mkdirSync(destination, { mode: 0o700 });
 for (const p of dirs) mkdirSync(join(destination, p), { recursive: true, mode: 0o755 });
 for (const [p, f] of files) {
@@ -293,9 +292,18 @@ for (const [p, f] of files) {
   mkdirSync(join(path, '..'), { recursive: true, mode: 0o755 });
   writeFileSync(path, f.data, { flag: 'wx', mode: f.executable ? 0o755 : 0o644 });
 }
-writeFileSync(join(work, 'selected.json'), JSON.stringify({ version: selected.version, directory: join(destination, root) }), { flag: 'wx', mode: 0o600 });
-console.error(`Verified Radar ${selected.version}, its publisher signature and notification companion.`);
+const directory = join(destination, root);
+if (platform === 'linux') {
+  console.error(`Verified Radar ${selected.version}, its publisher signature and checksums.`);
+  // Run only the prerequisite helper from the authenticated archive. Keep the
+  // installation lock and original binary identity until provisioning finishes.
+  const prerequisites = spawnSync('bash', ['-c', 'source "$1"; radar_install_prerequisites || exit; printf "%s" "$PATH" > "$2"', 'radar-installer', join(directory, 'install.sh'), join(work, 'prerequisites-path')], { stdio: 'inherit' });
+  if (prerequisites.error || prerequisites.status !== 0) throw new Error('Required tools could not be prepared. No Radar files were installed.');
+  installLinux(linux, selected, files);
+} else {
+  console.error(`Verified Radar ${selected.version}, its publisher signature and notification companion.`);
 }
+writeFileSync(join(work, 'selected.json'), JSON.stringify({ version: selected.version, directory, binary: linux?.binary }), { flag: 'wx', mode: 0o600 });
 } catch (error) {
   console.error(`Radar installer: ${error.message}`);
   process.exitCode = 1;
@@ -303,62 +311,56 @@ console.error(`Verified Radar ${selected.version}, its publisher signature and n
 NODE
 }
 
-radar_install_linux() {
-  [[ $(id -u) != 0 ]] || { echo 'Run this installer as your normal user, without sudo.' >&2; return 1; }
-  [[ -n ${HOME:-} ]] || { echo 'HOME must be set to your user directory.' >&2; return 1; }
-  local arch existing
-  case "$(uname -m)" in
-    x86_64|amd64) arch=amd64;;
-    aarch64|arm64) arch=arm64;;
-    *) echo 'Unsupported Linux architecture: Radar requires amd64 or arm64.' >&2; return 1;;
-  esac
-  existing=$(command -v radar || true)
-  if ! command -v node >/dev/null 2>&1 || ! env -u NODE_OPTIONS -u NODE_PATH node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 24 ? 0 : 1)'; then
-    echo 'Publisher verification requires Node.js 24+ on PATH (also used by Pi). Install it, then rerun. No package manager or sudo will be invoked.' >&2
-    return 1
-  fi
-  local work
-  work=$(mktemp -d) || { echo 'Cannot create the temporary download directory.' >&2; return 1; }
-  # A subshell keeps cleanup scoped to this Linux installation.
-  (
-    trap 'rm -rf "$work"' EXIT
-    echo 'Finding an authenticated, fully published Linux Radar release…' >&2
-    radar_verify_release "$work" "$arch" '' "$HOME" linux "$existing"
-  )
-}
-
 main() {
   [[ $# = 0 ]] || { echo 'usage: bash install.sh' >&2; return 2; }
+  [[ $(id -u) != 0 ]] || { echo 'Run this installer as your normal user, without sudo.' >&2; return 1; }
+  [[ -n ${HOME:-} ]] || { echo 'HOME must be set to your user directory.' >&2; return 1; }
+  local platform arch native_brew macos= existing
   case "$(uname -s)" in
-    Linux) radar_install_linux; return;;
-    Darwin) ;;
+    Linux)
+      platform=linux
+      native_brew=/home/linuxbrew/.linuxbrew/bin/brew
+      case "$(uname -m)" in
+        x86_64|amd64) arch=amd64;;
+        aarch64|arm64) arch=arm64;;
+        *) echo 'Unsupported Linux architecture: Radar requires amd64 or arm64.' >&2; return 1;;
+      esac;;
+    Darwin)
+      platform=darwin
+      native_brew=/opt/homebrew/bin/brew
+      macos=$(sw_vers -productVersion)
+      case "$(uname -m)" in
+        arm64) arch=arm64;;
+        *) echo 'Unsupported macOS architecture: Radar requires Apple Silicon (arm64).' >&2; return 1;;
+      esac;;
     *) echo 'This installer supports Linux and Apple Silicon macOS. On Windows, run it inside WSL.' >&2; return 1;;
   esac
-  [[ $(id -u) != 0 ]] || { echo 'Run this installer as your normal user, without sudo.' >&2; return 1; }
-  case "$(uname -m)" in
-    arm64) arch=arm64; native_brew=/opt/homebrew/bin/brew;;
-    *) echo 'Unsupported macOS architecture: Radar requires Apple Silicon (arm64).' >&2; return 1;;
-  esac
+  existing=$(command -v radar || true)
   prefix="$HOME/.local"
   repair=false
-  if command -v radar >/dev/null 2>&1 || [[ -e "$prefix/bin/radar" || -L "$prefix/bin/radar" ]]; then
+  if [[ $platform = darwin ]] && { [[ -n $existing ]] || [[ -e "$prefix/bin/radar" || -L "$prefix/bin/radar" ]]; }; then
     repair=true
     echo 'Radar is already installed. Checking prerequisites only; Radar and its configuration will not be replaced.' >&2
   fi
-  if [[ $repair = false ]] && [[ -e "$prefix/libexec/radar/install.json" || -L "$prefix/libexec/radar/install.json" || -e "$prefix/libexec/radar/.upgrade" || -L "$prefix/libexec/radar/.upgrade" || -e "$prefix/libexec/radar/RadarNotifier.app" || -L "$prefix/libexec/radar/RadarNotifier.app" ]]; then
+  if [[ $platform = darwin && $repair = false ]] && [[ -e "$prefix/libexec/radar/install.json" || -L "$prefix/libexec/radar/install.json" || -e "$prefix/libexec/radar/.upgrade" || -L "$prefix/libexec/radar/.upgrade" || -e "$prefix/libexec/radar/RadarNotifier.app" || -L "$prefix/libexec/radar/RadarNotifier.app" ]]; then
     echo 'Existing Radar update state needs inspection; this fresh-install bootstrap will not replace it.' >&2
     return 1
   fi
   # A pipe supplies the script, never approval. Headless execution cannot silently
   # install prerequisites or edit profiles; all prompts read the controlling TTY.
-  exec 3</dev/tty || { echo 'Run this installer from an interactive terminal.' >&2; return 1; }
-  terminal_state=$(stty -g <&3)
+  interactive=false
+  terminal_state=
+  if { exec 3</dev/tty; } 2>/dev/null; then
+    interactive=true
+    terminal_state=$(stty -g <&3)
+  fi
   work=$(mktemp -d)
-  trap 'stty "$terminal_state" <&3 2>/dev/null || true; rm -rf "$work"' EXIT
+  trap 'if [[ $interactive = true ]]; then stty "$terminal_state" <&3 2>/dev/null || true; fi; rm -rf "$work"' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   ask() {
     local answer=
+    [[ $interactive = true ]] || { echo 'Missing prerequisites need approval in an interactive terminal. Install the tools on PATH, then rerun.' >&2; return 1; }
     printf '%s [%s] ' "$1" "${2:-Y/n}" >&2
     read -r answer <&3 || return 1
     [[ "$answer" = y || "$answer" = Y || ( -z "$answer" && "${2:-Y/n}" = Y/n ) ]]
@@ -379,7 +381,7 @@ main() {
       brew=$(command -v brew)
     elif [[ -x "$native_brew" ]]; then
       brew=$native_brew
-    else
+    elif [[ $platform = darwin ]]; then
       echo 'Homebrew can supply the missing workspace tools and Node.js 24+ for publisher verification and Pi.' >&2
       echo 'The official Homebrew installer may request normal macOS administrator approval.' >&2
       ask 'Install Homebrew from https://brew.sh?' || { echo 'Homebrew declined. No Radar files were installed.' >&2; return 1; }
@@ -388,39 +390,72 @@ main() {
       [[ -x "$native_brew" ]] || { echo 'Homebrew is still unavailable; fix its installation before retrying.' >&2; return 1; }
       brew=$native_brew
     fi
-    brew_prefix=$("$brew" --prefix)
-    export PATH="$brew_prefix/bin:$brew_prefix/sbin:$PATH"
+    if [[ -n $brew ]]; then
+      brew_prefix=$("$brew" --prefix)
+      export PATH="$brew_prefix/bin:$brew_prefix/sbin:$PATH"
+    fi
     if ! node_ready; then
-      ask 'Install/update Node.js 24+ using Homebrew?' || { echo 'Node.js declined. No Radar files were installed.' >&2; return 1; }
-      env -u NODE_OPTIONS -u NODE_PATH "$brew" install node <&3
+      local -a node_command
+      if [[ -n $brew ]]; then
+        node_command=("$brew" install node)
+      elif command -v apt-get >/dev/null 2>&1; then
+        node_command=(sudo apt-get install -y nodejs npm)
+      elif command -v dnf >/dev/null 2>&1; then
+        node_command=(sudo dnf install -y nodejs npm)
+      elif command -v pacman >/dev/null 2>&1; then
+        node_command=(sudo pacman -S --needed --noconfirm nodejs npm)
+      else
+        echo 'Node.js 24+ is required for publisher verification and Pi. Install it on PATH, then rerun.' >&2
+        return 1
+      fi
+      printf 'Node.js 24+ is required. Installation command:' >&2
+      printf ' %q' "${node_command[@]}" >&2
+      printf '\n' >&2
+      ask 'Install/update Node.js 24+ now?' || { echo 'Node.js declined. No Radar files were installed.' >&2; return 1; }
+      if ! env -u NODE_OPTIONS -u NODE_PATH "${node_command[@]}" <&3; then
+        echo 'Installing Node.js failed. Fix the command above, then rerun this installer.' >&2
+        return 1
+      fi
       node_ready || { echo 'Node.js 24+ is still unavailable. No Radar files were installed.' >&2; return 1; }
     fi
   fi
   echo 'Finding an authenticated, fully published Radar release…' >&2
   # Do not let project/user Node preload hooks alter this verifier. There are no
   # environment overrides for publisher trust, release endpoints or selection.
-  radar_verify_release "$work" "$arch" "$(sw_vers -productVersion)" "$HOME" darwin
+  radar_verify_release "$work" "$arch" "$macos" "$HOME" "$platform" "$existing"
   release_dir=$(env -u NODE_OPTIONS -u NODE_PATH node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1])).directory' "$work/selected.json")
-  codesign --verify --strict "$release_dir/libexec/radar/RadarNotifier.app"
-  source "$release_dir/install.sh"
-  radar_install_prerequisites
-  if [[ $repair = true ]]; then
-    echo 'Required tools are ready. Run radar setup again. Use radar update to update Radar itself.' >&2
-    return 0
+  binary="$prefix/bin/radar"
+  if [[ $platform = darwin ]]; then
+    codesign --verify --strict "$release_dir/libexec/radar/RadarNotifier.app"
+    source "$release_dir/install.sh"
+    radar_install_prerequisites
+  else
+    binary=$(env -u NODE_OPTIONS -u NODE_PATH node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1])).binary' "$work/selected.json")
+    export PATH="$(cat "$work/prerequisites-path")"
   fi
-  (unset PREFIX BINDIR LIBEXECDIR MANDIR; radar_install_archive "$release_dir")
+  if [[ $repair = true ]]; then
+    echo 'Required tools are ready. Use radar update to update Radar itself.' >&2
+    binary=${existing:-"$prefix/bin/radar"}
+  fi
+  if [[ $platform = darwin && $repair = false ]]; then
+    (unset PREFIX BINDIR LIBEXECDIR MANDIR; radar_install_archive "$release_dir")
+  fi
+  bindir=$(dirname "$binary")
   profile=
   case "${SHELL:-/bin/zsh}" in
     */zsh) profile="${ZDOTDIR:-$HOME}/.zshrc";;
-    */bash) profile="$HOME/.bash_profile";;
+    */bash) if [[ $platform = darwin ]]; then profile="$HOME/.bash_profile"; else profile="$HOME/.bashrc"; fi;;
+    */fish) profile="${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish";;
   esac
-  if [[ -n "$profile" ]] && ask "Add Radar commands to $profile for future terminals?" y/N; then
-    if env -u NODE_OPTIONS -u NODE_PATH node --input-type=module - "$profile" "$brew_prefix" <<'NODE'
-import { constants, existsSync, lstatSync, openSync, fstatSync, readFileSync, writeSync, closeSync, realpathSync } from 'node:fs';
-const [profile, brew] = process.argv.slice(2);
+  if [[ $interactive = true && -n "$profile" ]] && ask "Add Radar commands to $profile for future terminals?" y/N; then
+    if env -u NODE_OPTIONS -u NODE_PATH node --input-type=module - "$profile" "$brew_prefix" "$bindir" "${SHELL:-/bin/zsh}" <<'NODE'
+import { constants, existsSync, lstatSync, openSync, fstatSync, readFileSync, writeSync, closeSync, realpathSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+const [profile, brew, bindir, shell] = process.argv.slice(2);
 let destination = profile;
 if (existsSync(profile)) destination = realpathSync(profile);
 else if (lstatSafe(profile)) throw new Error('Cannot edit a broken shell-profile symlink');
+mkdirSync(dirname(destination), { recursive: true });
 function lstatSafe(path) { try { return lstatSync(path); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } }
 const fd = openSync(destination, constants.O_APPEND | constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW, 0o644);
 try {
@@ -430,8 +465,10 @@ try {
   const marker = '# Radar command PATH';
   if (!before.split('\n').includes(marker)) {
     const quote = s => "'" + s.replaceAll("'", "'\\''") + "'";
-    const path = brew ? `${quote(brew + '/bin:' + brew + '/sbin:')}` : '';
-    const block = `\n${marker}\nexport PATH=${path}"$HOME/.local/bin:$PATH"\n`;
+    const paths = [...new Set([bindir, process.env.HOME + '/.local/bin', ...(brew ? [brew + '/bin', brew + '/sbin'] : [])])];
+    const fishQuote = s => "'" + s.replaceAll('\\', '\\\\').replaceAll("'", "\\'") + "'";
+    const command = shell.endsWith('/fish') ? `fish_add_path -- ${paths.map(fishQuote).join(' ')}` : `export PATH=${quote(paths.join(':'))}:"$PATH"`;
+    const block = `\n${marker}\n${command}\n`;
     writeSync(fd, Buffer.from(block));
   }
 } finally { closeSync(fd); }
@@ -439,13 +476,14 @@ NODE
     then
       echo 'PATH configured. In new terminals, start with: radar' >&2
     else
-      echo 'Could not configure PATH; Radar is installed. Start later with: ~/.local/bin/radar' >&2
+      printf 'Could not configure PATH; Radar is installed. Start later with: %s\n' "$binary" >&2
     fi
   else
-    echo 'Shell profile left unchanged. Start later with: ~/.local/bin/radar' >&2
+    printf 'Shell profile left unchanged. Start later with: %s\n' "$binary" >&2
   fi
-  export PATH="$prefix/bin:$PATH"
+  export PATH="$bindir:$PATH"
+  [[ $interactive = true ]] || { echo 'Run radar in a terminal to complete guided setup.' >&2; return; }
   echo 'Starting Radar — its setup will configure Pi extensions, directories and integrations.' >&2
-  (cd "$HOME" && "$prefix/bin/radar" <&3)
+  (cd "$HOME" && "$binary" <&3)
 }
 main "$@"

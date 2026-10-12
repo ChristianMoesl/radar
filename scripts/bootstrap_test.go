@@ -81,7 +81,7 @@ func TestOneCommandBootstrap(t *testing.T) {
 			installed := filepath.Join(home, ".local", "bin", "radar")
 			if state == "already installed" || state == "repair missing gh" {
 				data, _ := os.ReadFile(installed)
-				if string(data) != "existing executable" || strings.Contains(string(calls), "register notifier") || strings.Contains(string(calls), "radar launched") {
+				if string(data) != "existing executable" || strings.Contains(string(calls), "register notifier") || !strings.Contains(string(calls), "radar launched") {
 					t.Fatalf("prerequisite repair changed Radar: %s; %s", data, calls)
 				}
 				if state == "repair missing gh" {
@@ -174,10 +174,156 @@ func TestBootstrapCannotConsumePipedConsentWithoutTerminal(t *testing.T) {
 	}
 }
 
+func TestLinuxBootstrapOnboarding(t *testing.T) {
+	for _, state := range []string{"ready", "PATH accepted", "profile symlink", "broken profile symlink", "bash profile", "fish profile", "install Node", "Node declined", "Node failed", "Node still old", "repair missing gh", "dependency declined", "dependency failed", "custom directory"} {
+		t.Run(state, func(t *testing.T) {
+			cmd, answers, success := bootstrapFixture(t, "Linux "+state)
+			output, err := runBootstrapPTY(t, cmd, answers)
+			if (err == nil) != success {
+				t.Fatalf("%v: %s", err, output)
+			}
+			calls, _ := os.ReadFile(filepath.Join(cmd.Dir, "calls"))
+			binaryPath := filepath.Join(cmd.Dir, ".local/bin/radar")
+			if state == "custom directory" {
+				binaryPath = filepath.Join(cmd.Dir, "it's $(touch injected) \\ bin/radar")
+			}
+			if success {
+				assertMode(t, binaryPath, 0755)
+				if !strings.Contains(string(calls), "radar launched") {
+					t.Fatalf("Linux installation did not start setup: %s", output)
+				}
+			} else {
+				if _, err := os.Stat(binaryPath); !os.IsNotExist(err) {
+					t.Fatalf("refused/failed provisioning installed Radar: %s", output)
+				}
+				if strings.Contains(string(calls), "radar launched") {
+					t.Fatal("failed installation launched setup")
+				}
+			}
+			if strings.Contains(string(calls), "register notifier") {
+				t.Fatal("Linux installation registered a macOS notifier")
+			}
+			if (state == "Node declined" || state == "dependency declined") && strings.Contains(string(calls), "brew install") {
+				t.Fatalf("declined installation ran a package manager: %s", calls)
+			}
+			profile := filepath.Join(cmd.Dir, ".zshrc")
+			if state == "bash profile" {
+				profile = filepath.Join(cmd.Dir, ".bashrc")
+			} else if state == "fish profile" {
+				profile = filepath.Join(cmd.Dir, ".config/fish/config.fish")
+			}
+			if state == "broken profile symlink" {
+				if _, err := os.Stat(profile); !os.IsNotExist(err) {
+					t.Fatal("broken profile symlink was modified")
+				}
+				return
+			}
+			data, _ := os.ReadFile(profile)
+			changed := state == "PATH accepted" || state == "profile symlink" || state == "bash profile" || state == "fish profile" || state == "custom directory" || state == "install Node"
+			if strings.Contains(string(data), "# Radar command PATH") != changed {
+				t.Fatalf("profile consent violated: %s", data)
+			}
+			if changed {
+				assertMode(t, profile, 0600)
+				if state == "fish profile" {
+					if !strings.Contains(string(data), "fish_add_path --") {
+						t.Fatalf("Fish received incompatible PATH configuration: %s", data)
+					}
+				} else {
+					check := exec.Command("/bin/bash", "-c", `source "$1"; printf '%s' "$PATH"`, "profile-check", profile)
+					check.Env = []string{"HOME=" + cmd.Dir, "PATH=/usr/bin:/bin"}
+					path, err := check.CombinedOutput()
+					if err != nil || !strings.HasPrefix(string(path), filepath.Dir(binaryPath)+":") {
+						t.Fatalf("profile did not safely configure the installed directory: %v %s", err, path)
+					}
+				}
+			}
+			if _, err := os.Stat(filepath.Join(cmd.Dir, "injected")); !os.IsNotExist(err) {
+				t.Fatal("custom directory executed shell syntax")
+			}
+		})
+	}
+}
+
+func TestLinuxBootstrapNodePackageManagers(t *testing.T) {
+	for _, manager := range []string{"apt-get", "dnf", "pacman"} {
+		for _, approve := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/approve=%t", manager, approve), func(t *testing.T) {
+				cmd, _, _ := bootstrapFixture(t, "Linux install Node")
+				tools := filepath.Join(cmd.Dir, "tools")
+				if err := os.Remove(filepath.Join(tools, "brew")); err != nil {
+					t.Fatal(err)
+				}
+				path := filepath.Join(cmd.Dir, "install.sh")
+				data, _ := os.ReadFile(path)
+				// Hide host managers; only the selected test manager may be used.
+				mask := fmt.Sprintf("command() { if [[ $1 = -v && ( $2 = brew || $2 = apt-get || $2 = dnf || $2 = pacman ) && $2 != %s ]]; then return 1; else builtin command \"$@\"; fi; }\n", manager)
+				script := strings.Replace(string(data), "set -euo pipefail\n", "set -euo pipefail\n"+mask, 1)
+				script = strings.ReplaceAll(script, "native_brew=/home/linuxbrew/.linuxbrew/bin/brew", "native_brew=\"$HOME/no-homebrew\"")
+				if err := os.WriteFile(path, []byte(script), 0700); err != nil {
+					t.Fatal(err)
+				}
+				for name, body := range map[string]string{
+					"sudo": "exec \"$@\"",
+					manager: `printf '%s\n' "$*" > "$HOME/node-manager-calls"
+cp "$HOME/node.stub" "$HOME/tools/node"`,
+				} {
+					if err := os.WriteFile(filepath.Join(tools, name), []byte("#!/bin/sh\n"+body+"\n"), 0700); err != nil {
+						t.Fatal(err)
+					}
+				}
+				answers := "n\n"
+				if approve {
+					answers = "y\nn\n"
+				}
+				output, err := runBootstrapPTY(t, cmd, answers)
+				if (err == nil) != approve {
+					t.Fatalf("%v: %s", err, output)
+				}
+				calls, _ := os.ReadFile(filepath.Join(cmd.Dir, "node-manager-calls"))
+				want := ""
+				if approve {
+					want = "install -y nodejs npm\n"
+					if manager == "pacman" {
+						want = "-S --needed --noconfirm nodejs npm\n"
+					}
+				}
+				if string(calls) != want {
+					t.Fatalf("Node package-manager calls = %q, want %q", calls, want)
+				}
+			})
+		}
+	}
+}
+
+func TestBootstrapHeadlessWithReadyTools(t *testing.T) {
+	for _, state := range []string{"ready", "Linux ready"} {
+		t.Run(state, func(t *testing.T) {
+			cmd, _, _ := bootstrapFixture(t, state)
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%v: %s", err, output)
+			}
+			assertMode(t, filepath.Join(cmd.Dir, ".local/bin/radar"), 0755)
+			calls, _ := os.ReadFile(filepath.Join(cmd.Dir, "calls"))
+			if strings.Contains(string(calls), "radar launched") || strings.Contains(string(calls), "brew install") {
+				t.Fatalf("headless installation started an interactive action: %s", calls)
+			}
+			profile, _ := os.ReadFile(filepath.Join(cmd.Dir, ".zshrc"))
+			if string(profile) != "# User-owned profile\n" {
+				t.Fatalf("headless installation changed PATH: %s", profile)
+			}
+		})
+	}
+}
+
 // Every network/tool boundary is test-local. Only the fixture publisher key is
 // substituted in a private copy of the source; production has no trust override.
 func bootstrapFixture(t *testing.T, state string) (*exec.Cmd, string, bool) {
 	t.Helper()
+	linux := strings.HasPrefix(state, "Linux ")
+	state = strings.TrimPrefix(state, "Linux ")
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("Node is required to test authenticated bootstrap")
@@ -204,7 +350,7 @@ func bootstrapFixture(t *testing.T, state string) (*exec.Cmd, string, bool) {
 	for _, name := range []string{"config.yaml", "secrets.yaml"} {
 		write(filepath.Join(home, ".config", "radar", name), "user-owned "+name+"\n", 0600)
 	}
-	for _, name := range []string{".zshrc", ".bash_profile"} {
+	for _, name := range []string{".zshrc", ".bash_profile", ".bashrc"} {
 		write(filepath.Join(home, name), "# User-owned profile\n", 0600)
 	}
 	if state == "profile already configured" {
@@ -233,7 +379,7 @@ func bootstrapFixture(t *testing.T, state string) (*exec.Cmd, string, bool) {
 	// No host Homebrew path, Launch Services registration or actual Mach-O launch.
 	script = strings.ReplaceAll(script, "native_brew=/opt/homebrew/bin/brew", "native_brew=\""+filepath.Join(brewPrefix, "bin", "brew")+"\"")
 	script = strings.ReplaceAll(script, "native_brew=/usr/local/bin/brew", "native_brew=\""+filepath.Join(brewPrefix, "bin", "brew")+"\"")
-	script = strings.ReplaceAll(script, `"$prefix/bin/radar" <&3`, `"$BOOTSTRAP_LAUNCH" <&3`)
+	script = strings.ReplaceAll(script, `"$binary" <&3`, `"$BOOTSTRAP_LAUNCH" <&3`)
 	write(filepath.Join(home, "install.sh"), script, 0700)
 	write(filepath.Join(home, "fetch.mjs"), `
 import {readFileSync,appendFileSync} from 'node:fs';
@@ -255,12 +401,15 @@ case "$*" in
    echo 'brew install node' >> "$HOME/calls"
    if [ "$BOOTSTRAP_STATE" = 'Node failed' ]; then exit 7; fi
    if [ "$BOOTSTRAP_STATE" != 'Node still old' ]; then cp "$HOME/node.stub" "$HOME/brew/bin/node"; fi;;
- 'install gh') echo 'brew install gh' >> "$HOME/calls"; printf '#!/bin/sh\necho gh 2.70\n' > "$HOME/brew/bin/gh"; chmod +x "$HOME/brew/bin/gh";;
+ 'install gh') echo 'brew install gh' >> "$HOME/calls"; if [ "$BOOTSTRAP_STATE" = 'dependency failed' ]; then exit 7; fi; printf '#!/bin/sh\necho gh 2.70\n' > "$HOME/brew/bin/gh"; chmod +x "$HOME/brew/bin/gh";;
  'install fd') printf '#!/bin/sh\necho fd 10.0\n' > "$HOME/brew/bin/fd"; chmod +x "$HOME/brew/bin/fd";;
  *) echo 'unexpected brew invocation' >&2; exit 99;;
 esac
 `
 	write(filepath.Join(home, "brew.stub"), brewStub, 0700)
+	if linux {
+		write(filepath.Join(bin, "brew"), brewStub, 0700)
+	}
 	for _, name := range []string{"git", "tmux", "fd", "npm", "pi", "gh"} {
 		if (state == "Homebrew for tools" || state == "Homebrew for tools declined") && name == "fd" {
 			continue
@@ -276,7 +425,7 @@ esac
 	}
 	write(filepath.Join(bin, "uname"), `#!/bin/sh
 if [ "$1" = -s ]; then
- if [ "$BOOTSTRAP_STATE" = 'unsupported OS' ]; then echo Windows_NT; else echo Darwin; fi
+ if [ "$BOOTSTRAP_STATE" = 'unsupported OS' ]; then echo Windows_NT; elif [ "$BOOTSTRAP_PLATFORM" = linux ]; then echo Linux; else echo Darwin; fi
 else
  if [ "$BOOTSTRAP_STATE" = 'unsupported architecture' ]; then echo unknown; elif [ "$BOOTSTRAP_STATE" = Intel ]; then echo x86_64; else echo arm64; fi
 fi
@@ -307,19 +456,21 @@ BREW
 	if missingNode && state != "install Homebrew and Node" && state != "Homebrew declined" && state != "Homebrew failed" {
 		write(filepath.Join(bin, "brew"), brewStub, 0700)
 	}
-	if state == "already installed" || state == "repair missing gh" {
+	if !linux && (state == "already installed" || state == "repair missing gh") {
 		if err := os.MkdirAll(filepath.Join(home, ".local", "bin"), 0700); err != nil {
 			t.Fatal(err)
 		}
 		write(filepath.Join(home, ".local", "bin", "radar"), "existing executable", 0700)
 	}
-	if state == "repair missing gh" {
+	if state == "repair missing gh" || state == "dependency declined" || state == "dependency failed" {
 		write(filepath.Join(bin, "gh"), "#!/bin/sh\nexit 1\n", 0700)
 		write(filepath.Join(bin, "brew"), brewStub, 0700)
-		if err := os.MkdirAll(filepath.Join(home, ".local", "libexec", "radar"), 0700); err != nil {
-			t.Fatal(err)
+		if !linux {
+			if err := os.MkdirAll(filepath.Join(home, ".local", "libexec", "radar"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			write(filepath.Join(home, ".local", "libexec", "radar", "install.json"), "preserve receipt", 0600)
 		}
-		write(filepath.Join(home, ".local", "libexec", "radar", "install.json"), "preserve receipt", 0600)
 	}
 	if state == "managed journal" {
 		if err := os.MkdirAll(filepath.Join(home, ".local", "libexec", "radar", ".upgrade"), 0700); err != nil {
@@ -367,15 +518,24 @@ BREW
 		artifacts := map[string]update.Artifact{}
 		assets := []map[string]any{}
 		for _, arch := range []string{"arm64"} {
-			archive, binaryHash, treeHash := bootstrapArchive(t, version, arch, state, bin)
-			file := "radar_" + version + "_darwin_" + arch + ".tar.gz"
-			artifacts[arch] = update.Artifact{File: file, Size: int64(len(archive)), SHA256: bootstrapHash(archive), BinarySHA256: binaryHash, NotifierVersion: "1.0.0", NotifierSHA256: treeHash}
+			archive, binaryHash, treeHash := bootstrapArchive(t, version, arch, state, bin, linux)
+			platform, key := "darwin", arch
+			if linux {
+				platform, key = "linux", "linux_"+arch
+			}
+			file := "radar_" + version + "_" + platform + "_" + arch + ".tar.gz"
+			artifacts[key] = update.Artifact{File: file, Size: int64(len(archive)), SHA256: bootstrapHash(archive), BinarySHA256: binaryHash}
+			if !linux {
+				a := artifacts[key]
+				a.NotifierVersion, a.NotifierSHA256 = "1.0.0", treeHash
+				artifacts[key] = a
+			}
 			if state == "archive hash" && arch == "arm64" {
 				archive = append([]byte(nil), archive...)
 				archive[len(archive)-1] ^= 1
 			}
 			put("https://github.com/ChristianMoesl/radar/releases/download/"+version+"/"+file, version+arch+".tar.gz", archive)
-			assets = append(assets, map[string]any{"name": file, "size": artifacts[arch].Size, "state": "uploaded"})
+			assets = append(assets, map[string]any{"name": file, "size": artifacts[key].Size, "state": "uploaded"})
 		}
 		if state == "binary identity" {
 			a := artifacts["arm64"]
@@ -453,10 +613,10 @@ BREW
 	write(filepath.Join(home, "routes.json"), string(routeJSON), 0600)
 	answers, success := "n\n", true
 	switch state {
-	case "PATH accepted", "profile already configured", "profile symlink", "broken profile symlink", "bash profile":
+	case "PATH accepted", "profile already configured", "profile symlink", "broken profile symlink", "bash profile", "fish profile", "custom directory":
 		answers = "y\n"
 	case "repair missing gh":
-		answers = "\n"
+		answers = "\nn\n"
 	case "install Node":
 		answers = "\ny\n"
 	case "install Homebrew and Node":
@@ -468,6 +628,10 @@ BREW
 	case "Homebrew failed", "Node failed", "Node still old":
 		answers = "y\n"
 		success = false
+	case "dependency declined":
+		answers, success = "n\n", false
+	case "dependency failed":
+		answers, success = "y\n", false
 	case "already installed", "ready", "piped script", "profile declined", "unsupported shell", "newer incomplete", "later release page":
 	default:
 		success = false
@@ -479,6 +643,13 @@ BREW
 	if state == "unsupported shell" {
 		shell = "/usr/local/bin/fish"
 	}
+	if state == "fish profile" {
+		shell = "/usr/bin/fish"
+		if err := os.MkdirAll(filepath.Join(home, ".config/fish"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		write(filepath.Join(home, ".config/fish/config.fish"), "# User-owned profile\n", 0600)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	t.Cleanup(cancel)
 	cmd := exec.CommandContext(ctx, "/bin/bash", filepath.Join(home, "install.sh"))
@@ -488,10 +659,16 @@ BREW
 		cmd.Stdin = strings.NewReader(script)
 	}
 	cmd.Env = []string{"HOME=" + home, "PATH=" + bin + ":/usr/bin:/bin", "SHELL=" + shell, "BOOTSTRAP_NODE=" + node, "BOOTSTRAP_STATE=" + state, "BOOTSTRAP_LAUNCH=" + filepath.Join(bin, "launch"), "NODE_OPTIONS=--import /must-not-run"}
+	if linux {
+		cmd.Env = append(cmd.Env, "BOOTSTRAP_PLATFORM=linux")
+	}
+	if state == "custom directory" {
+		cmd.Env = append(cmd.Env, "RADAR_INSTALL_DIR="+filepath.Join(home, "it's $(touch injected) \\ bin"))
+	}
 	return cmd, answers, success
 }
 
-func bootstrapArchive(t *testing.T, version, arch, state, tools string) ([]byte, string, string) {
+func bootstrapArchive(t *testing.T, version, arch, state, tools string, linux bool) ([]byte, string, string) {
 	t.Helper()
 	root := "radar_" + version + "_darwin_" + arch
 	binaryData := make([]byte, 64)
@@ -501,6 +678,12 @@ func bootstrapArchive(t *testing.T, version, arch, state, tools string) ([]byte,
 		cpu = 0x01000007
 	}
 	binary.LittleEndian.PutUint32(binaryData[4:], cpu)
+	if linux {
+		root = "radar_" + version + "_linux_" + arch
+		binaryData = make([]byte, 64)
+		copy(binaryData, []byte{0x7f, 'E', 'L', 'F', 2, 1})
+		binary.LittleEndian.PutUint16(binaryData[18:], 183)
+	}
 	files := map[string][]byte{"bin/radar": binaryData, "README.md": []byte("fixture"), "LICENSE": []byte("fixture license"), "share/radar/AGENTS.md": []byte("fixture default instructions"), "share/man/man1/radar.1": []byte("fixture manual"), "share/man/man5/radar-config.5": []byte("fixture config manual"), "install.sh": bundledInstaller(t), "install-agent-instructions.sh": mustReadScript(t, "install-agent-instructions.sh")}
 	if state == "old installer" {
 		files["install.sh"] = []byte("#!/bin/sh\nexit 99\n")
@@ -511,7 +694,13 @@ func bootstrapArchive(t *testing.T, version, arch, state, tools string) ([]byte,
 	notifier = strings.ReplaceAll(notifier, filepath.Join(tools, "register")+" -f", "\""+filepath.Join(tools, "register")+"\" -f")
 	files["install-notifier.sh"] = []byte(notifier)
 	files["libexec/radar/RadarNotifier.app/Contents/MacOS/radar-notifier"] = binaryData
+	if linux {
+		delete(files, "libexec/radar/RadarNotifier.app/Contents/MacOS/radar-notifier")
+	}
 	bundleRoot := filepath.Join(t.TempDir(), "app")
+	if err := os.MkdirAll(bundleRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
 	for path, data := range files {
 		if !strings.HasPrefix(path, "libexec/radar/RadarNotifier.app/") {
 			continue
@@ -525,9 +714,13 @@ func bootstrapArchive(t *testing.T, version, arch, state, tools string) ([]byte,
 			t.Fatal(err)
 		}
 	}
-	tree, err := update.TreeDigest(bundleRoot)
-	if err != nil {
-		t.Fatal(err)
+	var tree string
+	if !linux {
+		var err error
+		tree, err = update.TreeDigest(bundleRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	var out bytes.Buffer
 	gz := gzip.NewWriter(&out)
