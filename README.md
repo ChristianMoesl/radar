@@ -12,12 +12,25 @@ dashboard. Open a task to jump into its workspace—with Git worktrees, tmux and
 
 ### 1. Install
 
-**Homebrew is recommended on Linux** (amd64/arm64) and is also available on
-**macOS** (Apple Silicon, Ventura+). Run without sudo.
+**Linux (amd64/arm64), without sudo or an additional package manager:**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ChristianMoesl/radar/main/install.sh | bash
+```
+
+Requires Node.js 24+ for publisher verification (also used by Pi). The installer
+verifies signatures and checksums, installs as your current user, and prints any
+needed Bash, Zsh or Fish PATH instructions. It leaves shell configuration alone.
+Use `RADAR_INSTALL_DIR` to choose a different binary directory, or rerun the
+installer to upgrade a Radar installation it owns.
+[Linux directory selection, prerequisites and updates →](docs/installation.md#standalone-linux-installation)
+
+**Homebrew** is also available on Linux and **macOS** (Apple Silicon, Ventura+).
+Run without sudo.
 
 **Linux rollout gate:** this source adds Linux support, but the public tap is not
 updated just by installing this checkout. Until a new signed release and its
-validated Linux-capable tap formula ship, use the [manual Linux path](docs/installation.md#manual-installation).
+validated Linux-capable tap formula ship, use the standalone Linux installer above.
 After publication, with [Homebrew](https://brew.sh) installed:
 
 **Homebrew:**

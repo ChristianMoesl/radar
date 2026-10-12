@@ -39,6 +39,14 @@ rollback. If `groff` is available, tests also render both pages.
 
 ## Installation regression tests
 
+`node --test scripts/linux-install.test.mjs` tests the rootless Linux bootstrap
+as an ordinary user with signed, local release fixtures and isolated HOME/PATH.
+It covers both release architectures, directory selection, Bash/Zsh/Fish hints,
+conflicts, failed verification, atomic activation and safe reruns without remote
+services or package managers. CI runs it on Debian, Ubuntu, Fedora and Arch;
+`make test` also includes it. Node.js 24+ is required. A shared-verifier regression
+case authenticates and extracts a macOS fixture.
+
 `go test ./scripts ./internal/app ./internal/config ./internal/collector ./internal/integration/...`
 exercises release and source installers, first daemon launch, optional-integration
 activation, repository precedence, and missing workspace prerequisites. Fixtures

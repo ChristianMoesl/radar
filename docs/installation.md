@@ -3,6 +3,7 @@
 [Documentation](README.md) · [Quick start](../README.md#get-started)
 
 - [Homebrew on Linux and macOS](#homebrew)
+- [Standalone Linux installer](#standalone-linux-installation)
 - [Standalone macOS installer](#one-command-macos-installation)
 - [Manual installation](#manual-installation)
 - [First-run setup](#guided-first-startup)
@@ -12,8 +13,8 @@
 
 ## Homebrew
 
-Homebrew is the recommended Linux installation method (amd64/arm64) and also
-supports macOS (Apple Silicon only, Ventura+).
+Homebrew is available on Linux (amd64/arm64) and macOS (Apple Silicon only,
+Ventura+). Linux users can also use the rootless standalone installer below.
 
 **Linux publication gate:** support in this checkout is not proof it is live in
 [ChristianMoesl/homebrew-tap](https://github.com/ChristianMoesl/homebrew-tap).
@@ -21,7 +22,7 @@ A new signed release with both Linux archives, exact npm approval, all native
 Homebrew validation jobs, and publication of the generated tap formula are
 required first. Maintainers can enable [automatic publication](releases.md#automatic-publication-setup)
 after npm approval. Do not republish an older release's metadata or archives. Until
-then, use [manual installation](#manual-installation). See the
+then, use [standalone Linux installation](#standalone-linux-installation). See the
 [maintainer rollout checklist](releases.md#linux-homebrew-rollout).
 
 After publication, with [Homebrew](https://brew.sh) installed and its `brew shellenv`
@@ -109,6 +110,73 @@ update receipt. Keep your existing config, notes and workspace data. Use one
 installation/update owner; the standalone bootstrap does not repair a Homebrew
 installation.
 
+## Standalone Linux installation
+
+Run as your normal user, without sudo:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ChristianMoesl/radar/main/install.sh | bash
+```
+
+The bootstrap supports Linux amd64/x86_64 and arm64/aarch64. It requires Bash and
+**Node.js 24+ on PATH** to authenticate the publisher's Ed25519 signature; Node is
+also Pi's runtime. It does not require Homebrew, Go, npm or a GitHub CLI to install
+the Radar binary, and never invokes sudo or installs prerequisites. Downloads use
+HTTPS, time/size limits, a signed stable release manifest, and verified archive
+and binary checksums. The selected release must also have its exact public Pi
+package. If none is fully published, installation fails with an explanation.
+
+Binary directory selection is deterministic:
+
+1. `RADAR_INSTALL_DIR`, when explicitly set. Invalid or unwritable overrides fail.
+2. `$HOME/.local/bin`, when that directory is already an entry in PATH.
+3. `$HOME/bin`, when that directory is already an entry in PATH.
+4. Otherwise `$HOME/.local/bin`, creating it if needed.
+
+Missing directories are created, including a custom destination. Relative
+overrides are resolved against the current working directory. The destination
+must be owned by you, writable and searchable, with no shared-write permissions
+or symlink components. An invalid selected directory fails rather than silently
+choosing a different one. Other writable PATH entries, including Homebrew, Cargo
+and npm directories, are never chosen automatically. For a downloaded script:
+
+```sh
+RADAR_INSTALL_DIR="$HOME/bin" ./install.sh
+```
+
+When piping, pass the override to **Bash**, which runs the installer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ChristianMoesl/radar/main/install.sh | RADAR_INSTALL_DIR="$HOME/bin" bash
+```
+
+The installer leaves shell profiles unchanged. If the binary directory is missing
+from PATH, it prints quoted instructions for Bash (`~/.bashrc`), Zsh (`~/.zshrc`)
+and Fish (`fish_add_path`). No `--modify-path` option is provided. Installation
+works without a terminal and never starts Radar or consumes piped approval.
+Manuals and the MIT notice go under `~/.local/share`; your Radar configuration,
+agent instructions and workspaces are left for guided setup.
+
+An existing `command -v radar` is reported without executing it. Package-manager
+paths are identified where possible, and other installations are left alone. A
+checksum receipt, `.radar-install.json` next to the binary, identifies installations
+owned by this bootstrap. Unrelated binaries, symlinks and modified managed binaries
+are refused. The binary is staged on its destination filesystem with executable
+permissions, then renamed atomically. The receipt recognizes both old and new
+binary identities if activation is interrupted, allowing a safe retry. Concurrent
+installations are rejected; after a hard kill, inspect `.radar-install.lock` and
+remove it only once no installer is running. The installer warns if another
+executable still takes precedence on PATH and refuses downgrades.
+
+Run `radar` in a terminal to complete guided setup. Workspace tools still need
+Git, tmux 3.2+, fd (or Debian/Ubuntu's `fdfind`), Node.js 24+, npm, Pi 0.85.1+ and gh;
+Linux URL actions need `xdg-open`. Install missing tools using your preferred
+method. The bootstrap does not provision them or modify package-manager prefixes.
+For updates, rerun the same bootstrap with the same `RADAR_INSTALL_DIR` override,
+if any, then run `radar restart` when the daemon is already running. Review
+[older-installation rollout guidance](#before-upgrading-older-installations) first.
+The built-in `radar update` command remains macOS-only.
+
 ## One-command macOS installation
 
 In a normal Terminal window, without sudo:
@@ -117,7 +185,7 @@ In a normal Terminal window, without sudo:
 curl -fsSL https://raw.githubusercontent.com/ChristianMoesl/radar/main/install.sh | bash
 ```
 
-The root `install.sh` is the standalone first-install bootstrap, not an updater. It
+On macOS, the root `install.sh` is the standalone first-install bootstrap. It
 detects Apple Silicon, selects a stable release with a complete macOS arm64
 archive **and its exact public npm package**, authenticates the signed metadata,
 verifies the selected archive/binary/notifier identities, and safely extracts it.
@@ -168,8 +236,8 @@ Node does not switch to weaker verification.
 
 ## Manual installation
 
-For Windows/WSL, source builds, a custom prefix, or Linux before the Homebrew
-publication gate is complete (or when not using Homebrew), use the manual path.
+For source builds or a custom prefix/manual-page layout, use the manual path.
+Linux (including WSL) can instead use the standalone Linux bootstrap above.
 [Published archives](https://github.com/ChristianMoesl/radar/releases) cover
 macOS on Apple Silicon (arm64), and Linux on arm64/amd64; on Windows, run Radar
 inside WSL. Intel Macs are not supported. Download the matching archive and `checksums.txt` from a release you trust:
@@ -611,8 +679,9 @@ Radar avoids repeatedly launching that same binary until a successful setup/test
 Run `radar update` to review a release and confirm adoption/update of the
 standard `~/.local` installation. No silent install occurs. Homebrew installations
 use `brew upgrade radar`; other custom/symlink/package-manager installs and
-Windows and non-Homebrew Linux installs remain manual. The built-in updater
-does not support Linux; Linux Homebrew installs use `brew upgrade radar`. CLI and Pi updates have separate
+Windows installs remain inside WSL. The built-in updater does not support Linux;
+standalone Linux installs rerun the bootstrap and Linux Homebrew installs use
+`brew upgrade radar`. CLI and Pi updates have separate
 outcomes; active Pi sessions need `/reload` or restart after a package change.
 See [release trust, prerequisites, supported layout and recovery](releases.md#user-flow-and-recovery).
 

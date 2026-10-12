@@ -48,7 +48,7 @@ func TestOneCommandBootstrap(t *testing.T) {
 	for _, state := range []string{
 		"ready", "Intel", "piped script", "PATH accepted", "profile already configured", "profile symlink", "broken profile symlink", "profile declined", "bash profile", "unsupported shell",
 		"install Node", "install Homebrew and Node", "Homebrew for tools", "Homebrew for tools declined", "Homebrew declined", "Node declined", "Homebrew failed", "Node failed", "Node still old",
-		"already installed", "repair missing gh", "managed journal", "root", "Linux", "unsupported architecture", "symlink prefix", "shared prefix", "symlink manual directory", "symlink manual file",
+		"already installed", "repair missing gh", "managed journal", "root", "unsupported OS", "unsupported architecture", "symlink prefix", "shared prefix", "symlink manual directory", "symlink manual file",
 		"npm pending", "wrong npm version", "missing architecture asset", "duplicate asset", "newer incomplete", "later release page",
 		"old installer", "unsigned", "unknown publisher", "bad signature", "wrong tag", "bad epoch", "extra manifest field", "wrong filename", "old macOS",
 		"archive hash", "binary identity", "bundle identity", "wrong CPU", "traversal", "symlink entry", "duplicate entry", "special entry", "unexpected file", "truncated tar", "oversized entry", "HTTP redirect", "codesign failed",
@@ -64,7 +64,7 @@ func TestOneCommandBootstrap(t *testing.T) {
 			wantMessage := map[string]string{
 				"Homebrew declined": "Homebrew declined", "Homebrew for tools declined": "Homebrew declined", "Node declined": "Node.js declined",
 				"Node still old": "Node.js 24+ is still unavailable", "already installed": "Radar is already installed", "managed journal": "Existing Radar update state",
-				"root": "without sudo", "Linux": "for macOS", "Intel": "Apple Silicon", "unsupported architecture": "Unsupported macOS architecture",
+				"root": "without sudo", "unsupported OS": "supports Linux", "Intel": "Apple Silicon", "unsupported architecture": "Unsupported macOS architecture",
 				"symlink manual directory": "private-to-your-user directories", "symlink manual file": "private-to-your-user files",
 				"symlink prefix": "private-to-your-user directories", "shared prefix": "private-to-your-user directories",
 				"old installer": "predates prerequisite-aware installation", "old macOS": "requires macOS 13.0+", "archive hash": "archive size/hash verification failed",
@@ -276,7 +276,7 @@ esac
 	}
 	write(filepath.Join(bin, "uname"), `#!/bin/sh
 if [ "$1" = -s ]; then
- if [ "$BOOTSTRAP_STATE" = Linux ]; then echo Linux; else echo Darwin; fi
+ if [ "$BOOTSTRAP_STATE" = 'unsupported OS' ]; then echo Windows_NT; else echo Darwin; fi
 else
  if [ "$BOOTSTRAP_STATE" = 'unsupported architecture' ]; then echo unknown; elif [ "$BOOTSTRAP_STATE" = Intel ]; then echo x86_64; else echo arm64; fi
 fi

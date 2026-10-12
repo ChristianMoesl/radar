@@ -99,6 +99,39 @@ jobs:
       - name: Check macOS release packaging
         run: make dist VERSION=ci DIST_TARGETS="darwin/arm64"
 
+  linux-installer:
+    name: Rootless Linux installer (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [debian:bookworm, ubuntu:24.04, fedora:latest, archlinux:latest]
+    container: ${{ matrix.image }}
+    steps:
+      # Test setup may install tools as root; the installer suite itself must run
+      # as a normal user and proves that no package-manager command is invoked.
+      - name: Prepare container tools
+        shell: sh
+        run: |
+          if command -v apt-get >/dev/null; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bash git ca-certificates passwd zsh fish
+          elif command -v dnf >/dev/null; then
+            dnf install -y bash git ca-certificates shadow-utils zsh fish
+          else
+            pacman -Syu --noconfirm bash git ca-certificates shadow zsh fish
+          fi
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+      - name: Test as an unprivileged user
+        run: |
+          useradd --create-home --shell /bin/bash radar-test
+          node_binary="$(command -v node)"
+          su -s /bin/bash radar-test -c "\"$node_binary\" --test scripts/linux-install.test.mjs"
+
   linux-homebrew:
     name: Linux Homebrew install (${{ matrix.arch }})
     strategy:
