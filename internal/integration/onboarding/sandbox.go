@@ -106,11 +106,11 @@ func (w *wizard) sbxOutput(ctx context.Context, timeout time.Duration, args ...s
 
 func (w *wizard) prepareSandbox(ctx context.Context, cfg config.SBXConfig, plan *sandboxSetupPlan) error {
 	if !w.system.lookPath("sbx") {
-		return fmt.Errorf("SBX is missing. Install Docker Sandboxes for macOS from https://docs.docker.com/ai/sandboxes/ in another terminal, then retry (SBX 0.43.0+ required)")
+		return fmt.Errorf("SBX is missing. Install Docker Sandboxes for macOS from https://docs.docker.com/ai/sandboxes/ in another terminal, then retry (SBX 0.48.0+ required)")
 	}
 	version, err := w.sbxOutput(ctx, 15*time.Second, "version")
-	if err != nil || !versionAtLeast(version, [3]int{0, 43, 0}) {
-		return fmt.Errorf("SBX 0.43.0+ is required; check `sbx version`, update Docker Sandboxes, then retry")
+	if err != nil || !versionAtLeast(version, [3]int{0, 48, 0}) {
+		return fmt.Errorf("SBX 0.48.0+ is required; check `sbx version`, update Docker Sandboxes, then retry")
 	}
 	w.ui.print("✓ SBX version supported\nChecking SBX authentication and runtime access…\n")
 	output, err := w.sbxOutput(ctx, 15*time.Second, "ls", "--json")
@@ -135,14 +135,14 @@ func (w *wizard) prepareSandbox(ctx context.Context, cfg config.SBXConfig, plan 
 		output, err = w.sbxOutput(ctx, 15*time.Second, "ls", "--json")
 	}
 	var listed sandboxSetupList
-	if err != nil || json.Unmarshal([]byte(output), &listed) != nil || listed.Sandboxes == nil {
+	if err != nil || json.Unmarshal([]byte(output), &listed) != nil || listed == nil {
 		return fmt.Errorf("SBX authentication/runtime check failed; check `sbx ls --json` on the host and retry")
 	}
 	w.ui.print("✓ SBX authenticated and runtime accessible\n")
-	if err := w.extensions(ctx, dependency{"pi-sbx", "pi-sbx 0.6.0+ routes Pi tools and gates early tools on startup readiness"}); err != nil {
+	if err := w.extensions(ctx, dependency{"pi-sbx", "pi-sbx 0.6.4+ supports SBX 0.48.0 and gates early tools on startup readiness"}); err != nil {
 		// Declining an optional extension is a preparation failure, not a whole-wizard abort.
 		if errors.Is(err, errExtensionDeclined) {
-			return fmt.Errorf("pi-sbx installation was not completed; install/enable pi-sbx 0.6.0+ or continue without SBX")
+			return fmt.Errorf("pi-sbx installation was not completed; install/enable pi-sbx 0.6.4+ or continue without SBX")
 		}
 		return err
 	}
@@ -157,10 +157,8 @@ func (w *wizard) prepareSandbox(ctx context.Context, cfg config.SBXConfig, plan 
 	return w.probeSandbox(ctx, cfg, plan)
 }
 
-type sandboxSetupList struct {
-	Sandboxes []struct {
-		Name string `json:"name"`
-	} `json:"sandboxes"`
+type sandboxSetupList []struct {
+	Name string `json:"name"`
 }
 
 type sandboxCleanupError struct{ name, temp string }
@@ -254,8 +252,8 @@ func (w *wizard) probeSandbox(ctx context.Context, cfg config.SBXConfig, plan *s
 		if cleanupErr != nil {
 			output, listErr := w.sbxOutput(context.Background(), 15*time.Second, "ls", "--json")
 			var entries sandboxSetupList
-			absent := listErr == nil && json.Unmarshal([]byte(output), &entries) == nil && entries.Sandboxes != nil
-			for _, entry := range entries.Sandboxes {
+			absent := listErr == nil && json.Unmarshal([]byte(output), &entries) == nil && entries != nil
+			for _, entry := range entries {
 				if entry.Name == name {
 					absent = false
 				}

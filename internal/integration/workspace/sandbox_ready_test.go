@@ -325,7 +325,7 @@ sbx:
 }
 
 func listedReadySandbox(sandbox *workspacegroup.Sandbox, status string) string {
-	data, _ := json.Marshal(map[string]any{"sandboxes": []any{map[string]any{"name": sandbox.Name, "agent": sandbox.Agent, "status": status, "mounts": sandbox.Mounts}}})
+	data, _ := json.Marshal([]any{map[string]any{"name": sandbox.Name, "agent": sandbox.Agent, "status": status, "mounts": sandbox.Mounts}})
 	return string(data)
 }
 
@@ -430,7 +430,7 @@ func TestCreateSessionReadinessBeforeLaunchAndReuse(t *testing.T) {
 		for _, fail := range []bool{false, true} {
 			t.Run(fmt.Sprintf("session=%t/fail=%t", hasSession, fail), func(t *testing.T) {
 				path := t.TempDir()
-				runner := &readyRunner{Runner: &fakeRunner{hasSession: hasSession, sbxListOutput: `{"sandboxes":[{"name":"ABC-123","status":"stopped"}]}`}}
+				runner := &readyRunner{Runner: &fakeRunner{hasSession: hasSession, sbxListOutput: `[{"name":"ABC-123","status":"stopped"}]`}}
 				if fail {
 					runner.ready = func(context.Context) (string, error) { return readySecret, errors.New(readySecret) }
 				}

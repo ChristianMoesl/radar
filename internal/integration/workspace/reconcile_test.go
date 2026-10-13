@@ -498,7 +498,7 @@ func (r *sandboxPlanningRunner) Run(_ context.Context, _ string, name string, ar
 		if r.exists {
 			sandboxes = append(sandboxes, map[string]any{"name": r.sandboxName, "agent": "shell", "status": "running", "workspaces": r.mounts})
 		}
-		data, _ := json.Marshal(map[string]any{"sandboxes": sandboxes})
+		data, _ := json.Marshal(sandboxes)
 		return string(data), nil
 	case "sbx ports " + r.sandboxName + " --json":
 		return `[]`, nil

@@ -21,8 +21,7 @@ import (
 )
 
 func TestParseSandboxes(t *testing.T) {
-	sandboxes, err := parseSandboxes(`{
-  "sandboxes": [
+	sandboxes, err := parseSandboxes(`[
     {
       "name": "radar-rb3ca-experience-center-ABC-600-Integrate-generated-links",
       "id": "c048feba-a578-492b-baf0-895b04b6e1b3",
@@ -34,8 +33,7 @@ func TestParseSandboxes(t *testing.T) {
         "/Users/me/.pi/agent/sessions"
       ]
     }
-  ]
-}`)
+]`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +68,7 @@ func TestFetchSandboxesUsesRegisteredWorkspaceAnchor(t *testing.T) {
 	}}}); err != nil {
 		t.Fatal(err)
 	}
-	output := fmt.Sprintf(`{"sandboxes":[{"name":%q,"id":"sandbox-id","agent":"shell","status":"running","workspaces":[%q,%q]}]}`, sandboxName, commonDir, primary)
+	output := fmt.Sprintf(`[{"name":%q,"id":"sandbox-id","agent":"shell","status":"running","workspaces":[%q,%q]}]`, sandboxName, commonDir, primary)
 	installFakeSBX(t, tmp, "cat <<'JSON'\n"+output+"\nJSON\n")
 
 	refs, status := FetchSandboxes(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), linking.MarkMatcher{})
@@ -183,7 +181,7 @@ func TestSBXErrorDetailSuggestsLoginForAuthFailure(t *testing.T) {
 func TestSourceListsSandboxesOncePerCollection(t *testing.T) {
 	tmp := t.TempDir()
 	countPath := filepath.Join(tmp, "calls")
-	installFakeSBX(t, tmp, fmt.Sprintf("printf 'call\\n' >> %q\nprintf '{\"sandboxes\":[]}\\n'\n", countPath))
+	installFakeSBX(t, tmp, fmt.Sprintf("printf 'call\\n' >> %q\nprintf '[]\\n'\n", countPath))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	source := Source{}
 
@@ -252,5 +250,19 @@ func TestCleanupSandboxDoesNotTreatMissingCLIAsMissingResource(t *testing.T) {
 func TestWindowsAuthenticationHintNamesWindowsCLI(t *testing.T) {
 	if got := sbxErrorDetail(fmt.Errorf("sbx.exe ls --json failed: not signed in; run sbx login")); got != "not signed in; run sbx.exe login" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestParseSandboxesEmptyAndInvalidLists(t *testing.T) {
+	sandboxes, err := parseSandboxes(`[]`)
+	if err != nil || len(sandboxes) != 0 {
+		t.Fatalf("empty list = %+v, %v", sandboxes, err)
+	}
+	for _, output := range []string{`[`, `{"sandboxes":[]}`, `[{"workspaces":3}]`} {
+		t.Run(output, func(t *testing.T) {
+			if _, err := parseSandboxes(output); err == nil || !strings.Contains(err.Error(), "unexpected sbx ls output") {
+				t.Fatalf("parseSandboxes() error = %v", err)
+			}
+		})
 	}
 }

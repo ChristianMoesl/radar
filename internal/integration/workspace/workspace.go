@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -906,22 +905,12 @@ func stopSandbox(ctx context.Context, runner Runner, path string, name string) (
 	return output, nil
 }
 
-type sandboxListResponse struct {
-	Sandboxes []struct {
-		Name string `json:"name"`
-	} `json:"sandboxes"`
-}
-
 func sandboxExists(ctx context.Context, runner Runner, name string) (bool, error) {
-	output, err := sbxclient.New(runner).Run(ctx, "", "ls", "--json")
+	sandboxes, err := listSandboxes(ctx, runner)
 	if err != nil {
-		return false, sbxCommandError(err)
+		return false, err
 	}
-	var response sandboxListResponse
-	if err := json.Unmarshal([]byte(output), &response); err != nil {
-		return false, fmt.Errorf("unexpected sbx ls output: %w", err)
-	}
-	for _, sandbox := range response.Sandboxes {
+	for _, sandbox := range sandboxes {
 		if sandbox.Name == name {
 			return true, nil
 		}

@@ -109,10 +109,10 @@ func TestInstalledSBXRequiresVersionedPiSBXWithoutChangingItsSource(t *testing.T
 	w, ui, sys, home := fixture(t)
 	delete(sys.missing, "sbx")
 	ui.decisions = []bool{false}
-	if err := w.extensions(context.Background(), dependency{"pi-sbx", "pi-sbx 0.6.0+"}); !errors.Is(err, errExtensionDeclined) {
+	if err := w.extensions(context.Background(), dependency{"pi-sbx", "pi-sbx 0.6.4+"}); !errors.Is(err, errExtensionDeclined) {
 		t.Fatalf("missing sandbox extension: %v", err)
 	}
-	if !strings.Contains(ui.transcript.String(), "pi-sbx 0.6.0+") {
+	if !strings.Contains(ui.transcript.String(), "pi-sbx 0.6.4+") {
 		t.Fatal("missing sandbox prerequisite explanation")
 	}
 	dir := filepath.Join(home, ".pi", "agent")
@@ -123,7 +123,7 @@ func TestInstalledSBXRequiresVersionedPiSBXWithoutChangingItsSource(t *testing.T
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"packages":["npm:@christianmoesl/pi-radar","npm:@christianmoesl/pi-sbx"]}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for version, want := range map[string]bool{"0.5.9": false, "0.6.0": true, "1.0.0": true, "0.6.0+local.1": true, "0.6.0-rc.1": false, "v0.6.0": false, "0.06.0": false, "0.6.00": false, "0.6.0+": false, "0.6.0\n": false} {
+	for version, want := range map[string]bool{"0.5.9": false, "0.6.0": false, "0.6.3": false, "0.6.4": true, "0.6.5": true, "1.0.0": true, "0.6.4+local.1": true, "0.6.4-rc.1": false, "v0.6.4": false, "0.06.0": false, "0.6.04": false, "0.6.4+": false, "0.6.4\n": false} {
 		if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(fmt.Sprintf(`{"name":"@christianmoesl/pi-sbx","version":%q}`, version)), 0600); err != nil {
 			t.Fatal(err)
 		}

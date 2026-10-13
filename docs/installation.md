@@ -245,8 +245,8 @@ the prefix at tmux's own default; existing prefix settings are preserved.
    failed verification stops setup. Existing Git/local package sources and
    explicit extension disablement are never silently overridden.
 3. **Sandboxed workspaces:** on macOS, offer SBX (recommended for new installs;
-   existing choices are preselected). Check SBX 0.43.0+, guide installation or
-   updates if needed, offer login, and install/verify pi-sbx 0.6.0+ with consent.
+   existing choices are preselected). Check SBX 0.48.0+, guide installation or
+   updates if needed, offer login, and install/verify pi-sbx 0.6.4+ with consent.
    Declining SBX skips these checks and writes an explicit opt-out. When no
    sandbox recipe is explicitly configured, propose a complete editable local
    kit, an env-file and an empty read-only `startup.d`, using
@@ -458,7 +458,7 @@ authentication in the foreground.
   the user's responsibility.
 - Git members require Git. Repository discovery requires `fd`.
 - Pi's Radar tools/activity require the separately installed `pi-radar` package;
-  sandbox tool routing requires `pi-sbx` >=0.6.0 for early sandboxed launch.
+  sandbox tool routing requires `pi-sbx` >=0.6.4 for early sandboxed launch.
   Installing the SBX CLI does not install those extensions. Radar-launched
   interactive Pi sessions show one non-blocking install notice per Pi profile,
   recommending each missing package independently. Configured or explicitly

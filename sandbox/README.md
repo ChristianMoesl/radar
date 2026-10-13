@@ -20,7 +20,7 @@ for complete examples, image builds and applying changes safely.
 ## Use the published kit
 
 On macOS, Radar automatically enables sandboxing when `sbx` is installed. Use
-SBX 0.43.0 or newer and sign in with `sbx login`. To require sandboxing explicitly,
+SBX 0.48.0 or newer and sign in with `sbx login`. To require sandboxing explicitly,
 set this in Radar's user configuration or a repository's `.radar.yaml`:
 
 ```yaml

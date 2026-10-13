@@ -26,7 +26,7 @@ func sandboxFixture(t *testing.T) (wizard, *fakeUI, *fakeSystem, string) {
 	if err := os.MkdirAll(pkg, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(`{"name":"@christianmoesl/pi-sbx","version":"0.6.0"}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(`{"name":"@christianmoesl/pi-sbx","version":"0.6.4"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"packages":["npm:@christianmoesl/pi-radar","npm:@christianmoesl/pi-sbx"]}`), 0600); err != nil {
@@ -45,9 +45,9 @@ func healthySandbox(t *testing.T) func(context.Context, ...string) (string, erro
 		}
 		switch args[0] {
 		case "version":
-			return "sbx version: v0.46.0 fixture", nil
+			return "sbx version: v0.48.0 fixture", nil
 		case "ls":
-			return `{"sandboxes":[]}`, nil
+			return `[]`, nil
 		case "kit":
 			if _, err := os.ReadFile(filepath.Join(args[2], "spec.yaml")); err != nil {
 				return "", err
@@ -137,16 +137,22 @@ func TestSandboxSetupCreatesReviewedStarterOnlyOnSave(t *testing.T) {
 }
 
 func TestSandboxSetupFailureCanExplicitlyDisable(t *testing.T) {
-	for _, failure := range []string{"missing", "old version", "auth", "null list", "extension", "create", "ready", "sharing", "decline preparation"} {
+	for _, failure := range []string{"missing", "old version", "auth", "null list", "old list wrapper", "malformed list", "extension", "create", "ready", "sharing", "decline preparation"} {
 		t.Run(failure, func(t *testing.T) {
 			w, ui, sys, home := sandboxFixture(t)
 			base := sys.sandboxFn
 			sys.sandboxFn = func(ctx context.Context, args ...string) (string, error) {
 				if failure == "old version" && args[0] == "version" {
-					return "sbx version: v0.42.0", nil
+					return "sbx version: v0.47.9", nil
 				}
 				if failure == "null list" && args[0] == "ls" {
 					return "null", nil
+				}
+				if failure == "old list wrapper" && args[0] == "ls" {
+					return `{"sandboxes":[]}`, nil
+				}
+				if failure == "malformed list" && args[0] == "ls" {
+					return `[`, nil
 				}
 				if failure == "auth" && args[0] == "ls" {
 					return "PRIVATE_SECRET runtime offline", errors.New("PRIVATE_SECRET")
@@ -344,7 +350,7 @@ func TestSandboxProbeCleanupFailureBlocksSetupAndRetainsMount(t *testing.T) {
 			return "private", errors.New("failed")
 		}
 		if args[0] == "ls" && name != "" {
-			return fmt.Sprintf(`{"sandboxes":[{"name":%q}]}`, name), nil
+			return fmt.Sprintf(`[{"name":%q}]`, name), nil
 		}
 		return base(ctx, args...)
 	}
@@ -555,5 +561,45 @@ func TestSandboxSetupE2E(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(plan.root, "spec.yaml")); !os.IsNotExist(err) {
 		t.Fatal("probe published starter before review")
+	}
+}
+
+func TestSandboxSetupRequiresSBX048(t *testing.T) {
+	for _, tt := range []struct {
+		version   string
+		supported bool
+	}{
+		{"sbx version v0.46.0 fixture", false},
+		{"sbx version v0.47.9 fixture", false},
+		{"sbx version v0.48.0 fixture", true},
+		{"sbx version v0.48.1 fixture", true},
+		{"sbx version v0.49.0 fixture", true},
+		{"sbx version v1.0.0 fixture", true},
+		{"unknown", false},
+	} {
+		t.Run(tt.version, func(t *testing.T) {
+			w, _, sys, _ := sandboxFixture(t)
+			listed := false
+			sys.sandboxFn = func(_ context.Context, args ...string) (string, error) {
+				switch args[0] {
+				case "version":
+					return tt.version, nil
+				case "ls":
+					listed = true
+					// Stop after the version gate, without provisioning anything.
+					return "", errors.New("runtime unavailable")
+				default:
+					t.Fatalf("unexpected command: %v", args)
+					return "", nil
+				}
+			}
+			err := w.prepareSandbox(context.Background(), config.SBXConfig{}, nil)
+			if listed != tt.supported || err == nil {
+				t.Fatalf("listed = %v, error = %v", listed, err)
+			}
+			if !tt.supported && !strings.Contains(err.Error(), "SBX 0.48.0+ is required") {
+				t.Fatalf("missing upgrade guidance: %v", err)
+			}
+		})
 	}
 }

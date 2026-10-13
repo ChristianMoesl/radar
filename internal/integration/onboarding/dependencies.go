@@ -127,7 +127,7 @@ func (w *wizard) dependencies(ctx context.Context) error {
 func (w *wizard) extensions(ctx context.Context, checks ...dependency) error {
 	for _, dep := range checks {
 		if dep.name == "pi-sbx" {
-			w.ui.print("\nSBX sandboxing is enabled — checking pi-sbx 0.6.0+.\n")
+			w.ui.print("\nSBX sandboxing is enabled — checking pi-sbx 0.6.4+.\n")
 		}
 		ready, err := w.installed(ctx, dep.name)
 		if err != nil {
@@ -266,7 +266,7 @@ func packageInstalled(name string) (bool, error) {
 			}
 			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 				if name == "pi-sbx" {
-					return false, fmt.Errorf("install pi-sbx 0.6.0+ as a Pi package so its version can be checked")
+					return false, fmt.Errorf("install pi-sbx 0.6.4+ as a Pi package so its version can be checked")
 				}
 				return true, nil
 			}
@@ -334,8 +334,8 @@ func packageReady(path, name string) bool {
 	}
 	// Match the early-sandbox guard: only stable, canonical package versions
 	// establish readiness. Build metadata is valid; prereleases and loose CLI
-	// spellings such as v0.6.0 or 0.06.0 must not pass onboarding.
+	// spellings such as v0.6.4 or 0.06.0 must not pass onboarding.
 	stable := regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 	core, _, _ := strings.Cut(version, "+")
-	return stable.MatchString(version) && versionAtLeast(core, [3]int{0, 6, 0})
+	return stable.MatchString(version) && versionAtLeast(core, [3]int{0, 6, 4})
 }

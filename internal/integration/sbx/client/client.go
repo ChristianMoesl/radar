@@ -125,10 +125,8 @@ func splitReadOnly(value string) (string, string) {
 }
 
 func (c *Client) normalizeList(ctx context.Context, output string) (string, error) {
-	var response struct {
-		Sandboxes []map[string]json.RawMessage `json:"sandboxes"`
-	}
-	if err := json.Unmarshal([]byte(output), &response); err != nil {
+	var sandboxes []map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(output), &sandboxes); err != nil {
 		return "", fmt.Errorf("unexpected sbx ls output: %w", err)
 	}
 	cache := map[string]string{}
@@ -161,7 +159,7 @@ func (c *Client) normalizeList(ctx context.Context, output string) (string, erro
 		cache[host] = converted
 		return converted + suffix, nil
 	}
-	for _, sandbox := range response.Sandboxes {
+	for _, sandbox := range sandboxes {
 		for _, field := range []string{"workspaces", "mounts"} {
 			raw, ok := sandbox[field]
 			if !ok {
@@ -195,7 +193,7 @@ func (c *Client) normalizeList(ctx context.Context, output string) (string, erro
 			sandbox["kit_path"], _ = json.Marshal(value)
 		}
 	}
-	data, err := json.Marshal(response)
+	data, err := json.Marshal(sandboxes)
 	return string(data), err
 }
 

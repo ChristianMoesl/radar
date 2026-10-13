@@ -102,13 +102,11 @@ func listSandboxes(ctx context.Context, runner Runner) ([]listedSandbox, error) 
 	if err != nil {
 		return nil, sbxCommandError(err)
 	}
-	var response struct {
-		Sandboxes []listedSandbox `json:"sandboxes"`
-	}
-	if err := json.Unmarshal([]byte(output), &response); err != nil {
+	var sandboxes []listedSandbox
+	if err := json.Unmarshal([]byte(output), &sandboxes); err != nil {
 		return nil, fmt.Errorf("unexpected sbx ls output: %w", err)
 	}
-	return response.Sandboxes, nil
+	return sandboxes, nil
 }
 
 func findSandbox(ctx context.Context, runner Runner, workspacePath, preferredName string) (listedSandbox, bool, error) {

@@ -46,7 +46,7 @@ func (r *recreationRunner) Run(_ context.Context, cwd, executable string, args .
 		for _, s := range r.live {
 			rows = append(rows, s)
 		}
-		return encode(map[string]any{"sandboxes": rows})
+		return encode(rows)
 	case "secret":
 		if r.secretFailure {
 			return "", errors.New("PRIVATE credential provider error")

@@ -22,10 +22,6 @@ import (
 	"radar/internal/protocol"
 )
 
-type listResponse struct {
-	Sandboxes []sandbox `json:"sandboxes"`
-}
-
 type sandbox struct {
 	Name       string   `json:"name"`
 	ID         string   `json:"id"`
@@ -88,11 +84,11 @@ func FetchSandboxes(ctx context.Context, logger *slog.Logger, marks linking.Mark
 }
 
 func parseSandboxes(output string) ([]sandbox, error) {
-	var response listResponse
-	if err := json.Unmarshal([]byte(output), &response); err != nil {
+	var sandboxes []sandbox
+	if err := json.Unmarshal([]byte(output), &sandboxes); err != nil {
 		return nil, fmt.Errorf("unexpected sbx ls output: %w", err)
 	}
-	return response.Sandboxes, nil
+	return sandboxes, nil
 }
 
 func (s sandbox) SourceRef(marks linking.MarkMatcher, registeredWorkspace string) protocol.SourceRef {

@@ -179,7 +179,7 @@ func (r *sandboxRetryRunner) Run(_ context.Context, cwd string, name string, arg
 				"name": r.name, "agent": "shell", "status": "running", "workspaces": r.mounts,
 			})
 		}
-		data, _ := json.Marshal(map[string]any{"sandboxes": sandboxes})
+		data, _ := json.Marshal(sandboxes)
 		return string(data), nil
 	case "rm":
 		r.removeCalls++

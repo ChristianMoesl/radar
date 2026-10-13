@@ -85,7 +85,7 @@ func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...str
 		if f.sbxListOutput != "" {
 			return f.sbxListOutput, nil
 		}
-		return `{"sandboxes":[]}`, nil
+		return `[]`, nil
 	}
 	return "", nil
 }
@@ -977,7 +977,7 @@ func TestCreateSessionUsesLinkedSandboxForHostPiTools(t *testing.T) {
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	runner := &fakeRunner{sbxListOutput: `{"sandboxes":[{"name":"existing-sandbox"}]}`}
+	runner := &fakeRunner{sbxListOutput: `[{"name":"existing-sandbox"}]`}
 
 	created, err := CreateSessionWithOptions(context.Background(), runner, CreateSessionOptions{Path: path, SessionName: "repo-small-fix", SandboxName: "existing-sandbox"})
 	if err != nil {
@@ -1275,4 +1275,32 @@ func TestInstallAdviceCacheFailureDoesNotPreventPiSession(t *testing.T) {
 	assertCalledContains(t, runner.calls, "tmux", "pi --session-id 'optional-advice'")
 	assertCalledContains(t, runner.calls, "tmux", "'Review ABC-123'")
 	assertNotCalledContains(t, runner.calls, "tmux", "--extension")
+}
+
+func TestSandboxExistsParsesListArray(t *testing.T) {
+	for _, tt := range []struct {
+		name, output  string
+		want, wantErr bool
+	}{
+		{"empty", `[]`, false, false},
+		{"matching", `[{"name":"ABC-456"},{"name":"ABC-123"}]`, true, false},
+		{"missing", `[{"name":"ABC-456"}]`, false, false},
+		{"malformed", `[`, false, true},
+		{"old wrapper", `{"sandboxes":[]}`, false, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &fakeRunner{sbxListOutput: tt.output}
+			got, err := sandboxExists(context.Background(), runner, "ABC-123")
+			if got != tt.want || (err != nil) != tt.wantErr {
+				t.Fatalf("sandboxExists() = %v, %v", got, err)
+			}
+			if tt.wantErr && !strings.Contains(err.Error(), "unexpected sbx ls output") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(runner.calls) != 1 {
+				t.Fatalf("calls = %+v", runner.calls)
+			}
+			assertCalled(t, runner.calls, "sbx", "ls --json")
+		})
+	}
 }

@@ -14,9 +14,11 @@ and [recreation](#explicit-sandbox-recreation) before resetting an existing sand
 ## Guided setup and your local kit
 
 Run `radar setup` on supported macOS. New installations recommend SBX; repeat
-setup prefills the existing choice. Setup checks SBX 0.43.0+, offers `sbx login`
-when needed, and installs/verifies pi-sbx 0.6.0+ with consent. Missing or outdated
-SBX gets installation/update guidance, not an unattended installer.
+setup prefills the existing choice. Setup checks SBX 0.48.0+, offers `sbx login`
+when needed, and installs/verifies pi-sbx 0.6.4+ with consent. Missing or outdated
+SBX gets installation/update guidance, not an unattended installer. Radar and
+pi-sbx 0.6.4+ read the top-level array returned by SBX 0.48.0; older
+`{ "sandboxes": [...] }` output is not supported.
 
 When no sandbox recipe has been explicitly configured, setup proposes these
 user-owned files under Radar's config directory (`XDG_CONFIG_HOME` is respected):
@@ -350,7 +352,7 @@ VM-local state just to troubleshoot authentication.
 ### Kits and mounts
 
 Guided setup uses the complete local kit described above. Without an explicit
-kit, new workspaces use `docker.io/christianmoesl/radar-kit:latest` (SBX 0.43.0+). A user config or repository `.radar.yaml` can add:
+kit, new workspaces use `docker.io/christianmoesl/radar-kit:latest` (SBX 0.48.0+). A user config or repository `.radar.yaml` can add:
 
 ```yaml
 sbx:
@@ -473,7 +475,7 @@ An unset `SBX_STARTUP_DIR` is an immediate no-op.
 SBX native startup commands do not gate the agent's entrypoint, regardless of
 `background: false`. Radar's command gates its auxiliary panes and repository
 setup, **not the early Pi tools**. Tool readiness is independently owned by
-**pi-sbx >=0.6.0**: a nonempty sandbox `SBX_STARTUP_DIR` requires the image's
+**pi-sbx >=0.6.4**: a nonempty sandbox `SBX_STARTUP_DIR` requires the image's
 `sandbox-startup wait --timeout 60` contract before the worker becomes ready.
 The helper must exist and report current-boot readiness; failure never enables
 implicit host execution. With no startup directory, pi-sbx only checks worker
@@ -645,7 +647,7 @@ not by itself solve host symlink transport.
 
 ## Published development kit
 
-As an alternative to the generated local kit, with SBX 0.43.0 or newer, enabling
+As an alternative to the generated local kit, with SBX 0.48.0 or newer, enabling
 `sbx.enabled` without an explicit kit selects `docker.io/christianmoesl/radar-kit:latest` for new workspaces unless a user or repository kit overrides it. No `kit.name` or `kit.path` is required to use this default. Set `sbx.kit.name` only to select another kit or pin a digest. The [sandbox guide](../../sandbox/README.md) documents its tool inventory, Pi requirements, private Docker daemon, publication and rollout.
 
 Sandboxing is automatic on supported systems. Existing `sbx.enabled: false` values remain opt-outs; remove the field manually to adopt automatic detection. Explicit kit settings, including `"shell"` in an older generated configuration, are preserved; remove that override manually to opt into the new default. Existing workspaces retain their recorded kit even during sandbox recreation. No configuration or registry migration is performed.

@@ -189,7 +189,7 @@ if (args[0] === 'ls' && args[1] === '--json' && args.length === 2) {
     clearInterval(timer);
     const present = existsSync(${JSON.stringify(appearanceGate)});
     log({kind: 'discovery-result', present});
-    emit({sandboxes: present ? [{name: ${JSON.stringify(sandboxName)}, status: 'running', workspaces: [${JSON.stringify(workspace)}]}] : []});
+    emit(present ? [{name: ${JSON.stringify(sandboxName)}, status: 'running', workspaces: [${JSON.stringify(workspace)}]}] : []);
   }, 10);
 } else if (args[0] === 'exec') {
   if (args[1] !== '-i' || args[2] !== '--workdir' || args[3] !== ${JSON.stringify(workspace)} || args[4] !== ${JSON.stringify(sandboxName)} || args[5] !== 'node' || args[6] !== '-e' || !args[7]?.includes('SBX_STARTUP_DIR')) {
@@ -300,7 +300,7 @@ export default function(pi) {
 
   const manifest = JSON.parse(await readFile(join(sbxPackage, "package.json"), "utf8"));
   assert.equal(manifest.name, "@christianmoesl/pi-sbx");
-  assert.equal(manifest.version, "0.6.0", "must exercise the pinned release, not a fake provider package");
+  assert.equal(manifest.version, "0.6.4", "must exercise the pinned release, not a fake provider package");
   await writeFile(join(agent, "settings.json"), JSON.stringify({
     defaultProjectTrust: "always", quietStartup: true, enableInstallTelemetry: false,
     packages: [sbxPackage, repository], extensions: [probe],
