@@ -286,12 +286,12 @@ func mustReadScript(t *testing.T, name string) []byte {
 	return data
 }
 
-func TestMakeTestBoundsPackageParallelism(t *testing.T) {
+func TestMakeTestBoundsPackageParallelismAndChecksLinuxInstaller(t *testing.T) {
 	cmd := exec.Command("make", "--no-print-directory", "-n", "test", "GO=go")
 	cmd.Dir = ".."
 	output, err := cmd.CombinedOutput()
-	if err != nil || strings.TrimSpace(string(output)) != "go test -p 2 ./..." {
-		t.Fatalf("make test must bound package concurrency: %v; %s", err, output)
+	if err != nil || strings.TrimSpace(string(output)) != "go test -p 2 ./...\nnode --test scripts/linux-install.test.mjs" {
+		t.Fatalf("make test must bound Go package concurrency and run installer checks: %v; %s", err, output)
 	}
 }
 

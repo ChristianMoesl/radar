@@ -3,6 +3,8 @@
 [Documentation](README.md) · [Quick start](../README.md#get-started)
 
 - [Homebrew on Linux and macOS](#homebrew)
+- [One-command installation](#one-command-installation)
+- [Standalone Linux installer](#standalone-linux-installation)
 - [Standalone macOS installer](#one-command-macos-installation)
 - [Manual installation](#manual-installation)
 - [First-run setup](#guided-first-startup)
@@ -12,8 +14,8 @@
 
 ## Homebrew
 
-Homebrew is the recommended Linux installation method (amd64/arm64) and also
-supports macOS (Apple Silicon only, Ventura+).
+Homebrew is available on Linux (amd64/arm64) and macOS (Apple Silicon only,
+Ventura+). Linux users can also use the rootless standalone installer below.
 
 **Linux publication gate:** support in this checkout is not proof it is live in
 [ChristianMoesl/homebrew-tap](https://github.com/ChristianMoesl/homebrew-tap).
@@ -21,7 +23,7 @@ A new signed release with both Linux archives, exact npm approval, all native
 Homebrew validation jobs, and publication of the generated tap formula are
 required first. Maintainers can enable [automatic publication](releases.md#automatic-publication-setup)
 after npm approval. Do not republish an older release's metadata or archives. Until
-then, use [manual installation](#manual-installation). See the
+then, use [standalone Linux installation](#standalone-linux-installation). See the
 [maintainer rollout checklist](releases.md#linux-homebrew-rollout).
 
 After publication, with [Homebrew](https://brew.sh) installed and its `brew shellenv`
@@ -109,15 +111,104 @@ update receipt. Keep your existing config, notes and workspace data. Use one
 installation/update owner; the standalone bootstrap does not repair a Homebrew
 installation.
 
-## One-command macOS installation
+## One-command installation
 
-In a normal Terminal window, without sudo:
+On macOS or Linux, run in a terminal as your normal user:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ChristianMoesl/radar/main/install.sh | bash
 ```
 
-The root `install.sh` is the standalone first-install bootstrap, not an updater. It
+The installer checks required tools, offers to install missing ones, verifies
+the release, offers PATH configuration, and starts guided setup. Each installation
+requires confirmation; PATH changes have a separate confirmation. Declining a
+required tool stops installation. Radar itself installs into a user-owned directory.
+
+Both platforms require **Node.js 24+** for publisher verification and Pi. The
+installer offers to install it before downloading a release. On macOS it uses
+Homebrew, offering to install Homebrew if needed. Linux uses an existing Homebrew,
+apt-get, dnf or pacman. Linux system-package commands may require sudo; the exact
+command is shown and runs only after approval. Do not run the bootstrap itself
+with sudo. If the package manager cannot supply the required version, install it
+on PATH using your preferred method and rerun.
+
+After verifying the release, its authenticated prerequisite helper checks Git,
+tmux 3.2+, fd (`fdfind` on Debian/Ubuntu), Node.js 24+, npm, Pi 0.85.1+ and gh.
+Suitable tools are retained. Missing tools are offered through the supported
+package manager; Pi installs under `~/.local` using npm without sudo or lifecycle
+scripts. No Go or Swift compiler is required. Linux URL actions also need
+`xdg-open`, usually provided by the distribution's `xdg-utils` package.
+
+PATH configuration supports Bash, Zsh and Fish. Accepted changes append one
+marked block while preserving existing content, file permissions and symlink
+targets. Declining leaves the profile untouched and prints the installed binary's
+path. Setup starts immediately in interactive terminals even if PATH changes
+are declined. Headless installation requires all tools to be ready, never consumes
+piped approval, never edits profiles, and leaves guided setup for a terminal.
+
+Downloads use HTTPS, time/size limits, a signed stable release manifest, and
+verified archive and binary checksums. The selected release must also have its exact public Pi
+package. If none is fully published, installation fails with an explanation.
+
+## Standalone Linux installation
+
+The shared installer supports Linux amd64/x86_64 and arm64/aarch64.
+
+Binary directory selection is deterministic:
+
+1. `RADAR_INSTALL_DIR`, when explicitly set. Invalid or unwritable overrides fail.
+2. `$HOME/.local/bin`, when that directory is already an entry in PATH.
+3. `$HOME/bin`, when that directory is already an entry in PATH.
+4. Otherwise `$HOME/.local/bin`, creating it if needed.
+
+Missing directories are created, including a custom destination. Relative
+overrides are resolved against the current working directory. The destination
+must be owned by you, writable and searchable, with no shared-write permissions
+or symlink components. An invalid selected directory fails rather than silently
+choosing a different one. Other writable PATH entries, including Homebrew, Cargo
+and npm directories, are never chosen automatically. For a downloaded script:
+
+```sh
+RADAR_INSTALL_DIR="$HOME/bin" ./install.sh
+```
+
+When piping, pass the override to **Bash**, which runs the installer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ChristianMoesl/radar/main/install.sh | RADAR_INSTALL_DIR="$HOME/bin" bash
+```
+
+Shell changes follow the shared confirmation flow. If the binary directory is
+missing from PATH, the installer also prints quoted instructions for Bash
+(`~/.bashrc`), Zsh (`~/.zshrc`) and Fish (`fish_add_path`). No `--modify-path` option
+is needed. Headless installation requires ready tools and skips shell changes
+and setup.
+Manuals and the MIT notice go under `~/.local/share`; your Radar configuration,
+agent instructions and workspaces are left for guided setup.
+
+An existing `command -v radar` is reported without executing it. Package-manager
+paths are identified where possible, and other installations are left alone. A
+checksum receipt, `.radar-install.json` next to the binary, identifies installations
+owned by this bootstrap. Unrelated binaries, symlinks and modified managed binaries
+are refused. The binary is staged on its destination filesystem with executable
+permissions, then renamed atomically. The receipt recognizes both old and new
+binary identities if activation is interrupted, allowing a safe retry. Concurrent
+installations are rejected; after a hard kill, inspect `.radar-install.lock` and
+remove it only once no installer is running. The installer warns if another
+executable still takes precedence on PATH and refuses downgrades.
+
+Interactive installation starts guided setup after the PATH offer. In headless
+environments, run `radar` in a terminal afterward.
+For updates, rerun the same bootstrap with the same `RADAR_INSTALL_DIR` override,
+if any, then run `radar restart` when the daemon is already running. Review
+[older-installation rollout guidance](#before-upgrading-older-installations) first.
+The built-in `radar update` command remains macOS-only.
+
+## One-command macOS installation
+
+Use the [shared one-command installer](#one-command-installation).
+
+On macOS, the root `install.sh` is the standalone first-install bootstrap. It
 detects Apple Silicon, selects a stable release with a complete macOS arm64
 archive **and its exact public npm package**, authenticates the signed metadata,
 verifies the selected archive/binary/notifier identities, and safely extracts it.
@@ -130,24 +221,23 @@ incomplete release in favor of an older ready one. If no coordinated release is
 ready, it says to try later and installs no Radar files. Maintainers must finish
 npm staging/approval; users do not configure release publishing.
 
-- **Required tools:** the installer provisions Git, tmux 3.2+, fd, Node.js 24+,
-  npm, Pi 0.85.1+, and gh (GitHub CLI). Already suitable tools are retained. It
-  offers Homebrew when needed, and Node before authenticating the release.
-  Each installation needs explicit approval, defaults to **Yes**, and can be refused. The official Homebrew script may
-  require normal macOS administrative/Command Line Tools approval. Failure or
-  refusal stops; already-consented prerequisite installations are not rolled back.
-- **PATH:** a separate offer appends one marked PATH block to the user's zsh or
-  Bash profile, preserving existing content, modes and symlink targets. It includes
+- **Required tools:** prerequisite checks and installation offers follow the
+  shared flow above. The official Homebrew script may require normal macOS
+  administrative/Command Line Tools approval. Failure or refusal stops;
+  already-consented prerequisite installations are not rolled back.
+- **PATH:** a separate offer appends one marked PATH block to the user's Bash,
+  Zsh or Fish profile, preserving existing content, modes and symlink targets. It includes
   an activated Homebrew path when needed. Declining leaves the profile untouched
   and prints `~/.local/bin/radar` as the command. Radar still starts immediately.
 - **Existing installations:** rerunning the bootstrap repairs required tools only;
   it does not replace Radar, its notifier, update state, settings or workspace data.
-  It authenticates a release before using its prerequisite helper. An orphaned
+  It authenticates a release before using its prerequisite helper, then starts
+  setup with the existing binary. An orphaned
   notifier/update transaction without an installed CLI still needs inspection.
   Use `radar update` to update eligible Radar installations; custom/symlink/
   package-manager paths remain manual.
 - **Consent:** prompts read the controlling terminal even when the script is piped.
-  Headless execution cannot approve installations or profile edits. No env/flag
+  Headless execution requires ready tools and skips profile edits and setup. No env/flag
   bypass changes publisher trust, endpoints, release selection or prompts.
 - **Notifications:** the installer preserves Gatekeeper policy. Launch approval and
   notification authorization still require the user's macOS actions; setup guides
@@ -168,8 +258,8 @@ Node does not switch to weaker verification.
 
 ## Manual installation
 
-For Windows/WSL, source builds, a custom prefix, or Linux before the Homebrew
-publication gate is complete (or when not using Homebrew), use the manual path.
+For source builds or a custom prefix/manual-page layout, use the manual path.
+Linux (including WSL) can instead use the standalone Linux bootstrap above.
 [Published archives](https://github.com/ChristianMoesl/radar/releases) cover
 macOS on Apple Silicon (arm64), and Linux on arm64/amd64; on Windows, run Radar
 inside WSL. Intel Macs are not supported. Download the matching archive and `checksums.txt` from a release you trust:
@@ -611,8 +701,9 @@ Radar avoids repeatedly launching that same binary until a successful setup/test
 Run `radar update` to review a release and confirm adoption/update of the
 standard `~/.local` installation. No silent install occurs. Homebrew installations
 use `brew upgrade radar`; other custom/symlink/package-manager installs and
-Windows and non-Homebrew Linux installs remain manual. The built-in updater
-does not support Linux; Linux Homebrew installs use `brew upgrade radar`. CLI and Pi updates have separate
+Windows installs remain inside WSL. The built-in updater does not support Linux;
+standalone Linux installs rerun the bootstrap and Linux Homebrew installs use
+`brew upgrade radar`. CLI and Pi updates have separate
 outcomes; active Pi sessions need `/reload` or restart after a package change.
 See [release trust, prerequisites, supported layout and recovery](releases.md#user-flow-and-recovery).
 
