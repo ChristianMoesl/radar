@@ -18,6 +18,7 @@ The current directory may be the Radar workspace root rather than a repository. 
 - For temporary outputs, use `sandbox.shared_directory` returned by `radar_workspace_context` only when `sandbox.shared_directory_ready` is true. Pass that output path explicitly to generation tools and use unique filenames. Sandbox-local `/tmp`, `$TMPDIR`, and host-only directories are not substitutes for the shared directory.
 - Keep deliverables worth retaining in the workspace; the shared temporary directory is removed during workspace cleanup. If the shared directory is unavailable, save outputs in the workspace or reconcile the workspace and reload Pi before using it.
 - If an artifact was created elsewhere, copy it into an allowed location before presenting it. Verify that the file exists there and link to that accessible copy, not the original path.
+- Always use the file's full absolute path as the link target when linking to workspace or shared temporary directory files. Never use relative paths, `~`, or environment-variable placeholders in link targets.
 
 ## Notes
 
