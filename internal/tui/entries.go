@@ -53,9 +53,14 @@ type overviewLayout struct {
 
 func historyGroup(group string) bool { return group == "muted" || group == "done" }
 
-func (m model) sectionExpanded(group string) bool { return m.expandedSections[group] }
+func (m model) sectionExpanded(group string) bool {
+	return m.filteringTasks() || m.expandedSections[group]
+}
 
 func (m *model) toggleSection(group string) {
+	if m.filteringTasks() {
+		return
+	}
 	if m.expandedSections == nil {
 		m.expandedSections = make(map[string]bool)
 	}
@@ -67,8 +72,9 @@ func (m *model) toggleSection(group string) {
 // Retention (including unresolved workspace exceptions) remains server-owned.
 func (m model) taskGroupOrder(key string) []int {
 	var order []int
+	terms := m.searchTerms()
 	for i, task := range m.tasks {
-		if task.DisplayGroup() == key {
+		if task.DisplayGroup() == key && matchesTaskSearch(task, terms) {
 			order = append(order, i)
 		}
 	}
@@ -101,8 +107,10 @@ func (m model) overviewLayout() overviewLayout {
 		header := visibleEntry{section: section.key}
 		layout.rows = append(layout.rows, overviewRow{section: &section, count: len(order), entry: header})
 		if section.collapsible {
-			layout.entries = append(layout.entries, header)
-			layout.bounds[header] = entryBounds{line: headerLine, start: headerLine, end: headerLine}
+			if !m.filteringTasks() {
+				layout.entries = append(layout.entries, header)
+				layout.bounds[header] = entryBounds{line: headerLine, start: headerLine, end: headerLine}
+			}
 			if !m.sectionExpanded(section.key) {
 				continue
 			}
@@ -118,7 +126,7 @@ func (m model) overviewLayout() overviewLayout {
 				layout.rows = append(layout.rows, overviewRow{ref: &ref, entry: entry})
 			}
 			start := line
-			if position == 0 && !section.collapsible {
+			if position == 0 && (!section.collapsible || m.filteringTasks()) {
 				start = headerLine // Keep the active heading with its first task.
 			}
 			layout.entries = append(layout.entries, entry)

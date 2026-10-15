@@ -134,6 +134,7 @@ type model struct {
 	expandedSections    map[string]bool
 	selectedCurrentTask bool
 	mode                string
+	searchQuery         string
 	detail              detailState
 	create              createForm
 	cleanup             protocol.CleanupPreview
@@ -262,6 +263,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
+		if m.mode == "search" {
+			return m.updateSearch(msg)
+		}
 		if m.operation.kind != "" && (!operationNavigationKey(msg.String()) || (msg.String() == "enter" && (m.mode != "" || m.selectedSection == ""))) {
 			return m, nil
 		}
@@ -376,7 +380,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.ensureVisibleSelection()
 		switch msg.String() {
-		case "q", "esc", "ctrl+c":
+		case "/":
+			m.mode = "search"
+			m.syncTaskScroll()
+		case "esc":
+			if m.searchQuery != "" {
+				m.searchQuery = ""
+				m.syncTaskScroll()
+				return m, nil
+			}
+			return m, tea.Quit
+		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "n":
 			m.mode = "task_authoring"
@@ -711,11 +725,14 @@ func (m model) View() string {
 	}
 
 	listWidth := m.taskListWidth()
+	sections = m.beforeTaskSections(listWidth)
 	afterTaskSections := m.afterTaskSections(listWidth)
 	taskRows := m.availableTaskRows(sections, afterTaskSections)
 	var tasks string
 	if m.loading && len(m.tasks) == 0 {
 		tasks = subtleStyle.Render("Loading tasks…")
+	} else if len(m.overviewLayout().entries) == 0 && m.filteringTasks() {
+		tasks = subtleStyle.Render("No matching tasks.")
 	} else if len(m.tasks) == 0 {
 		tasks = subtleStyle.Render("No tasks need your attention.")
 	} else {
@@ -1554,7 +1571,7 @@ func (m *model) restoreCursor(selectedTask *protocol.Task, selectedSection strin
 	if selectedTask != nil {
 		if cursor, ok := matchingTaskCursor(m.tasks, *selectedTask); ok {
 			oldGroup, newGroup := selectedTask.DisplayGroup(), m.tasks[cursor].DisplayGroup()
-			if oldGroup != newGroup && historyGroup(newGroup) {
+			if oldGroup != newGroup && historyGroup(newGroup) && !m.filteringTasks() {
 				// Prefer the next active task at the vacated active position, then
 				// the previous one, even when a history section is already open.
 				var active []visibleEntry
@@ -1985,8 +2002,7 @@ func (m model) taskViewportLines(width, height int) ([]string, int, int) {
 }
 
 func (m model) taskListHeight(width int) int {
-	before := []string{m.header(m.contentWidth())}
-	return m.availableTaskRows(before, m.afterTaskSections(width))
+	return m.availableTaskRows(m.beforeTaskSections(width), m.afterTaskSections(width))
 }
 
 func adjustedTaskScroll(lines []string, selectedStart int, selectedEnd int, scroll int, height int) int {

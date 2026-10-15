@@ -17,6 +17,7 @@ bind-key F display-popup -E "radar fork"
 | --- | --- |
 | <kbd>j</kbd> / <kbd>↓</kbd>, <kbd>k</kbd> / <kbd>↑</kbd> | Move between tasks |
 | <kbd>Enter</kbd> | Switch to or create the selected task's tmux session |
+| <kbd>/</kbd> | Search tasks; <kbd>Esc</kbd> clears search and returns to the normal list |
 | <kbd>o</kbd> | Open the source action or link |
 | <kbd>i</kbd> | Inspect the selected task and its linked sources |
 | <kbd>n</kbd> | Create an Obsidian-backed task |
@@ -34,6 +35,14 @@ bind-key F display-popup -E "radar fork"
 ## Navigation
 
 Navigation stops at the first and last item rather than wrapping. Repository, branch, fork-member, worktree-session, and workspace-resource lists adapt to terminal height, keep the selection visible when scrolling or resizing, and show a position indicator. Long list labels are displayed on one line; their full values are preserved for actions. In searchable pickers, typing—including `j` and `k`—still filters the list; use ↑/↓ or Ctrl+P/N to move. The dashboard, Inspect, and scrollable confirmations support Page Up/Down or Ctrl+U/D; Home/End jumps to their top/bottom.
+
+## Search tasks
+
+Press `/` to search the dashboard as you type. Matching is case-insensitive; every whitespace-separated term must occur in the task title, repository, or linked-source titles, identifiers, branches, or workspace names/paths. Terms can match different fields. Search uses only the current dashboard task data, not note bodies, remote queries, or older history beyond the existing Done retention.
+
+Use ↑/↓ or Ctrl+P/N to select a result. Letters such as `j`, `k`, `d`, and `q` are text while the search field is focused; Ctrl+C still quits. Enter leaves text entry with the filter applied, so normal task actions work again. Press `/` to edit the query. Inspect and source-link views preserve the filter when you return.
+
+A nonempty query keeps normal grouping and ordering but reveals matching Muted/Done tasks even when their sections were collapsed. These headers are not selectable during filtering. Clearing search restores the previous section expansion choices. Esc clears the query, exits search, and restores the normal list in one press; it does not quit Radar on that press. With no search active, Esc retains its usual quit behavior.
 
 ## Reading the task list
 

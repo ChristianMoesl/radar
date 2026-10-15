@@ -51,6 +51,8 @@ var mainKeyHints = [][]keyHint{
 		{"i", "inspect"},
 	},
 	{
+		{"/", "search tasks"},
+		{"esc", "clear search"},
 		{"c", "create workspace"},
 		{"w", "workspace resources"},
 		{"x", "cleanup"},
@@ -76,6 +78,9 @@ func (m model) mainHelp(width int) string {
 // The compact footer and the right-hand rail share contextual labels and
 // availability. Neither changes the key handlers or adds a new interaction.
 func (m model) mainHelpGroups() [][]keyHint {
+	if m.mode == "search" {
+		return searchHelpGroups()
+	}
 	task, selected := m.selectedTask()
 	groups := make([][]keyHint, len(mainKeyHints))
 	for i, hints := range mainKeyHints {
@@ -140,6 +145,8 @@ func (m model) mainHintAvailable(key string, task protocol.Task, selected bool) 
 		return true
 	}
 	switch key {
+	case "esc":
+		return m.searchQuery != ""
 	case "enter", "i", "w", "x", "m":
 		return selected
 	case "o":
