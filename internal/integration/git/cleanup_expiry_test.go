@@ -439,3 +439,18 @@ func (f *cleanupExpiryFixture) assertRemoved(t *testing.T) {
 		t.Fatalf("expired worktree remains in Git: %s, %v", output, err)
 	}
 }
+
+func TestConfirmedCleanupRechecksProtectedMemberContents(t *testing.T) {
+	f := newCleanupExpiryFixture(t, "feature")
+	target := f.preview(t, integration.CleanupConfirmed)
+	nested := filepath.Join(f.path, "nested-primary")
+	initCleanupExpiryRepository(t, f.ctx, nested, "main")
+	registry, head := f.snapshot(t)
+	if _, err := (Source{}).Cleanup(f.ctx, integration.CleanupRequest{Target: target, Mode: integration.CleanupConfirmed}); err == nil || !strings.Contains(err.Error(), "Git checkout") {
+		t.Fatalf("confirmed cleanup accepted a late primary checkout: %v", err)
+	}
+	f.assertPreserved(t, registry, head)
+	if _, err := os.Stat(filepath.Join(nested, ".git")); err != nil {
+		t.Fatalf("nested primary checkout changed: %v", err)
+	}
+}

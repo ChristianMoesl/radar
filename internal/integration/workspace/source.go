@@ -158,7 +158,7 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 			ProvidesWorkspace: true, WorkspaceID: group.ID,
 		}
 		addDisposableEntriesPreview(&target, entries.disposable)
-		addExpiredEntriesPreview(&target, entries.expired)
+		addUnknownEntriesPreview(&target, entries.unknown, req.Mode)
 		targets = append(targets, target)
 	}
 	return targets, nil

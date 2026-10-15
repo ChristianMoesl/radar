@@ -80,7 +80,7 @@ structural safety conditions and do not expire.
 | **Uncommitted changes** | Staged changes, modified tracked files, or untracked files could be discarded with the worktree. | Review the affected worktree with `git status` and `git diff`. Commit and publish work you need, stash it for later, or move untracked files outside the workspace. Discard changes only after deciding they are unnecessary. A local commit can still need publication verification. |
 | **Local commits not verified as published or merged** | A branch scheduled for deletion has commits that cannot be verified on origin or as the exact head of a merged GitHub PR. A completed task or reused branch name is not sufficient proof. | Inspect the branch history and its PR. Publish any local-only work. Check for commits added **after** the PR merged. If the PR used squash/rebase merging, refresh Radar after the merge and confirm the local tip matches the merged PR's head. On other Git hosts, publish the branch if its original tip is no longer reachable on origin. |
 | **Publication or merge verification unavailable** | Fetching origin or obtaining GitHub merge evidence still fails after one retry, or a verification check times out. Before expiry, uncertainty is not permission to delete commits. | Check connectivity and repository access; use `gh auth status` for GitHub API access. Correct invalid remotes or credentials, then refresh Radar. A transient failure that succeeds on retry does not become an issue. |
-| **Unknown workspace-root files** | The workspace anchor contains files Radar does not own. A familiar filename or extension is not enough to declare them disposable. | Inspect the exact paths listed. Move valuable scripts, notes, or downloads into an appropriate repository or another directory. Remove only files you recognise as unnecessary, or explicitly configure disposable root entries as described below. Use the workspace's advertised shared directory for disposable screenshots and temporary exchange files. |
+| **Unknown workspace-root files** | The workspace anchor contains files Radar does not own. A familiar filename or extension is not enough to declare them disposable. | Inspect the exact paths listed. Move valuable scripts, notes, or downloads into an appropriate repository or another directory. Remove only files you recognise as unnecessary, or explicitly configure disposable root entries as described below. Use the workspace's advertised shared directory for disposable screenshots and temporary exchange files. Explicit manual cleanup can instead delete the listed unknown content after a data-loss warning and confirmation. |
 | **Unsafe workspace location** | The workspace is outside the configured workspace root, or is the root itself. | Check the configured root and workspace registration. Correct an unintended configuration or use Radar's workspace management to restore a valid location. Do not bypass the boundary by forcing directory deletion. |
 | **Invalid workspace registration** | For example, a managed member incorrectly points at a primary repository checkout, or a referenced repository cannot be inspected. | Inspect the workspace membership and repository paths. Correct the member through Radar's workspace management; keep primary repositories outside the removal set. Restore a missing source repository if its worktree metadata must be inspected. |
 | **Persistent inspection or resource-identification failure** | Git/filesystem/registry inspection fails, or Radar cannot identify a sandbox or tmux cleanup target. | Read the specific reason in Inspect. Restore permissions/access, unlock a worktree only if it is safe, or reconcile stale workspace/runtime information and refresh Radar. A running sandbox or attached terminal alone is not an error. |
@@ -154,15 +154,17 @@ control characters and leading/trailing whitespace are rejected. `notes.md` is
 reserved (including case variants), and a configured name never overrides managed
 member safety checks or permits deleting the canonical note.
 
-Collection, cleanup preview, manual cleanup and automatic GC use the same policy.
-Configured entries no longer cause **Unresolved**; unknown siblings still block
-conservative cleanup of the whole bundle until registered-workspace expiry.
-Cleanup previews list the disposable entries under **REMOVE**, including in the
-compact TUI view. Execution reloads the configuration and rechecks the anchor
-before deleting its entries. Revoked permission or newly
-appearing entries absent from the preview stop anchor cleanup; preview again
-after reviewing the changes. Unknown content blocks conservative cleanup;
-expired registered-workspace GC separately authorises its removal.
+Collection, cleanup preview, manual cleanup and automatic GC use the same
+configured-entry policy. Configured entries no longer cause **Unresolved**;
+unknown siblings still block conservative cleanup of the whole bundle until
+registered-workspace expiry. Cleanup previews list the disposable entries under
+**REMOVE**, including in the compact TUI view. Manual cleanup also lists unknown
+entries with an explicit permanent-loss warning; they do not make the resource
+check fail. Execution reloads the configuration and rechecks the anchor before
+deleting its entries. Revoked permission or newly appearing entries absent from
+the preview stop anchor cleanup; preview again after reviewing the changes. Unknown content blocks conservative cleanup;
+explicitly confirmed manual cleanup and expired registered-workspace GC
+separately authorise its removal.
 
 Radar unlinks disposable symlinks without following their targets, including
 links inside disposable directories. It refuses symlinked anchors and symlinked
@@ -195,6 +197,13 @@ policy as the hourly daemon run.
 
 The selected task's `x` / `radar cleanup <task-id>` is a separate, explicitly
 confirmed cleanup and can discard local work without waiting for GC retention.
+Its preview lists unknown workspace-root files and directories under **REMOVE**,
+including their names and the fact that directory contents will be deleted.
+**Confirming permanently deletes that previewed content; there is no recovery
+archive.** Escape/`n` (or declining the CLI prompt) cancels without removing it.
+New root entries absent from the preview require another preview; confirmation
+is not blanket permission to remove future entries.
+
 Read its warnings and use it only after deciding what to preserve. Confirmation
 is not permission to ignore ownership/path boundaries or delete canonical notes,
 primary repositories, protected/shared branches, external mount targets, or
