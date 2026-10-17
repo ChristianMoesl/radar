@@ -61,6 +61,12 @@ sbx exec "$name" bash -lc '
     docker run --rm hello-world
 '
 
+# Exercise the actual Radar planner, daemon, native durable tools and review
+# definition in a separate managed SBX workspace using this tested local kit.
+RADAR_SBX_KIT="$tmp/kit" node --experimental-strip-types --test \
+    --test-timeout=180000 --test-name-pattern='mode=sbx' \
+    "$root/agent-host/test/review.test.ts"
+
 # Failed initialization must not inherit the preceding boot's ready state.
 cat > "$tmp/startup.d/15-failure" <<'EOF'
 #!/bin/sh

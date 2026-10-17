@@ -9,6 +9,7 @@ import {
   rm,
   writeFile,
   symlink,
+  access,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -19,10 +20,19 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 
 const execute = promisify(execFile);
 
-for (const autoConfirm of [true, false])
+for (const { autoConfirm, mode } of [
+  { autoConfirm: true, mode: "local" },
+  { autoConfirm: false, mode: "local" },
+  { autoConfirm: true, mode: "sbx" },
+] as const)
   test(
-    `review workspace and retained conversation (auto_confirm=${autoConfirm})`,
-    { skip: !process.env.RADAR_BINARY, timeout: 60000 },
+    `review workspace and retained conversation (auto_confirm=${autoConfirm}, mode=${mode})`,
+    {
+      skip:
+        !process.env.RADAR_BINARY ||
+        (mode === "sbx" && !process.env.RADAR_SBX_KIT),
+      timeout: mode === "sbx" ? 180000 : 60000,
+    },
     async () => {
       const binary = process.env.RADAR_BINARY!;
       const dir = await mkdtemp(join(tmpdir(), "radar-review-"));
@@ -68,7 +78,15 @@ for (const autoConfirm of [true, false])
           github: { enabled: false },
           jira: { enabled: false },
           datadog: { enabled: false },
-          sbx: { enabled: false },
+          sbx: {
+            enabled: mode === "sbx",
+            ...(mode === "sbx"
+              ? {
+                  kit: { path: process.env.RADAR_SBX_KIT },
+                  additional_mounts: [repo],
+                }
+              : {}),
+          },
         }),
       );
       await git("init", "--initial-branch=main");
@@ -155,7 +173,7 @@ for (const autoConfirm of [true, false])
         const execution = new WorkspaceExecution({
           id: "fixture",
           path: anchor.path,
-          mode: "local",
+          mode,
         });
         assert.match(
           await execution.readOnly(anchor.path, "skills/review/SKILL.md"),
@@ -167,6 +185,29 @@ for (const autoConfirm of [true, false])
           /outside selected read root/,
         );
         const native = execution.native(anchor.path);
+        if (mode === "sbx") {
+          assert.equal((await execution.exec(["id", "-u"])).trim(), "1000");
+          assert.equal(
+            (
+              await native.writeFile(
+                "sbx-native.txt",
+                "native SBX fixture\n",
+                BACKGROUND_CONTEXT,
+              )
+            ).ok,
+            true,
+          );
+          const file = await native.readTextFile(
+            "sbx-native.txt",
+            BACKGROUND_CONTEXT,
+          );
+          assert.equal(file.ok, true);
+          if (file.ok) assert.equal(file.value, "native SBX fixture\n");
+          assert.equal(
+            await readFile(join(anchor.path, "sbx-native.txt"), "utf8"),
+            "native SBX fixture\n",
+          );
+        }
         const reader = await native.openBinaryReader(
           "skills/review/SKILL.md",
           undefined,
@@ -232,7 +273,7 @@ for (const autoConfirm of [true, false])
         let status;
         let approved = false;
         let approvalRevision = -1;
-        const deadline = Date.now() + 30000;
+        const deadline = Date.now() + (mode === "sbx" ? 90000 : 30000);
         do {
           status = await radar("agent", "inspect", "reviewer");
           if (
@@ -302,7 +343,7 @@ for (const autoConfirm of [true, false])
         );
         assert.equal(registry.workspaces.length, 1);
         assert.equal(status.workspace.path, anchor.path);
-        assert.equal(status.workspace.mode, "local");
+        assert.equal(status.workspace.mode, mode);
         assert.equal(workspace, anchor.path);
         assert.equal(
           (
@@ -337,10 +378,52 @@ for (const autoConfirm of [true, false])
           await readFile(join(repo, "app.txt"), "utf8"),
           "changed\n",
         );
+        if (mode === "sbx") {
+          await execute("sbx", ["stop", registry.workspaces[0].sandbox.name], {
+            env,
+          });
+          const sentinel = join(anchor.path, "must-not-run-on-host");
+          await assert.rejects(
+            execution.exec([
+              "node",
+              "-e",
+              "require('fs').writeFileSync(process.argv[1], 'wrong')",
+              sentinel,
+            ]),
+            /sandbox .*unavailable/i,
+          );
+          await assert.rejects(access(sentinel), { code: "ENOENT" });
+          await assert.rejects(
+            execution.readOnly(anchor.path, "sbx-native.txt"),
+            /sandbox .*unavailable/i,
+          );
+          await assert.rejects(
+            radar("agent", "restart", "reviewer"),
+            /sandbox .*unavailable/i,
+          );
+        }
       } finally {
         process.env = originalEnvironment;
         await radar("agent", "stop", "reviewer").catch(() => {});
         await radar("stop").catch(() => {});
+        if (mode === "sbx") {
+          const registry = await readFile(
+            join(workspaceRoot, ".radar-workspaces.json"),
+            "utf8",
+          )
+            .then(JSON.parse)
+            .catch(() => null);
+          for (const workspace of registry?.workspaces ?? []) {
+            if (!workspace.sandbox) continue;
+            await execute("sbx", ["rm", "--force", workspace.sandbox.name], {
+              env,
+            }).catch(() => {});
+            await rm(workspace.sandbox.shared_directory, {
+              recursive: true,
+              force: true,
+            });
+          }
+        }
         await rm(dir, { recursive: true, force: true });
       }
     },

@@ -163,6 +163,17 @@ go test -p 2 ./...
 pnpm check
 ```
 
-The full review test uses the actual CLI/daemon, Git worktrees, note registry, a local deterministic model and isolated state. Other tests cover receipt loss, SIGKILL checkpoints, owner exclusion, stale actions, provider HTTP fixtures, workspace pinning and SBX command routing/failure. Real provider accounts and a real SBX VM are separate validation environments; fixture success does not establish those live integrations or model quality.
+The full review test uses the actual CLI/daemon, Git worktrees, note registry, a local deterministic model and isolated state. Other tests cover receipt loss, SIGKILL checkpoints, owner exclusion, stale actions, provider HTTP fixtures, workspace pinning and SBX command routing/failure.
+
+The sandbox-image workflow also runs the review test inside a real SBX VM with the locally built kit. This verifies native file reads/writes, skill resources, review worktree preparation, daemon/runner recovery and failure without host execution after the sandbox stops. To reproduce on a disposable Linux machine with `/dev/kvm`, Docker, SBX 0.48.0+ and SBX login already configured:
+
+```sh
+go build -o /tmp/radar ./cmd/radar
+pnpm install --frozen-lockfile
+docker build --build-arg TARGETARCH=amd64 -f sandbox/Dockerfile -t radar-sandbox:check .
+RADAR_BINARY=/tmp/radar bash scripts/test-sandbox-runtime.sh radar-sandbox:check
+```
+
+The script loads the image into SBX's separate image store and tests its private Docker daemon too. It creates and removes disposable sandboxes; it needs no model, Jira or Datadog account. The review model remains a labelled fixture. Real provider accounts and real model quality require separate validation; an SBX pass does not establish those results.
 
 Host packages are packed in CI, separately versioned from the CLI, and can be staged by `.github/workflows/agent-host-package.yml`. A maintainer must bootstrap the npm package, configure that workflow as a **stage-only** trusted publisher, then review/approve each stage with 2FA. CI never directly publishes it. See [npm publishing](npm-publishing.md) for the existing staging procedure. No account or external credential is created by this feature.
