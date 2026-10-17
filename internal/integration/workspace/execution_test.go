@@ -71,7 +71,15 @@ func (r *executionRunner) Run(_ context.Context, cwd, name string, args ...strin
 
 func TestWorkspaceExecutionUsesSBXAndNeverFallsBack(t *testing.T) {
 	t.Setenv("RADAR_SOCKET", filepath.Join(t.TempDir(), "radar.sock"))
-	anchor := t.TempDir()
+	physical := t.TempDir()
+	anchor := filepath.Join(t.TempDir(), "workspace")
+	if err := os.Symlink(physical, anchor); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := filepath.EvalSymlinks(anchor)
+	if err != nil {
+		t.Fatal(err)
+	}
 	group := workspacegroup.Workspace{ID: "fixture", Path: anchor}
 	binding := protocol.AgentWorkspaceBinding{ID: "fixture", Path: anchor, Mode: "sbx", Sandbox: "fixture-sbx"}
 	runner := &executionRunner{}
@@ -79,7 +87,7 @@ func TestWorkspaceExecutionUsesSBXAndNeverFallsBack(t *testing.T) {
 	if _, err := executeWorkspace(context.Background(), runner, binding, group, anchor, argv); err != nil {
 		t.Fatal(err)
 	}
-	want := append([]string{"exec", "--workdir", anchor, "fixture-sbx"}, argv...)
+	want := append([]string{"exec", "--workdir", canonical, "fixture-sbx"}, argv...)
 	if len(runner.calls) != 1 || runner.calls[0].name != "sbx" || !reflect.DeepEqual(runner.calls[0].args, want) {
 		t.Fatalf("wrong execution target: %+v", runner.calls)
 	}
