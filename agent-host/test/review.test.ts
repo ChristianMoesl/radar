@@ -55,6 +55,7 @@ for (const { autoConfirm, mode } of [
       await mkdir(join(dir, "config", "radar"), { recursive: true });
       const env = {
         ...process.env,
+        PATH: process.env.PATH,
         XDG_CONFIG_HOME: join(dir, "config"),
         XDG_DATA_HOME: join(dir, "data"),
         XDG_STATE_HOME: join(dir, "state"),
@@ -69,6 +70,34 @@ for (const { autoConfirm, mode } of [
         GIT_CONFIG_GLOBAL: "/dev/null",
         TMUX: "",
       };
+      if (mode === "sbx") {
+        // Radar's isolated XDG roots must not hide the real SBX login/daemon.
+        // Route only SBX through its original environment; never copy secrets.
+        const executable = (
+          await execute("sh", ["-c", "command -v sbx"])
+        ).stdout.trim();
+        const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+        const directories = [
+          "XDG_CONFIG_HOME",
+          "XDG_DATA_HOME",
+          "XDG_STATE_HOME",
+          "XDG_CACHE_HOME",
+        ];
+        const restore = directories
+          .map((name) =>
+            process.env[name] === undefined
+              ? `unset ${name}`
+              : `export ${name}=${quote(process.env[name]!)}`,
+          )
+          .join("\n");
+        await mkdir(join(dir, "bin"));
+        await writeFile(
+          join(dir, "bin", "sbx"),
+          `#!/bin/sh\n${restore}\nexec ${quote(executable)} "$@"\n`,
+          { mode: 0o700 },
+        );
+        env.PATH = `${join(dir, "bin")}:${process.env.PATH}`;
+      }
       const git = async (...args: string[]) =>
         (await execute("git", args, { cwd: repo, env })).stdout.trim();
       const radar = async (...args: string[]) =>
