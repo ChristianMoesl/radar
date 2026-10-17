@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -115,6 +116,7 @@ func (s *Server) handle(conn net.Conn) {
 	defer s.logger.Debug("client disconnected")
 
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 4096), protocol.AgentMaxFrameBytes+4096)
 	encoder := json.NewEncoder(conn)
 
 	for scanner.Scan() {
@@ -148,6 +150,22 @@ func (s *Server) handle(conn net.Conn) {
 			continue
 		}
 		switch req.Method {
+		case "agent":
+			if req.Agent == nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "agent request is required"})
+				continue
+			}
+			result, err := s.integrations.ManageAgent(context.Background(), *req.Agent)
+			if err != nil {
+				code := 0
+				var rpcErr *protocol.AgentRPCError
+				if errors.As(err, &rpcErr) {
+					code = rpcErr.Code
+				}
+				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), AgentErrorCode: code})
+				continue
+			}
+			_ = encoder.Encode(protocol.Response{OK: true, AgentResult: result})
 		case "version":
 			_ = encoder.Encode(protocol.Response{OK: true, Version: version.Current(), PID: os.Getpid(), Revision: s.store.Revision()})
 		case "summary":

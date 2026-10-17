@@ -38,7 +38,7 @@
   "scripts": {
     "test": "node --experimental-strip-types --test test/pi-radar/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm typecheck && pnpm test",
+    "check": "pnpm typecheck && pnpm test && pnpm --filter @christianmoesl/radar-agent-host check",
     "check:release": "node scripts/release-version.mjs check"
   },
   "packageManager": "pnpm@12.4.2",

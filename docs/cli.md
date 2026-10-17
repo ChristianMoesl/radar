@@ -26,6 +26,14 @@ radar reconcile-workspace --request <json> [--workspace <path>] [--preview]
 radar recreate-sandboxes [--workspace <path>] [--preview] [--yes]
 radar workspace-context [--workspace <path>]
 radar repository-refs --repo <repo>
+radar agent add <module> --id <id> --workspace <registered-path> [--config <json-file>]
+radar agent list
+radar agent inspect|start|stop|restart|remove|logs|token <id>
+radar agent emit <id> --source <source> --event-id <id> # JSON payload on stdin
+radar agent message <id> <text> --revision <revision> [--event-id <id>]
+radar agent action <id> <action-id> [text] --revision <revision> [--event-id <id>]
+radar agent conversation <id> <conversation-id>
+radar agent serve [--listen 127.0.0.1:7433]
 radar cleanup <task-id>
 radar gc
 radar refresh
@@ -38,6 +46,8 @@ radar log-path
 ```
 
 ## Offline documentation
+
+See the [durable-agent guide](durable-agents.md) for installation, required workspace association, SBX execution, event receipts, retention and examples. Agent registrations and data survive `radar reset`. A stopped registration still pins its workspace; `agent remove` releases the association and retains durable data.
 
 Use **`man radar`** for this command reference and **`man radar-config`** for
 configuration guidance. Both are generated from the same Markdown documentation

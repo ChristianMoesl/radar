@@ -1,3 +1,6 @@
+packages:
+  - agent-host
+
 # Only reviewed dependency install scripts may run; new scripts require approval.
 allowBuilds:
   '@google/genai': true

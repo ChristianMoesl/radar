@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 
+	"radar/internal/agentservice"
 	"radar/internal/integration"
 	"radar/internal/operationlock"
 	"radar/internal/protocol"
+	"radar/internal/workspacelease"
 )
 
 var ErrNoResources = errors.New("selected task has no local resources to clean up")
@@ -58,6 +60,28 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 		return protocol.CleanupResult{}, fmt.Errorf("cleanup targets are required")
 	}
 	result := protocol.CleanupResult{TaskID: preview.TaskID, Targets: make([]protocol.CleanupTarget, 0, len(preview.Targets))}
+	// Acquire the entire set before deleting any resource. Workspace providers
+	// include the anchor, so its shared agent lease protects the full bundle.
+	var releases []func()
+	defer func() {
+		for _, release := range releases {
+			release()
+		}
+	}()
+	seen := map[string]bool{}
+	for _, target := range preview.Targets {
+		if target.Path != "" && !seen[target.Path] {
+			if err := agentservice.CheckWorkspaceRemoval(target.Path); err != nil {
+				return result, err
+			}
+			release, err := workspacelease.Acquire(target.Path, true)
+			if err != nil {
+				return result, err
+			}
+			releases = append(releases, release)
+			seen[target.Path] = true
+		}
+	}
 	for _, target := range preview.Targets {
 		provider, ok := s.provider(target.Source)
 		if !ok {

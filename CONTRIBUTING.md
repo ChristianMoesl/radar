@@ -132,3 +132,7 @@ docker.io/christianmoesl/radar-kit:latest
 ```
 
 Publishing requires the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` GitHub secrets with read/write access to both repositories. Each kit pins the matching image digest and is signed using GitHub Actions OIDC. Builds use `sandbox/Dockerfile` with the repository root as context. See [the sandbox guide](sandbox/README.md) for the tool inventory, fnm/Node and Go defaults, local validation, dependency updates and rollout guidance.
+
+## Durable host development
+
+Install workspace dependencies with `pnpm install --frozen-lockfile`, build the CLI with `go build -o /tmp/radar ./cmd/radar`, then run `RADAR_BINARY=/tmp/radar pnpm --filter @christianmoesl/radar-agent-host check`. Build/pack the independently versioned host with `pnpm --filter @christianmoesl/radar-agent-host build` and `pnpm --dir agent-host pack --out /tmp/radar-agent-host.tgz`. CI runs the actual CLI/workspace fixture as well as provider HTTP fixtures and native checkpoint recovery. Every fixture registration requires a workspace. [The development guide](docs/durable-agents.md) covers SBX, storage, example definitions and stage-only npm publishing.

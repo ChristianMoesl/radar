@@ -292,3 +292,9 @@ The Bubble Tea TUI is the default interface. It reads cached daemon state, group
 ## Logging
 
 Daemon logging goes through `internal/logging` and writes to the user state directory by default. Routine refresh details stay at debug level so normal logs remain readable. Debug logs include status, collection, and sequential reconciliation durations per source for refresh-performance diagnosis.
+
+## Durable agents
+
+The compiled agent integration supervises one Node/pi-durable host per registration through a private, bounded newline JSON-RPC socket (protocol 1). The definition supplies a native event task and owns all domain routing, conversation topology and business actions. A receipt and native task are committed atomically; the Go daemon has no second execution queue. Persisted presentation drives the CLI/TUI and optional human interaction.
+
+Every registration is bound to a registered workspace. The workspace execution capability reuses the existing SBX client and configured local/SBX policy, without host fallback. Prepared workspace changes use the existing planner without launching interactive Pi. Registrations pin their workspace during cleanup, and active operations use OS leases. Agent SQLite, receipts and registry live outside both disposable workspaces and the rebuildable task cache. See [the host/authoring/recovery guide](docs/durable-agents.md).

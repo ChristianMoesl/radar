@@ -53,6 +53,7 @@ type WorkspaceMember struct {
 }
 
 type ManagedWorkspaceRequest struct {
+	PrepareOnly    bool
 	Worktrees      []DesiredWorkspaceWorktree
 	Note           *DesiredWorkspaceNote
 	ExpectedPlanID string
@@ -79,6 +80,7 @@ type CreateSessionRequest struct {
 }
 
 type WorkspaceReconcileRequest struct {
+	PrepareOnly             bool `json:"-"`
 	Workspace               string
 	WorkspaceRoot           string
 	AdditionalSandboxMounts []string

@@ -89,10 +89,16 @@ func main() {
 		runRecreateSandboxes(args)
 	case "workspace-context":
 		runWorkspaceContext(args)
+	case "workspace-lease":
+		runWorkspaceLease(args)
+	case "workspace-exec":
+		runWorkspaceExec(args)
 	case "repository-refs":
 		runRepositoryRefs(args)
 	case "task":
 		runTask(args)
+	case "agent":
+		runAgent(args)
 	case "fork":
 		runFork(args)
 	case "cleanup":
@@ -318,6 +324,12 @@ func runCreate(args []string) {
 	repo := flags.String("repo", "", "repository path")
 	base := flags.String("base", "", "base branch or revision")
 	name := flags.String("name", "", "workspace name")
+	prepareOnly := flags.Bool("prepare-only", false, "prepare resources without launching tmux or Pi")
+	workspacePath := flags.String("workspace", "", "add prepared members to this registered workspace")
+	preview := flags.Bool("preview", false, "preview workspace creation")
+	planID := flags.String("plan-id", "", "apply this previewed creation plan")
+	operationID := flags.String("operation-id", "", "stable workspace operation identity for recovery")
+	preparedNote := flags.String("prepared-note", "", "prepared canonical-note JSON from the accepted preview")
 	_ = parseFlags(flags, args)
 
 	if flags.NArg() != 0 {
@@ -346,10 +358,44 @@ func runCreate(args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	result, err := manager.CreateWorkspace(context.Background(), integration.ManagedWorkspaceRequest{
+	request := integration.ManagedWorkspaceRequest{
+		Path: *workspacePath,
 		Repo: *repo, BranchMode: integration.WorkspaceBranchNew, Base: *base, Name: *name,
-		Switch: multiplexerClientActive(integrations),
-	})
+		Switch: !*prepareOnly && multiplexerClientActive(integrations), PrepareOnly: *prepareOnly, ExpectedPlanID: *planID, TaskLinkingKey: *operationID,
+	}
+	if *workspacePath != "" && !*prepareOnly {
+		fatal(errors.New("--workspace requires --prepare-only"))
+	}
+	if *preparedNote != "" {
+		var note integration.DesiredWorkspaceNote
+		if err := json.Unmarshal([]byte(*preparedNote), &note); err != nil {
+			fatal(err)
+		}
+		request.Note = &note
+	}
+	if *preview {
+		plan, err := manager.PreviewCreate(context.Background(), request)
+		if err != nil {
+			fatal(err)
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			fatal(err)
+		}
+		plan.AutoConfirm = cfg.Workspace.AutoConfirm
+		printResult(plan)
+		return
+	}
+	if *prepareOnly {
+		cfg, err := config.Load()
+		if err != nil {
+			fatal(err)
+		}
+		if !cfg.Workspace.AutoConfirm && *planID == "" {
+			fatal(errors.New("workspace confirmation required; preview and supply the accepted --plan-id"))
+		}
+	}
+	result, err := manager.CreateWorkspace(context.Background(), request)
 	if err != nil {
 		fatal(err)
 	}
@@ -358,6 +404,7 @@ func runCreate(args []string) {
 
 func runReconcileWorkspace(args []string) {
 	flags := outputFlags("radar reconcile-workspace")
+	prepareOnly := flags.Bool("prepare-only", false, "apply resources and setup without launching interactive Pi")
 	current := flags.String("workspace", "", "path inside the current Radar workspace")
 	requestJSON := flags.String("request", "", "JSON workspace reconciliation request")
 	planID := flags.String("plan", "", "confirmed preview plan ID")
@@ -386,6 +433,7 @@ func runReconcileWorkspace(args []string) {
 		fatal(err)
 	}
 	request.Workspace = *current
+	request.PrepareOnly = *prepareOnly
 	request.WorkspaceRoot = manager.ExpandPath(cfg.Workspace.RootDir)
 	request.ExpectedPlanID = strings.TrimSpace(*planID)
 	if *planChanges >= 0 {
@@ -669,6 +717,7 @@ func runDaemon() {
 		}
 	}
 	localRefresh := localRefresher(ctx, collectionMu, tasks)
+	integrations.StartBackground(ctx, localRefresh)
 	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(ctx, logger, collectionMu, tasks), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).SetTaskMutation(tasks.MutateTask).SetTaskDeletion(tasks.PreviewDeleteTask, tasks.DeleteTask).SetOnReady(syncPackages).ListenAndServe(ctx, path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
@@ -1045,6 +1094,7 @@ Tasks:
 Workspaces:
   radar create
   radar create --repo <repo> --base <branch> --name <name>
+  radar create --prepare-only --name <name> [--repo <repo> --base <revision>] [--workspace <path>] [--preview]
   radar reconcile-workspace --request <json> [--workspace <path>] [--preview]
   radar recreate-sandboxes [--workspace <path>] [--preview] [--yes]
   radar workspace-context [--workspace <path>]
@@ -1052,6 +1102,16 @@ Workspaces:
   radar fork
   radar cleanup <task-id>
   radar gc
+
+Durable agents:
+  radar agent add <module> --id <id> --workspace <path> [--config <json-file>]
+  radar agent list
+  radar agent inspect|start|stop|restart|remove|logs|token <id>
+  radar agent emit <id> --source <source> --event-id <id>  (JSON payload on stdin)
+  radar agent message <id> <text> --revision <n> [--event-id <id>]
+  radar agent action <id> <action> [text] --revision <n> [--event-id <id>]
+  radar agent conversation <id> <conversation-id>
+  radar agent serve [--listen 127.0.0.1:7433]
 
 Daemon and status:
   radar daemon

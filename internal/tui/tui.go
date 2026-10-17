@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -108,6 +109,7 @@ type createForm struct {
 }
 
 type model struct {
+	agent               agentState
 	releaseNotice       update.Notice
 	relaunch            bool
 	creations           *creationTracker
@@ -203,6 +205,22 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case agentResultMsg:
+		return m.agentResult(msg)
+	case agentTickMsg:
+		if m.mode != "agent" || m.agent.id != msg.id || m.agent.generation != msg.generation {
+			return m, nil
+		}
+		if !m.agent.input && !m.agent.busy {
+			m.agent.busy = true
+			request := protocol.AgentRequest{Operation: "inspect", ID: msg.id}
+			if m.agent.conversation > 0 {
+				request.Operation = "conversation"
+				request.Params, _ = json.Marshal(map[string]int{"id": m.agent.conversation})
+			}
+			return m, tea.Batch(m.agentTick(), m.agentCall(request))
+		}
+		return m, m.agentTick()
 	case releaseNoticeMsg:
 		m.releaseNotice = update.Notice(msg)
 		m.syncTaskScroll()
@@ -279,6 +297,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if strings.HasPrefix(m.mode, "create_") || m.mode == "fork_member" {
 			return m.updateCreate(msg)
+		}
+		if m.mode == "agent" {
+			return m.updateAgent(msg)
 		}
 		if m.mode == "detail" {
 			return m.updateDetail(msg)
@@ -418,6 +439,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.openConfig()
 		case "i", "right":
 			if task, ok := m.selectedTask(); ok {
+				if id := taskAgentID(task); id != "" {
+					return m.openAgent(id)
+				}
 				m.mode = "detail"
 				m.detail = detailState{task: task, available: true}
 			}
@@ -640,6 +664,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 const maxContentWidth = 140
 
 func (m model) View() string {
+	if m.mode == "agent" {
+		return m.agentView()
+	}
 	if m.mode == "task_delete_confirm" {
 		return m.taskDeletionScreen()
 	}
@@ -1641,6 +1668,9 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 	task, ok := m.selectedTask()
 	if !ok {
 		return m, nil
+	}
+	if id := taskAgentID(task); id != "" {
+		return m.openAgent(id)
 	}
 	multiplexer, _ := app.DefaultIntegrations().Multiplexer()
 	if target := taskrefs.SessionTarget(task, multiplexer); target != "" {

@@ -10,6 +10,39 @@ permissions:
   contents: read
 
 jobs:
+  durable-agents:
+    name: Durable agent recovery and examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.1.0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: pnpm install --frozen-lockfile
+      - name: Install Radar repository discovery tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fd-find
+          ln -s /usr/bin/fdfind "$RUNNER_TEMP/fd"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - run: go build -o "$RUNNER_TEMP/radar" ./cmd/radar
+      - run: pnpm --filter @christianmoesl/radar-agent-host check
+        env:
+          RADAR_BINARY: ${{ runner.temp }}/radar
+      - run: pnpm --filter @christianmoesl/radar-agent-host build
+      - run: pnpm --dir agent-host pack --out "$RUNNER_TEMP/radar-agent-host.tgz"
+      - run: node scripts/smoke-agent-package.mjs "$RUNNER_TEMP/radar-agent-host.tgz"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: radar-agent-host
+          path: ${{ runner.temp }}/radar-agent-host.tgz
+      - run: go test ./internal/agentservice ./internal/workspacelease ./internal/integration/agent
+
   pi:
     name: Pi package
     runs-on: ubuntu-latest
