@@ -404,11 +404,11 @@ func validateSandboxDependencies(runner Runner, enabled bool) error {
 	if !enabled {
 		return nil
 	}
-	if workspaceGOOS != "darwin" {
-		if workspaceGOOS == "linux" && workspaceWSL {
-			return sbxclient.ErrWindowsWorkspace
-		}
-		return fmt.Errorf("workspace sandbox is only supported on macOS")
+	if workspaceGOOS == "linux" && workspaceWSL {
+		return sbxclient.ErrWindowsWorkspace
+	}
+	if workspaceGOOS != "darwin" && workspaceGOOS != "linux" {
+		return fmt.Errorf("workspace sandbox requires macOS or native Linux SBX")
 	}
 	if err := sbxclient.New(runner).LookPath(); err != nil {
 		return fmt.Errorf("workspace sandbox requires %q: %w", "sbx", err)

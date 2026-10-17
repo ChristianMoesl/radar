@@ -3,6 +3,7 @@ package agentservice
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,41 @@ import (
 	"radar/internal/protocol"
 )
 
+// Go's test-name directories can exceed macOS's Unix socket path limit.
+func agentRuntimeTestDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "ra-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+func TestAgentSocketFitsMacOSTemporaryPaths(t *testing.T) {
+	dir := agentRuntimeTestDir(t)
+	// Model the long default /private/var/folders/... runtime parent. The
+	// daemon socket fits here, so an ordinary agent must fit as well.
+	dir = filepath.Join(dir, strings.Repeat("r", max(1, 86-len(dir)-1)))
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RADAR_SOCKET", filepath.Join(dir, "radar.sock"))
+	path, err := socketPath("counter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("agent socket %q: %v", path, err)
+	}
+	defer listener.Close()
+	other, err := socketPath("another")
+	if err != nil || other == path {
+		t.Fatalf("instance socket collision: %q, %v", other, err)
+	}
+}
+
 func TestRunnerLifecycleAndDurableDelivery(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("Node 24 is required")
@@ -23,7 +59,7 @@ func TestRunnerLifecycleAndDurableDelivery(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repo, "agent-host/node_modules/@earendil-works/pi-durable")); err != nil {
 		t.Skip("install agent-host dependencies to run runner integration tests")
 	}
-	dir := t.TempDir()
+	dir := agentRuntimeTestDir(t)
 	workspace := t.TempDir()
 	t.Setenv("RADAR_AGENT_ROOT", filepath.Join(dir, "agents"))
 	t.Setenv("RADAR_SOCKET", filepath.Join(dir, "radar.sock"))

@@ -721,8 +721,8 @@ func TestWorkspaceSandboxConfigInheritsUserSettings(t *testing.T) {
 	}
 }
 
-func TestCreateRejectsConfiguredSandboxOutsideMacOS(t *testing.T) {
-	withWorkspaceGOOS(t, "linux")
+func TestCreateRejectsConfiguredSandboxOnUnsupportedPlatform(t *testing.T) {
+	withWorkspaceGOOS(t, "freebsd")
 	repo := t.TempDir()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`sbx:
@@ -739,10 +739,17 @@ func TestCreateRejectsConfiguredSandboxOutsideMacOS(t *testing.T) {
 		Base:          "origin/main",
 		WorkspaceRoot: root,
 	})
-	if err == nil || !strings.Contains(err.Error(), "only supported on macOS") {
-		t.Fatalf("Create() error = %v, want macOS-only sandbox error", err)
+	if err == nil || !strings.Contains(err.Error(), "macOS or native Linux SBX") {
+		t.Fatalf("Create() error = %v, want unsupported sandbox platform error", err)
 	}
 	assertNotCalled(t, runner.calls, "sbx")
+}
+
+func TestExplicitNativeLinuxSandboxUsesExistingSBX(t *testing.T) {
+	withWorkspaceGOOS(t, "linux")
+	if err := validateSandboxDependencies(&fakeRunner{}, true); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCreateForksPiSession(t *testing.T) {

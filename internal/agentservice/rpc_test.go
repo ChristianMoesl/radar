@@ -47,7 +47,7 @@ func TestSharedProtocolFixturesAndBoundedCorrelation(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "agent.sock")
+			path := filepath.Join(agentRuntimeTestDir(t), "agent.sock")
 			listener, err := net.Listen("unix", path)
 			if err != nil {
 				t.Fatal(err)

@@ -2,6 +2,12 @@
 
 SBX supplies local Docker sandbox resources and shell actions.
 
+Native Linux SBX is supported when explicitly enabled with `sbx.enabled: true`.
+It requires a working SBX installation, login and `/dev/kvm`. The Linux default
+remains local execution; guided setup does not automatically enable SBX there.
+Windows-backed WSL managed workspaces remain unsupported because their shared
+filesystem does not support the required symlinks.
+
 Start with [guided setup](#guided-setup-and-your-local-kit), then choose
 [startup scripts or a custom image](#preconfigure-with-an-image-or-startup-scripts).
 See [credentials](#credentials-and-access-inside-the-sandbox) for service access

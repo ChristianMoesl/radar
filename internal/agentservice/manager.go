@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -84,7 +85,9 @@ func socketPath(id string) (string, error) {
 		return "", err
 	}
 	sum := sha256.Sum256([]byte(id))
-	return filepath.Join(filepath.Dir(base), "agent-"+hex.EncodeToString(sum[:8])+".sock"), nil
+	// macOS temporary directories already consume much of sockaddr_un's path
+	// limit. Keep the same 64-bit identity in a compact private filename.
+	return filepath.Join(filepath.Dir(base), base64.RawURLEncoding.EncodeToString(sum[:8])), nil
 }
 
 func atomicJSON(path string, value any) error {

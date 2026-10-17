@@ -122,7 +122,7 @@ for (const { autoConfirm, mode } of [
             enabled: mode === "sbx",
             ...(mode === "sbx"
               ? {
-                  kit: { path: process.env.RADAR_SBX_KIT },
+                  kit: { name: process.env.RADAR_SBX_KIT },
                   additional_mounts: [repo],
                 }
               : {}),
