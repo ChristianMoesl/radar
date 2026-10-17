@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { promisify } from "node:util";
-import { execFile } from "node:child_process";
+import { execFile, type ExecFileOptions } from "node:child_process";
 import {
   mkdtemp,
   mkdir,
@@ -18,7 +18,7 @@ import test from "node:test";
 import { WorkspaceExecution } from "../src/environment.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 
-const execute = promisify(execFile);
+const command = promisify(execFile);
 
 for (const { autoConfirm, mode } of [
   { autoConfirm: true, mode: "local" },
@@ -33,7 +33,18 @@ for (const { autoConfirm, mode } of [
         (mode === "sbx" && !process.env.RADAR_SBX_KIT),
       timeout: mode === "sbx" ? 180000 : 60000,
     },
-    async () => {
+    async (testContext) => {
+      const execute = (
+        file: string,
+        args: string[],
+        options: Omit<ExecFileOptions, "encoding"> = {},
+      ) =>
+        command(file, args, {
+          ...options,
+          encoding: "utf8",
+          timeout: 120000,
+          signal: testContext.signal,
+        });
       const binary = process.env.RADAR_BINARY!;
       const dir = await mkdtemp(join(tmpdir(), "radar-review-"));
       const repo = join(dir, "repo"),
@@ -257,7 +268,7 @@ for (const { autoConfirm, mode } of [
                 "delivery-1",
                 "--json",
               ],
-              { env },
+              { env, signal: testContext.signal, timeout: 120000 },
             );
             let out = "",
               error = "";
@@ -412,8 +423,15 @@ for (const { autoConfirm, mode } of [
         throw error;
       } finally {
         process.env = originalEnvironment;
-        await radar("agent", "stop", "reviewer").catch(() => {});
-        await radar("stop").catch(() => {});
+        // Cleanup needs its own deadline after the test's signal has aborted.
+        await command(binary, ["agent", "stop", "reviewer", "--json"], {
+          env,
+          timeout: 30000,
+        }).catch(() => {});
+        await command(binary, ["stop", "--json"], {
+          env,
+          timeout: 30000,
+        }).catch(() => {});
         if (mode === "sbx") {
           const registry = await readFile(
             join(workspaceRoot, ".radar-workspaces.json"),
@@ -423,8 +441,9 @@ for (const { autoConfirm, mode } of [
             .catch(() => null);
           for (const workspace of registry?.workspaces ?? []) {
             if (!workspace.sandbox) continue;
-            await execute("sbx", ["rm", "--force", workspace.sandbox.name], {
+            await command("sbx", ["rm", "--force", workspace.sandbox.name], {
               env,
+              timeout: 30000,
             }).catch(() => {});
             await rm(workspace.sandbox.shared_directory, {
               recursive: true,
