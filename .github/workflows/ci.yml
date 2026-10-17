@@ -10,6 +10,52 @@ permissions:
   contents: read
 
 jobs:
+  durable-agents-sbx:
+    name: Durable agent in real SBX
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # renovate: datasource=github-releases depName=docker/sbx-releases
+      SBX_VERSION: v0.48.0
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.1.0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: pnpm install --frozen-lockfile
+      - name: Build Radar and install SBX
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fd-find
+          ln -s /usr/bin/fdfind "$RUNNER_TEMP/fd"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          go build -o "$RUNNER_TEMP/radar" ./cmd/radar
+          curl -fsSL "https://github.com/docker/sbx-releases/releases/download/${SBX_VERSION}/DockerSandboxes-linux-amd64.tar.gz" -o "$RUNNER_TEMP/sbx.tar.gz"
+          tar -xzf "$RUNNER_TEMP/sbx.tar.gz" -C "$RUNNER_TEMP"
+          sudo env PREFIX="$RUNNER_TEMP/sbx" "$RUNNER_TEMP/docker-sbx/install.sh"
+          echo "$RUNNER_TEMP/sbx/bin" >> "$GITHUB_PATH"
+      # This job never runs untrusted PR code with repository credentials.
+      - name: Sign in to SBX
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          sudo chmod a+rw /dev/kvm
+          printf '%s' "$DOCKERHUB_TOKEN" | sbx login --username "$DOCKERHUB_USERNAME" --password-stdin
+          sbx policy init balanced
+      - name: Exercise durable review and recovery in one managed VM
+        timeout-minutes: 6
+        env:
+          RADAR_BINARY: ${{ runner.temp }}/radar
+          RADAR_SBX_KIT: ${{ github.workspace }}/sandbox/kit
+        run: node --experimental-strip-types --test --test-timeout=180000 --test-name-pattern='mode=sbx' agent-host/test/review.test.ts
+
   durable-agents:
     name: Durable agent recovery and examples
     runs-on: ubuntu-latest

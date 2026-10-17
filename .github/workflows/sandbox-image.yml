@@ -6,9 +6,6 @@ on:
       - .dockerignore
       - sandbox/**
       - scripts/test-sandbox-runtime.sh
-      - agent-host/**
-      - internal/agentservice/**
-      - internal/integration/workspace/**
       - .github/workflows/sandbox-image.yml
   push:
     branches: [main]
@@ -16,9 +13,6 @@ on:
       - .dockerignore
       - sandbox/**
       - scripts/test-sandbox-runtime.sh
-      - agent-host/**
-      - internal/agentservice/**
-      - internal/integration/workspace/**
       - .github/workflows/sandbox-image.yml
   workflow_dispatch:
   schedule:
@@ -35,7 +29,7 @@ env:
   IMAGE: docker.io/christianmoesl/radar-sandbox
   KIT: docker.io/christianmoesl/radar-kit
   # renovate: datasource=github-releases depName=docker/sbx-releases
-  SBX_VERSION: v0.48.0
+  SBX_VERSION: v0.43.0
 
 jobs:
   publish:
@@ -49,27 +43,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
-
-      - uses: pnpm/action-setup@v6.1.0
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-      - uses: actions/setup-node@v7.1.0
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: actions/setup-go@v7.0.0
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        with:
-          go-version-file: go.mod
-      - name: Build Radar and install durable test dependencies
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        run: |
-          pnpm install --frozen-lockfile
-          sudo apt-get update
-          sudo apt-get install -y fd-find
-          ln -s /usr/bin/fdfind "$RUNNER_TEMP/fd"
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-          go build -o "$RUNNER_TEMP/radar" ./cmd/radar
 
       - name: Set immutable build tag
         id: version
@@ -88,19 +61,7 @@ jobs:
           sudo env PREFIX="$RUNNER_TEMP/sbx" "$RUNNER_TEMP/docker-sbx/install.sh"
           echo "$RUNNER_TEMP/sbx/bin" >> "$GITHUB_PATH"
 
-      # SBX 0.48 requires login even for local kit validation. PRs never
-      # receive credentials; authenticated kit/runtime checks run on main.
-      - name: Sign in to SBX
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          sudo chmod a+rw /dev/kvm
-          printf '%s' "$DOCKERHUB_TOKEN" | sbx login --username "$DOCKERHUB_USERNAME" --password-stdin
-
       - name: Validate kit
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: sbx kit validate sandbox/kit
 
       - name: Build and smoke-test both architectures
@@ -121,12 +82,14 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Test the private daemon and durable agent
-        timeout-minutes: 12
+      - name: Sign in to SBX and test the private daemon
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
-          RADAR_BINARY: ${{ runner.temp }}/radar
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
+          sudo chmod a+rw /dev/kvm
+          printf '%s' "$DOCKERHUB_TOKEN" | sbx login --username "$DOCKERHUB_USERNAME" --password-stdin
           sbx policy init balanced
           bash scripts/test-sandbox-runtime.sh "$IMAGE:check-amd64"
 

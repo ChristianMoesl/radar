@@ -165,15 +165,16 @@ pnpm check
 
 The full review test uses the actual CLI/daemon, Git worktrees, note registry, a local deterministic model and isolated state. Other tests cover receipt loss, SIGKILL checkpoints, owner exclusion, stale actions, provider HTTP fixtures, workspace pinning and SBX command routing/failure.
 
-The sandbox-image workflow also runs the review test inside a real SBX VM with the locally built kit. This verifies native file reads/writes, skill resources, review worktree preparation, daemon/runner recovery and failure without host execution after the sandbox stops. To reproduce on a disposable Linux machine with `/dev/kvm`, Docker, SBX 0.48.0+ and SBX login already configured:
+The main-branch CI job **Durable agent in real SBX** also runs the review test inside one real SBX VM with Radar's published sandbox image and local kit. It uses the repository's existing Docker/SBX login and does not publish images. This verifies native file reads/writes, skill resources, review worktree preparation, daemon/runner recovery and failure without host execution after the sandbox stops. To reproduce on a disposable Linux machine with `/dev/kvm`, SBX 0.48.0+ and SBX login already configured:
 
 ```sh
 go build -o /tmp/radar ./cmd/radar
 pnpm install --frozen-lockfile
-docker build --build-arg TARGETARCH=amd64 -f sandbox/Dockerfile -t radar-sandbox:check .
-RADAR_BINARY=/tmp/radar bash scripts/test-sandbox-runtime.sh radar-sandbox:check
+RADAR_BINARY=/tmp/radar RADAR_SBX_KIT="$PWD/sandbox/kit" \
+  node --experimental-strip-types --test --test-timeout=180000 \
+  --test-name-pattern='mode=sbx' agent-host/test/review.test.ts
 ```
 
-The script loads the image into SBX's separate image store and tests its private Docker daemon too. It creates and removes disposable sandboxes; it needs no model, Jira or Datadog account. The review model remains a labelled fixture. Real provider accounts and real model quality require separate validation; an SBX pass does not establish those results.
+The test creates and removes a disposable sandbox; it needs no model, Jira or Datadog account. `RADAR_SBX_KIT` can select another local kit, including one that pins an image digest. The independent sandbox-image workflow builds and tests the image and its private Docker daemon. The review model remains a labelled fixture. Real provider accounts and real model quality require separate validation; an SBX pass does not establish those results.
 
 Host packages are packed in CI, separately versioned from the CLI, and can be staged by `.github/workflows/agent-host-package.yml`. A maintainer must bootstrap the npm package, configure that workflow as a **stage-only** trusted publisher, then review/approve each stage with 2FA. CI never directly publishes it. See [npm publishing](npm-publishing.md) for the existing staging procedure. No account or external credential is created by this feature.

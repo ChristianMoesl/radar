@@ -61,14 +61,6 @@ sbx exec "$name" bash -lc '
     docker run --rm hello-world
 '
 
-# Exercise the actual Radar planner, daemon, native durable tools and review
-# definition in a separate managed SBX workspace using this tested local kit.
-# Release the first VM's memory before creating the managed workspace's VM.
-sbx stop "$name"
-RADAR_SBX_KIT="$tmp/kit" node --experimental-strip-types --test \
-    --test-timeout=180000 --test-name-pattern='mode=sbx' \
-    "$root/agent-host/test/review.test.ts"
-
 # Failed initialization must not inherit the preceding boot's ready state.
 cat > "$tmp/startup.d/15-failure" <<'EOF'
 #!/bin/sh
@@ -76,6 +68,7 @@ printf 'PRIVATE_FIXTURE_VALUE\n'
 exit 17
 EOF
 chmod 0755 "$tmp/startup.d/15-failure"
+sbx stop "$name"
 if sbx exec "$name" sandbox-startup wait --timeout 30; then
     echo 'failed startup incorrectly reported ready' >&2
     exit 1
