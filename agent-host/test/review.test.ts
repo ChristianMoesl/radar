@@ -402,6 +402,14 @@ for (const { autoConfirm, mode } of [
             /sandbox .*unavailable/i,
           );
         }
+      } catch (error) {
+        const log = await readFile(
+          join(dir, "agents", "reviewer", "runner.log"),
+          "utf8",
+        ).catch(() => "");
+        if (log)
+          console.error(`Review fixture runner log:\n${log.slice(-16384)}`);
+        throw error;
       } finally {
         process.env = originalEnvironment;
         await radar("agent", "stop", "reviewer").catch(() => {});

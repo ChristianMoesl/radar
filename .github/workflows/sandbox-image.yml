@@ -88,7 +88,19 @@ jobs:
           sudo env PREFIX="$RUNNER_TEMP/sbx" "$RUNNER_TEMP/docker-sbx/install.sh"
           echo "$RUNNER_TEMP/sbx/bin" >> "$GITHUB_PATH"
 
+      # SBX 0.48 requires login even for local kit validation. PRs never
+      # receive credentials; authenticated kit/runtime checks run on main.
+      - name: Sign in to SBX
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          sudo chmod a+rw /dev/kvm
+          printf '%s' "$DOCKERHUB_TOKEN" | sbx login --username "$DOCKERHUB_USERNAME" --password-stdin
+
       - name: Validate kit
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: sbx kit validate sandbox/kit
 
       - name: Build and smoke-test both architectures
@@ -109,15 +121,11 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Sign in to SBX and test the private daemon
+      - name: Test the private daemon and durable agent
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           RADAR_BINARY: ${{ runner.temp }}/radar
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          sudo chmod a+rw /dev/kvm
-          printf '%s' "$DOCKERHUB_TOKEN" | sbx login --username "$DOCKERHUB_USERNAME" --password-stdin
           sbx policy init balanced
           bash scripts/test-sandbox-runtime.sh "$IMAGE:check-amd64"
 
