@@ -18,6 +18,8 @@ Radar collects authoritative assigned Jira Cloud work and discovers configured l
 
 For authoritative issues, Radar also reads Jira's structured Development pull-request relationships. A valid GitHub relationship contributes the PR identity and its exact repository and source branch as linking keys. This joins the Jira issue to the GitHub PR and matching worktree even when their titles and branch names omit the Jira key. Radar does not inspect PR bodies, Jira descriptions, comments, or commit messages for this link. Jira installations without the Development endpoints keep the normal issue collection behavior.
 
+A PR's head branch takes precedence over a Development-panel association: if it contains configured linking marks, it must identify only that Jira issue. A branch identifying another issue or multiple distinct issues contributes neither PR nor branch linking keys. For example, a PR from `ABC-124-feature` into `ABC-123-base` can link through Development to `ABC-124`, but not to `ABC-123`. Branches without configured marks keep the usual Development linking, and closed or merged PRs keep legitimate ownership links. This check applies to both ordinary collection and explicitly bound issues; it does not automatically split previously merged task records.
+
 ### Credentials
 
 The wizard stores `jira.base_url`, `jira.email`, and the discovered `jira.cloud_id` in `config.yaml`, with `jira.api_token` in `secrets.yaml`. It discovers the Cloud ID from the site's `/_edge/tenant_info` endpoint without sending the token, then verifies authentication with Jira's `/myself` endpoint. A failed check stops setup without saving configuration.

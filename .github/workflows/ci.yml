@@ -10,6 +10,85 @@ permissions:
   contents: read
 
 jobs:
+  durable-agents-sbx:
+    name: Durable agent in real SBX
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # renovate: datasource=github-releases depName=docker/sbx-releases
+      SBX_VERSION: v0.48.0
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.1.0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: pnpm install --frozen-lockfile
+      - name: Build Radar and install SBX
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fd-find
+          ln -s /usr/bin/fdfind "$RUNNER_TEMP/fd"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          go build -o "$RUNNER_TEMP/radar" ./cmd/radar
+          curl -fsSL "https://github.com/docker/sbx-releases/releases/download/${SBX_VERSION}/DockerSandboxes-linux-amd64.tar.gz" -o "$RUNNER_TEMP/sbx.tar.gz"
+          tar -xzf "$RUNNER_TEMP/sbx.tar.gz" -C "$RUNNER_TEMP"
+          sudo env PREFIX="$RUNNER_TEMP/sbx" "$RUNNER_TEMP/docker-sbx/install.sh"
+          echo "$RUNNER_TEMP/sbx/bin" >> "$GITHUB_PATH"
+      # This job never runs untrusted PR code with repository credentials.
+      - name: Sign in to SBX
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          sudo chmod a+rw /dev/kvm
+          printf '%s' "$DOCKERHUB_TOKEN" | sbx login --username "$DOCKERHUB_USERNAME" --password-stdin
+          sbx policy init balanced
+      - name: Exercise durable review and recovery in one managed VM
+        timeout-minutes: 6
+        env:
+          RADAR_BINARY: ${{ runner.temp }}/radar
+          RADAR_SBX_KIT: ${{ github.workspace }}/sandbox/kit
+        run: node --experimental-strip-types --test --test-timeout=180000 --test-name-pattern='mode=sbx' agent-host/test/review.test.ts
+
+  durable-agents:
+    name: Durable agent recovery and examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.1.0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: pnpm install --frozen-lockfile
+      - name: Install Radar repository discovery tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fd-find
+          ln -s /usr/bin/fdfind "$RUNNER_TEMP/fd"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - run: go build -o "$RUNNER_TEMP/radar" ./cmd/radar
+      - run: pnpm --filter @christianmoesl/radar-agent-host check
+        env:
+          RADAR_BINARY: ${{ runner.temp }}/radar
+      - run: pnpm --filter @christianmoesl/radar-agent-host build
+      - run: pnpm --dir agent-host pack --out "$RUNNER_TEMP/radar-agent-host.tgz"
+      - run: node scripts/smoke-agent-package.mjs "$RUNNER_TEMP/radar-agent-host.tgz"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: radar-agent-host
+          path: ${{ runner.temp }}/radar-agent-host.tgz
+      - run: go test ./internal/agentservice ./internal/workspacelease ./internal/integration/agent
+
   pi:
     name: Pi package
     runs-on: ubuntu-latest
@@ -91,13 +170,48 @@ jobs:
           node-version: 24
 
       - name: Test installation and integration defaults on macOS
-        run: go test ./scripts ./scripts/homebrew ./internal/app ./internal/config ./internal/collector ./internal/pi ./internal/notification ./internal/integration/...
+        run: go test ./scripts ./scripts/homebrew ./internal/app ./internal/config ./internal/collector ./internal/pi ./internal/notification ./internal/agentservice ./internal/workspacelease ./internal/integration/...
 
       - name: Check Homebrew formula style
         run: brew style scripts/homebrew/testdata/Formula/radar.rb
 
       - name: Check macOS release packaging
         run: make dist VERSION=ci DIST_TARGETS="darwin/arm64"
+
+  linux-installer:
+    name: Rootless Linux installer (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [debian:bookworm, ubuntu:24.04, fedora:latest, archlinux:latest]
+    container: ${{ matrix.image }}
+    steps:
+      # Test setup may install tools as root; the installer suite itself must run
+      # as a normal user and checks that ready tools need no package-manager call
+      # and missing tools cannot consume approval from piped input.
+      - name: Prepare container tools
+        shell: sh
+        run: |
+          if command -v apt-get >/dev/null; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bash git ca-certificates passwd zsh fish
+          elif command -v dnf >/dev/null; then
+            dnf install -y bash git ca-certificates shadow-utils zsh fish
+          else
+            pacman -Syu --noconfirm bash git ca-certificates shadow zsh fish
+          fi
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+      - name: Test as an unprivileged user
+        run: |
+          useradd --create-home --shell /bin/bash radar-test
+          node_binary="$(command -v node)"
+          # Exercise a permissive user umask without relying on distro defaults.
+          su -s /bin/bash radar-test -c "umask 0002; \"$node_binary\" --test scripts/linux-install.test.mjs"
 
   linux-homebrew:
     name: Linux Homebrew install (${{ matrix.arch }})

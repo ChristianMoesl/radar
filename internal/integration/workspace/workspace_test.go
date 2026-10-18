@@ -748,6 +748,13 @@ func TestCreateRejectsConfiguredSandboxOnUnsupportedPlatform(t *testing.T) {
 	assertNotCalled(t, runner.calls, "sbx")
 }
 
+func TestExplicitNativeLinuxSandboxUsesExistingSBX(t *testing.T) {
+	withWorkspaceGOOS(t, "linux")
+	if err := validateSandboxDependencies(context.Background(), &fakeRunner{}, true); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCreateForksPiSession(t *testing.T) {
 	repo := t.TempDir()
 	root := t.TempDir()
@@ -1289,4 +1296,32 @@ func (r *windowsOnlyRunner) LookPath(name string) error {
 		return errors.New("missing native SBX")
 	}
 	return nil
+}
+
+func TestSandboxExistsParsesListArray(t *testing.T) {
+	for _, tt := range []struct {
+		name, output  string
+		want, wantErr bool
+	}{
+		{"empty", `[]`, false, false},
+		{"matching", `[{"name":"ABC-456"},{"name":"ABC-123"}]`, true, false},
+		{"missing", `[{"name":"ABC-456"}]`, false, false},
+		{"malformed", `[`, false, true},
+		{"old wrapper", `{"sandboxes":[]}`, false, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &fakeRunner{sbxListOutput: tt.output}
+			got, err := sandboxExists(context.Background(), runner, "ABC-123")
+			if got != tt.want || (err != nil) != tt.wantErr {
+				t.Fatalf("sandboxExists() = %v, %v", got, err)
+			}
+			if tt.wantErr && !strings.Contains(err.Error(), "unexpected sbx list output") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(runner.calls) != 1 {
+				t.Fatalf("calls = %+v", runner.calls)
+			}
+			assertCalled(t, runner.calls, "sbx", "ls --json")
+		})
+	}
 }

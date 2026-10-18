@@ -2,7 +2,7 @@ package protocol
 
 import "fmt"
 
-// Activity is transient runtime state, independent of attention and lifecycle.
+// Activity is transient runtime state. Busy and waiting veto completion.
 // The zero value is idle, so refs without an activity producer contribute nothing.
 type Activity string
 
@@ -46,4 +46,16 @@ func MergeActivity(left, right Activity) Activity {
 		return ActivityBusy
 	}
 	return ActivityIdle
+}
+
+// SourceRefsActivity reduces current authoritative observations, including on
+// done tasks whose displayed Activity may previously have been suppressed.
+func SourceRefsActivity(refs []SourceRef) Activity {
+	activity := ActivityIdle
+	for _, ref := range refs {
+		if ref.Role == SourceRefRoleAuthoritative {
+			activity = MergeActivity(activity, ref.Activity)
+		}
+	}
+	return activity
 }

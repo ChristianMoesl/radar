@@ -89,17 +89,17 @@ func openCleanupAnchor(root, path string) (*cleanupAnchor, error) {
 
 type anchorEntries struct {
 	disposable []string
-	expired    []string
+	unknown    []string
 }
 
 func (e anchorEntries) names() []string {
-	return append(slices.Clone(e.disposable), e.expired...)
+	return append(slices.Clone(e.disposable), e.unknown...)
 }
 
-// ValidateExpiredWorkspace lets earlier cleanup providers recheck the same
+// ValidateDiscardingWorkspace lets earlier cleanup providers recheck the same
 // anchor and member protections immediately before their destructive step.
 // Reload registration and configuration rather than trusting preview state.
-func ValidateExpiredWorkspace(root, id string) error {
+func ValidateDiscardingWorkspace(root, id string, mode integration.CleanupMode) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -110,9 +110,9 @@ func ValidateExpiredWorkspace(root, id string) error {
 	}
 	group, found := workspacegroup.FindByID(registry, id)
 	if !found {
-		return fmt.Errorf("expired cleanup requires a registered workspace: %s", id)
+		return fmt.Errorf("discarding cleanup requires a registered workspace: %s", id)
 	}
-	_, err = anchorCleanupEntries(root, registry, group, cfg.Workspace.Cleanup.DisposableEntries, integration.CleanupExpired)
+	_, err = anchorCleanupEntries(root, registry, group, cfg.Workspace.Cleanup.DisposableEntries, mode)
 	return err
 }
 
@@ -131,8 +131,8 @@ func (a *cleanupAnchor) entries(registry workspacegroup.Registry, group workspac
 	if mode != integration.CleanupSafe && mode != integration.CleanupConfirmed && mode != integration.CleanupExpired {
 		return anchorEntries{}, fmt.Errorf("invalid workspace cleanup mode: %d", mode)
 	}
-	if mode == integration.CleanupExpired {
-		if err := validateExpiredAnchor(a.root, registry, group); err != nil {
+	if mode.DiscardChanges() {
+		if err := validateDiscardingAnchor(a.root, registry, group); err != nil {
 			return anchorEntries{}, err
 		}
 	}
@@ -159,15 +159,15 @@ func (a *cleanupAnchor) entries(registry workspacegroup.Registry, group workspac
 		case managed[pathKey(name)]:
 			// Git owns these, even when their names are configured as disposable.
 		case slices.Contains(disposable, name) && !strings.EqualFold(name, "notes.md"):
-			// Keep the existing safe/confirmed config policy conservative.
+			// Configured disposal never grants permission to delete the canonical note.
 			if entry.Type()&os.ModeSymlink == 0 && group.NotePath != "" &&
 				pathContains(physicalPath(path), physicalPath(group.NotePath)) {
 				return anchorEntries{}, fmt.Errorf("disposable entry contains the canonical note: %s", path)
 			}
 			removable.disposable = append(removable.disposable, name)
 		default:
-			if mode == integration.CleanupExpired {
-				removable.expired = append(removable.expired, name)
+			if mode.DiscardChanges() {
+				removable.unknown = append(removable.unknown, name)
 			} else {
 				unknown = append(unknown, path)
 			}
@@ -176,15 +176,15 @@ func (a *cleanupAnchor) entries(registry workspacegroup.Registry, group workspac
 	if len(unknown) > 0 {
 		return anchorEntries{}, fmt.Errorf("workspace anchor contains unknown files: %s", strings.Join(unknown, ", "))
 	}
-	if mode == integration.CleanupExpired {
-		if err := a.inspectExpiredAnchor(group, managed); err != nil {
+	if mode.DiscardChanges() {
+		if err := a.inspectDiscardingAnchor(group, managed); err != nil {
 			return anchorEntries{}, err
 		}
 	}
 	return removable, nil
 }
 
-func (a *cleanupAnchor) inspectExpiredAnchor(group workspacegroup.Workspace, managed map[string]bool) error {
+func (a *cleanupAnchor) inspectDiscardingAnchor(group workspacegroup.Workspace, managed map[string]bool) error {
 	// Walk from the already-open anchor, not an entry path: fs.WalkDir follows
 	// a symlink used as its starting path, but never follows nested symlinks.
 	// Unknown directories and members can contain primary checkouts without
@@ -212,13 +212,13 @@ func (a *cleanupAnchor) inspectExpiredAnchor(group workspacegroup.Workspace, man
 	})
 }
 
-// Expiry grants permission to discard local data, not permission to delete
+// Discarding local data never grants permission to delete
 // another resource. Check both lexical and physical paths: a registered path
 // reached through a symlink must not lose its workspace view either.
-func validateExpiredAnchor(root string, registry workspacegroup.Registry, group workspacegroup.Workspace) error {
+func validateDiscardingAnchor(root string, registry workspacegroup.Registry, group workspacegroup.Workspace) error {
 	physicalRoot := physicalPath(root)
 	if !filepath.IsAbs(root) || filepath.Dir(physicalRoot) == physicalRoot {
-		return fmt.Errorf("unsafe configured workspace root for expired cleanup: %s", root)
+		return fmt.Errorf("unsafe configured workspace root for discarding cleanup: %s", root)
 	}
 	contains := func(path string) bool {
 		return path != "" && (pathContains(pathKey(group.Path), pathKey(path)) ||
@@ -310,7 +310,7 @@ func addDisposableEntriesPreview(target *protocol.CleanupTarget, entries []strin
 	})
 }
 
-func addExpiredEntriesPreview(target *protocol.CleanupTarget, entries []string) {
+func addUnknownEntriesPreview(target *protocol.CleanupTarget, entries []string, mode integration.CleanupMode) {
 	if len(entries) == 0 {
 		return
 	}
@@ -318,11 +318,15 @@ func addExpiredEntriesPreview(target *protocol.CleanupTarget, entries []string) 
 	if target.Operation == nil {
 		target.Operation = map[string]string{}
 	}
-	target.Operation["expired_entries"] = string(encoded)
-	message := "delete expired workspace contents (including directory contents): " + strings.Join(entries, ", ")
+	key, label := "unknown_entries", "unknown"
+	if mode == integration.CleanupExpired {
+		key, label = "expired_entries", "expired"
+	}
+	target.Operation[key] = string(encoded)
+	message := "delete " + label + " workspace contents (including directory contents): " + strings.Join(entries, ", ") + ". Permanent loss; no recovery archive"
 	target.Description += "; " + message
 	target.Safety = append(target.Safety, protocol.CleanupSafety{
-		Kind: "expired_entries", Summary: "delete expired contents: " + strings.Join(entries, ", "),
+		Kind: key, Summary: "delete " + label + " contents: " + strings.Join(entries, ", "),
 		Message: message, BlocksAutomatic: true, Expires: true,
 	})
 }
@@ -341,8 +345,8 @@ func removeWorkspaceAnchor(root string, target protocol.CleanupTarget, mode inte
 	if !found {
 		return workspacegroup.Workspace{}, nil
 	}
-	if mode == integration.CleanupExpired && (!sameCleanPath(target.Path, group.Path) || target.WorkspaceID != group.ID) {
-		return workspacegroup.Workspace{}, fmt.Errorf("expired workspace cleanup target no longer matches its registration")
+	if mode.DiscardChanges() && (!sameCleanPath(target.Path, group.Path) || target.WorkspaceID != group.ID) {
+		return workspacegroup.Workspace{}, fmt.Errorf("workspace cleanup target no longer matches its registration")
 	}
 	if len(group.Members) > 0 {
 		return workspacegroup.Workspace{}, fmt.Errorf("workspace still contains %d managed worktree(s)", len(group.Members))
@@ -356,22 +360,35 @@ func removeWorkspaceAnchor(root string, target protocol.CleanupTarget, mode inte
 	if err != nil {
 		return workspacegroup.Workspace{}, err
 	}
-	var previewed []string
-	for _, key := range []string{"disposable_entries", "expired_entries"} {
+	var previewed, previewedUnknown []string
+	for _, key := range []string{"disposable_entries", "expired_entries", "unknown_entries"} {
 		if encoded := target.Operation[key]; encoded != "" {
 			if key == "expired_entries" && mode != integration.CleanupExpired {
 				return workspacegroup.Workspace{}, fmt.Errorf("expired entries require expired workspace cleanup mode")
+			}
+			if key == "unknown_entries" && mode != integration.CleanupConfirmed {
+				return workspacegroup.Workspace{}, fmt.Errorf("unknown entries require confirmed workspace cleanup mode")
 			}
 			var names []string
 			if err := json.Unmarshal([]byte(encoded), &names); err != nil {
 				return workspacegroup.Workspace{}, fmt.Errorf("invalid %s preview: %w", strings.ReplaceAll(key, "_", " "), err)
 			}
 			previewed = append(previewed, names...)
+			if key == "unknown_entries" {
+				previewedUnknown = names
+			}
 		}
 	}
 	for _, name := range entries.names() {
 		if !slices.Contains(previewed, name) {
 			return workspacegroup.Workspace{}, fmt.Errorf("workspace entry %q was not in the cleanup preview; preview cleanup again", name)
+		}
+	}
+	if mode == integration.CleanupConfirmed {
+		for _, name := range entries.unknown {
+			if !slices.Contains(previewedUnknown, name) {
+				return workspacegroup.Workspace{}, fmt.Errorf("unknown workspace entry %q was not in the confirmed cleanup preview; preview cleanup again", name)
+			}
 		}
 	}
 	if a.anchor != nil {

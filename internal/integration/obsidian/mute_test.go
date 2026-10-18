@@ -338,17 +338,17 @@ func TestMutedFlagAndBindingsRemainStickyAcrossLifecycle(t *testing.T) {
 	originalBindings := append([]protocol.SourceBinding(nil), ref.Bindings...)
 	items := []protocol.SourceRef{task.SourceRefs[0], task.SourceRefs[1]}
 	// Arms completion while remote work is active, without unmuting it.
-	armed, err := source.ReconcileLifecycle(ctx, ref, items)
+	armed, err := source.ReconcileLifecycle(ctx, ref, integration.TaskLifecycleRequest{WorkItems: items})
 	if err != nil || armed == nil || !armed.Ref.Muted {
 		t.Fatalf("active reconcile = %+v, %v", armed, err)
 	}
 	items[0].Signal = "done"
-	done, err := source.ReconcileLifecycle(ctx, armed.Ref, items)
+	done, err := source.ReconcileLifecycle(ctx, armed.Ref, integration.TaskLifecycleRequest{WorkItems: items})
 	if err != nil || done == nil || done.Signal != integration.SignalDone || !done.Ref.Muted {
 		t.Fatalf("completion = %+v, %v", done, err)
 	}
 	items[0].Signal = "in_progress"
-	opened, err := source.ReconcileLifecycle(ctx, done.Ref, items)
+	opened, err := source.ReconcileLifecycle(ctx, done.Ref, integration.TaskLifecycleRequest{WorkItems: items})
 	if err != nil || opened == nil || opened.Ref.Status != "open" || !opened.Ref.Muted || !reflect.DeepEqual(opened.Ref.Bindings, originalBindings) {
 		t.Fatalf("reopening = %+v, %v", opened, err)
 	}

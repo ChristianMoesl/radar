@@ -33,7 +33,7 @@ func TestActivityProjectionUsesOnlyCurrentAuthoritativeFacts(t *testing.T) {
 	}
 	check(protocol.ActivityWaiting)
 	// Informational refs do not win even if a malformed provider supplied activity.
-	if got := sourceRefsActivity([]protocol.SourceRef{busy, info}); got != protocol.ActivityBusy {
+	if got := protocol.SourceRefsActivity([]protocol.SourceRef{busy, info}); got != protocol.ActivityBusy {
 		t.Fatalf("informational activity contributed: %q", got)
 	}
 	for i := range state.SourceRefs {
@@ -93,5 +93,21 @@ func TestActivitySnapshotRoundTripPreservesIdentityAndAcknowledgement(t *testing
 	tasks = projectTasks(restored)
 	if len(tasks) != 1 || tasks[0].ID != original.Records[0].NumericID || tasks[0].Activity != protocol.ActivityIdle || tasks[0].AcknowledgementCursor != "seen" {
 		t.Fatalf("idle projection lost durable state: %+v", tasks)
+	}
+}
+
+func TestHandoffKeepsCompletedEvidenceButNotHistoricalActivity(t *testing.T) {
+	now := time.Now().UTC()
+	note := protocol.SourceRef{ID: "note", Source: "notes", Kind: "task", Role: protocol.SourceRefRoleAuthoritative, Authored: true, AgentReview: true, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary, CanonicalKey: "note", LinkingKeys: []string{"note"}, Signal: "low_priority"}
+	remote := protocol.SourceRef{ID: "pr", Source: "remote", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityContributing, Signal: "done", RetainInactive: true, LinkingKeys: []string{"note"}}
+	runtime := protocol.SourceRef{ID: "session", Source: "runtime", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Authority: protocol.SourceRefAuthorityNone, Activity: protocol.ActivityBusy, LinkingKeys: []string{"note"}}
+	state := reconcileState(persistedState{Version: stateVersion}, []protocol.Task{makeTask("low_priority", "open", note), makeTask("done", "merged", remote), makeTask("in_progress", "busy", runtime)}, now)
+	state = reconcileState(state, []protocol.Task{makeTask("low_priority", "open", note)}, now.Add(time.Hour))
+	tasks := projectTasks(state)
+	if len(tasks) != 1 || tasks[0].Attention != "attention" || tasks[0].Activity != protocol.ActivityIdle || tasks[0].DoneAt != "" {
+		t.Fatalf("handoff projection=%+v", tasks)
+	}
+	if len(tasks[0].SourceRefs) != 2 {
+		t.Fatalf("completion evidence lost or historical runtime restored: %+v", tasks[0].SourceRefs)
 	}
 }

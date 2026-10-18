@@ -25,7 +25,7 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 	fail := func(err error) (ReconcileWorkspacePlan, ReconcileWorkspaceRequest, error) {
 		return ReconcileWorkspacePlan{}, ReconcileWorkspaceRequest{}, err
 	}
-	if err := runner.LookPath("tmux"); err != nil {
+	if err := runner.LookPath("tmux"); err != nil && !options.PrepareOnly {
 		return fail(fmt.Errorf("workspace session requires %q: %w", "tmux", err))
 	}
 	if err := pi.ValidateThinking(options.Thinking); err != nil {
@@ -40,6 +40,16 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 	root, err := workspaceRoot(options.WorkspaceRoot)
 	if err != nil {
 		return fail(err)
+	}
+	if options.PrepareOnly && options.Path != "" {
+		_, registered, found, err := RegisteredWorkspace(options.Path, root)
+		if err != nil {
+			return fail(err)
+		}
+		if !found {
+			return fail(fmt.Errorf("preparation workspace must already be registered"))
+		}
+		return planPrepareExisting(ctx, runner, root, registered, options)
 	}
 	members := append([]DesiredWorkspaceWorktree{}, options.Worktrees...)
 	if options.Repo != "" {
@@ -110,7 +120,7 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 	} else if !os.IsNotExist(err) {
 		return fail(err)
 	}
-	if err := validateSessionDependencies(runner, options.Tmux); err != nil {
+	if err := validateSessionDependencies(runner, options.Tmux); err != nil && !options.PrepareOnly {
 		return fail(err)
 	}
 	repoConfig := RepoConfig{}
@@ -153,7 +163,7 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 			sessionName = SessionName(repoName, name)
 		}
 	}
-	if sandbox.Enabled {
+	if sandbox.Enabled && !options.PrepareOnly {
 		if _, err := runner.Run(ctx, "", "tmux", "has-session", "-t", sessionName); err == nil {
 			return fail(fmt.Errorf("tmux session %s already exists; cannot verify its early-start sandbox guard; open its registered workspace or choose a different session name", sessionName))
 		}
@@ -188,8 +198,11 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 	}
 	plan.Note = desired.Note
 	plan.create, plan.forkSession, plan.switchClient = true, options.ForkPiSession, options.Switch
+	plan.prepareOnly = options.PrepareOnly
 	plan.Changes = append([]WorkspaceChange{{Action: "add", Resource: "workspace", Path: anchor, Summary: "create workspace " + anchor}}, plan.Changes...)
-	plan.Changes = append(plan.Changes, WorkspaceChange{Action: "add", Resource: "session", Summary: "start tmux and Pi in " + anchor})
+	if !options.PrepareOnly {
+		plan.Changes = append(plan.Changes, WorkspaceChange{Action: "add", Resource: "session", Summary: "start tmux and Pi in " + anchor})
+	}
 	plan.PlanID, err = workspacePlanID(plan.Revision+"\x00"+plan.NextRevision+"\x00"+plannedSandboxMounts(plan.group), plan.Changes, plan.Warnings)
 	return plan, request, err
 }
@@ -218,10 +231,13 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) 
 	if err != nil {
 		return Workspace{}, err
 	}
-	if options.ExpectedPlanID != "" && options.ExpectedPlanID != plan.PlanID {
+	if options.ExpectedPlanID != "" && options.ExpectedPlanID != plan.PlanID && !(options.PrepareOnly && !plan.create && len(plan.Changes) == 0) {
 		return Workspace{}, fmt.Errorf("workspace creation plan changed; review it again")
 	}
 	if plan.openExisting {
+		if options.PrepareOnly {
+			return Workspace{Name: plan.group.Name, Path: plan.group.Path, SessionName: plan.group.SessionName, SandboxName: sandboxName(plan.group)}, nil
+		}
 		return openRegisteredWorkspace(ctx, runner, plan.root, plan.group, options, options.Repo, options.Branch)
 	}
 	if plan.group.Sandbox != nil {
@@ -231,7 +247,7 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) 
 	}
 	// tmux closes a popup with SIGTERM and a PTY hangup. Creation is still
 	// owned by this process; finish it before restoring normal handling.
-	if plan.group.Sandbox != nil && options.Switch {
+	if plan.group.Sandbox != nil && options.Switch && !options.PrepareOnly {
 		hangup := make(chan os.Signal, 1)
 		signal.Notify(hangup, syscall.SIGHUP, syscall.SIGTERM)
 		defer signal.Stop(hangup)
@@ -241,6 +257,17 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) 
 		return Workspace{}, fmt.Errorf("open workspace creation log: %w", err)
 	}
 	defer logFile.Close()
+	if options.PrepareOnly && !plan.create {
+		result, err := applyWorkspacePlan(ctx, runner, logger, request, plan)
+		prepared := Workspace{Name: plan.group.Name, Path: plan.group.Path, SessionName: plan.group.SessionName, SandboxName: sandboxName(plan.group), Warning: result.Warning}
+		if err != nil {
+			return prepared, err
+		}
+		if !result.OK {
+			return prepared, fmt.Errorf("workspace needs reconciliation: %s", result.Error)
+		}
+		return prepared, nil
+	}
 	if err := createAnchorDirectory(plan.root, plan.group.Path); err != nil {
 		return Workspace{}, err
 	}
@@ -279,7 +306,7 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) 
 	}
 	// Sandboxed creation has already switched before provisioning. Keep the
 	// existing sandbox-less order and final completion/error contract.
-	if options.Switch && plan.group.Sandbox == nil {
+	if options.Switch && plan.group.Sandbox == nil && !options.PrepareOnly {
 		if _, err := runner.Run(ctx, created.Path, "tmux", "switch-client", "-t", created.SessionName); err != nil {
 			return created, err
 		}
@@ -288,6 +315,9 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) 
 }
 
 func planOpenWorkspace(ctx context.Context, runner Runner, root string, group workspacegroup.Workspace, options CreateOptions) (ReconcileWorkspacePlan, ReconcileWorkspaceRequest, error) {
+	if options.PrepareOnly {
+		return planPrepareExisting(ctx, runner, root, group, options)
+	}
 	if group.NotePath == "" {
 		return ReconcileWorkspacePlan{}, ReconcileWorkspaceRequest{}, fmt.Errorf("workspace %s has no canonical note; associate its Obsidian note before opening it", group.Path)
 	}
@@ -309,4 +339,66 @@ func planOpenWorkspace(ctx context.Context, runner Runner, root string, group wo
 	changes := []WorkspaceChange{{Action: "open", Resource: "workspace", Path: group.Path, Summary: "open existing workspace " + group.Path}}
 	planID, err := workspacePlanID(revision, changes, nil)
 	return ReconcileWorkspacePlan{WorkspaceID: group.ID, WorkspaceName: group.Name, Revision: revision, PlanID: planID, Changes: changes, root: root, group: group, openExisting: true}, ReconcileWorkspaceRequest{}, err
+}
+
+// Retrying a stable preparation operation reconciles only missing initial
+// resources. Existing members remain present and no interactive session starts.
+func planPrepareExisting(ctx context.Context, runner Runner, root string, group workspacegroup.Workspace, options CreateOptions) (ReconcileWorkspacePlan, ReconcileWorkspaceRequest, error) {
+	desired := DesiredWorkspaceDescription{Worktrees: []DesiredWorkspaceWorktree{}}
+	for _, member := range group.Members {
+		desired.Worktrees = append(desired.Worktrees, DesiredWorkspaceWorktree{Repository: member.Repository, BranchMode: integration.WorkspaceBranchExisting, Branch: member.Branch})
+	}
+	if group.NotePath != "" {
+		desired.Note = &DesiredWorkspaceNote{Path: group.NotePath, LinkingKey: group.NoteKey()}
+	} else {
+		desired.Note = options.Note
+	}
+	if desired.Note == nil {
+		return ReconcileWorkspacePlan{}, ReconcileWorkspaceRequest{}, fmt.Errorf("incomplete preparation requires its original prepared canonical note")
+	}
+	wanted := append([]DesiredWorkspaceWorktree{}, options.Worktrees...)
+	if options.Repo != "" {
+		wanted = append(wanted, DesiredWorkspaceWorktree{Repository: options.Repo, BranchMode: options.BranchMode, Branch: options.Branch, Name: options.Name, Base: options.Base})
+	}
+	for _, member := range wanted {
+		repository, err := canonicalRepository(ctx, runner, member.Repository)
+		if err != nil {
+			return ReconcileWorkspacePlan{}, ReconcileWorkspaceRequest{}, err
+		}
+		branch := normalizeExistingBranch(member.Branch)
+		if member.BranchMode == integration.WorkspaceBranchNew {
+			branch = BranchName(member.Name)
+		}
+		found := false
+		for _, existing := range group.Members {
+			if sameCleanPath(existing.Repository, repository) && existing.Branch == branch {
+				found = true
+			}
+		}
+		if !found {
+			member.Repository = repository
+			desired.Worktrees = append(desired.Worktrees, member)
+		}
+	}
+	if group.Sandbox != nil {
+		desired.Sandbox = &DesiredWorkspaceSandbox{Ports: append([]workspacegroup.SandboxPort{}, group.Sandbox.Ports...), AdditionalMounts: []DesiredSandboxMount{}}
+		for _, mount := range group.Sandbox.AdditionalMounts {
+			readOnly := mount.ReadOnly
+			desired.Sandbox.AdditionalMounts = append(desired.Sandbox.AdditionalMounts, DesiredSandboxMount{Path: mount.Path, ReadOnly: &readOnly})
+		}
+	}
+	ports, _, err := observedSandboxPorts(ctx, runner, group)
+	if err != nil {
+		return ReconcileWorkspacePlan{}, ReconcileWorkspaceRequest{}, err
+	}
+	revision, err := workspaceRevision(group, ports)
+	if err != nil {
+		return ReconcileWorkspacePlan{}, ReconcileWorkspaceRequest{}, err
+	}
+	request := ReconcileWorkspaceRequest{creating: true, Workspace: group.Path, WorkspaceRoot: root, Revision: revision, Desired: desired, NoteAuthor: options.NoteAuthor, AdditionalSandboxMounts: options.AdditionalSandboxMounts}
+	plan, err := planWorkspace(ctx, runner, root, group, request)
+	plan.prepareOnly = true
+	plan.startSession = false
+	plan.Note = desired.Note
+	return plan, request, err
 }

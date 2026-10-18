@@ -39,12 +39,30 @@ rollback. If `groff` is available, tests also render both pages.
 
 ## Installation regression tests
 
+`node --test scripts/linux-install.test.mjs` tests the rootless Linux bootstrap
+as an ordinary user with signed, local release fixtures and isolated HOME/PATH.
+It covers both release architectures, directory selection, Bash/Zsh/Fish hints,
+conflicts, failed verification, atomic activation, safe reruns and headless
+prerequisite refusals without remote services or real package managers. CI runs it
+on Debian, Ubuntu, Fedora and Arch;
+`make test` also includes it. Node.js 24+ is required. A shared-verifier regression
+case authenticates and extracts a macOS fixture. Go PTY fixtures cover Linux and
+macOS installation offers, PATH consent and automatic setup launch; package-manager
+commands are stubbed, including apt-get, dnf and pacman.
+
 `go test ./scripts ./internal/app ./internal/config ./internal/collector ./internal/integration/...`
 exercises release and source installers, first daemon launch, optional-integration
 activation, repository precedence, and missing workspace prerequisites. Fixtures
 isolate HOME/XDG directories, PATH, shell startup hooks and credentials; they never call real remote
 services or create real sandboxes. CI runs this suite on Linux and macOS. See
 [installation defaults](docs/installation.md) for the supported setup matrix.
+
+The PTY fixtures use the `stty` selected on your PATH and assert exact terminal
+restoration. Use a working BSD or GNU `stty`: uutils coreutils 0.2.2 rejects its
+own `stty -g` state string, so it cannot restore the terminal. If your distribution
+ships that version, update the utility or put GNU `stty` first on PATH for testing;
+do not disable the restoration assertions. Fixtures preserve that selection
+inside their isolated PATH and do not change system tools.
 
 ## Pi extension
 
@@ -59,7 +77,7 @@ pi install /absolute/path/to/radar
 
 The package manifest points to `extensions/pi-radar/index.ts`; Pi loads the TypeScript directly. `pnpm check` typechecks it and runs unit tests, release-version checks, and an isolated packed-package startup/reload/session-switch test. The latter packs the actual npm distribution, verifies its file allowlist and manifest, and loads the extracted artifact without development dependencies. It uses fake Radar commands, separate Pi settings and no model calls. `make test` remains the Go test suite. Run both suites before delivery.
 
-Commit dependency changes with `pnpm-lock.yaml`. `pnpm-workspace.yaml` configures reviewed dependency build-script approvals for this single package; it is not a multi-package workspace. New dependency install scripts must be reviewed rather than globally enabled.
+Commit dependency changes with `pnpm-lock.yaml`. `pnpm-workspace.yaml` includes the independently versioned `agent-host` package and configures reviewed dependency build-script approvals. New dependency install scripts must be reviewed rather than globally enabled.
 
 For sandbox development, keep dependencies on the sandbox's local filesystem if the host-mounted filesystem cannot reliably extract packages. Do not commit environment-specific dependency paths or registry URLs.
 
@@ -77,13 +95,13 @@ make install
 
 ## Release
 
-Releases are tag-driven. The Radar CLI and `@christianmoesl/pi-radar` npm package share a version. First update `package.json.version` to the intended release version (without `v`), commit it, and ensure `main` is clean and up to date. To release:
+Releases are tag-driven. The Radar CLI and `@christianmoesl/pi-radar` npm package share a version. From a clean, up-to-date `main` checkout on macOS, a maintainer runs the [release procedure](docs/releases.md#cut-a-release) with an unused version:
 
 ```sh
-make release VERSION=v0.1.1
+make release VERSION=vX.Y.Z
 ```
 
-The release script validates the version against `package.json`, installs locked Pi dependencies, runs the Pi and Go suites, builds the release archives, creates a signed annotated tag, and pushes it. The GitHub release workflow repeats the version and test checks, then publishes `linux/amd64`, `linux/arm64`, and `darwin/arm64` tarballs, plus `checksums.txt`, with generated notes from the changes since the previous tag. After the binary release succeeds, a dedicated GitHub-hosted job stages the packed Pi extension with `npm stage publish` using npm trusted publishing. Stable versions target npm's `latest` dist-tag; prereleases target `next`. A successful workflow means the binaries are published and the npm package is awaiting review, not publicly available yet. Review the package in npm's **Staged Packages** tab and approve with 2FA to make it available. The workflow summary records this approval requirement.
+Do not manually bump version files first. The release script prepares and commits both version files, installs locked Pi dependencies, runs the Pi and Go suites, builds the release archives, then signs and atomically pushes the validated commit and release refs. The GitHub release workflow repeats the version and test checks, then publishes `linux/amd64`, `linux/arm64`, and `darwin/arm64` tarballs, plus `checksums.txt`, with generated notes from the changes since the previous tag. After the binary release succeeds, a dedicated GitHub-hosted job stages the packed Pi extension with `npm stage publish` using npm trusted publishing. Stable versions target npm's `latest` dist-tag; prereleases target `next`. A successful workflow means the binaries are published and the npm package is awaiting review, not publicly available yet. Review the package in npm's **Staged Packages** tab and approve with 2FA to make it available. The workflow summary records this approval requirement.
 
 ### Release notes
 
@@ -121,3 +139,7 @@ docker.io/christianmoesl/radar-kit:latest
 ```
 
 Publishing requires the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` GitHub secrets with read/write access to both repositories. Each kit pins the matching image digest and is signed using GitHub Actions OIDC. Builds use `sandbox/Dockerfile` with the repository root as context. See [the sandbox guide](sandbox/README.md) for the tool inventory, fnm/Node and Go defaults, local validation, dependency updates and rollout guidance.
+
+## Durable host development
+
+Install workspace dependencies with `pnpm install --frozen-lockfile`, build the CLI with `go build -o /tmp/radar ./cmd/radar`, then run `RADAR_BINARY=/tmp/radar pnpm --filter @christianmoesl/radar-agent-host check`. Build/pack the independently versioned host with `pnpm --filter @christianmoesl/radar-agent-host build` and `pnpm --dir agent-host pack --out /tmp/radar-agent-host.tgz`. CI runs the actual CLI/workspace fixture as well as provider HTTP fixtures and native checkpoint recovery. Every fixture registration requires a workspace. [The development guide](docs/durable-agents.md) covers SBX, storage, example definitions and stage-only npm publishing.

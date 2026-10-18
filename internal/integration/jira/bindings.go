@@ -89,7 +89,7 @@ func (source Source) ResolveBindings(ctx context.Context, req integration.Bindin
 	// Explicit tracking also owns Jira's development relationships when the
 	// issue is no longer discoverable by assignment or title. Only freshly
 	// fetched issues need this lookup; cached terminal refs retain their facts.
-	development := collectDevelopmentLinks(ctx, jiraConfig, fetched, req.Previous, req.Logger, source.developmentResolvers)
+	development := collectDevelopmentLinks(ctx, jiraConfig, fetched, req.Previous, req.Logger, req.LinkingMarks, source.developmentResolvers)
 	for key, index := range fetchedObservations {
 		ref := &result.Observations[index].Ref
 		ref.LinkingKeys = linking.Keys(append(ref.LinkingKeys, development.LinkingKeysByIssue[key]...)...)

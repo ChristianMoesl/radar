@@ -35,7 +35,7 @@ Radar uses these visible categories:
 
 ## Runtime activity
 
-Activity is independent of attention and lifecycle. It describes an active source as idle, busy processing, or waiting for interaction. Radar projects the strongest current activity from active authoritative refs: `waiting > busy > idle`. Informational refs do not contribute; done tasks show no activity. This does not change categorization, sorting, acknowledgements, filters, or notifications.
+Activity describes an active source as idle, busy processing, or waiting for interaction. Radar projects the strongest current activity from active authoritative refs: `waiting > busy > idle`. Informational and historical runtime refs do not contribute. Busy and waiting veto completion; an idle process, attached terminal, or running sandbox alone does not. Activity does not change approval policy or existing mute/urgency preferences.
 
 Pi sessions in registered Radar workspaces are the first producer. Pi reports busy from `agent_start` until `agent_settled`, including automatic retries and queued follow-ups. An extension UI prompt temporarily takes precedence as waiting. Closing the last overlapping prompt restores busy or idle. Parent and in-process child sessions that activate the extension contribute independently to one process-wide publisher, using the same waiting-before-busy precedence. A session's startup or shutdown resets only its own contribution; the pane remains busy while another session is running. Dead panes contribute nothing. The TUI replaces `● busy` with amber `! waiting` for an open prompt. Waiting means a reported prompt lifetime, not an inference from inactivity or the agent's final answer.
 
@@ -43,7 +43,7 @@ Pi sessions in registered Radar workspaces are the first producer. Pi reports bu
 
 Radar applies lifecycle and user policy in this order:
 
-1. Terminal completion establishes the actual `done` lifecycle.
+1. Terminal completion establishes `done` only when no reported agent activity or pending agent-result review prevents it.
 2. Apply acknowledgement fallback and GitHub PR policy independently to each source contribution, retaining the raw refs.
 3. Hide a task only when no independent visible contribution remains. Informational refs do not make it visible.
 4. For unfinished work, choose the strongest surviving signal: `immediate`, `attention`, `in_progress`, then `low_priority`. Deprioritizing one PR cannot lower another source’s signal.
@@ -55,13 +55,42 @@ The key rules are:
 
 > Contributing completion does not override active contributing work. Authoritative active remote work reopens a completed authored task through its source provider.
 
-A merged PR should not hide an active Jira issue when no primary owner exists. Once all contributing work items complete, the task is done. If a primary ref exists, it owns the projected lifecycle. A full refresh reconciles its authored task through the source provider: confirmed active contributors reopen it; confirmed completion of every contributor can complete it, subject to the explicit reopen baseline. At least one contributor is required, and every involved source must have completed collection. Display filters and supporting resources cannot override the primary lifecycle.
+A merged PR should not hide an active Jira issue when no primary owner exists. Once all contributing work items complete, the task is done. If a primary ref exists, it owns the projected lifecycle. A full refresh reconciles its authored task through the source provider: confirmed active contributors reopen it; confirmed completion of every contributor can complete it, subject to the explicit reopen baseline. At least one contributor is required, and every involved source must have completed collection. Display filters and the mere existence of supporting resources cannot override the primary lifecycle. Reported agent activity can veto completion and reopen an authored task as described below.
 
 ## Obsidian lifecycle and urgency
 
-An open normal Obsidian note starts in `low_priority`. Linked tmux/SBX activity may promote it to `in_progress`, and actionable linked sources may promote it to `attention`. `radar-state: done` is terminal without authoritative remote work. Confirmed active remote contributors reopen a completed note on a full refresh; informational refs and local resources do not. Explicit reopening returns the note to its strongest active source classification. Automatic completion persists this state and its timestamp in the canonical note before projecting done. An explicit reopen records already-completed work on the next successful full refresh, so unchanged historical completion cannot immediately close it again. Observing active work or newly linked work allows later automatic completion. The note stores this baseline across restarts and cache resets.
+An open normal Obsidian note starts in `low_priority`. Linked tmux/SBX activity may promote it to `in_progress`, and actionable linked sources may promote it to `attention`. `radar-state: done` is terminal without authoritative remote work or reported agent activity. Confirmed active remote contributors reopen a completed note on a full refresh; informational refs and the mere presence of local resources do not. Explicit reopening returns the note to its strongest active source classification. Automatic completion persists this state and its timestamp in the canonical note before projecting done. An explicit reopen records already-completed work on the next successful full refresh, so unchanged historical completion cannot immediately close it again. Observing active work or newly linked work allows later automatic completion. The note stores this baseline across restarts and cache resets.
 
 `radar-priority: urgent` emits a primary immediate signal. Returning it to `normal` restores the current source-derived category. Priority cannot reopen done work, bypass the per-task muted display group, or generate an OS notification for the user’s own mutation. GitHub PR policy cannot suppress the note’s urgency.
+
+## Agent-result handoff
+
+When an authored task would automatically complete while an agent is busy or
+waiting, Radar keeps it open and records a durable review hold in its canonical
+note. Reported activity in an already-done authored task also reopens it, clears
+its completion time, and records the same hold on a local refresh. Merely opening
+an idle workspace does not reopen it. Every registered workspace has an authored
+note; Radar does not create notes or a general result inbox for ordinary agent turns.
+
+While agents work, the held task contributes `in_progress` with its activity
+badge. Once all reporting agents settle, it contributes `attention` with
+**Agent finished — review result**. A stopped agent is not proof of success;
+inspect its result. Existing higher-priority contributions and task muting still
+apply. Normal notification rules can notify this new Attention transition.
+
+Merged/resolved source facts are retained and displayed, not discarded or
+rewritten. Another refresh, a restart, newly completed contributors, opening the
+workspace, and ordinary acknowledgements do not release the hold. There is no
+automatic completion after a day or any other timeout. After reviewing the result,
+use `d` or `radar task done <task-id>` while agents are idle. That clears the hold
+and starts a new completion-based cleanup timeline. Subsequent confirmed active
+remote work can still reopen the task under the existing lifecycle rules.
+
+Explicit Done and automatic cleanup verify runtime activity freshly rather than
+trusting the displayed badge. Unverifiable activity blocks those operations.
+Failed handoff writes are reported and retained as pending cache intent for retry;
+they do not authorize completion or cleanup when agents become idle. Ordinary
+automatic completion outside a completion/activity collision is unchanged.
 
 ## Muted preference and history sections
 
@@ -86,7 +115,7 @@ Collapsed children and source-ref rows are absent from navigation and layout. Co
 
 ## Cleanup after remote completion
 
-Completion and local cleanup are separate. A remotely completed task remains `done` while Radar conservatively garbage-collects eligible local worktrees, tmux sessions, and sandboxes. Cleanup bookkeeping must not make completed work compete for the user's attention. Muting alone never sets a completion timestamp, archives an open note, authorizes cleanup, or makes a workspace eligible for automatic garbage collection. Existing manual cleanup remains available, and genuinely done muted work follows the same retention and safety checks as any other done task.
+Completion and local cleanup are separate. A remotely completed task without active agent work or a pending result review remains `done` while Radar conservatively garbage-collects eligible local worktrees, tmux sessions, and sandboxes. Cleanup bookkeeping must not make completed work compete for the user's attention. Muting alone never sets a completion timestamp, archives an open note, authorizes cleanup, or makes a workspace eligible for automatic garbage collection. Existing manual cleanup remains available, and genuinely done muted work follows the same retention and safety checks as any other done task.
 
 ## GitHub activity
 

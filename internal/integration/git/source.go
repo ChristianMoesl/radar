@@ -232,8 +232,8 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		if err := validateCleanupMember(ctx, root, member); err != nil {
 			return err
 		}
-		if req.Mode == integration.CleanupExpired {
-			if err := workspace.ValidateExpiredWorkspace(root, current.ID); err != nil {
+		if req.Mode.DiscardChanges() {
+			if err := workspace.ValidateDiscardingWorkspace(root, current.ID, req.Mode); err != nil {
 				return err
 			}
 		}

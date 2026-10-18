@@ -1,3 +1,6 @@
+packages:
+  - agent-host
+
 # Only reviewed dependency install scripts may run; new scripts require approval.
 allowBuilds:
   '@google/genai': true
@@ -5,4 +8,4 @@ allowBuilds:
   protobufjs: true
 # Reviewed first-party release, pinned for offline startup integration coverage.
 minimumReleaseAgeExclude:
-  - '@christianmoesl/pi-sbx@0.6.0'
+  - '@christianmoesl/pi-sbx@0.7.0'

@@ -31,6 +31,7 @@ radar_tool_ready() {
 radar_install_prerequisites() {
   local tool package answer native_brew brew_prefix
   local -a command_args
+  export PATH="$HOME/.local/bin:$PATH"
   # Activate an existing native Homebrew before judging tools on PATH.
   if [[ $(uname -s) = Darwin ]]; then
     native_brew=/opt/homebrew/bin/brew
@@ -50,7 +51,7 @@ radar_install_prerequisites() {
       continue
     fi
     if [[ $tool = pi ]]; then
-      command_args=(npm install --global --ignore-scripts @earendil-works/pi-coding-agent)
+      command_args=(npm install --global --prefix "$HOME/.local" --ignore-scripts @earendil-works/pi-coding-agent)
     elif command -v brew >/dev/null 2>&1; then
       package=$tool
       [[ $tool != npm ]] || package=node
@@ -62,12 +63,25 @@ radar_install_prerequisites() {
       command_args=(apt-get install -y "$package")
       [[ $tool != node ]] || command_args+=(npm)
       [[ $(id -u) = 0 ]] || command_args=(sudo "${command_args[@]}")
+    elif [[ $(uname -s) = Linux ]] && command -v dnf >/dev/null 2>&1; then
+      package=$tool
+      [[ $tool != fd ]] || package=fd-find
+      [[ $tool != node ]] || package=nodejs
+      command_args=(dnf install -y "$package")
+      [[ $tool != node ]] || command_args+=(npm)
+      [[ $(id -u) = 0 ]] || command_args=(sudo "${command_args[@]}")
+    elif [[ $(uname -s) = Linux ]] && command -v pacman >/dev/null 2>&1; then
+      package=$tool
+      [[ $tool != node ]] || package=nodejs
+      command_args=(pacman -S --needed --noconfirm "$package")
+      [[ $tool != node ]] || command_args+=(npm)
+      [[ $(id -u) = 0 ]] || command_args=(sudo "${command_args[@]}")
     else
-      printf '%s is missing or too old. Install it on PATH (automatic installation needs Homebrew or apt-get), then rerun this installer.\n' "$tool" >&2
+      printf '%s is missing or too old. Install it on PATH (automatic installation supports Homebrew, apt-get, dnf and pacman), then rerun this installer.\n' "$tool" >&2
       return 1
     fi
     printf '! %s is missing or too old.\n  Command:' "$tool" >&2
-    printf ' %s' "${command_args[@]}" >&2
+    printf ' %q' "${command_args[@]}" >&2
     printf '\n' >&2
     # Piped input is never approval, including when called through make install.
     if ! { exec 9</dev/tty; } 2>/dev/null; then

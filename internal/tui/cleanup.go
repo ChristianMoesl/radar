@@ -124,6 +124,8 @@ func cleanupResourceSummary(targets []protocol.CleanupTarget, width int) []strin
 					// warning is always shown above, even in the compact view.
 					marker := "⚠ see warning above"
 					switch safety.Kind {
+					case "unknown_entries":
+						marker = safety.Summary
 					case "local_changes":
 						marker = "⚠ uncommitted changes"
 					case "unpublished_data":

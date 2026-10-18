@@ -21,6 +21,8 @@ type Collected struct {
 }
 
 type Result struct {
+	PendingAgentReviews []int
+
 	Tasks       []protocol.Task
 	Sources     []protocol.SourceStatus
 	SourceNames []string

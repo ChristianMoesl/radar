@@ -79,7 +79,7 @@ type developmentCollection struct {
 	Unavailable        int
 }
 
-func collectDevelopmentLinks(ctx context.Context, cfg Config, issues []issue, previous []protocol.Task, logger *slog.Logger, resolvers []integration.DevelopmentLinkResolver) developmentCollection {
+func collectDevelopmentLinks(ctx context.Context, cfg Config, issues []issue, previous []protocol.Task, logger *slog.Logger, marks linking.MarkMatcher, resolvers []integration.DevelopmentLinkResolver) developmentCollection {
 	collection := developmentCollection{LinkingKeysByIssue: map[string][]string{}}
 	if len(issues) == 0 {
 		return collection
@@ -105,7 +105,7 @@ func collectDevelopmentLinks(ctx context.Context, cfg Config, issues []issue, pr
 				results <- developmentIssueResult{IssueKey: key, Err: ctx.Err()}
 				return
 			}
-			result := fetchIssueDevelopmentLinks(ctx, cfg, value.ID, resolvers)
+			result := fetchIssueDevelopmentLinks(ctx, cfg, value, marks, resolvers)
 			result.IssueKey = key
 			results <- result
 		}()
@@ -138,9 +138,9 @@ func collectDevelopmentLinks(ctx context.Context, cfg Config, issues []issue, pr
 	return collection
 }
 
-func fetchIssueDevelopmentLinks(ctx context.Context, cfg Config, issueID string, resolvers []integration.DevelopmentLinkResolver) developmentIssueResult {
+func fetchIssueDevelopmentLinks(ctx context.Context, cfg Config, value issue, marks linking.MarkMatcher, resolvers []integration.DevelopmentLinkResolver) developmentIssueResult {
 	var summary developmentSummaryResponse
-	err := getDevelopmentJSON(ctx, cfg, "/rest/dev-status/1.0/issue/summary", url.Values{"issueId": []string{issueID}}, &summary)
+	err := getDevelopmentJSON(ctx, cfg, "/rest/dev-status/1.0/issue/summary", url.Values{"issueId": []string{value.ID}}, &summary)
 	if err != nil {
 		return developmentIssueResult{Unavailable: developmentUnavailable(err), Err: err}
 	}
@@ -160,7 +160,7 @@ func fetchIssueDevelopmentLinks(ctx context.Context, cfg Config, issueID string,
 	for _, applicationType := range applicationTypes {
 		var detail developmentDetailResponse
 		err := getDevelopmentJSON(ctx, cfg, "/rest/dev-status/1.0/issue/detail", url.Values{
-			"issueId":         []string{issueID},
+			"issueId":         []string{value.ID},
 			"applicationType": []string{applicationType},
 			"dataType":        []string{developmentPullRequestDataType},
 		}, &detail)
@@ -175,6 +175,13 @@ func fetchIssueDevelopmentLinks(ctx context.Context, cfg Config, issueID string,
 		}
 		for _, group := range detail.Detail {
 			for _, pullRequest := range group.PullRequests {
+				// Development panels also include dependencies such as stacked PRs.
+				// An explicit head-branch mark must identify this issue alone;
+				// otherwise the association is not evidence of shared task identity.
+				branchMarks := marks.Values(pullRequest.Source.Branch)
+				if len(branchMarks) > 0 && (len(branchMarks) != 1 || branchMarks[0] != normalizeIssueKey(value.Key)) {
+					continue
+				}
 				resolution, err := resolveDevelopmentPullRequest(pullRequest, resolvers)
 				if err != nil {
 					result.Invalid++

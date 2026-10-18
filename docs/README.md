@@ -19,6 +19,7 @@ Offline: use `man radar` and `man radar-config`, or [ask Pi about Radar](integra
 - [Configuration](configuration.md) — directories, linking, defaults and repository overrides.
 - [CLI reference](cli.md) — commands, JSON output, state and logs.
 - [Workspace resource API](workspace-reconciliation.md) — inspect and reconcile worktrees, mounts and ports.
+- [Durable agents](durable-agents.md) — code-defined pi-durable agents, events, interaction and workspace/SBX execution.
 - [Attention rules](attention-algorithm.md) — why a task appears and how linked signals are ranked.
 
 ## Integrations

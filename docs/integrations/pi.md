@@ -16,7 +16,7 @@ Pi runs on the host even for sandboxed workspaces. Install packages in that host
 Pi profile; for a custom profile, prefix commands with
 `PI_CODING_AGENT_DIR=/path/to/profile`. Restart Pi after installation.
 
-`pi-radar` provides Radar workspace tools and context; `pi-sbx` provides sandbox tool routing. **`pi-sbx` >=0.6.0 is required for early sandboxed launch.** Installing the SBX CLI alone does not install either Pi package.
+`pi-radar` provides Radar workspace tools and context; `pi-sbx` provides sandbox tool routing. **`pi-sbx` >=0.7.0 is required for early sandboxed launch.** Installing the SBX CLI alone does not install either Pi package.
 
 ## Package scope and switching sources
 
@@ -88,7 +88,7 @@ pi update npm:@christianmoesl/pi-radar
 pi update npm:@christianmoesl/pi-sbx
 ```
 
-Restart Pi afterwards. `pi update` without a package source updates Pi itself, not these packages. To pin either extension, use `pi install npm:@christianmoesl/pi-radar@<version>` or `pi install npm:@christianmoesl/pi-sbx@<version>`; choose `pi-sbx` >=0.6.0 for early sandboxed launch. Versioned npm sources are pinned and skipped by package updates, so move to a new pinned release by installing its version explicitly. The Radar CLI and `pi-radar` npm package share the same release version (the npm version omits the tag's leading `v`); `pi-sbx` is versioned separately.
+Restart Pi afterwards. `pi update` without a package source updates Pi itself, not these packages. To pin either extension, use `pi install npm:@christianmoesl/pi-radar@<version>` or `pi install npm:@christianmoesl/pi-sbx@<version>`; choose `pi-sbx` >=0.7.0 for early sandboxed launch. Versioned npm sources are pinned and skipped by package updates, so move to a new pinned release by installing its version explicitly. The Radar CLI and `pi-radar` npm package share the same release version (the npm version omits the tag's leading `v`); `pi-sbx` is versioned separately.
 
 When a stable Radar release starts/restarts its daemon, it synchronizes both
 installed, unpinned user-level npm packages automatically in the background,

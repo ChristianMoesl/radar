@@ -18,11 +18,39 @@ import (
 	"radar/internal/protocol"
 )
 
-func previewExpiredAnchor(t *testing.T, task protocol.Task) protocol.CleanupTarget {
+func unknownEntriesKey(mode integration.CleanupMode) string {
+	if mode == integration.CleanupExpired {
+		return "expired_entries"
+	}
+	return "unknown_entries"
+}
+
+func TestDiscardingAnchorCleanup(t *testing.T) {
+	for _, mode := range []integration.CleanupMode{integration.CleanupConfirmed, integration.CleanupExpired} {
+		t.Run(map[integration.CleanupMode]string{integration.CleanupConfirmed: "confirmed", integration.CleanupExpired: "expired"}[mode], func(t *testing.T) {
+			for _, test := range []struct {
+				name string
+				run  func(*testing.T, integration.CleanupMode)
+			}{
+				{"removes unknown entries without following symlinks", testAnchorRemovesUnknownEntriesWithoutFollowingSymlinks},
+				{"revalidates before deletion", testAnchorRevalidatesBeforeAnyDeletion},
+				{"protected contents including members", testAnchorPreflightsProtectedContentsIncludingMembers},
+				{"never owns managed members", testAnchorNeverOwnsManagedMemberEntries},
+				{"unsafe paths", testAnchorRejectsUnsafePathsAtPreviewAndExecution},
+				{"late protected member contents", testWorkspacePreflightRechecksLateProtectedMemberContent},
+				{"filesystem root", testAnchorRefusesFilesystemRootConfiguration},
+			} {
+				t.Run(test.name, func(t *testing.T) { test.run(t, mode) })
+			}
+		})
+	}
+}
+
+func previewAnchor(t *testing.T, task protocol.Task, mode integration.CleanupMode) protocol.CleanupTarget {
 	t.Helper()
-	targets, err := (Source{}).PreviewCleanup(context.Background(), integration.CleanupPreviewRequest{Task: task, Mode: integration.CleanupExpired})
+	targets, err := (Source{}).PreviewCleanup(context.Background(), integration.CleanupPreviewRequest{Task: task, Mode: mode})
 	if err != nil || len(targets) != 1 {
-		t.Fatalf("expired preview = %+v, %v", targets, err)
+		t.Fatalf("anchor preview = %+v, %v", targets, err)
 	}
 	return targets[0]
 }
@@ -48,7 +76,7 @@ func initAnchorRepository(t *testing.T, path string) {
 	}
 }
 
-func TestExpiredAnchorRemovesUnknownEntriesWithoutFollowingSymlinks(t *testing.T) {
+func testAnchorRemovesUnknownEntriesWithoutFollowingSymlinks(t *testing.T, mode integration.CleanupMode) {
 	root, group, task := disposableAnchorFixture(t)
 	writeAnchorFile(t, filepath.Join(group.Path, "scratch.txt"))
 	writeAnchorFile(t, filepath.Join(group.Path, "unknown-directory", "nested", "content"))
@@ -75,9 +103,9 @@ func TestExpiredAnchorRemovesUnknownEntriesWithoutFollowingSymlinks(t *testing.T
 		AdditionalMounts: []workspacegroup.SandboxMount{{Path: outside, ReadOnly: true}},
 	}
 	saveAnchorFixture(t, root, group)
-	target := previewExpiredAnchor(t, task)
+	target := previewAnchor(t, task, mode)
 	var pinned []string
-	if err := json.Unmarshal([]byte(target.Operation["expired_entries"]), &pinned); err != nil {
+	if err := json.Unmarshal([]byte(target.Operation[unknownEntriesKey(mode)]), &pinned); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{".pnpm-store", "broken-link", "external-link", "scratch.txt", "unknown-directory"}
@@ -85,13 +113,13 @@ func TestExpiredAnchorRemovesUnknownEntriesWithoutFollowingSymlinks(t *testing.T
 		t.Fatalf("pinned entries = %v, want %v", pinned, want)
 	}
 	if len(target.Safety) != 1 || !target.Safety[0].Expires || !target.Safety[0].BlocksAutomatic || !strings.Contains(target.Description, target.Safety[0].Message) {
-		t.Fatalf("expiry data loss missing from preview: %+v", target)
+		t.Fatalf("data loss missing from preview: %+v", target)
 	}
-	if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: integration.CleanupExpired}); err != nil {
+	if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: mode}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(group.Path); !os.IsNotExist(err) {
-		t.Fatalf("expired anchor remains: %v", err)
+		t.Fatalf("anchor remains: %v", err)
 	}
 	registry, err := workspacegroup.Load(root)
 	if err != nil || len(registry.Workspaces) != 0 {
@@ -104,16 +132,14 @@ func TestExpiredAnchorRemovesUnknownEntriesWithoutFollowingSymlinks(t *testing.T
 	}
 }
 
-func TestExpiredAnchorDoesNotRelaxSafeOrConfirmedCleanup(t *testing.T) {
+func TestExpiredAnchorPreviewCannotAuthorizeOtherModes(t *testing.T) {
 	for _, mode := range []integration.CleanupMode{integration.CleanupSafe, integration.CleanupConfirmed} {
 		t.Run(map[integration.CleanupMode]string{integration.CleanupSafe: "safe", integration.CleanupConfirmed: "confirmed"}[mode], func(t *testing.T) {
 			root, group, task := disposableAnchorFixture(t)
-			if _, err := (Source{}).PreviewCleanup(context.Background(), integration.CleanupPreviewRequest{Task: task, Mode: mode}); err == nil || !strings.Contains(err.Error(), "unknown files") {
-				t.Fatalf("ordinary preview accepted unknown files: %v", err)
+			if _, err := (Source{}).PreviewCleanup(context.Background(), integration.CleanupPreviewRequest{Task: task}); err == nil || !strings.Contains(err.Error(), "unknown files") {
+				t.Fatalf("safe preview accepted unknown files: %v", err)
 			}
-			target := previewExpiredAnchor(t, task)
-			// Even a later config grant cannot turn an expired-only preview
-			// into an ordinary/manual confirmed deletion.
+			target := previewAnchor(t, task, integration.CleanupExpired)
 			configureDisposableEntries(t, ".pnpm-store")
 			if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: mode}); err == nil {
 				t.Fatal("ordinary cleanup accepted expired preview")
@@ -124,14 +150,14 @@ func TestExpiredAnchorDoesNotRelaxSafeOrConfirmedCleanup(t *testing.T) {
 	}
 }
 
-func TestExpiredAnchorRevalidatesBeforeAnyDeletion(t *testing.T) {
+func testAnchorRevalidatesBeforeAnyDeletion(t *testing.T, mode integration.CleanupMode) {
 	for _, change := range []string{
 		"unknown root file", "configured root file", "config expanded", "primary checkout", "canonical note", "nested workspace", "external mount", "managed member", "invalid preview", "unpinned preview", "target path", "target workspace id", "invalid mode",
 	} {
 		t.Run(change, func(t *testing.T) {
 			root, group, task := disposableAnchorFixture(t)
-			target := previewExpiredAnchor(t, task)
-			mode := integration.CleanupExpired
+			target := previewAnchor(t, task, mode)
+			cleanupMode := mode
 			switch change {
 			case "unknown root file":
 				writeAnchorFile(t, filepath.Join(group.Path, "late.txt"))
@@ -160,7 +186,7 @@ func TestExpiredAnchorRevalidatesBeforeAnyDeletion(t *testing.T) {
 				group.Members = []workspacegroup.Member{{Repository: t.TempDir(), Path: filepath.Join(group.Path, ".pnpm-store"), Branch: "feature"}}
 				saveAnchorFixture(t, root, group)
 			case "invalid preview":
-				target.Operation["expired_entries"] = "invalid JSON"
+				target.Operation[unknownEntriesKey(mode)] = "invalid JSON"
 			case "unpinned preview":
 				target.Operation = nil
 			case "target path":
@@ -168,9 +194,9 @@ func TestExpiredAnchorRevalidatesBeforeAnyDeletion(t *testing.T) {
 			case "target workspace id":
 				target.WorkspaceID = "different"
 			case "invalid mode":
-				mode = integration.CleanupMode(255)
+				cleanupMode = integration.CleanupMode(255)
 			}
-			if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: mode}); err == nil {
+			if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: cleanupMode}); err == nil {
 				t.Fatal("cleanup accepted changed safety conditions")
 			}
 			assertAnchorFileKept(t, filepath.Join(group.Path, ".pnpm-store", "v10", "content"))
@@ -179,7 +205,7 @@ func TestExpiredAnchorRevalidatesBeforeAnyDeletion(t *testing.T) {
 	}
 }
 
-func TestExpiredAnchorPreflightsProtectedContentsIncludingMembers(t *testing.T) {
+func testAnchorPreflightsProtectedContentsIncludingMembers(t *testing.T, mode integration.CleanupMode) {
 	for _, protected := range []string{
 		"canonical root note", "canonical physical note", "canonical root symlink", "canonical unknown directory note", "canonical disposable note", "canonical member note", "another canonical note", "primary checkout", "primary anchor", "primary member", "nested primary in member", "registered primary repository", "nested workspace", "additional mount", "effective mount", "configured mount",
 	} {
@@ -276,7 +302,7 @@ func TestExpiredAnchorPreflightsProtectedContentsIncludingMembers(t *testing.T) 
 			if err := workspacegroup.Save(root, registry); err != nil {
 				t.Fatal(err)
 			}
-			if targets, err := (Source{}).PreviewCleanup(context.Background(), integration.CleanupPreviewRequest{Task: task, Mode: integration.CleanupExpired}); err == nil || !strings.Contains(err.Error(), wantError) {
+			if targets, err := (Source{}).PreviewCleanup(context.Background(), integration.CleanupPreviewRequest{Task: task, Mode: mode}); err == nil || !strings.Contains(err.Error(), wantError) {
 				t.Fatalf("protected %s accepted: %+v, %v; want %q", protected, targets, err, wantError)
 			}
 			assertAnchorFileKept(t, filepath.Join(group.Path, ".pnpm-store", "v10", "content"))
@@ -285,7 +311,7 @@ func TestExpiredAnchorPreflightsProtectedContentsIncludingMembers(t *testing.T) 
 	}
 }
 
-func TestExpiredAnchorNeverOwnsManagedMemberEntries(t *testing.T) {
+func testAnchorNeverOwnsManagedMemberEntries(t *testing.T, mode integration.CleanupMode) {
 	root, group, task := disposableAnchorFixture(t)
 	memberPath := filepath.Join(group.Path, ".pnpm-store")
 	group.Members = []workspacegroup.Member{{Repository: t.TempDir(), Path: memberPath, Branch: "feature"}}
@@ -293,26 +319,26 @@ func TestExpiredAnchorNeverOwnsManagedMemberEntries(t *testing.T) {
 	configureDisposableEntries(t, ".pnpm-store")
 	saveAnchorFixture(t, root, group)
 	task.SourceRefs = append(task.SourceRefs, protocol.SourceRef{ID: "git:member", Source: "git", Kind: "worktree", Path: memberPath, WorkspaceID: group.ID})
-	target := previewExpiredAnchor(t, task)
+	target := previewAnchor(t, task, mode)
 	if len(target.Operation) != 0 {
 		t.Fatalf("member planned as anchor content: %+v", target)
 	}
-	if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: integration.CleanupExpired}); err == nil {
+	if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: mode}); err == nil {
 		t.Fatal("anchor cleanup deleted a registered member")
 	}
 	group.Members = nil
 	saveAnchorFixture(t, root, group)
-	if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: integration.CleanupExpired}); err == nil {
+	if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: mode}); err == nil {
 		t.Fatal("anchor cleanup deleted a reappearing unpreviewed member")
 	}
 	assertAnchorFileKept(t, filepath.Join(memberPath, "v10", "content"))
 }
 
-func TestExpiredAnchorRejectsUnsafePathsAtPreviewAndExecution(t *testing.T) {
+func testAnchorRejectsUnsafePathsAtPreviewAndExecution(t *testing.T, mode integration.CleanupMode) {
 	for _, unsafe := range []string{"root itself", "outside root", "anchor symlink", "parent symlink"} {
 		t.Run(unsafe, func(t *testing.T) {
 			root, group, task := disposableAnchorFixture(t)
-			target := previewExpiredAnchor(t, task)
+			target := previewAnchor(t, task, mode)
 			outside := t.TempDir()
 			writeAnchorFile(t, filepath.Join(outside, "valuable.txt"))
 			switch unsafe {
@@ -340,10 +366,10 @@ func TestExpiredAnchorRejectsUnsafePathsAtPreviewAndExecution(t *testing.T) {
 			target.WorkspaceID = group.ID
 			target.Path = group.Path
 			task.SourceRefs[0].ID = target.SourceRefID
-			if _, err := (Source{}).PreviewCleanup(context.Background(), integration.CleanupPreviewRequest{Task: task, Mode: integration.CleanupExpired}); err == nil {
+			if _, err := (Source{}).PreviewCleanup(context.Background(), integration.CleanupPreviewRequest{Task: task, Mode: mode}); err == nil {
 				t.Fatal("unsafe anchor accepted during preview")
 			}
-			if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: integration.CleanupExpired}); err == nil {
+			if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: mode}); err == nil {
 				t.Fatal("unsafe anchor accepted during execution")
 			}
 			assertAnchorFileKept(t, filepath.Join(outside, "valuable.txt"))
@@ -394,7 +420,7 @@ func TestExpiredAnchorRequiresCompleteGitMemberReferences(t *testing.T) {
 	}
 }
 
-func TestExpiredWorkspacePreflightRechecksLateProtectedMemberContent(t *testing.T) {
+func testWorkspacePreflightRechecksLateProtectedMemberContent(t *testing.T, mode integration.CleanupMode) {
 	for _, change := range []string{"canonical note", "nested primary checkout", "external mount", "registration removed", "configured root changed"} {
 		t.Run(change, func(t *testing.T) {
 			root, group, task := disposableAnchorFixture(t)
@@ -403,8 +429,8 @@ func TestExpiredWorkspacePreflightRechecksLateProtectedMemberContent(t *testing.
 			writeAnchorFile(t, filepath.Join(memberPath, ".git"))
 			saveAnchorFixture(t, root, group)
 			task.SourceRefs = append(task.SourceRefs, protocol.SourceRef{ID: "git:member", Source: "git", Kind: "worktree", Path: memberPath, WorkspaceID: group.ID})
-			previewExpiredAnchor(t, task)
-			if err := ValidateExpiredWorkspace(root, group.ID); err != nil {
+			previewAnchor(t, task, mode)
+			if err := ValidateDiscardingWorkspace(root, group.ID, mode); err != nil {
 				t.Fatal(err)
 			}
 			switch change {
@@ -438,7 +464,7 @@ func TestExpiredWorkspacePreflightRechecksLateProtectedMemberContent(t *testing.
 					t.Fatal(err)
 				}
 			}
-			if err := ValidateExpiredWorkspace(root, group.ID); err == nil {
+			if err := ValidateDiscardingWorkspace(root, group.ID, mode); err == nil {
 				t.Fatal("late protected content accepted before member removal")
 			}
 			assertAnchorFileKept(t, filepath.Join(memberPath, "v10", "content"))
@@ -446,17 +472,17 @@ func TestExpiredWorkspacePreflightRechecksLateProtectedMemberContent(t *testing.
 	}
 }
 
-func TestExpiredAnchorRefusesFilesystemRootConfiguration(t *testing.T) {
+func testAnchorRefusesFilesystemRootConfiguration(t *testing.T, mode integration.CleanupMode) {
 	root, group, _ := disposableAnchorFixture(t)
 	// The fixture stays in its temporary directory; do not write a registry or
 	// anything else into /. Only inspect the registered path through os.Root.
 	registry := workspacegroup.Registry{Workspaces: []workspacegroup.Workspace{group}}
-	if err := validateExpiredAnchor("/", registry, group); err == nil || !strings.Contains(err.Error(), "unsafe configured workspace root") {
+	if err := validateDiscardingAnchor("/", registry, group); err == nil || !strings.Contains(err.Error(), "unsafe configured workspace root") {
 		t.Fatalf("filesystem root accepted: %v", err)
 	}
 	// On macOS, /var may be rejected as a symlink before root-policy
 	// validation runs. Both paths must refuse, without depending on ordering.
-	if _, err := anchorCleanupEntries("/", registry, group, nil, integration.CleanupExpired); err == nil {
+	if _, err := anchorCleanupEntries("/", registry, group, nil, mode); err == nil {
 		t.Fatal("filesystem root accepted by cleanup preview")
 	}
 	assertAnchorFileKept(t, filepath.Join(group.Path, ".pnpm-store", "v10", "content"))

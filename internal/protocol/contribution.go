@@ -37,6 +37,13 @@ func ProjectAttention(task Task, policy ContributionPolicy) (Task, bool) {
 			continue
 		}
 		signal, reason := ref.Signal, ref.Status
+		if !done && ref.Authored && (ref.AgentReview || task.AgentReviewPending) && signal != "immediate" {
+			if task.Activity == ActivityIdle {
+				signal, reason = "attention", "Agent finished — review result"
+			} else {
+				signal, reason = "in_progress", "Agent working — completion held for review"
+			}
+		}
 		if signal == "" {
 			// A resource with no urgency still represents visible local work.
 			// Never inherit a different source's cached attention signal.

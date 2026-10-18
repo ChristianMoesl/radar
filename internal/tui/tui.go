@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -108,6 +109,7 @@ type createForm struct {
 }
 
 type model struct {
+	agent               agentState
 	releaseNotice       update.Notice
 	relaunch            bool
 	creations           *creationTracker
@@ -132,6 +134,7 @@ type model struct {
 	expandedSections    map[string]bool
 	selectedCurrentTask bool
 	mode                string
+	searchQuery         string
 	detail              detailState
 	create              createForm
 	cleanup             protocol.CleanupPreview
@@ -203,6 +206,22 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case agentResultMsg:
+		return m.agentResult(msg)
+	case agentTickMsg:
+		if m.mode != "agent" || m.agent.id != msg.id || m.agent.generation != msg.generation {
+			return m, nil
+		}
+		if !m.agent.input && !m.agent.busy {
+			m.agent.busy = true
+			request := protocol.AgentRequest{Operation: "inspect", ID: msg.id}
+			if m.agent.conversation > 0 {
+				request.Operation = "conversation"
+				request.Params, _ = json.Marshal(map[string]int{"id": m.agent.conversation})
+			}
+			return m, tea.Batch(m.agentTick(), m.agentCall(request))
+		}
+		return m, m.agentTick()
 	case releaseNoticeMsg:
 		m.releaseNotice = update.Notice(msg)
 		m.syncTaskScroll()
@@ -244,6 +263,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
+		if m.mode == "search" {
+			return m.updateSearch(msg)
+		}
 		if m.operation.kind != "" && (!operationNavigationKey(msg.String()) || (msg.String() == "enter" && (m.mode != "" || m.selectedSection == ""))) {
 			return m, nil
 		}
@@ -279,6 +301,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if strings.HasPrefix(m.mode, "create_") || m.mode == "fork_member" {
 			return m.updateCreate(msg)
+		}
+		if m.mode == "agent" {
+			return m.updateAgent(msg)
 		}
 		if m.mode == "detail" {
 			return m.updateDetail(msg)
@@ -355,7 +380,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.ensureVisibleSelection()
 		switch msg.String() {
-		case "q", "esc", "ctrl+c":
+		case "/":
+			m.mode = "search"
+			m.syncTaskScroll()
+		case "esc":
+			if m.searchQuery != "" {
+				m.searchQuery = ""
+				m.syncTaskScroll()
+				return m, nil
+			}
+			return m, tea.Quit
+		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "n":
 			m.mode = "task_authoring"
@@ -418,6 +453,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.openConfig()
 		case "i", "right":
 			if task, ok := m.selectedTask(); ok {
+				if id := taskAgentID(task); id != "" {
+					return m.openAgent(id)
+				}
 				m.mode = "detail"
 				m.detail = detailState{task: task, available: true}
 			}
@@ -640,6 +678,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 const maxContentWidth = 140
 
 func (m model) View() string {
+	if m.mode == "agent" {
+		return m.agentView()
+	}
 	if m.mode == "task_delete_confirm" {
 		return m.taskDeletionScreen()
 	}
@@ -684,11 +725,14 @@ func (m model) View() string {
 	}
 
 	listWidth := m.taskListWidth()
+	sections = m.beforeTaskSections(listWidth)
 	afterTaskSections := m.afterTaskSections(listWidth)
 	taskRows := m.availableTaskRows(sections, afterTaskSections)
 	var tasks string
 	if m.loading && len(m.tasks) == 0 {
 		tasks = subtleStyle.Render("Loading tasks…")
+	} else if len(m.overviewLayout().entries) == 0 && m.filteringTasks() {
+		tasks = subtleStyle.Render("No matching tasks.")
 	} else if len(m.tasks) == 0 {
 		tasks = subtleStyle.Render("No tasks need your attention.")
 	} else {
@@ -1527,7 +1571,7 @@ func (m *model) restoreCursor(selectedTask *protocol.Task, selectedSection strin
 	if selectedTask != nil {
 		if cursor, ok := matchingTaskCursor(m.tasks, *selectedTask); ok {
 			oldGroup, newGroup := selectedTask.DisplayGroup(), m.tasks[cursor].DisplayGroup()
-			if oldGroup != newGroup && historyGroup(newGroup) {
+			if oldGroup != newGroup && historyGroup(newGroup) && !m.filteringTasks() {
 				// Prefer the next active task at the vacated active position, then
 				// the previous one, even when a history section is already open.
 				var active []visibleEntry
@@ -1641,6 +1685,9 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 	task, ok := m.selectedTask()
 	if !ok {
 		return m, nil
+	}
+	if id := taskAgentID(task); id != "" {
+		return m.openAgent(id)
 	}
 	multiplexer, _ := app.DefaultIntegrations().Multiplexer()
 	if target := taskrefs.SessionTarget(task, multiplexer); target != "" {
@@ -1955,8 +2002,7 @@ func (m model) taskViewportLines(width, height int) ([]string, int, int) {
 }
 
 func (m model) taskListHeight(width int) int {
-	before := []string{m.header(m.contentWidth())}
-	return m.availableTaskRows(before, m.afterTaskSections(width))
+	return m.availableTaskRows(m.beforeTaskSections(width), m.afterTaskSections(width))
 }
 
 func adjustedTaskScroll(lines []string, selectedStart int, selectedEnd int, scroll int, height int) int {
@@ -2162,7 +2208,13 @@ func taskSourceRefLine(ref protocol.SourceRef, width int) string {
 	const prefix = "    ↳ "
 	label := sourceRefLabel(ref)
 	status := ""
-	if ref.ProvidesWorkspace && ref.Status != "" && ref.Status != "clean" {
+	statusStyle := attentionStyle
+	if ref.Signal == "done" {
+		status, statusStyle = ref.Status, doneStyle
+		if status == "" {
+			status = "done"
+		}
+	} else if ref.ProvidesWorkspace && ref.Status != "" && ref.Status != "clean" {
 		status = ref.Status
 	}
 	if status == "" {
@@ -2172,7 +2224,7 @@ func taskSourceRefLine(ref protocol.SourceRef, width int) string {
 	separator := "  "
 	labelWidth := max(1, width-lipgloss.Width(prefix)-lipgloss.Width(separator)-lipgloss.Width(status))
 	label = truncateLine(label, labelWidth)
-	line := referenceStyle.Render(prefix+label) + separator + attentionStyle.Render(status)
+	line := referenceStyle.Render(prefix+label) + separator + statusStyle.Render(status)
 	return truncateLine(line, width)
 }
 

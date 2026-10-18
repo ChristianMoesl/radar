@@ -253,3 +253,17 @@ func TestWindowsAuthenticationHintNamesWindowsCLI(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestParseSandboxesEmptyAndInvalidLists(t *testing.T) {
+	sandboxes, err := parseSandboxes(`[]`)
+	if err != nil || len(sandboxes) != 0 {
+		t.Fatalf("empty list = %+v, %v", sandboxes, err)
+	}
+	for _, output := range []string{`[`, `{"sandboxes":[]}`, `[{"workspaces":3}]`} {
+		t.Run(output, func(t *testing.T) {
+			if _, err := parseSandboxes(output); err == nil || !strings.Contains(err.Error(), "unexpected sbx list output") {
+				t.Fatalf("parseSandboxes() error = %v", err)
+			}
+		})
+	}
+}

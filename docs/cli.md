@@ -26,6 +26,14 @@ radar reconcile-workspace --request <json> [--workspace <path>] [--preview]
 radar recreate-sandboxes [--workspace <path>] [--preview] [--yes]
 radar workspace-context [--workspace <path>]
 radar repository-refs --repo <repo>
+radar agent add <module> --id <id> --workspace <registered-path> [--config <json-file>]
+radar agent list
+radar agent inspect|start|stop|restart|remove|logs|token <id>
+radar agent emit <id> --source <source> --event-id <id> # JSON payload on stdin
+radar agent message <id> <text> --revision <revision> [--event-id <id>]
+radar agent action <id> <action-id> [text] --revision <revision> [--event-id <id>]
+radar agent conversation <id> <conversation-id>
+radar agent serve [--listen 127.0.0.1:7433]
 radar cleanup <task-id>
 radar gc
 radar refresh
@@ -38,6 +46,8 @@ radar log-path
 ```
 
 ## Offline documentation
+
+See the [durable-agent guide](durable-agents.md) for installation, required workspace association, SBX execution, event receipts, retention and examples. Agent registrations and data survive `radar reset`. A stopped registration still pins its workspace; `agent remove` releases the association and retains durable data.
 
 Use **`man radar`** for this command reference and **`man radar-config`** for
 configuration guidance. Both are generated from the same Markdown documentation
@@ -85,9 +95,9 @@ Radar's Pi extension and editor integrations must explicitly pass `--json` when 
 
 The daemon stores rebuildable task records and source-ref observations locally. Task records provide cache-local numeric IDs, lifecycle projection, source-ref ownership, and acknowledgements. Obsidian notes—not this cache—own authored task content and lifecycle.
 
-Radar groups work by linking mark, source-owned identity, and workspace keys. A primary lifecycle ref controls the projected lifecycle when present. Full refreshes reconcile authoritative remote work back to the note through its source provider: active work reopens it, and all-completed work closes it unless its explicit reopen baseline applies. Without a primary, contributing work-item refs retain their combined lifecycle behavior.
+Radar groups work by linking mark, source-owned identity, and workspace keys. A primary lifecycle ref controls the projected lifecycle when present. Full refreshes reconcile authoritative remote work back to the note through its source provider: active work reopens it, and all-completed work closes it unless its explicit reopen baseline, reported agent activity, or agent-result review hold prevents completion. Without a primary, contributing work-item refs retain their combined lifecycle behavior.
 
-Use `radar reset` to discard collected observations and rebuild them from integrations. Acknowledgements may be retained. An incompatible state version is intentionally discarded and recollected; malformed state still fails closed. The task-muting rename raises the cache version from 7 to 8. Users of the prior ignore version must [migrate notes and the cache explicitly](integrations/obsidian.md#migrating-task-muting) before starting the new daemon; a cache reset is not a substitute for renaming the persisted note preference.
+Use `radar reset` to discard collected observations and rebuild them from integrations. Acknowledgements and failed agent-review persistence intents may be retained. An incompatible state version is intentionally discarded and recollected; malformed state still fails closed. The task-muting rename raises the cache version from 7 to 8. Users of the prior ignore version must [migrate notes and the cache explicitly](integrations/obsidian.md#migrating-task-muting) before starting the new daemon; a cache reset is not a substitute for renaming the persisted note preference.
 
 ```sh
 radar state-path

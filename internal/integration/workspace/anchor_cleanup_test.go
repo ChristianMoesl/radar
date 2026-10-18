@@ -376,3 +376,53 @@ func TestCleanupToleratesAlreadyRemovedDisposableEntriesAndAnchors(t *testing.T)
 		})
 	}
 }
+
+func TestConfirmedUnknownEntriesDoNotAuthorizeSafeCleanup(t *testing.T) {
+	for _, mode := range []integration.CleanupMode{integration.CleanupSafe, integration.CleanupExpired} {
+		t.Run(map[integration.CleanupMode]string{integration.CleanupSafe: "safe", integration.CleanupExpired: "expired"}[mode], func(t *testing.T) {
+			root, group, task := disposableAnchorFixture(t)
+			target := previewAnchor(t, task, integration.CleanupConfirmed)
+			// A later allowlist grant must not let automatic GC reuse manual consent.
+			configureDisposableEntries(t, ".pnpm-store")
+			if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: mode}); err == nil {
+				t.Fatal("automatic cleanup reused confirmed unknown-entry authority")
+			}
+			assertAnchorFileKept(t, filepath.Join(group.Path, ".pnpm-store", "v10", "content"))
+			assertAnchorRegistered(t, root, group.ID)
+		})
+	}
+}
+
+func TestConfirmedPreviewListsUnknownFilesButSafeGCStillBlocks(t *testing.T) {
+	root, group, task := disposableAnchorFixture(t)
+	guard := &anchorGCGuard{workspaceID: group.ID}
+	service := cleanup.New([]integration.CleanupProvider{guard, Source{}})
+	preview, err := service.Preview(context.Background(), task, integration.CleanupConfirmed)
+	if err != nil || len(preview.Targets) != 2 {
+		t.Fatalf("unknown files aborted full resource preview: %+v, %v", preview, err)
+	}
+	target := preview.Targets[1]
+	if target.Operation["unknown_entries"] != `[".pnpm-store"]` || len(target.Safety) != 1 || !strings.Contains(target.Description, "Permanent loss; no recovery archive") || !strings.Contains(target.Safety[0].Summary, ".pnpm-store") {
+		t.Fatalf("unknown-entry deletion omitted from confirmation: %+v", target)
+	}
+	if len(cleanup.BlockingMessages(preview.Targets)) != 1 {
+		t.Fatalf("automatic cleanup lost the unknown-entry warning: %+v", preview)
+	}
+	if _, err := service.Preview(context.Background(), task, integration.CleanupSafe); err == nil {
+		t.Fatal("conservative preview accepted unknown content")
+	}
+	if _, err := service.Execute(context.Background(), preview, cleanup.ExecuteOptions{Mode: integration.CleanupSafe}); err == nil || guard.cleaned {
+		t.Fatalf("safe cleanup executed confirmed deletion: cleaned=%v, err=%v", guard.cleaned, err)
+	}
+	assertAnchorFileKept(t, filepath.Join(group.Path, ".pnpm-store", "v10", "content"))
+	if _, err := service.Execute(context.Background(), preview, cleanup.ExecuteOptions{Mode: integration.CleanupConfirmed}); err != nil || !guard.cleaned {
+		t.Fatalf("confirmed cleanup failed: cleaned=%v, err=%v", guard.cleaned, err)
+	}
+	if _, err := os.Lstat(group.Path); !os.IsNotExist(err) {
+		t.Fatalf("confirmed anchor remains: %v", err)
+	}
+	registry, err := workspacegroup.Load(root)
+	if err != nil || len(registry.Workspaces) != 0 {
+		t.Fatalf("registry = %+v, %v", registry, err)
+	}
+}

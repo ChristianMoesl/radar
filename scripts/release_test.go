@@ -33,6 +33,7 @@ func releaseFixture(t *testing.T, failure string) *exec.Cmd {
 	if err := os.Symlink(node, filepath.Join(bin, "node")); err != nil {
 		t.Fatal(err)
 	}
+	linkTerminalTool(t, bin)
 	for name, data := range map[string][]byte{
 		"macos/RadarNotifier/VERSION":        []byte("1.2.3\n"),
 		"package.json":                       []byte(`{"version":"0.1.0"}`),
@@ -135,6 +136,7 @@ func TestReleaseRestoresTerminalAndPreservesValidationResult(t *testing.T) {
 			}
 			defer master.Close()
 			defer slave.Close()
+			initializeTerminal(t, slave)
 			before, err := term.GetState(master.Fd())
 			if err != nil {
 				t.Fatal(err)
@@ -155,7 +157,7 @@ func TestReleaseRestoresTerminalAndPreservesValidationResult(t *testing.T) {
 			_ = slave.Close()
 			<-readDone
 			if !reflect.DeepEqual(after, before) {
-				t.Fatalf("release changed the caller's terminal modes: before=%+v after=%+v", before, after)
+				t.Fatalf("release changed the caller's terminal modes: before=%+v after=%+v output=%s", before, after, output)
 			}
 			wantExit := 0
 			switch failure {
@@ -286,12 +288,12 @@ func mustReadScript(t *testing.T, name string) []byte {
 	return data
 }
 
-func TestMakeTestBoundsPackageParallelism(t *testing.T) {
+func TestMakeTestBoundsPackageParallelismAndChecksLinuxInstaller(t *testing.T) {
 	cmd := exec.Command("make", "--no-print-directory", "-n", "test", "GO=go")
 	cmd.Dir = ".."
 	output, err := cmd.CombinedOutput()
-	if err != nil || strings.TrimSpace(string(output)) != "go test -p 2 ./..." {
-		t.Fatalf("make test must bound package concurrency: %v; %s", err, output)
+	if err != nil || strings.TrimSpace(string(output)) != "go test -p 2 ./...\nnode --test scripts/linux-install.test.mjs" {
+		t.Fatalf("make test must bound Go package concurrency and run installer checks: %v; %s", err, output)
 	}
 }
 

@@ -4,7 +4,7 @@ tmux supplies local interactive-session facts and multiplexer operations.
 
 ## Capabilities
 
-`Source`, `StatusReporter`, `LocalSource`, `MultiplexerProvider`, `ActivityPublisher`, and `CleanupProvider`.
+`Source`, `StatusReporter`, `LocalSource`, `MultiplexerProvider`, `ActivityPublisher`, `ActivityReader`, and `CleanupProvider`.
 
 ## Configuration
 
@@ -39,11 +39,11 @@ Radar collects tmux sessions from the local tmux server and attaches them to mat
 
 Pi sessions inside registered Radar workspaces publish generic activity through the installed `pi-radar` extension (Pi 0.85.1 or newer). The task row shows `● busy` while the agent works and amber `! waiting` instead while an extension UI prompt is open. Closing the prompt restores busy or idle; idle has no badge. Parent sessions and in-process subagents that activate the extension share one activity publisher: the pane stays busy until all their runs settle, and one session's startup or shutdown cannot clear another's activity. Waiting takes precedence across those sessions, other panes, and linked sessions. Task details expose the same activity, and existing workspace navigation takes you back to the agent to respond.
 
-Activity is independent of task attention: it does not change categorization, sorting, acknowledgements, notifications, or approval policy. Prompt titles and answers are not published. Transitions request a bounded local refresh rather than waiting for the regular 15-second poll. Native Pi prompt hooks cover confirmations, selections, input, editors, and custom UI across extensions—not arbitrary shell stdin, external browser approvals, or conversational questions. Custom UI may also include automatically completing loaders. See [activity details](#activity) for lifecycle limits and coordinated upgrade steps.
+Busy/waiting activity vetoes completion. When it collides with completion or resumes in a done authored task, Radar retains an [agent-result handoff](../attention-algorithm.md#agent-result-handoff): the task stays open and enters Attention after agents settle, until explicit Done. Ordinary activity does not create a review hold after every turn or change approval policy. Prompt titles and answers are not published. Transitions request a bounded local refresh rather than waiting for the regular 15-second poll. Native Pi prompt hooks cover confirmations, selections, input, editors, and custom UI across extensions—not arbitrary shell stdin, external browser approvals, or conversational questions. Custom UI may also include automatically completing loaders. See [activity details](#activity) for lifecycle limits and coordinated upgrade steps.
 
 Tmux session refs use `#{session_id}` for stable identity, so renaming a tmux session does not create a new Radar task. Selecting a tmux-backed task switches to the stable session target.
 
-Local refreshes emit stable session refs based on tmux server and session identity. Session names and paths contribute mark/workspace linking keys. Attached sessions do not block cleanup of eligible completed workspaces; removing a session terminates its running shells and commands. See [cleanup safety](../workspace-cleanup.md).
+Local refreshes emit stable session refs based on tmux server and session identity. Session names and paths contribute mark/workspace linking keys. Attached idle sessions do not block cleanup of eligible completed workspaces; reported busy/waiting activity does. Explicit confirmed cleanup remains a separate destructive action and can terminate running shells and agents. See [cleanup safety](../workspace-cleanup.md).
 
 The multiplexer capability owns current-client detection, task target selection, switching, session/window creation, and matching. Cleanup removes the opaque session resource ID.
 
@@ -51,9 +51,16 @@ The multiplexer capability owns current-client detection, task target selection,
 
 `radar activity <idle|busy|waiting>` publishes generic runtime activity. Only this integration resolves `TMUX_PANE` and writes its `@radar_activity` option (`busy` or `waiting`), unsetting it for idle. Publication without a pane is a no-op. Invalid states are rejected. Collection ignores dead panes and reduces live pane states per session with `waiting > busy > idle`. Empty/unset state is idle. Malformed pane state reports a collection error rather than inventing activity.
 
-Source refs expose typed `Activity`; task projection applies the same precedence across active authoritative refs without interpreting provider metadata. Done tasks suppress activity. The TUI shows amber `! waiting` instead of `● busy`, and details show `Activity: waiting`. Navigation and permission decisions remain in the existing session/agent workflow.
+Source refs expose typed `Activity`; task projection applies the same precedence across active authoritative refs without interpreting provider metadata. Current authoritative activity prevents a task from being projected done. The TUI shows amber `! waiting` instead of `● busy`, and details show `Activity: waiting`. Navigation and permission decisions remain in the existing session/agent workflow.
 
 The Pi adapter uses native `ui_prompt_start` / `ui_prompt_end` hooks (Pi >= 0.85.1), which span extension `confirm`, `select`, `input`, `editor`, and `custom` calls. Pi coalesces nested/overlapping prompts into a single span. The adapter tracks running and prompt-open independently per Pi session. Parent and in-process subagent extension instances share a process-wide activity map, publication queue, and deduplication state, including when Pi loads separate module instances. Contributions reduce with `waiting > busy > idle` before publication. Startup adds an idle contribution; shutdown removes only that session's contribution and republishes the aggregate. Neither can clear a busy or waiting parent/sibling. The pane is idle only when no contributing session is busy or waiting. Late events from a shut-down instance cannot restore activity. It publishes only state, never prompt text or answers. Failed commands remain best-effort and may retry on subsequent lifecycle events. Each CLI invocation requests a local refresh with a one-second socket deadline after publishing; a stopped/slow daemon does not fail the publication, and the regular local refresh remains available.
+
+`ActivityReader` rechecks live sessions and pane states before automatic
+completion, explicit Done, and automatic cleanup. It matches stable session
+identities and workspace paths (including member/subdirectory launches); unrelated
+sessions and dead panes do not block the task. A confirmed absent server is idle;
+unavailable commands, permission errors and malformed observations fail closed.
+These are bounded fresh observations, not an atomic lock on future agent starts.
 
 ### Limits
 

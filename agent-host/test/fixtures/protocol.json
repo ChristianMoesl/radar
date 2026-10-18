@@ -1,0 +1,13 @@
+{
+  "protocol": 1,
+  "hello": {
+    "request": {"jsonrpc":"2.0","id":1,"method":"hello","params":{}},
+    "response": {"jsonrpc":"2.0","id":1,"result":{"protocol":1,"instanceId":"fixture","pid":123}}
+  },
+  "deliver": {
+    "request": {"jsonrpc":"2.0","id":1,"method":"deliver","params":{"source":"fixture","id":"one","payload":{"value":1}}},
+    "response": {"jsonrpc":"2.0","id":1,"result":{"hash":"fixture-hash","taskId":2,"source":"fixture","eventId":"one","acceptedAt":"2026-10-17T00:00:00Z"}}
+  },
+  "notification": {"jsonrpc":"2.0","method":"snapshot","params":{"protocol":1,"instanceId":"fixture"}},
+  "invalid": {"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"invalid event"}}
+}

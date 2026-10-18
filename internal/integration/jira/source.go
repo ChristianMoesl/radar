@@ -151,7 +151,7 @@ func (source Source) Collect(ctx context.Context, req integration.CollectRequest
 			authoritativeIssues = append(authoritativeIssues, value)
 		}
 	}
-	development := collectDevelopmentLinks(ctx, jiraConfig, authoritativeIssues, req.Previous, req.Logger, source.developmentResolvers)
+	development := collectDevelopmentLinks(ctx, jiraConfig, authoritativeIssues, req.Previous, req.Logger, req.LinkingMarks, source.developmentResolvers)
 	if development.PullRequests > 0 {
 		details = append(details, fmt.Sprintf("%d development pull requests", development.PullRequests))
 	}

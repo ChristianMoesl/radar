@@ -120,7 +120,7 @@ func (m model) operationDetails(task protocol.Task, width int) string {
 
 func operationNavigationKey(key string) bool {
 	switch key {
-	case "enter", "q", "ctrl+c", "esc", "backspace", "i", "right", "s", "j", "down", "ctrl+n", "k", "up", "ctrl+p", "ctrl+d", "ctrl+u", "g", "home", "G", "end", "pgdown", "pgup":
+	case "/", "enter", "q", "ctrl+c", "esc", "backspace", "i", "right", "s", "j", "down", "ctrl+n", "k", "up", "ctrl+p", "ctrl+d", "ctrl+u", "g", "home", "G", "end", "pgdown", "pgup":
 		return true
 	}
 	return false

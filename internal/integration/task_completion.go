@@ -6,11 +6,29 @@ import (
 	"radar/internal/protocol"
 )
 
-// TaskLifecycleProvider persists remote-driven lifecycle changes in an authored task's source.
+// TaskLifecycleProvider persists remote completion and activity-driven handoffs.
 // Work items are authoritative contributors with confirmed signals. A provider
 // may reopen on active work or preserve an explicit reopening baseline.
+// Empty WorkItems allow only activity-driven reopening/retries, never remote completion.
 // A nil observation means no source mutation was needed.
 type TaskLifecycleProvider interface {
 	Integration
-	ReconcileLifecycle(ctx context.Context, ref protocol.SourceRef, workItems []protocol.SourceRef) (*Observation, error)
+	ReconcileLifecycle(ctx context.Context, ref protocol.SourceRef, request TaskLifecycleRequest) (*Observation, error)
 }
+
+// RequireAgentReview retries a handoff whose note write previously failed.
+// WorkItems is empty when only local activity, not remote completion, is known.
+type TaskLifecycleRequest struct {
+	Task               protocol.Task
+	WorkItems          []protocol.SourceRef
+	Activity           protocol.Activity
+	RequireAgentReview bool
+}
+
+// AgentReviewPersistenceError preserves the pending intent in the rebuildable
+// cache until the canonical note can be written. It is never a successful source
+// observation; callers still report the persistence error.
+type AgentReviewPersistenceError struct{ Err error }
+
+func (e *AgentReviewPersistenceError) Error() string { return e.Err.Error() }
+func (e *AgentReviewPersistenceError) Unwrap() error { return e.Err }

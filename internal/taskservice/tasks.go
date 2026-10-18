@@ -14,9 +14,9 @@ import (
 )
 
 // Service coordinates cache publication with authored mutations. Slow source
-// collection stays outside applyMu, so a note edit never waits for remote APIs,
-// Git inspection, or runtime discovery. Background refreshes are serialized by
-// the daemon's collection mutex; mutations use only this short publication lock.
+// collection stays outside applyMu, so a note edit never waits for remote APIs
+// or Git inspection. Completion/GC also perform a bounded runtime recheck under
+// applyMu. Background refreshes are serialized by the daemon's collection mutex.
 type Service struct {
 	store             *state.Store
 	logger            *slog.Logger
@@ -45,14 +45,22 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 	defer s.applyMu.Unlock()
 	if revision != s.authoringRevision {
 		// A mutation won while collection was in flight. Re-read only the
-		// authoring source, retaining every other source's collected results.
+		// author and activity sources: a pre-mutation busy snapshot must not
+		// undo explicit Done. Retain every remote source's collected results.
 		if provider, err := s.integrations.TaskAuthoring(); err == nil {
-			fresh := collector.Collect(ctx, s.store.CollectionTasks(), s.logger, []integration.Source{provider})
-			result.ReplaceSource(provider.Descriptor().Name, fresh)
+			for _, source := range append([]integration.Source{provider}, s.activitySources()...) {
+				fresh := collector.Collect(ctx, s.store.CollectionTasks(), s.logger, []integration.Source{source})
+				result.ReplaceSource(source.Descriptor().Name, fresh)
+			}
 		}
 	}
 	if localOnly {
 		s.applyLocal(result)
+		if collector.ReconcileAuthoredActivity(ctx, s.store.CollectionTasks(), &result, s.integrations.Sources(), s.logger) {
+			s.applyLocal(result)
+		} else {
+			s.store.SetSources(mergeSourceStatuses(s.store.Sources(), result.Sources))
+		}
 	} else {
 		s.store.SetTasks(result.Tasks)
 		// New contributors must be durably bound before this refresh returns,
@@ -67,6 +75,9 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 		}
 		s.store.SetSources(result.Sources)
 	}
+	for _, taskID := range result.PendingAgentReviews {
+		s.store.RequireAgentReview(taskID)
+	}
 	return result
 }
 
@@ -80,6 +91,9 @@ func (s *Service) applyLocal(result collector.Result) {
 func (s *Service) GuardCleanup(ctx context.Context, task protocol.Task, execute func() error) error {
 	s.applyMu.Lock()
 	defer s.applyMu.Unlock()
+	if current, ok := taskByID(s.store.CollectionTasks(), task.ID); ok && current.AgentReviewPending {
+		return fmt.Errorf("agent result review could not be persisted; refresh before cleanup")
+	}
 	// A note can be reopened outside Radar, or a mutation may have written the
 	// note before returning an error. Re-read only the local authoring source;
 	// cached completion alone must not authorize destructive expiry.
@@ -100,6 +114,9 @@ func (s *Service) GuardCleanup(ctx context.Context, task protocol.Task, execute 
 				return fmt.Errorf("task lifecycle changed or could not be verified before cleanup")
 			}
 		}
+	}
+	if err := s.requireIdle(ctx, task); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -147,6 +164,12 @@ func (s *Service) MutateTask(ctx context.Context, method string, mutation *proto
 		}
 		switch method {
 		case "task-done":
+			if task.AgentReviewPending {
+				return protocol.Task{}, fmt.Errorf("agent result review could not be saved; refresh to persist the handoff before marking Done")
+			}
+			if err := s.requireIdle(ctx, task); err != nil {
+				return protocol.Task{}, err
+			}
 			identity, err = provider.SetLifecycle(ctx, ref, "done")
 		case "task-reopen":
 			identity, err = provider.SetLifecycle(ctx, ref, "open")
@@ -165,7 +188,11 @@ func (s *Service) MutateTask(ctx context.Context, method string, mutation *proto
 	if err != nil {
 		return protocol.Task{}, err
 	}
-	result := collector.Collect(ctx, s.store.CollectionTasks(), s.logger, []integration.Source{provider})
+	refreshSources := []integration.Source{provider}
+	if method == "task-done" {
+		refreshSources = append(refreshSources, s.activitySources()...)
+	}
+	result := collector.Collect(ctx, s.store.CollectionTasks(), s.logger, refreshSources)
 	s.applyLocal(result)
 	for _, task := range s.store.Tasks() {
 		for _, ref := range task.SourceRefs {
@@ -215,4 +242,25 @@ func mergeSourceStatuses(previous []protocol.SourceStatus, updates []protocol.So
 		merged = append(merged, byName[name])
 	}
 	return merged
+}
+
+func (s *Service) activitySources() []integration.Source {
+	var sources []integration.Source
+	for _, source := range s.integrations.Sources() {
+		if _, ok := source.(integration.ActivityReader); ok {
+			sources = append(sources, source)
+		}
+	}
+	return sources
+}
+
+func (s *Service) requireIdle(ctx context.Context, task protocol.Task) error {
+	activity, err := integration.ReadTaskActivity(ctx, task, s.integrations.Sources())
+	if err != nil {
+		return err
+	}
+	if activity != protocol.ActivityIdle {
+		return fmt.Errorf("task %d has an agent %s; wait for agents to finish and review the result before marking Done or automatic cleanup", task.ID, activity.String())
+	}
+	return nil
 }

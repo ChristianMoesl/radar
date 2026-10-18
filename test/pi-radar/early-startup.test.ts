@@ -302,7 +302,7 @@ export default function(pi) {
 
   const manifest = JSON.parse(await readFile(join(sbxPackage, "package.json"), "utf8"));
   assert.equal(manifest.name, "@christianmoesl/pi-sbx");
-  assert.equal(manifest.version, "0.7.0", "must exercise the pinned companion commit, not a fake provider package");
+  assert.equal(manifest.version, "0.7.0", "must exercise the pinned release, not a fake provider package");
   await writeFile(join(agent, "settings.json"), JSON.stringify({
     defaultProjectTrust: "always", quietStartup: true, enableInstallTelemetry: false,
     packages: [sbxPackage, repository], extensions: [probe],

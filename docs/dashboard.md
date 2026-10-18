@@ -17,6 +17,7 @@ bind-key F display-popup -E "radar fork"
 | --- | --- |
 | <kbd>j</kbd> / <kbd>↓</kbd>, <kbd>k</kbd> / <kbd>↑</kbd> | Move between tasks |
 | <kbd>Enter</kbd> | Switch to or create the selected task's tmux session |
+| <kbd>/</kbd> | Search tasks; <kbd>Esc</kbd> clears search and returns to the normal list |
 | <kbd>o</kbd> | Open the source action or link |
 | <kbd>i</kbd> | Inspect the selected task and its linked sources |
 | <kbd>n</kbd> | Create an Obsidian-backed task |
@@ -35,6 +36,14 @@ bind-key F display-popup -E "radar fork"
 
 Navigation stops at the first and last item rather than wrapping. Repository, branch, fork-member, worktree-session, and workspace-resource lists adapt to terminal height, keep the selection visible when scrolling or resizing, and show a position indicator. Long list labels are displayed on one line; their full values are preserved for actions. In searchable pickers, typing—including `j` and `k`—still filters the list; use ↑/↓ or Ctrl+P/N to move. The dashboard, Inspect, and scrollable confirmations support Page Up/Down or Ctrl+U/D; Home/End jumps to their top/bottom.
 
+## Search tasks
+
+Press `/` to search the dashboard as you type. Matching is case-insensitive; every whitespace-separated term must occur in the task title, repository, or linked-source titles, identifiers, branches, or workspace names/paths. Terms can match different fields. Search uses only the current dashboard task data, not note bodies, remote queries, or older history beyond the existing Done retention.
+
+Use ↑/↓ or Ctrl+P/N to select a result. Letters such as `j`, `k`, `d`, and `q` are text while the search field is focused; Ctrl+C still quits. Enter leaves text entry with the filter applied, so normal task actions work again. Press `/` to edit the query. Inspect and source-link views preserve the filter when you return.
+
+A nonempty query keeps normal grouping and ordering but reveals matching Muted/Done tasks even when their sections were collapsed. These headers are not selectable during filtering. Clearing search restores the previous section expansion choices. Esc clears the query, exits search, and restores the normal list in one press; it does not quit Radar on that press. With no search active, Esc retains its usual quit behavior.
+
 ## Reading the task list
 
 The daemon refreshes local sources every 15 seconds and remote sources every two
@@ -48,6 +57,19 @@ The dashboard uses [Catppuccin Mocha](https://catppuccin.com/palette/) colors wh
 Muted and Done have selectable headers and start collapsed. Move to a header with `j`/`k` or `↓`/`↑`, then press `Enter` to expand or collapse it. Counts remain visible; hidden tasks and their source refs are skipped by navigation. Each section remembers its choice during the current dashboard session, including refreshes. Empty sections are omitted. Active section headers remain non-selectable.
 
 When the selected task becomes muted or done, the overview stays among active tasks: it selects the next task at that position, or the previous task when handling the last active one. If no active tasks remain, selection moves to a visible section header without expanding it. This applies to successful mutations and background updates; delayed responses do not steal focus after you navigate elsewhere. Unmuting unfinished work, reopening, and priority changes follow the selected task, and Inspect stays on the task being inspected. Done remains sorted by completion time, newest first; equal timestamps keep their existing order, and tasks without a valid completion time appear last. Collapsing does not change its three-day display retention or unresolved-workspace exception.
+
+### Agent results awaiting review
+
+A task whose completion was held by agent work, or which was reopened by resumed
+agent work, stays unfinished. While agents run it shows the normal busy/waiting
+badge. Once they settle it appears in Attention with **Agent finished — review
+result**. Completed source rows retain their merged/resolved status, so source
+completion is visible without hiding the handoff. Urgency and task mute still apply.
+
+Inspect or open the workspace to review the result, then press `d` to mark Done.
+Opening it does not itself acknowledge the result. There is no timeout or separate
+review action. Done reports a clear error while agents are busy/waiting or activity
+cannot be verified; a failed pending note write must be resolved and refreshed first.
 
 ### Open a source
 
@@ -70,3 +92,7 @@ Failures stay on the task row with an `!` marker and an `i inspect` hint. Inspec
 Use [cleanup and expiry guidance](workspace-cleanup.md) to resolve warnings.
 
 Inspect is a read-only view of the selected task. Task details (including metadata) come first, followed by **Workspace expiry** when the done task has a valid completion time and registered workspace, then **Unresolved** with affected resources and reasons, and **Source refs**. Expiry shows a timezone-labelled date/time, past eligibility, and a permanent-loss warning; it does not run cleanup checks, fetch remotes, or guarantee deletion at that instant. The expiry section disappears on reopening or when no registered workspace remains. The **Unresolved** section is omitted when there are no cleanup issues. Use `j`/`k`, arrow keys, or Ctrl+N/P to scroll; Page Up/Down or Ctrl+U/D to page; and `g`/`G` or Home/End to jump to the top/bottom. Long paths and URLs wrap, while the task title, line position, and shortcuts stay visible. Scrolling never selects another task or switches workspaces. Live updates retain the inspected task; if it disappears, inspect shows “Task no longer available” rather than another task. Escape or Backspace returns to the overview, where Enter and task/workspace actions remain available. `q` or Ctrl+C quits.
+
+## Durable agents
+
+The Agents source shows registered durable programs. Enter opens the agent's summary, runtime health, associated workspace, declared actions and optional conversations/messages. Use `s` to read the full summary; arrows navigate or scroll, `r` refreshes, and Escape returns. Start/stop/restart and logs are available in the same view. Actions that changed while you were responding require a fresh decision. See [durable agents](durable-agents.md) for authoring and event delivery.

@@ -2,6 +2,7 @@ package app
 
 import (
 	"radar/internal/integration"
+	"radar/internal/integration/agent"
 	"radar/internal/integration/datadog"
 	"radar/internal/integration/git"
 	"radar/internal/integration/github"
@@ -15,14 +16,16 @@ import (
 func DefaultIntegrations() integration.Registry {
 	githubSource := github.NewSource()
 	noteAuthor := obsidian.NewSource()
+	workspaces := workspace.NewSource(noteAuthor)
 	return integration.NewRegistry(
 		noteAuthor,
 		githubSource,
 		jira.NewSource(githubSource),
 		datadog.NewSource(),
-		workspace.NewSource(noteAuthor),
+		workspaces,
 		git.NewSource(),
 		tmux.NewSource(),
 		sbx.NewSource(),
+		agent.NewSource(workspaces),
 	)
 }

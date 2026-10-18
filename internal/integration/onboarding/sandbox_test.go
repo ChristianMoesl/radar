@@ -137,7 +137,7 @@ func TestSandboxSetupCreatesReviewedStarterOnlyOnSave(t *testing.T) {
 }
 
 func TestSandboxSetupFailureCanExplicitlyDisable(t *testing.T) {
-	for _, failure := range []string{"missing", "old version", "auth", "null list", "extension", "create", "ready", "sharing", "decline preparation"} {
+	for _, failure := range []string{"missing", "old version", "auth", "null list", "old list wrapper", "malformed list", "extension", "create", "ready", "sharing", "decline preparation"} {
 		t.Run(failure, func(t *testing.T) {
 			w, ui, sys, home := sandboxFixture(t)
 			base := sys.sandboxFn
@@ -147,6 +147,12 @@ func TestSandboxSetupFailureCanExplicitlyDisable(t *testing.T) {
 				}
 				if failure == "null list" && args[0] == "ls" {
 					return "null", nil
+				}
+				if failure == "old list wrapper" && args[0] == "ls" {
+					return `{"sandboxes":[]}`, nil
+				}
+				if failure == "malformed list" && args[0] == "ls" {
+					return `[`, nil
 				}
 				if failure == "auth" && args[0] == "ls" {
 					return "PRIVATE_SECRET runtime offline", errors.New("PRIVATE_SECRET")
@@ -555,5 +561,45 @@ func TestSandboxSetupE2E(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(plan.root, "spec.yaml")); !os.IsNotExist(err) {
 		t.Fatal("probe published starter before review")
+	}
+}
+
+func TestSandboxSetupRequiresSBX048(t *testing.T) {
+	for _, tt := range []struct {
+		version   string
+		supported bool
+	}{
+		{`{"client":{"version":"v0.46.0"}}`, false},
+		{`{"client":{"version":"v0.47.9"}}`, false},
+		{`{"client":{"version":"v0.48.0"}}`, true},
+		{`{"client":{"version":"v0.48.1"}}`, true},
+		{`{"client":{"version":"v0.49.0"}}`, false},
+		{`{"client":{"version":"v1.0.0"}}`, false},
+		{"unknown", false},
+	} {
+		t.Run(tt.version, func(t *testing.T) {
+			w, _, sys, _ := sandboxFixture(t)
+			listed := false
+			sys.sandboxFn = func(_ context.Context, args ...string) (string, error) {
+				switch args[0] {
+				case "version":
+					return tt.version, nil
+				case "ls":
+					listed = true
+					// Stop after the version gate, without provisioning anything.
+					return "", errors.New("runtime unavailable")
+				default:
+					t.Fatalf("unexpected command: %v", args)
+					return "", nil
+				}
+			}
+			err := w.prepareSandbox(context.Background(), config.SBXConfig{}, nil)
+			if listed != tt.supported || err == nil {
+				t.Fatalf("listed = %v, error = %v", listed, err)
+			}
+			if !tt.supported && !strings.Contains(err.Error(), "SBX 0.48.x is required") {
+				t.Fatalf("missing upgrade guidance: %v", err)
+			}
+		})
 	}
 }

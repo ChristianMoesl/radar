@@ -256,7 +256,7 @@ func tmuxErrorDetail(err error) string {
 		return "tmux not found"
 	}
 	detail := err.Error()
-	if strings.Contains(detail, "no server running") || strings.Contains(detail, "failed to connect to server") {
+	if strings.Contains(detail, "no server running") {
 		return "no tmux server running"
 	}
 	return detail

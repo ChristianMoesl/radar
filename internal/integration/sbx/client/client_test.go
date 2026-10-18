@@ -149,7 +149,7 @@ func TestNoRuntimeFallbackOrCommandRewriting(t *testing.T) {
 
 func TestListReportsMalformedOutputAndTranslationFailures(t *testing.T) {
 	for _, output := range []string{
-		"not json", `[{"workspaces":3}]`, `[{"mounts":[3]}]`,
+		"not json", `{"sandboxes":[]}`, `[{"workspaces":3}]`, `[{"mounts":[3]}]`,
 		`[{"workspaces":["C:\\missing"]}]`,
 	} {
 		t.Run(output, func(t *testing.T) {
@@ -199,5 +199,13 @@ func TestExecRunnerKeepsStderrOutOfJSONAndReportsFailures(t *testing.T) {
 	cancel()
 	if _, err := runner.Run(ctx, root, command); !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestWindowsListPreservesEmptyArray(t *testing.T) {
+	runner := &fakeRunner{output: `[]`}
+	output, err := windowsClient(runner).Run(context.Background(), "", "ls", "--json")
+	if err != nil || output != `[]` {
+		t.Fatalf("empty list = %q, %v", output, err)
 	}
 }

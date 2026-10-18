@@ -11,6 +11,7 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/integration/github"
+	"radar/internal/linking"
 	"radar/internal/protocol"
 )
 
@@ -37,7 +38,7 @@ func TestFetchIssueDevelopmentLinksDiscoversGitHubApplicationType(t *testing.T) 
 	}))
 	defer server.Close()
 
-	result := fetchIssueDevelopmentLinks(context.Background(), Config{BaseURL: server.URL, Email: "me@example.com", APIToken: "token"}, "10001", []integration.DevelopmentLinkResolver{github.NewSource()})
+	result := fetchIssueDevelopmentLinks(context.Background(), Config{BaseURL: server.URL, Email: "me@example.com", APIToken: "token"}, issue{ID: "10001", Key: "ABC-123"}, linking.NewMarkMatcher([]string{"ABC"}), []integration.DevelopmentLinkResolver{github.NewSource()})
 	if result.Err != nil || result.Invalid != 0 {
 		t.Fatalf("result = %+v", result)
 	}
@@ -69,7 +70,7 @@ func TestCollectDevelopmentLinksPreservesPreviousKeysOnFailure(t *testing.T) {
 		LinkingKeys: []string{"mark:XYZ-7", "github:pr:acme/app:7", "branch:acme/app:feature-work"}, Metadata: map[string]string{"key": "XYZ-7"},
 	}}}}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	result := collectDevelopmentLinks(context.Background(), Config{BaseURL: server.URL}, []issue{value}, previous, logger, []integration.DevelopmentLinkResolver{github.NewSource()})
+	result := collectDevelopmentLinks(context.Background(), Config{BaseURL: server.URL}, []issue{value}, previous, logger, linking.NewMarkMatcher([]string{"XYZ"}), []integration.DevelopmentLinkResolver{github.NewSource()})
 	if result.Failed != 1 {
 		t.Fatalf("result = %+v", result)
 	}

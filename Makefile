@@ -60,6 +60,7 @@ install: build
 # release checks do not exhaust process-launch capacity on macOS.
 test:
 	$(GO) test -p 2 ./...
+	node --test scripts/linux-install.test.mjs
 
 dist: clean-dist manpages
 	@set -eu; \

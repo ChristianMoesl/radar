@@ -156,6 +156,7 @@ func mainNavigationAnchor(m model) string {
 func TestRailKeysAlignAtTheRightEdge(t *testing.T) {
 	t.Setenv("TMUX", "test")
 	m := railFixture()
+	m.searchQuery = "example" // Include the contextual clear-search shortcut.
 	lines := strings.Split(ansi.Strip(m.mainRail(m.mainRailHeight())), "\n")
 	for _, group := range mainRailGroups() {
 		for _, hint := range group.hints {

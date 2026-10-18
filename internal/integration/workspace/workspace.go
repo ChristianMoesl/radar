@@ -112,6 +112,7 @@ func commandError(name string, args []string, output []byte, err error) error {
 }
 
 type CreateOptions struct {
+	PrepareOnly             bool
 	Worktrees               []DesiredWorkspaceWorktree
 	Note                    *DesiredWorkspaceNote
 	NoteAuthor              integration.WorkspaceNoteAuthor

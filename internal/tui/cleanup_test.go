@@ -248,3 +248,33 @@ func TestCleanupShowsDisposableEntriesInCompactAndDetailedViews(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanupListsUnknownContentsAndPermanentLossBeforeConfirmation(t *testing.T) {
+	m := model{mode: "cleanup_confirm", cleanup: cleanupFixture()}
+	target := &m.cleanup.Targets[len(m.cleanup.Targets)-1]
+	target.Safety = []protocol.CleanupSafety{{
+		Kind: "unknown_entries", Summary: "delete unknown contents: research, sketch.txt",
+		Message:         "delete unknown workspace contents (including directory contents): research, sketch.txt. Permanent loss; no recovery archive",
+		BlocksAutomatic: true, Expires: true,
+	}}
+	for _, details := range []bool{false, true} {
+		m.cleanupDetails = details
+		view := strings.Join(strings.Fields(ansi.Strip(m.View())), " ")
+		remove := strings.Index(view, "REMOVE")
+		keep := strings.Index(view, "KEEP")
+		if remove < 0 || keep < remove {
+			t.Fatalf("missing cleanup sections: %s", view)
+		}
+		for _, want := range []string{"research, sketch.txt", "including directory contents", "Permanent loss; no recovery archive"} {
+			if !strings.Contains(view[:remove], want) {
+				t.Fatalf("warning hides %q before REMOVE: %s", want, view)
+			}
+		}
+		if !strings.Contains(view[remove:keep], "research, sketch.txt") {
+			t.Fatalf("unknown contents absent from REMOVE (details=%v): %s", details, view)
+		}
+		if !strings.Contains(view, "[y] Clean up") || !strings.Contains(view, "[Esc/n] Cancel") {
+			t.Fatalf("confirmation or cancellation missing: %s", view)
+		}
+	}
+}

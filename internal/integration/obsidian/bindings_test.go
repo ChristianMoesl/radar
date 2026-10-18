@@ -322,7 +322,7 @@ func TestUnadoptedNoteUnreadableResourceDoesNotBlockOrdinaryCompletion(t *testin
 		t.Fatalf("unadopted note validated unsupported bindings: %+v, %v", observation, err)
 	}
 	work := []protocol.SourceRef{{ID: "github:pr:acme/app:7", Signal: "done"}}
-	observation, err := source.ReconcileLifecycle(ctx, ref, work)
+	observation, err := source.ReconcileLifecycle(ctx, ref, integration.TaskLifecycleRequest{WorkItems: work})
 	if err != nil || observation == nil || observation.Signal != integration.SignalDone {
 		t.Fatalf("ordinary completion blocked: %+v, %v", observation, err)
 	}

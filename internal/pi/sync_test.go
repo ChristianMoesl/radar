@@ -259,7 +259,12 @@ func TestConcurrentSyncStartsSerializeAndRecheckReceipt(t *testing.T) {
 
 func TestSyncCancellationStopsPackageGroupWithoutReceipt(t *testing.T) {
 	profile, _, _ := syncFixture(t, syncPackages)
-	t.Setenv("SYNC_BLOCK", "yes")
+	// A long-lived descendant inherits the lock too. Wait for its creation
+	// before cancelling so killing only the parent cannot satisfy the test.
+	fakePi(t, `sleep 30 &
+echo $$ > "$PI_CODING_AGENT_DIR/pi-pid"
+wait
+`)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -282,8 +287,18 @@ func TestSyncCancellationStopsPackageGroupWithoutReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lock.Close()
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		t.Fatal("lock leaked after cancellation:", err)
+	// Waiting for the shell does not wait for every killed group member's
+	// descriptor teardown, especially on macOS. A real leak remains locked.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if (!errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN)) || time.Now().After(deadline) {
+			t.Fatal("lock leaked after cancellation:", err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

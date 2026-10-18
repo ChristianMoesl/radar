@@ -61,7 +61,8 @@ func (s Source) createOptions(req integration.ManagedWorkspaceRequest) (CreateOp
 	}
 	desired := reconcileRequest(integration.WorkspaceReconcileRequest{Desired: integration.DesiredWorkspaceDescription{Note: req.Note, Worktrees: req.Worktrees}}).Desired
 	return CreateOptions{
-		Repo: req.Repo, BranchMode: req.BranchMode, Name: req.Name, Branch: req.Branch,
+		PrepareOnly: req.PrepareOnly,
+		Repo:        req.Repo, BranchMode: req.BranchMode, Name: req.Name, Branch: req.Branch,
 		Base: req.Base, Path: req.Path, SessionName: req.SessionName, WorkspaceRoot: req.WorkspaceRoot,
 		Model: cfg.Model, Thinking: cfg.Thinking, Sandbox: cfg.SBX.WorkspaceEnabled(workspaceGOOS, ExecRunner{}.LookPath),
 		SandboxKitName: cfg.SBX.Kit.Name, SandboxKitPath: cfg.SBX.Kit.Path, SandboxEnvFile: cfg.SBX.EnvFile, SandboxReadyCommand: append([]string(nil), cfg.SBX.ReadyCommand...),
@@ -211,7 +212,8 @@ func reconcileRequest(req integration.WorkspaceReconcileRequest) ReconcileWorksp
 		note = &value
 	}
 	return ReconcileWorkspaceRequest{
-		Workspace: req.Workspace, WorkspaceRoot: req.WorkspaceRoot,
+		prepareOnly: req.PrepareOnly,
+		Workspace:   req.Workspace, WorkspaceRoot: req.WorkspaceRoot,
 		AdditionalSandboxMounts: req.AdditionalSandboxMounts,
 		ExpectedPlanID:          req.ExpectedPlanID, ExpectedPlanChangeCount: req.ExpectedPlanChangeCount,
 		Revision: req.Revision, Desired: DesiredWorkspaceDescription{Note: note, Worktrees: worktrees, Sandbox: sandbox},

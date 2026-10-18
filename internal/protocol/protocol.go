@@ -5,6 +5,7 @@ import "encoding/json"
 const Version = "0.1.0"
 
 type Request struct {
+	Agent        *AgentRequest        `json:"agent,omitempty"`
 	Method       string               `json:"method"`
 	TaskID       int                  `json:"task_id,omitempty"`
 	TaskMutation *TaskMutation        `json:"task_mutation,omitempty"`
@@ -148,6 +149,9 @@ type SourceRefAcknowledgement struct {
 }
 
 type SourceRef struct {
+	AgentID string `json:"agent_id,omitempty"`
+	// AgentReview is an authored hold: completion waits for explicit Done.
+	AgentReview  bool            `json:"agent_review,omitempty"`
 	BindingError string          `json:"binding_error,omitempty"`
 	Muted        bool            `json:"muted,omitempty"`
 	Bindings     []SourceBinding `json:"bindings,omitempty"`
@@ -186,6 +190,8 @@ type SourceRef struct {
 }
 
 type Task struct {
+	// AgentReviewPending means the canonical handoff write must be retried.
+	AgentReviewPending bool `json:"agent_review_pending,omitempty"`
 	// AttentionSourceRefID identifies the effective signal, not a filtered-out raw one.
 	AttentionSourceRefID string `json:"attention_source_ref_id,omitempty"`
 	// TrackingOnly retains hidden authored history for source resolvers, not discovery.
@@ -207,6 +213,8 @@ type Task struct {
 }
 
 type Response struct {
+	AgentErrorCode          int                      `json:"agent_error_code,omitempty"`
+	AgentResult             json.RawMessage          `json:"agent_result,omitempty"`
 	PID                     int                      `json:"pid,omitempty"`
 	OK                      bool                     `json:"ok"`
 	Error                   string                   `json:"error,omitempty"`
@@ -225,6 +233,12 @@ type Response struct {
 
 func (r Response) MarshalJSON() ([]byte, error) {
 	fields := map[string]any{"ok": r.OK}
+	if r.AgentErrorCode != 0 {
+		fields["agent_error_code"] = r.AgentErrorCode
+	}
+	if r.AgentResult != nil {
+		fields["agent_result"] = r.AgentResult
+	}
 	if r.PID != 0 {
 		fields["pid"] = r.PID
 	}

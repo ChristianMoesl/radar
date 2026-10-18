@@ -22,10 +22,11 @@ import (
 
 type testAuthor struct {
 	obsidian.Source
-	collected    chan struct{}
-	calls        atomic.Int32
-	writeError   error
-	collectError error
+	collected      chan struct{}
+	calls          atomic.Int32
+	writeError     error
+	reconcileError error
+	collectError   error
 }
 
 func (s *testAuthor) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
@@ -404,4 +405,11 @@ func BenchmarkAuthoredTaskLifecycle(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func (s *testAuthor) ReconcileLifecycle(ctx context.Context, ref protocol.SourceRef, request integration.TaskLifecycleRequest) (*integration.Observation, error) {
+	if s.reconcileError != nil {
+		return nil, &integration.AgentReviewPersistenceError{Err: s.reconcileError}
+	}
+	return s.Source.ReconcileLifecycle(ctx, ref, request)
 }

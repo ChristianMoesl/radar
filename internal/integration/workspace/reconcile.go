@@ -24,6 +24,7 @@ import (
 
 type ReconcileWorkspaceRequest struct {
 	creating                bool
+	prepareOnly             bool
 	SandboxConfig           *sbxsettings.Config             `json:"-"`
 	NoteAuthor              integration.WorkspaceNoteAuthor `json:"-"`
 	Workspace               string                          `json:"-"`
@@ -91,6 +92,7 @@ type ReconcileWorkspacePlan struct {
 	removals     []reconcileRemoval
 	noteAdded    bool
 	create       bool
+	prepareOnly  bool
 	openExisting bool
 	startSession bool
 	forkSession  string
@@ -483,7 +485,7 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 			continue
 		}
 		changes = append(changes, WorkspaceChange{Action: "setup", Resource: "worktree", Path: member.Path, Summary: "run repository setup for " + member.Path})
-		if group.SessionName != "" && !request.creating {
+		if group.SessionName != "" && !request.creating && !request.prepareOnly {
 			if _, err := runner.Run(ctx, group.Path, "tmux", "has-session", "-t", group.SessionName); err != nil {
 				startSession = true
 			}
@@ -517,7 +519,7 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 		WorkspaceID: group.ID, WorkspaceName: group.Name, Revision: revision,
 		NextRevision: nextRevision, PlanID: planID, EffectiveMountCount: effectiveMountCount,
 		Changes: changes, Warnings: warnings,
-		root: root, group: candidate, additions: additions, removals: removals, noteAdded: noteAdded, startSession: startSession,
+		root: root, group: candidate, additions: additions, removals: removals, noteAdded: noteAdded, startSession: startSession, prepareOnly: request.prepareOnly,
 	}, nil
 }
 
@@ -648,7 +650,7 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 		return result, err
 	}
 
-	if plan.create {
+	if plan.create && !plan.prepareOnly {
 		var err error
 		if plan.group.Sandbox != nil {
 			result.earlySession, result.switchErr, err = startNewWorkspaceRuntime(ctx, runner, plan.group, plan.forkSession, plan.switchClient)
@@ -666,7 +668,7 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 		}
 	}
 	if plan.group.Sandbox != nil {
-		if !plan.create {
+		if !plan.create || plan.prepareOnly {
 			if err := reconcileSandbox(ctx, runner, plan.group, logger); err != nil {
 				result.Retryable = true
 				result.Error = err.Error()
@@ -721,7 +723,7 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 	}
 	// A failed/interrupted creation can leave auxiliary panes waiting even
 	// when this reconciliation does not need to start a session for setup.
-	if !plan.create && !plan.startSession {
+	if !plan.create && !plan.startSession && !plan.prepareOnly {
 		if _, sessionErr := runner.Run(ctx, plan.group.Path, "tmux", "has-session", "-t", plan.group.SessionName); sessionErr == nil {
 			if err := releaseWorkspacePanes(ctx, runner, plan.group.Path, plan.group.SessionName); err != nil {
 				result.Retryable, result.Error = true, err.Error()
@@ -738,6 +740,21 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 		config, configErr := loadRepoConfig(member.Repository)
 		if configErr != nil {
 			warnings = append(warnings, fmt.Sprintf("workspace setup for %s could not be read: %v", member.Path, configErr))
+			continue
+		}
+		if plan.prepareOnly {
+			for _, command := range config.Setup {
+				var setupErr error
+				if plan.group.Sandbox != nil {
+					_, setupErr = sbxclient.New(runner).Run(ctx, member.Path, "exec", "--workdir", member.Path, sandboxName(plan.group), "sh", "-lc", command)
+				} else {
+					_, setupErr = runner.Run(ctx, member.Path, "sh", "-lc", command)
+				}
+				if setupErr != nil {
+					return result, fmt.Errorf("workspace setup failed: %w", setupErr)
+				}
+			}
+			plan.group.Members[memberIndex].SetupScheduled = true
 			continue
 		}
 		if setupErr := scheduleMemberSetup(ctx, runner, member.Path, plan.group.SessionName, sandboxName(plan.group), filepath.Base(member.Repository), config.Setup); setupErr != nil {

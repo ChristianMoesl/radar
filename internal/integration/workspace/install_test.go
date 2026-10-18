@@ -85,7 +85,7 @@ func TestSandboxInstallAndOverrideMatrix(t *testing.T) {
 							enabled = repo == "true"
 						}
 						plan, _, err := planCreate(context.Background(), runner, options)
-						wantError := enabled && (goos != "darwin" || !installed)
+						wantError := enabled && (goos != "darwin" && goos != "linux" || !installed)
 						if (err != nil) != wantError {
 							t.Fatalf("enabled=%t plan=%+v err=%v", enabled, plan, err)
 						}
