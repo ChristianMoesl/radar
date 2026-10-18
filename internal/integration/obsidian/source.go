@@ -32,6 +32,7 @@ type Source struct {
 }
 
 type note struct {
+	AgentReview        bool
 	Muted              bool
 	Bindings           []protocol.SourceBinding
 	ID                 string
@@ -277,7 +278,7 @@ func observationsFor(vault string, current note) []integration.Observation {
 			Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
 			Presentation: protocol.SourceRefPresentation{PreferTitle: true, WorkspaceName: current.Title}, Title: current.Title, URL: uri,
 			Status: current.State, CanonicalKey: identity, LinkingKeys: linking.Keys(keys...), Metadata: metadata,
-			WorkspaceAnchorPath: current.Path, Authored: true, Muted: current.Muted, Bindings: current.Bindings,
+			WorkspaceAnchorPath: current.Path, Authored: true, Muted: current.Muted, Bindings: current.Bindings, AgentReview: current.AgentReview,
 		},
 		Signal: signal, Reason: "Obsidian task is " + current.State,
 	}}
@@ -332,7 +333,15 @@ func (s Source) SetLifecycle(_ context.Context, ref protocol.SourceRef, state st
 	if state == "done" {
 		updates["radar-completed-at"] = "__now_if_empty__"
 	}
-	return s.mutate(ref, updates)
+	// Only explicit Done dismisses the handoff; reopening and priority changes
+	// do not implicitly acknowledge an agent's result.
+	_, err := s.mutateNote(ref, func(current note) (map[string]string, error) {
+		if state == "done" && current.AgentReview {
+			updates["radar-agent-review"] = "false"
+		}
+		return updates, nil
+	})
+	return integration.AuthoredTaskIdentity{SourceRefID: ref.ID}, err
 }
 
 func (s Source) SetPriority(_ context.Context, ref protocol.SourceRef, priority string) (integration.AuthoredTaskIdentity, error) {

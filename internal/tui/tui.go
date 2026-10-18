@@ -2208,7 +2208,13 @@ func taskSourceRefLine(ref protocol.SourceRef, width int) string {
 	const prefix = "    ↳ "
 	label := sourceRefLabel(ref)
 	status := ""
-	if ref.ProvidesWorkspace && ref.Status != "" && ref.Status != "clean" {
+	statusStyle := attentionStyle
+	if ref.Signal == "done" {
+		status, statusStyle = ref.Status, doneStyle
+		if status == "" {
+			status = "done"
+		}
+	} else if ref.ProvidesWorkspace && ref.Status != "" && ref.Status != "clean" {
 		status = ref.Status
 	}
 	if status == "" {
@@ -2218,7 +2224,7 @@ func taskSourceRefLine(ref protocol.SourceRef, width int) string {
 	separator := "  "
 	labelWidth := max(1, width-lipgloss.Width(prefix)-lipgloss.Width(separator)-lipgloss.Width(status))
 	label = truncateLine(label, labelWidth)
-	line := referenceStyle.Render(prefix+label) + separator + attentionStyle.Render(status)
+	line := referenceStyle.Render(prefix+label) + separator + statusStyle.Render(status)
 	return truncateLine(line, width)
 }
 

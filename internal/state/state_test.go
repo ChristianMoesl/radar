@@ -255,7 +255,7 @@ func TestSourceScopedRefreshKeepsExistingRefActiveWhenNewRefComesFirst(t *testin
 	}
 }
 
-func TestProjectTasksMarksDoneWhenRemoteDoneAndOnlyLocalRemains(t *testing.T) {
+func TestProjectTasksKeepsBusyWorkActiveWhenRemoteDone(t *testing.T) {
 	now := time.Now().UTC()
 	worktree := testGitWorktreeRef("git:worktree:/work/ABC-7-ship", "/work/ABC-7-ship", "acme/app", "ABC-7-ship")
 	worktree.Activity = protocol.ActivityBusy
@@ -268,8 +268,8 @@ func TestProjectTasksMarksDoneWhenRemoteDoneAndOnlyLocalRemains(t *testing.T) {
 	if len(tasks) != 1 {
 		t.Fatalf("tasks = %d, want one done task: %+v", len(tasks), tasks)
 	}
-	if tasks[0].Attention != "done" || tasks[0].Reason != "merged today" || tasks[0].Activity != protocol.ActivityIdle {
-		t.Fatalf("task = %+v, want non-busy done remote completion", tasks[0])
+	if tasks[0].Attention != "in_progress" || tasks[0].DoneAt != "" || tasks[0].Activity != protocol.ActivityBusy {
+		t.Fatalf("task = %+v, want busy unfinished task", tasks[0])
 	}
 }
 

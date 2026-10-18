@@ -45,6 +45,8 @@ type persistedState struct {
 }
 
 type TaskRecord struct {
+	AgentReviewPending bool `json:"agent_review_pending,omitempty"`
+
 	ID           string        `json:"id"`
 	NumericID    int           `json:"numeric_id"`
 	CanonicalKey string        `json:"canonical_key"`
@@ -257,7 +259,7 @@ func (s *Store) Reset() error {
 	s.mu.Lock()
 	retained := make([]TaskRecord, 0)
 	for _, record := range s.state.Records {
-		if record.Ack.Cursor == "" {
+		if record.Ack.Cursor == "" && !record.AgentReviewPending {
 			continue
 		}
 		record.State = "active"
@@ -902,6 +904,7 @@ func mergeTaskRecords(records []TaskRecord, ids []string, winnerID string, refs 
 		}
 		if containsString(ids, record.ID) {
 			loserSnapshots = append(loserSnapshots, record.Snapshot)
+			winner.AgentReviewPending = winner.AgentReviewPending || record.AgentReviewPending
 			if winner.Ack.Cursor == "" {
 				winner.Ack = record.Ack
 			}
@@ -932,6 +935,27 @@ func updateRecordLifecycles(records []TaskRecord, sourceRefs []SourceRefRecord, 
 				allDone = false
 				break
 			}
+		}
+		completionCandidate := allDone
+		for _, ref := range refs {
+			if ref.Snapshot.Activity != protocol.ActivityIdle || ref.Snapshot.AgentReview {
+				allDone = false
+			}
+		}
+		if completionCandidate && !allDone {
+			for _, ref := range refs {
+				if ref.Snapshot.Authored {
+					records[i].AgentReviewPending = true
+				}
+			}
+		}
+		for _, ref := range refs {
+			if ref.Snapshot.Authored && ref.Snapshot.AgentReview {
+				records[i].AgentReviewPending = false
+			}
+		}
+		if records[i].AgentReviewPending {
+			allDone = false
 		}
 		if allDone {
 			records[i].State = "done"
@@ -1130,9 +1154,23 @@ func projectTaskRecords(state persistedState, includeHidden bool) []protocol.Tas
 		}
 		task := cloneTask(record.Snapshot)
 		task.ID = record.NumericID
+		task.AgentReviewPending = record.AgentReviewPending
 		refs := activeSourceRefsByRecord[record.ID]
 		if record.State == "done" {
 			refs = doneSourceRefsByRecord[record.ID]
+		} else {
+			for _, ref := range refs {
+				if authoritativeRef(ref) && ref.Authored && ref.AgentReview {
+					// Keep the completion evidence visible alongside the handoff,
+					// without reviving historical runtime resources or activity.
+					for _, retained := range doneSourceRefsByRecord[record.ID] {
+						if retained.Lifecycle == protocol.SourceRefLifecycleWorkItem && retained.Signal == "done" {
+							refs = mergeSourceRefs(refs, []protocol.SourceRef{retained})
+						}
+					}
+					break
+				}
+			}
 		}
 		if !hasAuthoritativeProtocolRef(refs) {
 			continue
@@ -1160,7 +1198,7 @@ func projectTaskRecords(state persistedState, includeHidden bool) []protocol.Tas
 		}
 		task.Activity = protocol.ActivityIdle
 		if record.State != "done" {
-			task.Activity = sourceRefsActivity(refs)
+			task.Activity = protocol.SourceRefsActivity(activeSourceRefsByRecord[record.ID])
 		}
 		if record.Ack.Cursor != "" {
 			task.AcknowledgementCursor = record.Ack.Cursor
@@ -1190,16 +1228,6 @@ func hasUnresolvedWorkspace(refs []protocol.SourceRef) bool {
 		}
 	}
 	return false
-}
-
-func sourceRefsActivity(refs []protocol.SourceRef) protocol.Activity {
-	activity := protocol.ActivityIdle
-	for _, ref := range refs {
-		if authoritativeRef(ref) {
-			activity = protocol.MergeActivity(activity, ref.Activity)
-		}
-	}
-	return activity
 }
 
 func preferredTitle(refs []protocol.SourceRef) string {
@@ -1439,4 +1467,23 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// RequireAgentReview keeps a failed source write from authorizing completion
+// after the observed run settles. Successful source persistence clears it during
+// reconciliation. A failed write must be retried before explicit Done.
+func (s *Store) RequireAgentReview(taskID int) {
+	s.mu.Lock()
+	for i := range s.state.Records {
+		if s.state.Records[i].NumericID == taskID {
+			s.state.Records[i].AgentReviewPending = true
+			s.state.Records[i].State, s.state.Records[i].DoneAt = "active", ""
+		}
+	}
+	s.items = projectTasks(s.state)
+	s.bumpRevisionLocked()
+	s.mu.Unlock()
+	if err := s.Save(); err != nil {
+		s.logger.Warn("could not save pending agent review", "error", err)
+	}
 }

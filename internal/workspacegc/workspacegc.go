@@ -91,6 +91,14 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 			continue
 		}
 		refs := refsByRecord[record.ID]
+		blocked := protocol.SourceRefsActivity(refs) != protocol.ActivityIdle
+		for _, ref := range refs {
+			blocked = blocked || ref.AgentReview
+		}
+		if blocked {
+			plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Reason: "agent work or result review is pending"})
+			continue
+		}
 		task := record.Snapshot
 		task.ID = record.NumericID
 		task.Attention = record.State

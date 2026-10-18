@@ -88,7 +88,7 @@ SourceRef(s) + rebuildable TaskRecord cache => Task
 - `SourceRef.URL`: a generic openable URL. If a source ref has a URL, frontends may offer an open-link action without source-specific URL inspection.
 - `SourceRef.SourceLabel` and `SourceRef.DisplayOrder`: generic presentation values stamped from the integration descriptor, so frontends and state never need source-name switches.
 - `SourceRef.EntityID`: an opaque source-owned external entity identity used to correlate authoritative and informational representations without contributing task identity or linking.
-- `SourceRef.Activity`: reports transient `busy` or `waiting` activity owned by that authoritative source; the zero value is idle. Active authoritative refs reduce with waiting above busy above idle, independently of attention and lifecycle.
+- `SourceRef.Activity`: reports transient `busy` or `waiting` activity owned by that authoritative source; the zero value is idle. Active authoritative refs reduce with waiting above busy above idle, with busy/waiting vetoing completion. Authored handoffs contribute attention after activity settles.
 - `SourceRef.InUse`: reports that a local resource is currently occupied, without requiring core to understand provider status metadata. Occupancy alone is not a cleanup blocker: attached tmux sessions can be removed with eligible completed workspaces, terminating their commands.
 - `SourceRef.Authored`: marks the ref handled by the task-authoring capability, so frontends can offer mutations without checking a source name or metadata key.
 - `SourceRef.Lifecycle`: classifies an authoritative ref as a `work_item`, `workspace`, or supporting `resource`.
@@ -135,19 +135,53 @@ An open normal Obsidian note emits `low_priority`; urgent emits `immediate`; don
 
 `done` is projected into task-record cache state and is terminal for attention display. If a tracked GitHub PR or Jira issue disappears from active collection, the relevant integration checks the remote state once and emits a done transition. The state store applies that transition to the existing task record. Already-done items are not remotely revalidated on subsequent refreshes. If the same source ref becomes active again later, Radar reopens the same task record instead of creating a duplicate. Done-task projections preserve historical remote refs, but omit inactive local worktree, tmux, and SBX refs after those resources are removed. While a record remains done, neither cleanup state nor display filtering may move it to `immediate`, `attention`, `in_progress`, or `low_priority`.
 
-Automatic reopening needs one confirmed active contributor and successful note collection; failure of another contributing source does not prevent it. Automatic authored completion requires at least one contributor and complete collections for the primary source and every contributing source. `Store.CollectionTasks` supplies retained inactive work-item refs as well as visible refs, so a missing unresolved item remains a blocker and remote reconcilers can retry it. Previously confirmed terminal refs remain valid when remote collection no longer emits them. Missing non-terminal refs are not completion evidence. Informational refs, workspaces, and resources cannot trigger or block completion.
+Automatic reopening needs one confirmed active contributor and successful note collection; failure of another contributing source does not prevent it. Automatic authored completion requires at least one contributor and complete collections for the primary source and every contributing source. `Store.CollectionTasks` supplies retained inactive work-item refs as well as visible refs, so a missing unresolved item remains a blocker and remote reconcilers can retry it. Previously confirmed terminal refs remain valid when remote collection no longer emits them. Missing non-terminal refs are not completion evidence. Informational refs and mere workspace/resource existence cannot trigger or block completion; reported authoritative activity can veto it.
 
 The Obsidian provider writes lifecycle fields atomically before returning the updated observation. A content hash rejects a note edited since collection, and provider mutations are serialized. Errors are reported in source status without projecting a successful mutation. The optional `radar-completion-baseline` field holds a hash of completed contributor IDs, or `pending` after a manual lifecycle mutation. On reopening, a successful full refresh captures the already-completed set without closing the note. Observing active work updates that baseline; completing all work with a different set permits automatic completion. The baseline survives cache resets. The baseline itself requires no note migration or cache schema change; the task-muting rename has its separate version 7 → 8 rollout below.
 
-Completion and local cleanup are separate. A task becomes `done` when its authoritative work is complete; remaining local worktrees, tmux sessions, or SBX sandboxes do not keep it active. The daemon checks GC hourly. Clean linked workspaces under the configured workspace root become eligible after 24 hours done. A registered workspace is one bundle: before expiry, dirty members, potentially unpublished branches, unavailable publication verification, and unknown anchor files block the whole bundle. Attached tmux sessions alone do not block cleanup; removing them terminates their running shells or commands.
+Completion and local cleanup are separate. A task becomes `done` when its authoritative work is complete and no agent activity/review hold prevents completion; mere remaining local worktrees, tmux sessions, or SBX sandboxes do not keep it active. The daemon checks GC hourly. Clean linked workspaces under the configured workspace root become eligible after 24 hours done. A registered workspace is one bundle: before expiry, dirty members, potentially unpublished branches, unavailable publication verification, and unknown anchor files block the whole bundle. Attached tmux sessions alone do not block cleanup; removing them terminates their running shells or commands.
 
-`internal/workspacegc.ExpiryAt` is the shared read-only deadline projection. It returns a deadline only for a done task with a valid `DoneAt` and a workspace-owning ref (`ProvidesWorkspace`) with a nonempty registered `WorkspaceID` and path. `ExpiryRetention` is eight days (192 hours). At or after that completion-based deadline, GC may discard local changes, unpublished commits in deletable Radar-owned branches, and unknown anchor content without an archive. Reopening cancels eligibility; filesystem timestamps and background activity do not postpone it. Standalone observed worktrees have no destructive expiry. Invalid registrations, unsafe paths, provider inspection/target-identification failures, and protected resources remain hard blockers or preservation boundaries. An eligible expired workspace is attempted at the next GC run, not guaranteed to disappear at an exact instant.
+`internal/workspacegc.ExpiryAt` is the shared read-only deadline projection. It returns a deadline only for a done task with a valid `DoneAt` and a workspace-owning ref (`ProvidesWorkspace`) with a nonempty registered `WorkspaceID` and path. `ExpiryRetention` is eight days (192 hours). At or after that completion-based deadline, GC may discard local changes, unpublished commits in deletable Radar-owned branches, and unknown anchor content without an archive. Reopening cancels eligibility, including activity-driven reopening. Filesystem timestamps alone do not postpone it. Standalone observed worktrees have no destructive expiry. Invalid registrations, unsafe paths, provider inspection/target-identification failures, and protected resources remain hard blockers or preservation boundaries. An eligible expired workspace is attempted at the next GC run, not guaranteed to disappear at an exact instant.
 
 Manual cleanup and garbage collection both preview and execute targets through `internal/cleanup.Service`. The selected task's explicit cleanup executes a confirmed preview in `CleanupConfirmed` mode, immediately refreshes local sources, and returns the updated projection. GC filters each preview to one standalone workspace path or one registered workspace group and authorises local-data loss only for expired registered candidates, not through broad manual force. `radar gc` and the TUI's `X` include newly done tasks without the initial 24-hour wait, but never shorten the destructive eight-day grace period or bypass structural safety checks. Providers remove only their own resources, in deterministic tmux, SBX, Git, then Workspace order. Successful cleanup removes managed members, eligible Radar-owned local branches, and the shared runtime resources once; primary repositories, protected/shared branches, remote resources, canonical notes, and external mount targets remain preserved.
 
 This policy needs no schema or configuration change. Existing already-done registered workspaces use their existing `DoneAt`; there is no startup/update-time grace. Before installing the expiry-capable binary, disclose and inspect already-expired workspaces so needed local data can be preserved or tasks reopened. See [workspace expiry and rollout](docs/workspace-cleanup.md#workspace-expiry).
 
 Removing a tmux session only marks that source ref inactive, while removing a local worktree marks the local workspace record done when no GitHub or Jira source remains attached.
+
+## Agent-result handoff
+
+Activity is a completion veto, not another lifecycle-owning work item. State keeps
+busy/waiting tasks active. `ReconcileAuthoredActivity` runs on local and full
+refreshes to reopen completed notes when work resumes; full lifecycle
+reconciliation also holds otherwise-eligible completion while agents work.
+`TaskLifecycleRequest` separates confirmed remote work from local activity and
+pending handoff retries. Obsidian persists optional `radar-agent-review: true`
+with open lifecycle and an empty completion time, atomically merging known source
+bindings so completed evidence can be resolved after cache loss. Only explicit Done clears it.
+It is independent of, and stronger than, the explicit-reopen contributor baseline.
+
+`SourceRef.AgentReview` preserves the authored hold in source snapshots.
+`ProjectAttention` contributes in-progress while busy/waiting and Attention with
+“Agent finished — review result” when idle, without rewriting remote terminal
+facts or bypassing mute/urgency policy. Held tasks retain historical completed
+work-item refs for display, not historical runtime activity. Ordinary agent turns
+without a completion collision do not create a hold.
+
+Failed writes return `AgentReviewPersistenceError`, not a successful observation.
+`TaskRecord.AgentReviewPending` retains the retry intent across restart/reset and
+projects unfinished until the note confirms persistence. These additive booleans
+leave cache version 8 unchanged; the note is the canonical durable hold after
+successful persistence. See the read-only rollout checks in the Obsidian guide.
+
+The `ActivityReader` capability performs bounded provider-owned live checks at
+automatic completion, explicit Done and automatic GC execution. Core does not
+parse tmux IDs/options. Fresh activity read failures block completion/GC, never
+count as idle. Mutations also refresh activity observations, and a stale
+in-flight refresh rereads author and activity sources so pre-Done busy snapshots
+cannot reopen the task. Runtime reads are not an atomic lease on future starts;
+Pi's existing reporting limitations still apply. Explicit confirmed cleanup is
+unchanged and remains separate from GC.
 
 ## Muted preference and durable source bindings
 
@@ -171,7 +205,7 @@ $XDG_STATE_HOME/radar/tasks.json
 
 Projected tasks are rebuilt from this state. Done tasks remain in durable history but are included in the user-facing projection only for three days. Full refreshes reconcile all source refs; local refreshes reconcile refs from sources that declare themselves local and leave remote GitHub/Jira refs untouched. The file also stores source statuses so the TUI can show cached status immediately. User acknowledgement state lives on task records, not inside source-ref metadata.
 
-`taskservice.Service` separates slow collection from short cache publication. The daemon's collection mutex still serializes background refreshes, reset, and garbage collection; authored mutations do not acquire it. A separate publication mutex serializes note mutations, source-scoped cache updates, and full-refresh automatic completion. An in-memory authoring revision fences collections started before a mutation: before publishing such a result, the service replaces only its authoring-source observations, status, and completeness evidence with a fresh collection. Other sources' results are retained, not retried. This also protects task creation, reopening, priority changes, and provider errors after partial writes. The socket mutation methods are `task-mute` and `task-unmute`, with typed `Muted` preference and binding fields. The persisted source-ref snapshot property is `muted`, and the cache version is 8; no runtime aliases or old-field readers are provided.
+`taskservice.Service` separates slow collection from short cache publication. The daemon's collection mutex still serializes background refreshes, reset, and garbage collection; authored mutations do not acquire it. A separate publication mutex serializes note mutations, source-scoped cache updates, and full-refresh automatic completion. An in-memory authoring revision fences collections started before a mutation: before publishing such a result, the service replaces its authoring and runtime-activity observations, status, and completeness evidence with fresh collections. Remote sources' results are retained, not retried. This also protects task creation, reopening, priority changes, and provider errors after partial writes. The socket mutation methods are `task-mute` and `task-unmute`, with typed `Muted` preference and binding fields. The persisted source-ref snapshot property is `muted`, and the cache version is 8; no runtime aliases or old-field readers are provided.
 
 State writes are atomic and serialized. The daemon refuses to start when an existing file is malformed. An incompatible state version is intentionally discarded and recollected because authored work lives in source systems. Reset clears collected observations and may retain acknowledgements; it does not need compatibility readers or migration fallbacks.
 

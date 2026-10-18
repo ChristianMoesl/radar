@@ -159,6 +159,14 @@ func parseNote(content string) (note, error) {
 			return current, fmt.Errorf("radar-muted must be a YAML boolean")
 		}
 	}
+	if value := values["radar-agent-review"]; value != nil {
+		if value.Kind != yaml.ScalarNode || value.Tag != "!!bool" || value.Decode(&current.AgentReview) != nil {
+			return current, fmt.Errorf("radar-agent-review must be a YAML boolean")
+		}
+		if current.AgentReview && current.State == "done" {
+			return current, fmt.Errorf("radar-agent-review must be false when radar-state is done")
+		}
+	}
 	if value := values["radar-source-refs"]; value != nil {
 		bindings, err := parseBindings(value)
 		if err != nil {
@@ -291,7 +299,7 @@ func updateNoteContent(current note, updates map[string]string) (string, note, e
 	sort.Strings(fields)
 	for _, field := range fields {
 		switch field {
-		case "radar-state", "radar-priority", "radar-completed-at", "radar-completion-baseline", "radar-muted", "radar-source-refs":
+		case "radar-state", "radar-priority", "radar-completed-at", "radar-completion-baseline", "radar-muted", "radar-source-refs", "radar-agent-review":
 		default:
 			return "", note{}, fmt.Errorf("unsupported managed field %s", field)
 		}
@@ -308,7 +316,7 @@ func updateNoteContent(current note, updates map[string]string) (string, note, e
 		}
 		span, exists := current.fields[field]
 		if !exists {
-			if field != "radar-completion-baseline" && field != "radar-muted" && field != "radar-source-refs" {
+			if field != "radar-completion-baseline" && field != "radar-muted" && field != "radar-source-refs" && field != "radar-agent-review" {
 				return "", note{}, fmt.Errorf("managed field %s is missing from %s", field, current.Path)
 			}
 			insertions = append(insertions, strings.ReplaceAll(text, "\n", current.newline)+current.newline)
@@ -354,6 +362,9 @@ func unchangedManagedField(current note, field, value string) bool {
 		return current.CompletedAt == value
 	case "radar-completion-baseline":
 		return current.CompletionBaseline == value
+	case "radar-agent-review":
+		var valueBool bool
+		return yaml.Unmarshal([]byte(value), &valueBool) == nil && current.AgentReview == valueBool
 	case "radar-muted", "radar-source-refs":
 		var document yaml.Node
 		if yaml.Unmarshal([]byte(value), &document) != nil || len(document.Content) != 1 {

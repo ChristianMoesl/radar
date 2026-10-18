@@ -1,6 +1,6 @@
 # Obsidian task authoring
 
-Radar's always-registered Markdown task-authoring provider supports both ordinary directories and Obsidian vaults. Every managed workspace has a canonical note; there is no enable/disable setting. A note owns task identity, title, lifecycle, priority, timestamps, the muted preference, durable source bindings, and user content. Radar's task state remains a rebuildable projection.
+Radar's always-registered Markdown task-authoring provider supports both ordinary directories and Obsidian vaults. Every managed workspace has a canonical note; there is no enable/disable setting. A note owns task identity, title, lifecycle, priority, timestamps, the agent-result review hold, the muted preference, durable source bindings, and user content. Radar's task state remains a rebuildable projection.
 
 ## Configuration
 
@@ -111,7 +111,7 @@ A valid note emits one authoritative `obsidian:task:<radar-id>` ref with:
 - canonical note and task-directory metadata
 - typed `Muted` and `Bindings` values from the optional managed preference fields, without changing the actual source signal or lifecycle
 
-Without authoritative remote work, the note owns the projected lifecycle. A successful full refresh reopens a completed note when any authoritative contributor confirms active work, even if another contributor cannot be refreshed. It automatically completes an open note when every linked authoritative contributing work item is confirmed done. At least one contributor is required. Informational refs and Git, tmux, Pi, or SBX resources do not decide completion. These informational refs and local resources cannot reopen a done note.
+Without authoritative remote work, the note owns the projected lifecycle. A successful full refresh reopens a completed note when any authoritative contributor confirms active work, even if another contributor cannot be refreshed. It automatically completes an open note when every linked authoritative contributing work item is confirmed done. At least one contributor is required. Informational refs and the existence of Git, tmux, Pi, or SBX resources do not decide completion. Reported busy/waiting activity, however, prevents completion and reopens a done note with an agent-result review hold.
 
 Automatic completion writes `radar-state: done` and `radar-completed-at` before returning a done observation. A failed write or a note edited since collection leaves the cached lifecycle unchanged and reports an Obsidian source error. Missing unresolved remote refs and incomplete collections block automatic completion; previously confirmed terminal refs remain valid.
 
@@ -120,6 +120,33 @@ Radar maintains optional `radar-completion-baseline` bookkeeping in frontmatter.
 If a local mutation happens during source collection, Radar publishes the freshly reread note but waits for the next full refresh to reconcile lifecycle; a pre-mutation remote snapshot must not undo the user's action.
 
 The baseline is not a configuration option. It is absent from new notes until a lifecycle mutation needs it, so the baseline itself requires no note migration and leaves bodies and unrelated frontmatter unchanged.
+
+## Agent-result review hold
+
+`radar-agent-review` is an optional managed YAML boolean, false when absent.
+Radar writes `true` when automatic completion collides with busy/waiting agents,
+or reported agent activity resumes in a done task. It keeps `radar-state: open`
+and `radar-completed-at` empty. A true hold on a done note is invalid. Source refs
+expose the hold through typed `AgentReview`, independently of remote source facts.
+The same atomic write merges known authoritative identities into `radar-source-refs`,
+so cold collection can resolve completed contributors even after a cache reset.
+This stores tracking intent, not a copy of remote statuses.
+
+The hold persists across idle transitions, refreshes, restarts, cache resets and
+newly completed work. Once agents settle, the task appears in Attention with
+**Agent finished — review result**, subject to existing mute/urgency policy.
+Opening the workspace, acknowledging source feedback, changing priority and
+reopening do not clear it. Only explicit Done clears it; that operation first
+checks current runtime activity. There is no timer or new acknowledgement command.
+When editing frontmatter directly, completing a held task requires clearing
+`radar-agent-review` as well as setting its lifecycle and completion timestamp.
+
+Ordinary manual-reopen baselines retain their existing behavior. A review hold
+is stronger than a baseline: even new completed contributors cannot bypass it.
+A failed hold write is not projected as a successful note mutation. The cache
+retains `agent_review_pending` intent, including through restart/reset, so local
+refreshes retry persistence even after agents settle. Resolve the reported source
+error and refresh before using Done; automatic cleanup refuses a pending write.
 
 ## Planning workspaces
 
@@ -140,7 +167,7 @@ Cleanup removes the tmux session, sandbox, managed worktrees, `notes.md`, and th
 
 ## Archiving and reopening
 
-Manual and automatic completion mark the note done immediately. If the workspace registry still references its ID or path, Radar leaves the note in place. Otherwise it moves the note to `Tasks/Archived/<filename>.md` and removes the empty private directory. A shared filesystem lock serializes note mutations, workspace creation, attachment, and anchor removal so an archive move cannot race a new workspace link.
+Eligible manual and automatic completion persist the note state before projecting done. Busy/waiting activity and pending review prevent completion. If the workspace registry still references its ID or path, Radar leaves the note in place. Otherwise it moves the note to `Tasks/Archived/<filename>.md` and removes the empty private directory. A shared filesystem lock serializes note mutations, workspace creation, attachment, and anchor removal so an archive move cannot race a new workspace link.
 
 Reopening an archived task restores a private directory using its sanitized current title and stable ID before changing its state to open. The title, ID, body, unknown frontmatter, and file permissions survive relocation. Direct workspace creation or attachment to an archived note is rejected with a request to reopen it first. Radar never mounts the shared archive or `Tasks/` to make an archived note accessible.
 
@@ -163,6 +190,24 @@ Recovery is manual: move the payload at `trash_path` back to `original_path` wit
 Deletion itself requires no note, workspace-registry, configuration, or cache schema changes. Existing private and archived notes remain in place until explicitly deleted, and `.trash/` is outside collection. No migration or reset is needed. Before installing, check the configured vault's existing `.trash` path: it must be absent or a real directory, not a file or symlink. Existing trash contents are left untouched.
 
 ## Rollout
+
+### Agent-result handoff
+
+Existing notes without `radar-agent-review` start without a hold; no note rewrite,
+reset or migration is needed. Existing cache version 8, task IDs, acknowledgements,
+workspace registrations and source statuses are retained. Optional source-ref
+`agent_review` and task-record `agent_review_pending` booleans default to false
+when absent; there are no old-field aliases. Before installation, inventory and
+validate the configured private/archive notes and cache read-only, checking for
+pre-existing malformed/colliding uses of these fields. Do not overwrite them.
+Existing done workspaces with reported active agents reopen on collection;
+previous idle work is not retrospectively marked for review.
+
+This is a CLI/daemon change. The installed Pi activity producer already supplies
+the required events; its existing coverage and stale-marker limits remain. Reload
+the daemon to use the policy. An older daemon does not enforce these holds, so do
+not downgrade while results or pending writes remain unreviewed. No compatible
+legacy behavior is synthesized.
 
 ### Migrating task muting
 

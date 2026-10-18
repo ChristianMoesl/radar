@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -59,10 +60,12 @@ func ReconcileAuthoredBindings(ctx context.Context, tracked []protocol.Task, res
 
 // ReconcileAuthoredTasks runs after remote reconciliation and state linking, on
 // CollectionTasks rather than display tasks so missing work cannot imply done.
-// Only full collections supply Complete. Local refreshes cannot mutate lifecycle.
+// Only full collections supply Complete and may infer remote completion.
+// Local refreshes use ReconcileAuthoredActivity to reopen resumed work.
 // The returned observations replace their collected refs only after persistence.
 func ReconcileAuthoredTasks(ctx context.Context, tracked []protocol.Task, result *Result, sources []integration.Source, logger *slog.Logger) bool {
 	changed := ReconcileAuthoredBindings(ctx, tracked, result, sources, logger)
+	changed = ReconcileAuthoredActivity(ctx, tracked, result, sources, logger) || changed
 	providers := map[string]integration.TaskLifecycleProvider{}
 	for _, source := range sources {
 		if provider, ok := source.(integration.TaskLifecycleProvider); ok {
@@ -130,18 +133,28 @@ func ReconcileAuthoredTasks(ctx context.Context, tracked []protocol.Task, result
 				continue
 			}
 			fresh, seen := observed[ref.ID]
-			if !seen {
+			if !seen || fresh.AgentReview || task.AgentReviewPending || (!active && fresh.Signal == "done") {
 				continue
 			}
-			observation, err := provider.ReconcileLifecycle(ctx, fresh, workItems)
-			if err != nil {
-				logger.Warn("could not reconcile authored task lifecycle", "id", ref.ID, "error", err)
-				for i := range result.Sources {
-					if result.Sources[i].Name == ref.Source {
-						result.Sources[i].Status = "error"
-						result.Sources[i].Detail += fmt.Sprintf("; task lifecycle reconciliation failed for %s: %v", ref.ID, err)
-					}
+			activity := protocol.SourceRefsActivity(task.SourceRefs)
+			if !active {
+				// A full collection may have waited for remote APIs after reading
+				// runtime state. Recheck at the completion boundary, but retain
+				// a run observed earlier in this collection if it already settled.
+				current, err := integration.ReadTaskActivity(ctx, task, sources)
+				if err != nil {
+					lifecycleError(result, ref, err, logger)
+					continue
 				}
+				activity = protocol.MergeActivity(activity, current)
+			}
+			observation, err := provider.ReconcileLifecycle(ctx, fresh, integration.TaskLifecycleRequest{Task: task, WorkItems: workItems, Activity: activity})
+			if err != nil {
+				var pending *integration.AgentReviewPersistenceError
+				if errors.As(err, &pending) {
+					result.PendingAgentReviews = append(result.PendingAgentReviews, task.ID)
+				}
+				lifecycleError(result, ref, err, logger)
 				continue
 			}
 			if observation == nil {
@@ -166,6 +179,75 @@ func replaceAuthoredObservation(result *Result, id string, updated protocol.Task
 					result.Tasks[i].Muted = updated.Muted
 				}
 			}
+		}
+	}
+}
+
+// ReconcileAuthoredActivity only reopens an observed completed note. It makes
+// no conclusions about remote work, so it also runs on local-only refreshes.
+func ReconcileAuthoredActivity(ctx context.Context, tracked []protocol.Task, result *Result, sources []integration.Source, logger *slog.Logger) bool {
+	providers := map[string]integration.TaskLifecycleProvider{}
+	for _, source := range sources {
+		if provider, ok := source.(integration.TaskLifecycleProvider); ok {
+			providers[source.Descriptor().Name] = provider
+		}
+	}
+	observed := map[string]protocol.SourceRef{}
+	for _, task := range result.Tasks {
+		for _, ref := range task.SourceRefs {
+			observed[ref.ID] = ref
+		}
+	}
+	changed := false
+	for _, task := range tracked {
+		for _, ref := range task.SourceRefs {
+			fresh, seen := observed[ref.ID]
+			provider := providers[ref.Source]
+			if provider == nil || !seen || !fresh.Authored || fresh.Role != protocol.SourceRefRoleAuthoritative || fresh.Authority != protocol.SourceRefAuthorityPrimary || (fresh.Signal != "done" && !task.AgentReviewPending) || !authorCollected(result, ref.Source) {
+				continue
+			}
+			activity := protocol.SourceRefsActivity(task.SourceRefs)
+			if activity == protocol.ActivityIdle && !task.AgentReviewPending {
+				continue
+			}
+			observation, err := provider.ReconcileLifecycle(ctx, fresh, integration.TaskLifecycleRequest{Task: task, Activity: activity, RequireAgentReview: task.AgentReviewPending})
+			if err != nil {
+				var pending *integration.AgentReviewPersistenceError
+				if errors.As(err, &pending) {
+					result.PendingAgentReviews = append(result.PendingAgentReviews, task.ID)
+				}
+				lifecycleError(result, ref, err, logger)
+				continue
+			}
+			if observation != nil {
+				updated := taskFromObservation(describeObservation(provider.Descriptor(), *observation))
+				replaceAuthoredObservation(result, ref.ID, updated)
+				observed[ref.ID] = updated.SourceRefs[0]
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+func authorCollected(result *Result, source string) bool {
+	if result.Complete != nil {
+		return result.Complete[source]
+	}
+	for _, status := range result.Sources {
+		if status.Name == source {
+			return status.Status == "ok"
+		}
+	}
+	return false
+}
+
+func lifecycleError(result *Result, ref protocol.SourceRef, err error, logger *slog.Logger) {
+	logger.Warn("could not reconcile authored task lifecycle", "id", ref.ID, "error", err)
+	for i := range result.Sources {
+		if result.Sources[i].Name == ref.Source {
+			result.Sources[i].Status = "error"
+			result.Sources[i].Detail += fmt.Sprintf("; task lifecycle reconciliation failed for %s: %v", ref.ID, err)
 		}
 	}
 }

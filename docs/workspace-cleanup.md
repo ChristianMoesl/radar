@@ -42,7 +42,7 @@ Only **registered** Radar workspaces expire: the task must have a workspace-owni
 ref (`ProvidesWorkspace`) with a nonempty `WorkspaceID` and workspace path.
 Standalone observed worktrees stay conservative and do not expire, even when
 linked to the same done task. Their branches remain preserved. Active tasks do
-not expire.
+not expire. Agent-result review holds keep tasks active after agents settle.
 
 Expiry never authorises deleting canonical task notes, primary repositories,
 protected/shared branches, remote branches/PRs/issues, or external mount targets.
@@ -68,6 +68,22 @@ and their completion times read-only. Review local changes, local-only commits,
 and unknown anchor files; preserve what is needed outside deletion boundaries
 or reopen the task. Code tests do not replace this rollout review of existing
 local data.
+
+## Agent activity and result review
+
+Automatic GC, including expired-workspace GC, rechecks reported agent activity
+before destructive execution. Busy, waiting, unverifiable activity, and pending
+handoff writes prevent removal even when an older preview or completion timestamp
+would otherwise authorize it. Activity-driven reopening clears the completion
+time; the review hold keeps the task unfinished after agents settle. Explicit
+Done after reviewing starts the completion clock again. Terminal attachment alone
+is not an activity signal, and unrelated idle sessions do not prevent cleanup.
+
+Explicit `radar cleanup` / `x` remains a separately confirmed destructive action;
+it is not a way to mark a task done and can terminate agents. This feature does
+not remove that existing capability. Activity checks cover reported producers,
+not arbitrary processes or an atomic guarantee against a new run starting after
+the final check.
 
 ## Remaining issues and how to resolve them
 
@@ -105,7 +121,8 @@ change automatic GC's 24-hour retention period or eight-day expiry deadline.
   Closed-but-unmerged PRs, reused branch names, and later local commits do not
   satisfy this check. Non-GitHub hosts still use origin ancestry verification.
 - **Attached tmux session:** attachment is not an unresolved issue and does not
-  prevent cleanup of an eligible completed workspace. Removing the session can
+  prevent cleanup of an eligible completed workspace. Reported busy/waiting agent
+  activity separately prevents automatic cleanup. Removing the session can
   terminate its shells, agents, or other commands. This does **not** make active
   tasks eligible for GC or shorten the eight-day destructive grace period.
 - **Branch used by another worktree:** remove the selected worktree but keep the

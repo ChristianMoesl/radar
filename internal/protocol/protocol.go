@@ -149,7 +149,9 @@ type SourceRefAcknowledgement struct {
 }
 
 type SourceRef struct {
-	AgentID      string          `json:"agent_id,omitempty"`
+	AgentID string `json:"agent_id,omitempty"`
+	// AgentReview is an authored hold: completion waits for explicit Done.
+	AgentReview  bool            `json:"agent_review,omitempty"`
 	BindingError string          `json:"binding_error,omitempty"`
 	Muted        bool            `json:"muted,omitempty"`
 	Bindings     []SourceBinding `json:"bindings,omitempty"`
@@ -188,6 +190,8 @@ type SourceRef struct {
 }
 
 type Task struct {
+	// AgentReviewPending means the canonical handoff write must be retried.
+	AgentReviewPending bool `json:"agent_review_pending,omitempty"`
 	// AttentionSourceRefID identifies the effective signal, not a filtered-out raw one.
 	AttentionSourceRefID string `json:"attention_source_ref_id,omitempty"`
 	// TrackingOnly retains hidden authored history for source resolvers, not discovery.

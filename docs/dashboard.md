@@ -58,6 +58,19 @@ Muted and Done have selectable headers and start collapsed. Move to a header wit
 
 When the selected task becomes muted or done, the overview stays among active tasks: it selects the next task at that position, or the previous task when handling the last active one. If no active tasks remain, selection moves to a visible section header without expanding it. This applies to successful mutations and background updates; delayed responses do not steal focus after you navigate elsewhere. Unmuting unfinished work, reopening, and priority changes follow the selected task, and Inspect stays on the task being inspected. Done remains sorted by completion time, newest first; equal timestamps keep their existing order, and tasks without a valid completion time appear last. Collapsing does not change its three-day display retention or unresolved-workspace exception.
 
+### Agent results awaiting review
+
+A task whose completion was held by agent work, or which was reopened by resumed
+agent work, stays unfinished. While agents run it shows the normal busy/waiting
+badge. Once they settle it appears in Attention with **Agent finished — review
+result**. Completed source rows retain their merged/resolved status, so source
+completion is visible without hiding the handoff. Urgency and task mute still apply.
+
+Inspect or open the workspace to review the result, then press `d` to mark Done.
+Opening it does not itself acknowledge the result. There is no timeout or separate
+review action. Done reports a clear error while agents are busy/waiting or activity
+cannot be verified; a failed pending note write must be resolved and refreshed first.
+
 ### Open a source
 
 The `o` view lists every source action and link. Move with `j`/`k` or `↓`/`↑` and press `Enter` to open the selection; the list scrolls to keep it visible. Displayed letter/digit shortcuts open entries directly, reserving `j`, `k`, and `q` for navigation and quitting. Entries without an available shortcut leave that column blank and remain selectable. Press `Esc` or `Backspace` to return.
