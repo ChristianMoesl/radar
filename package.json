@@ -29,7 +29,7 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@christianmoesl/pi-sbx": "0.6.0",
+    "@christianmoesl/pi-sbx": "github:ChristianMoesl/pi-sbx#5604c7836e448ae3b94afe4909422ef22be23d0e",
     "@earendil-works/pi-coding-agent": "0.85.1",
     "@types/node": "^24.0.0",
     "typebox": "1.3.8",

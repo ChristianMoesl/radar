@@ -291,6 +291,9 @@ func (r *sbxRejectingRunner) LookPath(name string) error {
 }
 
 func (r *sbxRejectingRunner) Run(ctx context.Context, cwd, name string, args ...string) (string, error) {
+	if name == "sbx" && len(args) > 0 && args[0] == "version" {
+		return `{"client":{"version":"v0.48.0"}}`, nil
+	}
 	if name == "sbx" {
 		r.sbxCalls++
 		return "", fmt.Errorf("sbx must not be called")
@@ -299,6 +302,7 @@ func (r *sbxRejectingRunner) Run(ctx context.Context, cwd, name string, args ...
 }
 
 func TestReconcileWorkspacePlansAdditionalSandboxMount(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	root := t.TempDir()
 	repository := filepath.Join(root, "source")
 	anchor := filepath.Join(root, "work")
@@ -473,6 +477,9 @@ type sandboxPlanningRunner struct {
 
 func (r *sandboxPlanningRunner) LookPath(string) error { return nil }
 func (r *sandboxPlanningRunner) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
+	if name == "sbx" && len(args) > 0 && args[0] == "version" {
+		return `{"client":{"version":"v0.48.0"}}`, nil
+	}
 	command := name + " " + strings.Join(args, " ")
 	if name == "sbx" && len(args) > 0 {
 		switch args[0] {
@@ -498,7 +505,7 @@ func (r *sandboxPlanningRunner) Run(_ context.Context, _ string, name string, ar
 		if r.exists {
 			sandboxes = append(sandboxes, map[string]any{"name": r.sandboxName, "agent": "shell", "status": "running", "workspaces": r.mounts})
 		}
-		data, _ := json.Marshal(map[string]any{"sandboxes": sandboxes})
+		data, _ := json.Marshal(sandboxes)
 		return string(data), nil
 	case "sbx ports " + r.sandboxName + " --json":
 		return `[]`, nil
@@ -555,6 +562,9 @@ func (r *reconcileResolveRunner) root(t *testing.T) string {
 
 func (r *reconcileResolveRunner) LookPath(string) error { return nil }
 func (r *reconcileResolveRunner) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
+	if name == "sbx" && len(args) > 0 && args[0] == "version" {
+		return `{"client":{"version":"v0.48.0"}}`, nil
+	}
 	if name == "git" && strings.Join(args, " ") == "rev-parse --show-toplevel" {
 		return r.group.Path, nil
 	}
@@ -568,6 +578,9 @@ type portStateRunner struct {
 
 func (r *portStateRunner) LookPath(string) error { return nil }
 func (r *portStateRunner) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
+	if name == "sbx" && len(args) > 0 && args[0] == "version" {
+		return `{"client":{"version":"v0.48.0"}}`, nil
+	}
 	if name != "sbx" || len(args) < 3 || args[0] != "ports" {
 		return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
 	}
@@ -618,8 +631,9 @@ func parseTestPortSpec(spec string) (workspacegroup.SandboxPort, string, error) 
 	return workspacegroup.SandboxPort{HostPort: host, SandboxPort: sandbox}, protocol, nil
 }
 
-func TestParseSandboxPortsJSONAcceptsSBXObjectShape(t *testing.T) {
-	bindings, err := parseSandboxPortsJSON([]byte(`{"ports":[{"host_ip":"127.0.0.1","hostPort":"3000","sandboxPort":8080,"protocol":"tcp4"}]}`))
+func TestParseSandboxPortsJSONAcceptsSBX048Shape(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
+	bindings, err := parseSandboxPortsJSON([]byte(`[{"host_ip":"127.0.0.1","host_port":3000,"sandbox_port":8080,"protocol":"tcp4"}]`))
 	if err != nil {
 		t.Fatal(err)
 	}

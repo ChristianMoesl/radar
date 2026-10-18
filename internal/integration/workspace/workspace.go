@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -400,20 +399,15 @@ func RefreshWorkspaceNote(root string, group workspacegroup.Workspace) (workspac
 	return group, nil
 }
 
-func validateSandboxDependencies(runner Runner, enabled bool) error {
+func managedClient(runner Runner) *sbxclient.Client {
+	return sbxclient.NewForPlatform(runner, workspaceGOOS, workspaceWSL)
+}
+
+func validateSandboxDependencies(ctx context.Context, runner Runner, enabled bool) error {
 	if !enabled {
 		return nil
 	}
-	if workspaceGOOS != "darwin" {
-		if workspaceGOOS == "linux" && workspaceWSL {
-			return sbxclient.ErrWindowsWorkspace
-		}
-		return fmt.Errorf("workspace sandbox is only supported on macOS")
-	}
-	if err := sbxclient.New(runner).LookPath(); err != nil {
-		return fmt.Errorf("workspace sandbox requires %q: %w", "sbx", err)
-	}
-	return nil
+	return managedClient(runner).Preflight(ctx)
 }
 
 type sandboxSettings struct {
@@ -554,7 +548,7 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 	if sandboxName != "" {
 		sandbox.Enabled = true
 	}
-	if err := validateSandboxDependencies(runner, sandbox.Enabled); err != nil {
+	if err := validateSandboxDependencies(ctx, runner, sandbox.Enabled); err != nil {
 		return Workspace{}, err
 	}
 	sessionName := options.SessionName
@@ -596,7 +590,20 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 		}
 		piSessionID := taskPiSessionID(sessionName, options.TaskLinkingKey)
 		piArgsText := piArgsWithPrompt(piSessionID, sessionName, model, thinking, "", options.InitialPrompt)
-		if err := createTmuxWorkspace(ctx, runner, "", path, sessionName, options.Tmux, piArgsText, options.Environment); err != nil {
+		environment := options.Environment
+		if sandbox.Enabled {
+			guard, err := pi.RequireSandboxPath()
+			if err != nil {
+				return Workspace{}, fmt.Errorf("prepare required pi-sbx launch guard: %w", err)
+			}
+			piArgsText += " --extension " + shellQuote(guard)
+			environment = make(map[string]string, len(options.Environment)+1)
+			for key, value := range options.Environment {
+				environment[key] = value
+			}
+			environment["PI_SBX_REQUIRED_SANDBOX"] = sandboxName
+		}
+		if err := createTmuxWorkspace(ctx, runner, "", path, sessionName, options.Tmux, piArgsText, environment); err != nil {
 			if createdSandbox {
 				_, _ = stopSandbox(ctx, runner, path, sandboxName)
 			}
@@ -770,11 +777,11 @@ func scheduleSetupCommandsNamed(ctx context.Context, runner Runner, path string,
 	}
 	args := []string{"new-window", "-t", sessionName + ":", "-d", "-n", windowName, "-c", path, "-P", "-F", "#{window_id} #{pane_id}"}
 	if sandboxName != "" {
-		client := sbxclient.New(runner)
-		if err := client.RequireManaged(); err != nil {
+		client := managedClient(runner)
+		if err := client.Preflight(ctx); err != nil {
 			return err
 		}
-		executable, err := client.Executable()
+		executable, err := client.ShellExecutable()
 		if err != nil {
 			return err
 		}
@@ -906,22 +913,12 @@ func stopSandbox(ctx context.Context, runner Runner, path string, name string) (
 	return output, nil
 }
 
-type sandboxListResponse struct {
-	Sandboxes []struct {
-		Name string `json:"name"`
-	} `json:"sandboxes"`
-}
-
 func sandboxExists(ctx context.Context, runner Runner, name string) (bool, error) {
-	output, err := sbxclient.New(runner).Run(ctx, "", "ls", "--json")
+	sandboxes, err := listSandboxes(ctx, runner)
 	if err != nil {
-		return false, sbxCommandError(err)
+		return false, err
 	}
-	var response sandboxListResponse
-	if err := json.Unmarshal([]byte(output), &response); err != nil {
-		return false, fmt.Errorf("unexpected sbx ls output: %w", err)
-	}
-	for _, sandbox := range response.Sandboxes {
+	for _, sandbox := range sandboxes {
 		if sandbox.Name == name {
 			return true, nil
 		}

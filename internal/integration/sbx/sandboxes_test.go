@@ -21,8 +21,7 @@ import (
 )
 
 func TestParseSandboxes(t *testing.T) {
-	sandboxes, err := parseSandboxes(`{
-  "sandboxes": [
+	sandboxes, err := parseSandboxes(`[
     {
       "name": "radar-rb3ca-experience-center-ABC-600-Integrate-generated-links",
       "id": "c048feba-a578-492b-baf0-895b04b6e1b3",
@@ -35,7 +34,7 @@ func TestParseSandboxes(t *testing.T) {
       ]
     }
   ]
-}`)
+`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +69,7 @@ func TestFetchSandboxesUsesRegisteredWorkspaceAnchor(t *testing.T) {
 	}}}); err != nil {
 		t.Fatal(err)
 	}
-	output := fmt.Sprintf(`{"sandboxes":[{"name":%q,"id":"sandbox-id","agent":"shell","status":"running","workspaces":[%q,%q]}]}`, sandboxName, commonDir, primary)
+	output := fmt.Sprintf(`[{"name":%q,"id":"sandbox-id","agent":"shell","status":"running","workspaces":[%q,%q]}]`, sandboxName, commonDir, primary)
 	installFakeSBX(t, tmp, "cat <<'JSON'\n"+output+"\nJSON\n")
 
 	refs, status := FetchSandboxes(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), linking.MarkMatcher{})
@@ -183,7 +182,7 @@ func TestSBXErrorDetailSuggestsLoginForAuthFailure(t *testing.T) {
 func TestSourceListsSandboxesOncePerCollection(t *testing.T) {
 	tmp := t.TempDir()
 	countPath := filepath.Join(tmp, "calls")
-	installFakeSBX(t, tmp, fmt.Sprintf("printf 'call\\n' >> %q\nprintf '{\"sandboxes\":[]}\\n'\n", countPath))
+	installFakeSBX(t, tmp, fmt.Sprintf("printf 'call\\n' >> %q\nprintf '[]\\n'\n", countPath))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	source := Source{}
 

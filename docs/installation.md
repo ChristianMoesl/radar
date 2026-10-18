@@ -196,7 +196,7 @@ uses `make install`; see [build prerequisites](../CONTRIBUTING.md#development-se
 Node is Pi's runtime, not a Go binary runtime requirement. Ensure `~/.local/bin`
 (or your chosen binary directory) is on PATH, then run `radar` for guided setup.
 Linux URL actions need `xdg-open`, usually from `xdg-utils`.
-See [Windows/WSL sandbox limits](integrations/sbx.md#windows--wsl2).
+See [Native Linux/WSL setup and Windows backend limits](integrations/sbx.md#windows--wsl2).
 
 Both source and archive installation add the MIT notice under `share/radar/LICENSE`
 and default agent instructions under the Radar config directory. Existing
@@ -244,9 +244,9 @@ the prefix at tmux's own default; existing prefix settings are preserved.
    the `pi install` command and ask permission; refusal, installation failure or
    failed verification stops setup. Existing Git/local package sources and
    explicit extension disablement are never silently overridden.
-3. **Sandboxed workspaces:** on macOS, offer SBX (recommended for new installs;
-   existing choices are preselected). Check SBX 0.43.0+, guide installation or
-   updates if needed, offer login, and install/verify pi-sbx 0.6.0+ with consent.
+3. **Sandboxed workspaces:** on macOS or native Linux, offer SBX (recommended for new installs;
+   existing choices are preselected). Check SBX 0.48.x, guide installation or
+   updates if needed, offer login, and install/verify pi-sbx 0.7.0+ with consent.
    Declining SBX skips these checks and writes an explicit opt-out. When no
    sandbox recipe is explicitly configured, propose a complete editable local
    kit, an env-file and an empty read-only `startup.d`, using
@@ -415,7 +415,7 @@ Explicit source actions and cleanup are separate from background collection.
 | Jira | Connection settings and a token in config/secrets or `RADAR_JIRA_*` overrides |
 | Datadog | Both credentials and an explicit `datadog.monitor_query`; no automatic organization-wide query |
 | SBX collection | `sbx` on PATH, or Windows `sbx.exe` plus `wslpath` on WSL2 |
-| SBX for new workspaces | macOS and `sbx` on PATH; Windows SBX managed workspaces remain blocked by WSL symlink support |
+| SBX for new workspaces | macOS or native Linux `sbx` 0.48.x on PATH, with accessible KVM on Linux; Windows `sbx.exe` provisioning remains blocked |
 
 Git worktrees and tmux sessions are discovered when their CLIs are available.
 The macOS notifier is used when its companion is installed. Interactive first-run setup requires the tools listed above; background collection
@@ -458,7 +458,7 @@ authentication in the foreground.
   the user's responsibility.
 - Git members require Git. Repository discovery requires `fd`.
 - Pi's Radar tools/activity require the separately installed `pi-radar` package;
-  sandbox tool routing requires `pi-sbx` >=0.6.0 for early sandboxed launch.
+  sandbox tool routing requires `pi-sbx` >=0.7.0 for early sandboxed launch.
   Installing the SBX CLI does not install those extensions. Radar-launched
   interactive Pi sessions show one non-blocking install notice per Pi profile,
   recommending each missing package independently. Configured or explicitly

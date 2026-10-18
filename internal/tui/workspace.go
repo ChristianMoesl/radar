@@ -168,6 +168,17 @@ func (m model) updateWorkspace(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.create.name = manager.BranchName(name)
 		m.mode, m.err, m.message = "create_repo", nil, ""
 		return m, m.loadRepos()
+	case "s":
+		if !m.editor.state.SandboxAttachment {
+			m.err = fmt.Errorf("sandbox attachment is unavailable for this workspace")
+			return m, nil
+		}
+		if m.editor.desired.Sandbox == nil {
+			m.editor.desired.Sandbox = &integration.DesiredWorkspaceSandbox{AdditionalMounts: []integration.DesiredSandboxMount{}, Ports: []integration.SandboxPort{}}
+		} else {
+			m.editor.desired.Sandbox = nil
+		}
+		m.err = nil
 	case "x":
 		members := m.editor.desired.Worktrees
 		if len(members) == 0 {
@@ -334,8 +345,11 @@ func (m model) workspaceListFooter(width int) string {
 		submit = "create"
 	}
 	footer := wrappedHelp("↑/k ↓/j select • a add repository • x remove selected • enter "+submit+" • esc cancel", width)
+	if m.editor.state.SandboxAttachment {
+		footer = wrappedHelp("s attach sandbox (preview before applying)", width) + "\n" + footer
+	}
 	if sandbox := m.editor.desired.Sandbox; sandbox != nil {
-		footer = wrappedHelp(fmt.Sprintf("Sandbox: %d requested mounts, %d ports, unchanged", len(sandbox.AdditionalMounts), len(sandbox.Ports)), width) + "\n" + footer
+		footer = wrappedHelp(fmt.Sprintf("Sandbox: %d requested mounts, %d ports", len(sandbox.AdditionalMounts), len(sandbox.Ports)), width) + "\n" + footer
 	}
 	return footer
 }

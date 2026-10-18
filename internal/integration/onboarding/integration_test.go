@@ -213,7 +213,7 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 				}))
 				defer server.Close()
 				terminal := startTerminal(t, append(os.Environ(), "RADAR_ONBOARDING_TEST_HTTP="+server.URL))
-				if runtime.GOOS == "darwin" {
+				if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
 					terminal.answer(t, sandboxQuestion, "n")
 				}
 				if existing {
@@ -296,7 +296,7 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 					secretPath, _ := config.SecretsPath()
 					before, _ := os.ReadFile(secretPath)
 					again := startTerminal(t, append(os.Environ(), "RADAR_ONBOARDING_TEST_HTTP="+server.URL))
-					if runtime.GOOS == "darwin" {
+					if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
 						again.answer(t, sandboxQuestion, "n")
 					}
 					again.answer(t, "Add Radar's prefix + r popup binding?", "n")

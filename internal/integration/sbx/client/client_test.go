@@ -82,36 +82,34 @@ func TestWindowsListNormalizesPathsAndPreservesResources(t *testing.T) {
 	unc := `\\wsl.localhost\Ubuntu\home\user\ABC-123`
 	drive := `C:\Users\user\project with spaces`
 	other := `\\wsl.localhost\Other\home\user\ABC-123`
-	raw, _ := json.Marshal(map[string]any{"sandboxes": []any{
+	raw, _ := json.Marshal([]any{
 		map[string]any{"name": "ABC-123", "id": "one", "status": "running", "workspaces": []string{unc, drive}, "mounts": []string{unc, drive + ":ro"}, "kit_path": unc + `\kit`, "unknown_field": "preserved"},
 		map[string]any{"name": "other-distro", "id": "two", "workspaces": []string{other}},
-	}})
+	})
 	runner := &fakeRunner{output: string(raw), paths: map[string]string{unc: "/home/user/ABC-123", drive: "/custom/drives/c/Users/user/project with spaces", unc + `\kit`: "/home/user/ABC-123/kit"}}
 	client := windowsClient(runner)
 	output, err := client.Run(context.Background(), "/workspace", "ls", "--json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var response struct {
-		Sandboxes []struct {
-			Name, ID, Status   string
-			Workspaces, Mounts []string
-			KitPath            string `json:"kit_path"`
-			Unknown            string `json:"unknown_field"`
-		}
+	var response []struct {
+		Name, ID, Status   string
+		Workspaces, Mounts []string
+		KitPath            string `json:"kit_path"`
+		Unknown            string `json:"unknown_field"`
 	}
 	if err := json.Unmarshal([]byte(output), &response); err != nil {
 		t.Fatal(err)
 	}
-	got := response.Sandboxes[0]
+	got := response[0]
 	if got.Name != "ABC-123" || got.ID != "one" || got.Status != "running" || got.Unknown != "preserved" || got.KitPath != "/home/user/ABC-123/kit" {
 		t.Fatalf("sandbox: %+v", got)
 	}
 	if !reflect.DeepEqual(got.Workspaces, []string{"/home/user/ABC-123", "/custom/drives/c/Users/user/project with spaces"}) || !reflect.DeepEqual(got.Mounts, []string{"/home/user/ABC-123", "/custom/drives/c/Users/user/project with spaces:ro"}) {
 		t.Fatalf("paths: %+v", got)
 	}
-	if response.Sandboxes[1].Name != "other-distro" || len(response.Sandboxes[1].Workspaces) != 0 {
-		t.Fatalf("foreign sandbox: %+v", response.Sandboxes[1])
+	if response[1].Name != "other-distro" || len(response[1].Workspaces) != 0 {
+		t.Fatalf("foreign sandbox: %+v", response[1])
 	}
 	if len(runner.calls) != 4 || runner.calls[0].cwd != "/" || runner.calls[0].name != "sbx.exe" {
 		t.Fatalf("calls (conversion should be cached): %+v", runner.calls)
@@ -119,7 +117,7 @@ func TestWindowsListNormalizesPathsAndPreservesResources(t *testing.T) {
 }
 
 func TestNativeListIsUnchanged(t *testing.T) {
-	runner := &fakeRunner{installed: map[string]bool{"sbx": true}, output: `{"sandboxes":[{"workspaces":["/Users/user/work"]}]}`}
+	runner := &fakeRunner{installed: map[string]bool{"sbx": true}, output: `[{"workspaces":["/Users/user/work"]}]`}
 	client := &Client{runner: runner, goos: "darwin"}
 	got, err := client.Run(context.Background(), "/workspace", "ls", "--json")
 	if err != nil || got != runner.output || len(runner.calls) != 1 || runner.calls[0].cwd != "/workspace" {
@@ -151,8 +149,8 @@ func TestNoRuntimeFallbackOrCommandRewriting(t *testing.T) {
 
 func TestListReportsMalformedOutputAndTranslationFailures(t *testing.T) {
 	for _, output := range []string{
-		"not json", `{"sandboxes":[{"workspaces":3}]}`, `{"sandboxes":[{"mounts":[3]}]}`,
-		`{"sandboxes":[{"workspaces":["C:\\missing"]}]}`,
+		"not json", `[{"workspaces":3}]`, `[{"mounts":[3]}]`,
+		`[{"workspaces":["C:\\missing"]}]`,
 	} {
 		t.Run(output, func(t *testing.T) {
 			runner := &fakeRunner{output: output}
@@ -162,7 +160,7 @@ func TestListReportsMalformedOutputAndTranslationFailures(t *testing.T) {
 		})
 	}
 	for _, converted := range []string{"", "relative", "//wsl.localhost/Other/work"} {
-		runner := &fakeRunner{output: `{"sandboxes":[{"workspaces":["C:\\work"]}]}`, paths: map[string]string{`C:\work`: converted}}
+		runner := &fakeRunner{output: `[{"workspaces":["C:\\work"]}]`, paths: map[string]string{`C:\work`: converted}}
 		if _, err := windowsClient(runner).Run(context.Background(), "", "ls", "--json"); err == nil {
 			t.Fatalf("invalid converted path accepted: %q", converted)
 		}
@@ -186,12 +184,12 @@ func TestWindowsManagedWorkspacesRejectedBeforeCommands(t *testing.T) {
 func TestExecRunnerKeepsStderrOutOfJSONAndReportsFailures(t *testing.T) {
 	root := t.TempDir()
 	command := filepath.Join(root, "fake sbx.exe")
-	if err := os.WriteFile(command, []byte("#!/bin/sh\necho diagnostic >&2\nif [ \"$1\" = fail ]; then exit 1; fi\nprintf '%s' '{\"sandboxes\":[]}'\n"), 0700); err != nil {
+	if err := os.WriteFile(command, []byte("#!/bin/sh\necho diagnostic >&2\nif [ \"$1\" = fail ]; then exit 1; fi\nprintf '%s' '[]'\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	runner := ExecRunner{}
 	output, err := runner.Run(context.Background(), root, command, "ls")
-	if err != nil || output != `{"sandboxes":[]}` {
+	if err != nil || output != `[]` {
 		t.Fatalf("got %q, %v", output, err)
 	}
 	if _, err := runner.Run(context.Background(), root, command, "fail"); err == nil || !strings.Contains(err.Error(), "diagnostic") {

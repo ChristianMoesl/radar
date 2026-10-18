@@ -19,10 +19,11 @@ type WorkspaceContext struct {
 }
 
 type WorkspaceContextCapabilities struct {
-	Worktrees        bool `json:"worktrees"`
-	Sandbox          bool `json:"sandbox"`
-	AdditionalMounts bool `json:"additional_mounts"`
-	PortForwarding   bool `json:"port_forwarding"`
+	Worktrees         bool `json:"worktrees"`
+	SandboxAttachment bool `json:"sandbox_attachment"`
+	Sandbox           bool `json:"sandbox"`
+	AdditionalMounts  bool `json:"additional_mounts"`
+	PortForwarding    bool `json:"port_forwarding"`
 }
 
 type WorkspaceContextMember struct {
@@ -41,6 +42,7 @@ type WorkspaceContextNote struct {
 }
 
 type WorkspaceContextSandbox struct {
+	RuntimeError         string        `json:"runtime_error,omitempty"`
 	SharedDirectory      string        `json:"shared_directory,omitempty"`
 	SharedDirectoryReady bool          `json:"shared_directory_ready"`
 	Name                 string        `json:"name"`

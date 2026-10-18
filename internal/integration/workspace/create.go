@@ -130,7 +130,7 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 	if err := sbxsettings.ValidateReadyCommand(sandbox.ReadyCommand); err != nil {
 		return fail(err)
 	}
-	if err := validateSandboxDependencies(runner, sandbox.Enabled); err != nil {
+	if err := validateSandboxDependencies(ctx, runner, sandbox.Enabled); err != nil {
 		return fail(err)
 	}
 	if sandbox.Enabled {
@@ -190,7 +190,7 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 	plan.create, plan.forkSession, plan.switchClient = true, options.ForkPiSession, options.Switch
 	plan.Changes = append([]WorkspaceChange{{Action: "add", Resource: "workspace", Path: anchor, Summary: "create workspace " + anchor}}, plan.Changes...)
 	plan.Changes = append(plan.Changes, WorkspaceChange{Action: "add", Resource: "session", Summary: "start tmux and Pi in " + anchor})
-	plan.PlanID, err = workspacePlanID(plan.Revision, plan.Changes, plan.Warnings)
+	plan.PlanID, err = workspacePlanID(plan.Revision+"\x00"+plan.NextRevision+"\x00"+plannedSandboxMounts(plan.group), plan.Changes, plan.Warnings)
 	return plan, request, err
 }
 

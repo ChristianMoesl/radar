@@ -179,14 +179,15 @@ type WorkspaceReconcileResult struct {
 }
 
 type WorkspaceState struct {
-	ID           string
-	Name         string
-	Path         string
-	Revision     string
-	Note         *DesiredWorkspaceNote
-	Desired      DesiredWorkspaceDescription
-	Members      []WorkspaceStateMember
-	Repositories []string
+	SandboxAttachment bool
+	ID                string
+	Name              string
+	Path              string
+	Revision          string
+	Note              *DesiredWorkspaceNote
+	Desired           DesiredWorkspaceDescription
+	Members           []WorkspaceStateMember
+	Repositories      []string
 }
 
 type WorkspaceStateMember struct {

@@ -53,8 +53,8 @@ function verify(pi: ExtensionAPI): void {
     const version = typeof manifest.version === "string"
       ? /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(manifest.version)
       : null;
-    if (!version || !(BigInt(version[1]) > 0n || BigInt(version[2]) >= 6n)) {
-      throw new Error(`Active pi-sbx version ${JSON.stringify(manifest.version) ?? "unknown"} is incompatible; a stable version >=0.6.0 is required.`);
+    if (!version || !(BigInt(version[1]) > 0n || BigInt(version[2]) >= 7n)) {
+      throw new Error(`Active pi-sbx version ${JSON.stringify(manifest.version) ?? "unknown"} is incompatible; a stable version >=0.7.0 is required.`);
     }
     return;
   }
@@ -64,7 +64,7 @@ function guidance(reason: string): string {
   const profile = process.env.PI_CODING_AGENT_DIR;
   const prefix = profile ? `PI_CODING_AGENT_DIR='${profile.replaceAll("'", "'\"'\"'")}' ` : "";
   return [
-    "Radar sandbox launch refused: active @christianmoesl/pi-sbx >=0.6.0 is required.",
+    "Radar sandbox launch refused: active @christianmoesl/pi-sbx >=0.7.0 is required.",
     reason,
     `In a host terminal, install/update: ${prefix}pi install npm:@christianmoesl/pi-sbx`,
     "Enable its extension with pi config, remove conflicting /sbx or routed-tool overrides, then restart this workspace Pi session.",

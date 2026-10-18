@@ -32,6 +32,12 @@ type recreationRunner struct {
 
 func (r *recreationRunner) LookPath(string) error { return nil }
 func (r *recreationRunner) Run(_ context.Context, cwd, executable string, args ...string) (string, error) {
+	if executable == "sbx" && len(args) > 0 && args[0] == "version" {
+		return `{"client":{"version":"v0.48.0"}}`, nil
+	}
+	if executable == "sbx" && len(args) > 0 && args[0] == "version" {
+		return `{"client":{"version":"v0.48.0"}}`, nil
+	}
 	r.calls = append(r.calls, call{cwd: cwd, name: executable, args: append([]string(nil), args...)})
 	if executable != "sbx" {
 		return "", fmt.Errorf("unexpected host command %s", executable)
@@ -46,7 +52,7 @@ func (r *recreationRunner) Run(_ context.Context, cwd, executable string, args .
 		for _, s := range r.live {
 			rows = append(rows, s)
 		}
-		return encode(map[string]any{"sandboxes": rows})
+		return encode(rows)
 	case "secret":
 		if r.secretFailure {
 			return "", errors.New("PRIVATE credential provider error")
@@ -158,6 +164,7 @@ func assertNoRecreationMutation(t *testing.T, r *recreationRunner) {
 }
 
 func TestSandboxRecreationPreviewAndSelection(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	req, groups, r := recreationFixture(t, 2)
 	r.live["unmanaged"] = listedSandbox{ID: "unmanaged", Name: "unmanaged", Status: "running"}
 	delete(r.live, "sandbox-1")
@@ -178,6 +185,7 @@ func TestSandboxRecreationPreviewAndSelection(t *testing.T) {
 }
 
 func TestSandboxRecreationRestoresRecipePortsAndStateWithoutChangingRegistry(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	req, groups, r := recreationFixture(t, 2)
 	g := &groups[0]
 	g.Sandbox.Agent = t.TempDir()
@@ -230,6 +238,7 @@ func TestSandboxRecreationRestoresRecipePortsAndStateWithoutChangingRegistry(t *
 }
 
 func TestSandboxRecreationPreflightBlocksUnsafeTargets(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	for _, test := range []struct {
 		name  string
 		setup func(*testing.T, []workspacegroup.Workspace, *recreationRunner)
@@ -298,6 +307,7 @@ func TestSandboxRecreationPreflightBlocksUnsafeTargets(t *testing.T) {
 }
 
 func TestSandboxRecreationAcceptsRegeneratedKitPolicy(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	req, _, r := recreationFixture(t, 1)
 	r.policies["sandbox-0"] = `{"rules":[{"scope":"global"},{"name":"kit:sandbox-0","scope":"sandbox:sandbox-0","editable":false,"provenance":{"created_via":"provisioned","source":"sandboxes"}}]}`
 	plan, err := PreviewRecreateSandboxes(context.Background(), r, req)
@@ -307,6 +317,7 @@ func TestSandboxRecreationAcceptsRegeneratedKitPolicy(t *testing.T) {
 }
 
 func TestSandboxRecreationRejectsChangedConfirmation(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	for _, change := range []string{"identity", "registry", "new credential"} {
 		t.Run(change, func(t *testing.T) {
 			req, g, r := recreationFixture(t, 1)
@@ -332,6 +343,7 @@ func TestSandboxRecreationRejectsChangedConfirmation(t *testing.T) {
 }
 
 func TestSandboxRecreationContinuesAfterFailureAndRetainsReadyFailure(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	for _, failure := range []string{"create", "ready", "ports"} {
 		t.Run(failure, func(t *testing.T) {
 			req, g, r := recreationFixture(t, 2)
@@ -363,6 +375,7 @@ func TestSandboxRecreationContinuesAfterFailureAndRetainsReadyFailure(t *testing
 }
 
 func TestSandboxRecreationRechecksSecretsImmediatelyBeforeRemoval(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	req, _, r := recreationFixture(t, 1)
 	req = recreateFixturePlan(t, context.Background(), req, r)
 	reads := 0
@@ -382,6 +395,7 @@ func TestSandboxRecreationRechecksSecretsImmediatelyBeforeRemoval(t *testing.T) 
 }
 
 func TestSandboxRecreationEmptyAndCancellation(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	req, _, r := recreationFixture(t, 0)
 	plan, err := PreviewRecreateSandboxes(context.Background(), r, req)
 	if err != nil || len(plan.Targets) != 0 || len(r.calls) != 0 {
@@ -401,6 +415,7 @@ func TestSandboxRecreationEmptyAndCancellation(t *testing.T) {
 }
 
 func TestSandboxRecreationRejectsAmbiguousOwnerAndUnknownRecipe(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	for _, mode := range []string{"owner", "recipe"} {
 		t.Run(mode, func(t *testing.T) {
 			req, groups, r := recreationFixture(t, 2)

@@ -181,6 +181,7 @@ func TestCreatePlanUsesReconcilerForEmptyAndMultipleMembers(t *testing.T) {
 }
 
 func TestNoteAttachmentChangesSandboxMountPlan(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	root := t.TempDir()
 	anchor := filepath.Join(root, "plan")
 	if err := os.Mkdir(anchor, 0o755); err != nil {

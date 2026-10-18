@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +13,7 @@ import (
 
 	"radar/internal/config"
 	"radar/internal/integration/sbx/auth"
+	sbxclient "radar/internal/integration/sbx/client"
 )
 
 const sandboxGuide = "https://github.com/ChristianMoesl/radar/blob/main/docs/integrations/sbx.md"
@@ -21,8 +21,8 @@ const sandboxQuestion = "Enable SBX for new workspaces?"
 
 func (w *wizard) sandboxSetup(ctx context.Context, draft *config.SetupDraft, path string, cfg *config.Config) (*sandboxSetupPlan, error) {
 	w.ui.print("\nSandboxed workspaces\nAgent commands run in isolated Linux; Pi, your editor and tmux stay on the host.\nMounted workspace files remain writable. This choice affects new workspaces; repository overrides still apply.\n")
-	if w.system.platform() != "darwin" {
-		w.ui.print("Managed SBX workspaces currently require macOS. Linux/WSL setup leaves sandbox settings unchanged.\n")
+	if w.system.platform() != "darwin" && w.system.platform() != "linux" {
+		w.ui.print("Managed SBX workspaces require macOS or native Linux SBX with KVM.\n")
 		if cfg.SBX.Enabled != nil && *cfg.SBX.Enabled {
 			return nil, fmt.Errorf("SBX is explicitly enabled on an unsupported platform; edit sbx.enabled before rerunning setup")
 		}
@@ -106,11 +106,11 @@ func (w *wizard) sbxOutput(ctx context.Context, timeout time.Duration, args ...s
 
 func (w *wizard) prepareSandbox(ctx context.Context, cfg config.SBXConfig, plan *sandboxSetupPlan) error {
 	if !w.system.lookPath("sbx") {
-		return fmt.Errorf("SBX is missing. Install Docker Sandboxes for macOS from https://docs.docker.com/ai/sandboxes/ in another terminal, then retry (SBX 0.43.0+ required)")
+		return fmt.Errorf("SBX is missing. Install native Docker Sandboxes from https://docs.docker.com/ai/sandboxes/ in another terminal, then retry (SBX 0.48.x required)")
 	}
-	version, err := w.sbxOutput(ctx, 15*time.Second, "version")
-	if err != nil || !versionAtLeast(version, [3]int{0, 43, 0}) {
-		return fmt.Errorf("SBX 0.43.0+ is required; check `sbx version`, update Docker Sandboxes, then retry")
+	version, err := w.sbxOutput(ctx, 15*time.Second, "version", "--json")
+	if err != nil || sbxclient.ValidateVersion(version) != nil {
+		return fmt.Errorf("SBX 0.48.x is required; check `sbx version`, update Docker Sandboxes, then retry")
 	}
 	w.ui.print("✓ SBX version supported\nChecking SBX authentication and runtime access…\n")
 	output, err := w.sbxOutput(ctx, 15*time.Second, "ls", "--json")
@@ -134,15 +134,17 @@ func (w *wizard) prepareSandbox(ctx context.Context, cfg config.SBXConfig, plan 
 		w.completed = append(w.completed, "SBX login")
 		output, err = w.sbxOutput(ctx, 15*time.Second, "ls", "--json")
 	}
-	var listed sandboxSetupList
-	if err != nil || json.Unmarshal([]byte(output), &listed) != nil || listed.Sandboxes == nil {
+	listed, parseErr := sbxclient.DecodeList[struct {
+		Name string `json:"name"`
+	}](output)
+	if err != nil || parseErr != nil || listed == nil {
 		return fmt.Errorf("SBX authentication/runtime check failed; check `sbx ls --json` on the host and retry")
 	}
 	w.ui.print("✓ SBX authenticated and runtime accessible\n")
-	if err := w.extensions(ctx, dependency{"pi-sbx", "pi-sbx 0.6.0+ routes Pi tools and gates early tools on startup readiness"}); err != nil {
+	if err := w.extensions(ctx, dependency{"pi-sbx", "pi-sbx 0.7.0+ routes Pi tools and gates early tools on startup readiness"}); err != nil {
 		// Declining an optional extension is a preparation failure, not a whole-wizard abort.
 		if errors.Is(err, errExtensionDeclined) {
-			return fmt.Errorf("pi-sbx installation was not completed; install/enable pi-sbx 0.6.0+ or continue without SBX")
+			return fmt.Errorf("pi-sbx installation was not completed; install/enable pi-sbx 0.7.0+ or continue without SBX")
 		}
 		return err
 	}
@@ -155,12 +157,6 @@ func (w *wizard) prepareSandbox(ctx context.Context, cfg config.SBXConfig, plan 
 		return fmt.Errorf("sandbox preparation was declined; readiness has not been verified")
 	}
 	return w.probeSandbox(ctx, cfg, plan)
-}
-
-type sandboxSetupList struct {
-	Sandboxes []struct {
-		Name string `json:"name"`
-	} `json:"sandboxes"`
 }
 
 type sandboxCleanupError struct{ name, temp string }
@@ -253,9 +249,11 @@ func (w *wizard) probeSandbox(ctx context.Context, cfg config.SBXConfig, plan *s
 		_, cleanupErr := w.sbxOutput(context.Background(), 30*time.Second, "rm", "--force", name)
 		if cleanupErr != nil {
 			output, listErr := w.sbxOutput(context.Background(), 15*time.Second, "ls", "--json")
-			var entries sandboxSetupList
-			absent := listErr == nil && json.Unmarshal([]byte(output), &entries) == nil && entries.Sandboxes != nil
-			for _, entry := range entries.Sandboxes {
+			entries, parseErr := sbxclient.DecodeList[struct {
+				Name string `json:"name"`
+			}](output)
+			absent := listErr == nil && parseErr == nil
+			for _, entry := range entries {
 				if entry.Name == name {
 					absent = false
 				}

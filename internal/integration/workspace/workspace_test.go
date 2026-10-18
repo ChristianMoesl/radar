@@ -35,6 +35,9 @@ type fakeRunner struct {
 func (f *fakeRunner) LookPath(string) error { return nil }
 
 func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...string) (string, error) {
+	if name == "sbx" && len(args) > 0 && args[0] == "version" {
+		return `{"client":{"version":"v0.48.0"}}`, nil
+	}
 	f.calls = append(f.calls, call{cwd: cwd, name: name, args: args})
 	if name == "git" && strings.Join(args, " ") == "rev-parse --show-toplevel" {
 		return f.repo, nil
@@ -85,7 +88,7 @@ func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...str
 		if f.sbxListOutput != "" {
 			return f.sbxListOutput, nil
 		}
-		return `{"sandboxes":[]}`, nil
+		return `[]`, nil
 	}
 	return "", nil
 }
@@ -721,8 +724,8 @@ func TestWorkspaceSandboxConfigInheritsUserSettings(t *testing.T) {
 	}
 }
 
-func TestCreateRejectsConfiguredSandboxOutsideMacOS(t *testing.T) {
-	withWorkspaceGOOS(t, "linux")
+func TestCreateRejectsConfiguredSandboxOnUnsupportedPlatform(t *testing.T) {
+	withWorkspaceGOOS(t, "freebsd")
 	repo := t.TempDir()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`sbx:
@@ -739,8 +742,8 @@ func TestCreateRejectsConfiguredSandboxOutsideMacOS(t *testing.T) {
 		Base:          "origin/main",
 		WorkspaceRoot: root,
 	})
-	if err == nil || !strings.Contains(err.Error(), "only supported on macOS") {
-		t.Fatalf("Create() error = %v, want macOS-only sandbox error", err)
+	if err == nil || !strings.Contains(err.Error(), "requires macOS or native Linux") {
+		t.Fatalf("Create() error = %v, want unsupported-platform error", err)
 	}
 	assertNotCalled(t, runner.calls, "sbx")
 }
@@ -977,7 +980,7 @@ func TestCreateSessionUsesLinkedSandboxForHostPiTools(t *testing.T) {
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	runner := &fakeRunner{sbxListOutput: `{"sandboxes":[{"name":"existing-sandbox"}]}`}
+	runner := &fakeRunner{sbxListOutput: `[{"name":"existing-sandbox"}]`}
 
 	created, err := CreateSessionWithOptions(context.Background(), runner, CreateSessionOptions{Path: path, SessionName: "repo-small-fix", SandboxName: "existing-sandbox"})
 	if err != nil {
@@ -990,6 +993,8 @@ func TestCreateSessionUsesLinkedSandboxForHostPiTools(t *testing.T) {
 	assertCalled(t, runner.calls, "sbx", "ls --json")
 	assertNotCalledContains(t, runner.calls, "sbx", "create")
 	assertCalledContains(t, runner.calls, "tmux", "pi --session-id 'repo-small-fix'")
+	assertCalledContains(t, runner.calls, "tmux", "require-sandbox")
+	assertCalledContains(t, runner.calls, "tmux", "PI_SBX_REQUIRED_SANDBOX=existing-sandbox")
 	assertNotCalledContains(t, runner.calls, "tmux", "sbx exec")
 	assertNotCalledContains(t, runner.calls, "tmux", "PI_CODING_AGENT_SESSION_DIR=")
 	assertNotCalledContains(t, runner.calls, "tmux", "pi --approve")
@@ -1238,12 +1243,12 @@ func TestWSLManagedWorkspaceFailsBeforeProvisioning(t *testing.T) {
   enabled: true`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	runner := &fakeRunner{repo: repository}
+	runner := &windowsOnlyRunner{fakeRunner: fakeRunner{repo: repository}}
 	_, err := Create(context.Background(), runner, CreateOptions{
 		NoteAuthor: testNoteAuthor(t), BranchMode: integration.WorkspaceBranchNew,
 		Repo: repository, Name: "ABC-123", Base: "origin/main", WorkspaceRoot: filepath.Join(root, "workspaces"),
 	})
-	if err == nil || !strings.Contains(err.Error(), "WSL-mounted symlinks") {
+	if err == nil || !strings.Contains(err.Error(), "Windows SBX") {
 		t.Fatalf("got %v", err)
 	}
 	assertNotCalled(t, runner.calls, "sbx")
@@ -1254,7 +1259,7 @@ func TestWSLManagedWorkspaceFailsBeforeProvisioning(t *testing.T) {
 	}
 	runner.calls = nil
 	_, err = CreateSessionWithOptions(context.Background(), runner, CreateSessionOptions{Path: repository})
-	if err == nil || !strings.Contains(err.Error(), "WSL-mounted symlinks") || len(runner.calls) != 0 {
+	if err == nil || !strings.Contains(err.Error(), "Windows SBX") || len(runner.calls) != 0 {
 		t.Fatalf("session provisioned: %v, %+v", err, runner.calls)
 	}
 }
@@ -1275,4 +1280,13 @@ func TestInstallAdviceCacheFailureDoesNotPreventPiSession(t *testing.T) {
 	assertCalledContains(t, runner.calls, "tmux", "pi --session-id 'optional-advice'")
 	assertCalledContains(t, runner.calls, "tmux", "'Review ABC-123'")
 	assertNotCalledContains(t, runner.calls, "tmux", "--extension")
+}
+
+type windowsOnlyRunner struct{ fakeRunner }
+
+func (r *windowsOnlyRunner) LookPath(name string) error {
+	if name == "sbx" {
+		return errors.New("missing native SBX")
+	}
+	return nil
 }

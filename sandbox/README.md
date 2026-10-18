@@ -19,8 +19,8 @@ for complete examples, image builds and applying changes safely.
 
 ## Use the published kit
 
-On macOS, Radar automatically enables sandboxing when `sbx` is installed. Use
-SBX 0.43.0 or newer and sign in with `sbx login`. To require sandboxing explicitly,
+On macOS and native Linux (including WSL2), Radar automatically enables sandboxing when `sbx` is installed. Linux requires accessible KVM. Use
+SBX 0.48.x and sign in with `sbx login`. To require sandboxing explicitly,
 set this in Radar's user configuration or a repository's `.radar.yaml`:
 
 ```yaml
@@ -29,10 +29,10 @@ sbx:
 ```
 
 Windows SBX is detected from WSL2 for collection, shell actions and cleanup, but
-Radar-managed sandbox workspaces are not yet supported there: SBX v0.43.0 cannot
+Radar-managed sandbox workspaces remain blocked through `sbx.exe`: Windows SBX v0.46 cannot
 read the required `notes.md` symlink through WSL-mounted directories. See the
 [WSL2 validation notes](../docs/integrations/sbx.md#windows--wsl2). Setting
-`sbx.enabled: true` reports this limitation; it does not bypass it.
+`sbx.enabled: true` cannot bypass the Windows limitation. Native Linux SBX inside WSL is a separate best-effort backend: establish the cache opt-out in both CLI and daemon environments and qualify Windows-backed atomic saves before real use. pi-sbx 0.7.0+ is required.
 
 Without an explicit kit, new workspaces default to
 `docker.io/christianmoesl/radar-kit:latest`. Guided setup instead records the

@@ -30,6 +30,7 @@ func authenticate(ctx context.Context, executable string) (integration.Authentic
 	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	check := command.CommandContext(checkCtx, executable, "ls", "--json")
+	check.Env = sbxclient.Environment(executable, os.Environ())
 	if executable == "sbx.exe" {
 		check.Dir = "/"
 	}
@@ -39,6 +40,7 @@ func authenticate(ctx context.Context, executable string) (integration.Authentic
 	}
 	fmt.Fprintf(os.Stderr, "radar: sbx is not signed in; starting %s login\n", executable)
 	login := exec.CommandContext(ctx, executable, "login")
+	login.Env = sbxclient.Environment(executable, os.Environ())
 	if executable == "sbx.exe" {
 		login.Dir = "/"
 	}

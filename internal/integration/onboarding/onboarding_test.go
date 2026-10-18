@@ -122,9 +122,9 @@ func (s *fakeSystem) sandbox(ctx context.Context, args ...string) (string, error
 		return s.sandboxFn(ctx, args...)
 	}
 	if len(args) > 0 && args[0] == "version" {
-		return "sbx version: v0.46.0 fixture", nil
+		return `{"client":{"version":"v0.48.0"}}`, nil
 	}
-	return `{"sandboxes":[]}`, nil
+	return `[]`, nil
 }
 func (s *fakeSystem) platform() string {
 	if s.goos != "" {

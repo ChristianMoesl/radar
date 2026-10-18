@@ -44,6 +44,8 @@ async function harness(t: TestContext, registered: unknown = true) {
   let registrationCode = 0;
   let registrationOutput = JSON.stringify({ registered });
   let reloads = 0;
+  let acceptsSandbox = false;
+  const sandboxRequests: string[] = [];
   let activityExec: ((state: string) => Promise<any>) | undefined;
   const ctx = {
     cwd: root,
@@ -64,6 +66,7 @@ async function harness(t: TestContext, registered: unknown = true) {
     reload: async () => { reloads++; },
   };
   const pi = {
+    events: { emit: (channel: string, data: any) => { if(channel === "pi-sbx:require") {sandboxRequests.push(data.name); if(acceptsSandbox) data.acknowledge();} } },
     on: (event: string, handler: Handler) => hooks.set(event, [...(hooks.get(event) ?? []), handler]),
     registerTool: (tool: any) => tools.set(tool.name, tool),
     registerCommand: (name: string, command: any) => commands.set(name, command),
@@ -121,6 +124,7 @@ async function harness(t: TestContext, registered: unknown = true) {
     start: () => emit("session_start", { reason: "startup" }),
     resources: (reason = "startup") => emit("resources_discover", { cwd: ctx.cwd, reason }),
     prompt: () => emit("before_agent_start", { systemPrompt: "Base prompt" }),
+    acceptSandbox: (value: boolean) => { acceptsSandbox=value; }, sandboxRequests,
     setContext: (value: any) => { context = value; },
     failInspection: () => { inspectionFails = true; },
     failRegistration: () => { registrationFails = true; },
@@ -733,4 +737,21 @@ test("interactive sessions outside Radar workspaces have no attachment notice", 
   assert.deepEqual(h.notices, []);
   assert.equal(h.commands.size, 0);
   assert.equal(h.tools.size, 0);
+});
+
+
+test("an attached sandbox requires an acknowledged routing provider, including in an existing host session", async t => {
+  const h=await harness(t);
+  await h.start();
+  h.setContext({registered:true,workspace_path:h.root,members:[],sandbox:{name:"required-runtime",shared_directory_ready:false}});
+  await h.resources();
+  assert.deepEqual(h.sandboxRequests,["required-runtime"]);
+  const block=await h.emit("tool_call",{toolName:"bash"});
+  assert.equal(block.block,true);
+  const shell=await h.emit("user_bash",{});
+  await assert.rejects(shell.operations.exec(),/Required pi-sbx/);
+  assert.equal(await h.emit("tool_call",{toolName:"radar_workspace_context"}),undefined);
+  h.acceptSandbox(true);
+  await h.resources("reload");
+  assert.equal(await h.emit("tool_call",{toolName:"bash"}),undefined);
 });

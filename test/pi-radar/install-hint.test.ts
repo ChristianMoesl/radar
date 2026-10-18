@@ -72,7 +72,7 @@ test("missing packages get combined, dismissible advice once per actual Pi profi
   assert.equal(h.displayed.length, 1);
   assert.match(h.text(), /pi install npm:@christianmoesl\/pi-radar/);
   assert.match(h.text(), /pi install npm:@christianmoesl\/pi-sbx/);
-  assert.match(h.text(), />=0\.6\.0 is required for early sandboxed launch/);
+  assert.match(h.text(), />=0\.7\.0 is required for early sandboxed launch/);
   assert.match(h.text(), /Advice only; no automatic installs or Pi settings changes/);
   for (const name of ["pi-radar", "pi-sbx"]) {
     assert.ok(h.text().includes(`PI_CODING_AGENT_DIR='${h.agent}' pi install npm:@christianmoesl/${name}`));

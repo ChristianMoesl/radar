@@ -46,7 +46,7 @@ const DesiredWorkspace = Type.Object({
     description: "Complete desired Git worktree membership, including every unchanged member; an empty list is valid",
   }),
   sandbox: Type.Union([DesiredSandbox, Type.Null()], {
-    description: "Complete desired additional-mount and port state, or null when this workspace has no sandbox",
+    description: "Complete desired sandbox mounts/ports. An object explicitly attaches SBX when sandbox_attachment is true; null leaves an unsandboxed workspace unchanged. Detachment is not supported.",
   }),
 }, { additionalProperties: false });
 
@@ -89,7 +89,7 @@ type WorkspaceMember = {
 type WorkspaceContextResult = {
   workspace_path?: string;
   note?: { path: string; workspace_path: string };
-  sandbox?: { shared_directory?: string; shared_directory_ready: boolean };
+  sandbox?: { name?: string; shared_directory?: string; shared_directory_ready: boolean };
   members?: WorkspaceMember[];
   [key: string]: unknown;
 };
@@ -389,6 +389,19 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
   const activity = activityTracker(pi);
   let previousResources: ResourceSnapshot = { contextPaths: [], skillPaths: [] };
   let knownContext: WorkspaceContextResult | undefined;
+ let sandboxRoutingAccepted=true;
+ function requireSandboxRouting(context:WorkspaceContextResult) {
+  const name=context.sandbox?.name;
+  if(!name) return;
+  sandboxRoutingAccepted=false;
+  pi.events.emit("pi-sbx:require",{name,acknowledge:()=>{sandboxRoutingAccepted=true}});
+ }
+ pi.on("tool_call",(event)=>{
+  if(!sandboxRoutingAccepted && ["read","write","edit","bash","find","grep","ls"].includes(event.toolName)) return {block:true,reason:"This workspace requires pi-sbx 0.7.0+; update/enable it and reload Pi. No host fallback."};
+ });
+ pi.on("user_bash",()=>{
+  if(!sandboxRoutingAccepted) return {operations:{exec:async()=>{throw new Error("Required pi-sbx provider is unavailable; update/enable pi-sbx 0.7.0+ and reload Pi.")}}};
+ });
   for (const entry of ctx.sessionManager.getEntries()) {
     if (entry.type === "custom" && entry.customType === ResourceEntry) {
       previousResources = entry.data as ResourceSnapshot;
@@ -398,6 +411,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
     try {
       knownContext = await inspectWorkspace(pi, event.cwd);
       configureSharedDirectory(knownContext);
+      requireSandboxRouting(knownContext);
       const discovered = await discoverResources(knownContext, (message, level) => ctx.ui.notify(message, level));
       const resources = ctx.isProjectTrusted() ? discovered : { ...discovered, skillPaths: [] };
       if (!ctx.isProjectTrusted() && discovered.skillPaths.length > 0) ctx.ui.notify("Radar did not load member skills because the workspace is not trusted", "warning");
@@ -423,6 +437,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
     try {
       knownContext = await inspectWorkspace(pi, ctx.cwd, ctx.signal);
       configureSharedDirectory(knownContext);
+      requireSandboxRouting(knownContext);
       const resources = await discoverResources(knownContext);
       const blocks: string[] = [];
       for (const path of resources.contextPaths) {
@@ -503,7 +518,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
     promptGuidelines: [
       "Use radar_workspace_context before radar_reconcile_workspace and copy its complete desired state before modifying only the requested resources.",
       "Use the absolute repository paths returned by radar_workspace_context; do not guess host paths from sandbox-visible directories.",
-      "Respect radar_workspace_context capabilities: leave sandbox null when sandbox, additional_mounts, and port_forwarding are false.",
+      "Respect capabilities: request attachment only when sandbox_attachment is true; otherwise leave sandbox null when sandbox is false.",
     ],
     parameters: NoParameters,
     executionMode: "sequential",
@@ -542,7 +557,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
   pi.registerTool({
     name: "radar_reconcile_workspace",
     label: "Reconcile Radar Workspace",
-    description: "Preview and reconcile the complete desired host workspace state. The tool applies Radar's configured confirmation policy internally. It can attach an existing canonical Obsidian note, add or remove clean member worktrees, including the last one, plus additional host mounts and IPv4-loopback TCP ports for an existing optional SBX sandbox. It cannot enable SBX for a non-sandbox workspace.",
+    description: "Preview and reconcile the complete desired host workspace state. The tool applies Radar's configured confirmation policy internally. It can attach an existing canonical Obsidian note, add or remove clean member worktrees, including the last one, and explicitly attach a native SBX sandbox when sandbox_attachment is true, with complete additional host mounts and IPv4-loopback TCP ports. Sandbox detachment is not supported.",
     promptSnippet: "Reconcile typed worktree and optional sandbox mount/port desired state",
     promptGuidelines: [
       "Use radar_reconcile_workspace for host workspace changes instead of direct git, tmux, or sbx commands because Radar must validate and persist the complete resource bundle.",
@@ -553,7 +568,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
       "Before omitting a worktree, check its dirty status from radar_workspace_context; dirty worktrees cannot be removed until their changes are committed, stashed, or discarded.",
       "Use read_only true for radar_reconcile_workspace additional mounts unless writable host access is necessary and explicitly intended.",
       "When exposing a service, first use its configured port as host_port. If apply fails because that host port is unavailable, call radar_workspace_context again and retry with a randomly selected host_port from 49152 through 65535 while keeping sandbox_port unchanged.",
-      "Never invent a sandbox object when radar_workspace_context reports sandbox false; sandbox-less worktree reconciliation is fully supported.",
+      "For explicit attachment, sandbox_attachment must be true; send a complete sandbox object. Otherwise preserve sandbox null for unsandboxed workspaces. Sandbox-less worktree reconciliation remains supported.",
     ],
     parameters: ReconcileParameters,
     executionMode: "sequential",
@@ -583,6 +598,10 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
         }
         const resultText = await runRadar(pi, binary, reconcileArgs(input, cwd, false, plan), signal, "radar_reconcile_workspace", "apply");
         const result = parseJSON<ReconcileResult>("radar_reconcile_workspace", resultText, "apply");
+        if ((input.desired as {sandbox?:unknown} | undefined)?.sandbox) {
+          sandboxRoutingAccepted=false;
+          try {knownContext=await inspectWorkspace(pi,cwd,signal);requireSandboxRouting(knownContext)} catch { /* Keep ordinary tools blocked until context can be refreshed. */ }
+        }
         if (result.ok !== true && result.reconfirm_required === true && result.reason === "plan_changed") {
           if (!result.plan) {
             throw new Error(`radar_reconcile_workspace requested reconfirmation without an updated plan\n${resultText.trim()}`);

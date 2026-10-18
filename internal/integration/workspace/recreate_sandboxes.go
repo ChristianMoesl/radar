@@ -68,7 +68,7 @@ func planSandboxRecreation(ctx context.Context, runner Runner, req integration.S
 	}
 	sort.Slice(groups, func(i, j int) bool { return groups[i].Sandbox.Name < groups[j].Sandbox.Name })
 	if len(groups) > 0 {
-		if err := sbxclient.New(runner).RequireManaged(); err != nil {
+		if err := managedClient(runner).Preflight(ctx); err != nil {
 			return plan, nil, err
 		}
 		sandboxes, err := listSandboxes(ctx, runner)

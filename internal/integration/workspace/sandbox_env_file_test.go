@@ -255,10 +255,11 @@ func TestInvalidSandboxEnvFileFailsBeforeProvisioning(t *testing.T) {
 }
 
 func TestReconcileSandboxInvalidEnvFileDoesNotRemoveOrSetUpMounts(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	for name, path := range invalidSandboxEnvFiles(t) {
 		t.Run(name, func(t *testing.T) {
 			mount := filepath.Join(t.TempDir(), "not-created")
-			runner := &sandboxRetryRunner{name: "ABC-123", exists: true, mounts: []string{"/old-mount"}}
+			runner := &sandboxRetryRunner{name: "ABC-123", exists: true, mounts: []string{mount, "/old-mount"}}
 			group := workspacegroup.Workspace{ID: "ABC-123", Path: mount, Sandbox: &workspacegroup.Sandbox{Name: runner.name, Agent: "shell", EnvFile: path, Mounts: []string{mount}}}
 			if err := reconcileSandboxWithPolicy(context.Background(), runner, group, nil, sandboxReconcilePolicy{}); err == nil || !strings.Contains(err.Error(), "sbx.env_file") {
 				t.Fatalf("error = %v", err)
@@ -274,9 +275,10 @@ func TestReconcileSandboxInvalidEnvFileDoesNotRemoveOrSetUpMounts(t *testing.T) 
 }
 
 func TestSandboxEnvFileRecreationRetriesAndMatchingRuntime(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	env := writeSandboxEnvFile(t)
 	mount := t.TempDir()
-	runner := &sandboxRetryRunner{name: "ABC-123", exists: true, mounts: []string{"/old-mount"}, createFailures: 2}
+	runner := &sandboxRetryRunner{name: "ABC-123", exists: true, mounts: []string{mount, "/old-mount"}, createFailures: 2}
 	group := workspacegroup.Workspace{ID: "ABC-123", Path: mount, Sandbox: &workspacegroup.Sandbox{Name: runner.name, Agent: "shell", EnvFile: env, Mounts: []string{mount}}}
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
@@ -518,12 +520,13 @@ func TestSandboxEnvFileCreationDiagnosticsDoNotExposeValues(t *testing.T) {
 }
 
 func TestSandboxEnvFileReconciliationDiagnosticsDoNotExposeValues(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	for _, permanent := range []bool{false, true} {
 		t.Run(fmt.Sprint(permanent), func(t *testing.T) {
 			env, mount := writeSandboxEnvFile(t), t.TempDir()
 			const value = "PRIVATE_ENV_VALUE_do_not_log"
 			runner := &sandboxEnvDiagnosticRunner{
-				sandboxRetryRunner: sandboxRetryRunner{name: "ABC-123", exists: true, mounts: []string{"/old-mount"}, createFailures: 2, permanentFailure: permanent},
+				sandboxRetryRunner: sandboxRetryRunner{name: "ABC-123", exists: true, mounts: []string{mount, "/old-mount"}, createFailures: 2, permanentFailure: permanent},
 				value:              value,
 			}
 			group := workspacegroup.Workspace{ID: "ABC-123", Name: "ABC-123", Path: mount, Sandbox: &workspacegroup.Sandbox{Name: runner.name, Agent: "shell", EnvFile: env, Mounts: []string{mount}}}

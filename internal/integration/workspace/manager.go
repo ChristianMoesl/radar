@@ -107,6 +107,12 @@ func (Source) CreateSession(ctx context.Context, req integration.CreateSessionRe
 
 func (s Source) PreviewReconcile(ctx context.Context, req integration.WorkspaceReconcileRequest) (integration.WorkspaceReconcilePlan, error) {
 	request := reconcileRequest(req)
+	cfg, err := config.Load()
+	if err != nil {
+		return integration.WorkspaceReconcilePlan{}, err
+	}
+	request.SandboxConfig = &cfg.SBX
+	request.AdditionalSandboxMounts = cfg.SBX.AdditionalMounts
 	request.NoteAuthor = s.noteAuthor
 	plan, err := PreviewReconcileWorkspace(ctx, ExecRunner{}, request)
 	return integrationPlan(plan), err
@@ -114,6 +120,12 @@ func (s Source) PreviewReconcile(ctx context.Context, req integration.WorkspaceR
 
 func (s Source) ApplyReconcile(ctx context.Context, logger *slog.Logger, req integration.WorkspaceReconcileRequest) (integration.WorkspaceReconcileResult, error) {
 	request := reconcileRequest(req)
+	cfg, err := config.Load()
+	if err != nil {
+		return integration.WorkspaceReconcileResult{}, err
+	}
+	request.SandboxConfig = &cfg.SBX
+	request.AdditionalSandboxMounts = cfg.SBX.AdditionalMounts
 	request.NoteAuthor = s.noteAuthor
 	result, err := ApplyReconcileWorkspace(ctx, ExecRunner{}, logger, request)
 	return integrationResult(result), err
@@ -129,7 +141,8 @@ func (Source) WorkspaceState(ctx context.Context, currentDirectory string) (inte
 		return integration.WorkspaceState{}, err
 	}
 	state := integration.WorkspaceState{
-		ID: inspected.WorkspaceID, Name: inspected.WorkspaceName, Path: inspected.WorkspacePath,
+		SandboxAttachment: inspected.Capabilities.SandboxAttachment,
+		ID:                inspected.WorkspaceID, Name: inspected.WorkspaceName, Path: inspected.WorkspacePath,
 		Revision: inspected.Revision, Desired: inspected.Desired,
 		Members:      make([]integration.WorkspaceStateMember, 0, len(inspected.Members)),
 		Repositories: make([]string, 0, len(inspected.Repositories)),

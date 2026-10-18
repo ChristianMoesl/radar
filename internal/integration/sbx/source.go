@@ -161,7 +161,7 @@ func openShell(ctx context.Context, runner workspace.Runner, multiplexer integra
 		return OpenShellResult{}, fmt.Errorf("sbx sandbox name is required")
 	}
 	client := sbxclient.New(runner)
-	executable, err := client.Executable()
+	executable, err := client.ShellExecutable()
 	if err != nil {
 		return OpenShellResult{}, fmt.Errorf("open sbx sandbox requires SBX: %w", err)
 	}

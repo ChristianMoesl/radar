@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"radar/internal/command"
+	sbxclient "radar/internal/integration/sbx/client"
 )
 
 var errExtensionDeclined = errors.New("extension installation declined")
@@ -48,14 +49,23 @@ func (realSystem) output(ctx context.Context, name string, args ...string) (stri
 // Sandbox calls have per-stage deadlines supplied by the wizard. Capture output:
 // custom kits, hooks and env-file parsers can emit secrets, even on failure.
 func (realSystem) sandbox(ctx context.Context, args ...string) (string, error) {
-	var output sandboxCommandOutput
+	if len(args) > 0 && args[0] == "create" {
+		if err := sbxclient.New(sbxclient.ExecRunner{}).Preflight(ctx); err != nil {
+			return "", err
+		}
+	}
+	var output, diagnostic sandboxCommandOutput
 	cmd := command.CommandContext(ctx, "sbx", args...)
-	cmd.Stdout, cmd.Stderr = &output, &output
+	cmd.Env = sbxclient.Environment("sbx", os.Environ())
+	cmd.Stdout, cmd.Stderr = &output, &diagnostic
 	err := cmd.Run()
 	if output.truncated {
 		return "", errors.New("SBX output exceeded the setup diagnostic limit")
 	}
-	return output.String(), err
+	if err != nil {
+		return diagnostic.String(), err
+	}
+	return output.String(), nil
 }
 
 // Keep noisy custom startup commands from growing setup's captured output
@@ -78,6 +88,9 @@ func (b *sandboxCommandOutput) Write(data []byte) (int, error) {
 
 func (realSystem) run(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
+	if name == "sbx" {
+		cmd.Env = sbxclient.Environment(name, os.Environ())
+	}
 	if name == "pi" {
 		cmd.Dir, _ = os.UserHomeDir()
 	}
@@ -127,7 +140,7 @@ func (w *wizard) dependencies(ctx context.Context) error {
 func (w *wizard) extensions(ctx context.Context, checks ...dependency) error {
 	for _, dep := range checks {
 		if dep.name == "pi-sbx" {
-			w.ui.print("\nSBX sandboxing is enabled — checking pi-sbx 0.6.0+.\n")
+			w.ui.print("\nSBX sandboxing is enabled — checking pi-sbx 0.7.0+.\n")
 		}
 		ready, err := w.installed(ctx, dep.name)
 		if err != nil {
@@ -266,7 +279,7 @@ func packageInstalled(name string) (bool, error) {
 			}
 			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 				if name == "pi-sbx" {
-					return false, fmt.Errorf("install pi-sbx 0.6.0+ as a Pi package so its version can be checked")
+					return false, fmt.Errorf("install pi-sbx 0.7.0+ as a Pi package so its version can be checked")
 				}
 				return true, nil
 			}
@@ -334,8 +347,8 @@ func packageReady(path, name string) bool {
 	}
 	// Match the early-sandbox guard: only stable, canonical package versions
 	// establish readiness. Build metadata is valid; prereleases and loose CLI
-	// spellings such as v0.6.0 or 0.06.0 must not pass onboarding.
+	// spellings such as v0.7.0 or 0.06.0 must not pass onboarding.
 	stable := regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 	core, _, _ := strings.Cut(version, "+")
-	return stable.MatchString(version) && versionAtLeast(core, [3]int{0, 6, 0})
+	return stable.MatchString(version) && versionAtLeast(core, [3]int{0, 7, 0})
 }

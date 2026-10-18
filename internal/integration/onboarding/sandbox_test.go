@@ -26,7 +26,7 @@ func sandboxFixture(t *testing.T) (wizard, *fakeUI, *fakeSystem, string) {
 	if err := os.MkdirAll(pkg, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(`{"name":"@christianmoesl/pi-sbx","version":"0.6.0"}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(`{"name":"@christianmoesl/pi-sbx","version":"0.7.0"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"packages":["npm:@christianmoesl/pi-radar","npm:@christianmoesl/pi-sbx"]}`), 0600); err != nil {
@@ -45,9 +45,9 @@ func healthySandbox(t *testing.T) func(context.Context, ...string) (string, erro
 		}
 		switch args[0] {
 		case "version":
-			return "sbx version: v0.46.0 fixture", nil
+			return `{"client":{"version":"v0.48.0"}}`, nil
 		case "ls":
-			return `{"sandboxes":[]}`, nil
+			return `[]`, nil
 		case "kit":
 			if _, err := os.ReadFile(filepath.Join(args[2], "spec.yaml")); err != nil {
 				return "", err
@@ -143,7 +143,7 @@ func TestSandboxSetupFailureCanExplicitlyDisable(t *testing.T) {
 			base := sys.sandboxFn
 			sys.sandboxFn = func(ctx context.Context, args ...string) (string, error) {
 				if failure == "old version" && args[0] == "version" {
-					return "sbx version: v0.42.0", nil
+					return `{"client":{"version":"v0.42.0"}}`, nil
 				}
 				if failure == "null list" && args[0] == "ls" {
 					return "null", nil
@@ -344,7 +344,7 @@ func TestSandboxProbeCleanupFailureBlocksSetupAndRetainsMount(t *testing.T) {
 			return "private", errors.New("failed")
 		}
 		if args[0] == "ls" && name != "" {
-			return fmt.Sprintf(`{"sandboxes":[{"name":%q}]}`, name), nil
+			return fmt.Sprintf(`[{"name":%q}]`, name), nil
 		}
 		return base(ctx, args...)
 	}
@@ -391,7 +391,7 @@ func TestSandboxProbeCleanupAfterCancellation(t *testing.T) {
 
 func TestSandboxSetupUnsupportedPlatformDoesNotProbeOrEnable(t *testing.T) {
 	w, ui, sys, _ := sandboxFixture(t)
-	sys.goos = "linux"
+	sys.goos = "freebsd"
 	ui.decisions = []bool{false, false, false, true}
 	if err := w.run(); err != nil {
 		t.Fatal(err)

@@ -67,9 +67,10 @@ func TestStartSandboxKeepsPrimaryBeforeReadOnlyMount(t *testing.T) {
 }
 
 func TestSandboxRecreationRetriesKeepPrimaryFirst(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	primary, readOnly := t.TempDir(), t.TempDir()+":ro"
 	mounts := []string{readOnly, primary}
-	runner := &sandboxRetryRunner{name: "ABC-123", exists: true, mounts: []string{"/old-mount"}, createFailures: 1}
+	runner := &sandboxRetryRunner{name: "ABC-123", exists: true, mounts: []string{primary, "/old-mount"}, createFailures: 1}
 	group := workspacegroup.Workspace{ID: "ABC-123", Path: primary, Sandbox: &workspacegroup.Sandbox{Name: runner.name, Agent: "shell", Mounts: mounts}}
 	if err := reconcileSandboxWithPolicy(context.Background(), runner, group, nil, sandboxReconcilePolicy{createAttempts: 3}); err != nil {
 		t.Fatal(err)
@@ -90,9 +91,10 @@ func TestSandboxRecreationRetriesKeepPrimaryFirst(t *testing.T) {
 }
 
 func TestInvalidPrimaryDoesNotRemoveExistingRuntime(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	root := t.TempDir()
 	primary := filepath.Join(root, "anchor")
-	runner := &sandboxRetryRunner{name: "ABC-123", exists: true, mounts: []string{"/old-mount"}}
+	runner := &sandboxRetryRunner{name: "ABC-123", exists: true, mounts: []string{primary, "/old-mount"}}
 	group := workspacegroup.Workspace{ID: "ABC-123", Path: primary, Sandbox: &workspacegroup.Sandbox{Name: runner.name, Agent: "shell", Mounts: []string{root + ":ro"}}}
 	err := reconcileSandboxWithPolicy(context.Background(), runner, group, nil, sandboxReconcilePolicy{})
 	if err == nil || !strings.Contains(err.Error(), "primary workspace") {
@@ -104,6 +106,7 @@ func TestInvalidPrimaryDoesNotRemoveExistingRuntime(t *testing.T) {
 }
 
 func TestPrimaryOrderingDoesNotRecreateMatchingRuntime(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	primary, readOnly := t.TempDir(), t.TempDir()+":ro"
 	runner := &sandboxRetryRunner{name: "ABC-123", exists: true, mounts: []string{primary, readOnly}}
 	group := workspacegroup.Workspace{ID: "ABC-123", Path: primary, Sandbox: &workspacegroup.Sandbox{Name: runner.name, Agent: "shell", Mounts: []string{readOnly, primary}}}

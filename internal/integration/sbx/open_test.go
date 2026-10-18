@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"radar/internal/integration"
+	sbxclient "radar/internal/integration/sbx/client"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
@@ -59,7 +60,11 @@ func TestOpenShellCreatesSessionThroughMultiplexer(t *testing.T) {
 	if !result.CreatedSession || result.SessionName != "repo-ABC-600-shell" {
 		t.Fatalf("result = %+v", result)
 	}
-	if multiplexer.created.Name != "repo-ABC-600-shell" || multiplexer.created.FirstCommand != "sbx run --name 'radar-repo-ABC-600-shell'" {
+	wantCommand := "sbx run --name 'radar-repo-ABC-600-shell'"
+	if sbxclient.IsWSL() {
+		wantCommand = "env " + sbxclient.CacheEnvironment + "=0 " + wantCommand
+	}
+	if multiplexer.created.Name != "repo-ABC-600-shell" || multiplexer.created.FirstCommand != wantCommand {
 		t.Fatalf("request = %+v", multiplexer.created)
 	}
 }

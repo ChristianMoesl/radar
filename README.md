@@ -94,3 +94,9 @@ Radar workspace, you can also ask Pi “What can Radar do?” or “How do I con
 my workspaces?”. The Radar extension reads documentation embedded in your
 installed CLI. See [manual discovery](docs/installation.md#manual-pages) and
 [Pi documentation access](docs/integrations/pi.md#ask-pi-about-radar).
+
+Native SBX provisioning is available on macOS and Linux with SBX 0.48.x
+(KVM required on Linux). Native SBX inside WSL remains best-effort and requires
+the tested daemon/CLI cache policy. See [SBX setup and qualification](docs/integrations/sbx.md#native-linux-inside-wsl2)
+before enabling it for Windows-backed canonical notes. Existing workspaces attach
+SBX explicitly through normal preview/reconcile, never by changing defaults alone.

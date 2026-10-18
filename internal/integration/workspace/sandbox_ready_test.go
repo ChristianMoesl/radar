@@ -325,7 +325,7 @@ sbx:
 }
 
 func listedReadySandbox(sandbox *workspacegroup.Sandbox, status string) string {
-	data, _ := json.Marshal(map[string]any{"sandboxes": []any{map[string]any{"name": sandbox.Name, "agent": sandbox.Agent, "status": status, "mounts": sandbox.Mounts}}})
+	data, _ := json.Marshal([]any{map[string]any{"name": sandbox.Name, "agent": sandbox.Agent, "status": status, "mounts": sandbox.Mounts}})
 	return string(data)
 }
 
@@ -430,7 +430,7 @@ func TestCreateSessionReadinessBeforeLaunchAndReuse(t *testing.T) {
 		for _, fail := range []bool{false, true} {
 			t.Run(fmt.Sprintf("session=%t/fail=%t", hasSession, fail), func(t *testing.T) {
 				path := t.TempDir()
-				runner := &readyRunner{Runner: &fakeRunner{hasSession: hasSession, sbxListOutput: `{"sandboxes":[{"name":"ABC-123","status":"stopped"}]}`}}
+				runner := &readyRunner{Runner: &fakeRunner{hasSession: hasSession, sbxListOutput: `[{"name":"ABC-123","status":"stopped"}]`}}
 				if fail {
 					runner.ready = func(context.Context) (string, error) { return readySecret, errors.New(readySecret) }
 				}
@@ -450,21 +450,22 @@ func TestCreateSessionReadinessBeforeLaunchAndReuse(t *testing.T) {
 			})
 		}
 	}
-	// No configured command keeps the old existing-session fast path: no SBX calls.
+	// No readiness command keeps the existing-session fast path, apart from bounded protocol preflight.
 	runner := &readyRunner{Runner: &fakeRunner{hasSession: true}}
 	if _, err := CreateSessionWithOptions(context.Background(), runner, CreateSessionOptions{Path: t.TempDir(), SessionName: "ABC-123", Sandbox: true, Switch: true}); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range runner.calls {
-		if c.name == "sbx" {
-			t.Fatalf("legacy reuse changed: %+v", runner.calls)
+		if c.name == "sbx" && (len(c.args) == 0 || c.args[0] != "version") {
+			t.Fatalf("existing-session reuse mutated SBX: %+v", runner.calls)
 		}
 	}
 }
 
 func TestSandboxReadinessAfterRecreationRetriesAndOnMatchingReuse(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	mount := t.TempDir()
-	base := &sandboxRetryRunner{name: "ABC-123", exists: true, mounts: []string{"/old-mount"}, createFailures: 2}
+	base := &sandboxRetryRunner{name: "ABC-123", exists: true, mounts: []string{mount, "/old-mount"}, createFailures: 2}
 	runner := &readyRunner{Runner: base, ready: func(context.Context) (string, error) {
 		return readySecret, errors.New("500 Internal Server Error failed to run sandbox container " + readySecret)
 	}}
@@ -639,7 +640,7 @@ func TestApplyMountRecreationReadinessGatesPiAndSetup(t *testing.T) {
 	if err := registerWorkspace(root, group); err != nil {
 		t.Fatal(err)
 	}
-	runtime := &sandboxRetryRunner{name: group.Sandbox.Name, exists: true, mounts: []string{"/previous-mount"}}
+	runtime := &sandboxRetryRunner{name: group.Sandbox.Name, exists: true, mounts: []string{group.Path, "/previous-mount"}}
 	runner.Runner = readyPipelineRunner{fakeRunner: base, sandbox: runtime}
 	runner.ready = func(context.Context) (string, error) { return readySecret, errors.New(readySecret) }
 	runner.calls = nil

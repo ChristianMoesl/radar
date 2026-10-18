@@ -43,9 +43,9 @@ func IsWSL() bool {
 }
 
 // ErrWindowsWorkspace is a real filesystem limitation, not a detection failure.
-// SBX v0.43.0 exposes WSL symlinks through virtiofs with readlink/open failing
-// EINVAL. Radar requires notes.md and Git worktree paths to work on both sides.
-var ErrWindowsWorkspace = errors.New("managed workspace sandboxes are unavailable with Windows SBX: WSL-mounted symlinks (including the required notes.md link) return Invalid argument; SBX detection, shell actions and cleanup are supported")
+// Windows v0.46 retests failed readlink/open with EINVAL and lost original WSL
+// paths. Later Windows releases remain unqualified for the managed contract.
+var ErrWindowsWorkspace = errors.New("managed workspace sandboxes are unavailable with Windows SBX: v0.46 returned Invalid argument for WSL symlinks (including the notes.md link), and later Windows releases remain unqualified; use native Linux SBX with KVM for managed workspaces; Windows discovery, shell actions and cleanup are supported")
 
 // RequireManaged rejects the Windows backend before any workspace mutation.
 func (c *Client) RequireManaged() error {
@@ -125,11 +125,9 @@ func splitReadOnly(value string) (string, string) {
 }
 
 func (c *Client) normalizeList(ctx context.Context, output string) (string, error) {
-	var response struct {
-		Sandboxes []map[string]json.RawMessage `json:"sandboxes"`
-	}
-	if err := json.Unmarshal([]byte(output), &response); err != nil {
-		return "", fmt.Errorf("unexpected sbx ls output: %w", err)
+	response, err := DecodeList[map[string]json.RawMessage](output)
+	if err != nil {
+		return "", err
 	}
 	cache := map[string]string{}
 	local := func(value string) (string, error) {
@@ -161,7 +159,7 @@ func (c *Client) normalizeList(ctx context.Context, output string) (string, erro
 		cache[host] = converted
 		return converted + suffix, nil
 	}
-	for _, sandbox := range response.Sandboxes {
+	for _, sandbox := range response {
 		for _, field := range []string{"workspaces", "mounts"} {
 			raw, ok := sandbox[field]
 			if !ok {
@@ -206,6 +204,7 @@ func (ExecRunner) LookPath(name string) error { _, err := exec.LookPath(name); r
 func (ExecRunner) Run(ctx context.Context, cwd, name string, args ...string) (string, error) {
 	cmd := command.CommandContext(ctx, name, args...)
 	cmd.Dir = cwd
+	cmd.Env = Environment(name, os.Environ())
 	output, err := cmd.Output()
 	if err == nil {
 		return strings.TrimSpace(string(output)), nil

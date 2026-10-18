@@ -386,3 +386,24 @@ func TestWorkspaceBranchPrefillDoesNotChangeExistingBranchSelection(t *testing.T
 		t.Fatalf("suggestion changed existing branch selection: %+v", member)
 	}
 }
+
+func TestWorkspaceSandboxAttachmentIsStagedOnlyAndCannotDetach(t *testing.T) {
+	m := editorModel()
+	m.editor.state.SandboxAttachment = true
+	m.editor.state.Desired.Sandbox = nil
+	m.editor.desired.Sandbox = nil
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	got := updated.(model)
+	if cmd != nil || got.editor.desired.Sandbox == nil || got.editor.state.Desired.Sandbox != nil || got.editor.desired.Note == nil || len(got.editor.desired.Worktrees) != 1 {
+		t.Fatalf("staging changed persisted intent or other resources: %+v", got.editor)
+	}
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if cmd != nil || updated.(model).editor.desired.Sandbox != nil {
+		t.Fatal("pending attachment could not be cancelled")
+	}
+	attached := editorModel()
+	updated, cmd = attached.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if cmd != nil || updated.(model).err == nil || updated.(model).editor.desired.Sandbox == nil {
+		t.Fatal("attached sandbox could be detached")
+	}
+}

@@ -292,3 +292,26 @@ The Bubble Tea TUI is the default interface. It reads cached daemon state, group
 ## Logging
 
 Daemon logging goes through `internal/logging` and writes to the user state directory by default. Routine refresh details stay at debug level so normal logs remain readable. Debug logs include status, collection, and sequential reconciliation durations per source for refresh-performance diagnosis.
+
+
+### Native Linux SBX and explicit attachment
+
+Managed provisioning targets SBX 0.48.x's top-level sandbox/port arrays (no legacy
+JSON aliases). Linux uses KVM; native WSL additionally requires the tested
+virtiofs cache opt-out on the CLI **and existing daemon**, checked without resets
+or fallback. Windows `sbx.exe` remains discovery/shell/cleanup-only. Host/guest
+absolute paths, canonical note symlinks and external Git common directories stay
+unchanged.
+
+The existing preview/apply engine accepts explicit nil-to-sandbox attachment;
+null never detaches. `sandbox_attachment` reports eligibility independently of
+existing sandbox/mount/port capabilities. Global kit defaults resolve attachment
+without a primary-member heuristic. Resolved intent/mounts participate in plan
+confirmation; intent is persisted before provisioning, with partial failure and
+retry visible. The version-2 registry layout is unchanged.
+
+Pi remains host-side. Sandbox launches require the verified pi-sbx 0.7.0 provider
+and exact runtime name; running-session attachment uses a generic acknowledged
+extension event. An absent provider or runtime cannot authorize ordinary host
+execution. Resource-management tools remain on the host; deliberate `/sbx off`
+and approved per-call host access remain explicit consent.

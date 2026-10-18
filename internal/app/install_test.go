@@ -143,7 +143,7 @@ func TestOptionalIntegrationActivationMatrix(t *testing.T) {
 					}
 				}
 				if name == "sbx" && scenario.setup == "ready" {
-					setupTool(t, "sbx", `printf '{"sandboxes":[]}'`)
+					setupTool(t, "sbx", `printf '[]'`)
 				}
 				data, _ := yaml.Marshal(map[string]any{name: options})
 				setupConfig(t, string(data))
@@ -225,7 +225,7 @@ func TestDisabledSandboxStillObservesRegisteredRuntimes(t *testing.T) {
 	}}}); err != nil {
 		t.Fatal(err)
 	}
-	setupTool(t, "sbx", `printf '%s\n' '{"sandboxes":[{"name":"managed","id":"one","workspaces":["/ignored"]},{"name":"unmanaged","id":"two","workspaces":["/ignored"]}]}'`)
+	setupTool(t, "sbx", `printf '%s\n' '[{"name":"managed","id":"one","workspaces":["/ignored"]},{"name":"unmanaged","id":"two","workspaces":["/ignored"]}]'`)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, source := range app.DefaultIntegrations().Sources() {
 		if source.Descriptor().Name != "sbx" {

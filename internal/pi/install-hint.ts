@@ -107,7 +107,7 @@ export default function installHint(pi: ExtensionAPI) {
       }
       if (recommendSBX) {
         advice.push(
-          "Recommended: pi-sbx routes Pi's tools into SBX; >=0.6.0 is required for early sandboxed launch.",
+          "Recommended: pi-sbx routes Pi's tools into SBX; >=0.7.0 is required for early sandboxed launch.",
           `Install in a host terminal: ${profile}pi install npm:@christianmoesl/pi-sbx`,
         );
       }

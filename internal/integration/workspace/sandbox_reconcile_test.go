@@ -14,6 +14,7 @@ import (
 )
 
 func TestReconcileSandboxPreservesRecordedKit(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	for _, kit := range []SandboxKitConfig{
 		{Name: "shell"},
 		{Name: "custom", Path: "/kits/custom"},
@@ -57,11 +58,12 @@ func TestNormalizeMountSetRemovesRedundantChildrenWithSameMode(t *testing.T) {
 }
 
 func TestReconcileSandboxRetriesTransientCreateFailuresWithCleanup(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	mount := t.TempDir()
 	runner := &sandboxRetryRunner{
 		name:           "retry-sandbox",
 		exists:         true,
-		mounts:         []string{"/old-mount"},
+		mounts:         []string{mount, "/old-mount"},
 		createFailures: 2,
 		lingerChecks:   2,
 	}
@@ -96,8 +98,9 @@ func TestReconcileSandboxRetriesTransientCreateFailuresWithCleanup(t *testing.T)
 }
 
 func TestReconcileSandboxStopsAfterBoundedTransientFailures(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	mount := t.TempDir()
-	runner := &sandboxRetryRunner{name: "retry-sandbox", mounts: []string{"/old-mount"}, createFailures: 4}
+	runner := &sandboxRetryRunner{name: "retry-sandbox", mounts: []string{mount, "/old-mount"}, createFailures: 4}
 	group := workspacegroup.Workspace{
 		ID: "workspace-id", Path: mount,
 		Sandbox: &workspacegroup.Sandbox{Name: runner.name, Agent: "shell", Mounts: []string{mount}},
@@ -120,8 +123,9 @@ func TestReconcileSandboxStopsAfterBoundedTransientFailures(t *testing.T) {
 }
 
 func TestReconcileSandboxDoesNotRetryPermanentCreateFailure(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	mount := t.TempDir()
-	runner := &sandboxRetryRunner{name: "retry-sandbox", mounts: []string{"/old-mount"}, permanentFailure: true}
+	runner := &sandboxRetryRunner{name: "retry-sandbox", mounts: []string{mount, "/old-mount"}, permanentFailure: true}
 	group := workspacegroup.Workspace{
 		ID: "workspace-id", Path: mount,
 		Sandbox: &workspacegroup.Sandbox{Name: runner.name, Agent: "shell", Mounts: []string{mount}},
@@ -158,6 +162,9 @@ type sandboxRetryRunner struct {
 func (r *sandboxRetryRunner) LookPath(string) error { return nil }
 
 func (r *sandboxRetryRunner) Run(_ context.Context, cwd string, name string, args ...string) (string, error) {
+	if name == "sbx" && len(args) > 0 && args[0] == "version" {
+		return `{"client":{"version":"v0.48.0"}}`, nil
+	}
 	r.calls = append(r.calls, call{cwd: cwd, name: name, args: append([]string(nil), args...)})
 	if name != "sbx" || len(args) == 0 {
 		return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
@@ -179,7 +186,7 @@ func (r *sandboxRetryRunner) Run(_ context.Context, cwd string, name string, arg
 				"name": r.name, "agent": "shell", "status": "running", "workspaces": r.mounts,
 			})
 		}
-		data, _ := json.Marshal(map[string]any{"sandboxes": sandboxes})
+		data, _ := json.Marshal(sandboxes)
 		return string(data), nil
 	case "rm":
 		r.removeCalls++
@@ -188,6 +195,7 @@ func (r *sandboxRetryRunner) Run(_ context.Context, cwd string, name string, arg
 		return "", nil
 	case "create":
 		r.createCalls++
+		r.mounts = append([]string(nil), sandboxCreateMountArgs(args)...)
 		if r.permanentFailure {
 			return "", fmt.Errorf("sbx %s failed: invalid sandbox kit", strings.Join(args, " "))
 		}

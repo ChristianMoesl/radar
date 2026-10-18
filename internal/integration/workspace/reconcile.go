@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"radar/internal/integration"
@@ -25,6 +24,7 @@ import (
 
 type ReconcileWorkspaceRequest struct {
 	creating                bool
+	SandboxConfig           *sbxsettings.Config             `json:"-"`
 	NoteAuthor              integration.WorkspaceNoteAuthor `json:"-"`
 	Workspace               string                          `json:"-"`
 	WorkspaceRoot           string                          `json:"-"`
@@ -162,8 +162,8 @@ func PreviewReconcileWorkspace(ctx context.Context, runner Runner, request Recon
 }
 
 func planWorkspace(ctx context.Context, runner Runner, root string, group workspacegroup.Workspace, request ReconcileWorkspaceRequest) (ReconcileWorkspacePlan, error) {
-	if group.Sandbox != nil {
-		if err := sbxclient.New(runner).RequireManaged(); err != nil {
+	if group.Sandbox != nil || request.Desired.Sandbox != nil {
+		if err := managedClient(runner).Preflight(ctx); err != nil {
 			return ReconcileWorkspacePlan{}, err
 		}
 	}
@@ -337,8 +337,42 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 		removals = append(removals, reconcileRemoval{member: member, deleteBranch: removal.DeleteBranch})
 	}
 
-	if group.Sandbox == nil && request.Desired.Sandbox != nil {
-		return ReconcileWorkspacePlan{}, fmt.Errorf("this workspace has no SBX sandbox; sandbox mounts and ports are unavailable")
+	attaching := group.Sandbox == nil && request.Desired.Sandbox != nil
+	if attaching {
+		if candidate.NotePath == "" {
+			return ReconcileWorkspacePlan{}, fmt.Errorf("attach a canonical note before attaching SBX")
+		}
+		if request.Desired.Note == nil || !request.Desired.Note.Create {
+			info, err := os.Stat(candidate.NotePath)
+			if err != nil || !info.Mode().IsRegular() {
+				return ReconcileWorkspacePlan{}, fmt.Errorf("canonical task note must be an accessible regular file: %s", candidate.NotePath)
+			}
+		}
+		cfg := sbxsettings.Default()
+		if request.SandboxConfig != nil {
+			cfg = *request.SandboxConfig
+		}
+		sbxsettings.ApplyDefaults(&cfg)
+		if err := sbxsettings.ValidateReadyCommand(cfg.ReadyCommand); err != nil {
+			return ReconcileWorkspacePlan{}, err
+		}
+		envFile, err := resolveSandboxEnvFile(cfg.EnvFile)
+		if err != nil {
+			return ReconcileWorkspacePlan{}, err
+		}
+		name := SandboxName("workspace", WorktreeName(group.Name)+"-"+workspacegroup.ID(group.Path)[:8])
+		for _, other := range registry.Workspaces {
+			if other.ID != group.ID && other.Sandbox != nil && other.Sandbox.Name == name {
+				return ReconcileWorkspacePlan{}, fmt.Errorf("sandbox name %s is already owned by another workspace", name)
+			}
+		}
+		if _, found, err := findSandbox(ctx, runner, group.Path, name); err != nil {
+			return ReconcileWorkspacePlan{}, err
+		} else if found {
+			return ReconcileWorkspacePlan{}, fmt.Errorf("sandbox name %s is already occupied; refusing to adopt or remove it", name)
+		}
+		candidate.Sandbox = &workspacegroup.Sandbox{Name: name, Agent: cfg.Kit.Name, KitPath: ExpandPath(cfg.Kit.Path), EnvFile: envFile, ReadyCommand: append([]string(nil), cfg.ReadyCommand...)}
+		changes = append(changes, WorkspaceChange{Action: "attach", Resource: "sandbox", Summary: fmt.Sprintf("attach SBX sandbox %s using kit %s", name, cfg.Kit.Name)})
 	}
 	if group.Sandbox != nil && request.Desired.Sandbox == nil {
 		return ReconcileWorkspacePlan{}, fmt.Errorf("sandbox attachment cannot be changed through workspace reconciliation")
@@ -379,7 +413,11 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 		if err != nil {
 			return ReconcileWorkspacePlan{}, err
 		}
-		currentAdditionalMounts, err := normalizeSandboxMounts(group.Sandbox.AdditionalMounts)
+		var oldMounts []workspacegroup.SandboxMount
+		if group.Sandbox != nil {
+			oldMounts = group.Sandbox.AdditionalMounts
+		}
+		currentAdditionalMounts, err := normalizeSandboxMounts(oldMounts)
 		if err != nil {
 			return ReconcileWorkspacePlan{}, err
 		}
@@ -395,7 +433,7 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 		}
 		candidate.Sandbox.Mounts = mounts
 		effectiveMountCount = len(mounts)
-		actual, found, err := findSandbox(ctx, runner, group.Path, group.Sandbox.Name)
+		actual, found, err := findSandbox(ctx, runner, group.Path, candidate.Sandbox.Name)
 		if err != nil {
 			return ReconcileWorkspacePlan{}, err
 		}
@@ -414,8 +452,8 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 			readOnly := mount.ReadOnly
 			changes = append(changes, WorkspaceChange{Action: "remove", Resource: "sandbox_mount", Path: mount.Path, ReadOnly: &readOnly, Summary: fmt.Sprintf("remove sandbox mount %s", mount.Path)})
 		}
-		if recreateSandbox {
-			changes = append(changes, WorkspaceChange{Action: "recreate", Resource: "sandbox", Summary: fmt.Sprintf("recreate SBX sandbox %s with %d effective mounts", group.Sandbox.Name, effectiveMountCount)})
+		if recreateSandbox && !attaching {
+			changes = append(changes, WorkspaceChange{Action: "recreate", Resource: "sandbox", Summary: fmt.Sprintf("recreate SBX sandbox %s with %d effective mounts", candidate.Sandbox.Name, effectiveMountCount)})
 		}
 		for _, port := range portDifference(desiredPorts, actualPorts) {
 			changes = append(changes, WorkspaceChange{Action: "add", Resource: "sandbox_port", HostPort: port.HostPort, SandboxPort: port.SandboxPort, Summary: fmt.Sprintf("expose IPv4 localhost:%d to sandbox port %d", port.HostPort, port.SandboxPort)})
@@ -462,7 +500,7 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 	if noteAdded {
 		warnings = append(warnings, "The canonical note is retained on workspace cleanup and cannot be detached through workspace controls.")
 	}
-	if recreateSandbox {
+	if recreateSandbox && !attaching {
 		warnings = append(warnings, "recreating the sandbox interrupts processes running inside it")
 		if effectiveMountCount >= largeEffectiveMountCount {
 			warnings = append(warnings, fmt.Sprintf("the sandbox will use %d effective mounts; unusually large mount sets may make SBX recreation less reliable", effectiveMountCount))
@@ -471,7 +509,7 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 	if writableMountAdded {
 		warnings = append(warnings, "a writable sandbox mount grants the sandbox write access to that host directory")
 	}
-	planID, err := workspacePlanID(revision, changes, warnings)
+	planID, err := workspacePlanID(revision+"\x00"+nextRevision+"\x00"+plannedSandboxMounts(candidate), changes, warnings)
 	if err != nil {
 		return ReconcileWorkspacePlan{}, err
 	}
@@ -899,6 +937,13 @@ func worktreeChangeCount(ctx context.Context, runner Runner, path string) (int, 
 	return len(strings.Split(status, "\n")), nil
 }
 
+func plannedSandboxMounts(group workspacegroup.Workspace) string {
+	if group.Sandbox == nil {
+		return ""
+	}
+	return strings.Join(normalizeMountSet(group.Sandbox.Mounts), "\x00")
+}
+
 func workspacePlanID(revision string, changes []WorkspaceChange, warnings []string) (string, error) {
 	data, err := json.Marshal(struct {
 		Revision string            `json:"revision"`
@@ -1110,57 +1155,28 @@ func listSandboxPortBindings(ctx context.Context, runner Runner, name string) ([
 }
 
 func parseSandboxPortsJSON(data []byte) ([]sandboxPortBinding, error) {
-	var value any
-	if err := json.Unmarshal(data, &value); err != nil {
+	type row struct {
+		HostIP      *string `json:"host_ip"`
+		HostPort    *int    `json:"host_port"`
+		SandboxPort *int    `json:"sandbox_port"`
+		Protocol    *string `json:"protocol"`
+	}
+	rows, err := sbxclient.DecodeList[row](string(data))
+	if err != nil {
 		return nil, err
 	}
-	items, ok := value.([]any)
-	if !ok {
-		if object, objectOK := value.(map[string]any); objectOK {
-			for _, key := range []string{"ports", "published_ports", "publishedPorts"} {
-				if nested, exists := object[key]; exists {
-					items, ok = nested.([]any)
-					break
-				}
-			}
+	bindings := make([]sandboxPortBinding, 0, len(rows))
+	for _, item := range rows {
+		if item.HostIP == nil || item.HostPort == nil || item.SandboxPort == nil || item.Protocol == nil {
+			return nil, fmt.Errorf("port object requires host_ip, host_port, sandbox_port, and protocol")
 		}
-	}
-	if !ok {
-		return nil, fmt.Errorf("expected a JSON array")
-	}
-	bindings := make([]sandboxPortBinding, 0, len(items))
-	for _, item := range items {
-		object, objectOK := item.(map[string]any)
-		if !objectOK {
-			return nil, fmt.Errorf("expected port objects")
+		port := workspacegroup.SandboxPort{HostPort: *item.HostPort, SandboxPort: *item.SandboxPort}
+		if _, err := normalizeSandboxPorts([]workspacegroup.SandboxPort{port}); err != nil {
+			return nil, err
 		}
-		host, hostOK := integerField(object, "hostport")
-		sandbox, sandboxOK := integerField(object, "sandboxport", "containerport", "targetport")
-		hostIP, hostIPOK := stringField(object, "hostip")
-		protocol, protocolOK := stringField(object, "protocol")
-		if !hostOK || !sandboxOK || !hostIPOK || !protocolOK {
-			return nil, fmt.Errorf("port object does not contain host_ip, host_port, sandbox_port, and protocol")
-		}
-		bindings = append(bindings, sandboxPortBinding{
-			Port:   workspacegroup.SandboxPort{HostPort: host, SandboxPort: sandbox},
-			HostIP: strings.TrimSpace(hostIP), Protocol: strings.ToLower(strings.TrimSpace(protocol)),
-		})
+		bindings = append(bindings, sandboxPortBinding{Port: port, HostIP: *item.HostIP, Protocol: *item.Protocol})
 	}
 	return bindings, nil
-}
-
-func stringField(object map[string]any, names ...string) (string, bool) {
-	for key, value := range object {
-		normalized := strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(key))
-		for _, name := range names {
-			if normalized != name {
-				continue
-			}
-			text, ok := value.(string)
-			return text, ok
-		}
-	}
-	return "", false
 }
 
 func logicalSandboxPorts(bindings []sandboxPortBinding) ([]workspacegroup.SandboxPort, error) {
@@ -1188,25 +1204,6 @@ func incompatibleSandboxPorts(bindings []sandboxPortBinding) []workspacegroup.Sa
 	}
 	ports, _ = normalizeSandboxPorts(ports)
 	return ports
-}
-
-func integerField(object map[string]any, names ...string) (int, bool) {
-	for key, value := range object {
-		normalized := strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(key))
-		for _, name := range names {
-			if normalized != name {
-				continue
-			}
-			switch typed := value.(type) {
-			case float64:
-				return int(typed), typed == float64(int(typed))
-			case string:
-				parsed, err := strconv.Atoi(typed)
-				return parsed, err == nil
-			}
-		}
-	}
-	return 0, false
 }
 
 func portDifference(left, right []workspacegroup.SandboxPort) []workspacegroup.SandboxPort {

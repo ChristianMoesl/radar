@@ -67,7 +67,7 @@ async function harness(t: TestContext) {
   const emit = (event: string, details: any = {}) => hooks.get(event)!({ type: event, ...details }, ctx);
   const manifest = join(root, "arbitrary-package", "package.json");
   const source = join(dirname(manifest), "src", "extensions", "index.ts");
-  async function provider(version: unknown = "0.6.0", name: unknown = "@christianmoesl/pi-sbx") {
+  async function provider(version: unknown = "0.7.0", name: unknown = "@christianmoesl/pi-sbx") {
     await mkdir(dirname(source), { recursive: true });
     await writeFile(source, "export default function() {}\n");
     await writeFile(manifest, JSON.stringify({ name, version }));
@@ -91,7 +91,7 @@ function refused(h: Awaited<ReturnType<typeof harness>>, reason: RegExp) {
   assert.ok(h.exits.every(code => code === 1));
   assert.match(h.errors.at(-1)!, reason);
   assert.match(h.notices.at(-1)!, reason);
-  assert.match(h.notices.at(-1)!, /stable|>=0\.6\.0/);
+  assert.match(h.notices.at(-1)!, /stable|>=0\.7\.0/);
   assert.match(h.notices.at(-1)!, /host terminal.*install\/update/);
   assert.match(h.notices.at(-1)!, /pi install npm:@christianmoesl\/pi-sbx/);
   assert.match(h.notices.at(-1)!, /pi config.*restart/);
@@ -122,7 +122,7 @@ test("missing, disabled or failed providers cannot be established by package/con
   const h = await harness(t);
   await h.provider();
   await mkdir(join(h.root, ".pi"));
-  const declaration = JSON.stringify({ packages: [{ source: "npm:@christianmoesl/pi-sbx@0.6.0", extensions: [], autoload: false }], extensions: [`-${h.source}`] });
+  const declaration = JSON.stringify({ packages: [{ source: "npm:@christianmoesl/pi-sbx@0.7.0", extensions: [], autoload: false }], extensions: [`-${h.source}`] });
   await writeFile(join(h.root, ".pi", "settings.json"), declaration);
   h.commands.length = 0;
   h.tools.length = 0;
@@ -134,7 +134,7 @@ test("missing, disabled or failed providers cannot be established by package/con
   await assert.rejects(h.shell().operations.exec(), /launch refused/);
 });
 
-for (const version of ["0.5.9", "0.0.6", "0.6.0-rc.1", "0.7.0-beta", "1.0.0-preview", "v0.6.0", "0.6", "00.6.0", "0.06.0", "0.6.00", "0.6.0+", "0.6.0\n", null, 6]) {
+for (const version of ["0.5.9", "0.6.4", "0.0.6", "0.7.0-rc.1", "0.7.0-beta", "1.0.0-preview", "v0.7.0", "0.6", "00.7.0", "0.06.0", "0.7.00", "0.7.0+", "0.7.0\n", null, 6]) {
   test(`rejects unverifiable/old/prerelease version ${JSON.stringify(version)}`, async t => {
     const h = await harness(t);
     await h.provider(version);
@@ -143,7 +143,7 @@ for (const version of ["0.5.9", "0.0.6", "0.6.0-rc.1", "0.7.0-beta", "1.0.0-prev
   });
 }
 
-for (const version of ["0.6.0", "0.6.1", "0.7.0", "1.0.0", "2.0.0+local.1"]) {
+for (const version of ["0.7.0", "0.7.1", "0.8.0", "1.0.0", "2.0.0+local.1"]) {
   test(`accepts active stable pi-sbx ${version} without requiring tools be selected`, async t => {
     const h = await harness(t);
     await h.provider(version);
@@ -200,7 +200,7 @@ test("only matching real extension paths establish ownership; package identity a
 
 test("local symlinks use canonical extension ownership and the real closest manifest", async t => {
   const h = await harness(t);
-  await h.provider("0.6.0+local");
+  await h.provider("0.7.0+local");
   const link = join(h.root, "custom-install");
   await symlink(dirname(h.manifest), link, "dir");
   h.commands[0].sourceInfo = { ...h.commands[0].sourceInfo, path: join(link, "src", "extensions", "index.ts") };
@@ -229,7 +229,7 @@ test("rejects missing/relative/pseudo/inaccessible metadata rather than guessing
 
 test("rejects wrong, malformed and absent manifests at the nearest boundary", async t => {
   const h = await harness(t);
-  await h.provider("0.6.0", "unrelated");
+  await h.provider("0.7.0", "unrelated");
   h.start();
   refused(h, /closest package.json.*not @christianmoesl\/pi-sbx/);
   await writeFile(h.manifest, "broken JSON");
@@ -437,7 +437,7 @@ export default function(pi) {
 }
 
 test("offline real Pi: stable local provider exposes effective SourceInfo even with only read selected", { timeout: 20000 }, async t => {
-  const h = await realFixture(t, "0.6.0");
+  const h = await realFixture(t, "0.7.0");
   const run = exec(process.execPath, [...h.args, "-p", "/fixture-reload", "/fixture-snapshot"], { cwd: h.workspace, env: h.env, timeout: 15000 });
   run.child.stdin!.end(); // Print mode reads piped stdin before startup.
   const { stderr } = await run;

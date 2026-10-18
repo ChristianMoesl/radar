@@ -36,7 +36,7 @@ func (c Config) WorkspaceEnabled(goos string, lookPath func(string) error) bool 
 	if c.Enabled != nil {
 		return *c.Enabled
 	}
-	return goos == "darwin" && lookPath("sbx") == nil
+	return (goos == "darwin" || goos == "linux") && lookPath("sbx") == nil
 }
 
 // ValidateReadyCommand checks argv structure only. The executable belongs to the

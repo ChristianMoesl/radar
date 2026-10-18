@@ -2,7 +2,6 @@ package sbx
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,10 +20,6 @@ import (
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
-
-type listResponse struct {
-	Sandboxes []sandbox `json:"sandboxes"`
-}
 
 type sandbox struct {
 	Name       string   `json:"name"`
@@ -88,11 +83,16 @@ func FetchSandboxes(ctx context.Context, logger *slog.Logger, marks linking.Mark
 }
 
 func parseSandboxes(output string) ([]sandbox, error) {
-	var response listResponse
-	if err := json.Unmarshal([]byte(output), &response); err != nil {
-		return nil, fmt.Errorf("unexpected sbx ls output: %w", err)
+	sandboxes, err := sbxclient.DecodeList[sandbox](output)
+	if err != nil {
+		return nil, err
 	}
-	return response.Sandboxes, nil
+	for _, sandbox := range sandboxes {
+		if strings.TrimSpace(sandbox.Name) == "" && strings.TrimSpace(sandbox.ID) == "" {
+			return nil, fmt.Errorf("unexpected sbx ls output: sandbox row has no identity")
+		}
+	}
+	return sandboxes, nil
 }
 
 func (s sandbox) SourceRef(marks linking.MarkMatcher, registeredWorkspace string) protocol.SourceRef {

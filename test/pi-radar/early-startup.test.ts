@@ -182,14 +182,16 @@ const { createInterface } = require('node:readline');
 const args = process.argv.slice(2);
 const log = value => appendFileSync(${JSON.stringify(sbxLog)}, JSON.stringify({...value, at: Date.now()}) + '\\n');
 const emit = value => process.stdout.write(JSON.stringify(value) + '\\n');
-if (args[0] === 'ls' && args[1] === '--json' && args.length === 2) {
+if (args[0] === 'version' && args[1] === '--json') {
+  emit({client: {version: 'v0.48.0'}});
+} else if (args[0] === 'ls' && args[1] === '--json' && args.length === 2) {
   log({kind: 'discovery-start'});
   const timer = setInterval(() => {
     if (!existsSync(${JSON.stringify(discoveryGate)})) return;
     clearInterval(timer);
     const present = existsSync(${JSON.stringify(appearanceGate)});
     log({kind: 'discovery-result', present});
-    emit({sandboxes: present ? [{name: ${JSON.stringify(sandboxName)}, status: 'running', workspaces: [${JSON.stringify(workspace)}]}] : []});
+    emit(present ? [{name: ${JSON.stringify(sandboxName)}, status: 'running', workspaces: [${JSON.stringify(workspace)}]}] : []);
   }, 10);
 } else if (args[0] === 'exec') {
   if (args[1] !== '-i' || args[2] !== '--workdir' || args[3] !== ${JSON.stringify(workspace)} || args[4] !== ${JSON.stringify(sandboxName)} || args[5] !== 'node' || args[6] !== '-e' || !args[7]?.includes('SBX_STARTUP_DIR')) {
@@ -300,7 +302,7 @@ export default function(pi) {
 
   const manifest = JSON.parse(await readFile(join(sbxPackage, "package.json"), "utf8"));
   assert.equal(manifest.name, "@christianmoesl/pi-sbx");
-  assert.equal(manifest.version, "0.6.0", "must exercise the pinned release, not a fake provider package");
+  assert.equal(manifest.version, "0.7.0", "must exercise the pinned companion commit, not a fake provider package");
   await writeFile(join(agent, "settings.json"), JSON.stringify({
     defaultProjectTrust: "always", quietStartup: true, enableInstallTelemetry: false,
     packages: [sbxPackage, repository], extensions: [probe],

@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	obsidiansettings "radar/internal/integration/obsidian/settings"
-	sbxclient "radar/internal/integration/sbx/client"
 	sbxsettings "radar/internal/integration/sbx/settings"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/pi"
@@ -74,7 +73,7 @@ func prepareWorkspaceRuntime(ctx context.Context, runner Runner, group workspace
 		if err := sbxsettings.ValidateReadyCommand(group.Sandbox.ReadyCommand); err != nil {
 			return false, false, err
 		}
-		if err := sbxclient.New(runner).RequireManaged(); err != nil {
+		if err := managedClient(runner).Preflight(ctx); err != nil {
 			return false, false, err
 		}
 	}
@@ -137,13 +136,19 @@ func prepareWorkspaceSandbox(ctx context.Context, runner Runner, group workspace
 
 func startWorkspaceSession(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string, early bool) error {
 	args := piArgsWithPrompt(taskPiSessionID(group.SessionName, group.TaskLinkingKey), group.SessionName, group.Model, group.Thinking, forkSession, "")
-	if early {
+	if group.Sandbox != nil {
 		guard, err := pi.RequireSandboxPath()
 		if err != nil {
 			return fmt.Errorf("prepare required pi-sbx launch guard: %w", err)
 		}
 		args += " --extension " + shellQuote(guard)
-		return createEarlyTmuxWorkspace(ctx, runner, group.Path, group.Path, group.SessionName, group.Tmux, args)
 	}
-	return createTmuxWorkspace(ctx, runner, group.Path, group.Path, group.SessionName, group.Tmux, args, nil)
+	environment := map[string]string{}
+	if group.Sandbox != nil {
+		environment["PI_SBX_REQUIRED_SANDBOX"] = group.Sandbox.Name
+	}
+	if early {
+		return createTmuxWorkspaceWithGates(ctx, runner, group.Path, group.Path, group.SessionName, group.Tmux, args, environment, true)
+	}
+	return createTmuxWorkspace(ctx, runner, group.Path, group.Path, group.SessionName, group.Tmux, args, environment)
 }

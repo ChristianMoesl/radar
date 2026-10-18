@@ -188,6 +188,7 @@ func TestWorkspaceCleanupRemovesRecordedSharedDirectory(t *testing.T) {
 }
 
 func TestReconcileExistingRuntimeRecreatesMissingSharedDirectory(t *testing.T) {
+	withWorkspaceGOOS(t, "darwin")
 	t.Setenv(hostTempDirEnv, t.TempDir())
 	group := sharedDirectoryFixture(t, t.TempDir(), "existing")
 	runner := &sandboxRetryRunner{name: group.Sandbox.Name, exists: true, mounts: group.Sandbox.Mounts}

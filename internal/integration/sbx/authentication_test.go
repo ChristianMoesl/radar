@@ -83,7 +83,7 @@ case "$1" in
       printf '%s\n' "$RADAR_TEST_PROBE_ERROR" >&2
       exit 1
     fi
-    printf '{"sandboxes":[]}\n'
+    printf '[]\n'
     ;;
   login)
     IFS= read -r answer

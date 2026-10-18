@@ -65,9 +65,9 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		}
 	}
 
-	ports, _, err := observedSandboxPorts(ctx, runner, group)
-	if err != nil {
-		return integration.WorkspaceContext{}, err
+	ports, _, runtimeErr := observedSandboxPorts(ctx, runner, group)
+	if runtimeErr != nil {
+		ports = sandboxPorts(group)
 	}
 	revision, err := workspaceRevision(group, ports)
 	if err != nil {
@@ -77,7 +77,7 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		CurrentPath: current, WorkspaceRoot: root, WorkspaceID: group.ID,
 		WorkspaceName: group.Name, WorkspacePath: group.Path, Registered: registered,
 		EnrollmentRequired: !registered, SessionName: group.SessionName, Revision: revision,
-		Capabilities: integration.WorkspaceContextCapabilities{Worktrees: true, Sandbox: group.Sandbox != nil, AdditionalMounts: group.Sandbox != nil, PortForwarding: group.Sandbox != nil},
+		Capabilities: integration.WorkspaceContextCapabilities{SandboxAttachment: group.Sandbox == nil && managedClient(runner).RequireManaged() == nil && (workspaceGOOS == "darwin" || workspaceGOOS == "linux"), Worktrees: true, Sandbox: group.Sandbox != nil, AdditionalMounts: group.Sandbox != nil, PortForwarding: group.Sandbox != nil},
 		Desired:      integration.DesiredWorkspaceDescription{Worktrees: make([]integration.DesiredWorkspaceWorktree, 0, len(group.Members))},
 		Members:      make([]integration.WorkspaceContextMember, 0, len(group.Members)),
 		Repositories: make([]integration.WorkspaceContextRepository, 0, len(repositories)),
@@ -96,13 +96,18 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		result.Desired.Sandbox = &integration.DesiredWorkspaceSandbox{AdditionalMounts: desiredMounts, Ports: integrationPorts(ports)}
 		actual, found, err := findSandbox(ctx, runner, group.Path, group.Sandbox.Name)
 		if err != nil {
-			return integration.WorkspaceContext{}, err
+			runtimeErr = err
+		} else if !found && runtimeErr == nil {
+			runtimeErr = fmt.Errorf("sandbox %s is absent; reconcile the retained desired state to provision or retry", group.Sandbox.Name)
 		}
 		result.Sandbox = &integration.WorkspaceContextSandbox{
 			SharedDirectory:      group.Sandbox.SharedDirectory,
 			SharedDirectoryReady: found && sharedDirectoryReady(group.Sandbox.SharedDirectory, sandboxWorkspaceMounts(actual)),
 			Name:                 group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath,
 			Mounts: append([]string(nil), group.Sandbox.Mounts...), Ports: integrationPorts(ports),
+		}
+		if runtimeErr != nil {
+			result.Sandbox.RuntimeError = runtimeErr.Error()
 		}
 	}
 	for _, member := range group.Members {

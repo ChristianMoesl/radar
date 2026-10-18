@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -102,13 +101,18 @@ func listSandboxes(ctx context.Context, runner Runner) ([]listedSandbox, error) 
 	if err != nil {
 		return nil, sbxCommandError(err)
 	}
-	var response struct {
-		Sandboxes []listedSandbox `json:"sandboxes"`
+	sandboxes, err := sbxclient.DecodeList[listedSandbox](output)
+	if err != nil {
+		return nil, err
 	}
-	if err := json.Unmarshal([]byte(output), &response); err != nil {
-		return nil, fmt.Errorf("unexpected sbx ls output: %w", err)
+	names := map[string]bool{}
+	for _, sandbox := range sandboxes {
+		if strings.TrimSpace(sandbox.Name) == "" || names[sandbox.Name] {
+			return nil, fmt.Errorf("unexpected sbx ls output: sandbox names must be nonempty and unique")
+		}
+		names[sandbox.Name] = true
 	}
-	return response.Sandboxes, nil
+	return sandboxes, nil
 }
 
 func findSandbox(ctx context.Context, runner Runner, workspacePath, preferredName string) (listedSandbox, bool, error) {
@@ -122,6 +126,15 @@ func findSandbox(ctx context.Context, runner Runner, workspacePath, preferredNam
 	if preferredName != "" {
 		for _, sandbox := range sandboxes {
 			if sandbox.Name == preferredName {
+				owned := false
+				for _, mount := range append(append([]string(nil), sandbox.Workspaces...), sandbox.Mounts...) {
+					if sameCleanPath(strings.TrimSuffix(mount, ":ro"), workspacePath) && !strings.HasSuffix(mount, ":ro") {
+						owned = true
+					}
+				}
+				if !owned {
+					return listedSandbox{}, false, fmt.Errorf("sandbox %s does not mount workspace %s read/write; refusing to adopt or remove an unrelated runtime", preferredName, workspacePath)
+				}
 				return sandbox, true, nil
 			}
 		}
@@ -264,6 +277,9 @@ func reconcileSandbox(ctx context.Context, runner Runner, group workspacegroup.W
 func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group workspacegroup.Workspace, logger *slog.Logger, policy sandboxReconcilePolicy) error {
 	sandbox := group.Sandbox
 	if err := sbxsettings.ValidateReadyCommand(sandbox.ReadyCommand); err != nil {
+		return err
+	}
+	if err := managedClient(runner).Preflight(ctx); err != nil {
 		return err
 	}
 	if sandbox.EnvFile == "" {
@@ -423,7 +439,15 @@ func scheduleMemberSetup(ctx context.Context, runner Runner, path, sessionName, 
 	for _, command := range commands {
 		steps = append(steps, "sh -lc "+shellQuote(command))
 	}
-	_, err := runner.Run(ctx, path, "sh", "-lc", "("+strings.Join(steps, " && ")+") >/dev/null 2>&1 &")
+	command := "(" + strings.Join(steps, " && ") + ") >/dev/null 2>&1 &"
+	if sandboxName != "" {
+		if err := managedClient(runner).Preflight(ctx); err != nil {
+			return err
+		}
+		_, err := sbxclient.New(runner).Run(ctx, path, "exec", "--workdir", path, sandboxName, "sh", "-lc", command)
+		return err
+	}
+	_, err := runner.Run(ctx, path, "sh", "-lc", command)
 	return err
 }
 

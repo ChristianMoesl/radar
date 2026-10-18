@@ -30,7 +30,7 @@ func (r *setupRunner) LookPath(name string) error {
 }
 
 func TestSandboxInstallAndOverrideMatrix(t *testing.T) {
-	for _, goos := range []string{"linux", "darwin"} {
+	for _, goos := range []string{"freebsd", "darwin"} {
 		for _, installed := range []bool{false, true} {
 			for _, global := range []string{"auto", "true", "false"} {
 				for _, repo := range []string{"auto", "true", "false"} {
@@ -99,7 +99,7 @@ func TestSandboxInstallAndOverrideMatrix(t *testing.T) {
 							t.Fatal("preview created an anchor")
 						}
 						for _, call := range runner.calls {
-							if (call.name == "sbx" && len(call.args) > 0 && call.args[0] != "ls") || (call.name == "tmux" && len(call.args) > 0 && call.args[0] == "new-session") {
+							if (call.name == "sbx" && len(call.args) > 0 && call.args[0] != "ls" && call.args[0] != "version") || (call.name == "tmux" && len(call.args) > 0 && call.args[0] == "new-session") {
 								t.Fatalf("preview provisioned a resource: %+v", call)
 							}
 						}

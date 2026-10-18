@@ -13,9 +13,9 @@ and [recreation](#explicit-sandbox-recreation) before resetting an existing sand
 
 ## Guided setup and your local kit
 
-Run `radar setup` on supported macOS. New installations recommend SBX; repeat
-setup prefills the existing choice. Setup checks SBX 0.43.0+, offers `sbx login`
-when needed, and installs/verifies pi-sbx 0.6.0+ with consent. Missing or outdated
+Run `radar setup` on macOS or native Linux (including WSL2 with KVM). New installations recommend SBX; repeat
+setup prefills the existing choice. Setup checks SBX 0.48.x, offers `sbx login`
+when needed, and installs/verifies pi-sbx 0.7.0+ with consent. Missing or outdated
 SBX gets installation/update guidance, not an unattended installer.
 
 When no sandbox recipe has been explicitly configured, setup proposes these
@@ -87,7 +87,7 @@ explicit kit, env-file, mount and readiness settings—including a previously
 configured published kit. Existing starter files are never overwritten, and
 concurrent edits to proposed starter files abort saving. Existing env-file
 contents are not displayed. Upgrades do not regenerate this user-owned kit.
-Linux/WSL setup does not enable managed sandboxes.
+Linux setup validates KVM before provisioning. Native WSL remains an upstream best-effort setup; see the cache and qualification requirements below.
 
 ### Preconfigure with an image or startup scripts
 
@@ -345,12 +345,12 @@ VM-local state just to troubleshoot authentication.
 
 ## Configuration and authentication
 
-`sbx.enabled`, `sbx.kit`, `sbx.additional_mounts`, optional `sbx.env_file`, and optional `sbx.ready_command` configure managed runtimes. Repository-local settings use the same shape. Omitted `enabled` automatically enables new workspaces on macOS when `sbx` is on PATH. Explicit repository `enabled` overrides explicit global `enabled`; otherwise automatic detection applies. Explicit enablement with missing tools or unsupported platforms fails before provisioning; runtime/authentication failures never fall back to the host. On dashboard startup, Radar detects reported SBX authentication failures and runs the provider-owned login flow before opening the TUI. `radar create`, `radar fork`, and CLI cleanup of sandbox targets also check authentication before proceeding. The check is bounded and only authentication failures trigger login; missing tools, healthy sessions, and unrelated runtime failures do not. Successful startup login refreshes local sources. Background collection never prompts. You can also sign in manually with `sbx login`.
+`sbx.enabled`, `sbx.kit`, `sbx.additional_mounts`, optional `sbx.env_file`, and optional `sbx.ready_command` configure managed runtimes. Repository-local settings use the same shape. Omitted `enabled` automatically enables new workspaces on macOS or Linux when `sbx` is on PATH. Explicit repository `enabled` overrides explicit global `enabled`; otherwise automatic detection applies. Explicit enablement with missing tools or unsupported platforms fails before provisioning; runtime/authentication failures never fall back to the host. On dashboard startup, Radar detects reported SBX authentication failures and runs the provider-owned login flow before opening the TUI. `radar create`, `radar fork`, and CLI cleanup of sandbox targets also check authentication before proceeding. The check is bounded and only authentication failures trigger login; missing tools, healthy sessions, and unrelated runtime failures do not. Successful startup login refreshes local sources. Background collection never prompts. You can also sign in manually with `sbx login`.
 
 ### Kits and mounts
 
 Guided setup uses the complete local kit described above. Without an explicit
-kit, new workspaces use `docker.io/christianmoesl/radar-kit:latest` (SBX 0.43.0+). A user config or repository `.radar.yaml` can add:
+kit, new workspaces use `docker.io/christianmoesl/radar-kit:latest` (SBX 0.48.x). A user config or repository `.radar.yaml` can add:
 
 ```yaml
 sbx:
@@ -473,7 +473,7 @@ An unset `SBX_STARTUP_DIR` is an immediate no-op.
 SBX native startup commands do not gate the agent's entrypoint, regardless of
 `background: false`. Radar's command gates its auxiliary panes and repository
 setup, **not the early Pi tools**. Tool readiness is independently owned by
-**pi-sbx >=0.6.0**: a nonempty sandbox `SBX_STARTUP_DIR` requires the image's
+**pi-sbx >=0.7.0**: a nonempty sandbox `SBX_STARTUP_DIR` requires the image's
 `sandbox-startup wait --timeout 60` contract before the worker becomes ready.
 The helper must exist and report current-boot readiness; failure never enables
 implicit host execution. With no startup directory, pi-sbx only checks worker
@@ -618,34 +618,139 @@ Shell text and paths passed to commands **inside** a sandbox are not rewritten.
 Windows SBX processes run outside host workspace directories to avoid holding
 Windows directory handles that prevent removal.
 
-### Managed workspace limitation
+### Windows managed-workspace limitation
 
-**Detection does not mean managed workspace provisioning is supported.** A real
-WSL2 preflight with Windows SBX v0.43.0 verified ordinary file reads/writes, but
-both relative and absolute symlinks in WSL-mounted directories failed with
-`Invalid argument` from `readlink`/`cat` inside the sandbox. Radar requires its
-canonical `notes.md` symlink, so enabling workspace sandboxing would produce a
-broken workspace. Windows SBX also exposes mounts at different sandbox paths
-(`/wsl.localhost/<distribution>/...` or `/c/...`), affecting absolute Git worktree
-pointers and shared-directory references.
+**Detection does not imply managed provisioning.** Windows SBX v0.46 was retested
+before and after restart: WSL-created symlinks (including `notes.md`) returned
+`Invalid argument`, and guest mount paths did not preserve absolute WSL Git
+worktree pointers. v0.48's Windows chmod fix is not proof these separate problems
+are fixed. Managed provisioning through `sbx.exe` remains blocked. Collection,
+shell actions and cleanup use the 0.48 protocol; upgrade the CLI and Pi/Radar
+consumers together. Old JSON envelopes are rejected, not read as empty lists.
 
-New workspace sandboxing therefore remains macOS-only. Explicit enablement on
-WSL reports the limitation before provisioning the workspace bundle; existing
-Windows-backed managed workspaces cannot be opened/reconciled through Radar.
-Collection, sandbox shell actions and cleanup remain available. Radar does not
-rewrite host note links/Git metadata, install mount aliases, or silently execute
-sandboxed setup on the host. No config, registry, or sandbox filesystem migration
-is introduced.
+### Native Linux inside WSL2
 
-Before enabling full WSL workspace support, validate canonical note links, Git
-worktrees with external common directories, shared files, read-only mounts,
-recreation, restart, and agent tool routing against a backend that supports the
-required filesystem semantics. The separate `pi-sbx` extension's WSL support does
-not by itself solve host symlink transport.
+Radar supports the native Linux backend, not path translation around the Windows
+backend. Prerequisites are an installed native **SBX 0.48.x**, usable `/dev/kvm`
+(KVM API 12), separate Linux authentication/network policy, and pi-sbx **0.7.0+**.
+Native Linux in WSL is explicitly **best-effort upstream**, not Docker's preferred
+Windows installation. Installing native `sbx` changes backend preference and state
+store; inspect existing Windows resources before changing PATH. Radar never
+switches backends after a runtime/authentication error.
+
+Radar preserves original absolute paths, real Git worktrees, and the one
+canonical note. Only its private task-note directory is mounted, not the vault.
+No copied notes, rewritten Git pointers, mount aliases, or command translation
+are introduced. Registry version 2 is unchanged.
+
+On native WSL, Radar and pi-sbx set this variable only on CLI subprocesses:
+
+```text
+DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0
+```
+
+The CLI auto-started daemon inherits it. An already-running daemon does **not**.
+Before mutating an SBX workspace, Radar reads `sbx daemon status --json`, its
+reported `sandboxd.pid`, and only that process's cache-policy environment entry.
+An enabled, absent, or unverifiable opt-out blocks provisioning/recovery with
+instructions; it never silently restarts the daemon. `sbx settings ls` in 0.48
+does not expose this cache switch, so a successful settings query is not evidence.
+
+After inspecting running **native** sandboxes and agreeing to any interruption,
+perform the restart deliberately on the host:
+
+```sh
+sbx daemon stop
+DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0 sbx daemon start
+```
+
+Radar does not install SBX, elevate privileges, alter group membership, log in
+from background collection, or restart unrelated workloads. Refresh group/PATH
+environments by starting a new login session, then deliberately restart Radar's
+daemon and reload Pi extensions. Setting a shell variable cannot repair an old
+process's group membership or daemon environment.
+
+Historical v0.46 disposable tests passed 96 guest and 32 host checks with caching
+disabled, after default caching caused Windows-backed atomic-save visibility
+failures. One earlier directory-listing anomaly was not reproduced by the expanded
+matrix. This is not production certification of v0.48, live Obsidian/Nextcloud,
+ports, or the published Radar kit. Keep the workaround and qualify the exact
+CLI/kernel/image combination before attaching a real Windows-backed note.
+
+### Explicit attachment to an existing workspace
+
+Changing `sbx.enabled` affects **new** workspaces only. For an existing workspace,
+use its normal editor (`s` stages attachment, Enter previews), or the existing
+revisioned `radar_reconcile_workspace` tool after inspecting context. When
+`capabilities.sandbox_attachment` is true, an explicit sandbox object such as
+`{"additional_mounts":[],"ports":[]}` requests attachment. `sandbox: null` leaves
+an unsandboxed workspace alone; it cannot detach an attached runtime.
+
+Attachment uses global kit/env/readiness defaults; it does not arbitrarily choose
+one existing member as primary. Additive member mounts still apply. The preview
+shows attachment, shared storage and requested mounts/ports. Resolved recipes
+and effective mounts participate in confirmation hashing. Name collisions block
+without adopting/deleting the existing runtime. Intent is saved before runtime
+creation; failed provisioning remains inspectable and retryable. Refresh context
+before retrying. Notes, session identity, worktrees and setup-scheduled flags are
+retained; completed repository setup is not rerun.
+
+Context exposes a recorded sandbox's `runtime_error` instead of hiding the entire
+workspace when discovery fails. This is not readiness success. Native/platform
+eligibility in `sandbox_attachment` is separate from the full bounded preflight.
+
+New/recovered sandbox Pi sessions carry `PI_SBX_REQUIRED_SANDBOX` and the
+provider launch guard. pi-radar uses pi-sbx's acknowledged `pi-sbx:require` event
+for a running session, blocking ordinary shell/filesystem tools if the provider
+cannot accept it. The required name cannot silently become another matching
+sandbox or restored host mode. User-approved per-call host tools and deliberate
+`/sbx off` remain explicit exceptions. Use `/sbx on` to retry the required runtime.
+Reload both updated extensions before using attachment; old tool schemas cannot
+enable it, and direct registry edits are not a workaround.
+
+### Durable native WSL qualification
+
+Normal unit tests require neither SBX nor authentication. The native filesystem
+probe is separate from the Windows lifecycle test (`RADAR_SBX_WSL_E2E`). Prepare
+an isolated installation/test HOME using the same XDG paths as below, sign in
+there and initialize `sbx policy init deny-all` there only. Never use the real
+SBX HOME, vault, credentials, Docker socket or unrelated sandboxes. The test
+requires an empty sandbox inventory and never resets policy or copies credentials.
+
+```sh
+export RADAR_SBX_NATIVE_HOME=/absolute/dedicated-test-home
+export RADAR_SBX_NATIVE_CLI=/absolute/native-install/sbx
+export RADAR_SBX_NATIVE_WINDOWS_TEMP=/mnt/c/Users/you/AppData/Local/Temp
+# Use HOME=$RADAR_SBX_NATIVE_HOME with XDG_CONFIG_HOME=$HOME/config,
+# XDG_DATA_HOME=$HOME/data, XDG_CACHE_HOME=$HOME/cache, XDG_STATE_HOME=$HOME/state,
+# DOCKER_CONFIG=$HOME/docker, and the cache opt-out for test login/daemon setup.
+RADAR_SBX_NATIVE_WSL_E2E=1 go test -v -run TestNativeWSLFilesystemMatrixE2E ./internal/integration/workspace
+```
+
+The committed `scripts/test-native-wsl-sbx.py` exercises four phases: create,
+host atomic replacement, stop/exec restart, and removal/recreation. It checks
+original paths, symlinks, canonical-target atomic saves, permissions, shared files,
+read-only enforcement, Git config/commits/additional worktrees, and host fsck:
+**96 guest + 32 host checks**, with 200 rename/listing stress cycles. Failed cleanup
+retains mounts and reports recovery paths; test-home credentials remain caller-owned.
+It stops a daemon only if it was stopped before the test. Capture exact versions,
+image digest, and results when qualifying a kit; `--kit` can select the published
+Radar kit for a separate run. A local assertion-fixture test is not a VM test:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_native_wsl_sbx_test.py
+```
+
+`RADAR_SBX_NATIVE_WORKSPACE_E2E=1 go test -v -run TestNativeWSLWorkspaceAttachmentE2E
+./internal/integration/workspace` additionally exercises real desired-state
+attachment/idempotency with a synthetic note in a dedicated authenticated HOME.
+Ensure its native installation is on PATH. Kit/Pi/network/port and actual
+Obsidian/Nextcloud qualification remain rollout gates, not claims inferred from
+unit tests or the earlier shell-image filesystem matrix.
 
 ## Published development kit
 
-As an alternative to the generated local kit, with SBX 0.43.0 or newer, enabling
+As an alternative to the generated local kit, with SBX 0.48.x, enabling
 `sbx.enabled` without an explicit kit selects `docker.io/christianmoesl/radar-kit:latest` for new workspaces unless a user or repository kit overrides it. No `kit.name` or `kit.path` is required to use this default. Set `sbx.kit.name` only to select another kit or pin a digest. The [sandbox guide](../../sandbox/README.md) documents its tool inventory, Pi requirements, private Docker daemon, publication and rollout.
 
 Sandboxing is automatic on supported systems. Existing `sbx.enabled: false` values remain opt-outs; remove the field manually to adopt automatic detection. Explicit kit settings, including `"shell"` in an older generated configuration, are preserved; remove that override manually to opt into the new default. Existing workspaces retain their recorded kit even during sandbox recreation. No configuration or registry migration is performed.
