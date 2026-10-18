@@ -5,8 +5,10 @@ Radar releases its CLI binaries and stages `@christianmoesl/pi-radar` from the s
 The package is MIT-licensed and contains `LICENSE`, `package.json`, `README.md`, and the modules under `extensions/pi-radar/` (entrypoint, loaded-version reporter, and version constant). Pi loads the TypeScript directly and supplies its runtime imports. The package neither bundles Pi nor installs the Radar binary.
 
 Choose the version once with `make release VERSION=vX.Y.Z` from a clean local
-`main` checkout. It updates both version files, commits the bump if needed,
-validates and atomically pushes main plus the signed tags. Do not run `npm version`
+`main` checkout on Linux or macOS. It updates both version files, commits the bump
+if needed, validates and atomically pushes main plus the signed tags. Native
+archive builds and publication gates run in GitHub Actions, not on the initiating
+host; a successful command means submission, not publication. Do not run `npm version`
 or edit the loaded-version constant manually first. See [release preparation
 and recovery](releases.md#cut-a-release). npm approval below remains manual.
 

@@ -73,6 +73,10 @@ esac
 `
 	const pnpm = `#!/bin/sh
 printf 'pnpm %s\n' "$*" >> "$RELEASE_CALLS"
+if [ "$RELEASE_FAILURE" = install ] && [ "$1" = install ]; then
+  if [ -t 0 ]; then stty raw; fi
+  exit 6
+fi
 if [ "$1" = check ]; then
   if [ -t 0 ]; then stty raw; fi
   case "$RELEASE_FAILURE" in
@@ -83,6 +87,8 @@ fi
 `
 	const make = `#!/bin/sh
 printf 'make %s\n' "$*" >> "$RELEASE_CALLS"
+# Native archive/notifier builds belong exclusively to CI, on every host.
+[ "$*" = test ] || { echo 'unexpected local build' >&2; exit 99; }
 # A successful earlier validation must restore modes BEFORE this output.
 printf 'line one\nline two\n'
 if [ "$RELEASE_FAILURE" = "$1" ]; then
@@ -127,7 +133,7 @@ esac
 }
 
 func TestReleaseRestoresTerminalAndPreservesValidationResult(t *testing.T) {
-	for _, failure := range []string{"", "pnpm", "test", "dist", "signal"} {
+	for _, failure := range []string{"", "install", "pnpm", "test", "signal"} {
 		t.Run("failure="+failure, func(t *testing.T) {
 			cmd := releaseFixture(t, failure)
 			master, slave, err := pty.Open()
@@ -161,9 +167,11 @@ func TestReleaseRestoresTerminalAndPreservesValidationResult(t *testing.T) {
 			}
 			wantExit := 0
 			switch failure {
+			case "install":
+				wantExit = 6
 			case "pnpm":
 				wantExit = 7
-			case "test", "dist":
+			case "test":
 				wantExit = 9
 			case "signal":
 				wantExit = 143
@@ -186,7 +194,7 @@ func TestReleaseRestoresTerminalAndPreservesValidationResult(t *testing.T) {
 			} else if strings.Contains(string(output), reminder) || strings.Contains(string(output), link) {
 				t.Fatalf("failed release must not print the publication reminder: %s", output)
 			}
-			if failure == "" || failure == "test" || failure == "dist" {
+			if failure == "" || failure == "test" {
 				if !strings.Contains(string(output), "line one\r\nline two\r\n") {
 					t.Fatalf("validation did not restore newline processing before the next stage: %q", output)
 				}
@@ -195,7 +203,7 @@ func TestReleaseRestoresTerminalAndPreservesValidationResult(t *testing.T) {
 	}
 }
 
-func TestReleaseOwnsNotifierRefsBeforeMirroring(t *testing.T) {
+func TestReleasePreservesNotifierRefsAndValidatesBeforePush(t *testing.T) {
 	for _, mode := range []string{"fresh", "existing", "missing", "mismatch", "retired", "inventory failure", "tag auth failure"} {
 		t.Run(mode, func(t *testing.T) {
 			cmd := releaseFixture(t, "")
@@ -214,8 +222,8 @@ func TestReleaseOwnsNotifierRefsBeforeMirroring(t *testing.T) {
 			}
 			calls := string(data)
 			if want != 0 {
-				if strings.Contains(calls, "git tag ") || strings.Contains(calls, "git push ") || strings.Contains(calls, "make dist ") {
-					t.Fatalf("unsafe notifier preflight reached build/publication: %s", calls)
+				if strings.Contains(calls, "git tag ") || strings.Contains(calls, "git push ") || strings.Contains(calls, "pnpm ") || strings.Contains(calls, "make ") {
+					t.Fatalf("unsafe notifier preflight reached validation/publication: %s", calls)
 				}
 				return
 			}
@@ -224,9 +232,9 @@ func TestReleaseOwnsNotifierRefsBeforeMirroring(t *testing.T) {
 				t.Fatalf("existing notifier ref must not be recreated: %s", calls)
 			}
 			cliTag := strings.Index(calls, "git tag -s v0.1.1")
-			dist := strings.Index(calls, "make dist ")
+			tests := strings.Index(calls, "make test\n")
 			push := strings.Index(calls, "git push --atomic origin fixture-commit:refs/heads/main refs/tags/notifier-v1.2.3 refs/tags/v0.1.1")
-			if cliTag <= dist || push <= cliTag || mode == "fresh" && (componentTag <= dist || componentTag >= cliTag) || strings.Count(calls, "git push ") != 1 {
+			if tests < 0 || cliTag <= tests || push <= cliTag || mode == "fresh" && (componentTag <= tests || componentTag >= cliTag) || strings.Count(calls, "git push ") != 1 {
 				t.Fatalf("refs must be published atomically only after validation: %s", calls)
 			}
 		})

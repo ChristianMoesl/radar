@@ -68,6 +68,7 @@ esac
 `,
     pnpm: `#!/bin/sh
 printf 'pnpm %s\n' "$*" >> "$CALLS"
+if [ "$MODE" = "$1-error" ]; then exit 9; fi
 case "$1" in
  check:release) exec node scripts/release-version.mjs check "$2";;
  install|check) ;;
@@ -76,14 +77,13 @@ esac
 `,
     make: `#!/bin/sh
 printf 'make %s\n' "$*" >> "$CALLS"
-case "$1" in test|dist) ;; *) exit 99;; esac
+# No local native build is allowed, even when this fixture runs on macOS.
+[ "$*" = test ] || exit 99
 if [ "$MODE" = "$1-error" ]; then exit 9; fi
-if [ "$1" = dist ]; then
- case "$MODE" in
+case "$MODE" in
  dirty-during-validation) echo changed >> README.md;;
  head-during-validation) "$REAL_GIT" commit --allow-empty -qm concurrent;;
- esac
-fi
+esac
 `,
   };
   for (const [name, body] of Object.entries(scripts)) await writeFile(join(bin, name), body, { mode: 0o755 });
@@ -96,11 +96,13 @@ fi
 }
 
 for (const [manifest, module, expectedCommits] of [["0.1.0", "0.1.0", 2], ["0.2.0", "0.1.0", 2], ["0.2.0", "0.2.0", 1]] as const) {
-  test(`one release command prepares ${manifest}/${module} and atomically publishes the tested commit`, async t => {
+  test(`one release command prepares ${manifest}/${module} and submits the tested commit without native builds`, async t => {
     const h = await fixture(t, manifest, module);
     const notifier = await h.remote("refs/tags/notifier-v1.2.3");
-    await h.run();
+    const { stdout } = await h.run();
     const head = await h.git("rev-parse", "HEAD");
+    assert.ok(stdout.includes(`submitted release v0.2.0 from ${head.slice(0, 12)}`));
+    assert.match(stdout, /must build and validate the archives before publishing/);
     assert.equal(await h.git("rev-list", "--count", "HEAD"), String(expectedCommits));
     assert.equal(await h.git("status", "--porcelain"), "");
     assert.equal(await h.remote("refs/heads/main"), head);
@@ -114,7 +116,10 @@ for (const [manifest, module, expectedCommits] of [["0.1.0", "0.1.0", 2], ["0.2.
       assert.ok(files.every(file => ["package.json", "extensions/pi-radar/version.ts"].includes(file)));
     }
     const calls = await h.calls();
-    assert.ok(calls.includes(`make dist VERSION=v0.2.0 COMMIT=${head.slice(0, 12)}`));
+    assert.deepEqual(calls.split("\n").filter(call => /^(pnpm|make) /.test(call)), [
+      "pnpm check:release v0.2.0", "pnpm install --frozen-lockfile", "pnpm check", "make test",
+    ]);
+    assert.ok(calls.indexOf("make test\n") < calls.indexOf("git tag -s v0.2.0"));
     assert.ok(calls.includes(`git tag -s v0.2.0 ${head} -m v0.2.0`));
     assert.ok(calls.includes(`git push --atomic origin ${head}:refs/heads/main refs/tags/notifier-v1.2.3 refs/tags/v0.2.0`));
     assert.equal(calls.match(/^git push /gm)?.length, 1);
@@ -160,7 +165,7 @@ for (const state of ["dirty", "staged", "untracked", "dirty-version", "wrong-bra
   });
 }
 
-for (const mode of ["test-error", "dist-error"]) {
+for (const mode of ["install-error", "check-error", "test-error"]) {
   test(`${mode} retains a local version commit and retries without duplicating it`, async t => {
     const h = await fixture(t);
     const original = await h.remote("refs/heads/main");

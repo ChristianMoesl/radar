@@ -95,13 +95,13 @@ make install
 
 ## Release
 
-Releases are tag-driven. The Radar CLI and `@christianmoesl/pi-radar` npm package share a version. From a clean, up-to-date `main` checkout on macOS, a maintainer runs the [release procedure](docs/releases.md#cut-a-release) with an unused version:
+Releases are tag-driven. The Radar CLI and `@christianmoesl/pi-radar` npm package share a version. From a clean, up-to-date `main` checkout on Linux or macOS, a maintainer runs the [release procedure](docs/releases.md#cut-a-release) with an unused version:
 
 ```sh
 make release VERSION=vX.Y.Z
 ```
 
-Do not manually bump version files first. The release script prepares and commits both version files, installs locked Pi dependencies, runs the Pi and Go suites, builds the release archives, then signs and atomically pushes the validated commit and release refs. The GitHub release workflow repeats the version and test checks, then publishes `linux/amd64`, `linux/arm64`, and `darwin/arm64` tarballs, plus `checksums.txt`, with generated notes from the changes since the previous tag. After the binary release succeeds, a dedicated GitHub-hosted job stages the packed Pi extension with `npm stage publish` using npm trusted publishing. Stable versions target npm's `latest` dist-tag; prereleases target `next`. A successful workflow means the binaries are published and the npm package is awaiting review, not publicly available yet. Review the package in npm's **Staged Packages** tab and approve with 2FA to make it available. The workflow summary records this approval requirement.
+Do not manually bump version files first. The release script prepares and commits both version files, installs locked Pi dependencies, runs the Pi and Go suites, then signs and atomically pushes the validated commit and release refs. It does not build native archives locally or require Apple SDK tools. Success means the release was submitted, not published. The GitHub release workflow repeats the version and test checks, builds and authenticates the archives on macOS, and requires native Linux validation before publishing `linux/amd64`, `linux/arm64`, and `darwin/arm64` tarballs, plus `checksums.txt`, with generated notes from the changes since the previous tag. After the binary release succeeds, a dedicated GitHub-hosted job stages the packed Pi extension with `npm stage publish` using npm trusted publishing. Stable versions target npm's `latest` dist-tag; prereleases target `next`. A successful workflow means the binaries are published and the npm package is awaiting review, not publicly available yet. Review the package in npm's **Staged Packages** tab and approve with 2FA to make it available. The workflow summary records this approval requirement.
 
 ### Release notes
 
@@ -125,7 +125,7 @@ node scripts/release-notes.mjs v0.2.1 > /tmp/radar-release-notes.md
 gh release edit v0.2.1 --repo ChristianMoesl/radar --notes-file /tmp/radar-release-notes.md
 ```
 
-Before the first staged release, complete the [npm trusted publishing setup](docs/npm-publishing.md). Leave **Allow npm publish** unchecked; CI needs only stage-only permission, not a GitHub npm publishing secret. Staged publishing requires npm 11.15.0 or newer and an npm account with publish access and 2FA enabled. The release tag must reach the GitHub repository even if development uses another Git remote.
+Before the first staged release, complete the [npm trusted publishing setup](docs/npm-publishing.md). Leave **Allow npm publish** unchecked; CI needs only stage-only permission, not a GitHub npm publishing secret. Staged publishing requires npm 11.15.0 or newer and an npm account with publish access and 2FA enabled. Use the GitHub repository as `origin`; release tags go directly there, not through a mirror.
 
 Release assets and npm versions should not be replaced after publishing. If a release is wrong, publish a new patch version. If staging fails after the binary release succeeds, fix the cause and re-run only the failed staging job; do not recreate the GitHub release or move its tag. If staging succeeds, approve or reject that stage rather than re-running the job. See the [staged review and recovery instructions](docs/npm-publishing.md#review-and-approve).
 

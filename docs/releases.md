@@ -74,7 +74,7 @@ later without replacing the release contract.
   publication, and the corrected **`v0.1.2` CLI is published**. Finish its npm
   staging/approval by retrying only the failed npm job, not by cutting another
   version. Never move a used tag or republish an existing version.
-- From a **clean `main` checkout on macOS**, run:
+- From a **clean `main` checkout on Linux or macOS**, run:
 
   ```sh
   make release VERSION=vX.Y.Z
@@ -82,7 +82,9 @@ later without replacing the release contract.
 
   Do **not** manually bump the version files or run `npm version` / `pnpm version`
   first: those commands can create a tag before Radar validates the release.
-  An authenticated `gh` session and working Git tag signing are required.
+  Normal development tools (Bash, Make, Go, Node.js and the pinned pnpm), an
+  authenticated `gh` session and working Git tag signing are required. Apple SDK
+  and signing tools are needed only on CI's macOS runner, not the initiating host.
 - The command validates the target version, fetches refs, rejects used tags,
   and verifies notifier history/ref identity **before modifying files**. Local
   `main` may be ahead of `origin/main`; behind/diverged branches and staged,
@@ -92,14 +94,15 @@ later without replacing the release contract.
   only when those files change. That commit contains only the two version files.
   The module still captures the actually loaded version for Pi sessions;
   `pnpm check:release vX.Y.Z` remains a **read-only** check in CI.
-- It installs locked development dependencies and runs `pnpm check`, `make test`
-  and release builds against the prepared commit. Only after validation succeeds
-  does it sign the CLI tag (and a notifier tag for a genuinely new component),
+- It installs locked development dependencies and runs `pnpm check` and
+  `make test` against the prepared commit. It does **not** run `make dist` or
+  build the notifier locally. Only after validation succeeds does it sign the
+  CLI tag (and a notifier tag for a genuinely new component),
   then atomically push **main, `notifier-v<version>`, and `vX.Y.Z`** to `origin`.
   The exact validated commit is used for build metadata and tags. Repository
   changes during validation abort publication. A remote advance rejects the
   non-forced atomic push; there is no separate-push fallback.
-- A validation/build failure leaves the version commit **local**, without tags
+- A local validation failure leaves the version commit **local**, without tags
   or a push. Fix the failure, commit any fixes, and rerun the same command: an
   already-aligned version does not produce a duplicate bump commit. A failed
   version write or Git commit may leave edits for inspection; nothing is silently
@@ -115,11 +118,16 @@ later without replacing the release contract.
   was already left in raw mode, run `stty sane` before retrying. Humans run this
   publishing command; agents may prepare changes but must not execute its push.
   Verify the pushed tags and corresponding release workflow directly on GitHub.
-- CI serializes releases, authenticates/reuses the `notifier-v<version>` component
-  release, builds the existing macOS/Linux archives, signs `release.json`,
+- A successful command means the release refs were **submitted**, not that the
+  binaries are published. GitHub Actions owns native archive creation: its macOS
+  runner builds the macOS/Linux archives and builds or reuses the authenticated,
+  immutable notifier component. CI serializes releases and signs `release.json`,
   retains the authenticated assets privately, and validates native Linux
   Homebrew install/test/uninstall on amd64 and arm64 before publishing the CLI
-  release from a draft. npm staging depends on this publication gate.
+  release from a draft. npm staging depends on this publication gate. A CI build
+  or validation failure does not make the pushed version unused; inspect the
+  failed job and use a new version if fixing it requires source changes. Never
+  move its tag or overwrite existing artifacts.
 - Approve the staged exact npm version with 2FA. Until it is publicly available,
   the coordinated updater skips that release and may offer an older eligible
   stable version. Drafts/prereleases are never automatic update candidates;

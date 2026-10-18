@@ -123,10 +123,11 @@ release_commit="$(git rev-parse HEAD)"
 commit="$(git rev-parse --short=12 HEAD)"
 validate pnpm check:release "$version"
 
+# Keep local checks host-independent. The Release workflow builds and
+# authenticates native archives, then gates publication on platform validation.
 validate pnpm install --frozen-lockfile
 validate pnpm check
 validate make test
-validate make dist VERSION="$version" COMMIT="$commit"
 
 worktree_status="$(git status --porcelain)"
 if [[ "$(git branch --show-current)" != main || "$(git rev-parse HEAD)" != "$release_commit" || -n "$worktree_status" ]]; then
@@ -141,7 +142,7 @@ git tag -s "$version" "$release_commit" -m "$version"
 # Pin the tested commit explicitly; a concurrent remote update rejects the push.
 git push --atomic origin "$release_commit:refs/heads/main" "$notifier_ref" "refs/tags/$version"
 
-echo "released $version from $commit"
-echo "GitHub Actions will publish the binaries and stage the Pi package for npm review."
+echo "submitted release $version from $commit"
+echo "GitHub Actions must build and validate the archives before publishing binaries and staging the Pi package."
 echo "Action required after CI finishes: approve @christianmoesl/pi-radar@${version#v} with 2FA."
 echo "Open Staged Packages: https://www.npmjs.com/settings/christianmoesl/staged-packages"

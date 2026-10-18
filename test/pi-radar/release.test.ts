@@ -77,6 +77,31 @@ exec node "$FIXTURE_ROOT/scripts/release-version.mjs" check "$2"
   await assert.rejects(readFile(join(root, "git-calls")), { code: "ENOENT" });
 });
 
+test("CI owns native archives and gates publication on authentication and platform validation", async () => {
+  const workflow = await readFile(join(repository, ".github", "workflows", "release.yml"), "utf8");
+  const job = (name: string) => {
+    const marker = `\n  ${name}:\n`;
+    assert.ok(workflow.includes(marker), `missing release job: ${name}`);
+    return workflow.split(marker)[1].split(/\n  [\w-]+:\n/)[0];
+  };
+  const build = job("release");
+  assert.match(build, /runs-on: macos-latest/);
+  assert.match(build, /run: make test/);
+  assert.match(build, /run: scripts\/prepare-release-notifier\.sh/);
+  assert.match(build, /run: make dist VERSION="\$\{GITHUB_REF_NAME\}".*NOTIFIER_ARTIFACT_DIR=/);
+  assert.match(build, /run: node scripts\/release-metadata\.mjs release dist/);
+  const linux = job("linux-homebrew");
+  assert.match(linux, /needs: release/);
+  for (const arch of ["amd64", "arm64"]) assert.ok(linux.includes(`arch: ${arch}`));
+  assert.match(linux, /run: node scripts\/release-metadata\.mjs verify-release/);
+  assert.match(linux, /run: scripts\/homebrew\/smoke-test\.sh/);
+  const publish = job("publish");
+  assert.match(publish, /needs: \[release, linux-homebrew\]/);
+  assert.match(publish, /run: node scripts\/release-metadata\.mjs verify-release/);
+  assert.match(publish, /run: scripts\/publish-release\.sh/);
+  assert.match(job("stage-npm"), /needs: publish/);
+});
+
 async function stagingFixture(t: Parameters<typeof fixture>[0], version: string) {
   const { root } = await fixture(t, version);
   const workflow = await readFile(join(repository, ".github", "workflows", "release.yml"), "utf8");
