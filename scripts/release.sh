@@ -85,15 +85,15 @@ notifier_ref="refs/tags/$notifier_tag"
 notifier_state=$(mktemp -d)
 trap 'restore_terminal; rm -rf "$notifier_state"' EXIT
 
-# Keep component refs in the authoritative origin, not only on its GitHub mirror.
-# An existing GitHub-only ref must be imported exactly, never recreated at HEAD.
+# GitHub is the authoritative origin. Match its original component tag object;
+# an existing ref must be fetched exactly, never recreated at HEAD.
 gh api repos/ChristianMoesl/radar/releases --paginate --slurp >"$notifier_state/releases.json"
 notifier_release=$(node scripts/notifier-release-state.mjs "$notifier_state/releases.json" "$notifier_tag")
 if gh api "repos/ChristianMoesl/radar/git/ref/tags/$notifier_tag" >"$notifier_state/ref.json" 2>"$notifier_state/error"; then
   github_ref=$(node -e 'const r = require(process.argv[1]); if (!/^[a-f0-9]{40}$/.test(r.object?.sha)) throw new Error("invalid notifier tag"); console.log(r.object.sha)' "$notifier_state/ref.json")
   local_ref=$(git rev-parse -q --verify "$notifier_ref" || true)
   if [[ "$github_ref" != "$local_ref" ]]; then
-    echo "$notifier_tag exists on GitHub but is missing or different locally; import its exact ref into origin before releasing" >&2
+    echo "$notifier_tag exists on GitHub but is missing or different locally; fetch its exact ref from origin before releasing" >&2
     exit 1
   fi
 elif ! grep -q 'HTTP 404' "$notifier_state/error" || [[ "$notifier_release" != new ]]; then
@@ -137,7 +137,7 @@ if ! git rev-parse -q --verify "$notifier_ref" >/dev/null; then
   git tag -s "$notifier_tag" "$release_commit" -m "Radar notifier $notifier_version"
 fi
 git tag -s "$version" "$release_commit" -m "$version"
-# Main and both tags reach origin in one transaction before mirror hooks run.
+# Main and both tags reach GitHub origin in one transaction.
 # Pin the tested commit explicitly; a concurrent remote update rejects the push.
 git push --atomic origin "$release_commit:refs/heads/main" "$notifier_ref" "refs/tags/$version"
 

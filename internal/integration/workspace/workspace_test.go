@@ -748,10 +748,20 @@ func TestCreateRejectsConfiguredSandboxOnUnsupportedPlatform(t *testing.T) {
 	assertNotCalled(t, runner.calls, "sbx")
 }
 
-func TestExplicitNativeLinuxSandboxUsesExistingSBX(t *testing.T) {
+func TestExplicitNativeLinuxSandboxSelectsExistingSBX(t *testing.T) {
 	withWorkspaceGOOS(t, "linux")
-	if err := validateSandboxDependencies(context.Background(), &fakeRunner{}, true); err != nil {
+	runner := &fakeRunner{}
+	client := managedClient(runner)
+	if err := client.RequireManaged(); err != nil {
 		t.Fatal(err)
+	}
+	if executable, err := client.Executable(); err != nil || executable != "sbx" {
+		t.Fatalf("native Linux backend = %q, %v", executable, err)
+	}
+	// Backend eligibility is independent of this test host's hardware. KVM
+	// validation belongs to the client tests and opt-in real-SBX preflight tests.
+	if len(runner.calls) != 0 {
+		t.Fatalf("backend selection invoked the runtime: %+v", runner.calls)
 	}
 }
 

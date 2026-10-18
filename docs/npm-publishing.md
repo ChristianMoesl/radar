@@ -35,7 +35,7 @@ The shipped workflow uses a dedicated `stage-npm` job with `contents: read` and 
 
 A green release workflow means the binaries are published and the npm artifact is staged. The GitHub Actions summary explicitly states that npm review and 2FA approval are still required. Existing npm installs continue to receive the previously approved version until then. CLI binary releases do not wait for npm approval. The coordinated macOS updater, however, offers a release only once the exact matching npm version is public. See [release signatures and notifier artifact reuse](releases.md).
 
-GitHub-hosted Actions runners are supported; custom forge OIDC and self-hosted runners are not. If development pushes to another forge, its mirror must forward release tags to `github.com/ChristianMoesl/radar`, where this workflow must actually run.
+GitHub-hosted Actions runners are supported; custom forge OIDC and self-hosted runners are not. Use `github.com/ChristianMoesl/radar` as `origin` and push release tags directly there. The downstream `code.moesl.net` mirror is not part of the publishing path.
 
 ## Review and approve
 

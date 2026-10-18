@@ -51,12 +51,11 @@ policy below), and when configuring the publishing repository:
    verify that the signing key matches the committed public key.
 4. Configure the [stage-only npm trusted publisher](npm-publishing.md). Keep npm's
    human review/2FA approval. No npm token or automated approval is introduced.
-5. Ensure the development forge mirrors **both CLI and notifier tags** into
-   `github.com/ChristianMoesl/radar`. All component refs must also exist in the
-   authoritative development origin: a full mirror can delete GitHub-only tags
-   and turn their releases into drafts. CI never creates component refs. A push
-   to the development origin alone is not proof that GitHub Actions ran. Humans
-   perform pushes for this repository.
+5. Use `github.com/ChristianMoesl/radar` as the authoritative `origin` for main
+   and **both CLI and notifier tags**. `code.moesl.net` is only a downstream mirror;
+   its credentials or synchronization state do not gate development or releases.
+   Push directly to GitHub and verify the corresponding Actions run. CI never
+   creates component refs; humans perform release-tag pushes.
 
 For rotation, first ship a CLI trusting both old and new public keys, signed
 with the old key. Only switch signing to the new key after users can receive
@@ -115,7 +114,7 @@ later without replacing the release contract.
   exact terminal modes after each validation stage and on exit. If the terminal
   was already left in raw mode, run `stty sane` before retrying. Humans run this
   publishing command; agents may prepare changes but must not execute its push.
-  Verify that the tags arrive on GitHub through the development forge's mirror.
+  Verify the pushed tags and corresponding release workflow directly on GitHub.
 - CI serializes releases, authenticates/reuses the `notifier-v<version>` component
   release, builds the existing macOS/Linux archives, signs `release.json`,
   retains the authenticated assets privately, and validates native Linux
@@ -398,8 +397,8 @@ require macOS launch/notification approval again. No approval is bypassed.
 
 `scripts/prepare-release-notifier.sh` creates or retrieves a dedicated component
 release with signed `notifier.json` and per-architecture archives. It requires an
-existing mirrored component tag and uses `--verify-tag`, never `--target` to
-create a GitHub-only ref. The CLI workflow is still triggered only by `v*` tags;
+existing component tag on GitHub and uses `--verify-tag`, never `--target` to
+create a ref implicitly. The CLI workflow is still triggered only by `v*` tags;
 pushing a notifier tag does not launch another release job. Default source builds
 also derive the CLI version only from `v*` tags, not the independent component.
 
@@ -440,31 +439,26 @@ unchanged; a failed CLI release does not invalidate its immutable component.
 The publication script is tested with macOS system Bash, including stable releases
 with no prerelease flag. The workflow's **Record release trigger** step logs only
 run/ref/commit and push before/after hashes and creation/deletion/force flags. For
-duplicate mirrored tag events, compare those fields: the commit alone can hide
-changes to an annotated tag object. Concurrency serializes runs but is not event
-deduplication. Inspect mirror settings/delivery evidence before changing mirroring;
-do not bypass immutable-asset verification to make a duplicate run appear successful.
+duplicate tag events, compare those fields: the commit alone can hide changes
+to an annotated tag object. Concurrency serializes runs but is not event
+deduplication. Inspect the push/event history; do not bypass immutable-asset
+verification to make a duplicate run appear successful.
 
-### Repair a component tag missing from the source forge
+### Repair a missing component tag on GitHub
 
-Do not delete releases, overwrite artifacts, move the GitHub tag, or disable
-mirror behavior to work around this problem. Inspect the current published
-component and its exact GitHub ref first. Historical drafts remain evidence; a
-previously published draft is never silently republished.
+Do not delete releases, overwrite artifacts, or move an existing tag. Inspect
+the published component and its GitHub ref first. Historical drafts remain
+evidence; a previously published draft is never silently republished. A missing
+ref in the downstream mirror alone is not a release blocker.
 
-If the authoritative origin is missing the currently published component's tag,
-import that **exact ref**, without force, and publish it with the fix:
+If GitHub is missing the published component's tag, recover the **original tag
+object** from a trusted clone or recorded release-trigger evidence. Verify its
+object ID and target commit against the historical publication. A new annotated
+tag at the same commit is not the original object.
 
-```sh
-tag="notifier-v$(cat macos/RadarNotifier/VERSION)"
-git fetch https://github.com/ChristianMoesl/radar "refs/tags/$tag:refs/tags/$tag"
-git rev-parse "refs/tags/$tag" # Compare the object ID with GitHub before pushing.
-git push --atomic origin main "refs/tags/$tag"
-```
-
-These are human-operated commands. If a local/source ref differs, stop for
-inspection; never use `+`, `--force`, or a replacement tag. Verify the source
-forge and GitHub retain the same object ID and release/asset IDs after mirroring.
+A maintainer may restore that exact tag to GitHub without force. If a local or
+remote ref differs, stop for inspection; never use `+`, `--force`, or a replacement
+tag. Verify the original object ID and unchanged release/asset IDs afterward.
 This preserves the existing public component without creating another release.
 After the October 2026 incident, `notifier-v1.0.0` has one active published
 release and a retired historical draft; keep both asset sets untouched and reuse
