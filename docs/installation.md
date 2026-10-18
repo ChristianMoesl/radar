@@ -247,6 +247,11 @@ the prefix at tmux's own default; existing prefix settings are preserved.
 3. **Sandboxed workspaces:** on macOS or native Linux, offer SBX (recommended for new installs;
    existing choices are preselected). Check SBX 0.48.x, guide installation or
    updates if needed, offer login, and install/verify pi-sbx 0.7.0+ with consent.
+   If SBX reports an uninitialized global network policy, offer balanced
+   (recommended), deny-all, allow-all, or Not now. Selecting a policy runs
+   `sbx policy init <choice>` immediately and verifies it; this affects all local
+   SBX sandboxes and survives cancellation. Existing policies are never reset
+   or replaced, and unrelated inspection errors block preparation.
    Declining SBX skips these checks and writes an explicit opt-out. When no
    sandbox recipe is explicitly configured, propose a complete editable local
    kit, an env-file and an empty read-only `startup.d`, using
@@ -273,8 +278,8 @@ the prefix at tmux's own default; existing prefix settings are preserved.
    amber, and unchanged rows dim; labels remain readable without color. Only new
    directories are listed. Credentials remain plaintext and owner-only; values
    are never displayed. The summary includes the effective sandbox default and proposed starter files.
-   Completed installations, logins and sandbox preparation are reported as
-   side effects that cancelling cannot undo.
+   Completed installations, logins, network-policy initialization and sandbox
+   preparation are reported as side effects that cancelling cannot undo.
    Press **Enter** to save or **c** to cancel (**Esc** also cancels from the summary).
    Press **v** to select a file with the arrow keys and **Enter**: new files show
    their contents, updates/appends show a diff, and credential details contain
@@ -542,6 +547,9 @@ isolated HOME/XDG/PATH, real YAML configuration files, stub installers and a loc
   failed installation/authentication, existing/broken configs, and concurrent saves.
 - Secret redaction, owner-only permissions, unrelated-secret preservation, unsafe
   secret-file rejection, and explicit environment overrides.
+- SBX policy choices, existing-policy preservation, inspection/init/verification
+  failures, cancellation, retry without reinitialization, and diagnostic redaction
+  use fake systems; they never initialize the user's real policy.
 - Tmux profile preservation, symlinks, XDG locations, idempotence and edits made
   during preview; startup from outside/inside tmux and informational commands.
 - With tmux installed, real isolated-server tests exercise attachment, optional popup bindings, reuse of

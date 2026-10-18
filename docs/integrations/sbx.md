@@ -18,6 +18,18 @@ setup prefills the existing choice. Setup checks SBX 0.48.x, offers `sbx login`
 when needed, and installs/verifies pi-sbx 0.7.0+ with consent. Missing or outdated
 SBX gets installation/update guidance, not an unattended installer.
 
+Before sandbox preparation, setup checks `sbx policy ls`. Only an explicit
+uninitialized-policy response opens a choice of **balanced** (recommended;
+permits typical development traffic such as AI services and package registries),
+**deny-all** (blocks outbound traffic unless explicitly allowed), **allow-all**
+(all outbound traffic), or **Not now**. Selecting a policy runs
+`sbx policy init <choice>` immediately and verifies it before sandbox creation.
+The policy applies to **all local SBX sandboxes**, not just Radar; kit and
+per-sandbox rules apply on top. It persists even if setup is later cancelled.
+Existing policies are left untouched. Other inspection errors stop preparation
+rather than being treated as an uninitialized policy; setup never resets policy.
+Choosing **Not now** allows retry, explicit SBX opt-out, or cancellation.
+
 When no sandbox recipe has been explicitly configured, setup proposes these
 user-owned files under Radar's config directory (`XDG_CONFIG_HOME` is respected):
 
@@ -67,17 +79,18 @@ readiness command, checks Pi's basic sandbox utilities and verifies host↔sandb
 file sharing. It uses a temporary copy of not-yet-created starter files; existing
 kits, env-files and mounts are used as configured. **Custom startup commands can
 have side effects on services and writable mounts**, even in this temporary
-sandbox. Setup does not change network policy or authorize cloud access for you.
+sandbox. The probe does not change network policy or authorize cloud access for you.
 First preparation may download an image and take several minutes. Version/status
-checks are bounded to 15 seconds, creation to five minutes, readiness to 60
-seconds, and the file-sharing check to 30 seconds. Captured provider output is
-not displayed because it may contain credentials.
+checks and policy commands are bounded to 15 seconds, creation to five minutes,
+readiness to 60 seconds, and the file-sharing check to 30 seconds. Captured
+provider output is not displayed because it may contain credentials.
 
 The probe is removed even after failed creation or cancellation. If cleanup
 cannot be confirmed, setup stops, retains its temporary mount directory, and
 prints the exact sandbox name and recovery instructions. It never removes an
-existing workspace sandbox. Downloads, logins, extension installations and
-startup-script side effects cannot be rolled back by cancelling setup.
+existing workspace sandbox. Downloads, logins, extension installations, approved
+network-policy initialization and startup-script side effects cannot be rolled
+back by cancelling setup.
 
 Failures offer retry, an **explicit** choice to continue with SBX disabled, or
 cancellation; they never silently enable host execution. The final review shows
@@ -319,7 +332,9 @@ sbx policy allow network --sandbox <name> packages.example.com:443
 
 Sandbox-specific policies also block Radar recreation; global rules survive it
 but grant broader access. Respect organization-managed policy and do not replace
-it with allow-all defaults. Setup never resets or initializes policy for you.
+it with allow-all defaults. Setup offers initialization only when SBX explicitly
+reports an uninitialized global policy and you choose a policy. It never resets
+or replaces existing policies.
 
 Troubleshoot the failing layer:
 

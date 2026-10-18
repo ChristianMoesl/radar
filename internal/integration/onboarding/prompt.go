@@ -18,9 +18,14 @@ import (
 
 var ErrAborted = errors.New("setup cancelled — no Radar configuration was written")
 
+type choice struct {
+	value, label string
+}
+
 type question struct {
 	title, hint, initial string
 	secret               bool
+	choices              []choice
 	validate             func(string) error
 }
 
@@ -91,6 +96,7 @@ type promptModel struct {
 	input                           textinput.Model
 	confirm, yes, accepted, aborted bool
 	validation                      string
+	selected                        int
 }
 
 func newPrompt(q question) promptModel {
@@ -104,7 +110,13 @@ func newPrompt(q question) promptModel {
 		input.EchoMode = textinput.EchoPassword
 		input.EchoCharacter = '•'
 	}
-	return promptModel{q: q, input: input}
+	m := promptModel{q: q, input: input}
+	for i, option := range q.choices {
+		if option.value == q.initial {
+			m.selected = i
+		}
+	}
+	return m
 }
 func (m promptModel) Init() tea.Cmd { return textinput.Blink }
 func (m promptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -129,6 +141,19 @@ func (m promptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.accepted = true
 			}
 			if m.accepted {
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+		if len(m.q.choices) > 0 {
+			switch msg.String() {
+			case "up":
+				m.selected = max(0, m.selected-1)
+			case "down", "tab":
+				m.selected = min(len(m.q.choices)-1, m.selected+1)
+			case "enter":
+				m.input.SetValue(m.q.choices[m.selected].value)
+				m.accepted = true
 				return m, tea.Quit
 			}
 			return m, nil
@@ -158,6 +183,9 @@ func (m promptModel) View() string {
 		if m.q.secret {
 			answer = "[hidden]"
 		}
+		if len(m.q.choices) > 0 {
+			answer = m.q.choices[m.selected].label
+		}
 		if m.confirm {
 			answer = "no"
 			if m.yes {
@@ -178,6 +206,16 @@ func (m promptModel) View() string {
 			no = heading.Reverse(true).Render(no)
 		}
 		return view + yes + "  " + no + "\n" + muted.Render("←/→ choose · enter accept · esc cancel") + "\n"
+	}
+	if len(m.q.choices) > 0 {
+		for i, option := range m.q.choices {
+			line := "  " + option.label
+			if i == m.selected {
+				line = heading.Reverse(true).Render("> " + option.label)
+			}
+			view += line + "\n"
+		}
+		return view + muted.Render("↑/↓ choose · enter accept · esc cancel") + "\n"
 	}
 	view += m.input.View() + "\n"
 	if m.validation != "" {

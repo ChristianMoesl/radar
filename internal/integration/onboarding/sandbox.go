@@ -148,7 +148,10 @@ func (w *wizard) prepareSandbox(ctx context.Context, cfg config.SBXConfig, plan 
 		}
 		return err
 	}
-	w.ui.print("Preparation creates and removes one temporary sandbox, may download images, and runs the configured kit/startup commands.\nExisting configured mounts and credentials apply; no network policy is changed. Downloads and startup-script side effects are not undone by cancelling setup.\n")
+	if err := w.prepareSandboxPolicy(ctx); err != nil {
+		return err
+	}
+	w.ui.print("Preparation creates and removes one temporary sandbox, may download images, and runs the configured kit/startup commands.\nExisting configured mounts, credentials and network policy apply; the probe does not change policy. Downloads and startup-script side effects are not undone by cancelling setup.\n")
 	yes, err := w.ui.confirm("Prepare and test the sandbox environment now?", true)
 	if err != nil {
 		return err
