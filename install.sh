@@ -350,12 +350,29 @@ main() {
   # install prerequisites or edit profiles; all prompts read the controlling TTY.
   interactive=false
   terminal_state=
+  terminal_stty=
   if { exec 3</dev/tty; } 2>/dev/null; then
     interactive=true
-    terminal_state=$(stty -g <&3)
+    # Prefer the explicitly named GNU utility where the distribution provides it.
+    # Keep its path pinned even when prerequisite installation changes PATH.
+    if ! terminal_stty=$(command -v gnustty || command -v stty) ||
+       ! terminal_state=$("$terminal_stty" -g <&3) || [[ -z "$terminal_state" ]] ||
+       ! "$terminal_stty" "$terminal_state" <&3; then
+      echo 'Cannot save and restore terminal modes; install a working GNU/BSD stty (GNU may be named gnustty).' >&2
+      return 1
+    fi
   fi
   work=$(mktemp -d)
-  trap 'if [[ $interactive = true ]]; then stty "$terminal_state" <&3 2>/dev/null || true; fi; rm -rf "$work"' EXIT
+  cleanup() {
+    local status=$?
+    if [[ $interactive = true ]] && ! "$terminal_stty" "$terminal_state" <&3; then
+      echo 'Failed to restore terminal modes.' >&2
+      if [[ $status = 0 ]]; then status=1; fi
+    fi
+    rm -rf "$work"
+    return "$status"
+  }
+  trap cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   ask() {

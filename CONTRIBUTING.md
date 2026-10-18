@@ -57,12 +57,17 @@ isolate HOME/XDG directories, PATH, shell startup hooks and credentials; they ne
 services or create real sandboxes. CI runs this suite on Linux and macOS. See
 [installation defaults](docs/installation.md) for the supported setup matrix.
 
-The PTY fixtures use the `stty` selected on your PATH and assert exact terminal
-restoration. Use a working BSD or GNU `stty`: uutils coreutils 0.2.2 rejects its
-own `stty -g` state string, so it cannot restore the terminal. If your distribution
-ships that version, update the utility or put GNU `stty` first on PATH for testing;
-do not disable the restoration assertions. Fixtures preserve that selection
-inside their isolated PATH and do not change system tools.
+Interactive bootstrap and release commands select `gnustty` when installed,
+otherwise `stty`, and verify that the tool can save and restore terminal modes
+before proceeding. This handles distributions that provide GNU tools under
+prefixed names alongside uutils coreutils 0.2.2, whose `stty` rejects its own saved
+state. No PATH edits or system-tool replacements are needed when `gnustty` is
+available. Otherwise install a working GNU/BSD `stty` before interactive use.
+
+PTY fixtures preserve both installed tool names and assert exact terminal
+restoration, including failure and signal paths. They do not replace a broken
+default with a working stub. Additional fixtures cover tool selection, PATH
+changes, early rejection and restoration errors; never disable these assertions.
 
 ## Pi extension
 

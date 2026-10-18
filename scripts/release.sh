@@ -4,21 +4,37 @@ set -euo pipefail
 # Validation includes terminal subprocesses. Preserve the caller's exact modes,
 # including newline processing, even if a fixture exits while still in raw mode.
 terminal_state=
+terminal_stty=
+notifier_state=
 if [[ -t 0 ]]; then
-  terminal_state=$(stty -g)
+  # Some distributions name GNU's utility gnustty and ship a different stty.
+  # Pin one executable for capture/restoration, even if validation changes PATH.
+  if ! terminal_stty=$(command -v gnustty || command -v stty) ||
+     ! terminal_state=$("$terminal_stty" -g) || [[ -z "$terminal_state" ]] ||
+     ! "$terminal_stty" "$terminal_state"; then
+    echo 'Cannot save and restore terminal modes; install a working GNU/BSD stty (GNU may be named gnustty).' >&2
+    exit 1
+  fi
 fi
 restore_terminal() {
-  if [[ -n "$terminal_state" ]]; then
-    stty "$terminal_state" || true
+  if [[ -n "$terminal_state" ]] && ! "$terminal_stty" "$terminal_state"; then
+    echo 'Failed to restore terminal modes.' >&2
+    return 1
   fi
 }
-trap restore_terminal EXIT
+cleanup() {
+  local status=$?
+  if ! restore_terminal && [[ $status = 0 ]]; then status=1; fi
+  if [[ -n "$notifier_state" ]]; then rm -rf "$notifier_state"; fi
+  return "$status"
+}
+trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 validate() {
   local status=0
   "$@" || status=$?
-  restore_terminal
+  if ! restore_terminal && [[ $status = 0 ]]; then status=1; fi
   return "$status"
 }
 
@@ -83,7 +99,6 @@ notifier_version=$(cat macos/RadarNotifier/VERSION)
 notifier_tag="notifier-v$notifier_version"
 notifier_ref="refs/tags/$notifier_tag"
 notifier_state=$(mktemp -d)
-trap 'restore_terminal; rm -rf "$notifier_state"' EXIT
 
 # GitHub is the authoritative origin. Match its original component tag object;
 # an existing ref must be fetched exactly, never recreated at HEAD.

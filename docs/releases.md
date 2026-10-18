@@ -114,9 +114,14 @@ later without replacing the release contract.
   Swift/plist/icon/build inputs cannot change under an existing component version.
 - `make test` limits Go package concurrency to two so subprocess/PTY fixtures are
   not starved during release checks. The release script restores the caller's
-  exact terminal modes after each validation stage and on exit. If the terminal
-  was already left in raw mode, run `stty sane` before retrying. Humans run this
-  publishing command; agents may prepare changes but must not execute its push.
+  exact terminal modes after each validation stage and on exit. Interactive runs
+  prefer `gnustty` when installed, otherwise `stty`, and check save/restore before
+  any release work. An incompatible tool is rejected with setup guidance;
+  restoration errors during validation stop the release without hiding the
+  original command failure. If a previous run left the terminal in raw mode, run
+  `gnustty sane` (or `stty sane` on systems without the GNU-prefixed tool) before
+  retrying. Humans run this publishing command; agents may prepare changes but
+  must not execute its push.
   Verify the pushed tags and corresponding release workflow directly on GitHub.
 - A successful command means the release refs were **submitted**, not that the
   binaries are published. GitHub Actions owns native archive creation: its macOS
