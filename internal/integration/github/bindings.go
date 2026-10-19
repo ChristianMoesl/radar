@@ -21,7 +21,7 @@ const boundPullRequestQuery = `query($owner: String!, $name: String!, $number: I
   viewer { login }
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
-      number title url state isDraft closedAt headRefName body
+      id number title url state isDraft closedAt headRefName headRefOid body
       author { __typename login }
       repository { nameWithOwner }
       reviewRequests(first: 50) { nodes { requestedReviewer { ... on User { login } } } }

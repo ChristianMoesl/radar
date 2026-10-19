@@ -56,6 +56,7 @@ func runAgent(args []string) {
 	id := flags.String("id", "", "registered agent ID")
 	configPath := flags.String("config", "", "JSON configuration file")
 	workspace := flags.String("workspace", "", "required registered Radar workspace for agent add")
+	collection := flags.String("collection", "", "subscribe agent to collected source changes (github)")
 	eventID := flags.String("event-id", "", "stable delivery identity")
 	source := flags.String("source", "cli", "producer identity")
 	revision := flags.Int("revision", -1, "presentation revision for this interaction")
@@ -89,6 +90,7 @@ func runAgent(args []string) {
 			fatal(errors.New("agent add requires --workspace"))
 		}
 		request.Workspace = *workspace
+		request.Collection = *collection
 		entry, err := filepath.Abs(flags.Arg(0))
 		if err != nil {
 			fatal(err)
@@ -197,6 +199,12 @@ func printAgentResult(operation string, data json.RawMessage) {
 		fmt.Printf("%s · %s\nWorkspace: %s (%s)\nDefinition: %s\nData: %s\n", value.ID, state, value.Workspace.Path, value.Workspace.Mode, value.Entrypoint, value.DataDir)
 		if value.Error != "" {
 			fmt.Println("Runtime:", value.Error)
+		}
+		if value.Collection != "" {
+			fmt.Printf("Collection: %s · pending deliveries: %d\n", value.Collection, value.CollectionPending)
+			if value.CollectionError != "" {
+				fmt.Println("Collection:", value.CollectionError)
+			}
 		}
 		if value.Snapshot != nil {
 			p := value.Snapshot.Presentation

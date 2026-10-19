@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"radar/internal/integration"
 	"radar/internal/protocol"
 )
 
@@ -82,7 +83,7 @@ func TestRunnerLifecycleAndDurableDelivery(t *testing.T) {
 		}
 		return value
 	}
-	_, err := manager.Handle(ctx, protocol.AgentRequest{Operation: "add", ID: "counter", Workspace: workspace, Entrypoint: filepath.Join(repo, "agent-host/examples/counter.ts")})
+	_, err := manager.Handle(ctx, protocol.AgentRequest{Operation: "add", ID: "counter", Workspace: workspace, Collection: "github", Entrypoint: filepath.Join(repo, "agent-host/examples/counter.ts")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,5 +120,29 @@ func TestRunnerLifecycleAndDurableDelivery(t *testing.T) {
 	}
 	if _, err := manager.Handle(ctx, protocol.AgentRequest{Operation: "emit", ID: "counter", Params: json.RawMessage(strings.Replace(event, `"value":1`, `"value":2`, 1))}); err == nil {
 		t.Fatal("changed content accepted")
+	}
+	if err := manager.ObserveCollection(ctx, "github", []integration.CollectionItem{{Key: "github:pr:acme/app:1", Payload: json.RawMessage(`{"state":"OPEN"}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	reg, _ := load("counter")
+	runCtx, stopRun := context.WithCancel(ctx)
+	finished := make(chan struct{})
+	go func() { defer close(finished); manager.Run(runCtx, nil) }()
+	defer func() { stopRun(); <-finished }()
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		var status protocol.AgentStatus
+		_ = json.Unmarshal(request("inspect", ""), &status)
+		if status.Snapshot != nil && status.Snapshot.Presentation.Summary == "2 events received" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("collected event did not run: %+v", status)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	state, err := loadCollection(reg)
+	if err != nil || len(state.Pending) != 0 {
+		t.Fatalf("native admission did not drain outbox: %+v, %v", state, err)
 	}
 }

@@ -26,7 +26,7 @@ radar reconcile-workspace --request <json> [--workspace <path>] [--preview]
 radar recreate-sandboxes [--workspace <path>] [--preview] [--yes]
 radar workspace-context [--workspace <path>]
 radar repository-refs --repo <repo>
-radar agent add <module> --id <id> --workspace <registered-path> [--config <json-file>]
+radar agent add <module> --id <id> --workspace <registered-path> [--config <json-file>] [--collection github]
 radar agent list
 radar agent inspect|start|stop|restart|remove|logs|token <id>
 radar agent emit <id> --source <source> --event-id <id> # JSON payload on stdin

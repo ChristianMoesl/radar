@@ -236,7 +236,7 @@ const trackedPullRequestsQuery = `query RadarTrackedPullRequests($owner: String!
   repository(owner: $owner, name: $name) {
     pullRequests(states: OPEN, first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
       nodes {
-        id number title url state isDraft headRefName body
+        id number title url state isDraft headRefName headRefOid body
         author { __typename login }
         repository { nameWithOwner }
       }

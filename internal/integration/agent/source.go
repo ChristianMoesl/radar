@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"radar/internal/agentservice"
@@ -22,6 +23,10 @@ func (*Source) Local() bool                               { return true }
 func (s *Source) Run(ctx context.Context, changed func()) { s.manager.Run(ctx, changed) }
 func (s *Source) ManageAgent(ctx context.Context, req protocol.AgentRequest) (json.RawMessage, error) {
 	return s.manager.Handle(ctx, req)
+}
+
+func (s *Source) ObserveCollection(ctx context.Context, source string, items []integration.CollectionItem) error {
+	return s.manager.ObserveCollection(ctx, source, items)
 }
 
 func (s *Source) Status(ctx context.Context, _ *slog.Logger) integration.StatusResult {
@@ -92,6 +97,13 @@ func (s *Source) Collect(ctx context.Context, _ integration.CollectRequest) inte
 		if agent.Error != "" {
 			signal = integration.SignalAttention
 			summary = agent.Error
+		}
+		if agent.CollectionPending > 0 {
+			summary += fmt.Sprintf("\n%s collection: %d pending deliveries", agent.Collection, agent.CollectionPending)
+		}
+		if agent.CollectionError != "" {
+			signal = integration.SignalAttention
+			summary += "\n" + agent.CollectionError
 		}
 		ref := protocol.SourceRef{
 			AgentID: agent.ID,

@@ -39,9 +39,15 @@ func TestAgentWorkspaceVisibleAndSummaryCanBeReadWithoutHidingActions(t *testing
 	m.width = 100
 	m.height = 30
 	m.agent = agentState{id: "fixture", status: protocol.AgentStatus{Workspace: protocol.AgentWorkspaceBinding{Path: "/workspace/fixture", Mode: "sbx"}, Running: true, Snapshot: &protocol.AgentSnapshot{Presentation: protocol.AgentPresentation{Summary: strings.Repeat("long summary\n", 1000), Actions: []protocol.AgentAction{{ID: "respond", Label: "Respond"}}}}}}
+	m.agent.status.Collection = "github"
+	m.agent.status.CollectionPending = 3
+	m.agent.status.CollectionError = "collection delivery pending"
 	view := m.agentView()
 	if !strings.Contains(view, "Respond") || !strings.Contains(view, "sbx") || !strings.Contains(view, "/workspace/fixture") {
 		t.Fatal("workspace or actions hidden")
+	}
+	if !strings.Contains(view, "3 pending deliveries") || !strings.Contains(view, "collection delivery pending") {
+		t.Fatal("pending collection or delivery failure hidden")
 	}
 	result, _ := m.updateAgent(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	if result.(model).agent.detail != m.agent.status.Snapshot.Presentation.Summary {

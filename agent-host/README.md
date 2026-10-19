@@ -19,6 +19,6 @@ Exports:
 - `@christianmoesl/radar-agent-host/tools`: prepared workspace operations, read-only tools, active workspace leases.
 - `@christianmoesl/radar-agent-host/adapters`: generic event forwarding and signed GitHub webhook bridge.
 
-Editable examples are in `dist/examples`: counter, GitHub review assistant, Jira discussion assistant, and Datadog investigator. Their deterministic model requires explicit `fixture:true`; normal definitions need configured credentials/model selection.
+Editable examples are in `dist/examples`: counter, GitHub review assistant, Renovate review-agent tagging, Jira discussion assistant, and Datadog investigator. Model-based examples need configured credentials/model selection or explicit `fixture:true` for a deterministic model. Renovate tagging needs no model: subscribe with `--collection github` and confirm its author, exact comment and explicit backlog policy before activation.
 
 Read the [complete development guide](https://github.com/ChristianMoesl/radar/blob/main/docs/durable-agents.md) for the authoring example, installation from a local tarball, event/interaction contract, SBX boundary, retention, recovery guarantees, supported adapter operations and publishing.
