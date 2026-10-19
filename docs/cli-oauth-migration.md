@@ -4,7 +4,7 @@ Tracking: [epic #27](https://github.com/ChristianMoesl/radar/issues/27).
 
 The migration is **not release-qualified yet**. Datadog's Pup transport and shared
 onboarding are implemented. Jira's TWG transport, full Development-panel PR-link
-parity, platform execution, live refresh/revocation and real SBX OAuth checks
+parity, remaining browser/refresh/revocation checks and real SBX OAuth checks
 remain open. Do not publish the breaking release until those checks pass.
 
 ## Datadog manual cutover
@@ -78,7 +78,7 @@ No existing data required migration or reset for the qualification changes.
 | OAuth enforcement | Named session overrides config-file static bearer; inherited static credentials removed; invalid API-key fallback rejected before sending a request | Real expiry/revocation/concurrent refresh |
 | Onboarding | Shared install/version/retry/defer flow; terminal wizard fixtures; OAuth/read checks | Real browser/SSO/callback on supported platforms |
 | Datadog investigator | Local/SBX executor-selection fixtures, real local workspace checks, durable investigation/recovery fixtures; existing real SBX boundary CI passed | Real SBX OAuth session and telemetry |
-| TWG distribution | Official 1.3.8 installer executed on Linux amd64; published checksums verified for Linux amd64/Linux arm64/macOS arm64 | Native arm64 execution and browser login on the other platforms |
+| TWG distribution | Official 1.3.8 installer and checksum-verified missing-profile contract passed in CI on Linux amd64/Linux arm64/macOS arm64 | Browser login and live provider behavior on the other platforms |
 | TWG issue requests | Live OAuth profile, project read, issue creation/read/update, two-page JQL, nested status categories, forced refresh and six concurrent reads | Complete failure/revocation coverage and Radar integration |
 | TWG authentication | Actual binary rejects missing named profiles before API dispatch; inherited static credentials override a valid named OAuth profile | Production environment sanitization and saved non-OAuth profile/race rejection |
 | Jira PR relationships | Actual relationship command executed with OAuth; empty graph returned structured pagination and zero reported AI credits | Populated Development-panel parity, freshness, complete pagination and polling costs |
@@ -136,10 +136,13 @@ and all three Radar-platform assets. The runtime's network readiness field was
 A user-approved TWG OAuth profile is now configured. Datadog still has no live
 session. Network access alone does not establish authenticated provider access.
 
-[CI for the implementation](https://github.com/ChristianMoesl/radar/actions/runs/39255191997)
-passed all 14 jobs, including the actual Pup offline binary contract on all three
-Radar platforms and the existing real SBX durable-agent check. These results do
-not establish live Jira association parity or Pup/Jira OAuth inside SBX.
+[CI for the qualification changes](https://github.com/ChristianMoesl/radar/actions/runs/39264359204)
+passed all 14 jobs, including the actual Pup and TWG offline binary contracts on
+all three Radar platforms, installation/packaging checks, Go/Pi/agent checks and
+the existing real SBX durable-agent check. The full Go suite also passed locally
+with a normal file-creation umask, and `make install` completed after pushing.
+These results do not establish live Jira association parity or Pup/Jira OAuth
+inside SBX.
 
 ## Jira live E2E setup
 
@@ -178,7 +181,9 @@ Datadog monitor/telemetry and Pup OAuth tests require their own Datadog session.
 The official installer completed with `--version 1.3.8 --skip-login
 --skip-skills --yes --install-dir <scratch-bin>`. All three platform artifacts
 matched `SHA256SUMS-v1.3.8`. Linux arm64 is an ELF aarch64 binary and macOS arm64
-is Mach-O arm64; downloading and identifying them is not native execution.
+is Mach-O arm64. The added release-contract CI subsequently executed the official
+installer and binary on all three supported platforms; browser OAuth was tested
+only on Linux amd64.
 
 Browser device authorization worked. Login using the hostname then failed with
 `AUTH_SITE_UNRESOLVED` after a DNS timeout, leaving no saved profile despite the
@@ -243,7 +248,8 @@ Observed contracts and results:
   `ai-credit` usage of zero. Empty-graph evidence does not establish populated
   relationship shape, complete associations, freshness or the cost of polling
   populated graphs. The default lookback is seven days and must not silently
-  omit older associations.
+  omit older associations. An explicit `--since 36500d` was accepted and returned
+  the same empty result; this does not prove historical association coverage.
 
 A user-created, dedicated GitHub fixture repository is verified private and
 writable through the connected identity. Five fixture PRs cover open, closed
@@ -253,7 +259,9 @@ their intended test issues; these references alone are not association evidence.
 No fixture branch or issue was deleted.
 
 Organization app-installation access still returns HTTP 403 through the current
-connection. Connect the test repository through the official
+connection. The user reported installing the app; organization connection,
+repository authorization and populated backfill remain unverified. Complete
+the test repository connection through the official
 [GitHub for Atlassian setup](https://support.atlassian.com/jira-cloud-administration/docs/integrate-with-github/)
 using a Jira site admin and GitHub organization owner. Use the resulting actual
 Development-panel associations for qualification; remote links or text matches
