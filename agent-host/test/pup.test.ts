@@ -6,10 +6,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { WorkspaceExecution } from "../src/environment.ts";
-import { pupRequest } from "../examples/pup.ts";
+import { pupRequest, pupSearchSpans } from "../examples/pup.ts";
 
 const execute=promisify(execFile);
-for (const mode of ["local","sbx"] as const) test(`Pup telemetry uses selected ${mode} execution and rejects legacy auth`, async()=>{
+for (const mode of ["local","sbx"] as const) for (const tokenType of ["Bearer", "bearer"]) test(`Pup telemetry uses selected ${mode} execution with ${tokenType} and rejects legacy auth`, async()=>{
  const dir=await mkdtemp(join(tmpdir(),"radar-pup-"));
  try {
   const calls=join(dir,"calls.jsonl");
@@ -19,7 +19,7 @@ const fs=require('node:fs');
 const a=process.argv.slice(2);
 if(a[0]==='--version'){console.log('pup 2.0.0');process.exit()}
 if(process.env.DD_ACCESS_TOKEN||process.env.PUP_MOCK_SERVER||process.env.DD_API_KEY!=='\\n'||process.env.DD_APP_KEY!=='\\n')process.exit(12);
-if(a.includes('status')){console.log(JSON.stringify({authenticated:true,token_type:'Bearer',has_refresh:true,status:'valid',site:'datadoghq.eu',org:'radar',scopes:['logs_read_data']}));process.exit()}
+if(a.includes('status')){console.log(JSON.stringify({authenticated:true,token_type:'${tokenType}',has_refresh:true,status:'valid',site:'datadoghq.eu',org:'radar',scopes:['logs_read_data']}));process.exit()}
 if(!a.includes('--org')||!a.includes('--no-envelope'))process.exit(13);
 fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify({args:a,body:fs.readFileSync(0,'utf8')})+'\\n');
 console.log(JSON.stringify({data:[{id:'log-1'}]}));
@@ -45,4 +45,20 @@ test("Missing sandbox CLI fails without host fallback",async()=>{
  let attempts=0;execution.exec=async()=>{attempts++;throw new Error("private diagnostic")};
  await assert.rejects(pupRequest(execution,"datadoghq.eu","radar","/api/v1/query?query=example"),/inside the selected workspace/);
  assert.equal(attempts,1);
+});
+
+test("Trace search sends the required JSON API envelope through the selected executor", async () => {
+ const execution = new WorkspaceExecution({id:"fixture",path:"/selected",mode:"local"});
+ let calls = 0;
+ execution.exec = async (argv, cwd) => {
+  calls++;
+  assert.equal(cwd, "/selected");
+  const request = JSON.parse(argv[3]!);
+  assert.equal(request.path, "/api/v2/spans/events/search");
+  assert.equal(request.scope, "apm_read");
+  assert.deepEqual(JSON.parse(request.body), {data:{type:"search_request",attributes:{filter:{query:"service:fixture",from:"now-15m",to:"now"},page:{limit:100}}}});
+  return JSON.stringify({data:[]});
+ };
+ assert.deepEqual(await pupSearchSpans(execution,"datadoghq.eu","radar","service:fixture","now-15m","now"),{data:[]});
+ assert.equal(calls,1);
 });

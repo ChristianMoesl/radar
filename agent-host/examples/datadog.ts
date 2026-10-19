@@ -19,7 +19,7 @@ import {
   modelRuntime,
 } from "./shared.ts";
 
-import { pupRequest } from "./pup.ts";
+import { pupRequest, pupSearchSpans } from "./pup.ts";
 
 type Incident = {
   conversation: number;
@@ -244,18 +244,10 @@ const Event = defineTask<AgentEvent, State, JsonValue>({
         }
         if (settings.spansQuery) {
           try {
-            collected.spans = await datadog("/api/v2/spans/events/search", {
-              method: "POST",
-              signal: runtime.signal,
-              body: JSON.stringify({
-                filter: {
-                  from: state.from,
-                  to: state.to,
-                  query: settings.spansQuery,
-                },
-                page: { limit: 100 },
-              }),
-            });
+            collected.spans = await pupSearchSpans(
+              settings.execution, settings.site, settings.org,
+              settings.spansQuery, state.from, state.to, runtime.signal,
+            );
           } catch (error) {
             errors.push(`Traces unavailable: ${(error as Error).message}`);
           }

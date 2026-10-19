@@ -36,8 +36,6 @@ datadog:
 
 ### Credentials
 
-The setup wizard stores keys in `secrets.yaml`. Alternatively, provide environment overrides:
-
 Install [Pup 2.0.0+](https://github.com/DataDog/pup), then run `radar setup`.
 Radar recommends Pup, shows the official installer, offers assisted installation,
 rechecks PATH/version, and starts `pup auth login` in your terminal. Browser login
@@ -89,3 +87,9 @@ The integration does not collect logs, traces, metrics, events, or historical tr
 ```sh
 go test ./internal/integration/datadog
 ```
+
+Live EU verification passed OAuth monitor collection, Alert/Warn/No Data/OK
+transitions, static-override rejection, forced concurrent refreshes, missing-session
+failure retention and daemon restart. Metrics were also verified through the
+separate investigator in a registered local workspace. Logs/traces and sandbox
+OAuth remain unqualified. See [the live evidence and opt-in test commands](../cli-oauth-migration.md#datadog-eu-live-verification-2026-10-19).

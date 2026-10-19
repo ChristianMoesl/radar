@@ -217,7 +217,7 @@ project-specific SDKs are not part of this image's contract.
 
 The image includes Pup 2.0.0, installed from its public release with checksum
 verification. It contains no OAuth session. Sign in as the sandbox user with
-`pup auth login --site datadoghq.eu --org radar --scopes monitors_read,logs_read_data,metrics_read,apm_read`, retaining only the scopes your configured reads need.
+`pup auth login --site datadoghq.eu --org radar --scopes monitors_read,logs_read_data,metrics_read,timeseries_query,apm_read`, retaining only the scopes your configured reads need.
 Pup's own storage must remain writable for refresh; never copy host credential
 files into the image or mount them into the sandbox. Radar's Datadog investigator
 runs Pup through the selected workspace executor and fails there if the CLI or

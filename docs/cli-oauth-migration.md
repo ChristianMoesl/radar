@@ -2,9 +2,9 @@
 
 Tracking: [epic #27](https://github.com/ChristianMoesl/radar/issues/27).
 
-The migration is **not release-qualified yet**. Datadog's Pup transport and shared
+The migration is **not release-qualified yet**. Datadog's Pup transport, shared
 onboarding and app-independent PR linking are implemented. Jira's TWG transport,
-remaining browser/refresh/revocation checks and real SBX OAuth checks remain open. Do not publish the breaking release until those checks pass.
+remaining onboarding/expiry/revocation checks and real SBX OAuth checks remain open. Do not publish the breaking release until those checks pass.
 
 ## Datadog manual cutover
 
@@ -42,7 +42,7 @@ conversation and incident stores keep their existing format; no reset is needed.
 The supplied sandbox image now provisions Pup 2.0.0 without credentials. For custom kits, install Pup yourself. Authenticate **inside the selected execution environment**:
 
 ```sh
-pup auth login --site datadoghq.eu --org radar --scopes monitors_read,logs_read_data,metrics_read,apm_read
+pup auth login --site datadoghq.eu --org radar --scopes monitors_read,logs_read_data,metrics_read,timeseries_query,apm_read
 ```
 
 Grant only the scopes required by configured reads. The investigator allows logs
@@ -72,11 +72,11 @@ No existing data required migration or reset for the qualification changes.
 
 | Capability | Evidence | Remaining gate |
 | --- | --- | --- |
-| Pup CLI contract | Official v2.0.0 release checksum verified; actual binary contract passed in CI on Linux amd64/Linux arm64/macOS arm64 | Live browser OAuth and provider behavior |
-| Raw monitor search | Actual binary against a local HTTP fixture; raw JSON, scoped query, totals | Read-only real Datadog account |
-| OAuth enforcement | Named session overrides config-file static bearer; inherited static credentials removed; invalid API-key fallback rejected before sending a request | Real expiry/revocation/concurrent refresh |
+| Pup CLI contract | Official v2.0.0 checksum/installer and offline contracts passed on all three platforms; live EU browser OAuth and provider requests passed on Linux amd64 | Browser/live checks on the other platforms |
+| Raw monitor search | Live EU account, two approved non-notifying monitors, real Alert/Warn/No Data/OK changes through the Radar daemon; stable IDs and recovery after restart | Larger live result-limit/rate-limit cases remain fixture-qualified |
+| OAuth enforcement | Live named OAuth survives injected static fixtures; missing session preserves both active tasks across daemon restart; six concurrent forced refreshes and six later reads passed | Natural expiry and server-side revocation |
 | Onboarding | Shared install/version/retry/defer flow; terminal wizard fixtures; OAuth/read checks | Real browser/SSO/callback on supported platforms |
-| Datadog investigator | Local/SBX executor-selection fixtures, real local workspace checks, durable investigation/recovery fixtures; existing real SBX boundary CI passed | Real SBX OAuth session and telemetry |
+| Datadog investigator | Live metric series through actual local WorkspaceExecution; metric-backed investigation, duplicate delivery, restart and recovery retain the conversation with an explicit fixture model | Logs/traces excluded from this verification round; real SBX OAuth/telemetry unverified |
 | TWG distribution | Official 1.3.8 installer and checksum-verified missing-profile contract passed in CI on Linux amd64/Linux arm64/macOS arm64 | Browser login and live provider behavior on the other platforms |
 | TWG issue requests | Live OAuth profile, project read, issue creation/read/update, two-page JQL, nested status categories, forced refresh and six concurrent reads | Complete failure/revocation coverage and Radar integration |
 | TWG authentication | Actual binary rejects missing named profiles before API dispatch; inherited static credentials override a valid named OAuth profile | Production environment sanitization and saved non-OAuth profile/race rejection |
@@ -132,8 +132,8 @@ SSO domain may also be needed during browser authorization. On 2026-10-19 the
 fresh environment successfully downloaded TWG's installer, manifest, checksums
 and all three Radar-platform assets. The runtime's network readiness field was
 `unknown`; actual successful HTTPS requests establish the access used here.
-A user-approved TWG OAuth profile is now configured. Datadog still has no live
-session. Network access alone does not establish authenticated provider access.
+User-approved TWG and Pup OAuth sessions are now configured. Datadog EU monitor
+and metric E2E checks passed in the selected local environment. Network access alone does not establish authenticated provider access.
 
 [CI for the qualification changes](https://github.com/ChristianMoesl/radar/actions/runs/39264359204)
 passed all 14 jobs, including the actual Pup and TWG offline binary contracts on
@@ -322,3 +322,73 @@ Read-only preflight found no config, secrets, task snapshot, durable-agent store
 or GitHub cache files in this environment; the workspace directory is unchanged.
 No persisted format changes or resets are required. No installed app or remote
 fixture was removed.
+
+
+### Datadog EU live verification (2026-10-19)
+
+The user created an EU test account and approved Pup OAuth for the intended
+organization. Pup 2.0.0 was installed using its official checksum-verifying
+installer. The released CLI supports remote login by accepting the one-time
+loopback callback URL through its own interactive prompt. Pup handled the code
+exchange and stored/refreshed the credentials. Radar did not read token files,
+export access tokens, or copy host credentials into another environment.
+
+The user approved two explicitly named monitors with no notification recipients:
+`Radar OAuth E2E - States` and `Radar OAuth E2E - No Data`. The first used an
+existing Datadog API-usage metric; the second initially queried a deliberately
+absent metric. No custom metric or telemetry ingestion was required. Observed:
+
+- Browser OAuth, named EU session verification, real monitor searches and raw
+  completeness metadata passed. Inherited static token/key fixtures did not
+  override OAuth. A read-only opt-in Go test also passed against both populated
+  unhealthy monitors.
+- Six simultaneous `pup auth refresh` processes succeeded, followed by six
+  successful headless monitor reads. This qualifies that forced-refresh case;
+  natural expiry and server-side revocation have not been exercised.
+- A real Radar daemon observed Alert as `immediate`, Warn and No Data as
+  `attention`, and both monitors' eventual OK states as `done`/Recovered. Source
+  IDs and completed tasks survived a daemon restart.
+- Selecting a missing named session reported a source error and preserved both
+  active tasks through another daemon restart. Restoring the intended session
+  resumed successful collection without recreating tasks.
+- A real metric query returned one series through the actual registered local
+  workspace execution path. The Datadog investigator consumed that live metric,
+  retained its conversation across runner restart, reused the original task for
+  duplicate delivery, and retained history on recovery. Its report used the
+  explicitly selected deterministic fixture model, not a live LLM.
+
+Live requests found and corrected three investigator defects: lowercase OAuth
+`bearer` must be accepted, the v1 timeseries route requires `timeseries_query`,
+and span searches require the JSON API `data.type`/`data.attributes` envelope.
+The metric request passed after the scope correction. Corrected trace requests
+reached the account's index validation; neither trace nor log reads succeeded
+because the new account had no searchable indexes. The user explicitly limited
+this round to monitors and metrics. Logs/traces remain unverified; their checks
+are skipped unless an explicit live query is selected. The source still reports
+unavailable evidence rather than treating an error as a healthy result.
+
+Reproduction uses the CLI-owned session and non-secret selectors:
+
+```sh
+RADAR_TEST_DATADOG_SITE=datadoghq.eu RADAR_TEST_DATADOG_ORG=radar \
+RADAR_TEST_DATADOG_QUERY='tag:radar-oauth-e2e' \
+go test ./internal/integration/datadog -run TestLivePupOAuthCollection -v -count=1
+
+RADAR_TEST_DATADOG_SITE=datadoghq.eu RADAR_TEST_DATADOG_ORG=radar \
+RADAR_TEST_DATADOG_WORKSPACE=/path/to/registered/workspace \
+RADAR_TEST_DATADOG_METRIC_QUERY='avg:datadog.apis.rate_limit.usage.per_org_pct{*}' \
+node --experimental-strip-types --test agent-host/test/pup-live.test.ts
+```
+
+Normal CI skips these live tests. For optional log/trace qualification, select
+`RADAR_TEST_DATADOG_LOGS_QUERY`/`RADAR_TEST_DATADOG_SPANS_QUERY` explicitly after
+setting up the corresponding Datadog products. The workspace must have its own
+working Pup session in its actual execution environment; these commands do not
+provision sandbox credentials.
+
+Both remote monitors were left with high recovery thresholds, no notification
+recipients, and No Data notifications disabled. No monitor was deleted. The
+isolated local investigator and daemon were stopped after verification; their
+state and conversation history remain available for review. Jira's production
+OAuth migration, foreground onboarding coverage, natural expiry/revocation,
+remaining platform browser checks and real SBX OAuth keep the release gated.

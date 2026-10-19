@@ -18,7 +18,7 @@ try{
  if(!m||Number(m[1])<2)throw Error('Pup 2.0.0+ is required inside this workspace');
  const prefix=['--org',request.org,'--no-envelope','--output','json'];
  const auth=JSON.parse(run([...prefix,'auth','status']));
- if(!auth.authenticated||auth.auth_method||auth.token_type!=='Bearer'||!auth.has_refresh||auth.status!=='valid'||auth.site!==request.site||auth.org!==request.org||!Array.isArray(auth.scopes)||!auth.scopes.includes(request.scope))throw Error('Pup OAuth session or required read scope is unavailable inside this workspace');
+ if(!auth.authenticated||auth.auth_method||String(auth.token_type).toLowerCase()!=='bearer'||!auth.has_refresh||auth.status!=='valid'||auth.site!==request.site||auth.org!==request.org||!Array.isArray(auth.scopes)||!auth.scopes.includes(request.scope))throw Error('Pup OAuth session or required read scope is unavailable inside this workspace');
  const args=[...prefix,'api',request.path,'-X',request.method];
  if(request.body!==undefined)args.push('--input','-');
  const result=JSON.parse(run(args,request.body));
@@ -36,7 +36,7 @@ export async function pupRequest(
   const method = options.method ?? "GET";
   const route = path.split("?")[0];
   const scope = method === "GET" && route === "/api/v1/query"
-    ? "metrics_read"
+    ? "timeseries_query"
     : method === "POST" && route === "/api/v2/logs/events/search"
       ? "logs_read_data"
       : method === "POST" && route === "/api/v2/spans/events/search"
@@ -55,4 +55,25 @@ export async function pupRequest(
   } catch {
     throw new Error("Pup telemetry read failed; verify CLI installation, the named OAuth session and read scopes inside the selected workspace");
   }
+}
+
+export function pupSearchSpans(
+  execution: WorkspaceExecution,
+  site: string,
+  org: string,
+  query: string,
+  from: string,
+  to: string,
+  signal?: AbortSignal,
+): Promise<JsonValue> {
+  return pupRequest(execution, site, org, "/api/v2/spans/events/search", {
+    method: "POST",
+    signal,
+    body: JSON.stringify({
+      data: {
+        type: "search_request",
+        attributes: { filter: { query, from, to }, page: { limit: 100 } },
+      },
+    }),
+  });
 }
