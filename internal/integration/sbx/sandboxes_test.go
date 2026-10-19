@@ -181,6 +181,9 @@ func TestSBXErrorDetailSuggestsLoginForAuthFailure(t *testing.T) {
 
 func TestSourceListsSandboxesOncePerCollection(t *testing.T) {
 	tmp := t.TempDir()
+	// Use default settings and an empty registry, not the caller's config or workspaces.
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
 	countPath := filepath.Join(tmp, "calls")
 	installFakeSBX(t, tmp, fmt.Sprintf("printf 'call\\n' >> %q\nprintf '[]\\n'\n", countPath))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
