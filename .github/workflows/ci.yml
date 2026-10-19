@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   provider-cli-contracts:
-    name: Pup OAuth contract (${{ matrix.os }}, offline provider fixture)
+    name: Pup and TWG contracts (${{ matrix.os }}, offline provider fixtures)
     strategy:
       fail-fast: false
       matrix:
@@ -28,6 +28,12 @@ jobs:
           PUP_VERSION=2.0.0 PUP_INSTALL_DIR="$RUNNER_TEMP/pup-contract" sh "$RUNNER_TEMP/install-pup.sh"
       - name: Verify raw JSON, named OAuth selection and rejection before API-key fallback
         run: RADAR_TEST_PUP="$RUNNER_TEMP/pup-contract/pup" go test ./internal/integration/datadog -run TestReleasedPupOAuthGuard
+      - name: Install checksum-verified TWG 1.3.8 in the runner temp directory
+        run: |
+          curl -fsSL https://teamwork-graph.atlassian.com/cli/install -o "$RUNNER_TEMP/install-twg.sh"
+          TWG_CONFIG_DIR="$RUNNER_TEMP/twg-config" bash "$RUNNER_TEMP/install-twg.sh" --version 1.3.8 --install-dir "$RUNNER_TEMP/twg-contract" --skip-login --skip-skills --yes
+      - name: Verify missing profiles reject static-auth API dispatch without a terminal
+        run: RADAR_TEST_TWG="$RUNNER_TEMP/twg-contract/twg" go test ./internal/integration/jira -run TestReleasedTWGMissingProfile
 
   durable-agents-sbx:
     name: Durable agent in real SBX
