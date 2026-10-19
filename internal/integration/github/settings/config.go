@@ -3,6 +3,7 @@ package settings
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 	"radar/internal/integration/github/filters"
@@ -11,9 +12,28 @@ import (
 
 type Config struct {
 	Enabled          *bool                     `yaml:"enabled,omitempty"`
+	ReviewRequests   ReviewRequestsConfig      `yaml:"review_requests"`
 	Track            []TrackingScope           `yaml:"track"`
 	PullRequestRules []filters.PullRequestRule `yaml:"pull_request_rules"`
 	ActivityRules    []filters.ActivityRule    `yaml:"activity_rules"`
+}
+
+type ReviewRequestsConfig struct {
+	IncludeMergedPullRequests   []string `yaml:"include_merged_pull_requests"`
+	MergedPullRequestMaxAgeDays int      `yaml:"merged_pull_request_max_age_days"`
+}
+
+func (cfg ReviewRequestsConfig) IncludesMerged(repo string) bool {
+	for _, pattern := range cfg.IncludeMergedPullRequests {
+		if filters.MatchPattern(pattern, repo) {
+			return true
+		}
+	}
+	return false
+}
+
+func (cfg ReviewRequestsConfig) Cutoff(now time.Time) time.Time {
+	return now.Add(-time.Duration(cfg.MergedPullRequestMaxAgeDays) * 24 * time.Hour)
 }
 
 type TrackingScope struct {
@@ -22,7 +42,10 @@ type TrackingScope struct {
 }
 
 func Default() Config {
-	return Config{Track: []TrackingScope{}, PullRequestRules: []filters.PullRequestRule{}, ActivityRules: []filters.ActivityRule{}}
+	return Config{
+		ReviewRequests: ReviewRequestsConfig{IncludeMergedPullRequests: []string{}, MergedPullRequestMaxAgeDays: 30},
+		Track:          []TrackingScope{}, PullRequestRules: []filters.PullRequestRule{}, ActivityRules: []filters.ActivityRule{},
+	}
 }
 
 // Reject unknown/obsolete GitHub keys instead of silently dropping policies.
@@ -30,12 +53,16 @@ func Default() Config {
 func (cfg *Config) UnmarshalYAML(node *yaml.Node) error {
 	type plain Config
 	value := plain(*cfg)
+	if value.ReviewRequests.MergedPullRequestMaxAgeDays == 0 {
+		value.ReviewRequests = Default().ReviewRequests
+	}
 	if err := node.Decode(&value); err != nil {
 		return fmt.Errorf("github: %w", err)
 	}
 	schema := map[string][]string{
 		"enabled":            nil,
 		"track":              {"repos", "authors"},
+		"review_requests":    {"include_merged_pull_requests", "merged_pull_request_max_age_days"},
 		"pull_request_rules": {"name", "repos", "authors", "action"},
 		"activity_rules":     {"name", "repos", "actors", "action"},
 	}
@@ -73,7 +100,7 @@ func checkKeys(node *yaml.Node, path string, schema map[string][]string) error {
 		}
 		fields, known := schema[key.Value]
 		if !known {
-			return fmt.Errorf("%s.%s (line %d) is not supported; GitHub policies use track, pull_request_rules and activity_rules", path, key.Value, key.Line)
+			return fmt.Errorf("%s.%s (line %d) is not supported; GitHub settings use review_requests, track, pull_request_rules and activity_rules", path, key.Value, key.Line)
 		}
 		if len(fields) > 0 {
 			childSchema := map[string][]string{}
@@ -89,6 +116,14 @@ func checkKeys(node *yaml.Node, path string, schema map[string][]string) error {
 }
 
 func Validate(cfg Config) error {
+	if cfg.ReviewRequests.MergedPullRequestMaxAgeDays < 1 || cfg.ReviewRequests.MergedPullRequestMaxAgeDays > 36500 {
+		return fmt.Errorf("github.review_requests.merged_pull_request_max_age_days must be between 1 and 36500")
+	}
+	for _, repo := range cfg.ReviewRequests.IncludeMergedPullRequests {
+		if err := repositoryPattern("github.review_requests.include_merged_pull_requests", repo); err != nil {
+			return err
+		}
+	}
 	for i, scope := range cfg.Track {
 		path := fmt.Sprintf("github.track[%d]", i)
 		if len(scope.Repos) == 0 {
@@ -101,9 +136,8 @@ func Validate(cfg Config) error {
 			return err
 		}
 		for _, repo := range scope.Repos {
-			owner, name, ok := strings.Cut(strings.TrimSpace(repo), "/")
-			if !ok || owner == "" || name == "" || strings.Contains(owner, "*") || strings.Contains(name, "/") {
-				return fmt.Errorf("%s.repos: %q must have a concrete owner and a repository name/pattern, e.g. acme/app-*", path, repo)
+			if err := repositoryPattern(path+".repos", repo); err != nil {
+				return err
 			}
 		}
 		for _, author := range scope.Authors {
@@ -150,6 +184,14 @@ func patterns(path string, values []string) error {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s contains an empty pattern", path)
 		}
+	}
+	return nil
+}
+
+func repositoryPattern(path, repo string) error {
+	owner, name, ok := strings.Cut(strings.TrimSpace(repo), "/")
+	if !ok || owner == "" || name == "" || strings.Contains(owner, "*") || strings.Contains(name, "/") || strings.ContainsAny(owner+name, " \t\r\n\"") {
+		return fmt.Errorf("%s: %q must have a concrete owner and a repository name/pattern, e.g. acme/app-*", path, repo)
 	}
 	return nil
 }

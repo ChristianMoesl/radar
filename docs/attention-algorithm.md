@@ -130,7 +130,17 @@ GitHub signals should focus on actionable feedback:
 - Bot identity does not determine priority by itself; confirmed GitHub bots expose equivalent `name` and `name[bot]` aliases for configuration matching.
 - Automation failures should need attention only when they are actionable for your PR.
 - Open authored PRs without actionable activity are `in_progress`.
-- Merged or closed tracked PRs are done source facts.
+- Merged or closed tracked PRs are normally done source facts.
+- `github.review_requests.include_merged_pull_requests` opts repository patterns
+  into outstanding post-merge review work. Within
+  `merged_pull_request_max_age_days` (default 30 days since merge), a current
+  direct/team review request keeps the PR contribution active as attention. A
+  submitted review must satisfy the current request, not an older request.
+- Merged-review age limits apply to already-tracked work as well as discovery.
+  Expired reviews and closed-unmerged PRs do not keep tasks active. Completing or
+  expiring a tracked merged review starts a new cleanup grace period; pending
+  reviews can reopen linked notes and prevent automatic cleanup. See the
+  [GitHub guide](integrations/github.md#reviews-after-merge).
 
 ## Jira workflow status
 

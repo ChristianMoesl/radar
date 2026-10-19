@@ -119,11 +119,11 @@ fi
 if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
   if [ "$mode" = "open" ]; then
     cat <<'JSON'
-{"data":{"viewer":{"login":"octo"},"reviewRequested":{"nodes":[]},"authored":{"nodes":[{"number":7,"title":"Ship linked work","url":"https://github.com/acme/app/pull/7","state":"OPEN","isDraft":false,"headRefName":"feature/linked-work","body":"No issue key in this body","author":{"login":"octo"},"repository":{"nameWithOwner":"acme/app"},"comments":{"nodes":[]},"reviews":{"nodes":[]},"reviewThreads":{"nodes":[]}}]},"participated":{"nodes":[]}}}
+{"data":{"viewer":{"login":"octo"},"reviewRequested":{"nodes":[],"pageInfo":{"hasNextPage":false}},"authored":{"nodes":[{"number":7,"title":"Ship linked work","url":"https://github.com/acme/app/pull/7","state":"OPEN","isDraft":false,"headRefName":"feature/linked-work","body":"No issue key in this body","author":{"login":"octo"},"repository":{"nameWithOwner":"acme/app"},"comments":{"nodes":[]},"reviews":{"nodes":[]},"reviewThreads":{"nodes":[]}}]},"participated":{"nodes":[]}}}
 JSON
   else
     cat <<'JSON'
-{"data":{"viewer":{"login":"octo"},"reviewRequested":{"nodes":[]},"authored":{"nodes":[]},"participated":{"nodes":[]}}}
+{"data":{"viewer":{"login":"octo"},"reviewRequested":{"nodes":[],"pageInfo":{"hasNextPage":false}},"authored":{"nodes":[]},"participated":{"nodes":[]}}}
 JSON
   fi
   exit 0

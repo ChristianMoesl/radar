@@ -8,8 +8,8 @@ import (
 
 	"radar/internal/config"
 	"radar/internal/integration"
-	"radar/internal/integration/github/filters"
 	"radar/internal/integration/github/identity"
+	"radar/internal/integration/github/settings"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
@@ -24,7 +24,7 @@ const boundPullRequestQuery = `query($owner: String!, $name: String!, $number: I
       number title url state isDraft closedAt headRefName body
       author { __typename login }
       repository { nameWithOwner }
-      reviewRequests(first: 50) { nodes { requestedReviewer { ... on User { login } } } }
+      ` + mergedReviewFields + `
       comments(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { author { __typename login } createdAt } }
       reviews(first: 50) { nodes { author { __typename login } createdAt } }
       reviewThreads(first: 25) { nodes { id isResolved comments(first: 25) { nodes { author { __typename login } createdAt } } } }
@@ -32,14 +32,7 @@ const boundPullRequestQuery = `query($owner: String!, $name: String!, $number: I
   }
 }`
 
-type boundPullRequest struct {
-	searchPullRequest
-	ReviewRequests struct {
-		Nodes []struct {
-			RequestedReviewer user `json:"requestedReviewer"`
-		} `json:"nodes"`
-	} `json:"reviewRequests"`
-}
+type boundPullRequest struct{ searchPullRequest }
 
 type boundPullRequestResponse struct {
 	Data struct {
@@ -84,7 +77,7 @@ func (Source) ResolveBindings(ctx context.Context, req integration.BindingReques
 		if observedBoundPullRequest(req.Result.Observations, binding.ID) {
 			continue
 		}
-		if ref, ok := cachedBoundPullRequest(req.Previous, binding.ID); ok {
+		if ref, ok := cachedBoundPullRequest(req.Previous, binding.ID); ok && cachedTerminalReviewUsable(ref, cfg.GitHub.ReviewRequests, time.Now()) {
 			tasks := []protocol.Task{{Attention: "done", Reason: ref.Status, SourceRefs: []protocol.SourceRef{ref}}}
 			applyLinkingMarks(tasks, req.LinkingMarks)
 			result.Observations = append(result.Observations, observationsFromTasks(tasks)...)
@@ -99,13 +92,18 @@ func (Source) ResolveBindings(ctx context.Context, req integration.BindingReques
 			bindingFailure(&result, req, fmt.Errorf("resolve %s: %w", binding.ID, err))
 			continue
 		}
-		task := boundPullRequestTask(pr, login, req.Previous, cfg.GitHub.ActivityRules)
+		if err := prepareMergedReview(ctx, &pr.searchPullRequest, login, cfg.GitHub.ReviewRequests, time.Now(), nil, req.Logger); err != nil {
+			bindingFailure(&result, req, err)
+			continue
+		}
+		task, err := boundPullRequestTask(pr, login, req.Previous, cfg.GitHub, time.Now())
+		if err != nil {
+			bindingFailure(&result, req, err)
+			continue
+		}
 		// GitHub repository names are case-insensitive. Keep the authored identity
 		// when the API returns a different capitalization of the same repository.
-		task.SourceRefs[0].ID = binding.ID
-		task.SourceRefs[0].EntityID = binding.ID
-		task.SourceRefs[0].CanonicalKey = binding.ID
-		task.SourceRefs[0].LinkingKeys = linking.Keys(append([]string{binding.ID}, task.SourceRefs[0].LinkingKeys...)...)
+		preservePullRequestIdentity(&task, binding.ID)
 		tasks := []protocol.Task{task}
 		applyLinkingMarks(tasks, req.LinkingMarks)
 		result.Observations = append(result.Observations, observationsFromTasks(tasks)...)
@@ -189,42 +187,28 @@ func fetchBoundPullRequest(ctx context.Context, repo string, number int) (boundP
 	return pr, login, nil
 }
 
-func boundPullRequestTask(pr boundPullRequest, login string, previous []protocol.Task, cfg []filters.ActivityRule) protocol.Task {
-	value := pr.searchPullRequest
+func boundPullRequestTask(pr boundPullRequest, login string, previous []protocol.Task, cfg settings.Config, now time.Time) (protocol.Task, error) {
+	if pr.State == "MERGED" && cfg.ReviewRequests.IncludesMerged(repoName(pr.searchPullRequest)) {
+		return mergedReviewTask(pr.searchPullRequest, login, previous, cfg.ReviewRequests, now)
+	}
 	if pr.State != "OPEN" {
-		reason := "closed"
-		if pr.State == "MERGED" {
-			reason = "merged"
-		}
-		if isToday(pr.ClosedAt) {
-			reason += " today"
-		}
-		task := trackedPullRequestTask(value)
-		task.Attention, task.Reason = "done", reason
-		task.SourceRefs[0].Status = reason
-		if _, err := time.Parse(time.RFC3339, pr.ClosedAt); err == nil {
-			if task.Metadata == nil {
-				task.Metadata = map[string]string{}
-			}
-			task.Metadata["completed_at"] = pr.ClosedAt
-		}
-		return task
+		return terminalPullRequestTask(pr.searchPullRequest), nil
 	}
 
 	authored := pr.Author != nil && strings.EqualFold(pr.Author.Login, login)
-	items := []protocol.Task{trackedPullRequestTask(value)}
+	items := []protocol.Task{trackedPullRequestTask(pr.searchPullRequest)}
 	if authored {
-		items = authoredPullRequestTasks([]searchPullRequest{value})
+		items = authoredPullRequestTasks([]searchPullRequest{pr.searchPullRequest})
 	} else {
 		for _, request := range pr.ReviewRequests.Nodes {
 			if strings.EqualFold(request.RequestedReviewer.Login, login) {
-				items = reviewRequestTasks([]searchPullRequest{value})
+				items = reviewRequestTasks([]searchPullRequest{pr.searchPullRequest})
 				break
 			}
 		}
 	}
-	applyActivity(items, []searchPullRequest{value}, login, activityStateFromPrevious(previous), cfg, authored)
-	return items[0]
+	applyActivity(items, []searchPullRequest{pr.searchPullRequest}, login, activityStateFromPrevious(previous), cfg.ActivityRules, authored)
+	return items[0], nil
 }
 
 func bindingFailure(result *integration.CollectResult, req integration.BindingRequest, err error) {
@@ -237,3 +221,9 @@ func bindingFailure(result *integration.CollectResult, req integration.BindingRe
 }
 
 var _ integration.BoundSourceResolver = Source{}
+
+func preservePullRequestIdentity(task *protocol.Task, id string) {
+	ref := &task.SourceRefs[0]
+	ref.ID, ref.EntityID, ref.CanonicalKey = id, id, id
+	ref.LinkingKeys = linking.Keys(append([]string{id}, ref.LinkingKeys...)...)
+}

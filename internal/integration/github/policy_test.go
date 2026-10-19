@@ -58,7 +58,7 @@ func TestCollectionFailurePreservesRawPreviousPRs(t *testing.T) {
 		t.Run(map[bool]string{false: "tracked", true: "main"}[failMain], func(t *testing.T) {
 			trackingBudget(t)
 			configureBoundGitHub(t, `{track: [{repos: [acme/app]}]}`)
-			mainReply := `echo '{"data":{"viewer":{"login":"me"},"reviewRequested":{"nodes":[]},"authored":{"nodes":[]},"participated":{"nodes":[]}}}'`
+			mainReply := `echo '{"data":{"viewer":{"login":"me"},"reviewRequested":{"nodes":[],"pageInfo":{"hasNextPage":false}},"authored":{"nodes":[]},"participated":{"nodes":[]}}}'`
 			trackedReply := "exit 1"
 			if failMain {
 				mainReply = "exit 1"

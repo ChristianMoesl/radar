@@ -14,6 +14,7 @@ import (
 	"radar/internal/command"
 	"radar/internal/integration/github/filters"
 	"radar/internal/integration/github/identity"
+	"radar/internal/integration/github/settings"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
@@ -32,8 +33,10 @@ type notification struct {
 }
 
 type user struct {
-	Type  string `json:"__typename"`
-	Login string `json:"login"`
+	NodeID          string `json:"id"`
+	ViewerIsAMember bool   `json:"-"`
+	Type            string `json:"__typename"`
+	Login           string `json:"login"`
 }
 
 type pullRequest struct {
@@ -45,6 +48,7 @@ type pullRequest struct {
 }
 
 type searchPullRequest struct {
+	reviewRequestFacts
 	NodeID        string               `json:"id"`
 	Number        int                  `json:"number"`
 	Title         string               `json:"title"`
@@ -84,6 +88,7 @@ type graphQLReviewThread struct {
 }
 
 type graphQLPullRequestsResponse struct {
+	graphQLErrors
 	Data struct {
 		Viewer          user                `json:"viewer"`
 		ReviewRequested graphQLSearchResult `json:"reviewRequested"`
@@ -93,12 +98,15 @@ type graphQLPullRequestsResponse struct {
 }
 
 type graphQLSearchResult struct {
-	Nodes []searchPullRequest `json:"nodes"`
+	IssueCount int                 `json:"issueCount"`
+	Page       *pageInfo           `json:"pageInfo"`
+	Nodes      []searchPullRequest `json:"nodes"`
 }
 
 const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: String!, $participatedQuery: String!) {
   viewer { login }
   reviewRequested: search(query: $reviewQuery, type: ISSUE, first: 50) {
+    issueCount pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
         number
@@ -162,17 +170,24 @@ func FetchPullRequests(ctx context.Context, previous []protocol.Task, cfg []filt
 	if err := ghJSON(ctx, args, &response); err != nil {
 		return nil, nil, nil, fmt.Errorf("fetch github pull requests: %w", err)
 	}
+	if err := response.err(); err != nil {
+		return nil, nil, nil, err
+	}
 	login := strings.TrimSpace(response.Data.Viewer.Login)
 	if login == "" {
 		return nil, nil, nil, fmt.Errorf("fetch github pull requests: viewer login was empty")
 	}
 
+	reviewPRs, err := remainingReviewPages(ctx, reviewPageQuery, "is:pr is:open review-requested:@me", response.Data.ReviewRequested, logger)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	previousActivity := activityStateFromPrevious(previous)
-	reviewItems := reviewRequestTasks(response.Data.ReviewRequested.Nodes)
+	reviewItems := reviewRequestTasks(reviewPRs)
 	authoredItems := authoredPullRequestTasks(response.Data.Authored.Nodes)
 	activityItems := activityPullRequestItems(response.Data.Participated.Nodes, login, previousActivity, cfg)
 	applyActivity(authoredItems, response.Data.Authored.Nodes, login, previousActivity, cfg, true)
-	applyActivity(reviewItems, response.Data.ReviewRequested.Nodes, login, previousActivity, cfg, false)
+	applyActivity(reviewItems, reviewPRs, login, previousActivity, cfg, false)
 	logger.Debug(
 		"fetched github pull requests",
 		"review_requested", len(reviewItems),
@@ -458,11 +473,7 @@ func parsePullRequestSourceRefID(id string) (string, int, bool) {
 	return value[:idx], number, true
 }
 
-func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, active []protocol.Task, authoredComplete bool, logger *slog.Logger) []protocol.Task {
-	if !authoredComplete {
-		logger.Debug("skipping github done resolution; authored PR collection was incomplete")
-		return keepTodaysDoneTasks(nil, previous)
-	}
+func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, active []protocol.Task, authoredComplete bool, reviews settings.ReviewRequestsConfig, logger *slog.Logger) []protocol.Task {
 	activePullRequests := make(map[string]bool, len(active))
 	for _, item := range active {
 		for _, sourceRef := range githubPullRequestSourceRefs(item) {
@@ -471,8 +482,16 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, acti
 	}
 
 	items := keepTodaysDoneTasks(nil, previous)
+	// A fresh request on a previously completed PR wins over cached done facts.
+	kept := items[:0]
+	for _, item := range items {
+		if !activePullRequests[doneTaskID(item)] {
+			kept = append(kept, item)
+		}
+	}
+	items = kept
 	seenDone := doneTaskIDs(items)
-	if !needsPullRequestResolution(previous, activePullRequests, seenDone) || !EnsureCoreBudget(ctx, logger) {
+	if !authoredComplete || !needsPullRequestResolution(previous, activePullRequests, seenDone) {
 		return items
 	}
 
@@ -490,6 +509,37 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, acti
 				continue
 			}
 
+			if reviews.IncludesMerged(repo) {
+				if !EnsureGraphQLBudget(ctx, logger) {
+					continue
+				}
+				pr, login, err := fetchBoundPullRequest(ctx, repo, number)
+				if err != nil {
+					logger.Warn("could not resolve review PR", "id", sourceRef.ID, "error", err)
+					continue
+				}
+				if pr.State == "OPEN" {
+					continue
+				}
+				if err := prepareMergedReview(ctx, &pr.searchPullRequest, login, reviews, time.Now(), nil, logger); err != nil {
+					logger.Warn("could not resolve review team", "id", sourceRef.ID, "error", err)
+					continue
+				}
+				cfg := settings.Default()
+				cfg.ReviewRequests = reviews
+				task, err := boundPullRequestTask(pr, login, previous, cfg, time.Now())
+				if err != nil {
+					logger.Warn("could not classify review PR", "id", sourceRef.ID, "error", err)
+					continue
+				}
+				preservePullRequestIdentity(&task, sourceRef.ID)
+				items = append(items, task)
+				seenDone[sourceRef.ID] = true
+				continue
+			}
+			if !EnsureCoreBudget(ctx, logger) {
+				continue
+			}
 			pr, err := fetchPullRequest(ctx, fmt.Sprintf("/repos/%s/pulls/%d", repo, number))
 			if err != nil {
 				logger.Warn("could not resolve previous github PR", "id", sourceRef.ID, "error", err)
@@ -511,6 +561,11 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, acti
 			done.Reason = reason
 			done.DoneAt = pr.ClosedAt
 			done.Metadata = cloneMetadata(sourceRef.Metadata)
+			if sourceRef.Metadata["merged_review_pending"] == "true" {
+				done.DoneAt = time.Now().UTC().Format(time.RFC3339)
+				done.Metadata["completed_at"] = done.DoneAt
+				delete(done.Metadata, "merged_review_pending")
+			}
 			done.SourceRefs = donePullRequestSourceRefs(item.SourceRefs, repo, number, reason)
 			seenDone[sourceRef.ID] = true
 			items = append(items, done)
@@ -542,6 +597,8 @@ func donePullRequestSourceRefs(sourceRefs []protocol.SourceRef, repo string, num
 			continue
 		}
 		ref := sourceRef
+		ref.Metadata = cloneMetadata(ref.Metadata)
+		delete(ref.Metadata, "merged_review_pending")
 		ref.Signal, ref.Status = "done", reason
 		ref.Acknowledgement = nil
 		return []protocol.SourceRef{ref}

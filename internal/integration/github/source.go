@@ -85,6 +85,12 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 		trackedItems, trackedErr = FetchTrackedPullRequests(ctx, githubConfig.Track, req.Logger)
 	}()
 	wg.Wait()
+	mergedItems, mergedErr := FetchMergedReviewRequests(ctx, req.Previous, githubConfig.ReviewRequests, req.Logger)
+	if mergedErr != nil {
+		req.Logger.Warn("github merged review collection failed", "error", mergedErr)
+		status := protocol.SourceStatus{Name: "github", Status: "partial", Detail: "merged review collection incomplete: " + mergedErr.Error()}
+		result.SourceStatus = &status
+	}
 
 	if pullRequestErr != nil {
 		req.Logger.Warn("github pull request collection failed", "error", pullRequestErr)
@@ -104,11 +110,12 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 			result.SourceStatus = &status
 		}
 	}
+	observed = appendMissingPullRequests(observed, mergedItems)
 	observed = appendMissingPullRequests(observed, trackedItems)
 
 	applyLinkingMarks(observed, req.LinkingMarks)
 	result.Observations = observationsFromTasks(observed)
-	result.Complete = trackedErr == nil && pullRequestErr == nil
+	result.Complete = trackedErr == nil && pullRequestErr == nil && mergedErr == nil
 	if pullRequestErr != nil {
 		// A tracked open-PR snapshot has no personal review/activity facts.
 		// Do not let it erase known attention during a failed personal refresh.
@@ -158,7 +165,12 @@ func (Source) FilterTasks(tasks []protocol.Task, logger *slog.Logger) []protocol
 }
 
 func (Source) Reconcile(ctx context.Context, req integration.ReconcileRequest) []integration.Observation {
-	tasks := ResolveDonePullRequests(ctx, req.Previous, req.Active, req.Result.Complete, req.Logger)
+	cfg, err := config.Load()
+	if err != nil {
+		req.Logger.Warn("could not load github review settings", "error", err)
+		return nil
+	}
+	tasks := ResolveDonePullRequests(ctx, req.Previous, req.Active, req.Result.Complete, cfg.GitHub.ReviewRequests, req.Logger)
 	applyLinkingMarks(tasks, req.LinkingMarks)
 	return observationsFromTasks(tasks)
 }

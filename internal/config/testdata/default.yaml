@@ -34,6 +34,13 @@ tmux:
         - command: pi $RADAR_PI_ARGS
 # Omit enabled to detect prerequisites automatically; true requires them and false disables collection.
 github:
+  review_requests:
+    # Repository patterns where outstanding direct/team review requests remain active after merge.
+    # Empty disables merged review tracking. Use a concrete owner, e.g. ["acme/team-*"].
+    include_merged_pull_requests: []
+    # Maximum age in days since merge (default 30). Older merged reviews expire even if still requested.
+    # Applies to discovery and already-tracked reviews; closed-unmerged PRs remain done.
+    merged_pull_request_max_age_days: 30
   # Additional open PRs (including drafts) beyond your own PRs, review requests and participation.
   # Requires repos with a concrete owner; * is allowed in the repository name.
   # Optional authors are exact logins; omit authors to include everyone. Entries are additive.

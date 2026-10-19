@@ -83,3 +83,51 @@ func TestUnknownInheritedGitHubPolicyKeyRejected(t *testing.T) {
 		t.Fatal("inherited obsolete selector accepted")
 	}
 }
+
+func TestReviewRequestConfigurationDefaultsAndValidation(t *testing.T) {
+	for _, input := range []string{"{}", "review_requests: {}", "review_requests: {include_merged_pull_requests: [\"Acme/team-*\"]}"} {
+		var cfg Config
+		if err := yaml.Unmarshal([]byte(input), &cfg); err != nil {
+			t.Fatal(err)
+		}
+		if err := Validate(cfg); err != nil {
+			t.Fatal(err)
+		}
+		if cfg.ReviewRequests.MergedPullRequestMaxAgeDays != 30 {
+			t.Fatalf("default age=%d", cfg.ReviewRequests.MergedPullRequestMaxAgeDays)
+		}
+	}
+	cfg := Default()
+	if len(cfg.ReviewRequests.IncludeMergedPullRequests) != 0 {
+		t.Fatal("merged tracking enabled by default")
+	}
+	if err := yaml.Unmarshal([]byte(`review_requests: {include_merged_pull_requests: ["Acme/team-*"], merged_pull_request_max_age_days: 90}`), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ReviewRequests.IncludesMerged("acme/TEAM-app") || cfg.ReviewRequests.IncludesMerged("other/team-app") || cfg.ReviewRequests.MergedPullRequestMaxAgeDays != 90 {
+		t.Fatalf("review settings=%+v", cfg.ReviewRequests)
+	}
+	for _, input := range []string{
+		"review_requests: {include_merged_repos: [acme/app]}",
+		"review_requests: {include_merged_pull_requests: true}",
+		"review_requests: {include_merged_pull_requests: ['']}",
+		"review_requests: {include_merged_pull_requests: ['*/app']}",
+		"review_requests: {include_merged_pull_requests: ['acme/app/other']}",
+		"review_requests: {include_merged_pull_requests: ['acme/app is:open']}",
+		"review_requests: {merged_pull_request_max_age_days: 0}",
+		"review_requests: {merged_pull_request_max_age_days: -1}",
+		"review_requests: {merged_pull_request_max_age_days: 999999999}",
+		"review_requests: {merged_pull_request_max_age_days: '30d'}",
+	} {
+		t.Run(input, func(t *testing.T) {
+			cfg := Default()
+			err := yaml.Unmarshal([]byte(input), &cfg)
+			if err == nil {
+				err = Validate(cfg)
+			}
+			if err == nil || !strings.Contains(err.Error(), "github") {
+				t.Fatalf("invalid review configuration accepted: %v", err)
+			}
+		})
+	}
+}

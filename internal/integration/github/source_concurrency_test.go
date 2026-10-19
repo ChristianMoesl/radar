@@ -41,7 +41,7 @@ case "$*" in
     while [ ! -f "`+release+`" ]; do
       i=$((i+1)); [ "$i" -lt 100 ] || exit 2; sleep 0.01
     done
-    echo '{"data":{"viewer":{"login":"me"},"reviewRequested":{"nodes":[]},"authored":{"nodes":[]},"participated":{"nodes":[]}}}'
+    echo '{"data":{"viewer":{"login":"me"},"reviewRequested":{"nodes":[],"pageInfo":{"hasNextPage":false}},"authored":{"nodes":[]},"participated":{"nodes":[]}}}'
     ;;
   *"RadarTrackedPullRequests"*)
     touch "`+started+`.tracked"

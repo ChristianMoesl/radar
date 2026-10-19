@@ -12,6 +12,7 @@ import (
 
 	"radar/internal/integration/contracttest"
 	"radar/internal/integration/github/filters"
+	"radar/internal/integration/github/settings"
 	"radar/internal/protocol"
 )
 
@@ -24,6 +25,7 @@ case "$*" in
   "data": {
     "viewer": { "login": "me" },
     "reviewRequested": {
+ "pageInfo": {"hasNextPage": false},
       "nodes": [
         {
           "number": 12,
@@ -252,7 +254,7 @@ exit 1
 		{ID: 3, Kind: "github_own_pr", Attention: "done", DoneAt: yesterday, Title: "Done yesterday", SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:32", Source: "github", Kind: "pull_request"}}},
 	}
 
-	items := ResolveDonePullRequests(context.Background(), previous, nil, false, testLogger())
+	items := ResolveDonePullRequests(context.Background(), previous, nil, false, settings.Default().ReviewRequests, testLogger())
 	if len(items) != 1 {
 		t.Fatalf("resolved items = %d, want 1", len(items))
 	}
@@ -284,7 +286,7 @@ exit 1
 		}},
 	}
 
-	items := ResolveDonePullRequests(context.Background(), previous, nil, true, testLogger())
+	items := ResolveDonePullRequests(context.Background(), previous, nil, true, settings.Default().ReviewRequests, testLogger())
 	if len(items) != 1 || items[0].ID != 1 {
 		t.Fatalf("resolved items = %+v, want only today's cached done PR", items)
 	}
@@ -320,7 +322,7 @@ esac
 		}},
 	}}
 
-	items := ResolveDonePullRequests(context.Background(), previous, nil, true, testLogger())
+	items := ResolveDonePullRequests(context.Background(), previous, nil, true, settings.Default().ReviewRequests, testLogger())
 	if len(items) != 1 {
 		t.Fatalf("resolved items = %d, want 1", len(items))
 	}
@@ -360,7 +362,7 @@ esac
 		ID: "github:pr:acme/app:33", Source: "github", Kind: "pull_request",
 	}}}}
 
-	items := ResolveDonePullRequests(context.Background(), previous, active, true, testLogger())
+	items := ResolveDonePullRequests(context.Background(), previous, active, true, settings.Default().ReviewRequests, testLogger())
 	if len(items) != 1 || items[0].SourceRefs[0].ID != "github:pr:acme/app:34" {
 		t.Fatalf("resolved items = %+v, want grouped PR 34 marked done", items)
 	}
@@ -376,7 +378,7 @@ func TestResolveDonePullRequestsDeduplicatesDonePRRefs(t *testing.T) {
 		{ID: 1, Kind: "github_own_pr", Attention: "done", DoneAt: today, SourceRefs: []protocol.SourceRef{{ID: "github:pr:acme/app:33", Source: "github", Kind: "pull_request"}}},
 	}
 
-	items := ResolveDonePullRequests(context.Background(), previous, nil, false, testLogger())
+	items := ResolveDonePullRequests(context.Background(), previous, nil, false, settings.Default().ReviewRequests, testLogger())
 	if len(items) != 1 {
 		t.Fatalf("resolved items = %d, want 1", len(items))
 	}

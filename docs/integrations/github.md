@@ -12,7 +12,7 @@ gh auth status
 
 Radar currently tracks:
 
-- PR review requests assigned directly to you as `needs attention`
+- outstanding direct and team PR review requests as `needs attention`
 - open PRs authored by you as `in progress`
 
 Radar checks GitHub rate limits before collection. When a budget is low, Radar pauses GitHub collection until GitHub's reset time. TUI and CLI status reads use cached daemon state and do not trigger GitHub requests.
@@ -25,7 +25,7 @@ Radar checks GitHub rate limits before collection. When a budget is low, Radar p
 
 Authentication is the existing `gh auth` state. Radar does not store GitHub credentials. Omitted `github.enabled` activates collection when `gh` is installed and has a locally configured token; `false` skips collection and reconciliation, and `true` reports missing prerequisites as an error. Expired credentials and API failures are errors, not missing prerequisites.
 
-Three independent lists replace the old combined filters:
+Tracking and presentation use three independent lists:
 
 - `github.track`: additional open PR discovery. Each entry requires `repos` and optionally exact `authors`. Omit authors to collect everyone's open PRs, including drafts. Repository patterns require a concrete owner, e.g. `acme/platform-*`, not `*/platform`. Entries are additive.
 - `github.pull_request_rules`: match `repos`, `authors`, or both on **the same PR**. Actions: `keep`, `mute`, `deprioritize`.
@@ -34,6 +34,59 @@ Three independent lists replace the old combined filters:
 Rule lists use first-match precedence independently per PR/actor. Place specific exceptions before broad policies. Fields use AND, list values use OR; omitted selectors are unrestricted, but at least one nonempty selector is required. Rules can have a descriptive `name`. Rule patterns are case-insensitive and support `*`. Confirmed bots match `name` and `name[bot]`; humans do not acquire bot aliases. Unknown keys, actions, empty patterns and unsupported tracking scopes fail validation.
 
 Fresh configuration contains empty lists, explanatory comments and commented-out examples. Setup preserves hand-authored comments and never rewrites an unchanged document merely to add guidance.
+
+## Reviews after merge
+
+By default, merging a PR completes its GitHub contribution. Opt specific
+repositories into post-merge review work when the team's workflow still requires
+requested reviews after merge:
+
+```yaml
+github:
+  review_requests:
+    include_merged_pull_requests: ["acme/team-*", "acme/shared-library"]
+    merged_pull_request_max_age_days: 30
+```
+
+`include_merged_pull_requests` is a repository-pattern list, not a boolean. It is
+empty by default. Patterns are case-insensitive, support `*` in repository names,
+and require a concrete owner, just like `github.track`.
+
+`merged_pull_request_max_age_days` defaults to **30** and accepts positive whole
+days (1–36500). The cutoff is measured from the merge timestamp, not PR creation,
+last activity, or the review-request timestamp. It applies to **both discovery and
+already-tracked reviews**: at the cutoff an outstanding merged review stops
+keeping the task active, even if GitHub still requests it. A request on an older
+merged PR is therefore intentionally outside this policy. Increasing the cutoff
+can bring such work back into scope. Open PRs are unaffected.
+
+Within the configured scope and age, a merged PR with a current direct or team
+review request contributes `attention`, with **merged — review requested**.
+Submitting a review for the current request or withdrawing that request completes
+that review contribution; an earlier review does not satisfy a later re-request.
+A retained request that a later submitted review already satisfied does not keep
+work active. Requests on the viewer's own PR do not create self-review work.
+Closed-but-unmerged PRs remain done.
+
+This uses the existing task model, not a separate review inbox. An outstanding
+review can reopen a linked authored task and delays automatic workspace cleanup.
+The remote PR remains merged and Jira is not reopened. Once a tracked review is
+completed or expires, its new completion observation starts the cleanup grace
+period rather than backdating it to merge. Other active linked work still keeps
+the task open. Acknowledging activity does not complete a requested review, and
+existing mute/deprioritization rules retain their normal semantics.
+
+Merged review searches are paginated and scoped to configured repository owners,
+then matched against the repository patterns. They do not expand authored-PR or
+explicit tracking discovery to all merged PRs, or subscribe to unrelated
+historical discussions. Search truncation (including GitHub's 1,000-result search
+ceiling), incomplete review facts, and API failures retain previous observations
+and report incomplete collection instead of implying completion. Cached Done
+facts are rechecked while a bound PR is eligible for post-merge reviews.
+
+Enabling this policy can surface older requests within the age limit. Preview
+matching requests before rollout if the team has an existing backlog; Radar does
+not automatically change configuration, clear requests, or reset cached tasks.
 
 ## Contribution, not whole-task policy
 
