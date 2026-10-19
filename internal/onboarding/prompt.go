@@ -3,7 +3,6 @@
 package onboarding
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,26 +13,19 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/term"
 	"github.com/muesli/termenv"
+
+	"radar/internal/hostsetup"
+	"radar/internal/integration"
+	"radar/internal/setup"
 )
 
-var ErrAborted = errors.New("setup cancelled — no Radar configuration was written")
+var ErrAborted = setup.ErrAborted
+var ErrToolsNotReady = hostsetup.ErrToolsNotReady
 
-type choice struct {
-	value, label string
-}
-
-type question struct {
-	title, hint, initial string
-	secret               bool
-	choices              []choice
-	validate             func(string) error
-}
-
+type choice = setup.Choice
+type question = setup.Question
 type prompter interface {
-	input(question) (string, error)
-	confirm(string, bool) (bool, error)
-	print(string, ...any)
-	style() lipgloss.Style
+	setup.UI
 	review(setupReview) error
 }
 
@@ -42,11 +34,11 @@ type terminalUI struct {
 	out io.Writer
 }
 
-func (u terminalUI) print(format string, args ...any) { fmt.Fprintf(u.out, format, args...) }
+func (u terminalUI) Print(format string, args ...any) { fmt.Fprintf(u.out, format, args...) }
 
 // Bind styling to the actual output, not the process-global renderer. Never
 // emit ANSI for redirected output or override an explicit NO_COLOR setting.
-func (u terminalUI) style() lipgloss.Style {
+func (u terminalUI) Style() lipgloss.Style {
 	r := lipgloss.NewRenderer(u.out)
 	out, ok := u.out.(*os.File)
 	if !ok || !term.IsTerminal(out.Fd()) || os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
@@ -55,7 +47,7 @@ func (u terminalUI) style() lipgloss.Style {
 	return r.NewStyle()
 }
 
-func (u terminalUI) input(q question) (string, error) {
+func (u terminalUI) Input(q question) (string, error) {
 	m := newPrompt(q)
 	final, err := tea.NewProgram(m, tea.WithInput(u.in), tea.WithOutput(u.out)).Run()
 	if err != nil {
@@ -67,8 +59,8 @@ func (u terminalUI) input(q question) (string, error) {
 	}
 	return strings.TrimSpace(result.input.Value()), nil
 }
-func (u terminalUI) confirm(title string, initial bool) (bool, error) {
-	m := newPrompt(question{title: title})
+func (u terminalUI) Confirm(title string, initial bool) (bool, error) {
+	m := newPrompt(question{Title: title})
 	m.confirm, m.yes = true, initial
 	final, err := tea.NewProgram(m, tea.WithInput(u.in), tea.WithOutput(u.out)).Run()
 	if err != nil {
@@ -81,11 +73,12 @@ func (u terminalUI) confirm(title string, initial bool) (bool, error) {
 	return result.yes, nil
 }
 
-func Run() error {
+func Run(registry integration.Registry) error {
 	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
 		return fmt.Errorf("setup needs an interactive terminal — run `radar setup` in a terminal")
 	}
-	return newWizard(terminalUI{in: os.Stdin, out: os.Stdout}, realSystem{}).run()
+	w := newWizard(terminalUI{in: os.Stdin, out: os.Stdout}, setup.RealSystem{}, registry)
+	return w.run()
 }
 
 var heading = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
@@ -104,15 +97,15 @@ func newPrompt(q question) promptModel {
 	input.Prompt = "> "
 	input.Width = 70
 	input.CharLimit = 8192
-	input.SetValue(q.initial)
+	input.SetValue(q.Initial)
 	input.Focus()
-	if q.secret {
+	if q.Secret {
 		input.EchoMode = textinput.EchoPassword
 		input.EchoCharacter = '•'
 	}
 	m := promptModel{q: q, input: input}
-	for i, option := range q.choices {
-		if option.value == q.initial {
+	for i, option := range q.Choices {
+		if option.Value == q.Initial {
 			m.selected = i
 		}
 	}
@@ -145,14 +138,14 @@ func (m promptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if len(m.q.choices) > 0 {
+		if len(m.q.Choices) > 0 {
 			switch msg.String() {
 			case "up":
 				m.selected = max(0, m.selected-1)
 			case "down", "tab":
-				m.selected = min(len(m.q.choices)-1, m.selected+1)
+				m.selected = min(len(m.q.Choices)-1, m.selected+1)
 			case "enter":
-				m.input.SetValue(m.q.choices[m.selected].value)
+				m.input.SetValue(m.q.Choices[m.selected].Value)
 				m.accepted = true
 				return m, tea.Quit
 			}
@@ -160,8 +153,8 @@ func (m promptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Type == tea.KeyEnter {
 			value := strings.TrimSpace(m.input.Value())
-			if m.q.validate != nil {
-				if err := m.q.validate(value); err != nil {
+			if m.q.Validate != nil {
+				if err := m.q.Validate(value); err != nil {
 					m.validation = err.Error()
 					return m, nil
 				}
@@ -180,11 +173,11 @@ func (m promptModel) View() string {
 	}
 	if m.accepted {
 		answer := strings.TrimSpace(m.input.Value())
-		if m.q.secret {
+		if m.q.Secret {
 			answer = "[hidden]"
 		}
-		if len(m.q.choices) > 0 {
-			answer = m.q.choices[m.selected].label
+		if len(m.q.Choices) > 0 {
+			answer = m.q.Choices[m.selected].Label
 		}
 		if m.confirm {
 			answer = "no"
@@ -192,11 +185,11 @@ func (m promptModel) View() string {
 				answer = "yes"
 			}
 		}
-		return fmt.Sprintf("✓ %s: %s\n", m.q.title, answer)
+		return fmt.Sprintf("✓ %s: %s\n", m.q.Title, answer)
 	}
-	view := heading.Render(m.q.title) + "\n"
-	if m.q.hint != "" {
-		view += muted.Render(m.q.hint) + "\n"
+	view := heading.Render(m.q.Title) + "\n"
+	if m.q.Hint != "" {
+		view += muted.Render(m.q.Hint) + "\n"
 	}
 	if m.confirm {
 		yes, no := " yes ", " no "
@@ -207,11 +200,11 @@ func (m promptModel) View() string {
 		}
 		return view + yes + "  " + no + "\n" + muted.Render("←/→ choose · enter accept · esc cancel") + "\n"
 	}
-	if len(m.q.choices) > 0 {
-		for i, option := range m.q.choices {
-			line := "  " + option.label
+	if len(m.q.Choices) > 0 {
+		for i, option := range m.q.Choices {
+			line := "  " + option.Label
 			if i == m.selected {
-				line = heading.Reverse(true).Render("> " + option.label)
+				line = heading.Reverse(true).Render("> " + option.Label)
 			}
 			view += line + "\n"
 		}

@@ -1,6 +1,10 @@
 package app
 
-import "testing"
+import (
+	"testing"
+
+	"radar/internal/integration"
+)
 
 func TestDefaultIntegrationsExposeRegisteredCapabilities(t *testing.T) {
 	registry := DefaultIntegrations()
@@ -31,6 +35,22 @@ func TestDefaultIntegrationsExposeRegisteredCapabilities(t *testing.T) {
 	}
 	if _, err := registry.Multiplexer(); err != nil {
 		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		phase integration.SetupPhase
+		names []string
+	}{
+		{integration.SetupEnvironment, []string{"sbx", "tmux"}},
+		{integration.SetupDirectories, []string{"git", "workspace", "obsidian"}},
+		{integration.SetupConnections, []string{"github", "jira", "datadog"}},
+	} {
+		var names []string
+		for _, provider := range registry.SetupProviders(tc.phase) {
+			names = append(names, provider.Descriptor().Name)
+		}
+		if !equalStrings(names, tc.names) {
+			t.Fatalf("setup phase %d = %v, want %v", tc.phase, names, tc.names)
+		}
 	}
 }
 

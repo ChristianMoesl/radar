@@ -94,10 +94,32 @@ func TestProviderCommandsStayInsideIntegrationPackages(t *testing.T) {
 					return true
 				}
 				selector, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok || (selector.Sel.Name != "Run" && selector.Sel.Name != "LookPath" && selector.Sel.Name != "Command" && selector.Sel.Name != "CommandContext") {
+				if !ok || (selector.Sel.Name != "Run" && selector.Sel.Name != "Output" && selector.Sel.Name != "LookPath" && selector.Sel.Name != "Command" && selector.Sel.Name != "CommandContext") {
 					return true
 				}
 				for _, argument := range call.Args {
+					// Setup's injected command transport takes a typed command rather
+					// than a bare executable argument. Enforce the same boundary.
+					if literal, ok := argument.(*ast.CompositeLit); ok {
+						for _, element := range literal.Elts {
+							field, ok := element.(*ast.KeyValueExpr)
+							if !ok {
+								continue
+							}
+							key, ok := field.Key.(*ast.Ident)
+							if !ok || key.Name != "Name" {
+								continue
+							}
+							value, ok := field.Value.(*ast.BasicLit)
+							if !ok || value.Kind != token.STRING {
+								continue
+							}
+							name, _ := strconv.Unquote(value.Value)
+							if commands[name] {
+								t.Errorf("%s invokes provider command %q outside internal/integration", relative, name)
+							}
+						}
+					}
 					literal, ok := argument.(*ast.BasicLit)
 					if !ok || literal.Kind != token.STRING {
 						continue
@@ -132,6 +154,7 @@ func TestLegacyProviderPackagesAreAbsent(t *testing.T) {
 	for _, path := range []string{
 		"internal/filters", "internal/githubidentity", "internal/sbxauth",
 		"internal/tmuxlayout", "internal/workspace", "internal/workspacegroup",
+		"internal/integration/onboarding",
 	} {
 		if _, err := os.Stat(filepath.Join(root, path)); !os.IsNotExist(err) {
 			t.Errorf("legacy provider package %s still exists", path)

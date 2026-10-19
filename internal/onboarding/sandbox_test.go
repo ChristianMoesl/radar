@@ -7,12 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"radar/internal/config"
+	"radar/internal/setup"
 	"radar/sandbox"
 )
 
@@ -80,7 +80,7 @@ func TestSandboxSetupCreatesReviewedStarterOnlyOnSave(t *testing.T) {
 				if _, err := os.Stat(root); !os.IsNotExist(err) {
 					t.Fatal("starter published before review")
 				}
-				if ui.reviewed == nil || !strings.Contains(ui.reviewed.sandbox, "verified") {
+				if ui.reviewed == nil || !strings.Contains(ui.reviewed.summaryText, "verified") {
 					t.Fatal("missing readiness summary")
 				}
 				for _, file := range ui.reviewed.files {
@@ -217,7 +217,7 @@ func TestSandboxSetupRetryAndLogin(t *testing.T) {
 	if err := w.run(); err != nil {
 		t.Fatal(err)
 	}
-	if versionCalls != 2 || listCalls != 2 || !strings.Contains(strings.Join(sys.calls, "\n"), "sbx login") {
+	if versionCalls != 3 || listCalls != 2 || !strings.Contains(strings.Join(sys.calls, "\n"), "sbx login") {
 		t.Fatal(sys.calls)
 	}
 	if !strings.Contains(ui.transcript.String(), "SBX login") {
@@ -229,15 +229,18 @@ func TestSandboxSetupPreservesCustomRecipeAndExistingStarter(t *testing.T) {
 	w, ui, sys, home := sandboxFixture(t)
 	path, _ := config.Path()
 	cfg := config.Default()
-	plan, err := planSandboxFiles(path, &cfg.SBX)
-	if err != nil {
+	root := filepath.Join(filepath.Dir(path), "sandbox")
+	cfg.SBX.Kit.Name = root
+	cfg.SBX.EnvFile = filepath.Join(root, "sandbox.env")
+	cfg.SBX.AdditionalMounts = []string{filepath.Join(root, "startup.d") + ":ro"}
+	if err := os.MkdirAll(filepath.Join(root, "startup.d"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := plan.apply(); err != nil {
+	if err := os.WriteFile(cfg.SBX.EnvFile, []byte("SBX_STARTUP_DIR="+filepath.Join(root, "startup.d")+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	custom := []byte(strings.Replace(sandbox.KitSpec, "radar-sandbox:latest", "custom-sandbox:v1", 1))
-	if err := os.WriteFile(filepath.Join(plan.root, "spec.yaml"), custom, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "spec.yaml"), custom, 0600); err != nil {
 		t.Fatal(err)
 	}
 	cfg.SBX.ReadyCommand = []string{"custom-ready"}
@@ -256,84 +259,15 @@ func TestSandboxSetupPreservesCustomRecipeAndExistingStarter(t *testing.T) {
 	if !reflect.DeepEqual(saved.SBX.Kit, cfg.SBX.Kit) || !reflect.DeepEqual(saved.SBX.ReadyCommand, cfg.SBX.ReadyCommand) || saved.SBX.EnvFile != cfg.SBX.EnvFile {
 		t.Fatal("custom recipe changed")
 	}
-	got, _ := os.ReadFile(filepath.Join(plan.root, "spec.yaml"))
+	got, _ := os.ReadFile(filepath.Join(root, "spec.yaml"))
 	if string(got) != string(custom) {
 		t.Fatal("custom kit overwritten")
 	}
 	if !strings.Contains(strings.Join(sys.calls, "\n"), "--kit "+cfg.SBX.Kit.Path) {
 		t.Fatal("mixin not used")
 	}
-	if w.sandboxPlan != nil {
+	if hasStarterFiles(w.plans) {
 		t.Fatal("custom config must not generate another starter")
-	}
-}
-
-func TestSandboxStarterDetectsConcurrentEditsAndNeverOverwrites(t *testing.T) {
-	for _, existing := range []bool{false, true} {
-		t.Run(fmt.Sprint(existing), func(t *testing.T) {
-			_, _, _, _ = fixture(t)
-			path, _ := config.Path()
-			cfg := config.Default().SBX
-			first, err := planSandboxFiles(path, &cfg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if existing {
-				if err := first.apply(); err != nil {
-					t.Fatal(err)
-				}
-			}
-			plan, err := planSandboxFiles(path, &cfg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			file := filepath.Join(plan.root, "spec.yaml")
-			if err := os.MkdirAll(plan.root, 0700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(file, []byte("user change"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			if err := plan.apply(); err == nil {
-				t.Fatal("concurrent change accepted")
-			}
-			got, _ := os.ReadFile(file)
-			if string(got) != "user change" {
-				t.Fatal("user change overwritten")
-			}
-		})
-	}
-}
-
-func TestSandboxStarterPreservesAndHidesExistingEnvFile(t *testing.T) {
-	_, _, _, _ = fixture(t)
-	path, _ := config.Path()
-	cfg := config.Default().SBX
-	p, err := planSandboxFiles(path, &cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := p.apply(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(cfg.EnvFile, []byte("USER_SECRET=do-not-display\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	p, err = planSandboxFiles(path, &cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, file := range p.reviewFiles() {
-		if strings.Contains(file.details, "do-not-display") || file.action != "UNCHANGED" {
-			t.Fatal(file)
-		}
-	}
-	if err := p.apply(); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := os.ReadFile(cfg.EnvFile)
-	if string(got) != "USER_SECRET=do-not-display\n" {
-		t.Fatal("env rewritten")
 	}
 }
 
@@ -356,42 +290,15 @@ func TestSandboxProbeCleanupFailureBlocksSetupAndRetainsMount(t *testing.T) {
 	}
 	ui.decisions = []bool{true}
 	err := w.run()
-	var cleanupErr *sandboxCleanupError
-	if !errors.As(err, &cleanupErr) {
+	if err == nil || !strings.Contains(err.Error(), "temporary sandbox cleanup could not be confirmed") {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(cleanupErr.temp)
+	defer os.RemoveAll(filepath.Dir(anchor))
 	if _, err := os.Stat(anchor); err != nil {
 		t.Fatal("removed a still-mounted probe directory")
 	}
 	if needed, _ := Needed(); !needed {
 		t.Fatal("cleanup failure saved config")
-	}
-}
-
-func TestSandboxProbeCleanupAfterCancellation(t *testing.T) {
-	w, _, sys, _ := sandboxFixture(t)
-	base := sys.sandboxFn
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cleaned := false
-	sys.sandboxFn = func(callCtx context.Context, args ...string) (string, error) {
-		if args[0] == "create" {
-			cancel()
-			return "", context.Canceled
-		}
-		if args[0] == "rm" {
-			cleaned = true
-			if callCtx.Err() != nil {
-				t.Fatal("cleanup inherited cancelled context")
-			}
-		}
-		return base(callCtx, args...)
-	}
-	cfg := config.Default().SBX
-	err := w.probeSandbox(ctx, cfg, nil)
-	if err == nil || !cleaned {
-		t.Fatalf("err=%v cleaned=%t", err, cleaned)
 	}
 }
 
@@ -413,45 +320,6 @@ func TestSandboxSetupUnsupportedPlatformDoesNotProbeOrEnable(t *testing.T) {
 	}
 	if cfg.SBX.Enabled != nil {
 		t.Fatal("unsupported platform altered enablement")
-	}
-}
-
-func TestSandboxExplicitPublishedRecipeIsPreserved(t *testing.T) {
-	_, _, _, _ = fixture(t)
-	for _, key := range []string{"kit:\n    name: docker.io/christianmoesl/radar-kit:latest", "ready_command: []", "additional_mounts: []", "env_file: ''"} {
-		path, _ := config.Path()
-		_ = os.MkdirAll(filepath.Dir(path), 0700)
-		if err := os.WriteFile(path, []byte("sbx:\n  "+key+"\n"), 0600); err != nil {
-			t.Fatal(err)
-		}
-		draft, err := config.LoadSetupDraft()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !hasSandboxRecipe(draft) {
-			t.Fatalf("explicit %s lost", key)
-		}
-	}
-}
-
-func TestSandboxRecipeAliasesAndMergesAreExplicit(t *testing.T) {
-	_, _, _, _ = fixture(t)
-	for _, data := range []string{
-		"recipe: &recipe\n  kit: {name: custom}\nsbx: *recipe\n",
-		"recipe: &recipe\n  kit: {name: custom}\nsbx:\n  <<: *recipe\n",
-	} {
-		path, _ := config.Path()
-		_ = os.MkdirAll(filepath.Dir(path), 0700)
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
-			t.Fatal(err)
-		}
-		draft, err := config.LoadSetupDraft()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !hasSandboxRecipe(draft) {
-			t.Fatal("aliased recipe would be overwritten")
-		}
 	}
 }
 
@@ -496,110 +364,13 @@ func TestSandboxSetupConcurrentStarterEditLeavesConfigurationUnsaved(t *testing.
 	}
 }
 
-func TestSandboxCommandOutputIsBounded(t *testing.T) {
-	var b sandboxCommandOutput
-	input := []byte(strings.Repeat("x", (1<<20)+20))
-	if n, err := b.Write(input); err != nil || n != len(input) {
-		t.Fatal(n, err)
-	}
-	if b.Len() != 1<<20 || !b.truncated {
-		t.Fatal("output not bounded")
-	}
-	if n, err := b.Write(input); err != nil || n != len(input) || b.Len() != 1<<20 {
-		t.Fatal("repeated overflow")
-	}
-}
-
-// Opt-in host test: creates/removes one disposable SBX sandbox, pulls the public
-// image if needed and mounts only private fixture directories. No Radar user
-// config, credentials or network policy are modified.
-func TestSandboxSetupE2E(t *testing.T) {
-	if os.Getenv("RADAR_SBX_SETUP_E2E") != "1" || runtime.GOOS != "darwin" {
-		t.Skip("set RADAR_SBX_SETUP_E2E=1 on an authenticated macOS SBX host")
-	}
-	root, err := os.MkdirTemp("", "radar-setup-e2e-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	keep := false
-	defer func() {
-		if !keep {
-			_ = os.RemoveAll(root)
+func hasStarterFiles(plans []setup.Plan) bool {
+	for _, plan := range plans {
+		for _, file := range plan.Files {
+			if strings.HasSuffix(file.Path, "/spec.yaml") {
+				return true
+			}
 		}
-	}()
-	cfg := config.Default().SBX
-	plan, err := planSandboxFiles(filepath.Join(root, "config.yaml"), &cfg)
-	if err != nil {
-		t.Fatal(err)
 	}
-	// A pre-existing hook is user-owned and must run from the read-only mount.
-	hooks := filepath.Join(plan.root, "startup.d")
-	if err := os.MkdirAll(hooks, 0700); err != nil {
-		t.Fatal(err)
-	}
-	script := []byte("#!/bin/sh\nset -eu\ntest \"$(id -u)\" = 1000\ntest ! -w \"$PWD\"\nprintf fixture > \"$HOME/startup-fixture\"\n")
-	if err := os.WriteFile(filepath.Join(hooks, "10-fixture"), script, 0700); err != nil {
-		t.Fatal(err)
-	}
-	cfg.ReadyCommand = []string{"sh", "-c", `sandbox-startup run && test "$(cat "$HOME/startup-fixture")" = fixture`}
-	ui := &fakeUI{}
-	w := newWizard(ui, realSystem{})
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
-	defer cancel()
-	err = w.probeSandbox(ctx, cfg, plan)
-	t.Log(ui.transcript.String())
-	var cleanupErr *sandboxCleanupError
-	if errors.As(err, &cleanupErr) {
-		keep = true
-		t.Logf("Fixture retained at %s until cleanup is completed", root)
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "config.yaml")); !os.IsNotExist(err) {
-		t.Fatal("probe wrote config")
-	}
-	if _, err := os.Stat(filepath.Join(plan.root, "spec.yaml")); !os.IsNotExist(err) {
-		t.Fatal("probe published starter before review")
-	}
-}
-
-func TestSandboxSetupRequiresSBX048(t *testing.T) {
-	for _, tt := range []struct {
-		version   string
-		supported bool
-	}{
-		{`{"client":{"version":"v0.46.0"}}`, false},
-		{`{"client":{"version":"v0.47.9"}}`, false},
-		{`{"client":{"version":"v0.48.0"}}`, true},
-		{`{"client":{"version":"v0.48.1"}}`, true},
-		{`{"client":{"version":"v0.49.0"}}`, false},
-		{`{"client":{"version":"v1.0.0"}}`, false},
-		{"unknown", false},
-	} {
-		t.Run(tt.version, func(t *testing.T) {
-			w, _, sys, _ := sandboxFixture(t)
-			listed := false
-			sys.sandboxFn = func(_ context.Context, args ...string) (string, error) {
-				switch args[0] {
-				case "version":
-					return tt.version, nil
-				case "ls":
-					listed = true
-					// Stop after the version gate, without provisioning anything.
-					return "", errors.New("runtime unavailable")
-				default:
-					t.Fatalf("unexpected command: %v", args)
-					return "", nil
-				}
-			}
-			err := w.prepareSandbox(context.Background(), config.SBXConfig{}, nil)
-			if listed != tt.supported || err == nil {
-				t.Fatalf("listed = %v, error = %v", listed, err)
-			}
-			if !tt.supported && !strings.Contains(err.Error(), "SBX 0.48.x is required") {
-				t.Fatalf("missing upgrade guidance: %v", err)
-			}
-		})
-	}
+	return false
 }

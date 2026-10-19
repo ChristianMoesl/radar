@@ -22,9 +22,9 @@ import (
 	"radar/internal/client"
 	"radar/internal/config"
 	"radar/internal/integration"
-	"radar/internal/integration/onboarding"
 	"radar/internal/logging"
 	"radar/internal/notification"
+	"radar/internal/onboarding"
 	"radar/internal/operationlock"
 	"radar/internal/pi"
 	"radar/internal/process"
@@ -1265,7 +1265,7 @@ func ensureOnboarding(checkTools bool) {
 }
 
 func runOnboarding() {
-	if err := onboarding.Run(); err != nil {
+	if err := onboarding.Run(app.DefaultIntegrations()); err != nil {
 		if errors.Is(err, onboarding.ErrToolsNotReady) {
 			// Setup already printed the tool statuses and repair instructions.
 			os.Exit(1)

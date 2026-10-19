@@ -1,20 +1,18 @@
 package onboarding
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/aymanbagabas/go-udiff"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"radar/internal/config"
-	"radar/internal/integration/tmux"
 	"radar/internal/pathdisplay"
 	"radar/internal/pi"
+	"radar/internal/setup"
 )
 
 type reviewFile struct {
@@ -27,39 +25,26 @@ type setupReview struct {
 	directories []string
 	credentials bool
 	completed   []string
-	sandbox     string
+	summaryText string
 }
 
+func fromSetupFile(file setup.File) reviewFile {
+	return reviewFile{path: file.Path, purpose: file.Purpose, action: file.Action, details: file.Details}
+}
 func reviewFileChange(path, purpose string, after []byte) (reviewFile, error) {
-	file := reviewFile{path: path, purpose: purpose}
-	before, err := os.ReadFile(path)
-	switch {
-	case os.IsNotExist(err):
-		file.action, file.details = "CREATE", string(after)
-	case err != nil:
-		return file, err
-	case bytes.Equal(before, after):
-		file.action, file.details = "UNCHANGED", "Existing file is preserved."
-	default:
-		file.action = "UPDATE"
-		label := pathdisplay.HomeRelative(path)
-		file.details = udiff.Unified(label+" (current)", label+" (proposed)", string(before), string(after))
-	}
-	return file, nil
+	file, err := setup.ReviewFileChange(path, purpose, after)
+	return fromSetupFile(file), err
 }
-
-func (w wizard) review(path string, data []byte, cfg config.Config, updates config.Secrets, plan *tmux.ConfigPlan) error {
-	report, err := buildReview(path, data, cfg, updates, plan)
+func (w wizard) review(path string, data []byte, updates config.Secrets) error {
+	report, err := buildReview(path, data, updates, w.plans)
 	if err != nil {
 		return err
 	}
 	report.completed = append([]string(nil), w.completed...)
-	report.sandbox = w.sandboxSummary
-	report.files = append(report.files, w.sandboxPlan.reviewFiles()...)
 	return w.ui.review(report)
 }
 
-func buildReview(path string, data []byte, cfg config.Config, updates config.Secrets, plan *tmux.ConfigPlan) (setupReview, error) {
+func buildReview(path string, data []byte, updates config.Secrets, plans []setup.Plan) (setupReview, error) {
 	var report setupReview
 	settings, err := reviewFileChange(path, "Radar settings", data)
 	if err != nil {
@@ -83,33 +68,31 @@ func buildReview(path string, data []byte, cfg config.Config, updates config.Sec
 		return report, err
 	}
 	report.files = append(report.files, instructions)
-	if plan != nil {
-		managed, err := reviewFileChange(plan.Path, "Popup shortcut and extended keys", []byte(plan.Content))
-		if err != nil {
-			return report, err
-		}
-		user, err := reviewFileChange(plan.UserPath, "Load Radar's tmux settings", plan.UserConfigPreview())
-		if err != nil {
-			return report, err
-		}
-		if user.action == "UPDATE" {
-			user.action = "APPEND"
-		}
-		report.files = append(report.files, managed, user)
-	}
 
 	seen := map[string]bool{}
-	for _, dir := range []string{cfg.RepositoryDirs[0], cfg.Workspace.RootDir, cfg.Obsidian.VaultPath, config.ObsidianTaskRoot(cfg.Obsidian.VaultPath)} {
-		if seen[dir] {
-			continue
+	for _, plan := range plans {
+		for _, file := range plan.Files {
+			report.files = append(report.files, fromSetupFile(file))
 		}
-		seen[dir] = true
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			report.directories = append(report.directories, dir)
-		} else if err != nil {
-			return report, err
+		if plan.Summary != "" {
+			if report.summaryText != "" {
+				report.summaryText += "\n"
+			}
+			report.summaryText += plan.Summary
+		}
+		for _, dir := range plan.Directories {
+			if seen[dir] {
+				continue
+			}
+			seen[dir] = true
+			if _, err := os.Stat(dir); os.IsNotExist(err) {
+				report.directories = append(report.directories, dir)
+			} else if err != nil {
+				return report, err
+			}
 		}
 	}
+
 	return report, nil
 }
 
@@ -151,12 +134,6 @@ func reviewSecrets(updates config.Secrets) (*reviewFile, error) {
 	}
 	if file.action != "UNCHANGED" {
 		file.details = "Save the provided credentials; retain existing entries.\nPlaintext, owner-only permissions (0600). Values are never displayed."
-		if len(updates["jira"]) > 0 {
-			file.details += "\nJira API token: [hidden]"
-		}
-		if len(updates["datadog"]) > 0 {
-			file.details += "\nDatadog API key and application key: [hidden]"
-		}
 	}
 	return file, nil
 }
@@ -165,8 +142,8 @@ func (r setupReview) summary(style lipgloss.Style) string {
 	var out strings.Builder
 	fmt.Fprintln(&out, style.Bold(true).Render("Review changes"))
 	fmt.Fprint(&out, "Nothing below is written until you save.\n\n")
-	if r.sandbox != "" {
-		fmt.Fprintln(&out, r.sandbox+"\n")
+	if r.summaryText != "" {
+		fmt.Fprintln(&out, r.summaryText+"\n")
 	}
 	width := 0
 	for _, file := range r.files {

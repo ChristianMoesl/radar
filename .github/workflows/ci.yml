@@ -170,7 +170,7 @@ jobs:
           node-version: 24
 
       - name: Test installation and integration defaults on macOS
-        run: go test ./scripts ./scripts/homebrew ./internal/app ./internal/config ./internal/collector ./internal/pi ./internal/notification ./internal/agentservice ./internal/workspacelease ./internal/integration/...
+        run: go test ./scripts ./scripts/homebrew ./internal/app ./internal/config ./internal/collector ./internal/pi ./internal/notification ./internal/agentservice ./internal/workspacelease ./internal/onboarding ./internal/hostsetup ./internal/setup/... ./internal/integration/...
 
       - name: Check Homebrew formula style
         run: brew style scripts/homebrew/testdata/Formula/radar.rb

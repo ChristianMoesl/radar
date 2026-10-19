@@ -1,111 +1,32 @@
-package onboarding
+package hostsetup
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
-	"time"
 
-	"radar/internal/command"
-	sbxclient "radar/internal/integration/sbx/client"
+	"radar/internal/setup"
 )
 
-var errExtensionDeclined = errors.New("extension installation declined")
-
-const radarPackage = "@christianmoesl/pi-radar"
-
-type system interface {
-	lookPath(string) bool
-	platform() string
-	output(context.Context, string, ...string) (string, error)
-	run(context.Context, string, ...string) error
-	sandbox(context.Context, ...string) (string, error)
+type Dependency struct{ Name, Reason string }
+type Service struct {
+	UI        setup.UI
+	System    setup.System
+	Completed func(string)
 }
-type realSystem struct{}
-
-func (realSystem) lookPath(name string) bool { _, err := exec.LookPath(name); return err == nil }
-func (realSystem) platform() string          { return runtime.GOOS }
-func (realSystem) output(ctx context.Context, name string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	cmd := command.CommandContext(ctx, name, args...)
-	// Package commands must not inspect or change the project we launched from.
-	if name == "pi" {
-		cmd.Dir, _ = os.UserHomeDir()
-	}
-	data, err := cmd.Output()
-	return string(data), err
-}
-
-// Sandbox calls have per-stage deadlines supplied by the wizard. Capture output:
-// custom kits, hooks and env-file parsers can emit secrets, even on failure.
-func (realSystem) sandbox(ctx context.Context, args ...string) (string, error) {
-	if len(args) > 0 && args[0] == "create" {
-		if err := sbxclient.New(sbxclient.ExecRunner{}).Preflight(ctx); err != nil {
-			return "", err
-		}
-	}
-	var output, diagnostic sandboxCommandOutput
-	cmd := command.CommandContext(ctx, "sbx", args...)
-	cmd.Env = sbxclient.Environment("sbx", os.Environ())
-	cmd.Stdout, cmd.Stderr = &output, &diagnostic
-	err := cmd.Run()
-	if output.truncated {
-		return "", errors.New("SBX output exceeded the setup diagnostic limit")
-	}
-	if err != nil {
-		return diagnostic.String(), err
-	}
-	return output.String(), nil
-}
-
-// Keep noisy custom startup commands from growing setup's captured output
-// without bound. Truncated status/metadata is never treated as valid JSON.
-type sandboxCommandOutput struct {
-	bytes.Buffer
-	truncated bool
-}
-
-func (b *sandboxCommandOutput) Write(data []byte) (int, error) {
-	n := len(data)
-	remaining := (1 << 20) - b.Len()
-	if len(data) > remaining {
-		b.truncated = true
-		data = data[:remaining]
-	}
-	_, _ = b.Buffer.Write(data)
-	return n, nil
-}
-
-func (realSystem) run(ctx context.Context, name string, args ...string) error {
-	cmd := exec.CommandContext(ctx, name, args...)
-	if name == "sbx" {
-		cmd.Env = sbxclient.Environment(name, os.Environ())
-	}
-	if name == "pi" {
-		cmd.Dir, _ = os.UserHomeDir()
-	}
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return cmd.Run()
-}
-
-type dependency struct{ name, reason string }
 
 // MissingTools checks only executable availability on PATH. Dashboard startup
 // must not launch shims, prompt for developer tools, or run slow version probes.
 // Setup remains responsible for checking usability and minimum versions.
-func MissingTools() []string { return missingTools(realSystem{}) }
+func MissingTools() []string { return missingTools(setup.RealSystem{}) }
 
-func missingTools(sys system) []string {
+func missingTools(sys setup.System) []string {
 	var missing []string
 	for _, name := range requiredTools {
 		if toolBinary(sys, name) == "" {
@@ -115,70 +36,70 @@ func missingTools(sys system) []string {
 	return missing
 }
 
-func toolBinary(sys system, name string) string {
-	if sys.lookPath(name) {
+func toolBinary(sys setup.System, name string) string {
+	if sys.LookPath(name) {
 		return name
 	}
-	if name == "fd" && sys.platform() == "linux" && sys.lookPath("fdfind") {
+	if name == "fd" && sys.Platform() == "linux" && sys.LookPath("fdfind") {
 		return "fdfind"
 	}
 	return ""
 }
 
-func (w *wizard) dependencies(ctx context.Context) error {
+func (w Service) Dependencies(ctx context.Context) error {
 	if err := w.requiredTools(ctx); err != nil {
 		return err
 	}
-	w.ui.print("\nPi extensions\n")
-	err := w.extensions(ctx, dependency{"pi-radar", "Pi's mandatory Radar workspace tools and context"})
-	if errors.Is(err, errExtensionDeclined) {
-		return ErrAborted
+	w.UI.Print("\nPi extensions\n")
+	err := w.Extensions(ctx, Dependency{"pi-radar", "Pi's mandatory Radar workspace tools and context"})
+	if errors.Is(err, setup.ErrExtensionDeclined) {
+		return setup.ErrAborted
 	}
 	return err
 }
 
-func (w *wizard) extensions(ctx context.Context, checks ...dependency) error {
+func (w Service) Extensions(ctx context.Context, checks ...Dependency) error {
 	for _, dep := range checks {
-		if dep.name == "pi-sbx" {
-			w.ui.print("\nSBX sandboxing is enabled — checking pi-sbx 0.7.0+.\n")
+		if dep.Name == "pi-sbx" {
+			w.UI.Print("\nSBX sandboxing is enabled — checking pi-sbx 0.7.0+.\n")
 		}
-		ready, err := w.installed(ctx, dep.name)
+		ready, err := w.installed(ctx, dep.Name)
 		if err != nil {
 			return err
 		}
 		if ready {
-			w.ui.print("✓ %s ready\n", dep.name)
+			w.UI.Print("✓ %s ready\n", dep.Name)
 			continue
 		}
-		argv, err := w.installCommand(dep.name)
+		argv, err := w.installCommand(dep.Name)
 		if err != nil {
 			return err
 		}
-		w.ui.print("! %s is missing or below its required version.\n  %s\n  Command: %s\n", dep.name, dep.reason, strings.Join(argv, " "))
-		yes, err := w.ui.confirm("Install or update "+dep.name+" now?", true)
+		w.UI.Print("! %s is missing or below its required version.\n  %s\n  Command: %s\n", dep.Name, dep.Reason, strings.Join(argv, " "))
+		yes, err := w.UI.Confirm("Install or update "+dep.Name+" now?", true)
 		if err != nil {
 			return err
 		}
 		if !yes {
-			return errExtensionDeclined
+			return setup.ErrExtensionDeclined
 		}
-		if err := w.system.run(ctx, argv[0], argv[1:]...); err != nil {
-			return fmt.Errorf("install %s failed — fix the command above and rerun `radar setup`: %w", dep.name, err)
+		if err := w.System.Run(ctx, setup.Command{Name: argv[0], Args: argv[1:], Dir: userHome()}); err != nil {
+			return fmt.Errorf("install %s failed — fix the command above and rerun `radar setup`: %w", dep.Name, err)
 		}
-		w.completed = append(w.completed, dep.name+" installed")
-		ready, err = w.installed(ctx, dep.name)
+		w.Completed(dep.Name + " installed")
+		ready, err = w.installed(ctx, dep.Name)
 		if err != nil {
 			return err
 		}
 		if !ready {
-			return fmt.Errorf("%s is still unavailable or too old on PATH — install the required version, check PATH, then rerun `radar setup`", dep.name)
+			return fmt.Errorf("%s is still unavailable or too old on PATH — install the required version, check PATH, then rerun `radar setup`", dep.Name)
 		}
-		w.ui.print("✓ %s ready\n", dep.name)
+		w.UI.Print("✓ %s ready\n", dep.Name)
 	}
 	return nil
 }
 
-func (w wizard) installed(ctx context.Context, name string) (bool, error) {
+func (w Service) installed(ctx context.Context, name string) (bool, error) {
 	if name == "pi-radar" || name == "pi-sbx" {
 		// Inspect the user profile without executing extension code.
 		return packageInstalled(name)
@@ -186,7 +107,7 @@ func (w wizard) installed(ctx context.Context, name string) (bool, error) {
 	return w.checkTool(ctx, name).state == toolReady, nil
 }
 
-func (w wizard) installCommand(name string) ([]string, error) {
+func (w Service) installCommand(name string) ([]string, error) {
 	switch name {
 	case "pi-radar", "pi-sbx":
 		return []string{"pi", "install", "npm:@christianmoesl/" + name}, nil
@@ -352,3 +273,5 @@ func packageReady(path, name string) bool {
 	core, _, _ := strings.Cut(version, "+")
 	return stable.MatchString(version) && versionAtLeast(core, [3]int{0, 7, 0})
 }
+
+func userHome() string { home, _ := os.UserHomeDir(); return home }

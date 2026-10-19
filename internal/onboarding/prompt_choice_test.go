@@ -9,8 +9,8 @@ import (
 
 func TestChoicePromptUsesDefaultAndReturnsSelectedValue(t *testing.T) {
 	q := question{
-		title: "Choose a policy", initial: "balanced",
-		choices: []choice{{"deny-all", "Block outbound traffic"}, {"balanced", "Typical development traffic"}, {"allow-all", "Allow all outbound traffic"}},
+		Title: "Choose a policy", Initial: "balanced",
+		Choices: []choice{{Value: "deny-all", Label: "Block outbound traffic"}, {Value: "balanced", Label: "Typical development traffic"}, {Value: "allow-all", Label: "Allow all outbound traffic"}},
 	}
 	for _, tc := range []struct {
 		name string
@@ -27,8 +27,8 @@ func TestChoicePromptUsesDefaultAndReturnsSelectedValue(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newPrompt(q)
-			for _, option := range q.choices {
-				if !strings.Contains(m.View(), option.label) {
+			for _, option := range q.Choices {
+				if !strings.Contains(m.View(), option.Label) {
 					t.Fatal("missing choice label")
 				}
 			}
@@ -36,10 +36,10 @@ func TestChoicePromptUsesDefaultAndReturnsSelectedValue(t *testing.T) {
 				updated, _ := m.Update(key)
 				m = updated.(promptModel)
 			}
-			if !m.accepted || m.selected != tc.want || m.input.Value() != q.choices[tc.want].value {
+			if !m.accepted || m.selected != tc.want || m.input.Value() != q.Choices[tc.want].Value {
 				t.Fatalf("selected=%d value=%q accepted=%t", m.selected, m.input.Value(), m.accepted)
 			}
-			if !strings.Contains(m.View(), q.choices[tc.want].label) {
+			if !strings.Contains(m.View(), q.Choices[tc.want].Label) {
 				t.Fatal("selected label missing from transcript")
 			}
 		})
@@ -48,7 +48,7 @@ func TestChoicePromptUsesDefaultAndReturnsSelectedValue(t *testing.T) {
 
 func TestChoicePromptCancellationDoesNotAcceptDefault(t *testing.T) {
 	for _, key := range []tea.KeyType{tea.KeyEsc, tea.KeyCtrlC, tea.KeyCtrlD} {
-		m := newPrompt(question{title: "Choose", initial: "balanced", choices: []choice{{"balanced", "Balanced"}}})
+		m := newPrompt(question{Title: "Choose", Initial: "balanced", Choices: []choice{{Value: "balanced", Label: "Balanced"}}})
 		updated, _ := m.Update(tea.KeyMsg{Type: key})
 		result := updated.(promptModel)
 		if !result.aborted || result.accepted {

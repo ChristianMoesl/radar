@@ -231,11 +231,21 @@ Activity rules match a repository and comment/review actor after normal involvem
 
 ## Foreground onboarding
 
-`internal/integration/onboarding` owns the foreground setup workflow, its inline
-prompts, dependency installers, and service access checks. It lives under the
-integration boundary because it invokes provider CLIs and APIs. `internal/config`
-owns settings/secrets storage; previews contain only Config, never the Secrets
-map. Saving config is the completion marker, with directory locking to prevent
+`internal/onboarding` coordinates the foreground setup workflow, inline prompts,
+combined review, and save. Integrations implement the optional `SetupProvider`
+capability: SBX and tmux prepare the environment, Git/Workspace/Obsidian configure
+their directories, and GitHub/Jira/Datadog configure their connections. The
+registry assembles these steps in phase and provider-defined order; the coordinator
+does not import concrete providers or execute their commands.
+
+`internal/setup` contains the shared interaction, subprocess, and deferred-plan
+contract. Providers own their questions, authentication/API checks, file previews,
+conflict checks, writes, and post-save actions. All plans are checked under the
+setup lock before any is applied. Explicitly accepted installs, logins and SBX
+probes remain foreground actions; completed effects are disclosed in review.
+`internal/hostsetup` validates baseline tools and handles host Pi packages.
+`internal/config` owns settings/secrets storage; previews contain only Config,
+never the Secrets map. Saving config is the completion marker, with directory locking to prevent
 concurrent setup bundles and exclusive publication for first-time setup.
 `radar setup` also edits existing configs: a snapshot detects concurrent changes,
 and a typed delta is applied to the original YAML document to preserve unedited settings, comments, and key order.

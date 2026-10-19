@@ -109,11 +109,7 @@ func PlanConfig(starter bool) (ConfigPlan, error) {
 }
 
 func (p ConfigPlan) Apply() error {
-	// Do not overwrite edits made while the user was answering the wizard.
-	if err := unchangedConfig(p.UserPath, p.userExists, p.oldUser); err != nil {
-		return err
-	}
-	if err := unchangedConfig(p.Path, p.managedExists, p.oldManaged); err != nil {
+	if err := p.CheckUnchanged(); err != nil {
 		return err
 	}
 
@@ -191,4 +187,16 @@ func writeConfig(path string, data []byte, mode os.FileMode, exclusive bool) err
 		return os.Link(file.Name(), path)
 	}
 	return os.Rename(file.Name(), path)
+}
+
+func (p ConfigPlan) CheckUnchanged() error {
+	// Do not overwrite edits made while the user was answering the wizard.
+	if err := unchangedConfig(p.UserPath, p.userExists, p.oldUser); err != nil {
+		return err
+	}
+	if err := unchangedConfig(p.Path, p.managedExists, p.oldManaged); err != nil {
+		return err
+	}
+
+	return nil
 }
