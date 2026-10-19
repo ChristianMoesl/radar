@@ -117,9 +117,14 @@ JSON
   exit 0
 fi
 if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+  case "$*" in
+    *"commits(first: 100"*)
+      printf '%%s\n' '{"data":{"repository":{"pullRequest":{"number":7,"url":"https://github.com/acme/app/pull/7","headRefName":"feature/linked-work","headRefOid":"head7","commits":{"totalCount":1,"nodes":[{"commit":{"oid":"head7","message":"Ship XYZ-123"}}],"pageInfo":{"hasNextPage":false}}}}}}'
+      exit 0 ;;
+  esac
   if [ "$mode" = "open" ]; then
     cat <<'JSON'
-{"data":{"viewer":{"login":"octo"},"reviewRequested":{"nodes":[],"pageInfo":{"hasNextPage":false}},"authored":{"nodes":[{"number":7,"title":"Ship linked work","url":"https://github.com/acme/app/pull/7","state":"OPEN","isDraft":false,"headRefName":"feature/linked-work","body":"No issue key in this body","author":{"login":"octo"},"repository":{"nameWithOwner":"acme/app"},"comments":{"nodes":[]},"reviews":{"nodes":[]},"reviewThreads":{"nodes":[]}}]},"participated":{"nodes":[]}}}
+{"data":{"viewer":{"login":"octo"},"reviewRequested":{"nodes":[],"pageInfo":{"hasNextPage":false}},"authored":{"nodes":[{"number":7,"title":"Ship linked work","url":"https://github.com/acme/app/pull/7","state":"OPEN","isDraft":false,"headRefName":"feature/linked-work","headRefOid":"head7","body":"Related https://jira.example.test/browse/XYZ-123","author":{"login":"octo"},"repository":{"nameWithOwner":"acme/app"},"comments":{"nodes":[]},"reviews":{"nodes":[]},"reviewThreads":{"nodes":[]}}]},"participated":{"nodes":[]}}}
 JSON
   else
     cat <<'JSON'
@@ -149,11 +154,8 @@ func setupFakeJira(t *testing.T) *httptest.Server {
 		switch r.URL.Path {
 		case "/search/jql":
 			_, _ = w.Write([]byte(`{"issues":[{"id":"10001","key":"XYZ-123","fields":{"summary":"Ship linked work","issuetype":{"name":"Story"},"priority":{"name":"High"},"status":{"name":"In Progress","statusCategory":{"key":"indeterminate","name":"In Progress"}}}}]}`))
-		case "/rest/dev-status/1.0/issue/summary":
-			_, _ = w.Write([]byte(`{"errors":[],"summary":{"pullrequest":{"byInstanceType":{"github-app":{"count":1,"name":"GitHub"}}}}}`))
-		case "/rest/dev-status/1.0/issue/detail":
-			_, _ = w.Write([]byte(`{"errors":[],"detail":[{"pullRequests":[{"id":"#7","url":"https://github.com/acme/app/pull/7","repositoryName":"acme/app","source":{"branch":"feature/linked-work"}}]}]}`))
 		default:
+			t.Errorf("unexpected Jira request %s", r.URL.Path)
 			http.NotFound(w, r)
 		}
 	}))

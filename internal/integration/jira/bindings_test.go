@@ -109,7 +109,7 @@ func TestResolveBindingsReusesHistoricalTerminalIssueAndRechecksPreservedResults
 	})
 	defer server.Close()
 	configureJiraSource(t, server.URL, `{}`)
-	ref := sourceRefFromIssue(Config{BaseURL: "https://jira.example.test"}, boundJiraFixture("Done", "done"))
+	ref := sourceRefFromIssue(Config{BaseURL: "https://jira.example.test"}, boundJiraFixture("Done", "done"), linking.NewMarkMatcher([]string{"ABC"}))
 	ref.Signal = "done"
 	req := boundJiraRequest()
 	req.Previous = []protocol.Task{{Attention: "in_progress", DoneAt: "2020-01-01T10:00:00Z", SourceRefs: []protocol.SourceRef{ref}}}

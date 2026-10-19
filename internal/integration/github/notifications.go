@@ -671,8 +671,12 @@ func newGitHubPullRequestSourceRef(item protocol.Task, repo string, number int, 
 	if kind != "" {
 		sourceRef.Kind = kind
 	}
+	sourceRef.Metadata = cloneMetadata(item.Metadata)
 	if body != "" {
-		sourceRef.Metadata = map[string]string{"body": body}
+		if sourceRef.Metadata == nil {
+			sourceRef.Metadata = map[string]string{}
+		}
+		sourceRef.Metadata["body"] = body
 	}
 	return sourceRef
 }

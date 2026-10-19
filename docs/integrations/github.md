@@ -21,7 +21,7 @@ Radar checks GitHub rate limits before collection. When a budget is low, Radar p
 
 ## Capabilities
 
-`Source`, `StatusReporter`, `Reconciler`, `TaskFilterProvider`, `RateLimitReporter`, `WorkspaceSeedProvider`, `BoundSourceResolver`, `DevelopmentLinkResolver`, and the `CodeReviewProvider` composite role.
+`Source`, `StatusReporter`, `Reconciler`, `TaskFilterProvider`, `RateLimitReporter`, `WorkspaceSeedProvider`, `BoundSourceResolver`, and the `CodeReviewProvider` composite role.
 
 ## Configuration and authentication
 
@@ -116,9 +116,24 @@ Extra tracking runs concurrently with the personal GraphQL request. Repository p
 
 Missing active PRs become done only after a confirmed terminal state. Failed pages, inaccessible repositories and exhausted API budgets retain prior observations and report incomplete collection. A partial response never replaces a complete repository cache. Core/GraphQL budgets come from `gh api rate_limit`; collection pauses when low.
 
+## Jira links
+
+Radar links collected PRs to Jira without the GitHub for Atlassian app. It recognizes exact issue keys and URLs matching `linking_mark_prefixes`:
+
+- One distinct key in the PR's source branch owns the link. For example, `ABC-124-feature` links to `ABC-124`, even if the title, description, or commits mention `ABC-123`.
+- A source branch with multiple distinct keys needs an explicit binding; Radar emits no automatic issue or branch join for that PR.
+- With no configured key in the source branch, Radar uses keys in the PR title, description, and the messages of commits belonging to that PR. Repeated keys are deduplicated. Multiple distinct references link all named issues; all contributing work must finish before the task is done.
+- With no reference, use the existing [authored-note bindings](obsidian.md#muted-preference-and-durable-source-bindings). Bind the exact Jira issue and PR as work items on the same note.
+
+These rules apply to open, closed, and merged PRs. The target branch does not establish ownership. Jira issues referenced only by a new PR's description or commits become discoverable on the following refresh. PR discovery still follows personal work, `github.track`, and explicit bindings; an issue reference does not subscribe to every PR in GitHub.
+
+For branches without a key, Radar reads the PR's commit connection through `gh`, in pages of 100. It checks identity, unchanged head, counts, cursors, and every page. Enrichment uses at most four concurrent requests within a 15-second phase and the existing GraphQL budget. Inaccessible or truncated results report incomplete collection and retain the previous links; a partial commit list cannot replace a complete one. There are no Teamwork Graph requests or Rovo credit charges for linking.
+
+Links stored only in Jira's Development panel are not imported. Add an explicit reference or binding before switching if those links matter. Existing merged task records are not automatically split. Task, note, and workspace formats remain unchanged; derived commit marks use the existing source metadata map.
+
 ## Workspace behavior
 
-The workspace seed capability finds a matching local repository, resolves the PR head, fetches pull refs when necessary, and returns a generic existing-branch seed. Jira development links are resolved here so Jira never parses GitHub identities.
+The workspace seed capability finds a matching local repository, resolves the PR head, fetches pull refs when necessary, and returns a generic existing-branch seed.
 
 ## Configuration example
 

@@ -20,7 +20,7 @@ func DefaultIntegrations() integration.Registry {
 	return integration.NewRegistry(
 		noteAuthor,
 		githubSource,
-		jira.NewSource(githubSource),
+		jira.NewSource(),
 		datadog.NewSource(),
 		workspaces,
 		git.NewSource(),

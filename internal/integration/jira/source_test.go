@@ -169,7 +169,7 @@ func TestCollectKeepsOtherReferencesAndPreviousMissingReference(t *testing.T) {
 	previous := []protocol.Task{{ID: 9, Title: "Compare XYZ-1 and XYZ-2", SourceRefs: []protocol.SourceRef{previousRef}}}
 
 	result := NewSource().Collect(context.Background(), jiraCollectRequest(previous))
-	if result.Complete || result.SourceStatus.Status != "error" || !strings.Contains(result.SourceStatus.Detail, "1 title references unavailable") {
+	if result.Complete || result.SourceStatus.Status != "error" || !strings.Contains(result.SourceStatus.Detail, "1 issue references unavailable") {
 		t.Fatalf("result = %+v", result)
 	}
 	if len(result.Observations) != 2 {
@@ -192,7 +192,7 @@ func TestCollectBoundsTitleReferenceFetches(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(searchResponse{})
 			return
 		}
-		for i := 1; i <= maxTitleDiscoveredIssues; i++ {
+		for i := 1; i <= maxDiscoveredIssues; i++ {
 			requestedKeys = append(requestedKeys, "XYZ-"+strconv.Itoa(i))
 		}
 		issues := make([]issue, 0, len(requestedKeys))
@@ -203,13 +203,13 @@ func TestCollectBoundsTitleReferenceFetches(t *testing.T) {
 	})
 	defer server.Close()
 	configureJiraSource(t, server.URL, `{authoritative_issue_types: []}`)
-	titles := make([]string, 0, maxTitleDiscoveredIssues+1)
-	for i := 1; i <= maxTitleDiscoveredIssues+1; i++ {
+	titles := make([]string, 0, maxDiscoveredIssues+1)
+	for i := 1; i <= maxDiscoveredIssues+1; i++ {
 		titles = append(titles, "XYZ-"+strconv.Itoa(i))
 	}
 
 	result := NewSource().Collect(context.Background(), jiraCollectRequest([]protocol.Task{{ID: 1, Title: strings.Join(titles, " ")}}))
-	if result.Complete || len(requestedKeys) != maxTitleDiscoveredIssues || len(result.Observations) != maxTitleDiscoveredIssues {
+	if result.Complete || len(requestedKeys) != maxDiscoveredIssues || len(result.Observations) != maxDiscoveredIssues {
 		t.Fatalf("requested=%d observations=%d result=%+v", len(requestedKeys), len(result.Observations), result)
 	}
 	if requestedKeys[0] != "XYZ-1" || requestedKeys[len(requestedKeys)-1] != "XYZ-50" || !strings.Contains(result.SourceStatus.Detail, "truncated") {
@@ -232,6 +232,28 @@ func TestDiscoverIssueMentionsUsesSourceTitlesAndStableOrder(t *testing.T) {
 	}
 	if !reflect.DeepEqual(keys, []string{"XYZ-2", "XYZ-1", "XYZ-3"}) {
 		t.Fatalf("keys = %+v", keys)
+	}
+}
+
+func TestDiscoverIssueMentionsRespectsProviderOwnedReferences(t *testing.T) {
+	task := protocol.Task{ID: 12, Title: "ABC-1 base issue", SourceRefs: []protocol.SourceRef{
+		{Source: "github", Kind: "pull_request", Role: protocol.SourceRefRoleAuthoritative,
+			Title: "ABC-1 base issue", LinkingKeys: []string{"mark:ABC-2", "mark:XYZ-9"},
+			Metadata: map[string]string{"body": "ABC-1", "commit_marks": "ABC-1"}},
+		{Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative, Title: "ABC-99", LinkingKeys: []string{"mark:ABC-99"}},
+	}}
+	mentions := discoverIssueMentions([]protocol.Task{task}, linking.NewMarkMatcher([]string{"ABC"}))
+	if !reflect.DeepEqual(mentions, []issueMention{{Key: "ABC-2", TaskID: 12, Order: 0}}) {
+		t.Fatalf("provider's branch ownership was undone by display text: %+v", mentions)
+	}
+	// A body/commit-only mark is already part of the provider's facts. Jira can
+	// fetch that exact issue on the next poll without searching arbitrary text.
+	task.SourceRefs = task.SourceRefs[:1]
+	task.SourceRefs[0].Title = "No issue in the title"
+	task.SourceRefs[0].LinkingKeys = []string{"mark:ABC-3"}
+	mentions = discoverIssueMentions([]protocol.Task{task}, linking.NewMarkMatcher([]string{"ABC"}))
+	if len(mentions) != 1 || mentions[0].Key != "ABC-3" {
+		t.Fatalf("lost body/commit discovery: %+v", mentions)
 	}
 }
 

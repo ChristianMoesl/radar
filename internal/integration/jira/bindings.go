@@ -39,8 +39,6 @@ func (source Source) ResolveBindings(ctx context.Context, req integration.Bindin
 	}
 
 	seen := map[string]bool{}
-	fetched := make([]issue, 0)
-	fetchedObservations := map[string]int{}
 	for _, binding := range req.Bindings {
 		key, ok := boundIssueKey(binding)
 		if !ok {
@@ -66,7 +64,7 @@ func (source Source) ResolveBindings(ctx context.Context, req integration.Bindin
 		}
 		if !found {
 			if ref, ok := cachedBoundIssue(req.Previous, binding.ID); ok {
-				result.Observations = append(result.Observations, integration.Observation{Ref: ref, Signal: integration.SignalDone, Reason: ref.Status})
+				result.Observations = append(result.Observations, boundIssueObservation(ref, cfg.Jira, req.LinkingMarks))
 				continue
 			}
 		}
@@ -82,59 +80,9 @@ func (source Source) ResolveBindings(ctx context.Context, req integration.Bindin
 		}
 		// Explicit tracking survives reassignment and type-filter changes. This
 		// does not change authoritative/informational rules for ordinary search.
-		fetched = append(fetched, value)
-		fetchedObservations[key] = len(result.Observations)
-		result.Observations = append(result.Observations, authoritativeObservation(cfg.Jira, jiraConfig, value, issueMention{}, req.LinkingMarks, nil))
+		result.Observations = append(result.Observations, authoritativeObservation(cfg.Jira, jiraConfig, value, issueMention{}, req.LinkingMarks))
 	}
-	// Explicit tracking also owns Jira's development relationships when the
-	// issue is no longer discoverable by assignment or title. Only freshly
-	// fetched issues need this lookup; cached terminal refs retain their facts.
-	development := collectDevelopmentLinks(ctx, jiraConfig, fetched, req.Previous, req.Logger, req.LinkingMarks, source.developmentResolvers)
-	for key, index := range fetchedObservations {
-		ref := &result.Observations[index].Ref
-		ref.LinkingKeys = linking.Keys(append(ref.LinkingKeys, development.LinkingKeysByIssue[key]...)...)
-	}
-	boundDevelopmentStatus(&result, req, development)
 	return result
-}
-
-// Development failures affect diagnostics, not completeness of successfully
-// resolved issue states, exactly as in ordinary Collect. Keep its diagnostics
-// too, since the collector replaces source status when a resolver supplies one.
-func boundDevelopmentStatus(result *integration.CollectResult, req integration.BindingRequest, development developmentCollection) {
-	details := make([]string, 0, 4)
-	if development.PullRequests > 0 {
-		details = append(details, fmt.Sprintf("%d bound issue development pull requests", development.PullRequests))
-	}
-	if development.Invalid > 0 {
-		details = append(details, fmt.Sprintf("%d invalid bound issue development pull requests", development.Invalid))
-		if req.Logger != nil {
-			req.Logger.Warn("jira bound issue development links contained invalid pull requests", "count", development.Invalid)
-		}
-	}
-	if development.Failed > 0 {
-		details = append(details, fmt.Sprintf("%d bound issue development lookups failed", development.Failed))
-	}
-	if development.Unavailable > 0 {
-		details = append(details, "bound issue development links unavailable")
-	}
-	if len(details) == 0 {
-		return
-	}
-	status := protocol.SourceStatus{Name: "jira", Status: "ok"}
-	if result.SourceStatus != nil {
-		status = *result.SourceStatus
-	} else if req.Result.SourceStatus != nil {
-		status = *req.Result.SourceStatus
-	}
-	if development.Invalid > 0 || development.Failed > 0 {
-		status.Status = "error"
-	}
-	if status.Detail != "" {
-		details = append([]string{status.Detail}, details...)
-	}
-	status.Detail = strings.Join(details, "; ")
-	result.SourceStatus = &status
 }
 
 func boundIssueKey(binding protocol.SourceBinding) (string, bool) {

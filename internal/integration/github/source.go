@@ -13,7 +13,6 @@ import (
 	"radar/internal/integration"
 	"radar/internal/integration/github/filters"
 	githubsettings "radar/internal/integration/github/settings"
-	"radar/internal/linking"
 	"radar/internal/protocol"
 )
 
@@ -113,9 +112,16 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 	observed = appendMissingPullRequests(observed, mergedItems)
 	observed = appendMissingPullRequests(observed, trackedItems)
 
-	applyLinkingMarks(observed, req.LinkingMarks)
+	linkingErr := collectLinkingMarks(ctx, observed, req.Previous, req.LinkingMarks, req.Logger)
+	if linkingErr != nil {
+		req.Logger.Warn("github issue linking incomplete", "error", linkingErr)
+		if result.SourceStatus == nil {
+			status := protocol.SourceStatus{Name: "github", Status: "partial", Detail: "issue linking incomplete: " + linkingErr.Error()}
+			result.SourceStatus = &status
+		}
+	}
 	result.Observations = observationsFromTasks(observed)
-	result.Complete = trackedErr == nil && pullRequestErr == nil && mergedErr == nil
+	result.Complete = trackedErr == nil && pullRequestErr == nil && mergedErr == nil && linkingErr == nil
 	if pullRequestErr != nil {
 		// A tracked open-PR snapshot has no personal review/activity facts.
 		// Do not let it erase known attention during a failed personal refresh.
@@ -171,17 +177,10 @@ func (Source) Reconcile(ctx context.Context, req integration.ReconcileRequest) [
 		return nil
 	}
 	tasks := ResolveDonePullRequests(ctx, req.Previous, req.Active, req.Result.Complete, cfg.GitHub.ReviewRequests, req.Logger)
-	applyLinkingMarks(tasks, req.LinkingMarks)
-	return observationsFromTasks(tasks)
-}
-
-func applyLinkingMarks(tasks []protocol.Task, marks linking.MarkMatcher) {
-	for i := range tasks {
-		for j := range tasks[i].SourceRefs {
-			ref := &tasks[i].SourceRefs[j]
-			ref.LinkingKeys = linking.Keys(append(marks.Keys(ref.Title, ref.Branch, ref.Repo, ref.URL, ref.Path), ref.LinkingKeys...)...)
-		}
+	if err := collectLinkingMarks(ctx, tasks, req.Previous, req.LinkingMarks, req.Logger); err != nil {
+		req.Logger.Warn("github reconciled PR links retained after incomplete lookup", "error", err)
 	}
+	return observationsFromTasks(tasks)
 }
 
 func observationsFromTasks(tasks []protocol.Task) []integration.Observation {

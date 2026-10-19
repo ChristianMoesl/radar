@@ -59,7 +59,6 @@ Every integration implements `Integration` by returning a descriptor with its st
 - `InteractiveAuthenticator`: performs provider-owned interactive startup authentication. SBX implements it.
 - `SetupProvider`: owns a foreground setup step and returns a reviewable, deferred file plan. SBX/tmux prepare the environment; Git/Workspace/Obsidian configure directories; GitHub/Jira/Datadog configure connections. The registry orders providers by phase and their `SetupStage` order, independently of collection order.
 - `RateLimitReporter`: exposes provider diagnostics without concrete CLI imports. GitHub implements it.
-- `DevelopmentLinkResolver`: translates structured cross-system development links into provider-owned identities and linking keys. GitHub resolves Jira development links.
 - `CodeReviewProvider`: combines source and reconciliation capabilities for a code-review system. GitHub is the active provider.
 - `WorkTracker`: combines source and reconciliation capabilities for a work tracker. Jira is the active provider.
 - Runtime integrations may combine source, action, cleanup, and resource-name capabilities for an executable local environment.
@@ -70,7 +69,7 @@ Every integration implements `Integration` by returning a descriptor with its st
 | Integration | Source | Status | Local | Reconcile | Authoring | Actions | Cleanup | Workspace role | Other capabilities |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Obsidian | yes | yes | yes | no | yes | yes | no | seed | mute preferences, binding reconciliation |
-| GitHub | yes | yes | no | yes | no | no | no | seed | filters, rate limits, development-link resolver, bound lookup |
+| GitHub | yes | yes | no | yes | no | no | no | seed | filters, rate limits, bound lookup |
 | Jira | yes | yes | no | yes | no | no | no | no | work tracker, bound lookup |
 | Datadog | yes | yes | no | yes | no | no | no | no | bound lookup |
 | Workspace | yes | yes | yes | no | no | no | yes | manager | managed anchor |

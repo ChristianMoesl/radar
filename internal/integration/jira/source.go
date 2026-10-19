@@ -14,11 +14,9 @@ import (
 	"radar/internal/protocol"
 )
 
-const maxTitleDiscoveredIssues = 50
+const maxDiscoveredIssues = 50
 
-type Source struct {
-	developmentResolvers []integration.DevelopmentLinkResolver
-}
+type Source struct{}
 
 type issueMention struct {
 	Key    string
@@ -26,8 +24,8 @@ type issueMention struct {
 	Order  int
 }
 
-func NewSource(resolvers ...integration.DevelopmentLinkResolver) Source {
-	return Source{developmentResolvers: append([]integration.DevelopmentLinkResolver(nil), resolvers...)}
+func NewSource() Source {
+	return Source{}
 }
 
 func (Source) Descriptor() integration.Descriptor {
@@ -84,12 +82,12 @@ func (source Source) Collect(ctx context.Context, req integration.CollectRequest
 	batchKeys := append([]string(nil), keyOrder...)
 	truncated := 0
 	preserveKeys := map[string]bool{}
-	if len(batchKeys) > maxTitleDiscoveredIssues {
-		truncated = len(batchKeys) - maxTitleDiscoveredIssues
-		for _, key := range batchKeys[maxTitleDiscoveredIssues:] {
+	if len(batchKeys) > maxDiscoveredIssues {
+		truncated = len(batchKeys) - maxDiscoveredIssues
+		for _, key := range batchKeys[maxDiscoveredIssues:] {
 			preserveKeys[key] = true
 		}
-		batchKeys = batchKeys[:maxTitleDiscoveredIssues]
+		batchKeys = batchKeys[:maxDiscoveredIssues]
 		complete = false
 		status.Status = "error"
 	}
@@ -144,35 +142,11 @@ func (source Source) Collect(ctx context.Context, req integration.CollectRequest
 		issuesByKey[key] = value
 	}
 
-	authoritativeIssues := make([]issue, 0, len(issuesByKey))
-	for _, key := range sortedIssueKeys(issuesByKey) {
-		value := issuesByKey[key]
-		if assignedKeys[key] || userConfig.Jira.IsAuthoritativeIssueType(issueTypeName(value)) {
-			authoritativeIssues = append(authoritativeIssues, value)
-		}
-	}
-	development := collectDevelopmentLinks(ctx, jiraConfig, authoritativeIssues, req.Previous, req.Logger, req.LinkingMarks, source.developmentResolvers)
-	if development.PullRequests > 0 {
-		details = append(details, fmt.Sprintf("%d development pull requests", development.PullRequests))
-	}
-	if development.Invalid > 0 {
-		status.Status = "error"
-		details = append(details, fmt.Sprintf("%d invalid development pull requests", development.Invalid))
-		req.Logger.Warn("jira development links contained invalid pull requests", "count", development.Invalid)
-	}
-	if development.Failed > 0 {
-		status.Status = "error"
-		details = append(details, fmt.Sprintf("%d development lookups failed", development.Failed))
-	}
-	if development.Unavailable > 0 {
-		details = append(details, "development links unavailable")
-	}
-
 	failedKeys := map[string]bool{}
 	if batchErr != nil {
 		complete = false
 		status.Status = "error"
-		req.Logger.Warn("jira title reference batch fetch failed", "keys", len(batchKeys), "error", batchErr)
+		req.Logger.Warn("jira issue reference batch fetch failed", "keys", len(batchKeys), "error", batchErr)
 	}
 	for _, key := range batchKeys {
 		if _, found := issuesByKey[key]; found {
@@ -193,7 +167,7 @@ func (source Source) Collect(ctx context.Context, req integration.CollectRequest
 		}
 		projectedAssigned[key] = true
 		mention := firstMention(mentionsByKey[key])
-		observations = append(observations, authoritativeObservation(userConfig.Jira, jiraConfig, value, mention, req.LinkingMarks, development.LinkingKeysByIssue[key]))
+		observations = append(observations, authoritativeObservation(userConfig.Jira, jiraConfig, value, mention, req.LinkingMarks))
 	}
 	for _, key := range keyOrder {
 		value, exists := issuesByKey[key]
@@ -203,7 +177,7 @@ func (source Source) Collect(ctx context.Context, req integration.CollectRequest
 		keyMentions := mentionsByKey[key]
 		authoritative := userConfig.Jira.IsAuthoritativeIssueType(issueTypeName(value))
 		if authoritative {
-			observations = append(observations, authoritativeObservation(userConfig.Jira, jiraConfig, value, firstMention(keyMentions), req.LinkingMarks, development.LinkingKeysByIssue[key]))
+			observations = append(observations, authoritativeObservation(userConfig.Jira, jiraConfig, value, firstMention(keyMentions), req.LinkingMarks))
 			continue
 		}
 		for _, mention := range keyMentions {
@@ -215,12 +189,12 @@ func (source Source) Collect(ctx context.Context, req integration.CollectRequest
 		observations = append(observations, previousJiraObservations(req.Previous, preserveKeys, assignedErr != nil)...)
 	}
 	observations = deduplicateObservations(observations)
-	details = append(details, fmt.Sprintf("%d title references", len(keyOrder)))
+	details = append(details, fmt.Sprintf("%d issue references", len(keyOrder)))
 	if len(failedKeys) > 0 {
-		details = append(details, fmt.Sprintf("%d title references unavailable", len(failedKeys)))
+		details = append(details, fmt.Sprintf("%d issue references unavailable", len(failedKeys)))
 	}
 	if truncated > 0 {
-		details = append(details, fmt.Sprintf("%d title references truncated at limit %d", truncated, maxTitleDiscoveredIssues))
+		details = append(details, fmt.Sprintf("%d issue references truncated at limit %d", truncated, maxDiscoveredIssues))
 	}
 	status.Detail = strings.Join(details, "; ")
 	return integration.CollectResult{Observations: observations, Complete: complete, SourceStatus: &status}
@@ -233,7 +207,7 @@ func discoverIssueMentions(tasks []protocol.Task, marks linking.MarkMatcher) []i
 	order := 0
 	for _, task := range ordered {
 		mentionIndexes := map[string]int{}
-		for _, title := range titleFacts(task) {
+		for _, title := range referenceFacts(task) {
 			for _, key := range marks.Values(title) {
 				if _, seen := mentionIndexes[key]; seen {
 					continue
@@ -247,21 +221,31 @@ func discoverIssueMentions(tasks []protocol.Task, marks linking.MarkMatcher) []i
 	return mentions
 }
 
-func titleFacts(task protocol.Task) []string {
-	facts := make([]string, 0, len(task.SourceRefs)+1)
+// Authoritative providers own their linking policy. Reading their display titles
+// again would undo branch ownership (for example, a stacked PR naming another issue).
+func referenceFacts(task protocol.Task) []string {
+	var facts []string
+	hasAuthoritative := false
 	jiraTitle := false
 	for _, ref := range task.SourceRefs {
-		if ref.Source == "jira" && ref.Kind == "issue" && ref.Title == task.Title {
-			jiraTitle = true
-			break
-		}
+		hasAuthoritative = hasAuthoritative || ref.Role == protocol.SourceRefRoleAuthoritative
+		jiraTitle = jiraTitle || (ref.Source == "jira" && ref.Title == task.Title)
 	}
-	if !jiraTitle && strings.TrimSpace(task.Title) != "" {
+	if !hasAuthoritative && !jiraTitle {
 		facts = append(facts, task.Title)
 	}
 	for _, ref := range task.SourceRefs {
-		if ref.Source != "jira" && strings.TrimSpace(ref.Title) != "" {
+		if ref.Source == "jira" {
+			continue
+		}
+		if ref.Role != protocol.SourceRefRoleAuthoritative {
 			facts = append(facts, ref.Title)
+			continue
+		}
+		for _, key := range ref.LinkingKeys {
+			if value, ok := linking.MarkValue(key); ok {
+				facts = append(facts, value)
+			}
 		}
 	}
 	return facts
@@ -286,9 +270,8 @@ func firstMention(mentions []issueMention) issueMention {
 	return mentions[0]
 }
 
-func authoritativeObservation(cfg config.JiraConfig, jiraConfig Config, value issue, mention issueMention, marks linking.MarkMatcher, developmentKeys []string) integration.Observation {
+func authoritativeObservation(cfg config.JiraConfig, jiraConfig Config, value issue, mention issueMention, marks linking.MarkMatcher) integration.Observation {
 	ref := sourceRefFromIssue(jiraConfig, value, marks)
-	ref.LinkingKeys = linking.Keys(append(ref.LinkingKeys, developmentKeys...)...)
 	ref.Role = protocol.SourceRefRoleAuthoritative
 	if mention.TaskID != 0 {
 		order := mention.Order
@@ -354,15 +337,6 @@ func deduplicateObservations(observations []integration.Observation) []integrati
 	return kept
 }
 
-func sortedIssueKeys(issues map[string]issue) []string {
-	keys := make([]string, 0, len(issues))
-	for key := range issues {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 func normalizeIssueKey(key string) string {
 	key = strings.ToUpper(strings.TrimSpace(key))
 	parts := strings.Split(key, "-")
@@ -398,6 +372,7 @@ func (Source) Reconcile(ctx context.Context, req integration.ReconcileRequest) [
 		}
 		ref := task.SourceRefs[0]
 		ref.Signal = task.Attention
+		ref.LinkingKeys = req.LinkingMarks.Keys(ref.Metadata["key"])
 		observations = append(observations, integration.Observation{
 			Ref: ref, Signal: integration.WorkSignal(task.Attention), Reason: task.Reason,
 		})

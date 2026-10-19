@@ -1,5 +1,7 @@
 # TWG 1.3.8: Jira PR relationship qualification blocker
 
+**Historical qualification evidence.** The user chose Radar-owned reference linking and explicit bindings on 2026-10-19, removing the GitHub for Atlassian dependency. The route investigated below is no longer used or required for release. See the [replacement linking rules](integrations/github.md#jira-links). This report preserves the observed TWG limitations; it is not a current PR-linking blocker.
+
 Observed on 2026-10-19 using the official checksum-verified Linux amd64 binary,
 a CLI-owned OAuth profile, a Jira software project and an explicitly authorized
 private GitHub fixture repository. The user confirmed that GitHub for Atlassian

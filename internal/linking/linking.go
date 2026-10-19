@@ -30,6 +30,8 @@ func NewMarkMatcher(prefixes []string) MarkMatcher {
 	return MarkMatcher{pattern: regexp.MustCompile(`(?i)\b(?:` + strings.Join(parts, "|") + `)-[0-9]+\b`)}
 }
 
+func (m MarkMatcher) Enabled() bool { return m.pattern != nil }
+
 func (m MarkMatcher) Values(values ...string) []string {
 	if m.pattern == nil {
 		return nil

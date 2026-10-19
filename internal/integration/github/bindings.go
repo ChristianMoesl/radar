@@ -79,7 +79,11 @@ func (Source) ResolveBindings(ctx context.Context, req integration.BindingReques
 		}
 		if ref, ok := cachedBoundPullRequest(req.Previous, binding.ID); ok && cachedTerminalReviewUsable(ref, cfg.GitHub.ReviewRequests, time.Now()) {
 			tasks := []protocol.Task{{Attention: "done", Reason: ref.Status, SourceRefs: []protocol.SourceRef{ref}}}
-			applyLinkingMarks(tasks, req.LinkingMarks)
+			// A cached branch still owns the PR; do not re-interpret other
+			// display text without a fresh, complete commit read.
+			if len(req.LinkingMarks.Values(ref.Branch)) > 0 {
+				applyLinkingMarks(tasks, req.LinkingMarks)
+			}
 			result.Observations = append(result.Observations, observationsFromTasks(tasks)...)
 			continue
 		}
@@ -105,7 +109,9 @@ func (Source) ResolveBindings(ctx context.Context, req integration.BindingReques
 		// when the API returns a different capitalization of the same repository.
 		preservePullRequestIdentity(&task, binding.ID)
 		tasks := []protocol.Task{task}
-		applyLinkingMarks(tasks, req.LinkingMarks)
+		if err := collectLinkingMarks(ctx, tasks, req.Previous, req.LinkingMarks, req.Logger); err != nil {
+			bindingFailure(&result, req, err)
+		}
 		result.Observations = append(result.Observations, observationsFromTasks(tasks)...)
 	}
 	return result

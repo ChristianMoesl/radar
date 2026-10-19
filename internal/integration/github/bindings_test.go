@@ -66,6 +66,48 @@ func TestResolveBindingsPreservesAuthoredIdentityAcrossRepositoryCapitalization(
 	}
 }
 
+func TestResolveBindingsTracksPRsWithoutAnyIssueReference(t *testing.T) {
+	for _, status := range []string{"OPEN", "CLOSED", "MERGED"} {
+		t.Run(status, func(t *testing.T) {
+			configureBoundGitHub(t, `{}`)
+			pr := boundPRFixture()
+			pr["state"], pr["title"], pr["headRefName"], pr["headRefOid"], pr["body"] = status, "Ship feature", "feature", "head7", "No issue reference"
+			pr["commits"] = map[string]any{"totalCount": 1, "nodes": []any{map[string]any{"commit": map[string]any{"oid": "head7", "message": "Ship feature"}}}, "pageInfo": map[string]any{"hasNextPage": false}}
+			fakeBoundGH(t, boundGHResponse(pr), false)
+			result := NewSource().ResolveBindings(context.Background(), boundGitHubRequest())
+			if !result.Complete || len(result.Observations) != 1 || !boundPullRequestRef(result.Observations[0].Ref) {
+				t.Fatalf("explicit reference-free binding failed: %+v", result)
+			}
+			for _, key := range result.Observations[0].Ref.LinkingKeys {
+				if linking.IsMarkKey(key) {
+					t.Fatalf("invented an automatic issue link: %s", key)
+				}
+			}
+		})
+	}
+}
+
+func TestCachedTerminalBindingKeepsBranchOwnership(t *testing.T) {
+	configureBoundGitHub(t, `{}`)
+	marker := fakeBoundGH(t, nil, true)
+	req := boundGitHubRequest()
+	ref := githubPullRequestRef(req.Bindings[0].ID, "acme/app", 7, "ABC-1 base", "https://github.com/acme/app/pull/7", "merged", "ABC-2-work")
+	ref.Signal = "done"
+	ref.LinkingKeys = append(ref.LinkingKeys, "mark:ABC-1")
+	req.Previous = []protocol.Task{{SourceRefs: []protocol.SourceRef{ref}}}
+	result := NewSource().ResolveBindings(context.Background(), req)
+	if !result.Complete || len(result.Observations) != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	keys := result.Observations[0].Ref.LinkingKeys
+	if slices.Contains(keys, "mark:ABC-1") || !slices.Contains(keys, "mark:ABC-2") {
+		t.Fatalf("cached PR lost branch ownership: %v", keys)
+	}
+	if _, err := os.Stat(marker + ".requests"); !os.IsNotExist(err) {
+		t.Fatal("cached terminal binding made a remote request")
+	}
+}
+
 func TestResolveBindingsPreservesReviewAndActivityClassificationAndFilters(t *testing.T) {
 	for _, test := range []struct {
 		name, filters, author, signal string

@@ -3,9 +3,8 @@
 Tracking: [epic #27](https://github.com/ChristianMoesl/radar/issues/27).
 
 The migration is **not release-qualified yet**. Datadog's Pup transport and shared
-onboarding are implemented. Jira's TWG transport, full Development-panel PR-link
-parity, remaining browser/refresh/revocation checks and real SBX OAuth checks
-remain open. Do not publish the breaking release until those checks pass.
+onboarding and app-independent PR linking are implemented. Jira's TWG transport,
+remaining browser/refresh/revocation checks and real SBX OAuth checks remain open. Do not publish the breaking release until those checks pass.
 
 ## Datadog manual cutover
 
@@ -81,7 +80,7 @@ No existing data required migration or reset for the qualification changes.
 | TWG distribution | Official 1.3.8 installer and checksum-verified missing-profile contract passed in CI on Linux amd64/Linux arm64/macOS arm64 | Browser login and live provider behavior on the other platforms |
 | TWG issue requests | Live OAuth profile, project read, issue creation/read/update, two-page JQL, nested status categories, forced refresh and six concurrent reads | Complete failure/revocation coverage and Radar integration |
 | TWG authentication | Actual binary rejects missing named profiles before API dispatch; inherited static credentials override a valid named OAuth profile | Production environment sanitization and saved non-OAuth profile/race rejection |
-| Jira PR relationships | Connected GitHub fixtures populate native Jira development JQL; generic context returns six opaque `GraphPullRequest` targets, with observed billing and truncation gaps | Exact provider identity/hydration and complete pagination; see the [live blocker report](twg-pr-parity-blocker.md) |
+| Radar-owned Jira/PR linking | User approved exact references plus explicit bindings; live `gh` reads passed all six private PR fixtures, including closed/merged and branch-conflict cases; full-page and failure checks use fixtures | Full OAuth end-to-end checks after the Jira transport cutover |
 
 The API-key guard deliberately shadows Pup's saved API keys with invalid HTTP
 header values. With a named OAuth session, Pup sends only its stored OAuth bearer.
@@ -105,7 +104,7 @@ Update/telemetry requests are rejected locally too and are distinct from API
 dispatch. This does not prove that a saved PAT profile or an injected token is
 rejected; the live check demonstrated that injected credentials take precedence.
 
-Fixtures do not establish live OAuth, Jira association completeness or platform
+Fixtures do not establish live OAuth, Jira OAuth integration or platform
 parity. Keep #28 and the release gate open until all live qualification gates pass.
 
 ## Network access for live qualification
@@ -141,7 +140,7 @@ passed all 14 jobs, including the actual Pup and TWG offline binary contracts on
 all three Radar platforms, installation/packaging checks, Go/Pi/agent checks and
 the existing real SBX durable-agent check. The full Go suite also passed locally
 with a normal file-creation umask, and `make install` completed after pushing.
-These results do not establish live Jira association parity or Pup/Jira OAuth
+These results do not establish the full Jira OAuth integration or Pup/Jira OAuth
 inside SBX.
 
 ## Jira live E2E setup
@@ -163,8 +162,8 @@ The live matrix must cover:
 - Onboarding from a missing CLI/session through installation, browser approval,
   read verification, retry and defer.
 - Issue collection, configured JQL, assignee/status changes and stable identities.
-- Development-panel PR associations, including multiple PRs, branches, pagination
-  and completeness; compare Radar's results with Jira's actual panel.
+- Radar-owned PR references and explicit bindings, including multiple PRs,
+  branch conflicts, closed/merged states, pagination and failure preservation.
 - Jira investigator reads in the selected local/SBX environment, durable retries
   and explicit partial failures.
 - Refresh, concurrent CLI requests, logout/revocation, wrong site/profile and
@@ -255,7 +254,8 @@ A user-created, dedicated GitHub fixture repository is verified private and
 writable through the connected identity. Six fixture PRs cover open, closed
 and merged states, three titles/branches without Jira keys, a conflicting
 head-branch key and an unambiguous control. Fixture commits and PR bodies name
-their intended test issues; these references alone are not association evidence.
+their intended test issues. At that stage the goal was Development-panel parity;
+the user subsequently chose those explicit references as Radar's linking policy.
 No fixture branch or issue was deleted.
 
 Organization app-installation access still returns HTTP 403 through the current
@@ -276,5 +276,49 @@ coverage limitations and the required upstream outcome are in the
 matches and inferred identities are not substitutes for exact associations.
 
 Jira's production transport and bundled investigator remain pending. Keep #28
-and the hard-switch release open until the authentication guard and populated
-PR-link parity are proven.
+and the hard-switch release open until the authentication guard and remaining
+OAuth/live-provider checks pass. The graph investigation above is historical;
+Radar no longer uses those relationships.
+
+### App-independent PR linking (2026-10-19)
+
+The user approved replacing Development-panel parity with Radar-owned linking:
+exact configured keys or URLs in source branches, PR titles/descriptions, and
+PR-owned commit messages, plus existing authored-note bindings for PRs without
+references. One source-branch key wins over conflicting references elsewhere;
+multiple branch keys require an explicit binding. See the
+[linking rules](integrations/github.md#jira-links).
+
+The Development endpoint collector and cross-provider resolver capability were
+removed. GitHub uses its existing `gh` transport; Jira consumes generic resolved
+mark keys. No GitHub for Atlassian installation or Teamwork Graph relationship
+query is required, and linking consumes no Rovo credits. Links present only in
+Jira's Development panel need a reference or binding before cutover. Existing
+task/note/workspace formats are unchanged; derived commit marks use the existing
+source metadata map.
+
+A read-only live check against the six authorized private GitHub fixtures passed
+through the actual provider code. PRs 1–3 have no key in title/source branch but
+link through explicit body/commit references, including closed and merged PRs.
+The conflicting fourth PR links only to its source-branch issue; both controls
+link to the intended issue. Jira OAuth collection itself is still pending.
+Pagination, changed-head/count checks, missing pages/cursors, denied access,
+partial-result retention, ambiguous branches, workspace separation, and linked
+active-Jira/merged-PR lifecycle are covered by deterministic tests.
+
+The optional live test reads a non-secret JSON fixture list:
+
+```json
+[{"repository":"acme/app","number":7,"prefixes":["ABC"],"state":"OPEN","keys":["mark:ABC-123"]}]
+```
+
+```sh
+RADAR_TEST_GITHUB_LINK_FIXTURES=/path/to/approved-fixtures.json go test ./internal/integration/github -run TestLivePullRequestReferences -v -count=1
+```
+
+The [TWG graph report](twg-pr-parity-blocker.md) is retained as historical evidence,
+not a current release gate. The full Go suite and focused race checks passed.
+Read-only preflight found no config, secrets, task snapshot, durable-agent store,
+or GitHub cache files in this environment; the workspace directory is unchanged.
+No persisted format changes or resets are required. No installed app or remote
+fixture was removed.

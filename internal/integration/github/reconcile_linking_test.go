@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"radar/internal/integration"
@@ -17,6 +18,47 @@ import (
 	"radar/internal/protocol"
 	"radar/internal/state"
 )
+
+func TestStackedPullRequestKeepsWorkspaceBundlesSeparate(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	store, err := state.NewStore(testLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tasks []protocol.Task
+	for _, key := range []string{"ABC-1", "ABC-2"} {
+		for _, source := range []string{"jira", "git", "workspace", "sbx"} {
+			ref := protocol.SourceRef{ID: source + ":" + key, EntityID: source + ":" + key, Source: source,
+				Role: protocol.SourceRefRoleAuthoritative, Title: key, Signal: "in_progress",
+				LinkingKeys: []string{linking.MarkKey(key)}}
+			if source == "git" {
+				ref.LinkingKeys = append(ref.LinkingKeys, linking.BranchKey("acme/app", key+"-work"))
+			}
+			tasks = append(tasks, taskForLinkingTest(ref))
+		}
+	}
+	store.SetTasks(tasks)
+	for range 2 {
+		ref := githubPullRequestRef("github:pr:acme/app:7", "acme/app", 7, "ABC-1 base issue", "https://github.com/acme/app/pull/7", "open PR", "ABC-2-work")
+		ref.Metadata = map[string]string{"body": "ABC-1", "commit_marks": "ABC-1"}
+		pullRequests := []protocol.Task{taskForLinkingTest(ref)}
+		applyLinkingMarks(pullRequests, linking.NewMarkMatcher([]string{"ABC"}))
+		store.SetTasksForSources(pullRequests, []string{"github"})
+		if got := store.Tasks(); len(got) != 2 {
+			t.Fatalf("stacked PR merged independent tasks: %+v", got)
+		}
+		for _, task := range store.Tasks() {
+			if !taskHasSourceRef(task, ref.ID) {
+				continue
+			}
+			for _, linked := range task.SourceRefs {
+				if slices.Contains(linked.LinkingKeys, "mark:ABC-1") {
+					t.Fatalf("PR joined its base issue's bundle: %+v", task)
+				}
+			}
+		}
+	}
+}
 
 func TestReconciledSameRepositoryWorktreeLinksExistingGitHubPullRequestToWorkspace(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
@@ -125,20 +167,6 @@ func TestReconciledSameRepositoryWorktreeLinksExistingGitHubPullRequestToWorkspa
 	for _, id := range []string{"github:pr:acme/primary:7", "git:worktree:" + primaryPath, "git:worktree:" + plan.Changes[0].Path} {
 		if !taskHasSourceRef(tasks[0], id) {
 			t.Fatalf("linked task is missing %q: %+v", id, tasks[0].SourceRefs)
-		}
-	}
-}
-
-func TestApplyLinkingMarksDoesNotInspectPullRequestBody(t *testing.T) {
-	ref := githubPullRequestRef("github:pr:acme/app:7", "acme/app", 7, "Update documentation", "https://github.com/acme/app/pull/7", "open PR", "docs")
-	ref.Metadata = map[string]string{"body": "Related to PR XYZ-123"}
-	tasks := []protocol.Task{{SourceRefs: []protocol.SourceRef{ref}}}
-
-	applyLinkingMarks(tasks, linking.NewMarkMatcher([]string{"XYZ"}))
-
-	for _, key := range tasks[0].SourceRefs[0].LinkingKeys {
-		if key == "mark:XYZ-123" {
-			t.Fatalf("PR body unexpectedly contributed linking key: %+v", tasks[0].SourceRefs[0].LinkingKeys)
 		}
 	}
 }
