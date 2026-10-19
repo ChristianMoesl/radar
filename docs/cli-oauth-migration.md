@@ -104,7 +104,7 @@ teamwork-graph.atlassian.com
 api.atlassian.com
 auth.atlassian.com
 id.atlassian.com
-radar.atlassian.net
+radar-cm.atlassian.net
 api.datadoghq.eu
 app.datadoghq.eu
 api.github.com
@@ -114,7 +114,7 @@ release-assets.githubusercontent.com
 objects.githubusercontent.com
 ```
 
-The selected Jira test site is `radar.atlassian.net`; Datadog uses EU. A company
+The selected Jira test site is `radar-cm.atlassian.net`; Datadog uses EU. A company
 SSO domain may also be needed during browser authorization. Network access alone
 does not establish authenticated provider sessions. The current environment
 still denies the TWG download host, and no Jira/Datadog session is configured.
@@ -123,3 +123,35 @@ still denies the TWG download host, and no Jira/Datadog session is configured.
 passed all 14 jobs, including the actual Pup offline binary contract on all three
 Radar platforms and the existing real SBX durable-agent check. These results do
 not establish live Jira association parity or Pup/Jira OAuth inside SBX.
+
+## Jira live E2E setup
+
+Use `radar-cm.atlassian.net` and an explicitly selected test project and GitHub
+test repository. Network access must be enabled before installing and qualifying
+TWG. Then start `twg login` in the execution environment: its documented OAuth
+flow prints a verification URL and short code that the user can approve in their
+own browser. The CLI must own the resulting credentials and refresh them in that
+environment. Do not paste passwords, tokens or credential files into chat.
+
+Confirm the installed CLI's login/profile/site flags before scripting onboarding.
+Verify the selected account, organization, site and a real issue read after login;
+an authorization page alone is not evidence of a working connection. Authenticate
+inside SBX separately when qualifying sandbox behavior.
+
+The live matrix must cover:
+
+- Onboarding from a missing CLI/session through installation, browser approval,
+  read verification, retry and defer.
+- Issue collection, configured JQL, assignee/status changes and stable identities.
+- Development-panel PR associations, including multiple PRs, branches, pagination
+  and completeness; compare Radar's results with Jira's actual panel.
+- Jira investigator reads in the selected local/SBX environment, durable retries
+  and explicit partial failures.
+- Refresh, concurrent CLI requests, logout/revocation, wrong site/profile and
+  denied permissions, without falling back to retired tokens.
+
+Reads can use an existing fixture. Creating or updating issues/PRs requires a
+designated test project/repository and explicit authorization. Use clearly
+labeled disposable fixtures, and record cleanup separately. A dedicated test
+account/session keeps revocation checks separate from normal user work. Live
+Datadog monitor/telemetry and Pup OAuth tests require their own Datadog session.
