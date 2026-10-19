@@ -62,7 +62,7 @@ is `datadoghq.eu`. Supported regions retain their existing monitor URLs.
 Each refresh checks Pup's version and OAuth status, then invokes one
 `pup --org radar --no-envelope --output json api /api/v1/monitor/search` request.
 Radar owns query/status construction and response completeness; Pup owns HTTP and
-OAuth. No token is extracted and no credential file is read. Inherited static
+OAuth. No token is extracted and Pup's credential files are never read. Inherited static
 bearer credentials are removed, named-session selection overrides saved static
 bearer configuration, and API-key fallback is prevented before any request.
 

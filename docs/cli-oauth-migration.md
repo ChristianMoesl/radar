@@ -71,11 +71,11 @@ The preflight reports that the release is not yet qualified.
 
 | Capability | Evidence | Remaining gate |
 | --- | --- | --- |
-| Pup CLI contract | Official v2.0.0 release checksum verified; Linux x86_64 binary executed | macOS arm64/Linux arm64 execution |
+| Pup CLI contract | Official v2.0.0 release checksum verified; actual binary contract passed in CI on Linux amd64/Linux arm64/macOS arm64 | Live browser OAuth and provider behavior |
 | Raw monitor search | Actual binary against a local HTTP fixture; raw JSON, scoped query, totals | Read-only real Datadog account |
 | OAuth enforcement | Named session overrides config-file static bearer; inherited static credentials removed; invalid API-key fallback rejected before sending a request | Real expiry/revocation/concurrent refresh |
 | Onboarding | Shared install/version/retry/defer flow; terminal wizard fixtures; OAuth/read checks | Real browser/SSO/callback on supported platforms |
-| Datadog investigator | Workspace-executor tests for local/SBX selection and no host fallback; durable investigation/recovery fixtures | Real SBX OAuth session and telemetry |
+| Datadog investigator | Local/SBX executor-selection fixtures, real local workspace checks, durable investigation/recovery fixtures; existing real SBX boundary CI passed | Real SBX OAuth session and telemetry |
 | TWG | Public docs and repository inspected; documentation describes 1.3.8; cached public manifest advertises Linux arm64 | CLI download/command qualification and real Jira PR-link parity |
 
 The API-key guard deliberately shadows Pup's saved API keys with invalid HTTP
@@ -93,3 +93,33 @@ RADAR_TEST_PUP=/absolute/path/to/pup go test ./internal/integration/datadog -run
 
 Fixtures do not establish live OAuth, Jira association completeness or platform
 parity. Keep #28 and the release gate open until real-account evidence is recorded.
+
+## Network access for live qualification
+
+Keep the environment's existing package-manager/git allowlist and allow HTTPS
+to these provider and release hosts:
+
+```text
+teamwork-graph.atlassian.com
+api.atlassian.com
+auth.atlassian.com
+id.atlassian.com
+radar.atlassian.net
+api.datadoghq.eu
+app.datadoghq.eu
+api.github.com
+github.com
+raw.githubusercontent.com
+release-assets.githubusercontent.com
+objects.githubusercontent.com
+```
+
+The selected Jira test site is `radar.atlassian.net`; Datadog uses EU. A company
+SSO domain may also be needed during browser authorization. Network access alone
+does not establish authenticated provider sessions. The current environment
+still denies the TWG download host, and no Jira/Datadog session is configured.
+
+[CI for the implementation](https://github.com/ChristianMoesl/radar/actions/runs/39255191997)
+passed all 14 jobs, including the actual Pup offline binary contract on all three
+Radar platforms and the existing real SBX durable-agent check. These results do
+not establish live Jira association parity or Pup/Jira OAuth inside SBX.
