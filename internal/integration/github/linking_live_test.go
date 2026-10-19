@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -67,7 +66,7 @@ func TestLivePullRequestReferences(t *testing.T) {
 			}
 			slices.Sort(got)
 			slices.Sort(fixture.Keys)
-			if !reflect.DeepEqual(got, fixture.Keys) {
+			if !slices.Equal(got, fixture.Keys) {
 				t.Fatalf("links = %v, want %v", got, fixture.Keys)
 			}
 			t.Logf("verified %s %s, branch %q, links %v", pr.URL, pr.State, pr.HeadRefName, got)
