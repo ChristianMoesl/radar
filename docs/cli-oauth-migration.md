@@ -81,7 +81,7 @@ No existing data required migration or reset for the qualification changes.
 | TWG distribution | Official 1.3.8 installer and checksum-verified missing-profile contract passed in CI on Linux amd64/Linux arm64/macOS arm64 | Browser login and live provider behavior on the other platforms |
 | TWG issue requests | Live OAuth profile, project read, issue creation/read/update, two-page JQL, nested status categories, forced refresh and six concurrent reads | Complete failure/revocation coverage and Radar integration |
 | TWG authentication | Actual binary rejects missing named profiles before API dispatch; inherited static credentials override a valid named OAuth profile | Production environment sanitization and saved non-OAuth profile/race rejection |
-| Jira PR relationships | Actual relationship command executed with OAuth; empty graph returned structured pagination and zero reported AI credits | Populated Development-panel parity, freshness, complete pagination and polling costs |
+| Jira PR relationships | Connected GitHub fixtures populate native Jira development JQL; generic context returns six opaque `GraphPullRequest` targets, with observed billing and truncation gaps | Exact provider identity/hydration and complete pagination; see the [live blocker report](twg-pr-parity-blocker.md) |
 
 The API-key guard deliberately shadows Pup's saved API keys with invalid HTTP
 header values. With a named OAuth session, Pup sends only its stored OAuth bearer.
@@ -252,20 +252,28 @@ Observed contracts and results:
   the same empty result; this does not prove historical association coverage.
 
 A user-created, dedicated GitHub fixture repository is verified private and
-writable through the connected identity. Five fixture PRs cover open, closed
+writable through the connected identity. Six fixture PRs cover open, closed
 and merged states, three titles/branches without Jira keys, a conflicting
 head-branch key and an unambiguous control. Fixture commits and PR bodies name
 their intended test issues; these references alone are not association evidence.
 No fixture branch or issue was deleted.
 
 Organization app-installation access still returns HTTP 403 through the current
-connection. The user reported installing the app; organization connection,
-repository authorization and populated backfill remain unverified. Complete
-the test repository connection through the official
+connection. The user confirmed organization connection and repository selection
+through the official
 [GitHub for Atlassian setup](https://support.atlassian.com/jira-cloud-administration/docs/integrate-with-github/)
-using a Jira site admin and GitHub organization owner. Use the resulting actual
-Development-panel associations for qualification; remote links or text matches
-are not substitutes.
+using a Jira site admin and GitHub organization owner. A fresh PR was created
+after that confirmation, and the user confirmed it is visible in the issue's
+Development panel. Native development JQL now returns the fixture issue, and
+`context get` finds six explicit `issue_associated_pr` edges. The
+product-specific context route still returns no PR edges. Generic targets have
+only opaque graph ARIs; the sampled PR-detail and anchor reads did not provide
+provider identities. Generic context explicitly cannot cursor-page these edges,
+even when `hasNextPage` is false. Observed populated context usage was two AI
+credits per request; the subgraph diagnostic reported seven. Full reproduction,
+coverage limitations and the required upstream outcome are in the
+[live PR parity blocker report](twg-pr-parity-blocker.md). Remote links, count
+matches and inferred identities are not substitutes for exact associations.
 
 Jira's production transport and bundled investigator remain pending. Keep #28
 and the hard-switch release open until the authentication guard and populated
