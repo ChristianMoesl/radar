@@ -57,6 +57,7 @@ Every integration implements `Integration` by returning a descriptor with its st
 - `ActivityPublisher`: receives typed generic idle/busy/waiting states. tmux publishes those events as pane state.
 - `TaskFilterProvider`: filters projected tasks using provider-owned configuration and semantics. GitHub implements it.
 - `InteractiveAuthenticator`: performs provider-owned interactive startup authentication. SBX implements it.
+- `SetupProvider`: owns a foreground setup step and returns a reviewable, deferred file plan. SBX/tmux prepare the environment; Git/Workspace/Obsidian configure directories; GitHub/Jira/Datadog configure connections. The registry orders providers by phase and their `SetupStage` order, independently of collection order.
 - `RateLimitReporter`: exposes provider diagnostics without concrete CLI imports. GitHub implements it.
 - `DevelopmentLinkResolver`: translates structured cross-system development links into provider-owned identities and linking keys. GitHub resolves Jira development links.
 - `CodeReviewProvider`: combines source and reconciliation capabilities for a code-review system. GitHub is the active provider.
@@ -78,6 +79,29 @@ Every integration implements `Integration` by returning a descriptor with its st
 | SBX | yes | yes | yes | no | no | yes | yes | no | runtime naming, authentication |
 
 The matrix describes compiled capabilities, not whether a source can run in the current environment. `StatusReporter` reports missing tools, credentials, configuration, or API availability at runtime. See [installation defaults](installation.md) for the shared auto/explicit-enable/explicit-disable contract. A source with `CanRun: false` is skipped for both collection and reconciliation; provider-owned explicit actions and cleanup remain available.
+
+## Foreground setup
+
+`internal/onboarding` invokes registered setup capabilities only from interactive
+setup. A setup provider owns its questions, settings validation, authentication,
+CLI/API operations, and proposed files. It uses the shared `internal/setup` UI and
+command contracts instead of owning a second terminal interface. Baseline tool
+checks and host Pi package support live in `internal/hostsetup`.
+
+Return safe file descriptions, directory paths, and an optional summary in a
+`setup.Plan`. Never put credential values in a plan; request credentials through
+the shared secret callback, which preserves environment precedence and blank-input
+retention. Onboarding reviews all plans together, checks the config snapshot and
+every plan's `CheckUnchanged` under the setup lock, applies the approved plans,
+saves secrets/instructions, and publishes config last as the completion marker.
+An `Apply` callback must recheck its files to reject edits by external processes.
+`AfterSave` is reserved for actions such as reloading saved tmux settings.
+
+Installs, logins, and disposable runtime probes can happen before final review
+only after their foreground consent prompts. Record completed effects through
+`SetupRequest.Completed` so cancellation cannot imply those effects were undone.
+Collectors and daemon startup never invoke `SetupProvider`. Setup remains a
+capability of the owning integration; onboarding itself is not an integration.
 
 ## Source facts
 

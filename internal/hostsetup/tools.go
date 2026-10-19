@@ -1,4 +1,4 @@
-package onboarding
+package hostsetup
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"radar/internal/integration/tmux"
+	"radar/internal/setup"
 )
 
 // ErrToolsNotReady means the tool report and next steps have already been shown.
@@ -63,9 +63,9 @@ func toolRequirement(name string) string {
 	}
 }
 
-func (w wizard) checkTool(ctx context.Context, name string) toolCheck {
+func (w Service) checkTool(ctx context.Context, name string) toolCheck {
 	check := toolCheck{name: name, detail: "ready"}
-	binary := toolBinary(w.system, name)
+	binary := toolBinary(w.System, name)
 	if binary == "" {
 		check.state, check.detail = toolMissing, "missing"+toolRequirement(name)
 		return check
@@ -74,7 +74,11 @@ func (w wizard) checkTool(ctx context.Context, name string) toolCheck {
 	if name == "tmux" {
 		flag = "-V"
 	}
-	output, err := w.system.output(ctx, binary, flag)
+	cmd := setup.Command{Name: binary, Args: []string{flag}}
+	if name == "pi" {
+		cmd.Dir = userHome()
+	}
+	output, err := w.System.Output(ctx, cmd)
 	if err != nil {
 		check.state, check.detail = toolBroken, "failed to run"
 		return check
@@ -93,7 +97,7 @@ func (w wizard) checkTool(ctx context.Context, name string) toolCheck {
 			version = strings.Join(match[1:], ".")
 		}
 	case "tmux":
-		ready = tmux.SupportsPopup(output)
+		ready = tmuxVersionAtLeast(output)
 		if match := tmuxVersionPattern.FindStringSubmatch(strings.TrimSpace(output)); match != nil {
 			version = match[1]
 		}
@@ -107,10 +111,10 @@ func (w wizard) checkTool(ctx context.Context, name string) toolCheck {
 	return check
 }
 
-func (w wizard) requiredTools(ctx context.Context) error {
+func (w Service) requiredTools(ctx context.Context) error {
 	checks := make(map[string]toolCheck, len(requiredTools))
 	ready := true
-	style := w.ui.style()
+	style := w.UI.Style()
 	for _, name := range requiredTools {
 		check := w.checkTool(ctx, name)
 		checks[name] = check
@@ -121,7 +125,7 @@ func (w wizard) requiredTools(ctx context.Context) error {
 			marker = style.Foreground(lipgloss.Color("3")).Render("!")
 			detail = check.detail
 		}
-		w.ui.print("  %s %-8s %s\n", marker, toolLabel(name), detail)
+		w.UI.Print("  %s %-8s %s\n", marker, toolLabel(name), detail)
 	}
 	if ready {
 		return nil
@@ -132,22 +136,22 @@ func (w wizard) requiredTools(ctx context.Context) error {
 	if len(guidance) > 0 {
 		title = "Next steps:"
 	}
-	w.ui.print("\n%s\n", style.Bold(true).Render(title))
+	w.UI.Print("\n%s\n", style.Bold(true).Render(title))
 	for _, line := range guidance {
-		w.ui.print("  %s\n", line)
+		w.UI.Print("  %s\n", line)
 	}
 	if len(commands) > 0 {
-		w.ui.print("\n  %s\n", strings.Join(commands, " && "))
+		w.UI.Print("\n  %s\n", strings.Join(commands, " && "))
 	}
-	w.ui.print("\nThen run radar again to continue setup.\n")
+	w.UI.Print("\nThen run radar again to continue setup.\n")
 	return ErrToolsNotReady
 }
 
 // Recommend installs only for absent tools. Existing installations may belong
 // to nvm, asdf, source builds, etc.; do not replace them with a second install.
 // These commands are displayed, never executed by setup.
-func (w wizard) toolRepairs(checks map[string]toolCheck) (commands, guidance []string) {
-	brew := w.system.lookPath("brew")
+func (w Service) toolRepairs(checks map[string]toolCheck) (commands, guidance []string) {
+	brew := w.System.LookPath("brew")
 	var packages, systemPackages []string
 	for _, name := range []string{"git", "tmux", "fd", "gh"} {
 		check := checks[name]
@@ -185,7 +189,7 @@ func (w wizard) toolRepairs(checks map[string]toolCheck) (commands, guidance []s
 	}
 
 	pi := checks["pi"]
-	if pi.state == toolMissing && !w.system.lookPath("curl") {
+	if pi.state == toolMissing && !w.System.LookPath("curl") {
 		if brew {
 			packages = append(packages, "curl")
 		} else {
@@ -204,4 +208,15 @@ func (w wizard) toolRepairs(checks map[string]toolCheck) (commands, guidance []s
 		guidance = append(guidance, "Repair Pi using its existing installation method; check PATH.")
 	}
 	return commands, guidance
+}
+
+// The baseline host requirement is independent of session-provider behavior.
+func tmuxVersionAtLeast(value string) bool {
+	match := tmuxVersionPattern.FindStringSubmatch(strings.TrimSpace(value))
+	if match == nil {
+		return false
+	}
+	version := strings.TrimPrefix(match[1], "next-")
+	version = strings.TrimRight(version, "abcdefghijklmnopqrstuvwxyz")
+	return versionAtLeast(version+".0", [3]int{3, 2, 0})
 }

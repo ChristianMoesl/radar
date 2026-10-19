@@ -11,6 +11,7 @@ import (
 
 	"radar/internal/config"
 	"radar/internal/integration/tmux"
+	"radar/internal/setup"
 )
 
 func TestReviewIsCompactAndReadOnly(t *testing.T) {
@@ -25,11 +26,11 @@ func TestReviewIsCompactAndReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	secret := "do-not-display-credential"
-	report, err := buildReview(path, []byte("large-config-body\n"), cfg, config.Secrets{"jira": {"api_token": secret}}, &plan)
+	report, err := buildReview(path, []byte("large-config-body\n"), config.Secrets{"jira": {"api_token": secret}}, reviewPlans(t, plan, cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := report.summary(ui.style())
+	text := report.summary(ui.Style())
 	for _, want := range []string{"Review changes", "CREATE", "~/config/radar/config.yaml", "~/config/radar/secrets.yaml", "~/config/radar/AGENTS.md", "~/config/radar/tmux.conf", "~/.tmux.conf", "New directories", "~/notes/Tasks", "plaintext", "0600"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("summary missing %q: %s", want, text)
@@ -131,7 +132,7 @@ func TestReviewPreservesInstructionsAndShowsExactTmuxAppend(t *testing.T) {
 	}
 	cfg := config.Default()
 	cfg.RepositoryDirs = []string{filepath.Join(home, "repos")}
-	report, err := buildReview(path, []byte("{}\n"), cfg, nil, &plan)
+	report, err := buildReview(path, []byte("{}\n"), nil, reviewPlans(t, plan, cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +160,7 @@ func runeKey(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes:
 func TestReviewEnterSavesOnlyFromSummary(t *testing.T) {
 	ui := &fakeUI{}
 	report := setupReview{files: []reviewFile{{path: "/settings", purpose: "Settings", action: "CREATE", details: "requested contents"}}}
-	m := newReviewModel(report, ui.style())
+	m := newReviewModel(report, ui.Style())
 	if !strings.Contains(m.View(), "[Enter] Save   [v] View details   [c] Cancel") || strings.Contains(m.View(), "requested contents") {
 		t.Fatal(m.View())
 	}
@@ -192,7 +193,7 @@ func TestReviewCancellationAndScrolling(t *testing.T) {
 	ui := &fakeUI{}
 	for _, screen := range []reviewScreen{reviewSummary, reviewFiles, reviewDetails} {
 		for _, key := range []tea.KeyMsg{runeKey("c"), {Type: tea.KeyCtrlC}, {Type: tea.KeyCtrlD}} {
-			m := newReviewModel(report, ui.style())
+			m := newReviewModel(report, ui.Style())
 			m.screen = screen
 			m = reviewKey(m, key)
 			if !m.aborted || m.accepted {
@@ -200,7 +201,7 @@ func TestReviewCancellationAndScrolling(t *testing.T) {
 			}
 		}
 	}
-	m := newReviewModel(report, ui.style())
+	m := newReviewModel(report, ui.Style())
 	m.screen = reviewDetails
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 35, Height: 14})
 	m = next.(reviewModel)
@@ -216,12 +217,22 @@ func TestReviewCancellationAndScrolling(t *testing.T) {
 func TestReviewWarningsOnlyDescribeCompletedActions(t *testing.T) {
 	ui := &fakeUI{}
 	report := setupReview{}
-	if strings.Contains(report.summary(ui.style()), "Already done") {
+	if strings.Contains(report.summary(ui.Style()), "Already done") {
 		t.Fatal("claimed side effects when none occurred")
 	}
 	report.completed = []string{"pi-radar installed", "GitHub login"}
-	text := report.summary(ui.style())
+	text := report.summary(ui.Style())
 	if !strings.Contains(text, "Already done: pi-radar installed; GitHub login. Cancelling will not undo these.") {
 		t.Fatal(text)
 	}
+}
+
+func reviewPlans(t *testing.T, plan tmux.ConfigPlan, cfg config.Config) []setup.Plan {
+	t.Helper()
+	p, err := plan.SetupPlan(&fakeUI{}, &fakeSystem{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Directories = []string{cfg.RepositoryDirs[0], cfg.Workspace.RootDir, cfg.Obsidian.VaultPath, config.ObsidianTaskRoot(cfg.Obsidian.VaultPath)}
+	return []setup.Plan{p}
 }

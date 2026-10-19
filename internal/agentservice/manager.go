@@ -36,6 +36,7 @@ type Registration struct {
 	Entrypoint string                         `json:"entrypoint"`
 	Desired    bool                           `json:"desired"`
 	Workspace  protocol.AgentWorkspaceBinding `json:"workspace"`
+	Collection string                         `json:"collection,omitempty"`
 }
 
 type retryState struct {
@@ -139,7 +140,7 @@ func load(id string) (Registration, error) {
 	if err := json.Unmarshal(data, &reg); err != nil {
 		return reg, err
 	}
-	if reg.Version != 1 || reg.ID != id || reg.Workspace.ID == "" || reg.Workspace.Path == "" {
+	if reg.Version != 1 || reg.ID != id || reg.Workspace.ID == "" || reg.Workspace.Path == "" || (reg.Collection != "" && reg.Collection != "github") {
 		return reg, fmt.Errorf("invalid or unsupported registration; preserve agent data")
 	}
 	return reg, nil
@@ -252,6 +253,7 @@ func (m *Manager) status(ctx context.Context, reg Registration) protocol.AgentSt
 	} else {
 		result.Workspace = binding
 	}
+	m.collectionStatus(reg, &result)
 	return result
 }
 
@@ -390,6 +392,9 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 		return nil, err
 	}
 	if request.Operation == "add" {
+		if request.Collection != "" && request.Collection != "github" {
+			return nil, fmt.Errorf("unsupported collection %q; supported collection: github", request.Collection)
+		}
 		release, err := operationlock.Acquire(false)
 		if err != nil {
 			return nil, err
@@ -426,6 +431,12 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 		if !info.Mode().IsRegular() {
 			return nil, fmt.Errorf("entrypoint must be a file")
 		}
+		reg := Registration{Version: 1, ID: request.ID, Entrypoint: entry, Workspace: binding, Collection: request.Collection}
+		// Removed registrations retain pending delivery. Restoring with a
+		// different subscription must not strand or reset that checkpoint.
+		if _, err := loadCollection(reg); err != nil {
+			return nil, err
+		}
 		config := request.Config
 		if len(config) == 0 {
 			config = json.RawMessage(`{}`)
@@ -447,7 +458,6 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 		if err := os.WriteFile(filepath.Join(dir, "ingress.token"), []byte(hex.EncodeToString(token)), 0600); err != nil {
 			return nil, err
 		}
-		reg := Registration{Version: 1, ID: request.ID, Entrypoint: entry, Workspace: binding}
 		if err := atomicJSON(filepath.Join(dir, "registration.json"), reg); err != nil {
 			return nil, err
 		}
@@ -576,6 +586,9 @@ func (m *Manager) Run(ctx context.Context, changed func()) {
 				if s.Snapshot != nil && s.Running {
 					dir, _ := instanceDir(reg.ID)
 					_ = atomicJSON(filepath.Join(dir, "snapshot.json"), s.Snapshot)
+				}
+				if reg.Desired && s.Running && s.Error == "" {
+					_ = m.flushCollection(ctx, reg)
 				}
 			}
 		}

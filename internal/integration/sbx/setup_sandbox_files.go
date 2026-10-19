@@ -1,4 +1,4 @@
-package onboarding
+package sbx
 
 import (
 	"bytes"
@@ -8,7 +8,8 @@ import (
 	"strings"
 
 	"radar/internal/config"
-	"radar/sandbox"
+	"radar/internal/setup"
+	sandboxkit "radar/sandbox"
 )
 
 type sandboxSetupFile struct {
@@ -42,9 +43,9 @@ func planSandboxFiles(configPath string, cfg *config.SBXConfig) (*sandboxSetupPl
 	}
 	p := &sandboxSetupPlan{root: root}
 	for _, f := range []sandboxSetupFile{
-		{path: filepath.Join(root, "spec.yaml"), purpose: "Editable sandbox kit", data: []byte(sandbox.KitSpec)},
+		{path: filepath.Join(root, "spec.yaml"), purpose: "Editable sandbox kit", data: []byte(sandboxkit.KitSpec)},
 		{path: filepath.Join(root, "sandbox.env"), purpose: "Sandbox startup directory", data: []byte("SBX_STARTUP_DIR=" + filepath.Join(root, "startup.d") + "\n")},
-		{path: filepath.Join(root, "startup.d", "README.md"), purpose: "Startup script instructions", data: []byte(sandbox.StartupReadme)},
+		{path: filepath.Join(root, "startup.d", "README.md"), purpose: "Startup script instructions", data: []byte(sandboxkit.StartupReadme)},
 	} {
 		info, err := os.Lstat(f.path)
 		if err == nil {
@@ -117,16 +118,16 @@ func (p *sandboxSetupPlan) apply() error {
 	return nil
 }
 
-func (p *sandboxSetupPlan) reviewFiles() []reviewFile {
+func (p *sandboxSetupPlan) reviewFiles() []setup.File {
 	if p == nil {
 		return nil
 	}
-	var result []reviewFile
+	var result []setup.File
 	for _, f := range p.files {
-		item := reviewFile{path: f.path, purpose: f.purpose, action: "CREATE", details: string(f.data)}
+		item := setup.File{Path: f.path, Purpose: f.purpose, Action: "CREATE", Details: string(f.data)}
 		if f.exists {
 			// In particular, do not reveal values a user added to sandbox.env.
-			item.action, item.details = "UNCHANGED", "Existing user-owned file is preserved; contents are not displayed."
+			item.Action, item.Details = "UNCHANGED", "Existing user-owned file is preserved; contents are not displayed."
 		}
 		result = append(result, item)
 	}

@@ -20,6 +20,7 @@ type AgentRequest struct {
 	ID         string          `json:"id,omitempty"`
 	Entrypoint string          `json:"entrypoint,omitempty"`
 	Workspace  string          `json:"workspace,omitempty"`
+	Collection string          `json:"collection,omitempty"`
 	Config     json.RawMessage `json:"config,omitempty"`
 	Params     json.RawMessage `json:"params,omitempty"`
 }
@@ -63,14 +64,17 @@ type AgentSnapshot struct {
 }
 
 type AgentStatus struct {
-	ID         string                `json:"id"`
-	Entrypoint string                `json:"entrypoint"`
-	DataDir    string                `json:"data_dir"`
-	Workspace  AgentWorkspaceBinding `json:"workspace"`
-	Running    bool                  `json:"running"`
-	Desired    bool                  `json:"desired"`
-	Error      string                `json:"error,omitempty"`
-	Snapshot   *AgentSnapshot        `json:"snapshot,omitempty"`
+	ID                string                `json:"id"`
+	Entrypoint        string                `json:"entrypoint"`
+	DataDir           string                `json:"data_dir"`
+	Workspace         AgentWorkspaceBinding `json:"workspace"`
+	Running           bool                  `json:"running"`
+	Desired           bool                  `json:"desired"`
+	Error             string                `json:"error,omitempty"`
+	Collection        string                `json:"collection,omitempty"`
+	CollectionPending int                   `json:"collection_pending,omitempty"`
+	CollectionError   string                `json:"collection_error,omitempty"`
+	Snapshot          *AgentSnapshot        `json:"snapshot,omitempty"`
 }
 
 // Binding is infrastructure policy, independent of the definition's domain.

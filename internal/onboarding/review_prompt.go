@@ -13,7 +13,7 @@ import (
 )
 
 func (u terminalUI) review(report setupReview) error {
-	final, err := tea.NewProgram(newReviewModel(report, u.style()), tea.WithInput(u.in), tea.WithOutput(u.out)).Run()
+	final, err := tea.NewProgram(newReviewModel(report, u.Style()), tea.WithInput(u.in), tea.WithOutput(u.out)).Run()
 	if err != nil {
 		return err
 	}

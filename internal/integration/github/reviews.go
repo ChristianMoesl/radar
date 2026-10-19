@@ -57,7 +57,7 @@ const reviewPageQuery = `query RadarReviewRequests($reviewQuery: String!, $curso
  reviewRequested: search(query: $reviewQuery, type: ISSUE, first: 50, after: $cursor) {
   issueCount pageInfo { hasNextPage endCursor }
   nodes { ... on PullRequest {
-   number title url state isDraft headRefName body
+   id number title url state isDraft headRefName headRefOid body
    author { __typename login } repository { nameWithOwner }
    reviewThreads(first: 25) { nodes { id isResolved comments(first: 25) { nodes { author { __typename login } createdAt } } } }
   } }
@@ -69,7 +69,7 @@ const mergedReviewQuery = `query RadarMergedReviewRequests($reviewQuery: String!
  reviewRequested: search(query: $reviewQuery, type: ISSUE, first: 50, after: $cursor) {
   issueCount pageInfo { hasNextPage endCursor }
   nodes { ... on PullRequest {
-   number title url state isDraft closedAt headRefName body
+   id number title url state isDraft closedAt headRefName headRefOid body
    author { __typename login } repository { nameWithOwner }
    ` + mergedReviewFields + `
   } }

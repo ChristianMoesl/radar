@@ -57,6 +57,7 @@ type searchPullRequest struct {
 	Draft         bool                 `json:"isDraft"`
 	ClosedAt      string               `json:"closedAt"`
 	HeadRefName   string               `json:"headRefName"`
+	HeadRefOID    string               `json:"headRefOid"`
 	Body          string               `json:"body"`
 	Author        *user                `json:"author"`
 	Comments      graphQLComments      `json:"comments"`
@@ -109,6 +110,7 @@ const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: S
     issueCount pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
+        id headRefOid
         number
         title
         url
@@ -125,6 +127,7 @@ const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: S
   authored: search(query: $authoredQuery, type: ISSUE, first: 50) {
     nodes {
       ... on PullRequest {
+        id headRefOid
         number
         title
         url
@@ -143,6 +146,7 @@ const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: S
   participated: search(query: $participatedQuery, type: ISSUE, first: 50) {
     nodes {
       ... on PullRequest {
+        id headRefOid
         number
         title
         url
@@ -426,10 +430,11 @@ func repoName(pr searchPullRequest) string {
 }
 
 func pullRequestMetadata(pr searchPullRequest) map[string]string {
-	if pr.Author == nil || pr.Author.Login == "" {
-		return nil
+	metadata := map[string]string{"pr_node_id": pr.NodeID, "pr_state": pr.State, "head_oid": pr.HeadRefOID, "pr_draft": strconv.FormatBool(pr.Draft)}
+	if pr.Author != nil {
+		metadata["author"], metadata["author_type"] = pr.Author.Login, pr.Author.Type
 	}
-	return map[string]string{"author": pr.Author.Login, "author_type": pr.Author.Type}
+	return metadata
 }
 
 func activityStateFromPrevious(previous []protocol.Task) map[string]previousPullRequestActivity {
@@ -561,6 +566,13 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, acti
 			done.Reason = reason
 			done.DoneAt = pr.ClosedAt
 			done.Metadata = cloneMetadata(sourceRef.Metadata)
+			if done.Metadata == nil {
+				done.Metadata = map[string]string{}
+			}
+			done.Metadata["pr_state"] = "CLOSED"
+			if pr.Merged {
+				done.Metadata["pr_state"] = "MERGED"
+			}
 			if sourceRef.Metadata["merged_review_pending"] == "true" {
 				done.DoneAt = time.Now().UTC().Format(time.RFC3339)
 				done.Metadata["completed_at"] = done.DoneAt
@@ -600,6 +612,13 @@ func donePullRequestSourceRefs(sourceRefs []protocol.SourceRef, repo string, num
 		ref.Metadata = cloneMetadata(ref.Metadata)
 		delete(ref.Metadata, "merged_review_pending")
 		ref.Signal, ref.Status = "done", reason
+		if ref.Metadata == nil {
+			ref.Metadata = map[string]string{}
+		}
+		ref.Metadata["pr_state"] = "CLOSED"
+		if strings.HasPrefix(reason, "merged") {
+			ref.Metadata["pr_state"] = "MERGED"
+		}
 		ref.Acknowledgement = nil
 		return []protocol.SourceRef{ref}
 	}

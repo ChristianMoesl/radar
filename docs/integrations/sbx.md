@@ -817,7 +817,7 @@ not authenticate a real account; the WSL2 dispatch tests can run on either OS.
 go test ./cmd/radar ./internal/integration/sbx/... ./internal/integration/workspace/... ./internal/pi
 # Extension runtime tests use Node.js with native TypeScript stripping (Node 22.18+).
 # Optional macOS/SBX integration tests (each uses disposable resources):
-RADAR_SBX_SETUP_E2E=1 go test ./internal/integration/onboarding -run '^TestSandboxSetupE2E$' -count=1 -v -timeout 10m
+RADAR_SBX_SETUP_E2E=1 go test ./internal/integration/sbx -run '^TestSandboxSetupE2E$' -count=1 -v -timeout 10m
 RADAR_SBX_E2E=1 go test ./internal/integration/workspace -run 'SharedDirectoryRoundTripE2E'
 # Optional WSL2/Windows SBX test (creates and removes one disposable sandbox):
 RADAR_SBX_WSL_E2E=1 go test ./internal/integration/sbx -run TestWindowsSBXLifecycleE2E -count=1

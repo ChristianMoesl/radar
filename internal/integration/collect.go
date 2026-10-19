@@ -1,11 +1,28 @@
 package integration
 
 import (
+	"context"
+	"encoding/json"
 	"log/slog"
 
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
+
+// CollectionItem is a provider-owned fact, independent of task presentation.
+// Missing items never imply removal; providers must observe terminal state.
+type CollectionItem struct {
+	Key     string          `json:"key"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+type CollectionEventSource interface {
+	CollectionItems([]Observation) []CollectionItem
+}
+
+type CollectionObserver interface {
+	ObserveCollection(context.Context, string, []CollectionItem) error
+}
 
 type WorkSignal string
 

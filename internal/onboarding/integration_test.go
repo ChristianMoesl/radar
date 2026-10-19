@@ -28,6 +28,7 @@ import (
 	"radar/internal/integration/jira"
 	"radar/internal/integration/obsidian"
 	"radar/internal/integration/workspace"
+	"radar/internal/setup"
 )
 
 // The subprocess uses the real terminal prompts, PATH lookup, child processes,
@@ -42,7 +43,7 @@ func TestWizardTerminalHelper(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	w := newWizard(terminalUI{in: os.Stdin, out: os.Stdout}, realSystem{})
+	w := testWizard(terminalUI{in: os.Stdin, out: os.Stdout}, setup.RealSystem{})
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	w.http.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		req.URL.Scheme, req.URL.Host = base.Scheme, base.Host

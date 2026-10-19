@@ -2,6 +2,8 @@
 
 GitHub supplies code-review work items through the `gh` CLI.
 
+Registered durable agents can subscribe to this same collection with `radar agent add ... --collection github`. Tracking patterns are reused; filtering/posting policy belongs to the definition. See [collection events and Renovate tagging](../durable-agents.md#events-from-radars-github-collection) for baseline, catch-up, recovery and failure behavior.
+
 ## Getting started
 
 GitHub integration uses the GitHub CLI. Its main GraphQL request includes the current viewer and runs concurrently with explicit tracked-PR collection. Make sure authentication works first:

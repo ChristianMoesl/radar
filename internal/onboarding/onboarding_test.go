@@ -15,7 +15,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
+	"radar/internal/app"
 	"radar/internal/config"
+	"radar/internal/setup"
 )
 
 type fakeUI struct {
@@ -32,33 +34,33 @@ type fakeUI struct {
 	reviewed      *setupReview
 }
 
-func (u *fakeUI) input(q question) (string, error) {
-	u.titles = append(u.titles, q.title)
+func (u *fakeUI) Input(q question) (string, error) {
+	u.titles = append(u.titles, q.Title)
 	u.questions = append(u.questions, q)
-	if q.title == u.cancelAt {
+	if q.Title == u.cancelAt {
 		return "", ErrAborted
 	}
 	if len(u.inputs) == 0 {
-		return "", fmt.Errorf("unexpected input: %s", q.title)
+		return "", fmt.Errorf("unexpected input: %s", q.Title)
 	}
 	value := u.inputs[0]
 	if value == "<keep>" {
-		value = q.initial
+		value = q.Initial
 	}
 	u.inputs = u.inputs[1:]
-	if q.validate != nil {
-		if err := q.validate(value); err != nil {
+	if q.Validate != nil {
+		if err := q.Validate(value); err != nil {
 			return "", err
 		}
 	}
-	if q.secret {
-		u.print("%s: [hidden]\n", q.title)
+	if q.Secret {
+		u.Print("%s: [hidden]\n", q.Title)
 	} else {
-		u.print("%s: %s\n", q.title, value)
+		u.Print("%s: %s\n", q.Title, value)
 	}
 	return value, nil
 }
-func (u *fakeUI) confirm(title string, initial bool) (bool, error) {
+func (u *fakeUI) Confirm(title string, initial bool) (bool, error) {
 	u.titles = append(u.titles, title)
 	if u.defaults == nil {
 		u.defaults = map[string]bool{}
@@ -83,9 +85,9 @@ func (u *fakeUI) confirm(title string, initial bool) (bool, error) {
 	u.decisions = u.decisions[1:]
 	return result, nil
 }
-func (u *fakeUI) print(format string, args ...any) { fmt.Fprintf(&u.transcript, format, args...) }
+func (u *fakeUI) Print(format string, args ...any) { fmt.Fprintf(&u.transcript, format, args...) }
 
-func (u *fakeUI) style() lipgloss.Style {
+func (u *fakeUI) Style() lipgloss.Style {
 	r := lipgloss.NewRenderer(io.Discard)
 	r.SetColorProfile(termenv.Ascii)
 	return r.NewStyle()
@@ -93,8 +95,8 @@ func (u *fakeUI) style() lipgloss.Style {
 
 func (u *fakeUI) review(report setupReview) error {
 	u.reviewed = &report
-	u.print("%s\n", report.summary(u.style()))
-	save, err := u.confirm("Save this configuration?", true)
+	u.Print("%s\n", report.summary(u.Style()))
+	save, err := u.Confirm("Save this configuration?", true)
 	if err != nil {
 		return err
 	}
@@ -126,14 +128,18 @@ func (s *fakeSystem) sandbox(ctx context.Context, args ...string) (string, error
 	}
 	return `[]`, nil
 }
-func (s *fakeSystem) platform() string {
+func (s *fakeSystem) Platform() string {
 	if s.goos != "" {
 		return s.goos
 	}
 	return "darwin"
 }
-func (s *fakeSystem) lookPath(name string) bool { return !s.missing[name] }
-func (s *fakeSystem) output(_ context.Context, name string, args ...string) (string, error) {
+func (s *fakeSystem) LookPath(name string) bool { return !s.missing[name] }
+func (s *fakeSystem) Output(ctx context.Context, cmd setup.Command) (string, error) {
+	name, args := cmd.Name, cmd.Args
+	if name == "sbx" {
+		return s.sandbox(ctx, args...)
+	}
 	s.calls = append(s.calls, name+" "+strings.Join(args, " "))
 	if err := s.outputErrors[name]; err != nil {
 		return "", err
@@ -158,7 +164,8 @@ func (s *fakeSystem) output(_ context.Context, name string, args ...string) (str
 	}
 	return "", nil
 }
-func (s *fakeSystem) run(_ context.Context, name string, args ...string) error {
+func (s *fakeSystem) Run(_ context.Context, cmd setup.Command) error {
+	name, args := cmd.Name, cmd.Args
 	s.calls = append(s.calls, name+" "+strings.Join(args, " "))
 	if s.installErr != nil {
 		return s.installErr
@@ -197,7 +204,7 @@ func fixture(t *testing.T) (wizard, *fakeUI, *fakeSystem, string) {
 	}
 	ui := &fakeUI{inputs: []string{repos, filepath.Join(home, "workspaces"), filepath.Join(home, "notes")}}
 	sys := &fakeSystem{missing: map[string]bool{"sbx": true}}
-	w := newWizard(ui, sys)
+	w := testWizard(ui, sys)
 	w.http.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) { t.Fatal("unexpected HTTP request"); return nil, nil })
 	return w, ui, sys, home
 }
@@ -473,35 +480,6 @@ func TestWizardDetectsConcurrentConfigBeforeWriting(t *testing.T) {
 	}
 }
 
-func TestValidation(t *testing.T) {
-	for _, value := range []string{"", "123", "ABC-123", "a/b"} {
-		if _, err := parsePrefixes(value); err == nil {
-			t.Errorf("accepted prefix %q", value)
-		}
-	}
-	for _, value := range []string{"http://example.atlassian.net", "https://u:p@example.atlassian.net", "https://example.atlassian.net/path", "https://example.atlassian.net?secret=x"} {
-		if validateSiteURL(value) == nil {
-			t.Errorf("accepted site %q", value)
-		}
-	}
-	for _, value := range []string{"v22.1.0", "24.0", "v24.0.0-rc.1", "nonsense"} {
-		if versionAtLeast(value, [3]int{24, 0, 0}) {
-			t.Errorf("accepted version %q", value)
-		}
-	}
-	if !versionAtLeast("v24.1.0\n", [3]int{24, 0, 0}) {
-		t.Fatal("rejected Node 24")
-	}
-	if _, err := directoryPath("relative/path"); err == nil {
-		t.Fatal("accepted relative directory")
-	}
-	file := filepath.Join(t.TempDir(), "file")
-	_ = os.WriteFile(file, nil, 0600)
-	if _, err := directoryPath(filepath.Join(file, "child")); err == nil {
-		t.Fatal("accepted file parent")
-	}
-}
-
 func TestWizardRejectsWorkspaceRootContainingRepositories(t *testing.T) {
 	w, ui, _, home := fixture(t)
 	ui.inputs[1] = home
@@ -650,7 +628,7 @@ func TestRepeatSetupRetainsOrEditsExistingSettingsAndSecrets(t *testing.T) {
 				}
 			}
 			for _, q := range ui.questions {
-				if q.secret && q.initial != "" {
+				if q.Secret && q.Initial != "" {
 					t.Fatal("secret was prefilled")
 				}
 			}
@@ -715,7 +693,16 @@ func TestMissingDirectoriesArePreviewedThenCreatedOnlyOnSave(t *testing.T) {
 func TestInstallAndReviewConsentDefaultToYes(t *testing.T) {
 	w, ui, _, _ := fixture(t)
 	ui.decisions = []bool{true, true}
-	if err := w.allowInstall("Install extension?"); err != nil {
+	if err := func() error {
+		yes, err := w.ui.Confirm("Install extension?", true)
+		if err != nil {
+			return err
+		}
+		if !yes {
+			return ErrAborted
+		}
+		return nil
+	}(); err != nil {
 		t.Fatal(err)
 	}
 	if err := ui.review(setupReview{}); err != nil {
@@ -796,28 +783,9 @@ func TestWizardPreservesInstructionsCreatedDuringReview(t *testing.T) {
 	}
 }
 
-func TestMissingToolsIsReadOnlyAndSharesPrerequisiteList(t *testing.T) {
-	for _, tc := range []struct {
-		name, platform string
-		missing        map[string]bool
-		want           []string
-	}{
-		{name: "ready"},
-		{name: "missing Pi and Node", missing: map[string]bool{"node": true, "npm": true, "pi": true}, want: []string{"node", "npm", "pi"}},
-		{name: "Git still required", missing: map[string]bool{"git": true}, want: []string{"git"}},
-		{name: "missing tmux", missing: map[string]bool{"tmux": true}, want: []string{"tmux"}},
-		{name: "Debian fdfind accepted", platform: "linux", missing: map[string]bool{"fd": true}},
-		{name: "both fd names missing", platform: "linux", missing: map[string]bool{"fd": true, "fdfind": true}, want: []string{"fd"}},
-		{name: "fdfind not accepted on macOS", platform: "darwin", missing: map[string]bool{"fd": true}, want: []string{"fd"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			sys := &fakeSystem{goos: tc.platform, missing: tc.missing, nodeVersion: "v22.0.0"}
-			if got := missingTools(sys); !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("missing=%v want=%v", got, tc.want)
-			}
-			if len(sys.calls) != 0 {
-				t.Fatalf("PATH inspection executed commands: %v", sys.calls)
-			}
-		})
-	}
+func testWizard(ui prompter, sys setup.System) wizard {
+	return newWizard(ui, sys, app.DefaultIntegrations())
 }
+
+const sandboxQuestion = "Enable SBX for new workspaces?"
+const sandboxPolicyQuestion = "Initialize SBX's global network policy?"

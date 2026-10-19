@@ -358,6 +358,12 @@ func (m model) agentView() string {
 	}
 	lines = append([]string{titleStyle.Render(ansi.Strip(title)), "", strings.Join(summaryLines, "\n")}, lines...)
 	lines = append(lines, fmt.Sprintf("Workspace: %s · %s", ansi.Strip(s.Workspace.Path), ansi.Strip(s.Workspace.Mode)))
+	if s.Collection != "" {
+		lines = append(lines, fmt.Sprintf("Collection: %s · %d pending deliveries", ansi.Strip(s.Collection), s.CollectionPending))
+	}
+	if s.CollectionError != "" {
+		lines = append(lines, attentionStyle.Render(ansi.Strip(s.CollectionError)))
+	}
 	if s.Error != "" {
 		lines = append(lines, attentionStyle.Render(ansi.Strip(s.Error)))
 	}

@@ -118,9 +118,64 @@ radar agent serve --listen 127.0.0.1:7433
 
 POST `/agents/<id>/events` with `Authorization: Bearer <instance-token>` and JSON `{ "source": "producer", "id": "stable-delivery-id", "payload": ... }`. Accepted or duplicate delivery returns HTTP 202 with a durable receipt. Changed content under an existing identity returns 409; malformed input 400, authentication failure 401, unavailable/uncertain admission 503. Payload/frames are bounded to 1 MiB; leave room for transport wrappers. Reuse source/ID/content after a lost response. A receipt confirms admission, not business completion.
 
-Ingress listens on loopback by default. For remote producers, use an authenticated TLS reverse proxy/tunnel and configure producer retries. Radar is a local service: it does not receive events while unavailable, expose a hosted inbox, or poll/schedule sources automatically. A producer or external scheduler owns those responsibilities.
+Ingress listens on loopback by default. For remote producers, use an authenticated TLS reverse proxy/tunnel and configure producer retries. Radar is a local service: external ingress does not receive events while unavailable or expose a hosted inbox. Remote producers own their scheduling and retries. The collection subscription below separately reuses Radar's normal source refresh.
 
 The editable GitHub bridge in `agent-host/examples/github-webhook.ts` verifies HMAC-SHA256 over the original request bytes, validates delivery/event headers, and forwards the opaque event with its delivery ID. Configure `RADAR_EVENT_URL`, `RADAR_EVENT_TOKEN`, and `GITHUB_WEBHOOK_SECRET`; see the example for its listener configuration. It does not filter PRs or create conversations; that belongs in the definition.
+
+## Events from Radar's GitHub collection
+
+Register a definition with `radar agent add ./agent.ts --id assistant --workspace /path/to/registered/workspace --collection github`. This subscribes it to Radar's normal GitHub refresh, reusing personal PR discovery and `github.track`, including repository patterns and tracking author constraints. There is no duplicate repository list, scheduler, webhook receiver or GitHub polling loop. Dashboard contribution filters and task muting do not filter this feed. The definition owns business filtering and actions.
+
+The source is `radar.collection.github`, with this payload shape:
+
+```json
+{
+  "change": "discovered",
+  "baseline": false,
+  "key": "github:pr:acme/app:42",
+  "revision": "sha256-of-source-facts",
+  "data": {
+    "type": "github.pull_request",
+    "nodeId": "PR_example",
+    "repository": "acme/app",
+    "number": 42,
+    "url": "https://github.com/acme/app/pull/42",
+    "title": "Update dependency",
+    "author": "renovate",
+    "authorType": "Bot",
+    "state": "OPEN",
+    "draft": false,
+    "headRef": "renovate/library",
+    "headOid": "head-commit-sha"
+  }
+}
+```
+
+The first complete refresh after registration establishes a baseline: its items have `change: "snapshot"` and `baseline: true`. Later first-seen PRs have `change: "discovered"`; known PR changes have `change: "changed"`. Baseline provenance remains true on every later revision of a baseline PR, so definitions can exclude it even if native tasks execute out of order. Discovery means newly observed by this subscription: expanding tracking scope can discover older PRs. Registration is initially stopped, but still captures observations while Radar runs.
+
+The revision hashes exactly the source fields above. Changes to a head, title, draft status, author or explicit lifecycle state produce events; unchanged refreshes, local attention changes and comment-only updates do not. State is `OPEN`, `CLOSED` or `MERGED`. Terminal facts come from Radar's existing explicit PR resolution. Absence from discovery never creates closure/removal events. Failed, disabled, rate-limited or partial collections do not advance the checkpoint or enqueue events. Cached facts lacking node/head identity are withheld.
+
+Each registration's version-1 `collection.json` atomically stores observed revisions and a pending outbox beside its native store. The supervisor delivers through normal durable admission and removes entries only after matching receipts. Lost/uncertain responses retry identical source, ID and content. IDs include a per-PR sequence and revision, so A → B → A remains three observations. Stopped/unavailable agents retain pending deliveries; starting/recovering the runner drains them without another remote refresh. Inspection and the Agents view show pending counts and delivery errors. Persistence errors also appear in source status and daemon logs.
+
+Outbox entries and receipts are not automatically pruned. Daemon restarts and `radar reset` preserve them. Removing a registration retains the checkpoint; restore it with the same `--collection github`. This is a sampled observation feed, not a historical GitHub event log: after daemon downtime only changes visible on the next complete refresh can be detected. Transient changes between refreshes and PRs never observed are outside its guarantees. Independent native tasks have no execution-order guarantee, and durable admission does not guarantee exactly-once external effects.
+
+### Renovate review-agent tagging
+
+`agent-host/examples/renovate.ts` is an editable definition requiring no LLM. It matches open PRs by the configured author (accepting bot login spelling with or without `[bot]`), rechecks live identity/state/author, and posts one fixed comment requesting a review. It has no approval, merge or label behavior. Copy it into your definition project and adjust its SDK import as described below.
+
+Before activation, confirm Wall-E/RBCA's exact GitHub handle and command. Create a JSON config containing `renovateAuthor` (the exact Renovate login), `comment` (the confirmed full mention/command), and an **explicit** boolean `includeExisting`. No handle is assumed. `false` permanently excludes baseline PRs, including later rebases/reopens. `true` processes the initial snapshot and can comment on the existing backlog. Review that choice before starting:
+
+```sh
+radar agent add ./renovate.ts --id renovate-review --workspace /path/to/registered/workspace --collection github --config ./renovate.json
+radar agent start renovate-review
+radar agent inspect renovate-review
+```
+
+The associated execution environment needs authenticated `gh` with PR/comment read and comment creation permissions. Commands run through `host.execution`, so SBX workspaces use their sandbox's tools, credentials and network policy. PR/comment lookups validate and reconcile collected events; the definition does no discovery polling.
+
+Native per-PR documents retain baseline exclusions, original fixed comment, posting intent and resulting comment ID/URL. A transaction claims each PR against concurrent heads/events. Comments include a stable hidden marker derived from registration ID and PR node ID. Paginated comment reads reconcile the marker before posting/recovery; a crash after posting or lost response can recover its identity without another mention.
+
+Read failures and posting uncertainty persist attention and a **Reconcile** action in Radar. Pre-post read failures can be retried through that action. Once a POST was attempted, an absent marker never authorizes an automatic second POST: the action only reconciles and keeps uncertainty visible. This conservative rule can also withhold a comment after provider rejection or a crash just before sending. Inspect GitHub/permissions and resolve the operation manually in that case; do not delete durable state to force a retry. Deleting/editing markers or switching registration IDs weakens reconciliation. Exactly-once external comments are not promised.
 
 ## Editable examples
 
@@ -136,7 +191,7 @@ Examples require explicit `fixture: true` to use the deterministic local model. 
 
 ## Persistence, recovery and lifecycle
 
-One detached Node runner owns each instance's native SQLite store. The Go daemon uses newline JSON-RPC 2.0 over a private Unix socket, protocol **1**: `hello`, `deliver`, `interact`, `snapshot`, `watch`, `conversation`, `shutdown`. Stdout/stderr go to `runner.log`. RPC IDs are transient; source/event IDs identify durable admission. The host commits a receipt and a native event task atomically. There is no second Go queue and no promise of execution ordering across independent tasks. Definitions implement their concurrency and routing policies.
+One detached Node runner owns each instance's native SQLite store. The Go daemon uses newline JSON-RPC 2.0 over a private Unix socket, protocol **1**: `hello`, `deliver`, `interact`, `snapshot`, `watch`, `conversation`, `shutdown`. Stdout/stderr go to `runner.log`. RPC IDs are transient; source/event IDs identify durable admission. The host commits a receipt and a native event task atomically. The optional collection outbox holds only observations awaiting admission; execution lives in native tasks. There is no promise of execution ordering across independent tasks. Definitions implement their concurrency and routing policies.
 
 Storage defaults to `$XDG_STATE_HOME/radar/agents/<id>` or `~/.local/state/radar/agents/<id>` (`RADAR_AGENT_ROOT` overrides it). Registration/config/token, store format, exclusive-owner SQLite, native agent SQLite, cached snapshot and logs live there. All are separate from the rebuildable tasks cache and disposable workspace. A SQLite exclusive lock prevents a second store owner. Daemon restart reconnects to the runner; runner crashes release the lock and supervision retries with bounded backoff. Intentional stop stays stopped. Killing the owning Node process during a checkpoint resumes native work when restarted.
 

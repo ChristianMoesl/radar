@@ -64,7 +64,31 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger,
 			reconciled[i] = describeObservation(source.Descriptor(), reconciled[i])
 		}
 		collected.Observations = append(collected.Observations, reconciled...)
+		result := collected.Results[name]
+		result.Observations = append(result.Observations, reconciled...)
+		collected.Results[name] = result
 		logger.Debug("source reconciliation finished", "source", name, "duration", time.Since(started), "observations", len(reconciled))
+	}
+	for _, source := range sources {
+		provider, ok := source.(integration.CollectionEventSource)
+		result, collectedSource := collected.Results[source.Descriptor().Name]
+		if !ok || !collectedSource || !result.Complete {
+			continue
+		}
+		items := provider.CollectionItems(result.Observations)
+		for _, candidate := range sources {
+			if observer, ok := candidate.(integration.CollectionObserver); ok {
+				if err := observer.ObserveCollection(ctx, source.Descriptor().Name, items); err != nil {
+					logger.Error("collection event persistence failed", "source", source.Descriptor().Name, "error", err)
+					for i := range collected.Sources {
+						if collected.Sources[i].Name == candidate.Descriptor().Name {
+							collected.Sources[i].Status = "error"
+							collected.Sources[i].Detail = err.Error()
+						}
+					}
+				}
+			}
+		}
 	}
 	complete := make(map[string]bool, len(collected.Results))
 	for name, result := range collected.Results {
