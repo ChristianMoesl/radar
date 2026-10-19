@@ -1,0 +1,23 @@
+{
+  "datadog": {
+    "site": "datadoghq.eu",
+    "org": "radar",
+    "config_dir": "/srv/radar-live/pup",
+    "states_monitor_id": 123456,
+    "no_data_monitor_id": 123457
+  },
+  "jira": {
+    "profile": "radar",
+    "site": "replace-with-jira-cloud-id",
+    "config_dir": "/srv/radar-live/twg",
+    "issue_keys": ["ABC-1", "ABC-2", "ABC-3"]
+  },
+  "github": {
+    "fixtures": [
+      {"repository": "acme/oauth-e2e", "number": 1, "prefixes": ["ABC"], "state": "OPEN", "keys": ["mark:ABC-1"]},
+      {"repository": "acme/oauth-e2e", "number": 2, "prefixes": ["ABC"], "state": "CLOSED", "keys": ["mark:ABC-1"]},
+      {"repository": "acme/oauth-e2e", "number": 3, "prefixes": ["ABC"], "state": "MERGED", "keys": ["mark:ABC-1"]},
+      {"repository": "acme/oauth-e2e", "number": 4, "prefixes": ["ABC"], "state": "OPEN", "keys": ["mark:ABC-2"]}
+    ]
+  }
+}

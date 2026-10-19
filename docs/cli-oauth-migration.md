@@ -392,3 +392,28 @@ isolated local investigator and daemon were stopped after verification; their
 state and conversation history remain available for review. Jira's production
 OAuth migration, foreground onboarding coverage, natural expiry/revocation,
 remaining platform browser checks and real SBX OAuth keep the release gated.
+
+### Automated live E2E (2026-10-19)
+
+The user selected GitHub-hosted runners with encrypted OAuth session persistence.
+The [live E2E workflow and setup guide](live-e2e.md) replace the proposed persistent
+runner. A separate CI helper transports opaque dedicated CLI stores through a
+GitHub Environment secret; the Radar application still does not inspect tokens.
+The helper checks writeback before any refresh and saves rotated sessions after
+tests and recovery, including failed tests. Runs are serialized; the environment
+secret is resolved after the lock to avoid stale queued refresh tokens.
+
+The complete harness passed locally against the approved accounts, including
+real cursor pagination, all six PR fixtures, six concurrent Pup forced refreshes,
+monitor Alert/Warn/No Data/recovery, source/task identity and failed-login retention
+through daemon restarts, and nonempty numeric metrics through registered local
+workspace execution. The real CLI stores also survived opaque serialization and
+restore followed by CLI status validation. Reused monitor fixtures require the
+explicit `on_missing_data` setting; the legacy No Data flag did not produce a
+repeatable transition. Both fixtures were left healthy without notification
+recipients. Normal Go/Pi/agent checks and offline harness safeguards passed.
+
+Hosted CI activation remains pending: the current GitHub connection cannot manage
+the environment secrets or repository variables (HTTP 403). The workflow stays
+disabled for scheduled runs until those are configured. This does not close the
+Jira production migration, natural-expiry/revocation or live SBX OAuth gates.

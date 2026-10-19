@@ -40,6 +40,7 @@ Offline: use `man radar` and `man radar-config`, or [ask Pi about Radar](integra
 - [Contributing](../CONTRIBUTING.md) — build, test and develop locally.
 - [Architecture](../ARCHITECTURE.md) — components, task model and process boundaries.
 - [Integration development](integrations.md) — provider contracts and adding a source.
+- [Live provider E2E](live-e2e.md) — hosted CI with real Jira, GitHub and Datadog environments and encrypted OAuth sessions.
 - [Release publishing and recovery](releases.md) — signed releases, component versions and updater safety.
 - [npm publishing](npm-publishing.md) — trusted staging and human approval.
 - [Sandbox image and kit](../sandbox/README.md) — tools, startup hooks and image releases.

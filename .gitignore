@@ -8,3 +8,4 @@
 **/node_modules/
 /agent-host/dist/
 /agent-host/*.tgz
+__pycache__/

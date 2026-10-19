@@ -26,6 +26,10 @@ test("Live Pup telemetry through the selected workspace", {
         `/api/v1/query?from=${from}&to=${to}&query=${encodeURIComponent(query)}`) as Record<string, any>;
       assert.equal(metrics.status, "ok");
       assert.ok(Array.isArray(metrics.series));
+      assert.ok(metrics.series.some((series: Record<string, any>) =>
+        Array.isArray(series.pointlist) && series.pointlist.some((point: unknown[]) =>
+          Array.isArray(point) && typeof point[1] === "number" && Number.isFinite(point[1]))),
+      "live metric verification requires at least one actual numeric sample");
       metricTest.diagnostic(`${metrics.series.length} series through ${mode} workspace execution`);
     });
 

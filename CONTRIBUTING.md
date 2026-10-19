@@ -147,4 +147,8 @@ Publishing requires the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` GitHub secret
 
 ## Durable host development
 
+For tests against the dedicated real provider accounts, use the
+[live E2E workflow](docs/live-e2e.md). It runs on GitHub-hosted runners with
+encrypted CLI session persistence; regular pull-request CI remains offline.
+
 Install workspace dependencies with `pnpm install --frozen-lockfile`, build the CLI with `go build -o /tmp/radar ./cmd/radar`, then run `RADAR_BINARY=/tmp/radar pnpm --filter @christianmoesl/radar-agent-host check`. Build/pack the independently versioned host with `pnpm --filter @christianmoesl/radar-agent-host build` and `pnpm --dir agent-host pack --out /tmp/radar-agent-host.tgz`. CI runs the actual CLI/workspace fixture as well as provider HTTP fixtures and native checkpoint recovery. Every fixture registration requires a workspace. [The development guide](docs/durable-agents.md) covers SBX, storage, example definitions and stage-only npm publishing.

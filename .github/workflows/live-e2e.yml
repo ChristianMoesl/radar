@@ -1,0 +1,122 @@
+name: Live provider E2E
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 5 * * *'
+
+permissions:
+  contents: read
+
+# Never cancel a refresh/writeback or race mutations of the same fixtures.
+concurrency:
+  group: live-provider-e2e
+  cancel-in-progress: false
+
+jobs:
+  readiness:
+    name: Check live environment configuration
+    if: github.event_name == 'workflow_dispatch' || vars.RADAR_LIVE_E2E_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require trusted main and explicit live configuration
+        env:
+          LIVE_ENABLED: ${{ vars.RADAR_LIVE_E2E_ENABLED }}
+          LIVE_CONFIG: ${{ vars.RADAR_LIVE_E2E_CONFIG }}
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo 'Dispatch live OAuth tests on trusted main.' >&2
+            exit 1
+          fi
+          if [ "$LIVE_ENABLED" != true ] || [ -z "$LIVE_CONFIG" ]; then
+            echo 'Live E2E is not configured. Follow docs/live-e2e.md and set RADAR_LIVE_E2E_ENABLED=true.' >&2
+            exit 1
+          fi
+
+  live:
+    name: Real Jira, GitHub and Datadog environments
+    needs: readiness
+    runs-on: ubuntu-latest
+    # Environment secrets are read when this job starts, after the workflow
+    # concurrency lock. Repository secrets would be stale in queued runs after
+    # an earlier run rotated a refresh token.
+    environment: live-e2e
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build Radar and install checksum-verified provider CLIs
+        run: |
+          umask 0022
+          pnpm install --frozen-lockfile
+          go build -o "$RUNNER_TEMP/radar-live" ./cmd/radar
+          echo "RADAR_BINARY=$RUNNER_TEMP/radar-live" >> "$GITHUB_ENV"
+          sudo apt-get update
+          sudo apt-get install -y fd-find tmux
+          mkdir -p "$RUNNER_TEMP/live-bin"
+          ln -s /usr/bin/fdfind "$RUNNER_TEMP/live-bin/fd"
+          curl -fsSL https://raw.githubusercontent.com/DataDog/pup/v2.0.0/install.sh -o "$RUNNER_TEMP/install-pup.sh"
+          PUP_VERSION=2.0.0 PUP_INSTALL_DIR="$RUNNER_TEMP/live-bin" sh "$RUNNER_TEMP/install-pup.sh"
+          curl -fsSL https://teamwork-graph.atlassian.com/cli/install -o "$RUNNER_TEMP/install-twg.sh"
+          TWG_CONFIG_DIR="$RUNNER_TEMP/twg-install" bash "$RUNNER_TEMP/install-twg.sh" --version 1.3.8 --install-dir "$RUNNER_TEMP/live-bin" --skip-login --skip-skills --yes
+          echo "$RUNNER_TEMP/live-bin" >> "$GITHUB_PATH"
+      - name: Restore CLI-owned sessions
+        id: restore
+        env:
+          LIVE_CONFIG: ${{ vars.RADAR_LIVE_E2E_CONFIG }}
+          LIVE_E2E_SESSIONS: ${{ secrets.LIVE_E2E_SESSIONS }}
+        run: |
+          umask 0077
+          printf '%s' "$LIVE_CONFIG" > "$RUNNER_TEMP/live-config.json"
+          python3 scripts/live-e2e-state.py restore --config "$RUNNER_TEMP/live-config.json" --session-dir "$RUNNER_TEMP/live-sessions"
+      - name: Verify session writeback before any token rotation
+        id: checkpoint
+        env:
+          GH_TOKEN: ${{ secrets.LIVE_E2E_STATE_WRITER_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo 'Configure LIVE_E2E_STATE_WRITER_TOKEN before refreshing sessions.' >&2; exit 1; }
+          python3 scripts/live-e2e-state.py save --config "$RUNNER_TEMP/live-config.json"
+      - name: Exercise the real accounts
+        if: steps.checkpoint.outcome == 'success'
+        timeout-minutes: 25
+        env:
+          GH_TOKEN: ${{ secrets.LIVE_E2E_GITHUB_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo 'LIVE_E2E_GITHUB_TOKEN must read the private PR fixtures.' >&2; exit 1; }
+          umask 0022
+          python3 scripts/live-e2e.py --config "$RUNNER_TEMP/live-config.json" --report-dir "$RUNNER_TEMP/live-e2e-results"
+      - name: Ensure the two monitors recover after failure or cancellation
+        if: always() && steps.checkpoint.outcome == 'success'
+        timeout-minutes: 7
+        run: python3 scripts/live-e2e.py --config "$RUNNER_TEMP/live-config.json" --report-dir "$RUNNER_TEMP/live-e2e-recovery" --recover-only
+      - name: Save rotated sessions even after failed tests
+        if: always() && steps.restore.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.LIVE_E2E_STATE_WRITER_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo 'LIVE_E2E_STATE_WRITER_TOKEN must update the live-e2e environment secret.' >&2; exit 1; }
+          python3 scripts/live-e2e-state.py save --config "$RUNNER_TEMP/live-config.json"
+      - name: Publish sanitized results
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: live-provider-e2e-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/live-e2e-results/results.json
+            ${{ runner.temp }}/live-e2e-results/junit.xml
+            ${{ runner.temp }}/live-e2e-recovery/results.json
+            ${{ runner.temp }}/live-e2e-recovery/junit.xml
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Remove the runner's temporary sessions
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/live-sessions" "$RUNNER_TEMP/live-config.json"
