@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
+	"radar/internal/command"
 	"radar/internal/config"
 	"radar/internal/integration/datadog/settings"
+	"radar/internal/setup"
 )
 
 const (
@@ -19,11 +20,9 @@ const (
 	monitorPageSize = 1000
 )
 
-type credentials struct {
-	APIKey     string
-	AppKey     string
+type connection struct {
 	Site       string
-	APIBaseURL string
+	Org        string
 	AppBaseURL string
 }
 
@@ -47,88 +46,148 @@ type monitorSearchResponse struct {
 }
 
 type monitorSearcher interface {
-	Search(context.Context, credentials, string, []string) (monitorSearchResponse, error)
+	Search(context.Context, connection, string, []string) (monitorSearchResponse, error)
 }
 
 type apiClient struct {
-	httpClient *http.Client
+	output func(context.Context, setup.Command) (string, error)
 }
 
-func (c apiClient) Search(ctx context.Context, cfg credentials, userQuery string, statuses []string) (monitorSearchResponse, error) {
+func (c apiClient) Search(ctx context.Context, cfg connection, userQuery string, statuses []string) (monitorSearchResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-
-	values := url.Values{}
-	values.Set("query", combinedMonitorQuery(userQuery, statuses))
-	values.Set("page", "0")
-	values.Set("per_page", fmt.Sprint(monitorPageSize))
-	endpoint := cfg.APIBaseURL + "/api/v1/monitor/search?" + values.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err := verifyPup(ctx, cfg, c.output); err != nil {
+		return monitorSearchResponse{}, err
+	}
+	args := pupArgs(cfg, "api", "/api/v1/monitor/search", "-f", "query="+combinedMonitorQuery(userQuery, statuses), "-F", "page=0", "-F", fmt.Sprintf("per_page=%d", monitorPageSize))
+	data, err := pupOutput(ctx, cfg, args, c.output)
 	if err != nil {
-		return monitorSearchResponse{}, fmt.Errorf("create Datadog monitor search request: %w", err)
+		return monitorSearchResponse{}, err
 	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("DD-API-KEY", cfg.APIKey)
-	req.Header.Set("DD-APPLICATION-KEY", cfg.AppKey)
-
-	client := c.httpClient
-	if client == nil {
-		client = http.DefaultClient
+	var wire struct {
+		Errors   []json.RawMessage `json:"errors"`
+		Metadata *struct {
+			TotalCount *int `json:"total_count"`
+			PageCount  *int `json:"page_count"`
+		} `json:"metadata"`
+		Monitors *[]monitor `json:"monitors"`
 	}
-	res, err := client.Do(req)
-	if err != nil {
-		return monitorSearchResponse{}, fmt.Errorf("Datadog monitor search request failed: %w", err)
+	if json.Unmarshal(data, &wire) != nil || len(wire.Errors) > 0 || wire.Metadata == nil || wire.Metadata.TotalCount == nil || wire.Metadata.PageCount == nil || wire.Monitors == nil {
+		return monitorSearchResponse{}, fmt.Errorf("pup returned an invalid monitor search response; previous monitor facts retained")
 	}
-	defer res.Body.Close()
-
-	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
-		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<20))
-		return monitorSearchResponse{}, fmt.Errorf("Datadog monitor search failed: %s", res.Status)
+	if *wire.Metadata.TotalCount < 0 || *wire.Metadata.PageCount < 0 || *wire.Metadata.TotalCount < len(*wire.Monitors) {
+		return monitorSearchResponse{}, fmt.Errorf("pup returned inconsistent monitor totals")
 	}
-
-	var response monitorSearchResponse
-	decoder := json.NewDecoder(io.LimitReader(res.Body, 20<<20))
-	if err := decoder.Decode(&response); err != nil {
-		return monitorSearchResponse{}, fmt.Errorf("decode Datadog monitor search response: %w", err)
+	seen := map[int64]bool{}
+	for _, m := range *wire.Monitors {
+		if m.ID <= 0 || m.Status == "" || seen[m.ID] {
+			return monitorSearchResponse{}, fmt.Errorf("pup returned an invalid or duplicate monitor")
+		}
+		seen[m.ID] = true
 	}
+	response := monitorSearchResponse{Monitors: *wire.Monitors}
+	response.Metadata.TotalCount = *wire.Metadata.TotalCount
+	response.Metadata.PageCount = *wire.Metadata.PageCount
 	return response, nil
 }
 
-func loadCredentials() (credentials, []string, error) {
+func loadConnection() (connection, []string, error) {
 	user, err := config.Load()
 	if err != nil {
-		return credentials{}, nil, err
+		return connection{}, nil, err
 	}
-	apiKey, err := config.Secret("RADAR_DATADOG_API_KEY", "datadog", "api_key")
+	if _, err := config.LoadSecrets(); err != nil {
+		return connection{}, nil, err
+	}
+	if err := legacyEnvironmentError(); err != nil {
+		return connection{}, nil, err
+	}
+	site := user.Datadog.Site
+	if site == "" {
+		site = defaultSite
+	}
+	site, err = settings.NormalizeSite(site)
 	if err != nil {
-		return credentials{}, nil, err
+		return connection{}, nil, err
 	}
-	appKey, err := config.Secret("RADAR_DATADOG_APP_KEY", "datadog", "app_key")
-	if err != nil {
-		return credentials{}, nil, err
+	cfg := connection{Site: site, Org: user.Datadog.Org, AppBaseURL: datadogAppBaseURL(site)}
+	missing := []string{}
+	if _, err := exec.LookPath("pup"); err != nil {
+		missing = append(missing, "pup 2.0.0+ on PATH; run radar setup")
 	}
-	cfg := credentials{APIKey: apiKey, AppKey: appKey, Site: config.EnvOr("RADAR_DATADOG_SITE", user.Datadog.Site)}
-
-	missing := make([]string, 0, 2)
-	if cfg.APIKey == "" {
-		missing = append(missing, "datadog.api_key in secrets.yaml or RADAR_DATADOG_API_KEY")
+	if cfg.Org == "" {
+		return cfg, nil, fmt.Errorf("datadog.org must select a named Pup OAuth session; run radar setup")
 	}
-	if cfg.AppKey == "" {
-		missing = append(missing, "datadog.app_key in secrets.yaml or RADAR_DATADOG_APP_KEY")
-	}
-	if cfg.Site == "" {
-		cfg.Site = defaultSite
-	}
-
-	site, err := settings.NormalizeSite(cfg.Site)
-	if err != nil {
-		return cfg, missing, err
-	}
-	cfg.Site = site
-	cfg.APIBaseURL = "https://api." + site
-	cfg.AppBaseURL = datadogAppBaseURL(site)
 	return cfg, missing, nil
+}
+
+func legacyEnvironmentError() error {
+	for _, key := range []string{"RADAR_DATADOG_API_KEY", "RADAR_DATADOG_APP_KEY", "RADAR_DATADOG_SITE"} {
+		if os.Getenv(key) != "" {
+			return fmt.Errorf("%s is no longer supported; unset it, configure datadog.site and run radar setup for Pup OAuth", key)
+		}
+	}
+	return nil
+}
+
+func pupArgs(cfg connection, args ...string) []string {
+	return append([]string{"--org", cfg.Org, "--no-envelope", "--output", "json"}, args...)
+}
+
+// A named session reloads OAuth from Pup storage, overriding config-file bearer
+// connection. Nonempty invalid header values shadow file API keys: if OAuth
+// disappears or refresh fails between status and request, reqwest rejects the
+// fallback headers before sending anything. Never read or copy Pup connection.
+func pupEnv(site, org string) []string {
+	env := []string{}
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		switch key {
+		case "DD_ACCESS_TOKEN", "DD_API_KEY", "DD_APP_KEY", "DD_SITE", "DD_ORG", "DD_OUTPUT", "PUP_OUTPUT", "PUP_FILTER", "PUP_MOCK_SERVER":
+			continue
+		}
+		env = append(env, entry)
+	}
+	return append(env, "DD_SITE="+site, "DD_ORG="+org, "DD_API_KEY=\n", "DD_APP_KEY=\n")
+}
+
+func pupOutput(ctx context.Context, cfg connection, args []string, output func(context.Context, setup.Command) (string, error)) ([]byte, error) {
+	if output != nil {
+		v, e := output(ctx, setup.Command{Name: "pup", Args: args, Env: pupEnv(cfg.Site, cfg.Org)})
+		return []byte(v), e
+	}
+	return command.Output(ctx, "pup", args, pupEnv(cfg.Site, cfg.Org))
+}
+
+func verifyPup(ctx context.Context, cfg connection, output func(context.Context, setup.Command) (string, error)) error {
+	run := func(args []string) ([]byte, error) { return pupOutput(ctx, cfg, args, output) }
+	version, err := run([]string{"--version"})
+	if err != nil || !setup.VersionAtLeast(string(version), "2.0.0") {
+		return fmt.Errorf("pup 2.0.0+ is required; run radar setup")
+	}
+	data, err := run(pupArgs(cfg, "auth", "status"))
+	if err != nil {
+		return fmt.Errorf("Pup OAuth session is unavailable; run radar setup")
+	}
+	var status struct {
+		Authenticated bool     `json:"authenticated"`
+		AuthMethod    string   `json:"auth_method"`
+		TokenType     string   `json:"token_type"`
+		HasRefresh    bool     `json:"has_refresh"`
+		Site          string   `json:"site"`
+		Org           string   `json:"org"`
+		Status        string   `json:"status"`
+		Scopes        []string `json:"scopes"`
+	}
+	if json.Unmarshal(data, &status) != nil || !status.Authenticated || status.AuthMethod != "" || !strings.EqualFold(status.TokenType, "Bearer") || !status.HasRefresh || status.Status != "valid" || status.Site != cfg.Site || status.Org != cfg.Org {
+		return fmt.Errorf("Pup requires a valid OAuth session for %s (%s); run radar setup", cfg.Site, cfg.Org)
+	}
+	for _, scope := range status.Scopes {
+		if scope == "monitors_read" {
+			return nil
+		}
+	}
+	return fmt.Errorf("Pup OAuth session needs monitors_read; run radar setup")
 }
 
 func datadogAppBaseURL(site string) string {

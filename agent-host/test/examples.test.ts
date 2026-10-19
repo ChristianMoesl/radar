@@ -144,20 +144,7 @@ test("Jira polling retains conversations and suppresses unchanged ticket updates
 });
 
 test("Datadog investigates once, consolidates repeats, and retains recovery history", async () => {
-  process.env.DD_API_KEY = "fixture";
-  process.env.DD_APP_KEY = "fixture";
   let queries = 0;
-  const server = createServer((_req, res) => {
-    queries++;
-    res.setHeader("Content-Type", "application/json");
-    res.end(
-      JSON.stringify({
-        data: [{ id: "log-1", attributes: { message: "request failed" } }],
-      }),
-    );
-  });
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
   const dataDir = await mkdtemp(join(tmpdir(), "radar-dd-"));
   let host: AgentHost | undefined;
   try {
@@ -169,11 +156,23 @@ test("Datadog investigates once, consolidates repeats, and retains recovery hist
         workspace: { id: "fixture", path: dataDir, mode: "local" },
         config: {
           fixture: true,
-          baseUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
+          site: "datadoghq.eu",
+          org: "radar",
           logsQuery: "service:fixture",
         },
       },
     );
+    // The transport has its own subprocess contract tests. Here substitute the
+    // workspace executor, preserving the durable investigation/recovery checks.
+    host.host.execution.exec = async (argv) => {
+      const request = JSON.parse(argv[3]!);
+      assert.equal(request.site, "datadoghq.eu");
+      assert.equal(request.org, "radar");
+      assert.equal(request.method, "POST");
+      assert.equal(request.path, "/api/v2/logs/events/search");
+      queries++;
+      return JSON.stringify({data:[{id:"log-1",attributes:{message:"request failed"}}]});
+    };
     const deliver = async (id: string, transition: string) => {
       const receipt = await host!.deliver({
         source: "monitor",
@@ -219,6 +218,5 @@ test("Datadog investigates once, consolidates repeats, and retains recovery hist
   } finally {
     await host?.close();
     await rm(dataDir, { recursive: true, force: true });
-    await new Promise<void>((done) => server.close(() => done()));
   }
 });

@@ -22,7 +22,7 @@ type fakeSearcher struct {
 	statuses []string
 }
 
-func (s *fakeSearcher) Search(_ context.Context, _ credentials, query string, statuses []string) (monitorSearchResponse, error) {
+func (s *fakeSearcher) Search(_ context.Context, _ connection, query string, statuses []string) (monitorSearchResponse, error) {
 	s.query = query
 	s.statuses = statuses
 	return s.response, s.err
@@ -30,7 +30,7 @@ func (s *fakeSearcher) Search(_ context.Context, _ credentials, query string, st
 
 func TestCollectProjectsUnhealthyMonitors(t *testing.T) {
 	configureDatadog(t, "tag:team:cap")
-	configureDatadogCredentials(t)
+	configureDatadogCLI(t)
 	priority := 1
 	searcher := &fakeSearcher{response: monitorSearchResponse{Monitors: []monitor{
 		{ID: 3, Name: "No heartbeat", Status: "No Data"},
@@ -79,7 +79,7 @@ func TestCollectProjectsUnhealthyMonitors(t *testing.T) {
 
 func TestCollectOnlyProjectsConfiguredMonitorStatuses(t *testing.T) {
 	configureDatadogWithStatuses(t, "tag:team:cap", []string{"Alert", "Warn"})
-	configureDatadogCredentials(t)
+	configureDatadogCLI(t)
 	searcher := &fakeSearcher{response: monitorSearchResponse{Monitors: []monitor{
 		{ID: 1, Name: "API errors", Status: "Alert"},
 		{ID: 2, Name: "No heartbeat", Status: "No Data"},
@@ -95,7 +95,7 @@ func TestCollectOnlyProjectsConfiguredMonitorStatuses(t *testing.T) {
 }
 
 func TestMonitorSourceRefContract(t *testing.T) {
-	observation, ok := observationFromMonitor(credentials{AppBaseURL: "https://app.datadoghq.eu"}, []string{"Alert"}, monitor{ID: 42, Name: "API errors", Status: "Alert"})
+	observation, ok := observationFromMonitor(connection{AppBaseURL: "https://app.datadoghq.eu"}, []string{"Alert"}, monitor{ID: 42, Name: "API errors", Status: "Alert"})
 	if !ok {
 		t.Fatal("observation was rejected")
 	}
@@ -104,7 +104,7 @@ func TestMonitorSourceRefContract(t *testing.T) {
 
 func TestCollectPreservesPreviousAlertsWhenSearchFails(t *testing.T) {
 	configureDatadog(t, "tag:team:cap")
-	configureDatadogCredentials(t)
+	configureDatadogCLI(t)
 	searcher := &fakeSearcher{err: errors.New("network unavailable")}
 	previous := []protocol.Task{{
 		ID: 8, Title: "API errors", Attention: "immediate",
@@ -125,7 +125,7 @@ func TestCollectPreservesPreviousAlertsWhenSearchFails(t *testing.T) {
 
 func TestCollectRejectsTruncatedMonitorSearch(t *testing.T) {
 	configureDatadog(t, "tag:team:cap")
-	configureDatadogCredentials(t)
+	configureDatadogCLI(t)
 	response := monitorSearchResponse{Monitors: make([]monitor, monitorPageSize)}
 	response.Metadata.TotalCount = monitorPageSize + 1
 	response.Metadata.PageCount = 2
@@ -136,10 +136,9 @@ func TestCollectRejectsTruncatedMonitorSearch(t *testing.T) {
 	}
 }
 
-func TestStatusRequiresQueryAndEnvironmentCredentials(t *testing.T) {
+func TestStatusRequiresQueryAndCLI(t *testing.T) {
 	configureDatadog(t, "")
-	t.Setenv("RADAR_DATADOG_API_KEY", "")
-	t.Setenv("RADAR_DATADOG_APP_KEY", "")
+	t.Setenv("PATH", t.TempDir())
 	status := NewSource().Status(context.Background(), testLogger())
 	if status.CanRun || status.Status.Status != "disabled" || status.Status.Detail != "missing datadog.monitor_query" {
 		t.Fatalf("status without query = %+v", status)
@@ -147,11 +146,11 @@ func TestStatusRequiresQueryAndEnvironmentCredentials(t *testing.T) {
 
 	configureDatadog(t, "tag:team:cap")
 	status = NewSource().Status(context.Background(), testLogger())
-	if status.CanRun || status.Status.Detail != "missing datadog.api_key in secrets.yaml or RADAR_DATADOG_API_KEY, datadog.app_key in secrets.yaml or RADAR_DATADOG_APP_KEY" {
-		t.Fatalf("status without credentials = %+v", status)
+	if status.CanRun || status.Status.Detail != "missing pup 2.0.0+ on PATH; run radar setup" {
+		t.Fatalf("status without connection = %+v", status)
 	}
 
-	configureDatadogCredentials(t)
+	configureDatadogCLI(t)
 	status = NewSource().Status(context.Background(), testLogger())
 	if !status.CanRun || status.Status.Status != "ok" {
 		t.Fatalf("configured status = %+v", status)
@@ -205,11 +204,13 @@ func configureDatadogWithStatuses(t *testing.T, query string, statuses []string)
 	}
 }
 
-func configureDatadogCredentials(t *testing.T) {
+func configureDatadogCLI(t *testing.T) {
 	t.Helper()
-	t.Setenv("RADAR_DATADOG_API_KEY", "api-secret")
-	t.Setenv("RADAR_DATADOG_APP_KEY", "app-secret")
-	t.Setenv("RADAR_DATADOG_SITE", "datadoghq.eu")
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "pup"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func testLogger() *slog.Logger {

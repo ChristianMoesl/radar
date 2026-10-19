@@ -94,7 +94,7 @@ func TestReviewSecretsComparesValuesWithoutExposingThem(t *testing.T) {
 		{nil, "UNCHANGED"},
 		{config.Secrets{"jira": {"api_token": "existing-private-token"}}, "UNCHANGED"},
 		{config.Secrets{"jira": {"api_token": "new-private-token"}}, "UPDATE"},
-		{config.Secrets{"datadog": {"api_key": "new-private-token"}}, "UPDATE"},
+		{config.Secrets{"other": {"token": "new-private-token"}}, "UPDATE"},
 		{config.Secrets{"jira": {"new_key": ""}}, "UPDATE"},
 	} {
 		file, err := reviewSecrets(tc.updates)

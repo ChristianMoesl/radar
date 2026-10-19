@@ -18,7 +18,7 @@ type bindingSearcher struct {
 	calls int
 }
 
-func (s *bindingSearcher) Search(ctx context.Context, cfg credentials, query string, statuses []string) (monitorSearchResponse, error) {
+func (s *bindingSearcher) Search(ctx context.Context, cfg connection, query string, statuses []string) (monitorSearchResponse, error) {
 	s.calls++
 	return s.fakeSearcher.Search(ctx, cfg, query, statuses)
 }
@@ -27,7 +27,7 @@ func TestResolveBindingsUsesCompleteMonitorSearchForActiveAndColdRecovery(t *tes
 	for _, active := range []bool{true, false} {
 		t.Run(map[bool]string{true: "active", false: "recovered while stopped"}[active], func(t *testing.T) {
 			configureDatadog(t, "tag:team:example")
-			configureDatadogCredentials(t)
+			configureDatadogCLI(t)
 			searcher := &bindingSearcher{}
 			if active {
 				searcher.response.Monitors = []monitor{{ID: 7, Name: "API errors", Status: "Alert"}}
@@ -58,10 +58,10 @@ func TestResolveBindingsUsesCompleteMonitorSearchForActiveAndColdRecovery(t *tes
 }
 
 func TestResolveBindingsNeverRecoversFromIncompleteErrorOrDisabledSearch(t *testing.T) {
-	for _, name := range []string{"incomplete", "error", "truncated", "disabled", "no query", "missing credentials", "invalid site"} {
+	for _, name := range []string{"incomplete", "error", "truncated", "disabled", "no query", "missing CLI", "invalid site"} {
 		t.Run(name, func(t *testing.T) {
 			configureDatadog(t, "tag:team:example")
-			configureDatadogCredentials(t)
+			configureDatadogCLI(t)
 			searcher := &bindingSearcher{}
 			switch name {
 			case "error":
@@ -79,10 +79,15 @@ datadog:
 				}
 			case "no query":
 				configureDatadog(t, "")
-			case "missing credentials":
-				t.Setenv("RADAR_DATADOG_APP_KEY", "")
+			case "missing CLI":
+				t.Setenv("PATH", t.TempDir())
 			case "invalid site":
-				t.Setenv("RADAR_DATADOG_SITE", "invalid.example.test")
+				path := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar", "config.yaml")
+				if err := os.WriteFile(path, []byte(`datadog:
+  monitor_query: tag:team:example
+  site: invalid.example.test`), 0600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			source := Source{searcher: searcher}
 			req := boundDatadogRequest()
@@ -108,7 +113,7 @@ datadog:
 
 func TestResolveBindingsPreservesConfiguredMonitorQueryAndStatusFilters(t *testing.T) {
 	configureDatadogWithStatuses(t, "tag:team:example", []string{"Warn"})
-	configureDatadogCredentials(t)
+	configureDatadogCLI(t)
 	searcher := &bindingSearcher{fakeSearcher: fakeSearcher{response: monitorSearchResponse{Monitors: []monitor{{ID: 7, Name: "API errors", Status: "Alert"}, {ID: 8, Name: "Latency", Status: "Warn"}}}}}
 	source := Source{searcher: searcher}
 	req := boundDatadogRequest()
@@ -124,8 +129,8 @@ func TestResolveBindingsPreservesConfiguredMonitorQueryAndStatusFilters(t *testi
 
 func TestResolveBindingsReusesCachedMonitorFactsIncludingHistoricalTerminalRefs(t *testing.T) {
 	configureDatadog(t, "tag:team:example")
-	configureDatadogCredentials(t)
-	original, ok := observationFromMonitor(credentials{AppBaseURL: "https://app.datadoghq.eu"}, []string{"Alert"}, monitor{ID: 7, Name: "Actual monitor name", Status: "Alert", Tags: []string{"team:example"}})
+	configureDatadogCLI(t)
+	original, ok := observationFromMonitor(connection{AppBaseURL: "https://app.datadoghq.eu"}, []string{"Alert"}, monitor{ID: 7, Name: "Actual monitor name", Status: "Alert", Tags: []string{"team:example"}})
 	if !ok {
 		t.Fatal("fixture rejected")
 	}
@@ -155,7 +160,7 @@ func TestResolveBindingsReusesCachedMonitorFactsIncludingHistoricalTerminalRefs(
 
 func TestResolveBindingsValidatesMonitorBindingsAndDeduplicatesRecovery(t *testing.T) {
 	configureDatadog(t, "tag:team:example")
-	configureDatadogCredentials(t)
+	configureDatadogCLI(t)
 	for _, id := range []string{"datadog:monitor:0", "datadog:monitor:-7", "datadog:monitor:+7", "datadog:monitor:07", "datadog:monitor:7/path", "datadog:monitor:7?x", "datadog:monitor:9223372036854775808", "jira:issue:ABC-7"} {
 		req := boundDatadogRequest()
 		req.Bindings[0].ID = id

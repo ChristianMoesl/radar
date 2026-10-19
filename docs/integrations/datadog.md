@@ -38,13 +38,39 @@ datadog:
 
 The setup wizard stores keys in `secrets.yaml`. Alternatively, provide environment overrides:
 
-```sh
-RADAR_DATADOG_API_KEY="..."
-RADAR_DATADOG_APP_KEY="..."
-RADAR_DATADOG_SITE="datadoghq.eu"
+Install [Pup 2.0.0+](https://github.com/DataDog/pup), then run `radar setup`.
+Radar recommends Pup, shows the official installer, offers assisted installation,
+rechecks PATH/version, and starts `pup auth login` in your terminal. Browser login
+is never started by background collection. Setup verifies the named OAuth session,
+`monitors_read`, the intended site and an actual scoped monitor search before
+saving `enabled: true`. Failed installation/login can be retried or deferred.
+
+```yaml
+datadog:
+  enabled: true
+  site: datadoghq.eu
+  org: radar
+  monitor_query: tag:team:platform
+  monitor_statuses: [Alert, Warn, No Data]
 ```
 
-`secrets.yaml` stores `datadog.api_key` and `datadog.app_key`; the application key needs monitor-read permission. `config.yaml` stores `datadog.site`, such as `datadoghq.eu` or `us3.datadoghq.com`. The wizard accepts the site hostname or an API endpoint like `https://api.datadoghq.eu/`. Existing `RADAR_DATADOG_API_KEY`, `RADAR_DATADOG_APP_KEY`, and `RADAR_DATADOG_SITE` environment variables take precedence over stored values. The default site is `datadoghq.eu`. Tokens are never stored in `config.yaml`.
+`org` is Pup's named session label. Choose the intended Datadog organization in
+the browser when signing in. Radar always selects this label explicitly; Pup owns
+credential storage and refresh. The default label is `radar`, and the default site
+is `datadoghq.eu`. Supported regions retain their existing monitor URLs.
+
+Each refresh checks Pup's version and OAuth status, then invokes one
+`pup --org radar --no-envelope --output json api /api/v1/monitor/search` request.
+Radar owns query/status construction and response completeness; Pup owns HTTP and
+OAuth. No token is extracted and no credential file is read. Inherited static
+bearer credentials are removed, named-session selection overrides saved static
+bearer configuration, and API-key fallback is prevented before any request.
+
+The old Radar Datadog API/application keys, token prompts and credential environment
+overrides are removed. Existing credentials receive manual remediation errors;
+there is no automatic migration or credential revocation. See the
+[breaking-change guide](../cli-oauth-migration.md).
+
 
 ### Limits and notifications
 

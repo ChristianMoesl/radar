@@ -319,7 +319,7 @@ preselected on repeat setup. Secrets are masked. A new tmux configuration leaves
 the prefix at tmux's own default; existing prefix settings are preserved.
 
 1. **Check, don't install, CLI tools:** Git, tmux 3.2+, fd (`fdfind` on Debian),
-   Node.js 24+, npm, Pi 0.85.1+, and gh. One status list distinguishes ready,
+   Node.js 24+, npm, and Pi 0.85.1+. One status list distinguishes ready,
    missing, outdated and failed checks, followed by relevant repair guidance.
    Green checks and amber attention markers use plain text with `NO_COLOR` or
    redirected output. Missing tools get a copyable installation command when
@@ -327,8 +327,7 @@ the prefix at tmux's own default; existing prefix settings are preserved.
    own installation method, not replaced by another package manager. Pi's primary
    recommendation is its official installer. Setup stops before saving when any
    required tool needs attention; rerun `radar` after repairs.
-   gh is required even if GitHub integration is disabled;
-   installing it does not log in or enable the integration. Node is Pi's runtime,
+   GitHub CLI is checked when GitHub is selected below. Node is Pi's runtime,
    not a Go binary runtime requirement; Neovim is not required.
 2. **Install Pi extensions:** `pi-radar` is mandatory for completed setup. Show
    the `pi install` command and ask permission; refusal, installation failure or
@@ -359,10 +358,9 @@ the prefix at tmux's own default; existing prefix settings are preserved.
    and the workspace root must not contain the repository directory.
 6. Ask whether to connect GitHub, Jira, and Datadog. Declining writes an explicit
    `enabled: false`; opting in verifies access and writes `true`. GitHub uses
-   `gh auth status` and offers `gh auth login` when needed. Jira uses site URL,
+   `gh` 2.0.0+, offers assisted installation with Homebrew or official manual instructions, rechecks installation, starts `gh auth login` when needed and verifies the account with `gh api user`. A failed connection can be retried or deferred. Jira uses site URL,
    email, hidden API token, automatic Cloud ID discovery, and comma/space-separated
-   ticket prefixes. Datadog uses a supported site/API endpoint, hidden API and
-   application keys, and a required monitor query such as `tag:team:platform`.
+   ticket prefixes. Datadog uses Pup 2.0.0+ OAuth, a supported site, a named session and a required monitor query such as `tag:team:platform`. Setup recommends/installs Pup, launches browser login and verifies monitor reads; it offers retry or defer on failure.
 7. Review one compact table of files: **CREATE**, **UPDATE**, **APPEND**, or
    **UNCHANGED**, with each path and a short purpose. Creates are green, changes
    amber, and unchanged rows dim; labels remain readable without color. Only new
@@ -427,6 +425,7 @@ jira:
 datadog:
   enabled: true
   site: datadoghq.eu
+  org: radar
   monitor_query: tag:team:platform
 ```
 
@@ -436,9 +435,6 @@ datadog:
 # Plaintext credentials: keep this file private and out of version control.
 jira:
   api_token: <token>
-datadog:
-  api_key: <API key>
-  app_key: <application key>
 ```
 
 The directory is `0700`, the files are `0600`, and writes use private temporary
@@ -448,8 +444,7 @@ permissions, and malformed secret YAML without echoing its contents. Repair
 permissions with `chmod 600`; edit/rotate secrets locally. GitHub credentials stay
 with gh and Pi provider authentication stays with Pi (`/login`).
 
-The documented `RADAR_JIRA_*` and `RADAR_DATADOG_*` environment variables remain
-supported and override corresponding stored settings/secrets. `jira.api_base_url`
+The documented `RADAR_JIRA_*` environment variables currently override Jira settings/secrets. Datadog uses Pup OAuth only; its old key environment variables and secret mapping are rejected. See the [manual cutover guide](cli-oauth-migration.md). `jira.api_base_url`
 can specify an API base explicitly, like the existing `RADAR_JIRA_API_BASE_URL`;
 otherwise the Cloud ID determines the Atlassian API URL. No credentials are
 copied from the environment into files automatically.
@@ -507,8 +502,8 @@ Explicit source actions and cleanup are separate from background collection.
 | Integration | Automatic activation prerequisites |
 | --- | --- |
 | GitHub | `gh` on PATH and a locally configured GitHub token; API failures, including expired credentials, are errors |
-| Jira | Connection settings and a token in config/secrets or `RADAR_JIRA_*` overrides |
-| Datadog | Both credentials and an explicit `datadog.monitor_query`; no automatic organization-wide query |
+| Jira | Connection settings and a token in config/secrets or `RADAR_JIRA_*` overrides (TWG migration pending qualification) |
+| Datadog | Pup 2.0.0+ on PATH, a named OAuth session and an explicit `datadog.monitor_query`; no automatic organization-wide query |
 | SBX collection | `sbx` on PATH, or Windows `sbx.exe` plus `wslpath` on WSL2 |
 | SBX for new workspaces | macOS or native Linux `sbx` 0.48.x on PATH, with accessible KVM on Linux; Windows `sbx.exe` provisioning remains blocked |
 

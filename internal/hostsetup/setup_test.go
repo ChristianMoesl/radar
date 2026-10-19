@@ -25,7 +25,6 @@ func TestFreshHomebrewToolReport(t *testing.T) {
 	want := `  ✓ git      ready
   ✓ tmux     ready
   ✓ fd       ready
-  ✓ gh       ready
   ! Node.js  missing — requires 24+
   ! npm      missing — included with Node.js
   ! Pi       missing — requires 0.85.1+
@@ -39,7 +38,7 @@ Then run radar again to continue setup.
 	if got := ui.Transcript.String(); got != want {
 		t.Fatalf("report:\n%s\nwant:\n%s", got, want)
 	}
-	if len(ui.Titles) != 0 || len(sys.Calls) != 4 {
+	if len(ui.Titles) != 0 || len(sys.Calls) != 3 {
 		t.Fatalf("unexpected prompts or commands: %v %v", ui.Titles, sys.Calls)
 	}
 
@@ -90,7 +89,7 @@ func TestToolRepairRecommendations(t *testing.T) {
 	}{
 		{"only Pi", map[string]toolState{"pi": toolMissing}, nil, piInstallCommand, ""},
 		{"only fd", map[string]toolState{"fd": toolMissing}, nil, "brew install fd", ""},
-		{"missing tools grouped", map[string]toolState{"git": toolMissing, "tmux": toolMissing, "gh": toolMissing}, nil, "brew install git tmux gh", ""},
+		{"missing tools grouped", map[string]toolState{"git": toolMissing, "tmux": toolMissing, "fd": toolMissing}, nil, "brew install git tmux fd", ""},
 		{"Node includes npm", map[string]toolState{"node": toolMissing, "npm": toolMissing}, nil, "brew install node", ""},
 		{"old Node is not replaced", map[string]toolState{"node": toolOutdated}, nil, "", "existing Node.js installation"},
 		{"broken Node is not replaced", map[string]toolState{"node": toolBroken}, nil, "", "existing Node.js installation"},
@@ -186,7 +185,7 @@ func TestRadarPackageInspectionDoesNotOverrideDisabledResources(t *testing.T) {
 
 func TestOnlyPiExtensionsHaveOnboardingInstallCommands(t *testing.T) {
 	w, _, _, _ := fixture(t)
-	for _, dep := range []string{"node", "fd", "pi", "git", "gh", "tmux", "npm"} {
+	for _, dep := range []string{"node", "fd", "pi", "git", "tmux", "npm"} {
 		if _, err := w.installCommand(dep); err == nil {
 			t.Fatalf("onboarding can install baseline tool %s", dep)
 		}

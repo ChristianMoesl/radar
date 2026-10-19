@@ -154,7 +154,15 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 					"pi":   "echo 1.0.0",
 					"git":  "exit 0", "fd": "exit 0", "npm": "exit 0",
 					"tmux": `case "$1" in -V) echo 'tmux 3.6';; has-session) exit 1;; display-message) printf '%%0\n';; new-session|new-window|split-window) printf '@1 %%1\n';; *) exit 0;; esac`,
+					"pup": `case "$1" in
+       --version) echo 'pup 2.0.0';;
+       *) case "$*" in
+         *'auth status'*) printf '%s' '{"authenticated":true,"has_refresh":true,"token_type":"Bearer","site":"datadoghq.eu","org":"radar","status":"valid","scopes":["monitors_read"]}';;
+         *) printf '%s' '{"metadata":{"total_count":0,"page_count":0},"monitors":[]}';;
+       esac;; esac`,
 					"gh": `case "$1 $2" in
+       '--version ') echo 'gh version 2.88.0';;
+       'api --hostname') printf '%s' '{"login":"fixture-user"}';;
        'auth status') test -f "$HOME/github-authenticated";;
        'auth login') printf ready > "$HOME/github-authenticated";;
        'auth token') printf fixture-token;;
@@ -236,7 +244,7 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 				}
 				terminal.answer(t, "Connect Radar to GitHub?", answer(choices&1 != 0))
 				if choices&1 != 0 && !existing {
-					terminal.answer(t, "Run `gh auth login`?", "y")
+					terminal.answer(t, "Run `gh auth login --hostname github.com`?", "y")
 				}
 				terminal.answer(t, "Connect Radar to Jira?", answer(choices&2 != 0))
 				if choices&2 != 0 {
@@ -247,9 +255,8 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 				}
 				terminal.answer(t, "Connect Radar to Datadog?", answer(choices&4 != 0))
 				if choices&4 != 0 {
-					terminal.answer(t, "Datadog site or API endpoint", "\x15https://api.datadoghq.eu/\r")
-					terminal.answer(t, "Datadog API key", "dd-api-terminal-secret\r")
-					terminal.answer(t, "Datadog application key", "dd-app-terminal-secret\r")
+					terminal.answer(t, "Datadog site", "\x15https://api.datadoghq.eu/\r")
+					terminal.answer(t, "Pup OAuth session name", "\r")
 					terminal.answer(t, "Datadog monitor query", "tag:team:platform\r")
 				}
 				if choices == 0 && !existing {
@@ -311,7 +318,7 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 					}
 					again.answer(t, "Connect Radar to Datadog?", "\r")
 					if choices&4 != 0 {
-						for _, title := range []string{"Datadog site or API endpoint", "Datadog API key", "Datadog application key", "Datadog monitor query"} {
+						for _, title := range []string{"Datadog site", "Pup OAuth session name", "Datadog monitor query"} {
 							again.answer(t, title, "\r")
 						}
 					}

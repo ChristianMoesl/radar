@@ -48,6 +48,9 @@ func LoadSecrets() (Secrets, error) {
 	if configfile.Decode(data, &secrets) != nil || secrets == nil {
 		return nil, fmt.Errorf("secrets.yaml must contain a YAML mapping of integration secret mappings")
 	}
+	if len(secrets["datadog"]) > 0 {
+		return nil, fmt.Errorf("Datadog credentials in secrets.yaml are no longer supported; remove the datadog mapping manually and run radar setup for Pup OAuth (see docs/cli-oauth-migration.md)")
+	}
 	return secrets, nil
 }
 
@@ -76,6 +79,9 @@ func EnvOr(environment, value string) string {
 func SaveSecrets(updates Secrets) error {
 	if len(updates) == 0 {
 		return nil
+	}
+	if len(updates["datadog"]) > 0 {
+		return fmt.Errorf("Datadog credentials are owned by Pup OAuth; Radar no longer stores Datadog secrets")
 	}
 	secrets, err := LoadSecrets()
 	if err != nil {

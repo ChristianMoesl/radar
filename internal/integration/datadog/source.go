@@ -41,7 +41,7 @@ func (Source) Status(_ context.Context, logger *slog.Logger) integration.StatusR
 		return integration.OptionalStatus("datadog", cfg.Datadog.Enabled, "missing datadog.monitor_query")
 	}
 
-	_, missing, err := loadCredentials()
+	_, missing, err := loadConnection()
 	if err != nil {
 		logger.Debug("datadog collector configuration is invalid", "error", err)
 		status.Status = "error"
@@ -69,7 +69,7 @@ func (s Source) Collect(ctx context.Context, req integration.CollectRequest) int
 		return integration.CollectResult{SourceStatus: &status}
 	}
 
-	credentials, missing, err := loadCredentials()
+	connection, missing, err := loadConnection()
 	if err != nil {
 		return failedCollection(req, status, err.Error(), err)
 	}
@@ -82,7 +82,7 @@ func (s Source) Collect(ctx context.Context, req integration.CollectRequest) int
 	if searcher == nil {
 		searcher = apiClient{}
 	}
-	response, err := searcher.Search(ctx, credentials, query, userConfig.Datadog.MonitorStatuses)
+	response, err := searcher.Search(ctx, connection, query, userConfig.Datadog.MonitorStatuses)
 	if err != nil {
 		return failedCollection(req, status, "monitor search failed", err)
 	}
@@ -94,7 +94,7 @@ func (s Source) Collect(ctx context.Context, req integration.CollectRequest) int
 	sort.SliceStable(response.Monitors, func(i, j int) bool { return response.Monitors[i].ID < response.Monitors[j].ID })
 	observations := make([]integration.Observation, 0, len(response.Monitors))
 	for _, monitor := range response.Monitors {
-		observation, ok := observationFromMonitor(credentials, userConfig.Datadog.MonitorStatuses, monitor)
+		observation, ok := observationFromMonitor(connection, userConfig.Datadog.MonitorStatuses, monitor)
 		if ok {
 			observations = append(observations, observation)
 		}
@@ -138,7 +138,7 @@ func (Source) Reconcile(_ context.Context, req integration.ReconcileRequest) []i
 	return done
 }
 
-func observationFromMonitor(cfg credentials, statuses []string, monitor monitor) (integration.Observation, bool) {
+func observationFromMonitor(cfg connection, statuses []string, monitor monitor) (integration.Observation, bool) {
 	signal, reason, ok := signalForStatus(monitor.Status)
 	if !ok || !includesStatus(statuses, monitor.Status) || monitor.ID <= 0 {
 		return integration.Observation{}, false

@@ -138,8 +138,7 @@ func TestOptionalIntegrationActivationMatrix(t *testing.T) {
 				if name == "datadog" && scenario.setup != "missing" {
 					options["monitor_query"] = "tag:team:platform"
 					if scenario.setup == "ready" {
-						t.Setenv("RADAR_DATADOG_API_KEY", "fixture")
-						t.Setenv("RADAR_DATADOG_APP_KEY", "fixture")
+						setupTool(t, "pup", `echo "pup 2.0.0"`)
 					}
 				}
 				if name == "sbx" && scenario.setup == "ready" {

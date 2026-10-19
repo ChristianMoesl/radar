@@ -10,6 +10,25 @@ permissions:
   contents: read
 
 jobs:
+  provider-cli-contracts:
+    name: Pup OAuth contract (${{ matrix.os }}, offline provider fixture)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install checksum-verified Pup 2.0.0 in the runner temp directory
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/DataDog/pup/v2.0.0/install.sh -o "$RUNNER_TEMP/install-pup.sh"
+          PUP_VERSION=2.0.0 PUP_INSTALL_DIR="$RUNNER_TEMP/pup-contract" sh "$RUNNER_TEMP/install-pup.sh"
+      - name: Verify raw JSON, named OAuth selection and rejection before API-key fallback
+        run: RADAR_TEST_PUP="$RUNNER_TEMP/pup-contract/pup" go test ./internal/integration/datadog -run TestReleasedPupOAuthGuard
+
   durable-agents-sbx:
     name: Durable agent in real SBX
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

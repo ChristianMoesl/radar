@@ -12,13 +12,14 @@ import {
   type AgentEvent,
   type ConversationId,
   type JsonValue,
+  type WorkspaceExecution,
 } from "../src/index.ts";
 import {
   answerText,
-  jsonRequest,
   modelRuntime,
-  requiredString,
 } from "./shared.ts";
+
+import { pupRequest } from "./pup.ts";
 
 type Incident = {
   conversation: number;
@@ -49,7 +50,9 @@ const Selected = defineDoc<{ key: string }>({
   initial: () => ({ key: "" }),
 });
 let settings: {
-  base: string;
+  site: string;
+  org: string;
+  execution: WorkspaceExecution;
   logsQuery: string;
   metrics: Record<string, string>;
   spansQuery: string;
@@ -58,24 +61,10 @@ let settings: {
   minimumIntervalMs: number;
 };
 
-function headers(): Record<string, string> {
-  if (!process.env.DD_API_KEY || !process.env.DD_APP_KEY)
-    throw new Error("configure DD_API_KEY and DD_APP_KEY");
-  return {
-    "DD-API-KEY": process.env.DD_API_KEY,
-    "DD-APPLICATION-KEY": process.env.DD_APP_KEY,
-    "Content-Type": "application/json",
-  };
+async function datadog(path: string, options: RequestInit = {}): Promise<JsonValue> {
+  return pupRequest(settings.execution, settings.site, settings.org, path, options);
 }
-async function datadog(
-  path: string,
-  options: RequestInit = {},
-): Promise<JsonValue> {
-  return jsonRequest<JsonValue>(new URL(path, settings.base).href, {
-    ...options,
-    headers: headers(),
-  });
-}
+
 async function logs(
   query: string,
   from: string,
@@ -339,15 +328,19 @@ const Event = defineTask<AgentEvent, State, JsonValue>({
 export default {
   version: 1,
   configure: async (host) => {
-    const base = requiredString(host.config, "baseUrl");
-    if (!base.startsWith("https://") && host.config.fixture !== true)
-      throw new Error("Datadog baseUrl must use HTTPS");
+    if ("baseUrl" in host.config) throw new Error("replace Datadog baseUrl with site and org; authenticate with Pup OAuth");
+    const site = String(host.config.site ?? "datadoghq.eu");
+    if (!["datadoghq.com", "datadoghq.eu", "us3.datadoghq.com", "us5.datadoghq.com", "ap1.datadoghq.com", "ap2.datadoghq.com", "ddog-gov.com"].includes(site)) throw new Error("configure a supported Datadog site");
+    const org = String(host.config.org ?? "radar");
+    if (!org.trim()) throw new Error("configure a named Pup OAuth session in org");
     const runbook =
       typeof host.config.runbook === "string"
         ? await host.execution.loadSkill(host.config.runbook)
         : null;
     settings = {
-      base,
+      site,
+      org,
+      execution: host.execution,
       logsQuery: String(host.config.logsQuery ?? ""),
       metrics: (host.config.metrics ?? {}) as Record<string, string>,
       spansQuery: String(host.config.spansQuery ?? ""),

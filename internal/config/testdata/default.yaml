@@ -81,8 +81,10 @@ jira:
   # Signal used for Jira statuses not listed above.
   unmapped_status: low_priority
 # Omit enabled to detect prerequisites automatically; true requires them and false disables collection.
-# Credentials belong in secrets.yaml.
+# Pup owns OAuth credentials; run radar setup to install and sign in.
 datadog:
+  # Named Pup OAuth session selected for every request (default radar).
+  org: radar
   # Scope monitor collection to the monitors you own. An empty query disables automatic collection.
   monitor_query: ""
   # Unhealthy monitor states to collect: Alert, Warn, and/or No Data.

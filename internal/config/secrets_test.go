@@ -24,14 +24,14 @@ func TestSecretsSavePrivatelyAndPreserveOtherNamespaces(t *testing.T) {
 	if err := SaveSecrets(Secrets{"other": {"token": "keep"}, "jira": {"api_token": "old", "other_key": "keep"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SaveSecrets(Secrets{"jira": {"api_token": "new"}, "datadog": {"api_key": "api", "app_key": "app"}}); err != nil {
+	if err := SaveSecrets(Secrets{"jira": {"api_token": "new"}, "other": {"key": "api", "second": "app"}}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := LoadSecrets()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if data["jira"]["api_token"] != "new" || data["jira"]["other_key"] != "keep" || data["other"]["token"] != "keep" || data["datadog"]["app_key"] != "app" {
+	if data["jira"]["api_token"] != "new" || data["jira"]["other_key"] != "keep" || data["other"]["token"] != "keep" || data["other"]["second"] != "app" {
 		t.Fatal("secret updates did not preserve other entries")
 	}
 	for name, mode := range map[string]os.FileMode{path: 0600, filepath.Dir(path): 0700} {

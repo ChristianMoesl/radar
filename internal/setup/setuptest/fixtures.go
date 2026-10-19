@@ -143,6 +143,23 @@ func (s *System) Output(ctx context.Context, cmd setup.Command) (string, error) 
 	if name == "pi" {
 		return "1.0.0", nil
 	}
+	if name == "pup" {
+		if len(args) > 0 && args[0] == "--version" {
+			return "pup 2.0.0", nil
+		}
+		if strings.Contains(strings.Join(args, " "), "auth status") {
+			return `{"authenticated":true,"has_refresh":true,"token_type":"Bearer","site":"datadoghq.eu","org":"radar","status":"valid","scopes":["monitors_read"]}`, nil
+		}
+		return `{"metadata":{"total_count":0,"page_count":0},"monitors":[]}`, nil
+	}
+	if name == "gh" && len(args) > 0 {
+		if args[0] == "--version" {
+			return "gh version 2.88.0", nil
+		}
+		if args[0] == "api" {
+			return `{"login":"fixture-user"}`, nil
+		}
+	}
 	if name == "gh" && len(args) > 0 && args[0] == "auth" && s.LoginMissing {
 		return "", errors.New("not authenticated")
 	}

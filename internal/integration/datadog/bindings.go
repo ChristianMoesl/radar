@@ -28,7 +28,7 @@ func (Source) ResolveBindings(_ context.Context, req integration.BindingRequest)
 		status := integration.OptionalStatus("datadog", cfg.Datadog.Enabled, "missing datadog.monitor_query").Status
 		return integration.CollectResult{SourceStatus: &status}
 	}
-	credentials, missing, err := loadCredentials()
+	connection, missing, err := loadConnection()
 	if err != nil {
 		datadogBindingFailure(&result, req, err)
 		return result
@@ -68,7 +68,7 @@ func (Source) ResolveBindings(_ context.Context, req integration.BindingRequest)
 				Role: protocol.SourceRefRoleAuthoritative, EntityID: binding.ID,
 				Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityContributing,
 				RetainInactive: true, CanonicalKey: binding.ID,
-				Title: fmt.Sprintf("Datadog monitor %d", id), URL: fmt.Sprintf("%s/monitors/%d", credentials.AppBaseURL, id),
+				Title: fmt.Sprintf("Datadog monitor %d", id), URL: fmt.Sprintf("%s/monitors/%d", connection.AppBaseURL, id),
 				Metadata: map[string]string{"monitor_id": strconv.FormatInt(id, 10)},
 			}
 		}

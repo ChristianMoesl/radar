@@ -6,7 +6,7 @@ test "$(id -un)" = agent
 test "$(id -u)" != 0
 
 for tool in bash sh node npm pnpm corepack fnm go gcc g++ make pkg-config python3 \
-    git ssh curl gh jq rg fd file unzip zip rsync less ps sandbox-startup \
+    git ssh curl gh pup jq rg fd file unzip zip rsync less ps sandbox-startup \
     cat mkdir base64 sed grep find head tail stat sort xargs \
     docker dockerd containerd; do
     command -v "$tool"
@@ -20,6 +20,7 @@ docker buildx version
 
 test "$(command -v go)" = /usr/local/go/bin/go
 go version
+pup --version
 fnm --version
 node --version
 npm --version

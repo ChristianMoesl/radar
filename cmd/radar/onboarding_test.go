@@ -229,7 +229,7 @@ func writeStartupTools(t *testing.T, bin, missing string) {
 }
 
 func TestConfiguredDashboardStartsSetupForMissingTools(t *testing.T) {
-	for _, missing := range []string{"pi", "node", "git", "tmux", "npm", "fd", "gh"} {
+	for _, missing := range []string{"pi", "node", "git", "tmux", "npm", "fd"} {
 		t.Run(missing, func(t *testing.T) {
 			home := t.TempDir()
 			configDir := filepath.Join(home, ".config", "radar")

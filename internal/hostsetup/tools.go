@@ -15,7 +15,7 @@ import (
 // Callers should exit unsuccessfully without printing another error paragraph.
 var ErrToolsNotReady = errors.New("required tools need attention")
 
-var requiredTools = []string{"git", "tmux", "fd", "gh", "node", "npm", "pi"}
+var requiredTools = []string{"git", "tmux", "fd", "node", "npm", "pi"}
 
 const piInstallCommand = "curl -fsSL https://pi.dev/install.sh | sh"
 
@@ -153,7 +153,7 @@ func (w Service) requiredTools(ctx context.Context) error {
 func (w Service) toolRepairs(checks map[string]toolCheck) (commands, guidance []string) {
 	brew := w.System.LookPath("brew")
 	var packages, systemPackages []string
-	for _, name := range []string{"git", "tmux", "fd", "gh"} {
+	for _, name := range []string{"git", "tmux", "fd"} {
 		check := checks[name]
 		switch check.state {
 		case toolMissing:

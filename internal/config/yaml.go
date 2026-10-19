@@ -35,15 +35,15 @@ var configComments = map[string]string{
 	"jira.authoritative_issue_types": "Issue types collected as assigned work. An empty list disables assigned collection and makes title discoveries informational.",
 	"jira.status_mapping":            "Map Jira status names to low_priority, in_progress, attention, or immediate. Use {} for no explicit mappings.",
 	"jira.unmapped_status":           "Signal used for Jira statuses not listed above.",
-	"datadog":                        "Omit enabled to detect prerequisites automatically; true requires them and false disables collection.\nCredentials belong in secrets.yaml.",
+	"datadog":                        "Omit enabled to detect prerequisites automatically; true requires them and false disables collection.\nPup owns OAuth credentials; run radar setup to install and sign in.",
+	"datadog.org":                    "Named Pup OAuth session selected for every request (default radar).",
 	"datadog.monitor_query":          "Scope monitor collection to the monitors you own. An empty query disables automatic collection.",
 	"datadog.monitor_statuses":       "Unhealthy monitor states to collect: Alert, Warn, and/or No Data.",
 	"obsidian.vault_path":            "Task notes are stored in a Tasks/ folder here. An ordinary directory or an Obsidian vault works.",
 }
 
 var secretComments = map[string]string{
-	"jira":    "Jira credentials.",
-	"datadog": "Datadog credentials.",
+	"jira": "Jira credentials.",
 }
 
 func configDocument(cfg Config) (*yaml.Node, error) {

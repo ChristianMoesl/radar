@@ -46,17 +46,20 @@ func (RealSystem) Run(ctx context.Context, c Command) error {
 }
 
 type commandOutput struct {
-	bytes.Buffer
+	buffer    bytes.Buffer
 	truncated bool
 }
 
+func (b *commandOutput) String() string { return b.buffer.String() }
+func (b *commandOutput) Len() int       { return b.buffer.Len() }
+
 func (b *commandOutput) Write(data []byte) (int, error) {
 	n := len(data)
-	remaining := (1 << 20) - b.Len()
+	remaining := (1 << 20) - b.buffer.Len()
 	if len(data) > remaining {
 		b.truncated = true
 		data = data[:remaining]
 	}
-	_, _ = b.Buffer.Write(data)
+	_, _ = b.buffer.Write(data)
 	return n, nil
 }
