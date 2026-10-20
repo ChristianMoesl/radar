@@ -6,6 +6,11 @@ The migration is **not release-qualified yet**. Datadog's Pup transport, shared
 onboarding and app-independent PR linking are implemented. Jira's TWG transport,
 remaining onboarding/expiry/revocation checks and real SBX OAuth checks remain open. Do not publish the breaking release until those checks pass.
 
+The [current TWG blockers](twg-oauth-blocker.md) have executable saved-PAT and
+profile-change reproductions. TWG 1.3.8 also omits comment operation properties
+from its native reads, preventing qualified uncertain-post reconciliation.
+These gates must be resolved before activating the production Jira hard switch.
+
 ## Datadog manual cutover
 
 1. Stop the Radar daemon before replacing its binary or configuration.
@@ -79,7 +84,8 @@ No existing data required migration or reset for the qualification changes.
 | Datadog investigator | Live metric series through actual local WorkspaceExecution; metric-backed investigation, duplicate delivery, restart and recovery retain the conversation with an explicit fixture model | Logs/traces excluded from this verification round; real SBX OAuth/telemetry unverified |
 | TWG distribution | Official 1.3.8 installer and checksum-verified missing-profile contract passed in CI on Linux amd64/Linux arm64/macOS arm64 | Browser login and live provider behavior on the other platforms |
 | TWG issue requests | Live OAuth profile, project read, issue creation/read/update, two-page JQL, nested status categories, forced refresh and six concurrent reads | Complete failure/revocation coverage and Radar integration |
-| TWG authentication | Actual binary rejects missing named profiles before API dispatch; inherited static credentials override a valid named OAuth profile | Production environment sanitization and saved non-OAuth profile/race rejection |
+| TWG authentication | Actual binary rejects missing named profiles; saved-PAT, inherited-credential and profile-change characterizations pass against a rejecting proxy | Supported atomic OAuth-only dispatch, then production enforcement |
+| TWG comments | Live create accepts object-valued operation properties; two native comment pages read successfully; existing Radar marker corrected with lost-response/restart fixtures | Native property readback for uncertain posts; actual investigator/SBX qualification |
 | Radar-owned Jira/PR linking | User approved exact references plus explicit bindings; live `gh` reads passed all six private PR fixtures, including closed/merged and branch-conflict cases; full-page and failure checks use fixtures | Full OAuth end-to-end checks after the Jira transport cutover |
 
 The API-key guard deliberately shadows Pup's saved API keys with invalid HTTP

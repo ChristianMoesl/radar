@@ -472,7 +472,12 @@ const Event = defineTask<AgentEvent, EventState, JsonValue>({
       const existing = await comments(key, runtime.signal);
       const alreadyPosted = existing.some((comment) =>
         comment.properties?.some(
-          (p) => p.key === "radar.operation" && p.value === operation,
+          (p) =>
+            p.key === "radar.operation" &&
+            p.value !== null &&
+            typeof p.value === "object" &&
+            !Array.isArray(p.value) &&
+            p.value.operation === operation,
         ),
       );
       if (!alreadyPosted)
@@ -487,7 +492,7 @@ const Event = defineTask<AgentEvent, EventState, JsonValue>({
                 { type: "paragraph", content: [{ type: "text", text }] },
               ],
             },
-            properties: [{ key: "radar.operation", value: operation }],
+            properties: [{ key: "radar.operation", value: { operation } }],
           }),
         });
       await runtime.commit(async (tx) => {

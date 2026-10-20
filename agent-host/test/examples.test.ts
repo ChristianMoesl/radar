@@ -9,7 +9,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AgentHost } from "../src/host.ts";
 import { taskId } from "../src/index.ts";
 
-test("Jira polling retains conversations and suppresses unchanged ticket updates", async () => {
+async function checkJiraReplies(losePostResponse: boolean) {
   process.env.JIRA_EMAIL = "fixture@example.invalid";
   process.env.JIRA_API_TOKEN = "fixture";
   const issue = {
@@ -22,15 +22,54 @@ test("Jira polling retains conversations and suppresses unchanged ticket updates
     },
   };
   let posts = 0;
-  const server = createServer((req, res) => {
-    if (req.method === "POST" && req.url?.includes("/comment")) posts++;
+  const accepted: {
+    id: string;
+    updated: string;
+    body: unknown;
+    properties: unknown[];
+  }[] = [];
+  const server = createServer(async (req, res) => {
+    if (req.method === "POST" && req.url?.includes("/comment")) {
+      posts++;
+      let text = "";
+      for await (const part of req) text += part;
+      const body = JSON.parse(text);
+      // Jira's entity property API requires an object value. A string was
+      // accepted by the old fixture but rejected by the live provider.
+      assert.deepEqual(body.properties, [
+        { key: "radar.operation", value: { operation: "jira:ABC-123:1" } },
+      ]);
+      assert.equal(
+        body.body.content[0].content[0].text,
+        "The rollout can proceed.",
+      );
+      const comment = {
+        id: "2",
+        updated: "2026-10-20",
+        body: body.body,
+        properties: body.properties,
+      };
+      accepted.push(comment);
+      res.setHeader("Content-Type", "application/json");
+      res.statusCode = losePostResponse ? 503 : 201;
+      res.end(
+        JSON.stringify(
+          losePostResponse
+            ? { error: "receipt lost after acceptance" }
+            : comment,
+        ),
+      );
+      return;
+    }
+    if (req.url?.includes("/comment"))
+      assert.match(req.url, /expand=properties/);
     res.setHeader("Content-Type", "application/json");
     if (req.url?.startsWith("/rest/api/3/search/jql"))
       res.end(JSON.stringify({ issues: [issue], isLast: true }));
     else
       res.end(
         JSON.stringify({
-          total: 1,
+          total: 1 + accepted.length,
           comments: [
             {
               id: "1",
@@ -49,6 +88,7 @@ test("Jira polling retains conversations and suppresses unchanged ticket updates
                 ],
               },
             },
+            ...accepted,
           ],
         }),
       );
@@ -58,21 +98,24 @@ test("Jira polling retains conversations and suppresses unchanged ticket updates
   const dataDir = await mkdtemp(join(tmpdir(), "radar-jira-"));
   let host: AgentHost | undefined;
   try {
-    host = await AgentHost.open(
-      resolve(import.meta.dirname, "../examples/jira.ts"),
-      {
-        id: "jira",
-        dataDir,
-        workspace: { id: "fixture", path: dataDir, mode: "local" },
-        config: {
-          fixture: true,
-          baseUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
-          jql: "project = ABC",
-          accountId: "me",
-          allowPosting: true,
-        },
+    const input = {
+      id: "jira",
+      dataDir,
+      workspace: { id: "fixture", path: dataDir, mode: "local" as const },
+      config: {
+        fixture: true,
+        baseUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
+        jql: "project = ABC",
+        accountId: "me",
+        allowPosting: true,
       },
-    );
+    };
+    const open = () =>
+      AgentHost.open(
+        resolve(import.meta.dirname, "../examples/jira.ts"),
+        input,
+      );
+    host = await open();
     const first = await host.deliver({
       source: "timer",
       id: "poll-1",
@@ -124,10 +167,24 @@ test("Jira polling retains conversations and suppresses unchanged ticket updates
     };
     const event = { source: "radar.user", id: "reply-1", payload: null };
     const reply = await host.deliver(event, interaction);
-    const posted = await host.harness.waitForTask(
+    let posted = await host.harness.waitForTask(
       taskId(reply.taskId),
       BACKGROUND_CONTEXT,
     );
+    if (losePostResponse) {
+      assert.notEqual(posted.state.outcome.status, "completed");
+      assert.equal(posts, 1);
+      await host.close();
+      host = await open();
+      const retry = await host.deliver(
+        { ...event, id: "reply-2" },
+        interaction,
+      );
+      posted = await host.harness.waitForTask(
+        taskId(retry.taskId),
+        BACKGROUND_CONTEXT,
+      );
+    }
     assert.equal(
       posted.state.outcome.status,
       "completed",
@@ -141,6 +198,14 @@ test("Jira polling retains conversations and suppresses unchanged ticket updates
     await rm(dataDir, { recursive: true, force: true });
     await new Promise<void>((done) => server.close(() => done()));
   }
+}
+
+test("Jira polling retains conversations and suppresses unchanged ticket updates", async () => {
+  await checkJiraReplies(false);
+});
+
+test("Jira reconciles an accepted reply after a lost response and restart", async () => {
+  await checkJiraReplies(true);
 });
 
 test("Datadog investigates once, consolidates repeats, and retains recovery history", async () => {
