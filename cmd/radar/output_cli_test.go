@@ -70,7 +70,7 @@ func TestOutputCLIInformationalCommands(t *testing.T) {
 		{args: []string{"version", "--json"}, json: true, want: `"version":"dev"`},
 		{args: []string{"--json", "version"}, json: true, want: `"version":"dev"`},
 		{args: []string{"version", "--json=false"}, want: "radar dev"},
-		{args: []string{"state-path"}, want: "tasks.json"},
+		{args: []string{"state-path"}, want: "state.db"},
 		{args: []string{"state-path", "--json"}, json: true, want: `"path":`},
 		{args: []string{"workspace-context", "--registration-only"}, want: "Not inside a registered Radar workspace"},
 		{args: []string{"workspace-context", "--registration-only", "--json"}, json: true, want: `{"registered":false}`},

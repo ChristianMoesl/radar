@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"radar/internal/integration"
@@ -13,6 +14,7 @@ import (
 	"radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
 	"radar/internal/state"
+	"radar/internal/taskdb"
 )
 
 type boundCompletionSource struct {
@@ -181,6 +183,14 @@ func TestSourceOnlyMuteCreatesOnlyOneNoteAndNoWorkspace(t *testing.T) {
 	if err := os.Remove(filepath.Dir(f.note.Metadata["note_path"])); err != nil {
 		t.Fatal(err)
 	}
+	db, err := taskdb.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("DELETE FROM authored_tasks WHERE id=?", strings.TrimPrefix(f.note.ID, "obsidian:task:")); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
 	ref := f.ref("remote", "one", "attention")
 	ref.Title = "Review change"
 	ref.LinkingKeys = nil

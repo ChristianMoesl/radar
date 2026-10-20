@@ -14,6 +14,7 @@ import (
 	"radar/internal/integration/obsidian/settings"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
+	"radar/internal/taskdb"
 )
 
 func muteTask(title string) protocol.Task {
@@ -53,7 +54,7 @@ func TestMuteAdoptsSourceOnlyTaskAtomicallyAndRetriesWithoutWorkspace(t *testing
 		}
 	}
 	current, err := readNote(ref.Metadata["note_path"])
-	if err != nil || !strings.HasSuffix(current.content, "---\n") || strings.Contains(current.content, "in_progress") || strings.Contains(current.content, "ABC-999") || strings.Contains(current.content, "task_id") {
+	if err != nil || current.content != "" || strings.Contains(current.content, "in_progress") || strings.Contains(current.content, "ABC-999") || strings.Contains(current.content, "task_id") {
 		t.Fatalf("created note = %+v, err=%v", current, err)
 	}
 	before, err := os.Stat(current.Path)
@@ -105,12 +106,17 @@ func TestMuteExistingNotePreservesAuthoredFieldsBytesAndPermissions(t *testing.T
 	}
 	ref := collectedArchiveRef(t, source)
 	path := ref.Metadata["note_path"]
-	data, err := os.ReadFile(path)
+	current, err := readNote(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	content := strings.Replace(string(data), "radar-priority: normal", "radar-priority: urgent # do not normalize", 1)
-	content = strings.Replace(content, "radar-completed-at:\n---", "radar-completed-at:\nradar-completion-baseline: pending\ncustom:\n  radar-state: unrelated\n  text: |-\n    untouched\n# user separator\n---", 1) + "\nUser notes.\r\nNo final newline"
+	current.Priority = "urgent"
+	current.CompletionBaseline = "pending"
+	if err := taskdb.Put(&current.Task); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\ncustom:\n  radar-state: unrelated\n  text: |-\n    untouched\n# user separator\n---\nUser notes.\r\nNo final newline"
+
 	if err := os.WriteFile(path, []byte(content), 0o640); err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +133,7 @@ func TestMuteExistingNotePreservesAuthoredFieldsBytesAndPermissions(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	withoutManaged, _, err := stripMuteFields(updated.content)
-	if err != nil || withoutManaged != content {
+	if updated.content != content {
 		t.Fatalf("unrelated bytes changed:\n%s\nerr=%v", updated.content, err)
 	}
 	if updated.Title != "User title" || updated.Priority != "urgent" || updated.State != "open" || updated.CompletionBaseline != "pending" {
@@ -145,29 +150,6 @@ func TestMuteExistingNotePreservesAuthoredFieldsBytesAndPermissions(t *testing.T
 	if err != nil || info.Mode().Perm() != 0o640 {
 		t.Fatalf("permissions = %+v, %v", info, err)
 	}
-}
-
-func stripMuteFields(content string) (string, note, error) {
-	current, err := parseNote(content)
-	if err != nil {
-		return "", current, err
-	}
-	// Remove in reverse byte order; all other bytes must equal the fixture.
-	for {
-		field := ""
-		span := fieldRange{}
-		for _, key := range []string{"radar-muted", "radar-source-refs"} {
-			if candidate, exists := current.fields[key]; exists && (field == "" || candidate.start > span.start) {
-				field, span = key, candidate
-			}
-		}
-		if field == "" {
-			break
-		}
-		content = content[:span.start] + content[span.end:]
-		delete(current.fields, field)
-	}
-	return content, current, nil
 }
 
 func TestUnmuteNoopNeverCreatesNoteOrRewritesExisting(t *testing.T) {
@@ -201,7 +183,7 @@ func TestUnmuteNoopNeverCreatesNoteOrRewritesExisting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, adopted := current.fields["radar-source-refs"]; adopted {
+	if current.Adopted {
 		t.Fatal("unmute no-op adopted ordinary note")
 	}
 }
@@ -228,13 +210,19 @@ func TestMuteRetriesReuseRenamedAndArchivedNotes(t *testing.T) {
 			if err := os.Rename(ref.Metadata["note_path"], path); err != nil {
 				t.Fatal(err)
 			}
-			data, err := os.ReadFile(path)
-			if err != nil {
+			tasks, e := taskdb.List(source.vaultPath)
+			if e != nil || len(tasks) != 1 {
+				t.Fatal(e)
+			}
+			tasks[0].Title = "User renamed title"
+			// External archive renames require explicit database reassociation.
+			if archived {
+				tasks[0].Path = path
+			}
+			if err := taskdb.Put(&tasks[0]); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(path, []byte(strings.Replace(string(data), `radar-title: "Original"`, `radar-title: "User renamed title"`, 1)), 0o644); err != nil {
-				t.Fatal(err)
-			}
+
 			// Both retry shapes are supported: stale authored path and no
 			// authoring ref after failed projection/cache reset.
 			stale := ref
@@ -298,15 +286,17 @@ func TestMuteDoneTaskPreservesLifecycleAndNeverArchives(t *testing.T) {
 				}
 				ref := collectedArchiveRef(t, source)
 				original = ref.Metadata["note_path"]
-				data, err := os.ReadFile(original)
+				current, err := readNote(original)
 				if err != nil {
 					t.Fatal(err)
 				}
-				content := strings.Replace(string(data), "radar-state: open", "radar-state: done", 1)
-				content = strings.Replace(content, "radar-completed-at:", "radar-completed-at: "+task.DoneAt+"\nradar-completion-baseline: "+strings.Repeat("a", 64), 1)
-				if err := os.WriteFile(original, []byte(content), 0o644); err != nil {
+				current.State = "done"
+				current.CompletedAt = task.DoneAt
+				current.CompletionBaseline = strings.Repeat("a", 64)
+				if err := taskdb.Put(&current.Task); err != nil {
 					t.Fatal(err)
 				}
+
 				task.SourceRefs = append(task.SourceRefs, ref)
 			}
 			if _, err := source.SetMuted(ctx, task, true); err != nil {

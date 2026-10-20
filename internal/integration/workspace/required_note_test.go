@@ -53,7 +53,7 @@ func TestCreateAutomaticallyPreparesAndPersistsCanonicalNote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(data), "---\n") != 2 || !strings.HasSuffix(string(data), "---\n") {
+	if len(data) != 0 {
 		t.Fatalf("note has a nonempty body: %s", data)
 	}
 	// Opening and cleaning up resources never changes lifecycle or deletes the note.

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"radar/internal/integration"
+	"radar/internal/taskdb"
 )
 
 func TestTitleMetadataEditsPreservePathsIdentityAndUserContent(t *testing.T) {
@@ -20,13 +21,16 @@ func TestTitleMetadataEditsPreservePathsIdentityAndUserContent(t *testing.T) {
 	if err := source.EnsureWorkspaceNote(ctx, desired); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(desired.Path)
+	current, err := readNote(desired.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := "\nUser body: leave it alone.\n"
-	content := strings.Replace(string(data), `radar-title: "Original"`, `radar-title: 'Setup: screenshots #1'`, 1)
-	content = strings.Replace(content, "radar-completed-at:\n", "radar-completed-at:\ncustom:\n  owner: Example\n  radar-state: unrelated\n", 1) + body
+	current.Title = "Setup: screenshots #1"
+	if err := taskdb.Put(&current.Task); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\ncustom:\n  owner: Example\n  radar-state: unrelated\n---\nUser body: leave it alone.\n"
+
 	if err := os.WriteFile(desired.Path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +50,7 @@ func TestTitleMetadataEditsPreservePathsIdentityAndUserContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	after, err := os.ReadFile(desired.Path)
-	if err != nil || string(after) != strings.Replace(content, "radar-priority: normal", "radar-priority: urgent", 1) {
+	if err != nil || string(after) != content {
 		t.Fatalf("mutation changed unrelated content: %v", err)
 	}
 	if _, err := source.Create(ctx, ref.Title); err == nil {
@@ -75,7 +79,7 @@ func TestTitleYAMLValidation(t *testing.T) {
 	}
 }
 
-func TestMissingTitleDoesNotFallBackToFilenameOrMutate(t *testing.T) {
+func TestLegacyFrontmatterIsRejectedWithoutChangingContent(t *testing.T) {
 	source := NewSourceAt(testVault(t))
 	ctx := context.Background()
 	desired, err := source.PrepareWorkspaceNote(ctx, "Plan")
@@ -86,16 +90,13 @@ func TestMissingTitleDoesNotFallBackToFilenameOrMutate(t *testing.T) {
 		t.Fatal(err)
 	}
 	initial := source.Collect(ctx, integration.CollectRequest{})
-	data, err := os.ReadFile(desired.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	content := strings.Replace(string(data), "radar-title: \"Plan\"\n", "", 1)
+	content := "---\nradar-id: obsolete\n---\nUser body\n"
+
 	if err := os.WriteFile(desired.Path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	result := source.Collect(ctx, integration.CollectRequest{Previous: observationsAsTasks(initial.Observations)})
-	if result.Complete || result.SourceStatus.Status != "partial" || !strings.Contains(result.SourceStatus.Detail, "missing required field radar-title") || len(result.Observations) != 1 {
+	if result.Complete || result.SourceStatus.Status != "partial" || !strings.Contains(result.SourceStatus.Detail, "legacy Radar frontmatter") || len(result.Observations) != 1 {
 		t.Fatalf("collection = %+v", result)
 	}
 	if _, err := source.SetPriority(ctx, initial.Observations[0].Ref, "urgent"); err == nil {

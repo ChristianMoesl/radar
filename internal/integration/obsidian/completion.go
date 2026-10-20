@@ -38,7 +38,7 @@ func (s Source) ReconcileLifecycle(_ context.Context, ref protocol.SourceRef, re
 	current, err := s.mutateNote(ref, func(current note) (map[string]string, error) {
 		// Collection and mutation are separate. Never complete a note edited or
 		// reopened in between, and never fabricate a successful write in cache.
-		if ref.Metadata["content_hash"] != fmt.Sprintf("%x", sha256.Sum256([]byte(current.content))) {
+		if ref.Metadata["content_hash"] != noteVersion(current) {
 			return nil, fmt.Errorf("task note changed since collection")
 		}
 		if current.AgentReview {
@@ -56,11 +56,11 @@ func (s Source) ReconcileLifecycle(_ context.Context, ref protocol.SourceRef, re
 		if !allDone {
 			updates := map[string]string{}
 			if current.State == "done" {
-				updates["radar-state"] = "open"
-				updates["radar-completed-at"] = ""
+				updates["state"] = "open"
+				updates["completed_at"] = ""
 			}
 			if current.CompletionBaseline != baseline {
-				updates["radar-completion-baseline"] = baseline
+				updates["completion_baseline"] = baseline
 			}
 			changed = len(updates) > 0
 			return updates, nil
@@ -70,7 +70,7 @@ func (s Source) ReconcileLifecycle(_ context.Context, ref protocol.SourceRef, re
 		}
 		if current.CompletionBaseline == "pending" {
 			changed = true
-			return map[string]string{"radar-completion-baseline": baseline}, nil
+			return map[string]string{"completion_baseline": baseline}, nil
 		}
 		if current.CompletionBaseline == baseline {
 			return nil, nil
@@ -81,8 +81,8 @@ func (s Source) ReconcileLifecycle(_ context.Context, ref protocol.SourceRef, re
 			return s.agentReviewUpdates(current, ref, request)
 		}
 		return map[string]string{
-			"radar-state": "done", "radar-completed-at": "__now_if_empty__",
-			"radar-completion-baseline": baseline,
+			"state": "done", "completed_at": "__now_if_empty__",
+			"completion_baseline": baseline,
 		}, nil
 	})
 	if err != nil && (reviewRequired || (allDone && len(workItems) > 0 && activity != protocol.ActivityIdle)) {
@@ -126,7 +126,7 @@ func (s Source) agentReviewUpdates(current note, ref protocol.SourceRef, request
 	}
 	merged, _ := mergeBindings(current.Bindings, bindings)
 	return map[string]string{
-		"radar-state": "open", "radar-completed-at": "", "radar-agent-review": "true",
-		"radar-source-refs": encodeBindings(merged),
+		"state": "open", "completed_at": "", "agent_review": "true",
+		"bindings": encodeBindings(merged),
 	}, nil
 }

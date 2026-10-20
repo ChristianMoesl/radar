@@ -72,7 +72,7 @@ These are bounded fresh observations, not an atomic lock on future agent starts.
 
 ### Upgrade and existing local data
 
-The in-process aggregation fix is an extension-only update: CLI/socket JSON, pane options, and persisted formats are unchanged, so it needs no data migration. Update the installed `pi-radar` package and reload or restart the parent Pi session after its subagents finish; already loaded copies keep their old behavior. `make install` updates the Radar binary, not the separately installed Pi package. The steps below concern the original busy-to-activity model rollout.
+The in-process aggregation fix is an extension-only update: CLI/socket JSON, pane options, and persisted formats are unchanged, so it needs no data migration. Update the installed `pi-radar` package and reload or restart the parent Pi session after its subagents finish; already loaded copies keep their old behavior. `make install` updates the Radar binary, not the separately installed Pi package. The steps below concern the historical JSON busy-to-activity rollout. Current installations use [SQLite state migration and backup](../sqlite-state-migration.md).
 
 Coordinate the Radar binary/daemon and installed Pi package upgrade; reload each registered Pi session while idle. The adapter requires Pi 0.85.1 or newer. Older running producers and old consumers must not be mixed with the new activity model.
 

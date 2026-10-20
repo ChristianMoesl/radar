@@ -9,10 +9,12 @@ import (
 	"testing"
 
 	"radar/internal/integration"
+	"radar/internal/taskdb"
 )
 
 func TestPreparedWorkspaceNoteCreatesOnlyOnApplyAndRetriesWithoutOverwriting(t *testing.T) {
 	vault := t.TempDir()
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "state.db"))
 	if err := os.Mkdir(filepath.Join(vault, ".obsidian"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +34,7 @@ func TestPreparedWorkspaceNoteCreatesOnlyOnApplyAndRetriesWithoutOverwriting(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(string(data), "---\n") {
+	if len(data) != 0 {
 		t.Fatal("new note has a generated body")
 	}
 	data = append(data, []byte("User notes\n")...)
@@ -179,6 +181,14 @@ func TestExistingNoteWithUnsanitizedNameRemainsUsable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.RemoveAll(oldDirectory); err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := taskdb.List(source.vaultPath)
+	if err != nil || len(tasks) != 1 {
+		t.Fatal(err)
+	}
+	tasks[0].Path = newPath
+	if err := taskdb.Put(&tasks[0]); err != nil {
 		t.Fatal(err)
 	}
 	desired.Path = newPath

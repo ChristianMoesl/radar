@@ -49,14 +49,13 @@ func TestRadarExtensionRegistersWorkspaceIntrospectionTools(t *testing.T) {
 		"skill_paths",
 		"radar-reload-workspace-resources",
 		"Member worktrees are direct children",
-		"The leading YAML frontmatter in notes.md is operational Radar data",
-		"radar-* fields own task identity, title, lifecycle, priority, and timestamps",
-		"preserve the entire frontmatter block, including its --- delimiters and unknown fields, byte-for-byte",
-		"unless the user explicitly requests a specific metadata change",
-		"Edit only the Markdown body after the closing ---",
-		"never replace the whole note with a summary or template",
-		"If notes.md frontmatter is missing or malformed, stop and ask before repairing it",
-		"Do not invent or reset Radar identity or lifecycle fields",
+		"notes.md contains user and agent content",
+		"Radar task identity, title, lifecycle, priority and preferences live in SQLite",
+		"preserve user content and user-owned frontmatter",
+		"Do not add radar-* metadata",
+		"Change task state through Radar commands",
+		"Missing frontmatter is normal",
+
 		"duplicate skill",
 	} {
 		if !strings.Contains(text, required) {

@@ -1240,6 +1240,7 @@ func (r *dirtyRunner) Run(ctx context.Context, cwd string, name string, args ...
 }
 
 func testNoteAuthor(t *testing.T) obsidian.Source {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "state.db"))
 	t.Helper()
 	vault := t.TempDir()
 	if err := os.Mkdir(filepath.Join(vault, ".obsidian"), 0o755); err != nil {

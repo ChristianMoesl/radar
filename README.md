@@ -77,3 +77,7 @@ Native SBX provisioning is available on macOS and Linux with SBX 0.48.x
 the tested daemon/CLI cache policy. See [SBX setup and qualification](docs/integrations/sbx.md#native-linux-inside-wsl2)
 before enabling it for Windows-backed canonical notes. Existing workspaces attach
 SBX explicitly through normal preview/reconcile, never by changing defaults alone.
+
+## Task state and notes
+
+Task state lives in local SQLite; notes contain only user/agent content, with no Radar frontmatter or in-note ID. Existing installations must run the [explicit migration and backup workflow](docs/sqlite-state-migration.md) before starting the incompatible binary. Cache reset preserves task decisions, identities, bindings and acknowledgements.

@@ -2,8 +2,6 @@ package obsidian
 
 import (
 	"fmt"
-	"reflect"
-	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -280,103 +278,4 @@ func inlineComment(line string) string {
 		}
 	}
 	return ""
-}
-
-// Values are YAML fragments (possibly a multiline sequence), not quoted Go
-// strings. Only managed fields may be changed. The complete result is validated
-// before any bytes are written.
-func updateNoteContent(current note, updates map[string]string) (string, note, error) {
-	type replacement struct {
-		start, end int
-		text       string
-	}
-	replacements := make([]replacement, 0, len(updates))
-	insertions := make([]string, 0)
-	fields := make([]string, 0, len(updates))
-	for field := range updates {
-		fields = append(fields, field)
-	}
-	sort.Strings(fields)
-	for _, field := range fields {
-		switch field {
-		case "radar-state", "radar-priority", "radar-completed-at", "radar-completion-baseline", "radar-muted", "radar-source-refs", "radar-agent-review":
-		default:
-			return "", note{}, fmt.Errorf("unsupported managed field %s", field)
-		}
-		value := updates[field]
-		if _, exists := current.fields[field]; exists && unchangedManagedField(current, field, value) {
-			continue
-		}
-		text := field + ":"
-		if value != "" {
-			if !strings.HasPrefix(value, "\n") {
-				text += " "
-			}
-			text += strings.TrimSuffix(value, "\n")
-		}
-		span, exists := current.fields[field]
-		if !exists {
-			if field != "radar-completion-baseline" && field != "radar-muted" && field != "radar-source-refs" && field != "radar-agent-review" {
-				return "", note{}, fmt.Errorf("managed field %s is missing from %s", field, current.Path)
-			}
-			insertions = append(insertions, strings.ReplaceAll(text, "\n", current.newline)+current.newline)
-			continue
-		}
-		// Keep a field's header comment even when replacing a multiline value.
-		if span.comment != "" {
-			if index := strings.IndexByte(text, '\n'); index >= 0 {
-				text = text[:index] + span.comment + text[index:]
-			} else {
-				text += span.comment
-			}
-		}
-		text = strings.ReplaceAll(text, "\n", current.newline) + current.newline
-		replacements = append(replacements, replacement{span.start, span.end, text})
-	}
-	if len(insertions) > 0 {
-		replacements = append(replacements, replacement{current.frontmatterEnd, current.frontmatterEnd, strings.Join(insertions, "")})
-	}
-	if len(replacements) == 0 {
-		return current.content, current, nil
-	}
-	sort.Slice(replacements, func(i, j int) bool { return replacements[i].start > replacements[j].start })
-	content := current.content
-	for _, edit := range replacements {
-		content = content[:edit.start] + edit.text + content[edit.end:]
-	}
-	updated, err := parseNote(content)
-	if err != nil {
-		return "", note{}, fmt.Errorf("updated Obsidian task note is invalid: %w", err)
-	}
-	updated.Path = current.Path
-	return content, updated, nil
-}
-
-func unchangedManagedField(current note, field, value string) bool {
-	switch field {
-	case "radar-state":
-		return current.State == value
-	case "radar-priority":
-		return current.Priority == value
-	case "radar-completed-at":
-		return current.CompletedAt == value
-	case "radar-completion-baseline":
-		return current.CompletionBaseline == value
-	case "radar-agent-review":
-		var valueBool bool
-		return yaml.Unmarshal([]byte(value), &valueBool) == nil && current.AgentReview == valueBool
-	case "radar-muted", "radar-source-refs":
-		var document yaml.Node
-		if yaml.Unmarshal([]byte(value), &document) != nil || len(document.Content) != 1 {
-			return false
-		}
-		node := document.Content[0]
-		if field == "radar-muted" {
-			var muted bool
-			return node.Kind == yaml.ScalarNode && node.Tag == "!!bool" && node.Decode(&muted) == nil && muted == current.Muted
-		}
-		bindings, err := parseBindings(node)
-		return err == nil && reflect.DeepEqual(bindings, current.Bindings)
-	}
-	return false
 }

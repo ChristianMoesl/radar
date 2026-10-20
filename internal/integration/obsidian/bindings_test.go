@@ -78,7 +78,7 @@ func TestNoteOnlyMuteAdoptedEmptyBindingsPersistLaterContributors(t *testing.T) 
 	}
 	ref = collectedArchiveRef(t, source)
 	current, err := readNote(ref.Metadata["note_path"])
-	if err != nil || !strings.Contains(current.content, "radar-source-refs: []\n") {
+	if err != nil || !current.Adopted || len(current.Bindings) != 0 {
 		t.Fatalf("note-only adoption = %+v, %v", current, err)
 	}
 	// nil models the JSON omitempty boundary for an adopted zero-ref note.
@@ -189,7 +189,7 @@ func TestReconcileBindingsDoesNotRelocateDoneOrArchivedNotes(t *testing.T) {
 }
 
 func TestMuteAndReconcileFailClosedOnAmbiguousNotes(t *testing.T) {
-	for _, conflict := range []string{"multiple authored", "multiple bindings", "duplicate binding owner", "duplicate ID", "malformed note", "missing authored"} {
+	for _, conflict := range []string{"multiple authored", "multiple bindings", "duplicate ID", "malformed note", "missing authored"} {
 		t.Run(conflict, func(t *testing.T) {
 			source := NewSourceAt(testVault(t))
 			ctx := context.Background()
@@ -212,10 +212,7 @@ func TestMuteAndReconcileFailClosedOnAmbiguousNotes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			otherData, err := os.ReadFile(other.Metadata["note_path"])
-			if err != nil {
-				t.Fatal(err)
-			}
+
 			selected := task
 			switch conflict {
 			case "multiple authored":
@@ -228,23 +225,15 @@ func TestMuteAndReconcileFailClosedOnAmbiguousNotes(t *testing.T) {
 					t.Fatal(err)
 				}
 				selected.SourceRefs = append(append([]protocol.SourceRef(nil), task.SourceRefs...), otherBinding)
-			case "duplicate binding owner":
-				content := string(otherData[:len(otherData)-4]) + "radar-source-refs:" + encodeBindings([]protocol.SourceBinding{task.SourceRefs[0].Binding()}) + "\n---\n"
-				if err := os.WriteFile(other.Metadata["note_path"], []byte(content), 0o644); err != nil {
-					t.Fatal(err)
-				}
+
 			case "duplicate ID":
-				id := ref.Metadata["radar_id"]
-				dir := filepath.Join(taskRoot(source.vaultPath), "Duplicate--"+shortID(id))
-				if err := os.Mkdir(dir, 0o755); err != nil {
-					t.Fatal(err)
-				}
+				dir := filepath.Dir(other.Metadata["note_path"])
 				duplicate := strings.Replace(string(original), `radar-title: "First"`, `radar-title: "Duplicate"`, 1)
 				if err := os.WriteFile(filepath.Join(dir, "Duplicate.md"), []byte(duplicate), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			case "malformed note":
-				if err := os.WriteFile(other.Metadata["note_path"], []byte("---\ninvalid: [\n---\nPrivate body"), 0o644); err != nil {
+				if err := os.WriteFile(other.Metadata["note_path"], []byte("---\nradar-state: open\n---\nPrivate body"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			case "missing authored":
@@ -291,11 +280,11 @@ func TestCollectionRejectsConflictingBindingOwnersAndPreservesPreviousRefs(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := persistPreference(current, map[string]string{"radar-source-refs": encodeBindings(ref.Bindings)}); err != nil {
-		t.Fatal(err)
+	if _, err := persistPreference(current, map[string]string{"bindings": encodeBindings(ref.Bindings)}); err == nil {
+		t.Fatal("duplicate binding ownership was committed")
 	}
 	result := source.Collect(ctx, integration.CollectRequest{Previous: observationsAsTasks(collected.Observations)})
-	if result.Complete || result.SourceStatus.Status != "partial" || !strings.Contains(result.SourceStatus.Detail, "conflicting source binding ownership") || len(result.Observations) != 2 {
+	if !result.Complete || result.SourceStatus.Status != "ok" || len(result.Observations) != 2 {
 		t.Fatalf("conflicting owners collection = %+v", result)
 	}
 	for _, observation := range result.Observations {
@@ -304,7 +293,7 @@ func TestCollectionRejectsConflictingBindingOwnersAndPreservesPreviousRefs(t *te
 		}
 	}
 	cold := source.Collect(ctx, integration.CollectRequest{})
-	if cold.Complete || len(cold.Observations) != 0 {
+	if !cold.Complete || len(cold.Observations) != 2 {
 		t.Fatalf("cold collection joined conflicting owners: %+v", cold)
 	}
 }

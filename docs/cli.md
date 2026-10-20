@@ -20,6 +20,11 @@ radar task mute <task-id>
 radar task unmute <task-id>
 radar task delete <task-id>
 radar task priority <task-id> urgent|normal
+radar task title <task-id> <title>
+radar task note <task-id> <absolute-note-path>
+radar migrate-state [--apply|--resume|--rollback]
+radar state-backup <destination.db>
+radar state-export
 radar status
 radar tasks
 radar reconcile-workspace --request <json> [--workspace <path>] [--preview]
@@ -93,21 +98,17 @@ Radar's Pi extension and editor integrations must explicitly pass `--json` when 
 
 ## Local state
 
-The daemon stores rebuildable task records and source-ref observations locally. Task records provide cache-local numeric IDs, lifecycle projection, source-ref ownership, and acknowledgements. Obsidian notes—not this cache—own authored task content and lifecycle.
+SQLite at `$XDG_STATE_HOME/radar/state.db` (or `~/.local/state/radar/state.db`) owns durable task identity, preferences, lifecycle decisions, note associations, bindings, acknowledgements and review safeguards. Notes contain only content. Override the database path with `RADAR_STATE=/absolute/path/state.db`.
 
-Radar groups work by linking mark, source-owned identity, and workspace keys. A primary lifecycle ref controls the projected lifecycle when present. Full refreshes reconcile authoritative remote work back to the note through its source provider: active work reopens it, and all-completed work closes it unless its explicit reopen baseline, reported agent activity, or agent-result review hold prevents completion. Without a primary, contributing work-item refs retain their combined lifecycle behavior.
-
-Use `radar reset` to discard collected observations and rebuild them from integrations. Acknowledgements and failed agent-review persistence intents may be retained. An incompatible state version is intentionally discarded and recollected; malformed state still fails closed. The task-muting rename raises the cache version from 7 to 8. Users of the prior ignore version must [migrate notes and the cache explicitly](integrations/obsidian.md#migrating-task-muting) before starting the new daemon; a cache reset is not a substitute for renaming the persisted note preference.
+`radar reset` clears collected observations and derived views while preserving durable records. Unknown schema versions and corrupt data fail closed instead of being discarded. Runtime does not read old JSON/frontmatter state.
 
 ```sh
 radar state-path
+radar state-backup /absolute/path/backup.db
+radar state-export > radar-state.json
 ```
 
-By default this is `$XDG_STATE_HOME/radar/tasks.json` or `~/.local/state/radar/tasks.json`.
-
-Override it with `RADAR_STATE=/path/to/tasks.json`.
-
-Radar writes state atomically through a single serialized writer. A malformed state file prevents startup. An incompatible `stateVersion` is treated as a disposable cache and rebuilt from source integrations.
+Back up notes and the database together. Use the [explicit migration, preflight and recovery commands](sqlite-state-migration.md) for existing installations before starting the incompatible binary. `radar task title` changes display metadata without changing note bytes; `radar task note` explicitly repairs an external note move after workspace cleanup.
 
 ## Logs
 

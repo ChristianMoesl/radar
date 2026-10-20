@@ -18,3 +18,9 @@ type TaskAuthoringProvider interface {
 	PreviewDelete(ctx context.Context, ref protocol.SourceRef) (protocol.TaskDeletionPreview, error)
 	Delete(ctx context.Context, ref protocol.SourceRef, preview protocol.TaskDeletionPreview) (protocol.TaskDeletionResult, error)
 }
+
+// TaskDetailsProvider edits database-owned presentation and note associations.
+type TaskDetailsProvider interface {
+	SetTitle(context.Context, protocol.SourceRef, string) (AuthoredTaskIdentity, error)
+	ReassociateNote(context.Context, protocol.SourceRef, string) (AuthoredTaskIdentity, error)
+}

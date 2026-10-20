@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -21,6 +22,7 @@ import (
 	"radar/internal/linking"
 	"radar/internal/openurl"
 	"radar/internal/protocol"
+	"radar/internal/taskdb"
 )
 
 const OpenAction = "obsidian_open"
@@ -32,21 +34,11 @@ type Source struct {
 }
 
 type note struct {
-	AgentReview        bool
-	Muted              bool
-	Bindings           []protocol.SourceBinding
-	ID                 string
-	Title              string
-	State              string
-	Priority           string
-	CreatedAt          string
-	CompletedAt        string
-	CompletionBaseline string
-	Path               string
-	content            string
-	fields             map[string]fieldRange
-	frontmatterEnd     int
-	newline            string
+	taskdb.Task
+	content        string
+	fields         map[string]fieldRange
+	frontmatterEnd int
+	newline        string
 }
 
 type discoveredNote struct {
@@ -82,14 +74,21 @@ func (Source) PrepareWorkspaceSeed(_ context.Context, ref protocol.SourceRef) (i
 func (Source) Local() bool { return true }
 
 func (s Source) configuredVault() (string, error) {
+	var vault string
+	var err error
 	if strings.TrimSpace(s.vaultPath) != "" {
-		return config.ObsidianConfig{VaultPath: s.vaultPath}.ValidateAndPrepare()
+		vault, err = config.ObsidianConfig{VaultPath: s.vaultPath}.ValidateAndPrepare()
+	} else {
+		cfg, e := config.Load()
+		if e != nil {
+			return "", e
+		}
+		vault, err = cfg.Obsidian.ValidateAndPrepare()
 	}
-	cfg, err := config.Load()
 	if err != nil {
 		return "", err
 	}
-	return cfg.Obsidian.ValidateAndPrepare()
+	return vault, nil
 }
 
 func (s Source) Status(_ context.Context, _ *slog.Logger) integration.StatusResult {
@@ -138,6 +137,19 @@ func (s Source) Collect(_ context.Context, req integration.CollectRequest) integ
 				invalidIDs[item.note.ID] = true
 			}
 			details = append(details, fmt.Sprintf("%s: %v", item.path, item.err))
+			if item.note.ID != "" {
+				known := false
+				for _, task := range req.Previous {
+					for _, ref := range task.SourceRefs {
+						if ref.ID == "obsidian:task:"+item.note.ID {
+							known = true
+						}
+					}
+				}
+				if !known {
+					valid = append(valid, item.note)
+				}
+			}
 			continue
 		}
 		valid = append(valid, item.note)
@@ -145,7 +157,11 @@ func (s Source) Collect(_ context.Context, req integration.CollectRequest) integ
 	sort.Slice(valid, func(i, j int) bool { return valid[i].ID < valid[j].ID })
 	observations := make([]integration.Observation, 0, len(valid))
 	for _, current := range valid {
-		observations = append(observations, observationsFor(vault, current)...)
+		items := observationsFor(vault, current)
+		if invalidIDs[current.ID] {
+			items[0].Ref.Metadata["note_error"] = "note unavailable; repair its association before mutation or cleanup"
+		}
+		observations = append(observations, items...)
 	}
 	if len(invalidPaths) > 0 {
 		observations = append(observations, previousObservations(req.Previous, func(ref protocol.SourceRef) bool {
@@ -165,59 +181,17 @@ func (s Source) Collect(_ context.Context, req integration.CollectRequest) integ
 }
 
 func discover(vault string) ([]discoveredNote, error) {
-	root := taskRoot(vault)
-	entries, err := os.ReadDir(root)
+	tasks, err := taskdb.List(vault)
 	if err != nil {
-		return nil, fmt.Errorf("read Obsidian task root %s: %w", root, err)
+		return nil, err
 	}
-	items := make([]discoveredNote, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			if entry.Name() == settings.ArchiveDirectory {
-				items = append(items, discoveredNote{err: fmt.Errorf("archive must be a real directory"), path: filepath.Join(root, entry.Name())})
-			}
+	items := make([]discoveredNote, 0, len(tasks))
+	for _, task := range tasks {
+		current, err := readTaskNote(task)
+		if task.Trashed && os.IsNotExist(err) {
 			continue
 		}
-		directory := filepath.Join(root, entry.Name())
-		if entry.Name() == settings.ArchiveDirectory {
-			children, readErr := os.ReadDir(directory)
-			if readErr != nil {
-				items = append(items, discoveredNote{err: readErr, path: directory})
-				continue
-			}
-			for _, child := range children {
-				path := filepath.Join(directory, child.Name())
-				if child.IsDir() {
-					items = append(items, discoveredNote{err: fmt.Errorf("archive must contain flat Markdown notes"), path: path})
-				} else if strings.EqualFold(filepath.Ext(child.Name()), ".md") {
-					current, noteErr := readNote(path)
-					items = append(items, discoveredNote{note: current, err: noteErr, path: path})
-				}
-			}
-			continue
-		}
-		children, readErr := os.ReadDir(directory)
-		if readErr != nil {
-			items = append(items, discoveredNote{err: readErr, path: directory})
-			continue
-		}
-		notes := make([]string, 0, 1)
-		for _, child := range children {
-			if !child.IsDir() && strings.EqualFold(filepath.Ext(child.Name()), ".md") {
-				notes = append(notes, filepath.Join(directory, child.Name()))
-			}
-		}
-		if len(notes) != 1 {
-			items = append(items, discoveredNote{err: fmt.Errorf("task directory must contain exactly one Markdown note"), path: directory})
-			continue
-		}
-		path := notes[0]
-		current, noteErr := readNote(path)
-		directorySuffix := "--" + shortID(current.ID)
-		if noteErr == nil && (!strings.HasSuffix(filepath.Base(directory), directorySuffix) || strings.TrimSuffix(filepath.Base(directory), directorySuffix) == "") {
-			noteErr = fmt.Errorf("task directory must end with %s", directorySuffix)
-		}
-		items = append(items, discoveredNote{note: current, err: noteErr, path: path})
+		items = append(items, discoveredNote{note: current, err: err, path: current.Path})
 	}
 	return items, nil
 }
@@ -237,20 +211,91 @@ func markDuplicates(items []discoveredNote, indexes []int, reason string) {
 }
 
 func readNote(path string) (note, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return note{Path: path}, err
+	if _, err := os.Lstat(path); err != nil {
+		return note{Task: taskdb.Task{Path: path}}, err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return note{Path: path}, fmt.Errorf("task note must be a regular file")
+	db, err := taskdb.Current()
+	if err != nil {
+		return note{}, err
+	}
+	defer db.Close()
+	var data []byte
+	var revision int64
+	err = db.QueryRow("SELECT data,revision FROM authored_tasks WHERE path=? AND trashed=0", path).Scan(&data, &revision)
+	if err != nil {
+		return note{}, fmt.Errorf("note is not associated with a task in SQLite: %s: %w", path, err)
+	}
+	var task taskdb.Task
+	if err := json.Unmarshal(data, &task); err != nil {
+		return note{}, err
+	}
+	task.Revision = revision
+	return readTaskNote(task)
+}
+
+func readTaskNote(task taskdb.Task) (note, error) {
+	current := note{Task: task, fields: map[string]fieldRange{}, newline: "\n"}
+	path := task.Path
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) && !settings.IsArchivedNote(path) && !task.Trashed {
+		entries, e := os.ReadDir(filepath.Dir(path))
+		if e == nil {
+			var names []string
+			for _, entry := range entries {
+				if !entry.IsDir() && strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
+					names = append(names, entry.Name())
+				}
+			}
+			if len(names) == 1 {
+				path = filepath.Join(filepath.Dir(path), names[0])
+				info, err = os.Lstat(path)
+			}
+		}
+	}
+	if err != nil {
+		return current, err
+	}
+	if !info.Mode().IsRegular() {
+		return current, fmt.Errorf("task note must be a regular file")
+	}
+	if parent, e := os.Lstat(filepath.Dir(path)); e != nil || !parent.IsDir() {
+		return current, fmt.Errorf("task note parent must be a real directory")
+	}
+	if !settings.IsArchivedNote(path) {
+		entries, e := os.ReadDir(filepath.Dir(path))
+		if e != nil {
+			return current, e
+		}
+		count := 0
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
+				count++
+			}
+		}
+		if count != 1 {
+			return current, fmt.Errorf("task directory must contain exactly one Markdown note")
+		}
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return note{Path: path}, err
+		return current, err
 	}
-	current, err := parseNote(string(data))
-	current.Path = path
-	return current, err
+	if hasLegacyFields(string(data)) {
+		return current, fmt.Errorf("legacy Radar frontmatter requires explicit state migration: %s", path)
+	}
+	current.content = string(data)
+	if path != task.Path || task.Trashed {
+		current.Path = path
+		current.Trashed = false
+		if err := taskdb.Put(&current.Task); err != nil {
+			return current, err
+		}
+	}
+	return current, nil
+}
+
+func noteVersion(current note) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%d\n%s", current.Revision, current.content))))
 }
 
 func observationsFor(vault string, current note) []integration.Observation {
@@ -264,7 +309,7 @@ func observationsFor(vault string, current note) []integration.Observation {
 		"radar_id": current.ID, "note_path": current.Path, "task_directory": filepath.Dir(current.Path),
 		"state": current.State, "priority": current.Priority, "created_at": current.CreatedAt,
 		"completed_at": current.CompletedAt,
-		"content_hash": fmt.Sprintf("%x", sha256.Sum256([]byte(current.content))),
+		"content_hash": noteVersion(current),
 	}
 	signal := integration.SignalLowPriority
 	if current.State == "done" {
@@ -329,15 +374,15 @@ func (s Source) SetLifecycle(_ context.Context, ref protocol.SourceRef, state st
 	if state != "open" && state != "done" {
 		return integration.AuthoredTaskIdentity{}, fmt.Errorf("unsupported Obsidian lifecycle %q", state)
 	}
-	updates := map[string]string{"radar-state": state, "radar-completed-at": "", "radar-completion-baseline": "pending"}
+	updates := map[string]string{"state": state, "completed_at": "", "completion_baseline": "pending"}
 	if state == "done" {
-		updates["radar-completed-at"] = "__now_if_empty__"
+		updates["completed_at"] = "__now_if_empty__"
 	}
 	// Only explicit Done dismisses the handoff; reopening and priority changes
 	// do not implicitly acknowledge an agent's result.
 	_, err := s.mutateNote(ref, func(current note) (map[string]string, error) {
 		if state == "done" && current.AgentReview {
-			updates["radar-agent-review"] = "false"
+			updates["agent_review"] = "false"
 		}
 		return updates, nil
 	})
@@ -348,7 +393,7 @@ func (s Source) SetPriority(_ context.Context, ref protocol.SourceRef, priority 
 	if priority != "normal" && priority != "urgent" {
 		return integration.AuthoredTaskIdentity{}, fmt.Errorf("unsupported Obsidian priority %q", priority)
 	}
-	return s.mutate(ref, map[string]string{"radar-priority": priority})
+	return s.mutate(ref, map[string]string{"priority": priority})
 }
 
 func (s Source) mutate(ref protocol.SourceRef, updates map[string]string) (integration.AuthoredTaskIdentity, error) {
@@ -395,35 +440,30 @@ func (s Source) mutateNoteLocked(root string, ref protocol.SourceRef, update fun
 	if len(updates) == 0 {
 		return current, nil
 	}
-	if updates["radar-completed-at"] == "__now_if_empty__" {
-		updates["radar-completed-at"] = current.CompletedAt
-		if updates["radar-completed-at"] == "" {
-			updates["radar-completed-at"] = time.Now().UTC().Format(time.RFC3339)
+	if updates["completed_at"] == "__now_if_empty__" {
+		updates["completed_at"] = current.CompletedAt
+		if updates["completed_at"] == "" {
+			updates["completed_at"] = time.Now().UTC().Format(time.RFC3339)
 		}
 	}
-	content, updated, err := updateNoteContent(current, updates)
+	updated, err := applyStateUpdates(current, updates)
 	if err != nil {
 		return note{}, err
 	}
-	if content == current.content {
-		return current, nil
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return note{}, err
-	}
-
 	if updated.State == "open" && settings.IsArchivedNote(path) {
-		path, err = s.restoreNote(root, current)
+		restored, e := s.restoreNote(root, current)
+		err = e
+		path = restored.Path
+		updated.Revision = restored.Revision
 		if err != nil {
 			return note{}, err
 		}
-		current.Path = path
+		updated.Path = path
 	}
-	if err := atomicWrite(path, []byte(content), info.Mode().Perm()); err != nil {
+	if err := taskdb.Put(&updated.Task); err != nil {
 		return note{}, err
 	}
-	updated.Path = current.Path
+
 	return updated, nil
 }
 

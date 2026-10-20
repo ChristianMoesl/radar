@@ -14,6 +14,7 @@ type Request struct {
 }
 
 type TaskMutation struct {
+	NotePath string `json:"note_path,omitempty"`
 	TaskID   int    `json:"task_id,omitempty"`
 	Title    string `json:"title,omitempty"`
 	Priority string `json:"priority,omitempty"`

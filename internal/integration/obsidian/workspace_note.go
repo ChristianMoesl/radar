@@ -2,7 +2,8 @@ package obsidian
 
 import (
 	"context"
-	"encoding/json"
+	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"radar/internal/integration"
 	"radar/internal/integration/obsidian/settings"
+	"radar/internal/taskdb"
 )
 
 // PrepareWorkspaceNote chooses a stable identity without creating a task file.
@@ -23,6 +25,9 @@ func (s Source) PrepareWorkspaceNote(ctx context.Context, title string) (integra
 	filename := taskFilename(title)
 	vault, err := s.configuredVault()
 	if err != nil {
+		return integration.DesiredWorkspaceNote{}, err
+	}
+	if err := RequireMigratedNotes(vault); err != nil {
 		return integration.DesiredWorkspaceNote{}, err
 	}
 	id, err := newUUID()
@@ -75,7 +80,10 @@ func (s Source) ValidateWorkspaceNote(_ context.Context, desired integration.Des
 		return fmt.Errorf("invalid planned task note path")
 	}
 	if _, err := os.Lstat(filepath.Dir(desired.Path)); err == nil {
-		return fmt.Errorf("planned task directory is occupied")
+		owned, e := taskdb.Find(id)
+		if e != nil || owned.Path != desired.Path {
+			return fmt.Errorf("planned task directory is occupied")
+		}
 	} else if !os.IsNotExist(err) {
 		return err
 	}
@@ -84,11 +92,11 @@ func (s Source) ValidateWorkspaceNote(_ context.Context, desired integration.Des
 		return err
 	}
 	for _, item := range discovered {
-		if item.note.Title == title {
+		if item.note.Title == title && item.note.ID != id {
 			return fmt.Errorf("task title %q already exists", title)
 		}
 		// The flat archive shares a filename namespace, even for distinct titles.
-		if filepath.Base(item.path) == filename+".md" {
+		if filepath.Base(item.path) == filename+".md" && item.note.ID != id {
 			return fmt.Errorf("task filename %q already exists", filename)
 		}
 	}
@@ -102,27 +110,34 @@ func (s Source) EnsureWorkspaceNote(ctx context.Context, desired integration.Des
 	if _, err := os.Stat(desired.Path); err == nil {
 		return nil
 	}
-	content, err := workspaceNoteContent(desired)
-	if err != nil {
+	return createRegisteredNote(desired, "", newTaskNote(desired))
+}
+
+func newTaskNote(desired integration.DesiredWorkspaceNote) note {
+	return note{Task: taskdb.Task{ID: strings.TrimPrefix(desired.LinkingKey, "obsidian:task:"), Title: desired.Title, State: "open", Priority: "normal", CreatedAt: time.Now().UTC().Format(time.RFC3339), Path: desired.Path, Vault: filepath.Dir(filepath.Dir(filepath.Dir(desired.Path)))}, fields: map[string]fieldRange{}}
+}
+
+func createRegisteredNote(desired integration.DesiredWorkspaceNote, content string, current note) error {
+	// Commit identity before creating content. If the process stops here the
+	// durable association remains and creation can resume with the same identity.
+	existing, err := taskdb.Find(current.ID)
+	if err == nil {
+		if existing.Path != desired.Path || existing.Vault != current.Vault {
+			return fmt.Errorf("prepared task association changed")
+		}
+	} else if errors.Is(err, sql.ErrNoRows) {
+		if err := taskdb.Put(&current.Task); err != nil {
+			return err
+		}
+	} else {
 		return err
 	}
 	return createWorkspaceNote(desired, content)
 }
 
-func workspaceNoteContent(desired integration.DesiredWorkspaceNote) (string, error) {
-	id := strings.TrimPrefix(desired.LinkingKey, "obsidian:task:")
-	// JSON strings are valid YAML scalars and safely quote punctuation and controls.
-	title, err := json.Marshal(desired.Title)
-	if err != nil {
-		return "", err
-	}
-	content := fmt.Sprintf("---\nradar-id: %s\nradar-title: %s\nradar-state: open\nradar-priority: normal\nradar-created-at: %s\nradar-completed-at:\n---\n", id, title, time.Now().UTC().Format(time.RFC3339))
-	return content, nil
-}
-
 func createWorkspaceNote(desired integration.DesiredWorkspaceNote, content string) error {
 	directory := filepath.Dir(desired.Path)
-	if err := os.Mkdir(directory, 0o755); err != nil {
+	if err := os.Mkdir(directory, 0o755); err != nil && !os.IsExist(err) {
 		return err
 	}
 	if err := atomicCreate(desired.Path, []byte(content), 0o644); err != nil {

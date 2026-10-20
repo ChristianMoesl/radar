@@ -1,5 +1,8 @@
 # Obsidian planning workspace plan
 
+> Historical planning document. The state/frontmatter model here is superseded by [content-only notes and SQLite authority](sqlite-state-migration.md). Use the current [task-note contract](integrations/obsidian.md) for implementation and rollout.
+
+
 Status: implemented
 
 This document records the implementation plan. Current behavior is documented in [Obsidian task authoring](integrations/obsidian.md), [workspace reconciliation](workspace-reconciliation.md), `README.md`, and `ARCHITECTURE.md`.

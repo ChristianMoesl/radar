@@ -138,7 +138,7 @@ An open normal Obsidian note emits `low_priority`; urgent emits `immediate`; don
 
 Automatic reopening needs one confirmed active contributor and successful note collection; failure of another contributing source does not prevent it. Automatic authored completion requires at least one contributor and complete collections for the primary source and every contributing source. `Store.CollectionTasks` supplies retained inactive work-item refs as well as visible refs, so a missing unresolved item remains a blocker and remote reconcilers can retry it. Previously confirmed terminal refs remain valid when remote collection no longer emits them. Missing non-terminal refs are not completion evidence. Informational refs and mere workspace/resource existence cannot trigger or block completion; reported authoritative activity can veto it.
 
-The Obsidian provider writes lifecycle fields atomically before returning the updated observation. A content hash rejects a note edited since collection, and provider mutations are serialized. Errors are reported in source status without projecting a successful mutation. The optional `radar-completion-baseline` field holds a hash of completed contributor IDs, or `pending` after a manual lifecycle mutation. On reopening, a successful full refresh captures the already-completed set without closing the note. Observing active work updates that baseline; completing all work with a different set permits automatic completion. The baseline survives cache resets. The baseline itself requires no note migration or cache schema change; the task-muting rename has its separate version 7 → 8 rollout below.
+The note provider commits lifecycle decisions to SQLite before returning an observation. A version token combines note content and database revision to reject stale reconciliation. Completion safeguards store a completed-contributor hash, or pending after manual reopening, in durable task records. They survive reset/restart without rewriting note content. See [the explicit migration](docs/sqlite-state-migration.md).
 
 Completion and local cleanup are separate. A task becomes `done` when its authoritative work is complete and no agent activity/review hold prevents completion; mere remaining local worktrees, tmux sessions, or SBX sandboxes do not keep it active. The daemon checks GC hourly. Clean linked workspaces under the configured workspace root become eligible after 24 hours done. A registered workspace is one bundle: before expiry, dirty members, potentially unpublished branches, unavailable publication verification, and unknown anchor files block the whole bundle. Attached tmux sessions alone do not block cleanup; removing them terminates their running shells or commands.
 
@@ -157,7 +157,7 @@ busy/waiting tasks active. `ReconcileAuthoredActivity` runs on local and full
 refreshes to reopen completed notes when work resumes; full lifecycle
 reconciliation also holds otherwise-eligible completion while agents work.
 `TaskLifecycleRequest` separates confirmed remote work from local activity and
-pending handoff retries. Obsidian persists optional `radar-agent-review: true`
+pending handoff retries. The authoring provider persists an agent review hold in SQLite
 with open lifecycle and an empty completion time, atomically merging known source
 bindings so completed evidence can be resolved after cache loss. Only explicit Done clears it.
 It is independent of, and stronger than, the explicit-reopen contributor baseline.
@@ -171,9 +171,8 @@ without a completion collision do not create a hold.
 
 Failed writes return `AgentReviewPersistenceError`, not a successful observation.
 `TaskRecord.AgentReviewPending` retains the retry intent across restart/reset and
-projects unfinished until the note confirms persistence. These additive booleans
-leave cache version 8 unchanged; the note is the canonical durable hold after
-successful persistence. See the read-only rollout checks in the Obsidian guide.
+projects unfinished until the durable author confirms persistence. SQLite is the
+authority; notes contain no operational fields. See the migration qualification guide.
 
 The `ActivityReader` capability performs bounded provider-owned live checks at
 automatic completion, explicit Done and automatic GC execution. Core does not
@@ -188,27 +187,27 @@ unchanged and remains separate from GC.
 
 Muted is an authored boolean preference orthogonal to lifecycle and raw attention. `SourceRef.Muted` on an authoritative authored note projects to `Task.Muted`; `Task.DisplayGroup()` chooses actual done first, then `muted`, then raw attention. Summaries count muted unfinished work separately, and attention notification paths suppress it. GitHub PR `mute` rules remain distinct: they remove only matching PR contributions, never the authored note or other independent sources. A task supported only by muted PRs is hidden, including from Done. External changes never clear the per-task preference. Completion retains it, unmute does not reopen work, and GC continues to use actual completed records rather than display grouping.
 
-`TaskMuteProvider` adopts a source-only task by atomically creating a fully bound canonical note, or updates the existing note under the shared note lock. It creates no workspace/runtime. Obsidian owns optional `radar-muted` and structured `radar-source-refs`, preserving unknown YAML/body bytes and rejecting ambiguous ownership. Preferences/binding edits do not archive or restore files. `TaskBindingProvider` adds newly associated authoritative work to an already-adopted note; informational refs never become authoritative through this path.
+`TaskMuteProvider` adopts a source-only task by atomically creating a fully bound canonical note, or updates the existing note under the shared note lock. It creates no workspace/runtime. SQLite owns the durable preference and source bindings, enforcing unique ownership transactionally. Notes are ordinary content-only Markdown. Preferences/binding edits do not archive or restore files. `TaskBindingProvider` adds newly associated authoritative work to an already-adopted note; informational refs never become authoritative through this path.
 
 Bindings carry provider-owned source/kind/identity and optional concrete resource lifetime keys, not remote status snapshots or numeric Radar IDs. Generic exact binding keys join freshly observed refs to their note after reset. Git and SBX supply lifetime keys so unrelated replacements at a reused path/name cannot inherit the muted preference; tmux already has a concrete lifetime source identity. Replacing a bound runtime lifetime detaches cached old ownership before ordinary relationships are evaluated again, allowing registered resources to rejoin their genuine workspace. An unreadable lifetime reports `BindingError`, preserving collection/cleanup capabilities while refusing unsafe preference authoring.
 
 `BoundSourceResolver` handles work that left active discovery. Jira and GitHub can fetch explicit bound identities; Datadog retains its complete-filtered-search recovery semantics. A binding alone never provides source-state evidence. Missing bound contributors prevent automatic completion. Confirmed terminal facts are reused from cache; hidden adopted Done records remain resolver inputs via transient `Task.TrackingOnly`, but do not re-enter ordinary discovery/title scanning or the served projection. An unavailable authoring source preserves cached preferences without granting lifecycle completeness.
 
-Mutations recollect only the authoring source and use the existing publication/revision fence. A concurrent refresh rereads that authority before publication; newly linked bindings must still be persisted while stale lifecycle evidence is deferred. No separate muting database, timer, configuration switch, command alias, or runtime legacy field reader is introduced. The rename replaces `radar-ignored` with `radar-muted` and the typed snapshot property `ignored` with `muted`, raising the cache version from 7 to 8. Users of the prior ignore version must run the [explicit offline migration](docs/integrations/obsidian.md#migrating-task-muting) before starting the new daemon; ordinary notes without the old field need no note edits.
+Mutations recollect only the authoring source and use the publication/revision fence. Concurrent refreshes reread authoring authority; newly linked bindings persist while stale lifecycle evidence is deferred. The runtime has one SQLite authority and no legacy field readers. Existing frontmatter/JSON is handled by the [explicit offline importer](docs/sqlite-state-migration.md).
 
 ## Local state
 
 The daemon stores durable task records and source-ref records on disk:
 
 ```text
-$XDG_STATE_HOME/radar/tasks.json
+$XDG_STATE_HOME/radar/state.db
 ```
 
 Projected tasks are rebuilt from this state. Done tasks remain in durable history but are included in the user-facing projection only for three days. Full refreshes reconcile all source refs; local refreshes reconcile refs from sources that declare themselves local and leave remote GitHub/Jira refs untouched. The file also stores source statuses so the TUI can show cached status immediately. User acknowledgement state lives on task records, not inside source-ref metadata.
 
-`taskservice.Service` separates slow collection from short cache publication. The daemon's collection mutex still serializes background refreshes, reset, and garbage collection; authored mutations do not acquire it. A separate publication mutex serializes note mutations, source-scoped cache updates, and full-refresh automatic completion. An in-memory authoring revision fences collections started before a mutation: before publishing such a result, the service replaces its authoring and runtime-activity observations, status, and completeness evidence with fresh collections. Remote sources' results are retained, not retried. This also protects task creation, reopening, priority changes, and provider errors after partial writes. The socket mutation methods are `task-mute` and `task-unmute`, with typed `Muted` preference and binding fields. The persisted source-ref snapshot property is `muted`, and the cache version is 8; no runtime aliases or old-field readers are provided.
+`taskservice.Service` separates slow collection from short cache publication. The daemon's collection mutex still serializes background refreshes, reset, and garbage collection; authored mutations do not acquire it. A separate publication mutex serializes note mutations, source-scoped cache updates, and full-refresh automatic completion. An in-memory authoring revision fences collections started before a mutation: before publishing such a result, the service replaces its authoring and runtime-activity observations, status, and completeness evidence with fresh collections. Remote sources' results are retained, not retried. This also protects task creation, reopening, priority changes, and provider errors after partial writes. The socket mutation methods are `task-mute` and `task-unmute`, with typed `Muted` preference and binding fields. Source snapshot fields retain their wire names; SQLite schema versioning is independent of the projection format. No runtime aliases or old-field readers are provided.
 
-State writes are atomic and serialized. The daemon refuses to start when an existing file is malformed. An incompatible state version is intentionally discarded and recollected because authored work lives in source systems. Reset clears collected observations and may retain acknowledgements; it does not need compatibility readers or migration fallbacks.
+SQLite transactions serialize related state writes with full synchronous durability. `authored_tasks` and `bindings` own task decisions, stable UUIDs, note associations and safe provider identities. `task_records` retains numeric identity, acknowledgements and pending review intent; `observed_refs` stores collected observations. `documents` holds metadata/cutover bookkeeping, and `file_moves` journals no-overwrite archive/restore/trash moves for startup recovery under the note lock. Reset clears observations/derived snapshots and retains durable decisions. Unknown schemas/projection versions and corrupt data fail closed; none are silently discarded. Notes have no Radar frontmatter, including no in-note ID. Database backup uses SQLite snapshots; notes and application records require coordinated backup. The embedded driver preserves CGO-free platform builds.
 
 ## Config
 

@@ -11,6 +11,7 @@ import (
 	"radar/internal/integration/obsidian/settings"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
+	"radar/internal/taskdb"
 )
 
 // ArchiveCompletedNote is called only after workspace cleanup has succeeded.
@@ -59,10 +60,12 @@ func archiveCompleted(root string, current note) (note, error) {
 		return current, err
 	}
 	destination := filepath.Join(archive, filepath.Base(path))
-	if err := renameNote(path, destination); err != nil {
+	updated := current
+	updated.Path = destination
+	if err := taskdb.Move(&updated.Task, path, destination, renameNote); err != nil {
 		return current, fmt.Errorf("task is done but archiving failed; note left at %s: %w", path, err)
 	}
-	current.Path = destination
+	current = updated
 	// Never recursively remove the directory: another process may have added
 	// a file since the preflight. A failed rmdir leaves that data untouched.
 	if err := os.Remove(filepath.Dir(path)); err != nil {
@@ -71,27 +74,29 @@ func archiveCompleted(root string, current note) (note, error) {
 	return current, nil
 }
 
-func (s Source) restoreNote(root string, current note) (string, error) {
+func (s Source) restoreNote(root string, current note) (note, error) {
 	referenced, err := noteReferenced(root, current)
 	if err != nil {
-		return "", err
+		return note{}, err
 	}
 	if referenced {
-		return "", fmt.Errorf("cannot move archived note while a workspace references it: %s", current.Path)
+		return note{}, fmt.Errorf("cannot move archived note while a workspace references it: %s", current.Path)
 	}
 	if hasRelativeLinks(current.content) {
-		return "", fmt.Errorf("cannot restore %s with relative links; note left in place", current.Path)
+		return note{}, fmt.Errorf("cannot restore %s with relative links; note left in place", current.Path)
 	}
 	directory := filepath.Join(filepath.Dir(filepath.Dir(current.Path)), taskDirectoryName(taskFilename(current.Title), current.ID))
 	if err := os.Mkdir(directory, 0o755); err != nil {
-		return "", fmt.Errorf("restore private task directory: %w", err)
+		return note{}, fmt.Errorf("restore private task directory: %w", err)
 	}
 	destination := filepath.Join(directory, filepath.Base(current.Path))
-	if err := renameNote(current.Path, destination); err != nil {
+	updated := current
+	updated.Path = destination
+	if err := taskdb.Move(&updated.Task, current.Path, destination, renameNote); err != nil {
 		_ = os.Remove(directory)
-		return "", fmt.Errorf("restore archived note: %w", err)
+		return note{}, fmt.Errorf("restore archived note: %w", err)
 	}
-	return destination, nil
+	return updated, nil
 }
 
 func noteReferenced(root string, current note) (bool, error) {

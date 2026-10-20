@@ -15,6 +15,7 @@ import (
 	"radar/internal/cleanup"
 	"radar/internal/linking"
 	"radar/internal/protocol"
+	"radar/internal/taskdb"
 )
 
 const maxStateFileSize = 50 * 1024 * 1024
@@ -78,22 +79,7 @@ type SourceRefRecord struct {
 	Snapshot     protocol.SourceRef `json:"snapshot"`
 }
 
-func Path() (string, error) {
-	if explicit := os.Getenv("RADAR_STATE"); explicit != "" {
-		return explicit, nil
-	}
-
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		base = filepath.Join(home, ".local", "state")
-	}
-
-	return filepath.Join(base, "radar", "tasks.json"), nil
-}
+func Path() (string, error) { return taskdb.Path() }
 
 func NewStore(logger *slog.Logger) (*Store, error) {
 	path, err := Path()
@@ -115,21 +101,45 @@ func NewStore(logger *slog.Logger) (*Store, error) {
 }
 
 func (s *Store) Load() error {
-	info, err := os.Stat(s.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			s.logger.Info("state file does not exist yet", "path", s.path)
-			return nil
+	legacy := filepath.Join(filepath.Dir(s.path), "tasks.json")
+	if legacy != s.path {
+		if _, err := os.Lstat(legacy); err == nil {
+			if _, err := os.Stat(s.path); os.IsNotExist(err) {
+				return fmt.Errorf("existing tasks.json requires explicit migration; run radar migrate-state --apply")
+			}
+			completed, err := taskdb.ReadDocument(s.path, "migration_complete")
+			if err != nil {
+				return err
+			}
+			if len(completed) == 0 {
+				return fmt.Errorf("legacy state is not migrated; run radar migrate-state --apply or --resume")
+			}
 		}
-		return err
 	}
-	if info.Size() > maxStateFileSize {
-		return fmt.Errorf("state file is too large: %d bytes", info.Size())
+	if err := taskdb.Integrity(s.path); err != nil {
+		return err
 	}
 
-	data, err := os.ReadFile(s.path)
+	backward, e := taskdb.ReadDocument(s.path, "rollback_pending")
+	if e != nil {
+		return e
+	}
+	if len(backward) > 0 {
+		return fmt.Errorf("state rollback unfinished; run radar migrate-state --rollback")
+	}
+	pending, err := taskdb.ReadDocument(s.path, "migration_pending")
 	if err != nil {
 		return err
+	}
+	if len(pending) > 0 {
+		return fmt.Errorf("state migration is unfinished; run radar migrate-state --resume")
+	}
+	data, err := taskdb.ReadProjection(s.path)
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return nil
 	}
 
 	var state persistedState
@@ -137,12 +147,7 @@ func (s *Store) Load() error {
 		return err
 	}
 	if state.Version != stateVersion {
-		s.logger.Info("discarding incompatible rebuildable state", "path", s.path, "version", state.Version, "expected", stateVersion)
-		s.mu.Lock()
-		s.state = persistedState{Version: stateVersion, Records: []TaskRecord{}, SourceRefs: []SourceRefRecord{}, Sources: []protocol.SourceStatus{}}
-		s.items = []protocol.Task{}
-		s.mu.Unlock()
-		return nil
+		return fmt.Errorf("unsupported projection version %d; durable state was preserved", state.Version)
 	}
 	if state.Records == nil {
 		state.Records = []TaskRecord{}
@@ -198,10 +203,6 @@ func (s *Store) Save() error {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return err
-	}
-
 	// Marshal while holding the read lock so nested pointers, slices, and maps
 	// cannot change while JSON encoding is in progress. saveMu keeps snapshots
 	// and replacements ordered, preventing an older save from winning a race.
@@ -214,31 +215,7 @@ func (s *Store) Save() error {
 		return err
 	}
 
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".tmp-")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, s.path); err != nil {
-		return err
-	}
-	if err := syncDirectory(filepath.Dir(s.path)); err != nil {
+	if err := taskdb.WriteProjection(s.path, data); err != nil {
 		return err
 	}
 
@@ -246,22 +223,11 @@ func (s *Store) Save() error {
 	return nil
 }
 
-func syncDirectory(path string) error {
-	dir, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
-}
-
 func (s *Store) Reset() error {
 	s.mu.Lock()
 	retained := make([]TaskRecord, 0)
 	for _, record := range s.state.Records {
-		if record.Ack.Cursor == "" && !record.AgentReviewPending {
-			continue
-		}
+
 		record.State = "active"
 		record.Reason = ""
 		record.DoneAt = ""
@@ -297,7 +263,8 @@ func sourceRefAcknowledgementCursor(ref protocol.SourceRef) string {
 	return ref.Acknowledgement.Cursor
 }
 
-func (s *Store) Acknowledge(itemID string) bool {
+func (s *Store) Acknowledge(itemID string) error {
+	previous := TaskAckState{}
 	s.mu.Lock()
 	changed := false
 	ackAt := time.Now().UTC().Format(time.RFC3339)
@@ -310,6 +277,7 @@ func (s *Store) Acknowledge(itemID string) bool {
 				ackAt = latest
 			}
 		}
+		previous = s.state.Records[i].Ack
 		s.state.Records[i].Ack.Cursor = ackAt
 		s.state.Records[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 		changed = true
@@ -323,10 +291,19 @@ func (s *Store) Acknowledge(itemID string) bool {
 
 	if changed {
 		if err := s.Save(); err != nil {
-			s.logger.Warn("could not save acknowledged state", "path", s.path, "error", err)
+			s.mu.Lock()
+			for i := range s.state.Records {
+				if fmt.Sprint(s.state.Records[i].NumericID) == itemID && s.state.Records[i].Ack.Cursor == ackAt {
+					s.state.Records[i].Ack = previous
+				}
+			}
+			s.items = projectTasks(s.state)
+			s.bumpRevisionLocked()
+			s.mu.Unlock()
+			return fmt.Errorf("persist acknowledgement: %w", err)
 		}
 	}
-	return changed
+	return nil
 }
 
 func (s *Store) Tasks() []protocol.Task {

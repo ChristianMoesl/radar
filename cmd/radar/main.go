@@ -32,6 +32,7 @@ import (
 	"radar/internal/server"
 	"radar/internal/socket"
 	"radar/internal/state"
+	"radar/internal/taskdb"
 	"radar/internal/taskservice"
 	"radar/internal/tui"
 	"radar/internal/version"
@@ -62,6 +63,12 @@ func main() {
 	}
 	command, args := args[0], args[1:]
 	switch command {
+	case "migrate-state":
+		runMigrateState(args)
+	case "state-backup":
+		runStateBackup(args)
+	case "state-export":
+		runStateExport(args)
 	case "documentation":
 		runDocumentation(args)
 	case "update":
@@ -268,6 +275,15 @@ func runTask(args []string) {
 	case "done", "reopen", "mute", "unmute":
 		args = positionalArgs("task "+command, args, 1)
 		request = protocol.Request{Method: "task-" + command, TaskMutation: &protocol.TaskMutation{TaskID: parseTaskID(args[0])}}
+	case "title", "note":
+		args = positionalArgs("task "+command, args, 2)
+		mutation := &protocol.TaskMutation{TaskID: parseTaskID(args[0])}
+		if command == "title" {
+			mutation.Title = args[1]
+		} else {
+			mutation.NotePath = args[1]
+		}
+		request = protocol.Request{Method: "task-" + command, TaskMutation: mutation}
 	case "priority":
 		args = positionalArgs("task priority", args, 2)
 		if args[1] != "urgent" && args[1] != "normal" {
@@ -684,9 +700,24 @@ func runDaemon() {
 
 	logger.Info("daemon starting", "socket", path, "log", logPath, "pid", os.Getpid(), "pid_file", pidPath, "version", version.Current())
 
+	statePath, e := state.Path()
+	if e != nil {
+		fatal(e)
+	}
+	stateLock, e := taskdb.Lock(statePath, false)
+	if e != nil {
+		fatal(e)
+	}
+	defer stateLock.Close()
+	if err := app.RequireMigratedNotes(); err != nil {
+		fatal(err)
+	}
 	store, err := state.NewStore(logger)
 	if err != nil {
 		logger.Error("could not initialize state", "error", err)
+		fatal(err)
+	}
+	if err := app.RecoverTaskMoves(); err != nil {
 		fatal(err)
 	}
 	integrations := app.DefaultIntegrations()
@@ -1090,6 +1121,8 @@ Tasks:
   radar task unmute <task-id>
   radar task delete <task-id>
   radar task priority <task-id> urgent|normal
+  radar task title <task-id> <title>
+  radar task note <task-id> <absolute-note-path>
 
 Workspaces:
   radar create
@@ -1130,6 +1163,9 @@ Setup and maintenance:
 Other:
   radar ack <task-id>
   radar log-path
+  radar migrate-state [--apply|--resume|--rollback]
+  radar state-backup <destination.db>
+  radar state-export
   radar state-path
   radar config-path
   radar rate-limit
@@ -1160,6 +1196,8 @@ func taskUsage() {
        radar task unmute <task-id>
        radar task delete <task-id>
        radar task priority <task-id> urgent|normal
+       radar task title <task-id> <title>
+       radar task note <task-id> <absolute-note-path>
 
 Add --json for machine-readable results. Deletion still requires confirmation.`)
 }

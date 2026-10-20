@@ -83,6 +83,7 @@ func (c *captureNotifications) Send(_ context.Context, n notification.Notificati
 
 func TestMutedRunBindingSurvivesColdCollectionWithoutWorkspace(t *testing.T) {
 	s, api, _ := fixtureSource(t, runFixture("run-one", "planning", "user-me"))
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "state.db"))
 	first := s.Collect(context.Background(), integration.CollectRequest{})
 	notes := obsidian.NewSourceAt(t.TempDir())
 	if _, err := notes.SetMuted(context.Background(), tasksFrom(first)[0], true); err != nil {
@@ -95,7 +96,6 @@ func TestMutedRunBindingSurvivesColdCollectionWithoutWorkspace(t *testing.T) {
 	if !cold.Complete["terraform"] {
 		t.Fatalf("cold binding unresolved: %+v", cold.Sources)
 	}
-	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "cold.json"))
 	store, err := state.NewStore(logger)
 	if err != nil {
 		t.Fatal(err)

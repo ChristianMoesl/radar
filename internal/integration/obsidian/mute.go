@@ -2,9 +2,7 @@ package obsidian
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +13,7 @@ import (
 	"radar/internal/integration"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
+	"radar/internal/taskdb"
 )
 
 // SetMuted adopts a source-only task on demand. Discovery and the complete
@@ -65,45 +64,38 @@ func (s Source) SetMuted(ctx context.Context, task protocol.Task, muted bool) (i
 			if err != nil {
 				return err
 			}
-			content, err := workspaceNoteContent(desired)
-			if err != nil {
-				return err
-			}
-			prepared, err := parseNote(content)
-			if err != nil {
-				return err
-			}
-			updates := map[string]string{"radar-muted": "true", "radar-source-refs": encodeBindings(bindings)}
+
+			prepared := newTaskNote(desired)
+			updates := map[string]string{"muted": "true", "bindings": encodeBindings(bindings)}
 			if task.Attention == "done" {
 				completed := task.DoneAt
 				if completed == "" {
 					completed = time.Now().UTC().Format(time.RFC3339)
 				}
-				updates["radar-state"] = "done"
-				updates["radar-completed-at"] = completed
-				updates["radar-completion-baseline"] = "pending"
+				updates["state"] = "done"
+				updates["completed_at"] = completed
+				updates["completion_baseline"] = "pending"
 			}
-			content, _, err = updateNoteContent(prepared, updates)
+			prepared, err = applyStateUpdates(prepared, updates)
 			if err != nil {
 				return err
 			}
-			// This creates only the private note directory, not a workspace or
-			// registry entry. No unbound intermediate note is ever published.
-			if err := createWorkspaceNote(desired, content); err != nil {
+			if err := createRegisteredNote(desired, "", prepared); err != nil {
 				return err
 			}
+
 			identity.SourceRefID = desired.LinkingKey
 			return nil
 		}
 		identity.SourceRefID = "obsidian:task:" + current.ID
 		updates := map[string]string{}
 		if current.Muted != muted {
-			updates["radar-muted"] = strconv.FormatBool(muted)
+			updates["muted"] = strconv.FormatBool(muted)
 		}
 		if muted {
 			merged, changed := mergeBindings(current.Bindings, bindings)
-			if _, adopted := current.fields["radar-source-refs"]; changed || !adopted {
-				updates["radar-source-refs"] = encodeBindings(merged)
+			if changed || !current.Adopted {
+				updates["bindings"] = encodeBindings(merged)
 			}
 		}
 		_, err = persistPreference(*current, updates)
@@ -131,10 +123,10 @@ func (s Source) ReconcileBindings(ctx context.Context, ref protocol.SourceRef, t
 		if err != nil {
 			return err
 		}
-		if _, adopted := current.fields["radar-source-refs"]; !adopted {
+		if !current.Adopted {
 			return nil
 		}
-		if ref.Metadata["content_hash"] != fmt.Sprintf("%x", sha256.Sum256([]byte(current.content))) {
+		if ref.Metadata["content_hash"] != noteVersion(current) {
 			return fmt.Errorf("task note changed since collection")
 		}
 		bindings, err := taskBindings(task, true)
@@ -152,14 +144,14 @@ func (s Source) ReconcileBindings(ctx context.Context, ref protocol.SourceRef, t
 		if err != nil {
 			return err
 		}
-		if associated == nil || associated.ID != current.ID || associated.content != current.content {
+		if associated == nil || associated.ID != current.ID || noteVersion(*associated) != noteVersion(current) {
 			return fmt.Errorf("task note association changed since collection")
 		}
 		merged, changed := mergeBindings(current.Bindings, bindings)
 		if !changed {
 			return nil
 		}
-		updated, err := persistPreference(current, map[string]string{"radar-source-refs": encodeBindings(merged)})
+		updated, err := persistPreference(current, map[string]string{"bindings": encodeBindings(merged)})
 		if err != nil {
 			return err
 		}
@@ -176,20 +168,14 @@ func persistPreference(current note, updates map[string]string) (note, error) {
 	if len(updates) == 0 {
 		return current, nil
 	}
-	content, updated, err := updateNoteContent(current, updates)
-	if err != nil || content == current.content {
+	updated, err := applyStateUpdates(current, updates)
+	if err != nil {
 		return current, err
 	}
-	info, err := os.Lstat(current.Path)
-	if err != nil {
-		return note{}, err
+	if err := taskdb.Put(&updated.Task); err != nil {
+		return current, err
 	}
-	if !info.Mode().IsRegular() {
-		return note{}, fmt.Errorf("task note must be a regular file")
-	}
-	if err := atomicWrite(current.Path, []byte(content), info.Mode().Perm()); err != nil {
-		return note{}, err
-	}
+
 	return updated, nil
 }
 

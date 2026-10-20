@@ -105,7 +105,7 @@ func (s *Service) GuardCleanup(ctx context.Context, task protocol.Task, execute 
 			verified := false
 			for _, observed := range fresh.Tasks {
 				for _, ref := range observed.SourceRefs {
-					if ref.ID == expected.ID && ref.Signal == "done" && ref.Metadata["completed_at"] == expected.Metadata["completed_at"] {
+					if ref.ID == expected.ID && ref.Signal == "done" && ref.Metadata["completed_at"] == expected.Metadata["completed_at"] && ref.Metadata["note_error"] == "" {
 						verified = true
 					}
 				}
@@ -153,7 +153,7 @@ func (s *Service) MutateTask(ctx context.Context, method string, mutation *proto
 	switch method {
 	case "task-create":
 		identity, err = provider.Create(ctx, mutation.Title)
-	case "task-done", "task-reopen", "task-priority":
+	case "task-done", "task-reopen", "task-priority", "task-title", "task-note":
 		task, ok := taskByID(s.store.Tasks(), mutation.TaskID)
 		if !ok {
 			return protocol.Task{}, fmt.Errorf("task %d not found", mutation.TaskID)
@@ -163,6 +163,16 @@ func (s *Service) MutateTask(ctx context.Context, method string, mutation *proto
 			return protocol.Task{}, fmt.Errorf("task %d is not authored by %s", mutation.TaskID, provider.Descriptor().Label)
 		}
 		switch method {
+		case "task-title", "task-note":
+			details, ok := provider.(integration.TaskDetailsProvider)
+			if !ok {
+				return protocol.Task{}, fmt.Errorf("task author does not support note/title changes")
+			}
+			if method == "task-title" {
+				identity, err = details.SetTitle(ctx, ref, mutation.Title)
+			} else {
+				identity, err = details.ReassociateNote(ctx, ref, mutation.NotePath)
+			}
 		case "task-done":
 			if task.AgentReviewPending {
 				return protocol.Task{}, fmt.Errorf("agent result review could not be saved; refresh to persist the handoff before marking Done")

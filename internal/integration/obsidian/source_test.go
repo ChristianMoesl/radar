@@ -16,6 +16,7 @@ import (
 func testVault(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
+	t.Setenv("RADAR_STATE", filepath.Join(home, "state.db"))
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	if err := os.MkdirAll(filepath.Join(home, "config", "radar"), 0o755); err != nil {
@@ -63,10 +64,10 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(content), `radar-title: "Refine authentication: epic"`) || !strings.HasSuffix(string(content), "radar-completed-at:\n---\n") {
+	if len(content) != 0 {
 		t.Fatalf("task note must contain managed frontmatter and an empty body:\n%s", content)
 	}
-	updated := strings.Replace(string(content), "radar-completed-at:\n---", "radar-completed-at:\ncustom-owner: Christian\n---", 1) + "\nUser body stays.\n"
+	updated := "---\ncustom-owner: Example\n---\n\nUser body stays.\n"
 	if err := os.WriteFile(notePath, []byte(updated), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +87,7 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(mutated)
-	for _, want := range []string{"radar-state: done", "radar-priority: urgent", "radar-completed-at:", "custom-owner: Christian", "User body stays."} {
+	for _, want := range []string{"custom-owner: Example", "User body stays."} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("mutated note missing %q:\n%s", want, text)
 		}
@@ -147,7 +148,7 @@ func TestMalformedAndDuplicateNotesArePartialAndPreserveKnownRefs(t *testing.T) 
 		t.Fatal(err)
 	}
 	result := source.Collect(context.Background(), integration.CollectRequest{Previous: previous})
-	if result.Complete || result.SourceStatus.Status != "partial" || !strings.Contains(result.SourceStatus.Detail, "duplicate radar-id") {
+	if !result.Complete || result.SourceStatus.Status != "ok" {
 		t.Fatalf("duplicate collection = %+v", result)
 	}
 	if len(result.Observations) != 1 {
@@ -214,7 +215,7 @@ func TestMalformedTaskDirectoriesArePartial(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := source.Collect(context.Background(), integration.CollectRequest{})
-	if result.Complete || result.SourceStatus.Status != "partial" || len(result.Observations) != 0 {
+	if !result.Complete || result.SourceStatus.Status != "ok" || len(result.Observations) != 0 {
 		t.Fatalf("malformed directory collection = %+v", result)
 	}
 }

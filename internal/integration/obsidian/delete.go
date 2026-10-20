@@ -11,6 +11,7 @@ import (
 	"radar/internal/integration/obsidian/settings"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
+	"radar/internal/taskdb"
 )
 
 func (s Source) PreviewDelete(ctx context.Context, ref protocol.SourceRef) (protocol.TaskDeletionPreview, error) {
@@ -117,7 +118,12 @@ func (s Source) Delete(ctx context.Context, ref protocol.SourceRef, preview prot
 		destination := filepath.Join(container, filepath.Base(fresh.Path))
 		// This is one atomic no-replace move, never a copy-and-recursive-delete.
 		// Private directories move as a unit; archives move only the one note.
-		if err := renameNote(fresh.Path, destination); err != nil {
+		current, e := s.noteForRef(ref)
+		if e != nil {
+			return e
+		}
+		current.Trashed = true
+		if err := taskdb.Move(&current.Task, fresh.Path, destination, renameNote); err != nil {
 			_ = os.Remove(container) // empty only; never remove user content
 			return fmt.Errorf("move task to trash; source left at %s: %w", fresh.Path, err)
 		}

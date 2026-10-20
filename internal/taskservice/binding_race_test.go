@@ -2,7 +2,6 @@ package taskservice
 
 import (
 	"context"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -11,6 +10,7 @@ import (
 	"radar/internal/collector"
 	"radar/internal/integration"
 	"radar/internal/protocol"
+	"radar/internal/taskdb"
 )
 
 // bindingRaceSource discovers a second contributor only in the blocked refresh.
@@ -144,10 +144,11 @@ func TestMutationFencedRefreshPersistsNewBindingsBeforeImmediateReset(t *testing
 			// Reopen's pending completion baseline is also authored intent: a
 			// bindings-only reconciliation must not arm it with stale done facts.
 			if tc.afterMute == "task-reopen" {
-				data, err := os.ReadFile(ref.Metadata["note_path"])
-				if err != nil || !strings.Contains(string(data), "radar-completion-baseline: pending") {
-					t.Fatalf("stale lifecycle changed the manual-reopen baseline: %s, %v", data, err)
+				persisted, err := taskdb.Find(strings.TrimPrefix(ref.ID, "obsidian:task:"))
+				if err != nil || persisted.CompletionBaseline != "pending" {
+					t.Fatalf("stale lifecycle changed the manual-reopen baseline: %+v %v", persisted, err)
 				}
+
 			}
 
 			// Reset immediately, with no intervening full refresh to repair any

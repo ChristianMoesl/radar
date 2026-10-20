@@ -15,9 +15,11 @@ import (
 	"radar/internal/integration/workspace/group"
 	"radar/internal/linking"
 	"radar/internal/protocol"
+	"radar/internal/taskdb"
 )
 
 func configureWorkspaceRoot(t *testing.T) string {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "state.db"))
 	t.Helper()
 	home := t.TempDir()
 	root := filepath.Join(home, "workspaces")
@@ -45,7 +47,11 @@ func TestCollectEmitsNoteOnlyWorkspaceAndRepairsRenamedNote(t *testing.T) {
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	content := "---\nradar-id: 2c965c99-6a50-446e-834a-72656fbc056a\n---\n"
+	content := "User notes\n"
+	task := taskdb.Task{ID: "2c965c99-6a50-446e-834a-72656fbc056a", Title: "Plan authentication", Path: oldNote, Vault: filepath.Dir(directory), State: "open", Priority: "normal"}
+	if err := taskdb.Put(&task); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(oldNote, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

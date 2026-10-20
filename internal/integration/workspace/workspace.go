@@ -27,6 +27,7 @@ import (
 	"radar/internal/integration/workspace/group"
 	"radar/internal/operationlock"
 	"radar/internal/pi"
+	"radar/internal/taskdb"
 )
 
 var invalidWorkspaceNameCharacters = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
@@ -376,20 +377,18 @@ func RefreshWorkspaceNote(root string, group workspacegroup.Workspace) (workspac
 	if expectedID == group.NoteKey() || expectedID == "" {
 		return group, fmt.Errorf("workspace %s has no Obsidian task identity", group.Path)
 	}
-	data, err := os.ReadFile(candidates[0])
+	task, err := taskdb.Find(expectedID)
 	if err != nil {
 		return group, err
 	}
-	foundID := ""
-	for _, line := range strings.Split(string(data), "\n") {
-		if key, value, ok := strings.Cut(line, ":"); ok && strings.TrimSpace(key) == "radar-id" {
-			foundID = strings.TrimSpace(value)
-			break
-		}
+	if filepath.Dir(task.Path) != directory {
+		return group, fmt.Errorf("workspace note directory changed")
 	}
-	if foundID != expectedID {
-		return group, fmt.Errorf("task identity changed in %s", candidates[0])
+	task.Path = candidates[0]
+	if err := taskdb.Put(&task); err != nil {
+		return group, err
 	}
+
 	group.NotePath = filepath.Clean(candidates[0])
 	if err := ensureNoteLink(group.Path, group.NotePath); err != nil {
 		return group, err

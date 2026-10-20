@@ -10,6 +10,7 @@ import (
 	"radar/internal/integration"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
+	"radar/internal/taskdb"
 )
 
 func createArchiveTask(t *testing.T) (Source, protocol.SourceRef, string) {
@@ -123,7 +124,7 @@ func TestCompletionKeepsReferencedNotesAndLinksInPlace(t *testing.T) {
 			if got := collectedArchiveRef(t, source); got.Metadata["note_path"] != path || got.Status != "done" {
 				t.Fatalf("referenced note moved: %+v", got)
 			}
-			if data, err := os.ReadFile(link); err != nil || !strings.Contains(string(data), "radar-state: done") {
+			if data, err := os.ReadFile(link); err != nil || len(data) != 0 {
 				t.Fatalf("broken link: %s, %v", data, err)
 			}
 			if _, err := source.SetLifecycle(context.Background(), ref, "open"); err != nil {
@@ -280,7 +281,7 @@ func TestArchivedDiscoveryValidatesNotesAndDetectsCrossLayoutDuplicates(t *testi
 	}
 	previous := []protocol.Task{{SourceRefs: []protocol.SourceRef{archived}}}
 	result := source.Collect(context.Background(), integration.CollectRequest{Previous: previous})
-	if result.Complete || result.SourceStatus.Status != "partial" || len(result.Observations) != 1 {
+	if !result.Complete || result.SourceStatus.Status != "ok" || len(result.Observations) != 1 {
 		t.Fatalf("duplicate collection=%+v", result)
 	}
 	if err := os.Remove(ref.Metadata["note_path"]); err != nil {
@@ -289,7 +290,7 @@ func TestArchivedDiscoveryValidatesNotesAndDetectsCrossLayoutDuplicates(t *testi
 	if err := os.Remove(filepath.Dir(ref.Metadata["note_path"])); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(archived.Metadata["note_path"], []byte("invalid"), 0o644); err != nil {
+	if err := os.WriteFile(archived.Metadata["note_path"], []byte("---\nradar-state: done\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	result = source.Collect(context.Background(), integration.CollectRequest{Previous: previous})
@@ -305,11 +306,17 @@ func TestCollectionDoesNotMigrateExistingCompletedNotes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content := strings.Replace(string(data), "radar-state: open", "radar-state: done", 1)
-	content = strings.Replace(content, "radar-completed-at:", "radar-completed-at: 2026-08-25T12:00:00Z", 1)
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	content := string(data)
+	current, err := readNote(path)
+	if err != nil {
 		t.Fatal(err)
 	}
+	current.State = "done"
+	current.CompletedAt = "2026-08-25T12:00:00Z"
+	if err := taskdb.Put(&current.Task); err != nil {
+		t.Fatal(err)
+	}
+
 	for range 2 {
 		current := collectedArchiveRef(t, source)
 		if current.Metadata["note_path"] != path || current.Status != "done" {

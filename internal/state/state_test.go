@@ -650,7 +650,7 @@ func TestLoadRejectsHugeStateFile(t *testing.T) {
 	}
 }
 
-func TestNewStoreRejectsMalformedStateAndDiscardsIncompatibleCache(t *testing.T) {
+func TestNewStoreRejectsMalformedAndLegacyJSONWithoutDiscardingData(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	malformedPath := filepath.Join(t.TempDir(), "malformed.json")
 	t.Setenv("RADAR_STATE", malformedPath)
@@ -666,13 +666,10 @@ func TestNewStoreRejectsMalformedStateAndDiscardsIncompatibleCache(t *testing.T)
 	if err := os.WriteFile(incompatiblePath, []byte(fmt.Sprintf(`{"version":%d,"task_records":[],"source_refs":[]}`, stateVersion-1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewStore(logger)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := NewStore(logger); err == nil {
+		t.Fatal("legacy JSON was accepted as a SQLite database")
 	}
-	if len(store.Tasks()) != 0 {
-		t.Fatalf("tasks = %+v, want clean rebuildable cache", store.Tasks())
-	}
+
 }
 
 func TestPrimaryLifecycleAuthorityOverridesContributingWorkItems(t *testing.T) {

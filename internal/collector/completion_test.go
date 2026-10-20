@@ -276,18 +276,23 @@ func TestAuthoredCompletionDoesNotProjectFailedOrStaleNoteWrites(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				if err := os.Chmod(filepath.Dir(path), 0o500); err != nil {
+				if err := os.Chmod(filepath.Dir(os.Getenv("RADAR_STATE")), 0o500); err != nil {
 					t.Fatal(err)
 				}
-				t.Cleanup(func() { _ = os.Chmod(filepath.Dir(path), 0o755) })
+				t.Cleanup(func() { _ = os.Chmod(filepath.Dir(os.Getenv("RADAR_STATE")), 0o755) })
 			}
 			result = f.apply(result, sources)
+			if !stale {
+				if err := os.Chmod(filepath.Dir(os.Getenv("RADAR_STATE")), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
 			f.assertState(t, "open")
 			if result.Sources[0].Status != "error" || !strings.Contains(result.Sources[0].Detail, "lifecycle reconciliation failed") {
 				t.Fatalf("source status = %+v", result.Sources[0])
 			}
 			if !stale {
-				if err := os.Chmod(filepath.Dir(path), 0o755); err != nil {
+				if err := os.Chmod(filepath.Dir(os.Getenv("RADAR_STATE")), 0o755); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -326,7 +331,7 @@ func TestAuthoredCompletionRequiresSuccessfulNoteCollection(t *testing.T) {
 	collected := f.notes.Collect(context.Background(), integration.CollectRequest{})
 	for _, observation := range collected.Observations {
 		if observation.Ref.ID != f.note.ID {
-			if err := os.WriteFile(observation.Ref.Metadata["note_path"], []byte("Invalid note"), 0o644); err != nil {
+			if err := os.WriteFile(observation.Ref.Metadata["note_path"], []byte("---\nradar-state: open\n---\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -336,7 +341,7 @@ func TestAuthoredCompletionRequiresSuccessfulNoteCollection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "radar-state: open") {
+	if len(data) != 0 {
 		t.Fatalf("note was completed during failed collection: %s", data)
 	}
 }

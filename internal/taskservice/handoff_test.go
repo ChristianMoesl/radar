@@ -14,6 +14,7 @@ import (
 	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/state"
+	"radar/internal/taskdb"
 	"radar/internal/workspacegc"
 )
 
@@ -60,10 +61,15 @@ func assertHandoff(t *testing.T, f *fixture, attention string) protocol.Task {
 	if !found || !ref.AgentReview || ref.Signal == "done" || task.Attention != attention || task.DoneAt != "" {
 		t.Fatalf("handoff = %+v, note = %+v, want %s", task, ref, attention)
 	}
-	data, err := os.ReadFile(ref.Metadata["note_path"])
-	if err != nil || !strings.Contains(string(data), "radar-agent-review: true") || !strings.Contains(string(data), "radar-state: open") {
-		t.Fatalf("handoff not durable: %s %v", data, err)
+	persisted, err := taskdb.Find(strings.TrimPrefix(ref.ID, "obsidian:task:"))
+	if err != nil || !persisted.AgentReview || persisted.State != "open" {
+		t.Fatalf("handoff not durable: %+v %v", persisted, err)
 	}
+	data, err := os.ReadFile(ref.Metadata["note_path"])
+	if err != nil || len(data) != 0 {
+		t.Fatalf("state operation changed note bytes: %q %v", data, err)
+	}
+
 	return task
 }
 

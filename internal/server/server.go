@@ -129,7 +129,10 @@ func (s *Server) handle(conn net.Conn) {
 
 		s.logger.Debug("request received", "method", req.Method)
 		if taskID, ok := strings.CutPrefix(req.Method, "ack:"); ok {
-			s.store.Acknowledge(taskID)
+			if err := s.store.Acknowledge(taskID); err != nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error()})
+				continue
+			}
 			_ = encoder.Encode(s.tasksResponse())
 			continue
 		}
@@ -205,7 +208,7 @@ func (s *Server) handle(conn net.Conn) {
 				}
 			}
 			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), GarbageCollectionResult: &result})
-		case "task-create", "task-done", "task-reopen", "task-priority", "task-mute", "task-unmute":
+		case "task-create", "task-done", "task-reopen", "task-priority", "task-mute", "task-unmute", "task-title", "task-note":
 			if s.taskMutation == nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "task mutations are not configured", Revision: s.store.Revision()})
 				continue
