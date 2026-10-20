@@ -58,7 +58,19 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(proxy.diagnostics('OAuth login waiting for approval'), [])
         self.assertEqual(proxy.diagnostics('gh: temporary failure (HTTP 503) private-fixture'), ['http_5xx'])
         self.assertEqual(proxy.login_progress('Authentication successful! private-fixture\nSaved profile example.'),
-                         {'token_exchange_completed': True, 'profile_saved': True, 'native_timeout': False})
+                         {'polling_started': False, 'token_exchange_completed': True, 'profile_saved': True, 'native_timeout': False})
+
+    def test_native_driver_declines_only_the_twg_local_browser_prompt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            native = Path(directory) / 'twg'
+            native.write_text('#!/usr/bin/env python3\nimport os,tty,select\ntty.setraw(0)\nprint("Open in browser?", flush=True)\n'
+                              'answer=os.read(0,1).decode()\n'
+                              'print("Unrelated confirmation?", flush=True)\nassert not select.select([0],[],[],.1)[0]\n'
+                              'print("Waiting for authentication in browser" if answer=="n" else "wrong answer", flush=True)\n')
+            native.chmod(0o700)
+            result = subprocess.run(['python3', str(proxy.LOGIN), str(native)], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0)
+            self.assertTrue(proxy.login_progress(result.stdout)['polling_started'])
 
     def test_callback_relay_preserves_the_sandbox_destination(self):
         binary = io.BytesIO()

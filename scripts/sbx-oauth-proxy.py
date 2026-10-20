@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shlex
 import signal
 import subprocess
 import sys
@@ -21,6 +20,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 BRIDGE = ROOT / "scripts/sbx-oauth-callback.mjs"
+LOGIN = ROOT / "scripts/sbx-oauth-login.py"
 ACCESS = "radar-proxy-access-sentinel"
 REFRESH = "radar-proxy-refresh-sentinel"
 PROFILE = "radar-proxy-test"
@@ -126,7 +126,8 @@ def diagnostics(value):
 
 
 def login_progress(value):
-    return {"token_exchange_completed": "Authentication successful!" in value,
+    return {"polling_started": "Waiting for authentication in browser" in value or "Waiting for browser authentication" in value,
+            "token_exchange_completed": "Authentication successful!" in value,
             "profile_saved": "Saved profile " in value,
             "native_timeout": "Login timed out after " in value}
 
@@ -248,7 +249,7 @@ def worker(directory):
         argv = ["sbx", "exec", "-e", "TWG_CONFIG_DIR=/home/agent/.config/radar-proxy-twg",
                 "-e", "TWG_BACKGROUND_UPDATE_CHECK=0", "-e", "DD_TOKEN_STORAGE=file",
                 "-e", "PUP_CONFIG_DIR=/home/agent/.config/radar-proxy-pup", "-e", "BROWSER=/bin/false", name,
-                "script", "-q", "-e", "-c", shlex.join(args), "/dev/null"]
+                "python3", "-c", LOGIN.read_text(), *args]
         with (directory / "native-login.log").open("w") as log:
             child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, text=True)
             deadline, authorization, delivered = time.monotonic() + 600, None, False
@@ -256,13 +257,18 @@ def worker(directory):
             while child.poll() is None and time.monotonic() < deadline:
                 if authorization is None:
                     authorization = challenge(provider, (directory / "native-login.log").read_text())
-                    if authorization:
+                    # TWG displays the URL before its local-browser question.
+                    # Do not ask the user until that question is answered and
+                    # the native CLI has actually entered device-token polling.
+                    if authorization and (provider != "twg" or login_progress((directory / "native-login.log").read_text())["polling_started"]):
                         value = {"provider": provider, "run_id": os.environ["GITHUB_RUN_ID"],
                                  "authorization_url": authorization}
                         if provider == "pup":
                             value["callback_public_key"] = (directory / "callback.key.pub").read_text()
                         write(directory / "challenge.json", value)
                         publish(directory, value)
+                    else:
+                        authorization = None
                 progress = login_progress((directory / "native-login.log").read_text()) if provider == "twg" else None
                 if progress and progress != last_progress:
                     report["login_progress"] = progress

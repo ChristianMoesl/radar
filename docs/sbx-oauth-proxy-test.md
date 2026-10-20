@@ -43,6 +43,10 @@ Download `sbx-oauth-challenge-<run-id>` as soon as its upload step finishes.
 `challenge.json` contains only the provider authorization URL, run ID and, for
 Pup, an ephemeral public key. Native diagnostics stay on the private runner.
 Open the URL and approve the intended account. TWG uses device authorization.
+The test declines TWG's question about opening a browser inside the sandbox and
+publishes its challenge only after native device-token polling starts. The CLI's
+short approval window begins then; approve promptly. No provider grant or other
+confirmation is answered automatically.
 The same sanitized challenge is published as a neutral `SBX OAuth approval`
 check on the tested commit, readable through GitHub's check-runs API while the
 workflow is waiting. Private logs and credential values are never check output.
