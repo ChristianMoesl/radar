@@ -110,10 +110,10 @@ func TestReleasedTFCTL(t *testing.T) {
 			return cmd.CombinedOutput()
 		}
 		t.Cleanup(func() {
-			for _, args := range [][]string{{"remove-trusted-cert", "-d", cert}, {"delete-certificate", "-Z", fingerprint, keychain}} {
-				if output, err := security(args...); err != nil {
-					t.Errorf("%s: %s: %v", args[0], output, err)
-				}
+			// Delete the certificate and its trust record together. The separate
+			// remove-trusted-cert command requests GUI authorization on macOS 26.
+			if output, err := security("delete-certificate", "-t", "-Z", fingerprint, keychain); err != nil {
+				t.Errorf("delete fixture certificate and trust: %s: %v", output, err)
 			}
 		})
 		t.Log("trusting the disposable fixture certificate")
