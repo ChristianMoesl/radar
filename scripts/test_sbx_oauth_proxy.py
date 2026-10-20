@@ -57,6 +57,8 @@ class Boundaries(unittest.TestCase):
         self.assertNotIn('private-fixture', str(labels))
         self.assertEqual(proxy.diagnostics('OAuth login waiting for approval'), [])
         self.assertEqual(proxy.diagnostics('gh: temporary failure (HTTP 503) private-fixture'), ['http_5xx'])
+        self.assertEqual(proxy.diagnostics('Login timed out after 5 minutes'), ['login_timeout'])
+        self.assertTrue(proxy.login_progress('Login timed\r\nout after 5 minutes')['native_timeout'])
         self.assertEqual(proxy.login_progress('Authentication successful! private-fixture\nSaved profile example.'),
                          {'polling_started': False, 'token_exchange_completed': True, 'profile_saved': True, 'native_timeout': False})
 

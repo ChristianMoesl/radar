@@ -112,10 +112,11 @@ def diagnostics(value):
     # Fixed labels only: provider bodies/headers/URLs never escape.
     patterns = {"terminal_required": r"not a tty|interactive terminal|is not a terminal|stdin.*closed",
                 "image_pull": r"pull access denied|failed to pull|manifest unknown|failed to resolve reference",
-                "network": r"connection refused|network.*denied|network.*unreachable|timed out",
+                "network": r"connection refused|network.*denied|network.*unreachable|network timeout|connection timed out",
                 "credential_binding": r"binding.*(?:missing|denied|not approved)|credential.*(?:missing|unavailable|denied)",
                 "authorization_expired": r"expired_token|device code.*expired|authorization.*expired",
                 "authorization_denied": r"access_denied|authorization.*denied",
+                "login_timeout": r"login\s+timed\s+out|login_timeout",
                 "grant_rejected": r"invalid_grant|invalid_client",
                 "http_401": r"HTTP 401|\(401\)", "http_403": r"HTTP 403|\(403\)",
                 "http_404": r"HTTP 404|\(404\)", "http_422": r"HTTP 422|\(422\)",
@@ -126,6 +127,7 @@ def diagnostics(value):
 
 
 def login_progress(value):
+    value = ' '.join(re.sub(r'\x1b\[[0-9;?]*[A-Za-z]', '', value).split())
     return {"polling_started": "Waiting for authentication in browser" in value or "Waiting for browser authentication" in value,
             "token_exchange_completed": "Authentication successful!" in value,
             "profile_saved": "Saved profile " in value,
@@ -283,9 +285,14 @@ def worker(directory):
                     except Failure as error:
                         report["callback_delivery_error"] = str(error)
                 time.sleep(3)
-            hints = diagnostics((directory / "native-login.log").read_text())
+            final_console = (directory / "native-login.log").read_text()
+            hints = diagnostics(final_console)
+            if provider == "twg":
+                report["login_progress"] = login_progress(final_console)
             report["native_exit_code"] = child.poll()
             require(child.poll() is not None, "Native CLI login approval window timed out after 600 seconds; start a new login")
+            require(not report.get("login_progress", {}).get("native_timeout"),
+                    "Native CLI device approval deadline expired; start a new login")
             require(child.poll() == 0, "Native CLI login did not complete (" + ','.join(hints) + "); private diagnostics withheld")
         report["checks"].append("native_cli_login")
         report["phase"] = "identity_read_and_masking"
