@@ -22,6 +22,7 @@ func TestCoreDoesNotImportConcreteIntegrations(t *testing.T) {
 		"radar/internal/integration/obsidian",
 		"radar/internal/integration/sbx",
 		"radar/internal/integration/tmux",
+		"radar/internal/integration/terraform",
 		"radar/internal/integration/workspace",
 	}
 	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, entry os.DirEntry, walkErr error) error {
@@ -67,7 +68,7 @@ func TestCoreDoesNotImportConcreteIntegrations(t *testing.T) {
 
 func TestProviderCommandsStayInsideIntegrationPackages(t *testing.T) {
 	root := repositoryRoot(t)
-	commands := map[string]bool{"gh": true, "git": true, "tmux": true, "sbx": true}
+	commands := map[string]bool{"gh": true, "git": true, "tmux": true, "sbx": true, "tfctl": true}
 	for _, directory := range []string{"cmd", "internal"} {
 		err := filepath.WalkDir(filepath.Join(root, directory), func(path string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -94,7 +95,7 @@ func TestProviderCommandsStayInsideIntegrationPackages(t *testing.T) {
 					return true
 				}
 				selector, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok || (selector.Sel.Name != "Run" && selector.Sel.Name != "Output" && selector.Sel.Name != "LookPath" && selector.Sel.Name != "Command" && selector.Sel.Name != "CommandContext") {
+				if !ok || (selector.Sel.Name != "Run" && selector.Sel.Name != "Output" && selector.Sel.Name != "OutputResult" && selector.Sel.Name != "LookPath" && selector.Sel.Name != "Command" && selector.Sel.Name != "CommandContext") {
 					return true
 				}
 				for _, argument := range call.Args {
@@ -142,7 +143,7 @@ func TestProviderCommandsStayInsideIntegrationPackages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range []string{"tmux", "sbx", "git", "gh"} {
+	for _, command := range []string{"tmux", "sbx", "git", "gh", "tfctl"} {
 		if strings.Contains(string(extension), "pi.exec(\""+command+"\"") {
 			t.Errorf("Pi extension invokes provider command %q directly", command)
 		}

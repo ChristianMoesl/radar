@@ -26,7 +26,8 @@ file or bypass onboarding.
 
 Secrets are plaintext, not encrypted. They never appear in the config preview;
 see [credential storage and environment overrides](installation.md#settings-and-secrets).
-GitHub credentials stay with `gh`, and Pi provider authentication stays with Pi.
+GitHub credentials stay with `gh`, Terraform credentials stay with `tfctl`, and
+Pi provider authentication stays with Pi.
 
 The installer creates the default `AGENTS.md` only if missing. Edit it to change
 agent behavior for Radar workspace/resource management. Pi reads it before each
@@ -93,7 +94,7 @@ repository's `.radar.yaml` can override these values. See
 
 ## Optional integrations
 
-GitHub, Jira, Datadog and SBX each accept `enabled`:
+GitHub, Jira, Datadog, Terraform and SBX each accept `enabled`:
 
 | Value | Meaning |
 | --- | --- |
@@ -102,7 +103,7 @@ GitHub, Jira, Datadog and SBX each accept `enabled`:
 | `true` | Enabled; missing prerequisites are an error |
 
 For example, `github: {enabled: false}` disables GitHub collection. Setup records
-your explicit choices for GitHub, Jira, Datadog and (on macOS) SBX. New SBX
+your explicit choices for GitHub, Jira, Datadog, Terraform and (on macOS) SBX. New SBX
 setups get a complete user-owned kit and wired startup directory; existing
 explicit sandbox recipes are preserved. API failures do not silently
 disable an integration. See [activation rules](installation.md#optional-integrations)
@@ -112,6 +113,7 @@ for SBX overrides and existing-workspace behavior.
 Integration-specific configuration belongs in its guide:
 
 - [GitHub tracking and PR/activity rules](integrations/github.md)
+- [Terraform CLI profiles, personal runs and workspace scope](integrations/terraform.md)
 - [Jira issue types, status mapping and credentials](integrations/jira.md)
 - [Datadog monitor scope and credentials](integrations/datadog.md)
 - [Task notes and Obsidian](integrations/obsidian.md)

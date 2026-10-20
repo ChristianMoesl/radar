@@ -33,7 +33,7 @@ radar
 ### 2. Make it yours
 
 Choose where your repositories, workspaces and notes live. **Obsidian is optional.**
-Connect GitHub, Jira or Datadog, or start with local work. Setup installs the
+Connect GitHub, Jira, Datadog or Terraform, or start with local work. Setup installs the
 required Pi extension and lets you review changes before saving.
 
 Run **`radar`** whenever you want your dashboard. Change settings anytime with

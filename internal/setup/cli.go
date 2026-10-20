@@ -28,7 +28,7 @@ func ConnectCLI(ctx context.Context, ui UI, sys System, cli CLIConnection, compl
 		}
 		installed := sys.LookPath(cli.Name)
 		if installed {
-			version, err := sys.Output(ctx, Command{Name: cli.Name, Args: []string{"--version"}})
+			version, err := sys.Output(ctx, Command{Name: cli.Name, Args: []string{"--version"}, CaptureStderr: true})
 			if err == nil && VersionAtLeast(version, cli.MinimumVersion) {
 				break
 			}

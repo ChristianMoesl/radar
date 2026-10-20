@@ -29,6 +29,7 @@ Implemented integrations:
 
 - [Obsidian task authoring](integrations/obsidian.md)
 - [GitHub](integrations/github.md)
+- [Terraform](integrations/terraform.md)
 - [Jira](integrations/jira.md)
 - [Datadog](integrations/datadog.md)
 - [Git](integrations/git.md)
@@ -59,6 +60,7 @@ Every integration implements `Integration` by returning a descriptor with its st
 - `InteractiveAuthenticator`: performs provider-owned interactive startup authentication. SBX implements it.
 - `SetupProvider`: owns a foreground setup step and returns a reviewable, deferred file plan. SBX/tmux prepare the environment; Git/Workspace/Obsidian configure directories; GitHub/Jira/Datadog configure connections. The registry orders providers by phase and their `SetupStage` order, independently of collection order.
 - `RateLimitReporter`: exposes provider diagnostics without concrete CLI imports. GitHub implements it.
+- `DevelopmentLinkResolver`: validates structured PR relationships and returns provider-owned identities/linking keys. Terraform consumes GitHub's resolver without parsing GitHub source IDs.
 - `CodeReviewProvider`: combines source and reconciliation capabilities for a code-review system. GitHub is the active provider.
 - `WorkTracker`: combines source and reconciliation capabilities for a work tracker. Jira is the active provider.
 - Runtime integrations may combine source, action, cleanup, and resource-name capabilities for an executable local environment.
@@ -69,7 +71,8 @@ Every integration implements `Integration` by returning a descriptor with its st
 | Integration | Source | Status | Local | Reconcile | Authoring | Actions | Cleanup | Workspace role | Other capabilities |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Obsidian | yes | yes | yes | no | yes | yes | no | seed | mute preferences, binding reconciliation |
-| GitHub | yes | yes | no | yes | no | no | no | seed | filters, rate limits, bound lookup |
+| GitHub | yes | yes | no | yes | no | no | no | seed | filters, rate limits, bound lookup, development-link resolver |
+| Terraform | yes | yes | no | yes | no | yes | no | conditional seed | bound lookup |
 | Jira | yes | yes | no | yes | no | no | no | no | work tracker, bound lookup |
 | Datadog | yes | yes | no | yes | no | no | no | no | bound lookup |
 | Workspace | yes | yes | yes | no | no | no | yes | manager | managed anchor |

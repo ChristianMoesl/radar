@@ -32,6 +32,8 @@ type Command struct {
 	Args []string
 	Dir  string
 	Env  []string
+	// CaptureStderr is for non-secret version output, never API diagnostics.
+	CaptureStderr bool
 }
 
 type System interface {

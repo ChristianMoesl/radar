@@ -27,6 +27,7 @@ Offline: use `man radar` and `man radar-config`, or [ask Pi about Radar](integra
 | Tool | Guide |
 | --- | --- |
 | GitHub | [Pull requests, reviews, tracking and filters](integrations/github.md) |
+| Terraform | [Personal runs, plan summaries and confirmation](integrations/terraform.md) |
 | Jira | [Assigned issues, ticket linking and workflow states](integrations/jira.md) |
 | Datadog | [Scoped monitor alerts](integrations/datadog.md) |
 | Markdown / Obsidian | [Task notes and lifecycle](integrations/obsidian.md) |

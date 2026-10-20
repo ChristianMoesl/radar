@@ -29,11 +29,14 @@ func (RealSystem) Output(ctx context.Context, c Command) (string, error) {
 	cmd.Stdout = &out
 	cmd.Stderr = &diagnostic
 	err := cmd.Run()
-	if out.truncated {
+	if out.truncated || diagnostic.truncated {
 		return "", errors.New("command output exceeded the setup diagnostic limit")
 	}
 	if err != nil {
 		return diagnostic.String(), err
+	}
+	if c.CaptureStderr {
+		return out.String() + diagnostic.String(), nil
 	}
 	return out.String(), nil
 }

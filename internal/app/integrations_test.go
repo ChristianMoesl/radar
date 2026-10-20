@@ -13,7 +13,7 @@ func TestDefaultIntegrationsExposeRegisteredCapabilities(t *testing.T) {
 	for _, source := range registry.Sources() {
 		sources = append(sources, source.Descriptor().Name)
 	}
-	wantSources := []string{"obsidian", "github", "jira", "datadog", "workspace", "git", "tmux", "sbx", "agent"}
+	wantSources := []string{"obsidian", "github", "terraform", "jira", "datadog", "workspace", "git", "tmux", "sbx", "agent"}
 	if !equalStrings(sources, wantSources) {
 		t.Fatalf("sources = %v, want %v", sources, wantSources)
 	}
@@ -42,7 +42,7 @@ func TestDefaultIntegrationsExposeRegisteredCapabilities(t *testing.T) {
 	}{
 		{integration.SetupEnvironment, []string{"sbx", "tmux"}},
 		{integration.SetupDirectories, []string{"git", "workspace", "obsidian"}},
-		{integration.SetupConnections, []string{"github", "jira", "datadog"}},
+		{integration.SetupConnections, []string{"github", "jira", "datadog", "terraform"}},
 	} {
 		var names []string
 		for _, provider := range registry.SetupProviders(tc.phase) {

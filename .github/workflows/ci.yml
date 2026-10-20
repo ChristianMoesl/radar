@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   provider-cli-contracts:
-    name: Pup and TWG contracts (${{ matrix.os }}, offline provider fixtures)
+    name: Provider CLI contracts (${{ matrix.os }}, offline provider fixtures)
     strategy:
       fail-fast: false
       matrix:
@@ -22,6 +22,29 @@ jobs:
       - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
+      - name: Install checksum-pinned tfctl 0.4.0 in the runner temp directory
+        run: |
+          python3 - <<'PY'
+          import hashlib, io, os, pathlib, platform, urllib.request, zipfile
+          arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine().lower()]
+          target = platform.system().lower() + "_" + arch
+          expected = {
+              "linux_amd64": "055d365cf165708dd304747f27a7242c51ce61a0bf680bd83fd3abe7cbcaa356",
+              "linux_arm64": "5f2caf7900b8f43dd72f390b992bafceab4ae85bbc58b60325bb1888ef9a0e53",
+              "darwin_arm64": "e53f2b965eec2435d5543ff4b6ff799b4beac0e0c233a3a355158abe4c524632",
+          }[target]
+          with urllib.request.urlopen("https://releases.hashicorp.com/tfctl/0.4.0/tfctl_0.4.0_" + target + ".zip", timeout=60) as response:
+              data = response.read()
+          if hashlib.sha256(data).hexdigest() != expected:
+              raise SystemExit("tfctl release checksum mismatch")
+          destination = pathlib.Path(os.environ["RUNNER_TEMP"]) / "tfctl-contract"
+          destination.mkdir()
+          with zipfile.ZipFile(io.BytesIO(data)) as archive:
+              (destination / "tfctl").write_bytes(archive.read("tfctl"))
+          (destination / "tfctl").chmod(0o755)
+          PY
+      - name: Verify personal tfctl identity and run JSON against a TLS fixture
+        run: RADAR_TEST_TFCTL="$RUNNER_TEMP/tfctl-contract/tfctl" go test ./internal/integration/terraform -run TestReleasedTFCTL -v
       - name: Install checksum-verified Pup 2.0.0 in the runner temp directory
         run: |
           curl -fsSL https://raw.githubusercontent.com/DataDog/pup/v2.0.0/install.sh -o "$RUNNER_TEMP/install-pup.sh"

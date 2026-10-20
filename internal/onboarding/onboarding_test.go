@@ -61,6 +61,10 @@ func (u *fakeUI) Input(q question) (string, error) {
 	return value, nil
 }
 func (u *fakeUI) Confirm(title string, initial bool) (bool, error) {
+	// Existing wizard scenarios leave the separately tested Terraform opt-in off.
+	if title == "Connect Radar to Terraform?" {
+		return false, nil
+	}
 	u.titles = append(u.titles, title)
 	if u.defaults == nil {
 		u.defaults = map[string]bool{}

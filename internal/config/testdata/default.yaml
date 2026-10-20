@@ -92,6 +92,15 @@ datadog:
     - Alert
     - Warn
     - No Data
+# Omit enabled to detect configured prerequisites; true requires them and false disables collection.
+# Tracks only runs created by the personal user authenticated through tfctl.
+terraform:
+  # Existing tfctl profile; its hostname and credentials remain managed by tfctl.
+  profile: default
+  # Organization containing the selected workspaces. Empty disables automatic collection.
+  organization: ""
+  # Exact remote workspace names to collect; an empty list disables automatic collection.
+  workspaces: []
 obsidian:
   # Task notes are stored in a Tasks/ folder here. An ordinary directory or an Obsidian vault works.
   vault_path: ""

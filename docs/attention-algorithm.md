@@ -163,6 +163,15 @@ Datadog contributes configured unhealthy monitor states during the two-minute fu
 
 ## Acknowledgements
 
+Terraform runs contribute at the same source presentation/lifecycle level as
+GitHub PRs. Jira retains preferred task titles. Run approval/policy-override
+waits and unreviewed terminal failures need attention; other active run stages
+are in progress. Applied, successful plan-only/no-change, canceled, and discarded
+runs complete their own contribution. Acknowledging a terminal failure quiets it;
+a confirmed refresh then completes that contribution while preserving its failed
+outcome. Acknowledgement cannot complete an active approval wait. See the
+[Terraform guide](integrations/terraform.md) for exact ownership and recovery.
+
 Acknowledgement is for activity that you have already seen.
 
 - Acknowledging a task can suppress already-seen general comment activity.

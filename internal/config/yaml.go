@@ -12,6 +12,10 @@ const configHeader = "Radar configuration — managed by `radar setup`.\n" +
 
 // Guidance lives beside the schema; values always come from Config/Default.
 var configComments = map[string]string{
+	"terraform":                            "Omit enabled to detect configured prerequisites; true requires them and false disables collection.\nTracks only runs created by the personal user authenticated through tfctl.",
+	"terraform.profile":                    "Existing tfctl profile; its hostname and credentials remain managed by tfctl.",
+	"terraform.organization":               "Organization containing the selected workspaces. Empty disables automatic collection.",
+	"terraform.workspaces":                 "Exact remote workspace names to collect; an empty list disables automatic collection.",
 	"repository_dirs":                      "Directories searched for existing repository checkouts, not Radar workspaces.",
 	"workspace.root_dir":                   "Radar-managed workspaces live here, separately from your original checkouts.",
 	"workspace.auto_confirm":               "Apply validated workspace changes without prompting. Set false to require confirmation.",

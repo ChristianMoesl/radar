@@ -9,6 +9,7 @@ Radar is a CLI-first Go application with a terminal UI, scriptable commands, wor
 - `internal/integration/`: source-neutral capability interfaces, observation model, and source-compiled implementations. Provider commands, parsers, identities, settings, and workspace drivers stay below this boundary.
 - `internal/integration/obsidian/`: Obsidian-authored task notes, mutations, status, and open action.
 - `internal/integration/github/`: GitHub source facts and remote state resolution.
+- `internal/integration/terraform/`: personal tfctl run collection, plan summaries, bound recovery, and source actions.
 - `internal/integration/datadog/`: Datadog monitor source facts and recovery reconciliation.
 - `internal/integration/git/`: Git worktree source facts, repository identity, cleanup, and code-workspace provider.
 - `internal/integration/jira/`: Jira Cloud issue source facts and remote state resolution.

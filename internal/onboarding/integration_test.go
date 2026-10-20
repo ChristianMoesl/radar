@@ -259,6 +259,7 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 					terminal.answer(t, "Pup OAuth session name", "\r")
 					terminal.answer(t, "Datadog monitor query", "tag:team:platform\r")
 				}
+				terminal.answer(t, "Connect Radar to Terraform?", "n\r")
 				if choices == 0 && !existing {
 					// Inspect config and credentials through the actual terminal UI.
 					// Viewing either must not save or reveal secret values.
@@ -322,6 +323,7 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 							again.answer(t, title, "\r")
 						}
 					}
+					again.answer(t, "Connect Radar to Terraform?", "n\r")
 					again.answer(t, "[Enter] Save", "\r")
 					select {
 					case err := <-again.done:

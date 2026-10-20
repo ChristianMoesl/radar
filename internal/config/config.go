@@ -13,22 +13,24 @@ import (
 	jirasettings "radar/internal/integration/jira/settings"
 	obsidiansettings "radar/internal/integration/obsidian/settings"
 	sbxsettings "radar/internal/integration/sbx/settings"
+	terraformsettings "radar/internal/integration/terraform/settings"
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/pi"
 )
 
 type Config struct {
-	RepositoryDirs      []string             `yaml:"repository_dirs,omitempty"`
-	Workspace           WorkspaceConfig      `yaml:"workspace"`
-	Model               string               `yaml:"model,omitempty"`
-	Thinking            string               `yaml:"thinking,omitempty"`
-	LinkingMarkPrefixes []string             `yaml:"linking_mark_prefixes"`
-	SBX                 SBXConfig            `yaml:"sbx"`
-	Tmux                sessionlayout.Config `yaml:"tmux"`
-	GitHub              GitHubConfig         `yaml:"github"`
-	Jira                JiraConfig           `yaml:"jira"`
-	Datadog             DatadogConfig        `yaml:"datadog"`
-	Obsidian            ObsidianConfig       `yaml:"obsidian"`
+	RepositoryDirs      []string                 `yaml:"repository_dirs,omitempty"`
+	Workspace           WorkspaceConfig          `yaml:"workspace"`
+	Model               string                   `yaml:"model,omitempty"`
+	Thinking            string                   `yaml:"thinking,omitempty"`
+	LinkingMarkPrefixes []string                 `yaml:"linking_mark_prefixes"`
+	SBX                 SBXConfig                `yaml:"sbx"`
+	Tmux                sessionlayout.Config     `yaml:"tmux"`
+	GitHub              GitHubConfig             `yaml:"github"`
+	Jira                JiraConfig               `yaml:"jira"`
+	Datadog             DatadogConfig            `yaml:"datadog"`
+	Terraform           terraformsettings.Config `yaml:"terraform"`
+	Obsidian            ObsidianConfig           `yaml:"obsidian"`
 }
 
 type WorkspaceConfig struct {
@@ -116,6 +118,7 @@ func Default() Config {
 		Jira:                jirasettings.Default(),
 		Datadog:             datadogsettings.Default(),
 		GitHub:              githubsettings.Default(),
+		Terraform:           terraformsettings.Default(),
 	}
 	return cfg
 }
@@ -138,6 +141,7 @@ func applyDefaults(cfg *Config) {
 	sbxsettings.ApplyDefaults(&cfg.SBX)
 	jirasettings.ApplyDefaults(&cfg.Jira)
 	datadogsettings.ApplyDefaults(&cfg.Datadog)
+	terraformsettings.ApplyDefaults(&cfg.Terraform)
 	for i := range cfg.LinkingMarkPrefixes {
 		cfg.LinkingMarkPrefixes[i] = strings.ToUpper(strings.TrimSpace(cfg.LinkingMarkPrefixes[i]))
 	}
@@ -145,6 +149,9 @@ func applyDefaults(cfg *Config) {
 }
 
 func validate(cfg Config) error {
+	if err := terraformsettings.Validate(cfg.Terraform); err != nil {
+		return err
+	}
 	if err := githubsettings.Validate(cfg.GitHub); err != nil {
 		return err
 	}
