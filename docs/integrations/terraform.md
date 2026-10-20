@@ -147,8 +147,10 @@ make test
 The opt-in release test uses the real CLI against a local TLS service, trusted
 through a test CA, with an isolated fixture profile and synthetic token. It
 uses a unique short-lived certificate. On macOS, the fixture runs only on a
-disposable GitHub runner, temporarily adding and removing its system Keychain
-trust because the native verifier ignores `SSL_CERT_FILE`.
+disposable GitHub runner, adding its system Keychain trust because the native
+verifier ignores `SSL_CERT_FILE`. Cleanup deletes the certificate; runner disposal
+removes the remaining trust record, whose native removal requires a GUI on
+macOS 26. Developer trust stores are never changed.
 The test qualifies version/auth/API JSON and read-only query construction. The Linux amd64
 0.4.0 archive was checked against HashiCorp's published SHA256:
 `055d365cf165708dd304747f27a7242c51ce61a0bf680bd83fd3abe7cbcaa356`.
