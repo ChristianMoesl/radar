@@ -2,16 +2,27 @@ package terraform
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha1"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"radar/internal/integration"
 	"radar/internal/integration/terraform/settings"
@@ -25,12 +36,15 @@ func TestReleasedTFCTL(t *testing.T) {
 	if binary == "" {
 		t.Skip("set RADAR_TEST_TFCTL to the verified tfctl 0.4.0 binary")
 	}
+	if runtime.GOOS == "darwin" && os.Getenv("GITHUB_ACTIONS") != "true" {
+		t.Skip("macOS TLS fixture requires system trust on a disposable GitHub runner")
+	}
 	var rejected atomic.Bool
 	var reads atomic.Int32
 	run := runFixture("run-fixture", "planning", "user-me")
 	run.Relationships["plan"] = rel("plan-fixture", "plans")
 	plan := resource{ID: "plan-fixture", Type: "plans", Attributes: raw(map[string]any{"resource-additions": 1, "resource-changes": 0, "resource-destructions": 2})}
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" || r.Header.Get("Authorization") != "Bearer terraform-fixture" {
 			t.Error("request must use the profile's token for GET only")
 			w.WriteHeader(403)
@@ -62,6 +76,8 @@ func TestReleasedTFCTL(t *testing.T) {
 			w.WriteHeader(404)
 		}
 	}))
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{releaseFixtureCertificate(t)}}
+	server.StartTLS()
 	defer server.Close()
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "profiles"), 0700); err != nil {
@@ -78,6 +94,22 @@ func TestReleasedTFCTL(t *testing.T) {
 	cert := filepath.Join(dir, "ca.pem")
 	if err := os.WriteFile(cert, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "darwin" {
+		// Go's macOS verifier uses Keychain rather than SSL_CERT_FILE. This is
+		// restricted above to disposable CI runners; never alter developer trust.
+		fingerprint := fmt.Sprintf("%X", sha1.Sum(server.Certificate().Raw))
+		keychain := "/Library/Keychains/System.keychain"
+		t.Cleanup(func() {
+			for _, args := range [][]string{{"remove-trusted-cert", "-d", cert}, {"delete-certificate", "-Z", fingerprint, keychain}} {
+				if output, err := exec.Command("sudo", append([]string{"-n", "security"}, args...)...).CombinedOutput(); err != nil {
+					t.Errorf("remove fixture trust: %s: %v", output, err)
+				}
+			}
+		})
+		if output, err := exec.Command("sudo", "-n", "security", "add-trusted-cert", "-d", "-r", "trustRoot", "-k", keychain, cert).CombinedOutput(); err != nil {
+			t.Fatalf("trust fixture certificate: %s: %v", output, err)
+		}
 	}
 	f := func(ctx context.Context, c setup.Command) (string, error) {
 		cmd := exec.CommandContext(ctx, binary, c.Args...)
@@ -117,4 +149,29 @@ func TestReleasedTFCTL(t *testing.T) {
 	if _, err = c.connect(context.Background(), cfg); err == nil {
 		t.Fatal("rejected token accepted")
 	}
+}
+
+func releaseFixtureCertificate(t *testing.T) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate := &x509.Certificate{
+		SerialNumber: serial, Subject: pkix.Name{CommonName: "Radar disposable tfctl fixture"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		IsCA: true, BasicConstraintsValid: true,
+		KeyUsage:    x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, certificate, certificate, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
