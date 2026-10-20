@@ -67,12 +67,19 @@ class Boundaries(unittest.TestCase):
     def test_native_driver_declines_only_the_twg_local_browser_prompt(self):
         with tempfile.TemporaryDirectory() as directory:
             native = Path(directory) / 'twg'
-            native.write_text('#!/usr/bin/env python3\nimport os,tty,select\ntty.setraw(0)\nprint("Open in browser?", flush=True)\n'
+            native.write_text('#!/usr/bin/env python3\nimport os,tty,select\n'
+                              'assert "DOCKER_AGENT_NAME" not in os.environ\n'
+                              'assert os.environ["HTTPS_PROXY"]=="http://proxy.example:8080"\n'
+                              'assert os.environ["SSL_CERT_FILE"]=="/fixture/ca.pem"\n'
+                              'assert os.environ["SSH_AUTH_SOCK"]=="/fixture/agent.sock"\n'
+                              'tty.setraw(0)\nprint("Open in browser?", flush=True)\n'
                               'answer=os.read(0,1).decode()\n'
                               'print("Unrelated confirmation?", flush=True)\nassert not select.select([0],[],[],.1)[0]\n'
                               'print("Waiting for authentication in browser" if answer=="n" else "wrong answer", flush=True)\n')
             native.chmod(0o700)
-            result = subprocess.run(['python3', str(proxy.LOGIN), str(native)], capture_output=True, text=True, timeout=5)
+            environment = dict(proxy.os.environ, DOCKER_AGENT_NAME='fixture', HTTPS_PROXY='http://proxy.example:8080',
+                               SSL_CERT_FILE='/fixture/ca.pem', SSH_AUTH_SOCK='/fixture/agent.sock')
+            result = subprocess.run(['python3', str(proxy.LOGIN), str(native)], env=environment, capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0)
             self.assertTrue(proxy.login_progress(result.stdout)['polling_started'])
 

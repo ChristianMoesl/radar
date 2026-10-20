@@ -270,10 +270,11 @@ def worker(directory):
                     # TWG displays the URL before its local-browser question.
                     # Do not ask the user until that question is answered and
                     # the native CLI has actually entered device-token polling.
-                    if authorization and (provider != "twg" or login_progress((directory / "native-login.log").read_text())["polling_started"]):
+                    console = (directory / "native-login.log").read_text()
+                    window = approval_window_seconds(console)
+                    if authorization and (provider != "twg" or (login_progress(console)["polling_started"] and window == 300)):
                         value = {"provider": provider, "run_id": os.environ["GITHUB_RUN_ID"],
                                  "authorization_url": authorization}
-                        window = approval_window_seconds((directory / "native-login.log").read_text())
                         if provider == "twg" and window:
                             value["approval_window_seconds"] = window
                         if provider == "pup":

@@ -45,7 +45,8 @@ Pup, an ephemeral public key. Native diagnostics stay on the private runner.
 Open the URL and approve the intended account. TWG uses device authorization.
 The test declines TWG's question about opening a browser inside the sandbox and
 publishes its challenge only after native device-token polling starts. The
-foreground TWG login sets `TWG_AGENT_HOST=none` to select its normal interactive
+foreground TWG login clears sandbox agent-attribution metadata and sets
+`TWG_AGENT_HOST=none` to select its normal interactive
 **five-minute** window. Later headless reads keep their regular environment.
 The observed native deadline is included as `approval_window_seconds` in the
 challenge. Coordinate browser availability before starting the run; approving
