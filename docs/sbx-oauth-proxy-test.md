@@ -83,7 +83,9 @@ must start a new login; it never reuses a captured grant from another runner.
 - Native OAuth login and the configured identity/site/profile.
 - Actual reads of the approved provider fixtures.
 - A token-endpoint request using the known refresh sentinel returns the expected
-  sentinels, with no token values printed. A real token or missing response fails.
+  sentinels, using the native public OAuth client ID and printing no token values.
+  A real token or missing response fails. Probe failures expose only a fixed error
+  category and HTTP status, with the failed verification step and completed checks.
 - The native CLI can refresh, then repeat identity/read/masking checks.
 - The same checks pass after stopping/restarting the sandbox.
 

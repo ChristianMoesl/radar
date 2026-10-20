@@ -1,5 +1,6 @@
 """Offline checks for the real proxy test's boundaries and callback channel."""
 import base64
+from contextlib import redirect_stdout
 import importlib.util
 import io
 import json
@@ -7,6 +8,8 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import urllib.error
+import urllib.parse
 import zipfile
 from unittest.mock import patch
 
@@ -17,6 +20,42 @@ spec.loader.exec_module(proxy)
 
 
 class Boundaries(unittest.TestCase):
+    def test_masking_probe_uses_the_public_client_and_withholds_provider_errors(self):
+        fixture = {'endpoint': 'https://api.example/token', 'client_id': 'public-client',
+                   'access': proxy.ACCESS, 'refresh': proxy.REFRESH}
+
+        def provider(request, timeout):
+            fields = urllib.parse.parse_qs(request.data.decode())
+            if fields.get('client_id') != ['public-client']:
+                raise urllib.error.HTTPError(request.full_url, 400, 'private-fixture', {}, None)
+            return io.BytesIO(json.dumps({'access_token': proxy.ACCESS, 'refresh_token': proxy.REFRESH}).encode())
+
+        output = io.StringIO()
+        with patch.object(proxy.sys, 'argv', ['probe', json.dumps(fixture)]), \
+                patch('urllib.request.urlopen', side_effect=provider), redirect_stdout(output):
+            exec(proxy.MASK_PROBE, {})
+        self.assertTrue(json.loads(output.getvalue())['sentinel_response'])
+        output = io.StringIO()
+        with patch.object(proxy.sys, 'argv', ['probe', json.dumps(fixture)]), \
+                patch('urllib.request.urlopen', side_effect=urllib.error.HTTPError(fixture['endpoint'], 403, 'private-fixture', {}, None)), \
+                redirect_stdout(output):
+            exec(proxy.MASK_PROBE, {})
+        self.assertEqual(json.loads(output.getvalue()), {'sentinel_response': False, 'failure': 'http', 'http_status': 403})
+        self.assertNotIn('private-fixture', output.getvalue())
+
+    def test_partial_verification_does_not_claim_masking_passed(self):
+        status = {'authenticated': True, 'has_refresh': True, 'token_type': 'bearer',
+                  'site': 'datadoghq.eu', 'org': proxy.PROFILE, 'scopes': ['monitors_read']}
+        report = {}
+        cfg = {'site': 'datadoghq.eu', 'monitor_query': 'tag:radar-oauth-e2e'}
+        kit = proxy.kit('pup', cfg, 'docker.io/christianmoesl/radar-sandbox:test')
+        with patch.object(proxy, 'sbx', side_effect=[status, {'monitors': [{'tags': ['radar-oauth-e2e']}]},
+                {'sentinel_response': False, 'failure': 'http', 'http_status': 400}]):
+            with self.assertRaises(proxy.Failure):
+                proxy.verify('pup', cfg, 'sandbox', kit, report, 'public-client')
+        self.assertEqual(report['verification_step'], 'token_response_masking')
+        self.assertEqual(report['verified'], {'oauth_identity': True, 'approved_fixture_read': True, 'sentinel_token_response': False})
+
     def test_only_authorization_link_escapes_native_diagnostics(self):
         url = 'https://auth.atlassian.com/oauth/activate?user_code=ABC-123'
         self.assertEqual(proxy.challenge('twg', 'private-token\n' + url + '\nprivate diagnostic'), url)

@@ -168,19 +168,34 @@ def sbx(name, *args, timeout=90, body=None, parse=False):
 # This private probe uses known sentinels, never obtains a host access token,
 # and returns only boolean assertions. It rejects a real token in the response.
 MASK_PROBE = r'''
-import json,sys,urllib.request,urllib.parse
-r=json.loads(sys.argv[1]); body=urllib.parse.urlencode({"grant_type":"refresh_token","refresh_token":r["refresh"]}).encode()
+import json,ssl,sys,urllib.error,urllib.request,urllib.parse
+r=json.loads(sys.argv[1]); body=urllib.parse.urlencode({"client_id":r["client_id"],"grant_type":"refresh_token","refresh_token":r["refresh"]}).encode()
 request=urllib.request.Request(r["endpoint"],data=body,headers={"Content-Type":"application/x-www-form-urlencoded"})
 try:
  with urllib.request.urlopen(request,timeout=20) as response: data=json.load(response)
- assert data.get("access_token")==r["access"] and data.get("refresh_token")==r["refresh"]
- print(json.dumps({"sentinel_response":True}))
+ masked=data.get("access_token")==r["access"] and data.get("refresh_token")==r["refresh"]
+ print(json.dumps({"sentinel_response":masked,"failure":None if masked else "sentinel_mismatch"}))
+except urllib.error.HTTPError as error:
+ print(json.dumps({"sentinel_response":False,"failure":"http","http_status":error.code}))
+except urllib.error.URLError as error:
+ print(json.dumps({"sentinel_response":False,"failure":"tls" if isinstance(error.reason,ssl.SSLError) else "network"}))
 except Exception:
- print(json.dumps({"sentinel_response":False}));sys.exit(1)
+ print(json.dumps({"sentinel_response":False,"failure":"response_format"}))
 '''
 
 
-def verify(provider, cfg, name, spec):
+def public_client_id(provider, authorization):
+    # Public client identifier from the pinned TWG release / native Pup URL.
+    if provider == "twg":
+        return "zjAE9OPtU9ercrK02sZowEPwoPlrRPTg"
+    values = parse_qs(urlparse(authorization or "").query).get("client_id", [])
+    require(len(values) == 1 and re.fullmatch(r'[A-Za-z0-9_-]{1,128}', values[0]), "Native public OAuth client ID missing")
+    return values[0]
+
+
+def verify(provider, cfg, name, spec, report, client_id):
+    report["verification_step"] = "oauth_identity"
+    report["verified"] = {"oauth_identity": False, "approved_fixture_read": False, "sentinel_token_response": False}
     if provider == "twg":
         prefix = ["twg", "--profile", PROFILE, "--site", cfg["cloud_id"], "-o", "json", "--output-summary", "none"]
         listing = sbx(name, *prefix, "auth", "profile", "list", parse=True)
@@ -191,6 +206,8 @@ def verify(provider, cfg, name, spec):
         doctor = sbx(name, *prefix, "doctor", parse=True)["data"]
         require(doctor["auth"]["resolved"]["authMethod"] == "oauth" and doctor["connectivity"]["ok"]
                 and doctor["connectivity"]["userId"].endswith("/" + cfg["account_id"]), "TWG OAuth connectivity failed")
+        report["verified"]["oauth_identity"] = True
+        report["verification_step"] = "approved_fixture_read"
         for key in cfg["issue_keys"]:
             result = sbx(name, *prefix, "jira", "workitem", "get", key, "--fields", "summary,status", "--strict", parse=True)
             require(result.get("command") == "jira.workitem.get" and len(result["data"]) == 1
@@ -201,13 +218,20 @@ def verify(provider, cfg, name, spec):
         require(status.get("authenticated") and status.get("has_refresh") and not status.get("auth_method")
                 and status.get("token_type", "").lower() == "bearer" and status.get("site") == cfg["site"]
                 and status.get("org") == PROFILE and "monitors_read" in status.get("scopes", []), "Pup OAuth session unavailable")
+        report["verified"]["oauth_identity"] = True
+        report["verification_step"] = "approved_fixture_read"
         monitors = sbx(name, *prefix, "api", "/api/v1/monitor/search", "-f", "query=" + cfg["monitor_query"], parse=True)
         require(monitors.get("monitors") and all("radar-oauth-e2e" in m.get("tags", [])
                 for m in monitors["monitors"]), "Expected approved tagged monitors")
+    report["verified"]["approved_fixture_read"] = True
+    report["verification_step"] = "token_response_masking"
     endpoint = spec["credentials"][0]["oauth"]["tokenEndpoint"]
     result = sbx(name, "python3", "-c", MASK_PROBE, json.dumps({"endpoint": "https://" + endpoint["host"] + endpoint["path"],
-                 "access": ACCESS, "refresh": REFRESH}), parse=True)
-    require(result.get("sentinel_response") is True, "Proxy token-response masking is unverified")
+                 "access": ACCESS, "refresh": REFRESH, "client_id": client_id}), parse=True)
+    require(result.get("sentinel_response") is True, "Proxy token-response masking is unverified (" +
+            str(result.get("failure")) + "; HTTP " + str(result.get("http_status")) + ")")
+    report["verified"]["sentinel_token_response"] = True
+    report.pop("verification_step", None)
 
 
 def relay(directory, authorization, name):
@@ -307,19 +331,20 @@ def worker(directory):
                     "Native CLI device approval deadline expired; start a new login")
             require(child.poll() == 0, "Native CLI login did not complete (" + ','.join(hints) + "); private diagnostics withheld")
         report["checks"].append("native_cli_login")
+        client_id = public_client_id(provider, authorization)
         report["phase"] = "identity_read_and_masking"
-        verify(provider, cfg, name, spec)
+        verify(provider, cfg, name, spec, report, client_id)
         report["checks"] += ["native_oauth_identity_and_read", "sentinel_token_response"]
         report["phase"] = "refresh"
         if provider == "twg":
             sbx(name, "twg", "--profile", PROFILE, "--site", cfg["cloud_id"], "auth", "refresh", "--force")
         else:
             sbx(name, "pup", "--org", PROFILE, "auth", "refresh")
-        verify(provider, cfg, name, spec)
+        verify(provider, cfg, name, spec, report, client_id)
         report["checks"].append("explicit_refresh")
         report["phase"] = "sandbox_restart"
         run(["sbx", "stop", name])
-        verify(provider, cfg, name, spec)
+        verify(provider, cfg, name, spec, report, client_id)
         report["checks"].append("sandbox_restart")
         report["status"] = "passed"
         report["phase"] = "completed"
