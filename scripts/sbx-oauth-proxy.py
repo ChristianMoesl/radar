@@ -117,9 +117,18 @@ def diagnostics(value):
                 "authorization_expired": r"expired_token|device code.*expired|authorization.*expired",
                 "authorization_denied": r"access_denied|authorization.*denied",
                 "grant_rejected": r"invalid_grant|invalid_client",
+                "http_401": r"HTTP 401|\(401\)", "http_403": r"HTTP 403|\(403\)",
+                "http_404": r"HTTP 404|\(404\)", "http_422": r"HTTP 422|\(422\)",
+                "http_5xx": r"HTTP 5[0-9]{2}",
                 "option": r"unknown flag|unknown option|unexpected argument",
                 "auth_site": r"AUTH_SITE_UNRESOLVED", "auth_profile": r"AUTH_PROFILE_MISSING"}
     return [name for name, pattern in patterns.items() if re.search(pattern, value, re.I)]
+
+
+def login_progress(value):
+    return {"token_exchange_completed": "Authentication successful!" in value,
+            "profile_saved": "Saved profile " in value,
+            "native_timeout": "Login timed out after " in value}
 
 
 def publish(directory, value):
@@ -234,13 +243,16 @@ def worker(directory):
         report["phase"] = "native_login"
         args = (["twg", "login", "--new-profile", PROFILE, "--site", cfg["cloud_id"]] if provider == "twg" else
                 ["pup", "auth", "login", "--site", cfg["site"], "--org", PROFILE, "--scopes", "monitors_read", "--callback-port", "8000"])
-        argv = ["sbx", "exec", "-i", "-e", "TWG_CONFIG_DIR=/home/agent/.config/radar-proxy-twg",
+        # Both native flows receive approval out of band. Keep the sandbox-owned
+        # terminal, but close host stdin so exec cannot wait on an unused pipe.
+        argv = ["sbx", "exec", "-e", "TWG_CONFIG_DIR=/home/agent/.config/radar-proxy-twg",
                 "-e", "TWG_BACKGROUND_UPDATE_CHECK=0", "-e", "DD_TOKEN_STORAGE=file",
                 "-e", "PUP_CONFIG_DIR=/home/agent/.config/radar-proxy-pup", "-e", "BROWSER=/bin/false", name,
                 "script", "-q", "-e", "-c", shlex.join(args), "/dev/null"]
         with (directory / "native-login.log").open("w") as log:
-            child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=log, stderr=log, text=True)
+            child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, text=True)
             deadline, authorization, delivered = time.monotonic() + 600, None, False
+            last_progress = None
             while child.poll() is None and time.monotonic() < deadline:
                 if authorization is None:
                     authorization = challenge(provider, (directory / "native-login.log").read_text())
@@ -251,10 +263,22 @@ def worker(directory):
                             value["callback_public_key"] = (directory / "callback.key.pub").read_text()
                         write(directory / "challenge.json", value)
                         publish(directory, value)
+                progress = login_progress((directory / "native-login.log").read_text()) if provider == "twg" else None
+                if progress and progress != last_progress:
+                    report["login_progress"] = progress
+                    if authorization:
+                        value["login_progress"] = progress
+                        publish(directory, value)
+                    last_progress = progress
                 if provider == "pup" and authorization and not delivered:
-                    delivered = relay(directory, authorization, name)
+                    try:
+                        delivered = relay(directory, authorization, name)
+                        report.pop("callback_delivery_error", None)
+                    except Failure as error:
+                        report["callback_delivery_error"] = str(error)
                 time.sleep(3)
             hints = diagnostics((directory / "native-login.log").read_text())
+            report["native_exit_code"] = child.poll()
             require(child.poll() is not None, "Native CLI login approval window timed out after 600 seconds; start a new login")
             require(child.poll() == 0, "Native CLI login did not complete (" + ','.join(hints) + "); private diagnostics withheld")
         report["checks"].append("native_cli_login")

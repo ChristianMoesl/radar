@@ -56,6 +56,9 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(labels, ['credential_binding', 'auth_site'])
         self.assertNotIn('private-fixture', str(labels))
         self.assertEqual(proxy.diagnostics('OAuth login waiting for approval'), [])
+        self.assertEqual(proxy.diagnostics('gh: temporary failure (HTTP 503) private-fixture'), ['http_5xx'])
+        self.assertEqual(proxy.login_progress('Authentication successful! private-fixture\nSaved profile example.'),
+                         {'token_exchange_completed': True, 'profile_saved': True, 'native_timeout': False})
 
     def test_callback_relay_preserves_the_sandbox_destination(self):
         binary = io.BytesIO()
