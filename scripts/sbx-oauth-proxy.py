@@ -113,7 +113,10 @@ def diagnostics(value):
     patterns = {"terminal_required": r"not a tty|interactive terminal|is not a terminal|stdin.*closed",
                 "image_pull": r"pull access denied|failed to pull|manifest unknown|failed to resolve reference",
                 "network": r"connection refused|network.*denied|network.*unreachable|timed out",
-                "credential_binding": r"credential|binding|oauth",
+                "credential_binding": r"binding.*(?:missing|denied|not approved)|credential.*(?:missing|unavailable|denied)",
+                "authorization_expired": r"expired_token|device code.*expired|authorization.*expired",
+                "authorization_denied": r"access_denied|authorization.*denied",
+                "grant_rejected": r"invalid_grant|invalid_client",
                 "option": r"unknown flag|unknown option|unexpected argument",
                 "auth_site": r"AUTH_SITE_UNRESOLVED", "auth_profile": r"AUTH_PROFILE_MISSING"}
     return [name for name, pattern in patterns.items() if re.search(pattern, value, re.I)]
@@ -189,16 +192,18 @@ def verify(provider, cfg, name, spec):
 
 def relay(directory, authorization, name):
     repository, run_id = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"]
-    name = "sbx-oauth-callback-" + run_id
-    result = run(["gh", "api", f"repos/{repository}/actions/artifacts?name={name}"], parse=True)
+    artifact_name = "sbx-oauth-callback-" + run_id
+    result = run(["gh", "api", f"repos/{repository}/actions/artifacts?name={artifact_name}"], parse=True)
     for artifact in sorted(result["artifacts"], key=lambda a: a["id"], reverse=True):
         if artifact.get("expired"):
             continue
         try:
+            require(artifact.get("size_in_bytes", 65536) < 65536, "Oversized callback artifact")
             binary = subprocess.run(["gh", "api", f"repos/{repository}/actions/artifacts/{artifact['id']}/zip"],
                                     capture_output=True, timeout=30, check=True).stdout
             require(len(binary) < 65536, "Oversized callback packet")
             with zipfile.ZipFile(io.BytesIO(binary)) as archive:
+                require(archive.getinfo("callback.txt").file_size <= 32768, "Oversized callback packet")
                 packet = archive.read("callback.txt").decode()
             plain = run(["node", str(BRIDGE), "open", str(directory / "callback.key"), run_id], body=packet)
             value = callback_url(plain, authorization)
@@ -250,6 +255,7 @@ def worker(directory):
                     delivered = relay(directory, authorization, name)
                 time.sleep(3)
             hints = diagnostics((directory / "native-login.log").read_text())
+            require(child.poll() is not None, "Native CLI login approval window timed out after 600 seconds; start a new login")
             require(child.poll() == 0, "Native CLI login did not complete (" + ','.join(hints) + "); private diagnostics withheld")
         report["checks"].append("native_cli_login")
         report["phase"] = "identity_read_and_masking"

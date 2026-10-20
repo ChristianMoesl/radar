@@ -1,11 +1,13 @@
 """Offline checks for the real proxy test's boundaries and callback channel."""
 import base64
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -50,9 +52,25 @@ class Boundaries(unittest.TestCase):
         self.assertNotIn('private-credential', str(caught.exception))
 
     def test_diagnostics_return_only_fixed_labels(self):
-        labels = proxy.diagnostics('AUTH_SITE_UNRESOLVED private-fixture credential-body https://private.example')
+        labels = proxy.diagnostics('AUTH_SITE_UNRESOLVED private-fixture credential unavailable https://private.example')
         self.assertEqual(labels, ['credential_binding', 'auth_site'])
         self.assertNotIn('private-fixture', str(labels))
+        self.assertEqual(proxy.diagnostics('OAuth login waiting for approval'), [])
+
+    def test_callback_relay_preserves_the_sandbox_destination(self):
+        binary = io.BytesIO()
+        with zipfile.ZipFile(binary, 'w') as archive:
+            archive.writestr('callback.txt', 'sealed-fixture')
+        authorization = 'https://app.datadoghq.eu/oauth2/v1/authorize?state=expected'
+        callback = 'http://127.0.0.1:8000/oauth/callback?code=fixture&state=expected'
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(proxy.os.environ, GITHUB_REPOSITORY='example/repo', GITHUB_RUN_ID='123'), \
+                patch.object(proxy, 'run', side_effect=[{'artifacts': [{'id': 1, 'size_in_bytes': 200}]}, callback]), \
+                patch.object(proxy.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, binary.getvalue())), \
+                patch.object(proxy, 'sbx') as execute:
+            self.assertTrue(proxy.relay(Path(directory), authorization, 'radar-proxy-123'))
+            self.assertEqual(execute.call_args.args[0], 'radar-proxy-123')
+            self.assertEqual(execute.call_args.kwargs['body'], callback)
 
     def test_encrypted_callback_rejects_another_run_and_tampering(self):
         with tempfile.TemporaryDirectory() as directory:
