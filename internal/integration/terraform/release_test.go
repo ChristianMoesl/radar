@@ -39,6 +39,8 @@ func TestReleasedTFCTL(t *testing.T) {
 	if runtime.GOOS == "darwin" && os.Getenv("GITHUB_ACTIONS") != "true" {
 		t.Skip("macOS TLS fixture requires system trust on a disposable GitHub runner")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	var rejected atomic.Bool
 	var reads atomic.Int32
 	run := runFixture("run-fixture", "planning", "user-me")
@@ -100,19 +102,28 @@ func TestReleasedTFCTL(t *testing.T) {
 		// restricted above to disposable CI runners; never alter developer trust.
 		fingerprint := fmt.Sprintf("%X", sha1.Sum(server.Certificate().Raw))
 		keychain := "/Library/Keychains/System.keychain"
+		security := func(args ...string) ([]byte, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, "sudo", append([]string{"-n", "security"}, args...)...)
+			cmd.WaitDelay = time.Second
+			return cmd.CombinedOutput()
+		}
 		t.Cleanup(func() {
 			for _, args := range [][]string{{"remove-trusted-cert", "-d", cert}, {"delete-certificate", "-Z", fingerprint, keychain}} {
-				if output, err := exec.Command("sudo", append([]string{"-n", "security"}, args...)...).CombinedOutput(); err != nil {
-					t.Errorf("remove fixture trust: %s: %v", output, err)
+				if output, err := security(args...); err != nil {
+					t.Errorf("%s: %s: %v", args[0], output, err)
 				}
 			}
 		})
-		if output, err := exec.Command("sudo", "-n", "security", "add-trusted-cert", "-d", "-r", "trustRoot", "-k", keychain, cert).CombinedOutput(); err != nil {
+		t.Log("trusting the disposable fixture certificate")
+		if output, err := security("add-trusted-cert", "-d", "-r", "trustRoot", "-k", keychain, cert); err != nil {
 			t.Fatalf("trust fixture certificate: %s: %v", output, err)
 		}
 	}
 	f := func(ctx context.Context, c setup.Command) (string, error) {
 		cmd := exec.CommandContext(ctx, binary, c.Args...)
+		cmd.WaitDelay = time.Second
 		if c.Env == nil {
 			c.Env = os.Environ()
 		}
@@ -125,28 +136,28 @@ func TestReleasedTFCTL(t *testing.T) {
 		return string(data), err
 	}
 	c := client{profile: "default", output: f}
-	version, err := c.version(context.Background())
+	version, err := c.version(ctx)
 	if err != nil || !setup.VersionAtLeast(version, minimumVersion) {
 		t.Fatal("release version contract", version, err)
 	}
 	cfg := settings.Config{Profile: "default", Organization: "acme", Workspaces: []string{"production-network"}}
-	session, err := c.connect(context.Background(), cfg)
+	session, err := c.connect(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if session.host != host || session.userID != "user-me" {
 		t.Fatal("account/host mismatch")
 	}
-	result := (Source{}).collect(context.Background(), session, cfg, integration.CollectRequest{})
+	result := (Source{}).collect(ctx, session, cfg, integration.CollectRequest{})
 	if !result.Complete || reads.Load() != 2 || len(result.Observations) != 1 || result.Observations[0].Ref.Metadata["destructions"] != "2" {
 		t.Fatalf("released collection: %+v, reads=%d", result, reads.Load())
 	}
 	rejected.Store(true)
-	data, err := c.run(context.Background(), "auth", "status")
+	data, err := c.run(ctx, "auth", "status")
 	if err == nil || !strings.Contains(data, `"active": false`) {
 		t.Fatal("inactive auth must retain structured stdout on nonzero exit")
 	}
-	if _, err = c.connect(context.Background(), cfg); err == nil {
+	if _, err = c.connect(ctx, cfg); err == nil {
 		t.Fatal("rejected token accepted")
 	}
 }
