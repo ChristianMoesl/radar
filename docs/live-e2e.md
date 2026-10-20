@@ -1,5 +1,9 @@
 # Live provider E2E in GitHub Actions
 
+The separate [SBX OAuth proxy test](sbx-oauth-proxy-test.md) prepares fresh native
+CLI logins on a disposable runner and checks token masking, refresh and sandbox
+restart. It uses neither the persisted live-E2E sessions nor their writeback flow.
+
 The [Live provider E2E workflow](../.github/workflows/live-e2e.yml) uses ordinary
 GitHub-hosted Ubuntu runners and the dedicated test accounts. No self-hosted
 runner is needed. Normal PR CI stays offline. Live runs execute trusted `main`

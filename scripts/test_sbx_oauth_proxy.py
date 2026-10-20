@@ -1,0 +1,76 @@
+"""Offline checks for the real proxy test's boundaries and callback channel."""
+import base64
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parent.parent
+spec = importlib.util.spec_from_file_location('proxy_test', ROOT / 'scripts/sbx-oauth-proxy.py')
+proxy = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(proxy)
+
+
+class Boundaries(unittest.TestCase):
+    def test_only_authorization_link_escapes_native_diagnostics(self):
+        url = 'https://auth.atlassian.com/oauth/activate?user_code=ABC-123'
+        self.assertEqual(proxy.challenge('twg', 'private-token\n' + url + '\nprivate diagnostic'), url)
+        self.assertEqual(proxy.challenge('twg', json.dumps({'url': url, 'secret': 'private-fixture'})), url)
+        self.assertIsNone(proxy.challenge('twg', 'https://evil.example/oauth/activate?user_code=abc'))
+
+    def test_kit_masks_tokens_and_never_writes_cli_credential_files(self):
+        for provider, cfg in [('twg', {'base_url': 'https://example.atlassian.net'}), ('pup', {})]:
+            kit = proxy.kit(provider, cfg, 'docker.io/christianmoesl/radar-sandbox:test')
+            oauth = kit['credentials'][0]['oauth']
+            self.assertFalse(oauth['passthrough'])
+            self.assertNotIn('credentialFile', oauth)
+            self.assertNotIn('apiKey', kit['credentials'][0])
+            self.assertTrue(set(oauth['resourceHosts']) <= set(kit['permissions']['network']['allow']))
+        with self.assertRaises(proxy.Failure):
+            proxy.kit('pup', {}, 'docker.io/untrusted/image:latest')
+
+    def test_callback_is_bound_to_the_original_login_and_local_listener(self):
+        authorization = 'https://app.datadoghq.eu/oauth2/v1/authorize?state=expected'
+        good = 'http://127.0.0.1:8000/oauth/callback?code=fixture&state=expected'
+        self.assertEqual(proxy.callback_url(good, authorization), good)
+        for url in [good.replace('expected', 'other'), good.replace('127.0.0.1', 'evil.example'),
+                    good.replace('8000', '9000'), good + '\nprivate-value']:
+            with self.assertRaises(proxy.Failure):
+                proxy.callback_url(url, authorization)
+
+    def test_private_cli_errors_are_not_returned(self):
+        result = subprocess.CompletedProcess(['twg'], 1, 'private-provider-output', 'private-credential')
+        with patch.object(proxy.subprocess, 'run', return_value=result):
+            with self.assertRaises(proxy.Failure) as caught:
+                proxy.run(['twg'])
+        self.assertNotIn('private-provider-output', str(caught.exception))
+        self.assertNotIn('private-credential', str(caught.exception))
+
+    def test_encrypted_callback_rejects_another_run_and_tampering(self):
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory) / 'callback.key'
+            bridge = ROOT / 'scripts/sbx-oauth-callback.mjs'
+            subprocess.run(['node', str(bridge), 'keygen', str(key), '123'], check=True, capture_output=True)
+            plain = 'http://127.0.0.1:8000/oauth/callback?code=private-fixture&state=fixture'
+            sealed = subprocess.run(['node', str(bridge), 'seal', str(key) + '.pub', '123'],
+                                    input=plain, text=True, capture_output=True, check=True).stdout
+            self.assertNotIn('private-fixture', sealed)
+            opened = subprocess.run(['node', str(bridge), 'open', str(key), '123'],
+                                    input=sealed, text=True, capture_output=True, check=True).stdout
+            self.assertEqual(opened, plain)
+            wrong = subprocess.run(['node', str(bridge), 'open', str(key), '456'],
+                                   input=sealed, text=True, capture_output=True)
+            self.assertNotEqual(wrong.returncode, 0)
+            packet = json.loads(base64.urlsafe_b64decode(sealed + '=' * (-len(sealed) % 4)))
+            packet['data'] = base64.b64encode(b'tampered').decode()
+            damaged = base64.urlsafe_b64encode(json.dumps(packet).encode()).decode().rstrip('=')
+            wrong = subprocess.run(['node', str(bridge), 'open', str(key), '123'],
+                                   input=damaged, text=True, capture_output=True)
+            self.assertNotEqual(wrong.returncode, 0)
+
+
+if __name__ == '__main__':
+    unittest.main()

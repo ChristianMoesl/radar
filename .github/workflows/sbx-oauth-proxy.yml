@@ -1,0 +1,119 @@
+name: SBX OAuth proxy qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [test, callback]
+        default: test
+        description: Start a test or deliver an encrypted Pup callback
+      provider:
+        type: choice
+        options: [twg, pup]
+        default: twg
+        description: CLI to qualify
+      configuration:
+        description: Non-secret approved fixture selectors as JSON
+        default: '{}'
+      target_run:
+        description: Original run ID (callback delivery only)
+      encrypted_callback:
+        description: Sealed callback packet; never enter a plaintext callback here
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: sbx-proxy-${{ inputs.operation }}-${{ inputs.provider }}
+  cancel-in-progress: false
+
+jobs:
+  live:
+    if: github.ref == 'refs/heads/main' && inputs.operation == 'test'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SBX_VERSION: v0.49.1
+      RADAR_SBX_PROXY_DISPOSABLE: '1'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+      - name: Install the qualified SBX runtime
+        run: |
+          curl -fsSL "https://github.com/docker/sbx-releases/releases/download/${SBX_VERSION}/DockerSandboxes-linux-amd64.tar.gz" -o "$RUNNER_TEMP/sbx.tar.gz"
+          printf '4f2aa3dc6404e3700925e6baeda72ca26d8a36768d2bfe8056f1e8ecdfd4540e  %s\n' "$RUNNER_TEMP/sbx.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/sbx.tar.gz" -C "$RUNNER_TEMP"
+          sudo env PREFIX="$RUNNER_TEMP/sbx" "$RUNNER_TEMP/docker-sbx/install.sh"
+          echo "$RUNNER_TEMP/sbx/bin" >> "$GITHUB_PATH"
+          sudo chmod a+rw /dev/kvm
+      - name: Authenticate the disposable runtime
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          printf '%s' "$DOCKERHUB_TOKEN" | sbx login --username "$DOCKERHUB_USERNAME" --password-stdin
+          sbx policy init balanced
+      - name: Prepare the proxy and start native login
+        env:
+          CONFIGURATION: ${{ inputs.configuration }}
+          PROVIDER: ${{ inputs.provider }}
+        run: |
+          umask 0077
+          printf '%s' "$CONFIGURATION" > "$RUNNER_TEMP/proxy-config.json"
+          python3 scripts/sbx-oauth-proxy.py prepare --provider "$PROVIDER" \
+            --config "$RUNNER_TEMP/proxy-config.json" --directory "$RUNNER_TEMP/proxy-test" \
+            --image docker.io/christianmoesl/radar-sandbox:2026.10.20-3ed5104a8b82-39452053689-1
+      - name: Publish the authorization challenge only
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: sbx-oauth-challenge-${{ github.run_id }}
+          path: ${{ runner.temp }}/proxy-test/challenge.json
+          retention-days: 1
+          if-no-files-found: error
+          overwrite: true
+      - name: Wait for approval and test masking, refresh and restart
+        run: python3 scripts/sbx-oauth-proxy.py wait --directory "$RUNNER_TEMP/proxy-test"
+      - name: Remove this run's disposable sandbox
+        if: always()
+        run: sbx rm --force "radar-proxy-$GITHUB_RUN_ID" || true
+      - name: Publish sanitized qualification result
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: sbx-oauth-result-${{ github.run_id }}
+          path: ${{ runner.temp }}/proxy-test/result.json
+          retention-days: 7
+          if-no-files-found: warn
+          overwrite: true
+
+  callback:
+    if: github.ref == 'refs/heads/main' && inputs.operation == 'callback'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Save the sealed packet without printing it
+        env:
+          PACKET: ${{ inputs.encrypted_callback }}
+          TARGET_RUN: ${{ inputs.target_run }}
+        run: |
+          umask 0077
+          python3 - <<'PY'
+          import os, pathlib, re
+          target, packet = os.environ['TARGET_RUN'], os.environ['PACKET']
+          assert re.fullmatch(r'[0-9]+', target)
+          assert 1 <= len(packet) <= 32768 and re.fullmatch(r'[A-Za-z0-9_-]+', packet)
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'callback.txt').write_text(packet)
+          PY
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: sbx-oauth-callback-${{ inputs.target_run }}
+          path: ${{ runner.temp }}/callback.txt
+          retention-days: 1
+          if-no-files-found: error

@@ -1,0 +1,82 @@
+# TWG/Pup through the SBX OAuth credential proxy
+
+This opt-in test qualifies SBX **0.49.1**, TWG **1.3.8** and Pup **2.0.0** on a
+disposable Linux amd64 GitHub runner with KVM. It does not change the production
+kit or adapters. Results are characterization evidence, not assumed compatibility.
+
+The isolated v2 kit declares one OAuth service and its exact token endpoint/API
+hosts. `passthrough` is false, with explicit access/refresh sentinels. There is
+no static-key fallback, host token export, credential-store copy, generated CLI
+credential file or host execution fallback. Native login creates the CLI's own
+profile; SBX is expected to mask token responses and keep real tokens on the host.
+
+The test requires an empty sandbox inventory and no prior credential bindings.
+It writes only a non-secret binding on the disposable runner. Never run it in a
+normal user HOME or against existing sandboxes. The normal global policy remains
+`balanced`; the kit declares the provider hosts. Docker Hub access uses the same
+repository secrets as the existing sandbox runtime workflow.
+
+## Start a test
+
+Dispatch [SBX OAuth proxy qualification](../.github/workflows/sbx-oauth-proxy.yml)
+on trusted `main`, operation `test`, provider `twg` or `pup`. Supply non-secret
+approved selectors as the `configuration` JSON string:
+
+```json
+{"base_url":"https://example.atlassian.net","cloud_id":"discovered-cloud-id","account_id":"verified-account-id","issue_keys":["ABC-123"]}
+```
+
+For Pup:
+
+```json
+{"site":"datadoghq.eu","monitor_query":"tag:radar-oauth-e2e"}
+```
+
+The immutable Radar image is pinned to the previously tested publication. The
+test grants Pup only `monitors_read`, performs Jira issue/monitor reads, tests
+native refresh and stops/restarts its own sandbox. It changes no issues,
+comments or monitors and revokes no remote grants.
+
+## Approve login
+
+Download `sbx-oauth-challenge-<run-id>` as soon as its upload step finishes.
+`challenge.json` contains only the provider authorization URL, run ID and, for
+Pup, an ephemeral public key. Native diagnostics stay on the private runner.
+Open the URL and approve the intended account. TWG uses device authorization.
+
+Pup redirects to `http://127.0.0.1:8000/oauth/callback?...`, which cannot reach
+the remote runner. Return that URL through the encrypted callback channel:
+
+1. Save `callback_public_key` from the challenge as a local public-key file.
+2. Feed the callback URL through stdin to
+   `node scripts/sbx-oauth-callback.mjs seal /path/to/public-key <run-id>`.
+   Keep the plaintext out of shell arguments/history and CI inputs.
+3. Dispatch the same workflow with operation `callback`, provider `pup`,
+   `target_run` equal to the original run ID and `encrypted_callback` containing
+   only the sealed output. The original runner decrypts it with its private key,
+   verifies the localhost destination and OAuth state, and passes it to Pup's
+   supported stdin callback flow. Other runs cannot decrypt the packet.
+
+No password, access token, refresh token or credential file is requested. The
+authorization callback is short lived; do not paste it into a GitHub issue or
+plaintext workflow input. Login has a bounded approval window. An expired test
+must start a new login; it never reuses a captured grant from another runner.
+
+## Assertions and artifacts
+
+`sbx-oauth-result-<run-id>` contains only status and completed check names:
+
+- Native OAuth login and the configured identity/site/profile.
+- Actual reads of the approved provider fixtures.
+- A token-endpoint request using the known refresh sentinel returns the expected
+  sentinels, with no token values printed. A real token or missing response fails.
+- The native CLI can refresh, then repeat identity/read/masking checks.
+- The same checks pass after stopping/restarting the sandbox.
+
+Only challenge/result JSON and encrypted callback packets are uploaded. No native
+logs, CLI files, host keychain, private callback key, environment dump or provider
+response is an artifact. The sandbox is removed after testing and the disposable
+runner is destroyed. Tokens remain caller-authorized test grants; no server-side
+revocation is performed. Natural expiry and daemon/host restart are separate
+checks. Failure proves a compatibility gap; it must not weaken OAuth checks or
+enable token passthrough automatically.

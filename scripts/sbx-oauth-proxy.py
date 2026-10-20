@@ -1,0 +1,307 @@
+#!/usr/bin/env python3
+"""Read-only TWG/Pup qualification through the real SBX OAuth proxy.
+
+Run only on a disposable host. Provider CLIs create their own sandbox profiles;
+the kit intercepts token responses. Never read/copy credential files or export a
+host access token. Logs stay private; artifacts contain challenges/results only.
+"""
+import argparse
+import io
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import subprocess
+import sys
+import time
+from urllib.parse import parse_qs, urlparse
+import zipfile
+
+ROOT = Path(__file__).resolve().parent.parent
+BRIDGE = ROOT / "scripts/sbx-oauth-callback.mjs"
+ACCESS = "radar-proxy-access-sentinel"
+REFRESH = "radar-proxy-refresh-sentinel"
+PROFILE = "radar-proxy-test"
+
+
+class Failure(Exception):
+    pass
+
+
+def require(value, message):
+    if not value:
+        raise Failure(message)
+
+
+def run(argv, *, body=None, timeout=90, parse=False):
+    try:
+        result = subprocess.run(argv, input=body, text=True, capture_output=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        raise Failure(f"{Path(argv[0]).name} could not complete within its deadline") from None
+    require(result.returncode == 0, f"{Path(argv[0]).name} failed; private diagnostics withheld")
+    if not parse:
+        return result.stdout
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        raise Failure("Invalid structured response; private output withheld") from None
+
+
+def validate(provider, config):
+    if provider == "twg":
+        site = urlparse(config["base_url"])
+        require(site.scheme == "https" and site.hostname and not site.username and not site.password
+                and site.path in ("", "/") and not site.query and not site.fragment, "Select an HTTPS Jira site")
+        require(re.fullmatch(r"[A-Za-z0-9-]+", config["cloud_id"]) and config["account_id"], "Select Jira Cloud ID/account")
+        require(config["issue_keys"] and all(re.fullmatch(r"[A-Z][A-Z0-9_]*-[1-9][0-9]*", k)
+                for k in config["issue_keys"]), "Select approved Jira issue keys")
+    else:
+        require(config["site"] == "datadoghq.eu", "This qualification selects the approved Datadog EU site")
+        require(config["monitor_query"], "Select the approved test-monitor query")
+
+
+def kit(provider, config, image):
+    require(re.fullmatch(r"docker.io/christianmoesl/radar-sandbox(?:@sha256:[a-f0-9]{64}|:[A-Za-z0-9_.-]+)", image),
+            "Use the trusted Radar sandbox image")
+    if provider == "twg":
+        endpoint = {"host": "auth.atlassian.com", "path": "/oauth/token"}
+        resources = ["api.atlassian.com", "teamwork-graph.atlassian.com"]
+        network = [*resources, endpoint["host"], "id.atlassian.com", urlparse(config["base_url"]).hostname]
+    else:
+        endpoint = {"host": "api.datadoghq.eu", "path": "/api/v2/oauth2/token"}
+        resources = ["api.datadoghq.eu"]
+        network = [*resources, "app.datadoghq.eu"]
+    return {"schemaVersion": "2", "kind": "sandbox", "name": "radar-oauth-proxy-test",
+            "sandbox": {"image": image, "entrypoint": ["bash"]},
+            "permissions": {"network": {"allow": sorted(set(network))}},
+            "credentials": [{"service": "radar-" + provider, "required": True, "oauth": {
+                "tokenEndpoint": endpoint, "resourceHosts": resources,
+                "sentinels": {"accessToken": ACCESS, "refreshToken": REFRESH}, "passthrough": False}}]}
+
+
+def challenge(provider, text):
+    # Only the provider's authorization URL leaves private native CLI logs.
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    pattern = (r'''https://auth\.atlassian\.com/oauth/activate\?[^\s\x1b"'<>]+''' if provider == "twg" else
+               r'''https://app\.datadoghq\.eu/oauth2/v1/authorize\?[^\s\x1b"'<>]+''')
+    match = re.search(pattern, text)
+    return match.group(0) if match else None
+
+
+def callback_url(value, authorization):
+    require(len(value) < 8192 and not any(ord(c) < 32 for c in value), "Invalid callback")
+    parsed, expected = urlparse(value), parse_qs(urlparse(authorization).query)
+    query = parse_qs(parsed.query)
+    require(parsed.scheme == "http" and parsed.hostname == "127.0.0.1" and parsed.port == 8000
+            and parsed.path == "/oauth/callback" and not parsed.username and not parsed.password
+            and query.get("state") == expected.get("state") and query.get("state")
+            and (query.get("code") or query.get("error")), "Callback does not match this login")
+    return value
+
+
+def write(path, value):
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(value, indent=2) + "\n")
+    temporary.replace(path)
+
+
+def sbx(name, *args, timeout=90, body=None, parse=False):
+    return run(["sbx", "exec", "-i", "-e", "TWG_CONFIG_DIR=/home/agent/.config/radar-proxy-twg",
+                "-e", "DD_TOKEN_STORAGE=file", "-e", "PUP_CONFIG_DIR=/home/agent/.config/radar-proxy-pup",
+                "-e", "BROWSER=/bin/false", name, *args], timeout=timeout, body=body, parse=parse)
+
+
+# This private probe uses known sentinels, never obtains a host access token,
+# and returns only boolean assertions. It rejects a real token in the response.
+MASK_PROBE = r'''
+import json,sys,urllib.request,urllib.parse
+r=json.loads(sys.argv[1]); body=urllib.parse.urlencode({"grant_type":"refresh_token","refresh_token":r["refresh"]}).encode()
+request=urllib.request.Request(r["endpoint"],data=body,headers={"Content-Type":"application/x-www-form-urlencoded"})
+try:
+ with urllib.request.urlopen(request,timeout=20) as response: data=json.load(response)
+ assert data.get("access_token")==r["access"] and data.get("refresh_token")==r["refresh"]
+ print(json.dumps({"sentinel_response":True}))
+except Exception:
+ print(json.dumps({"sentinel_response":False}));sys.exit(1)
+'''
+
+
+def verify(provider, cfg, name, spec):
+    if provider == "twg":
+        prefix = ["twg", "--profile", PROFILE, "--site", cfg["cloud_id"], "-o", "json", "--output-summary", "none"]
+        listing = sbx(name, *prefix, "auth", "profile", "list", parse=True)
+        selected = [p for p in listing["data"]["profiles"] if p["name"] == PROFILE]
+        require(len(selected) == 1 and selected[0]["authMethod"] == "oauth"
+                and selected[0]["cloudId"] == cfg["cloud_id"] and selected[0]["userId"] == cfg["account_id"],
+                "TWG OAuth site/account mismatch")
+        doctor = sbx(name, *prefix, "doctor", parse=True)["data"]
+        require(doctor["auth"]["resolved"]["authMethod"] == "oauth" and doctor["connectivity"]["ok"]
+                and doctor["connectivity"]["userId"].endswith("/" + cfg["account_id"]), "TWG OAuth connectivity failed")
+        for key in cfg["issue_keys"]:
+            result = sbx(name, *prefix, "jira", "workitem", "get", key, "--fields", "summary,status", "--strict", parse=True)
+            require(result.get("command") == "jira.workitem.get" and len(result["data"]) == 1
+                    and result["data"][0]["key"] == key and not result.get("error"), "Native Jira fixture read failed")
+    else:
+        prefix = ["pup", "--org", PROFILE, "--no-envelope", "--output", "json"]
+        status = sbx(name, *prefix, "auth", "status", parse=True)
+        require(status.get("authenticated") and status.get("has_refresh") and not status.get("auth_method")
+                and status.get("token_type", "").lower() == "bearer" and status.get("site") == cfg["site"]
+                and status.get("org") == PROFILE and "monitors_read" in status.get("scopes", []), "Pup OAuth session unavailable")
+        monitors = sbx(name, *prefix, "api", "/api/v1/monitor/search", "-f", "query=" + cfg["monitor_query"], parse=True)
+        require(monitors.get("monitors") and all("radar-oauth-e2e" in m.get("tags", [])
+                for m in monitors["monitors"]), "Expected approved tagged monitors")
+    endpoint = spec["credentials"][0]["oauth"]["tokenEndpoint"]
+    result = sbx(name, "python3", "-c", MASK_PROBE, json.dumps({"endpoint": "https://" + endpoint["host"] + endpoint["path"],
+                 "access": ACCESS, "refresh": REFRESH}), parse=True)
+    require(result.get("sentinel_response") is True, "Proxy token-response masking is unverified")
+
+
+def relay(directory, authorization, child):
+    repository, run_id = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"]
+    name = "sbx-oauth-callback-" + run_id
+    result = run(["gh", "api", f"repos/{repository}/actions/artifacts?name={name}"], parse=True)
+    for artifact in sorted(result["artifacts"], key=lambda a: a["id"], reverse=True):
+        if artifact.get("expired"):
+            continue
+        try:
+            binary = subprocess.run(["gh", "api", f"repos/{repository}/actions/artifacts/{artifact['id']}/zip"],
+                                    capture_output=True, timeout=30, check=True).stdout
+            require(len(binary) < 65536, "Oversized callback packet")
+            with zipfile.ZipFile(io.BytesIO(binary)) as archive:
+                packet = archive.read("callback.txt").decode()
+            plain = run(["node", str(BRIDGE), "open", str(directory / "callback.key"), run_id], body=packet)
+            value = callback_url(plain, authorization)
+            child.stdin.write(value + "\n")
+            child.stdin.flush()
+            return True
+        except Exception:
+            # Never echo decrypted callback URLs or untrusted artifact contents.
+            continue
+    return False
+
+
+def worker(directory):
+    state = json.loads((directory / "state.json").read_text())
+    provider, cfg, name = state["provider"], state["config"], state["sandbox"]
+    report = {"provider": provider, "status": "failed", "sbx_version": "0.49.1", "checks": []}
+    child = None
+    try:
+        spec = state["kit"]
+        (directory / "kit").mkdir()
+        write(directory / "kit/spec.yaml", spec)
+        run(["sbx", "kit", "validate", "--offline", str(directory / "kit")])
+        run(["sbx", "create", "--name", name, "--no-progress", str(directory / "kit")], timeout=300)
+        args = (["twg", "login", "--new-profile", PROFILE, "--site", cfg["cloud_id"]] if provider == "twg" else
+                ["pup", "auth", "login", "--site", cfg["site"], "--org", PROFILE, "--scopes", "monitors_read", "--callback-port", "8000"])
+        argv = ["sbx", "exec", "-i", "-e", "TWG_CONFIG_DIR=/home/agent/.config/radar-proxy-twg",
+                "-e", "TWG_BACKGROUND_UPDATE_CHECK=0", "-e", "DD_TOKEN_STORAGE=file",
+                "-e", "PUP_CONFIG_DIR=/home/agent/.config/radar-proxy-pup", "-e", "BROWSER=/bin/false", name, *args]
+        with (directory / "native-login.log").open("w") as log:
+            child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=log, stderr=log, text=True)
+            deadline, authorization, delivered = time.monotonic() + 600, None, False
+            while child.poll() is None and time.monotonic() < deadline:
+                if authorization is None:
+                    authorization = challenge(provider, (directory / "native-login.log").read_text())
+                    if authorization:
+                        value = {"provider": provider, "run_id": os.environ["GITHUB_RUN_ID"],
+                                 "authorization_url": authorization}
+                        if provider == "pup":
+                            value["callback_public_key"] = (directory / "callback.key.pub").read_text()
+                        write(directory / "challenge.json", value)
+                if provider == "pup" and authorization and not delivered:
+                    delivered = relay(directory, authorization, child)
+                time.sleep(3)
+            require(child.poll() == 0, "Native CLI login did not complete; private diagnostics withheld")
+        report["checks"].append("native_cli_login")
+        verify(provider, cfg, name, spec)
+        report["checks"] += ["native_oauth_identity_and_read", "sentinel_token_response"]
+        if provider == "twg":
+            sbx(name, "twg", "--profile", PROFILE, "--site", cfg["cloud_id"], "auth", "refresh", "--force")
+        else:
+            sbx(name, "pup", "--org", PROFILE, "auth", "refresh")
+        verify(provider, cfg, name, spec)
+        report["checks"].append("explicit_refresh")
+        run(["sbx", "stop", name])
+        verify(provider, cfg, name, spec)
+        report["checks"].append("sandbox_restart")
+        report["status"] = "passed"
+    except Exception as error:
+        report["error"] = str(error) if isinstance(error, Failure) else "Unexpected qualification failure; private details withheld"
+    finally:
+        if child is not None and child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                child.kill()
+        try:
+            run(["sbx", "rm", "--force", name])
+        except Failure:
+            report.update(status="failed", cleanup="Disposable sandbox cleanup failed")
+        write(directory / "result.json", report)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("operation", choices=["prepare", "worker", "wait"])
+    parser.add_argument("--directory", type=Path, required=True)
+    parser.add_argument("--provider", choices=["twg", "pup"])
+    parser.add_argument("--config", type=Path)
+    parser.add_argument("--image")
+    args = parser.parse_args()
+    os.umask(0o077)
+    directory = args.directory.resolve()
+    require(os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("RADAR_SBX_PROXY_DISPOSABLE") == "1",
+            "Use the dedicated disposable GitHub workflow")
+    require(directory.is_relative_to(Path(os.environ["RUNNER_TEMP"]).resolve()), "Use the runner's private temporary directory")
+    if args.operation == "worker":
+        worker(directory)
+    elif args.operation == "prepare":
+        require(not directory.exists(), "Test directory must be new")
+        cfg = json.loads(args.config.read_text())
+        validate(args.provider, cfg)
+        spec = kit(args.provider, cfg, args.image)
+        inventory = run(["sbx", "ls", "--json"], parse=True)
+        require(inventory in ([], {"sandboxes": []}), "Use a host without existing sandboxes")
+        bindings = Path.home() / ".config/sbx/credentials.yaml"
+        require(not bindings.exists(), "Use a host without existing credential bindings")
+        bindings.parent.mkdir(parents=True, exist_ok=True)
+        oauth = spec["credentials"][0]["oauth"]
+        write(bindings, {"bindings": {"radar-" + args.provider: {"oauth": {
+            "domains": sorted(set([oauth["tokenEndpoint"]["host"], *oauth["resourceHosts"]]))}}}})
+        directory.mkdir(mode=0o700)
+        if args.provider == "pup":
+            run(["node", str(BRIDGE), "keygen", str(directory / "callback.key"), os.environ["GITHUB_RUN_ID"]])
+        write(directory / "state.json", {"provider": args.provider, "config": cfg, "kit": spec,
+                                        "sandbox": "radar-proxy-" + os.environ["GITHUB_RUN_ID"]})
+        with (directory / "worker.log").open("w") as log:
+            subprocess.Popen([sys.executable, __file__, "worker", "--directory", str(directory)],
+                             stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+        deadline = time.monotonic() + 330
+        while time.monotonic() < deadline:
+            if (directory / "challenge.json").exists():
+                print("Login challenge prepared; approve using the private test artifact")
+                return 0
+            require(not (directory / "result.json").exists(), "Test stopped before authorization; inspect sanitized result")
+            time.sleep(2)
+        raise Failure("Sandbox login challenge was not ready within its deadline")
+    else:
+        deadline = time.monotonic() + 900
+        while time.monotonic() < deadline:
+            if (directory / "result.json").exists():
+                result = json.loads((directory / "result.json").read_text())
+                print(json.dumps(result))
+                return 0 if result["status"] == "passed" else 1
+            time.sleep(3)
+        raise Failure("Proxy qualification exceeded its deadline")
+    return 0
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(Failure("Proxy test cancelled")))
+    try:
+        raise SystemExit(main())
+    except Failure as error:
+        print(str(error), file=sys.stderr)
+        raise SystemExit(1)
