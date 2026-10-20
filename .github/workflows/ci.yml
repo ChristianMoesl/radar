@@ -44,7 +44,15 @@ jobs:
           (destination / "tfctl").chmod(0o755)
           PY
       - name: Verify personal tfctl identity and run JSON against a TLS fixture
-        run: RADAR_TEST_TFCTL="$RUNNER_TEMP/tfctl-contract/tfctl" go test ./internal/integration/terraform -run TestReleasedTFCTL -v
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            # Native trust removal otherwise requests interactive authorization.
+            tfctl_trust_rule="$RUNNER_TEMP/tfctl-trust-rule.plist"
+            security authorizationdb read com.apple.trust-settings.admin > "$tfctl_trust_rule"
+            trap 'sudo -n security authorizationdb write com.apple.trust-settings.admin < "$tfctl_trust_rule"' EXIT
+            sudo -n security authorizationdb write com.apple.trust-settings.admin allow
+          fi
+          RADAR_TEST_TFCTL="$RUNNER_TEMP/tfctl-contract/tfctl" go test ./internal/integration/terraform -run TestReleasedTFCTL -v
       - name: Install checksum-verified Pup 2.0.0 in the runner temp directory
         run: |
           curl -fsSL https://raw.githubusercontent.com/DataDog/pup/v2.0.0/install.sh -o "$RUNNER_TEMP/install-pup.sh"
