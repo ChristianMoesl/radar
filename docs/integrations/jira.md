@@ -1,6 +1,7 @@
 # Jira integration
 
-Jira supplies work-tracker issues through Jira Cloud REST APIs.
+Jira supplies work-tracker issues through TWG 1.3.8+ using a named OAuth profile.
+TWG owns credential storage and refresh.
 
 ## Capabilities
 
@@ -18,19 +19,37 @@ Radar collects assigned Jira Cloud issues and issues referenced by other collect
 
 Radar links Jira issues and GitHub PRs itself. **GitHub for Atlassian is not required.** See [GitHub linking rules](github.md#jira-links) for branch priority and manual bindings. A link stored only in Jira's Development panel must be recreated with a reference or an explicit Radar binding. Radar does not read Jira descriptions or comments to infer PR links.
 
-### Credentials
+### OAuth connection
 
-The wizard stores `jira.base_url`, `jira.email`, and the discovered `jira.cloud_id` in `config.yaml`, with `jira.api_token` in `secrets.yaml`. It discovers the Cloud ID from the site's `/_edge/tenant_info` endpoint without sending the token, then verifies authentication with Jira's `/myself` endpoint. A failed check stops setup without saving configuration.
+`radar setup` offers the official TWG installer, rechecks its version, discovers
+the site's Cloud ID without credentials and launches interactive OAuth login.
+It verifies the profile, site, account and a native issue read, then asks you to
+confirm the displayed account. Failed installation/login/reads can be retried or
+deferred; deferred Jira is disabled rather than reported as connected.
 
-Environment variables remain supported and override the corresponding stored values:
+Only non-secret selectors are saved:
 
-```sh
-RADAR_JIRA_BASE_URL="https://your-site.atlassian.net"
-RADAR_JIRA_EMAIL="you@example.com"
-RADAR_JIRA_API_TOKEN="..."
-RADAR_JIRA_CLOUD_ID="..."
-# alternatively: RADAR_JIRA_API_BASE_URL="https://api.atlassian.com/ex/jira/<cloud-id>/rest/api/3"
+```yaml
+jira:
+  enabled: true
+  base_url: https://example.atlassian.net
+  cloud_id: discovered-cloud-id
+  profile: radar
+  account_id: verified-account-id
 ```
+
+Use a dedicated named OAuth profile; `default` and saved PAT profiles are rejected.
+Background collection never opens a browser. Before each read Radar removes
+inherited TWG auth/mode/endpoint overrides, pins the profile/Cloud ID and checks
+OAuth metadata plus actual identity/connectivity. CLI storage selectors and the
+runtime's proxy/CA trust remain available. Another program can still change the
+saved profile between checking and requesting; this accepted limitation is
+[documented here](../twg-oauth-blocker.md).
+
+Old email/token/API-base fields, the entire Jira secret mapping and retired
+`RADAR_JIRA_*` connection overrides are rejected with manual instructions. Follow
+the [cutover guide](../cli-oauth-migration.md#jira-manual-cutover); no credentials
+are migrated automatically and no authenticated HTTP fallback remains.
 
 ### Issue types and status mapping
 
@@ -61,7 +80,7 @@ Jira status names are trimmed and matched case-insensitively. Mapping targets ma
 
 Full refreshes collect assigned authoritative issue types and reference-discovered issue keys. Authoritative refs use `jira:issue:<KEY>` identities and contributing work-item lifecycle authority. Non-authoritative title mentions use task-scoped informational IDs and never contribute linking or lifecycle state.
 
-Jira consumes generic configured mark keys from other providers; it does not parse GitHub identities or call Jira's Development endpoints. Missing active issues are reconciled to done only after a successful remote check. Failed or incomplete batches preserve previous refs and report partial status.
+Jira consumes generic configured mark keys from other providers; it does not parse GitHub identities or call Jira's Development endpoints. Missing active issues are reconciled to done only after a successful remote check. Native query/get responses must have the qualified flattened shape and complete evidence. Cursor pagination is bounded; repeated cursors, duplicate issues, malformed pages and truncated/partial results fail visibly. Failed or incomplete batches preserve previous refs and report partial status.
 
 ## Validation
 

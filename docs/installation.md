@@ -358,9 +358,7 @@ the prefix at tmux's own default; existing prefix settings are preserved.
    and the workspace root must not contain the repository directory.
 6. Ask whether to connect GitHub, Jira, and Datadog. Declining writes an explicit
    `enabled: false`; opting in verifies access and writes `true`. GitHub uses
-   `gh` 2.0.0+, offers assisted installation with Homebrew or official manual instructions, rechecks installation, starts `gh auth login` when needed and verifies the account with `gh api user`. A failed connection can be retried or deferred. Jira uses site URL,
-   email, hidden API token, automatic Cloud ID discovery, and comma/space-separated
-   ticket prefixes. Datadog uses Pup 2.0.0+ OAuth, a supported site, a named session and a required monitor query such as `tag:team:platform`. Setup recommends/installs Pup, launches browser login and verifies monitor reads; it offers retry or defer on failure.
+   `gh` 2.0.0+, offers assisted installation with Homebrew or official manual instructions, rechecks installation, starts `gh auth login` when needed and verifies the account with `gh api user`. A failed connection can be retried or deferred. Jira uses TWG 1.3.8+ OAuth, a site URL, discovered Cloud ID, named profile, verified account and comma/space-separated ticket prefixes. Setup offers installation, launches login and verifies an issue read before account confirmation; failures offer retry or defer. Datadog uses Pup 2.0.0+ OAuth, a supported site, a named session and a required monitor query such as `tag:team:platform`. Setup recommends/installs Pup, launches browser login and verifies monitor reads; it offers retry or defer on failure.
 7. Review one compact table of files: **CREATE**, **UPDATE**, **APPEND**, or
    **UNCHANGED**, with each path and a short purpose. Creates are green, changes
    amber, and unchanged rows dim; labels remain readable without color. Only new
@@ -394,12 +392,11 @@ filters, mappings, sandbox recipes and other fields the wizard does not change
 are preserved, including unrecognized YAML fields. Config dotfile symlinks are
 preserved; the target is updated atomically.
 
-Secret inputs are never prefilled. Leave a stored-secret prompt blank to retain
-it, or enter a replacement. Disabling an integration keeps its stored credentials
-for later reuse; setup does not implicitly delete secrets. Environment credentials
-remain overrides, are not copied to disk, and are identified by variable name
-only; unset the variable to replace the saved credential through setup. Existing
-Jira API overrides are retained and verified against that same endpoint.
+GitHub, Jira and Datadog logins stay in their provider CLIs. Setup never asks for
+Jira email/API tokens or Datadog keys. Disabling a connection does not log out its
+CLI. Old Radar-owned credentials and connection overrides require the explicit
+[manual cutover](cli-oauth-migration.md); they are never migrated automatically.
+Unrelated integration secrets remain preserved.
 
 The final preview is the configuration that will be saved. Cancelling leaves
 config, secrets and tmux settings unchanged. Changing directory settings does
@@ -420,8 +417,9 @@ whitespace. Each file contains one YAML mapping document.
 jira:
   enabled: true
   base_url: https://example.atlassian.net
-  email: you@example.com
   cloud_id: discovered-cloud-id
+  profile: radar
+  account_id: verified-account-id
 datadog:
   enabled: true
   site: datadoghq.eu
@@ -429,12 +427,13 @@ datadog:
   monitor_query: tag:team:platform
 ```
 
-`secrets.yaml` contains integration-namespaced secrets:
+`secrets.yaml` remains available for other integration-namespaced secrets. Jira
+and Datadog credentials belong to TWG and Pup, never this file:
 
 ```yaml
 # Plaintext credentials: keep this file private and out of version control.
-jira:
-  api_token: <token>
+custom:
+  secret: <value>
 ```
 
 The directory is `0700`, the files are `0600`, and writes use private temporary
@@ -444,10 +443,11 @@ permissions, and malformed secret YAML without echoing its contents. Repair
 permissions with `chmod 600`; edit/rotate secrets locally. GitHub credentials stay
 with gh and Pi provider authentication stays with Pi (`/login`).
 
-The documented `RADAR_JIRA_*` environment variables currently override Jira settings/secrets. Datadog uses Pup OAuth only; its old key environment variables and secret mapping are rejected. See the [manual cutover guide](cli-oauth-migration.md). `jira.api_base_url`
-can specify an API base explicitly, like the existing `RADAR_JIRA_API_BASE_URL`;
-otherwise the Cloud ID determines the Atlassian API URL. No credentials are
-copied from the environment into files automatically.
+Jira's old email/token/API-base fields, its entire secret mapping and retired
+`RADAR_JIRA_*` connection overrides are rejected. Datadog's retired key fields,
+key environment overrides and secret mapping are also rejected. See the
+[manual cutover guide](cli-oauth-migration.md). Radar calls the CLIs with explicit
+non-secret connection selectors and never extracts access tokens.
 
 ## Tmux dashboard workflow
 
@@ -502,7 +502,7 @@ Explicit source actions and cleanup are separate from background collection.
 | Integration | Automatic activation prerequisites |
 | --- | --- |
 | GitHub | `gh` on PATH and a locally configured GitHub token; API failures, including expired credentials, are errors |
-| Jira | Connection settings and a token in config/secrets or `RADAR_JIRA_*` overrides (TWG migration pending qualification) |
+| Jira | TWG 1.3.8+ on PATH and configured site/Cloud ID/profile/account selectors; missing or invalid OAuth is an error |
 | Datadog | Pup 2.0.0+ on PATH, a named OAuth session and an explicit `datadog.monitor_query`; no automatic organization-wide query |
 | SBX collection | `sbx` on PATH, or Windows `sbx.exe` plus `wslpath` on WSL2 |
 | SBX for new workspaces | macOS or native Linux `sbx` 0.48.x on PATH, with accessible KVM on Linux; Windows `sbx.exe` provisioning remains blocked |
@@ -626,12 +626,12 @@ isolated HOME/XDG/PATH, real YAML configuration files, stub installers and a loc
 
 - Every GitHub/Jira/Datadog opt-in combination, both with existing tools and with
   simulated tmux/Node installation; existing vs missing GitHub authentication.
-- Reloaded integration status, real Jira/Datadog collector requests with the stored
-  secrets, and note-only workspace creation from every generated configuration.
+- Reloaded integration status, Jira/Datadog collectors through fake OAuth CLIs
+  with saved non-secret selectors, and note-only workspace creation from every generated configuration.
 - Declining dependencies or final review, interrupted prompts, invalid input,
   failed installation/authentication, existing/broken configs, and concurrent saves.
 - Secret redaction, owner-only permissions, unrelated-secret preservation, unsafe
-  secret-file rejection, and explicit environment overrides.
+  secret-file rejection, and rejection of retired credential overrides.
 - SBX policy choices, existing-policy preservation, inspection/init/verification
   failures, cancellation, retry without reinitialization, and diagnostic redaction
   use fake systems; they never initialize the user's real policy.
@@ -641,8 +641,9 @@ isolated HOME/XDG/PATH, real YAML configuration files, stub installers and a loc
   a detached session, and the actual prefix + r keystroke. They skip explicitly
   when tmux is unavailable; the hermetic command/config tests always run.
 
-No test uses real service credentials, installs software on the machine, or talks
-to the user's tmux server. The PTY matrix adds roughly 90 seconds to the suite.
+The normal test suite uses no real service credentials, installs no software on
+the machine, and never talks to the user's tmux server. Separately selected live
+tests require approved fixtures. The PTY matrix adds roughly 90 seconds to the suite.
 
 ## macOS notification setup
 

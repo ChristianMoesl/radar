@@ -1,28 +1,16 @@
 package jira
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"radar/internal/config"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 )
-
-type Config struct {
-	BaseURL    string
-	APIBaseURL string
-	Email      string
-	APIToken   string
-}
 
 type searchRequest struct {
 	JQL        string   `json:"jql"`
@@ -85,6 +73,8 @@ func FetchAssignedIssues(ctx context.Context, issueTypes []string, logger *slog.
 }
 
 func ResolveDoneIssues(ctx context.Context, previous []protocol.Task, active []protocol.Task, jiraComplete bool, logger *slog.Logger, matchers ...linking.MarkMatcher) []protocol.Task {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 	if !jiraComplete {
 		logger.Debug("skipping jira done resolution; issue collection was incomplete")
 		return keepTodaysDoneIssues(nil, previous)
@@ -174,136 +164,6 @@ func statusWithCount(status protocol.SourceStatus, count int, suffix string) pro
 	return status
 }
 
-func loadConnection() (Config, []string, error) {
-	user, err := config.Load()
-	if err != nil {
-		return Config{}, nil, err
-	}
-	token, err := config.Secret("RADAR_JIRA_API_TOKEN", "jira", "api_token")
-	if err != nil {
-		return Config{}, nil, err
-	}
-	cloudID := config.EnvOr("RADAR_JIRA_CLOUD_ID", user.Jira.CloudID)
-	cfg := Config{
-		BaseURL:    strings.TrimRight(config.EnvOr("RADAR_JIRA_BASE_URL", user.Jira.BaseURL), "/"),
-		APIBaseURL: strings.TrimRight(config.EnvOr("RADAR_JIRA_API_BASE_URL", user.Jira.APIBaseURL), "/"),
-		Email:      config.EnvOr("RADAR_JIRA_EMAIL", user.Jira.Email),
-		APIToken:   token,
-	}
-
-	if cfg.APIBaseURL == "" && cloudID != "" {
-		cfg.APIBaseURL = "https://api.atlassian.com/ex/jira/" + cloudID + "/rest/api/3"
-	}
-
-	missing := make([]string, 0)
-	if cfg.Email == "" {
-		missing = append(missing, "jira.email or RADAR_JIRA_EMAIL")
-	}
-	if cfg.APIToken == "" {
-		missing = append(missing, "jira.api_token in secrets.yaml or RADAR_JIRA_API_TOKEN")
-	}
-	if cfg.APIBaseURL == "" {
-		missing = append(missing, "jira.cloud_id/api_base_url or RADAR_JIRA_CLOUD_ID/RADAR_JIRA_API_BASE_URL")
-	}
-	if cfg.BaseURL == "" {
-		missing = append(missing, "jira.base_url or RADAR_JIRA_BASE_URL")
-	}
-	return cfg, missing, nil
-}
-
-func fetchIssue(ctx context.Context, cfg Config, key string) (issue, error) {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	issueURL := cfg.APIBaseURL + "/issue/" + url.PathEscape(key) + "?fields=summary,status,issuetype,priority"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, issueURL, nil)
-	if err != nil {
-		return issue{}, err
-	}
-	httpReq.Header.Set("Accept", "application/json")
-	httpReq.SetBasicAuth(cfg.Email, cfg.APIToken)
-
-	res, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		return issue{}, err
-	}
-	defer res.Body.Close()
-
-	data, err := io.ReadAll(res.Body)
-	if err != nil {
-		return issue{}, err
-	}
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return issue{}, fmt.Errorf("jira issue fetch failed: %s: %s", res.Status, strings.TrimSpace(string(data)))
-	}
-
-	var response issue
-	if err := json.Unmarshal(data, &response); err != nil {
-		return issue{}, fmt.Errorf("jira issue decode failed: %w: %s", err, previewResponse(data))
-	}
-	return response, nil
-}
-
-func searchAssignedIssues(ctx context.Context, cfg Config, issueTypes []string) ([]issue, error) {
-	return searchIssues(ctx, cfg, searchRequest{
-		JQL:        assignedIssuesJQL(issueTypes),
-		MaxResults: 100,
-		Fields:     issueSearchFields(),
-	})
-}
-
-func searchIssuesByKeys(ctx context.Context, cfg Config, keys []string) ([]issue, error) {
-	if len(keys) == 0 {
-		return nil, nil
-	}
-	quoted := make([]string, 0, len(keys))
-	for _, key := range keys {
-		quoted = append(quoted, `"`+strings.ReplaceAll(key, `"`, `\"`)+`"`)
-	}
-	return searchIssues(ctx, cfg, searchRequest{
-		JQL:        "key IN (" + strings.Join(quoted, ", ") + ")",
-		MaxResults: len(keys),
-		Fields:     issueSearchFields(),
-	})
-}
-
-func issueSearchFields() []string {
-	return []string{"summary", "status", "issuetype", "priority"}
-}
-
-func searchIssues(ctx context.Context, cfg Config, request searchRequest) ([]issue, error) {
-	body, err := json.Marshal(request)
-	if err != nil {
-		return nil, err
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	endpoints := []searchEndpoint{
-		{Method: http.MethodPost, Path: "/search/jql"},
-		{Method: http.MethodGet, Path: "/search/jql"},
-		{Method: http.MethodPost, Path: "/search"},
-	}
-
-	errors := make([]string, 0, len(endpoints))
-	for _, endpoint := range endpoints {
-		issues, retry, err := searchIssuesAt(ctx, cfg, endpoint, request, body)
-		if err == nil {
-			return issues, nil
-		}
-		errors = append(errors, err.Error())
-		if !retry {
-			return nil, err
-		}
-	}
-
-	if len(errors) > 0 {
-		return nil, fmt.Errorf("jira search failed on all supported endpoints: %s", strings.Join(errors, " | "))
-	}
-	return nil, fmt.Errorf("jira search failed: no supported search endpoint")
-}
-
 func assignedIssuesJQL(issueTypes []string) string {
 	jql := "assignee = currentUser() AND statusCategory != Done"
 	if len(issueTypes) > 0 {
@@ -316,70 +176,6 @@ func assignedIssuesJQL(issueTypes []string) string {
 		jql += " AND issuetype IN (" + strings.Join(quoted, ", ") + ")"
 	}
 	return jql + " ORDER BY updated DESC"
-}
-
-type searchEndpoint struct {
-	Method string
-	Path   string
-}
-
-func searchIssuesAt(ctx context.Context, cfg Config, endpoint searchEndpoint, request searchRequest, body []byte) ([]issue, bool, error) {
-	url := cfg.APIBaseURL + endpoint.Path
-	var reader io.Reader = bytes.NewReader(body)
-	if endpoint.Method == http.MethodGet {
-		query := urlValues(request)
-		url += "?" + query.Encode()
-		reader = nil
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, endpoint.Method, url, reader)
-	if err != nil {
-		return nil, false, err
-	}
-	httpReq.Header.Set("Accept", "application/json")
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.SetBasicAuth(cfg.Email, cfg.APIToken)
-
-	res, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		return nil, false, err
-	}
-	defer res.Body.Close()
-
-	data, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, false, err
-	}
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		retry := res.StatusCode == http.StatusNotFound || res.StatusCode == http.StatusGone || res.StatusCode == http.StatusMethodNotAllowed
-		return nil, retry, fmt.Errorf("jira search failed via %s %s: %s: %s", endpoint.Method, endpoint.Path, res.Status, strings.TrimSpace(string(data)))
-	}
-
-	var response searchResponse
-	if err := json.Unmarshal(data, &response); err != nil {
-		return nil, true, fmt.Errorf("jira search decode failed via %s %s: %w: %s", endpoint.Method, endpoint.Path, err, previewResponse(data))
-	}
-	return response.Issues, false, nil
-}
-
-func previewResponse(data []byte) string {
-	value := strings.TrimSpace(string(data))
-	value = strings.ReplaceAll(value, "\r", " ")
-	value = strings.ReplaceAll(value, "\n", " ")
-	if len(value) > 240 {
-		return value[:240] + "..."
-	}
-	return value
-}
-
-func urlValues(request searchRequest) url.Values {
-	values := url.Values{}
-	values.Set("jql", request.JQL)
-	values.Set("maxResults", fmt.Sprintf("%d", request.MaxResults))
-	if len(request.Fields) > 0 {
-		values.Set("fields", strings.Join(request.Fields, ","))
-	}
-	return values
 }
 
 func sourceRefFromIssue(cfg Config, issue issue, matchers ...linking.MarkMatcher) protocol.SourceRef {

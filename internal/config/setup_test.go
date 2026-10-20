@@ -113,7 +113,7 @@ func TestSetupDraftRejectsConcurrentConfigOrSecrets(t *testing.T) {
 func TestSetupDraftCanRemoveAnEditedOptionalField(t *testing.T) {
 	path := setupDraftFixture(t)
 	if err := os.WriteFile(path, []byte(`jira:
-  api_base_url: https://example.test/rest/api/3
+  base_url: https://example.test
   future: true`), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestSetupDraftCanRemoveAnEditedOptionalField(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := draft.Config
-	cfg.Jira.APIBaseURL = ""
+	cfg.Jira.BaseURL = ""
 	data, err := draft.Preview(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestSetupDraftCanRemoveAnEditedOptionalField(t *testing.T) {
 	if err := yaml.Unmarshal(data, &object); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := object["jira"]["api_base_url"]; ok || object["jira"]["future"] != true {
+	if _, ok := object["jira"]["base_url"]; ok || object["jira"]["future"] != true {
 		t.Fatal(string(data))
 	}
 }

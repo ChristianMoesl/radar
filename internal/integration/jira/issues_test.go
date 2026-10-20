@@ -2,7 +2,6 @@ package jira
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -33,9 +32,6 @@ func TestSearchAssignedIssuesUsesSearchJQLEndpoint(t *testing.T) {
 	var called []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = append(called, r.Method+" "+r.URL.Path)
-		if got := r.Header.Get("Authorization"); got != basicAuth("me@example.com", "token") {
-			t.Fatalf("authorization = %q, want basic auth", got)
-		}
 		if r.Method != http.MethodPost || r.URL.Path != "/search/jql" {
 			t.Fatalf("request = %s %s, want POST /search/jql", r.Method, r.URL.Path)
 		}
@@ -49,17 +45,12 @@ func TestSearchAssignedIssuesUsesSearchJQLEndpoint(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(searchResponse{
-			Issues: []issue{{Key: "ABC-123"}},
+			Issues: []issue{jiraIssueWithType("ABC-123", "Task", "Open")},
 		})
 	}))
 	defer server.Close()
 
-	issues, err := searchAssignedIssues(context.Background(), Config{
-		APIBaseURL: server.URL,
-		BaseURL:    "https://jira.example.com",
-		Email:      "me@example.com",
-		APIToken:   "token",
-	}, []string{"Story", "Bug"})
+	issues, err := searchAssignedIssues(context.Background(), fixtureConnection(t, server.URL), []string{"Story", "Bug"})
 	if err != nil {
 		t.Fatalf("searchAssignedIssues() error = %v", err)
 	}
@@ -68,49 +59,6 @@ func TestSearchAssignedIssuesUsesSearchJQLEndpoint(t *testing.T) {
 	}
 	if len(called) != 1 {
 		t.Fatalf("called %d endpoints, want 1", len(called))
-	}
-}
-
-func TestSearchAssignedIssuesFallsBackToSearch(t *testing.T) {
-	var called []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = append(called, r.Method+" "+r.URL.Path)
-		switch r.Method + " " + r.URL.Path {
-		case "POST /search/jql":
-			http.Error(w, `{"errorMessages":["not supported"]}`, http.StatusNotFound)
-		case "GET /search/jql":
-			http.Error(w, `{"errorMessages":["not supported"]}`, http.StatusNotFound)
-		case "POST /search":
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(searchResponse{
-				Issues: []issue{{Key: "ABC-456"}},
-			})
-		default:
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
-		}
-	}))
-	defer server.Close()
-
-	issues, err := searchAssignedIssues(context.Background(), Config{
-		APIBaseURL: server.URL,
-		BaseURL:    "https://jira.example.com",
-		Email:      "me@example.com",
-		APIToken:   "token",
-	}, nil)
-	if err != nil {
-		t.Fatalf("searchAssignedIssues() error = %v", err)
-	}
-	if len(issues) != 1 || issues[0].Key != "ABC-456" {
-		t.Fatalf("issues = %+v, want one ABC-456 issue", issues)
-	}
-	want := []string{"POST /search/jql", "GET /search/jql", "POST /search"}
-	if len(called) != len(want) {
-		t.Fatalf("called %d endpoints, want %d", len(called), len(want))
-	}
-	for i := range want {
-		if called[i] != want[i] {
-			t.Fatalf("called[%d] = %q, want %q", i, called[i], want[i])
-		}
 	}
 }
 
@@ -123,11 +71,11 @@ func TestSearchIssuesByKeysUsesOneDeterministicSearch(t *testing.T) {
 		if request.JQL != `key IN ("XYZ-2", "XYZ-1")` || request.MaxResults != 2 {
 			t.Fatalf("request = %+v", request)
 		}
-		_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{{Key: "XYZ-1"}, {Key: "XYZ-2"}}})
+		_ = json.NewEncoder(w).Encode(searchResponse{Issues: []issue{jiraIssueWithType("XYZ-1", "Task", "Open"), jiraIssueWithType("XYZ-2", "Task", "Open")}})
 	}))
 	defer server.Close()
 
-	issues, err := searchIssuesByKeys(context.Background(), Config{APIBaseURL: server.URL, Email: "me@example.com", APIToken: "token"}, []string{"XYZ-2", "XYZ-1"})
+	issues, err := searchIssuesByKeys(context.Background(), fixtureConnection(t, server.URL), []string{"XYZ-2", "XYZ-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,10 +112,7 @@ func TestSourceCollectClassifiesEachJiraStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv("RADAR_JIRA_API_BASE_URL", server.URL)
-	t.Setenv("RADAR_JIRA_BASE_URL", "https://jira.example.test")
-	t.Setenv("RADAR_JIRA_EMAIL", "me@example.com")
-	t.Setenv("RADAR_JIRA_API_TOKEN", "token")
+	configureJiraSource(t, server.URL, `{}`)
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 	path := filepath.Join(configHome, "radar", "config.yaml")
@@ -177,6 +122,10 @@ func TestSourceCollectClassifiesEachJiraStatus(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`linking_mark_prefixes:
   - XYZ
 jira:
+  base_url: https://jira.example.test
+  cloud_id: cloud-fixture
+  profile: radar
+  account_id: fixture-account
   status_mapping:
     In Progress: in_progress
     In Review: in_progress
@@ -208,7 +157,13 @@ func jiraIssueWithStatus(key, status string) issue {
 			Key  string `json:"key"`
 			Name string `json:"name"`
 		} `json:"statusCategory"`
-	}{Name: status}
+	}{Name: status, StatusCategory: &struct {
+		Key  string `json:"key"`
+		Name string `json:"name"`
+	}{Key: "indeterminate", Name: "In Progress"}}
+	value.Fields.IssueType = &struct {
+		Name string `json:"name"`
+	}{Name: "Task"}
 	return value
 }
 
@@ -227,14 +182,11 @@ func TestResolveDoneIssuesMarksMissingDoneIssueDone(t *testing.T) {
 			t.Fatalf("request = %s %s, want GET /issue/XYZ-123", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"10001","key":"XYZ-123","fields":{"summary":"Ship reconciliation","status":{"name":"Done","statusCategory":{"key":"done","name":"Done"}}}}`))
+		_, _ = w.Write([]byte(`{"id":"10001","key":"XYZ-123","fields":{"summary":"Ship reconciliation","issuetype":{"name":"Task"},"status":{"name":"Done","statusCategory":{"key":"done","name":"Done"}}}}`))
 	}))
 	defer server.Close()
 
-	t.Setenv("RADAR_JIRA_API_BASE_URL", server.URL)
-	t.Setenv("RADAR_JIRA_BASE_URL", "https://jira.example.test")
-	t.Setenv("RADAR_JIRA_EMAIL", "me@example.com")
-	t.Setenv("RADAR_JIRA_API_TOKEN", "token")
+	configureJiraSource(t, server.URL, `{}`)
 
 	previous := []protocol.Task{{
 		ID:        42,
@@ -271,10 +223,6 @@ func TestResolveDoneIssuesMarksMissingDoneIssueDone(t *testing.T) {
 	}
 }
 
-func basicAuth(user string, password string) string {
-	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+password))
-}
-
 func TestResolveDoneIssuesChecksEveryMissingIssueInGroupedTask(t *testing.T) {
 	var checked []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -284,10 +232,7 @@ func TestResolveDoneIssuesChecksEveryMissingIssueInGroupedTask(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(jiraDoneIssue(key))
 	}))
 	defer server.Close()
-	t.Setenv("RADAR_JIRA_API_BASE_URL", server.URL)
-	t.Setenv("RADAR_JIRA_BASE_URL", server.URL)
-	t.Setenv("RADAR_JIRA_EMAIL", "radar@example.test")
-	t.Setenv("RADAR_JIRA_API_TOKEN", "token")
+	configureJiraSource(t, server.URL, `{}`)
 	var refs []protocol.SourceRef
 	for _, key := range []string{"ABC-1", "ABC-2", "ABC-3"} {
 		ref := sourceRefFromIssue(Config{BaseURL: server.URL}, jiraIssueWithStatus(key, "In Progress"))

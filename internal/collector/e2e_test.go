@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"radar/internal/app"
+	"radar/internal/integration/contracttest"
 	"radar/internal/protocol"
 	"radar/internal/state"
 )
@@ -27,10 +28,7 @@ func TestCollectEndToEndKeepsLinkedWorkActiveWhenGitHubPRIsDone(t *testing.T) {
 	jiraServer := setupFakeJira(t)
 	setupGitWorktree(t, ctx, tmp)
 
-	t.Setenv("RADAR_JIRA_API_BASE_URL", jiraServer.URL)
-	t.Setenv("RADAR_JIRA_BASE_URL", jiraServer.URL)
-	t.Setenv("RADAR_JIRA_EMAIL", "radar@example.test")
-	t.Setenv("RADAR_JIRA_API_TOKEN", "token")
+	contracttest.InstallTWGFixture(t, jiraServer.URL)
 
 	store, err := state.NewStore(logger)
 	if err != nil {
@@ -88,7 +86,12 @@ func setupIsolatedEnvironment(t *testing.T, tmp string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(configPath, []byte(`linking_mark_prefixes:
-  - XYZ`), 0o600); err != nil {
+  - XYZ
+jira:
+  base_url: https://jira.example.test
+  cloud_id: cloud-fixture
+  profile: radar
+  account_id: fixture-account`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -230,3 +233,5 @@ func sourceStatus(statuses []protocol.SourceStatus, name string) protocol.Source
 	}
 	return protocol.SourceStatus{}
 }
+
+func TestTWGFixtureProcess(t *testing.T) { contracttest.RunTWGFixtureProcess(t) }

@@ -46,6 +46,10 @@ func inventory(path, format string, obsolete map[string][]string) entry {
 	for _, namespace := range []string{"jira", "datadog"} {
 		fields := map[string]yaml.Node{}
 		if node, exists := document[namespace]; exists {
+			if format == "secrets.yaml" && namespace == "jira" {
+				e.Fields = append(e.Fields, namespace)
+				continue
+			}
 			if node.Decode(&fields) != nil {
 				e.Handling = "inspect manually (invalid integration mapping)"
 				return e
@@ -70,8 +74,8 @@ func main() {
 	}
 	secretPath, _ := config.SecretsPath()
 	entries := []entry{
-		inventory(path, "config.yaml", map[string][]string{"jira": {"email", "api_token"}, "datadog": {"api_key", "app_key", "access_token"}}),
-		inventory(secretPath, "secrets.yaml", map[string][]string{"jira": {"api_token"}, "datadog": {"api_key", "app_key", "access_token"}}),
+		inventory(path, "config.yaml", map[string][]string{"jira": {"email", "api_token", "access_token", "api_base_url"}, "datadog": {"api_key", "app_key", "access_token"}}),
+		inventory(secretPath, "secrets.yaml", map[string][]string{"datadog": {"api_key", "app_key", "access_token"}}),
 	}
 	statePath, err := state.Path()
 	if err == nil {

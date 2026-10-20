@@ -26,7 +26,7 @@ func TestReviewIsCompactAndReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	secret := "do-not-display-credential"
-	report, err := buildReview(path, []byte("large-config-body\n"), config.Secrets{"jira": {"api_token": secret}}, reviewPlans(t, plan, cfg))
+	report, err := buildReview(path, []byte("large-config-body\n"), config.Secrets{"custom": {"api_token": secret}}, reviewPlans(t, plan, cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestReviewSecretsComparesValuesWithoutExposingThem(t *testing.T) {
 	if file, err := reviewSecrets(nil); err != nil || file != nil {
 		t.Fatalf("unneeded credentials should have no row: %+v %v", file, err)
 	}
-	before := config.Secrets{"jira": {"api_token": "existing-private-token"}, "other": {"token": "unrelated-private-token"}}
+	before := config.Secrets{"custom": {"api_token": "existing-private-token"}, "other": {"token": "unrelated-private-token"}}
 	if err := config.SaveSecrets(before); err != nil {
 		t.Fatal(err)
 	}
@@ -92,10 +92,10 @@ func TestReviewSecretsComparesValuesWithoutExposingThem(t *testing.T) {
 		action  string
 	}{
 		{nil, "UNCHANGED"},
-		{config.Secrets{"jira": {"api_token": "existing-private-token"}}, "UNCHANGED"},
-		{config.Secrets{"jira": {"api_token": "new-private-token"}}, "UPDATE"},
+		{config.Secrets{"custom": {"api_token": "existing-private-token"}}, "UNCHANGED"},
+		{config.Secrets{"custom": {"api_token": "new-private-token"}}, "UPDATE"},
 		{config.Secrets{"other": {"token": "new-private-token"}}, "UPDATE"},
-		{config.Secrets{"jira": {"new_key": ""}}, "UPDATE"},
+		{config.Secrets{"custom": {"new_key": ""}}, "UPDATE"},
 	} {
 		file, err := reviewSecrets(tc.updates)
 		if err != nil || file.action != tc.action {
@@ -106,7 +106,7 @@ func TestReviewSecretsComparesValuesWithoutExposingThem(t *testing.T) {
 		}
 	}
 	got, err := config.LoadSecrets()
-	if err != nil || got["jira"]["api_token"] != before["jira"]["api_token"] || len(got["datadog"]) != 0 {
+	if err != nil || got["custom"]["api_token"] != before["custom"]["api_token"] || len(got["datadog"]) != 0 {
 		t.Fatalf("preview changed credentials: %v", err)
 	}
 }

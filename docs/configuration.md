@@ -20,13 +20,13 @@ file or bypass onboarding.
 | File | Purpose |
 | --- | --- |
 | `config.yaml` | Directories, tool settings and connection metadata |
-| `secrets.yaml` beside it | Jira/Datadog credentials, stored with owner-only permissions |
+| `secrets.yaml` beside it | Other integration secrets, stored with owner-only permissions; Jira/Datadog use CLI-owned OAuth |
 | `AGENTS.md` beside it | Instructions for Radar-managed Pi sessions |
 | `.radar.yaml` in a repository | Repository-specific copy/setup commands and runtime overrides |
 
 Secrets are plaintext, not encrypted. They never appear in the config preview;
-see [credential storage and environment overrides](installation.md#settings-and-secrets).
-GitHub credentials stay with `gh`, Terraform credentials stay with `tfctl`, and
+see [CLI OAuth and secret storage](installation.md#settings-and-secrets).
+GitHub credentials stay with `gh`, Jira with `twg`, Datadog with `pup`, Terraform with `tfctl`, and
 Pi provider authentication stays with Pi.
 
 The installer creates the default `AGENTS.md` only if missing. Edit it to change
@@ -114,7 +114,7 @@ Integration-specific configuration belongs in its guide:
 
 - [GitHub tracking and PR/activity rules](integrations/github.md)
 - [Terraform CLI profiles, personal runs and workspace scope](integrations/terraform.md)
-- [Jira issue types, status mapping and credentials](integrations/jira.md)
+- [Jira issue types, status mapping and OAuth selectors](integrations/jira.md)
 - [Datadog monitor scope and credentials](integrations/datadog.md)
 - [Task notes and Obsidian](integrations/obsidian.md)
 - [SBX local kits, credentials, custom images and startup scripts](integrations/sbx.md)

@@ -2,424 +2,189 @@
 
 Tracking: [epic #27](https://github.com/ChristianMoesl/radar/issues/27).
 
-The migration is **not release-qualified yet**. Datadog's Pup transport, shared
-onboarding and app-independent PR linking are implemented. Jira's TWG transport,
-remaining onboarding/expiry/revocation checks and real SBX OAuth checks remain open. Do not publish the breaking release until those checks pass.
+The production Jira/TWG and Datadog/Pup transports, foreground onboarding,
+read-only investigators and sandbox CLI provisioning are implemented. Radar-owned
+PR linking removes the GitHub for Atlassian dependency. The breaking release is
+**not release-qualified**: natural expiry, server-side revocation, remaining
+platform browser/onboarding checks and real provider OAuth inside SBX remain open.
+Do not publish the breaking release until those gates pass.
 
-The [current TWG blockers](twg-oauth-blocker.md) have executable saved-PAT and
-profile-change reproductions. TWG 1.3.8 also omits comment operation properties
-from its native reads, preventing qualified uncertain-post reconciliation.
-These gates must be resolved before activating the production Jira hard switch.
+On 2026-10-20 the user accepted TWG's check/request race: another program could
+change the saved profile after Radar checks it and before TWG reads it for the
+request. Radar sanitizes inherited overrides, pins the named profile/site/account,
+and verifies OAuth metadata and actual connectivity before each read. These are
+separate CLI invocations, not an atomic authentication guarantee. See the
+[TWG contract report](twg-oauth-blocker.md). Durable-agent Jira reply posting is
+separate work in [#42](https://github.com/ChristianMoesl/radar/issues/42); the
+bundled assistant reads issues/comments and drafts replies without posting.
+
+## Jira manual cutover
+
+1. Stop the Radar daemon before replacing its binary or configuration.
+2. Install TWG 1.3.8+. `radar setup` offers the official pinned installer,
+   rechecks installation/version and launches interactive OAuth login. Manual
+   installation:
+
+   ```sh
+   installer=$(mktemp)
+   curl -fsSL https://teamwork-graph.atlassian.com/cli/install -o "$installer"
+   bash "$installer" --version 1.3.8 --install-dir "$HOME/.local/bin" --skip-login --skip-skills --yes
+   rm -f "$installer"
+   export PATH="$HOME/.local/bin:$PATH"
+   ```
+
+3. Remove the entire `jira` mapping from Radar's `secrets.yaml`, including an
+   empty mapping. Remove `email`, `api_token`, `access_token` and `api_base_url`
+   under `jira` in `config.yaml`. Unset `RADAR_JIRA_EMAIL`, `RADAR_JIRA_API_TOKEN`,
+   `RADAR_JIRA_ACCESS_TOKEN`, `RADAR_JIRA_API_BASE_URL`, `RADAR_JIRA_BASE_URL` and
+   `RADAR_JIRA_CLOUD_ID`. These inputs are intentionally rejected, never migrated
+   or deleted automatically.
+4. Keep the site URL, authoritative issue types, status mapping, ticket prefixes
+   and linking policy. Run `radar setup` to discover the Cloud ID, select a named
+   OAuth profile (default `radar`), launch login, verify the site's account and an
+   actual issue read, then confirm the displayed identity. Retry or defer failures.
+   Only non-secret selectors are saved:
+
+   ```yaml
+   jira:
+     enabled: true
+     base_url: https://example.atlassian.net
+     cloud_id: discovered-cloud-id
+     profile: radar
+     account_id: verified-account-id
+   ```
+
+5. Restart Radar and verify collection. Revoke the retired Jira token separately
+   after validation; Radar never revokes it.
+
+Jira uses native `jira workitem query/get`, flattened issue fields and cursor
+pagination. There is no authenticated REST fallback or transport selector.
+Failed, malformed, incomplete or unauthorized reads preserve previous facts.
+Assigned work, explicit bindings after reassignment, informational references,
+Done reconciliation, browse URLs and stable task/source identities retain their
+existing behavior. No task, note or workspace reset is required.
 
 ## Datadog manual cutover
 
-1. Stop the Radar daemon before replacing its binary or configuration.
-2. Install [Pup 2.0.0+](https://github.com/DataDog/pup). `radar setup` offers the
-   official installer and can launch it after confirmation. Manual installation:
+1. Stop the daemon and install [Pup 2.0.0+](https://github.com/DataDog/pup).
+   `radar setup` offers the official installer and rechecks its version. Manual
+   installation:
 
    ```sh
    curl -fsSL https://raw.githubusercontent.com/DataDog/pup/v2.0.0/install.sh | PUP_VERSION=2.0.0 sh
    ```
 
-3. Remove the `datadog` mapping from Radar's `secrets.yaml` manually. Remove any
-   `api_key`, `app_key` or `access_token` fields under `datadog` in `config.yaml`.
-   Unset `RADAR_DATADOG_API_KEY` and `RADAR_DATADOG_APP_KEY`. These old credentials
-   are intentionally rejected; Radar will neither migrate nor delete them.
-4. Keep monitor query/status policy and site. Choose a named Pup session in
-   `datadog.org` (default `radar`). The session label selects the organization
-   chosen during browser authorization. Remove the retired `RADAR_DATADOG_SITE`
-   override and put the site in configuration.
-5. Run `radar setup`. It checks CLI installation/version, launches
-   `pup auth login --site datadoghq.eu --org radar --scopes monitors_read`, verifies
-   the OAuth method/session/site/scope and performs a scoped monitor read before
-   saving the connection. Installation/login failures can be retried or deferred.
-6. Restart Radar and confirm collection succeeds. Remove/revoke the old keys
-   separately through Datadog after validation; Radar never revokes them.
+2. Remove the `datadog` mapping from Radar's `secrets.yaml`; remove `api_key`,
+   `app_key` and `access_token` fields from `config.yaml`. Unset
+   `RADAR_DATADOG_API_KEY`, `RADAR_DATADOG_APP_KEY` and `RADAR_DATADOG_SITE`.
+3. Keep the site and monitor query/status policy. Choose the named Pup session in
+   `datadog.org` (default `radar`). Run `radar setup`; it launches browser login
+   with `monitors_read`, verifies OAuth/site/session/scopes and performs a scoped
+   monitor read before saving. Retry or defer failures.
+4. Restart Radar. Remove/revoke the old keys separately after validation.
 
-No task, note, workspace or durable-agent store reset is required. Existing
-monitor identities and recovery rules remain the same. Failed or incomplete
-requests retain previous monitor facts.
+Monitor identities and recovery behavior are unchanged. Pup's saved-key fallback
+is guarded by invalid newline API-key header values; empty strings are insufficient.
+Released-binary tests prove that missing OAuth cannot dispatch a request with
+saved keys. Radar never extracts tokens or reads CLI credential files.
 
-## Agent and sandbox setup
+## Agents and sandbox setup
 
-Replace the Datadog investigator's `baseUrl` with `site` and `org`. Its event,
-conversation and incident stores keep their existing format; no reset is needed.
-The supplied sandbox image now provisions Pup 2.0.0 without credentials. For custom kits, install Pup yourself. Authenticate **inside the selected execution environment**:
+The sandbox image provisions TWG 1.3.8 and Pup 2.0.0 without credentials. Custom
+kits must install the CLIs themselves. Authenticate **inside the selected
+execution environment**, using its terminal and writable CLI-owned OAuth storage:
 
 ```sh
+twg login --new-profile radar --site <cloud-id>
 pup auth login --site datadoghq.eu --org radar --scopes monitors_read,logs_read_data,metrics_read,timeseries_query,apm_read
 ```
 
-Grant only the scopes required by configured reads. The investigator allows logs
-and spans searches and metric queries; it offers no remediation operation.
-Telemetry remains bounded and partial failures remain explicit.
+Grant only scopes needed for configured reads. Do not copy host token databases
+into SBX or inject exported access tokens. Missing sandbox CLI/session/refresh
+access fails there without host fallback. Real provider OAuth and callback/refresh
+behavior inside SBX still need qualification.
 
-For SBX, provision Pup in the kit/startup tools and keep the CLI's own OAuth
-storage writable inside the sandbox, including after runner restarts. Do not
-mount/copy host token databases or inject exported access tokens. Run interactive
-login explicitly in the sandbox terminal. Missing sandbox CLI/session/refresh
-access fails in that environment; there is no host fallback. Real SBX OAuth and
-callback behavior still require qualification before release.
+For the Jira assistant, configure `baseUrl`, `cloudId`, `profile`, `accountId`,
+`jql` and `modelId`; remove the old `JIRA_EMAIL`, `JIRA_API_TOKEN` and
+`JIRA_ACCESS_TOKEN` inputs. Copy its `twg.ts` helper alongside the example.
+`allowPosting: true` is intentionally rejected with a link to #42. Existing
+conversation/document/task versions are retained. An old pending post checkpoint
+fails visibly without sending or repeating a comment; it requires manual review.
+
+Replace the Datadog investigator's old `baseUrl` with `site` and `org`. Its
+conversation/incident stores retain their format. Logs, spans and metric reads
+run through the selected `WorkspaceExecution`; incomplete evidence is explicit,
+and no remediation operation is offered.
 
 ## Read-only rollout preflight
 
 Run `go run ./scripts/preflight-cli-oauth` before installing the breaking release.
-It reports file presence and obsolete field names without displaying credentials
-or changing files. Config/secrets with retired fields are intentionally rejected
-and require manual edits; task state, notes, workspaces and durable agents keep
-their formats. The preflight reports that the release is not yet qualified. In
-the fresh execution environment on 2026-10-19, config, secrets, task snapshot,
-durable-agent store and workspace directory were initially absent. After tests,
-the workspace directory existed; the other inventoried formats remained absent.
-No existing data required migration or reset for the qualification changes.
+It reports file presence and obsolete field names, never credential values, and
+changes no files. Retired config/secrets are intentionally rejected and require
+manual edits. Task state, notes, workspaces and durable-agent stores keep their
+formats; example connection settings require the edits above.
 
-## Qualification evidence
+In the fresh Linux environment on 2026-10-20, config, secrets, task state and the
+durable-agent store were absent. Tests created a workspace directory. No existing
+user data needed migration or reset. Qualification uses isolated Radar state and
+the CLI's selected store; it neither copies nor inspects that store.
+
+## Qualification evidence and remaining gates
 
 | Capability | Evidence | Remaining gate |
 | --- | --- | --- |
-| Pup CLI contract | Official v2.0.0 checksum/installer and offline contracts passed on all three platforms; live EU browser OAuth and provider requests passed on Linux amd64 | Browser/live checks on the other platforms |
-| Raw monitor search | Live EU account, two approved non-notifying monitors, real Alert/Warn/No Data/OK changes through the Radar daemon; stable IDs and recovery after restart | Larger live result-limit/rate-limit cases remain fixture-qualified |
-| OAuth enforcement | Live named OAuth survives injected static fixtures; missing session preserves both active tasks across daemon restart; six concurrent forced refreshes and six later reads passed | Natural expiry and server-side revocation |
-| Onboarding | Shared install/version/retry/defer flow; terminal wizard fixtures; OAuth/read checks | Real browser/SSO/callback on supported platforms |
-| Datadog investigator | Live metric series through actual local WorkspaceExecution; metric-backed investigation, duplicate delivery, restart and recovery retain the conversation with an explicit fixture model | Logs/traces excluded from this verification round; real SBX OAuth/telemetry unverified |
-| TWG distribution | Official 1.3.8 installer and checksum-verified missing-profile contract passed in CI on Linux amd64/Linux arm64/macOS arm64 | Browser login and live provider behavior on the other platforms |
-| TWG issue requests | Live OAuth profile, project read, issue creation/read/update, two-page JQL, nested status categories, forced refresh and six concurrent reads | Complete failure/revocation coverage and Radar integration |
-| TWG authentication | Actual binary rejects missing named profiles; saved-PAT, inherited-credential and profile-change characterizations pass against a rejecting proxy | Supported atomic OAuth-only dispatch, then production enforcement |
-| TWG comments | Live create accepts object-valued operation properties; two native comment pages read successfully; existing Radar marker corrected with lost-response/restart fixtures | Native property readback for uncertain posts; actual investigator/SBX qualification |
-| Radar-owned Jira/PR linking | User approved exact references plus explicit bindings; live `gh` reads passed all six private PR fixtures, including closed/merged and branch-conflict cases; full-page and failure checks use fixtures | Full OAuth end-to-end checks after the Jira transport cutover |
+| CLI distribution | Official checksum-verified TWG 1.3.8 and Pup 2.0.0 install/run contracts passed on Linux amd64, Linux arm64 and macOS arm64 | Browser/provider checks on other platforms |
+| Jira transport | Production `Source.Collect` passed against three approved issues on Linux amd64, including inherited-static-override sanitization, forced one-row cursor pages, native gets and missing-profile fact retention | Natural expiry, server revocation and denied permissions |
+| Jira mapping/linking | Domain and collector fixtures cover assigned/discovered work, bindings after reassignment, Done, issue-type policy, PR references, stable IDs and failure retention; six private PR fixtures previously passed real `gh` reads | Broader live transition/linking matrix |
+| TWG authentication | Named OAuth metadata, domain/Cloud ID/account and successful `doctor` connectivity checked before each request; actual-binary tests characterize missing profiles, saved PATs and the accepted check/request race | Atomic dispatch is an accepted limitation, not a core blocker |
+| Onboarding | Shared install/version/login/retry/defer flow and all terminal integration-choice fixtures pass; real Linux device login succeeded | Full foreground browser/SSO/callback matrix on supported platforms |
+| Read-only Jira assistant | Real native issue/comment reads through a registered local workspace passed; selected local/SBX executor fixtures cover pagination, incomplete reads, conversation retention and restart/retry | Real SBX OAuth; reply posting is separate #42 |
+| Datadog monitors | Previous live EU daemon checks covered Alert/Warn/No Data/OK, stable IDs, missing login and restart; six concurrent forced refreshes plus later reads passed | Natural expiry and revocation |
+| Datadog investigator | Previous live numeric metric samples through local workspace execution; durable conversation/retry/recovery fixtures | Logs/traces were excluded from the approved live scope; real SBX OAuth unverified |
+| Sandbox | Image installs both CLIs; executor fixtures prohibit host fallback; existing real SBX boundary checks are separate | Provider login/storage/refresh in actual SBX |
 
-The API-key guard deliberately shadows Pup's saved API keys with invalid HTTP
-header values. With a named OAuth session, Pup sends only its stored OAuth bearer.
-If the session disappears or refresh fails between checking and requesting,
-Pup's HTTP client rejects fallback headers before any request is sent. Radar does
-not read, extract, copy or log CLI credentials. This behavior is tested against
-Pup 2.0.0; a future incompatible CLI must fail closed and be requalified.
-
-Reproduce offline release-contract verification with a checksum-verified binary:
+Reproduce offline release contracts with checksum-verified binaries:
 
 ```sh
 RADAR_TEST_PUP=/absolute/path/to/pup go test ./internal/integration/datadog -run TestReleasedPupOAuthGuard
-RADAR_TEST_TWG=/absolute/path/to/twg go test ./internal/integration/jira -run TestReleasedTWGMissingProfile
+RADAR_TEST_TWG=/absolute/path/to/twg go test ./internal/integration/jira -run TestReleasedTWG
 ```
 
-The TWG check runs without a terminal and uses only fixture static credentials.
-A local rejecting proxy confirms that an unprofiled static request reaches the
-API endpoint, then verifies that issue/query/context requests with a missing
-explicit profile return `AUTH_PROFILE_MISSING` (exit 1) without API dispatch.
-Update/telemetry requests are rejected locally too and are distinct from API
-dispatch. This does not prove that a saved PAT profile or an injected token is
-rejected; the live check demonstrated that injected credentials take precedence.
+The TWG characterizations use synthetic credential stores and a rejecting local
+proxy; they do not send fixture credentials to providers. They document CLI
+limitations, not an atomic OAuth guarantee. Normal CI skips live tests.
 
-Fixtures do not establish live OAuth, Jira OAuth integration or platform
-parity. Keep #28 and the release gate open until all live qualification gates pass.
-
-## Network access for live qualification
-
-Keep the environment's existing package-manager/git allowlist and allow HTTPS
-to these provider and release hosts:
-
-```text
-teamwork-graph.atlassian.com
-api.atlassian.com
-auth.atlassian.com
-id.atlassian.com
-radar-cm.atlassian.net
-api.datadoghq.eu
-app.datadoghq.eu
-api.github.com
-github.com
-raw.githubusercontent.com
-release-assets.githubusercontent.com
-objects.githubusercontent.com
-```
-
-The selected Jira test site is `radar-cm.atlassian.net`; Datadog uses EU. A company
-SSO domain may also be needed during browser authorization. On 2026-10-19 the
-fresh environment successfully downloaded TWG's installer, manifest, checksums
-and all three Radar-platform assets. The runtime's network readiness field was
-`unknown`; actual successful HTTPS requests establish the access used here.
-User-approved TWG and Pup OAuth sessions are now configured. Datadog EU monitor
-and metric E2E checks passed in the selected local environment. Network access alone does not establish authenticated provider access.
-
-[CI for the qualification changes](https://github.com/ChristianMoesl/radar/actions/runs/39264359204)
-passed all 14 jobs, including the actual Pup and TWG offline binary contracts on
-all three Radar platforms, installation/packaging checks, Go/Pi/agent checks and
-the existing real SBX durable-agent check. The full Go suite also passed locally
-with a normal file-creation umask, and `make install` completed after pushing.
-These results do not establish the full Jira OAuth integration or Pup/Jira OAuth
-inside SBX.
-
-## Jira live E2E setup
-
-Use `radar-cm.atlassian.net` and an explicitly selected test project and GitHub
-test repository. Network access must be enabled before installing and qualifying
-TWG. Then start `twg login` in the execution environment: its documented OAuth
-flow prints a verification URL and short code that the user can approve in their
-own browser. The CLI must own the resulting credentials and refresh them in that
-environment. Do not paste passwords, tokens or credential files into chat.
-
-Confirm the installed CLI's login/profile/site flags before scripting onboarding.
-Verify the selected account, organization, site and a real issue read after login;
-an authorization page alone is not evidence of a working connection. Authenticate
-inside SBX separately when qualifying sandbox behavior.
-
-The live matrix must cover:
-
-- Onboarding from a missing CLI/session through installation, browser approval,
-  read verification, retry and defer.
-- Issue collection, configured JQL, assignee/status changes and stable identities.
-- Radar-owned PR references and explicit bindings, including multiple PRs,
-  branch conflicts, closed/merged states, pagination and failure preservation.
-- Jira investigator reads in the selected local/SBX environment, durable retries
-  and explicit partial failures.
-- Refresh, concurrent CLI requests, logout/revocation, wrong site/profile and
-  denied permissions, without falling back to retired tokens.
-
-Reads can use an existing fixture. Creating or updating issues/PRs requires a
-designated test project/repository and explicit authorization. Use clearly
-labeled disposable fixtures, and record cleanup separately. A dedicated test
-account/session keeps revocation checks separate from normal user work. Live
-Datadog monitor/telemetry and Pup OAuth tests require their own Datadog session.
-
-### TWG 1.3.8 live qualification (2026-10-19)
-
-The official installer completed with `--version 1.3.8 --skip-login
---skip-skills --yes --install-dir <scratch-bin>`. All three platform artifacts
-matched `SHA256SUMS-v1.3.8`. Linux arm64 is an ELF aarch64 binary and macOS arm64
-is Mach-O arm64. The added release-contract CI subsequently executed the official
-installer and binary on all three supported platforms; browser OAuth was tested
-only on Linux amd64.
-
-Browser device authorization worked. Login using the hostname then failed with
-`AUTH_SITE_UNRESOLVED` after a DNS timeout, leaving no saved profile despite the
-successful browser step. Reading the public `/_edge/tenant_info` endpoint through
-the inherited HTTPS proxy supplied the site's Cloud ID. A new browser login with
-`--site <cloud-id>` completed and saved the named `radar` OAuth profile. No CLI
-credential files were read or tokens exported. Reproduction, with the intended
-site's Cloud ID:
+For read-only production Jira qualification, create a private selector JSON file
+with `base_url`, `cloud_id`, `profile`, `account_id` and approved `issue_keys`
+(at least two), then run with the CLI's existing store selected explicitly:
 
 ```sh
-twg login --new-profile radar --site <cloud-id>
-twg --profile radar --site <cloud-id> -o json --output-summary none auth profile list
-twg --profile radar --site <cloud-id> -o json --output-summary none doctor
-twg --profile radar --site <cloud-id> -o json --output-summary none jira space get ABC
-twg --profile radar --site <cloud-id> -o json --output-summary none jira workitem query \
-  --jql 'project = ABC ORDER BY key ASC' --fields summary,status,issuetype,priority --first 2
+TWG_CONFIG_DIR=/path/to/cli-owned-store RADAR_TEST_JIRA_FIXTURES=/path/to/selectors.json \
+  go test ./internal/integration/jira -run '^TestLiveTWGOAuthCollection$' -count=1 -v
 ```
 
-Observed contracts and results:
+The [live harness](live-e2e.md) now runs that production check plus isolated Jira
+daemon restart/missing-login retention/recovery and registered local workspace
+issue/comment reads. These new Jira checks passed locally on 2026-10-20.
+The complete earlier harness passed on 2026-10-19 before
+the Jira cutover; do not treat that as a run of the expanded harness. Hosted
+activation still needs the documented GitHub Environment setup; the available
+connection could not manage its secrets/variables (HTTP 403). Keep qualification
+#28 and release #32 open until their remaining live gates pass.
 
-- `auth profile list` reports non-secret profile name, site, Cloud ID and
-  `authMethod: oauth`. `doctor` independently reports the resolved method and
-  authenticated connectivity. It can exit successfully while connectivity
-  fails, so its exit code alone is insufficient.
-- **Explicit profile selection does not defeat inherited credentials.** With
-  fixture `TWG_TOKEN`/`TWG_USER` alongside the saved OAuth profile, `doctor`
-  reported resolved method `pat` and HTTP 401. Radar must remove inherited static
-  credentials for every call and verify the resolved method; profile metadata
-  alone cannot establish the authentication actually used by a request.
-- The help map has no generic `api` command. `jira workitem query` and `get` are
-  the observed issue routes; do not implement the earlier proposed `twg api`
-  contract or claim `/rest/dev-status` OAuth access from these results.
-- Query output has `apiVersion: v2`, `command: jira.workitem.query` and
-  `data.issues`. Issue fields are flattened onto each issue; nested
-  `status.statusCategory.key` is retained. A two-row page over three fixtures
-  returned top-level `pageInfo.hasNextPage: true` and `pageInfo.nextCursor`.
-  Passing that cursor with `--after` returned the third fixture. The final page
-  omitted `pageInfo`; it did not emit an explicit `hasNextPage: false`.
-- A single `get` returns a `data` array plus `meta.acquisition` counts and
-  `meta.evidence.coverage`/truncation. Fixture issue identity and browse URLs
-  matched the query response.
-- Three clearly labeled disposable issues were created in the confirmed test
-  project. One was unassigned and transitioned to Done using a transition
-  discovered through `jira workitem transitions query`. Fixture cleanup remains
-  separate; no issue was deleted. Its explicit read still succeeded with a
-  nested `done` category, while the assigned/non-Done query returned only the
-  other two fixtures.
-- `auth refresh --force` reported `status: refreshed`, `rotated: true` and a
-  refreshed named profile. Six simultaneous reads from separate headless
-  processes succeeded after that refresh. This does not establish concurrent
-  rotation, natural expiry, revocation or sandbox refresh.
-- A nonexistent Cloud ID failed with `TWG_DEFAULT_ORG_LOOKUP_FAILED`, rather than
-  returning data from the configured site. Permission-denied behavior for an
-  existing site remains unqualified.
-- Invalid JQL and a nonexistent issue returned structured
-  `TWG_TOOL_EXECUTION_FAILED` errors, exit 1, with HTTP status 400 and 404
-  respectively. Neither response was an empty successful collection.
-- `context jira workitem ABC-123 --relationships
-  jira_work_item_links_external_pull_request --detail full --first 1
-  --usage-counts` returned `data.relationships: []`,
-  `data.pagination.hasNextPage: false`, `endCursor: null`, and reported
-  `ai-credit` usage of zero. Empty-graph evidence does not establish populated
-  relationship shape, complete associations, freshness or the cost of polling
-  populated graphs. The default lookback is seven days and must not silently
-  omit older associations. An explicit `--since 36500d` was accepted and returned
-  the same empty result; this does not prove historical association coverage.
+## Network access
 
-A user-created, dedicated GitHub fixture repository is verified private and
-writable through the connected identity. Six fixture PRs cover open, closed
-and merged states, three titles/branches without Jira keys, a conflicting
-head-branch key and an unambiguous control. Fixture commits and PR bodies name
-their intended test issues. At that stage the goal was Development-panel parity;
-the user subsequently chose those explicit references as Radar's linking policy.
-No fixture branch or issue was deleted.
+Preserve inherited HTTPS proxies and CA trust, plus package-manager/git access.
+Required provider/release hosts include `teamwork-graph.atlassian.com`,
+`api.atlassian.com`, `auth.atlassian.com`, `id.atlassian.com`, the selected Jira
+site, `api.datadoghq.eu`, `app.datadoghq.eu`, `api.github.com`, `github.com`,
+`raw.githubusercontent.com`, `release-assets.githubusercontent.com` and
+`objects.githubusercontent.com`. Company SSO may require another browser host.
+Actual HTTPS requests to the approved Jira site and Datadog EU succeeded in the
+current environment. Network access alone does not establish authenticated access.
 
-Organization app-installation access still returns HTTP 403 through the current
-connection. The user confirmed organization connection and repository selection
-through the official
-[GitHub for Atlassian setup](https://support.atlassian.com/jira-cloud-administration/docs/integrate-with-github/)
-using a Jira site admin and GitHub organization owner. A fresh PR was created
-after that confirmation, and the user confirmed it is visible in the issue's
-Development panel. Native development JQL now returns the fixture issue, and
-`context get` finds six explicit `issue_associated_pr` edges. The
-product-specific context route still returns no PR edges. Generic targets have
-only opaque graph ARIs; the sampled PR-detail and anchor reads did not provide
-provider identities. Generic context explicitly cannot cursor-page these edges,
-even when `hasNextPage` is false. Observed populated context usage was two AI
-credits per request; the subgraph diagnostic reported seven. Full reproduction,
-coverage limitations and the required upstream outcome are in the
-[live PR parity blocker report](twg-pr-parity-blocker.md). Remote links, count
-matches and inferred identities are not substitutes for exact associations.
-
-Jira's production transport and bundled investigator remain pending. Keep #28
-and the hard-switch release open until the authentication guard and remaining
-OAuth/live-provider checks pass. The graph investigation above is historical;
-Radar no longer uses those relationships.
-
-### App-independent PR linking (2026-10-19)
-
-The user approved replacing Development-panel parity with Radar-owned linking:
-exact configured keys or URLs in source branches, PR titles/descriptions, and
-PR-owned commit messages, plus existing authored-note bindings for PRs without
-references. One source-branch key wins over conflicting references elsewhere;
-multiple branch keys require an explicit binding. See the
-[linking rules](integrations/github.md#jira-links).
-
-The Development endpoint collector and cross-provider resolver capability were
-removed. GitHub uses its existing `gh` transport; Jira consumes generic resolved
-mark keys. No GitHub for Atlassian installation or Teamwork Graph relationship
-query is required, and linking consumes no Rovo credits. Links present only in
-Jira's Development panel need a reference or binding before cutover. Existing
-task/note/workspace formats are unchanged; derived commit marks use the existing
-source metadata map.
-
-A read-only live check against the six authorized private GitHub fixtures passed
-through the actual provider code. PRs 1–3 have no key in title/source branch but
-link through explicit body/commit references, including closed and merged PRs.
-The conflicting fourth PR links only to its source-branch issue; both controls
-link to the intended issue. Jira OAuth collection itself is still pending.
-Pagination, changed-head/count checks, missing pages/cursors, denied access,
-partial-result retention, ambiguous branches, workspace separation, and linked
-active-Jira/merged-PR lifecycle are covered by deterministic tests.
-
-The optional live test reads a non-secret JSON fixture list:
-
-```json
-[{"repository":"acme/app","number":7,"prefixes":["ABC"],"state":"OPEN","keys":["mark:ABC-123"]}]
-```
-
-```sh
-RADAR_TEST_GITHUB_LINK_FIXTURES=/path/to/approved-fixtures.json go test ./internal/integration/github -run TestLivePullRequestReferences -v -count=1
-```
-
-The [TWG graph report](twg-pr-parity-blocker.md) is retained as historical evidence,
-not a current release gate. The full Go suite and focused race checks passed.
-Read-only preflight found no config, secrets, task snapshot, durable-agent store,
-or GitHub cache files in this environment; the workspace directory is unchanged.
-No persisted format changes or resets are required. No installed app or remote
-fixture was removed.
-
-
-### Datadog EU live verification (2026-10-19)
-
-The user created an EU test account and approved Pup OAuth for the intended
-organization. Pup 2.0.0 was installed using its official checksum-verifying
-installer. The released CLI supports remote login by accepting the one-time
-loopback callback URL through its own interactive prompt. Pup handled the code
-exchange and stored/refreshed the credentials. Radar did not read token files,
-export access tokens, or copy host credentials into another environment.
-
-The user approved two explicitly named monitors with no notification recipients:
-`Radar OAuth E2E - States` and `Radar OAuth E2E - No Data`. The first used an
-existing Datadog API-usage metric; the second initially queried a deliberately
-absent metric. No custom metric or telemetry ingestion was required. Observed:
-
-- Browser OAuth, named EU session verification, real monitor searches and raw
-  completeness metadata passed. Inherited static token/key fixtures did not
-  override OAuth. A read-only opt-in Go test also passed against both populated
-  unhealthy monitors.
-- Six simultaneous `pup auth refresh` processes succeeded, followed by six
-  successful headless monitor reads. This qualifies that forced-refresh case;
-  natural expiry and server-side revocation have not been exercised.
-- A real Radar daemon observed Alert as `immediate`, Warn and No Data as
-  `attention`, and both monitors' eventual OK states as `done`/Recovered. Source
-  IDs and completed tasks survived a daemon restart.
-- Selecting a missing named session reported a source error and preserved both
-  active tasks through another daemon restart. Restoring the intended session
-  resumed successful collection without recreating tasks.
-- A real metric query returned one series through the actual registered local
-  workspace execution path. The Datadog investigator consumed that live metric,
-  retained its conversation across runner restart, reused the original task for
-  duplicate delivery, and retained history on recovery. Its report used the
-  explicitly selected deterministic fixture model, not a live LLM.
-
-Live requests found and corrected three investigator defects: lowercase OAuth
-`bearer` must be accepted, the v1 timeseries route requires `timeseries_query`,
-and span searches require the JSON API `data.type`/`data.attributes` envelope.
-The metric request passed after the scope correction. Corrected trace requests
-reached the account's index validation; neither trace nor log reads succeeded
-because the new account had no searchable indexes. The user explicitly limited
-this round to monitors and metrics. Logs/traces remain unverified; their checks
-are skipped unless an explicit live query is selected. The source still reports
-unavailable evidence rather than treating an error as a healthy result.
-
-Reproduction uses the CLI-owned session and non-secret selectors:
-
-```sh
-RADAR_TEST_DATADOG_SITE=datadoghq.eu RADAR_TEST_DATADOG_ORG=radar \
-RADAR_TEST_DATADOG_QUERY='tag:radar-oauth-e2e' \
-go test ./internal/integration/datadog -run TestLivePupOAuthCollection -v -count=1
-
-RADAR_TEST_DATADOG_SITE=datadoghq.eu RADAR_TEST_DATADOG_ORG=radar \
-RADAR_TEST_DATADOG_WORKSPACE=/path/to/registered/workspace \
-RADAR_TEST_DATADOG_METRIC_QUERY='avg:datadog.apis.rate_limit.usage.per_org_pct{*}' \
-node --experimental-strip-types --test agent-host/test/pup-live.test.ts
-```
-
-Normal CI skips these live tests. For optional log/trace qualification, select
-`RADAR_TEST_DATADOG_LOGS_QUERY`/`RADAR_TEST_DATADOG_SPANS_QUERY` explicitly after
-setting up the corresponding Datadog products. The workspace must have its own
-working Pup session in its actual execution environment; these commands do not
-provision sandbox credentials.
-
-Both remote monitors were left with high recovery thresholds, no notification
-recipients, and No Data notifications disabled. No monitor was deleted. The
-isolated local investigator and daemon were stopped after verification; their
-state and conversation history remain available for review. Jira's production
-OAuth migration, foreground onboarding coverage, natural expiry/revocation,
-remaining platform browser checks and real SBX OAuth keep the release gated.
-
-### Automated live E2E (2026-10-19)
-
-The user selected GitHub-hosted runners with encrypted OAuth session persistence.
-The [live E2E workflow and setup guide](live-e2e.md) replace the proposed persistent
-runner. A separate CI helper transports opaque dedicated CLI stores through a
-GitHub Environment secret; the Radar application still does not inspect tokens.
-The helper checks writeback before any refresh and saves rotated sessions after
-tests and recovery, including failed tests. Runs are serialized; the environment
-secret is resolved after the lock to avoid stale queued refresh tokens.
-
-The complete harness passed locally against the approved accounts, including
-real cursor pagination, all six PR fixtures, six concurrent Pup forced refreshes,
-monitor Alert/Warn/No Data/recovery, source/task identity and failed-login retention
-through daemon restarts, and nonempty numeric metrics through registered local
-workspace execution. The real CLI stores also survived opaque serialization and
-restore followed by CLI status validation. Reused monitor fixtures require the
-explicit `on_missing_data` setting; the legacy No Data flag did not produce a
-repeatable transition. Both fixtures were left healthy without notification
-recipients. Normal Go/Pi/agent checks and offline harness safeguards passed.
-
-Hosted CI activation remains pending: the current GitHub connection cannot manage
-the environment secrets or repository variables (HTTP 403). The workflow stays
-disabled for scheduled runs until those are configured. This does not close the
-Jira production migration, natural-expiry/revocation or live SBX OAuth gates.
+Creating/updating remote fixtures requires explicit authorization and a designated
+test project/repository. Keep fixtures clearly labeled and record cleanup
+separately. Three Jira issues, six PR fixtures and two non-notifying monitors
+were previously approved; no issue, comment, PR or monitor was deleted. Monitors
+were left healthy. Current Jira production verification uses read-only requests.

@@ -2,85 +2,129 @@ package jira
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/mail"
-	"os"
+	"net/url"
 	"regexp"
 	"strings"
 
-	"radar/internal/config"
 	"radar/internal/integration"
+	jirasettings "radar/internal/integration/jira/settings"
 	"radar/internal/setup"
 )
 
-func configureSetup(ctx context.Context, req integration.SetupRequest) error {
+func configureSetup(ctx context.Context, req integration.SetupRequest) (bool, error) {
+	if err := legacyEnvironmentError(); err != nil {
+		return false, err
+	}
 	cfg := req.Config
-	site, err := req.UI.Input(setup.Question{Title: "Jira site URL", Hint: "For example https://example.atlassian.net", Initial: config.EnvOr("RADAR_JIRA_BASE_URL", cfg.Jira.BaseURL), Validate: setup.ValidateSiteURL})
+	site, err := req.UI.Input(setup.Question{Title: "Jira site URL", Initial: cfg.Jira.BaseURL, Hint: "For example https://example.atlassian.net", Validate: setup.ValidateSiteURL})
 	if err != nil {
-		return err
+		return false, err
 	}
-	oldSite := cfg.Jira.BaseURL
-	cfg.Jira.BaseURL = strings.TrimRight(site, "/")
-	email, err := req.UI.Input(setup.Question{Title: "Jira email", Initial: config.EnvOr("RADAR_JIRA_EMAIL", cfg.Jira.Email), Validate: func(value string) error {
-		addr, err := mail.ParseAddress(value)
-		if err != nil || addr.Address != value {
-			return fmt.Errorf("enter an email address")
+	site = strings.TrimRight(site, "/")
+	var tenant struct {
+		CloudID string `json:"cloudId"`
+	}
+	req.UI.Print("Discovering the Jira Cloud ID…\n")
+	for {
+		discoveryErr := setup.Get(ctx, req.HTTP, site+"/_edge/tenant_info", nil, &tenant)
+		if ctx.Err() != nil {
+			return false, ctx.Err()
 		}
-		return nil
-	}})
-	if err != nil {
-		return err
-	}
-	cfg.Jira.Email = email
-	token, err := req.Secret("Jira API token", "Create a token in your Atlassian account.", "RADAR_JIRA_API_TOKEN", "jira", "api_token")
-	if err != nil {
-		return err
-	}
-	if cfg.Jira.APIBaseURL != "" {
-		value, err := req.UI.Input(setup.Question{Title: "Jira API base URL", Hint: "Existing API override; retain it or enter the API base for this connection.", Initial: cfg.Jira.APIBaseURL, Validate: setup.ValidateAPIURL})
+		if discoveryErr == nil && regexp.MustCompile(`^[A-Za-z0-9-]+$`).MatchString(tenant.CloudID) {
+			break
+		}
+		req.UI.Print("The Jira site could not be verified. Check the site URL and network.\n")
+		retry, err := req.UI.Confirm("Retry Jira site discovery? (No defers Jira)", false)
 		if err != nil {
-			return err
+			return false, err
 		}
-		cfg.Jira.APIBaseURL = strings.TrimRight(value, "/")
-	}
-	apiBase := config.EnvOr("RADAR_JIRA_API_BASE_URL", cfg.Jira.APIBaseURL)
-	cloudID := config.EnvOr("RADAR_JIRA_CLOUD_ID", cfg.Jira.CloudID)
-	if apiBase == "" {
-		if cloudID == "" || (oldSite != cfg.Jira.BaseURL && os.Getenv("RADAR_JIRA_CLOUD_ID") == "") {
-			req.UI.Print("Discovering the Jira Cloud ID…\n")
-			var tenant struct {
-				CloudID string `json:"cloudId"`
-			}
-			if err := setup.Get(ctx, req.HTTP, config.EnvOr("RADAR_JIRA_BASE_URL", cfg.Jira.BaseURL)+"/_edge/tenant_info", nil, &tenant); err != nil {
-				return fmt.Errorf("could not discover Jira Cloud ID — check the site URL and connection, then retry setup: %w", err)
-			}
-			cloudID = tenant.CloudID
-			cfg.Jira.CloudID = cloudID
+		if !retry {
+			return false, nil
 		}
-		if !regexp.MustCompile(`^[A-Za-z0-9-]+$`).MatchString(cloudID) {
-			return fmt.Errorf("Jira site returned no valid Cloud ID — check the site URL")
-		}
-		apiBase = "https://api.atlassian.com/ex/jira/" + cloudID + "/rest/api/3"
 	}
-	if err := setup.ValidateAPIURL(apiBase); err != nil {
-		return err
-	}
-	req.UI.Print("Checking Jira authentication…\n")
-	endpoint := strings.TrimRight(apiBase, "/") + "/myself"
-	if err := setup.Get(ctx, req.HTTP, endpoint, func(req *http.Request) { req.SetBasicAuth(config.EnvOr("RADAR_JIRA_EMAIL", email), token) }, nil); err != nil {
-		return fmt.Errorf("Jira authentication failed — check your email, API token and Jira access: %w", err)
-	}
-	prefixes, err := req.UI.Input(setup.Question{Title: "Jira ticket prefixes", Initial: strings.Join(cfg.LinkingMarkPrefixes, ", "), Hint: "One or more project prefixes, separated by commas or spaces (for example ABC, XYZ).", Validate: func(value string) error { _, err := parsePrefixes(value); return err }})
+	profile, err := req.UI.Input(setup.Question{Title: "TWG OAuth profile name", Initial: cfg.Jira.Profile, Hint: "Use a dedicated named OAuth profile, for example radar.", Validate: func(v string) error { c := jirasettings.Default(); c.Profile = v; return jirasettings.Validate(c) }})
 	if err != nil {
-		return err
+		return false, err
 	}
-	cfg.LinkingMarkPrefixes, err = parsePrefixes(prefixes)
+	prefixes, err := req.UI.Input(setup.Question{Title: "Jira ticket prefixes", Initial: strings.Join(cfg.LinkingMarkPrefixes, ", "), Hint: "Project prefixes separated by commas or spaces, for example ABC, XYZ.", Validate: func(v string) error { _, e := parsePrefixes(v); return e }})
 	if err != nil {
-		return err
+		return false, err
 	}
-	req.UI.Print("✓ Jira authenticated\n")
-	return nil
+	marks, err := parsePrefixes(prefixes)
+	if err != nil {
+		return false, err
+	}
+	connection := Config{BaseURL: site, CloudID: tenant.CloudID, Profile: profile, output: req.System.Output}
+	login := []string{"login", "--new-profile", profile, "--site", tenant.CloudID}
+	// This is non-secret CLI metadata; never inspect the credential files.
+	if data, e := twgOutput(ctx, connection, []string{"--output", "json", "--output-summary", "none", "auth", "profile", "list"}); e == nil {
+		var listing struct {
+			Data struct {
+				Profiles []twgProfile `json:"profiles"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(data, &listing) == nil {
+			for _, p := range listing.Data.Profiles {
+				if p.Name == profile {
+					login = []string{"--profile", profile, "login", "--force", "--site", tenant.CloudID}
+					break
+				}
+			}
+		}
+	}
+	install := `installer=$(mktemp); trap 'rm -f "$installer"' EXIT; curl -fsSL https://teamwork-graph.atlassian.com/cli/install -o "$installer" && bash "$installer" --version 1.3.8 --install-dir "$HOME/.local/bin" --skip-login --skip-skills --yes`
+	var selected twgProfile
+	connected, err := setup.ConnectCLI(ctx, req.UI, req.System, setup.CLIConnection{
+		Env: twgEnv(), Name: "twg", Service: "Jira", MinimumVersion: "1.3.8", Reason: "OAuth issue access and automatic credential refresh", InstallInstructions: install + `; export PATH="$HOME/.local/bin:$PATH"`, Install: &setup.Command{Name: "bash", Args: []string{"-o", "pipefail", "-c", install}, Env: twgEnv()},
+		Login: setup.Command{Name: "twg", Args: login, Env: twgEnv()},
+		Verify: func(ctx context.Context) error {
+			p, e := verifyTWG(ctx, connection)
+			if e != nil {
+				return e
+			}
+			u, _ := url.Parse(site)
+			if !strings.EqualFold(p.Domain, u.Hostname()) {
+				return fmt.Errorf("TWG profile does not match the selected Jira site")
+			}
+			data, e := twgRead(ctx, connection, "jira", "workitem", "query", "--jql", "assignee = currentUser() ORDER BY updated DESC", "--fields", strings.Join(issueSearchFields(), ","), "--first", "1")
+			if e == nil {
+				envelope, err := decodeTWG(data, "jira.workitem.query")
+				e = err
+				if e == nil {
+					var rows struct {
+						Issues *[]json.RawMessage `json:"issues"`
+					}
+					if json.Unmarshal(envelope.Data, &rows) != nil || rows.Issues == nil || len(*rows.Issues) > 1 {
+						e = fmt.Errorf("TWG issue read returned an invalid page")
+					} else {
+						for _, row := range *rows.Issues {
+							_, e = decodeIssue(row)
+							if e != nil {
+								break
+							}
+						}
+					}
+				}
+			}
+			if e == nil {
+				selected = p
+			}
+			return e
+		},
+	}, req.Completed)
+	if err != nil || !connected {
+		return false, err
+	}
+	use, err := req.UI.Confirm(fmt.Sprintf("Use Jira account %s (%s) at %s?", selected.User, selected.UserID, site), true)
+	if err != nil || !use {
+		return false, err
+	}
+	cfg.Jira.BaseURL, cfg.Jira.CloudID, cfg.Jira.Profile, cfg.Jira.AccountID = site, tenant.CloudID, profile, selected.UserID
+	cfg.LinkingMarkPrefixes = marks
+	req.UI.Print("✓ Jira connected at %s with TWG OAuth profile %s (issue read verified)\n", site, profile)
+	return true, nil
 }
 
 func parsePrefixes(value string) ([]string, error) {
@@ -106,13 +150,22 @@ func (Source) SetupStage() integration.SetupStage {
 	return integration.SetupStage{Phase: integration.SetupConnections, Order: 1}
 }
 func (Source) Setup(ctx context.Context, req integration.SetupRequest) (setup.Plan, error) {
+	original := req.Config.Jira
 	enabled, err := req.UI.Confirm("Connect Radar to Jira?", !req.Draft.Existing || req.Config.Jira.Enabled == nil || *req.Config.Jira.Enabled)
 	if err != nil {
 		return setup.Plan{}, err
 	}
 	req.Config.Jira.Enabled = &enabled
 	if enabled {
-		err = configureSetup(ctx, req)
+		connected, e := configureSetup(ctx, req)
+		connected = connected && e == nil
+		if !connected {
+			original.Enabled = &connected
+			req.Config.Jira = original
+		} else {
+			*req.Config.Jira.Enabled = true
+		}
+		err = e
 	}
 	return setup.Plan{}, err
 }

@@ -66,8 +66,10 @@ github:
   # Example entry: {actors: ["review-bot[bot]"], action: ignore}
   activity_rules: []
 # Omit enabled to detect prerequisites automatically; true requires them and false disables collection.
-# Credentials belong in secrets.yaml.
+# TWG owns OAuth credentials; run radar setup to install and sign in.
 jira:
+  # Named TWG OAuth profile selected for every request (default radar).
+  profile: radar
   # Issue types collected as assigned work. An empty list disables assigned collection and makes title discoveries informational.
   authoritative_issue_types:
     - Story

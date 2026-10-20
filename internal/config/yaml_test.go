@@ -178,7 +178,7 @@ func TestYAMLJiraMappingReplacesDefaultsAndTracksEmptyFallback(t *testing.T) {
 
 func TestSecretYAMLRoundTripCommentsAndRedaction(t *testing.T) {
 	path := secretFixture(t)
-	values := Secrets{"jira": {"api_token": "true", "number": "00123", "special": "! @ # : [ ] { } & *", "multiline": "first\nsecond\n"}, "other": {"token": "9007199254740993"}}
+	values := Secrets{"custom": {"api_token": "true", "number": "00123", "special": "! @ # : [ ] { } & *", "multiline": "first\nsecond\n"}, "other": {"token": "9007199254740993"}}
 	if err := SaveSecrets(values); err != nil {
 		t.Fatal(err)
 	}
@@ -190,14 +190,14 @@ func TestSecretYAMLRoundTripCommentsAndRedaction(t *testing.T) {
 		t.Fatal("secret string values changed")
 	}
 	data, _ := os.ReadFile(path)
-	if !strings.Contains(string(data), "# Plaintext credentials") || !strings.Contains(string(data), "# Jira credentials.") {
+	if !strings.Contains(string(data), "# Plaintext credentials") {
 		t.Fatal("missing secret guidance")
 	}
-	original := "# Private account\njira:\n  # rotate monthly\n  api_token: 'old' # personal token\nother:\n  token: unchanged # do not rotate\n"
+	original := "# Private account\ncustom:\n  # rotate monthly\n  api_token: 'old' # personal token\nother:\n  token: unchanged # do not rotate\n"
 	if err := os.WriteFile(path, []byte(original), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := SaveSecrets(Secrets{"jira": {"api_token": "new"}}); err != nil {
+	if err := SaveSecrets(Secrets{"custom": {"api_token": "new"}}); err != nil {
 		t.Fatal(err)
 	}
 	data, _ = os.ReadFile(path)
@@ -206,14 +206,14 @@ func TestSecretYAMLRoundTripCommentsAndRedaction(t *testing.T) {
 			t.Fatal("secret comments or other namespaces changed")
 		}
 	}
-	if err := SaveSecrets(Secrets{"jira": {"api_token": "new"}}); err != nil {
+	if err := SaveSecrets(Secrets{"custom": {"api_token": "new"}}); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := os.ReadFile(path)
 	if !bytes.Equal(data, after) {
 		t.Fatal("no-op secret update changed bytes")
 	}
-	for _, malformed := range []string{"jira: [do-not-echo", "jira:\n  api_token: [do-not-echo]\n", "jira:\n  do-not-echo: a\n  do-not-echo: b\n", "jira: {}\n---\nother: do-not-echo\n"} {
+	for _, malformed := range []string{"custom: [do-not-echo", "custom:\n  api_token: [do-not-echo]\n", "custom:\n  do-not-echo: a\n  do-not-echo: b\n", "custom: {}\n---\nother: do-not-echo\n"} {
 		if err := os.WriteFile(path, []byte(malformed), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -272,7 +272,7 @@ github:
       action: mute
 jira:
   base_url: https://example.atlassian.net
-  email: user@example.com
+  profile: radar
   authoritative_issue_types: []
   status_mapping: {}
   unmapped_status: attention

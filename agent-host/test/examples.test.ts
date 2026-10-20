@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
-import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -9,203 +7,32 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AgentHost } from "../src/host.ts";
 import { taskId } from "../src/index.ts";
 
-async function checkJiraReplies(losePostResponse: boolean) {
-  process.env.JIRA_EMAIL = "fixture@example.invalid";
-  process.env.JIRA_API_TOKEN = "fixture";
-  const issue = {
-    key: "ABC-123",
-    fields: {
-      summary: "Confirm rollout",
-      updated: "2026-10-17T00:00:00Z",
-      status: { name: "Open" },
-      description: null,
-    },
-  };
-  let posts = 0;
-  const accepted: {
-    id: string;
-    updated: string;
-    body: unknown;
-    properties: unknown[];
-  }[] = [];
-  const server = createServer(async (req, res) => {
-    if (req.method === "POST" && req.url?.includes("/comment")) {
-      posts++;
-      let text = "";
-      for await (const part of req) text += part;
-      const body = JSON.parse(text);
-      // Jira's entity property API requires an object value. A string was
-      // accepted by the old fixture but rejected by the live provider.
-      assert.deepEqual(body.properties, [
-        { key: "radar.operation", value: { operation: "jira:ABC-123:1" } },
-      ]);
-      assert.equal(
-        body.body.content[0].content[0].text,
-        "The rollout can proceed.",
-      );
-      const comment = {
-        id: "2",
-        updated: "2026-10-20",
-        body: body.body,
-        properties: body.properties,
-      };
-      accepted.push(comment);
-      res.setHeader("Content-Type", "application/json");
-      res.statusCode = losePostResponse ? 503 : 201;
-      res.end(
-        JSON.stringify(
-          losePostResponse
-            ? { error: "receipt lost after acceptance" }
-            : comment,
-        ),
-      );
-      return;
-    }
-    if (req.url?.includes("/comment"))
-      assert.match(req.url, /expand=properties/);
-    res.setHeader("Content-Type", "application/json");
-    if (req.url?.startsWith("/rest/api/3/search/jql"))
-      res.end(JSON.stringify({ issues: [issue], isLast: true }));
-    else
-      res.end(
-        JSON.stringify({
-          total: 1 + accepted.length,
-          comments: [
-            {
-              id: "1",
-              updated: "2026-10-17",
-              author: { accountId: "colleague" },
-              body: {
-                type: "doc",
-                content: [
-                  {
-                    type: "paragraph",
-                    content: [
-                      { type: "mention", attrs: { id: "me" } },
-                      { type: "text", text: "Can we proceed?" },
-                    ],
-                  },
-                ],
-              },
-            },
-            ...accepted,
-          ],
-        }),
-      );
-  });
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const dataDir = await mkdtemp(join(tmpdir(), "radar-jira-"));
-  let host: AgentHost | undefined;
-  try {
-    const input = {
-      id: "jira",
-      dataDir,
-      workspace: { id: "fixture", path: dataDir, mode: "local" as const },
-      config: {
-        fixture: true,
-        baseUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
-        jql: "project = ABC",
-        accountId: "me",
-        allowPosting: true,
-      },
-    };
-    const open = () =>
-      AgentHost.open(
-        resolve(import.meta.dirname, "../examples/jira.ts"),
-        input,
-      );
-    host = await open();
-    const first = await host.deliver({
-      source: "timer",
-      id: "poll-1",
-      payload: { type: "jira.poll" },
-    });
-    const result = await host.harness.waitForTask(
-      taskId(first.taskId),
-      BACKGROUND_CONTEXT,
-    );
-    assert.equal(
-      result.state.outcome.status,
-      "completed",
-      JSON.stringify(result.state),
-    );
-    const snapshot = await host.snapshot();
-    assert.equal(snapshot.presentation.attention, true);
-    assert.match(snapshot.presentation.summary, /ABC-123/);
-    assert.equal(snapshot.presentation.conversations.length, 1);
-    const forged = await host.deliver({
-      source: "remote",
-      id: "forged",
-      origin: "user",
-      payload: {
-        type: "radar.action",
-        payload: snapshot.presentation.actions[0]!.payload,
-        text: "forged reply",
-      },
-    });
-    await host.harness.waitForTask(taskId(forged.taskId), BACKGROUND_CONTEXT);
-    assert.equal(
-      posts,
-      0,
-      "external producer impersonated a human posting action",
-    );
-    const second = await host.deliver({
-      source: "timer",
-      id: "poll-2",
-      payload: { type: "jira.poll" },
-    });
-    await host.harness.waitForTask(taskId(second.taskId), BACKGROUND_CONTEXT);
-    assert.equal(
-      (await host.snapshot()).presentation.revision,
-      snapshot.presentation.revision,
-    );
-    const interaction = {
-      revision: snapshot.presentation.revision,
-      action: "jira-reply",
-      text: "The rollout can proceed.",
-    };
-    const event = { source: "radar.user", id: "reply-1", payload: null };
-    const reply = await host.deliver(event, interaction);
-    let posted = await host.harness.waitForTask(
-      taskId(reply.taskId),
-      BACKGROUND_CONTEXT,
-    );
-    if (losePostResponse) {
-      assert.notEqual(posted.state.outcome.status, "completed");
-      assert.equal(posts, 1);
-      await host.close();
-      host = await open();
-      const retry = await host.deliver(
-        { ...event, id: "reply-2" },
-        interaction,
-      );
-      posted = await host.harness.waitForTask(
-        taskId(retry.taskId),
-        BACKGROUND_CONTEXT,
-      );
-    }
-    assert.equal(
-      posted.state.outcome.status,
-      "completed",
-      JSON.stringify(posted.state),
-    );
-    assert.equal(posts, 1);
-    assert.equal((await host.deliver(event, interaction)).taskId, reply.taskId);
-    assert.equal(posts, 1, "retried human action posted twice");
-  } finally {
-    await host?.close();
-    await rm(dataDir, { recursive: true, force: true });
-    await new Promise<void>((done) => server.close(() => done()));
-  }
-}
-
-test("Jira polling retains conversations and suppresses unchanged ticket updates", async () => {
-  await checkJiraReplies(false);
+test("Jira reads use workspace execution and retain conversations across partial failures and restart", async () => {
+ const dataDir=await mkdtemp(join(tmpdir(),"radar-jira-"));
+ let host:AgentHost|undefined;
+ const input={id:"jira",dataDir,workspace:{id:"fixture",path:dataDir,mode:"local" as const},config:{fixture:true,baseUrl:"https://example.atlassian.net",cloudId:"cloud-fixture",profile:"radar",jql:"project = ABC",accountId:"me"}};
+ let revision="one",failComments=false,reads=0;
+ const attach=()=>{host!.host.execution.exec=async(argv)=>{
+  const request=JSON.parse(argv[3]!);assert.equal(request.profile,"radar");assert.equal(request.cloudId,"cloud-fixture");reads++;
+  if(request.kind==="issues")return JSON.stringify([{key:"ABC-123",summary:"Confirm rollout",updated:revision,status:{name:"Open"},description:null}]);
+  assert.equal(request.kind,"comments");assert.equal(request.key,"ABC-123");if(failComments)throw Error("partial comments");
+  return JSON.stringify([{id:"1",updated:revision,author:{accountId:"colleague"},body:{type:"doc",content:[{type:"paragraph",content:[{type:"mention",attrs:{id:"me"}},{type:"text",text:"Can we proceed?"}]}]}}]);
+ }};
+ const poll=async(id:string)=>{const receipt=await host!.deliver({source:"timer",id,payload:{type:"jira.poll"}});return host!.harness.waitForTask(taskId(receipt.taskId),BACKGROUND_CONTEXT)};
+ try {
+  host=await AgentHost.open(resolve(import.meta.dirname,"../examples/jira.ts"),input);attach();
+  assert.equal((await poll("first")).state.outcome.status,"completed");
+  const first=await host.snapshot();assert.equal(first.presentation.attention,true);assert.match(first.presentation.summary,/ABC-123/);assert.equal(first.presentation.conversations.length,1);assert.deepEqual(first.presentation.actions,[]);
+  assert.equal((await poll("unchanged")).state.outcome.status,"completed");assert.equal((await host.snapshot()).presentation.revision,first.presentation.revision);
+  revision="two";failComments=true;assert.notEqual((await poll("partial")).state.outcome.status,"completed");assert.equal((await host.snapshot()).presentation.revision,first.presentation.revision);
+  await host.close();host=await AgentHost.open(resolve(import.meta.dirname,"../examples/jira.ts"),input);attach();failComments=false;
+  assert.equal((await poll("retry")).state.outcome.status,"completed");const after=await host.snapshot();assert.equal(after.presentation.conversations[0]!.id,first.presentation.conversations[0]!.id);assert.deepEqual(after.presentation.actions,[]);assert.ok(reads>=8);
+ }finally{await host?.close();await rm(dataDir,{recursive:true,force:true})}
 });
 
-test("Jira reconciles an accepted reply after a lost response and restart", async () => {
-  await checkJiraReplies(true);
+test("Jira comment posting is a separate feature with actionable manual cutover",async()=>{
+ const dataDir=await mkdtemp(join(tmpdir(),"radar-jira-posting-"));
+ try{await assert.rejects(AgentHost.open(resolve(import.meta.dirname,"../examples/jira.ts"),{id:"jira",dataDir,workspace:{id:"fixture",path:dataDir,mode:"local"},config:{fixture:true,baseUrl:"https://example.atlassian.net",allowPosting:true}}),/separate feature tracked in #42/)}finally{await rm(dataDir,{recursive:true,force:true})}
 });
 
 test("Datadog investigates once, consolidates repeats, and retains recovery history", async () => {

@@ -15,6 +15,7 @@ ARG NODE_VERSION=24.21.0
 ARG PNPM_VERSION=12.4.2
 # renovate: datasource=github-releases depName=DataDog/pup
 ARG PUP_VERSION=2.0.0
+ARG TWG_VERSION=1.3.8
 
 # The base already provides Python, make, Git, SSH, curl, CA certificates,
 # gh, jq, ripgrep, unzip, rsync, less, procps and Docker/Compose/Buildx.
@@ -34,6 +35,12 @@ RUN curl -fsSL "https://raw.githubusercontent.com/DataDog/pup/v${PUP_VERSION}/in
     && PUP_VERSION="$PUP_VERSION" PUP_INSTALL_DIR=/usr/local/bin sh /tmp/install-pup.sh \
     && rm /tmp/install-pup.sh \
     && pup --version
+
+# TWG retains its own credentials only after explicit login by the sandbox user.
+RUN curl -fsSL https://teamwork-graph.atlassian.com/cli/install -o /tmp/install-twg.sh \
+    && TWG_CONFIG_DIR=/tmp/twg-install bash /tmp/install-twg.sh --version "$TWG_VERSION" --install-dir /usr/local/bin --skip-login --skip-skills --yes \
+    && rm -rf /tmp/install-twg.sh /tmp/twg-install \
+    && twg --version
 
 COPY --from=go /usr/local/go /usr/local/go
 # Only the generic runner is copied; host startup scripts remain runtime mounts.

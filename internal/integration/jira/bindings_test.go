@@ -192,7 +192,7 @@ func TestResolveBindingsValidatesIssueIDsAndAvailabilityBeforeFetch(t *testing.T
 		t.Fatalf("disabled = %+v", result)
 	}
 	configureJiraSource(t, server.URL, `{}`)
-	t.Setenv("RADAR_JIRA_API_TOKEN", "")
+	t.Setenv("PATH", t.TempDir())
 	if result := NewSource().ResolveBindings(context.Background(), boundJiraRequest()); result.Complete || len(result.Observations) != 0 {
 		t.Fatalf("missing credentials = %+v", result)
 	}

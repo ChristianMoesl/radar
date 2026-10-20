@@ -144,6 +144,70 @@ class Suite:
             require(cursor and cursor not in cursors, "TWG pagination has no fresh cursor")
             cursors.add(cursor)
         require(seen == keys and len(cursors) > 0, "TWG did not return every selected issue across pages")
+        profile = selected[0]
+        require(profile.get("domain") and profile.get("userId"), "TWG profile must identify its site and account")
+        selectors = {"base_url": "https://" + profile["domain"], "cloud_id": self.jira["site"],
+                     "profile": self.jira["profile"], "account_id": profile["userId"],
+                     "issue_keys": self.jira["issue_keys"]}
+        path = self.directory / "jira-fixtures.json"
+        path.write_text(json.dumps(selectors))
+        command(["go", "test", "./internal/integration/jira", "-run", "^TestLiveTWGOAuthCollection$", "-count=1"],
+                {**self.env, "RADAR_TEST_JIRA_FIXTURES": str(path)}, parse=False, timeout=240)
+        self.jira_daemon(selectors)
+
+    def jira_daemon(self, selectors):
+        # Keep Jira task persistence independent of the Datadog lifecycle run.
+        directory = self.directory / "jira-run"
+        directory.mkdir()
+        run = Suite(self.config, directory)
+        run.radar_config["datadog"]["enabled"] = False
+        run.radar_config["jira"] = {"enabled": True, **{k: v for k, v in selectors.items() if k != "issue_keys"}}
+        run.radar_config["linking_mark_prefixes"] = sorted({k.split("-")[0] for k in selectors["issue_keys"]})
+        for name in ("repo", "vault"):
+            (directory / name).mkdir()
+        identities = None
+
+        def snapshot(error=False):
+            nonlocal identities
+            refresh = run.radar("refresh", "--json")
+            source = next(s for s in refresh["sources"] if s["name"] == "jira")
+            require(source["status"] == ("error" if error else "ok"), "unexpected Radar Jira source status")
+            tasks = run.radar("tasks", "--json")
+            rows = tasks.get("tasks", []) if isinstance(tasks, dict) else tasks
+            observed = {}
+            for task in rows:
+                for ref in task.get("source_refs", []):
+                    if ref.get("source") == "jira" and ref.get("metadata", {}).get("key") in selectors["issue_keys"]:
+                        require(ref["id"] not in observed, "duplicate Jira task")
+                        observed[ref["id"]] = (task["id"], ref["status"], ref["title"])
+            require(len(observed) >= 2, "select at least two assigned open Jira fixtures for daemon retention")
+            if identities is None:
+                identities = observed
+            require(observed == identities, "Jira tasks changed across failed login or daemon restart")
+
+        try:
+            run.save_config()
+            run.start()
+            snapshot()
+            run.start()
+            snapshot()
+            run.radar_config["jira"]["profile"] += "-missing-e2e"
+            run.save_config()
+            snapshot(error=True)
+            run.start()
+            snapshot(error=True)
+            run.radar_config["jira"]["profile"] = selectors["profile"]
+            run.save_config()
+            snapshot()
+            for args in (["init", "--initial-branch=main"], ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                         "commit", "--allow-empty", "-m", "test: live Jira workspace"]):
+                command(["git", *args], run.env, cwd=directory / "repo", parse=False)
+            run.radar("create", "--prepare-only", "--repo", str(directory / "repo"), "--base", "main", "--name", "live-jira", "--json")
+            command(["node", "--experimental-strip-types", "--test", "agent-host/test/twg-live.test.ts"],
+                    {**run.env, "RADAR_TEST_JIRA_FIXTURES": str(self.directory / "jira-fixtures.json"),
+                     "RADAR_TEST_JIRA_WORKSPACE": str(directory / "workspaces/live-jira")}, parse=False, timeout=180)
+        finally:
+            run.stop()
 
     def github_links(self):
         path = self.directory / "github-fixtures.json"
@@ -357,7 +421,7 @@ def main():
                         suite.recover()
                     check("Datadog monitor recovery", recover)
                 else:
-                    check("TWG OAuth native Jira reads and pagination (transport qualification)", suite.jira_reads)
+                    check("Jira OAuth production collection, pagination, daemon retention and workspace reads", suite.jira_reads)
                     check("GitHub PR references through Radar's provider", suite.github_links)
                     check("Datadog OAuth, live monitor lifecycle, daemon persistence and workspace metrics", suite.datadog_lifecycle)
             finally:

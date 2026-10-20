@@ -3,6 +3,7 @@ package jira
 import (
 	"context"
 	"encoding/json"
+	"go.yaml.in/yaml/v3"
 	"io"
 	"log/slog"
 	"net/http"
@@ -267,17 +268,23 @@ func jiraSourceServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 
 func configureJiraSource(t *testing.T, apiURL, jiraYAML string) {
 	t.Helper()
-	t.Setenv("RADAR_JIRA_API_BASE_URL", apiURL)
-	t.Setenv("RADAR_JIRA_BASE_URL", "https://jira.example.test")
-	t.Setenv("RADAR_JIRA_EMAIL", "me@example.test")
-	t.Setenv("RADAR_JIRA_API_TOKEN", "token")
+	installTWGFixture(t, apiURL)
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 	path := filepath.Join(configHome, "radar", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{linking_mark_prefixes: ["XYZ"],jira: `+jiraYAML+`}`), 0o600); err != nil {
+	var user map[string]any
+	if err := yaml.Unmarshal([]byte(jiraYAML), &user); err != nil {
+		t.Fatal(err)
+	}
+	user["base_url"] = "https://jira.example.test"
+	user["cloud_id"] = "cloud-fixture"
+	user["profile"] = "radar"
+	user["account_id"] = "fixture-account"
+	data, _ := json.Marshal(map[string]any{"linking_mark_prefixes": []string{"XYZ"}, "jira": user})
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

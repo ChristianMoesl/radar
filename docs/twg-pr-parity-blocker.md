@@ -147,7 +147,7 @@ requests reported zero. These are per-request observations, not a pricing or
 future billing guarantee; zero-cost empty responses cannot establish the cost
 of polling populated associations.
 
-## Required outcome before Radar cutover
+## Historical required outcome, replaced by the approved linking policy
 
 Radar needs one canonical structured route that supplies complete, exact
 issue-to-provider-PR identities. A stable PR URL or repository/PR number would
@@ -162,6 +162,7 @@ that request contract must not be assumed.
 
 Opaque graph IDs cannot be matched to GitHub PRs by counts, titles, branch text
 or inferred ordering. Radar will not export tokens or read CLI credential files
-to bridge this gap. Jira's production hard switch remains pending in
-[#28](https://github.com/ChristianMoesl/radar/issues/28) and
+to bridge this gap. Radar-owned references and bindings replaced this route;
+the production TWG hard switch is now implemented. Remaining qualification is
+tracked in [#28](https://github.com/ChristianMoesl/radar/issues/28) and
 [#27](https://github.com/ChristianMoesl/radar/issues/27).

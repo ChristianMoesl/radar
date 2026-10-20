@@ -62,6 +62,9 @@ func (u *fakeUI) Input(q question) (string, error) {
 }
 func (u *fakeUI) Confirm(title string, initial bool) (bool, error) {
 	// Existing wizard scenarios leave the separately tested Terraform opt-in off.
+	if strings.HasPrefix(title, "Use Jira account ") {
+		return true, nil
+	}
 	if title == "Connect Radar to Terraform?" {
 		return false, nil
 	}
@@ -163,6 +166,25 @@ func (s *fakeSystem) Output(ctx context.Context, cmd setup.Command) (string, err
 	if name == "pi" {
 		return "1.0.0", nil
 	}
+	if name == "twg" {
+		if len(args) > 0 && args[0] == "--version" {
+			return "1.3.8", nil
+		}
+		joined := strings.Join(args, " ")
+		if strings.Contains(joined, "auth profile list") {
+			profile := "radar"
+			for i, a := range args {
+				if a == "--profile" && i+1 < len(args) {
+					profile = args[i+1]
+				}
+			}
+			return fmt.Sprintf(`{"apiVersion":"v2","data":{"profiles":[{"name":%q,"authMethod":"oauth","cloudId":"cloud-fixture","userId":"fixture-account","user":"fixture@example.invalid","domain":"example.atlassian.net","environment":"prod"}]}}`, profile), nil
+		}
+		if strings.Contains(joined, "doctor") {
+			return `{"data":{"auth":{"resolved":{"authMethod":"oauth"}},"connectivity":{"attempted":true,"ok":true,"userId":"ari:cloud:identity::user/fixture-account"}}}`, nil
+		}
+		return `{"apiVersion":"v2","command":"jira.workitem.query","data":{"issues":[]}}`, nil
+	}
 	if name == "pup" {
 		if len(args) > 0 && args[0] == "--version" {
 			return "pup 2.0.0", nil
@@ -211,6 +233,7 @@ func fixture(t *testing.T) (wizard, *fakeUI, *fakeSystem, string) {
 	t.Helper()
 	for _, key := range []string{"RADAR_JIRA_BASE_URL", "RADAR_JIRA_EMAIL", "RADAR_JIRA_CLOUD_ID", "RADAR_JIRA_API_BASE_URL", "RADAR_JIRA_API_TOKEN", "RADAR_DATADOG_SITE", "RADAR_DATADOG_API_KEY", "RADAR_DATADOG_APP_KEY"} {
 		t.Setenv(key, "")
+		os.Unsetenv(key)
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -245,7 +268,7 @@ func installRadarFixture(t *testing.T, dir string) {
 
 func TestWizardSavesSettingsAndSeparateSecretsAfterReview(t *testing.T) {
 	w, ui, sys, home := fixture(t)
-	ui.inputs = append(ui.inputs, "https://example.atlassian.net/", "you@example.com", "jira-fixture-secret", "abc, XYZ abc", "https://api.datadoghq.eu", "radar", "tag:team:platform")
+	ui.inputs = append(ui.inputs, "https://example.atlassian.net/", "radar", "abc, XYZ abc", "https://api.datadoghq.eu", "radar", "tag:team:platform")
 	ui.decisions = []bool{true, true, true, true}
 	requests := []string{}
 	w.http.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -313,7 +336,7 @@ func TestWizardSavesSettingsAndSeparateSecretsAfterReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if secrets["jira"]["api_token"] != "jira-fixture-secret" || len(secrets["datadog"]) != 0 {
+	if len(secrets["jira"]) != 0 || len(secrets["datadog"]) != 0 {
 		t.Fatal("secrets were not saved")
 	}
 	configPath, _ := config.Path()
@@ -323,7 +346,7 @@ func TestWizardSavesSettingsAndSeparateSecretsAfterReview(t *testing.T) {
 			t.Fatal("secret leaked outside secrets.yaml")
 		}
 	}
-	if len(requests) != 2 {
+	if len(requests) != 1 {
 		t.Fatalf("requests: %v", requests)
 	}
 	if _, err := os.Stat(filepath.Join(home, "notes", "Tasks")); err != nil {
@@ -359,14 +382,17 @@ func TestWizardSkipsDeclinedIntegrations(t *testing.T) {
 }
 
 func TestWizardCancellationLeavesNoConfigurationOrDirectories(t *testing.T) {
-	for _, cancel := range []string{"Where do you check out your repositories?", "Jira API token", "Save this configuration?", "decline save", "decline extension install"} {
+	for _, cancel := range []string{"Where do you check out your repositories?", "TWG OAuth profile name", "Save this configuration?", "decline save", "decline extension install"} {
 		t.Run(cancel, func(t *testing.T) {
 			w, ui, _, home := fixture(t)
 			ui.cancelAt = cancel
 			ui.decisions = []bool{false, false, false, false}
-			if cancel == "Jira API token" {
+			if cancel == "TWG OAuth profile name" {
 				ui.decisions = []bool{false, true}
-				ui.inputs = append(ui.inputs, "https://example.atlassian.net", "you@example.com")
+				ui.inputs = append(ui.inputs, "https://example.atlassian.net")
+				w.http.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"cloudId":"cloud-fixture"}`))}, nil
+				})
 			}
 			if cancel == "decline extension install" {
 				_ = os.Remove(filepath.Join(home, ".pi", "agent", "settings.json"))
@@ -519,10 +545,10 @@ func TestWizardDecliningFinalReviewPreservesExistingSecrets(t *testing.T) {
 	}
 	path, _ := config.SecretsPath()
 	before, _ := os.ReadFile(path)
-	ui.inputs = append(ui.inputs, "https://example.atlassian.net", "you@example.com", "new-secret", "ABC", "datadoghq.eu", "radar", "tag:team:platform")
+	ui.inputs = append(ui.inputs, "https://example.atlassian.net", "radar", "ABC", "datadoghq.eu", "radar", "tag:team:platform")
 	ui.decisions = []bool{false, true, true, false}
 	w.http.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"cloudId":"fixture"}`))}, nil
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"cloudId":"cloud-fixture"}`))}, nil
 	})
 	if err := w.run(); !errors.Is(err, ErrAborted) {
 		t.Fatalf("error = %v", err)
@@ -555,16 +581,16 @@ func TestRepeatSetupRetainsOrEditsExistingSettingsAndSecrets(t *testing.T) {
 			cfg.Jira.Enabled = &yes
 			cfg.Datadog.Enabled = &yes
 			cfg.Jira.BaseURL = "https://example.atlassian.net"
-			cfg.Jira.Email = "you@example.com"
+			cfg.Jira.AccountID = "fixture-account"
 			cfg.Jira.CloudID = "cloud-fixture"
-			cfg.Jira.APIBaseURL = "https://api.example.test/rest/api/3"
+			cfg.Jira.Profile = "radar"
 			cfg.LinkingMarkPrefixes = []string{"ABC", "XYZ"}
 			cfg.Datadog.Site = "datadoghq.eu"
 			cfg.Datadog.MonitorQuery = "tag:team:platform"
 			if err := config.Create(cfg); err != nil {
 				t.Fatal(err)
 			}
-			if err := config.SaveSecrets(config.Secrets{"jira": {"api_token": "old-jira"}, "other": {"token": "untouched"}}); err != nil {
+			if err := config.SaveSecrets(config.Secrets{"other": {"token": "untouched"}}); err != nil {
 				t.Fatal(err)
 			}
 			path, _ := config.Path()
@@ -573,32 +599,23 @@ func TestRepeatSetupRetainsOrEditsExistingSettingsAndSecrets(t *testing.T) {
 			secretBefore, _ := os.ReadFile(secretPath)
 			ui.inputs = []string{"<keep>", "<keep>", "<keep>"}
 			ui.decisions = []bool{false, true, true, mode != "cancel"}
-			token := ""
-			wantToken := "old-jira"
+			profile := "<keep>"
 			if mode == "replace" {
-				token = "new-jira"
-				wantToken = token
+				profile = "radar-alt"
 			}
 			if mode == "disable" {
 				ui.decisions = []bool{false, false, false, true}
 			} else {
-				ui.inputs = append(ui.inputs, "<keep>", "<keep>", token, "<keep>", "<keep>", "<keep>", "<keep>", "<keep>")
+				ui.inputs = append(ui.inputs, "<keep>", profile, "<keep>", "<keep>", "<keep>", "<keep>")
 			}
 			w.http.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-				switch req.URL.Path {
-				case "/rest/api/3/myself":
-					_, value, _ := req.BasicAuth()
-					if value != wantToken {
-						t.Error("Jira verification did not use selected secret")
-					}
-				case "/api/v1/monitor/search":
-					if req.Header.Get("DD-API-KEY") != "old-api" || req.Header.Get("DD-APPLICATION-KEY") != "old-app" {
-						t.Error("Datadog secrets were not retained")
-					}
-				default:
-					t.Fatalf("unexpected discovery/request on repeat setup: %s", req.URL.Path)
+				if req.URL.Path != "/_edge/tenant_info" {
+					t.Fatalf("unexpected credential-bearing request: %s", req.URL.Path)
 				}
-				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+				if req.Header.Get("Authorization") != "" {
+					t.Fatal("discovery must be unauthenticated")
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"cloudId":"cloud-fixture"}`))}, nil
 			})
 			if mode == "concurrent" {
 				ui.beforeConfirm = func(title string) {
@@ -638,7 +655,7 @@ func TestRepeatSetupRetainsOrEditsExistingSettingsAndSecrets(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if secrets["jira"]["api_token"] != wantToken || len(secrets["datadog"]) != 0 || secrets["other"]["token"] != "untouched" {
+				if len(secrets["jira"]) != 0 || len(secrets["datadog"]) != 0 || secrets["other"]["token"] != "untouched" {
 					t.Fatal("secrets not preserved/updated correctly")
 				}
 			}
@@ -667,9 +684,9 @@ func TestRepeatSetupRetainsOrEditsExistingSettingsAndSecrets(t *testing.T) {
 
 func TestSetupUsesEnvironmentSecretWithoutPersistingIt(t *testing.T) {
 	w, ui, _, _ := fixture(t)
-	t.Setenv("RADAR_JIRA_API_TOKEN", "environment-secret")
+	t.Setenv("RADAR_TEST_SECRET", "environment-secret")
 	updates := config.Secrets{}
-	got, err := w.secret("Jira API token", "", "RADAR_JIRA_API_TOKEN", "jira", "api_token", updates)
+	got, err := w.secret("Custom secret", "", "RADAR_TEST_SECRET", "custom", "token", updates)
 	if err != nil || got != "environment-secret" || len(updates) != 0 || len(ui.questions) != 0 || strings.Contains(ui.transcript.String(), got) {
 		t.Fatal("environment secret was prompted, exposed or copied")
 	}

@@ -2,6 +2,8 @@ package settings
 
 import (
 	"fmt"
+	"net/url"
+	"regexp"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -9,9 +11,9 @@ import (
 
 type Config struct {
 	BaseURL                 string            `yaml:"base_url,omitempty"`
-	Email                   string            `yaml:"email,omitempty"`
 	CloudID                 string            `yaml:"cloud_id,omitempty"`
-	APIBaseURL              string            `yaml:"api_base_url,omitempty"`
+	Profile                 string            `yaml:"profile"`
+	AccountID               string            `yaml:"account_id,omitempty"`
 	Enabled                 *bool             `yaml:"enabled,omitempty"`
 	AuthoritativeIssueTypes []string          `yaml:"authoritative_issue_types"`
 	StatusMapping           map[string]string `yaml:"status_mapping"`
@@ -33,6 +35,11 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	var fields map[string]yaml.Node
 	if err := node.Decode(&fields); err != nil {
 		return err
+	}
+	for _, key := range []string{"email", "api_token", "access_token", "api_base_url"} {
+		if _, exists := fields[key]; exists {
+			return fmt.Errorf("jira.%s is no longer supported; remove it manually and run radar setup for TWG OAuth", key)
+		}
 	}
 	if field, ok := fields["unmapped_status"]; ok && field.Tag != "!!null" {
 		next.unmappedStatusSet = true
@@ -63,6 +70,7 @@ func (c Config) IsAuthoritativeIssueType(issueType string) bool {
 
 func Default() Config {
 	return Config{
+		Profile:                 "radar",
 		AuthoritativeIssueTypes: []string{"Story", "Task", "Bug", "Sub-task"},
 		StatusMapping: map[string]string{
 			"In Progress": "in_progress",
@@ -73,6 +81,9 @@ func Default() Config {
 }
 
 func ApplyDefaults(config *Config) {
+	if config.Profile == "" {
+		config.Profile = "radar"
+	}
 	defaults := Default()
 	if config.StatusMapping == nil {
 		config.StatusMapping = defaults.StatusMapping
@@ -86,6 +97,19 @@ func ApplyDefaults(config *Config) {
 }
 
 func Validate(config Config) error {
+	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`).MatchString(config.Profile) || strings.EqualFold(config.Profile, "default") {
+		return fmt.Errorf("jira.profile must select a named TWG OAuth profile")
+	}
+	if config.CloudID != "" && !regexp.MustCompile(`^[A-Za-z0-9-]+$`).MatchString(config.CloudID) {
+		return fmt.Errorf("jira.cloud_id must be a Cloud ID, not a hostname or URL")
+	}
+	if config.BaseURL != "" {
+		u, err := url.Parse(config.BaseURL)
+		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("jira.base_url must be an HTTPS site URL without credentials, path, query or fragment")
+		}
+	}
+
 	issueTypes := map[string]string{}
 	for i, issueType := range config.AuthoritativeIssueTypes {
 		if issueType == "" {

@@ -144,6 +144,7 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 				_, _, _, home := fixture(t)
 				for _, key := range []string{"RADAR_JIRA_BASE_URL", "RADAR_JIRA_API_BASE_URL", "RADAR_JIRA_EMAIL", "RADAR_JIRA_CLOUD_ID", "RADAR_JIRA_API_TOKEN", "RADAR_DATADOG_API_KEY", "RADAR_DATADOG_APP_KEY", "RADAR_DATADOG_SITE", "TMUX", "GH_TOKEN", "GITHUB_TOKEN"} {
 					t.Setenv(key, "")
+					os.Unsetenv(key)
 				}
 				bin := filepath.Join(home, "bin")
 				t.Setenv("PATH", bin)
@@ -154,6 +155,13 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 					"pi":   "echo 1.0.0",
 					"git":  "exit 0", "fd": "exit 0", "npm": "exit 0",
 					"tmux": `case "$1" in -V) echo 'tmux 3.6';; has-session) exit 1;; display-message) printf '%%0\n';; new-session|new-window|split-window) printf '@1 %%1\n';; *) exit 0;; esac`,
+					"twg": `case "$1" in
+ --version) echo '1.3.8';;
+ *) case "$*" in
+ *'auth profile list'*) printf '%s' '{"apiVersion":"v2","data":{"profiles":[{"name":"radar","authMethod":"oauth","cloudId":"cloud-fixture","userId":"fixture-account","user":"fixture@example.invalid","domain":"example.atlassian.net","environment":"prod"}]}}';;
+ *doctor*) printf '%s' '{"data":{"auth":{"resolved":{"authMethod":"oauth"}},"connectivity":{"attempted":true,"ok":true,"userId":"ari:cloud:identity::user/fixture-account"}}}';;
+ *) printf '%s' '{"apiVersion":"v2","command":"jira.workitem.query","data":{"issues":[]}}';;
+ esac;; esac`,
 					"pup": `case "$1" in
        --version) echo 'pup 2.0.0';;
        *) case "$*" in
@@ -249,9 +257,9 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 				terminal.answer(t, "Connect Radar to Jira?", answer(choices&2 != 0))
 				if choices&2 != 0 {
 					terminal.answer(t, "Jira site URL", "https://example.atlassian.net\r")
-					terminal.answer(t, "Jira email", "you@example.com\r")
-					terminal.answer(t, "Jira API token", "jira-terminal-secret\r")
+					terminal.answer(t, "TWG OAuth profile name", "\r")
 					terminal.answer(t, "Jira ticket prefixes", "abc, XYZ\r")
+					terminal.answer(t, "Use Jira account", "y")
 				}
 				terminal.answer(t, "Connect Radar to Datadog?", answer(choices&4 != 0))
 				if choices&4 != 0 {
@@ -313,7 +321,7 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 						again.answer(t, title, "\r")
 					}
 					if choices&2 != 0 {
-						for _, title := range []string{"Jira site URL", "Jira email", "Jira API token", "Jira ticket prefixes"} {
+						for _, title := range []string{"Jira site URL", "TWG OAuth profile name", "Jira ticket prefixes", "Use Jira account"} {
 							again.answer(t, title, "\r")
 						}
 					}

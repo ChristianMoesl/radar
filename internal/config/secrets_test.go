@@ -21,17 +21,17 @@ func secretFixture(t *testing.T) string {
 
 func TestSecretsSavePrivatelyAndPreserveOtherNamespaces(t *testing.T) {
 	path := secretFixture(t)
-	if err := SaveSecrets(Secrets{"other": {"token": "keep"}, "jira": {"api_token": "old", "other_key": "keep"}}); err != nil {
+	if err := SaveSecrets(Secrets{"other": {"token": "keep"}, "custom": {"api_token": "old", "other_key": "keep"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SaveSecrets(Secrets{"jira": {"api_token": "new"}, "other": {"key": "api", "second": "app"}}); err != nil {
+	if err := SaveSecrets(Secrets{"custom": {"api_token": "new"}, "other": {"key": "api", "second": "app"}}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := LoadSecrets()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if data["jira"]["api_token"] != "new" || data["jira"]["other_key"] != "keep" || data["other"]["token"] != "keep" || data["other"]["second"] != "app" {
+	if data["custom"]["api_token"] != "new" || data["custom"]["other_key"] != "keep" || data["other"]["token"] != "keep" || data["other"]["second"] != "app" {
 		t.Fatal("secret updates did not preserve other entries")
 	}
 	for name, mode := range map[string]os.FileMode{path: 0600, filepath.Dir(path): 0700} {
@@ -44,11 +44,11 @@ func TestSecretsSavePrivatelyAndPreserveOtherNamespaces(t *testing.T) {
 		}
 	}
 	t.Setenv("RADAR_TEST_SECRET", "")
-	if got, err := Secret("RADAR_TEST_SECRET", "jira", "api_token"); got != "new" || err != nil {
+	if got, err := Secret("RADAR_TEST_SECRET", "custom", "api_token"); got != "new" || err != nil {
 		t.Fatal("stored secret not resolved")
 	}
 	t.Setenv("RADAR_TEST_SECRET", "override")
-	if got, err := Secret("RADAR_TEST_SECRET", "jira", "api_token"); got != "override" || err != nil {
+	if got, err := Secret("RADAR_TEST_SECRET", "custom", "api_token"); got != "override" || err != nil {
 		t.Fatal("environment must override disk")
 	}
 }
@@ -60,13 +60,13 @@ func TestSecretsRejectUnsafeFilesWithoutLeakingValues(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 				t.Fatal(err)
 			}
-			raw := `jira:
+			raw := `custom:
   api_token: do-not-echo`
 			switch scenario {
 			case "invalid":
 				raw = `do-not-echo`
 			case "wrong type":
-				raw = `jira: do-not-echo`
+				raw = `custom: do-not-echo`
 			case "null":
 				raw = `null`
 			}
@@ -90,7 +90,7 @@ func TestSecretsRejectUnsafeFilesWithoutLeakingValues(t *testing.T) {
 			if err == nil || strings.Contains(err.Error(), "do-not-echo") {
 				t.Fatalf("unsafe error: %v", err)
 			}
-			if err := SaveSecrets(Secrets{"jira": {"api_token": "replacement"}}); err == nil {
+			if err := SaveSecrets(Secrets{"custom": {"api_token": "replacement"}}); err == nil {
 				t.Fatal("must not overwrite invalid or unsafe secrets")
 			}
 			data, _ := os.ReadFile(path)

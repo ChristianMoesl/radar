@@ -48,6 +48,9 @@ func LoadSecrets() (Secrets, error) {
 	if configfile.Decode(data, &secrets) != nil || secrets == nil {
 		return nil, fmt.Errorf("secrets.yaml must contain a YAML mapping of integration secret mappings")
 	}
+	if _, exists := secrets["jira"]; exists {
+		return nil, fmt.Errorf("Jira credentials in secrets.yaml are no longer supported; remove the jira mapping manually and run radar setup for TWG OAuth (see docs/cli-oauth-migration.md)")
+	}
 	if len(secrets["datadog"]) > 0 {
 		return nil, fmt.Errorf("Datadog credentials in secrets.yaml are no longer supported; remove the datadog mapping manually and run radar setup for Pup OAuth (see docs/cli-oauth-migration.md)")
 	}
@@ -79,6 +82,9 @@ func EnvOr(environment, value string) string {
 func SaveSecrets(updates Secrets) error {
 	if len(updates) == 0 {
 		return nil
+	}
+	if _, exists := updates["jira"]; exists {
+		return fmt.Errorf("Jira credentials are owned by TWG OAuth; Radar no longer stores Jira secrets")
 	}
 	if len(updates["datadog"]) > 0 {
 		return fmt.Errorf("Datadog credentials are owned by Pup OAuth; Radar no longer stores Datadog secrets")

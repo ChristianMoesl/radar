@@ -9,23 +9,32 @@ The live gate checks:
 
 | Environment | Assertions |
 | --- | --- |
-| Jira / TWG | Named OAuth profile and exact Cloud ID, forced refresh, real issue reads over cursor pages, including an empty terminal page |
+| Jira / TWG | Named OAuth profile and exact Cloud ID/account, forced refresh, production Radar collection with one-row cursor pages and native gets, inherited-override sanitization, isolated daemon identity/failed-login retention/recovery and registered local workspace issue/comment reads |
 | GitHub | Radar's actual provider resolves exact references for the selected open, closed, merged and conflicting-branch PR fixtures |
 | Datadog / Pup | Named EU OAuth session, required scopes, six concurrent forced refreshes and subsequent reads, real Alert / Warn / No Data / recovery, collector credential guards, task identity and failure retention through daemon restarts, actual numeric metric samples through a registered local workspace |
 
-Jira is **TWG transport qualification** until the production Jira OAuth migration
-lands. This workflow does not qualify logs/traces, natural expiry, server-side
+Jira checks now exercise the production OAuth transport. Daemon checks require
+at least two selected issues assigned to the OAuth account and still open.
+This workflow does not qualify logs/traces, natural expiry, server-side
 revocation, browser onboarding, live model output, webhook delivery or OAuth in
 SBX. Those remain separate release gates. A missing service, expired login,
 permission error, empty metric query or fixture mismatch fails the live run.
 
-The complete harness passed against the approved accounts on 2026-10-19: TWG
+The earlier complete harness passed against the approved accounts on 2026-10-19,
+before the Jira production checks were added: TWG
 reads/pagination, all six private PR fixtures, and the Datadog lifecycle plus
 workspace metric samples. Both real CLI stores also passed an opaque bundle
 round trip and CLI status validation without exposing credentials or refreshing
 the temporary copies. This is local live qualification; a hosted live CI pass
 still requires the one-time GitHub environment setup below. The active GitHub
 connection could not manage environment secrets/variables (HTTP 403).
+
+On 2026-10-20 the new production Jira source check passed against three approved
+issues, including one-row pages, native gets, static-override sanitization and
+missing-profile retention. An isolated daemon kept its task IDs through restart,
+failed login and recovery; native issue/comment reads also passed through a
+registered local workspace. The full expanded cross-provider harness has not
+been rerun in this environment.
 
 ## How sessions survive disposable runners
 

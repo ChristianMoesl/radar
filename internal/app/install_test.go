@@ -27,6 +27,7 @@ func isolatedSetup(t *testing.T) string {
 		key, _, _ := strings.Cut(entry, "=")
 		if strings.HasPrefix(key, "RADAR_") || strings.HasPrefix(key, "GH_") || key == "GITHUB_TOKEN" {
 			t.Setenv(key, "")
+			os.Unsetenv(key)
 		}
 	}
 	home := t.TempDir()
@@ -128,11 +129,12 @@ func TestOptionalIntegrationActivationMatrix(t *testing.T) {
 					setupTool(t, "gh", body)
 				}
 				if name == "jira" && scenario.setup != "missing" {
-					t.Setenv("RADAR_JIRA_BASE_URL", "https://jira.example.test")
+					options["base_url"] = "https://jira.example.test"
 					if scenario.setup == "ready" {
-						t.Setenv("RADAR_JIRA_EMAIL", "radar@example.test")
-						t.Setenv("RADAR_JIRA_API_TOKEN", "fixture")
-						t.Setenv("RADAR_JIRA_CLOUD_ID", "fixture")
+						options["cloud_id"] = "cloud-fixture"
+						options["profile"] = "radar"
+						options["account_id"] = "fixture-account"
+						setupTool(t, "twg", `echo 1.3.8`)
 					}
 				}
 				if name == "datadog" && scenario.setup != "missing" {

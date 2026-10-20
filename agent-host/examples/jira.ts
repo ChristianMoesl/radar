@@ -11,15 +11,17 @@ import {
   type ConversationId,
   type JsonValue,
   type TaskId,
+  type WorkspaceExecution,
 } from "../src/index.ts";
 import {
   agentChoices,
   answerText,
-  jsonRequest,
   modelRuntime,
   requiredString,
   textFromDocument,
 } from "./shared.ts";
+
+import { twgRead, type TWGConnection } from "./twg.ts";
 
 type Comment = {
   id: string;
@@ -81,53 +83,21 @@ const Cursor = defineDoc<{
   }),
 });
 let settings: {
-  id: string;
   base: string;
   jql: string;
   account: string;
-  allowPosting: boolean;
+  execution: WorkspaceExecution;
+  connection: TWGConnection;
   runtime: ReturnType<typeof modelRuntime>;
 };
 
-function headers(): Record<string, string> {
-  const token = process.env.JIRA_ACCESS_TOKEN;
-  if (token)
-    return {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    };
-  if (!process.env.JIRA_EMAIL || !process.env.JIRA_API_TOKEN)
-    throw new Error("configure JIRA_EMAIL/JIRA_API_TOKEN or JIRA_ACCESS_TOKEN");
-  return {
-    Authorization: `Basic ${Buffer.from(`${process.env.JIRA_EMAIL}:${process.env.JIRA_API_TOKEN}`).toString("base64")}`,
-    Accept: "application/json",
-    "Content-Type": "application/json",
-  };
-}
-async function jira<T>(path: string, options: RequestInit = {}): Promise<T> {
-  return jsonRequest<T>(new URL(path, settings.base).href, {
-    ...options,
-    headers: headers(),
-  });
-}
 async function comments(key: string, signal?: AbortSignal): Promise<Comment[]> {
-  const result: Comment[] = [];
-  for (let startAt = 0; startAt < 10000; ) {
-    const page = await jira<{
-      comments: Comment[];
-      total: number;
-      maxResults: number;
-    }>(
-      `/rest/api/3/issue/${encodeURIComponent(key)}/comment?startAt=${startAt}&maxResults=100&expand=properties`,
-      { signal },
-    );
-    result.push(...page.comments);
-    startAt += page.comments.length;
-    if (startAt >= page.total) return result;
-    if (!page.comments.length) throw new Error("incomplete Jira comment page");
-  }
-  throw new Error("Jira comment limit reached; no cursor was advanced");
+  return (await twgRead(
+    settings.execution,
+    settings.connection,
+    { kind: "comments", key },
+    signal,
+  )) as unknown as Comment[];
 }
 export function mentions(value: JsonValue, account: string): boolean {
   if (!value || typeof value !== "object") return false;
@@ -233,20 +203,7 @@ const Discuss = defineTask<
           conversations: [
             { id: record.conversation, label: task.input.issue.key },
           ],
-          actions: settings.allowPosting
-            ? [
-                {
-                  id: "jira-reply",
-                  label: "Post a reply (enter the exact reply text)",
-                  text: true,
-                  payload: {
-                    type: "jira.reply",
-                    key: task.input.issue.key,
-                    decision: record.decision,
-                  },
-                },
-              ]
-            : [],
+          actions: [],
         });
         return {
           status: "terminal",
@@ -284,42 +241,11 @@ const Event = defineTask<AgentEvent, EventState, JsonValue>({
           event.type === "radar.action" &&
           event.payload?.type === "jira.reply"
         ) {
-          if (!settings.allowPosting)
-            throw new Error("Jira posting is not enabled");
-          const { key, decision } = event.payload;
-          const record = await tx.doc(Tickets, key, null);
-          if (record.decision !== decision || record.posted >= decision)
-            return {
-              status: "terminal",
-              outcome: {
-                status: "completed",
-                result: "Reply decision is no longer current",
-              },
-            };
-          if (record.postTask) {
-            const prior = await tx.task(record.postTask as TaskId);
-            if (prior && prior.state.status !== "terminal")
-              return {
-                status: "terminal",
-                outcome: {
-                  status: "completed",
-                  result: "Reply already in progress",
-                },
-              };
-          }
-          if (record.posting !== decision) {
-            const text = String(event.text ?? "").trim();
-            if (!text)
-              throw new Error("enter the exact reply text before posting");
-            record.posting = decision;
-            record.postText = text;
-          }
-          record.postTask = Number(task.id);
-          return {
-            status: "running",
-            checkpoint: { phase: "post", key, decision, text: record.postText },
-          };
+          throw new Error(
+            "Jira reply posting is a separate durable-agent feature tracked in #42",
+          );
         }
+
         if (
           task.input.origin === "user" &&
           event.type === "radar.message" &&
@@ -356,32 +282,21 @@ const Event = defineTask<AgentEvent, EventState, JsonValue>({
       let issues = await runtime.memo<Issue[]>("issues", context);
       if (!issues) {
         issues = [];
-        let nextPageToken: string | undefined;
-        for (let page = 0; page < 100; page++) {
-          const result = await jira<{
-            issues: Issue[];
-            nextPageToken?: string;
-            isLast?: boolean;
-          }>("/rest/api/3/search/jql", {
-            method: "POST",
-            body: JSON.stringify({
-              jql: settings.jql,
-              fields: ["summary", "updated", "description", "status"],
-              maxResults: 100,
-              ...(nextPageToken ? { nextPageToken } : {}),
-            }),
-            signal: runtime.signal,
+        const rows = await twgRead(
+          settings.execution,
+          settings.connection,
+          { kind: "issues", jql: settings.jql },
+          runtime.signal,
+        );
+        for (const row of rows as unknown as Array<
+          Issue["fields"] & { key: string }
+        >) {
+          const { key, ...fields } = row;
+          issues.push({
+            key,
+            fields,
+            comments: await comments(key, runtime.signal),
           });
-          for (const issue of result.issues) {
-            issue.comments = await comments(issue.key, runtime.signal);
-            issues.push(issue);
-          }
-          nextPageToken = result.nextPageToken;
-          if (!nextPageToken) break;
-          if (page === 99)
-            throw new Error(
-              "Jira issue page limit reached; no cursor was advanced",
-            );
         }
         await runtime.memo("issues", issues as unknown as JsonValue, context);
       }
@@ -466,48 +381,12 @@ const Event = defineTask<AgentEvent, EventState, JsonValue>({
         context,
       );
     },
-    post: async (task, runtime, context) => {
-      const { key, decision, text } = task.state.checkpoint;
-      const operation = `${settings.id}:${key}:${decision}`;
-      const existing = await comments(key, runtime.signal);
-      const alreadyPosted = existing.some((comment) =>
-        comment.properties?.some(
-          (p) =>
-            p.key === "radar.operation" &&
-            p.value !== null &&
-            typeof p.value === "object" &&
-            !Array.isArray(p.value) &&
-            p.value.operation === operation,
-        ),
+    // Keep this phase so an existing checkpoint fails visibly without a blind
+    // resend. Conversation, task and document versions remain unchanged.
+    post: async () => {
+      throw new Error(
+        "Jira reply posting is tracked separately in #42; verify pending replies in Jira",
       );
-      if (!alreadyPosted)
-        await jira(`/rest/api/3/issue/${encodeURIComponent(key)}/comment`, {
-          method: "POST",
-          signal: runtime.signal,
-          body: JSON.stringify({
-            body: {
-              type: "doc",
-              version: 1,
-              content: [
-                { type: "paragraph", content: [{ type: "text", text }] },
-              ],
-            },
-            properties: [{ key: "radar.operation", value: { operation } }],
-          }),
-        });
-      await runtime.commit(async (tx) => {
-        const record = await tx.doc(Tickets, key, null);
-        record.posted = decision;
-        await present(tx, {
-          summary: `${key}: reply posted\n${settings.base}/browse/${key}`,
-          attention: false,
-          actions: [],
-        });
-        return {
-          status: "terminal",
-          outcome: { status: "completed", result: "Reply posted" },
-        };
-      }, context);
     },
   },
   abort: async (_task, runtime, context) => {
@@ -522,14 +401,37 @@ export default {
   version: 1,
   configure: (host) => {
     const base = requiredString(host.config, "baseUrl");
-    if (!base.startsWith("https://") && host.config.fixture !== true)
-      throw new Error("Jira baseUrl must use HTTPS");
+    const site = new URL(base);
+    if (
+      site.protocol !== "https:" ||
+      site.username ||
+      site.password ||
+      (site.pathname !== "/" && site.pathname !== "") ||
+      site.search ||
+      site.hash
+    )
+      throw new Error("Jira baseUrl must be an HTTPS site URL");
+    if (host.config.allowPosting === true)
+      throw new Error(
+        "Jira reply posting is a separate feature tracked in #42; remove allowPosting:true to use the read-only assistant",
+      );
+    for (const key of ["JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_ACCESS_TOKEN"])
+      if (Object.hasOwn(process.env, key))
+        throw new Error(
+          `Unset retired ${key}; sign in with TWG OAuth inside the selected workspace`,
+        );
+
     settings = {
-      id: host.id,
       base: base.replace(/\/$/, ""),
       jql: requiredString(host.config, "jql"),
       account: requiredString(host.config, "accountId"),
-      allowPosting: host.config.allowPosting === true,
+      execution: host.execution,
+      connection: {
+        baseUrl: base,
+        cloudId: requiredString(host.config, "cloudId"),
+        profile: requiredString(host.config, "profile"),
+        accountId: requiredString(host.config, "accountId"),
+      },
       runtime: modelRuntime(host.config),
     };
     const registry = createRegistry();

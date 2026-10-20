@@ -26,3 +26,14 @@ func TestInventoryReportsOnlyKeyNamesWithoutMutatingFiles(t *testing.T) {
 		t.Fatal("value leaked")
 	}
 }
+
+func TestInventoryRejectsEvenEmptyJiraSecretMapping(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secrets.yaml")
+	if err := os.WriteFile(path, []byte("jira: {}\ncustom:\n  secret: private-value\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result := inventory(path, "secrets.yaml", map[string][]string{})
+	if !reflect.DeepEqual(result.Fields, []string{"jira"}) || !strings.Contains(result.Handling, "rejected") {
+		t.Fatal(result)
+	}
+}
