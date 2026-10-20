@@ -49,6 +49,11 @@ class Boundaries(unittest.TestCase):
         self.assertNotIn('private-provider-output', str(caught.exception))
         self.assertNotIn('private-credential', str(caught.exception))
 
+    def test_diagnostics_return_only_fixed_labels(self):
+        labels = proxy.diagnostics('AUTH_SITE_UNRESOLVED private-fixture credential-body https://private.example')
+        self.assertEqual(labels, ['credential_binding', 'auth_site'])
+        self.assertNotIn('private-fixture', str(labels))
+
     def test_encrypted_callback_rejects_another_run_and_tampering(self):
         with tempfile.TemporaryDirectory() as directory:
             key = Path(directory) / 'callback.key'

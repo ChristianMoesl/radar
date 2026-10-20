@@ -24,6 +24,7 @@ on:
 permissions:
   contents: read
   actions: read
+  checks: write
 
 concurrency:
   group: sbx-proxy-${{ inputs.operation }}-${{ inputs.provider }}
@@ -84,6 +85,10 @@ jobs:
         if: always()
         run: sbx rm --force "radar-proxy-$GITHUB_RUN_ID" || true
       - name: Publish sanitized qualification result
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/proxy-test/result.json" ]; then cat "$RUNNER_TEMP/proxy-test/result.json"; fi
+      - name: Save qualification result artifact
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:

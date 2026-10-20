@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -39,7 +40,8 @@ def run(argv, *, body=None, timeout=90, parse=False):
         result = subprocess.run(argv, input=body, text=True, capture_output=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
         raise Failure(f"{Path(argv[0]).name} could not complete within its deadline") from None
-    require(result.returncode == 0, f"{Path(argv[0]).name} failed; private diagnostics withheld")
+    hints = diagnostics(result.stdout + result.stderr) if result.returncode else []
+    require(result.returncode == 0, f"{Path(argv[0]).name} failed (exit {result.returncode}; {','.join(hints) or 'unclassified'}); private diagnostics withheld")
     if not parse:
         return result.stdout
     try:
@@ -106,6 +108,34 @@ def write(path, value):
     temporary.replace(path)
 
 
+def diagnostics(value):
+    # Fixed labels only: provider bodies/headers/URLs never escape.
+    patterns = {"terminal_required": r"not a tty|interactive terminal|is not a terminal|stdin.*closed",
+                "image_pull": r"pull access denied|failed to pull|manifest unknown|failed to resolve reference",
+                "network": r"connection refused|network.*denied|network.*unreachable|timed out",
+                "credential_binding": r"credential|binding|oauth",
+                "option": r"unknown flag|unknown option|unexpected argument",
+                "auth_site": r"AUTH_SITE_UNRESOLVED", "auth_profile": r"AUTH_PROFILE_MISSING"}
+    return [name for name, pattern in patterns.items() if re.search(pattern, value, re.I)]
+
+
+def publish(directory, value):
+    # Check output is immediately readable through GitHub's API, including when
+    # this execution environment cannot download Actions artifact blobs.
+    path = directory / "check-id"
+    output = {"title": "SBX OAuth proxy " + ("approval" if "authorization_url" in value else "result"),
+              "summary": json.dumps(value)}
+    if path.exists():
+        run(["gh", "api", "--method", "PATCH", f"repos/{os.environ['GITHUB_REPOSITORY']}/check-runs/{path.read_text()}",
+             "--input", "-"], body=json.dumps({"output": output}))
+    else:
+        result = run(["gh", "api", "--method", "POST", f"repos/{os.environ['GITHUB_REPOSITORY']}/check-runs", "--input", "-"],
+                     body=json.dumps({"name": "SBX OAuth approval " + os.environ["GITHUB_RUN_ID"],
+                                      "head_sha": os.environ["GITHUB_SHA"], "external_id": os.environ["GITHUB_RUN_ID"],
+                                      "status": "completed", "conclusion": "neutral", "output": output}), parse=True)
+        path.write_text(str(result["id"]))
+
+
 def sbx(name, *args, timeout=90, body=None, parse=False):
     return run(["sbx", "exec", "-i", "-e", "TWG_CONFIG_DIR=/home/agent/.config/radar-proxy-twg",
                 "-e", "DD_TOKEN_STORAGE=file", "-e", "PUP_CONFIG_DIR=/home/agent/.config/radar-proxy-pup",
@@ -157,7 +187,7 @@ def verify(provider, cfg, name, spec):
     require(result.get("sentinel_response") is True, "Proxy token-response masking is unverified")
 
 
-def relay(directory, authorization, child):
+def relay(directory, authorization, name):
     repository, run_id = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"]
     name = "sbx-oauth-callback-" + run_id
     result = run(["gh", "api", f"repos/{repository}/actions/artifacts?name={name}"], parse=True)
@@ -172,8 +202,10 @@ def relay(directory, authorization, child):
                 packet = archive.read("callback.txt").decode()
             plain = run(["node", str(BRIDGE), "open", str(directory / "callback.key"), run_id], body=packet)
             value = callback_url(plain, authorization)
-            child.stdin.write(value + "\n")
-            child.stdin.flush()
+            # Native Pup owns the callback listener. Forward over exec stdin,
+            # so neither the callback nor its code appears in process arguments.
+            forward = "import sys,urllib.request; r=urllib.request.urlopen(sys.stdin.read().strip(),timeout=15); assert r.status==200"
+            sbx(name, "python3", "-c", forward, body=value, timeout=30)
             return True
         except Exception:
             # Never echo decrypted callback URLs or untrusted artifact contents.
@@ -188,15 +220,19 @@ def worker(directory):
     child = None
     try:
         spec = state["kit"]
+        report["phase"] = "validate_kit"
         (directory / "kit").mkdir()
         write(directory / "kit/spec.yaml", spec)
         run(["sbx", "kit", "validate", "--offline", str(directory / "kit")])
+        report["phase"] = "create_sandbox"
         run(["sbx", "create", "--name", name, "--no-progress", str(directory / "kit")], timeout=300)
+        report["phase"] = "native_login"
         args = (["twg", "login", "--new-profile", PROFILE, "--site", cfg["cloud_id"]] if provider == "twg" else
                 ["pup", "auth", "login", "--site", cfg["site"], "--org", PROFILE, "--scopes", "monitors_read", "--callback-port", "8000"])
         argv = ["sbx", "exec", "-i", "-e", "TWG_CONFIG_DIR=/home/agent/.config/radar-proxy-twg",
                 "-e", "TWG_BACKGROUND_UPDATE_CHECK=0", "-e", "DD_TOKEN_STORAGE=file",
-                "-e", "PUP_CONFIG_DIR=/home/agent/.config/radar-proxy-pup", "-e", "BROWSER=/bin/false", name, *args]
+                "-e", "PUP_CONFIG_DIR=/home/agent/.config/radar-proxy-pup", "-e", "BROWSER=/bin/false", name,
+                "script", "-q", "-e", "-c", shlex.join(args), "/dev/null"]
         with (directory / "native-login.log").open("w") as log:
             child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=log, stderr=log, text=True)
             deadline, authorization, delivered = time.monotonic() + 600, None, False
@@ -209,23 +245,29 @@ def worker(directory):
                         if provider == "pup":
                             value["callback_public_key"] = (directory / "callback.key.pub").read_text()
                         write(directory / "challenge.json", value)
+                        publish(directory, value)
                 if provider == "pup" and authorization and not delivered:
-                    delivered = relay(directory, authorization, child)
+                    delivered = relay(directory, authorization, name)
                 time.sleep(3)
-            require(child.poll() == 0, "Native CLI login did not complete; private diagnostics withheld")
+            hints = diagnostics((directory / "native-login.log").read_text())
+            require(child.poll() == 0, "Native CLI login did not complete (" + ','.join(hints) + "); private diagnostics withheld")
         report["checks"].append("native_cli_login")
+        report["phase"] = "identity_read_and_masking"
         verify(provider, cfg, name, spec)
         report["checks"] += ["native_oauth_identity_and_read", "sentinel_token_response"]
+        report["phase"] = "refresh"
         if provider == "twg":
             sbx(name, "twg", "--profile", PROFILE, "--site", cfg["cloud_id"], "auth", "refresh", "--force")
         else:
             sbx(name, "pup", "--org", PROFILE, "auth", "refresh")
         verify(provider, cfg, name, spec)
         report["checks"].append("explicit_refresh")
+        report["phase"] = "sandbox_restart"
         run(["sbx", "stop", name])
         verify(provider, cfg, name, spec)
         report["checks"].append("sandbox_restart")
         report["status"] = "passed"
+        report["phase"] = "completed"
     except Exception as error:
         report["error"] = str(error) if isinstance(error, Failure) else "Unexpected qualification failure; private details withheld"
     finally:
@@ -240,6 +282,10 @@ def worker(directory):
         except Failure:
             report.update(status="failed", cleanup="Disposable sandbox cleanup failed")
         write(directory / "result.json", report)
+        try:
+            publish(directory, report)
+        except Failure:
+            pass
 
 
 def main():
@@ -283,7 +329,9 @@ def main():
             if (directory / "challenge.json").exists():
                 print("Login challenge prepared; approve using the private test artifact")
                 return 0
-            require(not (directory / "result.json").exists(), "Test stopped before authorization; inspect sanitized result")
+            if (directory / "result.json").exists():
+                print((directory / "result.json").read_text())
+                raise Failure("Test stopped before authorization; inspect sanitized result")
             time.sleep(2)
         raise Failure("Sandbox login challenge was not ready within its deadline")
     else:

@@ -43,6 +43,9 @@ Download `sbx-oauth-challenge-<run-id>` as soon as its upload step finishes.
 `challenge.json` contains only the provider authorization URL, run ID and, for
 Pup, an ephemeral public key. Native diagnostics stay on the private runner.
 Open the URL and approve the intended account. TWG uses device authorization.
+The same sanitized challenge is published as a neutral `SBX OAuth approval`
+check on the tested commit, readable through GitHub's check-runs API while the
+workflow is waiting. Private logs and credential values are never check output.
 
 Pup redirects to `http://127.0.0.1:8000/oauth/callback?...`, which cannot reach
 the remote runner. Return that URL through the encrypted callback channel:
@@ -54,8 +57,10 @@ the remote runner. Return that URL through the encrypted callback channel:
 3. Dispatch the same workflow with operation `callback`, provider `pup`,
    `target_run` equal to the original run ID and `encrypted_callback` containing
    only the sealed output. The original runner decrypts it with its private key,
-   verifies the localhost destination and OAuth state, and passes it to Pup's
-   supported stdin callback flow. Other runs cannot decrypt the packet.
+   verifies the localhost destination and OAuth state, and forwards it to Pup's
+   loopback callback listener through `sbx exec` stdin. No network port is
+   published, and the callback is never a process argument. Other runs cannot
+   decrypt the packet.
 
 No password, access token, refresh token or credential file is requested. The
 authorization callback is short lived; do not paste it into a GitHub issue or
