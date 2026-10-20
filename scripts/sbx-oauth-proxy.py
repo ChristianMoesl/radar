@@ -134,6 +134,14 @@ def login_progress(value):
             "native_timeout": "Login timed out after " in value}
 
 
+def approval_window_seconds(value):
+    # TWG's interactive progress reports its native deadline. This is metadata,
+    # never a change to the provider's authorization or token lifetime.
+    value = re.sub(r'\x1b\[[0-9;?]*[A-Za-z]', '', value)
+    remaining = [int(n) for n in re.findall(r'\((\d+)s remaining\)', value)]
+    return max(remaining) if remaining and 0 < max(remaining) <= 300 else None
+
+
 def publish(directory, value):
     # Check output is immediately readable through GitHub's API, including when
     # this execution environment cannot download Actions artifact blobs.
@@ -249,7 +257,7 @@ def worker(directory):
         # Both native flows receive approval out of band. Keep the sandbox-owned
         # terminal, but close host stdin so exec cannot wait on an unused pipe.
         argv = ["sbx", "exec", "-e", "TWG_CONFIG_DIR=/home/agent/.config/radar-proxy-twg",
-                "-e", "TWG_BACKGROUND_UPDATE_CHECK=0", "-e", "DD_TOKEN_STORAGE=file",
+                "-e", "TWG_BACKGROUND_UPDATE_CHECK=0", "-e", "TWG_AGENT_HOST=none", "-e", "DD_TOKEN_STORAGE=file",
                 "-e", "PUP_CONFIG_DIR=/home/agent/.config/radar-proxy-pup", "-e", "BROWSER=/bin/false", name,
                 "python3", "-c", LOGIN.read_text(), *args]
         with (directory / "native-login.log").open("w") as log:
@@ -265,6 +273,9 @@ def worker(directory):
                     if authorization and (provider != "twg" or login_progress((directory / "native-login.log").read_text())["polling_started"]):
                         value = {"provider": provider, "run_id": os.environ["GITHUB_RUN_ID"],
                                  "authorization_url": authorization}
+                        window = approval_window_seconds((directory / "native-login.log").read_text())
+                        if provider == "twg" and window:
+                            value["approval_window_seconds"] = window
                         if provider == "pup":
                             value["callback_public_key"] = (directory / "callback.key.pub").read_text()
                         write(directory / "challenge.json", value)

@@ -44,9 +44,11 @@ Download `sbx-oauth-challenge-<run-id>` as soon as its upload step finishes.
 Pup, an ephemeral public key. Native diagnostics stay on the private runner.
 Open the URL and approve the intended account. TWG uses device authorization.
 The test declines TWG's question about opening a browser inside the sandbox and
-publishes its challenge only after native device-token polling starts. TWG 1.3.8
-uses a **two-minute** window when it detects an agent environment (five minutes
-otherwise). Coordinate browser availability before starting the run; approving
+publishes its challenge only after native device-token polling starts. The
+foreground TWG login sets `TWG_AGENT_HOST=none` to select its normal interactive
+**five-minute** window. Later headless reads keep their regular environment.
+The observed native deadline is included as `approval_window_seconds` in the
+challenge. Coordinate browser availability before starting the run; approving
 after the native CLI exits cannot resume it. No provider grant or other
 confirmation is answered automatically.
 The same sanitized challenge is published as a neutral `SBX OAuth approval`
