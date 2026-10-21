@@ -44,7 +44,30 @@ func configureSetup(ctx context.Context, req integration.SetupRequest) (bool, er
 			return false, nil
 		}
 	}
-	profile, err := req.UI.Input(setup.Question{Title: "TWG OAuth profile name", Initial: cfg.Jira.Profile, Hint: "Use a dedicated named OAuth profile, for example radar.", Validate: func(v string) error { c := jirasettings.Default(); c.Profile = v; return jirasettings.Validate(c) }})
+	connection := Config{BaseURL: site, CloudID: tenant.CloudID, output: req.System.Output}
+	// This is non-secret CLI metadata; never inspect the credential files.
+	var listing struct {
+		APIVersion string `json:"apiVersion"`
+		Data       struct {
+			Profiles []twgProfile `json:"profiles"`
+		} `json:"data"`
+	}
+	if data, e := twgOutput(ctx, connection, []string{"--output", "json", "--output-summary", "none", "--api-version", "v2", "auth", "profile", "list"}); e == nil {
+		if json.Unmarshal(data, &listing) != nil || listing.APIVersion != "v2" {
+			listing.Data.Profiles = nil
+		}
+	}
+	initialProfile := cfg.Jira.Profile
+	u, _ := url.Parse(site)
+	for _, p := range listing.Data.Profiles {
+		if p.AuthMethod == "oauth" && p.Environment == "prod" && p.CloudID == tenant.CloudID && strings.EqualFold(p.Domain, u.Hostname()) {
+			initialProfile = p.Name
+			if p.Name == cfg.Jira.Profile {
+				break
+			}
+		}
+	}
+	profile, err := req.UI.Input(setup.Question{Title: "TWG OAuth profile name", Initial: initialProfile, Hint: "Reuse an existing OAuth profile for this Jira site; use a new name only if no profile exists.", Validate: func(v string) error { c := jirasettings.Default(); c.Profile = v; return jirasettings.Validate(c) }})
 	if err != nil {
 		return false, err
 	}
@@ -56,22 +79,12 @@ func configureSetup(ctx context.Context, req integration.SetupRequest) (bool, er
 	if err != nil {
 		return false, err
 	}
-	connection := Config{BaseURL: site, CloudID: tenant.CloudID, Profile: profile, output: req.System.Output}
+	connection.Profile = profile
 	login := []string{"login", "--new-profile", profile, "--site", tenant.CloudID}
-	// This is non-secret CLI metadata; never inspect the credential files.
-	if data, e := twgOutput(ctx, connection, []string{"--output", "json", "--output-summary", "none", "auth", "profile", "list"}); e == nil {
-		var listing struct {
-			Data struct {
-				Profiles []twgProfile `json:"profiles"`
-			} `json:"data"`
-		}
-		if json.Unmarshal(data, &listing) == nil {
-			for _, p := range listing.Data.Profiles {
-				if p.Name == profile {
-					login = []string{"--profile", profile, "login", "--force", "--site", tenant.CloudID}
-					break
-				}
-			}
+	for _, p := range listing.Data.Profiles {
+		if p.Name == profile {
+			login = []string{"--profile", profile, "login", "--force", "--site", tenant.CloudID}
+			break
 		}
 	}
 	install := `installer=$(mktemp); trap 'rm -f "$installer"' EXIT; curl -fsSL https://teamwork-graph.atlassian.com/cli/install -o "$installer" && bash "$installer" --version 1.3.8 --install-dir "$HOME/.local/bin" --skip-login --skip-skills --yes`

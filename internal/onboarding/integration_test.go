@@ -158,7 +158,7 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 					"twg": `case "$1" in
  --version) echo '1.3.8';;
  *) case "$*" in
- *'auth profile list'*) printf '%s' '{"apiVersion":"v2","data":{"profiles":[{"name":"radar","authMethod":"oauth","cloudId":"cloud-fixture","userId":"fixture-account","user":"fixture@example.invalid","domain":"example.atlassian.net","environment":"prod"}]}}';;
+ *'auth profile list'*) printf '%s' '{"apiVersion":"v2","data":{"profiles":[{"name":"example-oauth","authMethod":"oauth","cloudId":"cloud-fixture","userId":"fixture-account","user":"fixture@example.invalid","domain":"example.atlassian.net","environment":"prod"}]}}';;
  *doctor*) printf '%s' '{"data":{"auth":{"resolved":{"authMethod":"oauth"}},"connectivity":{"attempted":true,"ok":true,"userId":"ari:cloud:identity::user/fixture-account"}}}';;
  *) printf '%s' '{"apiVersion":"v2","command":"jira.workitem.query","data":{"issues":[]}}';;
  esac;; esac`,
@@ -298,6 +298,9 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 				cfg, err := config.Load()
 				if err != nil {
 					t.Fatal(err)
+				}
+				if choices&2 != 0 && cfg.Jira.Profile != "example-oauth" {
+					t.Fatalf("existing Jira profile was not reused: %q", cfg.Jira.Profile)
 				}
 				secrets, err := config.LoadSecrets()
 				if err != nil {

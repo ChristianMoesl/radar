@@ -41,8 +41,11 @@ bundled assistant reads issues/comments and drafts replies without posting.
    or deleted automatically.
 4. Keep the site URL, authoritative issue types, status mapping, ticket prefixes
    and linking policy. Run `radar setup` to discover the Cloud ID, select a named
-   OAuth profile (default `radar`), launch login, verify the site's account and an
-   actual issue read, then confirm the displayed identity. Retry or defer failures.
+   OAuth profile (defaults to an existing OAuth profile for that site, or `radar`
+   for a new login), verify the site's account and an actual issue read, then
+   confirm the displayed identity. A verified existing session needs no login;
+   reauthentication targets the selected profile instead of creating a duplicate.
+   Retry or defer failures.
    Only non-secret selectors are saved:
 
    ```yaml
