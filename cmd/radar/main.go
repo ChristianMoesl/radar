@@ -689,7 +689,7 @@ func runDaemon() {
 		fatal(err)
 	}
 
-	fmt.Fprintf(os.Stderr, "radar daemon listening on %s\n", path)
+	fmt.Fprintf(os.Stderr, "radar daemon starting on %s\n", path)
 	fmt.Fprintf(os.Stderr, "radar daemon logging to %s\n", logPath)
 	pidPath, err := process.WritePID()
 	if err != nil {
@@ -704,12 +704,13 @@ func runDaemon() {
 	if e != nil {
 		fatal(e)
 	}
-	stateLock, e := taskdb.Lock(statePath, false)
+	stateLock, e := taskdb.Lock(statePath, true)
 	if e != nil {
 		fatal(e)
 	}
 	defer stateLock.Close()
-	if err := app.RequireMigratedNotes(); err != nil {
+	if err := app.PrepareTaskState(logger); err != nil {
+		logger.Error("could not prepare task state", "error", err)
 		fatal(err)
 	}
 	store, err := state.NewStore(logger)
@@ -819,30 +820,44 @@ func restartDaemonAndWait(socketPath string) error {
 }
 
 func startDaemonAndWait(socketPath string) error {
+	if socketPath == "" {
+		path, err := socket.Path()
+		if err != nil {
+			return err
+		}
+		socketPath = path
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	if err := startDetached(executable, "daemon"); err != nil {
+	done, err := startDetached(executable, "daemon")
+	if err != nil {
 		return err
 	}
-	if socketPath == "" {
-		return nil
-	}
-	for range 100 {
+	deadline := time.Now().Add(daemonStartupTimeout)
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-done:
+			return fmt.Errorf("radar daemon exited during startup (%v); inspect radar logs for migration or initialization errors", err)
+		default:
+		}
 		time.Sleep(50 * time.Millisecond)
 		res, err := client.Call(socketPath, "version")
 		if err == nil && res.OK && res.Version == version.Current() {
 			return nil
 		}
 	}
-	return fmt.Errorf("radar daemon did not start with matching version")
+	return fmt.Errorf("radar daemon is still starting; inspect radar logs for migration progress before retrying")
 }
 
-func startDetached(name string, args ...string) error {
+// One-time migrations can take longer than ordinary daemon initialization.
+const daemonStartupTimeout = 2 * time.Minute
+
+func startDetached(name string, args ...string) (<-chan error, error) {
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer devNull.Close()
 
@@ -851,12 +866,19 @@ func startDetached(name string, args ...string) error {
 		Sys:   &syscall.SysProcAttr{Setsid: true},
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Reap while this parent remains alive (notably a long-lived TUI). If the
 	// parent exits first, the detached daemon is adopted by the OS.
-	go func() { _, _ = process.Wait() }()
-	return nil
+	done := make(chan error, 1)
+	go func() {
+		status, err := process.Wait()
+		if err == nil && !status.Success() {
+			err = fmt.Errorf("%s", status)
+		}
+		done <- err
+	}()
+	return done, nil
 }
 
 type refreshScope string

@@ -8,7 +8,7 @@ import (
 	"radar/internal/protocol"
 )
 
-// ValidateLegacy is used only by the explicit importer, never runtime startup.
+// ValidateLegacy is used only by the one-time importer, never ordinary readers.
 func ValidateLegacy(data []byte) error {
 	if len(data) > maxStateFileSize {
 		return fmt.Errorf("legacy state exceeds size limit")

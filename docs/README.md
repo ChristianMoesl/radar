@@ -17,7 +17,7 @@ Offline: use `man radar` and `man radar-config`, or [ask Pi about Radar](integra
 ## Configuration and automation
 
 - [Configuration](configuration.md) — directories, linking, defaults and repository overrides.
-- [Task-state migration and backup](sqlite-state-migration.md) — explicit SQLite cutover, recovery and content-only notes.
+- [Task-state migration and backup](sqlite-state-migration.md) — automatic SQLite cutover, recovery and content-only notes.
 - [CLI reference](cli.md) — commands, JSON output, state and logs.
 - [Workspace resource API](workspace-reconciliation.md) — inspect and reconcile worktrees, mounts and ports.
 - [Durable agents](durable-agents.md) — code-defined pi-durable agents, events, interaction and workspace/SBX execution.

@@ -1,6 +1,7 @@
 package obsidian
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,8 +10,10 @@ import (
 	"strings"
 )
 
+var ErrUnmigratedNotes = errors.New("existing task frontmatter requires migration")
+
 // RequireMigratedNotes detects old task records without interpreting their
-// state. Only the explicit importer may read legacy operational frontmatter.
+// state. Only the one-time importer may read legacy operational frontmatter.
 func RequireMigratedNotes(vault string) error {
 	if vault == "" {
 		return nil
@@ -24,6 +27,9 @@ func RequireMigratedNotes(vault string) error {
 		return err
 	}
 	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("task root contains a symlink: %s", entry.Name())
+		}
 		if !entry.IsDir() {
 			continue
 		}
@@ -41,14 +47,14 @@ func RequireMigratedNotes(vault string) error {
 				return err
 			}
 			if !info.Mode().IsRegular() {
-				continue
+				return fmt.Errorf("task note must be a regular file: %s", path)
 			}
 			data, err := os.ReadFile(path)
 			if err != nil {
 				return err
 			}
 			if hasLegacyFields(string(data)) {
-				return fmt.Errorf("existing task frontmatter requires migration: stop Radar and run radar migrate-state, then radar migrate-state --apply (%s)", path)
+				return fmt.Errorf("%w: restart Radar to migrate automatically; use radar migrate-state for inspection (%s)", ErrUnmigratedNotes, path)
 			}
 		}
 	}

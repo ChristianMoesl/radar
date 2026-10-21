@@ -108,7 +108,7 @@ radar state-backup /absolute/path/backup.db
 radar state-export > radar-state.json
 ```
 
-Back up notes and the database together. Use the [explicit migration, preflight and recovery commands](sqlite-state-migration.md) for existing installations before starting the incompatible binary. `radar task title` changes display metadata without changing note bytes; `radar task note` explicitly repairs an external note move after workspace cleanup.
+Back up notes and the database together. Existing installations [migrate automatically on first startup](sqlite-state-migration.md); explicit migration commands provide read-only preflight and offline recovery. `radar task title` changes display metadata without changing note bytes; `radar task note` explicitly repairs an external note move after workspace cleanup.
 
 ## Logs
 

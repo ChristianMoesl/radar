@@ -173,7 +173,7 @@ Bound lookup must recover work that left active search while Radar was stopped, 
 
 Missing unresolved bound work items and failed, unavailable, or incomplete provider lookup block unsupported automatic completion and remain visible as source diagnostics. Keep unresolved bindings; missing data is not completion evidence. `TaskBindingProvider` adds newly established authoritative associations to already adopted notes, including after unmute, and avoids writes when nothing changed. It does not create notes for all discovered tasks, prune bindings just because an item disappeared, or change completion authority. Existing authored completion-baseline rules still apply, and local-resource disappearance neither completes a note nor clears its preference.
 
-Durable mute preferences, bindings and review/completion safeguards live in SQLite. Runtime collection never reads legacy note or JSON fields. Existing installations use the [explicit offline SQLite migration](sqlite-state-migration.md); cache reset retains authored state, bindings, acknowledgements and pending review decisions.
+Durable mute preferences, bindings and review/completion safeguards live in SQLite. Runtime collection never reads legacy note or JSON fields. Existing installations [migrate automatically before startup completes](sqlite-state-migration.md); cache reset retains authored state, bindings, acknowledgements and pending review decisions.
 
 ## Cleanup providers
 

@@ -11,7 +11,7 @@ obsidian:
 
 The configured directory must exist. Radar creates `Tasks/` beneath it. `.obsidian/` is optional: a real vault uses Obsidian deep links, while an ordinary directory opens its Markdown file through the system handler. An unavailable directory reports an error. Creating tasks and workspaces still requires an accessible note directory.
 
-Existing installations must run the [explicit SQLite migration](../sqlite-state-migration.md) before starting the new daemon. It imports the old frontmatter and version 8 JSON, then removes all managed fields, including `radar-id`. There is no runtime legacy reader.
+Existing installations [migrate automatically on first daemon startup](../sqlite-state-migration.md). The one-time importer backs up old frontmatter and version 8 JSON, imports their state, then removes all managed note fields, including `radar-id`. Ordinary collection reads SQLite exclusively. Explicit commands remain available for preflight and recovery.
 
 ## Task layout and content
 

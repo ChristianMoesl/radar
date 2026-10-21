@@ -80,4 +80,4 @@ SBX explicitly through normal preview/reconcile, never by changing defaults alon
 
 ## Task state and notes
 
-Task state lives in local SQLite; notes contain only user/agent content, with no Radar frontmatter or in-note ID. Existing installations must run the [explicit migration and backup workflow](docs/sqlite-state-migration.md) before starting the incompatible binary. Cache reset preserves task decisions, identities, bindings and acknowledgements.
+Task state lives in local SQLite; notes contain only user/agent content, with no Radar frontmatter or in-note ID. Existing installations [migrate automatically on first startup](docs/sqlite-state-migration.md), with backups and resumable recovery. Cache reset preserves task decisions, identities, bindings and acknowledgements.

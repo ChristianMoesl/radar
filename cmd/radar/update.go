@@ -260,7 +260,7 @@ func startUpdateDaemon(path, binary, identity string) error {
 	}
 	done := make(chan error, 1)
 	go func() { _, err := child.Wait(); done <- err }()
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(daemonStartupTimeout)
 	for time.Now().Before(deadline) {
 		select {
 		case err := <-done:

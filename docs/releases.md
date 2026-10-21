@@ -156,6 +156,13 @@ with a different epoch rejects the release; implement/document a read-only
 preflight and obtain an explicit migration/reset decision for a manual rollout.
 Binary rollback never rolls back task notes, configuration or other user data.
 
+SQLite task authority/content-only notes use epoch 2. An epoch 1 managed updater
+rejects this boundary so its binary-only rollback cannot restart a frontmatter
+reader against converted notes. Install the epoch 2 release with its archive
+installer, Homebrew, or source workflow; the new daemon then
+[migrates local data automatically](sqlite-state-migration.md). No separate data
+migration command or dataset transfer is required.
+
 ## Homebrew tap publishing
 
 The public tap is `ChristianMoesl/homebrew-tap`, with `Formula/radar.rb`. Users

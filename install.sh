@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 try {
 // Keep these independently committed roots aligned with internal/update/keys.json.
 const trustedKeys = { "release-1": "Q4QjbCIw3Jjtk0oI/E/+xiaEpwYAsejQA7agVI0VGuY=" };
-const stateEpoch = 1;
+const stateEpoch = 2;
 const maxArchive = 128 * 1024 * 1024, maxExpanded = 512 * 1024 * 1024;
 const [work, arch, macos, home, platform, existing] = process.argv.slice(2);
 const artifactKey = platform === 'linux' ? `linux_${arch}` : arch;
@@ -126,7 +126,9 @@ function prepareLinuxInstall() {
   if (privateFile(receiptPath)) {
     receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
     fields(receipt, ['schema', 'installer', 'version', 'state_epoch', 'binary_sha256', 'previous_binary_sha256']);
-    if (receipt.schema !== 1 || receipt.installer !== 'radar-linux-bootstrap' || !tag(receipt.version) || receipt.state_epoch !== stateEpoch || !digest(receipt.binary_sha256) || receipt.previous_binary_sha256 !== null && !digest(receipt.previous_binary_sha256)) throw new Error('Invalid or incompatible Linux installation receipt; inspect it before retrying');
+    // An epoch 1 receipt proves binary ownership too. The new daemon performs
+    // the backed-up data conversion; the installer never reads application data.
+    if (receipt.schema !== 1 || receipt.installer !== 'radar-linux-bootstrap' || !tag(receipt.version) || ![1, stateEpoch].includes(receipt.state_epoch) || !digest(receipt.binary_sha256) || receipt.previous_binary_sha256 !== null && !digest(receipt.previous_binary_sha256)) throw new Error('Invalid or incompatible Linux installation receipt; inspect it before retrying');
   }
   let previous = null;
   if (privateFile(binary)) {

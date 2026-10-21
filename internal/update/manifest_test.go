@@ -297,7 +297,7 @@ func TestNodeReleaseSignatureIsAcceptedByGo(t *testing.T) {
 	script, _ := os.ReadFile("../../scripts/release-metadata.mjs")
 	put(t, filepath.Join(root, "scripts/release-metadata.mjs"), string(script), 0644)
 	put(t, filepath.Join(root, "package.json"), `{"version":"0.2.0","engines":{"node":">=24"},"peerDependencies":{"@earendil-works/pi-coding-agent":">=0.85.1"}}`, 0644)
-	put(t, filepath.Join(root, "internal/update/manifest.go"), "const StateEpoch = 1\n", 0644)
+	put(t, filepath.Join(root, "internal/update/manifest.go"), fmt.Sprintf("const StateEpoch = %d\n", StateEpoch), 0644)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	keys := map[string]string{"test": base64.StdEncoding.EncodeToString(pub)}
 	keyData, _ := json.Marshal(keys)

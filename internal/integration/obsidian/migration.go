@@ -1,4 +1,4 @@
-// Explicit one-time migration support. Runtime collection does not call these readers.
+// One-time migration support. Runtime collection does not call these readers.
 package obsidian
 
 import (

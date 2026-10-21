@@ -82,7 +82,7 @@ printf '{"name":"%s","version":"%s"}' "$name" "$version" > "$PI_CODING_AGENT_DIR
 	env := append(os.Environ(),
 		"HOME="+home, "PATH="+bin+":"+os.Getenv("PATH"), "PI_CODING_AGENT_DIR="+profile,
 		"RADAR_SOCKET="+path, "RADAR_PID="+filepath.Join(root, "radar.pid"),
-		"RADAR_STATE="+filepath.Join(root, "tasks.json"), "RADAR_LOG="+logPath,
+		"RADAR_STATE="+filepath.Join(root, "state.db"), "RADAR_LOG="+logPath,
 		"PI_OFFLINE=", "RADAR_LOG_LEVEL=debug", "RADAR_LOG_COLOR=0", "RADAR_DISABLE_COLLECTION=1",
 		"XDG_CONFIG_HOME="+filepath.Join(root, "config"), "XDG_STATE_HOME="+filepath.Join(root, "state"))
 	wait := func(description string, condition func() bool) {

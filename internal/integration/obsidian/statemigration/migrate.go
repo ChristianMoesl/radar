@@ -1,5 +1,5 @@
-// Package statemigration implements the explicit, offline frontmatter/JSON cutover.
-// It is not used by runtime collection or persistence readers.
+// Package statemigration implements the one-time frontmatter/JSON cutover.
+// Startup and offline commands use it before runtime collection or persistence.
 package statemigration
 
 import (
@@ -44,12 +44,16 @@ func Preflight(database, vault, legacy, root string) (Plan, error) {
 	p := Plan{Version: 1, Database: database, Vault: vault, LegacyPath: legacy, WorkspaceRoot: root}
 	var err error
 	if vault != "" {
-		if err := realDirectory(filepath.Join(vault, "Tasks")); err != nil {
+		if err := realDirectory(vault); err != nil {
 			return p, err
 		}
-		p.Notes, err = obsidian.PlanLegacy(vault)
-		if err != nil {
+		if err := realDirectory(filepath.Join(vault, "Tasks")); err != nil && !os.IsNotExist(err) {
 			return p, err
+		} else if err == nil {
+			p.Notes, err = obsidian.PlanLegacy(vault)
+			if err != nil {
+				return p, err
+			}
 		}
 	}
 	for _, path := range []string{legacy, workspacegroup.Path(root)} {
@@ -170,7 +174,7 @@ func (p Plan) Verify() error {
 		}
 		root := filepath.Join(p.Vault, "Tasks")
 		entries, err := os.ReadDir(root)
-		if err != nil {
+		if err != nil && !(os.IsNotExist(err) && len(p.Notes) == 0) {
 			return err
 		}
 		for _, entry := range entries {
@@ -288,6 +292,9 @@ func (p Plan) finish() error {
 		}
 		if bytes.Equal(current, n.After) {
 			continue
+		}
+		if !bytes.Equal(current, n.Before) {
+			return fmt.Errorf("migration input changed: %s; reconcile it before restarting or resuming", n.Task.Path)
 		}
 		if err := replace(n.Task.Path, n.After, n.Mode); err != nil {
 			return err
@@ -439,14 +446,26 @@ func Rollback(database string) error {
 			return err
 		}
 		for _, n := range p.Notes {
+			if err := verify(n.Task.Path, n.Before, n.After, n.Mode); err != nil {
+				return err
+			}
 			if err := replace(n.Task.Path, n.Before, n.Mode); err != nil {
 				return err
 			}
 		}
-		if err := os.Remove(database); err != nil {
+		// Persist the rollback decision before removing its database journal.
+		// Otherwise a crash here could make automatic startup import it again.
+		marker := filepath.Join(p.BackupPath(), "rolled-back")
+		if data, err := os.ReadFile(marker); os.IsNotExist(err) {
+			if err := writeNew(marker, []byte("true\n")); err != nil {
+				return err
+			}
+		} else if err != nil {
 			return err
+		} else if string(data) != "true\n" {
+			return fmt.Errorf("invalid rollback marker: %s", marker)
 		}
-		if err := writeNew(filepath.Join(p.BackupPath(), "rolled-back"), []byte("true\n")); err != nil {
+		if err := os.Remove(database); err != nil {
 			return err
 		}
 		return syncDir(filepath.Dir(database))

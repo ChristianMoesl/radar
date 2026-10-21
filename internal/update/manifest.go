@@ -24,7 +24,7 @@ import (
 
 const Repository = "ChristianMoesl/radar"
 const Package = "@christianmoesl/pi-radar"
-const StateEpoch = 1 // Bump for incompatible persisted-data changes: updates must reject them.
+const StateEpoch = 2 // SQLite authority/content-only notes; older binaries cannot safely roll back into this format.
 const MaxArchiveSize = 128 << 20
 const MaxExpandedSize = 512 << 20
 

@@ -730,8 +730,9 @@ Bare `pi update` is not the package-update command.
   archive or new startup grace period. Review and preserve work or reopen the task
   before installing; see [expiry rollout](workspace-cleanup.md#before-installing-this-policy).
 - **Configuration and notes:** review integration-specific rollout instructions
-  for old configuration keys, note titles and workspace links. Radar does not
-  silently migrate authored data or user configuration.
+  for old configuration keys, note titles and workspace links. The
+  [SQLite task-state migration](sqlite-state-migration.md) runs automatically
+  on first startup with backups. User configuration still requires explicit edits.
 
 
 ## Manual pages

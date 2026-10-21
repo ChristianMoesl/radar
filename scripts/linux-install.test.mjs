@@ -129,7 +129,7 @@ globalThis.fetch = async (address) => {
       routes[`${downloads}/${version}/${file}`] = { data: archive.toString('base64') };
       assets.push({ name: file, size: artifacts[key].size, state: 'uploaded' });
     }
-    const manifest = { schema: 1, version, state_epoch: mutation === 'incompatible epoch' ? 2 : 1, min_macos: '13.0', pi_version: version.slice(1), min_pi: '0.85.1', min_node: mutation === 'newer Node required' ? 100 : 24, artifacts };
+    const manifest = { schema: 1, version, state_epoch: mutation === 'incompatible epoch' ? 1 : 2, min_macos: '13.0', pi_version: version.slice(1), min_pi: '0.85.1', min_node: mutation === 'newer Node required' ? 100 : 24, artifacts };
     if (mutation === 'wrong filename') manifest.artifacts[platform === 'darwin' ? arch : `linux_${arch}`].file = '../wrong.tar.gz';
     const bytes = Buffer.from(JSON.stringify(manifest));
     const signature = sign(null, bytes, privateKey);
@@ -178,7 +178,8 @@ test('Linux installation runs as a real unprivileged user', () => {
 test('embedded publisher trust still matches the updater', () => {
   const keys = JSON.parse(source.match(/const trustedKeys = (\{[^\n]+\});/)[1]);
   assert.deepEqual(keys, JSON.parse(readFileSync(join(root, 'internal/update/keys.json'))));
-  assert.match(source, /const stateEpoch = 1;/);
+  const epoch = Number(readFileSync(join(root, 'internal/update/manifest.go'), 'utf8').match(/^const StateEpoch = (\d+)/m)[1]);
+  assert.match(source, new RegExp(`const stateEpoch = ${epoch};`));
 });
 
 for (const scenario of ['neither on PATH', 'both on PATH', 'home bin on PATH', 'local bin missing but on PATH', 'home bin missing but on PATH', 'trailing slash', 'substring is not a PATH entry', 'empty PATH entry', 'explicit nested directory', 'explicit relative directory', 'explicit directory overrides both']) {
@@ -334,6 +335,37 @@ test('reruns safely and upgrades only the installer-owned binary', t => {
   f.publish('v1.2.4');
   result = f.run(); assert.equal(result.status, 0, result.output);
   assert.equal(installed(f).version, 'v1.2.4');
+});
+
+test('upgrades an epoch 1 owned installation without touching task data', t => {
+  const f = fixture(t);
+  assert.equal(f.run().status, 0);
+  const receiptPath = join(f.home, '.local/bin/.radar-install.json');
+  const receipt = JSON.parse(readFileSync(receiptPath));
+  receipt.state_epoch = 1;
+  writeFileSync(receiptPath, JSON.stringify(receipt));
+  const statePath = join(f.home, '.local/state/radar/tasks.json');
+  const state = '{"version":8,"task_records":[],"source_refs":[]}';
+  f.put(statePath, state);
+  f.publish('v1.2.4');
+  const result = f.run();
+  assert.equal(result.status, 0, result.output);
+  assert.equal(installed(f).state_epoch, 2);
+  assert.equal(readFileSync(statePath, 'utf8'), state);
+});
+
+test('refuses an installation receipt from an unknown future epoch', t => {
+  const f = fixture(t);
+  assert.equal(f.run().status, 0);
+  const receiptPath = join(f.home, '.local/bin/.radar-install.json');
+  const receipt = JSON.parse(readFileSync(receiptPath));
+  receipt.state_epoch = 3;
+  writeFileSync(receiptPath, JSON.stringify(receipt));
+  const binary = join(f.home, '.local/bin/radar'), before = readFileSync(binary);
+  const result = f.run();
+  assert.notEqual(result.status, 0, result.output);
+  assert.match(result.output, /incompatible Linux installation receipt/);
+  assert.deepEqual(readFileSync(binary), before);
 });
 
 test('refuses a modified installer-owned executable', t => {
