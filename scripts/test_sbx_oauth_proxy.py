@@ -23,7 +23,7 @@ class Boundaries(unittest.TestCase):
     def test_control_isolates_native_credentials_and_preserves_network_settings(self):
         environment = {'DD_ACCESS_TOKEN': 'private-access', 'DD_API_KEY': 'private-key',
                        'DD_APP_KEY': 'private-key', 'GH_TOKEN': 'private-github',
-                       'PUP_MOCK_SERVER': 'https://private.example', 'PUP_CONFIG_DIR': '/old/config',
+                       'PUP_MOCK_SERVER': 'https://private.example', 'PUP_TRUST_SITE': '1', 'PUP_CONFIG_DIR': '/old/config',
                        'DD_TOKEN_STORAGE': 'keychain', 'HTTPS_PROXY': 'http://proxy.example:8080',
                        'SSL_CERT_FILE': '/fixture/ca.pem'}
         with patch.dict(proxy.os.environ, environment, clear=True):
@@ -34,6 +34,7 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(actual['SSL_CERT_FILE'], environment['SSL_CERT_FILE'])
         self.assertEqual(actual['DD_API_KEY'], '\n')
         self.assertEqual(actual['DD_APP_KEY'], '\n')
+        self.assertNotIn('PUP_TRUST_SITE', actual)
         self.assertNotIn('private', json.dumps(actual))
 
     def test_control_refreshes_before_and_after_the_negative_probe_without_qualifying_sbx(self):
@@ -198,6 +199,25 @@ class Boundaries(unittest.TestCase):
             result = subprocess.run(['python3', str(proxy.LOGIN), str(native)], env=environment, capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0)
             self.assertTrue(proxy.login_progress(result.stdout)['polling_started'])
+
+    def test_native_pup_driver_closes_unused_input_only_after_its_listener_starts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            native = Path(directory) / 'pup'
+            native.write_text('#!/usr/bin/env python3\nimport select,sys\n'
+                              'print("Unrelated confirmation?", flush=True)\n'
+                              'assert not select.select([0],[],[],.1)[0]\n'
+                              'print("Waiting for authorization...", flush=True)\n'
+                              'assert sys.stdin.readline()==""\n'
+                              'print("Login successful (fixture)!", flush=True)\n')
+            native.chmod(0o700)
+            result = subprocess.run(['python3', str(proxy.LOGIN), str(native)],
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0)
+            progress = proxy.pup_login_progress(result.stdout)
+            self.assertTrue(progress['callback_listener_ready'])
+            self.assertTrue(progress['native_login_reported_success'])
+            self.assertFalse(progress['code_exchange_started'])
+            self.assertNotIn('fixture', json.dumps(progress))
 
     def test_callback_relay_preserves_the_sandbox_destination(self):
         binary = io.BytesIO()

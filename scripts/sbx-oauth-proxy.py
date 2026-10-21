@@ -135,6 +135,14 @@ def login_progress(value):
             "native_timeout": "Login timed out after " in value}
 
 
+def pup_login_progress(value):
+    value = ' '.join(re.sub(r'\x1b\[[0-9;?]*[A-Za-z]', '', value).split())
+    return {'callback_listener_ready': 'Waiting for authorization' in value,
+            'code_exchange_started': 'Exchanging authorization code for tokens' in value,
+            'native_login_reported_success': 'Login successful' in value,
+            'native_timeout': 'OAuth callback timed out after ' in value}
+
+
 def approval_window_seconds(value):
     # TWG's interactive progress reports its native deadline. This is metadata,
     # never a change to the provider's authorization or token lifetime.
@@ -212,7 +220,8 @@ def verify_pup(execute, cfg, report):
 
 def control_environment(directory):
     removed = {'DD_ACCESS_TOKEN', 'DD_API_KEY', 'DD_APP_KEY', 'DD_SITE', 'DD_ORG', 'DD_OUTPUT',
-               'PUP_OUTPUT', 'PUP_FILTER', 'PUP_MOCK_SERVER', 'GH_TOKEN', 'GITHUB_TOKEN', 'DOCKERHUB_TOKEN'}
+               'PUP_OUTPUT', 'PUP_FILTER', 'PUP_MOCK_SERVER', 'PUP_TRUST_SITE',
+               'GH_TOKEN', 'GITHUB_TOKEN', 'DOCKERHUB_TOKEN'}
     env = {k: v for k, v in os.environ.items() if k not in removed}
     env.update(PUP_CONFIG_DIR=str(directory / 'native-config'), DD_TOKEN_STORAGE='file',
                DD_SITE='datadoghq.eu', DD_ORG=PROFILE, DD_API_KEY='\n', DD_APP_KEY='\n', BROWSER='/bin/false')
@@ -444,7 +453,8 @@ def worker(directory):
                         publish(directory, value)
                     else:
                         authorization = None
-                progress = login_progress((directory / "native-login.log").read_text()) if provider == "twg" else None
+                console = (directory / 'native-login.log').read_text()
+                progress = login_progress(console) if provider == 'twg' else pup_login_progress(console)
                 if progress and progress != last_progress:
                     report["login_progress"] = progress
                     if authorization:
@@ -454,18 +464,18 @@ def worker(directory):
                 if provider == "pup" and authorization and not delivered:
                     try:
                         delivered = relay(directory, authorization, name, host_control=host_control)
+                        report['callback_delivered'] = delivered
                         report.pop("callback_delivery_error", None)
                     except Failure as error:
                         report["callback_delivery_error"] = str(error)
                 time.sleep(3)
             final_console = (directory / "native-login.log").read_text()
             hints = diagnostics(final_console)
-            if provider == "twg":
-                report["login_progress"] = login_progress(final_console)
+            report['login_progress'] = login_progress(final_console) if provider == 'twg' else pup_login_progress(final_console)
             report["native_exit_code"] = child.poll()
-            require(child.poll() is not None, "Native CLI login approval window timed out after 600 seconds; start a new login")
+            require(child.poll() is not None, "Native CLI did not exit within 600 seconds; no later checks ran")
             require(not report.get("login_progress", {}).get("native_timeout"),
-                    "Native CLI device approval deadline expired; start a new login")
+                    "Native CLI approval deadline expired; start a new login")
             require(child.poll() == 0, "Native CLI login did not complete (" + ','.join(hints) + "); private diagnostics withheld")
         report["checks"].append("native_cli_login")
         client_id = public_client_id(provider, authorization)

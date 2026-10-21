@@ -77,6 +77,10 @@ The observed native deadline is included as `approval_window_seconds` in the
 challenge. Coordinate browser availability before starting the run; approving
 after the native CLI exits cannot resume it. No provider grant or other
 confirmation is answered automatically.
+For Pup, the test sends terminal EOF after the native callback listener starts.
+Its unused stdin reader must not keep the CLI alive after an HTTP callback.
+Only fixed progress booleans and callback-delivery status can leave private
+diagnostics; no native output or provider response is published.
 The same sanitized challenge is published as a neutral `SBX OAuth approval`
 check on the tested commit, readable through GitHub's check-runs API while the
 workflow is waiting. Private logs and credential values are never check output.
@@ -141,6 +145,15 @@ No-login routing diagnostics for
 [TWG](https://github.com/ChristianMoesl/radar/actions/runs/39520014320) found network
 authorization allowed and dummy refresh returned HTTP 502. Neither produced a
 matching policy-log entry, so these runs did not establish the forwarding route.
+
+The first [outside-SBX control](https://github.com/ChristianMoesl/radar/actions/runs/39521221743)
+stalled in native login and reached neither monitor reads nor refresh checks.
+An isolated local HTTPS fixture with dummy tokens and the released Pup 2.0.0
+binary reproduced a successful login that never exited while its unused PTY
+stdin remained open. Sending terminal EOF after its callback listener started
+produced exit code zero with the same fixture. The wrapper now does that and
+publishes only fixed native-progress booleans and callback-delivery status.
+This fixture validates process handling, not real-provider refresh or SBX masking.
 
 Only challenge/result JSON and encrypted callback packets are uploaded. No native
 logs, CLI files, host keychain, private callback key, environment dump or provider

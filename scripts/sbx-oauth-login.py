@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a native login in a PTY; decline only TWG's local-browser prompt."""
+"""Run native login in a PTY, with browser approval and callbacks out of band."""
 import errno
 import os
 import pty
@@ -28,7 +28,7 @@ def main():
                              start_new_session=True)
     os.close(slave)
     signal.signal(signal.SIGTERM, lambda *_: child.terminate())
-    pending, answered = b'', False
+    pending, answered, input_closed = b'', False, False
     try:
         while True:
             try:
@@ -48,6 +48,13 @@ def main():
                 # never approves a grant or responds to another native prompt.
                 os.write(master, b'n')
                 answered = True
+            if not input_closed and 'pup' == os.path.basename(sys.argv[1]) and b'Waiting for authorization' in plain:
+                # Pup races its HTTP listener against a Tokio stdin read. An
+                # unused blocking read can keep its runtime alive after the
+                # HTTP callback wins. Send terminal EOF once its listener is
+                # ready; the callback still follows the native HTTP path.
+                os.write(master, b'\x04')
+                input_closed = True
         return child.wait()
     finally:
         os.close(master)
