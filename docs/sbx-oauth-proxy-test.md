@@ -89,6 +89,25 @@ must start a new login; it never reuses a captured grant from another runner.
 - The native CLI can refresh, then repeat identity/read/masking checks.
 - The same checks pass after stopping/restarting the sandbox.
 
+A masking failure remains a failed qualification. The worker records it per
+phase and continues the independent native refresh/restart checks; successful
+later operations cannot erase an earlier masking failure.
+
+## Observed characterization
+
+[Datadog run 39518161763](https://github.com/ChristianMoesl/radar/actions/runs/39518161763)
+on SBX 0.49.1 / Pup 2.0.0 completed native OAuth login, verified the configured
+site/session/scope, and read the approved tagged monitors. The refresh-sentinel
+probe, including the native public client ID, returned **HTTP 403**. Credential
+isolation is unverified and the qualification failed. Native forced refresh and
+sandbox restart were not reached in that run. Pup's v2.0.0 DCR implementation
+uses the same three form fields (`grant_type`, `client_id`, `refresh_token`),
+without client-secret authentication.
+
+[Jira run 39516056168](https://github.com/ChristianMoesl/radar/actions/runs/39516056168)
+reached native TWG device-token polling with a confirmed five-minute window,
+then expired without a completed token exchange. Jira inside SBX is unqualified.
+
 Only challenge/result JSON and encrypted callback packets are uploaded. No native
 logs, CLI files, host keychain, private callback key, environment dump or provider
 response is an artifact. The sandbox is removed after testing and the disposable

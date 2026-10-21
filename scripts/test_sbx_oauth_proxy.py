@@ -56,6 +56,19 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(report['verification_step'], 'token_response_masking')
         self.assertEqual(report['verified'], {'oauth_identity': True, 'approved_fixture_read': True, 'sentinel_token_response': False})
 
+    def test_characterization_retains_an_earlier_masking_failure(self):
+        report = {'phase': 'identity_read_and_masking'}
+        def baseline(*args):
+            report['verification_step'] = 'token_response_masking'
+            raise proxy.Failure('Proxy token-response masking is unverified (http; HTTP 403)')
+        with patch.object(proxy, 'verify', side_effect=baseline):
+            proxy.verify_phase('pup', {}, 'sandbox', {}, report, 'public-client')
+        report['phase'] = 'refresh'
+        with patch.object(proxy, 'verify'):
+            proxy.verify_phase('pup', {}, 'sandbox', {}, report, 'public-client')
+        self.assertEqual(report['masking_failures'], [{'phase': 'identity_read_and_masking',
+                         'error': 'Proxy token-response masking is unverified (http; HTTP 403)'}])
+
     def test_only_authorization_link_escapes_native_diagnostics(self):
         url = 'https://auth.atlassian.com/oauth/activate?user_code=ABC-123'
         self.assertEqual(proxy.challenge('twg', 'private-token\n' + url + '\nprivate diagnostic'), url)

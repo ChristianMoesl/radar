@@ -234,6 +234,17 @@ def verify(provider, cfg, name, spec, report, client_id):
     report.pop("verification_step", None)
 
 
+def verify_phase(provider, cfg, name, spec, report, client_id):
+    try:
+        verify(provider, cfg, name, spec, report, client_id)
+    except Failure as error:
+        # Keep this qualification failed, but characterize independent native
+        # refresh/restart behavior without requiring more browser approvals.
+        if report.get("verification_step") != "token_response_masking":
+            raise
+        report.setdefault("masking_failures", []).append({"phase": report["phase"], "error": str(error)})
+
+
 def relay(directory, authorization, name):
     repository, run_id = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"]
     artifact_name = "sbx-oauth-callback-" + run_id
@@ -333,19 +344,23 @@ def worker(directory):
         report["checks"].append("native_cli_login")
         client_id = public_client_id(provider, authorization)
         report["phase"] = "identity_read_and_masking"
-        verify(provider, cfg, name, spec, report, client_id)
-        report["checks"] += ["native_oauth_identity_and_read", "sentinel_token_response"]
+        verify_phase(provider, cfg, name, spec, report, client_id)
+        report["checks"].append("native_oauth_identity_and_read")
         report["phase"] = "refresh"
         if provider == "twg":
             sbx(name, "twg", "--profile", PROFILE, "--site", cfg["cloud_id"], "auth", "refresh", "--force")
         else:
             sbx(name, "pup", "--org", PROFILE, "auth", "refresh")
-        verify(provider, cfg, name, spec, report, client_id)
+        verify_phase(provider, cfg, name, spec, report, client_id)
         report["checks"].append("explicit_refresh")
         report["phase"] = "sandbox_restart"
         run(["sbx", "stop", name])
-        verify(provider, cfg, name, spec, report, client_id)
+        verify_phase(provider, cfg, name, spec, report, client_id)
         report["checks"].append("sandbox_restart")
+        if report.get("masking_failures"):
+            report["phase"] = "token_response_masking"
+            raise Failure("Proxy token-response masking failed; native refresh/restart evidence retained")
+        report["checks"].append("sentinel_token_response")
         report["status"] = "passed"
         report["phase"] = "completed"
     except Exception as error:
