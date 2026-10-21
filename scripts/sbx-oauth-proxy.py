@@ -347,6 +347,7 @@ def worker(directory):
         verify_phase(provider, cfg, name, spec, report, client_id)
         report["checks"].append("native_oauth_identity_and_read")
         report["phase"] = "refresh"
+        report["verification_step"] = "native_refresh"
         if provider == "twg":
             sbx(name, "twg", "--profile", PROFILE, "--site", cfg["cloud_id"], "auth", "refresh", "--force")
         else:
@@ -354,6 +355,7 @@ def worker(directory):
         verify_phase(provider, cfg, name, spec, report, client_id)
         report["checks"].append("explicit_refresh")
         report["phase"] = "sandbox_restart"
+        report["verification_step"] = "sandbox_stop"
         run(["sbx", "stop", name])
         verify_phase(provider, cfg, name, spec, report, client_id)
         report["checks"].append("sandbox_restart")

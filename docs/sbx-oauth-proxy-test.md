@@ -95,12 +95,15 @@ later operations cannot erase an earlier masking failure.
 
 ## Observed characterization
 
-[Datadog run 39518161763](https://github.com/ChristianMoesl/radar/actions/runs/39518161763)
+[Datadog run 39518844101](https://github.com/ChristianMoesl/radar/actions/runs/39518844101)
 on SBX 0.49.1 / Pup 2.0.0 completed native OAuth login, verified the configured
 site/session/scope, and read the approved tagged monitors. The refresh-sentinel
 probe, including the native public client ID, returned **HTTP 403**. Credential
-isolation is unverified and the qualification failed. Native forced refresh and
-sandbox restart were not reached in that run. Pup's v2.0.0 DCR implementation
+isolation is unverified and the qualification failed. The worker retained that
+failure and attempted native `pup auth refresh`, which also failed with **HTTP
+403**. Sandbox restart was not reached. This result blocks qualification of the
+tested SBX/Pup combination; it does not establish which component issued the
+403. Pup's v2.0.0 DCR implementation
 uses the same three form fields (`grant_type`, `client_id`, `refresh_token`),
 without client-secret authentication.
 
