@@ -129,13 +129,10 @@ func TestReleasedTFCTL(t *testing.T) {
 			fmt.Fprint(w, `{"data":{"type":"workspaces","id":"ws-one","attributes":{"name":"production-network"}}}`)
 		case "/api/v2/workspaces/ws-one/runs":
 			reads.Add(1)
-			if r.URL.Query().Get("filter[operation]") != operations || r.URL.Query().Get("page[size]") != "100" {
-				t.Error("explicit operation/page query lost")
+			if r.URL.Query().Get("filter[operation]") != operations || r.URL.Query().Get("page[size]") != "100" || r.URL.Query().Has("filter[status_group]") {
+				t.Error("explicit operation/page query lost or duplicate status scans restored")
 			}
-			runs := []resource{}
-			if r.URL.Query().Get("filter[status_group]") == "non_final" {
-				runs = append(runs, run)
-			}
+			runs := []resource{run}
 			fmt.Fprint(w, encode(map[string]any{"data": runs, "included": []resource{plan}, "links": map[string]any{"next": nil}}))
 		default:
 			t.Errorf("unexpected request: %s", r.URL.Path)
@@ -218,7 +215,7 @@ func TestReleasedTFCTL(t *testing.T) {
 		t.Fatal("released workspace discovery", names, err)
 	}
 	result := (Source{}).collect(ctx, session, cfg, integration.CollectRequest{})
-	if !result.Complete || reads.Load() != 2 || len(result.Observations) != 1 || result.Observations[0].Ref.Metadata["destructions"] != "2" {
+	if !result.Complete || reads.Load() != 1 || len(result.Observations) != 1 || result.Observations[0].Ref.Metadata["destructions"] != "2" {
 		t.Fatalf("released collection: %+v, reads=%d", result, reads.Load())
 	}
 	rejected.Store(true)

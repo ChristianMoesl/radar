@@ -65,9 +65,11 @@ func (s Source) Collect(ctx context.Context, req integration.CollectRequest) int
 	if status := integration.OptionalStatus("terraform", cfg.Terraform.Enabled, configured(cfg.Terraform)); !status.CanRun {
 		return integration.CollectResult{SourceStatus: &status.Status}
 	}
-	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
-	session, err := (client{profile: cfg.Terraform.Profile, output: s.output}).connect(ctx, cfg.Terraform)
+	// Bound connection setup, not a rate-paced scan of the full history. Each
+	// CLI request has its own timeout; the caller can cancel the overall scan.
+	connectCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	session, err := (client{profile: cfg.Terraform.Profile, output: s.output}).connect(connectCtx, cfg.Terraform)
+	cancel()
 	if err != nil {
 		return failedResult(req.Previous, err.Error())
 	}

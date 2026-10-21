@@ -65,18 +65,21 @@ attributes their creation to that exact account.
 Collection runs on the existing two-minute full refresh. Local refreshes,
 dashboard reads, and status snapshots do not fetch runs. Workspace run lists
 explicitly include speculative plans, saved plans, and normal run operations.
-Active work is collected across selected workspaces before final-run history.
+Each selected workspace is scanned once for both active and terminal runs.
 New terminal outcomes are admitted when their creation/latest status timestamp
 is within the existing three-day history window. Already tracked and bound runs
 are read by ID regardless of that window.
 
 Lists are paginated explicitly, without tfctl's `--all` option, which truncates
 at 2,000 records. Radar does not assume listing order: it follows pagination to a
-confirmed end. To stay below the run-list rate limit it budgets 24 list pages per
-full refresh across all selected workspaces, with 100 records per page and a
-45-second collection deadline. Large histories can exhaust this budget and
-produce a persistent Partial status; select a narrower workspace scope where
-possible. Required missing pages/reads are never represented as a complete scan.
+confirmed end, including through empty intermediate pages. Terraform can return
+empty filtered results while its pagination still describes the unfiltered
+history. Requests use 100 records per page and are spaced at 24 per minute across
+all selected workspaces, below the endpoint's 30-per-minute limit. There is no
+fixed page-count cap or overall scan deadline: large histories can make a full
+refresh take longer than two minutes. Connection setup and individual CLI reads
+remain time-bounded, and canceling collection interrupts pacing. Required missing
+pages/reads are never represented as a complete scan.
 
 Known observations survive failed pages, unknown states, inaccessible runs,
 timeouts, and rate limits. A missing row or ambiguous 404 is not completion.

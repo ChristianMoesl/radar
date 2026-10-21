@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	// This endpoint allows 30 requests/minute. Stay below it per two-minute
-	// refresh, even across workspaces. An incomplete scan is never authoritative.
-	listPageBudget = 24
-	operations     = "plan_only,plan_and_apply,save_plan,refresh_only,destroy,empty_apply,action_only"
+	// Space requests at 24/minute, below the endpoint's 30/minute limit.
+	// Pace the entire scan rather than limiting how many pages can be read.
+	runListInterval = time.Minute / 24
+	operations      = "plan_only,plan_and_apply,save_plan,refresh_only,destroy,empty_apply,action_only"
 )
 
 func (s Source) collect(ctx context.Context, session session, cfg settings.Config, req integration.CollectRequest) integration.CollectResult {
@@ -27,72 +27,70 @@ func (s Source) collect(ctx context.Context, session session, cfg settings.Confi
 	prior := previousRefs(req.Previous)
 	fresh := map[string]integration.Observation{}
 	seenRuns := map[string]bool{}
-	pages := 0
+	var lastRequest time.Time
 	spaceIDs := make([]string, 0, len(session.spaces))
 	for id := range session.spaces {
 		spaceIDs = append(spaceIDs, id)
 	}
 	sort.Strings(spaceIDs)
-	// Active work across every workspace comes before historical catch-up.
-	for _, group := range []string{"non_final", "final"} {
-		for _, spaceID := range spaceIDs {
-			path := "/workspaces/" + spaceID + "/runs"
-			query := url.Values{"filter[operation]": {operations}, "filter[status_group]": {group}, "page[size]": {"100"}, "include": {"plan,configuration_version.ingress_attributes"}}
-			// Workspace listings without a timeframe filter include all years.
-			// Scan to an explicit pagination end; ordering is not assumed.
-			page := 1
-			for {
-				if pages >= listPageBudget {
-					addFailure(&result, "Terraform run scan reached its request budget; narrow the workspace scope")
-					break
+scan:
+	for _, spaceID := range spaceIDs {
+		path := "/workspaces/" + spaceID + "/runs"
+		query := url.Values{"filter[operation]": {operations}, "page[size]": {"100"}, "include": {"plan,configuration_version.ingress_attributes"}}
+		// One scan includes active and terminal runs across all years. Status
+		// filters can leave empty pages with unfiltered pagination metadata.
+		// Follow the validated next page even when the current page is empty;
+		// neither listing order nor page length proves the end of the list.
+		page := 1
+		for {
+			if err := waitForRunPage(ctx, lastRequest); err != nil {
+				addFailure(&result, "Terraform run scan interrupted; previous facts retained")
+				break scan
+			}
+			lastRequest = time.Now()
+			query.Set("page[number]", strconv.Itoa(page))
+			doc, err := session.client.get(ctx, path+"?"+query.Encode())
+			if err != nil {
+				addFailure(&result, err.Error())
+				break
+			}
+			var records []resource
+			if json.Unmarshal(doc.Data, &records) != nil || records == nil {
+				addFailure(&result, "Terraform run list is malformed")
+				break
+			}
+			for _, r := range records {
+				if seenRuns[r.ID] {
+					continue
 				}
-				pages++
-				query.Set("page[number]", strconv.Itoa(page))
-				doc, err := session.client.get(ctx, path+"?"+query.Encode())
+				seenRuns[r.ID] = true
+				if prior[runIdentity(session.host, r.ID)].ID == "" && !recentRun(r, time.Now()) {
+					var attrs runAttributes
+					if json.Unmarshal(r.Attributes, &attrs) == nil {
+						signal, _, failure, _ := classify(attrs)
+						if signal == integration.SignalDone || failure {
+							continue // Do not discover old terminal history, including failures.
+						}
+					}
+				}
+				observation, owned, err := s.observe(ctx, session, cfg, r, doc.Included, req)
 				if err != nil {
 					addFailure(&result, err.Error())
-					break
+					continue
 				}
-				var records []resource
-				if json.Unmarshal(doc.Data, &records) != nil || records == nil {
-					addFailure(&result, "Terraform run list is malformed")
-					break
-				}
-				for _, r := range records {
-					if seenRuns[r.ID] {
-						continue
-					}
-					seenRuns[r.ID] = true
-					if group == "final" && prior[runIdentity(session.host, r.ID)].ID == "" && !recentRun(r, time.Now()) {
-						continue
-					}
-					observation, owned, err := s.observe(ctx, session, cfg, r, doc.Included, req)
-					if err != nil {
-						addFailure(&result, err.Error())
-						continue
-					}
-					if !owned {
-						continue
-					}
-					if observation.Ref.Signal == "done" && prior[observation.Ref.ID].ID == "" && !recentRun(r, time.Now()) {
-						continue
-					}
+				if owned {
 					fresh[observation.Ref.ID] = observation
 				}
-				next, err := nextPage(doc, session.host, path, page)
-				if err != nil {
-					addFailure(&result, err.Error())
-					break
-				}
-				if next == 0 {
-					break
-				}
-				if len(records) == 0 {
-					addFailure(&result, "Terraform returned an empty nonfinal page")
-					break
-				}
-				page = next
 			}
+			next, err := nextPage(doc, session.host, path, page)
+			if err != nil {
+				addFailure(&result, err.Error())
+				break
+			}
+			if next == 0 {
+				break
+			}
+			page = next
 		}
 	}
 	// Re-read missing known runs regardless of discovery age or completion of
@@ -136,6 +134,24 @@ func (s Source) collect(ctx context.Context, session session, cfg settings.Confi
 		result.SourceStatus.Detail = statusDetail(len(result.Observations))
 	}
 	return result
+}
+
+// waitForRunPage spaces request start times across pages and workspaces, while
+// allowing cancellation to interrupt a long scan without losing known runs.
+func waitForRunPage(ctx context.Context, previous time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if delay := time.Until(previous.Add(runListInterval)); delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return ctx.Err()
 }
 
 func nextPage(doc document, host, path string, current int) (int, error) {

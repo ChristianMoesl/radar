@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"radar/internal/config"
@@ -91,7 +92,8 @@ func (f *fixtureAPI) output(_ context.Context, command setup.Command) (string, e
 			_ = json.Unmarshal(run.Attributes, &a)
 			_, _, failed, _ := classify(a)
 			terminal := a.Status == "applied" || a.Status == "planned_and_finished" || a.Status == "discarded" || a.Status == "canceled" || failed
-			if (u.Query().Get("filter[status_group]") == "final") == terminal {
+			group := u.Query().Get("filter[status_group]")
+			if group == "" || (group == "final") == terminal {
 				records = append(records, run)
 			}
 		}
@@ -157,32 +159,31 @@ func TestOwnRunCollectionAndSourceContract(t *testing.T) {
 }
 
 func TestExplicitPaginationBeyondCLIAllLimit(t *testing.T) {
-	s, api, _ := fixtureSource(t)
-	pages := 0
-	api.pages = func(u *url.URL) (string, error) {
-		if u.Query().Get("filter[status_group]") == "final" {
-			return `{"data":[],"links":{"next":null}}`, nil
-		}
-		pages++
-		n, _ := strconv.Atoi(u.Query().Get("page[number]"))
-		records := []resource{}
-		for i := (n - 1) * 100; i < min(n*100, 2101); i++ {
-			owner := "user-other"
-			if i == 2050 {
-				owner = "user-me"
+	synctest.Test(t, func(t *testing.T) {
+		s, api, _ := fixtureSource(t)
+		pages := 0
+		api.pages = func(u *url.URL) (string, error) {
+			pages++
+			n, _ := strconv.Atoi(u.Query().Get("page[number]"))
+			records := []resource{}
+			for i := (n - 1) * 100; i < min(n*100, 2101); i++ {
+				owner := "user-other"
+				if i == 2050 {
+					owner = "user-me"
+				}
+				records = append(records, runFixture(fmt.Sprintf("run-%d", i), "planning", owner))
 			}
-			records = append(records, runFixture(fmt.Sprintf("run-%d", i), "planning", owner))
+			var next any
+			if n < 22 {
+				next = fmt.Sprintf("https://app.terraform.io/api/v2/workspaces/ws-one/runs?page%%5Bnumber%%5D=%d", n+1)
+			}
+			return encode(map[string]any{"data": records, "links": map[string]any{"next": next}}), nil
 		}
-		var next any
-		if n < 22 {
-			next = fmt.Sprintf("https://app.terraform.io/api/v2/workspaces/ws-one/runs?page%%5Bnumber%%5D=%d", n+1)
+		result := s.Collect(context.Background(), integration.CollectRequest{})
+		if !result.Complete || pages != 22 || len(result.Observations) != 1 || !strings.HasSuffix(result.Observations[0].Ref.ID, "run-2050") {
+			t.Fatalf("pages=%d result=%+v", pages, result)
 		}
-		return encode(map[string]any{"data": records, "links": map[string]any{"next": next}}), nil
-	}
-	result := s.Collect(context.Background(), integration.CollectRequest{})
-	if !result.Complete || pages != 22 || len(result.Observations) != 1 || !strings.HasSuffix(result.Observations[0].Ref.ID, "run-2050") {
-		t.Fatalf("pages=%d result=%+v", pages, result)
-	}
+	})
 }
 
 func TestPartialUnknownAndMissingReadsRetainKnownRun(t *testing.T) {
