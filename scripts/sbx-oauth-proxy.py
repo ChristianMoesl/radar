@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Read-only TWG/Pup qualification through the real SBX OAuth proxy.
 
-Run only on a disposable host. Provider CLIs create their own sandbox profiles;
-the kit intercepts token responses. Never read/copy credential files or export a
-host access token. Logs stay private; artifacts contain challenges/results only.
+Run only on a disposable host. Provider CLIs create their own profiles; the kit
+intercepts sandbox token responses. An explicit Pup control compares native
+refresh outside SBX. Never read/copy credential files or export a host access
+token. Logs stay private; artifacts contain challenges/results only.
 """
 import argparse
 import io
@@ -35,9 +36,9 @@ def require(value, message):
         raise Failure(message)
 
 
-def run(argv, *, body=None, timeout=90, parse=False):
+def run(argv, *, body=None, timeout=90, parse=False, env=None):
     try:
-        result = subprocess.run(argv, input=body, text=True, capture_output=True, timeout=timeout)
+        result = subprocess.run(argv, input=body, text=True, capture_output=True, timeout=timeout, env=env)
     except (OSError, subprocess.TimeoutExpired):
         raise Failure(f"{Path(argv[0]).name} could not complete within its deadline") from None
     hints = diagnostics(result.stdout + result.stderr) if result.returncode else []
@@ -193,6 +194,56 @@ def public_client_id(provider, authorization):
     return values[0]
 
 
+def verify_pup(execute, cfg, report):
+    report['verification_step'] = 'oauth_identity'
+    report['verified'] = {'oauth_identity': False, 'approved_fixture_read': False, 'sentinel_token_response': False}
+    prefix = ["pup", "--org", PROFILE, "--no-envelope", "--output", "json"]
+    status = execute(*prefix, "auth", "status", parse=True)
+    require(status.get("authenticated") and status.get("has_refresh") and not status.get("auth_method")
+            and status.get("token_type", "").lower() == "bearer" and status.get("site") == cfg["site"]
+            and status.get("org") == PROFILE and "monitors_read" in status.get("scopes", []), "Pup OAuth session unavailable")
+    report["verified"]["oauth_identity"] = True
+    report["verification_step"] = "approved_fixture_read"
+    monitors = execute(*prefix, "api", "/api/v1/monitor/search", "-f", "query=" + cfg["monitor_query"], parse=True)
+    require(monitors.get("monitors") and all("radar-oauth-e2e" in m.get("tags", [])
+            for m in monitors["monitors"]), "Expected approved tagged monitors")
+    report["verified"]["approved_fixture_read"] = True
+
+
+def control_environment(directory):
+    removed = {'DD_ACCESS_TOKEN', 'DD_API_KEY', 'DD_APP_KEY', 'DD_SITE', 'DD_ORG', 'DD_OUTPUT',
+               'PUP_OUTPUT', 'PUP_FILTER', 'PUP_MOCK_SERVER', 'GH_TOKEN', 'GITHUB_TOKEN', 'DOCKERHUB_TOKEN'}
+    env = {k: v for k, v in os.environ.items() if k not in removed}
+    env.update(PUP_CONFIG_DIR=str(directory / 'native-config'), DD_TOKEN_STORAGE='file',
+               DD_SITE='datadoghq.eu', DD_ORG=PROFILE, DD_API_KEY='\n', DD_APP_KEY='\n', BROWSER='/bin/false')
+    return env
+
+
+def verify_control(execute, cfg, spec, report, client_id):
+    report['phase'] = 'outside_sbx_identity_and_read'
+    verify_pup(execute, cfg, report)
+    report['checks'].append('native_oauth_identity_and_read')
+    report['phase'] = 'outside_sbx_refresh_before_negative_probe'
+    report['verification_step'] = 'native_refresh'
+    execute('pup', '--org', PROFILE, 'auth', 'refresh')
+    verify_pup(execute, cfg, report)
+    report['checks'].append('native_refresh_before_negative_probe')
+    endpoint = spec['credentials'][0]['oauth']['tokenEndpoint']
+    report['phase'] = 'outside_sbx_negative_probe'
+    report['verification_step'] = 'negative_probe'
+    report['negative_probe'] = execute('python3', '-c', MASK_PROBE, json.dumps({
+        'endpoint': 'https://' + endpoint['host'] + endpoint['path'], 'access': ACCESS,
+        'refresh': REFRESH, 'client_id': client_id}), parse=True)
+    require(report['negative_probe'].get('sentinel_response') is False, 'Outside-SBX control unexpectedly returned sentinels')
+    report['phase'] = 'outside_sbx_refresh_after_negative_probe'
+    report['verification_step'] = 'native_refresh'
+    execute('pup', '--org', PROFILE, 'auth', 'refresh')
+    verify_pup(execute, cfg, report)
+    report['checks'].append('native_refresh_after_negative_probe')
+    report.pop('verification_step', None)
+    report.update(status='control_passed', phase='completed')
+
+
 def verify(provider, cfg, name, spec, report, client_id):
     report["verification_step"] = "oauth_identity"
     report["verified"] = {"oauth_identity": False, "approved_fixture_read": False, "sentinel_token_response": False}
@@ -213,16 +264,7 @@ def verify(provider, cfg, name, spec, report, client_id):
             require(result.get("command") == "jira.workitem.get" and len(result["data"]) == 1
                     and result["data"][0]["key"] == key and not result.get("error"), "Native Jira fixture read failed")
     else:
-        prefix = ["pup", "--org", PROFILE, "--no-envelope", "--output", "json"]
-        status = sbx(name, *prefix, "auth", "status", parse=True)
-        require(status.get("authenticated") and status.get("has_refresh") and not status.get("auth_method")
-                and status.get("token_type", "").lower() == "bearer" and status.get("site") == cfg["site"]
-                and status.get("org") == PROFILE and "monitors_read" in status.get("scopes", []), "Pup OAuth session unavailable")
-        report["verified"]["oauth_identity"] = True
-        report["verification_step"] = "approved_fixture_read"
-        monitors = sbx(name, *prefix, "api", "/api/v1/monitor/search", "-f", "query=" + cfg["monitor_query"], parse=True)
-        require(monitors.get("monitors") and all("radar-oauth-e2e" in m.get("tags", [])
-                for m in monitors["monitors"]), "Expected approved tagged monitors")
+        verify_pup(lambda *args, **kw: sbx(name, *args, **kw), cfg, report)
     report["verified"]["approved_fixture_read"] = True
     report["verification_step"] = "token_response_masking"
     endpoint = spec["credentials"][0]["oauth"]["tokenEndpoint"]
@@ -302,7 +344,7 @@ def diagnose_route(name, spec):
             'negative_probe': probe, 'observed_routing': observed}
 
 
-def relay(directory, authorization, name):
+def relay(directory, authorization, name, *, host_control=False):
     repository, run_id = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"]
     artifact_name = "sbx-oauth-callback-" + run_id
     result = run(["gh", "api", f"repos/{repository}/actions/artifacts?name={artifact_name}"], parse=True)
@@ -322,7 +364,10 @@ def relay(directory, authorization, name):
             # Native Pup owns the callback listener. Forward over exec stdin,
             # so neither the callback nor its code appears in process arguments.
             forward = "import sys,urllib.request; r=urllib.request.urlopen(sys.stdin.read().strip(),timeout=15); assert r.status==200"
-            sbx(name, "python3", "-c", forward, body=value, timeout=30)
+            if host_control:
+                run([sys.executable, '-c', forward], body=value, timeout=30)
+            else:
+                sbx(name, "python3", "-c", forward, body=value, timeout=30)
             return True
         except Exception:
             # Never echo decrypted callback URLs or untrusted artifact contents.
@@ -335,6 +380,10 @@ def worker(directory):
     provider, cfg, name = state["provider"], state["config"], state["sandbox"]
     report = {"provider": provider, "status": "failed", "sbx_version": "0.49.1", "checks": []}
     child = None
+    sandbox_present = True
+    host_control = state.get('control', False)
+    if host_control:
+        report['execution'] = 'outside_sbx_control'
     try:
         spec = state["kit"]
         report["phase"] = "validate_kit"
@@ -351,14 +400,27 @@ def worker(directory):
         report["phase"] = "native_login"
         args = (["twg", "login", "--new-profile", PROFILE, "--site", cfg["cloud_id"]] if provider == "twg" else
                 ["pup", "auth", "login", "--site", cfg["site"], "--org", PROFILE, "--scopes", "monitors_read", "--callback-port", "8000"])
-        # Both native flows receive approval out of band. Keep the sandbox-owned
-        # terminal, but close host stdin so exec cannot wait on an unused pipe.
+        environment = None
+        if host_control:
+            report['phase'] = 'prepare_outside_sbx_control'
+            binary = directory / 'pup'
+            run(['sbx', 'cp', name + ':/usr/local/bin/pup', str(binary)])
+            binary.chmod(0o700)
+            require(run([str(binary), '--version']).strip() == 'pup 2.0.0', 'Unexpected control CLI version')
+            run(['sbx', 'rm', '--force', name])
+            sandbox_present = False
+            environment = control_environment(directory)
+        # Both native flows receive approval out of band. Close host stdin so
+        # the native PTY driver cannot wait on an unused exec pipe.
         argv = ["sbx", "exec", "-e", "TWG_CONFIG_DIR=/home/agent/.config/radar-proxy-twg",
                 "-e", "TWG_BACKGROUND_UPDATE_CHECK=0", "-e", "TWG_AGENT_HOST=none", "-e", "DD_TOKEN_STORAGE=file",
                 "-e", "PUP_CONFIG_DIR=/home/agent/.config/radar-proxy-pup", "-e", "BROWSER=/bin/false", name,
                 "python3", "-c", LOGIN.read_text(), *args]
+        if host_control:
+            argv = [sys.executable, '-c', LOGIN.read_text(), str(binary), *args[1:]]
+        report['phase'] = 'native_login'
         with (directory / "native-login.log").open("w") as log:
-            child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, text=True)
+            child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, text=True, env=environment)
             deadline, authorization, delivered = time.monotonic() + 600, None, False
             last_progress = None
             while child.poll() is None and time.monotonic() < deadline:
@@ -372,6 +434,8 @@ def worker(directory):
                     if authorization and (provider != "twg" or (login_progress(console)["polling_started"] and window == 300)):
                         value = {"provider": provider, "run_id": os.environ["GITHUB_RUN_ID"],
                                  "authorization_url": authorization}
+                        if host_control:
+                            value['execution'] = 'outside_sbx_control'
                         if provider == "twg" and window:
                             value["approval_window_seconds"] = window
                         if provider == "pup":
@@ -389,7 +453,7 @@ def worker(directory):
                     last_progress = progress
                 if provider == "pup" and authorization and not delivered:
                     try:
-                        delivered = relay(directory, authorization, name)
+                        delivered = relay(directory, authorization, name, host_control=host_control)
                         report.pop("callback_delivery_error", None)
                     except Failure as error:
                         report["callback_delivery_error"] = str(error)
@@ -405,6 +469,12 @@ def worker(directory):
             require(child.poll() == 0, "Native CLI login did not complete (" + ','.join(hints) + "); private diagnostics withheld")
         report["checks"].append("native_cli_login")
         client_id = public_client_id(provider, authorization)
+        if host_control:
+            def execute(*argv, **kwargs):
+                command = [str(binary), *argv[1:]] if argv[0] == 'pup' else list(argv)
+                return run(command, env=environment, **kwargs)
+            verify_control(execute, cfg, spec, report, client_id)
+            return
         report["phase"] = "identity_read_and_masking"
         verify_phase(provider, cfg, name, spec, report, client_id)
         report["checks"].append("native_oauth_identity_and_read")
@@ -436,10 +506,11 @@ def worker(directory):
                 child.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 child.kill()
-        try:
-            run(["sbx", "rm", "--force", name])
-        except Failure:
-            report.update(status="failed", cleanup="Disposable sandbox cleanup failed")
+        if sandbox_present:
+            try:
+                run(["sbx", "rm", "--force", name])
+            except Failure:
+                report.update(status="failed", cleanup="Disposable sandbox cleanup failed")
         write(directory / "result.json", report)
         try:
             publish(directory, report)
@@ -449,7 +520,7 @@ def worker(directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["prepare", "diagnose", "worker", "wait"])
+    parser.add_argument("operation", choices=["prepare", "diagnose", "control", "worker", "wait"])
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--provider", choices=["twg", "pup"])
     parser.add_argument("--config", type=Path)
@@ -462,10 +533,11 @@ def main():
     require(directory.is_relative_to(Path(os.environ["RUNNER_TEMP"]).resolve()), "Use the runner's private temporary directory")
     if args.operation == "worker":
         worker(directory)
-    elif args.operation in ("prepare", "diagnose"):
+    elif args.operation in ("prepare", "diagnose", "control"):
         require(not directory.exists(), "Test directory must be new")
         cfg = json.loads(args.config.read_text())
         validate(args.provider, cfg)
+        require(args.operation != 'control' or args.provider == 'pup', 'The outside-SBX control supports Pup only')
         spec = kit(args.provider, cfg, args.image)
         inventory = run(["sbx", "ls", "--json"], parse=True)
         require(inventory in ([], {"sandboxes": []}), "Use a host without existing sandboxes")
@@ -476,10 +548,11 @@ def main():
         write(bindings, {"bindings": {"radar-" + args.provider: {"oauth": {
             "domains": sorted(set([oauth["tokenEndpoint"]["host"], *oauth["resourceHosts"]]))}}}})
         directory.mkdir(mode=0o700)
-        if args.provider == "pup" and args.operation == 'prepare':
+        if args.provider == "pup" and args.operation != 'diagnose':
             run(["node", str(BRIDGE), "keygen", str(directory / "callback.key"), os.environ["GITHUB_RUN_ID"]])
         write(directory / "state.json", {"provider": args.provider, "config": cfg, "kit": spec,
                                         "diagnose": args.operation == 'diagnose',
+                                        "control": args.operation == 'control',
                                         "sandbox": "radar-proxy-" + os.environ["GITHUB_RUN_ID"]})
         with (directory / "worker.log").open("w") as log:
             subprocess.Popen([sys.executable, __file__, "worker", "--directory", str(directory)],
@@ -503,7 +576,7 @@ def main():
             if (directory / "result.json").exists():
                 result = json.loads((directory / "result.json").read_text())
                 print(json.dumps(result))
-                return 0 if result["status"] == "passed" else 1
+                return 0 if result["status"] in ('passed', 'control_passed') else 1
             time.sleep(3)
         raise Failure("Proxy qualification exceeded its deadline")
     return 0

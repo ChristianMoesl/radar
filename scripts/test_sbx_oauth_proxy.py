@@ -20,6 +20,59 @@ spec.loader.exec_module(proxy)
 
 
 class Boundaries(unittest.TestCase):
+    def test_control_isolates_native_credentials_and_preserves_network_settings(self):
+        environment = {'DD_ACCESS_TOKEN': 'private-access', 'DD_API_KEY': 'private-key',
+                       'DD_APP_KEY': 'private-key', 'GH_TOKEN': 'private-github',
+                       'PUP_MOCK_SERVER': 'https://private.example', 'PUP_CONFIG_DIR': '/old/config',
+                       'DD_TOKEN_STORAGE': 'keychain', 'HTTPS_PROXY': 'http://proxy.example:8080',
+                       'SSL_CERT_FILE': '/fixture/ca.pem'}
+        with patch.dict(proxy.os.environ, environment, clear=True):
+            actual = proxy.control_environment(Path('/new/control'))
+        self.assertEqual(actual['PUP_CONFIG_DIR'], '/new/control/native-config')
+        self.assertEqual(actual['DD_TOKEN_STORAGE'], 'file')
+        self.assertEqual(actual['HTTPS_PROXY'], environment['HTTPS_PROXY'])
+        self.assertEqual(actual['SSL_CERT_FILE'], environment['SSL_CERT_FILE'])
+        self.assertEqual(actual['DD_API_KEY'], '\n')
+        self.assertEqual(actual['DD_APP_KEY'], '\n')
+        self.assertNotIn('private', json.dumps(actual))
+
+    def test_control_refreshes_before_and_after_the_negative_probe_without_qualifying_sbx(self):
+        events = []
+        def execute(*argv, **kwargs):
+            if argv[0] == 'python3':
+                events.append('negative_probe')
+                return {'sentinel_response': False, 'failure': 'http', 'http_status': 403}
+            if argv[-1] == 'refresh':
+                events.append('refresh')
+                return ''
+            if argv[-1] == 'status':
+                return {'authenticated': True, 'has_refresh': True, 'token_type': 'bearer',
+                        'site': 'datadoghq.eu', 'org': proxy.PROFILE, 'scopes': ['monitors_read']}
+            events.append('read')
+            return {'monitors': [{'tags': ['radar-oauth-e2e']}]}
+        cfg = {'site': 'datadoghq.eu', 'monitor_query': 'tag:radar-oauth-e2e'}
+        kit = proxy.kit('pup', cfg, 'docker.io/christianmoesl/radar-sandbox:test')
+        report = {'status': 'failed', 'checks': ['native_cli_login']}
+        proxy.verify_control(execute, cfg, kit, report, 'public-client')
+        self.assertEqual(events, ['read', 'refresh', 'read', 'negative_probe', 'refresh', 'read'])
+        self.assertEqual(report['status'], 'control_passed')
+        self.assertEqual(report['checks'], ['native_cli_login', 'native_oauth_identity_and_read',
+                         'native_refresh_before_negative_probe', 'native_refresh_after_negative_probe'])
+        self.assertFalse(report['verified']['sentinel_token_response'])
+
+    def test_control_retains_native_refresh_failure_and_stops(self):
+        report = {'status': 'failed', 'checks': []}
+        with patch.object(proxy, 'verify_pup'), patch.object(proxy, 'run') as fallback:
+            with self.assertRaises(proxy.Failure):
+                proxy.verify_control(lambda *args: (_ for _ in ()).throw(proxy.Failure('HTTP 403')),
+                                     {}, {}, report, 'public-client')
+        fallback.assert_not_called()
+        self.assertEqual(report['status'], 'failed')
+        self.assertEqual(report['phase'], 'outside_sbx_refresh_before_negative_probe')
+        self.assertEqual(report['verification_step'], 'native_refresh')
+        self.assertEqual(report['checks'], ['native_oauth_identity_and_read'])
+        self.assertNotIn('negative_probe', report)
+
     def test_routing_summary_keeps_decisions_and_drops_private_fields(self):
         logs = {'logs': [
             {'host': 'api.example:443', 'proxy': 'forward-bypass', 'allowed': True,
@@ -160,6 +213,22 @@ class Boundaries(unittest.TestCase):
             self.assertTrue(proxy.relay(Path(directory), authorization, 'radar-proxy-123'))
             self.assertEqual(execute.call_args.args[0], 'radar-proxy-123')
             self.assertEqual(execute.call_args.kwargs['body'], callback)
+
+    def test_explicit_control_relays_only_to_the_host_listener(self):
+        binary = io.BytesIO()
+        with zipfile.ZipFile(binary, 'w') as archive:
+            archive.writestr('callback.txt', 'sealed-fixture')
+        authorization = 'https://app.datadoghq.eu/oauth2/v1/authorize?state=expected'
+        callback = 'http://127.0.0.1:8000/oauth/callback?code=fixture&state=expected'
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(proxy.os.environ, GITHUB_REPOSITORY='example/repo', GITHUB_RUN_ID='123'), \
+                patch.object(proxy, 'run', side_effect=[{'artifacts': [{'id': 1, 'size_in_bytes': 200}]}, callback, '']) as execute, \
+                patch.object(proxy.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, binary.getvalue())), \
+                patch.object(proxy, 'sbx') as sandbox:
+            self.assertTrue(proxy.relay(Path(directory), authorization, 'radar-proxy-123', host_control=True))
+            sandbox.assert_not_called()
+            self.assertEqual(execute.call_args.kwargs['body'], callback)
+            self.assertNotIn(callback, execute.call_args.args[0])
 
     def test_encrypted_callback_rejects_another_run_and_tampering(self):
         with tempfile.TemporaryDirectory() as directory:

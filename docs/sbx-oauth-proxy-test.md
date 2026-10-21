@@ -40,10 +40,27 @@ comments or monitors and revokes no remote grants.
 Operation `diagnose` uses the same disposable kit without starting native login.
 It sends one negative refresh request using only a dummy public client and the
 known sentinel, checks network authorization, and summarizes the token host's
-SBX policy log. Its `diagnosed` status is not an OAuth qualification pass. A 403
-with no real login is an expected negative control; the routing decision is the
-useful evidence. Output contains only fixed routing/decision labels, booleans
+SBX policy log. Its `diagnosed` status is not an OAuth qualification pass. A
+failed dummy refresh alone cannot establish the forwarding route; a matching
+policy-log entry is needed. Output contains only fixed routing/decision labels, booleans
 and an HTTP status. Provider bodies, policy rule text and raw logs stay private.
+
+## Compare Pup outside SBX
+
+Operation `control`, provider `pup`, compares native OAuth refresh outside the
+SBX proxy on the same kind of disposable GitHub runner. It copies only the pinned
+Pup executable from a fresh sandbox and removes that sandbox **before login**.
+Pup then creates a new native profile in an isolated runner directory. No live
+credential store or token is copied into or out of a sandbox. Proxy/CA settings
+remain inherited, while static credential environment variables are excluded.
+This is an explicit diagnostic test, not a product execution fallback.
+
+Approve a fresh login and deliver the encrypted callback as below; the control
+forwards it to the host's native Pup listener over stdin. It verifies OAuth and
+approved monitor reads, performs native refresh **before** the dummy-token probe,
+then refreshes and reads again **after** that probe. This checks whether the
+negative probe interferes with a working native session. Its `control_passed`
+status never qualifies SBX credential isolation, masking or restart.
 
 ## Approve login
 
@@ -118,6 +135,12 @@ without client-secret authentication.
 [Jira run 39516056168](https://github.com/ChristianMoesl/radar/actions/runs/39516056168)
 reached native TWG device-token polling with a confirmed five-minute window,
 then expired without a completed token exchange. Jira inside SBX is unqualified.
+
+No-login routing diagnostics for
+[Pup](https://github.com/ChristianMoesl/radar/actions/runs/39520010751) and
+[TWG](https://github.com/ChristianMoesl/radar/actions/runs/39520014320) found network
+authorization allowed and dummy refresh returned HTTP 502. Neither produced a
+matching policy-log entry, so these runs did not establish the forwarding route.
 
 Only challenge/result JSON and encrypted callback packets are uploaded. No native
 logs, CLI files, host keychain, private callback key, environment dump or provider

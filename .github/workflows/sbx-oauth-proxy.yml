@@ -5,9 +5,9 @@ on:
     inputs:
       operation:
         type: choice
-        options: [test, diagnose, callback]
+        options: [test, diagnose, control, callback]
         default: test
-        description: Run qualification, diagnose routing without login, or deliver a sealed callback
+        description: Run qualification, diagnose routing, compare Pup outside SBX, or deliver a sealed callback
       provider:
         type: choice
         options: [twg, pup]
@@ -71,11 +71,12 @@ jobs:
           printf '%s' "$CONFIGURATION" > "$RUNNER_TEMP/proxy-config.json"
           operation=prepare
           if [ "$OPERATION" = diagnose ]; then operation=diagnose; fi
+          if [ "$OPERATION" = control ]; then operation=control; fi
           python3 scripts/sbx-oauth-proxy.py "$operation" --provider "$PROVIDER" \
             --config "$RUNNER_TEMP/proxy-config.json" --directory "$RUNNER_TEMP/proxy-test" \
             --image docker.io/christianmoesl/radar-sandbox:2026.10.20-3ed5104a8b82-39452053689-1
       - name: Publish the authorization challenge only
-        if: inputs.operation == 'test'
+        if: inputs.operation == 'test' || inputs.operation == 'control'
         uses: actions/upload-artifact@v7.0.2
         with:
           name: sbx-oauth-challenge-${{ github.run_id }}
@@ -83,8 +84,8 @@ jobs:
           retention-days: 1
           if-no-files-found: error
           overwrite: true
-      - name: Wait for approval and test masking, refresh and restart
-        if: inputs.operation == 'test'
+      - name: Wait for approval and finish the selected check
+        if: inputs.operation == 'test' || inputs.operation == 'control'
         run: python3 scripts/sbx-oauth-proxy.py wait --directory "$RUNNER_TEMP/proxy-test"
       - name: Remove this run's disposable sandbox
         if: always()
