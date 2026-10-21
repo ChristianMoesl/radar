@@ -76,13 +76,20 @@ func LegacyBindings(data []byte) (map[string][]protocol.SourceBinding, []string,
 				ids[strings.TrimPrefix(ref.ID, "obsidian:task:")] = true
 			}
 		}
-		if len(ids) > 1 {
-			return nil, nil, fmt.Errorf("legacy task %s has multiple authored identities", record.ID)
-		}
 		for id := range ids {
 			if _, ok := result[id]; !ok {
 				result[id] = nil
 			}
+		}
+		if len(ids) > 1 {
+			// A linked projection can group distinct authored notes. Keep every
+			// identity for note validation, but do not guess which note owns the
+			// group's cache-only associations. Explicit note bindings and the
+			// entire legacy projection are imported separately and unchanged.
+			warnings = append(warnings, fmt.Sprintf("legacy task %s groups multiple authored notes; retaining observations without promoting cache-only bindings", record.ID))
+			continue
+		}
+		for id := range ids {
 			for _, stored := range old.SourceRefs {
 				ref := stored.Snapshot
 				if stored.TaskRecordID != record.ID || ref.Authored || ref.Role != protocol.SourceRefRoleAuthoritative || ref.Source == "obsidian" {

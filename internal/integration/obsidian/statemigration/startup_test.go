@@ -7,13 +7,135 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"radar/internal/protocol"
+	"radar/internal/state"
 	"radar/internal/taskdb"
 )
 
 func startupLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+func TestStartupMigratesGroupedNotesWithoutGuessingBindingOwnership(t *testing.T) {
+	p := migrationFixture(t)
+	const second = "22345678-1234-4234-8234-123456789abc"
+	archive := filepath.Join(p.Vault, "Tasks", "Archived")
+	if err := os.Mkdir(archive, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	secondPath := filepath.Join(archive, "Completed.md")
+	content := strings.NewReplacer(
+		p.Notes[0].Task.ID, second,
+		"radar-title: 'Plan'", "radar-title: 'Completed'",
+		"radar-state: open", "radar-state: done",
+		"radar-muted: true", "radar-muted: false",
+		"radar-agent-review: true", "radar-agent-review: false",
+		"radar-completed-at:\r\n", "radar-completed-at: 2026-10-01T10:00:00Z\r\n",
+		"ABC-123", "ABC-456",
+	).Replace(string(p.Notes[0].Before))
+	refs := []protocol.SourceRef{
+		{ID: "obsidian:task:" + p.Notes[0].Task.ID, Source: "obsidian", Kind: "task", Authored: true, Role: protocol.SourceRefRoleAuthoritative},
+		{ID: "obsidian:task:" + second, Source: "obsidian", Kind: "task", Authored: true, Role: protocol.SourceRefRoleAuthoritative},
+		{ID: "jira:issue:ABC-123", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative},
+		{ID: "jira:issue:ABC-456", Source: "jira", Kind: "issue", Role: protocol.SourceRefRoleAuthoritative},
+		{ID: "github:pr:acme/app:7", Source: "github", Kind: "pr", Role: protocol.SourceRefRoleAuthoritative},
+	}
+	legacy := struct {
+		Version    int                     `json:"version"`
+		NextTaskID int                     `json:"next_task_id"`
+		Records    []state.TaskRecord      `json:"task_records"`
+		SourceRefs []state.SourceRefRecord `json:"source_refs"`
+	}{Version: 8, NextTaskID: 7, Records: []state.TaskRecord{{
+		ID: "task:7", NumericID: 7, CanonicalKey: "mark:ABC-123", Kind: "linking_mark", State: "active",
+		Ack: state.TaskAckState{Cursor: "2026-10-01T10:00:00Z"}, AgentReviewPending: true,
+		Snapshot: protocol.Task{SourceRefs: refs[:2]},
+	}}}
+	for _, ref := range refs {
+		legacy.Records[0].SourceRefIDs = append(legacy.Records[0].SourceRefIDs, ref.ID)
+		legacy.SourceRefs = append(legacy.SourceRefs, state.SourceRefRecord{ID: ref.ID, Source: ref.Source, Kind: ref.Kind, TaskRecordID: "task:7", Active: true, Snapshot: ref})
+	}
+	cache, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.LegacyPath, cache, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Grouping must not hide a cached authored identity whose note is missing.
+	if _, err := Preflight(p.Database, p.Vault, p.LegacyPath, p.WorkspaceRoot); err == nil || !strings.Contains(err.Error(), "has no note") {
+		t.Fatalf("missing grouped note was not rejected: %v", err)
+	}
+	if err := os.WriteFile(secondPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err = Preflight(p.Database, p.Vault, p.LegacyPath, p.WorkspaceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Notes) != 2 || len(p.Warnings) != 1 {
+		t.Fatalf("grouped import plan: %d notes, warnings %v", len(p.Notes), p.Warnings)
+	}
+	if _, err := os.Stat(p.Database); !os.IsNotExist(err) {
+		t.Fatal("preflight created a database")
+	}
+	for _, note := range p.Notes {
+		data, err := os.ReadFile(note.Task.Path)
+		if err != nil || !bytes.Equal(data, note.Before) {
+			t.Fatal("preflight changed a note", err)
+		}
+		if len(note.Task.Bindings) != 1 {
+			t.Fatalf("group associations were promoted to a note: %+v", note.Task.Bindings)
+		}
+	}
+	for range 2 { // Initial cutover, then an ordinary restart.
+		if err := Ensure(p.Database, p.Vault, p.WorkspaceRoot, startupLogger()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, note := range p.Notes {
+		task, err := taskdb.Find(note.Task.ID)
+		want := note.Task
+		want.Revision = 1
+		if err != nil || !reflect.DeepEqual(task, want) {
+			t.Fatalf("note authority changed: %+v, want %+v (%v)", task, want, err)
+		}
+		data, err := os.ReadFile(note.Task.Path)
+		if err != nil || !bytes.Equal(data, note.After) {
+			t.Fatal("migration changed note content", err)
+		}
+	}
+	projection, err := taskdb.ReadProjection(p.Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before, after any
+	if err := json.Unmarshal(cache, &before); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(projection, &after); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("migration changed grouped identity, observations or acknowledgement state")
+	}
+	data, err := os.ReadFile(p.LegacyPath)
+	if err != nil || !bytes.Equal(data, cache) {
+		t.Fatal("migration changed the original cache", err)
+	}
+	backup, err := os.ReadFile(filepath.Join(p.BackupPath(), "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved Plan
+	if err := json.Unmarshal(backup, &saved); err != nil || !reflect.DeepEqual(saved.Notes, p.Notes) {
+		t.Fatal("grouped notes were not backed up exactly", err)
+	}
+	if _, err := state.NewStore(startupLogger()); err != nil {
+		t.Fatal("runtime rejected migrated grouped state", err)
+	}
+}
 
 func TestStartupMigratesOnceAndKeepsSubsequentDecisions(t *testing.T) {
 	p := migrationFixture(t)
