@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import threading
 import unittest
 import urllib.error
 import urllib.parse
@@ -17,9 +18,73 @@ ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('proxy_test', ROOT / 'scripts/sbx-oauth-proxy.py')
 proxy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(proxy)
+fixture_spec = importlib.util.spec_from_file_location('oauth_fixture', ROOT / 'scripts/sbx-oauth-fixture.py')
+fixture = importlib.util.module_from_spec(fixture_spec)
+fixture_spec.loader.exec_module(fixture)
 
 
 class Boundaries(unittest.TestCase):
+    def test_fixture_uses_only_its_local_host_and_retains_masking(self):
+        kit = fixture.fixture_kit('docker.io/christianmoesl/radar-sandbox:test')
+        self.assertEqual(kit['permissions']['network']['allow'], [fixture.HOST])
+        credential = kit['credentials'][0]
+        self.assertEqual(credential['service'], fixture.SERVICE)
+        self.assertEqual(credential['oauth']['resourceHosts'], [fixture.HOST])
+        self.assertEqual(credential['oauth']['tokenEndpoint']['host'], fixture.HOST)
+        self.assertFalse(credential['oauth']['passthrough'])
+        self.assertNotIn('credentialFile', credential['oauth'])
+        self.assertNotIn('apiKey', credential)
+
+    def test_fixture_rotation_rejects_old_refresh_and_unknown_values_stay_private(self):
+        provider = fixture.Provider()
+        fields = {'client_id': fixture.CLIENT_ID, 'grant_type': 'refresh_token',
+                  'refresh_token': fixture.token('refresh', 0)}
+        status, data, event = provider.exchange(fields, 'form')
+        self.assertEqual(status, 200)
+        self.assertEqual(data['refresh_token'], fixture.token('refresh', 1))
+        self.assertEqual(provider.exchange(fields, 'form')[0], 400)
+        self.assertEqual(provider.resource('Bearer ' + fixture.token('access', 0))[0], 401)
+        self.assertEqual(provider.resource('Bearer ' + fixture.token('access', 1))[0], 200)
+        status, data, event = provider.exchange(dict(fields, client_id='private-client', refresh_token='private-token'), 'json')
+        self.assertEqual(status, 400)
+        self.assertNotIn('private', json.dumps(event))
+        self.assertEqual(event['refresh_kind'], 'other')
+
+    def test_fixture_client_exercises_both_encodings_without_printing_tokens(self):
+        import http.server
+        events = []
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), fixture.handler(fixture.Provider(), events.append))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            for encoding in ('form', 'json'):
+                cfg = {'base': 'http://127.0.0.1:' + str(server.server_port), 'operation': 'authorization_code',
+                       'client_id': fixture.CLIENT_ID, 'encoding': encoding,
+                       'expected_access': fixture.token('access', 0), 'expected_refresh': fixture.token('refresh', 0)}
+                environment = dict(proxy.os.environ)
+                for key in ('NO_PROXY', 'no_proxy'):
+                    environment[key] = environment.get(key, '') + ',127.0.0.1'
+                result = subprocess.run(['python3', '-c', fixture.CLIENT, json.dumps(cfg)],
+                                        env=environment, text=True, capture_output=True, check=True, timeout=5)
+                self.assertEqual(json.loads(result.stdout), {'http_status': 200, 'expected_access': True, 'expected_refresh': True})
+                self.assertNotIn('fixture-host', result.stdout + result.stderr)
+            self.assertEqual([event['encoding'] for event in events], ['form', 'json'])
+            # HTTP proxies may forward a rewritten request using chunked framing.
+            import http.client
+            connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=5)
+            fields = urllib.parse.urlencode({'client_id': fixture.CLIENT_ID,
+                'grant_type': 'authorization_code', 'code': 'fixture-code'}).encode()
+            connection.request('POST', '/oauth/token', body=iter([fields]),
+                               headers={'Content-Type': 'application/x-www-form-urlencoded'}, encode_chunked=True)
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            response.read()
+            connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
     def test_control_isolates_native_credentials_and_preserves_network_settings(self):
         environment = {'DD_ACCESS_TOKEN': 'private-access', 'DD_API_KEY': 'private-key',
                        'DD_APP_KEY': 'private-key', 'GH_TOKEN': 'private-github',

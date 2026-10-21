@@ -62,6 +62,29 @@ then refreshes and reads again **after** that probe. This checks whether the
 negative probe interferes with a working native session. Its `control_passed`
 status never qualifies SBX credential isolation, masking or restart.
 
+## Diagnose with a local OAuth fixture
+
+Operation `fixture` runs without any provider login; `provider` and `configuration`
+are unused. A runner-local HTTPS server supplies only deterministic dummy tokens
+for `radar-oauth-fixture.test`. Before SBX starts, the workflow adds this exact
+hostname to the runner's hosts file and trusts a temporary fixture CA. TLS
+verification stays enabled. These changes exist only on the disposable runner.
+The server binds loopback port 443 and drops root before serving requests.
+
+A direct host control verifies the server first. A fresh kit then declares only
+the fixture token endpoint and resource host, with masking enabled and no
+credential file. The same client sends authorization-code and refresh requests
+as URL-encoded forms and as JSON, checks token-response masking and API bearer
+substitution, then repeats a read after sandbox restart. Server observations
+record only encoding, known operation names, status codes and token/client-match
+booleans. Unknown input values, raw requests, response bodies, keys and server
+logs are never published. No real provider is contacted.
+
+`fixture_passed` characterizes the generic proxy against the local test server;
+it does not qualify TWG/Pup or resolve a real-provider failure by itself. The
+fixture server and sandbox are stopped after the check, and the runner, temporary
+CA and hosts entry are destroyed when the job ends.
+
 ## Approve login
 
 Download `sbx-oauth-challenge-<run-id>` as soon as its upload step finishes.
