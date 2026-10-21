@@ -1,0 +1,100 @@
+# SBX OAuth proxy adds an API bearer to token-endpoint requests
+
+Draft upstream report; not submitted to Docker.
+
+## Problem
+
+On SBX 0.49.1, a client makes OAuth token requests without an Authorization
+header. After the proxy captures the first token exchange, the upstream token
+endpoint receives `Authorization: Bearer <access token>` on refresh and later
+authorization-code requests. This happens even when the declared token and API
+hosts differ, and when `resourceHosts` is omitted.
+
+A public-client OAuth endpoint that rejects this extra authentication succeeds
+directly and returns HTTP 403 through SBX. Token masking and API bearer
+substitution otherwise work. This reproduction uses a local HTTPS server and
+deterministic dummy tokens; no provider account or browser approval is needed.
+
+## Environment and evidence
+
+- SBX 0.49.1, Linux amd64 GitHub runner with KVM, global `balanced` policy.
+- V2 kit with an approved OAuth binding, token-response masking enabled,
+  explicit access/refresh sentinels, and no generated credential file.
+- [Reproduction source at 3b877b8](https://github.com/ChristianMoesl/radar/tree/3b877b8).
+- [Completed reproduction run 39578587979](https://github.com/ChristianMoesl/radar/actions/runs/39578587979).
+- [Earlier expanded fixture](https://github.com/ChristianMoesl/radar/actions/runs/39577418959)
+  passed form/JSON requests, gzip responses, escaped opaque tokens, bearer
+  substitution, rotation and a read after sandbox restart against a permissive
+  token endpoint. Its observations already showed the added bearer.
+
+The stricter reproduction deliberately finishes as `fixture_failed`. Its normal
+matrix still passes; the failure records a compatibility assertion rather than
+a fixture setup error. Sandbox and local-server cleanup succeeded.
+
+| Token/API layout | Direct control | First SBX exchange/API read | SBX refresh | API read after failed refresh |
+| --- | --- | --- | --- | --- |
+| Shared host | Passed | Passed | HTTP 403 | Passed |
+| Omitted `resourceHosts` | Passed | Passed | HTTP 403 | Passed |
+| Separate hosts | Passed | Passed | HTTP 403 | Passed |
+
+## Reproduce
+
+1. Fork the source at the linked revision onto trusted `main` and configure the
+   documented disposable workflow's Docker Hub login using your own account.
+   The runner must have no existing sandboxes or credential bindings.
+2. Dispatch `.github/workflows/sbx-oauth-proxy.yml` with operation `fixture`.
+   Provider and configuration inputs are unused. The workflow uses the pinned
+   Radar image only for Python and basic tools inside the sandbox; Pup and TWG
+   are not invoked in this reproduction.
+3. The workflow starts the runner-local HTTPS fixture, trusts its temporary CA
+   before SBX starts, and approves only the declared fixture hosts. TLS
+   verification remains enabled; the server drops root after binding port 443.
+4. A host control sends form and JSON token requests without an Authorization
+   header. The public-client fixture accepts the code exchange and refresh.
+5. For each fresh SBX kit, the same client exchanges a code, checks the masked
+   response, reads the fixture API with the access sentinel, and sends a refresh
+   with the refresh sentinel and public client ID. The client still supplies no
+   Authorization header on token requests.
+
+The local token server records only fixed labels and booleans:
+
+```json
+{
+  "operation": "refresh_token",
+  "encoding": "form",
+  "client_matches": true,
+  "refresh_kind": "fixture_actual",
+  "authorization_kind": "fixture_actual",
+  "http_status": 403,
+  "profile": "public",
+  "response_encoding": "identity"
+}
+```
+
+The direct control instead records `authorization_kind: "none"` and HTTP 200.
+The server returns `unexpected_authorization` for the extra header and leaves
+its refresh token valid. Thus a rejected refresh cannot itself explain the
+successful API reads or the later token-endpoint rejection.
+
+## Expected behavior
+
+Preserve the client's authentication on the configured token endpoint. Apply
+the OAuth refresh-sentinel substitution and response masking there without
+adding resource-server bearer authentication. Preserve an explicit client
+Authorization header, such as Basic authentication, when the client supplies it.
+Keep API bearer substitution on resource requests.
+
+## Scope and privacy
+
+The real Datadog/Pup investigation that motivated this fixture passed login and
+approved reads through SBX, then failed refresh with HTTP 403; the native
+outside-SBX control passed refresh twice. The synthetic reproduction establishes
+the header mutation and a resulting compatibility failure. It does **not**
+establish whether Datadog issued its earlier 403 for this reason.
+
+No provider credential, account identifier, callback code, CLI credential store,
+native log or private key is included in the report or published artifacts.
+The two fixture hostnames resolve only to the disposable runner's loopback
+server. All fixture credentials are generated by the local server from fixed
+dummy values. The runner, temporary CA and hosts entries are destroyed at job
+completion. No passthrough or product host execution fallback is enabled.

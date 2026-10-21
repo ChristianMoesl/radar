@@ -165,6 +165,38 @@ read after sandbox restart on SBX 0.49.1. This initial fixture used uncompressed
 JSON and simple dummy tokens. It proves the generic proxy mechanisms work in
 that case; it does not reproduce or resolve Datadog's HTTP 403.
 
+[Expanded fixture 39577418959](https://github.com/ChristianMoesl/radar/actions/runs/39577418959)
+also passed all four response profiles with both request formats and the restart
+read. Its local server observed an Authorization header containing the known
+fake access token on SBX token requests after the first exchange, although the
+client sent no Authorization header. Direct host requests carried none.
+
+[Public-endpoint comparison 39578587979](https://github.com/ChristianMoesl/radar/actions/runs/39578587979)
+at commit `3b877b8` completed with **`fixture_failed`**, as its stricter endpoint
+exposed this header mutation. The normal four-profile matrix and restart read
+still passed. The direct public-client control passed, but each fresh SBX kit
+got HTTP 403 `unexpected_authorization` on refresh while its API reads kept
+working:
+
+| Kit configuration | Initial exchange/read | Refresh | API read after failed refresh |
+| --- | --- | --- | --- |
+| Explicit shared token/API host | Passed | HTTP 403 | Passed |
+| Omitted `resourceHosts` | Passed | HTTP 403 | Passed |
+| Separate token/API hosts | Passed | HTTP 403 | Passed |
+
+The fixture does not rotate tokens on this rejection. Its server confirmed the
+correct dummy client and refresh token arrived, with an added API bearer on the
+token request. A subsequent code exchange also received that header and failed.
+This independently reproduces an OAuth compatibility problem; neither removing
+resource declarations nor separating hosts avoids it. The fixture server and
+sandbox cleanup passed. The [upstream report draft](sbx-oauth-header-report.md)
+contains reproduction steps and the expected preservation of client-supplied
+token-endpoint authentication.
+
+Datadog's original 403 still needs provider-specific attribution; this synthetic
+endpoint's explicit rejection must not be presented as proof of Datadog's policy.
+No proxy isolation checks are weakened and no production transport is changed.
+
 [Datadog run 39518844101](https://github.com/ChristianMoesl/radar/actions/runs/39518844101)
 on SBX 0.49.1 / Pup 2.0.0 completed native OAuth login, verified the configured
 site/session/scope, and read the approved tagged monitors. The refresh-sentinel
