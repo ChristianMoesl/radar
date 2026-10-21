@@ -13,12 +13,14 @@ import (
 
 func AssertValidSourceRefs(t *testing.T, source string, refs []protocol.SourceRef) {
 	t.Helper()
-	if err := validateSourceRefs(source, refs); err != nil {
+	if err := ValidateSourceRefs(source, refs); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func validateSourceRefs(source string, refs []protocol.SourceRef) error {
+// ValidateSourceRefs returns contract violations. Live callers can replace the
+// detailed diagnostic with a safe message instead of printing provider facts.
+func ValidateSourceRefs(source string, refs []protocol.SourceRef) error {
 	seen := map[string]bool{}
 	for _, ref := range refs {
 		if strings.TrimSpace(ref.ID) == "" {

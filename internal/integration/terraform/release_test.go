@@ -90,7 +90,7 @@ func TestReleasedTFCTL(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := strings.TrimPrefix(server.URL, "https://")
-	if err := os.WriteFile(filepath.Join(dir, "profiles", "default.hcl"), []byte(fmt.Sprintf("name = \"default\"\ndefault_organization = \"acme\"\nhostname = %q\ntoken = \"terraform-fixture\"\n", host)), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "profiles", "default.hcl"), []byte(fmt.Sprintf("name = \"default\"\ndefault_organization = \"acme\"\nhostname = %q\n", host)), 0600); err != nil {
 		t.Fatal(err)
 	}
 	cert := filepath.Join(dir, "ca.pem")
@@ -128,7 +128,7 @@ func TestReleasedTFCTL(t *testing.T) {
 		if c.Env == nil {
 			c.Env = os.Environ()
 		}
-		cmd.Env = append(c.Env, "TFCTL_CONFIG_DIR="+dir, "SSL_CERT_FILE="+cert)
+		cmd.Env = append(c.Env, "TFCTL_CONFIG_DIR="+dir, "SSL_CERT_FILE="+cert, "TFCTL_TOKEN=terraform-fixture")
 		if c.CaptureStderr {
 			data, err := cmd.CombinedOutput()
 			return string(data), err

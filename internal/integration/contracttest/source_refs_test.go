@@ -15,7 +15,7 @@ func TestWorkspaceProvidingSourceRefContract(t *testing.T) {
 		Path: "/work/tasks/one", ProvidesWorkspace: true,
 		LinkingKeys: []string{"tasks:item:1", "workspace:/work/tasks/one"},
 	}
-	if err := validateSourceRefs("tasks", []protocol.SourceRef{valid}); err != nil {
+	if err := ValidateSourceRefs("tasks", []protocol.SourceRef{valid}); err != nil {
 		t.Fatalf("valid workspace ref rejected: %v", err)
 	}
 
@@ -35,9 +35,9 @@ func TestWorkspaceProvidingSourceRefContract(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ref := valid
 			tt.edit(&ref)
-			err := validateSourceRefs("tasks", []protocol.SourceRef{ref})
+			err := ValidateSourceRefs("tasks", []protocol.SourceRef{ref})
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("validateSourceRefs() error = %v, want %q", err, tt.want)
+				t.Fatalf("ValidateSourceRefs() error = %v, want %q", err, tt.want)
 			}
 		})
 	}
@@ -45,12 +45,12 @@ func TestWorkspaceProvidingSourceRefContract(t *testing.T) {
 
 func TestInformationalRefsCannotPublishActivity(t *testing.T) {
 	ref := protocol.SourceRef{ID: "fake:item:1", EntityID: "fake:item:1", Source: "fake", Kind: "item", Role: protocol.SourceRefRoleInformational}
-	if err := validateSourceRefs("fake", []protocol.SourceRef{ref}); err != nil {
+	if err := ValidateSourceRefs("fake", []protocol.SourceRef{ref}); err != nil {
 		t.Fatal(err)
 	}
 	for _, activity := range []protocol.Activity{protocol.ActivityBusy, protocol.ActivityWaiting, protocol.Activity("invalid")} {
 		ref.Activity = activity
-		if err := validateSourceRefs("fake", []protocol.SourceRef{ref}); err == nil {
+		if err := ValidateSourceRefs("fake", []protocol.SourceRef{ref}); err == nil {
 			t.Fatalf("accepted informational activity %q", activity)
 		}
 	}

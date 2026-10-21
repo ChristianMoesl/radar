@@ -4,6 +4,12 @@ The separate [SBX OAuth proxy test](sbx-oauth-proxy-test.md) prepares fresh nati
 CLI logins on a disposable runner and checks token masking, refresh and sandbox
 restart. It uses neither the persisted live-E2E sessions nor their writeback flow.
 
+The separate [Terraform live validation workflow](../.github/workflows/terraform-live.yml)
+is manual and read-only. It reuses the `live-e2e` environment with a single
+`TFCTL_TOKEN` personal-user secret and the approved workspace selectors, without
+requiring the OAuth session bundle or other providers. See
+[Terraform live setup and coverage](integrations/terraform.md#live-validation-in-github-actions).
+
 The [Live provider E2E workflow](../.github/workflows/live-e2e.yml) uses ordinary
 GitHub-hosted Ubuntu runners and the dedicated test accounts. No self-hosted
 runner is needed. Normal PR CI stays offline. Live runs execute trusted `main`

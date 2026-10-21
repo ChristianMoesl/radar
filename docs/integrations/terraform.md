@@ -162,5 +162,48 @@ without Terraform credentials/service access. Use a selected workspace to check
 personal ownership, speculative success, approval/apply, failure/acknowledgement,
 cancellation, outage recovery, and restart while a run completes.
 
+### Live validation in GitHub Actions
+
+The separate [Terraform live validation workflow](../../.github/workflows/terraform-live.yml)
+runs manually on trusted `main` against its checked-in test workspace scope.
+It uses the `live-e2e` GitHub Environment. Create it if needed and restrict its
+deployment branches to `main`. Add **`TFCTL_TOKEN`** as an environment secret containing a
+personal Terraform user token with normal read access to that workspace. It must
+belong to the user who created the fixture runs; team/organization tokens cannot
+establish personal ownership. Enter the value in GitHub or through the CLI prompt:
+
+```sh
+gh secret set TFCTL_TOKEN --repo acme/radar --env live-e2e
+gh workflow run terraform-live.yml --repo acme/radar --ref main
+```
+
+The workflow installs checksum-pinned tfctl 0.4.0 and passes the secret only to
+the live test step. tfctl uses its standard environment authentication with a
+temporary profile containing only hostname/organization selectors. Normal Radar
+use can continue to reuse an existing CLI login; `TFCTL_TOKEN` is not a required
+Radar setting. No CLI session bundle, secret writeback token, or other provider
+credentials are needed for this workflow. No cloud-workspace credentials or
+network-policy change is required when the test runs on GitHub-hosted runners.
+
+The opt-in `TestLiveTerraformCollection` exercises production source status,
+personal account/workspace verification, complete paginated discovery, source-ref
+contracts, plan-summary availability, both validated open actions, and a cold
+binding read. When the selected run is a terminal failure, it also checks
+acknowledgement and confirmed Done in isolated Radar memory. Terraform receives
+only read requests. Logs contain counts and enum states, without account IDs,
+run messages, raw responses, plans, or credentials.
+
+Leave the optional `run_id` input empty to select a discovered personal run, or
+supply a personally created `run-...` ID to qualify a specific/older terminal
+fixture. Empty discovery without a selected fixture, incomplete scans, failed
+authentication and ownership/scope mismatches fail the run. The workflow forces
+uncached Go execution so a previous live result cannot satisfy a new dispatch.
+
+Create/approve/apply/cancel test runs through Terraform, then dispatch the check
+with those run IDs to record the relevant outcomes. A successful read does not
+prove the complete live transition, outage/recovery, or daemon-restart matrix;
+those remaining #41 scenarios must be recorded separately. Pull-request CI keeps
+the fixture tests and never receives this workflow's Terraform secret.
+
 This integration adds configuration and generic source facts without changing
 the persisted cache, authored binding schema, or integration-owned file layouts.
