@@ -79,6 +79,12 @@ func PlanLegacy(vault string) ([]LegacyNote, error) {
 		if len(lines) >= 2 && strings.TrimSpace(lines[0]) == "---" && strings.TrimSpace(lines[1]) == "---" {
 			after = strings.Join(lines[2:], "")
 		}
+		// Synced file providers can restore the old contents of a zero-byte
+		// replacement. Keep otherwise-empty migrated notes visibly blank
+		// without allowing legacy frontmatter to reappear after cutover.
+		if after == "" {
+			after = "\n"
+		}
 		info, err := os.Lstat(item.path)
 		if err != nil {
 			return nil, err

@@ -240,6 +240,52 @@ func TestAddedNotesAndCrossFieldAliasesFailBeforeWrites(t *testing.T) {
 	}
 }
 
+func TestMetadataOnlyNotesMigrateToSingleNewline(t *testing.T) {
+	for _, body := range []string{"", "\n", "User content.\n"} {
+		t.Run(fmt.Sprintf("body_%q", body), func(t *testing.T) {
+			p := migrationFixture(t)
+			path := p.Notes[0].Task.Path
+			content := []byte("---\nradar-id: " + p.Notes[0].Task.ID + "\nradar-title: Plan\nradar-state: open\nradar-priority: normal\nradar-created-at: 2026-08-01T10:00:00Z\nradar-completed-at:\n---\n" + body)
+			if err := os.WriteFile(path, content, p.Notes[0].Mode); err != nil {
+				t.Fatal(err)
+			}
+			p, err := Preflight(p.Database, p.Vault, p.LegacyPath, p.WorkspaceRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := body
+			if want == "" {
+				want = "\n"
+			}
+			if string(p.Notes[0].After) != want {
+				t.Fatalf("planned content = %q, want %q", p.Notes[0].After, want)
+			}
+			if err := p.Apply(); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || string(data) != want {
+				t.Fatalf("migrated content = %q, want %q (%v)", data, want, err)
+			}
+			backup, err := os.ReadFile(filepath.Join(p.BackupPath(), "manifest.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var saved Plan
+			if err := json.Unmarshal(backup, &saved); err != nil || !bytes.Equal(saved.Notes[0].Before, content) {
+				t.Fatal("original empty-body note was not backed up exactly", err)
+			}
+			if err := Rollback(p.Database); err != nil {
+				t.Fatal(err)
+			}
+			data, err = os.ReadFile(path)
+			if err != nil || !bytes.Equal(data, content) {
+				t.Fatal("rollback did not restore original bytes", err)
+			}
+		})
+	}
+}
+
 func TestNotesOnlyImportIncludesFlatArchive(t *testing.T) {
 	p := migrationFixture(t)
 	if err := os.Remove(p.LegacyPath); err != nil {

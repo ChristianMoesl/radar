@@ -13,7 +13,7 @@ Radar now keeps task authority in a local SQLite database. Notes contain only us
 | Safe cache-only associations | Promote to durable bindings for their existing authored task |
 | Legacy groups containing multiple authored notes | Preserve each note's identity and explicit bindings, plus grouped observations, numeric ID and acknowledgements; report cache-only associations without guessing a note owner |
 | Unprovable resource lifetimes | Retain observations; report them without inventing durable selectors |
-| Unknown frontmatter, note bodies, permissions, attachments and paths | Preserve |
+| Unknown frontmatter, note bodies, permissions, attachments and paths | Preserve; otherwise-empty notes retain one newline so synced file providers do not restore old frontmatter after a zero-byte replacement |
 | Workspace registry, note symlinks, agent registrations/stores, configuration and credentials | Preserve their existing formats; validate workspace note associations |
 | Malformed, ambiguous, symlinked or unsupported inputs | Reject before modifying notes |
 
