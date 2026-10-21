@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 	"github.com/muesli/termenv"
 
@@ -59,6 +61,18 @@ func (u terminalUI) Input(q question) (string, error) {
 	}
 	return strings.TrimSpace(result.input.Value()), nil
 }
+func (u terminalUI) MultiSelect(q setup.MultiSelectQuestion) ([]string, error) {
+	final, err := tea.NewProgram(newMultiSelectPrompt(q), tea.WithInput(u.in), tea.WithOutput(u.out)).Run()
+	if err != nil {
+		return nil, err
+	}
+	result := final.(promptModel)
+	if !result.accepted {
+		return nil, ErrAborted
+	}
+	return result.selectedValues(), nil
+}
+
 func (u terminalUI) Confirm(title string, initial bool) (bool, error) {
 	m := newPrompt(question{Title: title})
 	m.confirm, m.yes = true, initial
@@ -90,6 +104,9 @@ type promptModel struct {
 	confirm, yes, accepted, aborted bool
 	validation                      string
 	selected                        int
+	multi                           *setup.MultiSelectQuestion
+	checked                         map[string]bool
+	height, width                   int
 }
 
 func newPrompt(q question) promptModel {
@@ -111,10 +128,31 @@ func newPrompt(q question) promptModel {
 	}
 	return m
 }
+func newMultiSelectPrompt(q setup.MultiSelectQuestion) promptModel {
+	m := newPrompt(question{Title: q.Title, Hint: q.Hint, Choices: q.Choices})
+	m.multi, m.checked = &q, map[string]bool{}
+	m.height, m.width = 24, 80
+	for _, option := range q.Choices {
+		m.checked[option.Value] = slices.Contains(q.Initial, option.Value)
+	}
+	return m
+}
+
+func (m promptModel) selectedValues() []string {
+	values := []string{}
+	for _, option := range m.q.Choices {
+		if m.checked[option.Value] {
+			values = append(values, option.Value)
+		}
+	}
+	return values
+}
+
 func (m promptModel) Init() tea.Cmd { return textinput.Blink }
 func (m promptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.height, m.width = msg.Height, msg.Width
 		m.input.Width = max(10, msg.Width-6)
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -144,8 +182,23 @@ func (m promptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected = max(0, m.selected-1)
 			case "down", "tab":
 				m.selected = min(len(m.q.Choices)-1, m.selected+1)
+			case " ":
+				if m.multi != nil {
+					value := m.q.Choices[m.selected].Value
+					m.checked[value] = !m.checked[value]
+					m.validation = ""
+				}
 			case "enter":
-				m.input.SetValue(m.q.Choices[m.selected].Value)
+				if m.multi != nil {
+					if m.multi.Validate != nil {
+						if err := m.multi.Validate(m.selectedValues()); err != nil {
+							m.validation = err.Error()
+							return m, nil
+						}
+					}
+				} else {
+					m.input.SetValue(m.q.Choices[m.selected].Value)
+				}
 				m.accepted = true
 				return m, tea.Quit
 			}
@@ -176,7 +229,15 @@ func (m promptModel) View() string {
 		if m.q.Secret {
 			answer = "[hidden]"
 		}
-		if len(m.q.Choices) > 0 {
+		if m.multi != nil {
+			labels := []string{}
+			for _, option := range m.q.Choices {
+				if m.checked[option.Value] {
+					labels = append(labels, option.Label)
+				}
+			}
+			answer = strings.Join(labels, ", ")
+		} else if len(m.q.Choices) > 0 {
 			answer = m.q.Choices[m.selected].Label
 		}
 		if m.confirm {
@@ -201,12 +262,36 @@ func (m promptModel) View() string {
 		return view + yes + "  " + no + "\n" + muted.Render("←/→ choose · enter accept · esc cancel") + "\n"
 	}
 	if len(m.q.Choices) > 0 {
-		for i, option := range m.q.Choices {
-			line := "  " + option.Label
+		start, end := 0, len(m.q.Choices)
+		if m.multi != nil {
+			visible := max(1, m.height-7)
+			start = max(0, m.selected-visible+1)
+			end = min(end, start+visible)
+		}
+		for i := start; i < end; i++ {
+			option := m.q.Choices[i]
+			label := option.Label
+			if m.multi != nil {
+				mark := "[ ] "
+				if m.checked[option.Value] {
+					mark = "[x] "
+				}
+				label = ansi.Truncate(mark+label, max(1, m.width-2), "…")
+			}
+			line := "  " + label
 			if i == m.selected {
-				line = heading.Reverse(true).Render("> " + option.Label)
+				line = heading.Reverse(true).Render("> " + label)
 			}
 			view += line + "\n"
+		}
+		if m.multi != nil {
+			if end-start < len(m.q.Choices) {
+				view += muted.Render(fmt.Sprintf("%d/%d", m.selected+1, len(m.q.Choices))) + "\n"
+			}
+			if m.validation != "" {
+				view += m.validation + "\n"
+			}
+			return view + muted.Render("↑/↓ move · space toggle · enter accept · esc cancel") + "\n"
 		}
 		return view + muted.Render("↑/↓ choose · enter accept · esc cancel") + "\n"
 	}

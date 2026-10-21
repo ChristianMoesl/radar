@@ -20,8 +20,16 @@ type Question struct {
 	Validate             func(string) error
 }
 
+type MultiSelectQuestion struct {
+	Title, Hint string
+	Initial     []string
+	Choices     []Choice
+	Validate    func([]string) error
+}
+
 type UI interface {
 	Input(Question) (string, error)
+	MultiSelect(MultiSelectQuestion) ([]string, error)
 	Confirm(string, bool) (bool, error)
 	Print(string, ...any)
 	Style() lipgloss.Style

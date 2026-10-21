@@ -18,17 +18,19 @@ import (
 )
 
 type UI struct {
-	Completed     []string
-	Questions     []setup.Question
-	Defaults      map[string]bool
-	Inputs        []string
-	Decisions     []bool
-	Titles        []string
-	Transcript    strings.Builder
-	CancelAt      string
-	BeforeConfirm func(string)
-	TmuxChoice    bool
-	SandboxChoice bool
+	Completed      []string
+	Questions      []setup.Question
+	MultiQuestions []setup.MultiSelectQuestion
+	Selections     [][]string
+	Defaults       map[string]bool
+	Inputs         []string
+	Decisions      []bool
+	Titles         []string
+	Transcript     strings.Builder
+	CancelAt       string
+	BeforeConfirm  func(string)
+	TmuxChoice     bool
+	SandboxChoice  bool
 }
 
 func (u *UI) Input(q setup.Question) (string, error) {
@@ -57,6 +59,29 @@ func (u *UI) Input(q setup.Question) (string, error) {
 	}
 	return value, nil
 }
+func (u *UI) MultiSelect(q setup.MultiSelectQuestion) ([]string, error) {
+	u.Titles = append(u.Titles, q.Title)
+	u.MultiQuestions = append(u.MultiQuestions, q)
+	if q.Title == u.CancelAt {
+		return nil, setup.ErrAborted
+	}
+	if len(u.Selections) == 0 {
+		return nil, fmt.Errorf("unexpected multi-select: %s", q.Title)
+	}
+	values := u.Selections[0]
+	u.Selections = u.Selections[1:]
+	if values == nil {
+		values = q.Initial
+	}
+	if q.Validate != nil {
+		if err := q.Validate(values); err != nil {
+			return nil, err
+		}
+	}
+	u.Print("%s: %s\n", q.Title, strings.Join(values, ", "))
+	return values, nil
+}
+
 func (u *UI) Confirm(title string, initial bool) (bool, error) {
 	u.Titles = append(u.Titles, title)
 	if u.Defaults == nil {

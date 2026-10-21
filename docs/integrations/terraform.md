@@ -6,12 +6,16 @@ contributing work item, with its plan and change counts as context.
 
 ## Setup and configuration
 
-Run `radar setup` and opt into Terraform. Select an existing CLI profile, the
-organization, and comma-separated exact workspace names. Setup reuses a working
-login, verifies the personal account and every selected workspace, and saves its
-configuration through the normal review. Missing tools can be installed with
-Homebrew, or manually from the official releases. Login runs only in foreground
-setup. An expired or unavailable connection never opens a background prompt.
+Run `radar setup` and opt into Terraform. Enter an existing CLI profile and the
+organization. Setup reuses a working login, verifies the personal account, then
+fetches the accessible workspaces for that organization. Select one or more with
+↑/↓ and Space, then press Enter; existing choices are preselected when available.
+Setup verifies every selected workspace and saves the exact names through the
+normal configuration review. If discovery or access fails, retry or defer the
+Terraform connection without losing the rest of setup. Missing tools can be
+installed with Homebrew, or manually from the official releases. Login runs only
+in foreground setup. An expired or unavailable connection never opens a background
+prompt.
 
 ```yaml
 terraform:

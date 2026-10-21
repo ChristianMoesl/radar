@@ -60,6 +60,10 @@ func (u *fakeUI) Input(q question) (string, error) {
 	}
 	return value, nil
 }
+func (u *fakeUI) MultiSelect(q setup.MultiSelectQuestion) ([]string, error) {
+	return nil, fmt.Errorf("unexpected multi-select: %s", q.Title)
+}
+
 func (u *fakeUI) Confirm(title string, initial bool) (bool, error) {
 	// Existing wizard scenarios leave the separately tested Terraform opt-in off.
 	if strings.HasPrefix(title, "Use Jira account ") {

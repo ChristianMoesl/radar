@@ -34,13 +34,14 @@ func runFixture(id, status, owner string) resource {
 }
 
 type fixtureAPI struct {
-	runs    []resource
-	pages   func(*url.URL) (string, error)
-	direct  map[string]resource
-	calls   []string
-	auth    string
-	authErr error
-	service bool
+	runs       []resource
+	pages      func(*url.URL) (string, error)
+	direct     map[string]resource
+	calls      []string
+	auth       string
+	authErr    error
+	service    bool
+	workspaces func(*url.URL) (string, error)
 }
 
 func (f *fixtureAPI) output(_ context.Context, command setup.Command) (string, error) {
@@ -68,6 +69,11 @@ func (f *fixtureAPI) output(_ context.Context, command setup.Command) (string, e
 	switch u.Path {
 	case "/account/details":
 		return encode(map[string]any{"data": resource{ID: "user-me", Type: "users", Attributes: raw(map[string]any{"is-service-account": f.service})}}), nil
+	case "/organizations/acme/workspaces":
+		if f.workspaces != nil {
+			return f.workspaces(u)
+		}
+		return encode(map[string]any{"data": []resource{{ID: "ws-one", Type: "workspaces", Attributes: raw(map[string]any{"name": "production-network"})}}, "links": map[string]any{"next": nil}}), nil
 	case "/organizations/acme/workspaces/production-network":
 		return encode(map[string]any{"data": resource{ID: "ws-one", Type: "workspaces", Attributes: raw(map[string]any{"name": "production-network"})}}), nil
 	case "/workspaces/ws-one/runs":

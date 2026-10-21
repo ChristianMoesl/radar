@@ -166,7 +166,7 @@ func nextPage(doc document, host, path string, current int) (int, error) {
 			return next, nil
 		}
 	}
-	return 0, fmt.Errorf("Terraform pagination did not prove the end of the run list")
+	return 0, fmt.Errorf("Terraform pagination did not prove the end of the list")
 }
 
 func (s Source) readRun(ctx context.Context, session session, cfg settings.Config, id string, req integration.CollectRequest) (integration.Observation, error) {

@@ -181,6 +181,17 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 					writeTool(t, bin, name, body)
 				}
 				existing := initial == "existing tools"
+				terraformEnabled := choices == 0 && !existing
+				if terraformEnabled {
+					writeTool(t, bin, "tfctl", `case "$1 $2" in
+ '--version ') echo 'v0.4.0';;
+ 'auth status') printf '%s' '{"hostname":"app.terraform.io","active":true}';;
+ 'api /account/details') printf '%s' '{"data":{"type":"users","id":"user-fixture","attributes":{"is-service-account":false}}}';;
+ 'api /organizations/acme/workspaces?page%5Bnumber%5D=1&page%5Bsize%5D=100') printf '%s' '{"data":[{"type":"workspaces","id":"ws-c","attributes":{"name":"gamma"}},{"type":"workspaces","id":"ws-a","attributes":{"name":"alpha"}},{"type":"workspaces","id":"ws-b","attributes":{"name":"beta"}}],"links":{"next":null}}';;
+ 'api /organizations/acme/workspaces/alpha') printf '%s' '{"data":{"type":"workspaces","id":"ws-a","attributes":{"name":"alpha"}}}';;
+ 'api /organizations/acme/workspaces/gamma') printf '%s' '{"data":{"type":"workspaces","id":"ws-c","attributes":{"name":"gamma"}}}';;
+ *) exit 1;; esac`)
+				}
 				custom := "set -g prefix C-a\nbind-key r display-message 'my reload'\n"
 				if existing {
 					if err := os.WriteFile(filepath.Join(home, ".tmux.conf"), []byte(custom), 0644); err != nil {
@@ -267,7 +278,14 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 					terminal.answer(t, "Pup OAuth session name", "\r")
 					terminal.answer(t, "Datadog monitor query", "tag:team:platform\r")
 				}
-				terminal.answer(t, "Connect Radar to Terraform?", "n\r")
+				if terraformEnabled {
+					terminal.answer(t, "Connect Radar to Terraform?", "y")
+					terminal.answer(t, "Terraform CLI profile", "\r")
+					terminal.answer(t, "Terraform organization", "acme\r")
+					terminal.answer(t, "space toggle · enter accept", " \x1b[B\x1b[B \r")
+				} else {
+					terminal.answer(t, "Connect Radar to Terraform?", "n\r")
+				}
 				if choices == 0 && !existing {
 					// Inspect config and credentials through the actual terminal UI.
 					// Viewing either must not save or reveal secret values.
@@ -298,6 +316,9 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 				cfg, err := config.Load()
 				if err != nil {
 					t.Fatal(err)
+				}
+				if terraformEnabled && (cfg.Terraform.Enabled == nil || !*cfg.Terraform.Enabled || !reflect.DeepEqual(cfg.Terraform.Workspaces, []string{"alpha", "gamma"})) {
+					t.Fatalf("terminal picker did not save only the selected workspaces: %+v", cfg.Terraform)
 				}
 				if choices&2 != 0 && cfg.Jira.Profile != "example-oauth" {
 					t.Fatalf("existing Jira profile was not reused: %q", cfg.Jira.Profile)

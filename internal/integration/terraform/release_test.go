@@ -61,6 +61,11 @@ func TestReleasedTFCTL(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v2/account/details":
 			fmt.Fprint(w, `{"data":{"type":"users","id":"user-me","attributes":{"username":"fixture","is-service-account":false},"relationships":{"authenticated-resource":{"data":{"id":"user-me","type":"users"}}}}}`)
+		case "/api/v2/organizations/acme/workspaces":
+			if r.URL.Query().Get("page[size]") != "100" || r.URL.Query().Get("page[number]") != "1" {
+				t.Error("workspace discovery pagination query lost")
+			}
+			fmt.Fprint(w, `{"data":[{"type":"workspaces","id":"ws-one","attributes":{"name":"production-network"}}],"links":{"next":null}}`)
 		case "/api/v2/organizations/acme/workspaces/production-network":
 			fmt.Fprint(w, `{"data":{"type":"workspaces","id":"ws-one","attributes":{"name":"production-network"}}}`)
 		case "/api/v2/workspaces/ws-one/runs":
@@ -148,6 +153,10 @@ func TestReleasedTFCTL(t *testing.T) {
 	}
 	if session.host != host || session.userID != "user-me" {
 		t.Fatal("account/host mismatch")
+	}
+	names, err := session.workspaceNames(ctx, cfg.Organization)
+	if err != nil || len(names) != 1 || names[0] != "production-network" {
+		t.Fatal("released workspace discovery", names, err)
 	}
 	result := (Source{}).collect(ctx, session, cfg, integration.CollectRequest{})
 	if !result.Complete || reads.Load() != 2 || len(result.Observations) != 1 || result.Observations[0].Ref.Metadata["destructions"] != "2" {
