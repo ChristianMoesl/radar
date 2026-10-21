@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Disposable-runner OAuth proxy diagnosis with a local server and dummy tokens."""
 import argparse
+import gzip
 import http.server
 import importlib.util
 import json
@@ -17,29 +18,37 @@ spec.loader.exec_module(proxy)
 HOST = 'radar-oauth-fixture.test'
 SERVICE = 'radar-oauth-fixture'
 CLIENT_ID = 'fixture-public-client'
+PROFILES = ('plain', 'gzip', 'escaped', 'combined')
 
 
-def token(kind, generation):
-    return f'fixture-host-{kind}-{generation}'
+def token(kind, generation, profile='plain'):
+    suffix = ('+/=%&' if kind == 'refresh' else '.+/_~==') if profile in ('escaped', 'combined') else ''
+    return f'fixture-host-{kind}-{generation}' + suffix
 
 
 class Provider:
     def __init__(self):
         self.generation = 0
+        self.profile = 'plain'
         self.lock = threading.Lock()
 
-    def exchange(self, fields, encoding):
+    def exchange(self, fields, encoding, authorization=None):
         with self.lock:
             grant = fields.get('grant_type')
             grant = grant if grant in ('authorization_code', 'refresh_token') else 'other'
             refresh = fields.get('refresh_token')
             event = {'operation': grant, 'encoding': encoding,
                      'client_matches': fields.get('client_id') == CLIENT_ID,
-                     'refresh_kind': ('fixture_actual' if refresh == token('refresh', self.generation)
-                                      else 'sentinel' if refresh == proxy.REFRESH else 'other')}
+                     'refresh_kind': ('fixture_actual' if refresh == token('refresh', self.generation, self.profile)
+                                      else 'sentinel' if refresh == proxy.REFRESH else 'other'),
+                     'authorization_kind': ('none' if authorization is None else 'fixture_actual'
+                         if authorization == 'Bearer ' + token('access', self.generation, self.profile)
+                         else 'sentinel' if authorization == 'Bearer ' + proxy.ACCESS else 'other')}
+            code_profiles = {'fixture-code-' + profile: profile for profile in PROFILES}
             if not event['client_matches']:
                 status, data = 400, {'error': 'invalid_client'}
-            elif grant == 'authorization_code' and fields.get('code') == 'fixture-code':
+            elif grant == 'authorization_code' and isinstance(fields.get('code'), str) and fields['code'] in code_profiles:
+                self.profile = code_profiles[fields['code']]
                 self.generation = 0
                 status, data = 200, self.tokens()
             elif grant == 'refresh_token' and event['refresh_kind'] == 'fixture_actual':
@@ -47,19 +56,19 @@ class Provider:
                 status, data = 200, self.tokens()
             else:
                 status, data = 400, {'error': 'invalid_grant'}
-            return status, data, dict(event, http_status=status)
+            return status, data, dict(event, http_status=status, profile=self.profile)
 
     def tokens(self):
-        return {'access_token': token('access', self.generation),
-                'refresh_token': token('refresh', self.generation),
+        return {'access_token': token('access', self.generation, self.profile),
+                'refresh_token': token('refresh', self.generation, self.profile),
                 'token_type': 'Bearer', 'expires_in': 3600, 'scope': 'monitors_read'}
 
     def resource(self, authorization):
         with self.lock:
-            valid = authorization == 'Bearer ' + token('access', self.generation)
+            valid = authorization == 'Bearer ' + token('access', self.generation, self.profile)
             return (200 if valid else 401), {'fixture_read': valid}, {
                 'operation': 'resource', 'authorization_matches': valid,
-                'http_status': 200 if valid else 401}
+                'http_status': 200 if valid else 401, 'profile': self.profile}
 
 
 def handler(provider, record):
@@ -68,10 +77,15 @@ def handler(provider, record):
             pass
 
         def send(self, status, data, event):
-            record(event)
             body = json.dumps(data).encode()
+            compressed = provider.profile in ('gzip', 'combined')
+            if compressed:
+                body = gzip.compress(body)
+            record(dict(event, response_encoding='gzip' if compressed else 'identity'))
             self.send_response(status)
-            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            if compressed:
+                self.send_header('Content-Encoding', 'gzip')
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -110,7 +124,7 @@ def handler(provider, record):
             except (ValueError, UnicodeError):
                 self.send(400, {}, {'operation': 'malformed', 'http_status': 400})
                 return
-            self.send(*provider.exchange(fields, encoding))
+            self.send(*provider.exchange(fields, encoding, self.headers.get('Authorization')))
 
         def do_GET(self):
             if self.path == '/resource':
@@ -122,20 +136,22 @@ def handler(provider, record):
 
 # The same client runs on the host and in SBX. Only assertions leave the process.
 CLIENT = r'''
-import json,sys,urllib.request,urllib.parse,urllib.error
-c=json.loads(sys.argv[1]); headers={}
+import gzip,json,ssl,sys,urllib.request,urllib.parse,urllib.error
+c=json.loads(sys.argv[1]); headers={'Accept-Encoding':'gzip'}
 if c['operation']=='resource':
  body=None; path='/resource'; headers['Authorization']='Bearer '+c['access']
 else:
  path='/oauth/token'; fields={'grant_type':c['operation'],'client_id':c['client_id']}
- if c['operation']=='authorization_code': fields['code']='fixture-code'
+ if c['operation']=='authorization_code': fields['code']='fixture-code-'+c.get('profile','plain')
  else: fields['refresh_token']=c['refresh']
  form=c['encoding']=='form'
  body=urllib.parse.urlencode(fields).encode() if form else json.dumps(fields).encode()
  headers['Content-Type']='application/x-www-form-urlencoded' if form else 'application/json'
 try:
  request=urllib.request.Request(c['base']+path,data=body,headers=headers)
- with urllib.request.urlopen(request,timeout=20) as response: data=json.load(response)
+ with urllib.request.urlopen(request,timeout=20) as response:
+  raw=response.read()
+  data=json.loads(gzip.decompress(raw) if response.headers.get('Content-Encoding')=='gzip' else raw)
  result={'http_status':response.status}
  if c['operation']=='resource': result['fixture_read']=data.get('fixture_read') is True
  else: result.update(expected_access=data.get('access_token')==c['expected_access'],expected_refresh=data.get('refresh_token')==c['expected_refresh'])
@@ -143,11 +159,14 @@ try:
 except urllib.error.HTTPError as error:
  result={'http_status':error.code}
  try:
-  code=json.loads(error.read(16384)).get('error')
+  raw=error.read(16384)
+  code=json.loads(gzip.decompress(raw) if error.headers.get('Content-Encoding')=='gzip' else raw).get('error')
   if code in ('invalid_client','invalid_grant','invalid_request','unsupported_grant_type'):result['oauth_error']=code
  except Exception:pass
  print(json.dumps(result))
-except Exception:print(json.dumps({'failure':'transport_or_response'}))
+except urllib.error.URLError as error:
+ print(json.dumps({'failure':'tls' if isinstance(error.reason,ssl.SSLError) else 'network'}))
+except Exception:print(json.dumps({'failure':'response_or_request'}))
 '''
 
 
@@ -226,13 +245,13 @@ def check(directory, image):
         proxy.write(directory / 'kit/spec.yaml', fixture_kit(image))
         proxy.run(['sbx', 'kit', 'validate', '--offline', str(directory / 'kit')])
 
-        def request(execute, operation, encoding, *, outside=False, generation=0):
+        def request(execute, operation, encoding, *, profile='plain', outside=False, generation=0):
             data = {'operation': operation, 'encoding': encoding, 'base': 'https://' + HOST,
-                    'client_id': CLIENT_ID,
-                    'access': token('access', generation) if outside else proxy.ACCESS,
-                    'refresh': token('refresh', generation) if outside else proxy.REFRESH,
-                    'expected_access': token('access', generation + (operation == 'refresh_token')) if outside else proxy.ACCESS,
-                    'expected_refresh': token('refresh', generation + (operation == 'refresh_token')) if outside else proxy.REFRESH}
+                    'client_id': CLIENT_ID, 'profile': profile,
+                    'access': token('access', generation, profile) if outside else proxy.ACCESS,
+                    'refresh': token('refresh', generation, profile) if outside else proxy.REFRESH,
+                    'expected_access': token('access', generation + (operation == 'refresh_token'), profile) if outside else proxy.ACCESS,
+                    'expected_refresh': token('refresh', generation + (operation == 'refresh_token'), profile) if outside else proxy.REFRESH}
             return execute('python3', '-c', CLIENT, json.dumps(data), parse=True)
 
         def host(*args, **kwargs):
@@ -240,29 +259,34 @@ def check(directory, image):
 
         report['phase'] = 'host_fixture_control'
         direct = report['host_control'] = {}
-        for encoding in ('form', 'json'):
-            direct[encoding] = {
-                'exchange': request(host, 'authorization_code', encoding, outside=True),
-                'refresh': request(host, 'refresh_token', encoding, outside=True),
-                'read': request(host, 'resource', encoding, outside=True, generation=1)}
+        for profile in PROFILES:
+            direct[profile] = {}
+            for encoding in ('form', 'json'):
+                direct[profile][encoding] = {
+                    'exchange': request(host, 'authorization_code', encoding, profile=profile, outside=True),
+                    'refresh': request(host, 'refresh_token', encoding, profile=profile, outside=True),
+                    'read': request(host, 'resource', encoding, profile=profile, outside=True, generation=1)}
         proxy.require(all(result.get('http_status') == 200 and all(v is True for k, v in result.items() if k != 'http_status')
-                          for case in direct.values() for result in case.values()), 'Local fixture control failed')
+                          for profile in direct.values() for case in profile.values() for result in case.values()),
+                      'Local fixture control failed')
         report['phase'] = 'create_sandbox'
         proxy.run(['sbx', 'create', '--name', name, '--no-progress', str(directory / 'kit')], timeout=300)
         policy = proxy.run(['sbx', 'policy', 'check', 'network', '--sandbox', name, '--json', HOST], parse=True)
         report['policy'] = proxy.routing_summary(policy)
         execute = lambda *args, **kwargs: proxy.sbx(name, *args, **kwargs)
-        for encoding in ('form', 'json'):
-            report['phase'] = encoding
-            report['cases'][encoding] = {
-                'exchange': request(execute, 'authorization_code', encoding),
-                'initial_read': request(execute, 'resource', encoding),
-                'refresh': request(execute, 'refresh_token', encoding),
-                'refreshed_read': request(execute, 'resource', encoding)}
+        for profile in PROFILES:
+            report['cases'][profile] = {}
+            for encoding in ('form', 'json'):
+                report['phase'] = profile + '_' + encoding
+                report['cases'][profile][encoding] = {
+                    'exchange': request(execute, 'authorization_code', encoding, profile=profile),
+                    'initial_read': request(execute, 'resource', encoding, profile=profile),
+                    'refresh': request(execute, 'refresh_token', encoding, profile=profile),
+                    'refreshed_read': request(execute, 'resource', encoding, profile=profile)}
         report['phase'] = 'sandbox_restart'
         proxy.run(['sbx', 'stop', name])
         report['restart_read'] = request(execute, 'resource', 'form')
-        results = [result for case in report['cases'].values() for result in case.values()]
+        results = [result for profile in report['cases'].values() for case in profile.values() for result in case.values()]
         results.append(report['restart_read'])
         passed = all(result.get('http_status') == 200 and all(v is True for k, v in result.items() if k != 'http_status')
                      for result in results)

@@ -45,10 +45,12 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(provider.exchange(fields, 'form')[0], 400)
         self.assertEqual(provider.resource('Bearer ' + fixture.token('access', 0))[0], 401)
         self.assertEqual(provider.resource('Bearer ' + fixture.token('access', 1))[0], 200)
-        status, data, event = provider.exchange(dict(fields, client_id='private-client', refresh_token='private-token'), 'json')
+        status, data, event = provider.exchange(dict(fields, client_id='private-client', refresh_token='private-token'),
+                                                'json', authorization='Bearer private-header')
         self.assertEqual(status, 400)
         self.assertNotIn('private', json.dumps(event))
         self.assertEqual(event['refresh_kind'], 'other')
+        self.assertEqual(event['authorization_kind'], 'other')
 
     def test_fixture_client_exercises_both_encodings_without_printing_tokens(self):
         import http.server
@@ -59,8 +61,9 @@ class Boundaries(unittest.TestCase):
         try:
             for encoding in ('form', 'json'):
                 cfg = {'base': 'http://127.0.0.1:' + str(server.server_port), 'operation': 'authorization_code',
-                       'client_id': fixture.CLIENT_ID, 'encoding': encoding,
-                       'expected_access': fixture.token('access', 0), 'expected_refresh': fixture.token('refresh', 0)}
+                       'client_id': fixture.CLIENT_ID, 'encoding': encoding, 'profile': 'combined',
+                       'expected_access': fixture.token('access', 0, 'combined'),
+                       'expected_refresh': fixture.token('refresh', 0, 'combined')}
                 environment = dict(proxy.os.environ)
                 for key in ('NO_PROXY', 'no_proxy'):
                     environment[key] = environment.get(key, '') + ',127.0.0.1'
@@ -68,12 +71,20 @@ class Boundaries(unittest.TestCase):
                                         env=environment, text=True, capture_output=True, check=True, timeout=5)
                 self.assertEqual(json.loads(result.stdout), {'http_status': 200, 'expected_access': True, 'expected_refresh': True})
                 self.assertNotIn('fixture-host', result.stdout + result.stderr)
-            self.assertEqual([event['encoding'] for event in events], ['form', 'json'])
+                cfg.update(operation='refresh_token', refresh=fixture.token('refresh', 0, 'combined'),
+                           expected_access=fixture.token('access', 1, 'combined'),
+                           expected_refresh=fixture.token('refresh', 1, 'combined'))
+                result = subprocess.run(['python3', '-c', fixture.CLIENT, json.dumps(cfg)],
+                                        env=environment, text=True, capture_output=True, check=True, timeout=5)
+                self.assertEqual(json.loads(result.stdout), {'http_status': 200, 'expected_access': True, 'expected_refresh': True})
+                self.assertNotIn('fixture-host', result.stdout + result.stderr)
+            self.assertEqual([event['encoding'] for event in events], ['form', 'form', 'json', 'json'])
+            self.assertTrue(all(event['authorization_kind'] == 'none' for event in events))
             # HTTP proxies may forward a rewritten request using chunked framing.
             import http.client
             connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=5)
             fields = urllib.parse.urlencode({'client_id': fixture.CLIENT_ID,
-                'grant_type': 'authorization_code', 'code': 'fixture-code'}).encode()
+                'grant_type': 'authorization_code', 'code': 'fixture-code-plain'}).encode()
             connection.request('POST', '/oauth/token', body=iter([fields]),
                                headers={'Content-Type': 'application/x-www-form-urlencoded'}, encode_chunked=True)
             response = connection.getresponse()

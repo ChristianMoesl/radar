@@ -80,6 +80,12 @@ record only encoding, known operation names, status codes and token/client-match
 booleans. Unknown input values, raw requests, response bodies, keys and server
 logs are never published. No real provider is contacted.
 
+Four response profiles independently cover plain JSON, gzip compression, opaque
+tokens with characters that require URL encoding, and both together. JSON
+responses include a UTF-8 charset. Token-endpoint observations also classify any
+Authorization header as absent, a known fake token, a sentinel or other; unknown
+header values never leave the server.
+
 `fixture_passed` characterizes the generic proxy against the local test server;
 it does not qualify TWG/Pup or resolve a real-provider failure by itself. The
 fixture server and sandbox are stopped after the check, and the runner, temporary
@@ -146,6 +152,12 @@ phase and continues the independent native refresh/restart checks; successful
 later operations cannot erase an earlier masking failure.
 
 ## Observed characterization
+
+[Local fixture run 39576072070](https://github.com/ChristianMoesl/radar/actions/runs/39576072070)
+passed token exchange masking, bearer substitution, form and JSON refresh, and a
+read after sandbox restart on SBX 0.49.1. This initial fixture used uncompressed
+JSON and simple dummy tokens. It proves the generic proxy mechanisms work in
+that case; it does not reproduce or resolve Datadog's HTTP 403.
 
 [Datadog run 39518844101](https://github.com/ChristianMoesl/radar/actions/runs/39518844101)
 on SBX 0.49.1 / Pup 2.0.0 completed native OAuth login, verified the configured
