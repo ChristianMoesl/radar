@@ -40,6 +40,7 @@ type fixtureAPI struct {
 	calls      []string
 	auth       string
 	authErr    error
+	profile    string
 	service    bool
 	workspaces func(*url.URL) (string, error)
 }
@@ -48,7 +49,11 @@ func (f *fixtureAPI) output(_ context.Context, command setup.Command) (string, e
 	if len(command.Args) == 1 && command.Args[0] == "--version" {
 		return "v0.4.0", nil
 	}
-	if command.Name != "tfctl" || len(command.Args) < 3 || command.Args[len(command.Args)-3] != "--profile=default" {
+	profile := f.profile
+	if profile == "" {
+		profile = "default"
+	}
+	if command.Name != "tfctl" || len(command.Args) < 3 || command.Args[len(command.Args)-3] != "--profile="+profile {
 		return "", fmt.Errorf("wrong CLI/profile")
 	}
 	args := command.Args[:len(command.Args)-3]

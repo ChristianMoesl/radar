@@ -16,17 +16,35 @@ import (
 
 type terraformSetupSystem struct {
 	setuptest.System
-	api     *fixtureAPI
-	onLogin func()
+	api         *fixtureAPI
+	profiles    string
+	profilesErr error
+	createErr   error
+	onCreate    func()
+	onLogin     func()
 }
 
 func (s *terraformSetupSystem) Output(ctx context.Context, c setup.Command) (string, error) {
 	s.Calls = append(s.Calls, c.Name+" "+strings.Join(c.Args, " "))
+	if strings.Join(c.Args, " ") == "profile profiles list --json --no-color" {
+		if s.profiles != "" || s.profilesErr != nil {
+			return s.profiles, s.profilesErr
+		}
+		return `[{"Name":"default","Hostname":"app.terraform.io","Active":true}]`, nil
+	}
 	return s.api.output(ctx, c)
 }
 
 func (s *terraformSetupSystem) Run(ctx context.Context, c setup.Command) error {
 	err := s.System.Run(ctx, c)
+	if err == nil && c.Name == "tfctl" && len(c.Args) > 2 && strings.Join(c.Args[:3], " ") == "profile profiles create" {
+		if s.createErr != nil {
+			return s.createErr
+		}
+		if s.onCreate != nil {
+			s.onCreate()
+		}
+	}
 	if err == nil && c.Name == "tfctl" && len(c.Args) > 1 && c.Args[0] == "auth" && c.Args[1] == "login" && s.onLogin != nil {
 		s.onLogin()
 	}
@@ -53,8 +71,8 @@ func TestSetupReusesLoginAndVerifiesScope(t *testing.T) {
 		t.Fatal(cfg.Terraform)
 	}
 	for _, call := range sys.Calls {
-		if strings.Contains(call, "auth login") {
-			t.Fatal("redundant login")
+		if strings.Contains(call, "auth login") || strings.Contains(call, "profile profiles") {
+			t.Fatal("working login should not need profile preparation or authentication")
 		}
 	}
 	if len(ui.MultiQuestions) != 1 || !reflect.DeepEqual(ui.MultiQuestions[0].Initial, original.Workspaces) || !reflect.DeepEqual(ui.MultiQuestions[0].Choices, []setup.Choice{
@@ -168,5 +186,108 @@ func TestSetupWorkspacePickerCancellationPreservesScope(t *testing.T) {
 	_, err := (Source{}).Setup(context.Background(), integration.SetupRequest{Config: &cfg, UI: ui, System: &terraformSetupSystem{api: api}})
 	if err != setup.ErrAborted || !reflect.DeepEqual(cfg.Terraform.Workspaces, original.Workspaces) {
 		t.Fatal("picker cancellation changed the configured scope", cfg.Terraform, err)
+	}
+}
+
+func TestSetupCreatesMissingProfileBeforeLogin(t *testing.T) {
+	_, api, original := fixtureSource(t)
+	api.profile = "radar"
+	api.auth, api.authErr = `{}`, fmt.Errorf("profile configuration file doesn't exist")
+	cfg := config.Default()
+	cfg.Terraform = original
+	ui := &setuptest.UI{Inputs: []string{"radar", "acme"}, Selections: [][]string{{"production-network"}}, Decisions: []bool{true, true, true}}
+	created := false
+	sys := &terraformSetupSystem{api: api, onCreate: func() { created = true }, onLogin: func() {
+		if !created {
+			t.Fatal("login attempted before creating the missing profile")
+		}
+		api.auth, api.authErr = "", nil
+	}}
+	var completed []string
+	_, err := (Source{}).Setup(context.Background(), integration.SetupRequest{Config: &cfg, UI: ui, System: sys, Completed: func(v string) { completed = append(completed, v) }})
+	if err != nil || !created || cfg.Terraform.Enabled == nil || !*cfg.Terraform.Enabled || cfg.Terraform.Profile != "radar" {
+		t.Fatal("missing profile not connected", cfg.Terraform, created, err)
+	}
+	if !strings.Contains(strings.Join(sys.Calls, ";"), "tfctl profile profiles list --json --no-color;tfctl profile profiles create radar --hostname=app.terraform.io --no-activate;tfctl auth login --profile=radar") {
+		t.Fatal("profile creation must precede login without changing the active profile", sys.Calls)
+	}
+	if !reflect.DeepEqual(completed, []string{"Terraform CLI profile radar creation", "Terraform login"}) {
+		t.Fatal("creation and login must be reported as immediate side effects", completed)
+	}
+}
+
+func TestSetupMissingProfileFailuresPreserveScope(t *testing.T) {
+	for _, failure := range []string{"declined", "cancelled", "list failed", "invalid list", "null list", "incomplete list", "creation failed"} {
+		t.Run(failure, func(t *testing.T) {
+			_, api, original := fixtureSource(t)
+			api.profile = "radar"
+			api.auth, api.authErr = `{}`, fmt.Errorf("missing profile")
+			cfg := config.Default()
+			cfg.Terraform = original
+			ui := &setuptest.UI{Inputs: []string{"radar", "acme"}, Decisions: []bool{true, true}}
+			sys := &terraformSetupSystem{api: api}
+			switch failure {
+			case "declined":
+				ui.Decisions = append(ui.Decisions, false)
+			case "cancelled":
+				ui.CancelAt = "Terraform CLI profile radar does not exist. Create it for app.terraform.io?"
+			case "list failed":
+				sys.profilesErr = fmt.Errorf("private diagnostic")
+				ui.Decisions = append(ui.Decisions, false)
+			case "invalid list":
+				sys.profiles = "private diagnostic"
+				ui.Decisions = append(ui.Decisions, false)
+			case "null list":
+				sys.profiles = "null"
+				ui.Decisions = append(ui.Decisions, false)
+			case "incomplete list":
+				sys.profiles = `[{}]`
+				ui.Decisions = append(ui.Decisions, false)
+			case "creation failed":
+				sys.createErr = fmt.Errorf("private diagnostic")
+				ui.Decisions = append(ui.Decisions, true, false)
+			}
+			_, err := (Source{}).Setup(context.Background(), integration.SetupRequest{Config: &cfg, UI: ui, System: sys})
+			if failure == "cancelled" {
+				if err != setup.ErrAborted {
+					t.Fatal("cancellation not propagated", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			original.Enabled = new(false)
+			if !reflect.DeepEqual(cfg.Terraform, original) || strings.Contains(ui.Transcript.String(), "private diagnostic") {
+				t.Fatal("failure lost scope or leaked diagnostics", cfg.Terraform, ui.Transcript.String())
+			}
+			for _, call := range sys.Calls {
+				if strings.Contains(call, "auth login") || strings.Contains(call, "api ") || failure != "creation failed" && strings.Contains(call, "profiles create") {
+					t.Fatal("unsafe command after failed preparation", sys.Calls)
+				}
+			}
+		})
+	}
+}
+
+func TestSetupRetriesLoginWithoutRecreatingProfile(t *testing.T) {
+	_, api, _ := fixtureSource(t)
+	api.profile = "radar"
+	api.auth, api.authErr = `{}`, fmt.Errorf("missing profile")
+	cfg := config.Default()
+	ui := &setuptest.UI{Inputs: []string{"radar", "acme"}, Selections: [][]string{{"production-network"}}, Decisions: []bool{true, true, true, true, true}}
+	sys := &terraformSetupSystem{api: api}
+	sys.onCreate = func() { sys.profiles = `[{"Name":"default"},{"Name":"radar"}]` }
+	attempts := 0
+	sys.onLogin = func() {
+		attempts++
+		if attempts == 2 {
+			api.auth, api.authErr = "", nil
+		}
+	}
+	_, err := (Source{}).Setup(context.Background(), integration.SetupRequest{Config: &cfg, UI: ui, System: sys})
+	if err != nil || cfg.Terraform.Enabled == nil || !*cfg.Terraform.Enabled || attempts != 2 {
+		t.Fatal("retry failed", cfg.Terraform, attempts, err)
+	}
+	if strings.Count(strings.Join(sys.Calls, ";"), "profiles create") != 1 {
+		t.Fatal("retry recreated an existing profile", sys.Calls)
 	}
 }

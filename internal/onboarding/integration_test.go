@@ -185,7 +185,17 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 				if terraformEnabled {
 					writeTool(t, bin, "tfctl", `case "$1 $2" in
  '--version ') echo 'v0.4.0';;
- 'auth status') printf '%s' '{"hostname":"app.terraform.io","active":true}';;
+ 'profile profiles') case "$3" in
+   list) printf '%s' '[{"Name":"default","Hostname":"app.terraform.io","Active":true}]';;
+   create) test "$4 $5 $6" = 'radar --hostname=app.terraform.io --no-activate' || exit 1; printf ready > "$HOME/terraform-profile-created";;
+   *) exit 1;; esac;;
+ 'auth status')
+   if test -f "$HOME/terraform-authenticated"; then
+     printf '%s' '{"hostname":"app.terraform.io","active":true}'
+   else
+     printf '%s' '{"active":false}'; exit 1
+   fi;;
+ 'auth login') test -f "$HOME/terraform-profile-created" || exit 1; printf ready > "$HOME/terraform-authenticated";;
  'api /account/details') printf '%s' '{"data":{"type":"users","id":"user-fixture","attributes":{"is-service-account":false}}}';;
  'api /organizations/acme/workspaces?page%5Bnumber%5D=1&page%5Bsize%5D=100') printf '%s' '{"data":[{"type":"workspaces","id":"ws-c","attributes":{"name":"gamma"}},{"type":"workspaces","id":"ws-a","attributes":{"name":"alpha"}},{"type":"workspaces","id":"ws-b","attributes":{"name":"beta"}}],"links":{"next":null}}';;
  'api /organizations/acme/workspaces/alpha') printf '%s' '{"data":{"type":"workspaces","id":"ws-a","attributes":{"name":"alpha"}}}';;
@@ -280,8 +290,10 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 				}
 				if terraformEnabled {
 					terminal.answer(t, "Connect Radar to Terraform?", "y")
-					terminal.answer(t, "Terraform CLI profile", "\r")
+					terminal.answer(t, "Terraform CLI profile", "\x15radar\r")
 					terminal.answer(t, "Terraform organization", "acme\r")
+					terminal.answer(t, "Run `tfctl auth login --profile=radar`?", "y")
+					terminal.answer(t, "Terraform CLI profile radar does not exist. Create it for app.terraform.io?", "y")
 					terminal.answer(t, "space toggle · enter accept", " \x1b[B\x1b[B \r")
 				} else {
 					terminal.answer(t, "Connect Radar to Terraform?", "n\r")
@@ -317,8 +329,8 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if terraformEnabled && (cfg.Terraform.Enabled == nil || !*cfg.Terraform.Enabled || !reflect.DeepEqual(cfg.Terraform.Workspaces, []string{"alpha", "gamma"})) {
-					t.Fatalf("terminal picker did not save only the selected workspaces: %+v", cfg.Terraform)
+				if terraformEnabled && (cfg.Terraform.Enabled == nil || !*cfg.Terraform.Enabled || cfg.Terraform.Profile != "radar" || !reflect.DeepEqual(cfg.Terraform.Workspaces, []string{"alpha", "gamma"})) {
+					t.Fatalf("terminal setup did not create the profile and save only the selected workspaces: %+v", cfg.Terraform)
 				}
 				if choices&2 != 0 && cfg.Jira.Profile != "example-oauth" {
 					t.Fatalf("existing Jira profile was not reused: %q", cfg.Jira.Profile)

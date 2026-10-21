@@ -2,20 +2,25 @@ package setup
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"strconv"
 	"strings"
 )
 
 // CLIConnection describes a foreground connection. Verify must check identity
-// and read access without prompting. Only Login runs with the user's terminal.
+// and read access without prompting. PrepareLogin and Login run only after the
+// user agrees to authenticate.
 type CLIConnection struct {
 	Name, Service, MinimumVersion, Reason string
 	InstallInstructions                   string
 	Install                               *Command
 	Env                                   []string
 	Login                                 Command
-	Verify                                func(context.Context) error
+	// PrepareLogin may initialize CLI-owned configuration before authentication.
+	// Returning false without an error defers the connection.
+	PrepareLogin func(context.Context) (bool, error)
+	Verify       func(context.Context) error
 }
 
 // ConnectCLI lets a user repair or defer one integration without losing the
@@ -78,7 +83,25 @@ func ConnectCLI(ctx context.Context, ui UI, sys System, cli CLIConnection, compl
 			ui.Print("%s deferred. Rerun radar setup to connect it.\n", cli.Service)
 			return false, nil
 		}
-		if err := sys.Run(ctx, cli.Login); err == nil {
+		var loginErr error
+		if cli.PrepareLogin != nil {
+			var ready bool
+			ready, loginErr = cli.PrepareLogin(ctx)
+			if errors.Is(loginErr, ErrAborted) {
+				return false, loginErr
+			}
+			if loginErr == nil && !ready {
+				ui.Print("%s deferred. Rerun radar setup to connect it.\n", cli.Service)
+				return false, nil
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		if loginErr == nil {
+			loginErr = sys.Run(ctx, cli.Login)
+		}
+		if loginErr == nil {
 			if completed != nil {
 				completed(cli.Service + " login")
 			}

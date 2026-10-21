@@ -27,7 +27,66 @@ import (
 	"radar/internal/integration"
 	"radar/internal/integration/terraform/settings"
 	"radar/internal/setup"
+	"radar/internal/setup/setuptest"
 )
+
+// Profile initialization is entirely local and needs no TLS trust changes.
+func TestReleasedTFCTLProfileCreation(t *testing.T) {
+	binary := os.Getenv("RADAR_TEST_TFCTL")
+	if binary == "" {
+		t.Skip("set RADAR_TEST_TFCTL to the verified tfctl 0.4.0 binary")
+	}
+	binary, err := filepath.Abs(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Symlink(binary, filepath.Join(dir, "tfctl")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("HOME", dir)
+	t.Setenv("TFCTL_CONFIG_DIR", filepath.Join(dir, "config"))
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	sys := setup.RealSystem{}
+	output := func(args ...string) string {
+		t.Helper()
+		data, err := sys.Output(ctx, setup.Command{Name: "tfctl", Args: args, Env: cliEnv()})
+		if err != nil {
+			t.Fatal(args, data, err)
+		}
+		return data
+	}
+	// Initialize the CLI's default profile before capturing its active marker.
+	output("profile", "profiles", "list", "--json", "--no-color")
+	marker := filepath.Join(dir, "config", "active_profile.hcl")
+	before, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := &setuptest.UI{Decisions: []bool{true}}
+	var completed []string
+	req := integration.SetupRequest{UI: ui, System: sys, Completed: func(v string) { completed = append(completed, v) }}
+	ready, err := prepareProfile(ctx, req, "radar")
+	if err != nil || !ready || len(completed) != 1 {
+		t.Fatal("released profile initialization failed", ready, completed, err)
+	}
+	after, err := os.ReadFile(marker)
+	if err != nil || string(before) != string(after) {
+		t.Fatal("profile initialization changed the active profile", string(after), err)
+	}
+	if data := output("profile", "display", "--profile=radar", "--json", "--no-color"); !strings.Contains(data, `"Name": "radar"`) || !strings.Contains(data, `"Hostname": "app.terraform.io"`) {
+		t.Fatal("created profile cannot be selected", data)
+	}
+	// Existing custom hostnames must never be replaced or prompt for creation.
+	output("profile", "profiles", "create", "enterprise", "--hostname=tfe.example.test", "--no-activate")
+	existing := output("profile", "display", "--profile=enterprise", "--json", "--no-color")
+	ready, err = prepareProfile(ctx, req, "enterprise")
+	if err != nil || !ready || len(completed) != 1 || existing != output("profile", "display", "--profile=enterprise", "--json", "--no-color") {
+		t.Fatal("existing profile was not preserved", ready, completed, err)
+	}
+}
 
 // Exercise the checksum-verified released binary against a TLS fixture. This
 // qualifies CLI output and request construction, not live account permissions.

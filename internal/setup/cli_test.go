@@ -160,3 +160,46 @@ func TestCLIVersionQualification(t *testing.T) {
 		}
 	}
 }
+
+func TestConnectionPreparationControlsLogin(t *testing.T) {
+	for _, phase := range []string{"ready", "deferred", "failed", "aborted", "cancelled"} {
+		t.Run(phase, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			s := &cliSystem{present: true, version: "tool 1.3.8"}
+			ui := &setuptest.UI{Decisions: []bool{true, false}}
+			cli := connection(s)
+			cli.PrepareLogin = func(context.Context) (bool, error) {
+				if s.loggedIn {
+					t.Fatal("preparation must happen before login")
+				}
+				switch phase {
+				case "ready":
+					return true, nil
+				case "deferred":
+					return false, nil
+				case "failed":
+					return false, errors.New("private diagnostic")
+				case "aborted":
+					return false, setup.ErrAborted
+				default:
+					cancel()
+					return true, nil
+				}
+			}
+			ok, err := setup.ConnectCLI(ctx, ui, s, cli, nil)
+			var wantErr error
+			if phase == "aborted" {
+				wantErr = setup.ErrAborted
+			} else if phase == "cancelled" {
+				wantErr = context.Canceled
+			}
+			if ok != (phase == "ready") || !errors.Is(err, wantErr) || s.loggedIn != (phase == "ready") {
+				t.Fatalf("connected=%v err=%v loggedIn=%v", ok, err, s.loggedIn)
+			}
+			if strings.Contains(ui.Transcript.String(), "private diagnostic") {
+				t.Fatal("preparation diagnostic leaked")
+			}
+		})
+	}
+}

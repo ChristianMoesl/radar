@@ -6,8 +6,16 @@ contributing work item, with its plan and change counts as context.
 
 ## Setup and configuration
 
-Run `radar setup` and opt into Terraform. Enter an existing CLI profile and the
-organization. Setup reuses a working login, verifies the personal account, then
+Run `radar setup` and opt into Terraform. Enter a CLI profile name and the
+organization. If login is needed and the profile does not exist, setup offers to
+create it for `app.terraform.io` before authenticating. Creation requires separate
+confirmation and does not change tfctl's active profile. Existing profiles,
+including their hostnames, are reused unchanged. For Europe/Enterprise, create
+the profile with `tfctl profile profiles create NAME --hostname=HOST --no-activate`
+before setup. Profile creation and login are immediate CLI-owned changes, reported
+in the final review; cancelling Radar setup does not undo them.
+
+Setup reuses a working login, verifies the personal account, then
 fetches the accessible workspaces for that organization. Select one or more with
 ↑/↓ and Space, then press Enter; existing choices are preselected when available.
 Setup verifies every selected workspace and saves the exact names through the
@@ -155,7 +163,10 @@ disposable GitHub runner, adding its system Keychain trust because the native
 verifier ignores `SSL_CERT_FILE`. Cleanup deletes the certificate; runner disposal
 removes the remaining trust record, whose native removal requires a GUI on
 macOS 26. Developer trust stores are never changed.
-The test qualifies version/auth/API JSON and read-only query construction. The Linux amd64
+A separate local-only release test qualifies missing-profile creation and reuse,
+including preservation of the active profile and existing custom hostnames. It
+runs on macOS without changing trust stores.
+The tests qualify profile/version/auth/API JSON and read-only query construction. The Linux amd64
 0.4.0 archive was checked against HashiCorp's published SHA256:
 `055d365cf165708dd304747f27a7242c51ce61a0bf680bd83fd3abe7cbcaa356`.
 The provider-contract CI matrix runs the same pinned release fixture on Linux
