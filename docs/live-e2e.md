@@ -77,8 +77,13 @@ while the providers continue accepting refreshes.
 ## One-time GitHub setup
 
 In the Radar repository, create **Settings → Environments → live-e2e** and restrict
-deployment branches to `main`. Leave required reviewers unset for unattended
-runs. This environment is never referenced by a PR-triggered workflow.
+deployment branches to an explicit selected **branch** rule for `main`, with no
+tag rules. For a public repository, require a trusted reviewer and disable
+administrator bypass. Scheduled runs will also wait for approval. Enable
+prevent-self-review when another trusted maintainer can approve; solo
+maintainers must leave it off to approve their own runs. Protect `main` with
+reviewed pull requests and blocked force pushes. This environment is never
+referenced by a PR-triggered workflow.
 
 Add these secrets to that environment, entering token values directly in GitHub
 or through `gh secret set`, never in chat:

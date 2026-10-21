@@ -170,15 +170,41 @@ It uses the `live-e2e` GitHub Environment. Create it if needed and restrict its
 deployment branches to `main`. Add **`TFCTL_TOKEN`** as an environment secret containing a
 personal Terraform user token with normal read access to that workspace. It must
 belong to the user who created the fixture runs; team/organization tokens cannot
-establish personal ownership. Enter the value in GitHub or through the CLI prompt:
+establish personal ownership.
+
+For a public repository, configure the environment before adding credentials:
+
+- Under **Deployment branches and tags**, choose **Selected branches and tags**
+  and add a **branch** rule for exactly `main`, with no tag rules. Use an explicit
+  selection; **Protected branches only** allows all branches when no branch
+  protection rules exist.
+- Enable **Required reviewers** with a trusted maintainer. Enable **Prevent
+  self-review** when another maintainer can approve; a solo maintainer must leave
+  it off to approve their own dispatches.
+- Disable **Allow administrators to bypass configured protection rules**.
+- Store `TFCTL_TOKEN` in **Environment secrets**, not repository variables or
+  committed configuration. Approval also gates other workflows using this
+  environment, including the scheduled provider E2E run.
+
+Protect `main` with required reviewed pull requests and blocked force pushes.
+Review the code at the dispatched commit before approving: code executing with
+the secret can use the credential, regardless of the workflow's intended reads.
+Use a dedicated personal Terraform test account restricted to the disposable
+organization/workspace and set token expiry. A user API token inherits that
+account's permissions; the workflow's GET-only behavior does not narrow them.
+The fixture runs must be created by that same account for exact ownership checks.
+Keep the workspace's cloud credentials and infrastructure limited to test resources.
+
+Enter the secret value in GitHub or through the CLI prompt:
 
 ```sh
 gh secret set TFCTL_TOKEN --repo acme/radar --env live-e2e
 gh workflow run terraform-live.yml --repo acme/radar --ref main
 ```
 
-The workflow installs checksum-pinned tfctl 0.4.0 and passes the secret only to
-the live test step. tfctl uses its standard environment authentication with a
+The workflow pins its GitHub actions to exact commits, installs checksum-pinned
+tfctl 0.4.0, and passes the secret only to the live test step. tfctl uses its
+standard environment authentication with a
 temporary profile containing only hostname/organization selectors. Normal Radar
 use can continue to reuse an existing CLI login; `TFCTL_TOKEN` is not a required
 Radar setting. No CLI session bundle, secret writeback token, or other provider
