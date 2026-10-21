@@ -136,6 +136,32 @@ tested SBX/Pup combination; it does not establish which component issued the
 uses the same three form fields (`grant_type`, `client_id`, `refresh_token`),
 without client-secret authentication.
 
+[Outside-SBX Datadog control 39572225254](https://github.com/ChristianMoesl/radar/actions/runs/39572225254)
+at commit `99632ff` completed with **`control_passed`**. On the same kind of
+GitHub runner, the exact Pup 2.0.0 executable from the pinned image completed a
+fresh native OAuth login, verified the approved site/session/scope, read the
+tagged monitors, and refreshed successfully both before and after the dummy-token
+probe. Identity and monitor reads passed after each refresh. The dummy refresh
+itself returned **HTTP 400** without sentinels, as expected outside the proxy.
+Thus the negative probe did not prevent native refresh in this control.
+
+| Check | Through SBX (39518844101) | Outside SBX (39572225254) |
+| --- | --- | --- |
+| Native OAuth login and approved monitor reads | Passed | Passed |
+| Native refresh | HTTP 403 | Passed twice, with subsequent reads |
+| Refresh-sentinel probe | HTTP 403; masking unverified | HTTP 400; negative control only |
+| Sandbox restart | Not reached | Not tested by this control |
+
+This comparison narrows the failure to the tested SBX execution path or its
+configuration; it does not identify which component issued the 403. The runs
+used separate fresh grants and disposable runners. It does not qualify SBX
+credential isolation, masking, restart, natural expiry or revocation, and it
+does not authorize a host execution fallback.
+[SBX 0.49.1](https://github.com/docker/sbx-releases/releases/tag/v0.49.1) remained the latest
+published release when the control completed on 2026-10-21; its current OAuth
+documentation and public issue search provided no confirmed fix for this
+Pup-specific failure.
+
 [Jira run 39516056168](https://github.com/ChristianMoesl/radar/actions/runs/39516056168)
 reached native TWG device-token polling with a confirmed five-minute window,
 then expired without a completed token exchange. Jira inside SBX is unqualified.
