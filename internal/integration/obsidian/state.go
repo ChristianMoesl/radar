@@ -1,6 +1,7 @@
 package obsidian
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -55,6 +56,11 @@ func applyStateUpdates(current note, updates map[string]string) (note, error) {
 			updated.CompletedAt = value
 		case "completion_baseline":
 			updated.CompletionBaseline = value
+		case "manual_completion_states":
+			updated.ManualCompletionStates = nil
+			if err := json.Unmarshal([]byte(value), &updated.ManualCompletionStates); err != nil {
+				return current, fmt.Errorf("invalid manual completion states: %w", err)
+			}
 		case "muted":
 			if value != "true" && value != "false" {
 				return current, fmt.Errorf("muted must be boolean")

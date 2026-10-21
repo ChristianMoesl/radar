@@ -130,6 +130,7 @@ func (Source) Reconcile(_ context.Context, req integration.ReconcileRequest) []i
 			seen[ref.ID] = true
 			ref.Signal = string(integration.SignalDone)
 			ref.Status = "Recovered"
+			ref.WorkflowState = "recovered"
 			done = append(done, integration.Observation{
 				Ref: ref, Signal: integration.SignalDone, Reason: "Datadog monitor recovered",
 			})
@@ -181,6 +182,7 @@ func observationFromMonitor(cfg connection, statuses []string, monitor monitor) 
 			Title:          title,
 			URL:            monitorURL,
 			Status:         monitor.Status,
+			WorkflowState:  strings.ToLower(strings.TrimSpace(monitor.Status)) + ":" + metadata["state_changed_at"],
 			CanonicalKey:   id,
 			Metadata:       metadata,
 		},

@@ -151,7 +151,7 @@ func (*fakeMuteAuthor) Create(context.Context, string) (integration.AuthoredTask
 	return integration.AuthoredTaskIdentity{}, errors.New("not used by mute tests")
 }
 
-func (*fakeMuteAuthor) SetLifecycle(context.Context, protocol.SourceRef, string) (integration.AuthoredTaskIdentity, error) {
+func (*fakeMuteAuthor) SetLifecycle(context.Context, protocol.SourceRef, string, []protocol.SourceRef) (integration.AuthoredTaskIdentity, error) {
 	return integration.AuthoredTaskIdentity{}, errors.New("not used by mute tests")
 }
 

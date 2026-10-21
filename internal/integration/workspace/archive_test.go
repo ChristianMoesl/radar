@@ -60,7 +60,7 @@ func TestWorkspaceCleanupArchivesOnlyCompletedUnreferencedNote(t *testing.T) {
 		t.Run(fmt.Sprint(done), func(t *testing.T) {
 			root, source, ref, group := archiveWorkspaceFixture(t)
 			if done {
-				if _, err := source.SetLifecycle(context.Background(), ref, "done"); err != nil {
+				if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -103,7 +103,7 @@ func TestCleaningAnotherWorkspaceDoesNotArchiveReferencedNote(t *testing.T) {
 	if err := workspacegroup.Save(root, workspacegroup.Registry{Workspaces: []workspacegroup.Workspace{owner, other}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.SetLifecycle(context.Background(), ref, "done"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := cleanupArchiveWorkspace(t, other); err != nil {
@@ -134,7 +134,7 @@ func TestFailedWorkspaceCleanupDoesNotArchive(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if _, err := source.SetLifecycle(context.Background(), ref, "done"); err != nil {
+			if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := cleanupArchiveWorkspace(t, group); err == nil {
@@ -149,7 +149,7 @@ func TestFailedWorkspaceCleanupDoesNotArchive(t *testing.T) {
 
 func TestCleanupArchiveCollisionLeavesCompletedNote(t *testing.T) {
 	root, source, ref, group := archiveWorkspaceFixture(t)
-	if _, err := source.SetLifecycle(context.Background(), ref, "done"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 	archive := filepath.Join(filepath.Dir(filepath.Dir(group.NotePath)), "Archived")
@@ -176,14 +176,14 @@ func TestCleanupArchiveCollisionLeavesCompletedNote(t *testing.T) {
 	if err := os.Remove(destination); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.SetLifecycle(context.Background(), ref, "done"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestArchivedNoteCannotBeAttachedOrMounted(t *testing.T) {
 	root, source, ref, group := archiveWorkspaceFixture(t)
-	if _, err := source.SetLifecycle(context.Background(), ref, "done"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := cleanupArchiveWorkspace(t, group); err != nil {
@@ -208,7 +208,7 @@ func TestArchivedNoteCannotBeAttachedOrMounted(t *testing.T) {
 	if _, _, err := startWorkspaceRuntime(context.Background(), &fakeRunner{}, group, ""); err == nil {
 		t.Fatal("archived runtime accepted")
 	}
-	if _, err := source.SetLifecycle(context.Background(), archived, "open"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), archived, "open", nil); err != nil {
 		t.Fatal(err)
 	}
 	reopened := source.Collect(context.Background(), integration.CollectRequest{}).Observations[0].Ref
@@ -239,7 +239,7 @@ func (failedSandboxCleanup) Cleanup(context.Context, integration.CleanupRequest)
 
 func TestSandboxCleanupFailurePreventsNoteArchive(t *testing.T) {
 	_, source, ref, group := archiveWorkspaceFixture(t)
-	if _, err := source.SetLifecycle(context.Background(), ref, "done"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 	service := cleanup.New([]integration.CleanupProvider{failedSandboxCleanup{}, Source{}})

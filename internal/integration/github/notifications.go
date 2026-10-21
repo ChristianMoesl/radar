@@ -619,11 +619,16 @@ func donePullRequestSourceRefs(sourceRefs []protocol.SourceRef, repo string, num
 		if strings.HasPrefix(reason, "merged") {
 			ref.Metadata["pr_state"] = "MERGED"
 		}
+		ref.WorkflowState = ref.Metadata["pr_state"]
 		ref.Acknowledgement = nil
 		return []protocol.SourceRef{ref}
 	}
 	ref := githubPullRequestRef(id, repo, number, "", "", reason, "")
 	ref.Signal = "done"
+	ref.WorkflowState = "CLOSED"
+	if strings.HasPrefix(reason, "merged") {
+		ref.WorkflowState = "MERGED"
+	}
 	return []protocol.SourceRef{ref}
 }
 
@@ -672,6 +677,10 @@ func newGitHubPullRequestSourceRef(item protocol.Task, repo string, number int, 
 		sourceRef.Kind = kind
 	}
 	sourceRef.Metadata = cloneMetadata(item.Metadata)
+	sourceRef.WorkflowState = sourceRef.Metadata["pr_state"]
+	if sourceRef.WorkflowState == "OPEN" && sourceRef.Metadata["pr_draft"] == "true" {
+		sourceRef.WorkflowState = "DRAFT"
+	}
 	if body != "" {
 		if sourceRef.Metadata == nil {
 			sourceRef.Metadata = map[string]string{}

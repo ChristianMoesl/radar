@@ -136,14 +136,14 @@ func TestArchiveRestoreSanitizesDirectoryNotDisplayTitle(t *testing.T) {
 	}
 	ref := collectedArchiveRef(t, source)
 	original := ref.Metadata["note_path"]
-	if _, err := source.SetLifecycle(ctx, ref, "done"); err != nil {
+	if _, err := source.SetLifecycle(ctx, ref, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 	archived := collectedArchiveRef(t, source)
 	if archived.Title != title {
 		t.Fatalf("archived title = %q", archived.Title)
 	}
-	if _, err := source.SetLifecycle(ctx, archived, "open"); err != nil {
+	if _, err := source.SetLifecycle(ctx, archived, "open", nil); err != nil {
 		t.Fatal(err)
 	}
 	reopened := collectedArchiveRef(t, source)

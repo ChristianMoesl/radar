@@ -146,7 +146,7 @@ func TestResolveBindingsReusesCachedMonitorFactsIncludingHistoricalTerminalRefs(
 			t.Fatalf("result = %+v", result)
 		}
 		want := ref
-		want.Signal, want.Status = "done", "Recovered"
+		want.Signal, want.Status, want.WorkflowState = "done", "Recovered", "recovered"
 		if !reflect.DeepEqual(result.Observations[0].Ref, want) {
 			t.Fatalf("cached facts replaced: %+v want %+v", result.Observations[0].Ref, want)
 		}

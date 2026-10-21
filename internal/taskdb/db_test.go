@@ -142,3 +142,29 @@ func TestTrashedTasksReleaseActiveTitleAndBindingOwnership(t *testing.T) {
 		t.Fatal("restore overwrote replacement ownership")
 	}
 }
+
+func TestManualCompletionSnapshotsKeepNilAndEmptyDistinctAcrossReload(t *testing.T) {
+	for name, states := range map[string]map[string]string{
+		"automatic":                   nil,
+		"manual without contributors": {},
+		"manual with contributors":    {"jira:issue:ABC-7": "in review"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, task := fixture(t)
+			task.State, task.CompletedAt = "done", "2026-10-01T11:00:00Z"
+			task.ManualCompletionStates = states
+			if err := Put(&task); err != nil {
+				t.Fatal(err)
+			}
+			again, err := Find(task.ID)
+			if err != nil || (again.ManualCompletionStates == nil) != (states == nil) || len(again.ManualCompletionStates) != len(states) {
+				t.Fatalf("snapshot lost on reload: %+v %v", again, err)
+			}
+			for id, state := range states {
+				if again.ManualCompletionStates[id] != state {
+					t.Fatal("contributor state lost on reload")
+				}
+			}
+		})
+	}
+}

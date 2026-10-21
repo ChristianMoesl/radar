@@ -57,7 +57,7 @@ func (s Source) observe(ctx context.Context, session session, cfg settings.Confi
 		ID: id, EntityID: id, CanonicalKey: id, Source: "terraform", SourceLabel: "Terraform", Kind: "run",
 		Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem,
 		Authority: protocol.SourceRefAuthorityContributing, RetainInactive: true,
-		Title: name + ": " + message, URL: base + "/runs/" + run.ID, Status: label, Metadata: metadata,
+		Title: name + ": " + message, URL: base + "/runs/" + run.ID, Status: label, WorkflowState: attrs.Status, Metadata: metadata,
 	}
 	if *attrs.PlanOnly {
 		metadata["run_type"] = "speculative plan"

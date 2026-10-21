@@ -133,11 +133,11 @@ func ReconcileAuthoredTasks(ctx context.Context, tracked []protocol.Task, result
 				continue
 			}
 			fresh, seen := observed[ref.ID]
-			if !seen || fresh.AgentReview || task.AgentReviewPending || (!active && fresh.Signal == "done") {
+			if !seen || fresh.AgentReview || task.AgentReviewPending {
 				continue
 			}
 			activity := protocol.SourceRefsActivity(task.SourceRefs)
-			if !active {
+			if !active && fresh.Signal != "done" {
 				// A full collection may have waited for remote APIs after reading
 				// runtime state. Recheck at the completion boundary, but retain
 				// a run observed earlier in this collection if it already settled.

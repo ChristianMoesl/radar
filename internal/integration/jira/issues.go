@@ -217,12 +217,13 @@ func sourceRefFromIssue(cfg Config, issue issue, matchers ...linking.MarkMatcher
 			PreferTitle:   true,
 			WorkspaceName: issue.Key + " " + issue.Fields.Summary,
 		},
-		Title:        issue.Key + " " + issue.Fields.Summary,
-		URL:          jiraIssueURL(cfg.BaseURL, issue.Key),
-		Status:       status,
-		CanonicalKey: "jira:issue:" + issue.Key,
-		LinkingKeys:  marks.Keys(issue.Key),
-		Metadata:     metadata,
+		Title:         issue.Key + " " + issue.Fields.Summary,
+		URL:           jiraIssueURL(cfg.BaseURL, issue.Key),
+		Status:        status,
+		WorkflowState: strings.ToLower(strings.TrimSpace(status)),
+		CanonicalKey:  "jira:issue:" + issue.Key,
+		LinkingKeys:   marks.Keys(issue.Key),
+		Metadata:      metadata,
 	}
 }
 

@@ -311,6 +311,9 @@ func observationsFor(vault string, current note) []integration.Observation {
 		"completed_at": current.CompletedAt,
 		"content_hash": noteVersion(current),
 	}
+	if current.ManualCompletionStates != nil {
+		metadata["manual_completion"] = "true"
+	}
 	signal := integration.SignalLowPriority
 	if current.State == "done" {
 		signal = integration.SignalDone
@@ -370,13 +373,14 @@ func (s Source) Create(ctx context.Context, title string) (integration.AuthoredT
 	return integration.AuthoredTaskIdentity{SourceRefID: note.LinkingKey}, nil
 }
 
-func (s Source) SetLifecycle(_ context.Context, ref protocol.SourceRef, state string) (integration.AuthoredTaskIdentity, error) {
+func (s Source) SetLifecycle(_ context.Context, ref protocol.SourceRef, state string, contributors []protocol.SourceRef) (integration.AuthoredTaskIdentity, error) {
 	if state != "open" && state != "done" {
 		return integration.AuthoredTaskIdentity{}, fmt.Errorf("unsupported Obsidian lifecycle %q", state)
 	}
-	updates := map[string]string{"state": state, "completed_at": "", "completion_baseline": "pending"}
+	updates := map[string]string{"state": state, "completed_at": "", "completion_baseline": "pending", "manual_completion_states": "null"}
 	if state == "done" {
 		updates["completed_at"] = "__now_if_empty__"
+		updates["manual_completion_states"] = encodeCompletionStates(completionStates(ref, contributors))
 	}
 	// Only explicit Done dismisses the handoff; reopening and priority changes
 	// do not implicitly acknowledge an agent's result.

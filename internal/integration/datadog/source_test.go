@@ -170,7 +170,7 @@ func TestReconcileMarksDisappearedMonitorDone(t *testing.T) {
 	if len(done) != 1 {
 		t.Fatalf("done = %+v", done)
 	}
-	if done[0].Signal != integration.SignalDone || done[0].Reason != "Datadog monitor recovered" || done[0].Ref.Status != "Recovered" {
+	if done[0].Signal != integration.SignalDone || done[0].Reason != "Datadog monitor recovered" || done[0].Ref.Status != "Recovered" || done[0].Ref.WorkflowState != "recovered" {
 		t.Fatalf("done observation = %+v", done[0])
 	}
 }
@@ -215,4 +215,20 @@ func configureDatadogCLI(t *testing.T) {
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func TestMonitorWorkflowStateTracksNewOccurrencesNotPresentation(t *testing.T) {
+	cfg := connection{AppBaseURL: "https://app.datadoghq.eu"}
+	monitor := monitor{ID: 7, Name: "API errors", Status: "Alert", OverallStateModified: 1_750_000_000}
+	before, _ := observationFromMonitor(cfg, []string{"Alert"}, monitor)
+	monitor.Name, monitor.Tags = "Renamed", []string{"team:example"}
+	again, _ := observationFromMonitor(cfg, []string{"Alert"}, monitor)
+	if before.Ref.WorkflowState == "" || before.Ref.WorkflowState != again.Ref.WorkflowState {
+		t.Fatal("presentation changed monitor workflow state")
+	}
+	monitor.OverallStateModified++
+	changed, _ := observationFromMonitor(cfg, []string{"Alert"}, monitor)
+	if changed.Ref.WorkflowState == before.Ref.WorkflowState {
+		t.Fatal("a new monitor state occurrence was ignored")
+	}
 }

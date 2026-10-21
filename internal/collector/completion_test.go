@@ -80,7 +80,7 @@ func newCompletionFixture(t *testing.T) *completionFixture {
 func (f *completionFixture) ref(source, id, signal string) protocol.SourceRef {
 	return protocol.SourceRef{ID: source + ":" + id, Source: source, Kind: "work_item", Role: protocol.SourceRefRoleAuthoritative,
 		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityContributing,
-		RetainInactive: true, CanonicalKey: source + ":" + id, LinkingKeys: []string{f.note.ID}, Signal: signal}
+		RetainInactive: true, CanonicalKey: source + ":" + id, LinkingKeys: []string{f.note.ID}, Signal: signal, WorkflowState: signal}
 }
 
 func (f *completionFixture) collect(sources ...integration.Source) (Result, []integration.Source) {
@@ -223,7 +223,7 @@ func TestAuthoredCompletionPreservesManualReopenAcrossCacheReset(t *testing.T) {
 	remote := func() completionSource { return completionSource{name: "github", refs: []protocol.SourceRef{pr}} }
 	f.refresh(remote())
 	f.assertState(t, "done")
-	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "open"); err != nil {
+	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "open", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.store.Reset(); err != nil {
@@ -302,22 +302,22 @@ func TestAuthoredCompletionDoesNotProjectFailedOrStaleNoteWrites(t *testing.T) {
 	}
 }
 
-func TestAuthoredLifecycleRemoteWorkOverridesManualCompletion(t *testing.T) {
+func TestAuthoredManualCompletionWaitsForWorkflowChange(t *testing.T) {
 	f := newCompletionFixture(t)
-	pr := f.ref("github", "pr:acme/app:7", "in_progress")
-	remote := func() completionSource { return completionSource{name: "github", refs: []protocol.SourceRef{pr}} }
+	jira := f.ref("jira", "issue:ABC-7", "in_progress")
+	jira.WorkflowState = "in review"
+	remote := func() completionSource { return completionSource{name: "jira", refs: []protocol.SourceRef{jira}} }
 	f.refresh(remote())
-	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "done"); err != nil {
+	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "done", []protocol.SourceRef{jira}); err != nil {
 		t.Fatal(err)
 	}
 	f.refresh(remote())
-	f.assertState(t, "open")
-	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "open"); err != nil {
-		t.Fatal(err)
-	}
+	f.assertState(t, "done")
+	// Both states classify as in_progress; the actual workflow change matters.
+	jira.WorkflowState = "in progress"
 	f.refresh(remote())
 	f.assertState(t, "open")
-	pr.Signal = "done"
+	jira.Signal, jira.WorkflowState = "done", "resolved"
 	f.refresh(remote())
 	f.assertState(t, "done")
 }
@@ -356,12 +356,12 @@ func TestAuthoredLifecycleWithoutRemoteAuthorityUsesNoteState(t *testing.T) {
 	local := completionSource{name: "local", refs: []protocol.SourceRef{resource}}
 	f.refresh(remote, local)
 	f.assertState(t, "open")
-	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "done"); err != nil {
+	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 	f.refresh(remote, local)
 	f.assertState(t, "done")
-	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "open"); err != nil {
+	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "open", nil); err != nil {
 		t.Fatal(err)
 	}
 	f.refresh(remote, local)
@@ -374,7 +374,7 @@ func TestAuthoredLifecycleReopenedTaskCanCompleteNewRemoteWork(t *testing.T) {
 	remote := completionSource{name: "github", refs: []protocol.SourceRef{old}}
 	f.refresh(remote)
 	f.assertState(t, "done")
-	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "open"); err != nil {
+	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "open", nil); err != nil {
 		t.Fatal(err)
 	}
 	for range 3 {
@@ -462,4 +462,122 @@ func TestMutedPRStillBlocksCompletesAndReopensAuthoredWork(t *testing.T) {
 	pr.Signal = "in_progress"
 	refresh()
 	f.assertState(t, "open")
+}
+
+func TestManualDoneReconcilesEachContributorIndependently(t *testing.T) {
+	f := newCompletionFixture(t)
+	jira := f.ref("jira", "issue:ABC-7", "in_progress")
+	jira.WorkflowState = "in review"
+	pr := f.ref("github", "pr:acme/app:7", "in_progress")
+	pr.WorkflowState = "OPEN"
+	refresh := func() {
+		f.refresh(completionSource{name: "jira", refs: []protocol.SourceRef{jira}}, completionSource{name: "github", refs: []protocol.SourceRef{pr}})
+	}
+	refresh()
+	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "done", []protocol.SourceRef{jira, pr}); err != nil {
+		t.Fatal(err)
+	}
+	refresh()
+	f.assertState(t, "done")
+	doneAt := f.store.Tasks()[0].DoneAt
+	// Completing the PR must not let the unchanged active Jira issue reopen us.
+	pr.Signal, pr.WorkflowState = "done", "MERGED"
+	refresh()
+	f.assertState(t, "done")
+	if f.store.Tasks()[0].DoneAt != doneAt {
+		t.Fatal("terminal remote transition reset the manual completion timestamp")
+	}
+	// Also reconcile the snapshot when every contributor is terminal.
+	jira.Signal, jira.WorkflowState = "done", "resolved"
+	refresh()
+	f.assertState(t, "done")
+	// Record the new terminal state, not only the original state at manual Done.
+	pr.Signal, pr.WorkflowState = "in_progress", "OPEN"
+	refresh()
+	f.assertState(t, "open")
+}
+
+func TestManualDoneSurvivesRestartResetAndNonWorkflowUpdates(t *testing.T) {
+	f := newCompletionFixture(t)
+	jira := f.ref("jira", "issue:ABC-7", "in_progress")
+	jira.WorkflowState = "in review"
+	pr := f.ref("github", "pr:acme/app:7", "done")
+	pr.WorkflowState = "MERGED"
+	refresh := func() {
+		f.refresh(completionSource{name: "jira", refs: []protocol.SourceRef{jira}}, completionSource{name: "github", refs: []protocol.SourceRef{pr}})
+	}
+	refresh()
+	if _, err := f.notes.SetLifecycle(context.Background(), f.note, "done", []protocol.SourceRef{jira, pr}); err != nil {
+		t.Fatal(err)
+	}
+	refresh()
+	f.assertState(t, "done")
+	doneAt := f.store.Tasks()[0].DoneAt
+	store, err := state.NewStore(f.logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.store = store
+	if err := f.store.Reset(); err != nil {
+		t.Fatal(err)
+	}
+	jira.Title, jira.Status, jira.Signal = "Edited title", "In Review", "attention"
+	jira.Metadata = map[string]string{"priority": "High", "updated": "2026-10-22T12:00:00Z"}
+	pr.Status, pr.Metadata = "merged yesterday", map[string]string{"unresolved_review_threads": "3", "head_oid": "new-head"}
+	for range 3 {
+		refresh()
+		f.assertState(t, "done")
+	}
+	if f.store.Tasks()[0].DoneAt != doneAt {
+		t.Fatal("refresh/reset changed manual completion timestamp")
+	}
+	jira.WorkflowState = "in progress"
+	refresh()
+	f.assertState(t, "open")
+}
+
+func TestManualDoneIgnoresUnconfirmedStateAndDetectsNewActiveWork(t *testing.T) {
+	for _, failure := range []string{"missing", "incomplete", "unknown state"} {
+		t.Run(failure, func(t *testing.T) {
+			f := newCompletionFixture(t)
+			jira := f.ref("jira", "issue:ABC-7", "in_progress")
+			jira.WorkflowState = "in review"
+			remote := completionSource{name: "jira", refs: []protocol.SourceRef{jira}}
+			f.refresh(remote)
+			if _, err := f.notes.SetLifecycle(context.Background(), f.note, "done", []protocol.SourceRef{jira}); err != nil {
+				t.Fatal(err)
+			}
+			switch failure {
+			case "missing":
+				remote.refs = nil
+			case "incomplete":
+				remote.incomplete = true
+				remote.refs[0].WorkflowState = "in progress"
+			case "unknown state":
+				remote.refs[0].WorkflowState = ""
+			}
+			f.refresh(remote)
+			f.assertState(t, "done")
+			// Unconfirmed observations must not replace the last confirmed state.
+			jira.WorkflowState = "in progress"
+			f.refresh(completionSource{name: "jira", refs: []protocol.SourceRef{jira}})
+			f.assertState(t, "open")
+		})
+	}
+	for _, signal := range []string{"done", "in_progress"} {
+		t.Run("new contributor "+signal, func(t *testing.T) {
+			f := newCompletionFixture(t)
+			f.refresh()
+			if _, err := f.notes.SetLifecycle(context.Background(), f.note, "done", nil); err != nil {
+				t.Fatal(err)
+			}
+			pr := f.ref("github", "pr:acme/app:7", signal)
+			f.refresh(completionSource{name: "github", refs: []protocol.SourceRef{pr}})
+			want := "open"
+			if signal == "done" {
+				want = "done"
+			}
+			f.assertState(t, want)
+		})
+	}
 }

@@ -49,7 +49,7 @@ func TestArchiveAndRestorePreserveIdentityAndContent(t *testing.T) {
 	if err := os.Chmod(original, 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.SetLifecycle(context.Background(), ref, "done"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 	archived := collectedArchiveRef(t, source)
@@ -69,10 +69,10 @@ func TestArchiveAndRestorePreserveIdentityAndContent(t *testing.T) {
 	if _, err := source.Create(context.Background(), "Ship task"); err == nil {
 		t.Fatal("duplicate archived title accepted")
 	}
-	if _, err := source.SetLifecycle(context.Background(), archived, "done"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), archived, "done", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.SetLifecycle(context.Background(), collectedArchiveRef(t, source), "open"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), collectedArchiveRef(t, source), "open", nil); err != nil {
 		t.Fatal(err)
 	}
 	reopened := collectedArchiveRef(t, source)
@@ -118,7 +118,7 @@ func TestCompletionKeepsReferencedNotesAndLinksInPlace(t *testing.T) {
 			if err := workspacegroup.Save(root, workspacegroup.Registry{Workspaces: []workspacegroup.Workspace{workspace}}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := source.SetLifecycle(context.Background(), ref, "done"); err != nil {
+			if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err != nil {
 				t.Fatal(err)
 			}
 			if got := collectedArchiveRef(t, source); got.Metadata["note_path"] != path || got.Status != "done" {
@@ -127,7 +127,7 @@ func TestCompletionKeepsReferencedNotesAndLinksInPlace(t *testing.T) {
 			if data, err := os.ReadFile(link); err != nil || len(data) != 0 {
 				t.Fatalf("broken link: %s, %v", data, err)
 			}
-			if _, err := source.SetLifecycle(context.Background(), ref, "open"); err != nil {
+			if _, err := source.SetLifecycle(context.Background(), ref, "open", nil); err != nil {
 				t.Fatal(err)
 			}
 			if got := collectedArchiveRef(t, source); got.Metadata["note_path"] != path || got.Status != "open" {
@@ -186,7 +186,7 @@ func TestArchiveFailuresNeverOverwriteOrRemoveNotes(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if _, err := source.SetLifecycle(context.Background(), ref, "done"); err == nil {
+			if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err == nil {
 				t.Fatal("unsafe archive succeeded")
 			}
 			current, err := readNote(path)
@@ -209,14 +209,14 @@ func TestArchiveFailuresNeverOverwriteOrRemoveNotes(t *testing.T) {
 func TestRestoreRefusesOccupiedPrivateDirectory(t *testing.T) {
 	source, ref, _ := createArchiveTask(t)
 	path := ref.Metadata["note_path"]
-	if _, err := source.SetLifecycle(context.Background(), ref, "done"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 	archived := collectedArchiveRef(t, source)
 	if err := os.Mkdir(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.SetLifecycle(context.Background(), archived, "open"); err == nil {
+	if _, err := source.SetLifecycle(context.Background(), archived, "open", nil); err == nil {
 		t.Fatal("occupied restore succeeded")
 	}
 	current, err := readNote(archived.Metadata["note_path"])
@@ -231,7 +231,7 @@ func TestArchiveFailureCanBeRetried(t *testing.T) {
 	if err := os.WriteFile(attachment, []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.SetLifecycle(context.Background(), ref, "done"); err == nil {
+	if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err == nil {
 		t.Fatal("expected accompanying file refusal")
 	}
 	before, err := readNote(ref.Metadata["note_path"])
@@ -241,7 +241,7 @@ func TestArchiveFailureCanBeRetried(t *testing.T) {
 	if err := os.Remove(attachment); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.SetLifecycle(context.Background(), ref, "done"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 	after, err := readNote(collectedArchiveRef(t, source).Metadata["note_path"])
@@ -265,7 +265,7 @@ func TestRelativeLinkPreflight(t *testing.T) {
 
 func TestArchivedDiscoveryValidatesNotesAndDetectsCrossLayoutDuplicates(t *testing.T) {
 	source, ref, _ := createArchiveTask(t)
-	if _, err := source.SetLifecycle(context.Background(), ref, "done"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 	archived := collectedArchiveRef(t, source)

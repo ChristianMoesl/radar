@@ -24,6 +24,10 @@ type Task struct {
 	Muted, AgentReview, Adopted, Trashed               bool
 	Bindings                                           []protocol.SourceBinding
 	Revision                                           int64
+
+	// ManualCompletionStates is nil for automatic completion; an empty map is
+	// an explicit Done with no known contributors. Keys are source-ref IDs.
+	ManualCompletionStates map[string]string
 }
 
 func Path() (string, error) {

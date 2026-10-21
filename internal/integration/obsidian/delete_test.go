@@ -100,7 +100,7 @@ func TestDeleteMovesPrivateTaskAndAttachmentsIntactToTrash(t *testing.T) {
 
 func TestDeleteArchivedTaskMovesOnlySelectedNote(t *testing.T) {
 	source, ref, _ := createArchiveTask(t)
-	if _, err := source.SetLifecycle(context.Background(), ref, "done"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), ref, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 	ref = collectedArchiveRef(t, source)

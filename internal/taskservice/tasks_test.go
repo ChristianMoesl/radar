@@ -48,8 +48,8 @@ func (s *testAuthor) Collect(ctx context.Context, req integration.CollectRequest
 	return result
 }
 
-func (s *testAuthor) SetLifecycle(ctx context.Context, ref protocol.SourceRef, lifecycle string) (integration.AuthoredTaskIdentity, error) {
-	identity, err := s.Source.SetLifecycle(ctx, ref, lifecycle)
+func (s *testAuthor) SetLifecycle(ctx context.Context, ref protocol.SourceRef, lifecycle string, contributors []protocol.SourceRef) (integration.AuthoredTaskIdentity, error) {
+	identity, err := s.Source.SetLifecycle(ctx, ref, lifecycle, contributors)
 	if err == nil && s.writeError != nil {
 		return identity, s.writeError
 	}
@@ -133,7 +133,7 @@ func (f *fixture) linkedRef(source, signal string) protocol.SourceRef {
 		ID: source + ":work", Source: source, Kind: "work_item", CanonicalKey: source + ":work",
 		Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem,
 		Authority: protocol.SourceRefAuthorityContributing, RetainInactive: true,
-		LinkingKeys: []string{f.task.SourceRefs[0].ID}, Signal: signal,
+		LinkingKeys: []string{f.task.SourceRefs[0].ID}, Signal: signal, WorkflowState: signal,
 	}
 }
 
@@ -327,8 +327,9 @@ func TestMutationDoesNotWaitForCollectionOrLoseToStaleSnapshot(t *testing.T) {
 					}
 				}
 				if !localOnly && (method == "task-done" || method == "write-error") {
-					// Only a subsequent full refresh may apply the remote-active
-					// rule; the in-flight snapshot predates the user's mutation.
+					// A genuinely new workflow state may reopen on the next full
+					// refresh; the in-flight snapshot cannot undo the mutation.
+					other.ref.WorkflowState = "reopened"
 					f.service.Refresh(ctx, false)
 					task, _ := taskByID(f.store.Tasks(), id)
 					ref, _ := authoredRef(task, "obsidian")

@@ -142,7 +142,7 @@ func TestOwnRunCollectionAndSourceContract(t *testing.T) {
 	}
 	ref := result.Observations[0].Ref
 	contracttest.AssertValidSourceRefs(t, "terraform", []protocol.SourceRef{ref})
-	if ref.ID != "terraform:run:app.terraform.io:run-one" || ref.Authority != protocol.SourceRefAuthorityContributing || ref.ProvidesWorkspace || ref.Path != "" || ref.WorkspaceID != "" || ref.Presentation.PreferTitle {
+	if ref.WorkflowState != "planning" || ref.ID != "terraform:run:app.terraform.io:run-one" || ref.Authority != protocol.SourceRefAuthorityContributing || ref.ProvidesWorkspace || ref.Path != "" || ref.WorkspaceID != "" || ref.Presentation.PreferTitle {
 		t.Fatalf("ref contract: %+v", ref)
 	}
 	if !strings.Contains(strings.Join(ref.LinkingKeys, ","), "mark:ABC-123") {

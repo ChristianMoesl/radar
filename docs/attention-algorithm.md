@@ -53,13 +53,15 @@ Muting does not change the source signals, actual completion, or existing filter
 
 The key rules are:
 
-> Contributing completion does not override active contributing work. Authoritative active remote work reopens a completed authored task through its source provider.
+> Contributing completion does not override active contributing work. Manual Done wins over already-known remote facts; only changed active workflow state or newly linked active work can reopen it.
 
-A merged PR should not hide an active Jira issue when no primary owner exists. Once all contributing work items complete, the task is done. If a primary ref exists, it owns the projected lifecycle. A full refresh reconciles its authored task through the source provider: confirmed active contributors reopen it; confirmed completion of every contributor can complete it, subject to the explicit reopen baseline. At least one contributor is required, and every involved source must have completed collection. Display filters and the mere existence of supporting resources cannot override the primary lifecycle. Reported agent activity can veto completion and reopen an authored task as described below.
+A merged PR should not hide an active Jira issue when no primary owner exists. Once all contributing work items complete, the task is done. If a primary ref exists, it owns the projected lifecycle. A full refresh reconciles its authored task through the source provider: confirmed active contributors reopen automatic completion; explicit Done additionally requires a changed workflow state or new active contributor. Confirmed completion of every contributor can complete it, subject to the explicit reopen baseline. At least one contributor is required, and every involved source must have completed collection. Display filters and the mere existence of supporting resources cannot override the primary lifecycle. Reported agent activity can veto completion and reopen an authored task as described below.
 
 ## Obsidian lifecycle and urgency
 
-An open normal Obsidian note starts in `low_priority`. Linked tmux/SBX activity may promote it to `in_progress`, and actionable linked sources may promote it to `attention`. A database lifecycle of done is terminal without authoritative remote work or reported agent activity. Confirmed active remote contributors reopen a completed note on a full refresh; informational refs and the mere presence of local resources do not. Explicit reopening returns the note to its strongest active source classification. Automatic completion persists this state and its timestamp in SQLite before projecting done. An explicit reopen records already-completed work on the next successful full refresh, so unchanged historical completion cannot immediately close it again. Observing active work or newly linked work allows later automatic completion. SQLite stores this baseline across restarts and cache resets.
+An open normal Obsidian note starts in `low_priority`. Linked tmux/SBX activity may promote it to `in_progress`, and actionable linked sources may promote it to `attention`. A database lifecycle of done is terminal without authoritative remote work or reported agent activity. Confirmed active remote contributors reopen an automatically completed note on a full refresh; informational refs and the mere presence of local resources do not. Explicit reopening returns the note to its strongest active source classification. Automatic completion persists this state and its timestamp in SQLite before projecting done. An explicit reopen records already-completed work on the next successful full refresh, so unchanged historical completion cannot immediately close it again. Observing active work or newly linked work allows later automatic completion. SQLite stores this baseline across restarts and cache resets.
+
+Manual Done atomically saves the latest known workflow state of each linked contributor in SQLite. Remote facts keep refreshing, but unchanged active work cannot undo that decision. A changed active workflow state (for example, Jira In Review → In Progress), a reopened PR, or a newly linked active work item reopens it. Terminal transitions update each contributor's remembered state without reopening, so one PR merging cannot make an unchanged active Jira issue reopen the task. Titles, comments, checks, priority, attention signals and relative display text are not workflow changes. Missing, failed or incomplete observations never establish a transition; an already-bound item whose prior state is unknown records its first confirmed state without reopening. Snapshots survive restart/reset. Explicit Reopen and activity-driven handoff clear the manual-Done snapshot; agent activity/review safeguards remain stronger than manual completion.
 
 The urgent database priority emits a primary immediate signal. Returning it to `normal` restores the current source-derived category. Priority cannot reopen done work, bypass the per-task muted display group, or generate an OS notification for the user’s own mutation. GitHub PR policy cannot suppress the note’s urgency.
 
@@ -84,7 +86,7 @@ workspace, and ordinary acknowledgements do not release the hold. There is no
 automatic completion after a day or any other timeout. After reviewing the result,
 use `d` or `radar task done <task-id>` while agents are idle. That clears the hold
 and starts a new completion-based cleanup timeline. Subsequent confirmed active
-remote work can still reopen the task under the existing lifecycle rules.
+workflow changes or newly linked active work can still reopen the task.
 
 Explicit Done and automatic cleanup verify runtime activity freshly rather than
 trusting the displayed badge. Unverifiable activity blocks those operations.
@@ -190,4 +192,4 @@ Acknowledgement is for activity that you have already seen.
 
 Acknowledgements also apply per source: acknowledging PR feedback cannot lower an unrelated Jira issue or urgent note. Notification reason and URL follow the effective contributing source, not a suppressed raw PR signal.
 
-Policies do not change raw tracked state or explicit task mute preferences. An open muted PR still prevents automatic completion and can reopen an authored note; muting is not abandoning work. See [the GitHub guide](integrations/github.md) for configuration and rollout.
+Policies do not change raw tracked state or explicit task mute preferences. An open muted PR still prevents automatic completion and can reopen an authored note under the same workflow-change rules; muting is not abandoning work. See [the GitHub guide](integrations/github.md) for configuration and rollout.

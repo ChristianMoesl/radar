@@ -139,3 +139,40 @@ func TestStaleHandoffWriteReportsPendingIntentWithoutFabricatingObservation(t *t
 		t.Fatal("failed write fabricated persisted hold")
 	}
 }
+
+func TestManualCompletionSnapshotExcludesResourcesAndRemembersUnresolvedBindings(t *testing.T) {
+	ref := protocol.SourceRef{Bindings: []protocol.SourceBinding{
+		{Source: "jira", Kind: "issue", ID: "jira:issue:ABC-7", WorkItem: true},
+		{Source: "git", Kind: "worktree", ID: "git:worktree:one"},
+	}}
+	info := protocol.SourceRef{ID: "jira:issue:ABC-8", Role: protocol.SourceRefRoleInformational, WorkflowState: "in review"}
+	resource := protocol.SourceRef{ID: "git:worktree:two", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource}
+	states := completionStates(ref, []protocol.SourceRef{info, resource})
+	if len(states) != 1 || states["jira:issue:ABC-7"] != "" {
+		t.Fatalf("snapshot = %+v", states)
+	}
+	items := []protocol.SourceRef{{ID: "jira:issue:ABC-7", Signal: "in_progress", WorkflowState: "in review"}}
+	updates := reconcileManualCompletion(states, items)
+	if updates["state"] != "" || updates["manual_completion_states"] == "" {
+		t.Fatalf("first known state was treated as new active work: %+v", updates)
+	}
+	current, err := applyStateUpdates(note{Task: taskdb.Task{State: "done", Priority: "normal", CompletedAt: "2026-10-01T10:00:00Z"}}, updates)
+	if err != nil || current.ManualCompletionStates[items[0].ID] != "in review" {
+		t.Fatal("confirmed state was not retained", err)
+	}
+	items[0].WorkflowState = "in progress"
+	if updates := reconcileManualCompletion(current.ManualCompletionStates, items); updates["state"] != "open" {
+		t.Fatalf("later workflow change ignored: %+v", updates)
+	}
+}
+
+func TestManualCompletionStateUpdatesDoNotMutatePreviousSnapshot(t *testing.T) {
+	current := note{Task: taskdb.Task{State: "done", Priority: "normal", CompletedAt: "2026-10-01T10:00:00Z", ManualCompletionStates: map[string]string{"jira:issue:ABC-7": "in review"}}}
+	updated, err := applyStateUpdates(current, map[string]string{"manual_completion_states": `{"jira:issue:ABC-7":"resolved"}`})
+	if err != nil || current.ManualCompletionStates["jira:issue:ABC-7"] != "in review" || updated.ManualCompletionStates["jira:issue:ABC-7"] != "resolved" {
+		t.Fatalf("state update mutated its previous snapshot: %+v %+v %v", current, updated, err)
+	}
+	if _, err := applyStateUpdates(current, map[string]string{"manual_completion_states": `{"jira:issue:ABC-7":42}`}); err == nil {
+		t.Fatal("invalid workflow snapshot accepted")
+	}
+}

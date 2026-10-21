@@ -180,9 +180,15 @@ func (s *Service) MutateTask(ctx context.Context, method string, mutation *proto
 			if err := s.requireIdle(ctx, task); err != nil {
 				return protocol.Task{}, err
 			}
-			identity, err = provider.SetLifecycle(ctx, ref, "done")
+			// Include retained contributors that are absent from the served
+			// projection, not just currently visible source refs.
+			tracked, ok := taskByID(s.store.CollectionTasks(), task.ID)
+			if !ok {
+				return protocol.Task{}, fmt.Errorf("task %d is no longer tracked", task.ID)
+			}
+			identity, err = provider.SetLifecycle(ctx, ref, "done", tracked.SourceRefs)
 		case "task-reopen":
-			identity, err = provider.SetLifecycle(ctx, ref, "open")
+			identity, err = provider.SetLifecycle(ctx, ref, "open", nil)
 		case "task-priority":
 			if task.Attention == "done" {
 				return protocol.Task{}, fmt.Errorf("task %d is done and cannot change priority", mutation.TaskID)

@@ -163,7 +163,7 @@ func TestReconcileBindingsDoesNotRelocateDoneOrArchivedNotes(t *testing.T) {
 			}
 			ref := collectedArchiveRef(t, source)
 			if archived {
-				if _, err := source.SetLifecycle(ctx, ref, "done"); err != nil {
+				if _, err := source.SetLifecycle(ctx, ref, "done", nil); err != nil {
 					t.Fatal(err)
 				}
 				ref = collectedArchiveRef(t, source)

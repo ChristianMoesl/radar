@@ -22,7 +22,7 @@ func TestCleanupGuardRefreshesAuthorAfterExternalOrFailedReopen(t *testing.T) {
 					t.Fatal("expected post-write error")
 				}
 			} else {
-				if _, err := f.author.Source.SetLifecycle(context.Background(), ref, "open"); err != nil {
+				if _, err := f.author.Source.SetLifecycle(context.Background(), ref, "open", nil); err != nil {
 					t.Fatal(err)
 				}
 			}

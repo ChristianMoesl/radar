@@ -201,7 +201,7 @@ func TestMuteRetriesReuseRenamedAndArchivedNotes(t *testing.T) {
 			ref := collectedArchiveRef(t, source)
 			oldPath := ref.Metadata["note_path"]
 			if archived {
-				if _, err := source.SetLifecycle(ctx, ref, "done"); err != nil {
+				if _, err := source.SetLifecycle(ctx, ref, "done", nil); err != nil {
 					t.Fatal(err)
 				}
 				ref = collectedArchiveRef(t, source)

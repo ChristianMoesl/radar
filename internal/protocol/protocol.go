@@ -188,6 +188,10 @@ type SourceRef struct {
 	Presentation        SourceRefPresentation     `json:"presentation,omitempty"`
 	DisplayOrder        int                       `json:"display_order,omitempty"`
 	Acknowledgement     *SourceRefAcknowledgement `json:"acknowledgement,omitempty"`
+
+	// WorkflowState is a provider-owned stable lifecycle value, never display text,
+	// attention, comments, checks, or other presentation/activity metadata.
+	WorkflowState string `json:"workflow_state,omitempty"`
 }
 
 type Task struct {

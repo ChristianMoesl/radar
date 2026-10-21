@@ -8,7 +8,7 @@ import (
 
 // TaskLifecycleProvider persists remote completion and activity-driven handoffs.
 // Work items are authoritative contributors with confirmed signals. A provider
-// may reopen on active work or preserve an explicit reopening baseline.
+// may reopen on changed active work or preserve explicit Done/Reopen baselines.
 // Empty WorkItems allow only activity-driven reopening/retries, never remote completion.
 // A nil observation means no source mutation was needed.
 type TaskLifecycleProvider interface {

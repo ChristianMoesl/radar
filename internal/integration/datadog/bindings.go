@@ -74,6 +74,7 @@ func (Source) ResolveBindings(_ context.Context, req integration.BindingRequest)
 		}
 		ref.Signal = string(integration.SignalDone)
 		ref.Status = "Recovered"
+		ref.WorkflowState = "recovered"
 		result.Observations = append(result.Observations, integration.Observation{Ref: ref, Signal: integration.SignalDone, Reason: "Datadog monitor recovered"})
 	}
 	return result

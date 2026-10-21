@@ -78,7 +78,7 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	if len(urgent.Observations) != 1 || urgent.Observations[0].Signal != integration.SignalImmediate {
 		t.Fatalf("urgent collection = %+v", urgent)
 	}
-	if _, err := source.SetLifecycle(context.Background(), taskRef, "done"); err != nil {
+	if _, err := source.SetLifecycle(context.Background(), taskRef, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 	notePath = filepath.Join(taskRoot(vault), "Archived", filepath.Base(notePath))

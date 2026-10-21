@@ -485,3 +485,27 @@ func assertSourceRef(t *testing.T, source_refs []protocol.SourceRef, wantID stri
 		t.Fatalf("sourceRef linking = canonical %q keys %+v, want canonical and linking key %q", sourceRef.CanonicalKey, sourceRef.LinkingKeys, wantID)
 	}
 }
+
+func TestPullRequestWorkflowStateIgnoresPresentationAndActivity(t *testing.T) {
+	for _, tc := range []struct {
+		state, draft, want string
+	}{
+		{"OPEN", "false", "OPEN"}, {"OPEN", "true", "DRAFT"},
+		{"MERGED", "false", "MERGED"}, {"CLOSED", "false", "CLOSED"},
+	} {
+		item := protocol.Task{Title: "Original", Reason: "CI pending", Metadata: map[string]string{"pr_state": tc.state, "pr_draft": tc.draft}}
+		ref := newGitHubPullRequestSourceRef(item, "acme/app", 7, "pull_request", "feature", "Body")
+		item.Title, item.Reason = "Renamed", "merged yesterday"
+		item.Metadata["head_oid"], item.Metadata["unresolved_review_threads"] = "new-head", "3"
+		again := newGitHubPullRequestSourceRef(item, "acme/app", 7, "pull_request", "feature", "Edited body")
+		if ref.WorkflowState != tc.want || again.WorkflowState != tc.want {
+			t.Fatalf("workflow state = %q / %q, want %q", ref.WorkflowState, again.WorkflowState, tc.want)
+		}
+	}
+	for _, reason := range []string{"closed", "merged today"} {
+		refs := donePullRequestSourceRefs(nil, "acme/app", 7, reason)
+		if refs[0].WorkflowState == "" {
+			t.Fatal("terminal reconciliation omitted workflow state")
+		}
+	}
+}

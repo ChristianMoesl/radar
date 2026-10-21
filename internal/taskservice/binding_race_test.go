@@ -141,6 +141,12 @@ func TestMutationFencedRefreshPersistsNewBindingsBeforeImmediateReset(t *testing
 					t.Fatalf("binding %v missing from authored note: %+v", want, ref.Bindings)
 				}
 			}
+			if tc.afterMute == "task-done" {
+				persisted, err := taskdb.Find(strings.TrimPrefix(ref.ID, "obsidian:task:"))
+				if err != nil || len(persisted.ManualCompletionStates) != 1 || persisted.ManualCompletionStates[first.ID] != first.WorkflowState {
+					t.Fatalf("stale binding reconciliation changed manual Done snapshot: %+v %v", persisted, err)
+				}
+			}
 			// Reopen's pending completion baseline is also authored intent: a
 			// bindings-only reconciliation must not arm it with stale done facts.
 			if tc.afterMute == "task-reopen" {

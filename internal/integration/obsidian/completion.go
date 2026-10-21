@@ -3,7 +3,9 @@ package obsidian
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"sort"
 	"strings"
@@ -32,6 +34,9 @@ func (s Source) ReconcileLifecycle(_ context.Context, ref protocol.SourceRef, re
 			allDone = false
 		}
 	}
+	if allDone && ref.Signal == "done" && ref.Metadata["manual_completion"] != "true" && !reviewRequired {
+		return nil, nil
+	}
 	sort.Strings(ids)
 	baseline := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(ids, "\n"))))
 	changed := false
@@ -51,7 +56,16 @@ func (s Source) ReconcileLifecycle(_ context.Context, ref protocol.SourceRef, re
 		if len(workItems) == 0 {
 			return nil, nil
 		}
-		// Active remote work takes precedence over a locally completed note.
+		if current.State == "done" && current.ManualCompletionStates != nil {
+			updates := reconcileManualCompletion(current.ManualCompletionStates, workItems)
+			if updates["state"] == "open" {
+				updates["completion_baseline"] = baseline
+			}
+			changed = len(updates) > 0
+			return updates, nil
+		}
+		// Active remote work reopens automatic completion. Explicit Done only
+		// reopens on a new active contributor or a changed workflow state.
 		// Recording the completed subset also arms the next completion cycle.
 		if !allDone {
 			updates := map[string]string{}
@@ -126,7 +140,50 @@ func (s Source) agentReviewUpdates(current note, ref protocol.SourceRef, request
 	}
 	merged, _ := mergeBindings(current.Bindings, bindings)
 	return map[string]string{
-		"state": "open", "completed_at": "", "agent_review": "true",
+		"state": "open", "completed_at": "", "agent_review": "true", "manual_completion_states": "null",
 		"bindings": encodeBindings(merged),
 	}, nil
+}
+
+// Capture known states at the user's action, not on a later remote refresh.
+// Unresolved bindings are remembered as unknown so their first successful read
+// is not mistaken for newly linked work. They cannot establish a transition.
+func completionStates(ref protocol.SourceRef, contributors []protocol.SourceRef) map[string]string {
+	states := map[string]string{}
+	for _, binding := range ref.Bindings {
+		if binding.WorkItem {
+			states[binding.ID] = ""
+		}
+	}
+	for _, item := range contributors {
+		if item.Role == protocol.SourceRefRoleAuthoritative && item.Lifecycle == protocol.SourceRefLifecycleWorkItem && item.Authority == protocol.SourceRefAuthorityContributing {
+			states[item.ID] = item.WorkflowState
+		}
+	}
+	return states
+}
+
+func encodeCompletionStates(states map[string]string) string {
+	data, _ := json.Marshal(states) // String maps cannot fail JSON encoding.
+	return string(data)
+}
+
+func reconcileManualCompletion(previous map[string]string, workItems []protocol.SourceRef) map[string]string {
+	states := maps.Clone(previous)
+	for _, item := range workItems {
+		if item.WorkflowState == "" {
+			continue // Missing state is not evidence of a transition.
+		}
+		old, known := states[item.ID]
+		if item.Signal != string(integration.SignalDone) && (!known || (old != "" && old != item.WorkflowState)) {
+			return map[string]string{"state": "open", "completed_at": "", "manual_completion_states": "null"}
+		}
+		// Remember each confirmed terminal transition independently. Completing
+		// one item must not make another item's unchanged active state reopen us.
+		states[item.ID] = item.WorkflowState
+	}
+	if maps.Equal(previous, states) {
+		return nil
+	}
+	return map[string]string{"manual_completion_states": encodeCompletionStates(states)}
 }

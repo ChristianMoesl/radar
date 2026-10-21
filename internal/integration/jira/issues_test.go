@@ -268,3 +268,18 @@ func TestDoneAuthoredTaskRetainsOnlyCompletedJiraRefs(t *testing.T) {
 		}
 	}
 }
+
+func TestIssueWorkflowStateTracksStatusNotAttentionOrPresentation(t *testing.T) {
+	item := jiraIssueWithStatus("ABC-7", " In Review ")
+	ref := sourceRefFromIssue(Config{}, item)
+	item.Fields.Summary = "Updated title"
+	item.Fields.Status.Name = "IN REVIEW"
+	again := sourceRefFromIssue(Config{}, item)
+	if ref.WorkflowState != "in review" || again.WorkflowState != ref.WorkflowState {
+		t.Fatalf("status normalization = %q / %q", ref.WorkflowState, again.WorkflowState)
+	}
+	item.Fields.Status.Name = "In Progress"
+	if changed := sourceRefFromIssue(Config{}, item); changed.WorkflowState == ref.WorkflowState {
+		t.Fatal("distinct active workflow states were collapsed")
+	}
+}

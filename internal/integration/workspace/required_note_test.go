@@ -160,7 +160,7 @@ func TestOpeningCompletedWorkspaceDoesNotReopenTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref := author.Collect(ctx, integration.CollectRequest{}).Observations[0].Ref
-	if _, err := author.SetLifecycle(ctx, ref, "done"); err != nil {
+	if _, err := author.SetLifecycle(ctx, ref, "done", nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(ref.WorkspaceAnchorPath)
