@@ -245,6 +245,63 @@ def verify_phase(provider, cfg, name, spec, report, client_id):
         report.setdefault("masking_failures", []).append({"phase": report["phase"], "error": str(error)})
 
 
+def routing_summary(value, host=None):
+    routes, decisions, matched = set(), set(), 0
+    def collect(item):
+        if isinstance(item, dict):
+            for key, child in item.items():
+                field = key.lower().replace('_', '').replace('-', '')
+                if field in {'headers', 'body', 'request', 'response', 'credentials'}:
+                    continue
+                if field == 'allowed' and isinstance(child, bool):
+                    decisions.add('allow' if child else 'deny')
+                if field in {'proxy', 'proxytype', 'proxymode', 'route', 'type'} and isinstance(child, str):
+                    if child.lower() in {'forward', 'forward-bypass', 'bypass', 'blocked'}:
+                        routes.add(child.lower())
+                if field in {'decision', 'action', 'result'} and isinstance(child, str):
+                    if child.lower() in {'allow', 'allowed', 'deny', 'denied'}:
+                        decisions.add(child.lower())
+                collect(child)
+        elif isinstance(item, list):
+            for child in item:
+                collect(child)
+    def visit(item):
+        nonlocal matched
+        if isinstance(item, dict):
+            if any(child in (host, host + ':443') for child in item.values() if isinstance(child, str)):
+                matched += 1
+                collect(item)
+            else:
+                for child in item.values():
+                    visit(child)
+        elif isinstance(item, list):
+            for child in item:
+                visit(child)
+    if host:
+        visit(value)
+    else:
+        collect(value)
+    return {"routes": sorted(routes), "decisions": sorted(decisions), "matching_entries": matched}
+
+
+def diagnose_route(name, spec):
+    endpoint = spec['credentials'][0]['oauth']['tokenEndpoint']
+    host = endpoint['host']
+    policy = run(['sbx', 'policy', 'check', 'network', '--sandbox', name, '--json', host], parse=True)
+    probe = sbx(name, 'python3', '-c', MASK_PROBE, json.dumps({
+        'endpoint': 'https://' + host + endpoint['path'], 'client_id': 'radar-route-diagnostic',
+        'access': ACCESS, 'refresh': REFRESH}), parse=True)
+    observed = None
+    for _ in range(3):
+        logs = run(['sbx', 'policy', 'log', name, '--json', '--type', 'network', '--limit', '30'], parse=True)
+        observed = routing_summary(logs, host)
+        if observed['matching_entries']:
+            break
+        time.sleep(2)
+    return {'authentication_attempted': False, 'policy': routing_summary(policy),
+            'negative_probe': probe, 'observed_routing': observed}
+
+
 def relay(directory, authorization, name):
     repository, run_id = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"]
     artifact_name = "sbx-oauth-callback-" + run_id
@@ -286,6 +343,11 @@ def worker(directory):
         run(["sbx", "kit", "validate", "--offline", str(directory / "kit")])
         report["phase"] = "create_sandbox"
         run(["sbx", "create", "--name", name, "--no-progress", str(directory / "kit")], timeout=300)
+        if state.get('diagnose'):
+            report['phase'] = 'routing_diagnostic'
+            report['diagnostic'] = diagnose_route(name, spec)
+            report.update(status='diagnosed', phase='completed')
+            return
         report["phase"] = "native_login"
         args = (["twg", "login", "--new-profile", PROFILE, "--site", cfg["cloud_id"]] if provider == "twg" else
                 ["pup", "auth", "login", "--site", cfg["site"], "--org", PROFILE, "--scopes", "monitors_read", "--callback-port", "8000"])
@@ -387,7 +449,7 @@ def worker(directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["prepare", "worker", "wait"])
+    parser.add_argument("operation", choices=["prepare", "diagnose", "worker", "wait"])
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--provider", choices=["twg", "pup"])
     parser.add_argument("--config", type=Path)
@@ -400,7 +462,7 @@ def main():
     require(directory.is_relative_to(Path(os.environ["RUNNER_TEMP"]).resolve()), "Use the runner's private temporary directory")
     if args.operation == "worker":
         worker(directory)
-    elif args.operation == "prepare":
+    elif args.operation in ("prepare", "diagnose"):
         require(not directory.exists(), "Test directory must be new")
         cfg = json.loads(args.config.read_text())
         validate(args.provider, cfg)
@@ -414,9 +476,10 @@ def main():
         write(bindings, {"bindings": {"radar-" + args.provider: {"oauth": {
             "domains": sorted(set([oauth["tokenEndpoint"]["host"], *oauth["resourceHosts"]]))}}}})
         directory.mkdir(mode=0o700)
-        if args.provider == "pup":
+        if args.provider == "pup" and args.operation == 'prepare':
             run(["node", str(BRIDGE), "keygen", str(directory / "callback.key"), os.environ["GITHUB_RUN_ID"]])
         write(directory / "state.json", {"provider": args.provider, "config": cfg, "kit": spec,
+                                        "diagnose": args.operation == 'diagnose',
                                         "sandbox": "radar-proxy-" + os.environ["GITHUB_RUN_ID"]})
         with (directory / "worker.log").open("w") as log:
             subprocess.Popen([sys.executable, __file__, "worker", "--directory", str(directory)],
@@ -427,7 +490,10 @@ def main():
                 print("Login challenge prepared; approve using the private test artifact")
                 return 0
             if (directory / "result.json").exists():
-                print((directory / "result.json").read_text())
+                result = json.loads((directory / 'result.json').read_text())
+                print(json.dumps(result))
+                if args.operation == 'diagnose' and result['status'] == 'diagnosed':
+                    return 0
                 raise Failure("Test stopped before authorization; inspect sanitized result")
             time.sleep(2)
         raise Failure("Sandbox login challenge was not ready within its deadline")

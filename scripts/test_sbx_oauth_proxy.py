@@ -20,6 +20,17 @@ spec.loader.exec_module(proxy)
 
 
 class Boundaries(unittest.TestCase):
+    def test_routing_summary_keeps_decisions_and_drops_private_fields(self):
+        logs = {'logs': [
+            {'host': 'api.example:443', 'proxy': 'forward-bypass', 'allowed': True,
+             'headers': {'Authorization': 'private-fixture'}, 'body': 'private-provider-body'},
+            {'host': 'private.example', 'proxy': 'forward', 'rule': 'private-rule'}]}
+        summary = proxy.routing_summary(logs, 'api.example')
+        self.assertEqual(summary, {'routes': ['forward-bypass'], 'decisions': ['allow'], 'matching_entries': 1})
+        self.assertNotIn('private', json.dumps(summary))
+        self.assertEqual(proxy.routing_summary({'body': {'type': 'forward'}, 'response': {'allowed': True}})['routes'], [])
+        self.assertEqual(proxy.routing_summary({'allowed': False})['decisions'], ['deny'])
+
     def test_masking_probe_uses_the_public_client_and_withholds_provider_errors(self):
         fixture = {'endpoint': 'https://api.example/token', 'client_id': 'public-client',
                    'access': proxy.ACCESS, 'refresh': proxy.REFRESH}

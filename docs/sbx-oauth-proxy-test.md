@@ -37,6 +37,14 @@ test grants Pup only `monitors_read`, performs Jira issue/monitor reads, tests
 native refresh and stops/restarts its own sandbox. It changes no issues,
 comments or monitors and revokes no remote grants.
 
+Operation `diagnose` uses the same disposable kit without starting native login.
+It sends one negative refresh request using only a dummy public client and the
+known sentinel, checks network authorization, and summarizes the token host's
+SBX policy log. Its `diagnosed` status is not an OAuth qualification pass. A 403
+with no real login is an expected negative control; the routing decision is the
+useful evidence. Output contains only fixed routing/decision labels, booleans
+and an HTTP status. Provider bodies, policy rule text and raw logs stay private.
+
 ## Approve login
 
 Download `sbx-oauth-challenge-<run-id>` as soon as its upload step finishes.
