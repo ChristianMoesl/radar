@@ -86,6 +86,12 @@ responses include a UTF-8 charset. Token-endpoint observations also classify any
 Authorization header as absent, a known fake token, a sentinel or other; unknown
 header values never leave the server.
 
+The `public` token-endpoint profile rejects an unexpected Authorization header
+without rotating its dummy refresh token. Fresh kits compare an explicitly shared
+token/API host, omitted `resourceHosts`, and separate token/API hosts. Masking and
+authenticated API reads remain required in every variant, so removing resource
+declarations cannot conceal a broken API authentication path.
+
 `fixture_passed` characterizes the generic proxy against the local test server;
 it does not qualify TWG/Pup or resolve a real-provider failure by itself. The
 fixture server and sandbox are stopped after the check, and the runner, temporary

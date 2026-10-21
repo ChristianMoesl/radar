@@ -16,6 +16,7 @@ spec = importlib.util.spec_from_file_location('proxy', Path(__file__).with_name(
 proxy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(proxy)
 HOST = 'radar-oauth-fixture.test'
+RESOURCE_HOST = 'radar-oauth-resource.test'
 SERVICE = 'radar-oauth-fixture'
 CLIENT_ID = 'fixture-public-client'
 PROFILES = ('plain', 'gzip', 'escaped', 'combined')
@@ -44,11 +45,14 @@ class Provider:
                      'authorization_kind': ('none' if authorization is None else 'fixture_actual'
                          if authorization == 'Bearer ' + token('access', self.generation, self.profile)
                          else 'sentinel' if authorization == 'Bearer ' + proxy.ACCESS else 'other')}
-            code_profiles = {'fixture-code-' + profile: profile for profile in PROFILES}
+            code_profiles = {'fixture-code-' + profile: profile for profile in (*PROFILES, 'public')}
+            requested_profile = code_profiles.get(fields.get('code')) if isinstance(fields.get('code'), str) else None
             if not event['client_matches']:
                 status, data = 400, {'error': 'invalid_client'}
-            elif grant == 'authorization_code' and isinstance(fields.get('code'), str) and fields['code'] in code_profiles:
-                self.profile = code_profiles[fields['code']]
+            elif (requested_profile or self.profile) == 'public' and authorization is not None:
+                status, data = 403, {'error': 'unexpected_authorization'}
+            elif grant == 'authorization_code' and requested_profile is not None:
+                self.profile = requested_profile
                 self.generation = 0
                 status, data = 200, self.tokens()
             elif grant == 'refresh_token' and event['refresh_kind'] == 'fixture_actual':
@@ -161,7 +165,7 @@ except urllib.error.HTTPError as error:
  try:
   raw=error.read(16384)
   code=json.loads(gzip.decompress(raw) if error.headers.get('Content-Encoding')=='gzip' else raw).get('error')
-  if code in ('invalid_client','invalid_grant','invalid_request','unsupported_grant_type'):result['oauth_error']=code
+  if code in ('invalid_client','invalid_grant','invalid_request','unsupported_grant_type','unexpected_authorization'):result['oauth_error']=code
  except Exception:pass
  print(json.dumps(result))
 except urllib.error.URLError as error:
@@ -170,14 +174,18 @@ except Exception:print(json.dumps({'failure':'response_or_request'}))
 '''
 
 
-def fixture_kit(image):
+def fixture_kit(image, variant='standard'):
     kit = proxy.kit('pup', {}, image)
     kit['name'] = SERVICE
-    kit['permissions']['network']['allow'] = [HOST]
+    resource = RESOURCE_HOST if variant == 'separate' else HOST
+    kit['permissions']['network']['allow'] = sorted({HOST, resource})
     credential = kit['credentials'][0]
-    credential['service'] = SERVICE
+    credential['service'] = SERVICE + ('-' + variant if variant != 'standard' else '')
     credential['oauth']['tokenEndpoint'] = {'host': HOST, 'path': '/oauth/token'}
-    credential['oauth']['resourceHosts'] = [HOST]
+    if variant == 'implicit':
+        credential['oauth'].pop('resourceHosts')
+    else:
+        credential['oauth']['resourceHosts'] = [resource]
     return kit
 
 
@@ -199,14 +207,14 @@ def prepare(directory):
     openssl('req', '-new', '-newkey', 'rsa:2048', '-nodes', '-keyout', str(directory / 'server.key'),
             '-out', str(directory / 'server.csr'), '-subj', '/CN=' + HOST)
     (directory / 'extensions').write_text('basicConstraints=critical,CA:FALSE\n'
-        'keyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:' + HOST + '\n')
+        'keyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:' + HOST + ',DNS:' + RESOURCE_HOST + '\n')
     openssl('x509', '-req', '-in', str(directory / 'server.csr'), '-CA', str(directory / 'ca.crt'),
             '-CAkey', str(directory / 'ca.key'), '-CAcreateserial', '-out', str(directory / 'server.crt'),
             '-days', '1', '-extfile', str(directory / 'extensions'))
     destination = '/usr/local/share/ca-certificates/radar-oauth-fixture-' + os.environ['GITHUB_RUN_ID'] + '.crt'
     proxy.run(['sudo', 'install', '-m', '0644', str(directory / 'ca.crt'), destination])
     proxy.run(['sudo', 'update-ca-certificates'])
-    proxy.run(['sudo', 'tee', '-a', '/etc/hosts'], body='\n127.0.0.1 ' + HOST + '\n')
+    proxy.run(['sudo', 'tee', '-a', '/etc/hosts'], body='\n127.0.0.1 ' + HOST + ' ' + RESOURCE_HOST + '\n')
     with (directory / 'server.log').open('w') as output:
         child = subprocess.Popen(['sudo', '--preserve-env=GITHUB_ACTIONS,RADAR_SBX_PROXY_DISPOSABLE,RUNNER_TEMP',
                                  sys.executable, str(Path(__file__).resolve()), 'serve', '--directory', str(directory)],
@@ -234,19 +242,25 @@ def check(directory, image):
     name = 'radar-proxy-' + os.environ['GITHUB_RUN_ID']
     report = {'provider': 'local_fixture', 'status': 'fixture_failed', 'authentication_attempted': False,
               'sbx_version': '0.49.1', 'cases': {}}
+    active = False
     try:
         proxy.require(proxy.run(['sbx', 'ls', '--json'], parse=True) in ([], {'sandboxes': []}),
                       'Use a host without existing sandboxes')
         binding = Path.home() / '.config/sbx/credentials.yaml'
         proxy.require(not binding.exists(), 'Use a host without existing credential bindings')
         binding.parent.mkdir(parents=True, exist_ok=True)
-        proxy.write(binding, {'bindings': {SERVICE: {'oauth': {'domains': [HOST]}}}})
-        (directory / 'kit').mkdir()
-        proxy.write(directory / 'kit/spec.yaml', fixture_kit(image))
-        proxy.run(['sbx', 'kit', 'validate', '--offline', str(directory / 'kit')])
+        kits = {variant: fixture_kit(image, variant) for variant in ('standard', 'shared', 'implicit', 'separate')}
+        proxy.write(binding, {'bindings': {kit['credentials'][0]['service']: {'oauth': {
+            'domains': kit['permissions']['network']['allow']}} for kit in kits.values()}})
+        for variant, kit in kits.items():
+            path = directory / 'kit' / variant
+            path.mkdir(parents=True)
+            proxy.write(path / 'spec.yaml', kit)
+            proxy.run(['sbx', 'kit', 'validate', '--offline', str(path)])
 
-        def request(execute, operation, encoding, *, profile='plain', outside=False, generation=0):
-            data = {'operation': operation, 'encoding': encoding, 'base': 'https://' + HOST,
+        def request(execute, operation, encoding, *, profile='plain', outside=False, generation=0, resource_host=HOST):
+            data = {'operation': operation, 'encoding': encoding,
+                    'base': 'https://' + (resource_host if operation == 'resource' else HOST),
                     'client_id': CLIENT_ID, 'profile': profile,
                     'access': token('access', generation, profile) if outside else proxy.ACCESS,
                     'refresh': token('refresh', generation, profile) if outside else proxy.REFRESH,
@@ -259,7 +273,7 @@ def check(directory, image):
 
         report['phase'] = 'host_fixture_control'
         direct = report['host_control'] = {}
-        for profile in PROFILES:
+        for profile in (*PROFILES, 'public'):
             direct[profile] = {}
             for encoding in ('form', 'json'):
                 direct[profile][encoding] = {
@@ -269,8 +283,20 @@ def check(directory, image):
         proxy.require(all(result.get('http_status') == 200 and all(v is True for k, v in result.items() if k != 'http_status')
                           for profile in direct.values() for case in profile.values() for result in case.values()),
                       'Local fixture control failed')
+        def create(variant):
+            nonlocal active
+            if active:
+                proxy.run(['sbx', 'rm', '--force', name])
+                active = False
+            active = True
+            proxy.run(['sbx', 'create', '--name', name, '--no-progress', str(directory / 'kit' / variant)], timeout=300)
+
+        def passed(results):
+            return all(result.get('http_status') == 200 and all(v is True for k, v in result.items() if k != 'http_status')
+                       for result in results)
+
         report['phase'] = 'create_sandbox'
-        proxy.run(['sbx', 'create', '--name', name, '--no-progress', str(directory / 'kit')], timeout=300)
+        create('standard')
         policy = proxy.run(['sbx', 'policy', 'check', 'network', '--sandbox', name, '--json', HOST], parse=True)
         report['policy'] = proxy.routing_summary(policy)
         execute = lambda *args, **kwargs: proxy.sbx(name, *args, **kwargs)
@@ -288,19 +314,33 @@ def check(directory, image):
         report['restart_read'] = request(execute, 'resource', 'form')
         results = [result for profile in report['cases'].values() for case in profile.values() for result in case.values()]
         results.append(report['restart_read'])
-        passed = all(result.get('http_status') == 200 and all(v is True for k, v in result.items() if k != 'http_status')
-                     for result in results)
-        report.update(status='fixture_passed' if passed else 'fixture_failed', phase='completed')
+        report['standard_passed'] = passed(results)
+        report['token_endpoint_headers'] = {}
+        for variant in ('shared', 'implicit', 'separate'):
+            report['phase'] = 'public_endpoint_' + variant
+            create(variant)
+            resource = RESOURCE_HOST if variant == 'separate' else HOST
+            cases = report['token_endpoint_headers'][variant] = {}
+            for encoding in ('form', 'json'):
+                cases[encoding] = {
+                    'exchange': request(execute, 'authorization_code', encoding, profile='public'),
+                    'initial_read': request(execute, 'resource', encoding, resource_host=resource),
+                    'refresh': request(execute, 'refresh_token', encoding),
+                    'refreshed_read': request(execute, 'resource', encoding, resource_host=resource)}
+            cases['passed'] = passed([result for case in cases.values() for result in case.values()])
+        all_passed = report['standard_passed'] and all(case['passed'] for case in report['token_endpoint_headers'].values())
+        report.update(status='fixture_passed' if all_passed else 'fixture_failed', phase='completed')
     except Exception as error:
         report['error'] = str(error) if isinstance(error, proxy.Failure) else 'Unexpected fixture failure; private details withheld'
     finally:
-        try:
-            proxy.run(['sbx', 'rm', '--force', name])
-        except proxy.Failure:
-            report.update(status='fixture_failed', cleanup='Disposable sandbox cleanup failed')
+        if active:
+            try:
+                proxy.run(['sbx', 'rm', '--force', name])
+            except proxy.Failure:
+                report.update(status='fixture_failed', cleanup='Disposable sandbox cleanup failed')
         events = directory / 'events.jsonl'
         if events.exists():
-            report['server_events'] = [json.loads(line) for line in events.read_text().splitlines()][:60]
+            report['server_events'] = [json.loads(line) for line in events.read_text().splitlines()][:120]
         proxy.write(directory / 'result.json', report)
         proxy.publish(directory, report)
         print(json.dumps(report))

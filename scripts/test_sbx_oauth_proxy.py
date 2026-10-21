@@ -34,6 +34,23 @@ class Boundaries(unittest.TestCase):
         self.assertFalse(credential['oauth']['passthrough'])
         self.assertNotIn('credentialFile', credential['oauth'])
         self.assertNotIn('apiKey', credential)
+        implicit = fixture.fixture_kit('docker.io/christianmoesl/radar-sandbox:test', 'implicit')
+        self.assertNotIn('resourceHosts', implicit['credentials'][0]['oauth'])
+        separate = fixture.fixture_kit('docker.io/christianmoesl/radar-sandbox:test', 'separate')
+        self.assertEqual(separate['credentials'][0]['oauth']['resourceHosts'], [fixture.RESOURCE_HOST])
+        self.assertEqual(set(separate['permissions']['network']['allow']), {fixture.HOST, fixture.RESOURCE_HOST})
+
+    def test_public_token_fixture_rejects_resource_bearer_without_rotating(self):
+        provider = fixture.Provider()
+        fields = {'client_id': fixture.CLIENT_ID, 'grant_type': 'authorization_code', 'code': 'fixture-code-public'}
+        self.assertEqual(provider.exchange(fields, 'form')[0], 200)
+        refresh = dict(fields, grant_type='refresh_token', refresh_token=fixture.token('refresh', 0))
+        status, data, event = provider.exchange(refresh, 'form', authorization='Bearer ' + fixture.token('access', 0))
+        self.assertEqual(status, 403)
+        self.assertEqual(data, {'error': 'unexpected_authorization'})
+        self.assertEqual(event['authorization_kind'], 'fixture_actual')
+        self.assertEqual(provider.generation, 0)
+        self.assertEqual(provider.exchange(refresh, 'form')[0], 200)
 
     def test_fixture_rotation_rejects_old_refresh_and_unknown_values_stay_private(self):
         provider = fixture.Provider()
