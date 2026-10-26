@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -310,6 +310,76 @@ test("restores shared TMPDIR before Pi replaces the session", async (t) => {
   assert.equal(process.env.RADAR_HOST_TMPDIR, h.root);
   await h.emit("session_shutdown");
   assert.equal(process.env.TMPDIR, h.root);
+});
+
+test("subagent shutdown keeps clipboard images in the parent's shared directory", async (t) => {
+  const h = await harness(t);
+  const shared = join(h.root, "shared");
+  await mkdir(shared);
+  h.setContext({ members: [], sandbox: { shared_directory: shared, shared_directory_ready: true } });
+  await h.start();
+  await h.resources();
+
+  // Separate module instances share process.env, just like in-process subagents.
+  const module = new URL("../../extensions/pi-radar/index.ts?shared-directory-fixture", import.meta.url).href;
+  const { default: independentlyLoadedRadar } = await import(module);
+  assert.notEqual(independentlyLoadedRadar, radar);
+  const child = h.peer(independentlyLoadedRadar);
+  await child.start();
+  await child.emit("resources_discover", { cwd: h.root, reason: "startup" });
+  await child.emit("session_shutdown");
+  assert.equal(tmpdir(), shared);
+  assert.equal(process.env.RADAR_HOST_TMPDIR, h.root);
+
+  // Pi's clipboard handler chooses its output directory at paste time, before
+  // before_agent_start can reassert it on the next prompt.
+  const clipboard = join(tmpdir(), "pi-clipboard-fixture.png");
+  await writeFile(clipboard, "clipboard bytes");
+  assert.equal(await readFile(join(shared, "pi-clipboard-fixture.png"), "utf8"), "clipboard bytes");
+  await h.emit("session_shutdown");
+  assert.equal(tmpdir(), h.root);
+});
+
+test("a peer without a ready shared directory does not reset the parent's TMPDIR", async (t) => {
+  const h = await harness(t);
+  const shared = join(h.root, "shared");
+  await mkdir(shared);
+  h.setContext({ members: [], sandbox: { shared_directory: shared, shared_directory_ready: true } });
+  await h.start();
+  await h.resources();
+  const child = h.peer();
+  await child.start();
+  h.failInspection();
+  await child.emit("resources_discover", { cwd: h.root, reason: "startup" });
+  assert.equal(tmpdir(), shared);
+  await child.emit("session_shutdown");
+  assert.equal(tmpdir(), shared);
+  await h.emit("session_shutdown");
+  assert.equal(tmpdir(), h.root);
+});
+
+test("old session shutdown does not clear a replacement's shared directory", async (t) => {
+  const h = await harness(t);
+  const first = join(h.root, "first"), second = join(h.root, "second");
+  await mkdir(first);
+  await mkdir(second);
+  h.setContext({ members: [], sandbox: { shared_directory: first, shared_directory_ready: true } });
+  await h.start();
+  await h.resources();
+  const replacement = h.peer();
+  await replacement.start();
+  h.setContext({ members: [], sandbox: { shared_directory: second, shared_directory_ready: true } });
+  await replacement.emit("resources_discover", { cwd: h.root, reason: "reload" });
+  assert.equal(tmpdir(), second);
+  await h.emit("session_shutdown");
+  assert.equal(tmpdir(), second);
+  await h.emit("session_shutdown");
+  assert.equal(tmpdir(), second);
+  // A refresh already in flight at shutdown cannot reclaim TMPDIR afterward.
+  await h.resources("reload");
+  assert.equal(tmpdir(), second);
+  await replacement.emit("session_shutdown");
+  assert.equal(tmpdir(), h.root);
 });
 
 test("reload command uses Pi's resource reload without replacing the conversation", async (t) => {

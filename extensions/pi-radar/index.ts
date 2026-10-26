@@ -94,16 +94,38 @@ type WorkspaceContextResult = {
   [key: string]: unknown;
 };
 
-// Change only Pi's host process, not tmux's environment or Linux tools in SBX.
-// Preserve the original root for Radar subprocesses allocating other workspaces.
-function configureSharedDirectory(context: WorkspaceContextResult | undefined) {
-  const directory = context?.sandbox?.shared_directory_ready ? context.sandbox.shared_directory : undefined;
-  if (directory) {
-    process.env.RADAR_HOST_TMPDIR ||= tmpdir();
-    process.env.TMPDIR = directory;
-  } else if (process.env.RADAR_HOST_TMPDIR) {
-    process.env.TMPDIR = process.env.RADAR_HOST_TMPDIR;
+const ProcessSharedDirectoriesKey = Symbol.for("@christianmoesl/pi-radar/shared-directories");
+
+// In-process subagents and independently loaded modules share process.env.
+// Each extension may release only its own directory, not another live session's.
+function sharedDirectoryTracker() {
+  const shared = globalThis as typeof globalThis & { [ProcessSharedDirectoriesKey]?: Map<symbol, string> };
+  const directories = shared[ProcessSharedDirectoriesKey] ??= new Map<symbol, string>();
+  const session = Symbol("Radar shared directory session");
+  let stopped = false;
+
+  function configure(context: WorkspaceContextResult | undefined) {
+    if (stopped) return;
+    const directory = context?.sandbox?.shared_directory_ready ? context.sandbox.shared_directory : undefined;
+    directories.delete(session);
+    if (directory) {
+      // Change only Pi's host process, not tmux or Linux tools in SBX. Preserve
+      // the host root for Radar subprocesses allocating other workspaces.
+      process.env.RADAR_HOST_TMPDIR ||= tmpdir();
+      directories.set(session, directory);
+    }
+    const active = [...directories.values()].at(-1);
+    if (active) process.env.TMPDIR = active;
+    else if (process.env.RADAR_HOST_TMPDIR) process.env.TMPDIR = process.env.RADAR_HOST_TMPDIR;
   }
+
+  return {
+    configure,
+    shutdown() {
+      configure(undefined);
+      stopped = true;
+    },
+  };
 }
 
 type ResourceSnapshot = { contextPaths: string[]; skillPaths: string[] };
@@ -387,6 +409,7 @@ export default function radarExtension(pi: ExtensionAPI) {
 // workspace-only resources after session_start supplies the actual session cwd.
 function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
   const activity = activityTracker(pi);
+  const sharedDirectory = sharedDirectoryTracker();
   let previousResources: ResourceSnapshot = { contextPaths: [], skillPaths: [] };
   let knownContext: WorkspaceContextResult | undefined;
  let sandboxRoutingAccepted=true;
@@ -410,7 +433,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
   pi.on("resources_discover", async (event, ctx) => {
     try {
       knownContext = await inspectWorkspace(pi, event.cwd);
-      configureSharedDirectory(knownContext);
+      sharedDirectory.configure(knownContext);
       requireSandboxRouting(knownContext);
       const discovered = await discoverResources(knownContext, (message, level) => ctx.ui.notify(message, level));
       const resources = ctx.isProjectTrusted() ? discovered : { ...discovered, skillPaths: [] };
@@ -421,7 +444,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
       pi.appendEntry(ResourceEntry, resources);
       return { skillPaths: resources.skillPaths };
     } catch (error) {
-      configureSharedDirectory(undefined);
+      sharedDirectory.configure(undefined);
       if (event.reason === "reload") ctx.ui.notify(`Radar workspace resource refresh failed; keeping the previous resource set: ${error instanceof Error ? error.message : error}`, "warning");
       return { skillPaths: previousResources.skillPaths };
     }
@@ -436,7 +459,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
 
     try {
       knownContext = await inspectWorkspace(pi, ctx.cwd, ctx.signal);
-      configureSharedDirectory(knownContext);
+      sharedDirectory.configure(knownContext);
       requireSandboxRouting(knownContext);
       const resources = await discoverResources(knownContext);
       const blocks: string[] = [];
@@ -460,7 +483,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
       ].filter(Boolean).join("\n");
       return { systemPrompt: [event.systemPrompt, guidelines, radarInstructions, ...blocks].filter(Boolean).join("\n\n") };
     } catch {
-      configureSharedDirectory(undefined);
+      sharedDirectory.configure(undefined);
       if (radarInstructions) return { systemPrompt: [event.systemPrompt, radarInstructions].join("\n\n") };
       return undefined;
     }
@@ -477,7 +500,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
   pi.on("ui_prompt_start", () => activity.prompt(true));
   pi.on("ui_prompt_end", () => activity.prompt(false));
   pi.on("session_shutdown", async () => {
-    configureSharedDirectory(undefined);
+    sharedDirectory.shutdown();
     await activity.shutdown();
   });
 
