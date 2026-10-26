@@ -817,6 +817,37 @@ func TestActivateSelectedPrefersRegisteredWorkspaceAnchor(t *testing.T) {
 	}
 }
 
+func TestActivateSelectedReopensRegisteredWorkspaceWithCachedSession(t *testing.T) {
+	for _, tmux := range []string{"", "test-client"} {
+		t.Run("TMUX="+tmux, func(t *testing.T) {
+			t.Setenv("TMUX", tmux)
+			m := model{tasks: []protocol.Task{{ID: 1, Attention: "attention", SourceRefs: []protocol.SourceRef{
+				// This cached session may have closed since the last collection.
+				{ID: "tmux:session:100:123:$7", Source: "tmux", Kind: "session", Title: "plan", Metadata: map[string]string{"switch_target": "$7"}},
+				{ID: "workspace:one", Source: "workspace", Kind: "workspace", Path: "/work/plan", ProvidesWorkspace: true, WorkspaceEntry: true},
+			}}}}
+
+			updated, cmd := m.activateSelected()
+			got := updated.(model)
+			if cmd == nil || got.operation.kind != "session" || got.loading {
+				t.Fatalf("must reopen the registered workspace, not switch to the cached session: operation=%+v loading=%v", got.operation, got.loading)
+			}
+		})
+	}
+}
+
+func TestActivateSelectedSwitchesStandaloneSession(t *testing.T) {
+	m := model{tasks: []protocol.Task{{Attention: "attention", SourceRefs: []protocol.SourceRef{
+		{ID: "tmux:session:100:123:$7", Source: "tmux", Kind: "session", Metadata: map[string]string{"switch_target": "$7"}},
+	}}}}
+
+	updated, cmd := m.activateSelected()
+	got := updated.(model)
+	if cmd == nil || !got.loading || got.operation.kind != "" {
+		t.Fatal("standalone sessions must still use the direct switch/attach path")
+	}
+}
+
 func TestActivateSelectedAsksForWorktreeWhenTaskHasMultipleWorktrees(t *testing.T) {
 	m := model{tasks: []protocol.Task{{Attention: "attention", SourceRefs: []protocol.SourceRef{
 		{Source: "git", Kind: "worktree", ProvidesWorkspace: true, Path: "/repo/one"},

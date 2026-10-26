@@ -1689,16 +1689,18 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 	if id := taskAgentID(task); id != "" {
 		return m.openAgent(id)
 	}
+	// Reopen managed workspaces through their registration so a closed tmux
+	// session is recreated instead of trusting a stale collected target.
+	if anchor, ok := workspaceAnchorRef(task); ok {
+		cmd := m.startOperation(task, "session", "Starting session…", "Session start failed", taskAction(m.openRegisteredWorkspace(anchor)))
+		return m, cmd
+	}
+
 	multiplexer, _ := app.DefaultIntegrations().Multiplexer()
 	if target := taskrefs.SessionTarget(task, multiplexer); target != "" {
 		m.loading = true
 		m.err = nil
 		return m, m.switchTmuxSession(target)
-	}
-
-	if anchor, ok := workspaceAnchorRef(task); ok {
-		cmd := m.startOperation(task, "session", "Starting session…", "Session start failed", taskAction(m.openRegisteredWorkspace(anchor)))
-		return m, cmd
 	}
 
 	worktrees := taskrefs.Worktrees(task)
