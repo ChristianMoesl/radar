@@ -100,7 +100,7 @@ func TestEarlyTmuxWorkspacePreservesLayoutAndPiPosition(t *testing.T) {
 					switch args[0] {
 					case "new-session", "new-window", "split-window":
 						command := args[len(args)-1]
-						want := expandPiArgs(commands[paneIndex], "--name 'test'")
+						want := "cd -- '/workspace' || exit\n" + expandPiArgs(commands[paneIndex], "--name 'test'")
 						if paneIndex == piIndex {
 							if command != "tmux set-option -p -t \"$TMUX_PANE\" remain-on-exit failed || exit\n"+want {
 								t.Fatalf("Pi command changed or failure diagnostic not retained: %q, want suffix %q", command, want)
@@ -280,7 +280,7 @@ func (r isolatedPaneTmux) Run(ctx context.Context, cwd, name string, args ...str
 	return ExecRunner{}.Run(ctx, cwd, name, append([]string{"-S", r.socket, "-f", "/dev/null"}, args...)...)
 }
 
-func newIsolatedPaneTmux(t *testing.T) isolatedPaneTmux {
+func newIsolatedPaneTmux(t *testing.T, cwd string) isolatedPaneTmux {
 	t.Helper()
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available")
@@ -302,7 +302,7 @@ func newIsolatedPaneTmux(t *testing.T) isolatedPaneTmux {
 		_ = os.RemoveAll(dir)
 	})
 	ctx := context.Background()
-	if _, err := runner.Run(ctx, "", "tmux", "new-session", "-d", "-s", "fixture", "-x", "180", "-y", "60", "sleep 60"); err != nil {
+	if _, err := runner.Run(ctx, cwd, "tmux", "new-session", "-d", "-s", "fixture", "-x", "180", "-y", "60", "sleep 60"); err != nil {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"set-option", "-g", "default-shell", bash}, {"set-option", "-g", "remain-on-exit", "on"}} {
@@ -326,7 +326,7 @@ func waitPaneCondition(t *testing.T, check func() bool) {
 }
 
 func TestEarlyPanesRealTmuxOriginalShellQuotingAndOneShotRecovery(t *testing.T) {
-	runner := newIsolatedPaneTmux(t)
+	runner := newIsolatedPaneTmux(t, "")
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "cwd with 'quotes'")
 	if err := os.Mkdir(path, 0o755); err != nil {
@@ -379,11 +379,11 @@ func TestEarlyPanesRealTmuxOriginalShellQuotingAndOneShotRecovery(t *testing.T) 
 }
 
 func TestEarlyPanesRealTmuxSignalBeforeWait(t *testing.T) {
-	runner := newIsolatedPaneTmux(t)
+	runner := newIsolatedPaneTmux(t, "")
 	ctx := context.Background()
 	path := t.TempDir()
 	output := filepath.Join(path, "runs")
-	command, gate := workspacePaneCommand("printf '%s\\n' once >> "+shellQuote(output), "", true)
+	command, gate := workspacePaneCommand(path, "printf '%s\\n' once >> "+shellQuote(output), "", true)
 	// Persist the signal before any process can wait for this unique gate.
 	if _, err := runner.Run(ctx, path, "tmux", "wait-for", "-S", gate); err != nil {
 		t.Fatal(err)

@@ -960,7 +960,7 @@ func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string
 	var piWindowID string
 	var piPaneID string
 	for windowIndex, window := range cfg.Windows {
-		firstCommand, firstGate := workspacePaneCommand(window.Panes[0].Command, piArgsText, early)
+		firstCommand, firstGate := workspacePaneCommand(path, window.Panes[0].Command, piArgsText, early)
 		var output string
 		var err error
 		if windowIndex == 0 {
@@ -999,7 +999,7 @@ func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string
 		}
 
 		for _, pane := range window.Panes[1:] {
-			command, gate := workspacePaneCommand(pane.Command, piArgsText, early)
+			command, gate := workspacePaneCommand(path, pane.Command, piArgsText, early)
 			output, err := runner.Run(ctx, cwd, "tmux", "split-window", "-d", "-t", firstPaneID, "-c", path, "-P", "-F", "#{window_id} #{pane_id}", command)
 			if err != nil {
 				return cleanup(err)

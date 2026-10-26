@@ -15,7 +15,7 @@ func TestEarlySwitchFromPopupKeepsCreatorAliveAndTargetInteractive(t *testing.T)
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 is required for the isolated PTY fixture")
 	}
-	runner := newIsolatedPaneTmux(t)
+	runner := newIsolatedPaneTmux(t, "")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	const script = `import errno, fcntl, json, os, pathlib, pty, select, shlex, struct, subprocess, sys, termios, time

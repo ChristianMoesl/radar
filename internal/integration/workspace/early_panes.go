@@ -19,20 +19,25 @@ func createEarlyTmuxWorkspace(ctx context.Context, runner Runner, cwd, path, ses
 	return createTmuxWorkspaceWithGates(ctx, runner, cwd, path, sessionName, cfg, piArgsText, nil, true)
 }
 
-func workspacePaneCommand(command, piArgsText string, early bool) (string, string) {
+func workspacePaneCommand(path, command, piArgsText string, early bool) (string, string) {
+	// A long-lived tmux server may still have a deleted workspace as its cwd.
+	// In that state tmux 3.8 can ignore -c, so enter the workspace explicitly
+	// before running the program. Never run it elsewhere if that fails.
+	piPane := strings.Contains(command, sessionlayout.PiArgsPlaceholder)
+	command = "cd -- " + shellQuote(path) + " || exit\n" + expandPiArgs(command, piArgsText)
 	if !early {
-		return expandPiArgs(command, piArgsText), ""
+		return command, ""
 	}
-	if strings.Contains(command, sessionlayout.PiArgsPlaceholder) {
+	if piPane {
 		// Preserve the prerequisite error in the Pi pane, rather than losing it
 		// when an incompatible launch exits. A normal successful exit is unchanged.
-		return "tmux set-option -p -t \"$TMUX_PANE\" remain-on-exit failed || exit\n" + expandPiArgs(command, piArgsText), ""
+		return "tmux set-option -p -t \"$TMUX_PANE\" remain-on-exit failed || exit\n" + command, ""
 	}
 	gate := "radar-pane-" + rand.Text()
-	// Keep tmux's original shell and working directory, and do not parse or
-	// re-quote the user's program. wait-for remembers a signal sent before the
-	// waiter starts. The pane clears its option before executing the program,
-	// so recovery never restarts commands, including commands that have exited.
+	// Keep tmux's original shell, and do not parse or re-quote the user's
+	// program. wait-for remembers a signal sent before the waiter starts. The
+	// pane clears its option before executing the program, so recovery never
+	// restarts commands, including commands that have exited.
 	return "tmux wait-for " + shellQuote(gate) + " || exit\n" +
 		"tmux set-option -p -u -t \"$TMUX_PANE\" " + workspacePaneGateOption + " || exit\n" + command, gate
 }
