@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -19,7 +20,7 @@ CACHE = "DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE"
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cli", required=True, help="Absolute native SBX 0.48.x executable")
+    parser.add_argument("--cli", required=True, help="Absolute native SBX 0.48.0+ executable")
     parser.add_argument("--isolated-home", required=True, help="Dedicated authenticated test HOME, never your real HOME")
     parser.add_argument("--windows-temp", required=True, help="Existing disposable Windows-backed parent directory under /mnt/c")
     parser.add_argument("--kit", default="shell", help="Kit with python3 and git; qualify radar-kit separately too")
@@ -56,8 +57,9 @@ def main():
         return run([cli, *argv], **kwargs)
 
     version = json.loads(sbx("version", "--json"))
-    if not version["client"]["version"].startswith("v0.48."):
-        parser.error("this matrix qualifies SBX 0.48.x only")
+    parts = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", version["client"]["version"])
+    if parts is None or tuple(map(int, parts.groups())) < (0, 48, 0):
+        parser.error("SBX 0.48.0 or newer is required")
     status = json.loads(sbx("daemon", "status", "--json"))
     running_before = status.get("status") == "running"
     if running_before:

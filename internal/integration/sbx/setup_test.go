@@ -165,7 +165,7 @@ func TestSandboxSetupE2E(t *testing.T) {
 	}
 }
 
-func TestSandboxSetupRequiresSBX048(t *testing.T) {
+func TestSandboxSetupRequiresMinimumSBXVersion(t *testing.T) {
 	for _, tt := range []struct {
 		version   string
 		supported bool
@@ -174,8 +174,9 @@ func TestSandboxSetupRequiresSBX048(t *testing.T) {
 		{`{"client":{"version":"v0.47.9"}}`, false},
 		{`{"client":{"version":"v0.48.0"}}`, true},
 		{`{"client":{"version":"v0.48.1"}}`, true},
-		{`{"client":{"version":"v0.49.0"}}`, false},
-		{`{"client":{"version":"v1.0.0"}}`, false},
+		{`{"client":{"version":"v0.49.0"}}`, true},
+		{`{"client":{"version":"v0.50.0"}}`, true},
+		{`{"client":{"version":"v1.0.0"}}`, true},
 		{"unknown", false},
 	} {
 		t.Run(tt.version, func(t *testing.T) {
@@ -198,7 +199,7 @@ func TestSandboxSetupRequiresSBX048(t *testing.T) {
 			if listed != tt.supported || err == nil {
 				t.Fatalf("listed = %v, error = %v", listed, err)
 			}
-			if !tt.supported && !strings.Contains(err.Error(), "SBX 0.48.x is required") {
+			if !tt.supported && !strings.Contains(err.Error(), "SBX 0.48.0 or newer is required") {
 				t.Fatalf("missing upgrade guidance: %v", err)
 			}
 		})

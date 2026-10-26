@@ -20,7 +20,7 @@ and [recreation](#explicit-sandbox-recreation) before resetting an existing sand
 ## Guided setup and your local kit
 
 Run `radar setup` on macOS or native Linux (including WSL2 with KVM). New installations recommend SBX; repeat
-setup prefills the existing choice. Setup checks SBX 0.48.x, offers `sbx login`
+setup prefills the existing choice. Setup checks SBX 0.48.0+, offers `sbx login`
 when needed, and installs/verifies pi-sbx 0.7.0+ with consent. Missing or outdated
 SBX gets installation/update guidance, not an unattended installer.
 
@@ -371,7 +371,7 @@ VM-local state just to troubleshoot authentication.
 ### Kits and mounts
 
 Guided setup uses the complete local kit described above. Without an explicit
-kit, new workspaces use `docker.io/christianmoesl/radar-kit:latest` (SBX 0.48.x). A user config or repository `.radar.yaml` can add:
+kit, new workspaces use `docker.io/christianmoesl/radar-kit:latest` (SBX 0.48.0+). A user config or repository `.radar.yaml` can add:
 
 ```yaml
 sbx:
@@ -646,13 +646,13 @@ before and after restart: WSL-created symlinks (including `notes.md`) returned
 `Invalid argument`, and guest mount paths did not preserve absolute WSL Git
 worktree pointers. v0.48's Windows chmod fix is not proof these separate problems
 are fixed. Managed provisioning through `sbx.exe` remains blocked. Collection,
-shell actions and cleanup use the 0.48 protocol; upgrade the CLI and Pi/Radar
-consumers together. Old JSON envelopes are rejected, not read as empty lists.
+shell actions and cleanup require SBX 0.48.0 or newer, with no upper version
+bound. Old JSON envelopes are rejected, not read as empty lists.
 
 ### Native Linux inside WSL2
 
 Radar supports the native Linux backend, not path translation around the Windows
-backend. Prerequisites are an installed native **SBX 0.48.x**, usable `/dev/kvm`
+backend. Prerequisites are an installed native **SBX 0.48.0+**, usable `/dev/kvm`
 (KVM API 12), separate Linux authentication/network policy, and pi-sbx **0.7.0+**.
 Native Linux in WSL is explicitly **best-effort upstream**, not Docker's preferred
 Windows installation. Installing native `sbx` changes backend preference and state
@@ -771,7 +771,7 @@ unit tests or the earlier shell-image filesystem matrix.
 
 ## Published development kit
 
-As an alternative to the generated local kit, with SBX 0.48.x, enabling
+As an alternative to the generated local kit, with SBX 0.48.0+, enabling
 `sbx.enabled` without an explicit kit selects `docker.io/christianmoesl/radar-kit:latest` for new workspaces unless a user or repository kit overrides it. No `kit.name` or `kit.path` is required to use this default. Set `sbx.kit.name` only to select another kit or pin a digest. The [sandbox guide](../../sandbox/README.md) documents its tool inventory, Pi requirements, private Docker daemon, publication and rollout.
 
 Sandboxing is automatic on supported systems. Existing `sbx.enabled: false` values remain opt-outs; remove the field manually to adopt automatic detection. Explicit kit settings, including `"shell"` in an older generated configuration, are preserved; remove that override manually to opt into the new default. Existing workspaces retain their recorded kit even during sandbox recreation. No configuration or registry migration is performed.

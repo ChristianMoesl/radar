@@ -20,7 +20,7 @@ for complete examples, image builds and applying changes safely.
 ## Use the published kit
 
 On macOS and native Linux (including WSL2), Radar automatically enables sandboxing when `sbx` is installed. Linux requires accessible KVM. Use
-SBX 0.48.x and sign in with `sbx login`. To require sandboxing explicitly,
+SBX 0.48.0+ and sign in with `sbx login`. To require sandboxing explicitly,
 set this in Radar's user configuration or a repository's `.radar.yaml`:
 
 ```yaml

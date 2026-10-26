@@ -222,7 +222,7 @@ pnpm check
 
 The full review test uses the actual CLI/daemon, Git worktrees, note registry, a local deterministic model and isolated state. Other tests cover receipt loss, SIGKILL checkpoints, owner exclusion, stale actions, provider HTTP fixtures, workspace pinning and SBX command routing/failure.
 
-The main-branch CI job **Durable agent in real SBX** also runs the review test inside one real SBX VM with Radar's published sandbox image and local kit. It uses the repository's existing Docker/SBX login and does not publish images. This verifies native file reads/writes, skill resources, review worktree preparation, daemon/runner recovery and failure without host execution after the sandbox stops. To reproduce on a disposable Linux machine with `/dev/kvm`, SBX 0.48.x and SBX login/network policy already configured:
+The main-branch CI job **Durable agent in real SBX** also runs the review test inside one real SBX VM with Radar's published sandbox image and local kit. It uses the repository's existing Docker/SBX login and does not publish images. This verifies native file reads/writes, skill resources, review worktree preparation, daemon/runner recovery and failure without host execution after the sandbox stops. To reproduce on a disposable Linux machine with `/dev/kvm`, SBX 0.48.0+ and SBX login/network policy already configured:
 
 ```sh
 go build -o /tmp/radar ./cmd/radar

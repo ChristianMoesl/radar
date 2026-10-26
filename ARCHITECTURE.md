@@ -340,9 +340,10 @@ Daemon logging goes through `internal/logging` and writes to the user state dire
 
 ### Native Linux SBX and explicit attachment
 
-Managed provisioning targets SBX 0.48.x's top-level sandbox/port arrays (no legacy
-JSON aliases). Linux uses KVM; native WSL additionally requires the tested
-virtiofs cache opt-out on the CLI **and existing daemon**, checked without resets
+Managed provisioning requires stable SBX 0.48.0 or newer, with no upper version
+bound, and validates top-level sandbox/port arrays (no legacy JSON aliases).
+Linux uses KVM; native WSL additionally requires the tested virtiofs cache opt-out
+on the CLI **and existing daemon**, checked without resets
 or fallback. Windows `sbx.exe` remains discovery/shell/cleanup-only. Host/guest
 absolute paths, canonical note symlinks and external Git common directories stay
 unchanged.

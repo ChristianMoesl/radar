@@ -6,12 +6,12 @@ import (
 	"fmt"
 )
 
-// DecodeList implements the SBX 0.48 array contract. null and legacy envelopes
+// DecodeList implements the SBX top-level array contract. null and legacy envelopes
 // are errors, not empty inventories: callers must not infer resource absence.
 func DecodeList[T any](output string) ([]T, error) {
 	data := bytes.TrimSpace([]byte(output))
 	if len(data) == 0 || data[0] != '[' {
-		return nil, fmt.Errorf("unexpected sbx list output: expected an array (SBX 0.48 required)")
+		return nil, fmt.Errorf("unexpected sbx list output: expected an array")
 	}
 	var raw []json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -29,7 +29,8 @@ func DecodeList[T any](output string) ([]T, error) {
 	return rows, nil
 }
 
-// ValidateVersion deliberately qualifies one CLI protocol, not future minors.
+// ValidateVersion enforces the minimum stable CLI version without an upper bound.
+// Callers validate command response schemas separately.
 func ValidateVersion(output string) error {
 	var version struct {
 		Client struct {
@@ -40,8 +41,8 @@ func ValidateVersion(output string) error {
 		return fmt.Errorf("unexpected sbx version output: %w", err)
 	}
 	var major, minor, patch int
-	if n, err := fmt.Sscanf(version.Client.Version, "v%d.%d.%d", &major, &minor, &patch); err != nil || n != 3 || major != 0 || minor != 48 || patch < 0 || version.Client.Version != fmt.Sprintf("v%d.%d.%d", major, minor, patch) {
-		return fmt.Errorf("unsupported SBX version %q: Radar requires SBX 0.48.x; update Radar and pi-sbx together before changing CLI protocols", version.Client.Version)
+	if n, err := fmt.Sscanf(version.Client.Version, "v%d.%d.%d", &major, &minor, &patch); err != nil || n != 3 || major < 0 || minor < 0 || patch < 0 || (major == 0 && minor < 48) || version.Client.Version != fmt.Sprintf("v%d.%d.%d", major, minor, patch) {
+		return fmt.Errorf("unsupported SBX version %q: Radar requires SBX 0.48.0 or newer", version.Client.Version)
 	}
 	return nil
 }

@@ -107,11 +107,11 @@ func (w *setupWizard) sbxOutput(ctx context.Context, timeout time.Duration, args
 
 func (w *setupWizard) prepareSandbox(ctx context.Context, cfg config.SBXConfig, plan *sandboxSetupPlan) error {
 	if !w.system.LookPath("sbx") {
-		return fmt.Errorf("SBX is missing. Install native Docker Sandboxes from https://docs.docker.com/ai/sandboxes/ in another terminal, then retry (SBX 0.48.x required)")
+		return fmt.Errorf("SBX is missing. Install native Docker Sandboxes from https://docs.docker.com/ai/sandboxes/ in another terminal, then retry (SBX 0.48.0 or newer required)")
 	}
 	version, err := w.sbxOutput(ctx, 15*time.Second, "version", "--json")
 	if err != nil || sbxclient.ValidateVersion(version) != nil {
-		return fmt.Errorf("SBX 0.48.x is required; check `sbx version`, update Docker Sandboxes, then retry")
+		return fmt.Errorf("SBX 0.48.0 or newer is required; check `sbx version`, update Docker Sandboxes, then retry")
 	}
 	w.ui.Print("✓ SBX version supported\nChecking SBX authentication and runtime access…\n")
 	output, err := w.sbxOutput(ctx, 15*time.Second, "ls", "--json")

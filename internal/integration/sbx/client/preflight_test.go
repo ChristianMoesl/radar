@@ -10,12 +10,12 @@ import (
 )
 
 func TestVersionContract(t *testing.T) {
-	for _, version := range []string{"v0.48.0", "v0.48.1"} {
+	for _, version := range []string{"v0.48.0", "v0.48.1", "v0.49.0", "v0.50.0", "v1.0.0", "v2.0.0"} {
 		if err := ValidateVersion(`{"client":{"version":"` + version + `"}}`); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, output := range []string{"", `null`, `{}`, `{"client":{"version":"v0.46.0"}}`, `{"client":{"version":"v0.49.0"}}`, `{"client":{"version":"v0.48.0-rc.1"}}`} {
+	for _, output := range []string{"", `null`, `{}`, `{"client":{"version":"v0.46.0"}}`, `{"client":{"version":"v0.47.99"}}`, `{"client":{"version":"v0.48.0-rc.1"}}`, `{"client":{"version":"v1.0.-1"}}`, `{"client":{"version":"v-1.50.0"}}`} {
 		if ValidateVersion(output) == nil {
 			t.Fatalf("accepted %s", output)
 		}
@@ -66,6 +66,17 @@ func TestDaemonCachePolicy(t *testing.T) {
 	}
 	if err := validateDaemonCache(`{"status":"running","socket":"/state/sandboxd.sock"}`, func(string) ([]byte, error) { return nil, errors.New("denied") }); err == nil {
 		t.Fatal("unreadable daemon accepted")
+	}
+}
+
+func TestPreflightAcceptsNewerVersions(t *testing.T) {
+	for _, version := range []string{"v0.50.0", "v1.0.0"} {
+		t.Run(version, func(t *testing.T) {
+			r := &fakeRunner{installed: map[string]bool{"sbx": true}, output: `{"client":{"version":"` + version + `"}}`}
+			if err := NewForPlatform(r, "darwin", false).Preflight(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

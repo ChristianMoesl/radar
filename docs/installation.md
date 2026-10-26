@@ -334,7 +334,7 @@ the prefix at tmux's own default; existing prefix settings are preserved.
    failed verification stops setup. Existing Git/local package sources and
    explicit extension disablement are never silently overridden.
 3. **Sandboxed workspaces:** on macOS or native Linux, offer SBX (recommended for new installs;
-   existing choices are preselected). Check SBX 0.48.x, guide installation or
+   existing choices are preselected). Check SBX 0.48.0+, guide installation or
    updates if needed, offer login, and install/verify pi-sbx 0.7.0+ with consent.
    If SBX reports an uninitialized global network policy, offer balanced
    (recommended), deny-all, allow-all, or Not now. Selecting a policy runs
@@ -505,7 +505,7 @@ Explicit source actions and cleanup are separate from background collection.
 | Jira | TWG 1.3.8+ on PATH and configured site/Cloud ID/profile/account selectors; missing or invalid OAuth is an error |
 | Datadog | Pup 2.0.0+ on PATH, a named OAuth session and an explicit `datadog.monitor_query`; no automatic organization-wide query |
 | SBX collection | `sbx` on PATH, or Windows `sbx.exe` plus `wslpath` on WSL2 |
-| SBX for new workspaces | macOS or native Linux `sbx` 0.48.x on PATH, with accessible KVM on Linux; Windows `sbx.exe` provisioning remains blocked |
+| SBX for new workspaces | macOS or native Linux `sbx` 0.48.0+ on PATH, with accessible KVM on Linux; Windows `sbx.exe` provisioning remains blocked |
 
 Git worktrees and tmux sessions are discovered when their CLIs are available.
 The macOS notifier is used when its companion is installed. Interactive first-run setup requires the tools listed above; background collection
