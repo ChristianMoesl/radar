@@ -20,6 +20,7 @@ func TestRadarExtensionConfiguresSharedDirectoryOnStartupReloadAndSwitch(t *test
 	text = strings.ReplaceAll(text, `import { showWorkspaceAttached } from "./workspace-notice.ts";`, `async function showWorkspaceAttached() {}`)
 	text = strings.ReplaceAll(text, `import { reportLoadedVersion } from "./runtime-version.ts";`, `async function reportLoadedVersion() {}`)
 	text = strings.ReplaceAll(text, `import { showReloadNotice } from "./reload-notice.ts";`, `async function showReloadNotice() {}`)
+	text = strings.ReplaceAll(text, `import { registerHostResourceTools } from "./host-resources.ts";`, `function registerHostResourceTools() {}`)
 	if err := os.WriteFile(filepath.Join(dir, "radar.ts"), []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}

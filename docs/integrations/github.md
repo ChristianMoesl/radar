@@ -21,7 +21,7 @@ Radar checks GitHub rate limits before collection. When a budget is low, Radar p
 
 ## Capabilities
 
-`Source`, `StatusReporter`, `Reconciler`, `TaskFilterProvider`, `RateLimitReporter`, `WorkspaceSeedProvider`, `BoundSourceResolver`, and the `CodeReviewProvider` composite role.
+`Source`, `StatusReporter`, `Reconciler`, `TaskFilterProvider`, `RateLimitReporter`, `WorkspaceSeedProvider`, `BoundSourceResolver`, `ResourceOpenProvider`, and the `CodeReviewProvider` composite role.
 
 ## Configuration and authentication
 
@@ -134,6 +134,24 @@ Links stored only in Jira's Development panel are not imported. Add an explicit 
 ## Workspace behavior
 
 The workspace seed capability finds a matching local repository, resolves the PR head, fetches pull refs when necessary, and returns a generic existing-branch seed.
+
+## Provider-owned browser opening
+
+`radar_workspace_context.openable_resources` advertises targets from GitHub PR refs already associated with the current workspace's cached task:
+
+| Target | Canonical URL |
+| --- | --- |
+| PR overview | `https://github.com/<owner>/<repo>/pull/<number>` |
+| PR Changes / Files changed | `https://github.com/<owner>/<repo>/pull/<number>/files` |
+| Associated repository home | `https://github.com/<owner>/<repo>` |
+
+For example, select `github:open:pr:acme/app:123:changes` through `radar_open_resource`. Treat IDs as opaque selectors. The integration strictly validates repository segments, the positive PR number and consistent source identity, then builds the URL. It does not append paths to a caller-provided URL or trust the raw `SourceRef.URL`. Closed/merged PRs remain openable while associated; repository-home targets are deduplicated.
+
+The generic service requires an unambiguous current-task association by stable workspace ID and rejects unknown, cross-task and changed targets before launching. A new PR needs normal Radar collection/association before it appears. Task-fact errors are reported through `resource_discovery_error`, without breaking unrelated workspace inspection. Opening performs only a bounded cached-daemon read: it neither starts the daemon nor triggers collection.
+
+Each batch of up to 16 selected IDs requires **one explicit confirmation showing all exact URLs**, regardless of `workspace.auto_confirm`. Without an approval channel there are no launches. Fixed host `open` (macOS) or `xdg-open` (Linux) launches the default browser; no `gh --web`, API call, HTTP validation or browser automation is involved.
+
+This is a narrow host-browser exception: browser traffic, redirects, assets and authenticated sessions are **outside SBX network policy**. Results report `launch_requested`, not page load. There is no response/DOM/cookie/tab access. Arbitrary URLs, query/fragment payloads, local files/HTML and non-HTTPS schemes are not accepted. Validate the whole batch before launching; runtime failures return per-target outcomes without undoing or retrying successful launches.
 
 ## Configuration example
 

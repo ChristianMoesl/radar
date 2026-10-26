@@ -91,6 +91,11 @@ func TestOutputCLIInformationalCommands(t *testing.T) {
 		{args: []string{"ack", "0", "--json"}, code: 2},
 		{args: []string{"task", "done", "42", "--typo"}, code: 2},
 		{args: []string{"reconcile-workspace", "--request", "not json", "--json"}, code: 1},
+		{args: []string{"clone-repository", "--json"}, code: 2},
+		{args: []string{"open-resource", "--json"}, code: 2},
+		{args: []string{"clone-repository", "--request", "{}", "--yes", "--json"}, code: 2},
+		{args: []string{"open-resource", "--request", "{}", "--yes", "--json"}, code: 2},
+		{args: []string{"open-resource", "--request", `{"resource_ids":["id"],"approved":true}`, "--json"}, code: 1},
 	} {
 		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
 			stdout, stderr, code := outputCLI(t, test.args, "")

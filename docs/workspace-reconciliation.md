@@ -1,6 +1,6 @@
 # Workspace reconciliation
 
-Radar exposes one declarative agent mutation path: `radar_reconcile_workspace`.
+Radar exposes one declarative workspace-membership mutation path: `radar_reconcile_workspace`.
 
 ## Contract
 
@@ -17,6 +17,12 @@ The machine-readable CLI equivalent is (omit `--json` for a readable summary):
 radar reconcile-workspace --workspace <path> --request <json> --preview --json
 radar reconcile-workspace --workspace <path> --request <json> --json
 ```
+
+## Missing source repositories
+
+If the source repository is not checked out, inspect `repository_dirs` and `repositories` in workspace context, then call `radar_clone_repository` with the GitHub remote and an absolute direct-child destination under a returned host root. Radar previews and explicitly confirms the initial host clone, regardless of reconciliation auto-confirm. It can instead return a verified existing matching checkout without mutation. Cloning inside the sandbox is not a substitute.
+
+After success, inspect fresh context, call `radar_repository_refs` and submit the selected branch through normal reconciliation. The clone tool never selects branches, attaches worktrees, runs setup, or changes sandbox mounts/ports. See [host source cloning](integrations/git.md#host-source-cloning).
 
 ## Workspace model
 
@@ -109,8 +115,11 @@ The original `task_linking_key` remains stable, including Pi session identity. A
 - every member's repository, path, branch, dirty status, instruction files, and skill paths
 - current sandbox mounts and observed ports
 - repositories discovered through Radar configuration
+- `repository_dirs`: existing configured source roots as canonical host paths
+- `openable_resources`: provider-advertised opening targets for existing current-task refs, with exact canonical URLs
+- `resource_discovery_error` when cached task facts cannot be resolved; other inspection fields remain available
 
-The tool returns only the current logical workspace, not every record in `.radar-workspaces.json`.
+The tool returns only the current logical workspace, not every record in `.radar-workspaces.json`. Opening target IDs are ephemeral selectors, not authority or new source associations. Select them through `radar_open_resource`, which rederives them and requires one explicit confirmation per batch independently of reconciliation auto-confirm.
 
 ## Safety
 

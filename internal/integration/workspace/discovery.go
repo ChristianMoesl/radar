@@ -148,6 +148,25 @@ func RepositoryDirs(cfg config.Config) []string {
 	return existingDirs(paths)
 }
 
+// CanonicalRepositoryDirs exposes only existing configured source roots.
+func CanonicalRepositoryDirs(cfg config.Config) []string {
+	roots := make([]string, 0)
+	seen := map[string]bool{}
+	for _, root := range RepositoryDirs(cfg) {
+		canonical, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			continue
+		}
+		canonical, err = filepath.Abs(canonical)
+		if err != nil || seen[pathKey(canonical)] {
+			continue
+		}
+		seen[pathKey(canonical)] = true
+		roots = append(roots, canonical)
+	}
+	return roots
+}
+
 func DefaultRoot() (string, error) {
 	return workspacegroup.DefaultRoot()
 }

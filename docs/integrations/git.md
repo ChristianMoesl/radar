@@ -4,7 +4,7 @@ Git supplies local code-workspace facts and worktree cleanup.
 
 ## Capabilities
 
-`Source`, `StatusReporter`, `LocalSource`, `WorkspaceProvider` for current code-workspace detection, and `CleanupProvider`.
+`Source`, `StatusReporter`, `LocalSource`, `WorkspaceProvider` for current code-workspace detection, `RepositoryCloneProvider`, and `CleanupProvider`.
 
 ## Configuration
 
@@ -15,6 +15,22 @@ Git supplies local code-workspace facts and worktree cleanup.
 Radar stores registered Git members under a stable workspace anchor, using `<workspace_root>/<workspace>/<repo>--<branch>`. It sanitizes the repository and workspace names as one path component. Names longer than 120 characters are truncated and receive a deterministic eight-character hash suffix. Registered members emit a shared `workspace-group:<id>` linking key, so worktrees from different repositories appear in one task even without a configured linking mark. Radar also attaches worktrees by configured linking marks such as `ABC-123`. Regular repositories outside the configured workspace root are ignored. Branch names do not affect collection, so a workspace checked out directly on `main` remains visible.
 
 Local refreshes inspect configured repositories and emit `git:worktree:<absolute-path>` refs. Unmanaged worktrees set `ProvidesWorkspace`; registered members carry their workspace ID and link to the managed anchor without competing as the entry workspace.
+
+## Host source cloning
+
+`radar_clone_repository` / `radar clone-repository` provisions missing source repositories on the **host**, not inside a sandbox or disposable task anchor. First-version remotes are GitHub.com HTTPS URLs and `git@github.com:owner/repo.git`; local/file URLs, remote helpers, URL credentials/parameters, custom hosts and caller-supplied Git options are rejected.
+
+Inspect `radar_workspace_context.repository_dirs` first. These are existing configured source roots, exposed as canonical absolute host paths. The requested destination must be a new direct child of one of them, outside managed workspace directories. Missing roots do not trigger directory/configuration creation. Destination symlinks, traversal, root/configuration changes, and existing unrelated files/directories fail closed.
+
+Preview is local and read-only: no remote probe, fetch, authentication flow, or destination creation. Initial cloning **always requires explicit approval** of the exact normalized remote, host root, and destination—even with `workspace.auto_confirm: true`. The Pi tool has no unattended approval flag; without a confirmation channel it refuses cloning. The CLI's readable path asks for explicit consent; JSON apply is the trusted adapter transport and requires the accepted preview plan ID, which detects drift but is not evidence of consent by itself.
+
+An unambiguous matching source checkout is returned as `status: reused` without approval or mutation, including dirty checkouts and non-default branches. HTTPS/SSH origins can identify the same repository without rewriting the remote. Linked worktrees, bare/invalid repositories, ambiguous origins and multiple matching checkouts are not silently adopted. Reuse never fetches, pulls, switches branches, resets, or cleans files.
+
+Apply revalidates the plan/root identity, exclusively reserves the destination, and runs fixed Git argv with hooks disabled for the operation. It does not initialize submodules or run setup/install scripts. Git uses trusted host authentication and transport configuration; Radar neither exports credentials to the sandbox nor installs/logs in to resolve failures. Trusted Git helpers/configuration can affect transport, so this is not a general network-isolation guarantee.
+
+Commands are cancellable and bounded to ten minutes; captured inspection stdout is capped and Git stderr is not exposed. Failure/cancellation returns `ok: false` and a `partial_path` when present. Partial directories are **not recursively removed or blindly retried**; inspect them before recovery. Completed cloning returns `status: cloned` and the canonical source path.
+
+Then refresh workspace context, inspect refs and reconcile the desired branch. Cloning itself changes no worktree membership, branch selection, sandbox mounts or ports.
 
 ## Cleanup and expiry
 

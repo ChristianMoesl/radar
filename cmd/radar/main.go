@@ -100,6 +100,10 @@ func main() {
 		runWorkspaceLease(args)
 	case "workspace-exec":
 		runWorkspaceExec(args)
+	case "clone-repository":
+		runCloneRepository(args)
+	case "open-resource":
+		runOpenResource(args)
 	case "repository-refs":
 		runRepositoryRefs(args)
 	case "task":
@@ -550,6 +554,7 @@ func runWorkspaceContext(args []string) {
 	if err != nil {
 		fatal(err)
 	}
+	populateOpeningResources(context.Background(), app.DefaultIntegrations(), &result)
 	printResult(result)
 }
 
@@ -1153,6 +1158,8 @@ Workspaces:
   radar reconcile-workspace --request <json> [--workspace <path>] [--preview]
   radar recreate-sandboxes [--workspace <path>] [--preview] [--yes]
   radar workspace-context [--workspace <path>]
+  radar clone-repository --request <json> [--workspace <path>] [--preview | --plan <id>]
+  radar open-resource --request <json> [--workspace <path>] [--preview | --plan <id>]
   radar repository-refs --repo <repo>
   radar fork
   radar cleanup <task-id>

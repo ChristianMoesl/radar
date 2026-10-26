@@ -91,6 +91,35 @@ func writeResult(stdout, stderr io.Writer, value any, asJSON bool) error {
 		}
 	case integration.WorkspaceContext:
 		p.workspace(v)
+	case integration.RepositoryClonePlan:
+		p.line("Host repository clone preview (%s).", v.Status)
+		p.field("Remote", v.Remote)
+		p.field("Repository root", v.RepositoryDir)
+		p.field("Destination", v.Destination)
+		p.field("Source checkout", v.Repository)
+		p.field("Plan ID", v.PlanID)
+		p.line("Requires explicit confirmation: %s", yesNo(v.RequiresConfirmation))
+	case integration.RepositoryCloneResult:
+		p.line("Repository clone: %s.", singleLine(v.Status))
+		p.field("Repository", v.Repository)
+		p.field("Remote", v.Remote)
+		p.field("Partial destination", v.PartialPath)
+		p.warning(v.Error)
+	case integration.ResourceOpenPlan:
+		p.line("Host browser opening preview (%d target(s)).", len(v.Resources))
+		for _, resource := range v.Resources {
+			p.line("  %s: %s", singleLine(resource.Label), singleLine(resource.URL))
+		}
+		p.field("Plan ID", v.PlanID)
+		p.line("Requires one explicit confirmation for this batch. Browser traffic is outside SBX policy.")
+	case integration.ResourceOpenResult:
+		if v.Cancelled {
+			p.line("Resource opening cancelled; no launches made.")
+		}
+		for _, resource := range v.Results {
+			p.line("%s: %s", singleLine(resource.Status), singleLine(resource.URL))
+			p.warning(resource.Error)
+		}
 	case integration.RepositoryRefs:
 		p.field("Repository", v.Repository)
 		p.field("Default branch", v.DefaultBranch)
@@ -281,6 +310,11 @@ func (p textResult) workspace(v integration.WorkspaceContext) {
 		p.line("Workspace enrollment required.")
 	}
 	p.field("Session", v.SessionName)
+	p.field("Source repository roots", strings.Join(v.RepositoryDirs, ", "))
+	for _, resource := range v.OpenableResources {
+		p.line("  Open %s: %s", singleLine(resource.ID), singleLine(resource.URL))
+	}
+	p.warning(v.ResourceDiscoveryError)
 	if v.Note != nil {
 		p.field("Task note", v.Note.Path)
 	}

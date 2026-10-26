@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/integration/workspace/group"
 )
@@ -53,6 +54,10 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		}
 	}
 
+	cfg, err := config.Load()
+	if err != nil {
+		return integration.WorkspaceContext{}, err
+	}
 	repositories, err := DiscoverRepos(ctx, runner, currentDirectory)
 	if err != nil {
 		return integration.WorkspaceContext{}, err
@@ -77,10 +82,12 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		CurrentPath: current, WorkspaceRoot: root, WorkspaceID: group.ID,
 		WorkspaceName: group.Name, WorkspacePath: group.Path, Registered: registered,
 		EnrollmentRequired: !registered, SessionName: group.SessionName, Revision: revision,
-		Capabilities: integration.WorkspaceContextCapabilities{SandboxAttachment: group.Sandbox == nil && managedClient(runner).RequireManaged() == nil && (workspaceGOOS == "darwin" || workspaceGOOS == "linux"), Worktrees: true, Sandbox: group.Sandbox != nil, AdditionalMounts: group.Sandbox != nil, PortForwarding: group.Sandbox != nil},
-		Desired:      integration.DesiredWorkspaceDescription{Worktrees: make([]integration.DesiredWorkspaceWorktree, 0, len(group.Members))},
-		Members:      make([]integration.WorkspaceContextMember, 0, len(group.Members)),
-		Repositories: make([]integration.WorkspaceContextRepository, 0, len(repositories)),
+		Capabilities:      integration.WorkspaceContextCapabilities{SandboxAttachment: group.Sandbox == nil && managedClient(runner).RequireManaged() == nil && (workspaceGOOS == "darwin" || workspaceGOOS == "linux"), Worktrees: true, Sandbox: group.Sandbox != nil, AdditionalMounts: group.Sandbox != nil, PortForwarding: group.Sandbox != nil},
+		Desired:           integration.DesiredWorkspaceDescription{Worktrees: make([]integration.DesiredWorkspaceWorktree, 0, len(group.Members))},
+		Members:           make([]integration.WorkspaceContextMember, 0, len(group.Members)),
+		RepositoryDirs:    CanonicalRepositoryDirs(cfg),
+		OpenableResources: make([]integration.OpenResource, 0),
+		Repositories:      make([]integration.WorkspaceContextRepository, 0, len(repositories)),
 	}
 	if group.NotePath != "" {
 		linkingKey := group.NoteKey()

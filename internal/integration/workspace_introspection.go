@@ -1,21 +1,24 @@
 package integration
 
 type WorkspaceContext struct {
-	CurrentPath        string                       `json:"current_path"`
-	WorkspaceRoot      string                       `json:"workspace_root"`
-	WorkspaceID        string                       `json:"workspace_id"`
-	WorkspaceName      string                       `json:"workspace_name"`
-	WorkspacePath      string                       `json:"workspace_path"`
-	Registered         bool                         `json:"registered"`
-	EnrollmentRequired bool                         `json:"enrollment_required"`
-	SessionName        string                       `json:"session_name,omitempty"`
-	Revision           string                       `json:"revision"`
-	Capabilities       WorkspaceContextCapabilities `json:"capabilities"`
-	Desired            DesiredWorkspaceDescription  `json:"desired"`
-	Note               *WorkspaceContextNote        `json:"note,omitempty"`
-	Sandbox            *WorkspaceContextSandbox     `json:"sandbox,omitempty"`
-	Members            []WorkspaceContextMember     `json:"members"`
-	Repositories       []WorkspaceContextRepository `json:"repositories"`
+	CurrentPath            string                       `json:"current_path"`
+	WorkspaceRoot          string                       `json:"workspace_root"`
+	WorkspaceID            string                       `json:"workspace_id"`
+	WorkspaceName          string                       `json:"workspace_name"`
+	WorkspacePath          string                       `json:"workspace_path"`
+	Registered             bool                         `json:"registered"`
+	EnrollmentRequired     bool                         `json:"enrollment_required"`
+	SessionName            string                       `json:"session_name,omitempty"`
+	Revision               string                       `json:"revision"`
+	Capabilities           WorkspaceContextCapabilities `json:"capabilities"`
+	Desired                DesiredWorkspaceDescription  `json:"desired"`
+	Note                   *WorkspaceContextNote        `json:"note,omitempty"`
+	Sandbox                *WorkspaceContextSandbox     `json:"sandbox,omitempty"`
+	Members                []WorkspaceContextMember     `json:"members"`
+	Repositories           []WorkspaceContextRepository `json:"repositories"`
+	RepositoryDirs         []string                     `json:"repository_dirs"`
+	OpenableResources      []OpenResource               `json:"openable_resources"`
+	ResourceDiscoveryError string                       `json:"resource_discovery_error,omitempty"`
 }
 
 type WorkspaceContextCapabilities struct {

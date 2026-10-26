@@ -48,7 +48,7 @@ linking_mark_prefixes:
   - ABC
 ```
 
-- **`repository_dirs`**: existing source checkouts searched when adding a repository.
+- **`repository_dirs`**: existing source roots searched when adding a repository. Workspace context exposes usable roots as canonical absolute host paths. The approval-gated [source cloning tool](integrations/git.md#host-source-cloning) can create a direct-child checkout under one of them; it never creates missing roots or changes configuration. Initial cloning and each browser-opening batch always require their own explicit confirmation, independently of `workspace.auto_confirm`.
 - **`workspace.root_dir`**: where Radar creates workspace anchors and their worktrees.
   Defaults to `$XDG_DATA_HOME/radar/workspaces`, or `~/.local/share/radar/workspaces`.
 - **`obsidian.vault_path`**: the notes parent directory. Despite the setting's name,

@@ -11,5 +11,10 @@ func Open(ctx context.Context, url string) error {
 	if runtime.GOOS == "darwin" {
 		command = "open"
 	}
-	return exec.CommandContext(ctx, command, url).Start()
+	cmd := exec.CommandContext(ctx, command, url)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }

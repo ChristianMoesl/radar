@@ -79,7 +79,7 @@ export default function(pi) {
   await exec("pnpm", ["pack", "--out", tarball], { cwd: repository, timeout: 15000 });
   const { stdout: listing } = await exec("tar", ["-tzf", tarball]);
   assert.deepEqual(listing.trim().split("\n").sort(), [
-    "package/LICENSE", "package/README.md", "package/extensions/pi-radar/index.ts",
+    "package/LICENSE", "package/README.md", "package/extensions/pi-radar/host-resources.ts", "package/extensions/pi-radar/index.ts",
     "package/extensions/pi-radar/reload-notice.ts",
     "package/extensions/pi-radar/runtime-version.ts",
     "package/extensions/pi-radar/version.ts",
@@ -165,8 +165,8 @@ export default function(pi) {
     };
   }
   function assertActive(value: any) {
-    assert.equal(value.tools.filter((name: string) => name.startsWith("radar_")).length, 4);
-    assert.equal(value.active.filter((name: string) => name.startsWith("radar_")).length, 4);
+    assert.equal(value.tools.filter((name: string) => name.startsWith("radar_")).length, 6);
+    assert.equal(value.active.filter((name: string) => name.startsWith("radar_")).length, 6);
     assert.ok(value.skills.includes("fixture"));
     assert.equal(value.tmpdir, shared);
     assert.ok(value.commands.includes("radar-reload-workspace-resources"));

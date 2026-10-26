@@ -12,6 +12,12 @@ The current directory may be the Radar workspace root rather than a repository. 
 - Existing non-default branches may be used when the task explicitly targets that branch.
 - Remove clean investigation-only worktrees when they are no longer needed.
 
+## Approval-gated host resources
+
+- Use `radar_clone_repository` for a missing source checkout, not a sandbox-local clone or a request that the user run Git. Inspect `repository_dirs` and `repositories` first; cloning requires its own explicit approval even when workspace auto-confirm is enabled. After success, use fresh context, repository refs and reconciliation for attachment.
+- Use `radar_open_resource` only with IDs advertised in the current context's `openable_resources`. GitHub PR Changes targets open `/pull/<number>/files`. Each batch requires one fresh confirmation showing all exact URLs, independently of workspace auto-confirm.
+- Both tools obtain consent internally; do not ask for an extra confirmation before calling them. If approval is refused/unavailable, stop rather than falling back to host shell/browser execution. Launch status is not page-load success; host-browser traffic is outside SBX network policy.
+
 ## User-visible files and artifacts
 
 - Before linking or showing any file, visual, or artifact to the user in a Pi session, save it inside the current Radar workspace or the workspace's shared temporary directory. This includes screenshots, images, HTML presentations, PDFs, reports, and other deliverables. Files elsewhere cannot be opened by the user.

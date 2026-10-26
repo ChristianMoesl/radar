@@ -57,6 +57,18 @@ Documentation access does not authorize configuration changes. Outside a
 registered workspace the extension remains inactive; use `man radar` or
 `man radar-config` for the terminal reference.
 
+## Approval-gated host tools
+
+In registered workspaces, `radar_clone_repository` clones missing GitHub source checkouts under the host `repository_dirs` returned by workspace context. It always confirms the exact initial clone, independently of `workspace.auto_confirm`. Verified matching checkouts are reused without mutation or approval. After cloning, use normal repository refs and workspace reconciliation; no worktree attachment or setup happens implicitly.
+
+`radar_open_resource` accepts a nonempty `resource_ids` batch (maximum 16) from `radar_workspace_context.openable_resources`. GitHub advertises PR overview, Changes and repository-home targets. **Every opening batch requires a new explicit confirmation** showing all generated URLs. Auto-confirm, a prior batch's approval, or an explicit request in the conversation does not bypass this prompt.
+
+Both tools preview through fixed host Radar commands, then apply the accepted plan. They fail closed on unavailable UI, denial, cancellation, invalid responses, or plan drift; there is no generic shell/browser fallback. Headless sessions can inspect/reuse existing repositories but cannot approve a new clone or opening batch. RPC clients need to support Pi's confirmation dialog. Failed/partial results must be inspected rather than blindly retried.
+
+The tools do not accept executables, cwd/environment overrides, arbitrary URL input, or approval flags. Clone traffic and host-browser traffic intentionally occur outside sandbox network enforcement. Browser results contain launch status only, not remote content. See [Git cloning](git.md#host-source-cloning) and [GitHub opening](github.md#provider-owned-browser-opening).
+
+These tools require matching CLI and extension updates. `make install` updates the CLI, not a separately installed npm extension; reload Pi only after updating the extension source you actually use.
+
 ## Workspace attachment notice
 
 Each interactive Pi session that starts or resumes inside a registered Radar

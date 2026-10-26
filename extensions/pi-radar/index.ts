@@ -1,3 +1,4 @@
+import { registerHostResourceTools } from "./host-resources.ts";
 import { showWorkspaceAttached } from "./workspace-notice.ts";
 import { reportLoadedVersion } from "./runtime-version.ts";
 import { showReloadNotice } from "./reload-notice.ts";
@@ -408,6 +409,7 @@ export default function radarExtension(pi: ExtensionAPI) {
 // Pi recreates extension instances on reload and session replacement. Register
 // workspace-only resources after session_start supplies the actual session cwd.
 function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
+  registerHostResourceTools(pi);
   const activity = activityTracker(pi);
   const sharedDirectory = sharedDirectoryTracker();
   let previousResources: ResourceSnapshot = { contextPaths: [], skillPaths: [] };

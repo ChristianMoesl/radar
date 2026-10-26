@@ -49,6 +49,29 @@ func (r Registry) Sources() []Source {
 	return providers
 }
 
+func (r Registry) RepositoryCloner() (RepositoryCloneProvider, error) {
+	var providers []RepositoryCloneProvider
+	for _, candidate := range r.integrations {
+		if provider, ok := candidate.(RepositoryCloneProvider); ok {
+			providers = append(providers, provider)
+		}
+	}
+	if len(providers) != 1 {
+		return nil, fmt.Errorf("expected exactly one repository clone provider, found %d", len(providers))
+	}
+	return providers[0], nil
+}
+
+func (r Registry) ResourceOpenProviders() []ResourceOpenProvider {
+	providers := make([]ResourceOpenProvider, 0)
+	for _, candidate := range r.integrations {
+		if provider, ok := candidate.(ResourceOpenProvider); ok {
+			providers = append(providers, provider)
+		}
+	}
+	return providers
+}
+
 func (r Registry) ActionProviders() []ActionProvider {
 	providers := make([]ActionProvider, 0)
 	for _, candidate := range r.integrations {

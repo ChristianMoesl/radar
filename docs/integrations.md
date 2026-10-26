@@ -48,7 +48,9 @@ Every integration implements `Integration` by returning a descriptor with its st
 - `BoundSourceResolver`: resolves explicitly bound provider-owned identities not covered by normal active discovery, including on a cold cache start. GitHub, Jira, and Datadog implement it.
 - `TaskMuteProvider`: persists a whole-task muted preference and adopts source-only work into a canonical note without provisioning workspace resources. Obsidian implements it.
 - `TaskBindingProvider`: persists newly established authoritative associations on an explicitly adopted task without changing its lifecycle. Obsidian implements it.
-- `ActionProvider`: exposes source-owned actions for source refs.
+- `ActionProvider`: exposes source-owned interactive actions for source refs; it is not an arbitrary agent action gateway.
+- `ResourceOpenProvider`: advertises provider-owned canonical HTTPS browser targets for existing refs. GitHub implements it. The shared opening service resolves current-task targets; the trusted caller obtains one confirmation per batch.
+- `RepositoryCloneProvider`: previews and provisions source checkouts with explicit initial-clone approval. Git implements it; it does not attach worktrees or run setup.
 - `CleanupProvider`: previews and cleans up source-owned local resources through the shared cleanup service.
 - `WorkspaceProvider`: owns local code workspace lifecycle. Git is the active provider.
 - `WorkspaceManager`: owns managed-workspace discovery, sessions, inspection, and reconciliation. Workspace is the active provider.
@@ -71,16 +73,24 @@ Every integration implements `Integration` by returning a descriptor with its st
 | Integration | Source | Status | Local | Reconcile | Authoring | Actions | Cleanup | Workspace role | Other capabilities |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Obsidian | yes | yes | yes | no | yes | yes | no | seed | mute preferences, binding reconciliation |
-| GitHub | yes | yes | no | yes | no | no | no | seed | filters, rate limits, bound lookup, development-link resolver |
+| GitHub | yes | yes | no | yes | no | no | no | seed | filters, rate limits, bound lookup, development-link resolver, resource opening |
 | Terraform | yes | yes | no | yes | no | yes | no | conditional seed | bound lookup |
 | Jira | yes | yes | no | yes | no | no | no | no | work tracker, bound lookup |
 | Datadog | yes | yes | no | yes | no | no | no | no | bound lookup |
 | Workspace | yes | yes | yes | no | no | no | yes | manager | managed anchor |
-| Git | yes | yes | yes | no | no | no | yes | code workspace | — |
+| Git | yes | yes | yes | no | no | no | yes | code workspace | source repository cloning |
 | tmux | yes | yes | yes | no | no | no | yes | no | multiplexer, activity publisher |
 | SBX | yes | yes | yes | no | no | yes | yes | no | runtime naming, authentication |
 
 The matrix describes compiled capabilities, not whether a source can run in the current environment. `StatusReporter` reports missing tools, credentials, configuration, or API availability at runtime. See [installation defaults](installation.md) for the shared auto/explicit-enable/explicit-disable contract. A source with `CanRun: false` is skipped for both collection and reconciliation; provider-owned explicit actions and cleanup remain available.
+
+## Approval-gated host resources
+
+`radar_clone_repository` and `radar_open_resource` are narrow host-side operations, not generic host execution. Both use local preview/apply plans; plan IDs detect drift, not human consent. The trusted Pi adapter obtains required confirmation and supplies the accepted plan to the CLI. Neither operation inherits `workspace.auto_confirm`.
+
+Opening providers receive existing current-task refs and return stable target IDs, labels, source-ref associations and canonical URLs—not commands, executable names or arbitrary action arguments. Core never interprets provider IDs or falls back to raw ref URLs. The host rederives the manifest before apply; unknown, changed, or another task's targets fail before launch. No new refs or persisted resource catalog are created.
+
+See [Git cloning](integrations/git.md#host-source-cloning), [GitHub opening](integrations/github.md#provider-owned-browser-opening), and [Pi approval behavior](integrations/pi.md#approval-gated-host-tools). Existing TUI source actions remain unchanged.
 
 ## Foreground setup
 

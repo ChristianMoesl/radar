@@ -36,6 +36,7 @@ async function harness(t: TestContext, registered: unknown = true) {
   const messages: string[] = [];
   const entries: any[] = [];
   const responses: any[] = [];
+  const hostResponses: any[] = [];
   const approvals: boolean[] = [];
   let documentationResponse: any = { code: 0, stdout: JSON.stringify({version: "v1.2.3", commit: "abc123", topics: [{source: "docs/configuration.md", title: "Configuration"}]}), stderr: "" };
   let context: any = { registered: true, workspace_path: root, members: [] };
@@ -83,6 +84,10 @@ async function harness(t: TestContext, registered: unknown = true) {
         if (inspectionFails) throw Error("Host resource inspection failed");
         return { code: 0, stdout: JSON.stringify(context), stderr: "" };
       }
+      if (args[0] === "clone-repository" || args[0] === "open-resource") {
+        assert.ok(hostResponses.length, "unexpected host operation");
+        return hostResponses.shift();
+      }
       if (args[0] === "reconcile-workspace") {
         assert.ok(responses.length, "unexpected reconciliation operation");
         return { code: 0, stdout: JSON.stringify(responses.shift()), stderr: "" };
@@ -119,7 +124,7 @@ async function harness(t: TestContext, registered: unknown = true) {
   }
   return {
     setDocumentationResponse: (value: any) => { documentationResponse = value; },
-    root, hooks, tools, commands, calls, notices, confirmations, messages, entries, responses, approvals, ctx,
+    root, hooks, tools, commands, calls, notices, confirmations, messages, entries, responses, hostResponses, approvals, ctx,
     emit, peer,
     start: () => emit("session_start", { reason: "startup" }),
     resources: (reason = "startup") => emit("resources_discover", { cwd: ctx.cwd, reason }),
@@ -179,7 +184,7 @@ test("activates from the session cwd, not the process cwd, exactly once", async 
   h.ctx.cwd = join(h.root, "member", "src");
   await h.start();
   await h.start();
-  assert.deepEqual([...h.tools.keys()], ["radar_documentation", "radar_workspace_context", "radar_repository_refs", "radar_reconcile_workspace"]);
+  assert.deepEqual([...h.tools.keys()], ["radar_clone_repository", "radar_open_resource", "radar_documentation", "radar_workspace_context", "radar_repository_refs", "radar_reconcile_workspace"]);
   assert.deepEqual([...h.commands.keys()], ["radar-reload-workspace-resources"]);
   assert.deepEqual(h.calls[0].args, ["workspace-context", "--registration-only", "--workspace", h.ctx.cwd, "--json"]);
   assert.equal(h.calls[0].binary, "radar");
@@ -195,7 +200,7 @@ test("keeps repair tools available when full workspace inspection fails", async 
   const h = await harness(t);
   h.failInspection();
   await h.start();
-  assert.equal(h.tools.size, 4);
+  assert.equal(h.tools.size, 6);
   assert.deepEqual(await h.resources(), { skillPaths: [] });
   assert.ok((await h.prompt()).systemPrompt.includes("Radar fixture instructions"));
 });
@@ -581,7 +586,7 @@ test("child startup and shutdown cannot clear a busy parent", async t => {
   await h.emit("agent_start");
   const child = h.peer();
   await child.start();
-  assert.equal(child.tools.size, 4, "child workspace tools remain available");
+  assert.equal(child.tools.size, 6, "child workspace tools remain available");
   assert.equal(h.activities().at(-1), "busy", "child startup must not publish idle over its parent");
   await child.emit("session_shutdown");
   assert.equal(h.activities().at(-1), "busy", "child disposal must not clear its parent");
@@ -793,7 +798,7 @@ for (const reason of ["startup", "new", "resume", "fork", "reload"]) {
       "Radar workspace attached. Run `radar` in another terminal to open the task dashboard.",
     ]);
     assert.deepEqual([...h.commands.keys()], ["radar-reload-workspace-resources"]);
-    assert.deepEqual([...h.tools.keys()], ["radar_documentation", "radar_workspace_context", "radar_repository_refs", "radar_reconcile_workspace"]);
+    assert.deepEqual([...h.tools.keys()], ["radar_clone_repository", "radar_open_resource", "radar_documentation", "radar_workspace_context", "radar_repository_refs", "radar_reconcile_workspace"]);
     assert.deepEqual(h.confirmations, []);
     assert.deepEqual(h.messages, []);
   });
@@ -824,4 +829,142 @@ test("an attached sandbox requires an acknowledged routing provider, including i
   h.acceptSandbox(true);
   await h.resources("reload");
   assert.equal(await h.emit("tool_call",{toolName:"bash"}),undefined);
+});
+
+const clonePreview = {
+  plan_id: "clone-plan", remote: "https://github.com/acme/app.git",
+  repository_dir: "/sources", destination: "/sources/app", repository: "/sources/app",
+  status: "clone", requires_confirmation: true, auto_confirm: true,
+};
+const openPreview = {
+  plan_id: "open-plan", requires_confirmation: true, auto_confirm: true,
+  resources: [
+    { id: "github:open:pr:acme/app:123:changes", label: "PR #123 — Changes", url: "https://github.com/acme/app/pull/123/files" },
+    { id: "github:open:pr:acme/app:123:overview", label: "PR #123 — Overview", url: "https://github.com/acme/app/pull/123" },
+  ],
+};
+const hostJSON = (value: unknown) => ({ code: 0, stdout: JSON.stringify(value), stderr: "" });
+
+for (const command of ["clone-repository", "open-resource"]) {
+  const toolName = "radar_" + command.replaceAll("-", "_");
+  const preview = command === "clone-repository" ? clonePreview : openPreview;
+  const request = command === "clone-repository"
+    ? { repository: "https://github.com/acme/app.git", destination: "/sources/app" }
+    : { resource_ids: openPreview.resources.map(item => item.id) };
+
+  test(`${toolName} confirms the exact batch/clone despite auto_confirm and uses fixed host argv`, async t => {
+    const h = await harness(t);
+    await h.start();
+    h.ctx.cwd = join(h.root, "member", "src");
+    process.env.RADAR_BINARY = "/trusted/radar";
+    const controller = new AbortController();
+    const result = command === "clone-repository" ? { ok: true, status: "cloned", repository: "/sources/app" }
+      : { ok: true, results: openPreview.resources.map(item => ({ id: item.id, url: item.url, status: "launch_requested" })) };
+    h.hostResponses.push(hostJSON(preview), hostJSON(result));
+    h.approvals.push(true);
+    const tool = h.tools.get(toolName);
+    assert.equal(tool.executionMode, "sequential");
+    assert.equal(tool.parameters.additionalProperties, false);
+    const response = await tool.execute("host", request, controller.signal, undefined, h.ctx);
+    assert.deepEqual(response.details.result, result);
+    assert.equal(h.confirmations.length, 1);
+    for (const value of command === "clone-repository" ? [clonePreview.remote, clonePreview.repository_dir, clonePreview.destination]
+      : openPreview.resources.map(item => item.url)) assert.ok(h.confirmations[0].includes(value));
+    const calls = h.calls.filter(call => call.args[0] === command);
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0].args, [command, "--workspace", h.ctx.cwd, "--request", JSON.stringify(request), "--json", "--preview"]);
+    assert.deepEqual(calls[1].args, [command, "--workspace", h.ctx.cwd, "--request", JSON.stringify(request), "--json", "--plan", preview.plan_id]);
+    for (const call of calls) {
+      assert.equal(call.binary, "/trusted/radar");
+      assert.equal(call.options.signal, controller.signal);
+      assert.equal(call.options.env, undefined);
+    }
+  });
+
+  for (const mode of ["headless", "declined", "cancelled"]) {
+    test(`${toolName} refuses ${mode} approval without apply or fallback`, async t => {
+      const h = await harness(t);
+      await h.start();
+      h.hostResponses.push(hostJSON(preview));
+      const controller = new AbortController();
+      if (mode === "headless") h.ctx.hasUI = false;
+      if (mode === "cancelled") h.ctx.ui.confirm = async () => { controller.abort(); return true; };
+      const call = h.tools.get(toolName).execute("host", request, controller.signal, undefined, h.ctx);
+      if (mode === "headless") await assert.rejects(call, /interactive confirmation/);
+      else if (mode === "cancelled") await assert.rejects(call, /abort/i);
+      else assert.equal(JSON.parse((await call).content[0].text).cancelled, true);
+      const calls = h.calls.filter(call => call.args[0] === command);
+      assert.equal(calls.length, 1);
+      assert.ok(calls[0].args.includes("--preview"));
+      assert.equal(h.messages.length, 0);
+    });
+  }
+
+  test(`${toolName} stops on invalid preview, CLI error, or drift without automatic retries`, async t => {
+    const h = await harness(t);
+    await h.start();
+    const tool = h.tools.get(toolName);
+    for (const response of [hostJSON({ ...preview, requires_confirmation: "true" }), { code: 0, stdout: "not JSON", stderr: "" },
+      { code: 1, stdout: "", stderr: "validation failed" }]) {
+      h.hostResponses.push(response);
+      await assert.rejects(tool.execute("host", request, undefined, undefined, h.ctx));
+    }
+    assert.equal(h.confirmations.length, 0);
+    h.hostResponses.push(hostJSON(preview), { code: 1, stdout: "", stderr: "plan changed; preview and confirm again" });
+    h.approvals.push(true);
+    await assert.rejects(tool.execute("host", request, undefined, undefined, h.ctx), /plan changed/);
+    assert.equal(h.calls.filter(call => call.args[0] === command).length, 5);
+    assert.equal(h.confirmations.length, 1);
+  });
+}
+
+test("clone returns verified reuse without prompting, including headless sessions", async t => {
+  const h = await harness(t);
+  await h.start();
+  h.ctx.hasUI = false;
+  h.hostResponses.push(hostJSON({ ...clonePreview, status: "reused", requires_confirmation: false, repository: "/sources/custom" }));
+  const response = await h.tools.get("radar_clone_repository").execute("clone", { repository: clonePreview.remote, destination: clonePreview.destination }, undefined, undefined, h.ctx);
+  assert.equal(response.details.result.status, "reused");
+  assert.equal(response.details.result.repository, "/sources/custom");
+  assert.equal(h.confirmations.length, 0);
+  assert.equal(h.calls.filter(call => call.args[0] === "clone-repository").length, 1);
+});
+
+test("opening cannot substitute targets or auto-confirm and preserves partial results", async t => {
+  const h = await harness(t);
+  await h.start();
+  const tool = h.tools.get("radar_open_resource");
+  const request = { resource_ids: openPreview.resources.map(item => item.id) };
+  for (const resources of [[], [openPreview.resources[0]], [{ ...openPreview.resources[0], id: "other-task" }],
+    [{ ...openPreview.resources[0], url: "file:///tmp/page.html" }],
+    [openPreview.resources[0], openPreview.resources[0]]]) {
+    h.hostResponses.push(hostJSON({ ...openPreview, resources }));
+    await assert.rejects(tool.execute("open", request, undefined, undefined, h.ctx), /invalid preview/);
+  }
+  h.hostResponses.push(hostJSON({ ...openPreview, requires_confirmation: false }));
+  await assert.rejects(tool.execute("open", request, undefined, undefined, h.ctx), /invalid preview/);
+  assert.equal(h.confirmations.length, 0);
+  const partial = { ok: false, results: [
+    { id: openPreview.resources[0].id, url: openPreview.resources[0].url, status: "launch_requested" },
+    { id: openPreview.resources[1].id, url: openPreview.resources[1].url, status: "failed", error: "launcher failed" },
+  ] };
+  h.hostResponses.push(hostJSON(openPreview), hostJSON(partial));
+  h.approvals.push(true);
+  const response = await tool.execute("open", request, undefined, undefined, h.ctx);
+  assert.deepEqual(response.details.result, partial);
+  assert.equal(h.confirmations.length, 1);
+});
+
+test("each resource-opening batch needs a new confirmation", async t => {
+  const h = await harness(t);
+  await h.start();
+  const tool = h.tools.get("radar_open_resource");
+  const request = { resource_ids: openPreview.resources.map(item => item.id) };
+  h.hostResponses.push(hostJSON(openPreview), hostJSON({ ok: true, results: [] }), hostJSON(openPreview));
+  h.approvals.push(true, false);
+  await tool.execute("first", request, undefined, undefined, h.ctx);
+  const second = await tool.execute("second", request, undefined, undefined, h.ctx);
+  assert.equal(second.details.result.cancelled, true);
+  assert.equal(h.confirmations.length, 2);
+  assert.equal(h.calls.filter(call => call.args[0] === "open-resource").length, 3);
 });

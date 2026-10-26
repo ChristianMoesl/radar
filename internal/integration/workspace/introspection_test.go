@@ -281,3 +281,24 @@ func TestInspectRepositoryRefsReturnsCanonicalBranchesAndCheckouts(t *testing.T)
 		t.Fatalf("branches = %#v, want %#v", result.Branches, wantBranches)
 	}
 }
+
+func TestCanonicalRepositoryDirsExposeOnlyExistingDeduplicatedHostRoots(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "sources")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.RepositoryDirs = []string{real, alias, filepath.Join(root, "missing")}
+	canonical, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := CanonicalRepositoryDirs(cfg); !reflect.DeepEqual(got, []string{canonical}) {
+		t.Fatalf("%#v", got)
+	}
+}
