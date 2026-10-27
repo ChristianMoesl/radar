@@ -14,7 +14,7 @@ func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegr
 	return startWorkspaceRuntimeWithReadiness(ctx, runner, group, forkSession, false)
 }
 
-// Ordinary open/recovery remains sandbox-first. A newly recovered runtime must
+// Runtime recovery remains sandbox-first. A newly recovered runtime must
 // be checked even if reconciliation already checked the previous instance.
 func startWorkspaceRuntimeWithReadiness(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string, readinessChecked bool) (bool, bool, error) {
 	sessionExists, createSandbox, err := prepareWorkspaceRuntime(ctx, runner, group)
@@ -77,7 +77,7 @@ func prepareWorkspaceRuntime(ctx context.Context, runner Runner, group workspace
 			return false, false, err
 		}
 	}
-	_, sessionErr := runner.Run(ctx, group.Path, "tmux", "has-session", "-t", group.SessionName)
+	_, sessionErr := runner.Run(ctx, group.Path, "tmux", "has-session", "-t", "="+group.SessionName)
 	if sessionErr != nil {
 		if err := validateSessionDependencies(runner, group.Tmux); err != nil {
 			return false, false, err

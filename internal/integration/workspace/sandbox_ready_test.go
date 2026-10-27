@@ -415,6 +415,14 @@ func TestOpenReadinessFailureRetainsNewRuntimeAndExistingSession(t *testing.T) {
 			} else {
 				_, err = Create(context.Background(), runner, options)
 			}
+			if open == "registered" && hasSession {
+				if err != nil {
+					t.Fatalf("live switch = %v", err)
+				}
+				assertNotCalled(t, runner.calls, "sbx")
+				assertCalledContains(t, runner.calls, "tmux", "switch-client")
+				continue
+			}
 			if err == nil || !isSandboxReadinessError(err) || strings.Contains(err.Error(), readySecret) {
 				t.Fatalf("open = %v", err)
 			}

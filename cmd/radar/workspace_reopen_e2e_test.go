@@ -20,15 +20,16 @@ import (
 	"radar/internal/integration/obsidian"
 	"radar/internal/integration/tmux"
 	"radar/internal/integration/workspace"
+	"radar/internal/integration/workspace/group"
 	"radar/internal/linking"
 	"radar/internal/protocol"
 	"radar/internal/version"
 )
 
 // Run the real dashboard and workspace opener against a private tmux server.
-// The fixture daemon deliberately retains the observation collected before the
-// session was killed, reproducing Enter before the next successful collection.
-func TestDashboardRecreatesClosedWorkspaceSessionE2E(t *testing.T) {
+// Keep cached observations while closing sessions or making recovery checks
+// unavailable: Enter must recover closed sessions and directly enter live ones.
+func TestDashboardOpensWorkspaceSessionsE2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("starts an isolated tmux server and dashboard")
 	}
@@ -36,8 +37,11 @@ func TestDashboardRecreatesClosedWorkspaceSessionE2E(t *testing.T) {
 	if err != nil {
 		t.Skip("tmux is not installed")
 	}
-	for _, inside := range []bool{true, false} {
-		t.Run(fmt.Sprintf("inside_tmux=%v", inside), func(t *testing.T) {
+	for _, scenario := range []struct {
+		closed, inside bool
+	}{{true, true}, {true, false}, {false, true}, {false, false}} {
+		t.Run(fmt.Sprintf("closed=%v/inside_tmux=%v", scenario.closed, scenario.inside), func(t *testing.T) {
+			inside := scenario.inside
 			// Both daemon and tmux Unix socket paths must stay short on macOS.
 			home, err := os.MkdirTemp("/tmp", "radar-reopen-")
 			if err != nil {
@@ -112,9 +116,24 @@ func TestDashboardRecreatesClosedWorkspaceSessionE2E(t *testing.T) {
 			if len(refs) != 2 {
 				t.Fatal("missing cached workspace session observation")
 			}
-			runTmux("kill-session", "-t", created.SessionName)
-			if err := exec.CommandContext(ctx, "tmux", "has-session", "-t", "="+created.SessionName).Run(); err == nil {
-				t.Fatal("workspace session was not closed")
+			if scenario.closed {
+				runTmux("kill-session", "-t", created.SessionName)
+				if err := exec.CommandContext(ctx, "tmux", "has-session", "-t", "="+created.SessionName).Run(); err == nil {
+					t.Fatal("workspace session was not closed")
+				}
+			} else {
+				// A live workspace must remain switchable without any SBX calls,
+				// including version probes, sandbox listing and readiness checks.
+				if err := workspacegroup.Update(root, func(registry *workspacegroup.Registry) error {
+					registry.Workspaces[0].Sandbox = &workspacegroup.Sandbox{Name: "plan", Agent: "shell", Mounts: []string{created.Path}, ReadyCommand: []string{"ready"}}
+					return nil
+				}); err != nil {
+					t.Fatal(err)
+				}
+				sbx := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HOME/sbx-calls\"\nexit 23\n"
+				if err := os.WriteFile(filepath.Join(bin, "sbx"), []byte(sbx), 0755); err != nil {
+					t.Fatal(err)
+				}
 			}
 
 			listener, err := net.Listen("unix", os.Getenv("RADAR_SOCKET"))
@@ -205,11 +224,17 @@ func TestDashboardRecreatesClosedWorkspaceSessionE2E(t *testing.T) {
 				capture, _ := exec.CommandContext(ctx, "tmux", "capture-pane", "-p", "-t", "dashboard").CombinedOutput()
 				t.Fatalf("timed out waiting for %s\n%s", description, capture)
 			}
-			wait("the client to enter the recreated workspace", func() bool {
+			wait("the client to enter the workspace", func() bool {
 				return runTmux("list-clients", "-F", "#{session_name}") == created.SessionName
 			})
-			if newID := runTmux("display-message", "-p", "-t", created.SessionName, "#{session_id}"); newID == oldID {
-				t.Fatal("reopened the stale session instead of creating a new one")
+			newID := runTmux("display-message", "-p", "-t", created.SessionName, "#{session_id}")
+			if (newID != oldID) != scenario.closed {
+				t.Fatalf("closed=%v: old session=%s opened session=%s", scenario.closed, oldID, newID)
+			}
+			if !scenario.closed {
+				if calls, err := os.ReadFile(filepath.Join(home, "sbx-calls")); !os.IsNotExist(err) {
+					t.Fatalf("live switch ran SBX checks: %s (%v)", calls, err)
+				}
 			}
 			wait("the workspace pane to be ready", func() bool {
 				return strings.Contains(runTmux("capture-pane", "-p", "-t", created.SessionName), "workspace ready")

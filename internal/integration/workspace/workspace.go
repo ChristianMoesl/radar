@@ -172,12 +172,22 @@ type CreateSessionOptions struct {
 }
 
 func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string, switchClient bool) (Workspace, error) {
-	root, _, found, err := RegisteredWorkspace(current, "")
+	root, group, found, err := RegisteredWorkspace(current, "")
 	if err != nil {
 		return Workspace{}, err
 	}
 	if !found {
 		return Workspace{}, fmt.Errorf("no registered Radar workspace contains %s", current)
+	}
+	// Entering a live session is navigation, not runtime recovery. Keep it
+	// independent of note locks, filesystem repairs and SBX readiness checks.
+	if _, err := runner.Run(ctx, "", "tmux", "has-session", "-t", "="+group.SessionName); err == nil {
+		if switchClient {
+			if _, err := runner.Run(ctx, "", "tmux", "switch-client", "-t", group.SessionName); err != nil {
+				return Workspace{}, err
+			}
+		}
+		return Workspace{Name: group.Name, Path: group.Path, SessionName: group.SessionName, SandboxName: sandboxName(group)}, nil
 	}
 	var result Workspace
 	err = workspacegroup.WithNoteLock(root, func() error {
