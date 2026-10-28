@@ -245,6 +245,11 @@ commit needs a new dispatch and approval; checkout always uses the pinned SHA.
 Approving this deployment does not merge the PR. Results appear in this manually
 dispatched Actions run; it is not an automatic required check on every PR.
 
+For the first setup check, use a small documentation-only PR. Before approving,
+confirm that readiness passed and the live job is waiting for environment review.
+After approval, require `TestLiveTerraformCollection` to pass; a queued,
+cancelled, or skipped run does not establish live coverage.
+
 The workflow pins its GitHub actions to exact commits, installs checksum-pinned
 tfctl 0.4.0, and passes the secret only to the live test step. tfctl uses its
 standard environment authentication with a
