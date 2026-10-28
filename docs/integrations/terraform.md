@@ -183,30 +183,42 @@ cancellation, outage recovery, and restart while a run completes.
 ### Live validation in GitHub Actions
 
 The separate [Terraform live validation workflow](../../.github/workflows/terraform-live.yml)
-runs manually on trusted `main` against its checked-in test workspace scope.
-It uses the `live-e2e` GitHub Environment. Create it if needed and restrict its
-deployment branches to `main`. Add **`TFCTL_TOKEN`** as an environment secret containing a
-personal Terraform user token with normal read access to that workspace. It must
-belong to the user who created the fixture runs; team/organization tokens cannot
-establish personal ownership.
+runs only for a manually selected open PR targeting `main`, after approval of its
+exact head commit. Start the workflow from trusted `main`; the workflow and approval
+helper come from that dispatch revision, while the approved PR code is checked out
+separately for testing. Ordinary pushes and PR events never start this live workflow.
 
-For a public repository, configure the environment before adding credentials:
+Create **Settings → Environments → terraform-live** before adding credentials:
 
 - Under **Deployment branches and tags**, choose **Selected branches and tags**
   and add a **branch** rule for exactly `main`, with no tag rules. Use an explicit
   selection; **Protected branches only** allows all branches when no branch
   protection rules exist.
-- Enable **Required reviewers** with a trusted maintainer. Enable **Prevent
-  self-review** when another maintainer can approve; a solo maintainer must leave
-  it off to approve their own dispatches.
+- Enable **Required reviewers** and select yourself (or another trusted maintainer).
+  Enable **Prevent self-review** when another maintainer can approve; a solo
+  maintainer must leave it off to approve their own dispatches.
 - Disable **Allow administrators to bypass configured protection rules**.
 - Store `TFCTL_TOKEN` in **Environment secrets**, not repository variables or
-  committed configuration. Approval also gates other workflows using this
-  environment, including the scheduled provider E2E run.
+  committed configuration. This dedicated environment is separate from the
+  Jira/Datadog session bundle and its scheduled workflow.
+
+The credential-free readiness job checks that required reviewers exist,
+administrator bypass is disabled, and the only deployment rule allows the
+`main` branch. A missing environment or weaker settings fail the run before
+requesting the live job. Referencing an environment in YAML does not configure
+GitHub's required-reviewer setting; configure that setting in GitHub first.
+
+Add **`TFCTL_TOKEN`** as a personal Terraform user token with normal read access
+to the checked-in fixture scope: `app.terraform.io`, organization `radar-oss`,
+workspace `radar-oauth-e2e`. It must belong to the user who created the fixture
+runs; team/organization tokens cannot establish personal ownership. Create at
+least one run with that account before testing. No Jira, Datadog or npm setup is
+needed for this workflow, and no token should be sent through chat.
 
 Protect `main` with required reviewed pull requests and blocked force pushes.
-Review the code at the dispatched commit before approving: code executing with
-the secret can use the credential, regardless of the workflow's intended reads.
+Review the code and dependencies at the selected PR commit before approving:
+code executing with the secret can use the credential, regardless of the
+workflow's intended reads.
 Use a dedicated personal Terraform test account restricted to the disposable
 organization/workspace and set token expiry. A user API token inherits that
 account's permissions; the workflow's GET-only behavior does not narrow them.
@@ -216,9 +228,18 @@ Keep the workspace's cloud credentials and infrastructure limited to test resour
 Enter the secret value in GitHub or through the CLI prompt:
 
 ```sh
-gh secret set TFCTL_TOKEN --repo acme/radar --env live-e2e
-gh workflow run terraform-live.yml --repo acme/radar --ref main
+gh secret set TFCTL_TOKEN --repo acme/radar --env terraform-live
+gh workflow run terraform-live.yml --repo acme/radar --ref main -f pr_number=123
 ```
+
+In the web UI, open **Actions → Terraform live validation → Run workflow**, select
+`main`, and enter the PR number. Read the readiness summary's exact commit link,
+then choose **Review deployments → terraform-live → Approve and deploy**. The
+live runner and its Terraform credential wait for this approval. After approval,
+the trusted helper rechecks that the PR is still open with the same head. A new
+commit needs a new dispatch and approval; checkout always uses the pinned SHA.
+Approving this deployment does not merge the PR. Results appear in this manually
+dispatched Actions run; it is not an automatic required check on every PR.
 
 The workflow pins its GitHub actions to exact commits, installs checksum-pinned
 tfctl 0.4.0, and passes the secret only to the live test step. tfctl uses its
@@ -246,8 +267,8 @@ uncached Go execution so a previous live result cannot satisfy a new dispatch.
 Create/approve/apply/cancel test runs through Terraform, then dispatch the check
 with those run IDs to record the relevant outcomes. A successful read does not
 prove the complete live transition, outage/recovery, or daemon-restart matrix;
-those remaining #41 scenarios must be recorded separately. Pull-request CI keeps
-the fixture tests and never receives this workflow's Terraform secret.
+those remaining #41 scenarios must be recorded separately. Ordinary pull-request
+CI keeps the fixture tests and never receives this workflow's Terraform secret.
 
 This integration adds configuration and generic source facts without changing
 the persisted cache, authored binding schema, or integration-owned file layouts.

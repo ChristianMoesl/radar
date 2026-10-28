@@ -5,9 +5,11 @@ CLI logins on a disposable runner and checks token masking, refresh and sandbox
 restart. It uses neither the persisted live-E2E sessions nor their writeback flow.
 
 The separate [Terraform live validation workflow](../.github/workflows/terraform-live.yml)
-is manual and read-only. It reuses the `live-e2e` environment with a single
-`TFCTL_TOKEN` personal-user secret and the approved workspace selectors, without
-requiring the OAuth session bundle or other providers. See
+tests a manually selected PR revision after explicit environment approval. It
+uses a separate `terraform-live` environment with a single `TFCTL_TOKEN`
+personal-user secret and the approved workspace selectors, without requiring
+the OAuth session bundle or other providers. Its trusted workflow comes from
+`main`; ordinary PR events do not start it. See
 [Terraform live setup and coverage](integrations/terraform.md#live-validation-in-github-actions).
 
 The [Live provider E2E workflow](../.github/workflows/live-e2e.yml) uses ordinary

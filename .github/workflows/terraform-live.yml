@@ -1,8 +1,13 @@
 name: Terraform live validation
+run-name: 'Terraform live validation for PR #${{ inputs.pr_number }}'
 
 on:
   workflow_dispatch:
     inputs:
+      pr_number:
+        description: Open PR targeting main; its exact head commit needs environment approval
+        type: string
+        required: true
       run_id:
         description: Optional personally created run ID, including an older terminal run
         type: string
@@ -10,6 +15,8 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
+  deployments: read
 
 concurrency:
   group: terraform-live-validation
@@ -17,8 +24,12 @@ concurrency:
 
 jobs:
   readiness:
-    name: Require trusted main
+    name: Select the PR revision and check approval protection
     runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      pr_number: ${{ steps.gate.outputs.pr_number }}
+      sha: ${{ steps.gate.outputs.sha }}
     steps:
       - name: Reject dispatches outside main before accessing credentials
         run: |
@@ -26,21 +37,47 @@ jobs:
             echo 'Dispatch Terraform live validation on trusted main.' >&2
             exit 1
           fi
-
-  live:
-    name: Read the Terraform Cloud test workspace
-    needs: readiness
-    runs-on: ubuntu-latest
-    environment: live-e2e
-    timeout-minutes: 10
-    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Resolve an open PR and require a protected environment
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: python3 scripts/live-pr-gate.py resolve
+
+  live:
+    name: 'Approve PR #${{ needs.readiness.outputs.pr_number }} at ${{ needs.readiness.outputs.sha }}'
+    needs: readiness
+    runs-on: ubuntu-latest
+    environment:
+      name: terraform-live
+      url: https://github.com/${{ github.repository }}/commit/${{ needs.readiness.outputs.sha }}
+    timeout-minutes: 10
+    steps:
+      # Keep approval/control code on the trusted dispatch revision. The PR's
+      # workflow and gate helper are never used to authorize its own execution.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Reject a changed or closed PR after approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.readiness.outputs.pr_number }}
+          EXPECTED_SHA: ${{ needs.readiness.outputs.sha }}
+        run: python3 control/scripts/live-pr-gate.py verify
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.readiness.outputs.sha }}
+          path: candidate
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version-file: candidate/go.mod
       - name: Install checksum-pinned tfctl 0.4.0
         run: |
           curl -fsSL https://releases.hashicorp.com/tfctl/0.4.0/tfctl_0.4.0_linux_amd64.zip -o "$RUNNER_TEMP/tfctl.zip"
@@ -50,6 +87,7 @@ jobs:
           chmod 0755 "$RUNNER_TEMP/tfctl-live/tfctl"
           echo "$RUNNER_TEMP/tfctl-live" >> "$GITHUB_PATH"
       - name: Qualify production collection and cold binding reads
+        working-directory: candidate
         env:
           TFCTL_TOKEN: ${{ secrets.TFCTL_TOKEN }}
           RADAR_TEST_TERRAFORM_LIVE: '1'
@@ -59,7 +97,7 @@ jobs:
           RADAR_TEST_TERRAFORM_RUN_ID: ${{ inputs.run_id }}
         run: |
           if [ -z "$TFCTL_TOKEN" ]; then
-            echo 'Add the personal Terraform user token as TFCTL_TOKEN in the live-e2e GitHub Environment.' >&2
+            echo 'Add the personal Terraform user token as TFCTL_TOKEN in the terraform-live GitHub Environment.' >&2
             exit 1
           fi
           go test ./internal/integration/terraform -run '^TestLiveTerraformCollection$' -count=1 -timeout=4m -v

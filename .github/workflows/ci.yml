@@ -194,7 +194,7 @@ jobs:
         run: make test
 
       - name: Test live E2E harness safeguards without account access
-        run: python3 -m unittest scripts/test_live_e2e.py scripts/test_sbx_oauth_proxy.py
+        run: python3 -m unittest scripts/test_live_e2e.py scripts/test_live_pr_gate.py scripts/test_sbx_oauth_proxy.py
 
       - name: Check Linux release packaging
         run: make dist VERSION=ci DIST_TARGETS="linux/amd64 linux/arm64"
