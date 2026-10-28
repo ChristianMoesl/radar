@@ -6,9 +6,10 @@ restart. It uses neither the persisted live-E2E sessions nor their writeback flo
 
 The separate [Terraform live validation workflow](../.github/workflows/terraform-live.yml)
 tests a manually selected PR revision after explicit environment approval. It
-uses a separate `terraform-live` environment with a single `TFCTL_TOKEN`
-personal-user secret and the approved workspace selectors, without requiring
-the OAuth session bundle or other providers. Its trusted workflow comes from
+reuses the shared `live-e2e` environment and consumes its `TFCTL_TOKEN`
+personal-user secret with the approved workspace selectors, without requiring
+the OAuth session bundle or other providers. No separate environment or copies
+of existing credentials are needed. Its trusted workflow comes from
 `main`; ordinary PR events do not start it. See
 [Terraform live setup and coverage](integrations/terraform.md#live-validation-in-github-actions).
 
@@ -78,12 +79,13 @@ while the providers continue accepting refreshes.
 
 ## One-time GitHub setup
 
-In the Radar repository, create **Settings → Environments → live-e2e** and restrict
+In the Radar repository, reuse **Settings → Environments → live-e2e** and restrict
 deployment branches to an explicit selected **branch** rule for `main`, with no
 tag rules. For a public repository, require a trusted reviewer and disable
 administrator bypass. Scheduled runs will also wait for approval. Enable
 prevent-self-review when another trusted maintainer can approve; solo
-maintainers must leave it off to approve their own runs. Protect `main` with
+maintainers must leave it off to approve their own runs. Create the environment
+first only when configuring a new repository. Protect `main` with
 reviewed pull requests and blocked force pushes. This environment is never
 referenced by a PR-triggered workflow.
 

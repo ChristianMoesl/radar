@@ -30,8 +30,8 @@ class ApprovalGate(unittest.TestCase):
     def read(self, path):
         self.requests.append(path)
         return copy.deepcopy({f"{self.root}/pulls/12": self.pr,
-                              f"{self.root}/environments/terraform-live": self.environment,
-                              f"{self.root}/environments/terraform-live/deployment-branch-policies?per_page=100": self.policies}[path])
+                              f"{self.root}/environments/live-e2e": self.environment,
+                              f"{self.root}/environments/live-e2e/deployment-branch-policies?per_page=100": self.policies}[path])
 
     def select(self, **changes):
         return gate.select_revision({**self.env, **changes}, self.read)
@@ -95,6 +95,7 @@ class ApprovalGate(unittest.TestCase):
                 self.assertEqual(gate.main(), 0)
             self.assertEqual(output.read_text(), f"pr_number=12\nsha={self.sha}\n")
             self.assertIn(f"https://github.com/acme/radar/commit/{self.sha}", summary.read_text())
+            self.assertIn("**live-e2e**", summary.read_text())
             self.assertIn("Terraform test token", summary.read_text())
 
     def test_post_approval_verification_requires_the_pinned_revision(self):
@@ -108,7 +109,7 @@ class ApprovalGate(unittest.TestCase):
         with patch.dict("os.environ", {"GH_TOKEN": "synthetic-token"}), \
                 patch.object(gate.urllib.request, "urlopen", side_effect=error):
             with self.assertRaises(ValueError) as caught:
-                gate.github("/repos/acme/radar/environments/terraform-live")
+                gate.github("/repos/acme/radar/environments/live-e2e")
         self.assertIn("HTTP 403", str(caught.exception))
         self.assertNotIn("private response", str(caught.exception))
         self.assertNotIn("synthetic-token", str(caught.exception))

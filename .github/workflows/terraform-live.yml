@@ -53,7 +53,7 @@ jobs:
     needs: readiness
     runs-on: ubuntu-latest
     environment:
-      name: terraform-live
+      name: live-e2e
       url: https://github.com/${{ github.repository }}/commit/${{ needs.readiness.outputs.sha }}
     timeout-minutes: 10
     steps:
@@ -97,7 +97,7 @@ jobs:
           RADAR_TEST_TERRAFORM_RUN_ID: ${{ inputs.run_id }}
         run: |
           if [ -z "$TFCTL_TOKEN" ]; then
-            echo 'Add the personal Terraform user token as TFCTL_TOKEN in the terraform-live GitHub Environment.' >&2
+            echo 'Add the personal Terraform user token as TFCTL_TOKEN in the live-e2e GitHub Environment.' >&2
             exit 1
           fi
           go test ./internal/integration/terraform -run '^TestLiveTerraformCollection$' -count=1 -timeout=4m -v

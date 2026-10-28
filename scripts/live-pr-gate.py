@@ -10,7 +10,7 @@ import sys
 import urllib.error
 import urllib.request
 
-ENVIRONMENT = "terraform-live"
+ENVIRONMENT = "live-e2e"
 
 
 def require(condition, message):
@@ -59,17 +59,17 @@ def select_revision(env, read=github):
     environment = read(f"{root}/environments/{ENVIRONMENT}")
     rules = environment.get("protection_rules", [])
     require(any(rule.get("type") == "required_reviewers" and rule.get("reviewers") for rule in rules),
-            "Configure a required reviewer on the terraform-live GitHub Environment before running live tests.")
+            "Configure a required reviewer on the live-e2e GitHub Environment before running live tests.")
     require(environment.get("can_admins_bypass") is False,
-            "Disable administrator bypass on the terraform-live GitHub Environment.")
+            "Disable administrator bypass on the live-e2e GitHub Environment.")
     policy = environment.get("deployment_branch_policy") or {}
     require(policy.get("custom_branch_policies") is True and policy.get("protected_branches") is False,
-            "Restrict terraform-live to a selected branch rule for main, with no tag rules.")
+            "Restrict live-e2e to a selected branch rule for main, with no tag rules.")
     policies = read(f"{root}/environments/{ENVIRONMENT}/deployment-branch-policies?per_page=100")
     branches = policies.get("branch_policies", [])
     require(policies.get("total_count") == 1 and len(branches) == 1
             and branches[0].get("name") == "main" and branches[0].get("type") == "branch",
-            "terraform-live must allow exactly the main branch and no tags.")
+            "live-e2e must allow exactly the main branch and no tags.")
     return number, sha
 
 
@@ -90,7 +90,7 @@ def main():
             with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
                 summary.write(f"## Terraform live approval\n\nPR [#{number}]({server}/{repository}/pull/{number}), "
                               f"commit [`{sha}`]({server}/{repository}/commit/{sha}).\n\n"
-                              "Review this exact revision before approving the **terraform-live** deployment. "
+                              "Review this exact revision before approving the **live-e2e** deployment. "
                               "Approval allows its code and dependencies to use the dedicated Terraform test token. "
                               "A changed PR head requires a new dispatch and approval.\n")
         print(f"PR #{number} at {sha}: metadata and required approval settings verified.")
