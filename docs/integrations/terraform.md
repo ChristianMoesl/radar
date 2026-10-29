@@ -288,5 +288,14 @@ prove the complete live transition, outage/recovery, or daemon-restart matrix;
 those remaining #41 scenarios must be recorded separately. Ordinary pull-request
 CI keeps the fixture tests and never receives this workflow's Terraform secret.
 
+Hosted smoke validation passed on **2026-10-29** in
+[run 40834019053](https://github.com/ChristianMoesl/radar/actions/runs/40834019053)
+using trusted workflow revision `cf830ea`, Terraform 1.17.0 and tfctl 0.4.0.
+After manual approval, CI created a fresh personal speculative run, discovered
+one `planned_and_finished` run with one plan summary, and passed exact ownership,
+scope, source-ref, open-action and cold-binding checks. Failure acknowledgement
+was not exercised. Apply/approval, cancellation, outage/recovery and daemon
+restart scenarios remain outstanding; this pass does not complete #41's matrix.
+
 This integration adds configuration and generic source facts without changing
 the persisted cache, authored binding schema, or integration-owned file layouts.
