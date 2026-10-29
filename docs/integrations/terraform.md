@@ -205,8 +205,6 @@ holds the live-validation credentials. Configure its approval protection:
   secret; the Jira/Datadog session bundle and other live credentials stay in the
   same shared environment. Required approval also gates the scheduled provider
   workflow that uses this environment.
-- The existing `LIVE_E2E_GITHUB_TOKEN` needs read access to the private
-  `radar-oss/radar-oauth-e2e` fixture repository when creating a fresh plan.
 
 The credential-free readiness job checks that required reviewers exist,
 administrator bypass is disabled, and the only deployment rule allows the
@@ -251,8 +249,8 @@ dispatched Actions run; it is not an automatic required check on every PR.
 
 The workflow pins its GitHub actions to exact commits, installs checksum-pinned
 tfctl 0.4.0 and Terraform 1.17.0, and releases credentials only after environment
-approval. Unless `run_id` selects an existing fixture, it checks out the pinned
-private fixture configuration and runs native `terraform init` / `terraform plan`
+approval. Unless `run_id` selects an existing fixture, it uses the trusted
+dispatch commit's [bundled fixture](../../testdata/terraform-live) and runs native `terraform init` / `terraform plan`
 with the personal token. The fixture has only a built-in `terraform_data`
 resource; it creates no external infrastructure. Only its three root `.tf` files
 are uploaded from a disposable directory. The CLI creates a speculative run and
@@ -262,8 +260,8 @@ of CI logs; the exact run ID is passed to Radar's qualification test.
 The qualification step passes the same secret to tfctl's standard environment
 authentication with a temporary profile containing only hostname/organization selectors. Normal Radar
 use can continue to reuse an existing CLI login; `TFCTL_TOKEN` is not a required
-Radar setting. No CLI session bundle, secret writeback token, or Jira/Datadog
-credentials are needed for this workflow. No cloud-workspace credentials or
+Radar setting. No CLI session bundle, secret writeback token, GitHub fixture
+token, or Jira/Datadog credentials are needed for this workflow. No cloud-workspace credentials or
 network-policy change is required when the test runs on GitHub-hosted runners.
 
 The opt-in `TestLiveTerraformCollection` exercises production source status,
@@ -278,8 +276,8 @@ run messages, raw responses, plans, or credentials.
 Leave the optional `run_id` input empty to create and qualify a fresh personal
 plan-only run. This avoids relying on manual runs or the three-day terminal
 discovery window. Supply a personally created `run-...` ID to qualify a
-specific/older terminal fixture without creating another run or checking out the
-private configuration. Empty discovery without a selected fixture, incomplete
+specific/older terminal fixture without creating another run. Empty discovery
+without a selected fixture, incomplete
 scans, failed
 authentication and ownership/scope mismatches fail the run. The workflow forces
 uncached Go execution so a previous live result cannot satisfy a new dispatch.

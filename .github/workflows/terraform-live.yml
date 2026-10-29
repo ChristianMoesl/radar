@@ -90,27 +90,13 @@ jobs:
           printf 'c168cab7c637a8769fdb90089ddd19de701bc6ff8aca64dc2e2185fe46f59f67  %s\n' "$RUNNER_TEMP/terraform.zip" | sha256sum --check -
           unzip -q "$RUNNER_TEMP/terraform.zip" terraform -d "$RUNNER_TEMP/tfctl-live"
           chmod 0755 "$RUNNER_TEMP/tfctl-live/terraform"
-      - name: Require access to the dedicated fixture repository
-        if: inputs.run_id == ''
-        env:
-          FIXTURE_TOKEN: ${{ secrets.LIVE_E2E_GITHUB_TOKEN }}
-        run: |
-          test -n "$FIXTURE_TOKEN" || { echo 'LIVE_E2E_GITHUB_TOKEN must read radar-oss/radar-oauth-e2e.' >&2; exit 1; }
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: inputs.run_id == ''
-        with:
-          repository: radar-oss/radar-oauth-e2e
-          ref: 10ca06296175248a9a114950024b5ccc73677d61
-          token: ${{ secrets.LIVE_E2E_GITHUB_TOKEN }}
-          path: terraform-fixture
-          persist-credentials: false
       - name: Create a personal speculative fixture run without applying
         if: inputs.run_id == ''
         id: fixture
         timeout-minutes: 8
         env:
           TF_TOKEN_app_terraform_io: ${{ secrets.TFCTL_TOKEN }}
-        run: python3 control/scripts/terraform-live-plan.py --configuration "$GITHUB_WORKSPACE/terraform-fixture"
+        run: python3 control/scripts/terraform-live-plan.py --configuration "$GITHUB_WORKSPACE/control/testdata/terraform-live"
       - name: Qualify production collection and cold binding reads
         working-directory: candidate
         env:

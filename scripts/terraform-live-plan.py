@@ -39,8 +39,8 @@ def create_plan(configuration, inherited):
         root = Path(temporary)
         directory = root / "configuration"
         directory.mkdir()
-        # Upload only the pinned Terraform configuration, excluding the private
-        # repository's Git/Jira fixtures, local state, tests and credentials.
+        # Upload only the trusted Terraform configuration, excluding repository
+        # metadata, local state, tests and credentials.
         for name in FILES:
             source = configuration / name
             if source.is_symlink() or not source.is_file() or source.stat().st_size > 65536:

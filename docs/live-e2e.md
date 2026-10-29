@@ -8,10 +8,10 @@ The separate [Terraform live validation workflow](../.github/workflows/terraform
 tests a manually selected PR revision after explicit environment approval. It
 reuses the shared `live-e2e` environment and consumes its `TFCTL_TOKEN`
 personal-user secret with the approved workspace selectors. By default, the
-approved job uses the existing read-only `LIVE_E2E_GITHUB_TOKEN` to fetch the
-pinned Terraform fixture and create a fresh speculative run before qualification;
+approved job uses the trusted dispatch commit's bundled Terraform fixture to
+create a fresh speculative run before qualification;
 supplying an existing `run_id` skips fixture creation. It needs no OAuth session
-bundle or Jira/Datadog account. No separate environment or copies
+bundle, GitHub fixture token or Jira/Datadog account. No separate environment or copies
 of existing credentials are needed. Its trusted workflow comes from
 `main`; ordinary PR events do not start it. See
 [Terraform live setup and coverage](integrations/terraform.md#live-validation-in-github-actions).
