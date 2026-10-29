@@ -194,7 +194,7 @@ jobs:
         run: make test
 
       - name: Test live E2E harness safeguards without account access
-        run: python3 -m unittest scripts/test_live_e2e.py scripts/test_live_pr_gate.py scripts/test_sbx_oauth_proxy.py
+        run: python3 -m unittest scripts/test_live_e2e.py scripts/test_live_pr_gate.py scripts/test_terraform_live_plan.py scripts/test_sbx_oauth_proxy.py
 
       - name: Check Linux release packaging
         run: make dist VERSION=ci DIST_TARGETS="linux/amd64 linux/arm64"
@@ -291,3 +291,27 @@ jobs:
         run: make dist VERSION=v1.2.3 DIST_TARGETS="linux/${{ matrix.arch }}"
       - name: Install, test and uninstall with real Homebrew
         run: scripts/homebrew/smoke-test.sh "dist/radar_v1.2.3_linux_${{ matrix.arch }}.tar.gz"
+
+  ci:
+    name: CI
+    if: always()
+    needs: [provider-cli-contracts, durable-agents-sbx, durable-agents, pi, go, macos-notifier, linux-installer, linux-homebrew]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require all CI jobs to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          results = json.loads(os.environ['RESULTS'])
+          allowed_skips = {'durable-agents-sbx'} if os.environ['GITHUB_EVENT_NAME'] == 'pull_request' else set()
+          failed = [name for name, job in results.items()
+                    if job['result'] != 'success'
+                    and not (name in allowed_skips and job['result'] == 'skipped')]
+          if failed:
+              print('CI did not pass: ' + ', '.join(failed), file=sys.stderr)
+              sys.exit(1)
+          print('All required CI jobs passed.')
+          PY

@@ -205,6 +205,8 @@ holds the live-validation credentials. Configure its approval protection:
   secret; the Jira/Datadog session bundle and other live credentials stay in the
   same shared environment. Required approval also gates the scheduled provider
   workflow that uses this environment.
+- The existing `LIVE_E2E_GITHUB_TOKEN` needs read access to the private
+  `radar-oss/radar-oauth-e2e` fixture repository when creating a fresh plan.
 
 The credential-free readiness job checks that required reviewers exist,
 administrator bypass is disabled, and the only deployment rule allows the
@@ -214,10 +216,12 @@ GitHub's required-reviewer setting; configure that setting in GitHub first.
 
 If not already present, add **`TFCTL_TOKEN`** as a personal Terraform user token
 with normal read access to the checked-in fixture scope: `app.terraform.io`, organization `radar-oss`,
-workspace `radar-oauth-e2e`. It must belong to the user who created the fixture
-runs; team/organization tokens cannot establish personal ownership. Create at
-least one run with that account before testing. No Jira, Datadog or npm setup is
-needed for this workflow, and no token should be sent through chat.
+workspace `radar-oauth-e2e`. It must belong to a personal account with permission
+to upload configuration and queue plans in this disposable workspace. The
+approved job creates a fresh run as that account; team/organization tokens cannot
+establish personal ownership. An explicitly selected existing run must have the
+same creator. No Jira, Datadog or npm setup is needed for this workflow, and no
+token should be sent through chat.
 
 Protect `main` with required reviewed pull requests and blocked force pushes.
 Review the code and dependencies at the selected PR commit before approving:
@@ -246,11 +250,19 @@ Approving this deployment does not merge the PR. Results appear in this manually
 dispatched Actions run; it is not an automatic required check on every PR.
 
 The workflow pins its GitHub actions to exact commits, installs checksum-pinned
-tfctl 0.4.0, and passes the secret only to the live test step. tfctl uses its
-standard environment authentication with a
-temporary profile containing only hostname/organization selectors. Normal Radar
+tfctl 0.4.0 and Terraform 1.17.0, and releases credentials only after environment
+approval. Unless `run_id` selects an existing fixture, it checks out the pinned
+private fixture configuration and runs native `terraform init` / `terraform plan`
+with the personal token. The fixture has only a built-in `terraform_data`
+resource; it creates no external infrastructure. Only its three root `.tf` files
+are uploaded from a disposable directory. The CLI creates a speculative run and
+does not apply, destroy, or change workspace settings. Its raw output stays out
+of CI logs; the exact run ID is passed to Radar's qualification test.
+
+The qualification step passes the same secret to tfctl's standard environment
+authentication with a temporary profile containing only hostname/organization selectors. Normal Radar
 use can continue to reuse an existing CLI login; `TFCTL_TOKEN` is not a required
-Radar setting. No CLI session bundle, secret writeback token, or other provider
+Radar setting. No CLI session bundle, secret writeback token, or Jira/Datadog
 credentials are needed for this workflow. No cloud-workspace credentials or
 network-policy change is required when the test runs on GitHub-hosted runners.
 
@@ -258,13 +270,17 @@ The opt-in `TestLiveTerraformCollection` exercises production source status,
 personal account/workspace verification, complete paginated discovery, source-ref
 contracts, plan-summary availability, both validated open actions, and a cold
 binding read. When the selected run is a terminal failure, it also checks
-acknowledgement and confirmed Done in isolated Radar memory. Terraform receives
-only read requests. Logs contain counts and enum states, without account IDs,
+acknowledgement and confirmed Done in isolated Radar memory. This qualification
+step sends only read requests, after the separate fixture creation step. Logs
+contain counts and enum states, without account IDs,
 run messages, raw responses, plans, or credentials.
 
-Leave the optional `run_id` input empty to select a discovered personal run, or
-supply a personally created `run-...` ID to qualify a specific/older terminal
-fixture. Empty discovery without a selected fixture, incomplete scans, failed
+Leave the optional `run_id` input empty to create and qualify a fresh personal
+plan-only run. This avoids relying on manual runs or the three-day terminal
+discovery window. Supply a personally created `run-...` ID to qualify a
+specific/older terminal fixture without creating another run or checking out the
+private configuration. Empty discovery without a selected fixture, incomplete
+scans, failed
 authentication and ownership/scope mismatches fail the run. The workflow forces
 uncached Go execution so a previous live result cannot satisfy a new dispatch.
 
