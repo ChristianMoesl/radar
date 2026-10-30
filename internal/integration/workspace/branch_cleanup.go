@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"radar/internal/integration/workspace/group"
+	"radar/internal/phasetiming"
 )
 
 const branchVerificationTimeout = 10 * time.Second
@@ -17,6 +19,7 @@ const branchVerificationTimeout = 10 * time.Second
 // All callers, including GC and explicit previews with a background context,
 // share one bounded budget for fetching, retries, and GitHub merge proof.
 func BranchPublishedOrMerged(ctx context.Context, runner Runner, repository, branch string) (bool, error) {
+	defer phasetiming.Start(ctx, "branch_publication_verification")()
 	repository = strings.TrimSpace(repository)
 	branch = strings.TrimSpace(branch)
 	if repository == "" || branch == "" {
@@ -40,6 +43,51 @@ func BranchPublishedOrMerged(ctx context.Context, runner Runner, repository, bra
 		return true, nil
 	}
 	return branchMergedOnGitHub(ctx, runner, repository, ref)
+}
+
+// BranchVerificationPhase shares only successful origin fetches within one
+// fresh, read-only verification phase. Each branch still gets its own bounded
+// budget and live local-ref/reachability/commit-specific merge checks. Construct
+// another phase after any mutation; never retain this on a source or service.
+type BranchVerificationPhase struct {
+	runner *phaseFetchRunner
+}
+
+func NewBranchVerificationPhase(runner Runner) *BranchVerificationPhase {
+	return &BranchVerificationPhase{runner: &phaseFetchRunner{Runner: runner, fetched: map[string]bool{}}}
+}
+
+func (p *BranchVerificationPhase) PublishedOrMerged(ctx context.Context, repository, branch string) (bool, error) {
+	return BranchPublishedOrMerged(ctx, p.runner, repository, branch)
+}
+
+type phaseFetchRunner struct {
+	Runner
+	mu      sync.Mutex
+	fetched map[string]bool
+}
+
+func (r *phaseFetchRunner) Run(ctx context.Context, cwd, name string, args ...string) (string, error) {
+	if name != "git" || len(args) != 3 || args[0] != "fetch" || args[1] != "--prune" || args[2] != "origin" {
+		return r.Runner.Run(ctx, cwd, name, args...)
+	}
+	key := pathKey(physicalPath(cwd))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if r.fetched[key] {
+		return "", nil
+	}
+	output, err := r.Runner.Run(ctx, cwd, name, args...)
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	if err == nil {
+		r.fetched[key] = true
+	}
+	return output, err
 }
 
 type ManagedWorktreeRemovalPlan struct {

@@ -97,7 +97,12 @@ func discoverSession(ctx context.Context, runner Runner, workspacePath string) s
 }
 
 func listSandboxes(ctx context.Context, runner Runner) ([]listedSandbox, error) {
+	ctx, cancel := context.WithTimeout(ctx, sandboxObservationTimeout)
+	defer cancel()
 	output, err := sbxclient.New(runner).Run(ctx, "", "ls", "--json")
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil {
 		return nil, sbxCommandError(err)
 	}
@@ -117,6 +122,9 @@ func listSandboxes(ctx context.Context, runner Runner) ([]listedSandbox, error) 
 
 func findSandbox(ctx context.Context, runner Runner, workspacePath, preferredName string) (listedSandbox, bool, error) {
 	if err := sbxclient.New(runner).LookPath(); err != nil {
+		if preferredName != "" {
+			return listedSandbox{}, false, fmt.Errorf("SBX runtime unavailable: %w", err)
+		}
 		return listedSandbox{}, false, nil
 	}
 	sandboxes, err := listSandboxes(ctx, runner)
@@ -428,12 +436,13 @@ func waitForContext(ctx context.Context, duration time.Duration) error {
 	}
 }
 
+// The apply engine freshly preflights the sandbox once for this setup batch.
 func scheduleMemberSetup(ctx context.Context, runner Runner, path, sessionName, sandboxName, repositoryName string, commands []string) error {
 	if len(commands) == 0 {
 		return nil
 	}
 	if sessionName != "" {
-		return scheduleSetupCommandsNamed(ctx, runner, path, sessionName, sandboxName, WorktreeName("setup-"+repositoryName), commands)
+		return scheduleSetupCommandsNamedAfterPreflight(ctx, runner, path, sessionName, sandboxName, WorktreeName("setup-"+repositoryName), commands)
 	}
 	steps := make([]string, 0, len(commands))
 	for _, command := range commands {
@@ -441,9 +450,6 @@ func scheduleMemberSetup(ctx context.Context, runner Runner, path, sessionName, 
 	}
 	command := "(" + strings.Join(steps, " && ") + ") >/dev/null 2>&1 &"
 	if sandboxName != "" {
-		if err := managedClient(runner).Preflight(ctx); err != nil {
-			return err
-		}
 		_, err := sbxclient.New(runner).Run(ctx, path, "exec", "--workdir", path, sandboxName, "sh", "-lc", command)
 		return err
 	}

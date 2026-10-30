@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -13,6 +14,7 @@ import (
 	"radar/internal/config"
 	"radar/internal/integration"
 	workspacegroup "radar/internal/integration/workspace/group"
+	"radar/internal/phasetiming"
 	"radar/internal/protocol"
 )
 
@@ -116,6 +118,84 @@ func ValidateDiscardingWorkspace(root, id string, mode integration.CleanupMode) 
 	return err
 }
 
+// PreflightCleanup scans every affected anchor once before any bundle side
+// effects. It is deliberately fresh; previews never serve as deletion authority.
+func (Source) PreflightCleanup(ctx context.Context, targets []protocol.CleanupTarget, mode integration.CleanupMode) error {
+	if !mode.DiscardChanges() {
+		return nil
+	}
+	root, disposable, err := loadAnchorCleanupSettings()
+	if err != nil {
+		return err
+	}
+	return workspacegroup.WithNoteLock(root, func() error {
+		defer phasetiming.Start(ctx, "cleanup_protected_scan")()
+		registry, err := workspacegroup.Load(root)
+		if err != nil {
+			return err
+		}
+		seen := map[string]bool{}
+		for _, target := range targets {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			group, found := workspacegroup.FindByContainingPath(registry, target.Path)
+			if target.Path == "" && target.WorkspaceID != "" {
+				group, found = workspacegroup.FindByID(registry, target.WorkspaceID)
+			}
+			if target.WorkspaceID != "" && (!found || group.ID != target.WorkspaceID) {
+				return fmt.Errorf("workspace cleanup target no longer matches its registration")
+			}
+			if !found || seen[group.ID] {
+				continue
+			}
+			seen[group.ID] = true
+			if _, err := anchorCleanupEntries(root, registry, group, disposable, mode); err != nil {
+				return err
+			}
+		}
+		return ctx.Err()
+	})
+}
+
+// ValidateDiscardingWorkspaceMember reloads all ownership/protected-path metadata
+// but traverses only the member about to be removed. Other trees are covered by
+// the bundle preflight and are checked again before their own removal.
+func ValidateDiscardingWorkspaceMember(root, id string, expected workspacegroup.Member, mode integration.CleanupMode) error {
+	registry, err := workspacegroup.Load(root)
+	if err != nil {
+		return err
+	}
+	group, found := workspacegroup.FindByID(registry, id)
+	if !found {
+		return fmt.Errorf("discarding cleanup requires a registered workspace: %s", id)
+	}
+	if !slices.ContainsFunc(group.Members, func(member workspacegroup.Member) bool {
+		return sameCleanPath(member.Path, expected.Path) && sameCleanPath(member.Repository, expected.Repository) && member.Branch == expected.Branch
+	}) {
+		return fmt.Errorf("managed worktree registration changed; preview cleanup again")
+	}
+	if !mode.DiscardChanges() {
+		return fmt.Errorf("member discard validation requires a discarding cleanup mode")
+	}
+	if err := validateDiscardingAnchor(root, registry, group); err != nil {
+		return err
+	}
+	a, err := openCleanupAnchor(root, group.Path)
+	if err != nil {
+		return err
+	}
+	defer a.close()
+	if a.anchor == nil {
+		return fmt.Errorf("workspace anchor is missing")
+	}
+	managed := map[string]bool{}
+	for _, member := range group.Members {
+		managed[pathKey(filepath.Base(member.Path))] = true
+	}
+	return a.inspectDiscardingTree(group, managed, filepath.Base(expected.Path))
+}
+
 // Collection, preview and execution classify root entries with the same policy.
 // Managed members always remain Git-owned, even in expired mode.
 func anchorCleanupEntries(root string, registry workspacegroup.Registry, group workspacegroup.Workspace, disposable []string, mode integration.CleanupMode) (anchorEntries, error) {
@@ -185,6 +265,10 @@ func (a *cleanupAnchor) entries(registry workspacegroup.Registry, group workspac
 }
 
 func (a *cleanupAnchor) inspectDiscardingAnchor(group workspacegroup.Workspace, managed map[string]bool) error {
+	return a.inspectDiscardingTree(group, managed, "")
+}
+
+func (a *cleanupAnchor) inspectDiscardingTree(group workspacegroup.Workspace, managed map[string]bool, memberName string) error {
 	// Walk from the already-open anchor, not an entry path: fs.WalkDir follows
 	// a symlink used as its starting path, but never follows nested symlinks.
 	// Unknown directories and members can contain primary checkouts without
@@ -197,6 +281,14 @@ func (a *cleanupAnchor) inspectDiscardingAnchor(group workspacegroup.Workspace, 
 			return nil
 		}
 		localPath := filepath.FromSlash(path)
+		// Always start at the pinned anchor. WalkDir would follow a symlink
+		// passed as its starting path. Prune unrelated entries only here.
+		if memberName != "" && filepath.Dir(localPath) == "." && !sameCleanPath(entry.Name(), memberName) {
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		if filepath.Dir(localPath) == "." && managed[pathKey(entry.Name())] && entry.Type()&os.ModeSymlink != 0 {
 			return fmt.Errorf("managed workspace member is a symlink: %s", filepath.Join(group.Path, localPath))
 		}

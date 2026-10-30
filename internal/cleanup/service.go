@@ -8,6 +8,7 @@ import (
 	"radar/internal/agentservice"
 	"radar/internal/integration"
 	"radar/internal/operationlock"
+	"radar/internal/phasetiming"
 	"radar/internal/protocol"
 	"radar/internal/workspacelease"
 )
@@ -28,6 +29,7 @@ func New(providers []integration.CleanupProvider) Service {
 }
 
 func (s Service) Preview(ctx context.Context, task protocol.Task, mode integration.CleanupMode) (protocol.CleanupPreview, error) {
+	defer phasetiming.Start(ctx, "cleanup_preview")()
 	targets := make([]protocol.CleanupTarget, 0)
 	for _, provider := range s.providers {
 		providerTargets, err := provider.PreviewCleanup(ctx, integration.CleanupPreviewRequest{Task: task, Mode: mode})
@@ -43,6 +45,7 @@ func (s Service) Preview(ctx context.Context, task protocol.Task, mode integrati
 }
 
 func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, options ExecuteOptions) (protocol.CleanupResult, error) {
+	defer phasetiming.Start(ctx, "cleanup_execution")()
 	release, lockErr := operationlock.Acquire(false)
 	if lockErr != nil {
 		return protocol.CleanupResult{}, lockErr
@@ -70,6 +73,9 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 	}()
 	seen := map[string]bool{}
 	for _, target := range preview.Targets {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		if target.Path != "" && !seen[target.Path] {
 			if err := agentservice.CheckWorkspaceRemoval(target.Path); err != nil {
 				return result, err
@@ -82,12 +88,40 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 			seen[target.Path] = true
 		}
 	}
+	preflightDone := phasetiming.Start(ctx, "cleanup_bundle_preflight")
+	for _, provider := range s.providers {
+		if err := ctx.Err(); err != nil {
+			preflightDone()
+			return result, err
+		}
+		if preflight, ok := provider.(integration.CleanupPreflightProvider); ok {
+			if err := preflight.PreflightCleanup(ctx, preview.Targets, options.Mode); err != nil {
+				preflightDone()
+				return result, err
+			}
+		}
+	}
+	preflightDone()
 	for _, target := range preview.Targets {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		provider, ok := s.provider(target.Source)
 		if !ok {
 			return result, fmt.Errorf("source %q cannot clean up local resources", target.Source)
 		}
+		phase := "cleanup_resource"
+		switch target.Kind {
+		case "worktree":
+			phase = "cleanup_worktree"
+		case "sandbox":
+			phase = "cleanup_runtime"
+		case "workspace":
+			phase = "cleanup_anchor"
+		}
+		done := phasetiming.Start(ctx, phase)
 		cleaned, err := provider.Cleanup(ctx, integration.CleanupRequest{Target: target, Mode: options.Mode})
+		done()
 		if err != nil {
 			return result, fmt.Errorf("cleanup stopped after %d of %d resources: %w", len(result.Targets), len(preview.Targets), err)
 		}

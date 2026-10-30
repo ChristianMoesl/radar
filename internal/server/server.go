@@ -15,6 +15,7 @@ import (
 
 	"radar/internal/cleanup"
 	"radar/internal/integration"
+	"radar/internal/phasetiming"
 	"radar/internal/protocol"
 	"radar/internal/socket"
 	"radar/internal/state"
@@ -277,6 +278,7 @@ func (s *Server) taskMutationResponse(task protocol.Task) protocol.Response {
 }
 
 func (s *Server) cleanupPreview(ctx context.Context, taskID int) (protocol.CleanupPreview, error) {
+	ctx = phasetiming.WithLogger(ctx, s.logger)
 	task, ok := taskByID(s.filteredTasks(), taskID)
 	if !ok {
 		return protocol.CleanupPreview{}, fmt.Errorf("task %d not found", taskID)
@@ -288,12 +290,16 @@ func (s *Server) cleanup(ctx context.Context, preview *protocol.CleanupPreview) 
 	if preview == nil {
 		return protocol.CleanupResult{}, fmt.Errorf("cleanup targets are required")
 	}
+	ctx = phasetiming.WithLogger(ctx, s.logger)
+	defer phasetiming.Start(ctx, "cleanup_response")()
 	result, err := s.cleanupService.Execute(ctx, *preview, cleanup.ExecuteOptions{Mode: integration.CleanupConfirmed})
 	if err != nil {
 		return result, err
 	}
 	if s.localRefresh != nil {
+		refreshDone := phasetiming.Start(ctx, "post_mutation_collection")
 		s.localRefresh()
+		refreshDone()
 	}
 	return result, nil
 }

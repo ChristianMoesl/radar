@@ -26,6 +26,7 @@ import (
 	"radar/internal/notification"
 	"radar/internal/onboarding"
 	"radar/internal/operationlock"
+	"radar/internal/phasetiming"
 	"radar/internal/pi"
 	"radar/internal/process"
 	"radar/internal/protocol"
@@ -470,7 +471,10 @@ func runReconcileWorkspace(args []string) {
 		}
 	}
 	if *preview {
-		plan, err := manager.PreviewReconcile(context.Background(), request)
+		previewCtx := phasetiming.WithLogger(context.Background(), logger)
+		planningDone := phasetiming.Start(previewCtx, "workspace_planning")
+		plan, err := manager.PreviewReconcile(previewCtx, request)
+		planningDone()
 		if err != nil {
 			attributes := []any{"workspace", request.Workspace, "error", err}
 			if problem, ok := manager.ReconcileErrorDetails(err); ok {
@@ -493,11 +497,12 @@ func runReconcileWorkspace(args []string) {
 	if result.Plan != nil {
 		result.Plan.AutoConfirm = cfg.Workspace.AutoConfirm
 	}
-	closeLog()
 	if err != nil {
+		closeLog()
 		fatal(err)
 	}
 	if result.OK {
+		refreshDone := phasetiming.Start(phasetiming.WithLogger(context.Background(), logger), "post_mutation_collection")
 		if err := refreshLocalSourcesAfterReconcile(); err != nil {
 			warning := "workspace was reconciled, but Radar could not refresh local sources immediately: " + err.Error()
 			if result.Warning == "" {
@@ -506,7 +511,9 @@ func runReconcileWorkspace(args []string) {
 				result.Warning += "; " + warning
 			}
 		}
+		refreshDone()
 	}
+	closeLog()
 	printResult(result)
 }
 
@@ -753,7 +760,7 @@ func runDaemon() {
 			logger.Warn("Pi package synchronization incomplete; retry with radar restart", "profile", profile, "error", err)
 		}
 	}
-	localRefresh := localRefresher(ctx, collectionMu, tasks)
+	localRefresh := localRefresher(phasetiming.WithLogger(ctx, logger), collectionMu, tasks)
 	integrations.StartBackground(ctx, localRefresh)
 	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(ctx, logger, collectionMu, tasks), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).SetTaskMutation(tasks.MutateTask).SetTaskDeletion(tasks.PreviewDeleteTask, tasks.DeleteTask).SetOnReady(syncPackages).ListenAndServe(ctx, path); err != nil {
 		logger.Error("daemon stopped", "error", err)
@@ -955,8 +962,11 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 
 func localRefresher(ctx context.Context, mu *sync.Mutex, tasks *taskservice.Service) func() {
 	return func() {
+		lockDone := phasetiming.Start(ctx, "collection_lock_wait")
 		mu.Lock()
+		lockDone()
 		defer mu.Unlock()
+		defer phasetiming.Start(ctx, "local_collection")()
 		tasks.Refresh(ctx, true)
 	}
 }
