@@ -36,6 +36,8 @@ radar open-resource --request <json> [--workspace <path>] [--preview | --plan <i
 radar agent add <module> --id <id> --workspace <registered-path> [--config <json-file>] [--collection github]
 radar agent list
 radar agent inspect|start|stop|restart|remove|logs|token <id>
+radar agent schedule set <id> <name> --time HH:MM --weekdays mon,tue,wed,thu,fri --timezone <IANA-zone> --payload <json-file>
+radar agent schedule pause|resume|remove <id> <name>
 radar agent emit <id> --source <source> --event-id <id> # JSON payload on stdin
 radar agent message <id> <text> --revision <revision> [--event-id <id>]
 radar agent action <id> <action-id> [text] --revision <revision> [--event-id <id>]

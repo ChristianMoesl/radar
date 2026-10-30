@@ -118,7 +118,127 @@ radar agent serve --listen 127.0.0.1:7433
 
 POST `/agents/<id>/events` with `Authorization: Bearer <instance-token>` and JSON `{ "source": "producer", "id": "stable-delivery-id", "payload": ... }`. Accepted or duplicate delivery returns HTTP 202 with a durable receipt. Changed content under an existing identity returns 409; malformed input 400, authentication failure 401, unavailable/uncertain admission 503. Payload/frames are bounded to 1 MiB; leave room for transport wrappers. Reuse source/ID/content after a lost response. A receipt confirms admission, not business completion.
 
-Ingress listens on loopback by default. For remote producers, use an authenticated TLS reverse proxy/tunnel and configure producer retries. Radar is a local service: external ingress does not receive events while unavailable or expose a hosted inbox. Remote producers own their scheduling and retries. The collection subscription below separately reuses Radar's normal source refresh.
+Ingress listens on loopback by default. For remote producers, use an authenticated TLS reverse proxy/tunnel and configure producer retries. Radar is a local service: external ingress does not receive events while unavailable or expose a hosted inbox. Remote producers own their retries. Calendar schedules below provide local time-based events; collection subscriptions separately reuse Radar's normal source refresh.
+
+## Calendar events
+
+Attach a named schedule to an existing registration. Supply a 24-hour local time,
+selected weekdays (`mon` through `sun`) and an explicit IANA timezone. This example
+uses Monday–Friday at 09:00 in `Europe/Vienna`; choose the time and timezone for
+your own use case. The JSON file contains the definition's own input:
+
+```sh
+printf '%s\n' '{"type":"daily.check","windowHours":24}' > daily-event.json
+radar agent schedule set assistant morning --time 09:00 --weekdays mon,tue,wed,thu,fri --timezone Europe/Vienna --payload ./daily-event.json
+radar agent inspect assistant
+radar agent schedule pause assistant morning
+radar agent schedule resume assistant morning
+radar agent schedule remove assistant morning
+```
+
+`set` creates an enabled schedule or replaces its complete configuration. Editing
+preserves its identity, admission history and enabled/paused state, and starts a
+new eligibility window at the edit time. Creation, editing and resuming never
+replay occurrences at or before that time. Repeating `resume` on an enabled
+schedule leaves its eligibility window unchanged. Schedule configuration does not
+start an agent; use `radar agent start assistant` explicitly.
+
+The source is `radar.schedule`. Each occurrence delivers this envelope:
+
+```json
+{
+  "schedule": {
+    "id": "persisted-schedule-identity",
+    "name": "morning",
+    "timezone": "Europe/Vienna",
+    "scheduledAt": "2026-10-26T08:00:00Z"
+  },
+  "data": { "type": "daily.check", "windowHours": 24 }
+}
+```
+
+`scheduledAt` is the **intended occurrence**, in UTC, even when delivery is late.
+The event ID combines the persisted schedule identity and that instant. Definitions
+use those values to identify the run and select an observation window. All
+interpretation, telemetry queries, thresholds, reporting, overlap handling and
+external effects belong in the definition. Radar admits a normal native event
+task; it adds no separate workflow executor or Datadog business logic.
+
+### Misses, daylight saving and lifecycle
+
+Radar checks schedules during its existing supervisor pass (normally every two
+seconds). It cannot execute at the scheduled instant while the host sleeps, the
+daemon is down or the agent is unavailable. There is no machine-waking or hosted
+scheduler. Always-on timing requires an always-on Radar host.
+
+The fixed catch-up policy is **coalesce to the latest eligible occurrence within
+the past 24 hours**, including while an agent was intentionally stopped. Earlier
+occurrences are skipped, never queued as a backlog. An expired latest occurrence
+is recorded as missed. Calendar search is bounded even after years of downtime.
+No regular occurrences are generated on unselected weekdays. A weekend recovery
+may admit Friday's occurrence if it is still within 24 hours; its intended time
+remains Friday. Status shows the last missed/coalesced occurrence and whether the
+last admitted event was more than a minute late. It is not a full missed-run log.
+
+Timezone rules apply to each local calendar date. A nonexistent local time during
+a daylight-saving gap is skipped. A repeated local time occurs **once, at its
+first instant**. Changing the host timezone has no effect. Holidays are ordinary
+selected weekdays; holiday calendars are outside this feature.
+
+Pausing stops new admissions and retries. Already admitted native tasks continue
+under the definition's policies. Resuming starts a fresh eligibility
+window, excluding paused history. An event with an uncertain admission is an
+exception: its immutable bytes and identity remain pending through pause/resume,
+stop/start and restart, even beyond 24 hours. Radar retries that same event until
+it obtains its matching durable receipt. The next supervisor pass can then
+coalesce subsequent eligible work. This retains at most one unresolved admission
+per schedule, rather than an unbounded event queue.
+
+Editing or deleting a schedule with an uncertain admission fails visibly. Resume
+the schedule and start/recover the agent to reconcile it first. Removing a
+registration pauses all of its schedules and retains their state beside the
+native store. Restoring the same registration leaves them paused; resume each
+explicitly. Deleting a reconciled schedule discards its producer history; creating
+the same name later creates a new identity with a fresh eligibility window.
+
+Each instance's new version-1 `schedules.json` stores configuration, eligibility
+cutoffs, missed occurrences, last admission and an immutable pending outbox. It
+does not change the existing registration, collection or native SQLite formats.
+A pending event is saved before sending. Only a receipt with the matching source,
+event ID, positive native task ID and admission timestamp advances admission
+history and clears it. Lost responses and crash recovery retry the original
+identity, so native receipt deduplication prevents a second task. Explicit skips
+and configuration changes can move the eligibility cutoff without claiming an
+admission. Invalid schedule files fail visibly and are never silently reset.
+
+`agent inspect <id>` (or `--json`) shows configuration and payload, enabled/paused
+state, next future calendar time, uncertain pending occurrence, last missed time,
+last admission and delivery errors. The Agents view flags errors and provides
+**View schedules** for the same details. The next calendar time does not promise
+that the host or agent will be available. Scheduled time, durable admission time
+and native task completion are separate; a receipt proves neither completion nor
+business success. Independent native tasks can overlap, and exactly-once external
+effects are not guaranteed.
+
+### Workday fixture
+
+`agent-host/examples/workday-check.ts` is a deterministic read-only definition
+with no telemetry or model dependency. It requires `{"fixture":true}` as its agent
+configuration, consumes the `daily.check` payload above, selects an observation
+window ending at the intended time, and presents a clearly labelled synthetic
+report in Radar. Copy it and adjust its SDK imports as described under Editable
+examples, then register it against a prepared workspace:
+
+```sh
+printf '%s\n' '{"fixture":true}' > fixture.json
+radar agent add ./workday-check.ts --id workday-check --workspace /path/to/registered/workspace --config ./fixture.json
+radar agent schedule set workday-check morning --time 09:00 --weekdays mon,tue,wed,thu,fri --timezone Europe/Vienna --payload ./daily-event.json
+radar agent start workday-check
+radar agent inspect workday-check
+```
+
+This demonstrates delivery without choosing or implementing the separate Datadog
+daily-health definition.
 
 The editable GitHub bridge in `agent-host/examples/github-webhook.ts` verifies HMAC-SHA256 over the original request bytes, validates delivery/event headers, and forwards the opaque event with its delivery ID. Configure `RADAR_EVENT_URL`, `RADAR_EVENT_TOKEN`, and `GITHUB_WEBHOOK_SECRET`; see the example for its listener configuration. It does not filter PRs or create conversations; that belongs in the definition.
 

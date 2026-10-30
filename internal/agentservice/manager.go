@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,13 +46,15 @@ type retryState struct {
 	problem  string
 }
 type Manager struct {
-	mu        sync.Mutex
-	retry     map[string]retryState
-	workspace func(context.Context, string) (protocol.AgentWorkspaceBinding, error)
+	mu             sync.Mutex
+	retry          map[string]retryState
+	workspace      func(context.Context, string) (protocol.AgentWorkspaceBinding, error)
+	now            func() time.Time
+	scheduleErrors map[string]string
 }
 
 func New(workspace func(context.Context, string) (protocol.AgentWorkspaceBinding, error)) *Manager {
-	return &Manager{retry: map[string]retryState{}, workspace: workspace}
+	return &Manager{retry: map[string]retryState{}, workspace: workspace, now: time.Now, scheduleErrors: map[string]string{}}
 }
 
 func Root() (string, error) {
@@ -254,6 +257,7 @@ func (m *Manager) status(ctx context.Context, reg Registration) protocol.AgentSt
 		result.Workspace = binding
 	}
 	m.collectionStatus(reg, &result)
+	m.scheduleStatus(reg, &result)
 	return result
 }
 
@@ -437,6 +441,9 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 		if _, err := loadCollection(reg); err != nil {
 			return nil, err
 		}
+		if _, err := loadSchedules(reg); err != nil {
+			return nil, err
+		}
 		config := request.Config
 		if len(config) == 0 {
 			config = json.RawMessage(`{}`)
@@ -467,6 +474,13 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 	if err != nil {
 		return nil, err
 	}
+	if strings.HasPrefix(request.Operation, "schedule.") {
+		if err := m.handleSchedule(reg, request); err != nil {
+			return nil, err
+		}
+		delete(m.scheduleErrors, reg.ID)
+		return encode(m.status(ctx, reg))
+	}
 	switch request.Operation {
 	case "inspect":
 		return encode(m.status(ctx, reg))
@@ -481,6 +495,9 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 	case "remove":
 		if reg.Desired || status(ctx, reg).Running || ownerAlive(reg) {
 			return nil, fmt.Errorf("stop the agent before removing its registration")
+		}
+		if err := pauseSchedules(reg); err != nil {
+			return nil, err
 		}
 		if err := os.Remove(filepath.Join(dir, "registration.json")); err != nil {
 			return nil, err
@@ -579,7 +596,7 @@ func (m *Manager) Run(ctx context.Context, changed func()) {
 							m.retry[reg.ID] = r
 						} else {
 							delete(m.retry, reg.ID)
-							s = status(ctx, reg)
+							s = m.status(ctx, reg)
 						}
 					}
 				}
@@ -589,6 +606,12 @@ func (m *Manager) Run(ctx context.Context, changed func()) {
 				}
 				if reg.Desired && s.Running && s.Error == "" {
 					_ = m.flushCollection(ctx, reg)
+				}
+				if err := m.tickSchedules(ctx, reg, m.now().UTC(), s.Running && s.Error == ""); err != nil {
+					m.scheduleErrors[reg.ID] = err.Error()
+					slog.Error("agent schedule delivery", "agent", reg.ID, "error", err)
+				} else {
+					delete(m.scheduleErrors, reg.ID)
 				}
 			}
 		}

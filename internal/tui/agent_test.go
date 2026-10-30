@@ -7,6 +7,7 @@ import (
 	"radar/internal/protocol"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAgentInteractionRetryRetainsDeliveryAndStaleActionRefreshes(t *testing.T) {
@@ -31,6 +32,34 @@ func TestAgentInteractionRetryRetainsDeliveryAndStaleActionRefreshes(t *testing.
 	if refresh == nil || m.agent.request != nil || m.agent.input {
 		t.Fatal("stale decision can be retried without refresh")
 	}
+}
+
+func TestAgentScheduleInspectionShowsConfigurationAdmissionAndErrors(t *testing.T) {
+	m := newModel("unused.sock")
+	m.mode, m.width, m.height = "agent", 100, 30
+	at := time.Date(2026, 10, 26, 8, 0, 0, 0, time.UTC)
+	m.agent = agentState{id: "fixture", status: protocol.AgentStatus{Schedules: []protocol.AgentScheduleStatus{{AgentScheduleConfig: protocol.AgentScheduleConfig{Name: "morning", Time: "09:00", Timezone: "Europe/Vienna", Weekdays: []string{"mon", "fri"}, Payload: []byte(`{"type":"daily.check"}`)}, Enabled: true, NextDue: at, PendingAt: at, LastAdmission: &protocol.AgentScheduleAdmission{ScheduledAt: at, AcceptedAt: at.Add(time.Second), TaskID: 7, CatchUp: true}, LastMissedAt: at.AddDate(0, 0, -3), Error: "admission pending"}}}}
+	view := m.agentView()
+	if !strings.Contains(view, "Schedules: 1") || !strings.Contains(view, "admission pending") {
+		t.Fatal("schedule state hidden in Agents view")
+	}
+	for index, choice := range m.agentChoices() {
+		if choice.operation == "schedules" {
+			m.agent.cursor = index
+			result, cmd := m.updateAgent(tea.KeyMsg{Type: tea.KeyEnter})
+			if cmd != nil {
+				t.Fatal("schedule inspection unexpectedly made a remote call")
+			}
+			detail := result.(model).agent.detail
+			for _, want := range []string{"morning · enabled", "mon,fri at 09:00 Europe/Vienna", "Next due:", "Pending admission:", "Last admission:", "admitted", "task 7", "catch-up true", "Last missed/coalesced:", "admission pending", "admission is not completion"} {
+				if !strings.Contains(detail, want) {
+					t.Fatalf("schedule details missing %q: %s", want, detail)
+				}
+			}
+			return
+		}
+	}
+	t.Fatal("no schedule inspection choice")
 }
 
 func TestAgentWorkspaceVisibleAndSummaryCanBeReadWithoutHidingActions(t *testing.T) {

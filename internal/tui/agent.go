@@ -114,6 +114,9 @@ func (m model) agentChoices() []agentChoice {
 	} else {
 		choices = append(choices, agentChoice{label: "Start agent", operation: "start"})
 	}
+	if len(s.Schedules) > 0 || s.ScheduleError != "" {
+		choices = append(choices, agentChoice{label: "View schedules", operation: "schedules"})
+	}
 	choices = append(choices, agentChoice{label: "View logs", operation: "logs"})
 	return choices
 }
@@ -185,6 +188,11 @@ func (m model) updateAgent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.agent.cursor = max(0, min(m.agent.cursor, len(choices)-1))
 		choice := choices[m.agent.cursor]
+		if choice.operation == "schedules" {
+			m.agent.detail = agentScheduleDetails(m.agent.status)
+			m.agent.scroll = 0
+			return m, nil
+		}
 		if choice.operation == "open" {
 			task := protocol.Task{Title: choice.label}
 			return m, m.startOperation(task, "session", "Opening workspace…", "Workspace open failed", taskAction(m.openRegisteredWorkspace(protocol.SourceRef{Path: choice.workspace})))
@@ -364,6 +372,18 @@ func (m model) agentView() string {
 	if s.CollectionError != "" {
 		lines = append(lines, attentionStyle.Render(ansi.Strip(s.CollectionError)))
 	}
+	if len(s.Schedules) > 0 {
+		lines = append(lines, fmt.Sprintf("Schedules: %d · select View schedules for times and admissions", len(s.Schedules)))
+	}
+	if s.ScheduleError != "" {
+		lines = append(lines, attentionStyle.Render(ansi.Strip(s.ScheduleError)))
+	}
+	for _, schedule := range s.Schedules {
+		if schedule.Error != "" {
+			lines = append(lines, attentionStyle.Render(ansi.Strip(schedule.Name+": "+schedule.Error)))
+			break
+		}
+	}
 	if s.Error != "" {
 		lines = append(lines, attentionStyle.Render(ansi.Strip(s.Error)))
 	}
@@ -423,4 +443,34 @@ func (m model) agentView() string {
 		lines = append(lines, attentionStyle.Render(ansi.Strip(m.err.Error())))
 	}
 	return m.renderFrame(strings.Join(lines, "\n"), width)
+}
+
+func agentScheduleDetails(status protocol.AgentStatus) string {
+	lines := []string{"Calendar schedules", "Catch-up: latest eligible occurrence within 24 hours; admission is not completion."}
+	if status.ScheduleError != "" {
+		lines = append(lines, status.ScheduleError)
+	}
+	for _, s := range status.Schedules {
+		state := "paused"
+		if s.Enabled {
+			state = "enabled"
+		}
+		lines = append(lines, "", fmt.Sprintf("%s · %s", s.Name, state), fmt.Sprintf("%s at %s %s", strings.Join(s.Weekdays, ","), s.Time, s.Timezone), fmt.Sprintf("Payload: %s", s.Payload))
+		if !s.NextDue.IsZero() {
+			lines = append(lines, "Next due: "+s.NextDue.Format(time.RFC3339))
+		}
+		if !s.PendingAt.IsZero() {
+			lines = append(lines, "Pending admission: "+s.PendingAt.Format(time.RFC3339))
+		}
+		if a := s.LastAdmission; a != nil {
+			lines = append(lines, fmt.Sprintf("Last admission: scheduled %s; admitted %s; task %d; catch-up %t", a.ScheduledAt.Format(time.RFC3339), a.AcceptedAt.Format(time.RFC3339), a.TaskID, a.CatchUp))
+		}
+		if !s.LastMissedAt.IsZero() {
+			lines = append(lines, "Last missed/coalesced: "+s.LastMissedAt.Format(time.RFC3339))
+		}
+		if s.Error != "" {
+			lines = append(lines, "Delivery: "+s.Error)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
