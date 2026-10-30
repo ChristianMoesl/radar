@@ -9,7 +9,7 @@ on:
         type: string
         required: true
       run_id:
-        description: Optional personally created run ID, including an older terminal run
+        description: Existing personal run for collection; empty creates one. A fresh failure fixture is always tested.
         type: string
         required: false
 
@@ -55,7 +55,7 @@ jobs:
     environment:
       name: live-e2e
       url: https://github.com/${{ github.repository }}/commit/${{ needs.readiness.outputs.sha }}
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       # Keep approval/control code on the trusted dispatch revision. The PR's
       # workflow and gate helper are never used to authorize its own execution.
@@ -78,7 +78,17 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: candidate/go.mod
-      - name: Install checksum-pinned tfctl 0.4.0
+      - name: Require both qualification tests in the selected PR revision
+        working-directory: candidate
+        run: |
+          tests=$(go test ./internal/integration/terraform -list '^TestLiveTerraform(Collection|FailureAcknowledgement)$')
+          for test_name in TestLiveTerraformCollection TestLiveTerraformFailureAcknowledgement; do
+            if ! printf '%s\n' "$tests" | grep -qx "$test_name"; then
+              echo "The selected PR revision must contain $test_name." >&2
+              exit 1
+            fi
+          done
+      - name: Install checksum-pinned Terraform CLIs
         run: |
           curl -fsSL https://releases.hashicorp.com/tfctl/0.4.0/tfctl_0.4.0_linux_amd64.zip -o "$RUNNER_TEMP/tfctl.zip"
           printf '055d365cf165708dd304747f27a7242c51ce61a0bf680bd83fd3abe7cbcaa356  %s\n' "$RUNNER_TEMP/tfctl.zip" | sha256sum --check -
@@ -86,6 +96,17 @@ jobs:
           unzip -q "$RUNNER_TEMP/tfctl.zip" tfctl -d "$RUNNER_TEMP/tfctl-live"
           chmod 0755 "$RUNNER_TEMP/tfctl-live/tfctl"
           echo "$RUNNER_TEMP/tfctl-live" >> "$GITHUB_PATH"
+          curl -fsSL https://releases.hashicorp.com/terraform/1.17.0/terraform_1.17.0_linux_amd64.zip -o "$RUNNER_TEMP/terraform.zip"
+          printf 'c168cab7c637a8769fdb90089ddd19de701bc6ff8aca64dc2e2185fe46f59f67  %s\n' "$RUNNER_TEMP/terraform.zip" | sha256sum --check -
+          unzip -q "$RUNNER_TEMP/terraform.zip" terraform -d "$RUNNER_TEMP/tfctl-live"
+          chmod 0755 "$RUNNER_TEMP/tfctl-live/terraform"
+      - name: Create a personal speculative fixture run without applying
+        if: inputs.run_id == ''
+        id: fixture
+        timeout-minutes: 8
+        env:
+          TF_TOKEN_app_terraform_io: ${{ secrets.TFCTL_TOKEN }}
+        run: python3 control/scripts/terraform-live-plan.py --configuration "$GITHUB_WORKSPACE/control/testdata/terraform-live"
       - name: Qualify production collection and cold binding reads
         working-directory: candidate
         env:
@@ -94,10 +115,26 @@ jobs:
           RADAR_TEST_TERRAFORM_HOSTNAME: app.terraform.io
           RADAR_TEST_TERRAFORM_ORGANIZATION: radar-oss
           RADAR_TEST_TERRAFORM_WORKSPACE: radar-oauth-e2e
-          RADAR_TEST_TERRAFORM_RUN_ID: ${{ inputs.run_id }}
+          RADAR_TEST_TERRAFORM_RUN_ID: ${{ inputs.run_id || steps.fixture.outputs.run_id }}
         run: |
           if [ -z "$TFCTL_TOKEN" ]; then
             echo 'Add the personal Terraform user token as TFCTL_TOKEN in the live-e2e GitHub Environment.' >&2
             exit 1
           fi
           go test ./internal/integration/terraform -run '^TestLiveTerraformCollection$' -count=1 -timeout=4m -v
+      - name: Create a personal speculative run with the deliberate fixture failure
+        id: failure
+        timeout-minutes: 8
+        env:
+          TF_TOKEN_app_terraform_io: ${{ secrets.TFCTL_TOKEN }}
+        run: python3 control/scripts/terraform-live-plan.py --configuration "$GITHUB_WORKSPACE/control/testdata/terraform-live" --expect-failure
+      - name: Require failed run Attention then acknowledged Done
+        working-directory: candidate
+        env:
+          TFCTL_TOKEN: ${{ secrets.TFCTL_TOKEN }}
+          RADAR_TEST_TERRAFORM_LIVE: '1'
+          RADAR_TEST_TERRAFORM_HOSTNAME: app.terraform.io
+          RADAR_TEST_TERRAFORM_ORGANIZATION: radar-oss
+          RADAR_TEST_TERRAFORM_WORKSPACE: radar-oauth-e2e
+          RADAR_TEST_TERRAFORM_RUN_ID: ${{ steps.failure.outputs.run_id }}
+        run: go test ./internal/integration/terraform -run '^TestLiveTerraformFailureAcknowledgement$' -count=1 -timeout=4m -v

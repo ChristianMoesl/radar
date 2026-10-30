@@ -19,6 +19,15 @@ import (
 // Opt-in read-only qualification. The disposable CLI profile contains selectors
 // only; tfctl owns authentication through the CI environment's personal token.
 func TestLiveTerraformCollection(t *testing.T) {
+	testLiveTerraformQualification(t, false)
+}
+
+func TestLiveTerraformFailureAcknowledgement(t *testing.T) {
+	testLiveTerraformQualification(t, true)
+}
+
+func testLiveTerraformQualification(t *testing.T, expectFailure bool) {
+	t.Helper()
 	if os.Getenv("RADAR_TEST_TERRAFORM_LIVE") != "1" {
 		t.Skip("set RADAR_TEST_TERRAFORM_LIVE=1 with explicit approved scope and tfctl authentication")
 	}
@@ -60,7 +69,7 @@ func TestLiveTerraformCollection(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	report, observations, err := qualifyTerraformLive(ctx, NewSource(), cfg, host, runID)
+	report, observations, err := qualifyTerraformLive(ctx, NewSource(), cfg, host, runID, expectFailure)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,10 +92,13 @@ type terraformLiveReport struct {
 	FailureReviewed  bool           `json:"failure_reviewed"`
 }
 
-func qualifyTerraformLive(ctx context.Context, source Source, cfg settings.Config, host, runID string) (terraformLiveReport, []integration.Observation, error) {
+func qualifyTerraformLive(ctx context.Context, source Source, cfg settings.Config, host, runID string, expectFailure bool) (terraformLiveReport, []integration.Observation, error) {
 	report := terraformLiveReport{States: map[string]int{}}
 	fail := func(message string) (terraformLiveReport, []integration.Observation, error) {
 		return report, nil, fmt.Errorf("%s", message)
+	}
+	if expectFailure && runID == "" {
+		return fail("failure qualification requires the exact deliberate fixture run ID")
 	}
 	if status := source.Status(ctx, nil); !status.CanRun {
 		return fail("Terraform source unavailable; verify tfctl version and live scope")
@@ -140,14 +152,21 @@ func qualifyTerraformLive(ctx context.Context, source Source, cfg settings.Confi
 	observation := bound.Observations[0]
 	result.Observations = append(result.Observations, observation)
 	report.ColdBindingState = observation.Ref.Metadata["run_status"]
+	if expectFailure && (report.ColdBindingState != "errored" || observation.Ref.Metadata["plan_only"] != "true" || observation.Ref.Acknowledgement == nil) {
+		return fail("deliberate speculative fixture run did not expose an errored outcome requiring acknowledgement")
+	}
 	if len(cold.Actions(ctx, integration.ActionRequest{Ref: observation.Ref})) != 2 {
 		return fail("selected live run did not expose both validated open actions")
 	}
 	if acknowledgement := observation.Ref.Acknowledgement; acknowledgement != nil {
+		if observation.Signal != integration.SignalAttention {
+			return fail("unacknowledged live failure did not require Attention")
+		}
 		// Acknowledge only in isolated Radar memory; Terraform receives GETs.
 		previous := protocol.Task{AcknowledgementCursor: acknowledgement.Cursor, SourceRefs: []protocol.SourceRef{observation.Ref}}
 		reviewed := cold.ResolveBindings(ctx, integration.BindingRequest{Bindings: []protocol.SourceBinding{binding}, Previous: []protocol.Task{previous}})
 		if !reviewed.Complete || len(reviewed.Observations) != 1 || !validate(reviewed.Observations[0]) ||
+			reviewed.Observations[0].Ref.ID != binding.ID || reviewed.Observations[0].Ref.Acknowledgement != nil ||
 			reviewed.Observations[0].Signal != integration.SignalDone || reviewed.Observations[0].Ref.Metadata["run_status"] != report.ColdBindingState ||
 			reviewed.Observations[0].Ref.Metadata["failure_reviewed_at"] != acknowledgement.Cursor {
 			return fail("live failure acknowledgement did not confirm Done while retaining the failed outcome")
@@ -159,11 +178,20 @@ func qualifyTerraformLive(ctx context.Context, source Source, cfg settings.Confi
 }
 
 func TestTerraformLiveQualificationGuards(t *testing.T) {
-	for _, scenario := range []string{"owned", "empty", "different host", "different creator", "older terminal", "failure review"} {
+	for _, scenario := range []string{"owned", "empty", "different host", "different creator", "older terminal", "failure review", "unexpected success", "unselected failure", "non-speculative failure"} {
 		t.Run(scenario, func(t *testing.T) {
 			run := runFixture("run-one", "planning", "user-me")
-			if scenario == "failure review" {
+			if scenario == "failure review" || scenario == "unselected failure" || scenario == "non-speculative failure" {
 				run = runFixture("run-one", "errored", "user-me")
+			}
+			if scenario == "unexpected success" {
+				run = runFixture("run-one", "planned_and_finished", "user-me")
+			}
+			if scenario == "failure review" || scenario == "unexpected success" {
+				var attributes map[string]any
+				_ = json.Unmarshal(run.Attributes, &attributes)
+				attributes["plan-only"] = true
+				run.Attributes = raw(attributes)
 			}
 			source, api, cfg := fixtureSource(t, run)
 			api.direct[run.ID] = run
@@ -180,9 +208,12 @@ func TestTerraformLiveQualificationGuards(t *testing.T) {
 				api.runs = nil
 				selected = run.ID
 				api.direct[run.ID] = runFixture(run.ID, "applied", "user-me")
+			case "failure review", "unexpected success", "non-speculative failure":
+				selected = run.ID
 			}
-			report, _, err := qualifyTerraformLive(context.Background(), source, cfg, host, selected)
-			wantError := scenario == "empty" || scenario == "different host" || scenario == "different creator"
+			expectFailure := scenario == "failure review" || scenario == "unexpected success" || scenario == "unselected failure" || scenario == "non-speculative failure"
+			report, _, err := qualifyTerraformLive(context.Background(), source, cfg, host, selected, expectFailure)
+			wantError := scenario == "empty" || scenario == "different host" || scenario == "different creator" || (expectFailure && scenario != "failure review")
 			if (err != nil) != wantError {
 				t.Fatalf("qualification error = %v, want error %t", err, wantError)
 			}
