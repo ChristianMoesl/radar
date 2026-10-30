@@ -255,7 +255,11 @@ with the personal token. The fixture has only a built-in `terraform_data`
 resource; it creates no external infrastructure. Only its three root `.tf` files
 are uploaded from a disposable directory. The CLI creates a speculative run and
 does not apply, destroy, or change workspace settings. Its raw output stays out
-of CI logs; the exact run ID is passed to Radar's qualification test.
+of CI logs; the exact run ID is passed to Radar's qualification test. In the
+same approved job, a second fresh speculative run sets `fail_plan=true` to
+exercise the fixture's deliberate precondition failure. CI requires both the
+expected failure diagnostic and a run URL in the approved workspace; an
+unrelated CLI error or unexpected success fails the job.
 
 The qualification step passes the same secret to tfctl's standard environment
 authentication with a temporary profile containing only hostname/organization selectors. Normal Radar
@@ -267,16 +271,19 @@ network-policy change is required when the test runs on GitHub-hosted runners.
 The opt-in `TestLiveTerraformCollection` exercises production source status,
 personal account/workspace verification, complete paginated discovery, source-ref
 contracts, plan-summary availability, both validated open actions, and a cold
-binding read. When the selected run is a terminal failure, it also checks
-acknowledgement and confirmed Done in isolated Radar memory. This qualification
-step sends only read requests, after the separate fixture creation step. Logs
+binding read. `TestLiveTerraformFailureAcknowledgement` requires the exact
+deliberate speculative run to be `errored`, show Attention with an
+acknowledgement cursor, and become Done on a fresh read after acknowledgement
+in isolated Radar memory. The failed Terraform outcome must remain unchanged.
+Both tests send only read requests, after their separate fixture creation steps. Logs
 contain counts and enum states, without account IDs,
 run messages, raw responses, plans, or credentials.
 
 Leave the optional `run_id` input empty to create and qualify a fresh personal
 plan-only run. This avoids relying on manual runs or the three-day terminal
 discovery window. Supply a personally created `run-...` ID to qualify a
-specific/older terminal fixture without creating another run. Empty discovery
+specific/older terminal fixture for the collection check. The deliberate failure
+fixture is always created and checked separately under the same approval. Empty discovery
 without a selected fixture, incomplete
 scans, failed
 authentication and ownership/scope mismatches fail the run. The workflow forces

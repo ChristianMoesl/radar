@@ -11,6 +11,7 @@ spec = importlib.util.spec_from_file_location("terraform_live_plan", Path(__file
 plan = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(plan)
 RUN_URL = "https://app.terraform.io/app/radar-oss/radar-oauth-e2e/runs/run-Fixture123"
+EXPECTED_FAILURE = f"Error: Resource precondition failed\n{plan.INTENTIONAL_FAILURE}\n"
 
 
 class FixturePlan(unittest.TestCase):
@@ -23,11 +24,11 @@ class FixturePlan(unittest.TestCase):
         (self.configuration / "private-jira-fixtures.json").write_text("must not be uploaded")
         self.env = {"TF_TOKEN_app_terraform_io": "synthetic-token"}
 
-    def run_plan(self, output=RUN_URL):
+    def run_plan(self, output=RUN_URL, returncode=0, expect_failure=False):
         with patch.object(plan.subprocess, "run", side_effect=[
                 subprocess.CompletedProcess([], 0, "initialized", ""),
-                subprocess.CompletedProcess([], 0, output, "")]) as execute:
-            run_id = plan.create_plan(self.configuration, self.env)
+                subprocess.CompletedProcess([], returncode, output, "")]) as execute:
+            run_id = plan.create_plan(self.configuration, self.env, expect_failure=expect_failure)
         return run_id, execute
 
     def test_native_speculative_plan_never_applies_or_destroys(self):
@@ -40,6 +41,29 @@ class FixturePlan(unittest.TestCase):
             self.assertNotIn("apply", command)
             self.assertNotIn("destroy", command)
             self.assertFalse(any(argument.startswith("-out") for argument in command))
+
+    def test_intentional_failure_requires_its_diagnostic_and_exact_remote_run(self):
+        run_id, execute = self.run_plan(RUN_URL + "\n" + EXPECTED_FAILURE, returncode=1, expect_failure=True)
+        self.assertEqual(run_id, "run-Fixture123")
+        self.assertIn("-var=fail_plan=true", execute.call_args.args[0])
+
+    def test_unrelated_errors_and_unexpected_success_cannot_satisfy_failure_scenario(self):
+        for returncode, output in ((0, RUN_URL + "\n" + EXPECTED_FAILURE),
+                                   (1, RUN_URL + "\nAuthentication failed"),
+                                   (1, RUN_URL + "\nError: Resource precondition failed\nA different failure"),
+                                   (1, EXPECTED_FAILURE),
+                                   (1, RUN_URL.replace("radar-oauth-e2e", "production") + "\n" + EXPECTED_FAILURE),
+                                   (-9, RUN_URL + "\n" + EXPECTED_FAILURE)):
+            with self.subTest(returncode=returncode, output=output), self.assertRaises(plan.Failure):
+                self.run_plan(output, returncode=returncode, expect_failure=True)
+
+    def test_expected_failure_does_not_mask_initialization_or_normal_plan_errors(self):
+        with patch.object(plan.subprocess, "run", return_value=subprocess.CompletedProcess(
+                [], 1, RUN_URL, EXPECTED_FAILURE)) as execute, self.assertRaises(plan.Failure):
+            plan.create_plan(self.configuration, self.env, expect_failure=True)
+        self.assertEqual(execute.call_count, 1)
+        with self.assertRaises(plan.Failure):
+            self.run_plan(RUN_URL + "\n" + EXPECTED_FAILURE, returncode=1)
 
     def test_only_configuration_files_enter_the_disposable_directory(self):
         def execute(arguments, **kwargs):
