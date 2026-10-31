@@ -26,6 +26,7 @@ import (
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/operationlock"
+	"radar/internal/phasetiming"
 	"radar/internal/pi"
 	"radar/internal/taskdb"
 )
@@ -642,6 +643,7 @@ func RemoveSession(ctx context.Context, runner Runner, sessionName string) (Work
 }
 
 func RemoveWorktree(ctx context.Context, runner Runner, path string, force bool) (Workspace, error) {
+	defer phasetiming.Start(ctx, "worktree_removal")()
 	if strings.TrimSpace(path) == "" {
 		return Workspace{}, fmt.Errorf("workspace path is required")
 	}

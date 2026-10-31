@@ -435,6 +435,14 @@ func (s *Store) Revision() int64 {
 	return s.revision
 }
 
+// NotifyChange wakes subscribers for volatile publication state changes. It
+// does not change or rewrite the persisted task projection.
+func (s *Store) NotifyChange() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.bumpRevisionLocked()
+}
+
 func (s *Store) WaitForRevision(ctx context.Context, after int64) int64 {
 	for {
 		s.mu.Lock()

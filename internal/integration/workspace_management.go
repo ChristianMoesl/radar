@@ -36,6 +36,7 @@ type WorkspaceReconciler interface {
 	ReconcileErrorDetails(err error) (WorkspaceReconcileError, bool)
 	WorkspaceState(ctx context.Context, currentDirectory string) (WorkspaceState, error)
 	InspectWorkspace(ctx context.Context, currentDirectory, workspaceRoot string) (WorkspaceContext, error)
+	InspectWorkspaceResources(ctx context.Context, currentDirectory, workspaceRoot string) (WorkspaceResources, error)
 	InspectRepositoryRefs(ctx context.Context, repository string) (RepositoryRefs, error)
 }
 
@@ -161,23 +162,24 @@ type WorkspaceReconcilePlan struct {
 }
 
 type WorkspaceReconcileResult struct {
-	OK                bool                    `json:"ok"`
-	NoteAdded         bool                    `json:"note_added,omitempty"`
-	WorkspaceID       string                  `json:"workspace_id"`
-	Revision          string                  `json:"revision,omitempty"`
-	WorktreesAdded    int                     `json:"worktrees_added"`
-	WorktreesRemoved  int                     `json:"worktrees_removed"`
-	SandboxReconciled bool                    `json:"sandbox_reconciled"`
-	MountsAdded       int                     `json:"mounts_added"`
-	MountsRemoved     int                     `json:"mounts_removed"`
-	PortsPublished    int                     `json:"ports_published"`
-	PortsUnpublished  int                     `json:"ports_unpublished"`
-	Retryable         bool                    `json:"retryable,omitempty"`
-	ReconfirmRequired bool                    `json:"reconfirm_required,omitempty"`
-	Reason            string                  `json:"reason,omitempty"`
-	Plan              *WorkspaceReconcilePlan `json:"plan,omitempty"`
-	Warning           string                  `json:"warning,omitempty"`
-	Error             string                  `json:"error,omitempty"`
+	ResourceRefreshPending bool                    `json:"resource_refresh_pending,omitempty"`
+	OK                     bool                    `json:"ok"`
+	NoteAdded              bool                    `json:"note_added,omitempty"`
+	WorkspaceID            string                  `json:"workspace_id"`
+	Revision               string                  `json:"revision,omitempty"`
+	WorktreesAdded         int                     `json:"worktrees_added"`
+	WorktreesRemoved       int                     `json:"worktrees_removed"`
+	SandboxReconciled      bool                    `json:"sandbox_reconciled"`
+	MountsAdded            int                     `json:"mounts_added"`
+	MountsRemoved          int                     `json:"mounts_removed"`
+	PortsPublished         int                     `json:"ports_published"`
+	PortsUnpublished       int                     `json:"ports_unpublished"`
+	Retryable              bool                    `json:"retryable,omitempty"`
+	ReconfirmRequired      bool                    `json:"reconfirm_required,omitempty"`
+	Reason                 string                  `json:"reason,omitempty"`
+	Plan                   *WorkspaceReconcilePlan `json:"plan,omitempty"`
+	Warning                string                  `json:"warning,omitempty"`
+	Error                  string                  `json:"error,omitempty"`
 }
 
 type WorkspaceState struct {

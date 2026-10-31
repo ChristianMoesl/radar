@@ -1,0 +1,83 @@
+name: Workspace performance qualification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workspace-performance-qualification
+  cancel-in-progress: false
+
+jobs:
+  disposable-sbx:
+    # Only trusted main may use repository registry credentials. Each invocation
+    # owns a fresh runner, fixture tree, and twenty named disposable runtimes.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SBX_VERSION: v0.50.0
+      RADAR_PERF_IMAGE: docker.io/christianmoesl/radar-sandbox:2026.10.20-3ed5104a8b82-39452053689-1
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: 21e4af9
+          path: baseline
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install the checksum-pinned provider and discovery tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fd-find
+          ln -s /usr/bin/fdfind "$RUNNER_TEMP/fd"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          curl -fsSL "https://github.com/docker/sbx-releases/releases/download/${SBX_VERSION}/DockerSandboxes-linux-amd64.tar.gz" -o "$RUNNER_TEMP/sbx.tar.gz"
+          printf 'bca9f2ff2bd9cab845d05d057964905da93990e68661efb6c46267e96c794949  %s\n' "$RUNNER_TEMP/sbx.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/sbx.tar.gz" -C "$RUNNER_TEMP"
+          sudo env PREFIX="$RUNNER_TEMP/sbx" "$RUNNER_TEMP/docker-sbx/install.sh"
+          echo "$RUNNER_TEMP/sbx/bin" >> "$GITHUB_PATH"
+          sudo chmod a+rw /dev/kvm
+      - name: Authenticate the isolated runner's provider
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          printf '%s' "$DOCKERHUB_TOKEN" | sbx login --username "$DOCKERHUB_USERNAME" --password-stdin
+          sbx policy init balanced
+      - name: Build the before and after binaries and a pinned fixture kit
+        run: |
+          go build -o "$RUNNER_TEMP/radar-after" ./cmd/radar
+          (cd baseline && go build -o "$RUNNER_TEMP/radar-before" ./cmd/radar)
+          mkdir "$RUNNER_TEMP/performance-kit"
+          python3 - <<'PY'
+          import os, pathlib
+          image = os.environ['RADAR_PERF_IMAGE']
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'performance-kit', 'spec.yaml').write_text(
+              'schemaVersion: "2"\nkind: sandbox\nname: performance-fixture\n'
+              'sandbox:\n  image: ' + image + '\n  entrypoint: [bash]\n'
+              'setup:\n  startup:\n    - command: [sandbox-startup, run]\n'
+              '      user: "1000"\n      background: false\n')
+          PY
+      - name: Measure real context, provisioning, readiness and complete cleanup
+        env:
+          RADAR_WORKSPACE_PERFORMANCE: '1'
+          RADAR_PERF_BEFORE: ${{ runner.temp }}/radar-before
+          RADAR_PERF_AFTER: ${{ runner.temp }}/radar-after
+          RADAR_PERF_KIT: ${{ runner.temp }}/performance-kit
+          RADAR_PERF_REPORT: ${{ runner.temp }}/workspace-performance.json
+        run: go test -p 2 ./internal/integration/workspace -run '^TestWorkspaceLivePerformance$' -count=1 -timeout=35m -v
+      - name: Save sanitized measurements only
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: workspace-performance-${{ github.run_id }}
+          path: ${{ runner.temp }}/workspace-performance.json
+          if-no-files-found: error
+          retention-days: 30

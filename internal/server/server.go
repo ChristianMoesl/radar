@@ -25,18 +25,20 @@ import (
 var watchTimeout = 30 * time.Second
 
 type Server struct {
-	store               *state.Store
-	logger              *slog.Logger
-	refresh             func()
-	localRefresh        func()
-	onReady             func(context.Context)
-	taskMutation        func(context.Context, string, *protocol.TaskMutation) (protocol.Task, error)
-	previewTaskDeletion func(context.Context, int) (protocol.TaskDeletionPreview, error)
-	deleteTask          func(context.Context, *protocol.TaskDeletionPreview) (protocol.TaskDeletionResult, error)
-	reset               func() error
-	garbageCollect      func() (protocol.GarbageCollectionResult, error)
-	integrations        integration.Registry
-	cleanupService      cleanup.Service
+	store                *state.Store
+	logger               *slog.Logger
+	refresh              func()
+	localRefresh         func()
+	onReady              func(context.Context)
+	taskMutation         func(context.Context, string, *protocol.TaskMutation) (protocol.Task, error)
+	previewTaskDeletion  func(context.Context, int) (protocol.TaskDeletionPreview, error)
+	deleteTask           func(context.Context, *protocol.TaskDeletionPreview) (protocol.TaskDeletionResult, error)
+	reset                func() error
+	garbageCollect       func() (protocol.GarbageCollectionResult, error)
+	integrations         integration.Registry
+	cleanupService       cleanup.Service
+	markResourcesPending func()
+	resourceSnapshot     func() protocol.Response
 }
 
 func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() error, garbageCollect func() (protocol.GarbageCollectionResult, error), integrations integration.Registry, cleanupService cleanup.Service) *Server {
@@ -53,6 +55,11 @@ func New(store *state.Store, logger *slog.Logger, refresh func(), reset func() e
 
 func (s *Server) SetLocalRefresh(refresh func()) *Server {
 	s.localRefresh = refresh
+	return s
+}
+
+func (s *Server) SetResourcePublication(markPending func(), snapshot func() protocol.Response) *Server {
+	s.markResourcesPending, s.resourceSnapshot = markPending, snapshot
 	return s
 }
 
@@ -144,16 +151,23 @@ func (s *Server) handle(conn net.Conn) {
 				continue
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), watchTimeout)
-			currentRevision := s.store.WaitForRevision(ctx, revision)
+			s.store.WaitForRevision(ctx, revision)
 			cancel()
-			if currentRevision > revision {
-				_ = encoder.Encode(s.tasksResponse())
-				continue
+			response := s.tasksResponse()
+			if response.Revision <= revision {
+				response.Tasks, response.Sources, response.Summary = nil, nil, nil
 			}
-			_ = encoder.Encode(protocol.Response{OK: true, Version: version.Current(), Revision: currentRevision})
+			_ = encoder.Encode(response)
 			continue
 		}
 		switch req.Method {
+		case "resources-mutated":
+			if s.markResourcesPending == nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "resource publication is unavailable", ResourceRefreshPending: true})
+				continue
+			}
+			s.markResourcesPending()
+			_ = encoder.Encode(s.tasksResponse())
 		case "agent":
 			if req.Agent == nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "agent request is required"})
@@ -254,11 +268,15 @@ func (s *Server) handle(conn net.Conn) {
 		case "cleanup":
 			result, err := s.cleanup(context.Background(), req.Cleanup)
 			if err != nil {
-				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
+				response := s.tasksResponse()
+				response.OK, response.Error, response.CleanupResult = false, err.Error(), &result
+				response.ResourceRefreshPending = response.ResourceRefreshPending || result.ResourceRefreshPending
+				_ = encoder.Encode(response)
 				continue
 			}
 			response := s.tasksResponse()
 			response.CleanupResult = &result
+			response.ResourceRefreshPending = response.ResourceRefreshPending || result.ResourceRefreshPending
 			_ = encoder.Encode(response)
 		default:
 			s.logger.Warn("unknown method", "method", req.Method)
@@ -293,15 +311,13 @@ func (s *Server) cleanup(ctx context.Context, preview *protocol.CleanupPreview) 
 	ctx = phasetiming.WithLogger(ctx, s.logger)
 	defer phasetiming.Start(ctx, "cleanup_response")()
 	result, err := s.cleanupService.Execute(ctx, *preview, cleanup.ExecuteOptions{Mode: integration.CleanupConfirmed})
-	if err != nil {
-		return result, err
+	// A provider can fail after changing part of its target. Mark pending even
+	// on failure; successful prefix removals remain visible in the response.
+	result.ResourceRefreshPending = true
+	if s.markResourcesPending != nil {
+		s.markResourcesPending()
 	}
-	if s.localRefresh != nil {
-		refreshDone := phasetiming.Start(ctx, "post_mutation_collection")
-		s.localRefresh()
-		refreshDone()
-	}
-	return result, nil
+	return result, err
 }
 
 func taskByID(tasks []protocol.Task, id int) (protocol.Task, bool) {
@@ -315,9 +331,15 @@ func taskByID(tasks []protocol.Task, id int) (protocol.Task, bool) {
 
 func (s *Server) tasksResponse() protocol.Response {
 	tasks, sources, revision := s.store.Snapshot()
+	response := protocol.Response{Tasks: tasks, Sources: sources, Revision: revision}
+	if s.resourceSnapshot != nil {
+		response = s.resourceSnapshot()
+		tasks, sources, revision = response.Tasks, response.Sources, response.Revision
+	}
 	tasks = s.integrations.FilterTasks(tasks, s.logger)
 	summary := protocol.SummarizeTasks(tasks)
-	return protocol.Response{OK: true, Version: version.Current(), Revision: revision, Summary: &summary, Tasks: tasks, Sources: sources}
+	response.OK, response.Version, response.Summary, response.Tasks = true, version.Current(), &summary, tasks
+	return response
 }
 
 func (s *Server) filteredTasks() []protocol.Task {

@@ -122,6 +122,7 @@ func PlanManagedWorktreeRemoval(ctx context.Context, runner Runner, member works
 // branches are deleted using their expected old object ID so branch movement
 // during cleanup fails safely.
 func RemoveManagedWorktree(ctx context.Context, runner Runner, member workspacegroup.Member, force bool) (Workspace, error) {
+	defer phasetiming.Start(ctx, "managed_worktree_removal")()
 	plan, err := PlanManagedWorktreeRemoval(ctx, runner, member)
 	if err != nil {
 		return Workspace{}, err

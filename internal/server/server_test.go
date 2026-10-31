@@ -309,12 +309,12 @@ func TestCleanupExecutesEveryPreviewTarget(t *testing.T) {
 	if len(result.Targets) != 2 || result.Targets[0].Path != "/tmp/one" || result.Targets[1].Path != "/tmp/two" {
 		t.Fatalf("cleanup result = %+v", result)
 	}
-	if !refreshed {
-		t.Fatal("cleanup did not refresh local sources")
+	if refreshed || !result.ResourceRefreshPending {
+		t.Fatal("cleanup must acknowledge pending resources without global collection")
 	}
 }
 
-func TestCleanupResponseIncludesLocallyRefreshedTasks(t *testing.T) {
+func TestCleanupResponseMarksItsRetainedSnapshotPending(t *testing.T) {
 	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	store, err := state.NewStore(logger)
@@ -353,8 +353,8 @@ func TestCleanupResponseIncludesLocallyRefreshedTasks(t *testing.T) {
 	if !response.OK || response.CleanupResult == nil {
 		t.Fatalf("cleanup response = %+v", response)
 	}
-	if response.Tasks == nil || len(response.Tasks) != 0 {
-		t.Fatalf("cleanup response tasks = %+v, want refreshed empty tasks", response.Tasks)
+	if response.Tasks == nil || len(response.Tasks) != 1 || !response.ResourceRefreshPending {
+		t.Fatalf("cleanup response tasks = %+v, want retained tasks explicitly pending", response.Tasks)
 	}
 }
 

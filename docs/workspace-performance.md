@@ -1,6 +1,6 @@
 # Workspace performance
 
-This implements the bounded optimizations in [issue #51](https://github.com/ChristianMoesl/radar/issues/51). Full context, planning, setup scheduling, and cleanup retain their existing lifecycle, confirmation, and synchronous completion contracts. No persisted schema, command, configuration option, general cache, daemon lifecycle, or sandbox image changes are introduced.
+This implements the bounded optimizations in [issue #51](https://github.com/ChristianMoesl/radar/issues/51). Full context, planning, setup scheduling, and cleanup retain confirmation and destructive completion checks. Lifecycle hooks use a fresh narrower projection, and mutation acknowledgements explicitly mark pending resource collection. No persisted schema, command, configuration option, general cache, daemon lifecycle, or sandbox image changes are introduced.
 
 ## Inspection and planning
 
@@ -44,13 +44,15 @@ Existing Radar logs contain `operation phase completed` records with a fixed `ph
 | `cleanup_bundle_preflight`, `cleanup_protected_scan`, `cleanup_member_scan` | Bundle protection work and each target's last-moment scan |
 | `cleanup_runtime`, `cleanup_worktree`, `cleanup_anchor` | Actual provider cleanup, distinct from collection |
 | `cleanup_execution`, `cleanup_response` | Removal bundle and server response totals |
-| `collection_lock_wait`, `local_collection`, `post_mutation_collection` | Collection mutex wait, actual refresh, and caller wait for refresh |
+| `worktree_removal`, `managed_worktree_removal` | Git worktree lookup/removal and managed branch handling, excluding member-tree scanning |
+| `post_mutation_publication` | Immediate pending-publication acknowledgement, separate from scheduled collection |
+| `collection_lock_wait`, `local_collection` | Collection mutex wait and actual refresh |
 
-Nested timings overlap and must not be added together. SBX retries produce one timing per attempt. Interactive setup timing ends after scheduling; it does not claim that the setup commands finished. Creation currently has no CLI post-operation collection; reconciliation and explicit cleanup retain their existing synchronous refresh behavior.
+Nested timings overlap and must not be added together. SBX retries produce one timing per attempt. Interactive setup timing ends after scheduling; it does not claim that the setup commands finished. Creation currently has no CLI post-operation collection; reconciliation and explicit cleanup return their explicit pending marker before scheduled collection.
 
 ## Measurements
 
-Measurements were collected on 2026-10-30 in a Linux `6.18.57` amd64 cloud container, five visible CPUs (Intel Xeon Platinum 8573C), Go `1.26.4`, overlay filesystem. Baseline source: `21e4af9`. Optimized source: this change on `c4eae81`; intervening upstream commits did not change workspace code. SBX is not installed in this environment. The issue's macOS arm64 / SBX v0.50.0 measurements remain a separate real-provider baseline.
+Measurements were collected on 2026-10-30 in a Linux `6.18.57` amd64 cloud container, five visible CPUs (Intel Xeon Platinum 8573C), Go `1.26.4`, overlay filesystem. Baseline source: `21e4af9`. Synthetic optimized source: `c1992d9` on `c4eae81`; intervening upstream commits did not change workspace code. SBX is not installed in this environment. The issue's macOS arm64 / SBX v0.50.0 measurements remain a separate real-provider baseline.
 
 Each row has 20 before and 20 after samples (`-benchtime=1x -count=20`). Fixture construction is outside the timer; files and directories were just created, so these are warm filesystem/metadata conditions, with no deliberate cold-cache runs. Go dependency download/build time is excluded. The shared cloud environment had other build/test activity; paired progressive scans also shared filesystem load. Percentiles are nearest-rank sample statistics, not production percentiles. The raw observations are in [workspace-51.csv](performance/workspace-51.csv).
 
@@ -77,28 +79,34 @@ go test -p 2 ./internal/integration/workspace -run '^$' \
 
 To reproduce the before comparison, use the same fixture setup on `21e4af9`: the fixed cleanup loop calls `ValidateDiscardingWorkspace` for each member without a bundle preflight; the progressive loop does the same while moving each checked member out of the anchor. The optimized loops include their new bundle preflight. Registry/metadata protection checks are included in both. Legacy result digests were captured separately from that source using the same inspection fixture.
 
-## Explicitly deferred decisions
+## Lifecycle resource inspection
 
-### Live provider creation/readiness and image selection
+The remaining lifecycle/publication work was requested on 2026-10-31 after the designs above had been documented. Both are implemented.
 
-This environment cannot reproduce SBX v0.50.0 provisioning. No disposable live sandbox was created or deleted, and no image, kit, mount, startup, readiness, or environment behavior was changed. A separate provider run must name an approved disposable sandbox, record host/provider/image/kit versions and warm/cold conditions, and gather repeated create/remove/readiness/port/setup samples using the new phase logs. Never collect private startup output or environment contents as timing data. Choose a follow-up based on the dominant measured phase. The issue's estimated one-second local context goal is unverified here; synthetic timings are not a substitute.
+`workspace-context --resources-only` rereads the registry, direct member instruction/skill locations, canonical-note association, and one owned live sandbox observation. It omits repository discovery, Git status, ports and opening resources. Its dedicated response type has no revision or desired state, so it cannot authorize reconciliation. `--registration-only` remains a registry lookup; the explicit `radar_workspace_context` tool still obtains full live context.
 
-### Lighter Pi lifecycle inspection (item 4)
+Pi uses the resource projection for discovery, reload, before every agent run and after reconciliation. Member order, instruction precedence, project-trust gating, skill collision handling, and previous-resource retention on failed reload remain in effect. Instruction contents are read on each agent start. Every hook rereads registration and runtime mounts; there is no cross-hook cache or expiry interval. Removed members/skills, canonical-note changes and sandbox/shared-directory changes appear on the next hook. An unverified hook blocks ordinary tool/user-shell routing until a successful fresh read; repair tools remain available. A verified non-workspace session restores ordinary routing.
 
-The evaluated path is a fresh registry/member-resource/routing read for `resources_discover`, reload, and `before_agent_start`, while keeping full live context for explicit inspection/reconciliation. This could omit repository discovery, dirty Git status, and port reads in hooks. It would need to retain project-trust skill loading, member precedence, missing-runtime errors, shared-directory mount readiness, fail-closed tool routing, and the existing previous-resource-set behavior on failed reloads.
+## Mutation acknowledgement and resource freshness
 
-That changes what hooks observe and when resources become active. It is separately scoped and deferred pending explicit approval of those semantics, as required by the epic. Current hooks continue to obtain full fresh context; there is no cross-run context cache. A future approved design must reread registration on every hook, refresh member instruction/skill content on reload and before a run, invalidate routing on sandbox/registration/shared-mount changes, and never pass a lighter result to reconciliation as a revision-bearing full context.
+Cleanup, reconciliation and manual GC acknowledge completed mutations without waiting for unrelated global collection or its mutex. Cleanup still finishes the actual provider removals before returning. Partial failures remain errors and include the successfully removed prefix.
 
-### Targeted post-mutation publication (item 5)
+Responses carry `resource_refresh_pending: true` while their cached resource list awaits a fresh scheduled collection. The dashboard labels that condition, and readable cleanup/reconciliation output reports it. The existing local-refresh cadence (15 seconds) and explicit `refresh-local` request perform collection; no deletion is deferred. Disabled collection leaves the marker pending until an explicit refresh.
 
-The evaluated path is publication of the affected workspace's local resource observations through the existing task-service revision barrier after mutation. Correct implementation needs an atomic way to remove departed worktrees, update retained anchor/runtime observations, preserve task linking and authored fields, and reject observations collected before a concurrent mutation. A targeted implementation must also define which remote publication proofs are refreshed.
+The task service increments a volatile resource epoch after mutation and wakes revision subscribers. In-flight collections captured before that epoch cannot publish at the completion barrier. A mutation arriving during publication still invalidates its freshness certificate. The resource snapshot captures the store revision and epoch so an older projection cannot carry a newer fresh marker. A complete collection started after the mutation clears the marker; partial, failed or canceled collection does not. Disabled sources stay explicitly disabled. The marker is unverified on daemon startup and is not persisted, and no on-disk format changes.
 
-An alternative early acknowledgement would require an explicit pending-refresh result and a follow-up publication contract; current JSON has no such state. Both choices change response/consistency behavior and are separately scoped and deferred pending approval. Current cleanup/reconciliation still wait for global local-source collection and keep their existing warnings on refresh failure. Logs now distinguish resource removal, mutex waiting, and final collection, so unrelated refresh latency can be attributed without silently labeling stale resources fresh.
+The CLI mutation notification has a one-second request budget. The mutation notification and pending snapshot do not wait for the authoring/publication lock, which may be reconciling unrelated work. The atomic epoch and published store revision preserve ordering. Authored fields, bindings, leases, confirmation and destructive checks continue through the existing paths. A failed reconciliation notification returns a warning and keeps its result marked pending.
 
-The global note-lock critical section is unchanged. Narrowing it requires an ownership/reservation design and evidence from the new wait timings. These deferred decisions and real-provider qualification mean the epic should remain open.
+## Real-provider qualification
+
+The trusted-main `Workspace performance qualification` workflow installs checksum-pinned SBX v0.50.0 on a fresh Linux/KVM runner using the repository's existing registry credential path. It uses a pinned, previously published Radar image and an isolated kit without user hooks or external writable mounts. Each invocation owns twenty named disposable workspaces/VMs, four linked worktrees and a large file fixture. The provider's original XDG selectors are restored only for SBX; credentials are neither copied into fixtures nor mounted in VMs.
+
+The harness alternates twenty before/after live context and zero-change previews against `21e4af9`, checks the one-list command budget, measures the lighter lifecycle projection, and records twenty complete creation/cleanup cycles. It separates lock wait, worktrees, provider create/remove, readiness, preview, fresh publication verification, protected scans, Git deletion, mutation acknowledgement and final collection. Raw command output, command arguments, environment values and startup output are excluded from the uploaded report. The first provision and subsequent warm-image/new-VM conditions are labeled separately. Canonical notes must survive every cleanup.
+
+Run `TestWorkspaceLivePerformance` only in that explicitly disposable qualification environment. Ordinary tests skip it. Live results are recorded separately from the synthetic measurements above. No image, kit, startup or mount behavior was changed based on guessed provider costs. The note-lock critical section remains unchanged; its new measurements support a reservation/ownership design only if contention warrants one.
 
 ## Validation
 
-The Go suite and Linux installer checks pass with the test fixtures' expected `022` umask. Pi type checking and all 312 Pi tests pass; the resource/startup subprocess tests were run serially to avoid cloud process/CPU contention. Durable-agent type checking and tests pass (25 passed, five credential-dependent cases skipped). Race checks cover workspace, Git cleanup, bundle cleanup, and timing diagnostics. Darwin arm64 and Linux arm64 CLI cross-builds pass; this does not claim native execution on those platforms.
+The Go suite and Linux installer checks pass with the test fixtures' expected `022` umask. Pi type checking and all 314 Pi tests pass; the resource/startup subprocess tests were run serially to avoid cloud process/CPU contention. Durable-agent type checking and tests pass with a built Radar binary (27 passed, three live-provider cases skipped locally). Race checks cover workspace, Git cleanup, bundle cleanup, and timing diagnostics. Darwin arm64 and Linux arm64 CLI cross-builds pass; this does not claim native execution on those platforms.
 
 New tests cover normalized legacy results, command budgets, deterministic results/error ordering, bounded concurrency/deadlines, unavailable and missing runtimes, live port changes, fresh apply ownership, phase privacy, setup preflight count/failure behavior, fetch failures/cancellation, nested checkouts, symlink changes, canonical notes, and changed ownership/configuration between preflight and removal. Existing stale revision/plan, dirty-worktree, lease, Pi startup/routing, and durable-agent contracts remain exercised by the existing suites.

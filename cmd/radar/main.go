@@ -501,10 +501,11 @@ func runReconcileWorkspace(args []string) {
 		closeLog()
 		fatal(err)
 	}
-	if result.OK {
-		refreshDone := phasetiming.Start(phasetiming.WithLogger(context.Background(), logger), "post_mutation_collection")
-		if err := refreshLocalSourcesAfterReconcile(); err != nil {
-			warning := "workspace was reconciled, but Radar could not refresh local sources immediately: " + err.Error()
+	if result.OK || result.Retryable || result.WorktreesAdded > 0 || result.WorktreesRemoved > 0 {
+		result.ResourceRefreshPending = true
+		refreshDone := phasetiming.Start(phasetiming.WithLogger(context.Background(), logger), "post_mutation_publication")
+		if err := notifyResourceMutation(); err != nil {
+			warning := "workspace mutation completed, but Radar could not mark its resource list pending refresh: " + err.Error()
 			if result.Warning == "" {
 				result.Warning = warning
 			} else {
@@ -517,12 +518,12 @@ func runReconcileWorkspace(args []string) {
 	printResult(result)
 }
 
-func refreshLocalSourcesAfterReconcile() error {
+func notifyResourceMutation() error {
 	path, err := socket.Path()
 	if err != nil {
 		return err
 	}
-	response, err := client.Call(path, "refresh-local")
+	response, err := client.CallWithTimeout(path, "resources-mutated", time.Second)
 	if err != nil {
 		return err
 	}
@@ -536,10 +537,14 @@ func runWorkspaceContext(args []string) {
 	flags := outputFlags("radar workspace-context")
 	current := flags.String("workspace", "", "path inside the current Radar workspace")
 	registrationOnly := flags.Bool("registration-only", false, "only check registered workspace membership, without inspecting Git or sandbox resources")
+	resourcesOnly := flags.Bool("resources-only", false, "inspect fresh member instructions, skills and sandbox routing for lifecycle hooks, without a reconciliation revision")
 	_ = parseFlags(flags, args)
 	if flags.NArg() != 0 {
 		workspaceContextUsage()
 		os.Exit(2)
+	}
+	if *registrationOnly && *resourcesOnly {
+		fatal(errors.New("choose one workspace context projection"))
 	}
 	manager, err := app.DefaultIntegrations().WorkspaceManager()
 	if err != nil {
@@ -556,6 +561,14 @@ func runWorkspaceContext(args []string) {
 	cfg, err := config.Load()
 	if err != nil {
 		fatal(err)
+	}
+	if *resourcesOnly {
+		result, err := manager.InspectWorkspaceResources(context.Background(), *current, manager.ExpandPath(cfg.Workspace.RootDir))
+		if err != nil {
+			fatal(err)
+		}
+		printResult(result)
+		return
 	}
 	result, err := manager.InspectWorkspace(context.Background(), *current, manager.ExpandPath(cfg.Workspace.RootDir))
 	if err != nil {
@@ -644,6 +657,11 @@ func runCleanup(args []string) {
 		fatal(err)
 	}
 	if !response.OK {
+		if jsonOutput && response.CleanupResult != nil {
+			response.Tasks, response.Sources, response.Summary = nil, nil, nil
+			printResult(response)
+			os.Exit(1)
+		}
 		fatal(errors.New(response.Error))
 	}
 	if response.CleanupResult == nil {
@@ -762,7 +780,7 @@ func runDaemon() {
 	}
 	localRefresh := localRefresher(phasetiming.WithLogger(ctx, logger), collectionMu, tasks)
 	integrations.StartBackground(ctx, localRefresh)
-	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(ctx, logger, collectionMu, tasks), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).SetTaskMutation(tasks.MutateTask).SetTaskDeletion(tasks.PreviewDeleteTask, tasks.DeleteTask).SetOnReady(syncPackages).ListenAndServe(ctx, path); err != nil {
+	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(ctx, logger, collectionMu, tasks), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).SetResourcePublication(tasks.MarkResourceRefreshPending, tasks.ResourceSnapshot).SetTaskMutation(tasks.MutateTask).SetTaskDeletion(tasks.PreviewDeleteTask, tasks.DeleteTask).SetOnReady(syncPackages).ListenAndServe(ctx, path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}
@@ -939,6 +957,7 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 				logger.Warn("workspace gc failed", "error", rootErr)
 			} else {
 				gcResult, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, GuardExecution: tasks.GuardCleanup})
+				tasks.MarkResourceRefreshPending()
 				if err != nil {
 					logger.Warn("workspace gc failed", "error", err)
 				} else if len(gcResult.Deleted) > 0 {
@@ -986,15 +1005,13 @@ func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logg
 			return protocol.GarbageCollectionResult{}, err
 		}
 		result, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, IgnoreRetention: true, GuardExecution: tasks.GuardCleanup})
+		tasks.MarkResourceRefreshPending()
 		if err != nil {
 			mu.Unlock()
 			return protocol.GarbageCollectionResult{}, err
 		}
-		if len(result.Deleted) > 0 {
-			collected := tasks.Refresh(ctx, true)
-			logger.Debug("manual workspace gc refresh finished", "deleted", len(result.Deleted), "tasks", len(collected.Tasks))
-		}
 		converted := garbageCollectionResult(result)
+		converted.ResourceRefreshPending = true
 		mu.Unlock()
 		notificationService.NotifyGarbageCollection(ctx, converted)
 		return converted, nil
@@ -1260,10 +1277,11 @@ The request contains the revision and complete desired worktree/sandbox state. P
 }
 
 func workspaceContextUsage() {
-	fmt.Fprintln(os.Stderr, `usage: radar workspace-context [--workspace <path>] [--registration-only]
+	fmt.Fprintln(os.Stderr, `usage: radar workspace-context [--workspace <path>] [--registration-only | --resources-only]
 
 Print the current logical Radar workspace, its member worktrees, and discovered repositories. Add --json for the complete machine-readable state.
-With --registration-only, only report registered and workspace_path without inspecting host resources.`)
+With --registration-only, only report registered and workspace_path without inspecting host resources.
+With --resources-only, reread member instructions/skills and owned sandbox routing without Git status, ports, repository discovery, opening resources, or a reconciliation revision.`)
 }
 
 func repositoryRefsUsage() {

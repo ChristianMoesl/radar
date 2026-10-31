@@ -45,7 +45,11 @@ func normalizedContext(result integration.WorkspaceContext, root string) string 
 	// This order matters: strip path-dependent digests before normalizing paths.
 	normalized := strings.ReplaceAll(string(data), result.Revision, "<revision>")
 	normalized = strings.ReplaceAll(normalized, result.WorkspaceID, "<workspace-id>")
-	normalized = strings.ReplaceAll(normalized, filepath.Dir(root), "/fixture")
+	fixtureRoot := filepath.Dir(root)
+	if physical, err := filepath.EvalSymlinks(fixtureRoot); err == nil {
+		normalized = strings.ReplaceAll(normalized, physical, "/fixture")
+	}
+	normalized = strings.ReplaceAll(normalized, fixtureRoot, "/fixture")
 	var value any
 	_ = json.Unmarshal([]byte(normalized), &value)
 	pretty, _ := json.MarshalIndent(value, "", "  ")
@@ -270,5 +274,18 @@ func TestInspectionMemberErrorsKeepRegistryOrder(t *testing.T) {
 	_, err := InspectWorkspace(context.Background(), runner, group.Path, root)
 	if !errors.Is(err, firstErr) {
 		t.Fatalf("worker completion order changed error precedence: %v", err)
+	}
+}
+
+func TestContextContractNormalizationHandlesPhysicalFixtureAlias(t *testing.T) {
+	physical := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(physical, alias); err != nil {
+		t.Fatal(err)
+	}
+	result := integration.WorkspaceContext{Revision: "revision-value", WorkspaceID: "workspace-value", WorkspacePath: filepath.Join(alias, "workspaces"), RepositoryDirs: []string{filepath.Join(physical, "sources")}}
+	normalized := normalizedContext(result, filepath.Join(alias, "workspaces"))
+	if strings.Contains(normalized, physical) || strings.Contains(normalized, alias) || !strings.Contains(normalized, `"/fixture/sources"`) {
+		t.Fatalf("fixture alias leaked into the contract digest: %s", normalized)
 	}
 }

@@ -78,8 +78,9 @@ type CleanupPreview struct {
 }
 
 type CleanupResult struct {
-	TaskID  int             `json:"task_id"`
-	Targets []CleanupTarget `json:"targets"`
+	ResourceRefreshPending bool            `json:"resource_refresh_pending,omitempty"`
+	TaskID                 int             `json:"task_id"`
+	Targets                []CleanupTarget `json:"targets"`
 }
 
 type GarbageCollectionItem struct {
@@ -89,8 +90,9 @@ type GarbageCollectionItem struct {
 }
 
 type GarbageCollectionResult struct {
-	Deleted []GarbageCollectionItem `json:"deleted"`
-	Skipped []GarbageCollectionItem `json:"skipped"`
+	ResourceRefreshPending bool                    `json:"resource_refresh_pending,omitempty"`
+	Deleted                []GarbageCollectionItem `json:"deleted"`
+	Skipped                []GarbageCollectionItem `json:"skipped"`
 }
 
 type Summary struct {
@@ -218,6 +220,7 @@ type Task struct {
 }
 
 type Response struct {
+	ResourceRefreshPending  bool                     `json:"resource_refresh_pending,omitempty"`
 	AgentErrorCode          int                      `json:"agent_error_code,omitempty"`
 	AgentResult             json.RawMessage          `json:"agent_result,omitempty"`
 	PID                     int                      `json:"pid,omitempty"`
@@ -238,6 +241,9 @@ type Response struct {
 
 func (r Response) MarshalJSON() ([]byte, error) {
 	fields := map[string]any{"ok": r.OK}
+	if r.ResourceRefreshPending {
+		fields["resource_refresh_pending"] = true
+	}
 	if r.AgentErrorCode != 0 {
 		fields["agent_error_code"] = r.AgentErrorCode
 	}

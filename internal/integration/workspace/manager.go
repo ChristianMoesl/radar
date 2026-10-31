@@ -179,6 +179,10 @@ func (Source) InspectRepositoryRefs(ctx context.Context, repository string) (int
 	return InspectRepositoryRefs(ctx, ExecRunner{}, repository)
 }
 
+func (Source) InspectWorkspaceResources(ctx context.Context, currentDirectory, workspaceRoot string) (integration.WorkspaceResources, error) {
+	return InspectWorkspaceResources(ctx, ExecRunner{}, currentDirectory, workspaceRoot)
+}
+
 func integrationWorkspace(value Workspace) integration.Workspace {
 	return integration.Workspace{
 		Name: value.Name, Branch: value.Branch, Base: value.Base, Repo: value.Repo,

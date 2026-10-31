@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"unicode"
@@ -58,10 +59,16 @@ func writeResult(stdout, stderr io.Writer, value any, asJSON bool) error {
 		p.field("Trash path", v.TrashPath)
 	case *protocol.CleanupResult:
 		p.line("Cleaned up %d local resource(s) for task %d.", len(v.Targets), v.TaskID)
+		if v.ResourceRefreshPending {
+			p.line("Resource list refresh pending.")
+		}
 		for _, target := range v.Targets {
 			p.line("  - %s", singleLine(cleanupTargetDescription(target)))
 		}
 	case *protocol.GarbageCollectionResult:
+		if v.ResourceRefreshPending {
+			p.line("Resource list refresh pending.")
+		}
 		p.line("Garbage collection: %d deleted, %d skipped.", len(v.Deleted), len(v.Skipped))
 		rows := [][]string{{"RESULT", "TASK", "PATH", "REASON"}}
 		for _, item := range v.Deleted {
@@ -91,6 +98,24 @@ func writeResult(stdout, stderr io.Writer, value any, asJSON bool) error {
 		}
 	case integration.WorkspaceContext:
 		p.workspace(v)
+	case integration.WorkspaceResources:
+		if !v.Registered {
+			p.line("Not inside a registered Radar workspace.")
+			break
+		}
+		p.line("Workspace resources.")
+		p.field("Workspace", v.WorkspacePath)
+		rows := [][]string{{"REPOSITORY", "PATH", "INSTRUCTIONS", "SKILLS"}}
+		for _, member := range v.Members {
+			rows = append(rows, []string{filepath.Base(member.Repository), member.Path, strings.Join(member.InstructionFiles, ", "), strings.Join(member.SkillPaths, ", ")})
+		}
+		p.table(rows)
+		if v.Sandbox != nil {
+			p.field("Sandbox", v.Sandbox.Name)
+			p.field("Shared directory", v.Sandbox.SharedDirectory)
+			p.field("Shared directory ready", yesNo(v.Sandbox.SharedDirectoryReady))
+			p.warning(v.Sandbox.RuntimeError)
+		}
 	case integration.RepositoryClonePlan:
 		p.line("Host repository clone preview (%s).", v.Status)
 		p.field("Remote", v.Remote)
@@ -149,6 +174,9 @@ func writeResult(stdout, stderr io.Writer, value any, asJSON bool) error {
 	case integration.WorkspaceReconcilePlan:
 		p.plan(v)
 	case integration.WorkspaceReconcileResult:
+		if v.ResourceRefreshPending {
+			p.line("Resource list refresh pending.")
+		}
 		if v.OK {
 			p.line("Workspace reconciled.")
 		} else {

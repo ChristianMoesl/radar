@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 
 	"radar/internal/collector"
 	"radar/internal/integration"
@@ -18,20 +19,30 @@ import (
 // or Git inspection. Completion/GC also perform a bounded runtime recheck under
 // applyMu. Background refreshes are serialized by the daemon's collection mutex.
 type Service struct {
-	store             *state.Store
-	logger            *slog.Logger
-	integrations      integration.Registry
-	applyMu           sync.Mutex
-	authoringRevision uint64
+	store               *state.Store
+	logger              *slog.Logger
+	integrations        integration.Registry
+	applyMu             sync.Mutex
+	authoringRevision   uint64
+	resourceRevision    atomic.Uint64
+	resourcePublication atomic.Pointer[resourcePublication]
+}
+
+type resourcePublication struct {
+	epoch         uint64
+	storeRevision int64
 }
 
 func New(store *state.Store, logger *slog.Logger, integrations integration.Registry) *Service {
-	return &Service{store: store, logger: logger, integrations: integrations}
+	service := &Service{store: store, logger: logger, integrations: integrations}
+	service.resourceRevision.Store(1)
+	return service
 }
 
 func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result {
 	s.applyMu.Lock()
 	revision := s.authoringRevision
+	resourceRevision := s.resourceRevision.Load()
 	s.applyMu.Unlock()
 
 	var result collector.Result
@@ -43,6 +54,13 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 
 	s.applyMu.Lock()
 	defer s.applyMu.Unlock()
+	if resourceRevision != s.resourceRevision.Load() {
+		// A completed resource mutation supersedes this entire observation.
+		// Never publish it or clear the pending marker, even if every provider
+		// reported success. The next scheduled collection starts a fresh read.
+		s.logger.Debug("collection superseded by resource mutation")
+		return collector.Result{Tasks: s.store.CollectionTasks(), Sources: s.store.Sources()}
+	}
 	if revision != s.authoringRevision {
 		// A mutation won while collection was in flight. Re-read only the
 		// author and activity sources: a pre-mutation busy snapshot must not
@@ -78,7 +96,49 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 	for _, taskID := range result.PendingAgentReviews {
 		s.store.RequireAgentReview(taskID)
 	}
+	if ctx.Err() == nil && s.localCollectionComplete(result) {
+		s.resourcePublication.Store(&resourcePublication{epoch: resourceRevision, storeRevision: s.store.Revision()})
+	}
 	return result
+}
+
+// MarkResourceRefreshPending acknowledges already-completed mutations without
+// waiting for global collection. Existing snapshots remain explicitly pending.
+func (s *Service) MarkResourceRefreshPending() {
+	// Do not acquire the publication/authoring lock: a collection can be
+	// reconciling unrelated work under it. Its captured epoch cannot certify
+	// freshness after this atomic invalidation, even if publication is underway.
+	s.resourceRevision.Add(1)
+	s.store.NotifyChange()
+}
+
+// ResourceSnapshot pairs the projection revision with its epoch certificate,
+// so an old snapshot cannot be paired with a newer "fresh" marker.
+func (s *Service) ResourceSnapshot() protocol.Response {
+	epoch := s.resourceRevision.Load()
+	tasks, sources, revision := s.store.Snapshot()
+	published := s.resourcePublication.Load()
+	pending := published == nil || published.epoch != epoch || revision < published.storeRevision || epoch != s.resourceRevision.Load()
+	return protocol.Response{Tasks: tasks, Sources: sources, Revision: revision, ResourceRefreshPending: pending}
+}
+
+func (s *Service) localCollectionComplete(result collector.Result) bool {
+	for _, source := range collector.LocalSources(s.integrations.Sources()) {
+		name := source.Descriptor().Name
+		if result.Complete[name] {
+			continue
+		}
+		disabled := false
+		for _, status := range result.Sources {
+			if status.Name == name && status.Status == "disabled" {
+				disabled = true
+			}
+		}
+		if !disabled {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) applyLocal(result collector.Result) {
@@ -128,6 +188,7 @@ func (s *Service) Reset() error {
 	s.applyMu.Lock()
 	defer s.applyMu.Unlock()
 	s.authoringRevision++
+	s.resourceRevision.Add(1)
 	return s.store.Reset()
 }
 

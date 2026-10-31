@@ -109,50 +109,51 @@ type createForm struct {
 }
 
 type model struct {
-	agent               agentState
-	releaseNotice       update.Notice
-	relaunch            bool
-	creations           *creationTracker
-	operation           taskOperation
-	operationGeneration uint64
-	operationFrame      int
-	taskFailures        []taskFailure
-	cleanupTask         protocol.Task
-	deletion            taskDeletionState
-	editor              workspaceEditor
-	socketPath          string
-	width               int
-	height              int
-	loading             bool
-	err                 error
-	summary             protocol.Summary
-	tasks               []protocol.Task
-	sources             []protocol.SourceStatus
-	sourcesExpanded     bool
-	cursor              int
-	selectedSection     string
-	expandedSections    map[string]bool
-	selectedCurrentTask bool
-	mode                string
-	searchQuery         string
-	detail              detailState
-	create              createForm
-	cleanup             protocol.CleanupPreview
-	cleanupDetails      bool
-	cleanupScroll       int
-	links               []linkChoice
-	linkTask            protocol.Task
-	linkCursor          int
-	linkScroll          int
-	worktrees           []protocol.SourceRef
-	worktreeTask        protocol.Task
-	worktreeCursor      int
-	worktreeScroll      int
-	message             string
-	authoredTitle       string
-	scroll              int
-	revision            int64
-	watching            bool
+	agent                  agentState
+	releaseNotice          update.Notice
+	relaunch               bool
+	creations              *creationTracker
+	operation              taskOperation
+	operationGeneration    uint64
+	operationFrame         int
+	taskFailures           []taskFailure
+	cleanupTask            protocol.Task
+	deletion               taskDeletionState
+	editor                 workspaceEditor
+	socketPath             string
+	width                  int
+	height                 int
+	resourceRefreshPending bool
+	loading                bool
+	err                    error
+	summary                protocol.Summary
+	tasks                  []protocol.Task
+	sources                []protocol.SourceStatus
+	sourcesExpanded        bool
+	cursor                 int
+	selectedSection        string
+	expandedSections       map[string]bool
+	selectedCurrentTask    bool
+	mode                   string
+	searchQuery            string
+	detail                 detailState
+	create                 createForm
+	cleanup                protocol.CleanupPreview
+	cleanupDetails         bool
+	cleanupScroll          int
+	links                  []linkChoice
+	linkTask               protocol.Task
+	linkCursor             int
+	linkScroll             int
+	worktrees              []protocol.SourceRef
+	worktreeTask           protocol.Task
+	worktreeCursor         int
+	worktreeScroll         int
+	message                string
+	authoredTitle          string
+	scroll                 int
+	revision               int64
+	watching               bool
 }
 
 const (
@@ -1272,7 +1273,7 @@ func (m model) cleanupSelected(preview protocol.CleanupPreview) tea.Cmd {
 			return actionMsg{err: err}
 		}
 		if !response.OK {
-			return actionMsg{err: fmt.Errorf("%s", response.Error)}
+			return actionMsg{response: &response, err: fmt.Errorf("%s", response.Error)}
 		}
 		return actionMsg{response: &response, message: cleanupSuccessMessage(preview)}
 	}
@@ -1521,6 +1522,9 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 
 	if response.Revision > m.revision {
 		m.revision = response.Revision
+	}
+	if response.Tasks != nil || response.Sources != nil || response.ResourceRefreshPending {
+		m.resourceRefreshPending = response.ResourceRefreshPending
 	}
 	if response.Summary != nil {
 		m.summary = *response.Summary
@@ -2303,6 +2307,9 @@ func (m model) sourceSummary(width int) string {
 	// Put failures first so healthy or disabled sources cannot hide them on
 	// narrow terminals. The full diagnostics remain available with s.
 	parts := append(failures, warnings...)
+	if m.resourceRefreshPending {
+		parts = append(parts, attentionStyle.Render("Resource list refresh pending"))
+	}
 	if healthy > 0 {
 		parts = append(parts, doneStyle.Render(fmt.Sprintf("✓ %d healthy", healthy)))
 	}
