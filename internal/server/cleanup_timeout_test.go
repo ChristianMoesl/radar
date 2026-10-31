@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -25,6 +26,7 @@ func TestCleanupAcknowledgesWhileGlobalCollectionIsBlocked(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := taskservice.New(store, logger, integration.NewRegistry())
+	service.Refresh(context.Background(), true)
 	started, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var refreshes atomic.Int32
 	server := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake"}})).SetResourcePublication(service.MarkResourceRefreshPending, service.ResourceSnapshot).SetLocalRefresh(func() {
@@ -55,5 +57,34 @@ func TestCleanupAcknowledgesWhileGlobalCollectionIsBlocked(t *testing.T) {
 	}
 	if refreshes.Load() != 1 {
 		t.Fatal("cleanup invoked another global refresh")
+	}
+}
+
+func TestPendingResourcesCannotAuthorizeAnotherCleanup(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "state.db"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := taskservice.New(store, logger, integration.NewRegistry())
+	server := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake"}})).SetResourcePublication(service.MarkResourceRefreshPending, service.ResourceSnapshot)
+	if _, err := server.cleanupPreview(context.Background(), 1); err == nil {
+		t.Fatal("pending cached targets authorized a cleanup preview")
+	}
+	preview := &protocol.CleanupPreview{TaskID: 1, Targets: []protocol.CleanupTarget{{Source: "fake", Kind: "worktree"}}}
+	result, err := server.cleanup(context.Background(), preview)
+	if err == nil || !result.ResourceRefreshPending || len(result.Targets) != 0 {
+		t.Fatalf("pending plan was applied: %+v %v", result, err)
+	}
+	service.Refresh(context.Background(), true)
+	result, err = server.cleanup(context.Background(), preview)
+	if err != nil || len(result.Targets) != 1 {
+		t.Fatalf("fresh retry failed: %+v %v", result, err)
+	}
+	// The same confirmed plan must not run again against its stale named runtimes.
+	result, err = server.cleanup(context.Background(), preview)
+	if err == nil || len(result.Targets) != 0 {
+		t.Fatal("a previously applied plan was reused before collection")
 	}
 }

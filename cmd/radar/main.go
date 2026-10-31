@@ -956,7 +956,7 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 			} else if root, rootErr := manager.DefaultRoot(); rootErr != nil {
 				logger.Warn("workspace gc failed", "error", rootErr)
 			} else {
-				gcResult, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, GuardExecution: tasks.GuardCleanup})
+				gcResult, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, GuardExecution: guardCollectedCleanup(tasks)})
 				tasks.MarkResourceRefreshPending()
 				if err != nil {
 					logger.Warn("workspace gc failed", "error", err)
@@ -1004,7 +1004,7 @@ func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logg
 			mu.Unlock()
 			return protocol.GarbageCollectionResult{}, err
 		}
-		result, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, IgnoreRetention: true, GuardExecution: tasks.GuardCleanup})
+		result, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, IgnoreRetention: true, GuardExecution: guardCollectedCleanup(tasks)})
 		tasks.MarkResourceRefreshPending()
 		if err != nil {
 			mu.Unlock()
@@ -1015,6 +1015,19 @@ func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logg
 		mu.Unlock()
 		notificationService.NotifyGarbageCollection(ctx, converted)
 		return converted, nil
+	}
+}
+
+// Automatic cleanup consumes the collected resource graph. A pending graph
+// cannot authorize another deletion; explicit reconciliation still reads live.
+func guardCollectedCleanup(tasks *taskservice.Service) func(context.Context, protocol.Task, func() error) error {
+	return func(ctx context.Context, task protocol.Task, execute func() error) error {
+		return tasks.GuardCleanup(ctx, task, func() error {
+			if tasks.ResourceSnapshot().ResourceRefreshPending {
+				return errors.New("resource list refresh pending; collect local resources before cleanup")
+			}
+			return execute()
+		})
 	}
 }
 

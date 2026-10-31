@@ -296,6 +296,9 @@ func (s *Server) taskMutationResponse(task protocol.Task) protocol.Response {
 }
 
 func (s *Server) cleanupPreview(ctx context.Context, taskID int) (protocol.CleanupPreview, error) {
+	if s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending {
+		return protocol.CleanupPreview{}, fmt.Errorf("resource list refresh pending; refresh Radar before previewing cleanup")
+	}
 	ctx = phasetiming.WithLogger(ctx, s.logger)
 	task, ok := taskByID(s.filteredTasks(), taskID)
 	if !ok {
@@ -307,6 +310,9 @@ func (s *Server) cleanupPreview(ctx context.Context, taskID int) (protocol.Clean
 func (s *Server) cleanup(ctx context.Context, preview *protocol.CleanupPreview) (protocol.CleanupResult, error) {
 	if preview == nil {
 		return protocol.CleanupResult{}, fmt.Errorf("cleanup targets are required")
+	}
+	if s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending {
+		return protocol.CleanupResult{TaskID: preview.TaskID, ResourceRefreshPending: true}, fmt.Errorf("resource list changed or is pending refresh; refresh and preview cleanup again")
 	}
 	ctx = phasetiming.WithLogger(ctx, s.logger)
 	defer phasetiming.Start(ctx, "cleanup_response")()

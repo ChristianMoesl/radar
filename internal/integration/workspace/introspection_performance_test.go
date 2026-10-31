@@ -278,7 +278,10 @@ func TestInspectionMemberErrorsKeepRegistryOrder(t *testing.T) {
 }
 
 func TestContextContractNormalizationHandlesPhysicalFixtureAlias(t *testing.T) {
-	physical := t.TempDir()
+	physical, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	alias := filepath.Join(t.TempDir(), "alias")
 	if err := os.Symlink(physical, alias); err != nil {
 		t.Fatal(err)
