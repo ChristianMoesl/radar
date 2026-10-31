@@ -95,7 +95,7 @@ Responses carry `resource_refresh_pending: true` while their cached resource lis
 
 The task service increments a volatile resource epoch after mutation and wakes revision subscribers. In-flight collections captured before that epoch cannot publish at the completion barrier. A mutation arriving during publication still invalidates its freshness certificate. The resource snapshot captures the store revision and epoch so an older projection cannot carry a newer fresh marker. A complete collection started after the mutation clears the marker; partial, failed or canceled collection does not. Disabled sources stay explicitly disabled. The marker is unverified on daemon startup and is not persisted, and no on-disk format changes.
 
-The CLI mutation notification has a one-second request budget. The mutation notification and pending snapshot do not wait for the authoring/publication lock, which may be reconciling unrelated work. The atomic epoch and published store revision preserve ordering. Authored fields, bindings, leases, confirmation and destructive checks continue through the existing paths. A failed reconciliation notification returns a warning and keeps its result marked pending.
+The CLI and dashboard mutation notifications have a one-second request budget. The mutation notification and pending snapshot do not wait for the authoring/publication lock, which may be reconciling unrelated work. The atomic epoch and published store revision preserve ordering. Authored fields, bindings, leases, confirmation and destructive checks continue through the existing paths. A failed reconciliation notification returns a warning and keeps its result marked pending.
 
 ## Real-provider qualification
 

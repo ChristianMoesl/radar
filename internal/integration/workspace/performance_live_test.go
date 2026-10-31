@@ -254,8 +254,8 @@ func TestWorkspaceLivePerformance(t *testing.T) {
 		}
 		var task protocol.Task
 		collect := func() {
-			result := publication.Refresh(ctx, true)
-			for _, candidate := range result.Tasks {
+			publication.Refresh(ctx, true)
+			for _, candidate := range publication.ResourceSnapshot().Tasks {
 				for _, ref := range candidate.SourceRefs {
 					if ref.Source == "workspace" && ref.WorkspaceID == group.ID {
 						task = candidate
@@ -266,6 +266,13 @@ func TestWorkspaceLivePerformance(t *testing.T) {
 		measure("pre-cleanup-collection", "after", "large-four-member-fixture", collect)
 		if len(task.SourceRefs) == 0 {
 			t.Fatal("registered bundle was not collected")
+		}
+		refs := map[string]int{}
+		for _, ref := range task.SourceRefs {
+			refs[ref.Source]++
+		}
+		if refs["git"] != 4 || refs["sbx"] != 1 || refs["workspace"] != 1 {
+			t.Fatalf("qualification must clean the complete published bundle: %v", refs)
 		}
 		phasePath := filepath.Join(base, name+"-cleanup.jsonl")
 		phaseFile, err := os.Create(phasePath)
@@ -282,7 +289,7 @@ func TestWorkspaceLivePerformance(t *testing.T) {
 			}
 		})
 		if timings[len(timings)-1].Commands["git-fetch"] != 1 {
-			t.Fatal("preview did not deduplicate repository fetches")
+			t.Fatalf("preview repository-fetch count = %d, want 1", timings[len(timings)-1].Commands["git-fetch"])
 		}
 		measure("cleanup-deletion", "after", "large-four-member-fixture", func() {
 			if _, err := service.Execute(timedCtx, preview, cleanup.ExecuteOptions{Mode: integration.CleanupConfirmed}); err != nil {
@@ -308,6 +315,7 @@ func TestWorkspaceLivePerformance(t *testing.T) {
 			t.Fatal("cleanup removed the canonical note")
 		}
 		writeReport()
+		t.Logf("completed disposable workspace cycle %d/20", sample+1)
 	}
 }
 

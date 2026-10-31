@@ -73,6 +73,15 @@ jobs:
           RADAR_PERF_KIT: ${{ runner.temp }}/performance-kit
           RADAR_PERF_REPORT: ${{ runner.temp }}/workspace-performance.json
         run: go test -p 2 ./internal/integration/workspace -run '^TestWorkspaceLivePerformance$' -count=1 -timeout=35m -v
+      - name: Print sanitized measurements for log-based review
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/workspace-performance.json" ]; then
+            echo RADAR_PERFORMANCE_REPORT_BEGIN
+            cat "$RUNNER_TEMP/workspace-performance.json"
+            echo
+            echo RADAR_PERFORMANCE_REPORT_END
+          fi
       - name: Save sanitized measurements only
         if: always()
         uses: actions/upload-artifact@v7.0.2

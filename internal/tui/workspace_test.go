@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,6 +16,33 @@ func editorModel() model {
 	member := integration.DesiredWorkspaceWorktree{Repository: "/repos/app", BranchMode: integration.WorkspaceBranchExisting, Branch: "feature"}
 	desired := integration.DesiredWorkspaceDescription{Worktrees: []integration.DesiredWorkspaceWorktree{member}, Note: &integration.DesiredWorkspaceNote{Path: "/vault/Tasks/Plan/Plan.md", LinkingKey: "obsidian:task:one"}, Sandbox: &integration.DesiredWorkspaceSandbox{Ports: []integration.SandboxPort{{HostPort: 3000, SandboxPort: 3000}}}}
 	return model{mode: "workspace_edit", editor: workspaceEditor{active: true, state: integration.WorkspaceState{Path: "/work/plan", Name: "Plan", Revision: "original", Desired: desired, Members: []integration.WorkspaceStateMember{{Repository: member.Repository, Branch: member.Branch, Path: "/work/plan/app--feature"}}}, desired: desired}}
+}
+
+func TestWorkspacePublicationAcknowledgesWithoutGlobalRefresh(t *testing.T) {
+	path, requests := deletionSocket(t, protocol.Response{OK: true, ResourceRefreshPending: true})
+	m := editorModel()
+	m.socketPath = path
+	problem := fmt.Errorf("partial workspace apply")
+	msg := m.publishWorkspaceResult("completed members retained", problem)().(actionMsg)
+	if request := <-requests; request.Method != "resources-mutated" {
+		t.Fatalf("mutation acknowledgement invoked %q", request.Method)
+	}
+	if msg.err != problem || msg.message != "completed members retained" || msg.response == nil || !msg.response.ResourceRefreshPending {
+		t.Fatalf("partial mutation acknowledgement lost its result: %+v", msg)
+	}
+	updated, _ := m.Update(msg)
+	if !updated.(model).resourceRefreshPending {
+		t.Fatal("dashboard reported the mutation's cached resources as fresh")
+	}
+}
+
+func TestWorkspacePublicationFailureRetainsPendingState(t *testing.T) {
+	m := editorModel()
+	m.socketPath = filepath.Join(t.TempDir(), "absent.sock")
+	msg := m.publishWorkspaceResult("mutation completed", nil)().(actionMsg)
+	if msg.err == nil || msg.response == nil || !msg.response.ResourceRefreshPending {
+		t.Fatalf("unacknowledged mutation was reported fresh: %+v", msg)
+	}
 }
 
 func TestWorkspaceEditorUsesOneBlankRowBeforeRepositories(t *testing.T) {

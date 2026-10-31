@@ -557,6 +557,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = ""
 		}
 		m.editor = workspaceEditor{}
+		m.resourceRefreshPending = true
 		if problem == nil && msg.created.Path != "" && (canSwitchMultiplexer() || (msg.created.SessionName != "" && msg.created.Warning == "")) {
 			m.finishOperation(nil, true)
 			if canSwitchMultiplexer() {
@@ -577,10 +578,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.message = strings.Join(notices, ". ")
 		if problem != nil {
 			m.finishOperation(problem, false)
-			// Refresh partial work without erasing the operation's explanation.
-			return m, m.refreshWorkspaceResult(m.message, m.err)
+			// Mark partial work pending without erasing its explanation.
+			return m, m.publishWorkspaceResult(m.message, m.err)
 		}
-		return m, taskAction(m.refreshWorkspaceResult(m.message, nil))
+		return m, taskAction(m.publishWorkspaceResult(m.message, nil))
 	case fetchMsg:
 		m.loading = false
 		m.err = msg.err
