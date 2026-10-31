@@ -22,10 +22,16 @@ func TestInstallInstructions(t *testing.T) {
 				if err := os.WriteFile(path, []byte("user instructions"), 0640); err != nil {
 					t.Fatal(err)
 				}
+				if err := os.Chmod(path, 0640); err != nil {
+					t.Fatal(err)
+				}
 			case "symlink", "dangling symlink":
 				target := filepath.Join(dir, "target")
 				if existing == "symlink" {
 					if err := os.WriteFile(target, []byte("user instructions"), 0640); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Chmod(target, 0640); err != nil {
 						t.Fatal(err)
 					}
 				}

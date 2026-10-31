@@ -26,6 +26,10 @@ func TestSetupDraftPreservesUneditedSettingsAndSymlink(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 		t.Fatal(err)
 	}
+	// The fixture needs an existing public directory, including under umask 077.
+	if err := os.Chmod(filepath.Dir(target), 0755); err != nil {
+		t.Fatal(err)
+	}
 	original := `future:
   large: 9007199254740993
 model: custom-model

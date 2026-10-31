@@ -46,6 +46,7 @@ Offline: use `man radar` and `man radar-config`, or [ask Pi about Radar](integra
 - [Integration development](integrations.md) — provider contracts and adding a source.
 - [Live agent MCP](mcp-live.md) — independent Jira/Datadog MCP setup, native reads and encrypted CI sessions.
 - [Live provider E2E](live-e2e.md) — combined collector CI with real Jira, GitHub and Datadog environments and encrypted OAuth sessions.
+- [Issue audit, 2026-10-31](qualification/issue-audit-2026-10-31.md) — implementation evidence and remaining qualification gates.
 - [Release publishing and recovery](releases.md) — signed releases, component versions and updater safety.
 - [npm publishing](npm-publishing.md) — trusted staging and human approval.
 - [Sandbox image and kit](../sandbox/README.md) — tools, startup hooks and image releases.

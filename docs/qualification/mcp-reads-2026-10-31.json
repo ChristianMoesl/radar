@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-31",
+  "revision": "00d0c83a94d6aeaf27946bb784118a261e43bc81",
+  "scope": "Dedicated, read-only Jira and Datadog host MCP sessions",
+  "workflow": "https://github.com/ChristianMoesl/radar/actions/runs/41216568624",
+  "status": "passed",
+  "platforms": ["linux/amd64", "linux/arm64", "darwin/arm64"],
+  "checks": [
+    "Native Jira search, full-view issue details and separate comment reads",
+    "Complete issue and comment continuation with one-row pages and populated fixtures",
+    "Native Datadog monitor and numeric metric reads with required telemetry",
+    "Close and reopen the host MCP client, then repeat every selected read",
+    "Checkpoint and save OAuth client state between sequential platform jobs",
+    "Sanitized JUnit artifacts and removal of runner session files"
+  ],
+  "excluded": [
+    "Natural access-token expiry and server-side revocation",
+    "Fresh browser onboarding on every platform",
+    "Jira comment writes",
+    "Datadog logs and traces",
+    "The separate full collector live workflow"
+  ],
+  "mutations": "Provider requests were read-only. Dedicated encrypted CI sessions were checkpointed; no credential values are recorded here."
+}

@@ -172,6 +172,13 @@ the Jira definition's completeness/pagination checks. Its setup command uses
 the two MCP sign-ins to create selectors, run local qualification, seed encrypted
 client state and dispatch CI. It needs no collector CLI stores or pre-existing
 selector file. Local protocol fixtures are not a hosted or real-provider pass.
+
+The [2026-10-31 live read matrix](qualification/mcp-reads-2026-10-31.json) passed
+with the selected Jira and Datadog accounts on Linux amd64, Linux arm64 and macOS
+arm64, including populated issue/comment pagination, monitors/metrics and
+reconnect. This resolves the live read gate. Natural expiry, provider-side
+revocation, fresh browser onboarding and reply posting remain unqualified.
+
 The full [cross-provider workflow](live-e2e.md) remains available for combined
 collector qualification with its own dedicated sessions.
 

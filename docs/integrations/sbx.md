@@ -21,8 +21,15 @@ and [recreation](#explicit-sandbox-recreation) before resetting an existing sand
 
 Run `radar setup` on macOS or native Linux (including WSL2 with KVM). New installations recommend SBX; repeat
 setup prefills the existing choice. Setup checks SBX 0.48.0+, offers `sbx login`
-when needed, and installs/verifies pi-sbx 0.7.0+ with consent. Missing or outdated
-SBX gets installation/update guidance, not an unattended installer.
+when needed, and installs/verifies pi-sbx 0.7.0+ with consent. If SBX is missing,
+setup offers Docker's official Homebrew cask on macOS, or a checksum-pinned native
+Linux download followed by Docker's installer in `/usr/local`. Installation runs
+only after confirmation and may request administrator credentials. Existing
+installations are not replaced; outdated versions get repair/update guidance.
+The executable and supported version are checked again after installation.
+After a successful login, an initially unavailable runtime is checked once more
+after a cancellable two-second delay. Only a valid sandbox list establishes
+readiness. The picker uses arrow keys and selection directly, without a text filter.
 
 Before sandbox preparation, setup checks `sbx policy ls`. Only an explicit
 uninitialized-policy response opens a choice of **balanced** (recommended;
@@ -685,8 +692,9 @@ sbx daemon stop
 DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0 sbx daemon start
 ```
 
-Radar does not install SBX, elevate privileges, alter group membership, log in
-from background collection, or restart unrelated workloads. Refresh group/PATH
+The workspace preflight does not install SBX, elevate privileges, alter group
+membership, log in, or restart unrelated workloads. Installation and login belong
+to foreground setup with confirmation. Refresh group/PATH
 environments by starting a new login session, then deliberately restart Radar's
 daemon and reload Pi extensions. Setting a shell variable cannot repair an old
 process's group membership or daemon environment.

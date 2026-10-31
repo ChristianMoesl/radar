@@ -166,6 +166,7 @@ func TestSandboxSetupFailureCanExplicitlyDisable(t *testing.T) {
 			switch failure {
 			case "missing":
 				sys.missing["sbx"] = true
+				ui.decisions = append([]bool{false}, ui.decisions...) // decline assisted install, then retry/disable
 			case "create", "ready", "sharing":
 				ui.decisions = append([]bool{true}, ui.decisions...)
 			case "decline preparation":

@@ -83,3 +83,5 @@ and explicit reseeding. No source store is deleted or remote grant revoked.
 A successful run proves native read contracts, completeness and reconnect on
 the selected platforms. Natural expiry, server-side revocation, other browser
 onboarding flows and Jira reply posting remain separate qualification gates.
+The [2026-10-31 evidence](qualification/mcp-reads-2026-10-31.json) records the
+passing three-platform read matrix and its exact limits.

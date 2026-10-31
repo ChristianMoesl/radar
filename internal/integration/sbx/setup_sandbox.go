@@ -105,9 +105,21 @@ func (w *setupWizard) sbxOutput(ctx context.Context, timeout time.Duration, args
 	return result, err
 }
 
+func validSandboxList(output string, err error) bool {
+	if err != nil {
+		return false
+	}
+	listed, parseErr := sbxclient.DecodeList[struct {
+		Name string `json:"name"`
+	}](output)
+	return parseErr == nil && listed != nil
+}
+
 func (w *setupWizard) prepareSandbox(ctx context.Context, cfg config.SBXConfig, plan *sandboxSetupPlan) error {
 	if !w.system.LookPath("sbx") {
-		return fmt.Errorf("SBX is missing. Install native Docker Sandboxes from https://docs.docker.com/ai/sandboxes/ in another terminal, then retry (SBX 0.48.0 or newer required)")
+		if err := w.installSandboxCLI(ctx); err != nil {
+			return err
+		}
 	}
 	version, err := w.sbxOutput(ctx, 15*time.Second, "version", "--json")
 	if err != nil || sbxclient.ValidateVersion(version) != nil {
@@ -132,13 +144,23 @@ func (w *setupWizard) prepareSandbox(ctx context.Context, cfg config.SBXConfig, 
 		if err != nil {
 			return fmt.Errorf("SBX login failed or timed out; run `sbx login` on the host, then retry")
 		}
-		w.completed("SBX login")
+		if w.completed != nil {
+			w.completed("SBX login")
+		}
 		output, err = w.sbxOutput(ctx, 15*time.Second, "ls", "--json")
+		if !validSandboxList(output, err) {
+			w.ui.Print("Waiting for SBX login/runtime readiness, then checking again…\n")
+			timer := time.NewTimer(2 * time.Second)
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-timer.C:
+			}
+			output, err = w.sbxOutput(ctx, 15*time.Second, "ls", "--json")
+		}
 	}
-	listed, parseErr := sbxclient.DecodeList[struct {
-		Name string `json:"name"`
-	}](output)
-	if err != nil || parseErr != nil || listed == nil {
+	if !validSandboxList(output, err) {
 		return fmt.Errorf("SBX authentication/runtime check failed; check `sbx ls --json` on the host and retry")
 	}
 	w.ui.Print("✓ SBX authenticated and runtime accessible\n")
