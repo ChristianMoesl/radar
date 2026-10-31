@@ -4,7 +4,6 @@ import type { JsonValue } from "../src/index.ts";
 export type JiraConnection = {
   server: string;
   cloudId: string;
-  commentsTool?: string;
 };
 
 export async function jiraRead(
@@ -25,27 +24,23 @@ export async function jiraRead(
     const issues = request.kind === "issues";
     const tool = issues
       ? "searchJiraIssuesUsingJql"
-      : (connection.commentsTool ?? "getJiraIssue");
+      : "listJiraIssueComments";
     const args: Record<string, unknown> = issues
       ? {
           cloudId: connection.cloudId,
           jql: request.jql,
           fields: ["summary", "updated", "description", "status"],
           maxResults: 100,
+          view: "full",
           ...(cursor ? { nextPageToken: cursor } : {}),
         }
-      : tool === "getJiraIssue"
-        ? {
-            cloudId: connection.cloudId,
-            issueIdOrKey: request.key,
-            fields: ["comment"],
-          }
-        : {
+      : {
             cloudId: connection.cloudId,
             issueIdOrKey: request.key,
             startAt: items.length,
             maxResults: 100,
             orderBy: "created",
+            view: "full",
           };
     const envelope = (await mcp.json(
       connection.server,
@@ -66,14 +61,7 @@ export async function jiraRead(
       result.truncated
     )
       throw new Error("Jira MCP returned invalid JSON");
-    if (!issues && tool === "getJiraIssue" && result.key !== request.key)
-      throw new Error("Jira MCP returned a different issue");
-    const data =
-      !issues && tool === "getJiraIssue" ? result.fields?.comment : result;
-    if (!issues && tool === "getJiraIssue" && !data)
-      throw new Error(
-        "Jira MCP did not expose issue comments; configure commentsTool with a paginated read tool exposed by your MCP server",
-      );
+    const data = result;
     const rows = issues ? data.issues : data?.comments;
     if (
       !Array.isArray(rows) ||
@@ -135,10 +123,6 @@ export async function jiraRead(
         throw new Error("Jira MCP comment totals changed or are missing");
       total = data.total;
       if (items.length === total) return items;
-      if (tool === "getJiraIssue")
-        throw new Error(
-          "Jira MCP returned partial comments; configure commentsTool with a paginated read tool exposed by your MCP server",
-        );
       if (!rows.length) throw new Error("Jira MCP comment pagination stalled");
     }
   }

@@ -77,16 +77,16 @@ settings. Remove the old agent `profile`; optionally select `mcpServer` (default
 `jira`). Copy `jira-mcp.ts` instead of the removed `twg.ts` helper. This does not
 change the host collector's separate `jira.profile`.
 
-The assistant reads Atlassian v2's `data` envelope, calls
-`searchJiraIssuesUsingJql`, verifies `isLast`/next-page tokens and requests
-`getJiraIssue`'s comment field. It verifies exact comment totals and
-retains the previous discussion state on missing/partial pages. If the official
-issue tool returns only an initial comment page, the poll fails visibly. For a
-server exposing a paginated comment reader, configure its exact `commentsTool`
-name; it must accept `cloudId`, `issueIdOrKey`, `startAt`, `maxResults`, `orderBy`
-and return `data.comments`, `data.startAt`, `data.total`. Missing pagination is not treated as a
-complete discussion. Qualify this contract against the chosen server before
-release. Replies stay drafts; posting remains separate #42.
+The assistant reads Atlassian v2's `data` envelope. It uses
+`searchJiraIssuesUsingJql` for issues and the native `listJiraIssueComments` for
+discussions, with `view: "full"` so compact presets cannot omit required content.
+Issue cursors and exact comment totals are verified across every page. The
+native comments tool accepts `cloudId`, `issueIdOrKey`, `startAt`, `maxResults`
+and `orderBy`, returning `data.comments`, `data.startAt` and `data.total`.
+Missing, partial or stalled pages preserve the previous discussion state.
+`getJiraIssue` is qualified separately as an issue read; it is not the comments
+transport. Remove the obsolete `commentsTool` setting when updating copied
+definitions/helpers. Replies stay drafts; posting remains separate #42.
 
 ## Datadog investigator
 

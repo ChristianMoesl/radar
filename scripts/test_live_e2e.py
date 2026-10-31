@@ -158,9 +158,15 @@ class Safeguards(unittest.TestCase):
         self.assertEqual(env["RADAR_MCP_STATE_DIR"], self.config["mcp"]["state_dir"])
         self.assertEqual(json.loads(Path(env["RADAR_TEST_MCP_FIXTURES"]).read_text()), self.config["mcp"]["reads"])
 
-    def test_full_live_gate_requires_all_four_read_contracts_and_excludes_logs(self):
+    def test_full_live_gate_requires_all_five_read_contracts_and_excludes_logs(self):
         live.validate(self.config)
         self.config["mcp"]["reads"][0]["tool"] = "search_datadog_logs"
+        with self.assertRaises(live.Failure):
+            live.validate(self.config)
+
+    def test_full_live_gate_cannot_substitute_issue_reads_for_comments(self):
+        self.config["mcp"]["reads"] = [read for read in self.config["mcp"]["reads"]
+                                        if read["tool"] != "listJiraIssueComments"]
         with self.assertRaises(live.Failure):
             live.validate(self.config)
 

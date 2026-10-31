@@ -24,7 +24,10 @@ and fixture keys are saved privately next to the selected MCP configuration.
 An existing selector file is not needed or overwritten.
 
 Local qualification must pass before setup uploads any CI sessions. Jira reads
-exercise the agent's complete issue/comment reader and one-row cursor pages.
+exercise the agent's complete issue/comment reader and one-row issue/comment
+pages. `getJiraIssue` qualifies full-view issue details separately;
+`listJiraIssueComments` supplies the discussion instead of the issue's compact
+field projection.
 The native Datadog metrics tool requires `queries` and `telemetry.intent`;
 monitor reads also require `telemetry.intent`. The fixed metric is the built-in
 API usage metric, and monitor reads select the designated test tag. No logs,

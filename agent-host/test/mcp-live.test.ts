@@ -27,32 +27,45 @@ test(
           const client = new McpServices();
           try {
             const args = fixture.arguments;
+            if (fixture.tool === "getJiraIssue") {
+              const result = await client.json(fixture.server, fixture.tool, args, context.signal) as {
+                partial?: boolean; truncated?: boolean;
+                data?: { key?: string; fields?: { summary?: string }; partial?: boolean; truncated?: boolean };
+              };
+              assert.notEqual(result.partial, true);
+              assert.notEqual(result.truncated, true);
+              assert.equal(result.data?.key, args.issueIdOrKey);
+              assert.equal(typeof result.data?.fields?.summary, "string");
+              assert.notEqual(result.data?.partial, true);
+              assert.notEqual(result.data?.truncated, true);
+              continue;
+            }
             if (
-              ["searchJiraIssuesUsingJql", "getJiraIssue"].includes(
+              ["searchJiraIssuesUsingJql", "listJiraIssueComments"].includes(
                 fixture.tool,
               )
             ) {
               assert.equal(typeof args.cloudId, "string");
               assert.equal(
                 typeof args[
-                  fixture.tool === "getJiraIssue" ? "issueIdOrKey" : "jql"
+                  fixture.tool === "listJiraIssueComments" ? "issueIdOrKey" : "jql"
                 ],
                 "string",
               );
               // Exercise the definition's completeness checks, not just a
-              // successful MCP request. Force real issue cursor continuation.
+              // successful MCP request. Force one-row issue/comment pages.
               const json = client.json.bind(client);
               client.json = (server, tool, args, ...rest) =>
                 json(
                   server,
                   tool,
-                  tool === "searchJiraIssuesUsingJql"
+                  ["searchJiraIssuesUsingJql", "listJiraIssueComments"].includes(tool)
                     ? { ...args, maxResults: 1 }
                     : args,
                   ...rest,
                 );
               const request =
-                fixture.tool === "getJiraIssue"
+                fixture.tool === "listJiraIssueComments"
                   ? {
                       kind: "comments" as const,
                       key: String(args.issueIdOrKey),

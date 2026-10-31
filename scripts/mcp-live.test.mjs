@@ -15,7 +15,12 @@ test("native Datadog read fixtures meet the observed required fields and exclude
   const configs = [liveReads("fixture-cloud", ["ABC-1", "ABC-2"]),
     JSON.parse(await readFile(new URL("./live-e2e.example.json", import.meta.url), "utf8")).mcp.reads];
   for (const reads of configs) {
-    assert.equal(reads.length, 4);
+    assert.equal(reads.length, 5);
+    assert.equal(reads[1].arguments.view, "full");
+    const comments = reads.find(read => read.tool === "listJiraIssueComments");
+    assert.ok(comments, "the real server exposes a separate paginated comments tool");
+    assert.equal(comments.arguments.view, "full");
+    assert.equal(comments.arguments.maxResults, 1);
     for (const read of reads.filter(read => read.server === "datadog")) {
       assert.deepEqual(read.arguments.telemetry && Object.keys(read.arguments.telemetry), ["intent"]);
       assert.equal(typeof read.arguments.telemetry.intent, "string");

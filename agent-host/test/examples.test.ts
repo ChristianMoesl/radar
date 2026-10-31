@@ -53,13 +53,11 @@ test("Jira reads use host MCP and retain conversations across partial failures a
             },
           ],
         } };
-      assert.equal(tool, "getJiraIssue");
+      assert.equal(tool, "listJiraIssueComments");
       assert.equal(request.issueIdOrKey, "ABC-123");
+      assert.equal(request.view, "full");
       if (failComments) throw Error("partial comments");
       return { data: {
-        key: "ABC-123",
-        fields: {
-          comment: {
             startAt: 0,
             total: 1,
             comments: [
@@ -81,8 +79,6 @@ test("Jira reads use host MCP and retain conversations across partial failures a
                 },
               },
             ],
-          },
-        },
       } };
     };
   };

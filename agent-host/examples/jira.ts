@@ -434,9 +434,6 @@ export default {
       connection: {
         server: String(host.config.mcpServer ?? "jira"),
         cloudId: requiredString(host.config, "cloudId"),
-        ...(typeof host.config.commentsTool === "string"
-          ? { commentsTool: host.config.commentsTool }
-          : {}),
       },
       runtime: modelRuntime(host.config),
     };

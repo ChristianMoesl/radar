@@ -277,12 +277,13 @@ test("foreground MCP OAuth persists, refreshes concurrently and survives a new a
   }
 });
 
-test("Jira MCP paginates issues and configured comment reads, rejects incomplete data", async () => {
+test("Jira MCP paginates native full-view issues and comments, rejects incomplete data", async () => {
   const client = new McpServices();
   try {
     const requests: Record<string, unknown>[] = [];
     client.json = async (_server, tool, args) => {
       requests.push(args);
+      assert.equal(args.view, "full");
       if (tool === "searchJiraIssuesUsingJql")
         return { data: args.nextPageToken
           ? {
@@ -312,6 +313,7 @@ test("Jira MCP paginates issues and configured comment reads, rejects incomplete
                 },
               ],
             } };
+      assert.equal(tool, "listJiraIssueComments", "discussion reads must use the native paginated comments tool");
       return { data: {
         startAt: args.startAt,
         total: 2,
@@ -341,22 +343,16 @@ test("Jira MCP paginates issues and configured comment reads, rejects incomplete
           {
             server: "jira",
             cloudId: "fixture",
-            commentsTool: "paginated_comments",
           },
           { kind: "comments", key: "ABC-1" },
         )
       ).length,
       2,
     );
-    client.json = async () => ({ data: {
-      key: "ABC-1",
-      fields: {
-        comment: {
-          startAt: 0,
-          total: 2,
-          comments: [{ id: "1", updated: "1", body: "partial" }],
-        },
-      },
+    assert.deepEqual(requests.filter(args => Object.hasOwn(args, "startAt")).map(args => args.startAt), [0, 1]);
+    client.json = async (_server, _tool, args) => ({ data: {
+      startAt: args.startAt, total: 2,
+      comments: args.startAt === 0 ? [{ id: "1", updated: "1", body: "partial" }] : [],
     } });
     await assert.rejects(
       jiraRead(
@@ -364,14 +360,21 @@ test("Jira MCP paginates issues and configured comment reads, rejects incomplete
         { server: "jira", cloudId: "fixture" },
         { kind: "comments", key: "ABC-1" },
       ),
-      /partial comments/,
+      /pagination stalled/,
     );
     client.json = async () => ({ data: { key: "ABC-1", fields: {} } });
     await assert.rejects(
       jiraRead(client, { server: "jira", cloudId: "fixture" }, { kind: "comments", key: "ABC-1" }),
-      /did not expose issue comments; configure commentsTool/,
-      "an omitted comment field must retain prior discussion facts, not become an empty discussion",
+      /incomplete or invalid page/,
+      "an issue object cannot replace a complete native comment page",
     );
+    client.json = async () => ({ data: { startAt: 0, total: 0, comments: [], truncated: true } });
+    await assert.rejects(
+      jiraRead(client, { server: "jira", cloudId: "fixture" }, { kind: "comments", key: "ABC-1" }),
+      /invalid JSON/,
+    );
+    client.json = async () => ({ data: { startAt: 0, total: 0, comments: [] } });
+    assert.deepEqual(await jiraRead(client, { server: "jira", cloudId: "fixture" }, { kind: "comments", key: "ABC-1" }), []);
     client.json = async () => ({ isLast: true, issues: [] });
     await assert.rejects(
       jiraRead(client, { server: "jira", cloudId: "fixture" }, { kind: "issues", jql: "project = ABC" }),

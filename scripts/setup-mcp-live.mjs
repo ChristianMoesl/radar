@@ -22,7 +22,10 @@ export function liveReads(cloudId, keys) {
       cloudId, jql: `key in (${keys.join(",")})`, maxResults: 1,
     } },
     { server: "jira", tool: "getJiraIssue", arguments: {
-      cloudId, issueIdOrKey: keys[0], fields: ["comment"],
+      cloudId, issueIdOrKey: keys[0], view: "full",
+    } },
+    { server: "jira", tool: "listJiraIssueComments", arguments: {
+      cloudId, issueIdOrKey: keys[0], startAt: 0, maxResults: 1, orderBy: "created", view: "full",
     } },
     { server: "datadog", tool: "search_datadog_monitors", arguments: {
       query: "tag:radar-oauth-e2e", telemetry: { intent },
@@ -48,6 +51,10 @@ export function responseShape(response) {
     issueKeys: Array.isArray(value?.issues) ? value.issues.map(issue => issue.key) : [],
     fields: Object.keys(value?.fields ?? {}),
     commentKeys: Object.keys(value?.fields?.comment ?? {}),
+    commentPage: Array.isArray(value?.comments)
+      ? { startAt: value.startAt, total: value.total, count: value.comments.length,
+          rowKeys: Object.keys(value.comments[0] ?? {}) }
+      : undefined,
   };
 }
 
@@ -82,7 +89,7 @@ async function main() {
     const found = await client.json("jira", "searchJiraIssuesUsingJql", {
       cloudId: site.cloudId,
       jql: `text ~ ${JSON.stringify('"Radar OAuth E2E"')} ORDER BY key`,
-      fields: ["summary", "updated", "status"], maxResults: 20,
+      fields: ["summary", "updated", "status"], maxResults: 20, view: "full",
     });
     // Discovery records field names and issue keys only, never issue bodies.
     const discovery = responseShape(found);
@@ -92,7 +99,7 @@ async function main() {
         .split(",").map(key => key.trim());
     }
     reads = liveReads(site.cloudId, keys);
-    const issue = await client.json("jira", "getJiraIssue", reads[1].arguments);
+    const issue = await client.json("jira", "listJiraIssueComments", reads[2].arguments);
     discovery.comments = responseShape(issue);
     await writeFile(join(directory, "discovery.json"), JSON.stringify(discovery, null, 2), { mode: 0o600 });
     console.log(`Sanitized discovery: ${JSON.stringify(discovery)}`);

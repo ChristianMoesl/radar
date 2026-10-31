@@ -138,11 +138,11 @@ machine performing initial login, set `config_dir` to dedicated absolute CLI
 directories; CI replaces these paths with its own temporary directories.
 Set `mcp.config_file` and `mcp.state_dir` to dedicated host MCP configuration/state.
 Retain only the Jira/Datadog remote profiles in that file. Configure `mcp.reads`
-with the four native read tools in the example, using the actual arguments from
+with the five native read tools in the example, using the actual arguments from
 `radar-mcp tools`; example arguments are illustrative and must match the server's
 schema. Use the approved issue keys and monitor IDs/tags. Logs/traces and writing
 tools are rejected by this gate. Jira uses the definition's complete-read adapter;
-`getJiraIssue` must return every comment or qualification fails.
+`listJiraIssueComments` must return complete paginated discussions or qualification fails.
 
 The monitors must already exist, have type `query alert`, carry the exact tag
 `radar-oauth-e2e`, contain no notification recipients, and have these exact names:

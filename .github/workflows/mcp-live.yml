@@ -69,13 +69,13 @@ jobs:
           from pathlib import Path
           root = Path(os.environ['RUNNER_TEMP'])
           reads = json.loads(os.environ['MCP_READS'])
-          required = {'searchJiraIssuesUsingJql', 'getJiraIssue', 'search_datadog_monitors', 'get_datadog_metric'}
-          if (not isinstance(reads, list) or not 4 <= len(reads) <= 10
+          required = {'searchJiraIssuesUsingJql', 'getJiraIssue', 'listJiraIssueComments', 'search_datadog_monitors', 'get_datadog_metric'}
+          if (not isinstance(reads, list) or not 5 <= len(reads) <= 10
                   or any(not isinstance(r, dict) for r in reads)
                   or {r.get('tool') for r in reads} != required
                   or any(not isinstance(r.get('arguments'), dict)
-                         or r.get('server') != ('jira' if r.get('tool') in ('searchJiraIssuesUsingJql', 'getJiraIssue') else 'datadog') for r in reads)):
-              raise SystemExit('Configure only the four designated Jira/Datadog read contracts.')
+                         or r.get('server') != ('jira' if r.get('tool') in ('searchJiraIssuesUsingJql', 'getJiraIssue', 'listJiraIssueComments') else 'datadog') for r in reads)):
+              raise SystemExit('Configure only the five designated Jira/Datadog read contracts.')
           (root / 'mcp-live.json').write_text(json.dumps({'mcp': {'reads': reads}}))
           (root / 'mcp-reads.json').write_text(json.dumps(reads))
           PY

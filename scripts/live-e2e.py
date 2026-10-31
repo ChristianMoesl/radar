@@ -65,8 +65,8 @@ def validate(config, *, mcp_required=True):
     mcp = config["mcp"]
     require(all(Path(mcp[k]).is_absolute() for k in ("config_file", "state_dir")), "MCP paths must be absolute")
     reads = mcp["reads"]
-    required = {"get_datadog_metric", "search_datadog_monitors", "searchJiraIssuesUsingJql", "getJiraIssue"}
-    require(isinstance(reads, list) and 4 <= len(reads) <= 10
+    required = {"get_datadog_metric", "search_datadog_monitors", "searchJiraIssuesUsingJql", "getJiraIssue", "listJiraIssueComments"}
+    require(isinstance(reads, list) and 5 <= len(reads) <= 10
             and all(isinstance(r, dict) and r.get("server") and isinstance(r.get("arguments"), dict)
                     and r.get("tool") in required for r in reads)
             and required <= {r["tool"] for r in reads},
