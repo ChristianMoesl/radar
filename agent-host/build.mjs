@@ -12,3 +12,5 @@ await cp(
   { recursive: true },
 );
 await chmod(new URL("dist/src/runner.js", import.meta.url), 0o755);
+await chmod(new URL("dist/src/mcp-cli.js", import.meta.url), 0o755);
+await cp(new URL("examples/mcp.example.json", import.meta.url), new URL("dist/examples/mcp.example.json", import.meta.url));

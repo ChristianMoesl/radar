@@ -56,6 +56,7 @@ let host: HostContext;
 let author: string;
 let comment: string;
 let includeExisting: boolean;
+let server: string;
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 const marker = (key: string) =>
@@ -63,17 +64,38 @@ const marker = (key: string) =>
 const actor = (login: string) => login.toLowerCase().replace(/\[bot\]$/, "");
 
 async function github<T>(
-  path: string,
-  args: string[],
+  pr: PullRequest,
+  operation: "comments" | "pull_request" | "comment",
+  args: { page?: number; body?: string },
   signal: AbortSignal,
 ): Promise<T> {
-  return JSON.parse(
-    await host.execution.exec(
-      ["gh", "api", path, ...args],
-      host.workspace.path,
-      signal,
-    ),
-  ) as T;
+  const [owner, repo] = pr.repository.split("/");
+  const tool =
+    operation === "comment"
+      ? "add_issue_comment"
+      : operation === "comments"
+        ? "issue_read"
+        : "pull_request_read";
+  const parameters =
+    operation === "comment"
+      ? { owner, repo, issue_number: pr.number, body: args.body }
+      : operation === "comments"
+        ? {
+            owner,
+            repo,
+            issue_number: pr.number,
+            method: "get_comments",
+            page: args.page,
+            perPage: 100,
+          }
+        : { owner, repo, pullNumber: pr.number, method: "get" };
+  return (await host.mcp.json(
+    server,
+    tool,
+    parameters,
+    signal,
+    operation !== "comment",
+  )) as T;
 }
 type Comment = { id: number; node_id: string; body: string; html_url: string };
 async function findComment(
@@ -84,11 +106,7 @@ async function findComment(
   // Read every page before deciding a comment is absent. A failure never grants
   // permission to post, and an uncertain POST is never automatically repeated.
   for (let page = 1; page <= 1000; page++) {
-    const comments = await github<Comment[]>(
-      `repos/${pr.repository}/issues/${pr.number}/comments?per_page=100&page=${page}`,
-      [],
-      signal,
-    );
+    const comments = await github<Comment[]>(pr, "comments", { page }, signal);
     if (!Array.isArray(comments))
       throw new Error("Invalid GitHub comment page");
     const found = comments.find(
@@ -195,7 +213,7 @@ const Event = defineTask<AgentEvent, State, string>({
             node_id: string;
             state: string;
             user: { login: string };
-          }>(`repos/${pr.repository}/pulls/${pr.number}`, [], runtime.signal);
+          }>(pr, "pull_request", {}, runtime.signal);
           if (
             current.node_id !== pr.nodeId ||
             current.state !== "open" ||
@@ -221,8 +239,9 @@ const Event = defineTask<AgentEvent, State, string>({
           }, context);
           try {
             posted = await github<Comment>(
-              `repos/${pr.repository}/issues/${pr.number}/comments`,
-              ["--method", "POST", "-f", `body=${record.text}`],
+              pr,
+              "comment",
+              { body: record.text },
               runtime.signal,
             );
             if (!posted?.id)
@@ -258,13 +277,11 @@ const Event = defineTask<AgentEvent, State, string>({
               : `Review requested: ${saved.commentUrl}`,
             ...pending.map(([, message]) => message),
           ].join("\n"),
-          actions: pending
-            .slice(0, 100)
-            .map(([key, message]) => ({
-              id: `reconcile-${digest(key)}`,
-              label: `Reconcile ${message.split(":")[0]}`,
-              payload: { key },
-            })),
+          actions: pending.slice(0, 100).map(([key, message]) => ({
+            id: `reconcile-${digest(key)}`,
+            label: `Reconcile ${message.split(":")[0]}`,
+            payload: { key },
+          })),
         });
         return {
           status: "terminal",
@@ -303,6 +320,7 @@ export default {
     author = config.renovateAuthor;
     comment = config.comment;
     includeExisting = config.includeExisting;
+    server = String(config.mcpServer ?? "github");
     return { models: createModels(), registry: createRegistry() };
   },
   eventTask: Event,

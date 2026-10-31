@@ -345,3 +345,9 @@ results remain pending; #41's live matrix is incomplete until they pass.
 
 This integration adds configuration and generic source facts without changing
 the persisted cache, authored binding schema, or integration-owned file layouts.
+
+## Agent service access
+
+This guide describes Radar’s host collector. Agent service access defaults to
+[host MCP connections](../agent-mcp.md), independently of the workspace SBX
+runtime. No provider CLI or credential session is required inside SBX.

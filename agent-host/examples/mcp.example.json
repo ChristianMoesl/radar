@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "datadog": { "url": "https://mcp.datadoghq.eu/v1/mcp" },
+    "jira": { "url": "https://mcp.atlassian.com/v2/mcp" },
+    "terraform": { "command": "terraform-mcp-server", "args": ["stdio"] },
+    "github": { "command": "github-mcp-server", "args": ["stdio"] }
+  }
+}

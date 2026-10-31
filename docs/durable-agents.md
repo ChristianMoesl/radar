@@ -88,9 +88,13 @@ Registration persists the canonical workspace ID and path. Start checks them aga
 
 `configure(host)` receives `id`, `dataDir`, `config`, `workspace` (`id`, `path`, `mode`, optional `sandbox`), and `execution`. Use `host.execution.exec(argv, cwd, signal)` for commands, `readOnly`/`listOnly` for confined reads, and `loadSkill` for workspace skill instructions/resources. These call the existing workspace/SBX backend through `radar workspace-exec`. Working directories must belong to the associated workspace or its registered members. Each execution rechecks current workspace/SBX policy.
 
-Radar supplies `HarnessOptions.env`; definitions select conversation working directories and tools, rather than replace that environment. The native adapter supports bounded reads/writes, directory inspection, binary readers and commands. Reads are limited to 512 KiB; command responses to 1 MiB and two minutes. Streaming file watchers, spill files, temp files and environment overrides are explicitly unsupported. Unsupported operations return an error. Commands use the workspace environment's PATH and credentials; they do not automatically inherit every host variable into SBX. Use Radar's existing sandbox environment configuration for tools that need credentials.
+Radar supplies `HarnessOptions.env`; definitions select conversation working directories and tools, rather than replace that environment. The native adapter supports bounded reads/writes, directory inspection, binary readers and commands. Reads are limited to 512 KiB; command responses to 1 MiB and two minutes. Streaming file watchers, spill files, temp files and environment overrides are explicitly unsupported. Unsupported operations return an error. Commands use the workspace environment's PATH and credentials; they do not automatically inherit every host variable into SBX. Remote services use the separate host MCP capability below.
 
 Node orchestration, definition imports, SQLite and model/remote-API clients remain on the host, like ordinary Pi orchestration. Definitions are trusted user code: arbitrary JavaScript can access host APIs. SBX isolates the workspace tools routed through this adapter; it is not a security boundary around the definition itself. A working directory alone does not confine a shell. The example review extension offers only confined file read/list tools, with no shell or write tool exposed to the model. Symlink escapes from selected read roots are rejected in the selected environment.
+
+`host.mcp` is the host-side remote service capability. Jira, Datadog and Renovate
+examples use it; Terraform and other definitions use the same connection API.
+It is independent of `host.execution`. See [MCP profiles, login and cutover](agent-mcp.md).
 
 Keep selected skill files and their resources inside mounted workspace paths. `host.execution.loadSkill(path)` reads `SKILL.md` through that environment and returns its name, source/root, SHA256 and instructions. Code can record the hash in its own durable run state. Restart does not freeze edits to code or skill resources: preserve versions/resources required by unfinished work and bump native task/doc versions intentionally.
 
@@ -291,7 +295,10 @@ radar agent start renovate-review
 radar agent inspect renovate-review
 ```
 
-The associated execution environment needs authenticated `gh` with PR/comment read and comment creation permissions. Commands run through `host.execution`, so SBX workspaces use their sandbox's tools, credentials and network policy. PR/comment lookups validate and reconcile collected events; the definition does no discovery polling.
+The host needs the configured `github` MCP server (override with `mcpServer`)
+with PR/comment read and comment creation permissions. No GitHub service command
+executes in SBX. PR/comment lookups validate collected events; the definition does
+no discovery polling. See [MCP setup](agent-mcp.md).
 
 Native per-PR documents retain baseline exclusions, original fixed comment, posting intent and resulting comment ID/URL. A transaction claims each PR against concurrent heads/events. Comments include a stable hidden marker derived from registration ID and PR node ID. Paginated comment reads reconcile the marker before posting/recovery; a crash after posting or lost response can recover its identity without another mention.
 
@@ -303,11 +310,24 @@ Source lives in `agent-host/examples`; packed JavaScript examples live in the pa
 
 **Review assistant:** configure `reviewer`, `repositories` (GitHub `owner/name` to mounted local repository paths), `modelId`, and optionally `skill`. Register against a prepared workspace containing those repositories. Copy `examples/review/SKILL.md` to `<workspace>/skills/review/SKILL.md` or select a workspace skill. Supply `OPENAI_API_KEY` before starting the daemon. The example filters review requests for the configured user, handles synchronization/end-of-request events, records exact base/head IDs, prepares a distinct review worktree per head inside the associated workspace, and exposes findings/follow-up. Newer heads mark older conversation labels outdated. Findings are local; the example does not post GitHub reviews. It requires local Git access to both commits, or configured origin fetch access inside SBX. With manual workspace confirmation, use its declared preparation action after inspecting the plan.
 
-**Jira assistant:** configure `baseUrl`, `cloudId`, the named OAuth `profile` (for example `radar`), verified `accountId`, `jql` and `modelId`. Copy `twg.ts` alongside the example. Install TWG 1.3.8+ and sign in with `twg login --new-profile radar --site <cloud-id>` **inside the selected workspace environment**. TWG owns credential storage and refresh; the old `JIRA_EMAIL`, `JIRA_API_TOKEN` and `JIRA_ACCESS_TOKEN` inputs are rejected. The sandbox image includes TWG without a session; missing sandbox setup fails without host fallback. Radar checks OAuth/site/account before each read; another program can still change the profile between checking and requesting, an [accepted limitation](twg-oauth-blocker.md).
+**Jira assistant:** configure `baseUrl`, `cloudId`, verified `accountId`, `jql`,
+`modelId` and optional `mcpServer` (default `jira`). Copy `jira-mcp.ts` alongside
+the example and authenticate the host MCP profile. Remove the old agent `profile`;
+Radar's background collector retains its separate TWG configuration. Structured
+issue/comment completeness is required; partial comments fail without advancing
+the cursor. See [server contracts and cutover](agent-mcp.md#jira-assistant).
 
 Emit `{ "type": "jira.poll" }` with a new stable ID per scheduled poll. The assistant consumes bounded native issue/comment pages, tracks changes, ADF mentions and replies, retains ticket conversations and presents a summary/draft. Partial or malformed results fail visibly without advancing the poll cursor. Access is limited by configured JQL and account permissions. It does not post replies: `allowPosting: true`, old reply actions and pending post checkpoints fail explicitly without sending. Existing document/task versions and conversations remain intact. Reliable comment posting and uncertain-write reconciliation are separate [#42](https://github.com/ChristianMoesl/radar/issues/42).
 
-**Datadog investigator:** configure `site` (default `datadoghq.eu`), the named Pup session `org` (default `radar`), `modelId`, and selected `logsQuery`, `metrics` (name-to-query map), `spansQuery`, or workspace `runbook`. Install Pup 2.0.0+ and sign in with `pup auth login --site datadoghq.eu --org radar --scopes monitors_read,logs_read_data,metrics_read,timeseries_query,apm_read` inside the selected workspace environment. Retain only the scopes used by configured telemetry. Static credentials are not used. Pup runs through `WorkspaceExecution`, including inside SBX; the sandbox must have its own CLI and writable OAuth storage/refresh access. Missing sandbox setup never falls back to host credentials. Existing `baseUrl` configuration is intentionally rejected; replace it manually with `site` and `org`. Emit `{ "type": "datadog.alert", "incidentKey": "example", "monitorId": "7", "transition": "alert", "timestamp": "2026-10-17T00:00:00Z" }`. Your webhook adapter owns signature/authentication and translates its payload into this definition-owned schema. The example gathers bounded logs/metrics/spans evidence, consolidates repeats (default five minutes), retains recovery history and accepts follow-up. Missing telemetry is recorded as incomplete evidence. It recommends investigation steps and has no remediation tool. The core Datadog snapshot collector is independent of this event adapter.
+**Datadog investigator:** configure `modelId`, `reads` with native MCP tool
+arguments, optional `mcpServer` (default `datadog`), and workspace `runbook`.
+Copy `datadog-mcp.ts` and authenticate the host MCP profile. Replace the old
+agent `site`/`org`/REST query settings manually. Emit the existing `datadog.alert`
+event; signatures and translation remain owned by the webhook adapter. The
+investigator retains conversations, repeat consolidation and recovery history;
+missing MCP evidence is explicitly partial. It exposes fixed read queries and
+no remediation tool. See [read configuration](agent-mcp.md#datadog-investigator).
+The core Datadog snapshot collector is independent and still uses host Pup.
 
 Examples require explicit `fixture: true` to use the deterministic local model. It returns labelled test output and does not demonstrate real model quality. Never treat fixture findings as a real review or investigation.
 

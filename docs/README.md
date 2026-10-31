@@ -20,6 +20,7 @@ Offline: use `man radar` and `man radar-config`, or [ask Pi about Radar](integra
 - [Task-state migration and backup](sqlite-state-migration.md) — automatic SQLite cutover, recovery and content-only notes.
 - [CLI reference](cli.md) — commands, JSON output, state and logs.
 - [Workspace resource API](workspace-reconciliation.md) — inspect and reconcile worktrees, mounts and ports.
+- [Host MCP connections](agent-mcp.md) — service tools, authentication and agent cutover.
 - [Durable agents](durable-agents.md) — code-defined pi-durable agents, events, interaction and workspace/SBX execution.
 - [Attention rules](attention-algorithm.md) — why a task appears and how linked signals are ranked.
 

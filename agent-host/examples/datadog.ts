@@ -12,14 +12,15 @@ import {
   type AgentEvent,
   type ConversationId,
   type JsonValue,
-  type WorkspaceExecution,
 } from "../src/index.ts";
-import {
-  answerText,
-  modelRuntime,
-} from "./shared.ts";
+import { answerText, modelRuntime } from "./shared.ts";
 
-import { pupRequest, pupSearchSpans } from "./pup.ts";
+import type { McpServices } from "../src/mcp.ts";
+import {
+  datadogRead,
+  validateDatadogReads,
+  type DatadogRead,
+} from "./datadog-mcp.ts";
 
 type Incident = {
   conversation: number;
@@ -50,37 +51,13 @@ const Selected = defineDoc<{ key: string }>({
   initial: () => ({ key: "" }),
 });
 let settings: {
-  site: string;
-  org: string;
-  execution: WorkspaceExecution;
-  logsQuery: string;
-  metrics: Record<string, string>;
-  spansQuery: string;
+  server: string;
+  mcp: McpServices;
+  reads: Record<string, DatadogRead>;
   runtime: ReturnType<typeof modelRuntime>;
   instructions: string;
   minimumIntervalMs: number;
 };
-
-async function datadog(path: string, options: RequestInit = {}): Promise<JsonValue> {
-  return pupRequest(settings.execution, settings.site, settings.org, path, options);
-}
-
-async function logs(
-  query: string,
-  from: string,
-  to: string,
-  signal?: AbortSignal,
-): Promise<JsonValue> {
-  return datadog("/api/v2/logs/events/search", {
-    method: "POST",
-    body: JSON.stringify({
-      filter: { query, from, to },
-      sort: "timestamp",
-      page: { limit: 100 },
-    }),
-    signal,
-  });
-}
 
 type State =
   | { phase: "route" }
@@ -210,55 +187,38 @@ const Event = defineTask<AgentEvent, State, JsonValue>({
           errors: [],
         };
         const errors = collected.errors as string[];
-        if (settings.logsQuery) {
+        for (const [name, read] of Object.entries(settings.reads)) {
           try {
-            collected.logs = await logs(
-              settings.logsQuery,
+            const result = await datadogRead(
+              settings.mcp,
+              settings.server,
+              read,
               state.from,
               state.to,
               runtime.signal,
             );
-          } catch (error) {
-            errors.push(`Logs unavailable: ${(error as Error).message}`);
-          }
-        }
-        for (const [name, query] of Object.entries(settings.metrics).slice(
-          0,
-          10,
-        )) {
-          try {
-            const params = new URLSearchParams({
-              from: String(Math.floor(Date.parse(state.from) / 1000)),
-              to: String(Math.floor(Date.parse(state.to) / 1000)),
-              query,
-            });
-            collected[`metric:${name}`] = await datadog(
-              `/api/v1/query?${params}`,
-              { signal: runtime.signal },
-            );
+            collected[name] = result;
+            const metadata = result as {
+              _meta?: { partial?: boolean; truncated?: boolean };
+              structuredContent?: { partial?: boolean; truncated?: boolean };
+            };
+            if (
+              [metadata._meta, metadata.structuredContent].some(
+                (value) => value?.partial === true || value?.truncated === true,
+              )
+            )
+              errors.push(
+                `MCP read ${name} returned partial or truncated evidence; the returned data is retained`,
+              );
           } catch (error) {
             errors.push(
-              `Metric ${name} unavailable: ${(error as Error).message}`,
+              `MCP read ${name} unavailable: ${(error as Error).message}`,
             );
           }
         }
-        if (settings.spansQuery) {
-          try {
-            collected.spans = await pupSearchSpans(
-              settings.execution, settings.site, settings.org,
-              settings.spansQuery, state.from, state.to, runtime.signal,
-            );
-          } catch (error) {
-            errors.push(`Traces unavailable: ${(error as Error).message}`);
-          }
-        }
-        if (
-          !settings.logsQuery &&
-          !Object.keys(settings.metrics).length &&
-          !settings.spansQuery
-        )
+        if (!Object.keys(settings.reads).length)
           errors.push(
-            "No telemetry queries configured; only the alert payload was available",
+            "No MCP reads configured; only the alert payload was available",
           );
         evidence = await runtime.memo("evidence", collected, context);
       }
@@ -271,7 +231,7 @@ const Event = defineTask<AgentEvent, State, JsonValue>({
         {
           type: "input",
           requestId: `${task.input.source}:${task.input.id}`,
-          content: `${state.text ?? "Investigate this alert. Separate observations, hypotheses, missing data, and recommended next steps."}\n\nAlert:\n${JSON.stringify(state.event)}\n\nSampled telemetry (up to 100 logs/spans per query; not exhaustive):\n${JSON.stringify(evidence)}`,
+          content: `${state.text ?? "Investigate this alert. Separate observations, hypotheses, missing data, and recommended next steps."}\n\nAlert:\n${JSON.stringify(state.event)}\n\nMCP telemetry evidence (server sampling/truncation metadata retained; not exhaustive):\n${JSON.stringify(evidence)}`,
         },
         context,
       );
@@ -320,22 +280,26 @@ const Event = defineTask<AgentEvent, State, JsonValue>({
 export default {
   version: 1,
   configure: async (host) => {
-    if ("baseUrl" in host.config) throw new Error("replace Datadog baseUrl with site and org; authenticate with Pup OAuth");
-    const site = String(host.config.site ?? "datadoghq.eu");
-    if (!["datadoghq.com", "datadoghq.eu", "us3.datadoghq.com", "us5.datadoghq.com", "ap1.datadoghq.com", "ap2.datadoghq.com", "ddog-gov.com"].includes(site)) throw new Error("configure a supported Datadog site");
-    const org = String(host.config.org ?? "radar");
-    if (!org.trim()) throw new Error("configure a named Pup OAuth session in org");
+    for (const key of [
+      "baseUrl",
+      "site",
+      "org",
+      "logsQuery",
+      "metrics",
+      "spansQuery",
+    ])
+      if (key in host.config)
+        throw new Error(
+          `Replace Datadog ${key} with mcpServer and configured native MCP reads; see docs/agent-mcp.md`,
+        );
     const runbook =
       typeof host.config.runbook === "string"
         ? await host.execution.loadSkill(host.config.runbook)
         : null;
     settings = {
-      site,
-      org,
-      execution: host.execution,
-      logsQuery: String(host.config.logsQuery ?? ""),
-      metrics: (host.config.metrics ?? {}) as Record<string, string>,
-      spansQuery: String(host.config.spansQuery ?? ""),
+      server: String(host.config.mcpServer ?? "datadog"),
+      mcp: host.mcp,
+      reads: validateDatadogReads(host.config.reads ?? {}),
       runtime: modelRuntime(host.config),
       minimumIntervalMs:
         Math.max(0, Number(host.config.minimumIntervalSeconds ?? 300)) * 1000,
@@ -349,38 +313,41 @@ export default {
     registry.install(
       defineExtension({
         name: "datadog.read",
-        tools: settings.logsQuery
-          ? [
-              defineTool({
-                name: "datadog_logs",
-                description:
-                  "Query a sample of logs within the configured service scope",
-                replay: "safe",
-                parameters: Type.Object({
-                  query: Type.String(),
-                  from: Type.String(),
-                  to: Type.String(),
-                }),
-                execute: async (args, _api, context) => ({
-                  output: [
-                    {
-                      type: "text" as const,
-                      text: JSON.stringify(
-                        await logs(
-                          settings.logsQuery
-                            ? `(${settings.logsQuery}) AND (${args.query})`
-                            : args.query,
-                          args.from,
-                          args.to,
-                          context.abortSignal,
-                        ),
+        tools: [
+          defineTool({
+            name: "datadog_read",
+            description:
+              "Repeat one explicitly configured read-only Datadog MCP query within a time window",
+            replay: "safe",
+            parameters: Type.Object({
+              name: Type.String(),
+              from: Type.String(),
+              to: Type.String(),
+            }),
+            execute: async (args, _api, context) => {
+              const read = settings.reads[args.name];
+              if (!Object.hasOwn(settings.reads, args.name) || !read)
+                throw new Error("Select a configured Datadog read");
+              return {
+                output: [
+                  {
+                    type: "text" as const,
+                    text: JSON.stringify(
+                      await datadogRead(
+                        settings.mcp,
+                        settings.server,
+                        read,
+                        args.from,
+                        args.to,
+                        context.abortSignal,
                       ),
-                    },
-                  ],
-                }),
-              }),
-            ]
-          : [],
+                    ),
+                  },
+                ],
+              };
+            },
+          }),
+        ],
       }),
     );
     return { models: settings.runtime.models, registry };

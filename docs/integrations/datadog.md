@@ -93,3 +93,9 @@ transitions, static-override rejection, forced concurrent refreshes, missing-ses
 failure retention and daemon restart. Metrics were also verified through the
 separate investigator in a registered local workspace. Logs/traces and sandbox
 OAuth remain unqualified. See [the live evidence and opt-in test commands](../cli-oauth-migration.md#datadog-eu-live-verification-2026-10-19).
+
+## Agent service access
+
+This guide describes Radar’s host collector. Agent service access defaults to
+[host MCP connections](../agent-mcp.md), independently of the workspace SBX
+runtime. No provider CLI or credential session is required inside SBX.

@@ -1,5 +1,6 @@
 import type { JsonValue } from "@earendil-works/chord";
 import type { WorkspaceBinding, WorkspaceExecution } from "./environment.ts";
+import type { McpServices } from "./mcp.ts";
 export { WorkspaceExecution, type WorkspaceBinding } from "./environment.ts";
 import {
   defineDoc,
@@ -26,6 +27,7 @@ export type HostContext = {
   config: Record<string, JsonValue>;
   workspace: WorkspaceBinding;
   execution: WorkspaceExecution;
+  mcp: McpServices;
 };
 export type AgentDefinition = {
   version: number;

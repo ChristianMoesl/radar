@@ -38,6 +38,20 @@ Use the workspace anchor to share its conversation history; member directories h
 
 Sandbox routing remains entirely owned by the separately installed `pi-sbx` extension. `pi-radar` neither selects sandboxes nor overrides Pi's shell or filesystem tools.
 
+## Remote service connections
+
+Use configured MCP tools in the host Pi session for Jira, Datadog, Terraform and
+GitHub service requests. Workspace files, local Git, builds and tests keep their
+normal local/SBX routing. Install and authenticate the chosen MCP client extension
+in that host Pi profile; `pi-radar` provides workspace integration, not the service
+client. It does not transfer credentials into SBX. Radar's collector CLI sessions
+and the durable-agent MCP client have separate authentication.
+
+The default Radar agent instructions describe this boundary. Existing user
+`AGENTS.md` files are never overwritten; add this guidance manually when upgrading.
+See [host MCP setup](../agent-mcp.md) for official server endpoints and the
+durable-agent connection API.
+
 ## Ask Pi about Radar
 
 In a registered workspace, ask questions such as “What can Radar do?” or

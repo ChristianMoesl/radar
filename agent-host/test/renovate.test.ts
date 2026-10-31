@@ -41,14 +41,18 @@ async function fixture(includeExisting = false) {
   let lostResponse = false;
   let currentState = "open";
   const install = () => {
-    host.host.execution.exec = async (argv) => {
-      assert.equal(argv[0], "gh");
-      assert.equal(argv[1], "api");
-      const path = argv[2]!;
-      if (argv.includes("POST")) {
+    host.host.execution.exec = async () => {
+      throw new Error("GitHub service calls must not execute in the workspace");
+    };
+    host.host.mcp.json = async (server, tool, args, _signal, readOnly) => {
+      assert.equal(server, "github");
+      assert.equal(args.owner, "acme");
+      assert.equal(args.repo, "app");
+      if (tool === "add_issue_comment") {
+        assert.equal(readOnly, false);
         posts++;
         if (postFailure) throw new Error("GitHub posting unavailable");
-        const body = argv.at(-1)!.replace(/^body=/, "");
+        const body = String(args.body);
         const comment = {
           id: posts,
           body,
@@ -56,21 +60,20 @@ async function fixture(includeExisting = false) {
         };
         comments.push(comment);
         if (lostResponse) throw new Error("POST response lost");
-        return JSON.stringify(comment);
+        return comment;
       }
-      if (path.includes("/comments")) {
+      if (tool === "issue_read") {
+        assert.equal(args.method, "get_comments");
         if (readFailure) throw new Error("GitHub comments unavailable");
-        const page = Number(
-          new URL(`https://api.github.com/${path}`).searchParams.get("page"),
-        );
-        return JSON.stringify(comments.slice((page - 1) * 100, page * 100));
+        const page = Number(args.page);
+        return comments.slice((page - 1) * 100, page * 100);
       }
-      assert.match(path, /\/pulls\/\d+$/);
-      return JSON.stringify({
+      assert.equal(tool, "pull_request_read");
+      return {
         node_id: pr.nodeId,
         state: currentState,
         user: { login: "renovate[bot]" },
-      });
+      };
     };
   };
   install();

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import { WorkspaceExecution } from "./environment.ts";
+import { McpServices } from "./mcp.ts";
 import type { JsonValue } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
@@ -65,13 +66,14 @@ export class AgentHost {
 
   static async open(
     entrypoint: string,
-    input: Omit<HostContext, "execution">,
+    input: Omit<HostContext, "execution" | "mcp">,
   ): Promise<AgentHost> {
     if (!input.workspace?.id || !input.workspace.path)
       throw new Error("agent requires an associated Radar workspace");
     const host: HostContext = {
       ...input,
       execution: new WorkspaceExecution(input.workspace),
+      mcp: new McpServices(),
     };
     await mkdir(host.dataDir, { recursive: true, mode: 0o700 });
     const lock = new DatabaseSync(join(host.dataDir, "owner.sqlite"));
@@ -159,6 +161,7 @@ export class AgentHost {
       return result;
     } catch (error) {
       if (harness) await harness.close(context).catch(() => {});
+      await host.mcp.close();
       lock.close();
       throw error;
     }
@@ -336,9 +339,11 @@ export class AgentHost {
 
   async close(): Promise<void> {
     this.host.execution.close();
+    const servicesClosed = this.host.mcp.close();
     try {
       await this.harness.close(context);
     } finally {
+      await servicesClosed;
       this.lock.close();
     }
   }

@@ -1,6 +1,10 @@
 # SBX OAuth proxy adds an API bearer to token-endpoint requests
 
-Draft upstream report; not submitted to Docker.
+Historical draft upstream report; not submitted to Docker.
+
+On 2026-10-31 Radar switched agent services to host MCP and retired the diagnostic
+workflow. This is no longer a Radar release gate. Reproduction steps below refer
+to the linked historical commit; see [the current boundary](agent-mcp.md).
 
 ## Problem
 
@@ -42,7 +46,7 @@ a fixture setup error. Sandbox and local-server cleanup succeeded.
 1. Fork the source at the linked revision onto trusted `main` and configure the
    documented disposable workflow's Docker Hub login using your own account.
    The runner must have no existing sandboxes or credential bindings.
-2. Dispatch `.github/workflows/sbx-oauth-proxy.yml` with operation `fixture`.
+2. At the historical reproduction commit, dispatch `.github/workflows/sbx-oauth-proxy.yml` with operation `fixture`.
    Provider and configuration inputs are unused. The workflow uses the pinned
    Radar image only for Python and basic tools inside the sandbox; Pup and TWG
    are not invoked in this reproduction.

@@ -1,5 +1,3 @@
-import { promisify } from "node:util";
-import { execFile } from "node:child_process";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import {
@@ -55,37 +53,6 @@ export function requiredString(
   const value = config[key];
   if (typeof value !== "string" || !value) throw new Error(`configure ${key}`);
   return value;
-}
-
-export async function command(
-  file: string,
-  args: string[],
-  cwd?: string,
-  signal?: AbortSignal,
-): Promise<string> {
-  const { stdout } = await promisify(execFile)(file, args, {
-    cwd,
-    signal,
-    maxBuffer: 1024 * 1024,
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" },
-  });
-  return stdout.trim();
-}
-
-export async function jsonRequest<T>(
-  url: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const response = await fetch(url, {
-    ...options,
-    signal: options.signal ?? AbortSignal.timeout(20000),
-  });
-  if (!response.ok)
-    throw new Error(`remote request failed (${response.status})`);
-  const text = await response.text();
-  if (text.length > 4 * 1024 * 1024)
-    throw new Error("remote result exceeds 4 MiB; narrow the query");
-  return JSON.parse(text) as T;
 }
 
 export function textFromDocument(value: JsonValue): string {

@@ -2,11 +2,11 @@
 
 Tracking: [epic #27](https://github.com/ChristianMoesl/radar/issues/27).
 
-The production Jira/TWG and Datadog/Pup transports, foreground onboarding,
-read-only investigators and sandbox CLI provisioning are implemented. Radar-owned
+The production host Jira/TWG and Datadog/Pup collectors and foreground OAuth
+onboarding are implemented. Agents now use host MCP. Radar-owned
 PR linking removes the GitHub for Atlassian dependency. The breaking release is
 **not release-qualified**: natural expiry, server-side revocation, remaining
-platform browser/onboarding checks and real provider OAuth inside SBX remain open.
+platform browser/onboarding checks and real agent MCP qualification remain open.
 Do not publish the breaking release until those gates pass.
 
 On 2026-10-20 the user accepted TWG's check/request race: another program could
@@ -93,31 +93,22 @@ saved keys. Radar never extracts tokens or reads CLI credential files.
 
 ## Agents and sandbox setup
 
-The sandbox image provisions TWG 1.3.8 and Pup 2.0.0 without credentials. Custom
-kits must install the CLIs themselves. Authenticate **inside the selected
-execution environment**, using its terminal and writable CLI-owned OAuth storage:
+On 2026-10-31 the user replaced sandbox provider CLIs with host MCP service access.
+The default image no longer installs Pup or TWG and does not add Terraform/tfctl.
+Workspace files, Git/build commands and tests retain their local/SBX boundary.
+The collectors described above retain their host CLI transports.
 
-```sh
-twg login --new-profile radar --site <cloud-id>
-pup auth login --site datadoghq.eu --org radar --scopes monitors_read,logs_read_data,metrics_read,timeseries_query,apm_read
-```
+Follow [the MCP setup and agent cutover guide](agent-mcp.md). Jira and Datadog
+examples use `host.mcp`, and Renovate uses the same host GitHub MCP profile.
+No provider credential database is copied into SBX. Natural expiry/revocation and
+MCP identity/permissions, pagination, errors and reconnect still require live
+verification; the old SBX/Pup refresh failure is historical, not this architecture's
+release gate. Fixtures do not establish a live provider pass.
 
-Grant only scopes needed for configured reads. Do not copy host token databases
-into SBX or inject exported access tokens. Missing sandbox CLI/session/refresh
-access fails there without host fallback. Real provider OAuth and callback/refresh
-behavior inside SBX still need qualification.
-
-For the Jira assistant, configure `baseUrl`, `cloudId`, `profile`, `accountId`,
-`jql` and `modelId`; remove the old `JIRA_EMAIL`, `JIRA_API_TOKEN` and
-`JIRA_ACCESS_TOKEN` inputs. Copy its `twg.ts` helper alongside the example.
-`allowPosting: true` is intentionally rejected with a link to #42. Existing
-conversation/document/task versions are retained. An old pending post checkpoint
-fails visibly without sending or repeating a comment; it requires manual review.
-
-Replace the Datadog investigator's old `baseUrl` with `site` and `org`. Its
-conversation/incident stores retain their format. Logs, spans and metric reads
-run through the selected `WorkspaceExecution`; incomplete evidence is explicit,
-and no remediation operation is offered.
+Jira `profile` and Datadog `site`/`org`/REST-query settings in copied agent
+configurations require manual edits. Their task/document/conversation formats
+stay unchanged; pending Jira post checkpoints remain explicitly rejected (#42).
+No existing sandbox is automatically recreated and no old credential is revoked.
 
 ## Read-only rollout preflight
 
@@ -131,6 +122,9 @@ In the fresh Linux environment on 2026-10-20, config, secrets, task state and th
 durable-agent store were absent. Tests created a workspace directory. No existing
 user data needed migration or reset. Qualification uses isolated Radar state and
 the CLI's selected store; it neither copies nor inspects that store.
+The read-only preflight repeated on 2026-10-31 found the same absence of default
+config, secrets, task and agent data, and no existing MCP config/state. The
+workspace directory was retained unchanged.
 
 ## Qualification evidence and remaining gates
 
@@ -141,10 +135,10 @@ the CLI's selected store; it neither copies nor inspects that store.
 | Jira mapping/linking | Domain and collector fixtures cover assigned/discovered work, bindings after reassignment, Done, issue-type policy, PR references, stable IDs and failure retention; six private PR fixtures previously passed real `gh` reads | Broader live transition/linking matrix |
 | TWG authentication | Named OAuth metadata, domain/Cloud ID/account and successful `doctor` connectivity checked before each request; actual-binary tests characterize missing profiles, saved PATs and the accepted check/request race | Atomic dispatch is an accepted limitation, not a core blocker |
 | Onboarding | Shared install/version/login/retry/defer flow and all terminal integration-choice fixtures pass; real Linux device login succeeded | Full foreground browser/SSO/callback matrix on supported platforms |
-| Read-only Jira assistant | Real native issue/comment reads through a registered local workspace passed; selected local/SBX executor fixtures cover pagination, incomplete reads, conversation retention and restart/retry | Real SBX OAuth; reply posting is separate #42 |
+| Read-only Jira assistant | Real native issue/comment reads through a registered local workspace passed; host MCP fixtures cover pagination, incomplete reads, conversation retention and restart/retry | Live host MCP issue/comment contract; reply posting is separate #42 |
 | Datadog monitors | Previous live EU daemon checks covered Alert/Warn/No Data/OK, stable IDs, missing login and restart; six concurrent forced refreshes plus later reads passed | Natural expiry and revocation |
-| Datadog investigator | Previous live numeric metric samples through local workspace execution; durable conversation/retry/recovery fixtures | Logs/traces were excluded from the approved live scope; real SBX OAuth unverified |
-| Sandbox | Image installs both CLIs; executor fixtures prohibit host fallback; existing real SBX boundary checks are separate | Provider login/storage/refresh in actual SBX |
+| Datadog investigator | Previous live numeric metric samples through local workspace execution; durable conversation/retry/recovery fixtures | Live host MCP metrics/monitor reads; logs/traces remain outside the approved scope |
+| Sandbox | Linux amd64 development image built and passed offline smoke tests on 2026-10-31, including absence of Pup/TWG/tfctl; workspace executor retains its boundary | Multi-platform image/runtime CI and host MCP live checks |
 
 Reproduce offline release contracts with checksum-verified binaries:
 
@@ -166,9 +160,10 @@ TWG_CONFIG_DIR=/path/to/cli-owned-store RADAR_TEST_JIRA_FIXTURES=/path/to/select
   go test ./internal/integration/jira -run '^TestLiveTWGOAuthCollection$' -count=1 -v
 ```
 
-The [live harness](live-e2e.md) now runs that production check plus isolated Jira
-daemon restart/missing-login retention/recovery and registered local workspace
-issue/comment reads. These new Jira checks passed locally on 2026-10-20.
+The [live harness](live-e2e.md) runs that production check plus isolated Jira
+daemon restart/missing-login retention/recovery. Those Jira checks passed locally
+on 2026-10-20; their earlier workspace CLI reads are now historical. Agent MCP
+reads have a separate opt-in qualification test in the [MCP guide](agent-mcp.md).
 The complete earlier harness passed on 2026-10-19 before
 the Jira cutover; do not treat that as a run of the expanded harness. Hosted
 activation still needs the documented GitHub Environment setup; the available
@@ -182,7 +177,9 @@ Required provider/release hosts include `teamwork-graph.atlassian.com`,
 `api.atlassian.com`, `auth.atlassian.com`, `id.atlassian.com`, the selected Jira
 site, `api.datadoghq.eu`, `app.datadoghq.eu`, `api.github.com`, `github.com`,
 `raw.githubusercontent.com`, `release-assets.githubusercontent.com` and
-`objects.githubusercontent.com`. Company SSO may require another browser host.
+`objects.githubusercontent.com`. Agent MCP also requires the selected regional
+Datadog endpoint (`mcp.datadoghq.eu` in the example) and `mcp.atlassian.com`, plus
+the authorization servers they advertise. Company SSO may require another browser host.
 Actual HTTPS requests to the approved Jira site and Datadog EU succeeded in the
 current environment. Network access alone does not establish authenticated access.
 

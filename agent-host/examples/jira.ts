@@ -11,8 +11,8 @@ import {
   type ConversationId,
   type JsonValue,
   type TaskId,
-  type WorkspaceExecution,
 } from "../src/index.ts";
+import type { McpServices } from "../src/mcp.ts";
 import {
   agentChoices,
   answerText,
@@ -21,7 +21,7 @@ import {
   textFromDocument,
 } from "./shared.ts";
 
-import { twgRead, type TWGConnection } from "./twg.ts";
+import { jiraRead, type JiraConnection } from "./jira-mcp.ts";
 
 type Comment = {
   id: string;
@@ -86,14 +86,14 @@ let settings: {
   base: string;
   jql: string;
   account: string;
-  execution: WorkspaceExecution;
-  connection: TWGConnection;
+  mcp: McpServices;
+  connection: JiraConnection;
   runtime: ReturnType<typeof modelRuntime>;
 };
 
 async function comments(key: string, signal?: AbortSignal): Promise<Comment[]> {
-  return (await twgRead(
-    settings.execution,
+  return (await jiraRead(
+    settings.mcp,
     settings.connection,
     { kind: "comments", key },
     signal,
@@ -282,16 +282,17 @@ const Event = defineTask<AgentEvent, EventState, JsonValue>({
       let issues = await runtime.memo<Issue[]>("issues", context);
       if (!issues) {
         issues = [];
-        const rows = await twgRead(
-          settings.execution,
+        const rows = await jiraRead(
+          settings.mcp,
           settings.connection,
           { kind: "issues", jql: settings.jql },
           runtime.signal,
         );
-        for (const row of rows as unknown as Array<
-          Issue["fields"] & { key: string }
-        >) {
-          const { key, ...fields } = row;
+        for (const row of rows as unknown as Array<{
+          key: string;
+          fields: Issue["fields"];
+        }>) {
+          const { key, fields } = row;
           issues.push({
             key,
             fields,
@@ -415,22 +416,27 @@ export default {
       throw new Error(
         "Jira reply posting is a separate feature tracked in #42; remove allowPosting:true to use the read-only assistant",
       );
+    if ("profile" in host.config)
+      throw new Error(
+        "Remove the Jira agent's TWG profile and select mcpServer; host collector configuration is separate",
+      );
     for (const key of ["JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_ACCESS_TOKEN"])
       if (Object.hasOwn(process.env, key))
         throw new Error(
-          `Unset retired ${key}; sign in with TWG OAuth inside the selected workspace`,
+          `Unset retired ${key}; connect the Jira MCP server on the host`,
         );
 
     settings = {
       base: base.replace(/\/$/, ""),
       jql: requiredString(host.config, "jql"),
       account: requiredString(host.config, "accountId"),
-      execution: host.execution,
+      mcp: host.mcp,
       connection: {
-        baseUrl: base,
+        server: String(host.config.mcpServer ?? "jira"),
         cloudId: requiredString(host.config, "cloudId"),
-        profile: requiredString(host.config, "profile"),
-        accountId: requiredString(host.config, "accountId"),
+        ...(typeof host.config.commentsTool === "string"
+          ? { commentsTool: host.config.commentsTool }
+          : {}),
       },
       runtime: modelRuntime(host.config),
     };

@@ -1,8 +1,9 @@
 # Live provider E2E in GitHub Actions
 
-The separate [SBX OAuth proxy test](sbx-oauth-proxy-test.md) prepares fresh native
-CLI logins on a disposable runner and checks token masking, refresh and sandbox
-restart. It uses neither the persisted live-E2E sessions nor their writeback flow.
+Agents now use [host MCP](agent-mcp.md). The collector workflow below keeps its
+host TWG/Pup transports. Agent MCP qualification uses `mcp-live.test.ts` with its
+own host profiles; it does not copy collector CLI sessions into SBX. The old
+[SBX OAuth experiment](sbx-oauth-proxy-test.md) is historical.
 
 The separate [Terraform live validation workflow](../.github/workflows/terraform-live.yml)
 tests a manually selected PR revision after explicit environment approval. It
@@ -25,16 +26,16 @@ The live gate checks:
 
 | Environment | Assertions |
 | --- | --- |
-| Jira / TWG | Named OAuth profile and exact Cloud ID/account, forced refresh, production Radar collection with one-row cursor pages and native gets, inherited-override sanitization, isolated daemon identity/failed-login retention/recovery and registered local workspace issue/comment reads |
+| Jira / TWG | Named OAuth profile and exact Cloud ID/account, forced refresh, production Radar collection with one-row cursor pages and native gets, inherited-override sanitization, isolated daemon identity/failed-login retention/recovery |
 | GitHub | Radar's actual provider resolves exact references for the selected open, closed, merged and conflicting-branch PR fixtures |
-| Datadog / Pup | Named EU OAuth session, required scopes, six concurrent forced refreshes and subsequent reads, real Alert / Warn / No Data / recovery, collector credential guards, task identity and failure retention through daemon restarts, actual numeric metric samples through a registered local workspace |
+| Datadog / Pup | Named EU OAuth session, required scopes, six concurrent forced refreshes and subsequent reads, real Alert / Warn / No Data / recovery, collector credential guards, task identity and failure retention through daemon restarts |
 
 Jira checks now exercise the production OAuth transport. Daemon checks require
 at least two selected issues assigned to the OAuth account and still open.
 This workflow does not qualify logs/traces, natural expiry, server-side
-revocation, browser onboarding, live model output, webhook delivery or OAuth in
-SBX. Those remain separate release gates. A missing service, expired login,
-permission error, empty metric query or fixture mismatch fails the live run.
+revocation, browser onboarding, live model output, webhook delivery or agent MCP
+access. Those remain separate release gates. A missing service, expired login,
+permission error or fixture mismatch fails the live run.
 
 The earlier complete harness passed against the approved accounts on 2026-10-19,
 before the Jira production checks were added: TWG
@@ -125,7 +126,7 @@ logins once using the dedicated stores:
 
 ```sh
 PUP_CONFIG_DIR=/path/to/dedicated/pup DD_TOKEN_STORAGE=file DD_SITE=datadoghq.eu \
-  pup --org radar auth login --scopes monitors_read,monitors_write,metrics_read,timeseries_query
+  pup --org radar auth login --scopes monitors_read,monitors_write
 TWG_CONFIG_DIR=/path/to/dedicated/twg twg login --help
 ```
 

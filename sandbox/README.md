@@ -213,16 +213,16 @@ Pi itself, its extensions, clipboard integration and external editor stay on
 the host. Skills or extra tools may have additional dependencies; browsers and
 project-specific SDKs are not part of this image's contract.
 
-## Datadog OAuth inside the sandbox
+## Remote service access
 
-The image includes Pup 2.0.0, installed from its public release with checksum
-verification. It contains no OAuth session. Sign in as the sandbox user with
-`pup auth login --site datadoghq.eu --org radar --scopes monitors_read,logs_read_data,metrics_read,timeseries_query,apm_read`, retaining only the scopes your configured reads need.
-Pup's own storage must remain writable for refresh; never copy host credential
-files into the image or mount them into the sandbox. Radar's Datadog investigator
-runs Pup through the selected workspace executor and fails there if the CLI or
-session is unavailable. There is no host fallback. TWG provisioning and live
-OAuth/platform validation remain release gates for the full CLI migration.
+Jira, Datadog, GitHub and Terraform service tools belong to the host MCP client.
+The default image no longer installs Pup or TWG and does not add tfctl/Terraform.
+The inherited GitHub CLI is a base utility; bundled agents use MCP for remote
+GitHub service calls. Provider authentication and refresh stay outside SBX.
+See [host MCP setup](../docs/agent-mcp.md). Workspace files, Git, builds and tests
+continue to use the configured sandbox, with no ordinary host-shell fallback.
+Radar's background collectors use their existing host CLIs independently.
+Existing sandbox instances keep their current tools until explicitly recreated.
 
 ## Build and validation
 

@@ -4,6 +4,12 @@
 
 The current directory may be the Radar workspace root rather than a repository. Before running Git or package-manager commands, identify and enter the relevant member worktree, or use its absolute path.
 
+## Remote services
+
+- Use the host session's configured MCP tools for Datadog, Jira, Terraform and GitHub service requests. Keep workspace file operations, local Git, builds and tests in the workspace's configured execution boundary.
+- If a required MCP connection is missing or unauthenticated, report the host setup needed. Do not install provider CLIs or copy host credentials into SBX to work around it. Explicit authentication belongs to host setup, never a background agent request.
+- Radar's background collectors own separate host CLI connections. Their login state does not establish that the agent's MCP connection is authenticated.
+
 ## Worktree branch selection
 
 - Never add a repository's default branch, such as `main`, using `branch_mode: "existing"` unless the user explicitly asks to work directly on that branch.

@@ -87,3 +87,9 @@ Jira consumes generic configured mark keys from other providers; it does not par
 ```sh
 go test ./internal/integration/jira
 ```
+
+## Agent service access
+
+This guide describes Radar’s host collector. Agent service access defaults to
+[host MCP connections](../agent-mcp.md), independently of the workspace SBX
+runtime. No provider CLI or credential session is required inside SBX.

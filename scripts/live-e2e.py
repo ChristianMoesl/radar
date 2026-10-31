@@ -80,7 +80,7 @@ class Suite:
         self.env.update(RADAR_BINARY=self.binary, XDG_CONFIG_HOME=str(directory / "config"),
                         XDG_DATA_HOME=str(directory / "data"), XDG_STATE_HOME=str(directory / "state"),
                         RADAR_SOCKET=str(directory / "r.sock"), RADAR_PID=str(directory / "r.pid"),
-                        RADAR_STATE=str(directory / "tasks.json"), RADAR_AGENT_ROOT=str(directory / "agents"),
+                        RADAR_STATE=str(directory / "state.db"), RADAR_AGENT_ROOT=str(directory / "agents"),
                         RADAR_AGENT_HOST=str(ROOT / "agent-host/src/runner.ts"),
                         GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null", TMUX="")
         self.env.pop("RADAR_DISABLE_COLLECTION", None)
@@ -199,13 +199,6 @@ class Suite:
             run.radar_config["jira"]["profile"] = selectors["profile"]
             run.save_config()
             snapshot()
-            for args in (["init", "--initial-branch=main"], ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-                         "commit", "--allow-empty", "-m", "test: live Jira workspace"]):
-                command(["git", *args], run.env, cwd=directory / "repo", parse=False)
-            run.radar("create", "--prepare-only", "--repo", str(directory / "repo"), "--base", "main", "--name", "live-jira", "--json")
-            command(["node", "--experimental-strip-types", "--test", "agent-host/test/twg-live.test.ts"],
-                    {**run.env, "RADAR_TEST_JIRA_FIXTURES": str(self.directory / "jira-fixtures.json"),
-                     "RADAR_TEST_JIRA_WORKSPACE": str(directory / "workspaces/live-jira")}, parse=False, timeout=180)
         finally:
             run.stop()
 
@@ -224,8 +217,8 @@ class Suite:
                 and status.get("token_type", "").lower() == "bearer"
                 and status.get("org") == self.dd["org"] and status.get("site") == self.dd["site"],
                 "Pup needs a refreshable named OAuth session for the selected site")
-        require({"monitors_read", "monitors_write", "timeseries_query"} <= set(status.get("scopes", [])),
-                "Pup OAuth needs monitors_read, monitors_write and timeseries_query")
+        require({"monitors_read", "monitors_write"} <= set(status.get("scopes", [])),
+                "Pup OAuth needs monitors_read and monitors_write")
         with ThreadPoolExecutor(max_workers=6) as pool:
             list(pool.map(lambda _: self.pup("auth", "refresh", parse=False), range(6)))
             list(pool.map(lambda _: self.api("/api/v1/monitor/search", fields=("-f", "query=" + self.radar_config["datadog"]["monitor_query"])), range(6)))
@@ -357,8 +350,7 @@ class Suite:
             self.snapshot(active, error=True)
             self.save_config()
             self.snapshot(active)
-            self.metric_workspace()
-            print("Datadog: failed-login retention, daemon restart and real workspace metric samples passed", flush=True)
+            print("Datadog: failed-login retention and daemon restart passed", flush=True)
         finally:
             self.save_config()
             self.recover()
@@ -367,18 +359,6 @@ class Suite:
         self.start()
         self.snapshot(done)
 
-    def metric_workspace(self):
-        repo = self.directory / "repo"
-        for args in (["init", "--initial-branch=main"], ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-                     "commit", "--allow-empty", "-m", "test: live metric workspace"]):
-            command(["git", *args], self.env, cwd=repo, parse=False)
-        self.radar("create", "--prepare-only", "--repo", str(repo), "--base", "main", "--name", "live-metrics", "--json")
-        # Workspace create returns a presentation envelope; use the registered path.
-        workspace = self.directory / "workspaces/live-metrics"
-        require(workspace.is_dir(), "Radar did not prepare the registered metric workspace")
-        env = {**self.env, "RADAR_TEST_DATADOG_SITE": self.dd["site"], "RADAR_TEST_DATADOG_ORG": self.dd["org"],
-               "RADAR_TEST_DATADOG_WORKSPACE": str(workspace), "RADAR_TEST_DATADOG_METRIC_QUERY": METRIC}
-        command(["node", "--experimental-strip-types", "--test", "agent-host/test/pup-live.test.ts"], env, parse=False, timeout=180)
 
 
 def main():
@@ -421,9 +401,9 @@ def main():
                         suite.recover()
                     check("Datadog monitor recovery", recover)
                 else:
-                    check("Jira OAuth production collection, pagination, daemon retention and workspace reads", suite.jira_reads)
+                    check("Jira OAuth production collection, pagination and daemon retention", suite.jira_reads)
                     check("GitHub PR references through Radar's provider", suite.github_links)
-                    check("Datadog OAuth, live monitor lifecycle, daemon persistence and workspace metrics", suite.datadog_lifecycle)
+                    check("Datadog OAuth, live monitor lifecycle and daemon persistence", suite.datadog_lifecycle)
             finally:
                 suite.stop()
     except Exception as error:

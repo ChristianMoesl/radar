@@ -6,10 +6,17 @@ test "$(id -un)" = agent
 test "$(id -u)" != 0
 
 for tool in bash sh node npm pnpm corepack fnm go gcc g++ make pkg-config python3 \
-    git ssh curl gh pup twg jq rg fd file unzip zip rsync less ps sandbox-startup \
+    git ssh curl gh jq rg fd file unzip zip rsync less ps sandbox-startup \
     cat mkdir base64 sed grep find head tail stat sort xargs \
     docker dockerd containerd; do
     command -v "$tool"
+done
+# Provider service access belongs to the host MCP client.
+for tool in pup twg tfctl; do
+    if command -v "$tool" >/dev/null 2>&1; then
+        echo "Unexpected provider CLI in the development image: $tool" >&2
+        exit 1
+    fi
 done
 test -s /etc/ssl/certs/ca-certificates.crt
 # No startup directory is a no-op, including ordinary images without a kit.
@@ -20,8 +27,6 @@ docker buildx version
 
 test "$(command -v go)" = /usr/local/go/bin/go
 go version
-pup --version
-twg --version
 fnm --version
 node --version
 npm --version

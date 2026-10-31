@@ -211,28 +211,54 @@ test(
         includeExisting: false,
       }),
     );
-    // The helper is the workspace execution boundary. It persists GitHub's side
-    // of the effect, then withholds the POST response until the runner is killed.
+    // The workspace helper only inspects the binding. Service effects happen
+    // in a host-side stdio MCP server, including across SIGKILL recovery.
     await writeFile(
       helper,
       `#!/usr/bin/env node
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-const dir = ${JSON.stringify(dir)}, args = process.argv.slice(2);
-if (args.includes("--inspect")) { console.log(JSON.stringify(${JSON.stringify(binding)})); process.exit(0); }
-const argv = args.slice(args.indexOf("--")+1), endpoint = argv[2];
-const comments = JSON.parse(await readFile(join(dir,"comments.json"),"utf8").catch(()=>"[]"));
-let value;
-if (argv.includes("POST")) {
-  value = {id:9, body:argv.at(-1).replace(/^body=/,""), html_url:"https://github.com/acme/app/issues/1#issuecomment-9"};
-  comments.push(value);
-  await writeFile(join(dir,"comments.json"),JSON.stringify(comments));
-  await writeFile(join(dir,"posted"),String(comments.length));
-  await writeFile(join(dir,"helper-pid"),String(process.pid));
-  await new Promise(done=>setTimeout(done,30000));
-} else if(endpoint.includes("/comments")) value = comments;
-else value = {node_id:"PR_1",state:"open",user:{login:"renovate[bot]"}};
-console.log(JSON.stringify({output:JSON.stringify(value)}));
+const args=process.argv.slice(2);
+if(!args.includes("--inspect"))throw Error("MCP must not execute in the workspace");
+console.log(JSON.stringify(${JSON.stringify(binding)}));
+`,
+    );
+    const mcpServer = join(dir, "mcp-server.mjs"),
+      mcpConfig = join(dir, "mcp.json");
+    await writeFile(
+      mcpConfig,
+      JSON.stringify({
+        mcpServers: {
+          github: { command: process.execPath, args: [mcpServer] },
+        },
+      }),
+    );
+    await writeFile(
+      mcpServer,
+      `
+import {createInterface} from "node:readline";
+import {readFile,writeFile} from "node:fs/promises";
+import {join} from "node:path";
+const dir=${JSON.stringify(dir)};
+createInterface({input:process.stdin}).on("line",async line=>{
+ const message=JSON.parse(line);if(message.id===undefined)return;
+ let result;
+ if(message.method==="initialize")result={protocolVersion:"2025-11-25",capabilities:{tools:{}},serverInfo:{name:"fixture",version:"1"}};
+ else if(message.method==="tools/list")result={tools:["issue_read","pull_request_read","add_issue_comment"].map(name=>({name,inputSchema:{type:"object",properties:{}},annotations:{readOnlyHint:name!=="add_issue_comment"}}))};
+ else if(message.method==="tools/call"){
+  const {name,arguments:args}=message.params;
+  const comments=JSON.parse(await readFile(join(dir,"comments.json"),"utf8").catch(()=>"[]"));
+  let value;
+  if(name==="add_issue_comment"){
+   value={id:9,body:args.body,html_url:"https://github.com/acme/app/issues/1#issuecomment-9"};comments.push(value);
+   await writeFile(join(dir,"comments.json"),JSON.stringify(comments));
+   await writeFile(join(dir,"posted"),String(comments.length));
+   await writeFile(join(dir,"helper-pid"),String(process.pid));
+   await new Promise(done=>setTimeout(done,30000));
+  }else if(name==="issue_read")value=comments;
+  else value={node_id:"PR_1",state:"open",user:{login:"renovate[bot]"}};
+  result={content:[],structuredContent:value};
+ }
+ console.log(JSON.stringify({jsonrpc:"2.0",id:message.id,result}));
+});
 `,
     );
     await chmod(helper, 0o700);
@@ -258,7 +284,12 @@ console.log(JSON.stringify({output:JSON.stringify(value)}));
           "fixture",
         ],
         {
-          env: { ...process.env, RADAR_BINARY: helper },
+          env: {
+            ...process.env,
+            RADAR_BINARY: helper,
+            RADAR_MCP_CONFIG: mcpConfig,
+            RADAR_MCP_STATE_DIR: join(dir, "mcp-state"),
+          },
           stdio: ["ignore", "ignore", "pipe"],
         },
       );
