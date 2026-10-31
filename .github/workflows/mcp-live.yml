@@ -1,6 +1,19 @@
 name: Live agent MCP
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/mcp-live.yml
+      - agent-host/src/mcp*.ts
+      - agent-host/examples/jira*.ts
+      - agent-host/examples/datadog*.ts
+      - agent-host/test/mcp*.test.ts
+      - agent-host/package.json
+      - pnpm-lock.yaml
+      - scripts/setup-mcp-live.mjs
+      - scripts/live-e2e-state.py
+      - scripts/mcp-live.test.mjs
   workflow_dispatch:
   schedule:
     - cron: '43 5 * * *'

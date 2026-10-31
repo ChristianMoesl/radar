@@ -28,6 +28,11 @@ exercise the agent's complete issue/comment reader and one-row issue/comment
 pages. `getJiraIssue` qualifies full-view issue details separately;
 `listJiraIssueComments` supplies the discussion instead of the issue's compact
 field projection.
+At least two designated issues and one discussion with at least two existing
+comments are required to prove real continuation. Comment checks read the issues
+selected by the approved issue fixture. Empty discussions are read correctly,
+but cannot qualify live pagination. The harness never creates comments to fill
+this prerequisite; missing test data fails with an explicit setup error.
 The native Datadog metrics tool requires `queries` and `telemetry.intent`;
 monitor reads also require `telemetry.intent`. The fixed metric is the built-in
 API usage metric, and monitor reads select the designated test tag. No logs,
@@ -55,6 +60,8 @@ to this setup. A failed local read does not enable or dispatch CI.
 
 ## Session ownership and results
 
+After setup enables it, the workflow runs on relevant MCP changes pushed to
+trusted `main`, daily, or through an explicit main dispatch.
 The workflow runs Linux amd64, Linux arm64 and macOS arm64 sequentially. Before
 provider requests, each runner checkpoints the unchanged session bundle using
 the writer token. It saves rotated sessions after both passing and failing

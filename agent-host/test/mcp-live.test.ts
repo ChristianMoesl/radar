@@ -21,6 +21,7 @@ test(
       arguments: Record<string, unknown>;
     }[];
     assert.ok(Array.isArray(fixtures) && fixtures.length > 0);
+    const selectedIssues = new Map<string, string[]>();
     for (const fixture of fixtures) {
       await context.test(`${fixture.server} / ${fixture.tool}`, async () => {
         for (let attempt = 0; attempt < 2; attempt++) {
@@ -64,24 +65,29 @@ test(
                     : args,
                   ...rest,
                 );
-              const request =
-                fixture.tool === "listJiraIssueComments"
-                  ? {
-                      kind: "comments" as const,
-                      key: String(args.issueIdOrKey),
-                    }
-                  : { kind: "issues" as const, jql: String(args.jql) };
+              const scope = `${fixture.server}/${String(args.cloudId)}`;
+              if (fixture.tool === "listJiraIssueComments") {
+                const keys = selectedIssues.get(scope) ?? [String(args.issueIdOrKey)];
+                let longest = 0;
+                for (const key of keys) {
+                  const comments = await jiraRead(client,
+                    { server: fixture.server, cloudId: String(args.cloudId) },
+                    { kind: "comments", key }, context.signal);
+                  longest = Math.max(longest, comments.length);
+                }
+                console.log(`Jira comment coverage: ${keys.length} designated issues, largest discussion ${longest} comments`);
+                assert.ok(longest >= 2,
+                  "Live comment pagination needs a designated issue with at least two existing comments; empty discussions do not establish continuation");
+                continue;
+              }
               const rows = await jiraRead(
                 client,
                 { server: fixture.server, cloudId: String(args.cloudId) },
-                request,
+                { kind: "issues", jql: String(args.jql) },
                 context.signal,
               );
-              if (request.kind === "issues")
-                assert.ok(
-                  rows.length > 0,
-                  "approved Jira fixtures must return issues",
-                );
+              assert.ok(rows.length >= 2, "Live issue pagination needs at least two designated issues");
+              selectedIssues.set(scope, (rows as unknown as { key: string }[]).map(issue => issue.key));
               continue;
             }
             const result = await client.call(
