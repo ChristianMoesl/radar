@@ -309,35 +309,42 @@ class Daemon:
         temporary.replace(self.fault)
 
     def snapshot(self, source_status="ok", expected=None):
-        # A startup resource mutation can fence the first remote collection.
-        # Its response contains only local statuses and explicitly marks the
-        # snapshot pending; ask for a fresh read instead of treating it as data.
+        # A resource mutation can fence the first collection after restart.
+        # Pending responses may contain local-only status or persisted old
+        # facts. Retry mismatches only while that explicit marker is present.
         for attempt in range(3):
             result = self.rpc("refresh")
             source = next((item for item in result.get("sources", []) if item["name"] == "terraform"), None)
+            mismatch = "Terraform status is missing"
             if source is not None:
-                break
+                mismatch = "Terraform source status differs" if source["status"] != source_status else ""
+                facts = {}
+                for task in result.get("tasks", []):
+                    for ref in task.get("source_refs", []):
+                        if ref.get("source") != "terraform":
+                            continue
+                        metadata = ref.get("metadata", {})
+                        require(metadata.get("creator_id") == self.fixture.user and metadata.get("workspace_id") == self.fixture.workspace
+                                and metadata.get("organization") == ORGANIZATION and metadata.get("workspace_name") == WORKSPACE
+                                and ref["id"] == f'terraform:run:{HOST}:{metadata.get("run_id")}' and ref["id"] not in facts,
+                                "Radar task escaped approved personal ownership, identity or workspace scope.")
+                        facts[ref["id"]] = (task["id"], task["attention"], metadata["run_status"], ref["signal"])
+                for run_id, (signal, state) in (expected or {}).items():
+                    fact = facts.get(f"terraform:run:{HOST}:{run_id}")
+                    if fact is None:
+                        mismatch = "Expected Terraform run is absent"
+                    elif fact[1] != signal:
+                        mismatch = "Terraform task signal differs"
+                    elif fact[3] != signal:
+                        mismatch = "Terraform source signal differs"
+                    elif state is not None and fact[2] != state:
+                        mismatch = "Terraform run state differs"
+                if not mismatch:
+                    return facts
             require(result.get("resource_refresh_pending") is True,
-                    "Terraform status is missing from a non-pending daemon snapshot.")
-            require(attempt < 2, "Terraform status remained unavailable after bounded pending-snapshot retries.")
+                    mismatch + " in a non-pending daemon snapshot.")
+            require(attempt < 2, mismatch + " after bounded pending-snapshot retries.")
             time.sleep(2)
-        require(source["status"] == source_status, "Terraform source did not report the expected healthy, partial or failed state.")
-        facts = {}
-        for task in result.get("tasks", []):
-            for ref in task.get("source_refs", []):
-                if ref.get("source") != "terraform":
-                    continue
-                metadata = ref.get("metadata", {})
-                require(metadata.get("creator_id") == self.fixture.user and metadata.get("workspace_id") == self.fixture.workspace
-                        and metadata.get("organization") == ORGANIZATION and metadata.get("workspace_name") == WORKSPACE
-                        and ref["id"] == f'terraform:run:{HOST}:{metadata.get("run_id")}' and ref["id"] not in facts,
-                        "Radar task escaped approved personal ownership, identity or workspace scope.")
-                facts[ref["id"]] = (task["id"], task["attention"], metadata["run_status"], ref["signal"])
-        for run_id, (signal, state) in (expected or {}).items():
-            fact = facts.get(f"terraform:run:{HOST}:{run_id}")
-            require(fact is not None and fact[1] == signal and fact[3] == signal and (state is None or fact[2] == state),
-                    "Radar task did not reflect the expected live run state and signal.")
-        return facts
 
 
 def tfctl_proxy(arguments):

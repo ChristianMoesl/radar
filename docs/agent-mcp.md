@@ -176,8 +176,11 @@ selector file. Local protocol fixtures are not a hosted or real-provider pass.
 The [2026-10-31 live read matrix](qualification/mcp-reads-2026-10-31.json) passed
 with the selected Jira and Datadog accounts on Linux amd64, Linux arm64 and macOS
 arm64, including populated issue/comment pagination, monitors/metrics and
-reconnect. This resolves the live read gate. Natural expiry, provider-side
-revocation, fresh browser onboarding and reply posting remain unqualified.
+reconnect. This resolves the live read gate. [The follow-up
+matrix](https://github.com/ChristianMoesl/radar/actions/runs/41223219100) also
+observed Datadog natural expiry and renewed access on Linux amd64. Jira expiry
+was not observed. Jira natural expiry, provider-side revocation, fresh browser
+onboarding and reply posting remain unqualified.
 
 The full [cross-provider workflow](live-e2e.md) remains available for combined
 collector qualification with its own dedicated sessions.

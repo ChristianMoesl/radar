@@ -250,6 +250,31 @@ class LifecycleSafeguards(unittest.TestCase):
                 daemon.snapshot()
             rpc.assert_called_once_with("refresh")
 
+    def test_restart_does_not_accept_persisted_state_when_terminal_catchup_is_pending(self):
+        run_id = self.prepare_run()
+        daemon = object.__new__(live.Daemon)
+        daemon.fixture = self.fixture
+        ref_id = f"terraform:run:{live.HOST}:{run_id}"
+        stale = {"sources": [{"name": "terraform", "status": "ok"}], "resource_refresh_pending": True,
+                 "tasks": [{"id": 1, "attention": "attention", "source_refs": [{
+                     "id": ref_id, "source": "terraform", "signal": "attention", "metadata": {
+                         "creator_id": "user-Test", "workspace_id": "ws-Test", "organization": live.ORGANIZATION,
+                         "workspace_name": live.WORKSPACE, "run_id": run_id, "run_status": "planned"}}]}]}
+        fresh = copy.deepcopy(stale)
+        fresh["resource_refresh_pending"] = False
+        fresh["tasks"][0]["attention"] = "done"
+        fresh["tasks"][0]["source_refs"][0].update(signal="done")
+        fresh["tasks"][0]["source_refs"][0]["metadata"]["run_status"] = "applied"
+        expected = {run_id: ("done", "applied")}
+        with patch.object(daemon, "rpc", side_effect=[stale, fresh]) as rpc, patch.object(live.time, "sleep"):
+            self.assertEqual(daemon.snapshot(expected=expected)[ref_id], (1, "done", "applied", "done"))
+            self.assertEqual(rpc.call_count, 2)
+        stale["resource_refresh_pending"] = False
+        with patch.object(daemon, "rpc", return_value=stale) as rpc:
+            with self.assertRaisesRegex(live.Failure, "task signal differs in a non-pending"):
+                daemon.snapshot(expected=expected)
+            rpc.assert_called_once_with("refresh")
+
     def test_fault_proxy_blocks_mutations_and_injects_only_the_selected_reads(self):
         fault = self.directory / "fault"
         env = {"RADAR_LIVE_TFCTL_FAULT": str(fault), "RADAR_LIVE_TFCTL_REAL": "/verified/tfctl"}

@@ -90,3 +90,6 @@ read matrix alone does not establish refresh. Server-side revocation, other
 browser onboarding flows and Jira reply posting remain separate gates.
 The [2026-10-31 evidence](qualification/mcp-reads-2026-10-31.json) records the
 passing three-platform read matrix and its exact limits.
+[The follow-up matrix](https://github.com/ChristianMoesl/radar/actions/runs/41223219100)
+passed on all three platforms and observed Datadog natural expiry/renewal on
+Linux amd64. Jira's token was not expired, so its expiry check was skipped.
