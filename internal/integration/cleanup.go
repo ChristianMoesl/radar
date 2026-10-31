@@ -35,3 +35,10 @@ type CleanupProvider interface {
 	PreviewCleanup(ctx context.Context, req CleanupPreviewRequest) ([]protocol.CleanupTarget, error)
 	Cleanup(ctx context.Context, req CleanupRequest) (protocol.CleanupTarget, error)
 }
+
+// CleanupPreflightProvider validates protections for a whole bundle after its
+// leases are acquired and before any provider has destructive side effects.
+// Providers must still revalidate the resource they remove at the last moment.
+type CleanupPreflightProvider interface {
+	PreflightCleanup(context.Context, []protocol.CleanupTarget, CleanupMode) error
+}

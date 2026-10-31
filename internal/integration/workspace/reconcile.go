@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"radar/internal/integration"
 	obsidiansettings "radar/internal/integration/obsidian/settings"
@@ -20,6 +21,7 @@ import (
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/operationlock"
+	"radar/internal/phasetiming"
 )
 
 type ReconcileWorkspaceRequest struct {
@@ -169,11 +171,21 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 			return ReconcileWorkspacePlan{}, err
 		}
 	}
-	registry, err := workspacegroup.Load(root)
+	return planWorkspaceAfterPreflight(ctx, runner, root, group, request)
+}
+
+func planWorkspaceAfterPreflight(ctx context.Context, runner Runner, root string, group workspacegroup.Workspace, request ReconcileWorkspaceRequest) (ReconcileWorkspacePlan, error) {
+	observation := observeSandbox(ctx, runner, group)
+	actualPorts, incompatiblePorts, err := observation.ports(ctx, runner, group)
 	if err != nil {
 		return ReconcileWorkspacePlan{}, err
 	}
-	actualPorts, incompatiblePorts, _, err := observedSandboxPortState(ctx, runner, group)
+	return planWorkspaceObserved(ctx, runner, root, group, request, observation, actualPorts, incompatiblePorts)
+}
+
+func planWorkspaceObserved(ctx context.Context, runner Runner, root string, group workspacegroup.Workspace, request ReconcileWorkspaceRequest, observation sandboxObservation, actualPorts, incompatiblePorts []workspacegroup.SandboxPort) (ReconcileWorkspacePlan, error) {
+	verification := NewBranchVerificationPhase(runner)
+	registry, err := workspacegroup.Load(root)
 	if err != nil {
 		return ReconcileWorkspacePlan{}, err
 	}
@@ -328,7 +340,7 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 			return ReconcileWorkspacePlan{}, err
 		}
 		if removal.DeleteBranch {
-			published, publicationErr := BranchPublishedOrMerged(ctx, runner, member.Repository, member.Branch)
+			published, publicationErr := verification.PublishedOrMerged(ctx, member.Repository, member.Branch)
 			switch {
 			case publicationErr != nil:
 				removalWarnings = append(removalWarnings, fmt.Sprintf("origin could not be refreshed for %s; removing the worktree will delete local branch %q without verifying that its commits exist remotely", member.Repository, member.Branch))
@@ -368,7 +380,8 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 				return ReconcileWorkspacePlan{}, fmt.Errorf("sandbox name %s is already owned by another workspace", name)
 			}
 		}
-		if _, found, err := findSandbox(ctx, runner, group.Path, name); err != nil {
+		observation.actual, observation.found, observation.err = findSandbox(ctx, runner, group.Path, name)
+		if found, err := observation.found, observation.err; err != nil {
 			return ReconcileWorkspacePlan{}, err
 		} else if found {
 			return ReconcileWorkspacePlan{}, fmt.Errorf("sandbox name %s is already occupied; refusing to adopt or remove it", name)
@@ -435,11 +448,10 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 		}
 		candidate.Sandbox.Mounts = mounts
 		effectiveMountCount = len(mounts)
-		actual, found, err := findSandbox(ctx, runner, group.Path, candidate.Sandbox.Name)
-		if err != nil {
-			return ReconcileWorkspacePlan{}, err
+		if observation.err != nil {
+			return ReconcileWorkspacePlan{}, observation.err
 		}
-		recreateSandbox = !found || !sameMountSet(mounts, sandboxWorkspaceMounts(actual))
+		recreateSandbox = !observation.found || !sameMountSet(mounts, sandboxWorkspaceMounts(observation.actual))
 		for _, mount := range mountDifference(desiredAdditionalMounts, currentAdditionalMounts) {
 			readOnly := mount.ReadOnly
 			mode := "writable"
@@ -473,6 +485,7 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 	}
 
 	startSession := false
+	sessionChecked := false
 	for _, member := range candidate.Members {
 		if member.SetupScheduled {
 			continue
@@ -485,7 +498,8 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 			continue
 		}
 		changes = append(changes, WorkspaceChange{Action: "setup", Resource: "worktree", Path: member.Path, Summary: "run repository setup for " + member.Path})
-		if group.SessionName != "" && !request.creating && !request.prepareOnly {
+		if group.SessionName != "" && !request.creating && !request.prepareOnly && !sessionChecked {
+			sessionChecked = true
 			if _, err := runner.Run(ctx, group.Path, "tmux", "has-session", "-t", group.SessionName); err != nil {
 				startSession = true
 			}
@@ -524,7 +538,11 @@ func planWorkspace(ctx context.Context, runner Runner, root string, group worksp
 }
 
 func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Logger, request ReconcileWorkspaceRequest) (ReconcileWorkspaceResult, error) {
+	ctx = phasetiming.WithLogger(ctx, logger)
+	defer phasetiming.Start(ctx, "workspace_apply")()
+	operationLockDone := phasetiming.Start(ctx, "operation_lock_wait")
 	release, lockErr := operationlock.Acquire(false)
+	operationLockDone()
 	if lockErr != nil {
 		return ReconcileWorkspaceResult{}, lockErr
 	}
@@ -534,7 +552,10 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 		return ReconcileWorkspaceResult{}, err
 	}
 	var result ReconcileWorkspaceResult
+	noteLockDone := phasetiming.Start(ctx, "note_lock_wait")
+	defer noteLockDone()
 	err = workspacegroup.WithNoteLock(root, func() error {
+		noteLockDone()
 		var err error
 		result, err = applyReconcileWorkspace(ctx, runner, logger, request)
 		return err
@@ -543,7 +564,9 @@ func ApplyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 }
 
 func applyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Logger, request ReconcileWorkspaceRequest) (ReconcileWorkspaceResult, error) {
+	planningDone := phasetiming.Start(ctx, "workspace_planning")
 	plan, err := PreviewReconcileWorkspace(ctx, runner, request)
+	planningDone()
 	if err != nil {
 		logReconciliationFailure(logger, request.Workspace, "plan", ReconcileWorkspaceResult{}, err)
 		return ReconcileWorkspaceResult{}, err
@@ -611,6 +634,8 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 		}
 		result.NoteAdded = true
 	}
+	worktreesDone := phasetiming.Start(ctx, "worktrees")
+	defer worktreesDone()
 	for _, addition := range plan.additions {
 		_, createErr := EnsureWorktree(ctx, runner, addition.plan)
 		if createErr != nil {
@@ -638,6 +663,7 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 			return result, persistErr
 		}
 	}
+	worktreesDone()
 	if logger != nil {
 		logger.Info("workspace reconciliation worktrees completed", "workspace_id", plan.WorkspaceID,
 			"worktrees_added", result.WorktreesAdded, "worktrees_removed", result.WorktreesRemoved)
@@ -690,7 +716,9 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 				result.MountsRemoved++
 			}
 		}
+		portsDone := phasetiming.Start(ctx, "port_reconciliation")
 		published, unpublished, err := reconcileSandboxPorts(ctx, runner, plan.group.Sandbox.Name, plan.group.Sandbox.Ports)
+		portsDone()
 		result.PortsPublished = published
 		result.PortsUnpublished = unpublished
 		if logger != nil {
@@ -732,7 +760,11 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 			}
 		}
 	}
+	setupDone := phasetiming.Start(ctx, "workspace_setup")
+	defer setupDone()
 	warnings := []string{}
+	setupPreflightDone := false
+	var setupPreflightErr error
 	for memberIndex, member := range plan.group.Members {
 		if member.SetupScheduled {
 			continue
@@ -740,6 +772,17 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 		config, configErr := loadRepoConfig(member.Repository)
 		if configErr != nil {
 			warnings = append(warnings, fmt.Sprintf("workspace setup for %s could not be read: %v", member.Path, configErr))
+			continue
+		}
+		if plan.group.Sandbox != nil && len(config.Setup) > 0 && !setupPreflightDone {
+			setupPreflightErr = managedClient(runner).Preflight(ctx)
+			setupPreflightDone = true
+		}
+		if setupPreflightErr != nil {
+			if plan.prepareOnly {
+				return result, setupPreflightErr
+			}
+			warnings = append(warnings, fmt.Sprintf("workspace setup for %s could not be started: %v", member.Path, setupPreflightErr))
 			continue
 		}
 		if plan.prepareOnly {
@@ -772,6 +815,7 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 		logRetryableReconciliationFailure(logger, plan, "registry", result, err)
 		return result, nil
 	}
+	setupDone()
 	ports, _, err := observedSandboxPorts(ctx, runner, plan.group)
 	if err != nil {
 		result.Retryable = true
@@ -1123,26 +1167,47 @@ func observedSandboxPorts(ctx context.Context, runner Runner, group workspacegro
 }
 
 func observedSandboxPortState(ctx context.Context, runner Runner, group workspacegroup.Workspace) ([]workspacegroup.SandboxPort, []workspacegroup.SandboxPort, bool, error) {
+	observation := observeSandbox(ctx, runner, group)
+	ports, incompatible, err := observation.ports(ctx, runner, group)
+	return ports, incompatible, observation.found, err
+}
+
+const sandboxObservationTimeout = 10 * time.Second
+
+type sandboxObservation struct {
+	actual listedSandbox
+	found  bool
+	err    error
+}
+
+func observeSandbox(ctx context.Context, runner Runner, group workspacegroup.Workspace) sandboxObservation {
 	if group.Sandbox == nil {
-		return []workspacegroup.SandboxPort{}, []workspacegroup.SandboxPort{}, false, nil
+		return sandboxObservation{}
 	}
-	_, found, err := findSandbox(ctx, runner, group.Path, group.Sandbox.Name)
-	if err != nil {
-		return nil, nil, false, err
+	actual, found, err := findSandbox(ctx, runner, group.Path, group.Sandbox.Name)
+	return sandboxObservation{actual: actual, found: found, err: err}
+}
+
+func (o sandboxObservation) ports(ctx context.Context, runner Runner, group workspacegroup.Workspace) ([]workspacegroup.SandboxPort, []workspacegroup.SandboxPort, error) {
+	if group.Sandbox == nil {
+		return []workspacegroup.SandboxPort{}, []workspacegroup.SandboxPort{}, nil
 	}
-	if !found {
+	if o.err != nil {
+		return nil, nil, o.err
+	}
+	if !o.found {
 		ports, normalizeErr := normalizeSandboxPorts(group.Sandbox.Ports)
-		return ports, []workspacegroup.SandboxPort{}, false, normalizeErr
+		return ports, []workspacegroup.SandboxPort{}, normalizeErr
 	}
 	bindings, err := listSandboxPortBindings(ctx, runner, group.Sandbox.Name)
 	if err != nil {
-		return nil, nil, true, err
+		return nil, nil, err
 	}
 	ports, err := logicalSandboxPorts(bindings)
 	if err != nil {
-		return nil, nil, true, err
+		return nil, nil, err
 	}
-	return ports, incompatibleSandboxPorts(bindings), true, nil
+	return ports, incompatibleSandboxPorts(bindings), nil
 }
 
 func listSandboxPorts(ctx context.Context, runner Runner, name string) ([]workspacegroup.SandboxPort, error) {
@@ -1160,7 +1225,12 @@ type sandboxPortBinding struct {
 }
 
 func listSandboxPortBindings(ctx context.Context, runner Runner, name string) ([]sandboxPortBinding, error) {
+	ctx, cancel := context.WithTimeout(ctx, sandboxObservationTimeout)
+	defer cancel()
 	output, err := sbxclient.New(runner).Run(ctx, "", "ports", name, "--json")
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil {
 		return nil, sbxCommandError(err)
 	}

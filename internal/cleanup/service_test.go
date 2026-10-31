@@ -89,3 +89,45 @@ func TestExecuteRejectsUnknownSource(t *testing.T) {
 		t.Fatalf("result = %+v, error = %v", result, err)
 	}
 }
+
+type preflightProvider struct {
+	fakeProvider
+	fail bool
+}
+
+func (p preflightProvider) PreflightCleanup(ctx context.Context, targets []protocol.CleanupTarget, mode integration.CleanupMode) error {
+	*p.calls = append(*p.calls, "preflight:"+p.name)
+	if p.fail {
+		return errors.New("protected content")
+	}
+	return ctx.Err()
+}
+func TestBundlePreflightRunsBeforeAnySideEffects(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "success", true: "failure"}[fail], func(t *testing.T) {
+			var calls []string
+			service := New([]integration.CleanupProvider{fakeProvider{name: "runtime", calls: &calls, failPath: "/never"}, preflightProvider{fakeProvider: fakeProvider{name: "workspace", calls: &calls, failPath: "/never"}, fail: fail}})
+			_, err := service.Execute(context.Background(), protocol.CleanupPreview{Targets: []protocol.CleanupTarget{{Source: "runtime", Path: ""}, {Source: "workspace", Path: ""}}}, ExecuteOptions{Mode: integration.CleanupConfirmed})
+			if (err != nil) != fail {
+				t.Fatal(err)
+			}
+			expected := []string{"preflight:workspace"}
+			if !fail {
+				expected = append(expected, "runtime:", "workspace:")
+			}
+			if !reflect.DeepEqual(calls, expected) {
+				t.Fatalf("unsafe order: %v", calls)
+			}
+		})
+	}
+}
+func TestCanceledCleanupNeverCallsProviders(t *testing.T) {
+	var calls []string
+	service := New([]integration.CleanupProvider{fakeProvider{name: "git", calls: &calls}})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := service.Execute(ctx, protocol.CleanupPreview{Targets: []protocol.CleanupTarget{{Source: "git"}}}, ExecuteOptions{Mode: integration.CleanupConfirmed})
+	if !errors.Is(err, context.Canceled) || len(calls) != 0 {
+		t.Fatalf("canceled cleanup ran: %v %v", calls, err)
+	}
+}

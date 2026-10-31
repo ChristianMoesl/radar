@@ -29,13 +29,15 @@ radar status
 radar tasks
 radar reconcile-workspace --request <json> [--workspace <path>] [--preview]
 radar recreate-sandboxes [--workspace <path>] [--preview] [--yes]
-radar workspace-context [--workspace <path>]
+radar workspace-context [--workspace <path>] [--registration-only | --resources-only]
 radar repository-refs --repo <repo>
 radar clone-repository --request <json> [--workspace <path>] [--preview | --plan <id>]
 radar open-resource --request <json> [--workspace <path>] [--preview | --plan <id>]
 radar agent add <module> --id <id> --workspace <registered-path> [--config <json-file>] [--collection github]
 radar agent list
 radar agent inspect|start|stop|restart|remove|logs|token <id>
+radar agent schedule set <id> <name> --time HH:MM --weekdays mon,tue,wed,thu,fri --timezone <IANA-zone> --payload <json-file>
+radar agent schedule pause|resume|remove <id> <name>
 radar agent emit <id> --source <source> --event-id <id> # JSON payload on stdin
 radar agent message <id> <text> --revision <revision> [--event-id <id>]
 radar agent action <id> <action-id> [text] --revision <revision> [--event-id <id>]
@@ -154,3 +156,7 @@ RADAR_LOG_LEVEL=debug radar daemon
 ```
 
 Supported levels: `debug`, `info`, `warn`, `error`. Default is `info`.
+
+`workspace-context --resources-only` is the fresh lifecycle projection used by Pi. It returns member instructions/skills and owned sandbox/shared-directory routing without ports, dirty status, repository discovery, opening resources or a reconciliation revision. Use full `workspace-context` before reconciliation.
+
+Completed cleanup and reconciliation responses can contain `resource_refresh_pending: true`. Removal/provisioning has completed; the cached task/resource list is explicitly pending the next local collection. Partial cleanup failures include their successful removal prefix. The dashboard labels pending lists. A complete collection started after the mutation clears the marker; failed or canceled collection keeps it pending.

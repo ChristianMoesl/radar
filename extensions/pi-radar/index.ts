@@ -87,7 +87,7 @@ type WorkspaceMember = {
   skill_paths?: string[];
 };
 
-type WorkspaceContextResult = {
+type WorkspaceResourcesResult = {
   workspace_path?: string;
   note?: { path: string; workspace_path: string };
   sandbox?: { name?: string; shared_directory?: string; shared_directory_ready: boolean };
@@ -105,7 +105,7 @@ function sharedDirectoryTracker() {
   const session = Symbol("Radar shared directory session");
   let stopped = false;
 
-  function configure(context: WorkspaceContextResult | undefined) {
+  function configure(context: WorkspaceResourcesResult | undefined) {
     if (stopped) return;
     const directory = context?.sandbox?.shared_directory_ready ? context.sandbox.shared_directory : undefined;
     directories.delete(session);
@@ -303,10 +303,10 @@ async function runRadar(pi: ExtensionAPI, binary: string, args: string[], signal
   return result.stdout;
 }
 
-async function inspectWorkspace(pi: ExtensionAPI, cwd: string, signal?: AbortSignal): Promise<WorkspaceContextResult> {
+async function inspectWorkspaceResources(pi: ExtensionAPI, cwd: string, signal?: AbortSignal): Promise<WorkspaceResourcesResult> {
   const binary = process.env.RADAR_BINARY?.trim() || "radar";
-  const text = await runRadar(pi, binary, ["workspace-context", "--workspace", resolve(cwd), "--json"], signal, "radar_workspace_context", "inspect");
-  return parseJSON<WorkspaceContextResult>("radar_workspace_context", text, "inspect");
+  const text = await runRadar(pi, binary, ["workspace-context", "--resources-only", "--workspace", resolve(cwd), "--json"], signal, "Radar workspace resources", "inspect");
+  return parseJSON<WorkspaceResourcesResult>("radar_workspace_context", text, "inspect");
 }
 
 async function skillFiles(root: string): Promise<string[]> {
@@ -341,7 +341,7 @@ async function skillName(path: string): Promise<string | undefined> {
   }
 }
 
-async function discoverResources(context: WorkspaceContextResult, notify?: (message: string, level: "info" | "warning" | "error") => void): Promise<ResourceSnapshot> {
+async function discoverResources(context: WorkspaceResourcesResult, notify?: (message: string, level: "info" | "warning" | "error") => void): Promise<ResourceSnapshot> {
   const contextPaths = [...new Set((context.members ?? []).flatMap((member) => member.instruction_files ?? []))].sort();
   const roots = new Map<string, WorkspaceMember>();
   for (const member of context.members ?? []) {
@@ -413,11 +413,11 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
   const activity = activityTracker(pi);
   const sharedDirectory = sharedDirectoryTracker();
   let previousResources: ResourceSnapshot = { contextPaths: [], skillPaths: [] };
-  let knownContext: WorkspaceContextResult | undefined;
+  let knownContext: WorkspaceResourcesResult | undefined;
  let sandboxRoutingAccepted=true;
- function requireSandboxRouting(context:WorkspaceContextResult) {
+ function requireSandboxRouting(context:WorkspaceResourcesResult) {
   const name=context.sandbox?.name;
-  if(!name) return;
+  if(!name) { sandboxRoutingAccepted=true; return; }
   sandboxRoutingAccepted=false;
   pi.events.emit("pi-sbx:require",{name,acknowledge:()=>{sandboxRoutingAccepted=true}});
  }
@@ -434,7 +434,8 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
   }
   pi.on("resources_discover", async (event, ctx) => {
     try {
-      knownContext = await inspectWorkspace(pi, event.cwd);
+      sandboxRoutingAccepted=false;
+      knownContext = await inspectWorkspaceResources(pi, event.cwd);
       sharedDirectory.configure(knownContext);
       requireSandboxRouting(knownContext);
       const discovered = await discoverResources(knownContext, (message, level) => ctx.ui.notify(message, level));
@@ -460,7 +461,8 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
     }
 
     try {
-      knownContext = await inspectWorkspace(pi, ctx.cwd, ctx.signal);
+      sandboxRoutingAccepted=false;
+      knownContext = await inspectWorkspaceResources(pi, ctx.cwd, ctx.signal);
       sharedDirectory.configure(knownContext);
       requireSandboxRouting(knownContext);
       const resources = await discoverResources(knownContext);
@@ -625,7 +627,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
         const result = parseJSON<ReconcileResult>("radar_reconcile_workspace", resultText, "apply");
         if ((input.desired as {sandbox?:unknown} | undefined)?.sandbox) {
           sandboxRoutingAccepted=false;
-          try {knownContext=await inspectWorkspace(pi,cwd,signal);requireSandboxRouting(knownContext)} catch { /* Keep ordinary tools blocked until context can be refreshed. */ }
+          try {knownContext=await inspectWorkspaceResources(pi,cwd,signal);requireSandboxRouting(knownContext)} catch { /* Keep ordinary tools blocked until context can be refreshed. */ }
         }
         if (result.ok !== true && result.reconfirm_required === true && result.reason === "plan_changed") {
           if (!result.plan) {

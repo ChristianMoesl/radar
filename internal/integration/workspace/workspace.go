@@ -26,6 +26,7 @@ import (
 	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/operationlock"
+	"radar/internal/phasetiming"
 	"radar/internal/pi"
 	"radar/internal/taskdb"
 )
@@ -642,6 +643,7 @@ func RemoveSession(ctx context.Context, runner Runner, sessionName string) (Work
 }
 
 func RemoveWorktree(ctx context.Context, runner Runner, path string, force bool) (Workspace, error) {
+	defer phasetiming.Start(ctx, "worktree_removal")()
 	if strings.TrimSpace(path) == "" {
 		return Workspace{}, fmt.Errorf("workspace path is required")
 	}
@@ -785,12 +787,19 @@ func scheduleSetupCommandsNamed(ctx context.Context, runner Runner, path string,
 	if len(commands) == 0 {
 		return nil
 	}
+	if sandboxName != "" {
+		if err := managedClient(runner).Preflight(ctx); err != nil {
+			return err
+		}
+	}
+	return scheduleSetupCommandsNamedAfterPreflight(ctx, runner, path, sessionName, sandboxName, windowName, commands)
+}
+
+// The caller has freshly preflighted the sandbox for this setup batch.
+func scheduleSetupCommandsNamedAfterPreflight(ctx context.Context, runner Runner, path, sessionName, sandboxName, windowName string, commands []string) error {
 	args := []string{"new-window", "-t", sessionName + ":", "-d", "-n", windowName, "-c", path, "-P", "-F", "#{window_id} #{pane_id}"}
 	if sandboxName != "" {
 		client := managedClient(runner)
-		if err := client.Preflight(ctx); err != nil {
-			return err
-		}
 		executable, err := client.ShellExecutable()
 		if err != nil {
 			return err

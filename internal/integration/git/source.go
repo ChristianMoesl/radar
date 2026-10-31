@@ -13,6 +13,7 @@ import (
 	"radar/internal/integration/workspace"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/pathdisplay"
+	"radar/internal/phasetiming"
 	"radar/internal/protocol"
 )
 
@@ -57,6 +58,7 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 }
 
 func previewCleanup(ctx context.Context, req integration.CleanupPreviewRequest, runner workspace.Runner) ([]protocol.CleanupTarget, error) {
+	verification := workspace.NewBranchVerificationPhase(runner)
 	targets := make([]protocol.CleanupTarget, 0)
 	root, err := workspace.DefaultRoot()
 	if err != nil {
@@ -125,7 +127,7 @@ func previewCleanup(ctx context.Context, req integration.CleanupPreviewRequest, 
 				// not let a remote outage postpone the local-only expiry operation.
 				published, publicationErr := true, error(nil)
 				if req.Mode != integration.CleanupExpired {
-					published, publicationErr = workspace.BranchPublishedOrMerged(ctx, runner, member.Repository, member.Branch)
+					published, publicationErr = verification.PublishedOrMerged(ctx, member.Repository, member.Branch)
 				}
 				if publicationErr != nil {
 					target.Safety = append(target.Safety, protocol.CleanupSafety{
@@ -233,7 +235,10 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 			return err
 		}
 		if req.Mode.DiscardChanges() {
-			if err := workspace.ValidateDiscardingWorkspace(root, current.ID, req.Mode); err != nil {
+			scanDone := phasetiming.Start(ctx, "cleanup_member_scan")
+			err := workspace.ValidateDiscardingWorkspaceMember(root, current.ID, member, req.Mode)
+			scanDone()
+			if err != nil {
 				return err
 			}
 		}

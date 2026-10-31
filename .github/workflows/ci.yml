@@ -194,7 +194,9 @@ jobs:
         run: make test
 
       - name: Test live E2E harness safeguards without account access
-        run: python3 -m unittest scripts/test_live_e2e.py scripts/test_live_pr_gate.py scripts/test_terraform_live_plan.py scripts/test_sbx_oauth_proxy.py
+        env:
+          RADAR_TERRAFORM_TEST_BINARY: ${{ github.workspace }}/radar
+        run: python3 -m unittest scripts/test_live_e2e.py scripts/test_live_pr_gate.py scripts/test_terraform_live_plan.py scripts/test_terraform_live_lifecycle.py scripts/test_sbx_oauth_proxy.py
 
       - name: Validate Terraform fixture plans without account access
         env:

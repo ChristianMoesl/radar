@@ -40,6 +40,7 @@ Offline: use `man radar` and `man radar-config`, or [ask Pi about Radar](integra
 ## Development and releases
 
 - [Contributing](../CONTRIBUTING.md) — build, test and develop locally.
+- [Workspace performance](workspace-performance.md) — bounded inspection/cleanup optimizations, timing diagnostics, measurements and deferred decisions.
 - [Architecture](../ARCHITECTURE.md) — components, task model and process boundaries.
 - [Integration development](integrations.md) — provider contracts and adding a source.
 - [Live provider E2E](live-e2e.md) — hosted CI with real Jira, GitHub and Datadog environments and encrypted OAuth sessions.

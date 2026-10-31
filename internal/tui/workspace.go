@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -354,9 +355,12 @@ func (m model) workspaceListFooter(width int) string {
 	return footer
 }
 
-func (m model) refreshWorkspaceResult(message string, problem error) tea.Cmd {
+func (m model) publishWorkspaceResult(message string, problem error) tea.Cmd {
 	return func() tea.Msg {
-		response, err := client.Call(m.socketPath, "refresh-local")
+		response, err := client.CallWithTimeout(m.socketPath, "resources-mutated", time.Second)
+		// A failed notification cannot make the completed mutation's cached
+		// projection fresh. Keep that fact visible until collection succeeds.
+		response.ResourceRefreshPending = true
 		if problem == nil && err != nil {
 			problem = err
 		}

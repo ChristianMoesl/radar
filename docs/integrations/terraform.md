@@ -215,8 +215,9 @@ GitHub's required-reviewer setting; configure that setting in GitHub first.
 If not already present, add **`TFCTL_TOKEN`** as a personal Terraform user token
 with normal read access to the checked-in fixture scope: `app.terraform.io`, organization `radar-oss`,
 workspace `radar-oauth-e2e`. It must belong to a personal account with permission
-to upload configuration and queue plans in this disposable workspace. The
-approved job creates a fresh run as that account; team/organization tokens cannot
+to upload configuration, queue plans, and apply/cancel/discard fixture runs in
+this disposable workspace. The approved job creates a fresh run as that account;
+team/organization tokens cannot
 establish personal ownership. An explicitly selected existing run must have the
 same creator. No Jira, Datadog or npm setup is needed for this workflow, and no
 token should be sent through chat.
@@ -224,10 +225,10 @@ token should be sent through chat.
 Protect `main` with required reviewed pull requests and blocked force pushes.
 Review the code and dependencies at the selected PR commit before approving:
 code executing with the secret can use the credential, regardless of the
-workflow's intended reads.
+workflow's intended fixture operations.
 Use a dedicated personal Terraform test account restricted to the disposable
 organization/workspace and set token expiry. A user API token inherits that
-account's permissions; the workflow's GET-only behavior does not narrow them.
+account's permissions; Radar's read-only collection does not narrow them.
 The fixture runs must be created by that same account for exact ownership checks.
 Keep the workspace's cloud credentials and infrastructure limited to test resources.
 
@@ -266,6 +267,32 @@ exercise the fixture's deliberate precondition failure. CI requires both the
 expected failure diagnostic and a run URL in the approved workspace; an
 unrelated CLI error or unexpected success fails the job.
 
+The same approval also authorizes the trusted
+[lifecycle harness](../../scripts/terraform-live-lifecycle.py). It uploads only
+the three fixture files as a provisional configuration, with automatic run
+queueing disabled. It creates two personal runs with auto-apply disabled and
+unique revision markers, verifies Attention while confirmation is required,
+and cancels the queued second run. It then stops an isolated production Radar
+daemon, applies the first run, and restarts the daemon after Terraform reaches
+`applied`. Both terminal tasks must retain their original Radar IDs and report
+Done with the actual `applied` or `canceled` outcome.
+
+This stage changes the built-in fixture's Terraform state. Before applying, it
+requires the plan metadata to report zero resource destructions. It refuses a
+locked workspace or an existing unfinished run, validates the exact creator,
+workspace and configuration version before each action, and releases only runs
+created during this check when cleaning up. It does not force-cancel, unlock,
+destroy, change workspace settings, or act on a manually selected `run_id`.
+The fixture creates no external infrastructure.
+
+Recovery checks inject failed list reads and failed service reads at the
+isolated daemon's tfctl boundary while using live account data. They require
+partial/error source status with unchanged task IDs and facts, persistence
+through a restart during the read outage, and a return to healthy collection
+after removing the fault. They do not interrupt HCP Terraform itself or prove
+an actual provider-wide outage. The daemon uses disposable configuration,
+SQLite state, CLI selectors, socket and PID paths; developer state is untouched.
+
 The qualification step passes the same secret to tfctl's standard environment
 authentication with a temporary profile containing only hostname/organization selectors. Normal Radar
 use can continue to reuse an existing CLI login; `TFCTL_TOKEN` is not a required
@@ -288,17 +315,19 @@ Leave the optional `run_id` input empty to create and qualify a fresh personal
 plan-only run. This avoids relying on manual runs or the three-day terminal
 discovery window. Supply a personally created `run-...` ID to qualify a
 specific/older terminal fixture for the collection check. The deliberate failure
-fixture is always created and checked separately under the same approval. Empty discovery
+fixture and lifecycle runs are always created and checked separately under the
+same approval. Empty discovery
 without a selected fixture, incomplete
 scans, failed
 authentication and ownership/scope mismatches fail the run. The workflow forces
 uncached Go execution so a previous live result cannot satisfy a new dispatch.
 
-Create/approve/apply/cancel test runs through Terraform, then dispatch the check
-with those run IDs to record the relevant outcomes. A successful read does not
-prove the complete live transition, outage/recovery, or daemon-restart matrix;
-those remaining #41 scenarios must be recorded separately. Ordinary pull-request
-CI keeps the fixture tests and never receives this workflow's Terraform secret.
+The lifecycle stage builds the selected PR daemon and qualifies the remaining
+transition/recovery scenarios under that same approval. Its success and the
+two source-level Go checks are required before recording the complete live
+matrix. Ordinary pull-request CI runs the lifecycle harness against a read-only
+fake CLI and the real daemon/database, without account access or Terraform
+mutations. It never receives this workflow's Terraform secret.
 
 Hosted smoke validation passed on **2026-10-29** in
 [run 40834019053](https://github.com/ChristianMoesl/radar/actions/runs/40834019053)
@@ -306,8 +335,18 @@ using trusted workflow revision `cf830ea`, Terraform 1.17.0 and tfctl 0.4.0.
 After manual approval, CI created a fresh personal speculative run, discovered
 one `planned_and_finished` run with one plan summary, and passed exact ownership,
 scope, source-ref, open-action and cold-binding checks. Failure acknowledgement
-was not exercised. Apply/approval, cancellation, outage/recovery and daemon
-restart scenarios remain outstanding; this pass does not complete #41's matrix.
+was not exercised in that first run.
+
+Both live scenarios passed on **2026-10-31** in
+[run 41025493654](https://github.com/ChristianMoesl/radar/actions/runs/41025493654),
+using trusted workflow revision `808e663` and approved PR revision `537463d`.
+`TestLiveTerraformCollection` qualified a fresh successful speculative plan.
+`TestLiveTerraformFailureAcknowledgement` qualified a fresh deliberate
+precondition failure: Attention became Done after acknowledgement on a fresh
+read, with `failure_reviewed=true` and Terraform's `errored` outcome retained.
+No apply or destroy was performed in that run. The extended lifecycle stage's
+hosted apply/approval, cancellation, injected read recovery and daemon restart
+results remain pending; #41's live matrix is incomplete until they pass.
 
 This integration adds configuration and generic source facts without changing
 the persisted cache, authored binding schema, or integration-owned file layouts.

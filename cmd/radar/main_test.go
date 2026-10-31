@@ -35,7 +35,7 @@ func TestFatalMessageSerializesWorkspaceReconciliationProblem(t *testing.T) {
 	}
 }
 
-func TestRefreshLocalSourcesAfterReconcileRequestsLocalRefresh(t *testing.T) {
+func TestReconcileAcknowledgesPendingResourcesWithoutGlobalRefresh(t *testing.T) {
 	temporary, err := os.CreateTemp("/tmp", "radar-test-*.sock")
 	if err != nil {
 		t.Fatal(err)
@@ -70,11 +70,11 @@ func TestRefreshLocalSourcesAfterReconcileRequestsLocalRefresh(t *testing.T) {
 		_ = json.NewEncoder(connection).Encode(protocol.Response{OK: true})
 	}()
 
-	if err := refreshLocalSourcesAfterReconcile(); err != nil {
+	if err := notifyResourceMutation(); err != nil {
 		t.Fatal(err)
 	}
-	if got := <-method; got != "refresh-local" {
-		t.Fatalf("method = %q, want refresh-local", got)
+	if got := <-method; got != "resources-mutated" {
+		t.Fatalf("method = %q, want resources-mutated", got)
 	}
 }
 

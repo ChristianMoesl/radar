@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"radar/internal/integration/workspace/group"
 	"radar/internal/logging"
 	"radar/internal/operationlock"
+	"radar/internal/phasetiming"
 	"radar/internal/pi"
 )
 
@@ -192,7 +194,7 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 		return fail(err)
 	}
 	request := ReconcileWorkspaceRequest{creating: true, Workspace: anchor, WorkspaceRoot: root, Revision: revision, Desired: desired, AdditionalSandboxMounts: options.AdditionalSandboxMounts, NoteAuthor: options.NoteAuthor}
-	plan, err := planWorkspace(ctx, runner, root, initial, request)
+	plan, err := planWorkspaceAfterPreflight(ctx, runner, root, initial, request)
 	if err != nil {
 		return fail(err)
 	}
@@ -208,7 +210,16 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 }
 
 func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
+	logger, logFile, _, err := logging.New()
+	if err != nil {
+		return Workspace{}, fmt.Errorf("open workspace creation log: %w", err)
+	}
+	defer logFile.Close()
+	ctx = phasetiming.WithLogger(ctx, logger)
+	defer phasetiming.Start(ctx, "workspace_create")()
+	operationLockDone := phasetiming.Start(ctx, "operation_lock_wait")
 	release, lockErr := operationlock.Acquire(false)
+	operationLockDone()
 	if lockErr != nil {
 		return Workspace{}, lockErr
 	}
@@ -218,16 +229,21 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 		return Workspace{}, err
 	}
 	var result Workspace
+	noteLockDone := phasetiming.Start(ctx, "note_lock_wait")
+	defer noteLockDone()
 	err = workspacegroup.WithNoteLock(root, func() error {
+		noteLockDone()
 		var err error
-		result, err = createWorkspace(ctx, runner, options)
+		result, err = createWorkspace(ctx, runner, options, logger)
 		return err
 	})
 	return result, err
 }
 
-func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
+func createWorkspace(ctx context.Context, runner Runner, options CreateOptions, logger *slog.Logger) (Workspace, error) {
+	planningDone := phasetiming.Start(ctx, "workspace_planning")
 	plan, request, err := planCreate(ctx, runner, options)
+	planningDone()
 	if err != nil {
 		return Workspace{}, err
 	}
@@ -252,11 +268,6 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions) 
 		signal.Notify(hangup, syscall.SIGHUP, syscall.SIGTERM)
 		defer signal.Stop(hangup)
 	}
-	logger, logFile, _, err := logging.New()
-	if err != nil {
-		return Workspace{}, fmt.Errorf("open workspace creation log: %w", err)
-	}
-	defer logFile.Close()
 	if options.PrepareOnly && !plan.create {
 		result, err := applyWorkspacePlan(ctx, runner, logger, request, plan)
 		prepared := Workspace{Name: plan.group.Name, Path: plan.group.Path, SessionName: plan.group.SessionName, SandboxName: sandboxName(plan.group), Warning: result.Warning}
@@ -387,7 +398,13 @@ func planPrepareExisting(ctx context.Context, runner Runner, root string, group 
 			desired.Sandbox.AdditionalMounts = append(desired.Sandbox.AdditionalMounts, DesiredSandboxMount{Path: mount.Path, ReadOnly: &readOnly})
 		}
 	}
-	ports, _, err := observedSandboxPorts(ctx, runner, group)
+	if group.Sandbox != nil {
+		if err := managedClient(runner).Preflight(ctx); err != nil {
+			return ReconcileWorkspacePlan{}, ReconcileWorkspaceRequest{}, err
+		}
+	}
+	observation := observeSandbox(ctx, runner, group)
+	ports, incompatiblePorts, err := observation.ports(ctx, runner, group)
 	if err != nil {
 		return ReconcileWorkspacePlan{}, ReconcileWorkspaceRequest{}, err
 	}
@@ -396,7 +413,7 @@ func planPrepareExisting(ctx context.Context, runner Runner, root string, group 
 		return ReconcileWorkspacePlan{}, ReconcileWorkspaceRequest{}, err
 	}
 	request := ReconcileWorkspaceRequest{creating: true, Workspace: group.Path, WorkspaceRoot: root, Revision: revision, Desired: desired, NoteAuthor: options.NoteAuthor, AdditionalSandboxMounts: options.AdditionalSandboxMounts}
-	plan, err := planWorkspace(ctx, runner, root, group, request)
+	plan, err := planWorkspaceObserved(ctx, runner, root, group, request, observation, ports, incompatiblePorts)
 	plan.prepareOnly = true
 	plan.startSession = false
 	plan.Note = desired.Note

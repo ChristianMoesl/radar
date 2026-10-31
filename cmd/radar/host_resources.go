@@ -184,6 +184,9 @@ func cachedWorkspaceTask(ctx context.Context, workspaceID string) (protocol.Task
 	if !response.OK {
 		return protocol.Task{}, fmt.Errorf("cached task resources unavailable")
 	}
+	if response.ResourceRefreshPending {
+		return protocol.Task{}, fmt.Errorf("resource list refresh pending; refresh Radar before opening resources")
+	}
 	if err := ctx.Err(); err != nil {
 		return protocol.Task{}, err
 	}

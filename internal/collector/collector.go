@@ -99,7 +99,11 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger,
 
 func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Result {
 	collected := CollectSources(ctx, previous, logger, LocalSources(sources))
-	return Result{Tasks: observedTasks(collected), Sources: collected.Sources, SourceNames: collected.SourceNames}
+	complete := make(map[string]bool, len(collected.Results))
+	for name, result := range collected.Results {
+		complete[name] = result.Complete
+	}
+	return Result{Tasks: observedTasks(collected), Sources: collected.Sources, SourceNames: collected.SourceNames, Complete: complete}
 }
 
 func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Collected {

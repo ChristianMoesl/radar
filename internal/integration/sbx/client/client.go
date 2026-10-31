@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"radar/internal/phasetiming"
 	"runtime"
 	"strings"
 
@@ -91,6 +92,14 @@ func (c *Client) Executable() (string, error) {
 func (c *Client) LookPath() error { _, err := c.Executable(); return err }
 
 func (c *Client) Run(ctx context.Context, cwd string, args ...string) (string, error) {
+	if len(args) > 0 {
+		// Only fixed command names enter diagnostics. In particular exec argv,
+		// create environment arguments, and provider output are never logged.
+		switch args[0] {
+		case "version", "ls", "ports", "create", "rm", "publish", "unpublish":
+			defer phasetiming.Start(ctx, "sbx_"+args[0])()
+		}
+	}
 	executable, err := c.Executable()
 	if err != nil {
 		return "", err

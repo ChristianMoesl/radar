@@ -13,6 +13,7 @@ import (
 
 	"radar/internal/cleanup"
 	"radar/internal/integration"
+	"radar/internal/phasetiming"
 	"radar/internal/protocol"
 	"radar/internal/state"
 )
@@ -141,6 +142,7 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 }
 
 func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service, logger *slog.Logger, now time.Time, options Options) (Result, error) {
+	ctx = phasetiming.WithLogger(ctx, logger)
 	plan, err := BuildPlan(store, now, options)
 	if err != nil {
 		return Result{}, err

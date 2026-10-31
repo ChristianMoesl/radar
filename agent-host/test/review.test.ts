@@ -61,7 +61,7 @@ for (const { autoConfirm, mode } of [
         XDG_STATE_HOME: join(dir, "state"),
         RADAR_AGENT_ROOT: join(dir, "agents"),
         RADAR_SOCKET: join(dir, "r.sock"),
-        RADAR_STATE: join(dir, "tasks.json"),
+        RADAR_STATE: join(dir, "state.db"),
         RADAR_PID: join(dir, "radar.pid"),
         RADAR_AGENT_HOST: resolve(import.meta.dirname, "../src/runner.ts"),
         RADAR_DISABLE_COLLECTION: "1",

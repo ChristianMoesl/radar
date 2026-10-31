@@ -968,3 +968,29 @@ test("each resource-opening batch needs a new confirmation", async t => {
   assert.equal(h.confirmations.length, 2);
   assert.equal(h.calls.filter(call => call.args[0] === "open-resource").length, 3);
 });
+
+test("lifecycle hooks use a fresh resource projection while explicit context stays complete", async t => {
+  const h = await harness(t);
+  await h.start();
+  await h.resources();
+  await h.prompt();
+  const lifecycle = h.calls.filter(call => call.args[0] === "workspace-context" && !call.args.includes("--registration-only"));
+  assert.equal(lifecycle.length, 2);
+  assert.ok(lifecycle.every(call => call.args.includes("--resources-only")));
+  await h.tools.get("radar_workspace_context").execute("inspect", {}, undefined, undefined, h.ctx);
+  assert.ok(!h.calls.at(-1)?.args.includes("--resources-only"));
+  await h.resources("reload");
+  assert.ok(h.calls.at(-1)?.args.includes("--resources-only"));
+});
+
+test("failed lifecycle refresh blocks ordinary routing until fresh workspace state is available", async t => {
+  const h = await harness(t);
+  await h.start();
+  await h.resources();
+  h.failInspection();
+  await h.resources("reload");
+  const result = await h.emit("tool_call", { toolName: "bash" });
+  assert.equal(result?.block, true);
+  const repair = await h.emit("tool_call", { toolName: "radar_workspace_context" });
+  assert.equal(repair, undefined);
+});

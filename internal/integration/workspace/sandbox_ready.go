@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"errors"
+	"radar/internal/phasetiming"
 	"time"
 
 	sbxclient "radar/internal/integration/sbx/client"
@@ -42,6 +43,7 @@ func sandboxRuntimeFailurePhase(err error) string {
 }
 
 func waitForSandboxReady(ctx context.Context, runner Runner, anchor string, sandbox *workspacegroup.Sandbox) error {
+	defer phasetiming.Start(ctx, "sandbox_readiness")()
 	if sandbox == nil || len(sandbox.ReadyCommand) == 0 {
 		return nil
 	}

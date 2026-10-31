@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"radar/internal/config"
 	"radar/internal/integration"
@@ -58,9 +59,27 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 	if err != nil {
 		return integration.WorkspaceContext{}, err
 	}
-	repositories, err := DiscoverRepos(ctx, runner, currentDirectory)
-	if err != nil {
-		return integration.WorkspaceContext{}, err
+	var repositories []string
+	var discoveryErr, runtimeErr error
+	var observation sandboxObservation
+	var ports []workspacegroup.SandboxPort
+	changeCounts := make([]int, len(group.Members))
+	memberErrors := make([]error, len(group.Members))
+	// Each task writes only its own result. Assemble in registry order after
+	// joining, including errors, so scheduling cannot change the public result.
+	inspectReads(2+len(group.Members), func(i int) {
+		switch i {
+		case 0:
+			repositories, discoveryErr = DiscoverRepos(ctx, runner, currentDirectory)
+		case 1:
+			observation = observeSandbox(ctx, runner, group)
+			ports, _, runtimeErr = observation.ports(ctx, runner, group)
+		default:
+			changeCounts[i-2], memberErrors[i-2] = worktreeChangeCount(ctx, runner, group.Members[i-2].Path)
+		}
+	})
+	if discoveryErr != nil {
+		return integration.WorkspaceContext{}, discoveryErr
 	}
 	memberRepositories := make(map[string]bool, len(group.Members))
 	for _, member := range group.Members {
@@ -70,7 +89,6 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		}
 	}
 
-	ports, _, runtimeErr := observedSandboxPorts(ctx, runner, group)
 	if runtimeErr != nil {
 		ports = sandboxPorts(group)
 	}
@@ -101,15 +119,12 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 			desiredMounts = append(desiredMounts, integration.DesiredSandboxMount{Path: mount.Path, ReadOnly: &readOnly})
 		}
 		result.Desired.Sandbox = &integration.DesiredWorkspaceSandbox{AdditionalMounts: desiredMounts, Ports: integrationPorts(ports)}
-		actual, found, err := findSandbox(ctx, runner, group.Path, group.Sandbox.Name)
-		if err != nil {
-			runtimeErr = err
-		} else if !found && runtimeErr == nil {
+		if !observation.found && runtimeErr == nil {
 			runtimeErr = fmt.Errorf("sandbox %s is absent; reconcile the retained desired state to provision or retry", group.Sandbox.Name)
 		}
 		result.Sandbox = &integration.WorkspaceContextSandbox{
 			SharedDirectory:      group.Sandbox.SharedDirectory,
-			SharedDirectoryReady: found && sharedDirectoryReady(group.Sandbox.SharedDirectory, sandboxWorkspaceMounts(actual)),
+			SharedDirectoryReady: observation.found && sharedDirectoryReady(group.Sandbox.SharedDirectory, sandboxWorkspaceMounts(observation.actual)),
 			Name:                 group.Sandbox.Name, Agent: group.Sandbox.Agent, KitPath: group.Sandbox.KitPath,
 			Mounts: append([]string(nil), group.Sandbox.Mounts...), Ports: integrationPorts(ports),
 		}
@@ -117,13 +132,12 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 			result.Sandbox.RuntimeError = runtimeErr.Error()
 		}
 	}
-	for _, member := range group.Members {
-		changeCount, err := worktreeChangeCount(ctx, runner, member.Path)
-		if err != nil {
-			return integration.WorkspaceContext{}, err
+	for i, member := range group.Members {
+		if memberErrors[i] != nil {
+			return integration.WorkspaceContext{}, memberErrors[i]
 		}
 		result.Members = append(result.Members, integration.WorkspaceContextMember{
-			Repository: member.Repository, Path: member.Path, Branch: member.Branch, Dirty: changeCount > 0,
+			Repository: member.Repository, Path: member.Path, Branch: member.Branch, Dirty: changeCounts[i] > 0,
 			InstructionFiles: memberInstructionFiles(member.Path), SkillPaths: memberSkillPaths(member.Path),
 		})
 		result.Desired.Worktrees = append(result.Desired.Worktrees, integration.DesiredWorkspaceWorktree{
@@ -136,6 +150,23 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		})
 	}
 	return result, nil
+}
+
+func inspectReads(count int, read func(int)) {
+	var workers sync.WaitGroup
+	jobs := make(chan int)
+	for range min(4, count) {
+		workers.Go(func() {
+			for i := range jobs {
+				read(i)
+			}
+		})
+	}
+	for i := range count {
+		jobs <- i
+	}
+	close(jobs)
+	workers.Wait()
 }
 
 func memberInstructionFiles(root string) []string {

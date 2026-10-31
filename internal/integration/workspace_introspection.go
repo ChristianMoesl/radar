@@ -1,5 +1,30 @@
 package integration
 
+// WorkspaceResources is a fresh lifecycle projection, deliberately without a
+// revision or desired state. It cannot be submitted as a reconciliation plan.
+type WorkspaceResources struct {
+	Registered    bool                      `json:"registered"`
+	WorkspaceID   string                    `json:"workspace_id,omitempty"`
+	WorkspacePath string                    `json:"workspace_path,omitempty"`
+	Note          *WorkspaceContextNote     `json:"note,omitempty"`
+	Sandbox       *WorkspaceResourceSandbox `json:"sandbox,omitempty"`
+	Members       []WorkspaceResourceMember `json:"members"`
+}
+
+type WorkspaceResourceMember struct {
+	Repository       string   `json:"repository"`
+	Path             string   `json:"path"`
+	InstructionFiles []string `json:"instruction_files"`
+	SkillPaths       []string `json:"skill_paths"`
+}
+
+type WorkspaceResourceSandbox struct {
+	Name                 string `json:"name"`
+	SharedDirectory      string `json:"shared_directory,omitempty"`
+	SharedDirectoryReady bool   `json:"shared_directory_ready"`
+	RuntimeError         string `json:"runtime_error,omitempty"`
+}
+
 type WorkspaceContext struct {
 	CurrentPath            string                       `json:"current_path"`
 	WorkspaceRoot          string                       `json:"workspace_root"`

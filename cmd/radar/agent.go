@@ -49,7 +49,11 @@ func agentCall(request protocol.AgentRequest) (json.RawMessage, error) {
 
 func runAgent(args []string) {
 	if len(args) == 0 {
-		fatal(errors.New("usage: radar agent <add|list|inspect|start|stop|restart|emit|message|action|conversation|logs|token|serve>"))
+		fatal(errors.New("usage: radar agent <add|list|inspect|start|stop|restart|remove|schedule|emit|message|action|conversation|logs|token|serve>"))
+	}
+	if args[0] == "schedule" {
+		runAgentSchedule(args[1:])
+		return
 	}
 	op, args := args[0], args[1:]
 	flags := outputFlags("radar agent " + op)
@@ -204,6 +208,32 @@ func printAgentResult(operation string, data json.RawMessage) {
 			fmt.Printf("Collection: %s · pending deliveries: %d\n", value.Collection, value.CollectionPending)
 			if value.CollectionError != "" {
 				fmt.Println("Collection:", value.CollectionError)
+			}
+		}
+		if value.ScheduleError != "" {
+			fmt.Println("Schedules:", value.ScheduleError)
+		}
+		for _, s := range value.Schedules {
+			state := "paused"
+			if s.Enabled {
+				state = "enabled"
+			}
+			fmt.Printf("Schedule: %s · %s · %s at %s %s\n", s.Name, state, strings.Join(s.Weekdays, ","), s.Time, s.Timezone)
+			fmt.Printf("  Payload: %s\n", s.Payload)
+			if !s.NextDue.IsZero() {
+				fmt.Println("  Next due:", s.NextDue.Format(time.RFC3339))
+			}
+			if !s.PendingAt.IsZero() {
+				fmt.Println("  Pending admission:", s.PendingAt.Format(time.RFC3339))
+			}
+			if a := s.LastAdmission; a != nil {
+				fmt.Printf("  Last admission: scheduled %s · admitted %s · task %d · catch-up %t\n", a.ScheduledAt.Format(time.RFC3339), a.AcceptedAt.Format(time.RFC3339), a.TaskID, a.CatchUp)
+			}
+			if !s.LastMissedAt.IsZero() {
+				fmt.Println("  Last missed/coalesced:", s.LastMissedAt.Format(time.RFC3339))
+			}
+			if s.Error != "" {
+				fmt.Println("  Delivery:", s.Error)
 			}
 		}
 		if value.Snapshot != nil {

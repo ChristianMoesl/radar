@@ -105,6 +105,23 @@ func (s *Source) Collect(ctx context.Context, _ integration.CollectRequest) inte
 			signal = integration.SignalAttention
 			summary += "\n" + agent.CollectionError
 		}
+		if len(agent.Schedules) > 0 {
+			enabled := 0
+			for _, s := range agent.Schedules {
+				if s.Enabled {
+					enabled++
+				}
+				if s.Error != "" {
+					signal = integration.SignalAttention
+					summary += "\n" + s.Name + ": " + s.Error
+				}
+			}
+			summary += fmt.Sprintf("\nSchedules: %d enabled, %d paused", enabled, len(agent.Schedules)-enabled)
+		}
+		if agent.ScheduleError != "" {
+			signal = integration.SignalAttention
+			summary += "\n" + agent.ScheduleError
+		}
 		ref := protocol.SourceRef{
 			AgentID: agent.ID,
 			ID:      "agent:instance:" + agent.ID, EntityID: "agent:instance:" + agent.ID, Source: "agent", Kind: "agent",
