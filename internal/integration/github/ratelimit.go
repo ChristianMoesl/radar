@@ -84,23 +84,38 @@ func GraphQLSourceStatus(ctx context.Context, logger *slog.Logger) (protocol.Sou
 		return status, false
 	}
 
-	limits, err := rateLimits(ctx, logger)
+	_, err := rateLimits(ctx, logger)
 	if err != nil {
 		logger.Warn("could not fetch github rate limits; skipping github collection to be safe", "error", err)
 		status.Status = "error"
 		status.Detail = err.Error()
 		return status, false
 	}
-	if !hasBudget("graphql", limits.Resources.GraphQL, minGraphQLRemaining, logger) {
-		until, _ := pausedUntilTime("graphql")
+	// Reading and reserving the remaining budget must be one operation. Multiple
+	// repository workers must not all spend the same last available request.
+	rateState.mu.Lock()
+	defer rateState.mu.Unlock()
+	resource := rateState.response.Resources.GraphQL
+	until := rateState.graphqlUntil
+	if time.Now().Before(until) {
+		status.Status = "paused"
+		status.Detail = fmt.Sprintf("rate limited until %s", until.Format(time.RFC3339))
+		return status, false
+	}
+	if resource.Remaining <= minGraphQLRemaining {
+		until = time.Unix(resource.Reset, 0).Add(5 * time.Second)
+		if resource.Reset == 0 {
+			until = time.Now().Add(15 * time.Minute)
+		}
+		rateState.graphqlUntil = until
+		logger.Warn("github rate limit low; pausing collection until reset", "resource", "graphql", "remaining", resource.Remaining, "limit", resource.Limit, "reset", until.Format(time.RFC3339))
 		status.Status = "paused"
 		status.Detail = fmt.Sprintf("rate limited until %s", until.Format(time.RFC3339))
 		return status, false
 	}
 
-	reserve("graphql", 10)
-	remaining := max(0, limits.Resources.GraphQL.Remaining-10)
-	status.Detail = fmt.Sprintf("graphql %d/%d remaining", remaining, limits.Resources.GraphQL.Limit)
+	rateState.response.Resources.GraphQL.Remaining = max(0, resource.Remaining-10)
+	status.Detail = fmt.Sprintf("graphql %d/%d remaining", rateState.response.Resources.GraphQL.Remaining, resource.Limit)
 	return status, true
 }
 

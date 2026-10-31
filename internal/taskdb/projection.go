@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+
+	"radar/internal/protocol"
 )
 
 // The reconciliation algorithm consumes a snapshot, but durable identity/ack
@@ -73,6 +75,26 @@ func WriteProjection(path string, data []byte) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// WriteProjectionMetadata preserves task and reference rows when only source
+// health changed. It uses the existing projection document and schema.
+func WriteProjectionMetadata(path string, version, nextTaskID int, sources []protocol.SourceStatus) error {
+	statuses, err := json.Marshal(sources)
+	if err != nil {
+		return err
+	}
+	meta, err := json.Marshal(projection{Version: version, NextTaskID: nextTaskID, Sources: statuses})
+	if err != nil {
+		return err
+	}
+	db, err := Open(path)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	_, err = db.Exec("INSERT INTO documents(name,data) VALUES('projection_meta',?) ON CONFLICT(name) DO UPDATE SET data=excluded.data", meta)
+	return err
 }
 
 func ReadProjection(path string) ([]byte, error) {

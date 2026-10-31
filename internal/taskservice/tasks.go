@@ -17,15 +17,21 @@ import (
 // Service coordinates cache publication with authored mutations. Slow source
 // collection stays outside applyMu, so a note edit never waits for remote APIs
 // or Git inspection. Completion/GC also perform a bounded runtime recheck under
-// applyMu. Background refreshes are serialized by the daemon's collection mutex.
+// applyMu. Local and remote collection have separate serialization; publication
+// always combines remote facts with the latest local snapshot under applyMu.
 type Service struct {
-	store               *state.Store
-	logger              *slog.Logger
-	integrations        integration.Registry
-	applyMu             sync.Mutex
-	authoringRevision   uint64
-	resourceRevision    atomic.Uint64
-	resourcePublication atomic.Pointer[resourcePublication]
+	store                 *state.Store
+	logger                *slog.Logger
+	integrations          integration.Registry
+	applyMu               sync.Mutex
+	localMu               sync.Mutex
+	fullMu                sync.Mutex
+	localResult           collector.Result
+	localResourceRevision uint64
+	onRefresh             func([]protocol.Task, []protocol.Task)
+	authoringRevision     uint64
+	resourceRevision      atomic.Uint64
+	resourcePublication   atomic.Pointer[resourcePublication]
 }
 
 type resourcePublication struct {
@@ -39,7 +45,27 @@ func New(store *state.Store, logger *slog.Logger, integrations integration.Regis
 	return service
 }
 
+// SetOnRefresh is configured before starting collectors. The callback receives
+// the exact publication pair after releasing the authoring/publication lock.
+func (s *Service) SetOnRefresh(callback func([]protocol.Task, []protocol.Task)) *Service {
+	s.onRefresh = callback
+	return s
+}
+
 func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result {
+	if ctx.Err() != nil {
+		return collector.Result{}
+	}
+	if localOnly {
+		s.localMu.Lock()
+		defer s.localMu.Unlock()
+	} else {
+		s.fullMu.Lock()
+		defer s.fullMu.Unlock()
+		// Publish fresh local facts and authoring bindings before contacting any
+		// remote provider, including the first collection after reset/startup.
+		s.Refresh(ctx, true)
+	}
 	s.applyMu.Lock()
 	revision := s.authoringRevision
 	resourceRevision := s.resourceRevision.Load()
@@ -49,17 +75,46 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 	if localOnly {
 		result = collector.CollectLocal(ctx, s.store.CollectionTasks(), s.logger, s.integrations.Sources())
 	} else {
-		result = collector.Collect(ctx, s.store.CollectionTasks(), s.logger, s.integrations.Sources())
+		result = collector.CollectRemote(ctx, s.store.CollectionTasks(), s.logger, s.integrations.Sources())
 	}
 
 	s.applyMu.Lock()
-	defer s.applyMu.Unlock()
+	var previous, current []protocol.Task
+	defer func() {
+		s.applyMu.Unlock()
+		if s.onRefresh != nil && current != nil {
+			s.onRefresh(previous, current)
+		}
+	}()
+	if ctx.Err() != nil {
+		return collector.Result{}
+	}
 	if resourceRevision != s.resourceRevision.Load() {
 		// A completed resource mutation supersedes this entire observation.
 		// Never publish it or clear the pending marker, even if every provider
 		// reported success. The next scheduled collection starts a fresh read.
 		s.logger.Debug("collection superseded by resource mutation")
 		return collector.Result{Tasks: s.store.CollectionTasks(), Sources: s.store.Sources()}
+	}
+	if !localOnly {
+		observerErrors := append([]protocol.SourceStatus(nil), result.Sources...)
+		for _, source := range collector.LocalSources(s.integrations.Sources()) {
+			name := source.Descriptor().Name
+			result.ReplaceSource(name, s.localResult.ForSource(name))
+			if s.localResourceRevision != resourceRevision {
+				result.Complete[name] = false
+			}
+		}
+		// Remote event persistence can fail in a local observer. Retain that
+		// error instead of replacing it with the observer's earlier health.
+		for _, status := range observerErrors {
+			for i := range result.Sources {
+				if result.Sources[i].Name == status.Name {
+					result.Sources[i] = status
+				}
+			}
+		}
+		result.OrderSources(s.integrations.Sources())
 	}
 	if revision != s.authoringRevision {
 		// A mutation won while collection was in flight. Re-read only the
@@ -72,15 +127,17 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 			}
 		}
 	}
+	previous = s.store.Tasks()
 	if localOnly {
 		s.applyLocal(result)
 		if collector.ReconcileAuthoredActivity(ctx, s.store.CollectionTasks(), &result, s.integrations.Sources(), s.logger) {
+			s.authoringRevision++
 			s.applyLocal(result)
 		} else {
 			s.store.SetSources(mergeSourceStatuses(s.store.Sources(), result.Sources))
 		}
 	} else {
-		s.store.SetTasks(result.Tasks)
+		s.store.SetCollection(result.Tasks, nil, result.Sources)
 		// New contributors must be durably bound before this refresh returns,
 		// even when a mutation fenced its remote snapshot. Only lifecycle is
 		// deferred: stale facts must not undo manual completion or reopening.
@@ -89,14 +146,21 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 			reconcile = collector.ReconcileAuthoredBindings
 		}
 		if reconcile(ctx, s.store.CollectionTasks(), &result, s.integrations.Sources(), s.logger) {
-			s.store.SetTasks(result.Tasks)
+			s.store.SetCollection(result.Tasks, nil, result.Sources)
 		}
+		// Reconciliation can write canonical authoring state before reporting a
+		// later error. Fence local reads that overlapped this publication too.
+		s.authoringRevision++
 		s.store.SetSources(result.Sources)
 	}
 	for _, taskID := range result.PendingAgentReviews {
 		s.store.RequireAgentReview(taskID)
 	}
-	if ctx.Err() == nil && s.localCollectionComplete(result) {
+	current = s.store.Tasks()
+	if localOnly {
+		s.localResourceRevision = resourceRevision
+	}
+	if s.localResourceRevision == resourceRevision && s.localCollectionComplete(result) {
 		s.resourcePublication.Store(&resourcePublication{epoch: resourceRevision, storeRevision: s.store.Revision()})
 	}
 	return result
@@ -142,8 +206,16 @@ func (s *Service) localCollectionComplete(result collector.Result) bool {
 }
 
 func (s *Service) applyLocal(result collector.Result) {
-	s.store.SetTasksForSources(result.Tasks, result.SourceNames)
-	s.store.SetSources(mergeSourceStatuses(s.store.Sources(), result.Sources))
+	if len(result.SourceNames) == 0 {
+		return
+	}
+	s.store.SetCollection(result.Tasks, result.SourceNames, mergeSourceStatuses(s.store.Sources(), result.Sources))
+	if s.localResult.Complete == nil {
+		s.localResult.Complete = map[string]bool{}
+	}
+	for _, name := range result.SourceNames {
+		s.localResult.ReplaceSource(name, result.ForSource(name))
+	}
 }
 
 // GuardCleanup lets a reopen win during preview, but prevents lifecycle changes

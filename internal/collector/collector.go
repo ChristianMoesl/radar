@@ -42,6 +42,22 @@ func LocalSources(sources []integration.Source) []integration.Source {
 
 func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Result {
 	collected := CollectSources(ctx, previous, logger, sources)
+	return reconcileSources(ctx, previous, logger, sources, collected)
+}
+
+// CollectRemote uses the freshly published authoring bindings in previous.
+// Local sources remain event observers but are never collected a second time.
+func CollectRemote(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Result {
+	var remotes []integration.Source
+	for _, source := range sources {
+		if local, ok := source.(integration.LocalSource); !ok || !local.Local() {
+			remotes = append(remotes, source)
+		}
+	}
+	return reconcileSources(ctx, previous, logger, sources, CollectSources(ctx, previous, logger, remotes))
+}
+
+func reconcileSources(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source, collected Collected) Result {
 	active := observedTasks(collected)
 	for _, source := range sources {
 		reconciler, ok := source.(integration.Reconciler)
@@ -80,11 +96,16 @@ func Collect(ctx context.Context, previous []protocol.Task, logger *slog.Logger,
 			if observer, ok := candidate.(integration.CollectionObserver); ok {
 				if err := observer.ObserveCollection(ctx, source.Descriptor().Name, items); err != nil {
 					logger.Error("collection event persistence failed", "source", source.Descriptor().Name, "error", err)
+					found := false
 					for i := range collected.Sources {
 						if collected.Sources[i].Name == candidate.Descriptor().Name {
+							found = true
 							collected.Sources[i].Status = "error"
 							collected.Sources[i].Detail = err.Error()
 						}
+					}
+					if !found {
+						collected.Sources = append(collected.Sources, protocol.SourceStatus{Name: candidate.Descriptor().Name, Status: "error", Detail: err.Error()})
 					}
 				}
 			}

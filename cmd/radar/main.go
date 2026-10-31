@@ -755,7 +755,9 @@ func runDaemon() {
 	cleanupService := cleanup.New(integrations.CleanupProviders())
 	notificationService := notification.New(logger)
 	collectionMu := &sync.Mutex{}
-	tasks := taskservice.New(store, logger, integrations)
+	tasks := taskservice.New(store, logger, integrations).SetOnRefresh(func(previous, current []protocol.Task) {
+		notifyActionableTransitions(ctx, previous, current, logger, integrations, notificationService)
+	})
 	refresh := refresher(ctx, store, logger, collectionMu, integrations, cleanupService, notificationService, tasks)
 	garbageCollect := garbageCollector(ctx, store, logger, collectionMu, integrations, cleanupService, notificationService, tasks)
 	if collectionDisabled() {
@@ -925,6 +927,8 @@ func collectionDisabled() bool {
 }
 
 func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu *sync.Mutex, integrations integration.Registry, cleanupService cleanup.Service, notificationService notification.Service, tasks *taskservice.Service) func(refreshScope, bool) {
+	var requestMu sync.Mutex
+	var fullDone chan struct{}
 	var lastFullRefresh time.Time
 	var lastWorkspaceGC time.Time
 
@@ -933,20 +937,42 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 			logger.Debug("refresh skipped; source collection disabled", "scope", scope, "force", force)
 			return
 		}
-		mu.Lock()
-
-		if scope == refreshFull && !force && time.Since(lastFullRefresh) < fullRefreshInterval {
-			mu.Unlock()
-			logger.Debug("full refresh skipped; recently refreshed")
-			return
-		}
 		if scope == refreshFull {
+			requestMu.Lock()
+			if fullDone != nil {
+				done := fullDone
+				requestMu.Unlock()
+				logger.Debug("full refresh coalesced")
+				select {
+				case <-done:
+				case <-ctx.Done():
+				}
+				return
+			}
+			if !force && time.Since(lastFullRefresh) < fullRefreshInterval {
+				requestMu.Unlock()
+				logger.Debug("full refresh skipped; recently refreshed")
+				return
+			}
+			fullDone = make(chan struct{})
 			lastFullRefresh = time.Now()
+			requestMu.Unlock()
+			defer func() {
+				requestMu.Lock()
+				close(fullDone)
+				fullDone = nil
+				requestMu.Unlock()
+			}()
+		} else {
+			mu.Lock()
 		}
 
 		logger.Debug("refresh started", "scope", scope, "force", force)
-		previous := store.Tasks()
 		result := tasks.Refresh(ctx, scope == refreshLocal)
+		// Remote collection never owns the local/cleanup mutex.
+		if scope == refreshFull {
+			mu.Lock()
+		}
 		var gcNotification *protocol.GarbageCollectionResult
 		if time.Since(lastWorkspaceGC) >= time.Hour {
 			lastWorkspaceGC = time.Now()
@@ -968,13 +994,11 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 				}
 			}
 		}
-		current := store.Tasks()
 		mu.Unlock()
 
 		if gcNotification != nil {
 			notificationService.NotifyGarbageCollection(ctx, *gcNotification)
 		}
-		notifyActionableTransitions(ctx, previous, current, logger, integrations, notificationService)
 		logger.Debug("refresh finished", "scope", scope, "tasks", len(result.Tasks), "sources", len(result.Sources))
 	}
 }
@@ -1084,22 +1108,35 @@ func resetter(ctx context.Context, logger *slog.Logger, mu *sync.Mutex, tasks *t
 }
 
 func refreshLoop(ctx context.Context, refresh func(refreshScope, bool)) {
-	refresh(refreshFull, false)
-	localTicker := time.NewTicker(localRefreshInterval)
-	defer localTicker.Stop()
-	fullTicker := time.NewTicker(fullRefreshInterval)
-	defer fullTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-localTicker.C:
-			refresh(refreshLocal, false)
-		case <-fullTicker.C:
-			refresh(refreshFull, false)
+	// One worker per scope prevents either cadence from waiting for the other,
+	// without spawning a goroutine or queuing a refresh for every missed tick.
+	var workers sync.WaitGroup
+	workers.Go(func() {
+		ticker := time.NewTicker(fullRefreshInterval)
+		defer ticker.Stop()
+		refresh(refreshFull, false)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				refresh(refreshFull, false)
+			}
 		}
-	}
+	})
+	workers.Go(func() {
+		ticker := time.NewTicker(localRefreshInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				refresh(refreshLocal, false)
+			}
+		}
+	})
+	workers.Wait()
 }
 
 func callDaemon(method string) {
