@@ -21,6 +21,14 @@ recorded.
 
 ## Evidence and next qualification
 
+- [Host-package staging](https://github.com/ChristianMoesl/radar/actions/runs/41222552495)
+  passed host checks, relevant Go integration tests and the packed isolated
+  installation, then npm returned `ENEEDAUTH`. No package was staged or
+  published; publisher setup remains a maintainer step.
+- The separate [Terraform lifecycle run](https://github.com/ChristianMoesl/radar/actions/runs/41222566350)
+  reproduced a regression after its collection and acknowledgement checks
+  passed. Its offline real-daemon lifecycle test passes; the live error needs
+  diagnosis. This is a follow-up to the previously qualified closed #41.
 - [Normal CI for the MCP revision](https://github.com/ChristianMoesl/radar/actions/runs/41216568689) passed.
 - [Selected MCP read matrix](mcp-reads-2026-10-31.json) passed on Linux amd64,
   Linux arm64 and macOS arm64. It used read-only Jira and Datadog requests,

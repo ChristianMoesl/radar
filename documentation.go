@@ -13,7 +13,7 @@ import (
 // Include root guides too: links in the documentation index must remain useful
 // without a source checkout. Embed only public documentation, never configuration.
 //
-//go:embed README.md ARCHITECTURE.md CONTRIBUTING.md docs/*.md docs/integrations/*.md sandbox/README.md
+//go:embed README.md ARCHITECTURE.md CONTRIBUTING.md docs/*.md docs/integrations/*.md docs/qualification/*.md sandbox/README.md
 var sources embed.FS
 
 type Topic struct {

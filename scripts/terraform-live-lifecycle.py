@@ -31,6 +31,20 @@ class Failure(Exception):
     pass
 
 
+def failure_message(error):
+    if isinstance(error, Failure):
+        return str(error)
+    # Only trusted function names and line numbers, never exception values,
+    # provider JSON, local variables, URLs or source text.
+    location = ""
+    frame = error.__traceback__
+    while frame is not None:
+        if frame.tb_frame.f_code.co_filename == __file__:
+            location = f" at {frame.tb_frame.f_code.co_name}:{frame.tb_lineno}"
+        frame = frame.tb_next
+    return f"Terraform live lifecycle qualification failed{location} ({type(error).__name__}); check the isolated fixture and its run history."
+
+
 def require(condition, message):
     if not condition:
         raise Failure(message)
@@ -387,10 +401,8 @@ def main():
         print("Terraform live lifecycle qualification passed: approval, cancellation, injected read recovery and restart/apply catch-up.")
         return 0
     except (Failure, OSError, ValueError, KeyError, TypeError, StopIteration):
-        # Unexpected provider JSON can contain secrets; publish only our static
-        # Failure messages, never exception values from parsers or transports.
         error = sys.exc_info()[1]
-        print(str(error) if isinstance(error, Failure) else "Terraform live lifecycle qualification failed; check the isolated fixture and its run history.", file=sys.stderr)
+        print(failure_message(error), file=sys.stderr)
         return 1
 
 

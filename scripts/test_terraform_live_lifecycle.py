@@ -217,6 +217,21 @@ class LifecycleSafeguards(unittest.TestCase):
                 live.wait_for(lambda: None, lambda value: False, "fixture", timeout=5)
         sleep.assert_not_called()
 
+    def test_unexpected_failure_identifies_trusted_location_without_private_values(self):
+        for error in (KeyError("private-provider-token"), ValueError("https://private.example/callback?code=secret")):
+            with self.subTest(kind=type(error).__name__), \
+                    patch.object(sys, "argv", [str(SCRIPT), "--configuration", str(self.configuration), "--radar", "/unused/radar"]), \
+                    patch.dict(os.environ, {"TFCTL_TOKEN": "synthetic-token"}), \
+                    patch.object(live, "Fixture") as fixture, patch.object(live, "Daemon"), \
+                    patch.object(live, "qualify", side_effect=error), patch.object(sys, "stderr", new_callable=io.StringIO) as output:
+                fixture.return_value.cleanup.return_value = True
+                self.assertEqual(live.main(), 1)
+                diagnostic = output.getvalue()
+                self.assertRegex(diagnostic, r"failed at main:\d+")
+                self.assertIn(type(error).__name__, diagnostic)
+                for private in ("private", "synthetic-token", "code=secret", "/unused/radar"):
+                    self.assertNotIn(private, diagnostic)
+
     def test_fault_proxy_blocks_mutations_and_injects_only_the_selected_reads(self):
         fault = self.directory / "fault"
         env = {"RADAR_LIVE_TFCTL_FAULT": str(fault), "RADAR_LIVE_TFCTL_REAL": "/verified/tfctl"}
