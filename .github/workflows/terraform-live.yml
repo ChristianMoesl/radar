@@ -9,7 +9,7 @@ on:
         type: string
         required: true
       run_id:
-        description: Existing personal run for collection; empty creates one. A fresh failure fixture is always tested.
+        description: Existing personal run for collection; empty creates one. Failure and apply/cancel fixtures always run.
         type: string
         required: false
 
@@ -55,7 +55,7 @@ jobs:
     environment:
       name: live-e2e
       url: https://github.com/${{ github.repository }}/commit/${{ needs.readiness.outputs.sha }}
-    timeout-minutes: 30
+    timeout-minutes: 50
     steps:
       # Keep approval/control code on the trusted dispatch revision. The PR's
       # workflow and gate helper are never used to authorize its own execution.
@@ -78,6 +78,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: candidate/go.mod
+          cache-dependency-path: candidate/go.sum
       - name: Require both qualification tests in the selected PR revision
         working-directory: candidate
         run: |
@@ -88,6 +89,9 @@ jobs:
               exit 1
             fi
           done
+      - name: Build the selected PR daemon for isolated lifecycle validation
+        working-directory: candidate
+        run: go build -o "$RUNNER_TEMP/radar-terraform-live" ./cmd/radar
       - name: Install checksum-pinned Terraform CLIs
         run: |
           curl -fsSL https://releases.hashicorp.com/tfctl/0.4.0/tfctl_0.4.0_linux_amd64.zip -o "$RUNNER_TEMP/tfctl.zip"
@@ -138,3 +142,8 @@ jobs:
           RADAR_TEST_TERRAFORM_WORKSPACE: radar-oauth-e2e
           RADAR_TEST_TERRAFORM_RUN_ID: ${{ steps.failure.outputs.run_id }}
         run: go test ./internal/integration/terraform -run '^TestLiveTerraformFailureAcknowledgement$' -count=1 -timeout=4m -v
+      - name: Qualify approval, apply, cancellation and daemon recovery in the disposable workspace
+        timeout-minutes: 20
+        env:
+          TFCTL_TOKEN: ${{ secrets.TFCTL_TOKEN }}
+        run: python3 control/scripts/terraform-live-lifecycle.py --configuration "$GITHUB_WORKSPACE/control/testdata/terraform-live" --radar "$RUNNER_TEMP/radar-terraform-live"

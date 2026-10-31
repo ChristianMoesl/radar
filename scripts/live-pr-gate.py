@@ -92,7 +92,11 @@ def main():
                               f"commit [`{sha}`]({server}/{repository}/commit/{sha}).\n\n"
                               "Review this exact revision before approving the **live-e2e** deployment. "
                               "Approval allows its code and dependencies to use the dedicated Terraform test token. "
-                              "A changed PR head requires a new dispatch and approval.\n")
+                              "A changed PR head requires a new dispatch and approval.\n\n"
+                              "The trusted fixture harness uploads configuration, applies a built-in `terraform_data` fixture "
+                              "and cancels another run in `radar-oss/radar-oauth-e2e`. It checks zero planned resource "
+                              "destructions before apply. No external infrastructure is created or destroyed. "
+                              "Recovery checks interrupt only the isolated daemon's read connection.\n")
         print(f"PR #{number} at {sha}: metadata and required approval settings verified.")
         return 0
     except (ValueError, KeyError, TypeError, OSError) as error:

@@ -97,6 +97,8 @@ class ApprovalGate(unittest.TestCase):
             self.assertIn(f"https://github.com/acme/radar/commit/{self.sha}", summary.read_text())
             self.assertIn("**live-e2e**", summary.read_text())
             self.assertIn("Terraform test token", summary.read_text())
+            self.assertIn("applies a built-in `terraform_data` fixture", summary.read_text())
+            self.assertIn("zero planned resource destructions", summary.read_text())
 
     def test_post_approval_verification_requires_the_pinned_revision(self):
         with patch.dict("os.environ", self.env, clear=True), patch("sys.argv", ["gate", "verify"]), \
