@@ -301,8 +301,17 @@ using trusted workflow revision `cf830ea`, Terraform 1.17.0 and tfctl 0.4.0.
 After manual approval, CI created a fresh personal speculative run, discovered
 one `planned_and_finished` run with one plan summary, and passed exact ownership,
 scope, source-ref, open-action and cold-binding checks. Failure acknowledgement
-was not exercised. Apply/approval, cancellation, outage/recovery and daemon
-restart scenarios remain outstanding; this pass does not complete #41's matrix.
+was not exercised in that first run.
+
+Both live scenarios passed on **2026-10-31** in
+[run 41025493654](https://github.com/ChristianMoesl/radar/actions/runs/41025493654),
+using trusted workflow revision `808e663` and approved PR revision `537463d`.
+`TestLiveTerraformCollection` qualified a fresh successful speculative plan.
+`TestLiveTerraformFailureAcknowledgement` qualified a fresh deliberate
+precondition failure: Attention became Done after acknowledgement on a fresh
+read, with `failure_reviewed=true` and Terraform's `errored` outcome retained.
+No apply or destroy was performed. Apply/approval, cancellation, outage/recovery
+and daemon restart scenarios remain outstanding; #41's live matrix is incomplete.
 
 This integration adds configuration and generic source facts without changing
 the persisted cache, authored binding schema, or integration-owned file layouts.
