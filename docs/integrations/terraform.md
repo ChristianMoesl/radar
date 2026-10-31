@@ -339,9 +339,26 @@ using trusted workflow revision `808e663` and approved PR revision `537463d`.
 `TestLiveTerraformFailureAcknowledgement` qualified a fresh deliberate
 precondition failure: Attention became Done after acknowledgement on a fresh
 read, with `failure_reviewed=true` and Terraform's `errored` outcome retained.
-No apply or destroy was performed in that run. The extended lifecycle stage's
-hosted apply/approval, cancellation, injected read recovery and daemon restart
-results remain pending; #41's live matrix is incomplete until they pass.
+No apply or destroy was performed in that run.
+
+The complete hosted smoke matrix passed on **2026-10-31** in
+[run 41193871929](https://github.com/ChristianMoesl/radar/actions/runs/41193871929),
+using trusted workflow revision `c6ed5d2`, approved PR revision `2b8a42d`,
+Terraform 1.17.0 and tfctl 0.4.0. Both source-level Go checks passed again. The
+production daemon observed Attention while apply confirmation was required,
+then confirmed cancellation as Done with the `canceled` outcome. Injected list
+and service read failures retained task IDs and facts, including through a
+restart during the read outage; removing the fault restored healthy collection.
+While the daemon was stopped, the trusted fixture harness applied the built-in
+configuration after verifying zero planned resource destructions. Restart
+recovered Done with the `applied` outcome and the original task ID. No destroy
+was performed. Recovery evidence uses live account data with injected read
+failures; it does not claim a provider-wide outage.
+
+[Full CI for `c6ed5d2`](https://github.com/ChristianMoesl/radar/actions/runs/41193800919)
+also passed every job, including the integrated test suite, all three released
+provider CLI contract targets, and 64 offline live-harness checks. These results
+complete #41's qualification matrix.
 
 This integration adds configuration and generic source facts without changing
 the persisted cache, authored binding schema, or integration-owned file layouts.
