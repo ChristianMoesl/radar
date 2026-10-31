@@ -1,0 +1,31 @@
+{
+  "checks": [
+    {
+      "name": "Jira OAuth production collection, pagination and daemon retention",
+      "status": "passed",
+      "seconds": 132.21
+    },
+    {
+      "name": "GitHub PR references through Radar's provider",
+      "status": "passed",
+      "seconds": 7.14
+    },
+    {
+      "name": "Datadog OAuth, live monitor lifecycle and daemon persistence",
+      "status": "passed",
+      "seconds": 302.18
+    }
+  ],
+  "date": "2026-10-31",
+  "revision": "6ee4a36",
+  "platform": "linux/amd64",
+  "scope": "Host collectors; native TWG 1.3.8, Pup 2.0.0 and existing gh OAuth transport",
+  "excluded": [
+    "MCP provider authentication/reads",
+    "Server-side revocation",
+    "Browser onboarding on other platforms",
+    "Hosted live CI"
+  ],
+  "cleanup": "Both approved non-notifying monitors recovered to healthy; isolated daemons stopped and temporary state removed.",
+  "datadog_natural_expiry": "Before forced refresh checks, the existing idle session automatically refreshed during pup auth status and reported valid OAuth with a new one-hour expiry. No credential file was inspected."
+}

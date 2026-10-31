@@ -69,7 +69,7 @@ jobs:
           curl -fsSL https://teamwork-graph.atlassian.com/cli/install -o "$RUNNER_TEMP/install-twg.sh"
           TWG_CONFIG_DIR="$RUNNER_TEMP/twg-install" bash "$RUNNER_TEMP/install-twg.sh" --version 1.3.8 --install-dir "$RUNNER_TEMP/live-bin" --skip-login --skip-skills --yes
           echo "$RUNNER_TEMP/live-bin" >> "$GITHUB_PATH"
-      - name: Restore CLI-owned sessions
+      - name: Restore CLI and MCP client-owned sessions
         id: restore
         env:
           LIVE_CONFIG: ${{ vars.RADAR_LIVE_E2E_CONFIG }}
@@ -98,7 +98,7 @@ jobs:
         if: always() && steps.checkpoint.outcome == 'success'
         timeout-minutes: 7
         run: python3 scripts/live-e2e.py --config "$RUNNER_TEMP/live-config.json" --report-dir "$RUNNER_TEMP/live-e2e-recovery" --recover-only
-      - name: Save rotated sessions even after failed tests
+      - name: Save rotated CLI and MCP sessions even after failed tests
         if: always() && steps.restore.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.LIVE_E2E_STATE_WRITER_TOKEN }}

@@ -26,6 +26,23 @@ class Safeguards(unittest.TestCase):
         with patch.dict("os.environ", {"RADAR_BINARY": "/tmp/radar"}):
             self.suite = live.Suite(self.config, self.directory)
 
+    def stores(self):
+        for key, files in (("datadog", {"sessions.json": "fixture registry", "tokens_example.json": "synthetic fixture"}),
+                           ("jira", {"auth-profiles.json": "synthetic fixture", "nested/context.json": "fixture metadata"})):
+            root = self.directory / key
+            self.config[key]["config_dir"] = str(root)
+            for name, contents in files.items():
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(contents)
+        public = self.directory / "mcp.json"
+        public.write_text(json.dumps({"mcpServers": {"datadog": {"url": "https://mcp.datadoghq.eu/v1/mcp"}}}))
+        self.config["mcp"].update(config_file=str(public), state_dir=str(self.directory / "mcp-state"))
+        profile = self.directory / "mcp-state/datadog"
+        profile.mkdir(parents=True)
+        (profile / "oauth.json").write_text("opaque synthetic client-owned state")
+        (profile / "lock.sqlite").write_text("transient lock must not be copied")
+
     def test_wrong_second_monitor_prevents_all_writes(self):
         first = {"name": live.NAMES["states"], "type": "query alert", "tags": ["radar-oauth-e2e"], "message": "fixture"}
         second = {**first, "name": "An unrelated monitor"}
@@ -79,28 +96,79 @@ class Safeguards(unittest.TestCase):
         self.assertEqual(live.ET.parse(report / "junit.xml").getroot().attrib["failures"], "1")
 
     def test_opaque_state_round_trip_uses_private_file_permissions(self):
-        for key, files in (("datadog", {"sessions.json": "fixture registry", "tokens_example.json": "synthetic fixture"}),
-                           ("jira", {"auth-profiles.json": "synthetic fixture", "nested/context.json": "fixture metadata"})):
-            root = self.directory / key
-            self.config[key]["config_dir"] = str(root)
-            for name, contents in files.items():
-                target = root / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(contents)
+        self.stores()
         destination = self.directory / "restored"
         state.unpack(state.pack(self.config), destination)
         self.assertEqual((destination / "pup/tokens_example.json").read_text(), "synthetic fixture")
         self.assertEqual((destination / "twg/nested/context.json").read_text(), "fixture metadata")
         self.assertEqual((destination / "pup/tokens_example.json").stat().st_mode & 0o777, 0o600)
         self.assertEqual(destination.stat().st_mode & 0o777, 0o700)
+        self.assertEqual((destination / "mcp/state/datadog/oauth.json").read_text(), "opaque synthetic client-owned state")
+        self.assertFalse((destination / "mcp/state/datadog/lock.sqlite").exists())
+        self.assertEqual((destination / "mcp/state/datadog/oauth.json").stat().st_mode & 0o777, 0o600)
 
     def test_state_restore_rejects_parent_traversal_before_writing(self):
-        data = {"version": 1, "providers": {"pup": {"../outside": ""}, "twg": {"auth-profiles.json": ""}}}
+        data = {"version": state.VERSION, "providers": {"pup": {"../outside": ""}, "twg": {"auth-profiles.json": ""}, "mcp": {"config.json": ""}}}
         bundle = base64.b64encode(gzip.compress(json.dumps(data).encode())).decode()
         target = self.directory / "restored"
         with self.assertRaises(ValueError):
             state.unpack(bundle, target)
         self.assertFalse(target.exists())
+
+    def test_old_two_provider_bundle_requires_explicit_reseed(self):
+        data = {"version": 1, "providers": {"pup": {}, "twg": {}}}
+        bundle = base64.b64encode(gzip.compress(json.dumps(data).encode())).decode()
+        target = self.directory / "restored"
+        with self.assertRaisesRegex(ValueError, "re-seed"):
+            state.unpack(bundle, target)
+        self.assertFalse(target.exists())
+
+    def test_ci_mcp_profiles_reject_processes_and_static_credentials(self):
+        self.stores()
+        public = Path(self.config["mcp"]["config_file"])
+        for server in ({"command": "untrusted-command"},
+                       {"url": "https://mcp.example.test", "headers": {"Authorization": "fixture"}},
+                       {"url": "https://mcp.example.test?token=fixture"},
+                       {"url": "https://mcp.example.test", "oauth": {"clientSecret": "fixture"}}):
+            with self.subTest(server=server):
+                public.write_text(json.dumps({"mcpServers": {"datadog": server}}))
+                with self.assertRaises(ValueError):
+                    state.pack(self.config)
+
+    def test_restore_rewrites_only_runner_store_selectors(self):
+        self.stores()
+        bundle = state.pack(self.config)
+        config_path, target = self.directory / "selectors.json", self.directory / "restored"
+        config_path.write_text(json.dumps(self.config))
+        with patch.dict("os.environ", {state.SECRET: bundle}), patch("sys.argv", [
+                "live-e2e-state.py", "restore", "--config", str(config_path), "--session-dir", str(target)]), patch("builtins.print"):
+            self.assertEqual(state.main(), 0)
+        saved = json.loads(config_path.read_text())
+        self.assertEqual(saved["mcp"]["reads"], self.config["mcp"]["reads"])
+        self.assertEqual(saved["mcp"]["config_file"], str(target / "mcp/config.json"))
+        self.assertEqual(saved["mcp"]["state_dir"], str(target / "mcp/state"))
+        self.assertEqual(saved["jira"]["config_dir"], str(target / "twg"))
+
+    def test_mcp_live_reads_use_the_selected_host_client_without_workspace_execution(self):
+        with patch.object(live, "command") as command:
+            self.suite.mcp_reads()
+        argv, env = command.call_args.args
+        self.assertEqual(argv[0], "node")
+        self.assertEqual(env["RADAR_MCP_CONFIG"], self.config["mcp"]["config_file"])
+        self.assertEqual(env["RADAR_MCP_STATE_DIR"], self.config["mcp"]["state_dir"])
+        self.assertEqual(json.loads(Path(env["RADAR_TEST_MCP_FIXTURES"]).read_text()), self.config["mcp"]["reads"])
+
+    def test_full_live_gate_requires_all_four_read_contracts_and_excludes_logs(self):
+        live.validate(self.config)
+        self.config["mcp"]["reads"][0]["tool"] = "search_datadog_logs"
+        with self.assertRaises(live.Failure):
+            live.validate(self.config)
+
+    def test_monitor_recovery_does_not_depend_on_mcp_setup(self):
+        del self.config["mcp"]
+        live.validate(self.config, mcp_required=False)
+        with self.assertRaises(KeyError):
+            live.validate(self.config)
 
     def test_state_save_uses_stdin_and_the_environment_secret(self):
         with patch.object(state, "pack", return_value="synthetic fixture"), \

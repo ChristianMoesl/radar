@@ -136,14 +136,14 @@ workspace directory was retained unchanged.
 | TWG authentication | Named OAuth metadata, domain/Cloud ID/account and successful `doctor` connectivity checked before each request; actual-binary tests characterize missing profiles, saved PATs and the accepted check/request race | Atomic dispatch is an accepted limitation, not a core blocker |
 | Onboarding | Shared install/version/login/retry/defer flow and all terminal integration-choice fixtures pass; real Linux device login succeeded | Full foreground browser/SSO/callback matrix on supported platforms |
 | Read-only Jira assistant | Real native issue/comment reads through a registered local workspace passed; host MCP fixtures cover pagination, incomplete reads, conversation retention and restart/retry | Live host MCP issue/comment contract; reply posting is separate #42 |
-| Datadog monitors | Previous live EU daemon checks covered Alert/Warn/No Data/OK, stable IDs, missing login and restart; six concurrent forced refreshes plus later reads passed | Natural expiry and revocation |
+| Datadog monitors | Live EU collector harness passed again on 2026-10-31: Alert/Warn/No Data/OK, stable IDs, missing login/restart and six concurrent forced refreshes; the idle session also renewed naturally before forced checks. Released-binary tests cover 403/429, malformed/truncated responses, cancellation and timeout without recovering prior alerts | Server-side revocation and remaining platform checks |
 | Datadog investigator | Previous live numeric metric samples through local workspace execution; durable conversation/retry/recovery fixtures | Live host MCP metrics/monitor reads; logs/traces remain outside the approved scope |
 | Sandbox | Linux amd64 development image built and passed offline smoke tests on 2026-10-31, including absence of Pup/TWG/tfctl; workspace executor retains its boundary | Multi-platform image/runtime CI and host MCP live checks |
 
 Reproduce offline release contracts with checksum-verified binaries:
 
 ```sh
-RADAR_TEST_PUP=/absolute/path/to/pup go test ./internal/integration/datadog -run TestReleasedPupOAuthGuard
+RADAR_TEST_PUP=/absolute/path/to/pup go test ./internal/integration/datadog -run TestReleasedPup -count=1
 RADAR_TEST_TWG=/absolute/path/to/twg go test ./internal/integration/jira -run TestReleasedTWG
 ```
 
@@ -161,11 +161,12 @@ TWG_CONFIG_DIR=/path/to/cli-owned-store RADAR_TEST_JIRA_FIXTURES=/path/to/select
 ```
 
 The [live harness](live-e2e.md) runs that production check plus isolated Jira
-daemon restart/missing-login retention/recovery. Those Jira checks passed locally
-on 2026-10-20; their earlier workspace CLI reads are now historical. Agent MCP
-reads have a separate opt-in qualification test in the [MCP guide](agent-mcp.md).
-The complete earlier harness passed on 2026-10-19 before
-the Jira cutover; do not treat that as a run of the expanded harness. Hosted
+daemon restart/missing-login retention/recovery. Those checks passed on
+2026-10-20 and again with the complete collector harness on 2026-10-31.
+The [sanitized report](qualification/oauth-collectors-2026-10-31.json) records
+the collector run at `6ee4a36`; it preceded the added MCP gate and does not qualify
+that gate or hosted CI. Agent MCP uses the real-read adapter tests described in
+the [MCP guide](agent-mcp.md). Hosted
 activation still needs the documented GitHub Environment setup; the available
 connection could not manage its secrets/variables (HTTP 403). Keep qualification
 #28 and release #32 open until their remaining live gates pass.

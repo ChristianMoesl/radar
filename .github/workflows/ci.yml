@@ -49,8 +49,8 @@ jobs:
         run: |
           curl -fsSL https://raw.githubusercontent.com/DataDog/pup/v2.0.0/install.sh -o "$RUNNER_TEMP/install-pup.sh"
           PUP_VERSION=2.0.0 PUP_INSTALL_DIR="$RUNNER_TEMP/pup-contract" sh "$RUNNER_TEMP/install-pup.sh"
-      - name: Verify raw JSON, named OAuth selection and rejection before API-key fallback
-        run: RADAR_TEST_PUP="$RUNNER_TEMP/pup-contract/pup" go test ./internal/integration/datadog -run TestReleasedPupOAuthGuard
+      - name: Verify Pup OAuth selection, failure retention and cancellation
+        run: RADAR_TEST_PUP="$RUNNER_TEMP/pup-contract/pup" go test ./internal/integration/datadog -run TestReleasedPup -count=1
       - name: Install checksum-verified TWG 1.3.8 in the runner temp directory
         run: |
           curl -fsSL https://teamwork-graph.atlassian.com/cli/install -o "$RUNNER_TEMP/install-twg.sh"

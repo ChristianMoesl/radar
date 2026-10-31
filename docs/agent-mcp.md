@@ -163,6 +163,11 @@ client and repeats the read. It does not prove natural expiry or server-side
 revocation. Live MCP provider qualification is still pending until those checks
 run with the chosen servers and approved accounts. The old SBX/Pup/TWG proxy
 experiment is historical and no longer a release gate for this architecture.
+The [hosted live workflow](live-e2e.md) includes these reads and the Jira
+definition's completeness/pagination checks. Its version-2 encrypted session
+bundle also transports opaque MCP client state. Dedicated MCP sign-in and a new
+seed are required before enabling it; local protocol fixtures are not a hosted
+or real-provider pass.
 
 Stop an agent before changing its copied definition/helpers/configuration,
 configure/authenticate MCP on the host, then restart it. No agent/task/document

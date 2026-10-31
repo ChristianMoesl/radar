@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Transport opaque CLI stores through a GitHub environment secret, never logs."""
+"""Transport opaque CLI/MCP client stores through an encrypted environment secret."""
 
 import argparse
 import base64
@@ -7,12 +7,15 @@ import gzip
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import subprocess
 import sys
 import zlib
+from urllib.parse import urlsplit
 
 SECRET = "LIVE_E2E_SESSIONS"
 LIMIT = 512 * 1024
+VERSION = 2
 
 
 def require(condition, message):
@@ -38,7 +41,32 @@ def pack(config):
         else:
             require("sessions.json" in files and any(k.startswith("tokens_") for k in files), "Pup file session is missing")
         stores[name] = files
-    raw = json.dumps({"version": 1, "providers": stores}, separators=(",", ":")).encode()
+    mcp = config["mcp"]
+    public_config = Path(mcp["config_file"])
+    require(public_config.is_absolute() and public_config.is_file() and not public_config.is_symlink()
+            and public_config.stat().st_size <= LIMIT, "MCP config is missing or invalid")
+    public = public_config.read_bytes()
+    servers = json.loads(public).get("mcpServers")
+    require(isinstance(servers, dict) and servers, "MCP server profiles are missing")
+    files = {"config.json": base64.b64encode(public).decode("ascii")}
+    state = Path(mcp["state_dir"])
+    require(state.is_absolute(), "MCP state_dir must be absolute")
+    for name, server in servers.items():
+        require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", name), "invalid MCP profile name")
+        require(isinstance(server, dict) and set(server) <= {"url", "oauth"},
+                "live MCP profiles require remote OAuth servers, without commands or credential headers")
+        url = urlsplit(server.get("url", ""))
+        require(url.scheme == "https" and url.hostname and not url.username and not url.password and not url.fragment and not url.query,
+                "live MCP servers require HTTPS without embedded credentials")
+        oauth = server.get("oauth", {})
+        require(isinstance(oauth, dict) and set(oauth) <= {"clientId", "scope", "callbackPort"}, "invalid MCP public configuration")
+        path = state / name / "oauth.json"
+        require(path.is_file() and not path.is_symlink() and path.stat().st_size <= LIMIT, "MCP OAuth state is missing")
+        # Transfer opaque client-owned bytes, never parse tokens or include the
+        # transient SQLite profile lock in disposable-runner state.
+        files[f"state/{name}/oauth.json"] = base64.b64encode(path.read_bytes()).decode("ascii")
+    stores["mcp"] = files
+    raw = json.dumps({"version": VERSION, "providers": stores}, separators=(",", ":")).encode()
     require(len(raw) <= LIMIT, "CLI stores exceed the size limit")
     bundle = base64.b64encode(gzip.compress(raw, mtime=0)).decode("ascii")
     require(len(bundle) < 48 * 1024, "session bundle exceeds GitHub's secret size limit")
@@ -52,7 +80,7 @@ def unpack(bundle, destination):
     raw = decoder.decompress(compressed, LIMIT + 1)
     require(len(raw) <= LIMIT and decoder.eof and not decoder.unused_data, "invalid or oversized session bundle")
     data = json.loads(raw)
-    require(data.get("version") == 1 and set(data["providers"]) == {"pup", "twg"}, "unsupported session bundle")
+    require(data.get("version") == VERSION and set(data["providers"]) == {"pup", "twg", "mcp"}, "unsupported session bundle; re-seed all client stores")
     entries = []
     for name, files in data["providers"].items():
         require(isinstance(files, dict) and 0 < len(files) <= 100, "invalid CLI store entries")
@@ -96,6 +124,8 @@ def main():
             unpack(bundle, args.session_dir)
             for name, key in (("pup", "datadog"), ("twg", "jira")):
                 config[key]["config_dir"] = str(args.session_dir / name)
+            config["mcp"]["config_file"] = str(args.session_dir / "mcp/config.json")
+            config["mcp"]["state_dir"] = str(args.session_dir / "mcp/state")
             args.config.write_text(json.dumps(config, indent=2))
         else:
             require(args.repository, "select the GitHub repository")

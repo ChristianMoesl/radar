@@ -46,7 +46,7 @@ def command(argv, env, *, body=None, timeout=120, parse=True, cwd=ROOT):
         raise Failure(f"{Path(argv[0]).name} returned invalid JSON") from None
 
 
-def validate(config):
+def validate(config, *, mcp_required=True):
     dd, jira, github = (config[k] for k in ("datadog", "jira", "github"))
     for provider in (dd, jira):
         require(Path(provider["config_dir"]).is_absolute(), "CLI config_dir must be absolute")
@@ -60,6 +60,17 @@ def validate(config):
             and all(re.fullmatch(r"[A-Z][A-Z0-9_]*-[1-9][0-9]*", k) for k in keys),
             "select at least two distinct Jira issue keys for pagination")
     require(len(github["fixtures"]) > 0, "select approved GitHub PR fixtures")
+    if not mcp_required:
+        return  # Monitor recovery must not depend on MCP setup/read fixtures.
+    mcp = config["mcp"]
+    require(all(Path(mcp[k]).is_absolute() for k in ("config_file", "state_dir")), "MCP paths must be absolute")
+    reads = mcp["reads"]
+    required = {"get_datadog_metric", "search_datadog_monitors", "searchJiraIssuesUsingJql", "getJiraIssue"}
+    require(isinstance(reads, list) and 4 <= len(reads) <= 10
+            and all(isinstance(r, dict) and r.get("server") and isinstance(r.get("arguments"), dict)
+                    and r.get("tool") in required for r in reads)
+            and required <= {r["tool"] for r in reads},
+            "configure native Jira issue/comment and Datadog monitor/metric MCP reads; logs/traces remain excluded")
 
 
 class Suite:
@@ -208,6 +219,14 @@ class Suite:
         env = {**self.env, "RADAR_TEST_GITHUB_LINK_FIXTURES": str(path)}
         command(["go", "test", "./internal/integration/github", "-run", "^TestLivePullRequestReferences$", "-count=1"],
                 env, parse=False, timeout=240)
+
+    def mcp_reads(self):
+        selectors = self.config["mcp"]
+        path = self.directory / "mcp-reads.json"
+        path.write_text(json.dumps(selectors["reads"]))
+        command(["node", "--experimental-strip-types", "--test", "agent-host/test/mcp-live.test.ts"],
+                {**self.env, "RADAR_MCP_CONFIG": selectors["config_file"], "RADAR_MCP_STATE_DIR": selectors["state_dir"],
+                 "RADAR_TEST_MCP_FIXTURES": str(path)}, parse=False, timeout=240)
 
     def datadog_auth(self):
         require(command(["pup", "--version"], self.env, parse=False) == "pup 2.0.0", "install qualified Pup 2.0.0")
@@ -386,7 +405,7 @@ def main():
     lock = None
     try:
         config = json.loads(args.config.read_text())
-        validate(config)
+        validate(config, mcp_required=not args.recover_only)
         lock = args.config.with_suffix(".lock").open("a")
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -403,6 +422,7 @@ def main():
                 else:
                     check("Jira OAuth production collection, pagination and daemon retention", suite.jira_reads)
                     check("GitHub PR references through Radar's provider", suite.github_links)
+                    check("Host MCP Jira issue/comment and Datadog monitor/metric reads with reconnect", suite.mcp_reads)
                     check("Datadog OAuth, live monitor lifecycle and daemon persistence", suite.datadog_lifecycle)
             finally:
                 suite.stop()

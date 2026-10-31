@@ -12,6 +12,16 @@
     "config_dir": "/srv/radar-live/twg",
     "issue_keys": ["ABC-1", "ABC-2", "ABC-3"]
   },
+  "mcp": {
+    "config_file": "/srv/radar-live/mcp.json",
+    "state_dir": "/srv/radar-live/mcp-state",
+    "reads": [
+      {"server": "jira", "tool": "searchJiraIssuesUsingJql", "arguments": {"cloudId": "replace-with-jira-cloud-id", "jql": "key in (ABC-1, ABC-2, ABC-3)", "maxResults": 1}},
+      {"server": "jira", "tool": "getJiraIssue", "arguments": {"cloudId": "replace-with-jira-cloud-id", "issueIdOrKey": "ABC-1", "fields": ["comment"]}},
+      {"server": "datadog", "tool": "search_datadog_monitors", "arguments": {"query": "tag:radar-oauth-e2e"}},
+      {"server": "datadog", "tool": "get_datadog_metric", "arguments": {"query": "avg:datadog.apis.rate_limit.usage.per_org_pct{*}", "from": "now-15m", "to": "now"}}
+    ]
+  },
   "github": {
     "fixtures": [
       {"repository": "acme/oauth-e2e", "number": 1, "prefixes": ["ABC"], "state": "OPEN", "keys": ["mark:ABC-1"]},
