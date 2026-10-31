@@ -27,8 +27,10 @@ recorded.
   published; publisher setup remains a maintainer step.
 - The separate [Terraform lifecycle run](https://github.com/ChristianMoesl/radar/actions/runs/41222566350)
   reproduced a regression after its collection and acknowledgement checks
-  passed. Its offline real-daemon lifecycle test passes; the live error needs
-  diagnosis. This is a follow-up to the previously qualified closed #41.
+  passed. The first daemon response lacked a Terraform status. The harness now
+  retries only explicitly pending snapshots, at most three times, and fails
+  clearly for missing non-pending status. Its complete offline real-daemon
+  lifecycle and pending-snapshot regressions pass. #41 tracks live revalidation.
 - [Normal CI for the MCP revision](https://github.com/ChristianMoesl/radar/actions/runs/41216568689) passed.
 - [Selected MCP read matrix](mcp-reads-2026-10-31.json) passed on Linux amd64,
   Linux arm64 and macOS arm64. It used read-only Jira and Datadog requests,
@@ -41,10 +43,12 @@ recorded.
 - [CLI cutover](../cli-oauth-migration.md), [host MCP setup](../agent-mcp.md) and
   [dedicated live CI setup](../mcp-live.md) describe the current boundaries.
 
-Use a separate disposable OAuth grant for expiry/revocation qualification; do not
-revoke or refresh copies of the CI-owned grant. Record the provider's natural
-expiry, then prove the same approved read renews without a browser and survives
-client restart. Revoke only the disposable grant through its provider and prove
+The MCP workflow can qualify natural expiry when its own stored access token is
+already expired: it observes the expiry before any read and requires renewed
+future expiry after reads/reconnect. It skips this check when expiry was not
+observed. Use a separate disposable OAuth grant for manual expiry/revocation
+qualification; do not revoke or refresh copies of the CI-owned grant. Revoke
+only the disposable grant through its provider and prove
 that background calls fail without opening a browser, leaking diagnostics or
 discarding prior facts. Do not edit token timestamps to claim natural expiry.
 Fresh onboarding needs a real terminal/browser on each supported platform;

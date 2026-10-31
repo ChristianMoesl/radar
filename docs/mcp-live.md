@@ -81,7 +81,12 @@ are removed after the job. Interrupted writeback may require reauthentication
 and explicit reseeding. No source store is deleted or remote grant revoked.
 
 A successful run proves native read contracts, completeness and reconnect on
-the selected platforms. Natural expiry, server-side revocation, other browser
-onboarding flows and Jira reply posting remain separate qualification gates.
+the selected platforms. The harness also records whether each access token was
+already naturally expired before the first read. In that case a separate check
+requires a renewed future expiry to be saved after the reads/reconnect. It never
+changes timestamps or prints client/token state. If no expired token was
+observed, that check is skipped and natural expiry remains unqualified; a green
+read matrix alone does not establish refresh. Server-side revocation, other
+browser onboarding flows and Jira reply posting remain separate gates.
 The [2026-10-31 evidence](qualification/mcp-reads-2026-10-31.json) records the
 passing three-platform read matrix and its exact limits.

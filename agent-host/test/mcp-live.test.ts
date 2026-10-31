@@ -1,8 +1,27 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
-import { McpServices } from "../src/mcp.ts";
+import { McpServices, mcpPaths } from "../src/mcp.ts";
 import { jiraRead } from "../examples/jira-mcp.ts";
+
+async function oauthExpiry(server: string): Promise<number | undefined> {
+  assert.match(server, /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/);
+  let value: string;
+  try {
+    value = await readFile(join(mcpPaths().state, server, "oauth.json"), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new Error("Cannot read live MCP expiry metadata; private diagnostics withheld");
+  }
+  try {
+    assert.ok(Buffer.byteLength(value) <= 1024 * 1024);
+    const expiry: unknown = JSON.parse(value).tokensExpireAt;
+    return typeof expiry === "number" && Number.isFinite(expiry) && expiry > 0 ? expiry : undefined;
+  } catch {
+    throw new Error("Invalid live MCP expiry metadata; private diagnostics withheld");
+  }
+}
 
 // Select only approved, non-secret native MCP read arguments. Authentication
 // remains with the host MCP client/server, independently of collector CLIs.
@@ -21,6 +40,13 @@ test(
       arguments: Record<string, unknown>;
     }[];
     assert.ok(Array.isArray(fixtures) && fixtures.length > 0);
+    // Observe only expiry metadata, before any provider call. Never alter a
+    // timestamp to manufacture expiry, and never print token/client state.
+    const expired = new Map<string, boolean>();
+    for (const server of new Set(fixtures.map(fixture => fixture.server))) {
+      const expiry = await oauthExpiry(server);
+      expired.set(server, expiry !== undefined && expiry <= Date.now());
+    }
     const selectedIssues = new Map<string, string[]>();
     for (const fixture of fixtures) {
       await context.test(`${fixture.server} / ${fixture.tool}`, async () => {
@@ -122,6 +148,15 @@ test(
             await client.close();
           }
         }
+      });
+    }
+    for (const [server, observed] of expired) {
+      await context.test(`${server} / natural OAuth expiry refresh`, {
+        skip: observed ? false : "Access token was not observably expired before this run",
+      }, async () => {
+        const renewed = await oauthExpiry(server);
+        assert.ok(renewed !== undefined && renewed > Date.now(),
+          "Successful native reads must persist renewed OAuth expiry after natural expiration");
       });
     }
   },

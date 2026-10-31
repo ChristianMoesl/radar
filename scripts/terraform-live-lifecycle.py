@@ -309,11 +309,21 @@ class Daemon:
         temporary.replace(self.fault)
 
     def snapshot(self, source_status="ok", expected=None):
-        result = self.rpc("refresh")
-        source = next(item for item in result["sources"] if item["name"] == "terraform")
+        # A startup resource mutation can fence the first remote collection.
+        # Its response contains only local statuses and explicitly marks the
+        # snapshot pending; ask for a fresh read instead of treating it as data.
+        for attempt in range(3):
+            result = self.rpc("refresh")
+            source = next((item for item in result.get("sources", []) if item["name"] == "terraform"), None)
+            if source is not None:
+                break
+            require(result.get("resource_refresh_pending") is True,
+                    "Terraform status is missing from a non-pending daemon snapshot.")
+            require(attempt < 2, "Terraform status remained unavailable after bounded pending-snapshot retries.")
+            time.sleep(2)
         require(source["status"] == source_status, "Terraform source did not report the expected healthy, partial or failed state.")
         facts = {}
-        for task in result["tasks"]:
+        for task in result.get("tasks", []):
             for ref in task.get("source_refs", []):
                 if ref.get("source") != "terraform":
                     continue

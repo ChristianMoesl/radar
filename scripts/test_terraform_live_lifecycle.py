@@ -232,6 +232,24 @@ class LifecycleSafeguards(unittest.TestCase):
                 for private in ("private", "synthetic-token", "code=secret", "/unused/radar"):
                     self.assertNotIn(private, diagnostic)
 
+    def test_pending_startup_snapshot_requires_a_fresh_remote_status(self):
+        daemon = object.__new__(live.Daemon)
+        daemon.fixture = self.fixture
+        pending = {"sources": [{"name": "obsidian", "status": "ok"}], "resource_refresh_pending": True}
+        ready = {"sources": [{"name": "terraform", "status": "ok"}], "tasks": []}
+        with patch.object(daemon, "rpc", side_effect=[pending, ready]) as rpc, patch.object(live.time, "sleep") as sleep:
+            self.assertEqual(daemon.snapshot(), {})
+            self.assertEqual(rpc.call_count, 2)
+            sleep.assert_called_once_with(2)
+        with patch.object(daemon, "rpc", return_value=pending) as rpc, patch.object(live.time, "sleep"):
+            with self.assertRaisesRegex(live.Failure, "bounded pending-snapshot retries"):
+                daemon.snapshot()
+            self.assertEqual(rpc.call_count, 3)
+        with patch.object(daemon, "rpc", return_value={"sources": []}) as rpc:
+            with self.assertRaisesRegex(live.Failure, "non-pending"):
+                daemon.snapshot()
+            rpc.assert_called_once_with("refresh")
+
     def test_fault_proxy_blocks_mutations_and_injects_only_the_selected_reads(self):
         fault = self.directory / "fault"
         env = {"RADAR_LIVE_TFCTL_FAULT": str(fault), "RADAR_LIVE_TFCTL_REAL": "/verified/tfctl"}
