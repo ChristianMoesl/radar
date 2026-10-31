@@ -47,7 +47,10 @@ A nonempty query keeps normal grouping and ordering but reveals matching Muted/D
 ## Reading the task list
 
 The daemon refreshes local sources every 15 seconds and remote sources every two
-minutes. Tasks are grouped by attention rather than by source; see the
+minutes. Local updates continue while remote services respond. A full refresh
+first publishes local data, then merges remote results with the latest local
+observations. Overlapping full-refresh requests share the same in-flight work;
+each caller waits for it to finish. Tasks are grouped by attention rather than by source; see the
 [attention rules](attention-algorithm.md).
 
 The dashboard uses [Catppuccin Mocha](https://catppuccin.com/palette/) colors while keeping your terminal background. Tasks remain a flowing list with inline metadata and resource badges. A blank line separates tasks without separating their source references. The task area fills the available popup height, keeping Sources at the bottom even when the list is short. On roomy terminals, shortcuts appear in a fixed 32-column right-hand rail: action labels on the left, keys aligned on the right, grouped into **Navigate**, **Selected task** (or **Selected section**), and **Global**. Aliases sit below the main commands. Unavailable actions leave their row slots empty, so selection changes and background operations do not move the other shortcuts. The rail does not consume task-list rows. If there is not enough width for the rail plus a useful task list, or enough height for every shortcut, Radar retains the compact footer instead; no keys or extra help mode are added. Sources starts collapsed to a one-line health summary; failures and other non-healthy states remain visible, with disabled integrations counted separately. Press `s` to show or hide the full source diagnostics without changing the selected task. The list uses the reclaimed rows, and refreshes preserve your choice for the current dashboard session. Outer padding shrinks on smaller terminals, and the footer wraps between shortcuts so every action stays visible.

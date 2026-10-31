@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"radar/internal/integration/github/filters"
@@ -111,13 +112,40 @@ func FetchTrackedPullRequests(ctx context.Context, scopes []settings.TrackingSco
 	sort.Strings(ordered)
 	items := make([]protocol.Task, 0)
 	cacheChanged := false
-	for _, repo := range ordered {
-		prs, changed, err := cachedRepositoryPullRequests(ctx, repo, &cache, logger)
-		cacheChanged = cacheChanged || changed
-		if err != nil {
-			failures = append(failures, err)
+	type repositoryResult struct {
+		prs     []searchPullRequest
+		changed bool
+		err     error
+		cache   trackedPullRequestCacheEntry
+	}
+	results := make([]repositoryResult, len(ordered))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for range min(4, len(ordered)) {
+		wg.Go(func() {
+			for i := range jobs {
+				repo := ordered[i]
+				localCache := trackedPullRequestCacheFile{Targets: map[string]trackedPullRequestCacheEntry{repo: cache.Targets[repo]}}
+				prs, changed, err := cachedRepositoryPullRequests(ctx, repo, &localCache, logger)
+				results[i] = repositoryResult{prs: prs, changed: changed, err: err, cache: localCache.Targets[repo]}
+			}
+		})
+	}
+	for i := range ordered {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+	for i, repo := range ordered {
+		result := results[i]
+		cacheChanged = cacheChanged || result.changed
+		if result.changed {
+			cache.Targets[repo] = result.cache
 		}
-		for _, pr := range prs {
+		if result.err != nil {
+			failures = append(failures, result.err)
+		}
+		for _, pr := range result.prs {
 			if trackedByScopes(pr, scopes) {
 				items = append(items, trackedPullRequestTask(pr))
 			}
@@ -312,6 +340,9 @@ func fetchRepositoryPullRequests(ctx context.Context, repo string, logger *slog.
 }
 
 func trackedGraphQL(ctx context.Context, query, cursor string, variables []string, target any, logger *slog.Logger) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !EnsureGraphQLBudget(ctx, logger) {
 		return fmt.Errorf("github graphql budget unavailable")
 	}

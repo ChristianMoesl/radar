@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -27,14 +28,15 @@ const stateVersion = 8
 const doneTaskDisplayRetention = 3 * 24 * time.Hour
 
 type Store struct {
-	mu       sync.RWMutex
-	saveMu   sync.Mutex
-	state    persistedState
-	items    []protocol.Task
-	path     string
-	logger   *slog.Logger
-	revision int64
-	notify   chan struct{}
+	mu         sync.RWMutex
+	saveMu     sync.Mutex
+	state      persistedState
+	items      []protocol.Task
+	path       string
+	logger     *slog.Logger
+	saveFailed bool
+	revision   int64
+	notify     chan struct{}
 }
 
 type persistedState struct {
@@ -166,11 +168,17 @@ func (s *Store) Load() error {
 }
 
 func (s *Store) SetTasks(items []protocol.Task) {
-	s.setTasks(items, nil)
+	s.setTasks(items, nil, nil)
 }
 
 func (s *Store) SetTasksForSources(items []protocol.Task, sourceNames []string) {
-	s.setTasks(items, sourceScope(sourceNames))
+	s.setTasks(items, sourceScope(sourceNames), nil)
+}
+
+// SetCollection publishes matching task and health observations in one revision
+// and one durable projection write. A nil scope means a complete collection.
+func (s *Store) SetCollection(items []protocol.Task, sourceNames []string, statuses []protocol.SourceStatus) {
+	s.setTasks(items, sourceScope(sourceNames), &statuses)
 }
 
 func sourceScope(sourceNames []string) map[string]bool {
@@ -187,10 +195,13 @@ func sourceScope(sourceNames []string) map[string]bool {
 	return sources
 }
 
-func (s *Store) setTasks(items []protocol.Task, sources map[string]bool) {
+func (s *Store) setTasks(items []protocol.Task, sources map[string]bool, statuses *[]protocol.SourceStatus) {
 	s.mu.Lock()
 	s.state = reconcileStateForSources(s.state, items, time.Now().UTC(), sources)
 	s.items = projectTasks(s.state)
+	if statuses != nil {
+		s.state.Sources = append([]protocol.SourceStatus{}, (*statuses)...)
+	}
 	s.bumpRevisionLocked()
 	s.mu.Unlock()
 
@@ -202,6 +213,15 @@ func (s *Store) setTasks(items []protocol.Task, sources map[string]bool) {
 func (s *Store) Save() error {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
+	return s.saveProjectionLocked()
+}
+
+func (s *Store) saveProjectionLocked() (err error) {
+	defer func() {
+		s.mu.Lock()
+		s.saveFailed = err != nil
+		s.mu.Unlock()
+	}()
 
 	// Marshal while holding the read lock so nested pointers, slices, and maps
 	// cannot change while JSON encoding is in progress. saveMu keeps snapshots
@@ -392,12 +412,32 @@ func (s *Store) CollectionTasks() []protocol.Task {
 
 func (s *Store) SetSources(sources []protocol.SourceStatus) {
 	s.mu.Lock()
+	if slices.Equal(s.state.Sources, sources) && !s.saveFailed {
+		s.mu.Unlock()
+		return
+	}
 	s.state.Sources = make([]protocol.SourceStatus, len(sources))
 	copy(s.state.Sources, sources)
 	s.bumpRevisionLocked()
 	s.mu.Unlock()
 
-	if err := s.Save(); err != nil {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.mu.RLock()
+	failed := s.saveFailed
+	version, nextTaskID := s.state.Version, s.state.NextTaskID
+	statuses := append([]protocol.SourceStatus{}, s.state.Sources...)
+	s.mu.RUnlock()
+	if failed {
+		if err := s.saveProjectionLocked(); err != nil {
+			s.logger.Warn("could not retry state persistence", "path", s.path, "error", err)
+		}
+		return
+	}
+	if err := taskdb.WriteProjectionMetadata(s.path, version, nextTaskID, statuses); err != nil {
+		s.mu.Lock()
+		s.saveFailed = true
+		s.mu.Unlock()
 		s.logger.Warn("could not save source status", "path", s.path, "error", err)
 	}
 }
@@ -721,6 +761,12 @@ func canonicalKeyPresent(key string, refs []SourceRefRecord) bool {
 }
 
 func sourceRefLinkGroups(refs []SourceRefRecord) [][]SourceRefRecord {
+	keys := make([][]string, len(refs))
+	for i := range refs {
+		if refs[i].Active && refs[i].TaskRecordID != "" && authoritativeRef(refs[i].Snapshot) {
+			keys[i] = linkKeysForSourceRef(refs[i].Snapshot)
+		}
+	}
 	groups := make([][]SourceRefRecord, 0)
 	used := make([]bool, len(refs))
 	for i := range refs {
@@ -738,7 +784,7 @@ func sourceRefLinkGroups(refs []SourceRefRecord) [][]SourceRefRecord {
 				if used[j] || !refs[j].Active || refs[j].TaskRecordID == "" || !authoritativeRef(refs[j].Snapshot) {
 					continue
 				}
-				if sourceRefRecordsRelated(refs[idx], refs[j]) {
+				if matchesAnyString(keys[idx], keys[j]) {
 					used[j] = true
 					queue = append(queue, j)
 				}
@@ -809,10 +855,6 @@ func branchLinkKeys(ref protocol.SourceRef) []string {
 		}
 	}
 	return keys
-}
-
-func sourceRefRecordsRelated(left, right SourceRefRecord) bool {
-	return matchesAnyString(linkKeysForSourceRef(left.Snapshot), linkKeysForSourceRef(right.Snapshot))
 }
 
 func linkKeysForSourceRef(ref protocol.SourceRef) []string {
