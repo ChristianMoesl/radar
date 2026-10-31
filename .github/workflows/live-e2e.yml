@@ -44,9 +44,16 @@ jobs:
         run: python3 scripts/live-pr-gate.py verify
 
   live:
-    name: Real Jira, GitHub and Datadog environments
+    name: Real environments (${{ matrix.os }})
     needs: readiness
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # Each job must load the sessions written by the preceding platform.
+      # Overlapping jobs could spend the same rotating refresh token twice.
+      max-parallel: 1
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
     # Environment secrets are read when this job starts, after the workflow
     # concurrency lock. Repository secrets would be stale in queued runs after
     # an earlier run rotated a refresh token.
@@ -70,10 +77,17 @@ jobs:
           pnpm install --frozen-lockfile
           go build -o "$RUNNER_TEMP/radar-live" ./cmd/radar
           echo "RADAR_BINARY=$RUNNER_TEMP/radar-live" >> "$GITHUB_ENV"
-          sudo apt-get update
-          sudo apt-get install -y fd-find tmux
           mkdir -p "$RUNNER_TEMP/live-bin"
-          ln -s /usr/bin/fdfind "$RUNNER_TEMP/live-bin/fd"
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update
+            sudo apt-get install -y fd-find tmux
+            ln -s /usr/bin/fdfind "$RUNNER_TEMP/live-bin/fd"
+          elif [ "$RUNNER_OS" = macOS ]; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install fd tmux
+          else
+            echo 'Unsupported live qualification platform.' >&2
+            exit 1
+          fi
           curl -fsSL https://raw.githubusercontent.com/DataDog/pup/v2.0.0/install.sh -o "$RUNNER_TEMP/install-pup.sh"
           PUP_VERSION=2.0.0 PUP_INSTALL_DIR="$RUNNER_TEMP/live-bin" sh "$RUNNER_TEMP/install-pup.sh"
           curl -fsSL https://teamwork-graph.atlassian.com/cli/install -o "$RUNNER_TEMP/install-twg.sh"
@@ -119,7 +133,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: live-provider-e2e-${{ github.sha }}
+          name: live-provider-e2e-${{ matrix.os }}-${{ github.sha }}
           path: |
             ${{ runner.temp }}/live-e2e-results/results.json
             ${{ runner.temp }}/live-e2e-results/junit.xml

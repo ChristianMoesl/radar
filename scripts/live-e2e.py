@@ -56,9 +56,9 @@ def validate(config, *, mcp_required=True):
             "select two distinct approved monitor IDs")
     require(jira["profile"] and jira["site"], "Jira requires an explicit OAuth profile and Cloud ID")
     keys = jira["issue_keys"]
-    require(len(keys) >= 2 and len(set(keys)) == len(keys)
+    require(len(keys) >= 3 and len(set(keys)) == len(keys)
             and all(re.fullmatch(r"[A-Z][A-Z0-9_]*-[1-9][0-9]*", k) for k in keys),
-            "select at least two distinct Jira issue keys for pagination")
+            "select at least three distinct Jira issues: two assigned/open and one Done")
     require(len(github["fixtures"]) > 0, "select approved GitHub PR fixtures")
     if not mcp_required:
         return  # Monitor recovery must not depend on MCP setup/read fixtures.

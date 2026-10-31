@@ -20,7 +20,8 @@ PR number empty in a manual dispatch selects main without approval. See
 [Terraform live setup and coverage](integrations/terraform.md#live-validation-in-github-actions).
 
 The [Live provider E2E workflow](../.github/workflows/live-e2e.yml) uses ordinary
-GitHub-hosted Ubuntu runners and the dedicated test accounts. No self-hosted
+GitHub-hosted Linux amd64, Linux arm64 and macOS arm64 runners and the dedicated
+test accounts. No self-hosted
 runner is needed. Normal PR CI stays offline. Live runs execute trusted `main`
 manually or daily at 05:23 UTC after setup is explicitly enabled.
 It uses `live-e2e-main` without reviewer approval and rejects other workflow refs.
@@ -93,7 +94,10 @@ as an artifact. Only sanitized JSON and JUnit results are retained for 14 days.
 
 Runs are serialized and never automatically cancel an earlier run. Environment
 secrets are read when the live job starts, so a queued run receives the refreshed
-session from its predecessor. Do **not** move `LIVE_E2E_SESSIONS` to repository
+session from its predecessor. The platform matrix also runs only one job at a
+time, with fail-fast disabled; each platform checkpoints/writes back before the
+next starts. Trusted-main jobs use the automatic environment without approval.
+Do **not** move `LIVE_E2E_SESSIONS` to repository
 secrets: those are read when the workflow is queued and can contain stale
 rotating refresh tokens. Do not share these dedicated CLI stores with interactive
 work or another workflow after seeding them.
