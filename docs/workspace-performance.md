@@ -103,10 +103,55 @@ The trusted-main `Workspace performance qualification` workflow installs checksu
 
 The harness alternates twenty before/after live context and zero-change previews against `21e4af9`, checks the one-list command budget, measures the lighter lifecycle projection, and records twenty complete creation/cleanup cycles. It separates lock wait, worktrees, provider create/remove, readiness, preview, fresh publication verification, protected scans, Git deletion, mutation acknowledgement and final collection. Raw command output, command arguments, environment values and startup output are excluded from the uploaded report. The first provision and subsequent warm-image/new-VM conditions are labeled separately. Canonical notes must survive every cleanup.
 
-Run `TestWorkspaceLivePerformance` only in that explicitly disposable qualification environment. Ordinary tests skip it. Live results are recorded separately from the synthetic measurements above. No image, kit, startup or mount behavior was changed based on guessed provider costs. The note-lock critical section remains unchanged; its new measurements support a reservation/ownership design only if contention warrants one.
+Run `TestWorkspaceLivePerformance` only in that explicitly disposable qualification environment. Ordinary tests skip it. No image, kit, startup or mount behavior was changed based on guessed provider costs. The note-lock critical section remains unchanged; its new measurements support a reservation/ownership design only if contention warrants one.
+
+### Completed live qualification
+
+[Run 41192847275](https://github.com/ChristianMoesl/radar/actions/runs/41192847275) passed on 2026-10-31: twenty new VMs were created, became ready, and were completely removed with their four-member workspaces. Every canonical note survived. The fixture had 80,817 actual entries and 62 discoverable repositories. The runner was Linux amd64, kernel `7.0.0-1017-azure`, Go `1.26.4`, with SBX client/server `v0.50.0` at `30d023cbbf9af1204c91b1605b2a7a49b931d2bf`. Baseline source was `21e4af9`; optimized source was `58c2a71a8ef875c22528aeb7a2a651beaa2cc6e2`.
+
+The image was `docker.io/christianmoesl/radar-sandbox:2026.10.20-3ed5104a8b82-39452053689-1`. [The raw JSON](performance/workspace-51-live.json) preserves all 1,120 timing observations and command counts from the sanitized job log; GitHub's Docker Hub namespace mask is retained in its image field. Fixture files were newly written, with warm metadata and no cache eviction. Read comparisons alternated before/after order on the same healthy VM. These Linux results are separate from the issue's original macOS measurements.
+
+All read rows have twenty samples per version. Values are median / nearest-rank p95 / maximum in milliseconds; tails include every observation.
+
+| Live operation | Before | After | Median change |
+| --- | ---: | ---: | ---: |
+| Full context | 265.34 / 292.72 / 306.37 | 182.61 / 211.83 / 474.68 | -31.2% |
+| Zero-change preview | 336.12 / 391.67 / 395.81 | 272.03 / 474.49 / 642.36 | -19.1% |
+| Lifecycle resources | — | 85.91 / 140.04 / 162.23 | After only |
+
+Every paired full-context result was equal between versions. Every optimized context used one list and one port read, versus two lists and one port read before. Every optimized zero-change preview used one version, one list and one port read, versus version, two lists and ports before. Every lifecycle read used one list and no port read. The context maximum and preview p95/maximum worsened despite lower medians; this run establishes neither a tail-latency guarantee nor a portable macOS target.
+
+The following measurements are optimized-source observations, without a before/after total-operation speedup claim. Times are milliseconds. Per-member rows have eighty samples (four members in each of twenty bundles); all other rows have twenty. Nested phase timings overlap.
+
+| Phase/operation | Median | p95 | Maximum |
+| --- | ---: | ---: | ---: |
+| Complete creation, including first provision | 4,721.39 | 5,537.13 | 33,698.48 |
+| `sbx_create` | 2,712.16 | 3,614.49 | 31,694.74 |
+| Readiness after create | 146.10 | 176.71 | 185.90 |
+| Four worktree creations | 58.26 | 60.92 | 62.55 |
+| Note-lock wait, uncontended fixture | 0.010 | 0.035 | 0.048 |
+| Setup, prepare-only fixture without user hooks | 0.899 | 0.970 | 1.055 |
+| Fresh cleanup preview | 261.11 | 276.72 | 279.82 |
+| Publication verification, per member | 3.20 | 10.69 | 11.71 |
+| Complete cleanup execution | 1,591.10 | 1,739.01 | 3,417.71 |
+| Bundle protection preflight | 165.30 | 169.87 | 173.36 |
+| Last-moment member scan, per member | 42.65 | 45.50 | 81.27 |
+| Actual Git worktree removal, per member | 240.18 | 256.48 | 304.94 |
+| Runtime removal | 174.95 | 202.00 | 1,679.74 |
+| Final anchor removal | 1.46 | 2.22 | 8.91 |
+| Pending marker and snapshot, in process | 0.008 | 0.009 | 0.010 |
+| Subsequent local collection | 95.63 | 104.62 | 130.37 |
+
+Cleanup execution includes the actual VM, Git worktree/branch and anchor removals, leases and final validations. The pending-marker measurement excludes RPC/CLI overhead and runs after deletion; the separate blocked-collection server regression verifies that acknowledgement does not wait for collection. Local origins keep publication verification deterministic and do not represent GitHub/network latency. Each fresh preview fetched the shared origin exactly once; collection's separate observation cache did not authorize it.
+
+The first provision took 33.70 seconds, of which 31.69 seconds were inside `sbx create`. The subsequent nineteen warm-image/new-VM creations took 4.71 seconds median and 5.54 seconds maximum; their `sbx create` phase took 2.69 seconds median and 3.61 seconds maximum. This attributes the remaining creation cost to the provider call rather than Git worktrees or the readiness gate. The evidence-backed next investigation is to split image transfer/unpack and VM boot inside SBX under the same pinned image and readiness contract before proposing an image/kit change. The uncontended note-lock measurements provide no evidence for narrowing its safety-critical section.
+
+For cleanup, the sum of the four actual Git removals was 963.98 ms median per bundle, versus 171.90 ms for the four member scans and 165.30 ms for bundle preflight. The longest runtime removal was 1.68 seconds, contributing to the 3.42-second cleanup maximum. Further total-cleanup work should therefore profile Git deletion and provider removal; the synthetic before/after traversal gains above must not be presented as total deletion gains.
 
 ## Validation
 
 The Go suite and Linux installer checks pass with the test fixtures' expected `022` umask. Pi type checking and all 314 Pi tests pass; the resource/startup subprocess tests were run serially to avoid cloud process/CPU contention. Durable-agent type checking and tests pass with a built Radar binary (27 passed, three live-provider cases skipped locally). Race checks cover workspace, Git cleanup, bundle cleanup, and timing diagnostics. Darwin arm64 and Linux arm64 CLI cross-builds pass; this does not claim native execution on those platforms.
+
+The completed [CI run for `58c2a71`](https://github.com/ChristianMoesl/radar/actions/runs/41192841028) additionally passed native macOS Go tests, notifier/archive builds, provider CLI contracts on macOS arm64 and Linux amd64/arm64, both Linux Homebrew installs, rootless installers on Debian/Ubuntu/Fedora/Arch, Pi, durable-agent recovery, and a durable agent in real SBX. That existing agent job uses SBX v0.48.0; the performance qualification above separately pins v0.50.0.
 
 New tests cover normalized legacy results, command budgets, deterministic results/error ordering, bounded concurrency/deadlines, unavailable and missing runtimes, live port changes, fresh apply ownership, phase privacy, setup preflight count/failure behavior, fetch failures/cancellation, nested checkouts, symlink changes, canonical notes, and changed ownership/configuration between preflight and removal. Existing stale revision/plan, dirty-worktree, lease, Pi startup/routing, and durable-agent contracts remain exercised by the existing suites.
