@@ -14,6 +14,7 @@ import zlib
 from urllib.parse import urlsplit
 
 SECRET = "LIVE_E2E_SESSIONS"
+MCP_SECRET = "MCP_LIVE_SESSIONS"
 LIMIT = 512 * 1024
 VERSION = 2
 
@@ -23,9 +24,29 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def pack(config):
+def mcp_servers(public, *, mcp_only=False):
+    configuration = json.loads(public)
+    require(isinstance(configuration, dict) and set(configuration) == {"mcpServers"},
+            "live MCP configuration must contain only public server profiles")
+    servers = configuration["mcpServers"]
+    require(isinstance(servers, dict) and servers, "MCP server profiles are missing")
+    if mcp_only:
+        require(set(servers) == {"jira", "datadog"}, "MCP qualification requires only the jira and datadog profiles")
+    for name, server in servers.items():
+        require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", name), "invalid MCP profile name")
+        require(isinstance(server, dict) and set(server) <= {"url", "oauth"},
+                "live MCP profiles require remote OAuth servers, without commands or credential headers")
+        url = urlsplit(server.get("url", ""))
+        require(url.scheme == "https" and url.hostname and not url.username and not url.password and not url.fragment and not url.query,
+                "live MCP servers require HTTPS without embedded credentials")
+        oauth = server.get("oauth", {})
+        require(isinstance(oauth, dict) and set(oauth) <= {"clientId", "scope", "callbackPort"}, "invalid MCP public configuration")
+    return servers
+
+
+def pack(config, *, mcp_only=False):
     stores = {}
-    for name, key in (("pup", "datadog"), ("twg", "jira")):
+    for name, key in (() if mcp_only else (("pup", "datadog"), ("twg", "jira"))):
         root = Path(config[key]["config_dir"])
         require(root.is_absolute() and root.is_dir(), "CLI store is missing")
         files = {}
@@ -46,22 +67,14 @@ def pack(config):
     require(public_config.is_absolute() and public_config.is_file() and not public_config.is_symlink()
             and public_config.stat().st_size <= LIMIT, "MCP config is missing or invalid")
     public = public_config.read_bytes()
-    servers = json.loads(public).get("mcpServers")
-    require(isinstance(servers, dict) and servers, "MCP server profiles are missing")
+    servers = mcp_servers(public, mcp_only=mcp_only)
     files = {"config.json": base64.b64encode(public).decode("ascii")}
     state = Path(mcp["state_dir"])
-    require(state.is_absolute(), "MCP state_dir must be absolute")
+    require(state.is_absolute() and state.is_dir() and not state.is_symlink(), "MCP state_dir must be an absolute directory without symlinks")
     for name, server in servers.items():
-        require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", name), "invalid MCP profile name")
-        require(isinstance(server, dict) and set(server) <= {"url", "oauth"},
-                "live MCP profiles require remote OAuth servers, without commands or credential headers")
-        url = urlsplit(server.get("url", ""))
-        require(url.scheme == "https" and url.hostname and not url.username and not url.password and not url.fragment and not url.query,
-                "live MCP servers require HTTPS without embedded credentials")
-        oauth = server.get("oauth", {})
-        require(isinstance(oauth, dict) and set(oauth) <= {"clientId", "scope", "callbackPort"}, "invalid MCP public configuration")
         path = state / name / "oauth.json"
-        require(path.is_file() and not path.is_symlink() and path.stat().st_size <= LIMIT, "MCP OAuth state is missing")
+        require(not path.parent.is_symlink() and path.is_file() and not path.is_symlink()
+                and path.stat().st_size <= LIMIT, "MCP OAuth state is missing or uses symlinks")
         # Transfer opaque client-owned bytes, never parse tokens or include the
         # transient SQLite profile lock in disposable-runner state.
         files[f"state/{name}/oauth.json"] = base64.b64encode(path.read_bytes()).decode("ascii")
@@ -73,14 +86,21 @@ def pack(config):
     return bundle
 
 
-def unpack(bundle, destination):
+def unpack(bundle, destination, *, mcp_only=False):
     require(len(bundle) < 48 * 1024, "session bundle exceeds the size limit")
     compressed = base64.b64decode(bundle, validate=True)
     decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
     raw = decoder.decompress(compressed, LIMIT + 1)
     require(len(raw) <= LIMIT and decoder.eof and not decoder.unused_data, "invalid or oversized session bundle")
     data = json.loads(raw)
-    require(data.get("version") == VERSION and set(data["providers"]) == {"pup", "twg", "mcp"}, "unsupported session bundle; re-seed all client stores")
+    providers = {"mcp"} if mcp_only else {"pup", "twg", "mcp"}
+    require(data.get("version") == VERSION and set(data["providers"]) == providers, "unsupported session bundle; re-seed the selected client stores")
+    if mcp_only:
+        require(set(data["providers"]["mcp"]) == {
+            "config.json", "state/jira/oauth.json", "state/datadog/oauth.json",
+        }, "MCP bundle must contain exactly the selected configuration and two OAuth stores")
+        public = base64.b64decode(data["providers"]["mcp"]["config.json"], validate=True)
+        mcp_servers(public, mcp_only=True)
     entries = []
     for name, files in data["providers"].items():
         require(isinstance(files, dict) and 0 < len(files) <= 100, "invalid CLI store entries")
@@ -99,11 +119,12 @@ def unpack(bundle, destination):
             output.write(content)
 
 
-def save(config, repository):
-    bundle = pack(config)
+def save(config, repository, *, mcp_only=False):
+    bundle = pack(config, mcp_only=mcp_only)
     # gh encrypts with the environment's public key before uploading. Use stdin
     # so neither credentials nor the bundle appear in process arguments/logs.
-    result = subprocess.run(["gh", "secret", "set", SECRET, "--repo", repository, "--env", "live-e2e-main"],
+    secret = MCP_SECRET if mcp_only else SECRET
+    result = subprocess.run(["gh", "secret", "set", secret, "--repo", repository, "--env", "live-e2e-main"],
                             input=bundle, capture_output=True, text=True, timeout=60)
     require(result.returncode == 0, "could not save refreshed CLI sessions; check the state writer's environment permissions")
 
@@ -114,27 +135,29 @@ def main():
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"))
     parser.add_argument("--session-dir", type=Path)
+    parser.add_argument("--mcp-only", action="store_true", help="Use dedicated Jira/Datadog MCP sessions without collector CLI stores")
     args = parser.parse_args()
     try:
         config = json.loads(args.config.read_text())
         if args.operation == "restore":
             require(args.session_dir and args.session_dir.is_absolute(), "select an absolute session directory")
-            bundle = os.environ.pop(SECRET, "")
-            require(bundle, "LIVE_E2E_SESSIONS is missing; seed the live-e2e-main environment first")
-            unpack(bundle, args.session_dir)
-            for name, key in (("pup", "datadog"), ("twg", "jira")):
+            secret = MCP_SECRET if args.mcp_only else SECRET
+            bundle = os.environ.pop(secret, "")
+            require(bundle, f"{secret} is missing; seed the live-e2e-main environment first")
+            unpack(bundle, args.session_dir, mcp_only=args.mcp_only)
+            for name, key in (() if args.mcp_only else (("pup", "datadog"), ("twg", "jira"))):
                 config[key]["config_dir"] = str(args.session_dir / name)
             config["mcp"]["config_file"] = str(args.session_dir / "mcp/config.json")
             config["mcp"]["state_dir"] = str(args.session_dir / "mcp/state")
             args.config.write_text(json.dumps(config, indent=2))
         else:
             require(args.repository, "select the GitHub repository")
-            save(config, args.repository)
-        print("CLI session restore complete" if args.operation == "restore" else "CLI sessions saved as an encrypted environment secret")
+            save(config, args.repository, mcp_only=args.mcp_only)
+        print("Client session restore complete" if args.operation == "restore" else "Client sessions saved as an encrypted environment secret")
         return 0
     except Exception:
         # Parsing errors can contain input fragments. Never emit the exception.
-        print("CLI session storage failed. Check the configuration, portable file stores and GitHub environment write permission. Re-seed after an interrupted refresh.", file=sys.stderr)
+        print("Client session storage failed. Check the selected portable CLI/MCP stores, session bundle and GitHub environment write permission. Re-seed after an interrupted refresh.", file=sys.stderr)
         return 1
 
 

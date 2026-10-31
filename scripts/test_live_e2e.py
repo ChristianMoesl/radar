@@ -179,6 +179,88 @@ class Safeguards(unittest.TestCase):
         self.assertIn("live-e2e-main", run.call_args.args[0])
         self.assertNotIn("live-e2e", run.call_args.args[0])
 
+    def mcp_stores(self):
+        self.stores()
+        public = Path(self.config["mcp"]["config_file"])
+        configuration = json.loads(public.read_text())
+        configuration["mcpServers"]["jira"] = {"url": "https://mcp.example.test/v2/mcp"}
+        public.write_text(json.dumps(configuration))
+        directory = Path(self.config["mcp"]["state_dir"]) / "jira"
+        directory.mkdir()
+        (directory / "oauth.json").write_text("opaque synthetic Jira state")
+        return {"mcp": self.config["mcp"]}
+
+    def test_mcp_only_round_trip_needs_no_collector_configuration(self):
+        config = self.mcp_stores()
+        bundle = state.pack(config, mcp_only=True)
+        destination = self.directory / "mcp-restored"
+        state.unpack(bundle, destination, mcp_only=True)
+        self.assertEqual(set(p.name for p in destination.iterdir()), {"mcp"})
+        self.assertEqual((destination / "mcp/state/jira/oauth.json").read_text(), "opaque synthetic Jira state")
+        self.assertEqual((destination / "mcp/state/jira/oauth.json").stat().st_mode & 0o777, 0o600)
+        self.assertFalse((destination / "mcp/state/datadog/lock.sqlite").exists())
+
+    def test_mcp_and_full_bundles_cannot_cross_restore_scopes(self):
+        config = self.mcp_stores()
+        for bundle, mcp_only in [(state.pack(config, mcp_only=True), False),
+                                 (state.pack(self.config), True)]:
+            target = self.directory / "unexpected"
+            with self.assertRaises(ValueError):
+                state.unpack(bundle, target, mcp_only=mcp_only)
+            self.assertFalse(target.exists())
+
+    def test_mcp_only_excludes_unrelated_profiles_and_symlinked_state(self):
+        config = self.mcp_stores()
+        public = Path(config["mcp"]["config_file"])
+        original = public.read_text()
+        configuration = json.loads(original)
+        configuration["mcpServers"]["unrelated"] = {"url": "https://mcp.example.test"}
+        public.write_text(json.dumps(configuration))
+        with self.assertRaises(ValueError):
+            state.pack(config, mcp_only=True)
+        public.write_text(original)
+        profile = Path(config["mcp"]["state_dir"]) / "jira"
+        renamed = profile.with_name("moved-jira")
+        profile.rename(renamed)
+        profile.symlink_to(renamed, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            state.pack(config, mcp_only=True)
+
+    def test_mcp_restore_rejects_static_credentials_before_writing(self):
+        config = self.mcp_stores()
+        data = json.loads(gzip.decompress(base64.b64decode(state.pack(config, mcp_only=True))))
+        data["providers"]["mcp"]["config.json"] = base64.b64encode(json.dumps({
+            "mcpServers": {"jira": {"command": "untrusted"}, "datadog": {"url": "https://mcp.example.test"}}
+        }).encode()).decode()
+        bundle = base64.b64encode(gzip.compress(json.dumps(data).encode())).decode()
+        target = self.directory / "unsafe"
+        with self.assertRaises(ValueError):
+            state.unpack(bundle, target, mcp_only=True)
+        self.assertFalse(target.exists())
+
+    def test_mcp_save_updates_only_its_own_secret_without_values_in_arguments(self):
+        with patch.object(state, "pack", return_value="opaque synthetic state") as pack, \
+                patch.object(state.subprocess, "run", return_value=state.subprocess.CompletedProcess([], 0)) as run:
+            state.save({}, "acme/radar", mcp_only=True)
+        pack.assert_called_once_with({}, mcp_only=True)
+        self.assertIn("MCP_LIVE_SESSIONS", run.call_args.args[0])
+        self.assertNotIn("LIVE_E2E_SESSIONS", run.call_args.args[0])
+        self.assertNotIn("opaque synthetic state", run.call_args.args[0])
+        self.assertEqual(run.call_args.kwargs["input"], "opaque synthetic state")
+
+    def test_mcp_restore_rewrites_paths_without_collector_keys(self):
+        config = self.mcp_stores()
+        bundle = state.pack(config, mcp_only=True)
+        source, destination = self.directory / "mcp-selectors.json", self.directory / "mcp-runner"
+        source.write_text(json.dumps({"mcp": {"reads": config["mcp"]["reads"]}}))
+        with patch.dict("os.environ", {state.MCP_SECRET: bundle}), patch("sys.argv", [
+                "live-e2e-state.py", "restore", "--mcp-only", "--config", str(source),
+                "--session-dir", str(destination)]), patch("builtins.print"):
+            self.assertEqual(state.main(), 0)
+        result = json.loads(source.read_text())
+        self.assertEqual(set(result), {"mcp"})
+        self.assertEqual(result["mcp"]["state_dir"], str(destination / "mcp/state"))
+
 
 if __name__ == "__main__":
     unittest.main()

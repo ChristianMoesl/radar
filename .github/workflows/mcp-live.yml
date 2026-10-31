@@ -1,0 +1,112 @@
+name: Live agent MCP
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '43 5 * * *'
+
+permissions:
+  contents: read
+  deployments: read
+
+concurrency:
+  group: live-agent-mcp
+  cancel-in-progress: false
+
+jobs:
+  readiness:
+    if: github.event_name == 'workflow_dispatch' || vars.RADAR_MCP_LIVE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require trusted main and explicit MCP setup
+        env:
+          LIVE_ENABLED: ${{ vars.RADAR_MCP_LIVE_ENABLED }}
+          LIVE_READS: ${{ vars.RADAR_MCP_LIVE_READS }}
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          test "$LIVE_ENABLED" = true && test -n "$LIVE_READS" || {
+            echo 'Run node --experimental-strip-types scripts/setup-mcp-live.mjs locally before enabling MCP CI.' >&2
+            exit 1
+          }
+          python3 scripts/live-pr-gate.py verify
+
+  live:
+    needs: readiness
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    environment: live-e2e-main
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Restore dedicated MCP sessions
+        id: restore
+        env:
+          MCP_LIVE_SESSIONS: ${{ secrets.MCP_LIVE_SESSIONS }}
+          MCP_READS: ${{ vars.RADAR_MCP_LIVE_READS }}
+        run: |
+          umask 0077
+          test -n "$MCP_LIVE_SESSIONS" || { echo 'Seed MCP_LIVE_SESSIONS with scripts/setup-mcp-live.mjs before running MCP CI.' >&2; exit 1; }
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          reads = json.loads(os.environ['MCP_READS'])
+          required = {'searchJiraIssuesUsingJql', 'getJiraIssue', 'search_datadog_monitors', 'get_datadog_metric'}
+          if (not isinstance(reads, list) or not 4 <= len(reads) <= 10
+                  or any(not isinstance(r, dict) for r in reads)
+                  or {r.get('tool') for r in reads} != required
+                  or any(not isinstance(r.get('arguments'), dict)
+                         or r.get('server') != ('jira' if r.get('tool') in ('searchJiraIssuesUsingJql', 'getJiraIssue') else 'datadog') for r in reads)):
+              raise SystemExit('Configure only the four designated Jira/Datadog read contracts.')
+          (root / 'mcp-live.json').write_text(json.dumps({'mcp': {'reads': reads}}))
+          (root / 'mcp-reads.json').write_text(json.dumps(reads))
+          PY
+          python3 scripts/live-e2e-state.py restore --mcp-only --config "$RUNNER_TEMP/mcp-live.json" --session-dir "$RUNNER_TEMP/mcp-live-sessions"
+      - name: Check session writeback before provider calls
+        id: checkpoint
+        env:
+          GH_TOKEN: ${{ secrets.LIVE_E2E_STATE_WRITER_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo 'Configure LIVE_E2E_STATE_WRITER_TOKEN for environment secret writeback.' >&2; exit 1; }
+          python3 scripts/live-e2e-state.py save --mcp-only --config "$RUNNER_TEMP/mcp-live.json"
+      - name: Qualify native reads, completeness and reconnect
+        if: steps.checkpoint.outcome == 'success'
+        env:
+          RADAR_MCP_CONFIG: ${{ runner.temp }}/mcp-live-sessions/mcp/config.json
+          RADAR_MCP_STATE_DIR: ${{ runner.temp }}/mcp-live-sessions/mcp/state
+          RADAR_TEST_MCP_FIXTURES: ${{ runner.temp }}/mcp-reads.json
+        run: node --experimental-strip-types --test --test-reporter=spec --test-reporter=junit --test-reporter-destination=stdout --test-reporter-destination="$RUNNER_TEMP/mcp-junit.xml" agent-host/test/mcp-live.test.ts
+      - name: Save rotated sessions after success or failure
+        if: always() && steps.restore.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.LIVE_E2E_STATE_WRITER_TOKEN }}
+        run: python3 scripts/live-e2e-state.py save --mcp-only --config "$RUNNER_TEMP/mcp-live.json"
+      - name: Upload sanitized test results
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: mcp-live-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/mcp-junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Remove runner sessions
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/mcp-live-sessions" "$RUNNER_TEMP/mcp-live.json" "$RUNNER_TEMP/mcp-reads.json"

@@ -47,13 +47,18 @@ export async function jiraRead(
             maxResults: 100,
             orderBy: "created",
           };
-    const result = (await mcp.json(
+    const envelope = (await mcp.json(
       connection.server,
       tool,
       args,
       bounded,
     )) as Record<string, any>;
+    // Atlassian v2 returns native issue/comment payloads inside data, including
+    // structured MCP results. Do not mistake the envelope for an issue page.
+    const result = envelope?.data;
     if (
+      envelope?.partial ||
+      envelope?.truncated ||
       !result ||
       typeof result !== "object" ||
       Array.isArray(result) ||
@@ -65,6 +70,10 @@ export async function jiraRead(
       throw new Error("Jira MCP returned a different issue");
     const data =
       !issues && tool === "getJiraIssue" ? result.fields?.comment : result;
+    if (!issues && tool === "getJiraIssue" && !data)
+      throw new Error(
+        "Jira MCP did not expose issue comments; configure commentsTool with a paginated read tool exposed by your MCP server",
+      );
     const rows = issues ? data.issues : data?.comments;
     if (
       !Array.isArray(rows) ||

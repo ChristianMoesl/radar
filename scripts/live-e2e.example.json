@@ -18,8 +18,8 @@
     "reads": [
       {"server": "jira", "tool": "searchJiraIssuesUsingJql", "arguments": {"cloudId": "replace-with-jira-cloud-id", "jql": "key in (ABC-1, ABC-2, ABC-3)", "maxResults": 1}},
       {"server": "jira", "tool": "getJiraIssue", "arguments": {"cloudId": "replace-with-jira-cloud-id", "issueIdOrKey": "ABC-1", "fields": ["comment"]}},
-      {"server": "datadog", "tool": "search_datadog_monitors", "arguments": {"query": "tag:radar-oauth-e2e"}},
-      {"server": "datadog", "tool": "get_datadog_metric", "arguments": {"query": "avg:datadog.apis.rate_limit.usage.per_org_pct{*}", "from": "now-15m", "to": "now"}}
+      {"server": "datadog", "tool": "search_datadog_monitors", "arguments": {"query": "tag:radar-oauth-e2e", "telemetry": {"intent": "Qualify the Radar read-only MCP integration against designated test monitors"}}},
+      {"server": "datadog", "tool": "get_datadog_metric", "arguments": {"queries": ["avg:datadog.apis.rate_limit.usage.per_org_pct{*}"], "from": "now-15m", "to": "now", "telemetry": {"intent": "Qualify the Radar read-only MCP metric integration"}}}
     ]
   },
   "github": {

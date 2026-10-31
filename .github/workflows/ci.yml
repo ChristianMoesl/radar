@@ -198,6 +198,9 @@ jobs:
           RADAR_TERRAFORM_TEST_BINARY: ${{ github.workspace }}/radar
         run: python3 -m unittest scripts/test_live_e2e.py scripts/test_live_pr_gate.py scripts/test_terraform_live_plan.py scripts/test_terraform_live_lifecycle.py
 
+      - name: Validate live MCP setup against observed provider contracts
+        run: node --test scripts/mcp-live.test.mjs
+
       - name: Validate Terraform fixture plans without account access
         env:
           CHECKPOINT_DISABLE: '1'

@@ -284,7 +284,7 @@ test("Jira MCP paginates issues and configured comment reads, rejects incomplete
     client.json = async (_server, tool, args) => {
       requests.push(args);
       if (tool === "searchJiraIssuesUsingJql")
-        return args.nextPageToken
+        return { data: args.nextPageToken
           ? {
               isLast: true,
               issues: [
@@ -311,8 +311,8 @@ test("Jira MCP paginates issues and configured comment reads, rejects incomplete
                   },
                 },
               ],
-            };
-      return {
+            } };
+      return { data: {
         startAt: args.startAt,
         total: 2,
         comments: [
@@ -322,7 +322,7 @@ test("Jira MCP paginates issues and configured comment reads, rejects incomplete
             body: "comment",
           },
         ],
-      };
+      } };
     };
     assert.equal(
       (
@@ -348,7 +348,7 @@ test("Jira MCP paginates issues and configured comment reads, rejects incomplete
       ).length,
       2,
     );
-    client.json = async () => ({
+    client.json = async () => ({ data: {
       key: "ABC-1",
       fields: {
         comment: {
@@ -357,7 +357,7 @@ test("Jira MCP paginates issues and configured comment reads, rejects incomplete
           comments: [{ id: "1", updated: "1", body: "partial" }],
         },
       },
-    });
+    } });
     await assert.rejects(
       jiraRead(
         client,
@@ -365,6 +365,18 @@ test("Jira MCP paginates issues and configured comment reads, rejects incomplete
         { kind: "comments", key: "ABC-1" },
       ),
       /partial comments/,
+    );
+    client.json = async () => ({ data: { key: "ABC-1", fields: {} } });
+    await assert.rejects(
+      jiraRead(client, { server: "jira", cloudId: "fixture" }, { kind: "comments", key: "ABC-1" }),
+      /did not expose issue comments; configure commentsTool/,
+      "an omitted comment field must retain prior discussion facts, not become an empty discussion",
+    );
+    client.json = async () => ({ isLast: true, issues: [] });
+    await assert.rejects(
+      jiraRead(client, { server: "jira", cloudId: "fixture" }, { kind: "issues", jql: "project = ABC" }),
+      /invalid JSON/,
+      "qualification must exercise the native data envelope",
     );
   } finally {
     await client.close();

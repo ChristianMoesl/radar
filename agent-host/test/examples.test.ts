@@ -39,7 +39,7 @@ test("Jira reads use host MCP and retain conversations across partial failures a
       assert.equal(request.cloudId, "cloud-fixture");
       reads++;
       if (tool === "searchJiraIssuesUsingJql")
-        return {
+        return { data: {
           isLast: true,
           issues: [
             {
@@ -52,11 +52,11 @@ test("Jira reads use host MCP and retain conversations across partial failures a
               },
             },
           ],
-        };
+        } };
       assert.equal(tool, "getJiraIssue");
       assert.equal(request.issueIdOrKey, "ABC-123");
       if (failComments) throw Error("partial comments");
-      return {
+      return { data: {
         key: "ABC-123",
         fields: {
           comment: {
@@ -83,7 +83,7 @@ test("Jira reads use host MCP and retain conversations across partial failures a
             ],
           },
         },
-      };
+      } };
     };
   };
   const poll = async (id: string) => {

@@ -77,13 +77,14 @@ settings. Remove the old agent `profile`; optionally select `mcpServer` (default
 `jira`). Copy `jira-mcp.ts` instead of the removed `twg.ts` helper. This does not
 change the host collector's separate `jira.profile`.
 
-The assistant calls `searchJiraIssuesUsingJql`, verifies `isLast`/next-page tokens
-and requests `getJiraIssue`'s comment field. It verifies exact comment totals and
+The assistant reads Atlassian v2's `data` envelope, calls
+`searchJiraIssuesUsingJql`, verifies `isLast`/next-page tokens and requests
+`getJiraIssue`'s comment field. It verifies exact comment totals and
 retains the previous discussion state on missing/partial pages. If the official
 issue tool returns only an initial comment page, the poll fails visibly. For a
 server exposing a paginated comment reader, configure its exact `commentsTool`
 name; it must accept `cloudId`, `issueIdOrKey`, `startAt`, `maxResults`, `orderBy`
-and return `comments`, `startAt`, `total`. Missing pagination is not treated as a
+and return `data.comments`, `data.startAt`, `data.total`. Missing pagination is not treated as a
 complete discussion. Qualify this contract against the chosen server before
 release. Replies stay drafts; posting remains separate #42.
 
@@ -102,7 +103,10 @@ that receive the investigation's ISO timestamps:
   "reads": {
     "api_usage": {
       "tool": "get_datadog_metric",
-      "arguments": { "query": "avg:datadog.apis.rate_limit.usage.per_org_pct{*}" },
+      "arguments": {
+        "queries": ["avg:datadog.apis.rate_limit.usage.per_org_pct{*}"],
+        "telemetry": { "intent": "Investigate monitor evidence using the configured read scope" }
+      },
       "timeRange": { "from": "from", "to": "to" }
     }
   }
@@ -163,11 +167,13 @@ client and repeats the read. It does not prove natural expiry or server-side
 revocation. Live MCP provider qualification is still pending until those checks
 run with the chosen servers and approved accounts. The old SBX/Pup/TWG proxy
 experiment is historical and no longer a release gate for this architecture.
-The [hosted live workflow](live-e2e.md) includes these reads and the Jira
-definition's completeness/pagination checks. Its version-2 encrypted session
-bundle also transports opaque MCP client state. Dedicated MCP sign-in and a new
-seed are required before enabling it; local protocol fixtures are not a hosted
-or real-provider pass.
+The dedicated [hosted agent MCP workflow](mcp-live.md) includes these reads and
+the Jira definition's completeness/pagination checks. Its setup command uses
+the two MCP sign-ins to create selectors, run local qualification, seed encrypted
+client state and dispatch CI. It needs no collector CLI stores or pre-existing
+selector file. Local protocol fixtures are not a hosted or real-provider pass.
+The full [cross-provider workflow](live-e2e.md) remains available for combined
+collector qualification with its own dedicated sessions.
 
 Stop an agent before changing its copied definition/helpers/configuration,
 configure/authenticate MCP on the host, then restart it. No agent/task/document

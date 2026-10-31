@@ -6,6 +6,11 @@ alongside the collectors' TWG/Pup transports. MCP qualification uses
 credentials into SBX. The old
 [SBX OAuth experiment](sbx-oauth-proxy-test.md) is historical.
 
+For independent Jira/Datadog agent qualification, use the [Live agent MCP
+setup](mcp-live.md). It creates selectors from the two dedicated MCP sign-ins
+without requiring the collector CLI stores or GitHub PR fixtures described here.
+Keep the two workflows on separate OAuth grants when both are enabled.
+
 The separate [Terraform live validation workflow](../.github/workflows/terraform-live.yml)
 tests trusted `main` automatically on pushes through `live-e2e-main`, without
 approval. A dispatch from `main` with a PR number instead tests that exact PR
