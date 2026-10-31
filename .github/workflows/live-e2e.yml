@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  deployments: read
 
 # Never cancel a refresh/writeback or race mutations of the same fixtures.
 concurrency:
@@ -32,6 +33,15 @@ jobs:
             echo 'Live E2E is not configured. Follow docs/live-e2e.md and set RADAR_LIVE_E2E_ENABLED=true.' >&2
             exit 1
           fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require the automatic main environment and exact trusted revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: python3 scripts/live-pr-gate.py verify
 
   live:
     name: Real Jira, GitHub and Datadog environments
@@ -40,7 +50,7 @@ jobs:
     # Environment secrets are read when this job starts, after the workflow
     # concurrency lock. Repository secrets would be stale in queued runs after
     # an earlier run rotated a refresh token.
-    environment: live-e2e
+    environment: live-e2e-main
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7.0.1
@@ -103,7 +113,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.LIVE_E2E_STATE_WRITER_TOKEN }}
         run: |
-          test -n "$GH_TOKEN" || { echo 'LIVE_E2E_STATE_WRITER_TOKEN must update the live-e2e environment secret.' >&2; exit 1; }
+          test -n "$GH_TOKEN" || { echo 'LIVE_E2E_STATE_WRITER_TOKEN must update the live-e2e-main environment secret.' >&2; exit 1; }
           python3 scripts/live-e2e-state.py save --config "$RUNNER_TEMP/live-config.json"
       - name: Publish sanitized results
         if: always()

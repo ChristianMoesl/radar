@@ -52,7 +52,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class API:
     def __init__(self, token):
-        require(token, "Configure the personal TFCTL_TOKEN secret in live-e2e.")
+        require(token, "Configure the personal TFCTL_TOKEN secret in the selected live validation environment.")
         self.token = token
         self.opener = urllib.request.build_opener(NoRedirect)
 

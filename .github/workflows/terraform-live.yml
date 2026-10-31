@@ -1,13 +1,15 @@
 name: Terraform live validation
-run-name: 'Terraform live validation for PR #${{ inputs.pr_number }}'
+run-name: "Terraform live validation: ${{ inputs.pr_number && format('PR #{0}', inputs.pr_number) || 'main' }}"
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       pr_number:
-        description: Open PR targeting main; its exact head commit needs environment approval
+        description: Leave empty to validate trusted main automatically; a PR number requires approval of its exact head
         type: string
-        required: true
+        required: false
       run_id:
         description: Existing personal run for collection; empty creates one. Failure and apply/cancel fixtures always run.
         type: string
@@ -24,14 +26,15 @@ concurrency:
 
 jobs:
   readiness:
-    name: Select the PR revision and check approval protection
+    name: Select trusted main or an approval-gated PR revision
     runs-on: ubuntu-latest
     timeout-minutes: 3
     outputs:
       pr_number: ${{ steps.gate.outputs.pr_number }}
       sha: ${{ steps.gate.outputs.sha }}
+      environment: ${{ steps.gate.outputs.environment }}
     steps:
-      - name: Reject dispatches outside main before accessing credentials
+      - name: Reject workflow refs outside main before accessing credentials
         run: |
           if [ "$GITHUB_REF" != refs/heads/main ]; then
             echo 'Dispatch Terraform live validation on trusted main.' >&2
@@ -41,7 +44,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Resolve an open PR and require a protected environment
+      - name: Pin the tested revision and validate its environment policy
         id: gate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -49,22 +52,22 @@ jobs:
         run: python3 scripts/live-pr-gate.py resolve
 
   live:
-    name: 'Approve PR #${{ needs.readiness.outputs.pr_number }} at ${{ needs.readiness.outputs.sha }}'
+    name: "${{ needs.readiness.outputs.pr_number && format('Approve PR #{0}', needs.readiness.outputs.pr_number) || 'Validate trusted main' }} at ${{ needs.readiness.outputs.sha }}"
     needs: readiness
     runs-on: ubuntu-latest
     environment:
-      name: live-e2e
+      name: ${{ needs.readiness.outputs.environment }}
       url: https://github.com/${{ github.repository }}/commit/${{ needs.readiness.outputs.sha }}
     timeout-minutes: 50
     steps:
-      # Keep approval/control code on the trusted dispatch revision. The PR's
+      # Keep approval/control code on the trusted workflow revision. The PR's
       # workflow and gate helper are never used to authorize its own execution.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           path: control
           persist-credentials: false
-      - name: Reject a changed or closed PR after approval
+      - name: Recheck the selected revision and environment before execution
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.readiness.outputs.pr_number }}
@@ -79,17 +82,17 @@ jobs:
         with:
           go-version-file: candidate/go.mod
           cache-dependency-path: candidate/go.sum
-      - name: Require both qualification tests in the selected PR revision
+      - name: Require both qualification tests in the pinned revision
         working-directory: candidate
         run: |
           tests=$(go test ./internal/integration/terraform -list '^TestLiveTerraform(Collection|FailureAcknowledgement)$')
           for test_name in TestLiveTerraformCollection TestLiveTerraformFailureAcknowledgement; do
             if ! printf '%s\n' "$tests" | grep -qx "$test_name"; then
-              echo "The selected PR revision must contain $test_name." >&2
+              echo "The pinned candidate revision must contain $test_name." >&2
               exit 1
             fi
           done
-      - name: Build the selected PR daemon for isolated lifecycle validation
+      - name: Build the pinned daemon for isolated lifecycle validation
         working-directory: candidate
         run: go build -o "$RUNNER_TEMP/radar-terraform-live" ./cmd/radar
       - name: Install checksum-pinned Terraform CLIs
@@ -122,7 +125,7 @@ jobs:
           RADAR_TEST_TERRAFORM_RUN_ID: ${{ inputs.run_id || steps.fixture.outputs.run_id }}
         run: |
           if [ -z "$TFCTL_TOKEN" ]; then
-            echo 'Add the personal Terraform user token as TFCTL_TOKEN in the live-e2e GitHub Environment.' >&2
+            echo 'Add the personal Terraform user token as TFCTL_TOKEN in the selected live validation environment.' >&2
             exit 1
           fi
           go test ./internal/integration/terraform -run '^TestLiveTerraformCollection$' -count=1 -timeout=4m -v

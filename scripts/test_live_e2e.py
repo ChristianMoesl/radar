@@ -176,7 +176,8 @@ class Safeguards(unittest.TestCase):
             state.save(self.config, "acme/radar")
         self.assertNotIn("synthetic fixture", run.call_args.args[0])
         self.assertEqual(run.call_args.kwargs["input"], "synthetic fixture")
-        self.assertIn("live-e2e", run.call_args.args[0])
+        self.assertIn("live-e2e-main", run.call_args.args[0])
+        self.assertNotIn("live-e2e", run.call_args.args[0])
 
 
 if __name__ == "__main__":

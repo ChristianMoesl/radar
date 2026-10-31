@@ -2,13 +2,14 @@
 
 This fixture targets HCP Terraform organization `radar-oss`, workspace
 `radar-oauth-e2e`. It uses only the built-in `terraform_data` resource and creates
-no external infrastructure. The live workflow uses the trusted dispatch commit's
-copy after environment approval; it needs only the existing `TFCTL_TOKEN` secret.
+no external infrastructure. The live workflow uses the trusted workflow commit's
+copy with the selected environment's `TFCTL_TOKEN` secret. Trusted main runs use
+`live-e2e-main` automatically; selected PR revisions require `live-e2e` approval.
 
 The normal CI job initializes with `-backend=false` and runs formatting,
 validation and all three native plan-only tests without account credentials.
 `fail_plan=true` deliberately fails a plan; changing `fixture_revision` exercises
-a different plan input. Under one environment approval, the live workflow
+a different plan input. Under the selected environment policy, the live workflow
 qualifies a successful speculative plan (or the selected existing run), then
 creates a deliberate failed speculative plan and requires Attention →
 acknowledge → Done while preserving the failed Terraform outcome.

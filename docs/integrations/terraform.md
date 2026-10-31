@@ -182,35 +182,43 @@ cancellation, outage recovery, and restart while a run completes.
 
 ### Live validation in GitHub Actions
 
-The separate [Terraform live validation workflow](../../.github/workflows/terraform-live.yml)
-runs only for a manually selected open PR targeting `main`, after approval of its
-exact head commit. Start the workflow from trusted `main`; the workflow and approval
-helper come from that dispatch revision, while the approved PR code is checked out
-separately for testing. Ordinary pushes and PR events never start this live workflow.
+The [Terraform live validation workflow](../../.github/workflows/terraform-live.yml)
+runs automatically on pushes to `main`. It checks out that exact trusted workflow
+commit and uses `live-e2e-main` without an approval. A manual dispatch from `main`
+with the PR number left empty uses the same trusted-main path.
 
-Reuse the existing **Settings → Environments → live-e2e** environment, which
-holds the live-validation credentials. Configure its approval protection:
+To qualify PR code, dispatch from `main` and enter an open PR targeting `main`.
+That path uses `live-e2e` and requires approval of its exact head commit. The
+workflow and gate helper always come from the trusted dispatch revision; the
+candidate code is checked out separately after approval. Ordinary PR events
+never start credentialed live tests. A workflow running from `main` that selects
+PR code still takes the approval-protected path.
 
-- Under **Deployment branches and tags**, choose **Selected branches and tags**
-  and add a **branch** rule for exactly `main`, with no tag rules. Use an explicit
-  selection; **Protected branches only** allows all branches when no branch
-  protection rules exist.
-- Enable **Required reviewers** and select yourself (or another trusted maintainer).
-  Enable **Prevent self-review** when another maintainer can approve; a solo
-  maintainer must leave it off to approve their own dispatches.
-- Disable **Allow administrators to bypass configured protection rules**.
-- Store `TFCTL_TOKEN` in **Environment secrets**, not repository variables or
-  committed configuration. Reuse it there if it is already configured; no new
-  environment or credential copies are needed. Terraform consumes only this
-  secret; the Jira/Datadog session bundle and other live credentials stay in the
-  same shared environment. Required approval also gates the scheduled provider
-  workflow that uses this environment.
+Configure both environments under **Settings → Environments**:
 
-The credential-free readiness job checks that required reviewers exist,
-administrator bypass is disabled, and the only deployment rule allows the
-`main` branch. A missing environment or weaker settings fail the run before
-requesting the live job. Referencing an environment in YAML does not configure
-GitHub's required-reviewer setting; configure that setting in GitHub first.
+| Setting | `live-e2e-main` | `live-e2e` |
+| --- | --- | --- |
+| Code permitted by the workflow | Exact trusted main workflow commit | Explicitly selected PR head commit |
+| Required reviewers | Disabled | A trusted maintainer |
+| Wait timer / custom approval rules | Disabled | Optional |
+| Administrator bypass | Disabled | Disabled |
+| Deployment branches and tags | Exactly one selected **branch** rule: `main`; no tags | Exactly one selected **branch** rule: `main`; no tags |
+| Environment secret | `TFCTL_TOKEN` | `TFCTL_TOKEN` |
+
+Both branch rules name `main` because the trusted control workflow starts there.
+The environment selection depends on whether PR code was selected, not just the
+workflow's branch label. Use **Selected branches and tags** rather than
+**Protected branches only**, which can allow other branches. For a solo PR
+reviewer, leave **Prevent self-review** unchecked so the maintainer can approve
+their own dispatch; enable it when another trusted maintainer can approve.
+
+The credential-free readiness job validates the selected environment before
+requesting the live job. It requires main to have no approval/delay rules,
+requires a reviewer for PR code, and checks the explicit main-only branch policy
+and disabled administrator bypass for both. Missing or incorrectly configured
+environments fail rather than being created automatically or falling back to
+the other credential store. Store credentials as environment secrets, never as
+repository variables or committed configuration.
 
 If not already present, add **`TFCTL_TOKEN`** as a personal Terraform user token
 with normal read access to the checked-in fixture scope: `app.terraform.io`, organization `radar-oss`,
@@ -222,7 +230,9 @@ establish personal ownership. An explicitly selected existing run must have the
 same creator. No Jira, Datadog or npm setup is needed for this workflow, and no
 token should be sent through chat.
 
-Protect `main` with required reviewed pull requests and blocked force pushes.
+Restrict writes to `main` to trusted maintainers and automation, and block force
+pushes/deletion. An authorized push can run code with the main environment's
+credentials; direct commits by a trusted maintainer do not need a live-job review.
 Review the code and dependencies at the selected PR commit before approving:
 code executing with the secret can use the credential, regardless of the
 workflow's intended fixture operations.
@@ -236,13 +246,16 @@ Enter the secret value in GitHub or through the CLI prompt:
 
 ```sh
 gh secret set TFCTL_TOKEN --repo acme/radar --env live-e2e
+gh secret set TFCTL_TOKEN --repo acme/radar --env live-e2e-main
+gh workflow run terraform-live.yml --repo acme/radar --ref main
 gh workflow run terraform-live.yml --repo acme/radar --ref main -f pr_number=123
 ```
 
 In the web UI, open **Actions → Terraform live validation → Run workflow**, select
-`main`, and enter the PR number. Read the readiness summary's exact commit link,
-then choose **Review deployments → live-e2e → Approve and deploy**. The
-live runner and its Terraform credential wait for this approval. After approval,
+`main`, and leave the PR number empty for trusted main validation without approval.
+For PR validation, enter its number, read the readiness summary's exact commit
+link, then choose **Review deployments → live-e2e → Approve and deploy**. The
+PR runner and its Terraform credential wait for this approval. After approval,
 the trusted helper rechecks that the PR is still open with the same head. A new
 commit needs a new dispatch and approval; checkout always uses the pinned SHA.
 Approving this deployment does not merge the PR. Results appear in this manually
@@ -250,8 +263,9 @@ dispatched Actions run; it is not an automatic required check on every PR.
 
 The workflow pins its GitHub actions to exact commits, installs checksum-pinned
 tfctl 0.4.0 and Terraform 1.17.0, and releases credentials only after environment
-approval. Unless `run_id` selects an existing fixture, it uses the trusted
-dispatch commit's [bundled fixture](../../testdata/terraform-live) and runs native `terraform init` / `terraform plan`
+policy checks (and reviewer approval for PR code). Unless `run_id` selects an
+existing fixture, it uses the trusted workflow commit's
+[bundled fixture](../../testdata/terraform-live) and runs native `terraform init` / `terraform plan`
 with the personal token. The fixture has only a built-in `terraform_data`
 resource; it creates no external infrastructure. Only its three root `.tf` files
 are uploaded from a disposable directory. The CLI creates a speculative run and
@@ -262,7 +276,7 @@ exercise the fixture's deliberate precondition failure. CI requires both the
 expected failure diagnostic and a run URL in the approved workspace; an
 unrelated CLI error or unexpected success fails the job.
 
-The same approval also authorizes the trusted
+The live job also runs the trusted
 [lifecycle harness](../../scripts/terraform-live-lifecycle.py). It uploads only
 the three fixture files as a provisional configuration, with automatic run
 queueing disabled. It creates two personal runs with auto-apply disabled and
@@ -310,15 +324,15 @@ Leave the optional `run_id` input empty to create and qualify a fresh personal
 plan-only run. This avoids relying on manual runs or the three-day terminal
 discovery window. Supply a personally created `run-...` ID to qualify a
 specific/older terminal fixture for the collection check. The deliberate failure
-fixture and lifecycle runs are always created and checked separately under the
-same approval. Empty discovery
+fixture and lifecycle runs are always created and checked separately in the
+same live job. Empty discovery
 without a selected fixture, incomplete
 scans, failed
 authentication and ownership/scope mismatches fail the run. The workflow forces
 uncached Go execution so a previous live result cannot satisfy a new dispatch.
 
-The lifecycle stage builds the selected PR daemon and qualifies the remaining
-transition/recovery scenarios under that same approval. Its success and the
+The lifecycle stage builds the pinned candidate daemon and qualifies the remaining
+transition/recovery scenarios under the selected environment policy. Its success and the
 two source-level Go checks are required before recording the complete live
 matrix. Ordinary pull-request CI runs the lifecycle harness against a read-only
 fake CLI and the real daemon/database, without account access or Terraform

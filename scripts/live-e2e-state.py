@@ -103,7 +103,7 @@ def save(config, repository):
     bundle = pack(config)
     # gh encrypts with the environment's public key before uploading. Use stdin
     # so neither credentials nor the bundle appear in process arguments/logs.
-    result = subprocess.run(["gh", "secret", "set", SECRET, "--repo", repository, "--env", "live-e2e"],
+    result = subprocess.run(["gh", "secret", "set", SECRET, "--repo", repository, "--env", "live-e2e-main"],
                             input=bundle, capture_output=True, text=True, timeout=60)
     require(result.returncode == 0, "could not save refreshed CLI sessions; check the state writer's environment permissions")
 
@@ -120,7 +120,7 @@ def main():
         if args.operation == "restore":
             require(args.session_dir and args.session_dir.is_absolute(), "select an absolute session directory")
             bundle = os.environ.pop(SECRET, "")
-            require(bundle, "LIVE_E2E_SESSIONS is missing; seed the live-e2e environment first")
+            require(bundle, "LIVE_E2E_SESSIONS is missing; seed the live-e2e-main environment first")
             unpack(bundle, args.session_dir)
             for name, key in (("pup", "datadog"), ("twg", "jira")):
                 config[key]["config_dir"] = str(args.session_dir / name)

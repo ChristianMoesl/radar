@@ -7,21 +7,23 @@ credentials into SBX. The old
 [SBX OAuth experiment](sbx-oauth-proxy-test.md) is historical.
 
 The separate [Terraform live validation workflow](../.github/workflows/terraform-live.yml)
-tests a manually selected PR revision after explicit environment approval. It
-reuses the shared `live-e2e` environment and consumes its `TFCTL_TOKEN`
-personal-user secret with the approved workspace selectors. By default, the
-approved job uses the trusted dispatch commit's bundled Terraform fixture to
+tests trusted `main` automatically on pushes through `live-e2e-main`, without
+approval. A dispatch from `main` with a PR number instead tests that exact PR
+revision through the approval-protected `live-e2e` environment. Both environments
+hold a `TFCTL_TOKEN` personal-user secret for the selected workspace. The
+live job uses the trusted workflow commit's bundled Terraform fixture to
 create a fresh speculative run before qualification;
 supplying an existing `run_id` skips fixture creation. It needs no OAuth session
-bundle, GitHub fixture token or Jira/Datadog account. No separate environment or copies
-of existing credentials are needed. Its trusted workflow comes from
-`main`; ordinary PR events do not start it. See
+bundle, GitHub fixture token or Jira/Datadog account. Its trusted workflow comes
+from `main`; ordinary PR events do not start credentialed tests. Leaving the
+PR number empty in a manual dispatch selects main without approval. See
 [Terraform live setup and coverage](integrations/terraform.md#live-validation-in-github-actions).
 
 The [Live provider E2E workflow](../.github/workflows/live-e2e.yml) uses ordinary
 GitHub-hosted Ubuntu runners and the dedicated test accounts. No self-hosted
 runner is needed. Normal PR CI stays offline. Live runs execute trusted `main`
 manually or daily at 05:23 UTC after setup is explicitly enabled.
+It uses `live-e2e-main` without reviewer approval and rejects other workflow refs.
 
 The live gate checks:
 
@@ -66,7 +68,7 @@ That run preceded the new MCP gate; it does not qualify MCP access or hosted CI.
 
 ## How sessions survive disposable runners
 
-The `live-e2e` GitHub Environment holds an encrypted `LIVE_E2E_SESSIONS` secret.
+The `live-e2e-main` GitHub Environment holds an encrypted `LIVE_E2E_SESSIONS` secret.
 The workflow restores opaque CLI and MCP client stores into private temporary
 files. Pup, TWG and the Pi MCP client own token interpretation and refresh.
 The CI storage helper transports their bytes without parsing tokens. MCP's
@@ -103,15 +105,13 @@ while the providers continue accepting refreshes.
 
 ## One-time GitHub setup
 
-In the Radar repository, reuse **Settings → Environments → live-e2e** and restrict
+In the Radar repository, configure **Settings → Environments → live-e2e-main** and restrict
 deployment branches to an explicit selected **branch** rule for `main`, with no
-tag rules. For a public repository, require a trusted reviewer and disable
-administrator bypass. Scheduled runs will also wait for approval. Enable
-prevent-self-review when another trusted maintainer can approve; solo
-maintainers must leave it off to approve their own runs. Create the environment
-first only when configuring a new repository. Protect `main` with
-reviewed pull requests and blocked force pushes. This environment is never
-referenced by a PR-triggered workflow.
+tag rules. Disable required reviewers, wait timers, custom approval rules and
+administrator bypass. Main dispatches and scheduled runs do not require approval.
+Restrict writes to `main` to trusted maintainers and automation, and block force
+pushes/deletion. PR credentialed validation uses the separate `live-e2e`
+environment with required reviewers; it cannot use this automatic main path.
 
 Add these secrets to that environment, entering token values directly in GitHub
 or through `gh secret set`, never in chat:
@@ -178,7 +178,7 @@ radar-mcp tools jira
 Do not reuse an actively running agent's MCP state as the CI store. As with CLI
 sessions, exclusive ownership after seeding prevents refresh-token rotation races.
 
-With `gh` authenticated as a user who can update the `live-e2e` environment:
+With `gh` authenticated as a user who can update the `live-e2e-main` environment:
 
 ```sh
 python3 scripts/live-e2e-state.py seed \

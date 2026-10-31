@@ -39,7 +39,7 @@ def command(arguments, directory, env, timeout, expect_failure=False):
 
 def create_plan(configuration, inherited, expect_failure=False):
     if not inherited.get("TF_TOKEN_app_terraform_io"):
-        raise Failure("Configure TFCTL_TOKEN in live-e2e; the plan step passes it to Terraform's native token environment.")
+        raise Failure("Configure TFCTL_TOKEN in the selected live validation environment; the plan step passes it to Terraform's native token environment.")
     with tempfile.TemporaryDirectory(prefix="radar-terraform-fixture-") as temporary:
         root = Path(temporary)
         directory = root / "configuration"
