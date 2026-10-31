@@ -34,6 +34,8 @@ The live gate checks:
 
 Jira checks now exercise the production OAuth transport. Daemon checks require
 at least two selected issues assigned to the OAuth account and still open.
+Include a third selected issue that is Done; cold authored binding resolution
+must preserve its source identity and completion even outside assigned search.
 This workflow does not qualify logs/traces, natural expiry, server-side
 revocation, browser onboarding, live model output or webhook delivery.
 Those remain separate release gates. A missing service, expired login,

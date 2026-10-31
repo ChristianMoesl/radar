@@ -27,5 +27,19 @@
     "Hosted live CI"
   ],
   "cleanup": "Both approved non-notifying monitors recovered to healthy; isolated daemons stopped and temporary state removed.",
-  "datadog_natural_expiry": "Before forced refresh checks, the existing idle session automatically refreshed during pup auth status and reported valid OAuth with a new one-hour expiry. No credential file was inspected."
+  "datadog_natural_expiry": "Before forced refresh checks, the existing idle session automatically refreshed during pup auth status and reported valid OAuth with a new one-hour expiry. No credential file was inspected.",
+  "jira_binding_follow_up": {
+    "date": "2026-10-31",
+    "production_revision": "3488625",
+    "status": "passed",
+    "seconds": 89.6,
+    "assertions": [
+      "Production OAuth collection and complete one-row issue pages",
+      "Cold authored binding resolution for every selected issue without prior cached observations",
+      "Authoritative source identity retained outside assigned search",
+      "The selected unassigned Done issue resolves to the Done signal",
+      "Static credential overrides are scrubbed and missing login preserves prior facts"
+    ],
+    "mutations": "None; all provider calls were read-only."
+  }
 }

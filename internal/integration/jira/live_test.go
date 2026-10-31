@@ -62,7 +62,7 @@ func TestLiveTWGOAuthCollection(t *testing.T) {
 		}
 	}
 	write(fixture.Profile)
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 	logger := jiraCollectRequest(nil).Logger
 	source := NewSource()
@@ -103,16 +103,41 @@ func TestLiveTWGOAuthCollection(t *testing.T) {
 	if err != nil || len(rows) != len(fixture.Keys) {
 		t.Fatalf("production cursor pagination failed: rows=%d err=%v", len(rows), err)
 	}
+	done := 0
 	for _, key := range fixture.Keys {
 		value, err := fetchIssue(ctx, connection, key)
 		if err != nil || value.Key != key {
 			t.Fatalf("production get failed: %v", err)
 		}
+		// Cold authored bindings must resolve independently of the assigned
+		// search, including an issue that was reassigned and is now Done.
+		binding := protocol.SourceBinding{Source: "jira", Kind: "issue", ID: "jira:issue:" + key, WorkItem: true}
+		bound := source.ResolveBindings(ctx, integration.BindingRequest{
+			Bindings: []protocol.SourceBinding{binding}, Result: integration.CollectResult{Complete: true},
+			LinkingMarks: marks, Logger: logger,
+		})
+		if !bound.Complete || len(bound.Observations) != 1 {
+			t.Fatal("live cold binding did not resolve the approved issue")
+		}
+		observed := bound.Observations[0]
+		contracttest.AssertValidSourceRefs(t, "jira", []protocol.SourceRef{observed.Ref})
+		if observed.Ref.ID != binding.ID || !contributingBoundIssue(observed.Ref) || observed.TargetTaskID != 0 {
+			t.Fatal("live explicit binding lost its authoritative identity")
+		}
+		if value.Fields.Status != nil && value.Fields.Status.StatusCategory != nil && value.Fields.Status.StatusCategory.Key == "done" {
+			done++
+			if observed.Signal != integration.SignalDone || observed.Ref.Signal != string(integration.SignalDone) {
+				t.Fatal("live Done issue did not complete its authored binding")
+			}
+		}
+	}
+	if done == 0 {
+		t.Fatal("include an approved Done issue in the selectors to qualify cold binding completion")
 	}
 	write(fixture.Profile + "-missing")
 	failed := source.Collect(ctx, req)
 	if failed.Complete || failed.SourceStatus == nil || failed.SourceStatus.Status != "error" || len(failed.Observations) != len(first.Observations) {
 		t.Fatal("missing OAuth profile did not preserve previous Jira facts")
 	}
-	t.Logf("Production TWG collection, inherited-credential sanitization, cursor pages, single reads and missing-session retention passed for %d approved issue(s)", len(fixture.Keys))
+	t.Logf("Production TWG collection, credential sanitization, cursor pages, cold bindings/Done and missing-session retention passed for %d approved issue(s)", len(fixture.Keys))
 }

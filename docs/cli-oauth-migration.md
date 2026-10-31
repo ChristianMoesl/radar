@@ -153,7 +153,7 @@ limitations, not an atomic OAuth guarantee. Normal CI skips live tests.
 
 For read-only production Jira qualification, create a private selector JSON file
 with `base_url`, `cloud_id`, `profile`, `account_id` and approved `issue_keys`
-(at least two), then run with the CLI's existing store selected explicitly:
+(at least two, including one Done issue), then run with the CLI's existing store selected explicitly:
 
 ```sh
 TWG_CONFIG_DIR=/path/to/cli-owned-store RADAR_TEST_JIRA_FIXTURES=/path/to/selectors.json \
