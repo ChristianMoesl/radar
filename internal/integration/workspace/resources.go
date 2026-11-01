@@ -21,6 +21,7 @@ func InspectWorkspaceResources(ctx context.Context, runner Runner, current, root
 		return result, err
 	}
 	result.Registered, result.WorkspaceID, result.WorkspacePath = true, group.ID, group.Path
+	result.Feedback, result.FeedbackOrigin = group.Feedback, group.FeedbackOrigin
 	if group.NotePath != "" {
 		result.Note = &integration.WorkspaceContextNote{Path: group.NotePath, WorkspacePath: filepath.Join(group.Path, "notes.md"), LinkingKey: group.NoteKey()}
 	}

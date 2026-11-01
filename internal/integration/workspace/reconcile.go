@@ -1030,6 +1030,8 @@ func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.Sa
 		Ports            []workspacegroup.SandboxPort  `json:"ports"`
 	}
 	type revisionState struct {
+		Feedback       bool                    `json:"feedback,omitempty"`
+		FeedbackOrigin string                  `json:"feedback_origin,omitempty"`
 		ID             string                  `json:"id"`
 		Name           string                  `json:"name"`
 		Path           string                  `json:"path"`
@@ -1048,7 +1050,7 @@ func workspaceRevision(group workspacegroup.Workspace, ports []workspacegroup.Sa
 		members[index].SetupScheduled = false
 	}
 	sort.Slice(members, func(i, j int) bool { return pathKey(members[i].Path) < pathKey(members[j].Path) })
-	state := revisionState{ID: group.ID, Name: group.Name, Path: group.Path, NotePath: group.NotePath, NoteLinkingKey: group.NoteLinkingKey, Model: group.Model, Thinking: group.Thinking, Tmux: group.Tmux, SessionName: group.SessionName, TaskLinkingKey: group.TaskLinkingKey, Members: members}
+	state := revisionState{Feedback: group.Feedback, FeedbackOrigin: group.FeedbackOrigin, ID: group.ID, Name: group.Name, Path: group.Path, NotePath: group.NotePath, NoteLinkingKey: group.NoteLinkingKey, Model: group.Model, Thinking: group.Thinking, Tmux: group.Tmux, SessionName: group.SessionName, TaskLinkingKey: group.TaskLinkingKey, Members: members}
 	if group.Sandbox != nil {
 		normalizedPorts, err := normalizeSandboxPorts(ports)
 		if err != nil {

@@ -2,11 +2,13 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/integration/workspace/group"
+	"radar/internal/pi"
 )
 
 func (Source) DefaultRoot() (string, error)  { return DefaultRoot() }
@@ -55,14 +57,17 @@ func (Source) OpenWorkspace(ctx context.Context, path string, switchClient bool)
 }
 
 func (s Source) createOptions(req integration.ManagedWorkspaceRequest) (CreateOptions, error) {
+	if req.Feedback && !pi.FeedbackAvailable() {
+		return CreateOptions{}, fmt.Errorf("Improve Radar requires an active Pi session with the linear MCP available")
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return CreateOptions{}, err
 	}
 	desired := reconcileRequest(integration.WorkspaceReconcileRequest{Desired: integration.DesiredWorkspaceDescription{Note: req.Note, Worktrees: req.Worktrees}}).Desired
 	return CreateOptions{
-		PrepareOnly: req.PrepareOnly,
-		Repo:        req.Repo, BranchMode: req.BranchMode, Name: req.Name, Branch: req.Branch,
+		PrepareOnly: req.PrepareOnly, Feedback: req.Feedback, FeedbackOrigin: req.FeedbackOrigin,
+		Repo: req.Repo, BranchMode: req.BranchMode, Name: req.Name, Branch: req.Branch,
 		Base: req.Base, Path: req.Path, SessionName: req.SessionName, WorkspaceRoot: req.WorkspaceRoot,
 		Model: cfg.Model, Thinking: cfg.Thinking, Sandbox: cfg.SBX.WorkspaceEnabled(workspaceGOOS, ExecRunner{}.LookPath),
 		SandboxKitName: cfg.SBX.Kit.Name, SandboxKitPath: cfg.SBX.Kit.Path, SandboxEnvFile: cfg.SBX.EnvFile, SandboxReadyCommand: append([]string(nil), cfg.SBX.ReadyCommand...),

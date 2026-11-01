@@ -31,12 +31,13 @@ type ReleaseState struct {
 	Loaded    []LoadedRelease
 }
 type LoadedRelease struct {
-	PID     int    `json:"pid"`
-	Version string `json:"version"`
-	Profile string `json:"profile"`
-	CWD     string `json:"cwd"`
-	Source  string `json:"source"`
-	Updated int64  `json:"updated"`
+	LinearAvailable bool   `json:"linear_available,omitempty"`
+	PID             int    `json:"pid"`
+	Version         string `json:"version"`
+	Profile         string `json:"profile"`
+	CWD             string `json:"cwd"`
+	Source          string `json:"source"`
+	Updated         int64  `json:"updated"`
 }
 
 func ProfileDir() (string, error) {

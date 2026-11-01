@@ -25,6 +25,7 @@ bind-key F display-popup -E "radar fork"
 | <kbd>m</kbd> | Mute or unmute the selected task |
 | <kbd>D</kbd> | Delete an authored task with confirmation (move to vault trash) |
 | <kbd>c</kbd> | Create a workspace |
+| <kbd>F</kbd> | [Improve Radar](workspaces.md#improve-radar): create a feedback workspace (requires a live Pi session with the `linear` MCP) |
 | <kbd>w</kbd> | Edit the selected task's workspace resources |
 | <kbd>x</kbd> / <kbd>X</kbd> | Clean up the selected task / garbage-collect eligible workspaces |
 | <kbd>f</kbd> | Edit the configuration |

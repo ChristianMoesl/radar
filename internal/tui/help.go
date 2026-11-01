@@ -54,6 +54,7 @@ var mainKeyHints = [][]keyHint{
 		{"/", "search tasks"},
 		{"esc", "clear search"},
 		{"c", "create workspace"},
+		{"F", "improve Radar"},
 		{"w", "workspace resources"},
 		{"x", "cleanup"},
 		{"s", "sources"},
@@ -145,6 +146,8 @@ func (m model) mainHintAvailable(key string, task protocol.Task, selected bool) 
 		return true
 	}
 	switch key {
+	case "F":
+		return m.feedbackAvailable
 	case "esc":
 		return m.searchQuery != ""
 	case "enter", "i", "w", "x", "m":

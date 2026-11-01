@@ -54,6 +54,8 @@ type WorkspaceMember struct {
 }
 
 type ManagedWorkspaceRequest struct {
+	Feedback       bool
+	FeedbackOrigin string
 	PrepareOnly    bool
 	Worktrees      []DesiredWorkspaceWorktree
 	Note           *DesiredWorkspaceNote

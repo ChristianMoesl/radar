@@ -67,6 +67,9 @@ async function harness(t: TestContext, registered: unknown = true) {
     reload: async () => { reloads++; },
   };
   const pi = {
+    getAllTools: () => [...tools.values()],
+    getActiveTools: () => [...tools.keys()],
+    setActiveTools: (_names: string[]) => {},
     events: { emit: (channel: string, data: any) => { if(channel === "pi-sbx:require") {sandboxRequests.push(data.name); if(acceptsSandbox) data.acknowledge();} } },
     on: (event: string, handler: Handler) => hooks.set(event, [...(hooks.get(event) ?? []), handler]),
     registerTool: (tool: any) => tools.set(tool.name, tool),
@@ -993,4 +996,24 @@ test("failed lifecycle refresh blocks ordinary routing until fresh workspace sta
   assert.equal(result?.block, true);
   const repair = await h.emit("tool_call", { toolName: "radar_workspace_context" });
   assert.equal(repair, undefined);
+});
+
+
+test("feedback purpose and originating context reach every prompt after resource reload", async t => {
+  const h = await harness(t);
+  h.tools.set("mcp__linear__save_issue", { name: "mcp__linear__save_issue" });
+  h.setContext({ registered: true, feedback: true, feedback_origin: "/work/origin", workspace_path: h.root, members: [] });
+  await h.start();
+  await h.resources();
+  for (const reason of ["startup", "reload"]) {
+    await h.resources(reason);
+    const prompt = (await h.prompt()).systemPrompt;
+    assert.ok(prompt.includes("Radar feedback workspace"));
+    assert.ok(prompt.includes("/work/origin"));
+    assert.ok(prompt.includes("radar-f46332010943"));
+    assert.ok(prompt.includes("Radar fixture instructions"));
+  }
+  assert.ok(h.tools.has("radar_diagnostics"));
+  h.tools.delete("mcp__linear__save_issue");
+  assert.ok((await h.prompt()).systemPrompt.includes("feedback is disabled"));
 });

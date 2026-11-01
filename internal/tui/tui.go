@@ -23,6 +23,7 @@ import (
 	"radar/internal/integration"
 	"radar/internal/openurl"
 	"radar/internal/pathdisplay"
+	"radar/internal/pi"
 	"radar/internal/protocol"
 	"radar/internal/sourceactions"
 	"radar/internal/taskrefs"
@@ -109,6 +110,7 @@ type createForm struct {
 }
 
 type model struct {
+	feedbackAvailable      bool
 	agent                  agentState
 	releaseNotice          update.Notice
 	relaunch               bool
@@ -192,7 +194,7 @@ func newModel(socketPath string) model {
 }
 
 func (m model) Init() tea.Cmd {
-	commands := []tea.Cmd{m.fetch("tasks")}
+	commands := []tea.Cmd{m.fetch("tasks"), checkFeedbackAvailability}
 	if runtime.GOOS == "darwin" {
 		commands = append(commands, checkReleaseNotice)
 	}
@@ -223,6 +225,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.agentTick(), m.agentCall(request))
 		}
 		return m, m.agentTick()
+	case feedbackAvailabilityMsg:
+		m.feedbackAvailable = bool(msg)
+		return m, feedbackAvailabilityTick()
 	case releaseNoticeMsg:
 		m.releaseNotice = update.Notice(msg)
 		m.syncTaskScroll()
@@ -446,6 +451,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "c":
 			return m.newWorkspace()
+		case "F":
+			if !m.feedbackAvailable || !pi.FeedbackAvailable() {
+				m.message = "Improve Radar requires an active Pi session with the linear MCP available"
+				return m, nil
+			}
+			return m.newFeedbackWorkspace()
 		case "w":
 			if task, ok := m.selectedTask(); ok {
 				return m.editWorkspace(task)

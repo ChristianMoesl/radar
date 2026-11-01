@@ -43,6 +43,16 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 	if err != nil {
 		return fail(err)
 	}
+	if !options.Feedback && options.FeedbackOrigin != "" {
+		return fail(fmt.Errorf("feedback origin requires a feedback workspace"))
+	}
+	if options.FeedbackOrigin != "" {
+		_, origin, found, err := RegisteredWorkspace(options.FeedbackOrigin, root)
+		if err != nil || !found {
+			return fail(fmt.Errorf("feedback origin must be a registered workspace"))
+		}
+		options.FeedbackOrigin = origin.Path
+	}
 	if options.PrepareOnly && options.Path != "" {
 		_, registered, found, err := RegisteredWorkspace(options.Path, root)
 		if err != nil {
@@ -170,7 +180,7 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 			return fail(fmt.Errorf("tmux session %s already exists; cannot verify its early-start sandbox guard; open its registered workspace or choose a different session name", sessionName))
 		}
 	}
-	initial := workspacegroup.Workspace{ID: workspacegroup.ID(anchor), Name: name, Path: anchor, SessionName: sessionName, TaskLinkingKey: options.TaskLinkingKey, Model: model, Thinking: thinking, Tmux: options.Tmux, Members: []workspacegroup.Member{}}
+	initial := workspacegroup.Workspace{Feedback: options.Feedback, FeedbackOrigin: options.FeedbackOrigin, ID: workspacegroup.ID(anchor), Name: name, Path: anchor, SessionName: sessionName, TaskLinkingKey: options.TaskLinkingKey, Model: model, Thinking: thinking, Tmux: options.Tmux, Members: []workspacegroup.Member{}}
 	desired := DesiredWorkspaceDescription{Worktrees: members, Note: options.Note}
 	if desired.Note == nil && options.NotePath != "" {
 		desired.Note = &DesiredWorkspaceNote{Path: options.NotePath, LinkingKey: options.TaskLinkingKey}

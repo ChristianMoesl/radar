@@ -33,6 +33,8 @@ type Workspace struct {
 	Name           string               `json:"name"`
 	Path           string               `json:"path"`
 	SessionName    string               `json:"session_name,omitempty"`
+	Feedback       bool                 `json:"feedback,omitempty"`
+	FeedbackOrigin string               `json:"feedback_origin,omitempty"`
 	TaskLinkingKey string               `json:"task_linking_key,omitempty"`
 	NotePath       string               `json:"note_path,omitempty"`
 	NoteLinkingKey string               `json:"note_linking_key,omitempty"`
@@ -340,6 +342,10 @@ func normalizeAndValidate(registry *Registry) error {
 		workspace.Path = cleanPath(workspace.Path)
 		workspace.SessionName = strings.TrimSpace(workspace.SessionName)
 		workspace.TaskLinkingKey = strings.TrimSpace(workspace.TaskLinkingKey)
+		workspace.FeedbackOrigin = cleanOptionalPath(workspace.FeedbackOrigin)
+		if workspace.FeedbackOrigin != "" && (!workspace.Feedback || !filepath.IsAbs(workspace.FeedbackOrigin)) {
+			return fmt.Errorf("workspace %q feedback_origin requires a feedback workspace and an absolute path", workspace.ID)
+		}
 		workspace.NotePath = cleanOptionalPath(workspace.NotePath)
 		workspace.NoteLinkingKey = strings.TrimSpace(workspace.NoteLinkingKey)
 		workspace.Model = strings.TrimSpace(workspace.Model)

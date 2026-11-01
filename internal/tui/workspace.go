@@ -301,7 +301,11 @@ func (m model) workspaceView(width int) string {
 		return titleStyle.Render("Workspace: "+m.workspaceEditorName()) + "\n\n" + m.operationMarker() + " " + m.operation.label
 	}
 	if m.mode == "workspace_name" {
-		return titleStyle.Render("Create workspace") + "\nName: " + m.editor.create.Name + "\n\nenter continue • esc cancel"
+		title := "Create workspace"
+		if m.editor.create.Feedback {
+			title = "Improve Radar"
+		}
+		return titleStyle.Render(title) + "\nName: " + m.editor.create.Name + "\n\nenter continue • esc cancel"
 	}
 	if m.mode == "workspace_confirm" {
 		lines := m.workspaceConfirmationLines(width)

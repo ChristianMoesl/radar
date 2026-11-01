@@ -1,3 +1,4 @@
+import { linearAvailable } from "./linear.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -19,14 +20,14 @@ export async function reportLoadedVersion(pi: ExtensionAPI, ctx: ExtensionContex
       const temporary = `${file}.tmp`;
       try {
         await mkdir(directory, { recursive: true, mode: 0o700 });
-        await writeFile(temporary, JSON.stringify({ pid: process.pid, version: radarPackageVersion, profile, cwd: ctx.cwd, source: fileURLToPath(import.meta.url), updated: Date.now() }), { mode: 0o600 });
+        await writeFile(temporary, JSON.stringify({ linear_available: linearAvailable(pi), pid: process.pid, version: radarPackageVersion, profile, cwd: ctx.cwd, source: fileURLToPath(import.meta.url), updated: Date.now() }), { mode: 0o600 });
         await rename(temporary, file);
       } catch { /* Informational; never interfere with Pi activity. */ }
       finally { await rm(temporary, { force: true }).catch(() => {}); }
     });
     return pending;
   }
-  const timer = setInterval(() => void publish(), 60_000);
+  const timer = setInterval(() => void publish(), 5_000);
   timer.unref();
   pi.on("session_shutdown", async () => {
     stopped = true;

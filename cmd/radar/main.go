@@ -95,6 +95,8 @@ func main() {
 		runReconcileWorkspace(args)
 	case "recreate-sandboxes":
 		runRecreateSandboxes(args)
+	case "feedback-diagnostics":
+		runFeedbackDiagnostics(args)
 	case "workspace-context":
 		runWorkspaceContext(args)
 	case "workspace-lease":
@@ -1234,6 +1236,7 @@ Workspaces:
   radar create --prepare-only --name <name> [--repo <repo> --base <revision>] [--workspace <path>] [--preview]
   radar reconcile-workspace --request <json> [--workspace <path>] [--preview]
   radar recreate-sandboxes [--workspace <path>] [--preview] [--yes]
+  radar feedback-diagnostics --workspace <feedback-workspace> --section overview|logs --json
   radar workspace-context [--workspace <path>]
   radar clone-repository --request <json> [--workspace <path>] [--preview | --plan <id>]
   radar open-resource --request <json> [--workspace <path>] [--preview | --plan <id>]

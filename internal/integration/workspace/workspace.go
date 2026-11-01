@@ -114,6 +114,8 @@ func commandError(name string, args []string, output []byte, err error) error {
 }
 
 type CreateOptions struct {
+	Feedback                bool
+	FeedbackOrigin          string
 	PrepareOnly             bool
 	Worktrees               []DesiredWorkspaceWorktree
 	Note                    *DesiredWorkspaceNote

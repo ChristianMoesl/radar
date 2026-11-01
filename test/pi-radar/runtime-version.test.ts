@@ -18,7 +18,7 @@ test("loaded version is captured in the module, independently per session, with 
     else process.env.PI_CODING_AGENT_DIR = previous;
     await rm(root, { recursive: true, force: true });
   });
-  const pi = { on(event: string, handler: () => Promise<void>) { assert.equal(event, "session_shutdown"); shutdowns.push(handler); } };
+  const pi = { getAllTools: () => [{ name: "mcp__linear__save_issue", exposure: "codemode" }], getActiveTools: () => ["codemode"], on(event: string, handler: () => Promise<void>) { assert.equal(event, "session_shutdown"); shutdowns.push(handler); } };
   for (let i = 0; i < 2; i++) await reportLoadedVersion(pi as unknown as ExtensionAPI, { cwd: `/workspace-${i}` } as ExtensionContext);
   const directory = join(root, "radar/loaded");
   const files = await readdir(directory);
@@ -26,6 +26,7 @@ test("loaded version is captured in the module, independently per session, with 
   for (const file of files) {
     const record = JSON.parse(await readFile(join(directory, file), "utf8"));
     assert.equal(record.version, radarPackageVersion);
+    assert.equal(record.linear_available, true);
     assert.equal(record.profile, root);
     assert.equal(record.pid, process.pid);
     assert.ok(Date.now() - record.updated < 5000);

@@ -97,6 +97,7 @@ func InspectWorkspace(ctx context.Context, runner Runner, currentDirectory, work
 		return integration.WorkspaceContext{}, err
 	}
 	result := integration.WorkspaceContext{
+		Feedback: group.Feedback, FeedbackOrigin: group.FeedbackOrigin,
 		CurrentPath: current, WorkspaceRoot: root, WorkspaceID: group.ID,
 		WorkspaceName: group.Name, WorkspacePath: group.Path, Registered: registered,
 		EnrollmentRequired: !registered, SessionName: group.SessionName, Revision: revision,

@@ -1,3 +1,4 @@
+import { registerFeedbackSession } from "./feedback.ts";
 import { registerHostResourceTools } from "./host-resources.ts";
 import { showWorkspaceAttached } from "./workspace-notice.ts";
 import { reportLoadedVersion } from "./runtime-version.ts";
@@ -88,6 +89,8 @@ type WorkspaceMember = {
 };
 
 type WorkspaceResourcesResult = {
+  feedback?: boolean;
+  feedback_origin?: string;
   workspace_path?: string;
   note?: { path: string; workspace_path: string };
   sandbox?: { name?: string; shared_directory?: string; shared_directory_ready: boolean };
@@ -414,6 +417,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
   const sharedDirectory = sharedDirectoryTracker();
   let previousResources: ResourceSnapshot = { contextPaths: [], skillPaths: [] };
   let knownContext: WorkspaceResourcesResult | undefined;
+  const feedback = registerFeedbackSession(pi);
  let sandboxRoutingAccepted=true;
  function requireSandboxRouting(context:WorkspaceResourcesResult) {
   const name=context.sandbox?.name;
@@ -437,6 +441,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
       sandboxRoutingAccepted=false;
       knownContext = await inspectWorkspaceResources(pi, event.cwd);
       sharedDirectory.configure(knownContext);
+      feedback.update(knownContext, ctx);
       requireSandboxRouting(knownContext);
       const discovered = await discoverResources(knownContext, (message, level) => ctx.ui.notify(message, level));
       const resources = ctx.isProjectTrusted() ? discovered : { ...discovered, skillPaths: [] };
@@ -464,6 +469,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
       sandboxRoutingAccepted=false;
       knownContext = await inspectWorkspaceResources(pi, ctx.cwd, ctx.signal);
       sharedDirectory.configure(knownContext);
+      feedback.update(knownContext, ctx);
       requireSandboxRouting(knownContext);
       const resources = await discoverResources(knownContext);
       const blocks: string[] = [];
@@ -485,10 +491,10 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
         "- Instructions from Radar's user AGENTS.md apply to workspace and resource management across every member repository.",
         "- Instructions from a member repository context file apply only to files under that repository. Nested context files apply to their containing subtree. The most specific applicable directory wins. Global and workspace instructions apply to every member.",
       ].filter(Boolean).join("\n");
-      return { systemPrompt: [event.systemPrompt, guidelines, radarInstructions, ...blocks].filter(Boolean).join("\n\n") };
+      return { systemPrompt: [event.systemPrompt, guidelines, feedback.instructions(), radarInstructions, ...blocks].filter(Boolean).join("\n\n") };
     } catch {
       sharedDirectory.configure(undefined);
-      if (radarInstructions) return { systemPrompt: [event.systemPrompt, radarInstructions].join("\n\n") };
+      if (radarInstructions || feedback.instructions()) return { systemPrompt: [event.systemPrompt, feedback.instructions(), radarInstructions].filter(Boolean).join("\n\n") };
       return undefined;
     }
   });

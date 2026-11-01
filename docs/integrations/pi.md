@@ -71,6 +71,40 @@ Documentation access does not authorize configuration changes. Outside a
 registered workspace the extension remains inactive; use `man radar` or
 `man radar-config` for the terminal reference.
 
+## Feedback diagnostics
+
+In an [Improve Radar workspace](../workspaces.md#improve-radar), `pi-radar`
+restores feedback-specific guidance on every turn. The exact `linear` MCP server
+must expose a reachable issue creation tool in that session; configured-but-not-
+connected servers and hidden tools do not qualify. Direct, codemode and deferred
+exposure are supported when the corresponding calling mechanism is available.
+Pi owns MCP connections, authentication and tool execution; no MCP configuration
+or credentials are copied to a feedback workspace.
+
+`radar_diagnostics` is a fixed, read-only host tool available only in enabled
+feedback sessions. Its default `overview` returns the installed CLI version,
+loaded extension version, cached daemon/provider health, allowlisted non-secret
+settings and resources of the registered originating workspace, when captured.
+It does not start the daemon, refresh providers, export task state, read note
+contents or serialize configuration/credentials. Missing daemon/origin resources
+are reported as unavailable, not repaired or enrolled.
+
+The `logs` section requires a **fresh interactive confirmation** before reading
+at most the last 100 lines / 32 KiB of the configured host daemon log. That log
+can include private values from other workspaces; approval permits inspection,
+not publication. Raw logs are not automatically redacted or attached to Linear.
+Review and redact any proposed evidence separately. Denial, missing UI and
+cancellation make no log read. The tool accepts no arbitrary path, executable,
+SQL or shell input. Source reads and experiments stay in the workspace's normal
+execution boundary; no live database/config-directory/socket mounts are needed.
+
+The dashboard learns MCP creation availability through the existing per-session
+loaded-version reports, refreshed every five seconds and removed on shutdown.
+Reports contain availability metadata, not MCP configuration, tokens or tool
+arguments. The dashboard ignores stale/dead-process reports and other Pi profiles.
+The session revalidates against its live tool registry before diagnostics or
+Linear writes; missing MCP availability never enables a direct API fallback.
+
 ## Approval-gated host tools
 
 In registered workspaces, `radar_clone_repository` clones missing GitHub source checkouts under the host `repository_dirs` returned by workspace context. It always confirms the exact initial clone, independently of `workspace.auto_confirm`. Verified matching checkouts are reused without mutation or approval. After cloning, use normal repository refs and workspace reconciliation; no worktree attachment or setup happens implicitly.

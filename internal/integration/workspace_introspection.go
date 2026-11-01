@@ -3,12 +3,14 @@ package integration
 // WorkspaceResources is a fresh lifecycle projection, deliberately without a
 // revision or desired state. It cannot be submitted as a reconciliation plan.
 type WorkspaceResources struct {
-	Registered    bool                      `json:"registered"`
-	WorkspaceID   string                    `json:"workspace_id,omitempty"`
-	WorkspacePath string                    `json:"workspace_path,omitempty"`
-	Note          *WorkspaceContextNote     `json:"note,omitempty"`
-	Sandbox       *WorkspaceResourceSandbox `json:"sandbox,omitempty"`
-	Members       []WorkspaceResourceMember `json:"members"`
+	Feedback       bool                      `json:"feedback,omitempty"`
+	FeedbackOrigin string                    `json:"feedback_origin,omitempty"`
+	Registered     bool                      `json:"registered"`
+	WorkspaceID    string                    `json:"workspace_id,omitempty"`
+	WorkspacePath  string                    `json:"workspace_path,omitempty"`
+	Note           *WorkspaceContextNote     `json:"note,omitempty"`
+	Sandbox        *WorkspaceResourceSandbox `json:"sandbox,omitempty"`
+	Members        []WorkspaceResourceMember `json:"members"`
 }
 
 type WorkspaceResourceMember struct {
@@ -26,6 +28,8 @@ type WorkspaceResourceSandbox struct {
 }
 
 type WorkspaceContext struct {
+	Feedback               bool                         `json:"feedback,omitempty"`
+	FeedbackOrigin         string                       `json:"feedback_origin,omitempty"`
 	CurrentPath            string                       `json:"current_path"`
 	WorkspaceRoot          string                       `json:"workspace_root"`
 	WorkspaceID            string                       `json:"workspace_id"`

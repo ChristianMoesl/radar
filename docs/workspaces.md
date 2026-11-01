@@ -27,6 +27,51 @@ Create a Git-first workspace non-interactively:
 radar create --repo /path/to/repo --base origin/main --name my-feature
 ```
 
+## Improve Radar
+
+Press **F** in the dashboard to open an **Improve Radar** workspace. Give the
+conversation a name, then create it through the normal workspace editor. It
+starts with a canonical `notes.md` and no repositories, uses the ordinary sandbox
+policy, and appears alongside other workspaces. Its feedback purpose and optional
+originating workspace are recorded in the registry, so resume, Pi reloads and
+resource edits retain the same context. Attach Radar's source through ordinary
+repository selection when source inspection becomes useful.
+
+The entry is enabled only while a live, registered Radar Pi session in the
+current `PI_CODING_AGENT_DIR` profile reports a reachable **`linear` MCP issue
+creation tool** (`create_issue` or `save_issue`). Missing, disabled, hidden,
+misnamed or unconnected MCP tools do not enable it. Start or resume a Radar Pi
+session first; availability updates within five seconds and expires after fifteen
+seconds without a heartbeat. Merely configuring a server or having a Linear token
+is not evidence of availability. Creation rechecks the report before preview and
+apply. The new/resumed feedback session checks its own tools as well; a
+project-local MCP available only in the original workspace is not copied into it.
+
+The conversation is for brainstorming, bug investigation and feature shaping,
+not automatic implementation. Findings and an evolving issue draft belong in
+`notes.md`. Bugs work toward reproduction, expected/actual behavior, impact and
+evidence; features work toward the problem, desired workflow, scope, acceptance
+criteria and a grounded plan. Neither must be classified before discussion starts.
+
+Reports go to the fixed Linear workspace **`christian-moesl`**, project
+**`radar-f46332010943`**, using Pi's existing MCP authentication. The agent searches
+for related issues and creates the reviewed issue directly through the MCP; Radar
+has no separate Linear API client or credentials. Every MCP write in a feedback
+workspace requires an interactive confirmation of its exact arguments, including
+calls nested inside codemode. Headless/unapproved writes are blocked. Save the
+returned issue link in the note; filing does not complete or clean up the workspace.
+
+[Pi feedback diagnostics](integrations/pi.md#feedback-diagnostics) provide scoped
+read-only host inspection without mounting live Radar state or secrets into SBX.
+If Linear becomes unavailable, feedback diagnostics and reporting are disabled;
+existing notes and conversation remain accessible. Reconnect/enable the MCP in Pi
+and retry. Never install a provider CLI or copy credentials into SBX as a fallback.
+
+The registry retains version 2 with optional `feedback` and `feedback_origin`
+fields; existing ordinary workspaces need no migration or reset. Update the CLI
+and extension and restart the daemon before creating feedback workspaces: older
+binaries do not retain fields they do not understand.
+
 ## Files and notes
 
 Radar creates one stable anchor with nested worktree members:

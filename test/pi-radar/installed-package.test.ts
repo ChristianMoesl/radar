@@ -79,7 +79,8 @@ export default function(pi) {
   await exec("pnpm", ["pack", "--out", tarball], { cwd: repository, timeout: 15000 });
   const { stdout: listing } = await exec("tar", ["-tzf", tarball]);
   assert.deepEqual(listing.trim().split("\n").sort(), [
-    "package/LICENSE", "package/README.md", "package/extensions/pi-radar/host-resources.ts", "package/extensions/pi-radar/index.ts",
+    "package/LICENSE", "package/README.md", "package/extensions/pi-radar/feedback.ts", "package/extensions/pi-radar/host-resources.ts", "package/extensions/pi-radar/index.ts",
+    "package/extensions/pi-radar/linear.ts",
     "package/extensions/pi-radar/reload-notice.ts",
     "package/extensions/pi-radar/runtime-version.ts",
     "package/extensions/pi-radar/version.ts",
