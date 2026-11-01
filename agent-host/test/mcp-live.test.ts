@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { McpServices, mcpPaths } from "../src/mcp.ts";
 import { jiraRead } from "../examples/jira-mcp.ts";
+import { schemaShape } from "./mcp-contract-shape.ts";
 
 async function oauthExpiry(server: string): Promise<number | undefined> {
   assert.match(server, /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/);
@@ -159,5 +160,19 @@ test(
           "Successful native reads must persist renewed OAuth expiry after natural expiration");
       });
     }
+    const jira = fixtures.find(fixture => fixture.tool === "listJiraIssueComments");
+    if (jira) await context.test("Native Jira comment contract discovery (no writes)", async () => {
+      const client = new McpServices();
+      try {
+        const tools = (await client.tools(jira.server, context.signal)).filter(tool => /comment/i.test(tool.name));
+        console.log("Jira comment contracts: " + JSON.stringify(tools.map(tool => ({
+          name: tool.name,
+          readOnly: tool.annotations?.readOnlyHint === true,
+          input: schemaShape(tool.inputSchema),
+        }))));
+      } finally {
+        await client.close();
+      }
+    });
   },
 );
