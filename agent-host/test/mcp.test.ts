@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { McpServices } from "../src/mcp.ts";
+import { McpAuthenticationError, McpServices } from "../src/mcp.ts";
 import { jiraRead } from "../examples/jira-mcp.ts";
 import { datadogRead, validateDatadogReads } from "../examples/datadog-mcp.ts";
 
@@ -22,6 +22,8 @@ async function fixture(oauth = false) {
     registrations = 0,
     calls = 0,
     expire = false,
+    revoked: "invalid_grant" | "invalid_client" | undefined,
+    registrationName = "",
     forbidden = false,
     toolError = false,
     partial = false;
@@ -51,6 +53,7 @@ async function fixture(oauth = false) {
       });
     if (request.url === "/register") {
       registrations++;
+      registrationName = JSON.parse(body).client_name;
       return send(
         { ...JSON.parse(body), client_id: "fixture-public-client" },
         201,
@@ -58,6 +61,7 @@ async function fixture(oauth = false) {
     }
     if (request.url === "/token") {
       if (new URLSearchParams(body).get("grant_type") === "refresh_token") {
+        if (revoked) return send({ error: revoked, error_description: "private revoked credential response" }, 400);
         refreshes++;
         token = `fixture-access-${refreshes}`;
         expire = false;
@@ -169,6 +173,8 @@ async function fixture(oauth = false) {
     forbid: () => {
       forbidden = true;
     },
+    revoke: (reason: "invalid_grant" | "invalid_client") => { revoked = reason; expire = true; },
+    registrationName: () => registrationName,
     failTool: () => {
       toolError = true;
     },
@@ -249,6 +255,7 @@ test("foreground MCP OAuth persists, refreshes concurrently and survives a new a
       callback = fetch(redirect);
     });
     await callback;
+    assert.equal(f.registrationName(), "Radar MCP client (fixture)");
     assert.deepEqual(
       await client.json("fixture", "read", { value: "before" }),
       { value: "before" },
@@ -272,6 +279,76 @@ test("foreground MCP OAuth persists, refreshes concurrently and survives a new a
       "utf8",
     );
     assert.ok(state.includes("fixture-access-1")); // Synthetic fixture only.
+  } finally {
+    await f.close();
+  }
+});
+
+test("revoked OAuth grants and clients require foreground login without background registration", async () => {
+  for (const reason of ["invalid_grant", "invalid_client"] as const) {
+    const f = await fixture(true);
+    try {
+      let callbacks = 0;
+      await f.client().login("fixture", (url) => {
+        callbacks++;
+        const redirect = new URL(url.searchParams.get("redirect_uri")!);
+        redirect.searchParams.set("state", url.searchParams.get("state")!);
+        redirect.searchParams.set("code", "fixture-one-time-code");
+        void fetch(redirect);
+      });
+      await f.client().json("fixture", "read", {});
+      f.revoke(reason);
+      await assert.rejects(f.client().tools("fixture"), error => {
+        assert.ok(error instanceof McpAuthenticationError);
+        assert.equal(error.code, "MCP_AUTH_REQUIRED");
+        assert.equal(error.reason, reason);
+        assert.equal(String(error).includes("private"), false);
+        return true;
+      });
+      assert.equal(f.counters().registrations, 1, "revocation must not silently create another OAuth client");
+      assert.equal(callbacks, 1, "only the explicit initial login may request a browser callback");
+      await assert.rejects(f.client().tools("fixture"), McpAuthenticationError);
+      assert.equal(f.counters().registrations, 1);
+    } finally {
+      await f.close();
+    }
+  }
+});
+
+test("permission and transport failures are not reported as revoked OAuth grants", async () => {
+  const f = await fixture();
+  try {
+    f.forbid();
+    await assert.rejects(f.client().tools("fixture"), error => {
+      assert.ok(error instanceof Error && !(error instanceof McpAuthenticationError));
+      assert.equal(String(error).includes("private"), false);
+      return true;
+    });
+  } finally {
+    await f.close();
+  }
+});
+
+test("partial OAuth client state cannot trigger background registration", async () => {
+  const f = await fixture(true);
+  try {
+    await f.client().login("fixture", url => {
+      const redirect = new URL(url.searchParams.get("redirect_uri")!);
+      redirect.searchParams.set("state", url.searchParams.get("state")!);
+      redirect.searchParams.set("code", "fixture-one-time-code");
+      void fetch(redirect);
+    });
+    const path = join(f.paths.state, "fixture/oauth.json");
+    const state = JSON.parse(await readFile(path, "utf8"));
+    delete state.clientInformation;
+    await writeFile(path, JSON.stringify(state));
+    f.expire();
+    await assert.rejects(f.client().tools("fixture"), error => {
+      assert.ok(error instanceof McpAuthenticationError);
+      assert.equal(error.reason, "missing_credentials");
+      return true;
+    });
+    assert.equal(f.counters().registrations, 1);
   } finally {
     await f.close();
   }

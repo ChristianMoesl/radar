@@ -29,6 +29,20 @@ type Server = {
 };
 const MAX_BYTES = 1024 * 1024;
 const PROFILE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+export type McpAuthenticationReason = "missing_credentials" | "interactive_login_required" | "invalid_grant" | "invalid_client";
+
+export class McpAuthenticationError extends Error {
+  readonly code = "MCP_AUTH_REQUIRED";
+  readonly profile: string;
+  readonly reason: McpAuthenticationReason;
+  constructor(profile: string, reason: McpAuthenticationReason) {
+    super(`MCP ${profile} authentication required; run radar-mcp login ${profile} on the host`);
+    this.name = "McpAuthenticationError";
+    this.profile = profile;
+    this.reason = reason;
+  }
+}
+
 function configureProxy(): void {
   const configure = (
     http as unknown as { setGlobalProxyFromEnv?: () => unknown }
@@ -218,6 +232,7 @@ export class McpServices {
   private provider(
     server: Server,
     directory: string,
+    profile: string,
     onRedirect: (url: URL) => void,
     redirectUrl?: string,
   ) {
@@ -226,7 +241,7 @@ export class McpServices {
       redirectUrl:
         redirectUrl ??
         `http://127.0.0.1:${server.oauth?.callbackPort ?? 8765}/callback`,
-      clientMetadata: { client_name: "Radar MCP client" },
+      clientMetadata: { client_name: `Radar MCP client (${profile})` },
       clientId: server.oauth?.clientId,
       store: new StateStore(join(directory, "oauth.json")),
       onRedirect,
@@ -252,13 +267,24 @@ export class McpServices {
           version: "0.1.0",
           requestTimeoutMs: 30000,
         });
+        let authenticationFailure: McpAuthenticationReason | undefined;
         const auth = server.url
-          ? this.provider(server, directory, () => {
-              throw new Error(
-                `MCP login required: run radar-mcp login ${name} on the host`,
-              );
+          ? this.provider(server, directory, name, () => {
+              authenticationFailure = "interactive_login_required";
+              throw new McpAuthenticationError(name, authenticationFailure);
             })
           : undefined;
+        if (auth) {
+          const invalidate = auth.invalidateCredentials.bind(auth);
+          auth.invalidateCredentials = async (scope) => {
+            // The SDK retries its authorization flow after invalidating an
+            // invalid refresh grant/client. Background recovery must stop here:
+            // a new registration or browser flow belongs to foreground login.
+            authenticationFailure = scope === "all" ? "invalid_client" : "invalid_grant";
+            await invalidate(scope);
+            throw new McpAuthenticationError(name, authenticationFailure);
+          };
+        }
         const adapter = auth ? adaptOAuthProvider(auth) : undefined;
         const recoveries = new Set<Promise<void>>();
         const transport = server.url
@@ -273,8 +299,10 @@ export class McpServices {
                 onUnauthorized: async (context) => {
                   const recovery = (async () => {
                     bounded.throwIfAborted();
-                    if (!(await auth!.tokens()))
-                      throw new Error("MCP login required");
+                    if (!(await auth!.tokens()) || !(await auth!.clientInformation())) {
+                      authenticationFailure = "missing_credentials";
+                      throw new McpAuthenticationError(name, authenticationFailure);
+                    }
                     await adapter.onUnauthorized!(context);
                   })();
                   recoveries.add(recovery);
@@ -310,6 +338,7 @@ export class McpServices {
         } catch {
           // Remote bodies and process stderr may contain credentials or private
           // provider data. Diagnostics identify only the locally selected profile.
+          if (authenticationFailure) throw new McpAuthenticationError(name, authenticationFailure);
           throw new Error(
             `MCP ${name} request failed; verify the host server, permissions and radar-mcp login ${name}`,
           );
@@ -421,6 +450,7 @@ export class McpServices {
         const provider = this.provider(
           server,
           directory,
+          name,
           display,
           callback.redirectUrl,
         );

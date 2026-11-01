@@ -93,3 +93,51 @@ passing three-platform read matrix and its exact limits.
 [The follow-up matrix](https://github.com/ChristianMoesl/radar/actions/runs/41223219100)
 passed on all three platforms and observed Datadog natural expiry/renewal on
 Linux amd64. Jira's token was not expired, so its expiry check was skipped.
+
+On 2026-11-01, [the fresh read matrix](https://github.com/ChristianMoesl/radar/actions/runs/41272962639)
+observed both Jira and Datadog naturally expired on Linux amd64, then passed
+native reads/reconnect with renewed expiry saved. That job passed all eight
+checks with no skips. Provider-side revocation remains separate.
+
+## Disposable lifecycle and reply-contract qualification
+
+Run this on the computer whose browser receives the localhost callback, from a
+current Radar checkout with dependencies installed:
+
+```sh
+node --experimental-strip-types scripts/qualify-mcp-lifecycle.mjs prepare jira
+node --experimental-strip-types scripts/qualify-mcp-lifecycle.mjs prepare datadog
+```
+
+Each invocation creates a private temporary directory and a new client named
+`Radar MCP client (radar-qualification-jira)` or
+`Radar MCP client (radar-qualification-datadog)`. Existing CI stores are neither
+loaded nor copied. Jira requests read/search/write scopes so its native reply
+schema can be inspected; preparation calls login and tool discovery only. It
+never invokes a comment writer. Share only the structural JSON between the
+printed contract markers or `contracts.json`, never OAuth URLs, callback codes,
+the configuration/state bundle or credentials. Keep this disposable sign-in
+idle until its qualification is complete; do not seed it into read-only CI.
+
+After any approved reply qualification, verify revocation using the exact
+private session directory printed by preparation:
+
+```sh
+node --experimental-strip-types scripts/qualify-mcp-lifecycle.mjs verify-revocation /path/printed/by/prepare
+```
+
+The verifier first confirms current native access, then pauses while you revoke
+only the matching disposable client through the provider's connected-app
+settings. If its identity is ambiguous, stop. It waits at most three minutes for
+an explicit OAuth `invalid_grant` or `invalid_client` rejection and requires a
+new client context to remain blocked. A missing store, network failure,
+permission error or still-working access cannot qualify revocation. Only the
+resulting `revocation.json` is shareable evidence. This does not qualify host
+collector CLI revocation or durable prior-fact retention.
+
+Background recovery invalidates a rejected grant/client, then stops with
+`McpAuthenticationError` (`MCP_AUTH_REQUIRED`) and a static reason. It never
+re-registers a client or enters a browser flow after revocation. New client
+registration and interactive authorization belong to explicit foreground login.
+Existing stored registrations remain unchanged; profile names identify new
+registrations so disposable grants can be distinguished from CI.
