@@ -8,7 +8,7 @@ import (
 
 type WorkspaceExecutor interface {
 	AgentWorkspace(context.Context, string) (protocol.AgentWorkspaceBinding, error)
-	ExecuteWorkspace(context.Context, string, string, []string) (string, error)
+	ExecuteWorkspace(context.Context, string, string, []string, *protocol.AgentWorkspaceBinding) (string, error)
 }
 
 func (r Registry) WorkspaceExecutor() (WorkspaceExecutor, error) {

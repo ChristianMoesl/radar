@@ -11,7 +11,8 @@
     ".": "./dist/src/index.js",
     "./tools": "./dist/src/tools.js",
     "./adapters": "./dist/src/adapters.js",
-    "./mcp": "./dist/src/mcp.js"
+    "./mcp": "./dist/src/mcp.js",
+    "./mcp-tools": "./dist/src/mcp-tools.js"
   },
   "bin": {
     "radar-agent-host": "./dist/src/runner.js",
@@ -33,6 +34,8 @@
     "@earendil-works/pi-ai": "1.3.0",
     "@earendil-works/pi-durable": "1.3.0",
     "@earendil-works/pi-mcp": "1.3.0",
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
     "typebox": "1.3.27"
   },
   "devDependencies": {

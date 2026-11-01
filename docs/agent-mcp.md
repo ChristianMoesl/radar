@@ -111,11 +111,114 @@ permissions. `readOnlyHint` remains an additional advisory check, **not** permis
 to expose any tool advertising it. This primitive does not install model tools or
 enforce policy on arbitrary definition JavaScript.
 
-**Placement is unchanged:** this client, including its restricted form, runs on
-the host. It is not an SBX client and does not satisfy a workspace-routed MCP
-requirement. The reusable native model-tool adapter, strict input-schema
-validation and SBX-routed MCP bridge remain unfinished; do not claim their
-coverage from these host-client tests.
+**Placement of `McpServices` is unchanged:** this client, including its restricted
+form, runs on the host. Use the definition-owned workspace adapter below when
+MCP must run through the associated local/SBX execution environment.
+
+## Native selected tools in the workspace
+
+`createMcpTools` installs only selected schemas into the existing native durable
+registry. It does not install a generic MCP dispatcher, shell, raw HTTP or write
+tool. Persist this **non-secret** configuration with the registered definition:
+
+```json
+{
+  "mcp": {
+    "config": "/workspace/mcp/mcp.json",
+    "state": "/workspace/mcp/state",
+    "connections": [
+      { "server": "datadog", "tools": ["search_datadog_monitors"] }
+    ]
+  }
+}
+```
+
+```ts
+import { createRegistry } from "@christianmoesl/radar-agent-host";
+import { createMcpTools } from "@christianmoesl/radar-agent-host/mcp-tools";
+
+// In the existing definition's async configure(host):
+const selected = await createMcpTools(host.execution, host.config.mcp);
+const registry = createRegistry();
+registry.install(selected.extension);
+// Return { models, registry } with the definition's existing model runtime.
+// selected.inspection shows the workspace binding and exact server/tool ->
+// stable model-name mapping, without reading or returning credentials.
+```
+
+The selected workspace must have Node 24+ and the agent-host package installed
+in its own project. Configuration/state paths above are absolute **inside that
+execution environment**; supply its installed servers and explicitly authenticate
+its read-only session there. The adapter does not copy a host/interactive/CI OAuth
+store, install a package, initiate login or fall back to host MCP. Missing packages,
+authentication, selected tools or unavailable SBX fail visibly. For SBX, the MCP
+client and any stdio server process run in the selected sandbox. A remote MCP
+service still runs remotely. The trusted host definition is not sandboxed.
+
+Every bridge operation uses `workspace-exec` with the original expected workspace
+binding. Removed SBX, a changed sandbox, changed registration or disabled SBX
+cannot redirect an existing runner to local host execution. The definition must
+be explicitly restarted/reconfigured for a different binding.
+
+Selection is snapshotted before discovery and enforced again inside every bridge
+process before dispatch. Only exact selected reads become native tools; model
+names are stable hashes of the exact server/tool pair, with readable identities
+in their descriptions and inspection. Every call rechecks the server catalog.
+Reconnect, restart or additional discovered tools never widens the selection.
+Native read calls are replay-safe, cancellable and bounded. Provider content,
+structured evidence and metadata are kept together in the native result; explicit
+partial/truncated/error responses fail rather than becoming an all-clear.
+
+Input schemas are checked with strict JSON Schema validation (2020-12 by default,
+or explicit draft-07), including formats. Invalid schemas, unsupported keywords,
+remote references and asynchronous validators are rejected. Arguments are checked
+before native coercion and again against the current server schema before sending:
+no string-to-number conversion, inserted defaults or removed properties.
+`readOnlyHint` remains only an additional advisory check: select independently
+verified read operations and provider-side read-only permissions.
+
+Local protocol/native persistence fixtures and Go execution-routing/fallback tests
+cover this adapter. They are not proof of a real Datadog read or a live SBX run.
+Those qualification results must be recorded separately; the older host live-MCP
+matrix cannot qualify workspace placement. Existing calendar events may trigger
+the definition's ordinary event task; no additional scheduler is introduced.
+
+### Fixed-read qualification example
+
+`agent-host/examples/mcp-check.ts` uses the same selected bridge from its native
+Radar event task and persists the complete bounded evidence in a durable document
+and Radar presentation. It needs no model or anomaly-detection logic. Alongside
+`mcp` above, configure one to ten fixed reads with native arguments verified
+against your authenticated server's catalog:
+
+```json
+{
+  "reads": [
+    { "server": "datadog", "tool": "search_datadog_monitors", "arguments": {
+      "query": "tag:team:example-team"
+    } }
+  ]
+}
+```
+
+The query is illustrative, not a verified selector or universal provider schema.
+Use only your approved read scope. Events cannot replace the configured tool or
+arguments. Copy the example and adjust its SDK imports as described in the
+[editable examples guide](durable-agents.md), then register it normally:
+
+```sh
+radar agent add ./mcp-check.ts --id mcp-check --workspace /path/to/registered/workspace --config ./check.json
+radar agent schedule set mcp-check morning --time 09:00 --weekdays mon,tue,wed,thu,fri --timezone Europe/Vienna
+radar agent start mcp-check
+radar agent inspect mcp-check
+```
+
+The example records the intended calendar occurrence, memoizes successful reads
+for task recovery, and uses the existing native receipt/event deduplication.
+Partial/failed reads produce an attention-marked incomplete check, never an
+all-clear. Success is evidence collection, not a health assertion or external
+notification. Protocol fixtures cover calendar-shaped events, persistence,
+reopen, deduplication and failure; real Datadog/SBX qualification remains separate.
 
 ## Jira assistant
 

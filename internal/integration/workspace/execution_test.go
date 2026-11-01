@@ -60,6 +60,29 @@ type executionRunner struct {
 	fail  bool
 }
 
+func TestWorkspaceExecutionBindingCannotFallBackOrChangeSandbox(t *testing.T) {
+	expected := protocol.AgentWorkspaceBinding{ID: "fixture", Path: "/workspace", Mode: "sbx", Sandbox: "selected"}
+	if err := verifyExecutionBinding(expected, &expected); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"mode", "sandbox", "id", "path"} {
+		actual := expected
+		switch field {
+		case "mode":
+			actual.Mode, actual.Sandbox = "local", ""
+		case "sandbox":
+			actual.Sandbox = "replacement"
+		case "id":
+			actual.ID = "replacement"
+		case "path":
+			actual.Path = "/different"
+		}
+		if err := verifyExecutionBinding(actual, &expected); err == nil {
+			t.Fatalf("changed %s binding accepted", field)
+		}
+	}
+}
+
 func (*executionRunner) LookPath(string) error { return nil }
 func (r *executionRunner) Run(_ context.Context, cwd, name string, args ...string) (string, error) {
 	r.calls = append(r.calls, call{cwd: cwd, name: name, args: args})

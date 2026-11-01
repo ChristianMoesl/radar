@@ -51,7 +51,7 @@ export class WorkspaceExecution {
   readonly binding: WorkspaceBinding;
   private readonly controller = new AbortController();
   constructor(binding: WorkspaceBinding) {
-    this.binding = binding;
+    this.binding = Object.freeze({ ...binding });
   }
   close(): void {
     this.controller.abort(new Error("agent host is stopping"));
@@ -69,6 +69,8 @@ export class WorkspaceExecution {
         this.binding.path,
         "--cwd",
         cwd,
+        "--binding",
+        JSON.stringify(this.binding),
         "--json",
         "--",
         ...argv,

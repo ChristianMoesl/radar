@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import * as http from "node:http";
+import { mcpInputValidator } from "./mcp-schema.ts";
 import {
   McpClient,
   StdioTransport,
@@ -30,6 +31,13 @@ type Server = {
 const MAX_BYTES = 1024 * 1024;
 const PROFILE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 export type McpToolSelection = { server: string; tools: string[] };
+
+export function snapshotMcpSelection(value: unknown): McpToolSelection[] {
+  return [...selectedTools(value)].map(([server, tools]) => ({
+    server,
+    tools: [...tools],
+  }));
+}
 
 // Only locally generated policy failures may bypass provider-error redaction.
 class McpScopeError extends Error {}
@@ -185,6 +193,13 @@ export class McpServices {
       throw new McpScopeError(
         "An explicitly selected MCP tool is not marked read-only",
       );
+    for (const tool of selected) {
+      try {
+        mcpInputValidator(tool.inputSchema);
+      } catch {
+        throw new McpScopeError("A selected MCP input schema is invalid or unsupported");
+      }
+    }
     return selected;
   }
 
@@ -460,6 +475,13 @@ export class McpServices {
           );
         if (Buffer.byteLength(JSON.stringify(args)) > MAX_BYTES)
           throw new Error("MCP tool arguments exceed the request limit");
+        if (this.selection !== undefined) {
+          try {
+            mcpInputValidator(selected.inputSchema)(args);
+          } catch {
+            throw new McpScopeError("MCP arguments or input schema are invalid or unsupported");
+          }
+        }
         const result = await client.callTool(tool, args, { signal: bounded });
         if (
           result.isError ||

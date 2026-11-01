@@ -44,9 +44,10 @@ import {PROTOCOL_VERSION,createModels,createRegistry,WorkspaceExecution,defineTa
 import {createReadOnlyTools,previewWorkspace} from '@christianmoesl/radar-agent-host/tools';
 import {githubSignature,forwardEvent} from '@christianmoesl/radar-agent-host/adapters';
 import {McpServices} from '@christianmoesl/radar-agent-host/mcp';
+import {createMcpTools,mcpModelToolName} from '@christianmoesl/radar-agent-host/mcp-tools';
 assert.equal(PROTOCOL_VERSION,1);
-for(const value of [createModels,createRegistry,WorkspaceExecution,defineTask,present,createReadOnlyTools,previewWorkspace,githubSignature,forwardEvent,McpServices]) assert.equal(typeof value,'function');
-for(const name of ['counter','review','jira','datadog']) {
+for(const value of [createModels,createRegistry,WorkspaceExecution,defineTask,present,createReadOnlyTools,previewWorkspace,githubSignature,forwardEvent,McpServices,createMcpTools,mcpModelToolName]) assert.equal(typeof value,'function');
+for(const name of ['counter','review','jira','datadog','mcp-check']) {
  const definition=(await import('./node_modules/@christianmoesl/radar-agent-host/dist/examples/'+name+'.js')).default;
  assert.equal(typeof definition.configure,'function');assert.ok(definition.eventTask.definition);
 }

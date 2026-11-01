@@ -51,9 +51,12 @@ func (Source) AgentWorkspace(ctx context.Context, path string) (protocol.AgentWo
 	return agentWorkspace(ctx, ExecRunner{}, path, cfg.SBX.WorkspaceEnabled(workspaceGOOS, ExecRunner{}.LookPath))
 }
 
-func (s Source) ExecuteWorkspace(ctx context.Context, path, cwd string, argv []string) (string, error) {
+func (s Source) ExecuteWorkspace(ctx context.Context, path, cwd string, argv []string, expected *protocol.AgentWorkspaceBinding) (string, error) {
 	binding, err := s.AgentWorkspace(ctx, path)
 	if err != nil {
+		return "", err
+	}
+	if err := verifyExecutionBinding(binding, expected); err != nil {
 		return "", err
 	}
 	if len(argv) == 0 || argv[0] == "" {
@@ -67,6 +70,13 @@ func (s Source) ExecuteWorkspace(ctx context.Context, path, cwd string, argv []s
 		return "", fmt.Errorf("workspace registration unavailable")
 	}
 	return executeWorkspace(ctx, ExecRunner{}, binding, registered, cwd, argv)
+}
+
+func verifyExecutionBinding(actual protocol.AgentWorkspaceBinding, expected *protocol.AgentWorkspaceBinding) error {
+	if expected != nil && actual != *expected {
+		return fmt.Errorf("workspace execution binding changed; refusing fallback or sandbox replacement")
+	}
+	return nil
 }
 
 func executeWorkspace(ctx context.Context, runner Runner, binding protocol.AgentWorkspaceBinding, registered group.Workspace, cwd string, argv []string) (string, error) {

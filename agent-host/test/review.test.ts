@@ -210,11 +210,9 @@ for (const { autoConfirm, mode } of [
           config,
         );
         await radar("agent", "start", "reviewer");
-        const execution = new WorkspaceExecution({
-          id: "fixture",
-          path: anchor.path,
-          mode,
-        });
+        const binding = await radar("workspace-exec", "--workspace", anchor.path, "--inspect");
+        assert.equal(binding.mode, mode);
+        const execution = new WorkspaceExecution(binding);
         assert.match(
           await execution.readOnly(anchor.path, "skills/review/SKILL.md"),
           /review/i,

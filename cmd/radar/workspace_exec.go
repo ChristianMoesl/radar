@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"radar/internal/app"
+	"radar/internal/protocol"
 	"syscall"
 )
 
@@ -16,6 +17,7 @@ func runWorkspaceExec(args []string) {
 	flags := outputFlags("radar workspace-exec")
 	workspace := flags.String("workspace", "", "registered workspace")
 	cwd := flags.String("cwd", "", "working directory within workspace")
+	binding := flags.String("binding", "", "expected execution binding JSON; reject a changed workspace or sandbox")
 	inspect := flags.Bool("inspect", false, "inspect the execution binding without running a command")
 	_ = parseFlags(flags, args)
 	provider, err := app.DefaultIntegrations().WorkspaceExecutor()
@@ -33,7 +35,15 @@ func runWorkspaceExec(args []string) {
 	if flags.NArg() == 0 {
 		fatal(errors.New("workspace-exec requires a command after --"))
 	}
-	output, err := provider.ExecuteWorkspace(ctx, *workspace, *cwd, flags.Args())
+	var expected *protocol.AgentWorkspaceBinding
+	if *binding != "" {
+		expected = &protocol.AgentWorkspaceBinding{}
+		if err := json.Unmarshal([]byte(*binding), expected); err != nil || expected.ID == "" || expected.Path == "" ||
+			(expected.Mode != "local" && expected.Mode != "sbx") || (expected.Mode == "sbx" && expected.Sandbox == "") {
+			fatal(errors.New("binding requires workspace id, path, mode and selected sandbox for SBX"))
+		}
+	}
+	output, err := provider.ExecuteWorkspace(ctx, *workspace, *cwd, flags.Args(), expected)
 	if err != nil {
 		fatal(err)
 	}
