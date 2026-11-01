@@ -4,7 +4,11 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { McpAuthenticationError, McpServices } from "../src/mcp.ts";
+import {
+  McpAuthenticationError,
+  McpServices,
+  type McpToolSelection,
+} from "../src/mcp.ts";
 import { jiraRead } from "../examples/jira-mcp.ts";
 import { datadogRead, validateDatadogReads } from "../examples/datadog-mcp.ts";
 
@@ -21,6 +25,10 @@ async function fixture(oauth = false) {
     refreshes = 0,
     registrations = 0,
     calls = 0,
+    requests = 0,
+    extraTool = false,
+    missingRead = false,
+    duplicateRead = false,
     expire = false,
     revoked: "invalid_grant" | "invalid_client" | undefined,
     registrationName = "",
@@ -94,6 +102,7 @@ async function fixture(oauth = false) {
     }
     if (forbidden) return send({ secret: "private forbidden body" }, 403);
     const message = JSON.parse(body);
+    requests++;
     if (message.id === undefined) {
       response.writeHead(202);
       response.end();
@@ -109,22 +118,29 @@ async function fixture(oauth = false) {
         };
         break;
       case "tools/list":
+        const read = {
+          name: "read",
+          inputSchema: {
+            type: "object",
+            properties: {},
+          },
+          annotations: { readOnlyHint: true },
+        };
         result = message.params?.cursor
           ? {
               tools: [
                 {
                   name: "second",
                   inputSchema: { type: "object", properties: {} },
+                  annotations: { readOnlyHint: false },
                 },
+                ...(extraTool ? [{ ...read, name: "new_read" }] : []),
               ],
             }
           : {
               tools: [
-                {
-                  name: "read",
-                  inputSchema: { type: "object", properties: {} },
-                  annotations: { readOnlyHint: true },
-                },
+                ...(!missingRead ? [read] : []),
+                ...(duplicateRead ? [read] : []),
               ],
               nextCursor: "page-two",
             };
@@ -162,8 +178,8 @@ async function fixture(oauth = false) {
   const clients: McpServices[] = [];
   return {
     paths,
-    client: () => {
-      const client = new McpServices(paths);
+    client: (selection?: unknown) => {
+      const client = new McpServices(paths, selection);
       clients.push(client);
       return client;
     },
@@ -181,7 +197,12 @@ async function fixture(oauth = false) {
     partial: () => {
       partial = true;
     },
-    counters: () => ({ calls, refreshes, registrations }),
+    changeTools: (change: "extra" | "missing" | "duplicate") => {
+      extraTool = change === "extra";
+      missingRead = change === "missing";
+      duplicateRead = change === "duplicate";
+    },
+    counters: () => ({ calls, requests, refreshes, registrations }),
     close: async () => {
       await Promise.all(clients.map((c) => c.close()));
       server.closeAllConnections();
@@ -225,6 +246,92 @@ test("MCP negotiates HTTP, follows tool pages, bounds calls and redacts tool/ser
       client.tools("fixture"),
       (error) => !String(error).includes("private forbidden"),
     );
+  } finally {
+    await f.close();
+  }
+});
+
+test("explicit MCP selections filter schemas and deny excluded dispatch before connecting", async () => {
+  const f = await fixture();
+  try {
+    const selection: McpToolSelection[] = [{ server: "fixture", tools: ["read"] }];
+    const client = f.client(selection);
+    selection[0]!.tools.push("second");
+    selection.push({ server: "alias", tools: ["read"] });
+    assert.deepEqual((await client.tools("fixture")).map((tool) => tool.name), ["read"]);
+    assert.deepEqual(await client.json("fixture", "read", { value: "evidence" }), { value: "evidence" });
+    const before = f.counters();
+    for (const [server, tool] of [
+      ["fixture", "second"], ["fixture", "guessed"], ["alias", "read"],
+    ] as const)
+      await assert.rejects(
+        async () => client.call(server, tool, {}, undefined, false),
+        /not explicitly selected/,
+      );
+    await assert.rejects(async () => client.tools("alias"), /not explicitly selected/);
+    assert.deepEqual(f.counters(), before, "denied calls must not even initialize an MCP connection");
+
+    const denied = f.client([]);
+    await assert.rejects(async () => denied.tools("fixture"), /not explicitly selected/);
+    await assert.rejects(async () => denied.call("fixture", "read", {}), /not explicitly selected/);
+    assert.deepEqual(f.counters(), before, "an empty selection denies all service access");
+  } finally {
+    await f.close();
+  }
+});
+
+test("MCP selection survives tool-list changes, reconnect and client restart without expansion", async () => {
+  const f = await fixture();
+  try {
+    const persisted = JSON.stringify([{ server: "fixture", tools: ["read"] }]);
+    const first = f.client(JSON.parse(persisted));
+    await first.json("fixture", "read", { value: "before" });
+    f.changeTools("extra");
+    assert.deepEqual((await first.tools("fixture")).map((tool) => tool.name), ["read"]);
+    await first.close();
+    const restarted = f.client(JSON.parse(persisted));
+    assert.deepEqual((await restarted.tools("fixture")).map((tool) => tool.name), ["read"]);
+    const before = f.counters();
+    await assert.rejects(async () => restarted.call("fixture", "new_read", {}), /not explicitly selected/);
+    assert.deepEqual(f.counters(), before, "readOnlyHint cannot authorize a newly discovered tool");
+    assert.deepEqual(await restarted.json("fixture", "read", { value: "after" }), { value: "after" });
+  } finally {
+    await f.close();
+  }
+});
+
+test("selected MCP dispatch rejects missing and ambiguous tools", async () => {
+  const f = await fixture();
+  try {
+    const client = f.client([{ server: "fixture", tools: ["read"] }]);
+    for (const change of ["missing", "duplicate"] as const) {
+      f.changeTools(change);
+      await assert.rejects(client.tools("fixture"), /missing or ambiguous/);
+      await assert.rejects(client.call("fixture", "read", {}), /missing or ambiguous/);
+    }
+    assert.equal(f.counters().calls, 0);
+  } finally {
+    await f.close();
+  }
+});
+
+test("MCP selections reject ambiguous configuration and cannot disable the read-only check", async () => {
+  for (const selection of [
+    null, {}, [{ server: "fixture", tools: ["read", "read"] }],
+    [{ server: "fixture", tools: ["read"] }, { server: "fixture", tools: [] }],
+    [{ server: "fixture", tools: ["read* "] }],
+    [{ server: "fixture", tools: ["read"], token: "private credential" }],
+  ])
+    assert.throws(() => new McpServices(undefined, selection), error => {
+      assert.equal(String(error).includes("private credential"), false);
+      return true;
+    });
+  const f = await fixture();
+  try {
+    const client = f.client([{ server: "fixture", tools: ["second"] }]);
+    await assert.rejects(client.tools("fixture"), /not marked read-only/);
+    await assert.rejects(client.call("fixture", "second", {}, undefined, false), /not marked read-only/);
+    assert.equal(f.counters().calls, 0);
   } finally {
     await f.close();
   }

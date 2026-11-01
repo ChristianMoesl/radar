@@ -29,6 +29,41 @@ type Server = {
 };
 const MAX_BYTES = 1024 * 1024;
 const PROFILE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+export type McpToolSelection = { server: string; tools: string[] };
+
+// Only locally generated policy failures may bypass provider-error redaction.
+class McpScopeError extends Error {}
+
+function selectedTools(value: unknown): Map<string, Set<string>> {
+  if (!Array.isArray(value) || value.length > 16)
+    throw new McpScopeError("Configure at most sixteen explicit MCP selections");
+  const selected = new Map<string, Set<string>>();
+  for (const entry of value) {
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      Object.keys(entry).some((key) => !["server", "tools"].includes(key)) ||
+      typeof entry.server !== "string" ||
+      !PROFILE.test(entry.server) ||
+      selected.has(entry.server) ||
+      !Array.isArray(entry.tools) ||
+      entry.tools.length > 64 ||
+      entry.tools.some(
+        (tool: unknown) =>
+          typeof tool !== "string" ||
+          !/^[A-Za-z0-9_.-]{1,128}$/.test(tool),
+      ) ||
+      new Set(entry.tools).size !== entry.tools.length
+    )
+      throw new McpScopeError(
+        "MCP selections require unique server profiles and exact tool names",
+      );
+    // Own a snapshot: mutating the caller's configuration cannot broaden access.
+    selected.set(entry.server, new Set(entry.tools));
+  }
+  return selected;
+}
+
 export type McpAuthenticationReason = "missing_credentials" | "interactive_login_required" | "invalid_grant" | "invalid_client";
 
 export class McpAuthenticationError extends Error {
@@ -118,8 +153,39 @@ export class McpServices {
   private active = new Set<Promise<unknown>>();
   private proxyReady = false;
   private paths: ReturnType<typeof mcpPaths>;
-  constructor(paths = mcpPaths()) {
+  private readonly selection?: Map<string, Set<string>>;
+  /** An explicit selection snapshots exact read-tool bindings; [] denies all.
+   * Omitting it retains the trusted host-code client, not a model dispatcher. */
+  constructor(paths = mcpPaths(), selection?: unknown) {
     this.paths = paths;
+    if (selection !== undefined) this.selection = selectedTools(selection);
+  }
+
+  private allowed(server: string, tool?: string): void {
+    if (
+      this.selection &&
+      (!this.selection.has(server) ||
+        (tool !== undefined && !this.selection.get(server)!.has(tool)))
+    )
+      throw new McpScopeError("MCP server or tool is not explicitly selected");
+  }
+
+  private catalog(server: string, tools: Tool[]): Tool[] {
+    const names = this.selection?.get(server);
+    if (!names) return tools;
+    const selected = tools.filter((tool) => names.has(tool.name));
+    if (
+      selected.length !== names.size ||
+      new Set(selected.map((tool) => tool.name)).size !== selected.length
+    )
+      throw new McpScopeError(
+        "An explicitly selected MCP tool is missing or ambiguous",
+      );
+    if (selected.some((tool) => tool.annotations?.readOnlyHint !== true))
+      throw new McpScopeError(
+        "An explicitly selected MCP tool is not marked read-only",
+      );
+    return selected;
   }
 
   private async server(name: string): Promise<Server> {
@@ -185,6 +251,7 @@ export class McpServices {
     signal?: AbortSignal,
     timeout = 60000,
   ): Promise<T> {
+    this.allowed(name);
     const combined = AbortSignal.any([
       this.controller.signal,
       AbortSignal.timeout(timeout),
@@ -335,10 +402,11 @@ export class McpServices {
           bounded.throwIfAborted();
           await client.connect(transport);
           return await operation(client, bounded);
-        } catch {
+        } catch (error) {
           // Remote bodies and process stderr may contain credentials or private
           // provider data. Diagnostics identify only the locally selected profile.
           if (authenticationFailure) throw new McpAuthenticationError(name, authenticationFailure);
+          if (error instanceof McpScopeError) throw error;
           throw new Error(
             `MCP ${name} request failed; verify the host server, permissions and radar-mcp login ${name}`,
           );
@@ -361,7 +429,7 @@ export class McpServices {
         const tools = await client.listTools({ signal: bounded });
         if (Buffer.byteLength(JSON.stringify(tools)) > MAX_BYTES)
           throw new Error("MCP tool catalog exceeds the response limit");
-        return tools;
+        return this.catalog(server, tools);
       },
       signal,
     );
@@ -374,16 +442,18 @@ export class McpServices {
     signal?: AbortSignal,
     readOnly = false,
   ): Promise<CallToolResult> {
+    this.allowed(server, tool);
     return this.connected(
       server,
       async (client, bounded) => {
         const tools = await client.listTools({ signal: bounded });
-        const selected = tools.find((t) => t.name === tool);
+        const selected = this.catalog(server, tools).find((t) => t.name === tool);
         if (Buffer.byteLength(JSON.stringify(tools)) > MAX_BYTES)
           throw new Error("MCP tool catalog exceeds the response limit");
         if (
           !selected ||
-          (readOnly && selected.annotations?.readOnlyHint !== true)
+          ((readOnly || this.selection !== undefined) &&
+            selected.annotations?.readOnlyHint !== true)
         )
           throw new Error(
             "Configured MCP read tool is unavailable or not marked read-only",

@@ -74,6 +74,49 @@ separate non-read call intent and retains uncertain-write reconciliation.
 Responses are limited to 1 MiB, calls are bounded/cancellable, and remote errors,
 provider bodies and server stderr are not emitted as diagnostics.
 
+## Explicit host-client tool selections
+
+A definition can give a host `McpServices` client a non-secret selection from its
+persisted agent configuration:
+
+```json
+{
+  "mcpConnections": [
+    { "server": "datadog", "tools": ["search_datadog_monitors"] }
+  ]
+}
+```
+
+```ts
+import { McpServices } from "@christianmoesl/radar-agent-host/mcp";
+
+const mcp = new McpServices(undefined, host.config.mcpConnections ?? []);
+const tools = await mcp.tools("datadog");
+// Register only these schemas in the definition's native tool registry, and
+// dispatch their exact server/tool bindings through this same client.
+```
+
+The second constructor argument selects exact profile/tool pairs, not wildcards
+or aliases. An empty array denies all connections. Omitting that argument retains
+the existing unrestricted **trusted host-code** client; it must not be exposed as
+a generic model dispatcher. The restricted client snapshots its selection,
+filters discovery, rejects excluded calls before connecting, and rechecks the
+selected catalog before dispatch. A reconnect, new client with the same persisted
+selection, or newly discovered tool cannot grant access.
+Missing or duplicate selected tools fail visibly.
+Calling with `readOnly=false` cannot disable the restricted client's read check.
+
+Select independently verified read operations and provider-side read-only
+permissions. `readOnlyHint` remains an additional advisory check, **not** permission
+to expose any tool advertising it. This primitive does not install model tools or
+enforce policy on arbitrary definition JavaScript.
+
+**Placement is unchanged:** this client, including its restricted form, runs on
+the host. It is not an SBX client and does not satisfy a workspace-routed MCP
+requirement. The reusable native model-tool adapter, strict input-schema
+validation and SBX-routed MCP bridge remain unfinished; do not claim their
+coverage from these host-client tests.
+
 ## Jira assistant
 
 Keep `baseUrl`, `cloudId`, `accountId`, `jql`, `modelId` and existing fixture/model
