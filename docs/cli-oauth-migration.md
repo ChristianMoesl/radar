@@ -111,8 +111,10 @@ Follow [the MCP setup and agent cutover guide](agent-mcp.md). Jira and Datadog
 examples use `host.mcp`, and Renovate uses the same host GitHub MCP profile.
 No provider credential database is copied into SBX. The selected Jira and Datadog
 MCP read permissions, pagination and reconnect passed the three-platform live
-matrix. Natural expiry/revocation still require live verification; the old
-SBX/Pup refresh failure is historical, not this architecture's release gate.
+matrix. Both selected MCP servers also passed natural expiry/renewal on Linux
+amd64 in [the 2026-11-01 run](https://github.com/ChristianMoesl/radar/actions/runs/41272962639).
+Provider-side revocation still requires live verification with separate
+disposable grants; the old SBX/Pup refresh failure is historical.
 Fixtures do not establish a live provider pass.
 
 Jira `profile` and Datadog `site`/`org`/REST-query settings in copied agent
@@ -145,9 +147,9 @@ workspace directory was retained unchanged.
 | Jira mapping/linking | Domain and collector fixtures cover assigned/discovered work, bindings after reassignment, Done, issue-type policy, PR references, stable IDs and failure retention; six private PR fixtures previously passed real `gh` reads | Broader live transition/linking matrix |
 | TWG authentication | Named OAuth metadata, domain/Cloud ID/account and successful `doctor` connectivity checked before each request; actual-binary tests characterize missing profiles, saved PATs and the accepted check/request race | Atomic dispatch is an accepted limitation, not a core blocker |
 | Onboarding | Shared install/version/login/retry/defer flow and all terminal integration-choice fixtures pass; real Linux device login succeeded | Full foreground browser/SSO/callback matrix on supported platforms |
-| Read-only Jira assistant | Native host MCP issue/comment reads, populated one-row pagination and reconnect passed on all three platforms; durable fixtures cover incomplete reads and conversation retention | Natural expiry/revocation; reply posting is separate #42 |
+| Read-only Jira assistant | Native host MCP issue/comment reads, populated one-row pagination and reconnect passed on all three platforms; natural expiry/renewal passed on Linux amd64; durable fixtures cover incomplete reads and conversation retention | Server-side revocation; reply posting is separate #42 |
 | Datadog monitors | Live EU collector harness passed again on 2026-10-31: Alert/Warn/No Data/OK, stable IDs, missing login/restart and six concurrent forced refreshes; the idle session also renewed naturally before forced checks. Released-binary tests cover 403/429, malformed/truncated responses, cancellation and timeout without recovering prior alerts | Server-side revocation and remaining platform checks |
-| Datadog investigator | Native host MCP monitor/metric reads and reconnect passed on all three platforms; durable conversation/retry/recovery fixtures | Natural expiry/revocation; logs/traces remain outside the approved scope |
+| Datadog investigator | Native host MCP monitor/metric reads and reconnect passed on all three platforms; natural expiry/renewal passed on Linux amd64; durable conversation/retry/recovery fixtures | Server-side revocation; logs/traces remain outside the approved scope |
 | Sandbox | Both-architecture image/offline smoke and the real SBX review/recovery job passed; provider CLIs are absent and workspace execution retains its boundary | Fresh foreground onboarding on supported platforms |
 
 Reproduce offline release contracts with checksum-verified binaries:

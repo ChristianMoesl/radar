@@ -6,6 +6,43 @@ recommended Linux installation/update owner after the [publication gate](#linux-
 Linux manual archives/source builds and Windows/WSL remain available. The built-in
 `radar update` transaction remains macOS-only.
 
+## Next breaking release: collector OAuth and agent MCP
+
+This change is implemented on `main` but **not release-qualified**. Do not cut
+its release until the remaining checks in [the cutover guide](cli-oauth-migration.md#qualification-evidence-and-remaining-gates)
+and [host MCP lifecycle qualification](mcp-live.md) pass. Passing native reads
+or protocol fixtures does not establish browser onboarding or grant revocation.
+
+The release notes must tell existing users:
+
+- Jira collection requires TWG 1.3.8+ and a named OAuth profile. Datadog
+  collection requires Pup 2.0.0+ and a named OAuth session. `radar setup` guides
+  installation, starts foreground login and verifies the intended site/account
+  with a real read before saving connection settings.
+- Radar no longer accepts its old Jira email/API-token or Datadog API/application
+  key configuration, secrets or environment overrides. Stop the daemon, run the
+  [read-only preflight](cli-oauth-migration.md#read-only-rollout-preflight), make
+  the documented manual edits, authenticate and verify collection before
+  retiring old credentials separately. There is no automatic credential or
+  configuration migration.
+- Agents use separately authenticated host MCP profiles for remote services.
+  The development image no longer provisions TWG/Pup. Files, Git, builds and
+  tests retain their selected local/SBX execution boundary; provider credential
+  stores are never copied into SBX. Follow the [agent cutover](agent-mcp.md).
+- The Jira assistant reads issues/comments and drafts replies. Posting remains
+  disabled pending [reliable native MCP writes](https://github.com/ChristianMoesl/radar/issues/42).
+  Old posting checkpoints fail without resending. The collector's issue and PR
+  linking behavior does not depend on this separate write capability.
+- Task identities, notes, workspaces and durable-agent stores keep their formats
+  across this cutover. Preserve them; no reset or remote revocation is performed.
+
+CLI release descriptions are generated from conventional commits by
+`scripts/release-notes.mjs`. Keep the breaking-change summary and manual cutover
+link in the generated description; this section does not publish or approve a
+release. Foreground collector platform checks, remaining collector OAuth checks
+and both MCP servers' revocation checks remain open. Both selected MCP servers'
+natural expiry/renewal is [qualified on Linux amd64](https://github.com/ChristianMoesl/radar/actions/runs/41272962639).
+
 ## Maintainer trust and publishing setup
 
 `internal/update/keys.json` contains the embedded public trust roots. The initial

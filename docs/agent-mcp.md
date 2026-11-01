@@ -163,9 +163,10 @@ RADAR_TEST_MCP_FIXTURES=/path/to/approved-mcp-reads.json \
 ```
 
 The live test requires a read-only annotation and evidence, closes/reopens the
-client and repeats the read. It does not prove natural expiry or server-side
-revocation. Live MCP provider qualification is still pending until those checks
-run with the chosen servers and approved accounts. The old SBX/Pup/TWG proxy
+client and repeats the read. If an access token is already expired at startup,
+it also requires renewed future expiry to be saved after those reads. Otherwise
+it explicitly skips natural-expiry qualification. Server-side revocation needs
+a separate disposable grant and foreground check. The old SBX/Pup/TWG proxy
 experiment is historical and no longer a release gate for this architecture.
 The dedicated [hosted agent MCP workflow](mcp-live.md) includes these reads and
 the Jira definition's completeness/pagination checks. Its setup command uses
@@ -176,11 +177,14 @@ selector file. Local protocol fixtures are not a hosted or real-provider pass.
 The [2026-10-31 live read matrix](qualification/mcp-reads-2026-10-31.json) passed
 with the selected Jira and Datadog accounts on Linux amd64, Linux arm64 and macOS
 arm64, including populated issue/comment pagination, monitors/metrics and
-reconnect. This resolves the live read gate. [The follow-up
-matrix](https://github.com/ChristianMoesl/radar/actions/runs/41223219100) also
-observed Datadog natural expiry and renewed access on Linux amd64. Jira expiry
-was not observed. Jira natural expiry, provider-side revocation, fresh browser
-onboarding and reply posting remain unqualified.
+reconnect. This resolves the live read gate. On 2026-11-01, [the renewal
+matrix](https://github.com/ChristianMoesl/radar/actions/runs/41272962639) observed
+both Jira and Datadog access tokens naturally expired before Linux amd64 reads,
+then persisted renewed future expiry. All eight checks passed with no skips in
+that job; token timestamps were never edited. Provider-side revocation, fresh
+collector browser onboarding and Jira reply posting remain unqualified. See the
+[disposable lifecycle procedure](mcp-live.md#disposable-lifecycle-and-reply-contract-qualification)
+for the remaining MCP checks; CI-owned sessions must stay exclusive to CI.
 
 The full [cross-provider workflow](live-e2e.md) remains available for combined
 collector qualification with its own dedicated sessions.
