@@ -1,16 +1,18 @@
 # CLI OAuth hard switch
 
-Tracking: [epic #27](https://github.com/ChristianMoesl/radar/issues/27).
+The production Jira/TWG and Datadog/Pup collectors and foreground OAuth
+onboarding shipped in [v0.7.0 on 2026-10-27](https://github.com/ChristianMoesl/radar/releases/tag/v0.7.0).
+The original [rollout tracker #32](https://github.com/ChristianMoesl/radar/issues/32)
+is closed. This guide explains manual upgrades from the old credential schema.
+Radar-owned PR linking removes the GitHub for Atlassian dependency.
 
-The production host Jira/TWG and Datadog/Pup collectors and foreground OAuth
-onboarding are implemented. Agents now use host MCP. Radar-owned
-PR linking removes the GitHub for Atlassian dependency. The breaking release is
-**not release-qualified**: natural expiry, server-side revocation, remaining
-platform browser/onboarding checks remain open. The selected host MCP read matrix
-has [passed on all three platforms](qualification/mcp-reads-2026-10-31.json).
-Do not publish the breaking release until those gates pass.
+The host MCP agent migration and cancellation fixes described below were added
+on `main` after v0.7.0. The selected host MCP read matrix has
+[passed on all three platforms](qualification/mcp-reads-2026-10-31.json).
+Unrecorded lifecycle/browser scenarios remain coverage gaps, not new release
+blockers for the already-shipped collector cutover.
 
-Foreground collector installation and login commands are bounded to five
+On `main`, foreground collector installation and login commands are bounded to five
 minutes. Cancelling during installation, login, preparation or verification
 aborts setup instead of opening another retry prompt or reporting Connected.
 Cancellation before configuration publication leaves provider plans, secrets,
@@ -124,7 +126,8 @@ No existing sandbox is automatically recreated and no old credential is revoked.
 
 ## Read-only rollout preflight
 
-Run `go run ./scripts/preflight-cli-oauth` before installing the breaking release.
+Run `go run ./scripts/preflight-cli-oauth` before upgrading an installation that
+still has pre-OAuth configuration.
 It reports file presence and obsolete field names, never credential values, and
 changes no files. Retired config/secrets are intentionally rejected and require
 manual edits. Task state, notes, workspaces and durable-agent stores keep their
@@ -138,9 +141,12 @@ The read-only preflight repeated on 2026-10-31 found the same absence of default
 config, secrets, task and agent data, and no existing MCP config/state. The
 workspace directory was retained unchanged.
 
-## Qualification evidence and remaining gates
+## Qualification evidence and follow-up testing
 
-| Capability | Evidence | Remaining gate |
+The table records observed checks and remaining coverage. It does not reopen the
+published v0.7.0 collector release or require optional agent-example features.
+
+| Capability | Evidence | Additional coverage or limitation |
 | --- | --- | --- |
 | CLI distribution | Official checksum-verified TWG 1.3.8 and Pup 2.0.0 install/run contracts passed on Linux amd64, Linux arm64 and macOS arm64 | Browser/provider checks on other platforms |
 | Jira transport | Production `Source.Collect` passed against three approved issues on Linux amd64, including inherited-static-override sanitization, forced one-row cursor pages, native gets and missing-profile fact retention | Natural expiry, server revocation and denied permissions |
@@ -180,8 +186,10 @@ the collector run at `6ee4a36`; it preceded the added MCP gate and does not qual
 that gate or hosted CI. Agent MCP uses the real-read adapter tests described in
 the [MCP guide](agent-mcp.md). Hosted
 activation still needs the documented GitHub Environment setup; the available
-connection could not manage its secrets/variables (HTTP 403). Keep qualification
-#28 and release #32 open until their remaining live gates pass.
+connection could not manage its secrets/variables (HTTP 403). The former #28
+qualification tracker is superseded and #32 is closed following confirmation of
+the published OAuth release. Further checks should be driven by a current test
+goal or concrete regression.
 
 ## Network access
 

@@ -1,10 +1,15 @@
 # Radar issue audit — 2026-10-31
 
+Historical snapshot, corrected on 2026-11-01: the collector OAuth cutover had
+already shipped in [v0.7.0 on 2026-10-27](https://github.com/ChristianMoesl/radar/releases/tag/v0.7.0).
+The pre-release interpretation below was outdated. #32 is now closed; the
+unperformed manual checks were not evidence of an undelivered release. Current
+issue states and the [release guide](../releases.md) supersede this audit's backlog.
+
 All 46 Radar issues were reviewed against the current implementation, tests and
 CI evidence: 36 closed and 10 open at the start of the review. A closed issue's
 historical unchecked boxes alone are not evidence of a current defect. The
-remaining qualification gates below must stay open until their own evidence is
-recorded.
+unverified checks below describe the evidence available during that review.
 
 | Issue | Implementation and remaining work |
 | --- | --- |

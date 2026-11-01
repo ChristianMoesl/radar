@@ -1,5 +1,9 @@
 # Host MCP connections for agents
 
+This guide describes host MCP work added on `main` after v0.7.0. The collector
+OAuth cutover already shipped in [v0.7.0](https://github.com/ChristianMoesl/radar/releases/tag/v0.7.0);
+that tag does not include this later agent migration.
+
 Remote service tools use MCP on the host. Workspace files, Git operations,
 builds and tests still use `host.execution` and the workspace's configured SBX
 boundary. Jira, Datadog and Renovate examples use `host.mcp`; no service command

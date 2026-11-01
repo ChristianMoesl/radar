@@ -86,8 +86,10 @@ already naturally expired before the first read. In that case a separate check
 requires a renewed future expiry to be saved after the reads/reconnect. It never
 changes timestamps or prints client/token state. If no expired token was
 observed, that check is skipped and natural expiry remains unqualified; a green
-read matrix alone does not establish refresh. Server-side revocation, other
-browser onboarding flows and Jira reply posting remain separate gates.
+read matrix alone does not establish refresh. Server-side revocation and other
+browser flows remain unverified coverage; Jira reply posting belongs to an
+optional agent example. These checks do not reopen the collector OAuth cutover
+already published in v0.7.0.
 The [2026-10-31 evidence](qualification/mcp-reads-2026-10-31.json) records the
 passing three-platform read matrix and its exact limits.
 [The follow-up matrix](https://github.com/ChristianMoesl/radar/actions/runs/41223219100)

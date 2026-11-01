@@ -4,8 +4,11 @@ On 2026-10-20, the user accepted the gap between checking a saved OAuth profile
 and dispatching the next TWG request. Reliable durable-agent Jira reply posting
 was split into [#42](https://github.com/ChristianMoesl/radar/issues/42). Neither
 blocks the core read-only OAuth migration. Production collection, onboarding and
-the read-only assistant now use native TWG commands; authenticated REST paths
-and Radar-owned Jira credentials have been removed.
+the original read-only assistant used native TWG commands; authenticated REST
+paths and Radar-owned Jira credentials were removed. The collector cutover
+shipped in [v0.7.0](https://github.com/ChristianMoesl/radar/releases/tag/v0.7.0).
+The assistant has since moved to [host MCP](agent-mcp.md) on `main`; the TWG
+comment findings below document the earlier example transport.
 
 ## Accepted check/request race
 
@@ -42,7 +45,8 @@ are not a substitute for a request-scoped auth requirement.
 The production live test passed against three approved issues in Linux amd64,
 including inherited-static-override sanitization, one-row cursor pagination,
 native get requests and missing-profile preservation of previous facts. Broader
-expiry/revocation/browser/SBX gates remain in the [migration guide](cli-oauth-migration.md).
+expiry/revocation/browser coverage is recorded in the [migration guide](cli-oauth-migration.md).
+Provider OAuth inside SBX belongs to the retired example architecture.
 
 ## Comment properties: separate #42
 
@@ -85,4 +89,5 @@ RADAR_TEST_TWG=/absolute/path/to/checksum-verified/twg \
 
 Provider-contract CI runs these characterizations on all three supported native
 platforms. Distribution/fixture checks do not prove live OAuth platform parity
-or provider behavior inside SBX. No breaking release has been published.
+or every provider/browser scenario. The collector OAuth changes are published in
+v0.7.0; these additional checks describe coverage limits.

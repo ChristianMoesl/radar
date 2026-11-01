@@ -6,42 +6,41 @@ recommended Linux installation/update owner after the [publication gate](#linux-
 Linux manual archives/source builds and Windows/WSL remain available. The built-in
 `radar update` transaction remains macOS-only.
 
-## Next breaking release: collector OAuth and agent MCP
+## OAuth collector cutover: released in v0.7.0
 
-This change is implemented on `main` but **not release-qualified**. Do not cut
-its release until the remaining checks in [the cutover guide](cli-oauth-migration.md#qualification-evidence-and-remaining-gates)
-and [host MCP lifecycle qualification](mcp-live.md) pass. Passing native reads
-or protocol fixtures does not establish browser onboarding or grant revocation.
+The Jira/TWG and Datadog/Pup OAuth changes shipped in the stable
+[v0.7.0 release on 2026-10-27](https://github.com/ChristianMoesl/radar/releases/tag/v0.7.0).
+The tag includes both collector migrations. The former pre-release tracker
+[#32](https://github.com/ChristianMoesl/radar/issues/32) is closed.
 
-The release notes must tell existing users:
+Jira collection requires TWG 1.3.8+ and a named OAuth profile; Datadog collection
+requires Pup 2.0.0+ and a named OAuth session. `radar setup` guides installation,
+foreground login and verification of the intended site/account with a real read.
 
-- Jira collection requires TWG 1.3.8+ and a named OAuth profile. Datadog
-  collection requires Pup 2.0.0+ and a named OAuth session. `radar setup` guides
-  installation, starts foreground login and verifies the intended site/account
-  with a real read before saving connection settings.
-- Radar no longer accepts its old Jira email/API-token or Datadog API/application
-  key configuration, secrets or environment overrides. Stop the daemon, run the
-  [read-only preflight](cli-oauth-migration.md#read-only-rollout-preflight), make
-  the documented manual edits, authenticate and verify collection before
-  retiring old credentials separately. There is no automatic credential or
-  configuration migration.
-- Agents use separately authenticated host MCP profiles for remote services.
-  The development image no longer provisions TWG/Pup. Files, Git, builds and
-  tests retain their selected local/SBX execution boundary; provider credential
-  stores are never copied into SBX. Follow the [agent cutover](agent-mcp.md).
-- The Jira assistant reads issues/comments and drafts replies. Posting remains
-  disabled pending [reliable native MCP writes](https://github.com/ChristianMoesl/radar/issues/42).
-  Old posting checkpoints fail without resending. The collector's issue and PR
-  linking behavior does not depend on this separate write capability.
-- Task identities, notes, workspaces and durable-agent stores keep their formats
-  across this cutover. Preserve them; no reset or remote revocation is performed.
+When upgrading a pre-OAuth installation, follow the
+[manual cutover](cli-oauth-migration.md): stop the daemon, run the read-only
+preflight, remove obsolete credential settings manually, authenticate and verify
+collection before retiring old credentials separately. Task identities, notes,
+workspaces and durable-agent stores retain their formats. There is no automatic
+credential/configuration migration or reset.
 
-CLI release descriptions are generated from conventional commits by
-`scripts/release-notes.mjs`. Keep the breaking-change summary and manual cutover
-link in the generated description; this section does not publish or approve a
-release. Foreground collector platform checks, remaining collector OAuth checks
-and both MCP servers' revocation checks remain open. Both selected MCP servers'
-natural expiry/renewal is [qualified on Linux amd64](https://github.com/ChristianMoesl/radar/actions/runs/41272962639).
+Additional manual lifecycle and browser scenarios remain unverified coverage;
+they do not make the already-published collector cutover an unreleased change.
+
+## Host MCP work after v0.7.0
+
+The subsequent host MCP migration and onboarding cancellation fixes are on
+`main` after the v0.7.0 tag. The [agent cutover](agent-mcp.md) describes this newer
+code: separate host service authentication, local/SBX workspace execution and
+removal of provider CLIs from the development image. Its
+[live MCP evidence](mcp-live.md) is separate from the released collector changes.
+Both selected MCP servers' natural expiry/renewal is
+[qualified on Linux amd64](https://github.com/ChristianMoesl/radar/actions/runs/41272962639).
+
+The Jira assistant example remains read-only; reliable posting is optional
+[#42](https://github.com/ChristianMoesl/radar/issues/42). Real-model demonstrations
+of the review/Jira/Datadog examples are not required for the generic durable-agent
+runtime. These example follow-ups do not gate the released collector OAuth flow.
 
 ## Maintainer trust and publishing setup
 
@@ -107,10 +106,10 @@ later without replacing the release contract.
 
 ## Cut a release
 
-- Choose an unused version. `0.1.0` exists on npm, `v0.1.1` was used for a failed
-  publication, and the corrected **`v0.1.2` CLI is published**. Finish its npm
-  staging/approval by retrying only the failed npm job, not by cutting another
-  version. Never move a used tag or republish an existing version.
+- Choose an unused version after checking GitHub releases and npm versions.
+  Never move a used tag or republish an existing version. If an existing release
+  awaits npm staging/approval, retry only its failed npm job instead of cutting
+  another version.
 - From a **clean `main` checkout on Linux or macOS**, run:
 
   ```sh
