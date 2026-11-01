@@ -47,8 +47,17 @@ func (w *wizard) host() hostsetup.Service {
 	return hostsetup.Service{UI: w.ui, System: w.system, Completed: w.recordCompleted}
 }
 func (w *wizard) run() error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	return w.runContext(ctx)
+}
+
+func (w *wizard) runContext(ctx context.Context) error {
 	w.plans = nil
 	w.completed = nil
+	if ctx.Err() != nil {
+		return setup.ErrAborted
+	}
 	draft, err := config.LoadSetupDraft()
 	if err != nil {
 		return err
@@ -59,8 +68,6 @@ func (w *wizard) run() error {
 		return err
 	}
 	w.ui.Print("\n%s\n\n", w.ui.Style().Bold(true).Render("Radar setup"))
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
 	host := w.host()
 	if err := host.Dependencies(ctx); err != nil {
 		return err
@@ -92,6 +99,9 @@ func (w *wizard) run() error {
 			w.plans = append(w.plans, plan)
 		}
 	}
+	if ctx.Err() != nil {
+		return setup.ErrAborted
+	}
 	data, err := draft.Preview(cfg)
 	if err != nil {
 		return err
@@ -100,6 +110,9 @@ func (w *wizard) run() error {
 		return err
 	}
 	err = config.WithSetupLock(func() error {
+		if ctx.Err() != nil {
+			return setup.ErrAborted
+		}
 		if err := draft.CheckUnchanged(); err != nil {
 			return err
 		}
@@ -109,6 +122,11 @@ func (w *wizard) run() error {
 					return err
 				}
 			}
+		}
+		// Once publication begins, finish the approved writes consistently.
+		// Cancellation before that boundary must leave every plan unapplied.
+		if ctx.Err() != nil {
+			return setup.ErrAborted
 		}
 		for _, plan := range w.plans {
 			if plan.Apply != nil {

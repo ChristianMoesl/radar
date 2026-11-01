@@ -10,6 +10,14 @@ platform browser/onboarding checks remain open. The selected host MCP read matri
 has [passed on all three platforms](qualification/mcp-reads-2026-10-31.json).
 Do not publish the breaking release until those gates pass.
 
+Foreground collector installation and login commands are bounded to five
+minutes. Cancelling during installation, login, preparation or verification
+aborts setup instead of opening another retry prompt or reporting Connected.
+Cancellation before configuration publication leaves provider plans, secrets,
+instructions and config unapplied. A cancellation arriving after that boundary
+does not interrupt the approved publication writes. Real browser/SSO/callback
+qualification remains separate.
+
 On 2026-10-20 the user accepted TWG's check/request race: another program could
 change the saved profile after Radar checks it and before TWG reads it for the
 request. Radar sanitizes inherited overrides, pins the named profile/site/account,

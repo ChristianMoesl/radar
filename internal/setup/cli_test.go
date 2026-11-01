@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"radar/internal/setup"
 	"radar/internal/setup/setuptest"
@@ -18,6 +19,7 @@ type cliSystem struct {
 	loggedIn     bool
 	loginFails   bool
 	afterOutput  func()
+	afterRun     func(context.Context, setup.Command)
 }
 
 func (s *cliSystem) LookPath(string) bool { return s.present }
@@ -29,7 +31,12 @@ func (s *cliSystem) Output(_ context.Context, c setup.Command) (string, error) {
 	}
 	return version, nil
 }
-func (s *cliSystem) Run(_ context.Context, c setup.Command) error {
+func (s *cliSystem) Run(ctx context.Context, c setup.Command) error {
+	defer func() {
+		if s.afterRun != nil {
+			s.afterRun(ctx, c)
+		}
+	}()
 	s.Calls = append(s.Calls, c.Name+" "+strings.Join(c.Args, " "))
 	switch c.Name {
 	case "install":
@@ -146,6 +153,58 @@ func TestConnectionHonorsCancellationBeforeLogin(t *testing.T) {
 	ok, err := setup.ConnectCLI(ctx, ui, s, connection(s), nil)
 	if ok || !errors.Is(err, context.Canceled) || len(ui.Titles) > 0 {
 		t.Fatalf("connected=%v err=%v prompts=%v", ok, err, ui.Titles)
+	}
+}
+
+func TestConnectionCancellationDuringExternalWorkCannotPromptOrConnect(t *testing.T) {
+	for _, phase := range []string{"install", "login", "verify-existing", "verify-login", "prepare-deferred"} {
+		t.Run(phase, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			s := &cliSystem{present: phase != "install", version: "tool 1.3.8"}
+			ui := &setuptest.UI{Decisions: []bool{true}}
+			cli := connection(s)
+			s.afterRun = func(_ context.Context, command setup.Command) {
+				if command.Name == "install" && phase == "install" || command.Name == "tool" && phase == "login" {
+					cancel()
+				}
+			}
+			cli.Verify = func(context.Context) error {
+				if phase == "verify-existing" || phase == "verify-login" && s.loggedIn {
+					cancel()
+					return nil // Even a successful provider result cannot override cancellation.
+				}
+				return errors.New("not connected")
+			}
+			if phase == "prepare-deferred" {
+				cli.PrepareLogin = func(context.Context) (bool, error) { cancel(); return false, nil }
+			}
+			ok, err := setup.ConnectCLI(ctx, ui, s, cli, nil)
+			if ok || !errors.Is(err, context.Canceled) {
+				t.Fatalf("connected=%v err=%v", ok, err)
+			}
+			for _, title := range ui.Titles {
+				if strings.HasPrefix(title, "Recheck") || strings.HasPrefix(title, "Retry") {
+					t.Fatal("cancelled work opened another prompt", ui.Titles)
+				}
+			}
+		})
+	}
+}
+
+func TestConnectionExternalCommandsHaveBoundedDeadlines(t *testing.T) {
+	s := &cliSystem{}
+	ui := &setuptest.UI{Decisions: []bool{true, true, true}}
+	commands := 0
+	s.afterRun = func(ctx context.Context, _ setup.Command) {
+		deadline, bounded := ctx.Deadline()
+		if !bounded || time.Until(deadline) <= 0 || time.Until(deadline) > 5*time.Minute {
+			t.Fatal("foreground installation/login lacks a bounded deadline")
+		}
+		commands++
+	}
+	if ok, err := setup.ConnectCLI(context.Background(), ui, s, connection(s), nil); err != nil || !ok || commands != 2 {
+		t.Fatalf("connected=%v err=%v commands=%d", ok, err, commands)
 	}
 }
 func TestCLIVersionQualification(t *testing.T) {

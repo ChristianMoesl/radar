@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/setup"
 )
@@ -17,6 +18,53 @@ type testSetupProvider struct {
 	name    string
 	stage   integration.SetupStage
 	prepare func(integration.SetupRequest) (setup.Plan, error)
+}
+
+func TestCancellationBeforePublicationLeavesEveryPlanAndConfigUntouched(t *testing.T) {
+	for _, phase := range []string{"provider", "review", "preflight"} {
+		t.Run(phase, func(t *testing.T) {
+			w, ui, _, home := fixture(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			ui.decisions = []bool{true}
+			planned := filepath.Join(home, "provider-settings")
+			w.registry = integration.NewRegistry(testSetupProvider{
+				name: "cancel-test", stage: integration.SetupStage{Phase: integration.SetupConnections},
+				prepare: func(req integration.SetupRequest) (setup.Plan, error) {
+					req.Config.RepositoryDirs = []string{filepath.Join(home, "repos")}
+					req.Config.Workspace.RootDir = filepath.Join(home, "workspaces")
+					req.Config.Obsidian.VaultPath = filepath.Join(home, "notes")
+					if phase == "provider" {
+						cancel()
+					}
+					return setup.Plan{
+						CheckUnchanged: func() error {
+							if phase == "preflight" {
+								cancel()
+							}
+							return nil
+						},
+						Apply: func() error { return os.WriteFile(planned, []byte("must not be published"), 0600) },
+					}, nil
+				},
+			})
+			ui.beforeConfirm = func(title string) {
+				if phase == "review" && title == "Save this configuration?" {
+					cancel()
+				}
+			}
+			if err := w.runContext(ctx); !errors.Is(err, setup.ErrAborted) {
+				t.Fatal("cancelled setup was accepted", err)
+			}
+			path, _ := config.Path()
+			secrets, _ := config.SecretsPath()
+			for _, candidate := range []string{planned, path, secrets, filepath.Join(filepath.Dir(path), "AGENTS.md")} {
+				if _, err := os.Lstat(candidate); !os.IsNotExist(err) {
+					t.Fatal("cancelled setup published a file", candidate, err)
+				}
+			}
+		})
+	}
 }
 
 func (p testSetupProvider) Descriptor() integration.Descriptor {

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // CLIConnection describes a foreground connection. Verify must check identity
@@ -27,6 +28,18 @@ type CLIConnection struct {
 // rest of setup. Installation and login are immediate external effects; callers
 // record them in the final review, while configuration remains deferred.
 func ConnectCLI(ctx context.Context, ui UI, sys System, cli CLIConnection, completed func(string)) (bool, error) {
+	run := func(command Command) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		bounded, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+		err := sys.Run(bounded, command)
+		if bounded.Err() != nil {
+			return bounded.Err()
+		}
+		return err
+	}
 	ui.Print("%s uses %s %s+ — %s. Credentials stay with %s.\n", cli.Service, cli.Name, cli.MinimumVersion, cli.Reason, cli.Name)
 	for {
 		if err := ctx.Err(); err != nil {
@@ -49,7 +62,7 @@ func ConnectCLI(ctx context.Context, ui UI, sys System, cli CLIConnection, compl
 				return false, err
 			}
 			if yes {
-				if err := sys.Run(ctx, *cli.Install); err == nil {
+				if err := run(*cli.Install); err == nil {
 					if completed != nil {
 						completed(cli.Name + " installation")
 					}
@@ -57,6 +70,9 @@ func ConnectCLI(ctx context.Context, ui UI, sys System, cli CLIConnection, compl
 					ui.Print("%s installation did not complete. Use the instructions above and check PATH.\n", cli.Name)
 				}
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			return false, err
 		}
 		yes, err := ui.Confirm("Recheck "+cli.Name+" now? (No defers "+cli.Service+")", true)
 		if err != nil {
@@ -71,7 +87,11 @@ func ConnectCLI(ctx context.Context, ui UI, sys System, cli CLIConnection, compl
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		if err := cli.Verify(ctx); err == nil {
+		verifyErr := cli.Verify(ctx)
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		if verifyErr == nil {
 			return true, nil
 		}
 		ui.Print("%s identity or read access could not be verified. Check the selected account, permissions and network.\n", cli.Service)
@@ -90,6 +110,9 @@ func ConnectCLI(ctx context.Context, ui UI, sys System, cli CLIConnection, compl
 			if errors.Is(loginErr, ErrAborted) {
 				return false, loginErr
 			}
+			if err := ctx.Err(); err != nil {
+				return false, err
+			}
 			if loginErr == nil && !ready {
 				ui.Print("%s deferred. Rerun radar setup to connect it.\n", cli.Service)
 				return false, nil
@@ -99,13 +122,20 @@ func ConnectCLI(ctx context.Context, ui UI, sys System, cli CLIConnection, compl
 			return false, err
 		}
 		if loginErr == nil {
-			loginErr = sys.Run(ctx, cli.Login)
+			loginErr = run(cli.Login)
+		}
+		if err := ctx.Err(); err != nil {
+			return false, err
 		}
 		if loginErr == nil {
 			if completed != nil {
 				completed(cli.Service + " login")
 			}
-			if err := cli.Verify(ctx); err == nil {
+			verifyErr = cli.Verify(ctx)
+			if err := ctx.Err(); err != nil {
+				return false, err
+			}
+			if verifyErr == nil {
 				return true, nil
 			}
 		}

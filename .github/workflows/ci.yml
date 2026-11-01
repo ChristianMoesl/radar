@@ -128,6 +128,8 @@ jobs:
       - run: pnpm --filter @christianmoesl/radar-agent-host check
         env:
           RADAR_BINARY: ${{ runner.temp }}/radar
+      - name: Validate live MCP setup and revocation safeguards
+        run: node --experimental-strip-types --test scripts/mcp-live.test.mjs scripts/mcp-lifecycle.test.mjs
       - run: pnpm --filter @christianmoesl/radar-agent-host build
       - run: pnpm --dir agent-host pack --out "$RUNNER_TEMP/radar-agent-host.tgz"
       - run: node scripts/smoke-agent-package.mjs "$RUNNER_TEMP/radar-agent-host.tgz"
@@ -197,9 +199,6 @@ jobs:
         env:
           RADAR_TERRAFORM_TEST_BINARY: ${{ github.workspace }}/radar
         run: python3 -m unittest scripts/test_live_e2e.py scripts/test_live_pr_gate.py scripts/test_terraform_live_plan.py scripts/test_terraform_live_lifecycle.py
-
-      - name: Validate live MCP setup and revocation safeguards
-        run: node --experimental-strip-types --test scripts/mcp-live.test.mjs scripts/mcp-lifecycle.test.mjs
 
       - name: Validate Terraform fixture plans without account access
         env:
