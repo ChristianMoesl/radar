@@ -34,7 +34,7 @@ func agentWorkspace(ctx context.Context, runner Runner, path string, sandboxRequ
 		if err != nil {
 			return binding, err
 		}
-		if !found || !strings.EqualFold(actual.Status, "running") || !sharedDirectoryReady(registered.Sandbox.SharedDirectory, sandboxWorkspaceMounts(actual)) {
+		if !found || !strings.EqualFold(actual.Status, "running") || !sameMountSet(registered.Sandbox.Mounts, sandboxWorkspaceMounts(actual)) || !sharedDirectoryReady(registered.Sandbox.SharedDirectory, sandboxWorkspaceMounts(actual)) {
 			return binding, fmt.Errorf("workspace sandbox %s is unavailable or missing required mounts; repair it before starting the agent", binding.Sandbox)
 		}
 	} else if sandboxRequired {

@@ -17,13 +17,16 @@ type AgentRPCError struct {
 func (e *AgentRPCError) Error() string { return fmt.Sprintf("agent RPC %d: %s", e.Code, e.Message) }
 
 type AgentRequest struct {
-	Operation  string          `json:"operation"`
-	ID         string          `json:"id,omitempty"`
-	Entrypoint string          `json:"entrypoint,omitempty"`
-	Workspace  string          `json:"workspace,omitempty"`
-	Collection string          `json:"collection,omitempty"`
-	Config     json.RawMessage `json:"config,omitempty"`
-	Params     json.RawMessage `json:"params,omitempty"`
+	Preview      bool            `json:"preview,omitempty"`
+	PlanID       string          `json:"plan_id,omitempty"`
+	PreparedNote json.RawMessage `json:"prepared_note,omitempty"`
+	Operation    string          `json:"operation"`
+	ID           string          `json:"id,omitempty"`
+	Entrypoint   string          `json:"entrypoint,omitempty"`
+	Workspace    string          `json:"workspace,omitempty"`
+	Collection   string          `json:"collection,omitempty"`
+	Config       json.RawMessage `json:"config,omitempty"`
+	Params       json.RawMessage `json:"params,omitempty"`
 }
 
 type AgentAction struct {

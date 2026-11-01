@@ -30,7 +30,7 @@ func collectionFixture(t *testing.T) (*Manager, Registration) {
 	if err := atomicJSON(filepath.Join(instance, "registration.json"), reg); err != nil {
 		t.Fatal(err)
 	}
-	return New(func(context.Context, string) (protocol.AgentWorkspaceBinding, error) { return reg.Workspace, nil }), reg
+	return New(workspaceFixture{lookup: func(context.Context, string) (protocol.AgentWorkspaceBinding, error) { return reg.Workspace, nil }}), reg
 }
 
 type collectedGitHub struct {

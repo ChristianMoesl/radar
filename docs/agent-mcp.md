@@ -207,7 +207,7 @@ arguments. Copy the example and adjust its SDK imports as described in the
 [editable examples guide](durable-agents.md), then register it normally:
 
 ```sh
-radar agent add ./mcp-check.ts --id mcp-check --workspace /path/to/registered/workspace --config ./check.json
+radar agent add ./mcp-check.ts --id mcp-check --config ./check.json
 radar agent schedule set mcp-check morning --time 09:00 --weekdays mon,tue,wed,thu,fri --timezone Europe/Vienna
 radar agent start mcp-check
 radar agent inspect mcp-check

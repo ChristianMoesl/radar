@@ -24,9 +24,9 @@ func TestCrashBackoffAndIntentionallyStoppedRegistration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	manager := New(func(context.Context, string) (protocol.AgentWorkspaceBinding, error) {
+	manager := New(workspaceFixture{lookup: func(context.Context, string) (protocol.AgentWorkspaceBinding, error) {
 		return protocol.AgentWorkspaceBinding{}, errors.New("fixture environment unavailable")
-	})
+	}})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan struct{})

@@ -13,8 +13,8 @@ import (
 
 type Source struct{ manager *agentservice.Manager }
 
-func NewSource(workspace integration.WorkspaceExecutor) *Source {
-	return &Source{manager: agentservice.New(workspace.AgentWorkspace)}
+func NewSource(workspace integration.AgentWorkspaceManager) *Source {
+	return &Source{manager: agentservice.New(workspace)}
 }
 func (*Source) Descriptor() integration.Descriptor {
 	return integration.Descriptor{Name: "agent", Label: "Agents", DisplayOrder: 10}

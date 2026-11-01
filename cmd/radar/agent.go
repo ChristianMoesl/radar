@@ -16,6 +16,7 @@ import (
 
 	"radar/internal/agentservice"
 	"radar/internal/client"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/socket"
 )
@@ -59,14 +60,26 @@ func runAgent(args []string) {
 	flags := outputFlags("radar agent " + op)
 	id := flags.String("id", "", "registered agent ID")
 	configPath := flags.String("config", "", "JSON configuration file")
-	workspace := flags.String("workspace", "", "required registered Radar workspace for agent add")
+	workspace := flags.String("workspace", "", "explicit existing workspace (otherwise Radar provisions a dedicated agent workspace)")
+	preview := flags.Bool("preview", false, "preview agent workspace provisioning or recovery")
+	planID := flags.String("plan-id", "", "apply the accepted workspace preparation plan")
+	preparedNote := flags.String("prepared-note", "", "prepared canonical-note JSON from the accepted preview")
 	collection := flags.String("collection", "", "subscribe agent to collected source changes (github)")
 	eventID := flags.String("event-id", "", "stable delivery identity")
 	source := flags.String("source", "cli", "producer identity")
 	revision := flags.Int("revision", -1, "presentation revision for this interaction")
 	listen := flags.String("listen", "127.0.0.1:7433", "event receiver address")
 	_ = parseFlags(flags, args)
-	request := protocol.AgentRequest{Operation: op}
+	request := protocol.AgentRequest{Operation: op, Preview: *preview, PlanID: *planID}
+	if *preparedNote != "" {
+		if !json.Valid([]byte(*preparedNote)) {
+			fatal(errors.New("prepared note must be JSON"))
+		}
+		request.PreparedNote = json.RawMessage(*preparedNote)
+	}
+	if (*preview || *planID != "" || *preparedNote != "") && op != "add" && op != "start" && op != "restart" {
+		fatal(errors.New("workspace preparation flags require add, start or restart"))
+	}
 	if op == "serve" {
 		handler := agentservice.NewIngress(agentservice.Token, func(ctx context.Context, id string, event json.RawMessage) (json.RawMessage, error) {
 			return agentCall(protocol.AgentRequest{Operation: "emit", ID: id, Params: event})
@@ -90,9 +103,6 @@ func runAgent(args []string) {
 	}
 	switch op {
 	case "add":
-		if *workspace == "" {
-			fatal(errors.New("agent add requires --workspace"))
-		}
 		request.Workspace = *workspace
 		request.Collection = *collection
 		entry, err := filepath.Abs(flags.Arg(0))
@@ -167,6 +177,14 @@ func runAgent(args []string) {
 	}
 	if jsonOutput {
 		fmt.Println(string(data))
+		return
+	}
+	if request.Preview {
+		var plan integration.WorkspaceReconcilePlan
+		if err := json.Unmarshal(data, &plan); err != nil {
+			fatal(err)
+		}
+		printResult(plan)
 		return
 	}
 	printAgentResult(op, data)

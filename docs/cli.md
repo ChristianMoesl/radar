@@ -34,7 +34,7 @@ radar workspace-context [--workspace <path>] [--registration-only | --resources-
 radar repository-refs --repo <repo>
 radar clone-repository --request <json> [--workspace <path>] [--preview | --plan <id>]
 radar open-resource --request <json> [--workspace <path>] [--preview | --plan <id>]
-radar agent add <module> --id <id> --workspace <registered-path> [--config <json-file>] [--collection github]
+radar agent add <module> --id <id> [--workspace <registered-path>] [--config <json-file>] [--collection github] [--preview | --plan-id <id> --prepared-note <json>]
 radar agent list
 radar agent inspect|start|stop|restart|remove|logs|token <id>
 radar agent schedule set <id> <name> --time HH:MM --weekdays mon,tue,wed,thu,fri --timezone <IANA-zone> --payload <json-file>
@@ -57,7 +57,7 @@ radar log-path
 
 ## Offline documentation
 
-See the [durable-agent guide](durable-agents.md) for installation, required workspace association, SBX execution, event receipts, retention and examples. Agent registrations and data survive `radar reset`. A stopped registration still pins its workspace; `agent remove` releases the association and retains durable data.
+See the [durable-agent guide](durable-agents.md) for installation, automatic dedicated workspace/SBX provisioning, explicit bindings, execution, event receipts, retention and examples. Agent registrations and data survive `radar reset`. `agent start` and `agent restart` also accept `--preview` / `--plan-id` for managed resource recovery. A stopped registration still pins its workspace; `agent remove` releases the association and retains durable data.
 
 Use **`man radar`** for this command reference and **`man radar-config`** for
 configuration guidance. Both are generated from the same Markdown documentation

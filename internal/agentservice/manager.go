@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"radar/internal/integration"
 	"radar/internal/operationlock"
 	"radar/internal/process"
 	"radar/internal/protocol"
@@ -48,12 +49,12 @@ type retryState struct {
 type Manager struct {
 	mu             sync.Mutex
 	retry          map[string]retryState
-	workspace      func(context.Context, string) (protocol.AgentWorkspaceBinding, error)
+	workspace      integration.AgentWorkspaceManager
 	now            func() time.Time
 	scheduleErrors map[string]string
 }
 
-func New(workspace func(context.Context, string) (protocol.AgentWorkspaceBinding, error)) *Manager {
+func New(workspace integration.AgentWorkspaceManager) *Manager {
 	return &Manager{retry: map[string]retryState{}, workspace: workspace, now: time.Now, scheduleErrors: map[string]string{}}
 }
 
@@ -248,10 +249,10 @@ func status(ctx context.Context, reg Registration) protocol.AgentStatus {
 
 func (m *Manager) status(ctx context.Context, reg Registration) protocol.AgentStatus {
 	result := status(ctx, reg)
-	binding, err := m.workspace(ctx, reg.Workspace.Path)
+	binding, err := m.workspace.AgentWorkspace(ctx, reg.Workspace.Path)
 	if err != nil {
 		result.Error = "workspace unavailable: " + err.Error()
-	} else if binding.ID != reg.Workspace.ID {
+	} else if binding != reg.Workspace {
 		result.Error = "associated workspace identity changed"
 	} else {
 		result.Workspace = binding
@@ -261,16 +262,31 @@ func (m *Manager) status(ctx context.Context, reg Registration) protocol.AgentSt
 	return result
 }
 
-func (m *Manager) start(ctx context.Context, reg Registration) error {
-	binding, err := m.workspace(ctx, reg.Workspace.Path)
+func (m *Manager) start(ctx context.Context, reg Registration, request protocol.AgentRequest) error {
+	// Runner work can hold a workspace lease. Stop it before repairing its runtime,
+	// never underneath an active native tool invocation.
+	if binding, err := m.workspace.AgentWorkspace(ctx, reg.Workspace.Path); err == nil {
+		if binding != reg.Workspace {
+			return fmt.Errorf("associated workspace identity changed; refusing recovery")
+		}
+		if status(ctx, reg).Running {
+			return nil
+		}
+	} else if err := stop(ctx, reg); err != nil {
+		return err
+	}
+	dir, _ := instanceDir(reg.ID)
+	binding, _, err := m.workspace.PrepareAgentWorkspace(ctx, integration.AgentWorkspaceRequest{
+		ID: reg.ID, DataDir: dir, Path: reg.Workspace.Path, Expected: &reg.Workspace,
+		PlanID: request.PlanID, Note: request.PreparedNote,
+	})
 	if err != nil {
 		return err
 	}
-	if binding.ID != reg.Workspace.ID {
+	if binding != reg.Workspace {
 		return fmt.Errorf("associated workspace identity changed; refusing to recover agent work")
 	}
 	reg.Workspace = binding
-	dir, _ := instanceDir(reg.ID)
 	if err := atomicJSON(filepath.Join(dir, "registration.json"), reg); err != nil {
 		return err
 	}
@@ -404,20 +420,6 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 			return nil, err
 		}
 		defer release()
-		if request.Workspace == "" {
-			return nil, fmt.Errorf("agent add requires --workspace naming a registered Radar workspace")
-		}
-		binding, err := m.workspace(ctx, request.Workspace)
-		if err != nil {
-			return nil, err
-		}
-		relative, err := filepath.Rel(binding.Path, dir)
-		if err != nil {
-			return nil, err
-		}
-		if relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative) {
-			return nil, fmt.Errorf("durable agent data must be outside its disposable workspace")
-		}
 		if _, err := load(request.ID); !errors.Is(err, os.ErrNotExist) {
 			if err != nil {
 				return nil, err
@@ -435,7 +437,7 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 		if !info.Mode().IsRegular() {
 			return nil, fmt.Errorf("entrypoint must be a file")
 		}
-		reg := Registration{Version: 1, ID: request.ID, Entrypoint: entry, Workspace: binding, Collection: request.Collection}
+		reg := Registration{Version: 1, ID: request.ID, Entrypoint: entry, Collection: request.Collection}
 		// Removed registrations retain pending delivery. Restoring with a
 		// different subscription must not strand or reset that checkpoint.
 		if _, err := loadCollection(reg); err != nil {
@@ -452,6 +454,24 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 		if err := json.Unmarshal(config, &values); err != nil || values == nil {
 			return nil, fmt.Errorf("config must be a JSON object")
 		}
+		binding, plan, err := m.workspace.PrepareAgentWorkspace(ctx, integration.AgentWorkspaceRequest{
+			ID: request.ID, DataDir: dir, Path: request.Workspace,
+			Preview: request.Preview, PlanID: request.PlanID, Note: request.PreparedNote,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if request.Preview {
+			return encode(plan)
+		}
+		relative, err := filepath.Rel(binding.Path, dir)
+		if err != nil {
+			return nil, err
+		}
+		if relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative) {
+			return nil, fmt.Errorf("durable agent data must be outside its disposable workspace")
+		}
+		reg.Workspace = binding
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return nil, err
 		}
@@ -504,6 +524,18 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 		}
 		return encode(map[string]string{"id": reg.ID, "data_dir": dir, "status": "registration removed; durable data retained"})
 	case "start", "stop", "restart":
+		if request.Preview {
+			if request.Operation == "stop" {
+				return nil, fmt.Errorf("stop has no workspace preparation plan")
+			}
+			_, plan, err := m.workspace.PrepareAgentWorkspace(ctx, integration.AgentWorkspaceRequest{
+				ID: reg.ID, DataDir: dir, Path: reg.Workspace.Path, Expected: &reg.Workspace, Preview: true,
+			})
+			if err != nil {
+				return nil, err
+			}
+			return encode(plan)
+		}
 		reg.Desired = request.Operation != "stop"
 		if err := atomicJSON(filepath.Join(dir, "registration.json"), reg); err != nil {
 			return nil, err
@@ -515,7 +547,7 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 			}
 		}
 		if reg.Desired {
-			if err := m.start(ctx, reg); err != nil {
+			if err := m.start(ctx, reg, request); err != nil {
 				return nil, err
 			}
 		}
@@ -586,10 +618,10 @@ func (m *Manager) Run(ctx context.Context, changed func()) {
 		if err == nil {
 			for _, reg := range regs {
 				s := m.status(ctx, reg)
-				if reg.Desired && !s.Running {
+				if reg.Desired && (!s.Running || s.Error != "") {
 					r := m.retry[reg.ID]
 					if !time.Now().Before(r.next) {
-						if err := m.start(ctx, reg); err != nil {
+						if err := m.start(ctx, reg, protocol.AgentRequest{}); err != nil {
 							r.attempts++
 							r.problem = err.Error()
 							r.next = time.Now().Add(time.Duration(1<<min(r.attempts, 6)) * time.Second)

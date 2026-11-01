@@ -1,6 +1,6 @@
 # Programmable durable agents
 
-Radar can supervise a code-defined [pi-durable](https://github.com/earendil-works/pi/tree/main/packages/durable) program, deliver events to it, and show its progress and requests for attention. Every registration belongs to an existing Radar workspace. The definition owns models, tools, routing, tasks, conversations, and business behavior. Radar has no built-in mapping from a pull request, ticket, or alert to an agent.
+Radar can supervise a code-defined [pi-durable](https://github.com/earendil-works/pi/tree/main/packages/durable) program, deliver events to it, and show its progress and requests for attention. By default, Radar provisions a dedicated managed workspace for each registration, including its sandbox when SBX is enabled. An explicit existing workspace binding remains available. The definition owns models, tools, routing, tasks, conversations, and business behavior. Radar has no built-in mapping from a pull request, ticket, or alert to an agent.
 
 ## Install and register
 
@@ -20,17 +20,32 @@ npm install /tmp/radar-agent-host.tgz
 
 After publication, install the exact approved host version in that project and retain its lockfile. Radar finds `node_modules/.bin/radar-agent-host` by walking up from the definition's file. It never downloads a host automatically. For checkout development only, set `RADAR_AGENT_HOST=/path/to/radar/agent-host/src/runner.ts` before starting the daemon. Restart the daemon after changing its inherited environment.
 
-Configure Radar normally with `radar setup`, including the canonical note vault and workspace settings. Select an existing workspace, or prepare a new one without launching tmux/Pi:
+Configure Radar normally with `radar setup`, including the canonical note vault,
+workspace root and SBX settings. `agent add` prepares a dedicated `agent-<id>`
+workspace through the existing resource planner: canonical note, private shared
+directory and configured sandbox. It does not launch tmux or interactive Pi and
+never borrows the current session's workspace. Definitions, dependencies and
+credentials remain where explicitly installed; Radar does not copy or install them.
+
+With the default `workspace.auto_confirm: true`, registration provisions these
+resources directly. When confirmation is required, inspect and accept its exact
+plan without manually creating a workspace:
 
 ```sh
-radar create --prepare-only --name automation --preview --json > plan.json
-# Inspect the complete plan, including its note, before applying it.
-radar create --prepare-only --name automation \
+radar agent add ./counter.ts --id counter --preview --json > plan.json
+# Inspect the complete plan, including its canonical note and sandbox mounts.
+radar agent add ./counter.ts --id counter \
   --plan-id "$(jq -r .plan_id plan.json)" \
-  --prepared-note "$(jq -c .note plan.json)" --json
+  --prepared-note "$(jq -c .note plan.json)"
 ```
 
-The returned `path` is the registration's workspace. Workspace creation follows existing note, authorization and SBX settings. Native model tools apply workspace changes only when automatic confirmation is configured. Otherwise they return the complete request/plan; the definition persists them, presents a human action, and applies that exact request after a host-authenticated user event. The model cannot confirm its own plan. `workspace.auto_confirm: false` requires an accepted creation plan. `--prepare-only` does not start an interactive agent. Supplying `--workspace <registered-path>` to prepared creation adds members to that workspace through the same planner. `reconcile-workspace --prepare-only` likewise applies resource/setup changes without opening Pi.
+The same preview/acceptance flags work with `agent start` and `agent restart`
+when recovery needs resource changes. A changed plan requires another preview.
+A preview does not create an ownership intent, note, workspace or sandbox.
+`--workspace <registered-path>` explicitly selects an already prepared workspace
+instead; Radar validates it but does not claim ownership or repair its runtime.
+Native model tools still follow the separate human-confirmation flow described
+in [workspace reconciliation](workspace-reconciliation.md).
 
 Create `counter.ts` inside the agent project:
 
@@ -67,10 +82,10 @@ export default {
 } satisfies AgentDefinition;
 ```
 
-Register and send an event. A background/state-only definition still requires a workspace; it needs no model credential if it never uses a model.
+Register and send an event. Background/state-only definitions receive the same managed workspace; they need no model credential if they never use a model.
 
 ```sh
-radar agent add ./counter.ts --id counter --workspace /path/to/workspaces/automation
+radar agent add ./counter.ts --id counter
 radar agent start counter
 printf '%s' '{"value":1}' | radar agent emit counter --source fixture --event-id one
 radar agent inspect counter
@@ -84,7 +99,26 @@ Registration is initially stopped. Config is a non-secret JSON object supplied u
 
 ## Workspace and SBX execution
 
-Registration persists the canonical workspace ID and path. Start checks them again before recovery. A missing or replaced workspace, stopped/missing sandbox, or missing required SBX mounts fails visibly. A workspace configured for SBX never falls back to host execution. A global SBX default also prevents starting an agent against a workspace that has no sandbox; reconcile its resources first.
+Registration persists the canonical workspace ID, path and execution binding.
+An agent-owned version-1 `workspace.json` beside the native store records its
+original prepared note and resource identity before creation. Interrupted adds
+reuse that intent instead of creating another workspace or note. A stopped
+registration stays stopped, and status/inspection never starts resources.
+
+Start/restart and desired-running supervision prepare the owned workspace before
+launching the runner: stopped sandboxes resume in place, missing sandboxes are
+recreated through ordinary reconciliation, and existing members, mounts and ports
+are preserved. If a running agent loses its sandbox, its runner is stopped before
+repair to release its workspace lease; native work resumes after recovery. Resource
+changes respect `workspace.auto_confirm`; when disabled, a recovery needing a new
+plan remains visibly blocked until `agent start --preview` and accepted apply.
+
+Missing/replaced workspace registrations or anchors, changed ownership or execution
+bindings, invalid ownership metadata, and failed provisioning/readiness checks fail
+visibly without adopting unrelated resources. A workspace configured for SBX never
+falls back to host execution. Global SBX policy also rejects an explicit host-only
+workspace. Explicit bindings retain their existing fail-closed, operator-managed
+recovery behavior.
 
 `configure(host)` receives `id`, `dataDir`, `config`, `workspace` (`id`, `path`, `mode`, optional `sandbox`), and `execution`. Use `host.execution.exec(argv, cwd, signal)` for commands, `readOnly`/`listOnly` for confined reads, and `loadSkill` for workspace skill instructions/resources. These call the existing workspace/SBX backend through `radar workspace-exec`. Working directories must belong to the associated workspace or its registered members. Each execution rechecks current workspace/SBX policy.
 
@@ -231,11 +265,11 @@ with no telemetry or model dependency. It requires `{"fixture":true}` as its age
 configuration, consumes the `daily.check` payload above, selects an observation
 window ending at the intended time, and presents a clearly labelled synthetic
 report in Radar. Copy it and adjust its SDK imports as described under Editable
-examples, then register it against a prepared workspace:
+examples, then register it:
 
 ```sh
 printf '%s\n' '{"fixture":true}' > fixture.json
-radar agent add ./workday-check.ts --id workday-check --workspace /path/to/registered/workspace --config ./fixture.json
+radar agent add ./workday-check.ts --id workday-check --config ./fixture.json
 radar agent schedule set workday-check morning --time 09:00 --weekdays mon,tue,wed,thu,fri --timezone Europe/Vienna --payload ./daily-event.json
 radar agent start workday-check
 radar agent inspect workday-check
@@ -248,7 +282,7 @@ The editable GitHub bridge in `agent-host/examples/github-webhook.ts` verifies H
 
 ## Events from Radar's GitHub collection
 
-Register a definition with `radar agent add ./agent.ts --id assistant --workspace /path/to/registered/workspace --collection github`. This subscribes it to Radar's normal GitHub refresh, reusing personal PR discovery and `github.track`, including repository patterns and tracking author constraints. There is no duplicate repository list, scheduler, webhook receiver or GitHub polling loop. Dashboard contribution filters and task muting do not filter this feed. The definition owns business filtering and actions.
+Register a definition with `radar agent add ./agent.ts --id assistant --collection github`. This subscribes it to Radar's normal GitHub refresh, reusing personal PR discovery and `github.track`, including repository patterns and tracking author constraints. There is no duplicate repository list, scheduler, webhook receiver or GitHub polling loop. Dashboard contribution filters and task muting do not filter this feed. The definition owns business filtering and actions.
 
 The source is `radar.collection.github`, with this payload shape:
 
@@ -290,7 +324,7 @@ Outbox entries and receipts are not automatically pruned. Daemon restarts and `r
 Before activation, confirm Wall-E/RBCA's exact GitHub handle and command. Create a JSON config containing `renovateAuthor` (the exact Renovate login), `comment` (the confirmed full mention/command), and an **explicit** boolean `includeExisting`. No handle is assumed. `false` permanently excludes baseline PRs, including later rebases/reopens. `true` processes the initial snapshot and can comment on the existing backlog. Review that choice before starting:
 
 ```sh
-radar agent add ./renovate.ts --id renovate-review --workspace /path/to/registered/workspace --collection github --config ./renovate.json
+radar agent add ./renovate.ts --id renovate-review --collection github --config ./renovate.json
 radar agent start renovate-review
 radar agent inspect renovate-review
 ```
@@ -344,7 +378,9 @@ radar agent stop counter
 radar agent remove counter
 ```
 
-Removal deletes registration only and preserves durable data. Archive it before any deliberate filesystem deletion. Reusing an ID reopens that retained store, so only use compatible definition code. Restore a removed registration with `agent add` against the same workspace and compatible entrypoint/config. Never point an ID at unrelated retained work.
+Removal deletes registration only and preserves durable data, the ownership intent, workspace, sandbox and canonical note. It does not stop or delete the sandbox. The workspace becomes eligible for the existing explicit cleanup/expiry policies after its association is released. Archive it before any deliberate filesystem deletion. Reusing an ID reopens that retained store, so only use compatible definition code. Restore a removed managed registration with `agent add` and the same ID and compatible entrypoint/config; it reuses the retained ownership intent automatically. Explicit bindings still require their original `--workspace`. Never point an ID at unrelated retained work.
+
+The new ownership-intent format is version 1; it is additive and leaves existing registration, native store, workspace registry and Radar database formats unchanged. Existing explicit registrations require no migration and are not silently converted to managed ownership. Invalid ownership intents are rejected, never reset.
 
 The initial registration/store formats are version 1 and reject invalid/incompatible metadata rather than silently reset it. Definition reload is explicit with `radar agent restart`. Native task versions must remain recoverable; changing unfinished task semantics without a migration/version plan can block work. Future incompatible schema rollouts require inventory and read-only preflight before install, following `AGENTS.md`.
 

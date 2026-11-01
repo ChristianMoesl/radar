@@ -72,9 +72,9 @@ func TestRunnerLifecycleAndDurableDelivery(t *testing.T) {
 	t.Setenv("RADAR_BINARY", helper)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	manager := New(func(_ context.Context, path string) (protocol.AgentWorkspaceBinding, error) {
+	manager := New(workspaceFixture{lookup: func(_ context.Context, path string) (protocol.AgentWorkspaceBinding, error) {
 		return protocol.AgentWorkspaceBinding{ID: "fixture", Path: workspace, Mode: "local"}, nil
-	})
+	}})
 	request := func(op string, params string) json.RawMessage {
 		t.Helper()
 		value, err := manager.Handle(ctx, protocol.AgentRequest{Operation: op, ID: "counter", Params: json.RawMessage(params)})
@@ -145,4 +145,22 @@ func TestRunnerLifecycleAndDurableDelivery(t *testing.T) {
 	if err != nil || len(state.Pending) != 0 {
 		t.Fatalf("native admission did not drain outbox: %+v, %v", state, err)
 	}
+}
+
+// Runtime tests bind fixtures explicitly; automatic provisioning is covered by
+// the workspace integration tests, not by live host filesystem operations.
+type workspaceFixture struct {
+	lookup  func(context.Context, string) (protocol.AgentWorkspaceBinding, error)
+	prepare func(context.Context, integration.AgentWorkspaceRequest) (protocol.AgentWorkspaceBinding, integration.WorkspaceReconcilePlan, error)
+}
+
+func (f workspaceFixture) AgentWorkspace(ctx context.Context, path string) (protocol.AgentWorkspaceBinding, error) {
+	return f.lookup(ctx, path)
+}
+func (f workspaceFixture) PrepareAgentWorkspace(ctx context.Context, req integration.AgentWorkspaceRequest) (protocol.AgentWorkspaceBinding, integration.WorkspaceReconcilePlan, error) {
+	if f.prepare != nil {
+		return f.prepare(ctx, req)
+	}
+	binding, err := f.lookup(ctx, req.Path)
+	return binding, integration.WorkspaceReconcilePlan{}, err
 }
