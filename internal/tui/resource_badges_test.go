@@ -29,7 +29,7 @@ func resourceBadgeFixture() protocol.Task {
 
 func TestResourceBadgesUseEmoji(t *testing.T) {
 	got := ansi.Strip(taskResourceBadges(resourceBadgeFixture()))
-	if want := "🌿 2 🐳 1 📟 1 📝 1 ⚠️ unresolved"; got != want {
+	if want := "📝 1 ⚠️ unresolved"; got != want {
 		t.Fatalf("badges = %q, want %q", got, want)
 	}
 }
@@ -38,12 +38,12 @@ func TestTaskResourceBadges(t *testing.T) {
 	for _, cursor := range []int{0, 1} {
 		m := model{cursor: cursor, tasks: []protocol.Task{resourceBadgeFixture(), {Title: "Other", Attention: "attention"}}}
 		view := ansi.Strip(m.taskList(140, 20))
-		for _, want := range []string{"● busy  Resource badges", gitWorktreeIcon + " 2 " + sandboxIcon + " 1 " + tmuxIcon + " 1", unresolvedIcon + " unresolved", "jira:issue:ABC-123", "github:pr:owner/repo:42", obsidianIcon + " 1"} {
+		for _, want := range []string{"● busy  Resource badges", unresolvedIcon + " unresolved", "jira:issue:ABC-123", "github:pr:owner/repo:42", obsidianIcon + " 1"} {
 			if !strings.Contains(view, want) {
 				t.Fatalf("cursor %d: missing %q:\n%s", cursor, want, view)
 			}
 		}
-		for _, hidden := range []string{"git:worktree:", "sbx:sandbox:", "tmux:session:", "obsidian:task:", "workspace:dev", "/workspaces/dev", "ahead 1"} {
+		for _, hidden := range []string{gitWorktreeIcon, sandboxIcon, tmuxIcon, "git:worktree:", "sbx:sandbox:", "tmux:session:", "obsidian:task:", "workspace:dev", "/workspaces/dev", "ahead 1"} {
 			if strings.Contains(view, hidden) {
 				t.Fatalf("overview contains %q:\n%s", hidden, view)
 			}
@@ -103,7 +103,7 @@ func TestResourceBadgesOmitZeroCountsAndKeepOtherKinds(t *testing.T) {
 		{Source: "custom", Kind: "worktree"},
 		{Source: "workspace", Kind: "workspace"},
 	}}
-	if got := taskResourceBadges(task); got != gitWorktreeIcon+" 1" {
+	if got := taskResourceBadges(task); got != "" {
 		t.Fatalf("badges = %q", got)
 	}
 	if got := overviewSourceRefs(task); !reflect.DeepEqual(got, task.SourceRefs[1:3]) {
@@ -158,7 +158,7 @@ func TestResourceBadgesStayVisibleOnNarrowRows(t *testing.T) {
 	for _, width := range []int{60, 80, 100} {
 		m := model{tasks: []protocol.Task{task}}
 		view := ansi.Strip(m.taskList(width, 20))
-		for _, want := range []string{gitWorktreeIcon + " 2", sandboxIcon + " 1", tmuxIcon + " 1", obsidianIcon + " 1", unresolvedIcon + " unresolved", "● busy"} {
+		for _, want := range []string{obsidianIcon + " 1", unresolvedIcon + " unresolved", "● busy"} {
 			if !strings.Contains(strings.Split(view, "\n")[1], want) {
 				t.Fatalf("width %d: task row missing %q:\n%s", width, want, view)
 			}

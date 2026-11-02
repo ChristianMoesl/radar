@@ -735,3 +735,41 @@ func TestCleanupIssuesPersistWithoutChangingStateVersionAndAreCloned(t *testing.
 		t.Fatalf("refresh did not clear issues: %v", got)
 	}
 }
+
+func TestPortForwardsPersistAndRefreshWithinExistingProjectionVersion(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "tasks.json"))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := testGitWorktreeRef("git:worktree:/workspaces/feature", "/workspaces/feature", "acme/app", "feature")
+	update := func(store *Store) {
+		store.SetTasksForSources([]protocol.Task{{Title: "feature", Kind: "git_worktree", Attention: "in_progress", SourceRefs: []protocol.SourceRef{ref}}}, []string{"git"})
+	}
+	// Existing field-less snapshots still load without a migration or reset.
+	update(store)
+	store, err = NewStore(logger)
+	if err != nil || store.state.Version != stateVersion {
+		t.Fatalf("existing projection could not be loaded: %v", err)
+	}
+	ref.Presentation.PortForwards = []protocol.PortForward{{HostPort: 8080, SandboxPort: 3000}}
+	update(store)
+	loaded, err := NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := loaded.CollectionTasks()
+	if loaded.state.Version != stateVersion || len(tasks) != 1 || len(tasks[0].SourceRefs[0].Presentation.PortForwards) != 1 {
+		t.Fatalf("loaded projection lost configured forwards: %+v", tasks)
+	}
+	tasks[0].SourceRefs[0].Presentation.PortForwards[0].HostPort = 9000
+	if got := loaded.Tasks()[0].SourceRefs[0].Presentation.PortForwards[0]; got != ref.Presentation.PortForwards[0] {
+		t.Fatalf("task snapshot shared a configured forward: %+v", got)
+	}
+	ref.Presentation.PortForwards = nil
+	update(loaded)
+	if got := loaded.Tasks()[0].SourceRefs[0].Presentation.PortForwards; len(got) != 0 {
+		t.Fatalf("refresh retained removed port forwards: %+v", got)
+	}
+}

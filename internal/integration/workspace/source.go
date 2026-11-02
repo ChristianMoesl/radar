@@ -73,6 +73,11 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 			Presentation: protocol.SourceRefPresentation{WorkspaceName: group.Name},
 			Metadata:     map[string]string{"workspace_id": group.ID},
 		}
+		if group.Sandbox != nil {
+			for _, port := range group.Sandbox.Ports {
+				ref.Presentation.PortForwards = append(ref.Presentation.PortForwards, protocol.PortForward{HostPort: port.HostPort, SandboxPort: port.SandboxPort})
+			}
+		}
 		if group.NotePath != "" {
 			ref.Metadata["note_path"] = group.NotePath
 			ref.WorkspaceAnchorPath = group.NotePath

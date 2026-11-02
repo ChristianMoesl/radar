@@ -278,6 +278,7 @@ func cloneTasks(tasks []protocol.Task) []protocol.Task {
 			cloned[i].SourceRefs[j].CleanupIssues = append([]string(nil), ref.CleanupIssues...)
 			cloned[i].SourceRefs[j].LinkingKeys = append([]string(nil), ref.LinkingKeys...)
 			cloned[i].SourceRefs[j].Metadata = cloneStringMap(ref.Metadata)
+			cloned[i].SourceRefs[j].Presentation.PortForwards = append([]protocol.PortForward(nil), ref.Presentation.PortForwards...)
 			if ref.Presentation.TitleOrder != nil {
 				titleOrder := *ref.Presentation.TitleOrder
 				cloned[i].SourceRefs[j].Presentation.TitleOrder = &titleOrder

@@ -141,6 +141,13 @@ type SourceRefPresentation struct {
 	PreferTitle   bool   `json:"prefer_title,omitempty"`
 	TitleOrder    *int   `json:"title_order,omitempty"`
 	WorkspaceName string `json:"workspace_name,omitempty"`
+	// PortForwards are configured mappings, not evidence that a service is listening.
+	PortForwards []PortForward `json:"port_forwards,omitempty"`
+}
+
+type PortForward struct {
+	HostPort    int `json:"host_port"`
+	SandboxPort int `json:"sandbox_port"`
 }
 
 type SourceRefAcknowledgement struct {

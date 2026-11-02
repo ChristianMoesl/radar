@@ -121,6 +121,12 @@ func taskDetailViewAt(task protocol.Task, width int, now time.Time) string {
 	appendDetailLine("Reason", displayTaskReason(task))
 	appendDetailLine("Repo", task.Repo)
 	appendDetailLine("URL", task.URL)
+	if ports := taskPortForwards(task); len(ports) > 0 {
+		lines = append(lines, "", titleStyle.Render("Sandbox port forwards"), "Configured host → sandbox mappings; service availability is not checked.")
+		for _, port := range ports {
+			appendDetailLine("Port", fmt.Sprintf("%d → %d", port.HostPort, port.SandboxPort))
+		}
+	}
 	if len(task.Metadata) > 0 {
 		lines = append(lines, "", titleStyle.Render("Metadata"))
 		keys := make([]string, 0, len(task.Metadata))

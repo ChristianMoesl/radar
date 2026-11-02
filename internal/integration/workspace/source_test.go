@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -181,5 +182,48 @@ func TestCollectedAnchorIssuesMatchCleanupPreviewAndClear(t *testing.T) {
 	}
 	if got := collect().CleanupIssues; len(got) != 0 {
 		t.Fatalf("stale issues: %v", got)
+	}
+}
+
+func TestCollectRefreshesConfiguredPortForwardsWithoutRuntimeAccess(t *testing.T) {
+	root := configureWorkspaceRoot(t)
+	anchor := filepath.Join(root, "feature")
+	if err := os.MkdirAll(anchor, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// No sbx, curl or other runtime/probing tools are available to collection.
+	t.Setenv("PATH", t.TempDir())
+	group := workspacegroup.Workspace{ID: workspacegroup.ID(anchor), Name: "feature", Path: anchor}
+	for _, ports := range [][]workspacegroup.SandboxPort{
+		nil,
+		{{HostPort: 8080, SandboxPort: 3000}, {HostPort: 5173, SandboxPort: 5173}},
+		{{HostPort: 9000, SandboxPort: 3000}},
+		nil,
+	} {
+		group.Sandbox = &workspacegroup.Sandbox{Name: "feature", Agent: "shell", Ports: ports}
+		if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+			t.Fatal(err)
+		}
+		before, err := os.ReadFile(workspacegroup.Path(root))
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := (Source{}).Collect(context.Background(), integration.CollectRequest{})
+		if !result.Complete || len(result.Observations) != 1 {
+			t.Fatalf("collection = %+v", result)
+		}
+		want := []protocol.PortForward(nil)
+		if len(ports) == 2 {
+			want = []protocol.PortForward{{HostPort: 5173, SandboxPort: 5173}, {HostPort: 8080, SandboxPort: 3000}}
+		} else if len(ports) == 1 {
+			want = []protocol.PortForward{{HostPort: 9000, SandboxPort: 3000}}
+		}
+		if got := result.Observations[0].Ref.Presentation.PortForwards; !reflect.DeepEqual(got, want) {
+			t.Fatalf("port forwards = %+v, want %+v", got, want)
+		}
+		after, err := os.ReadFile(workspacegroup.Path(root))
+		if err != nil || string(after) != string(before) {
+			t.Fatalf("collection changed port configuration: %v", err)
+		}
 	}
 }

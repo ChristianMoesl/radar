@@ -94,3 +94,14 @@ func TestCloneTasksIsolatesCleanupIssues(t *testing.T) {
 		t.Fatal("collector clone shares cleanup issues")
 	}
 }
+
+func TestCloneTasksIsolatesConfiguredPortForwards(t *testing.T) {
+	previous := []protocol.Task{{SourceRefs: []protocol.SourceRef{{Presentation: protocol.SourceRefPresentation{
+		PortForwards: []protocol.PortForward{{HostPort: 8080, SandboxPort: 3000}},
+	}}}}}
+	cloned := cloneTasks(previous)
+	cloned[0].SourceRefs[0].Presentation.PortForwards[0].HostPort = 9000
+	if previous[0].SourceRefs[0].Presentation.PortForwards[0].HostPort != 8080 {
+		t.Fatal("collector clone shares configured port forwards")
+	}
+}

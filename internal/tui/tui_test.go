@@ -106,8 +106,8 @@ func TestTaskListShowsBusyOnTaskRow(t *testing.T) {
 	if !strings.Contains(view, "● busy  Workspace") {
 		t.Fatalf("taskList() does not show busy on task row:\n%s", view)
 	}
-	if !strings.Contains(view, tmuxIcon+" 1") || strings.Contains(view, "tmux:session:") {
-		t.Fatalf("taskList() does not replace the tmux reference with a badge:\n%s", view)
+	if strings.Contains(view, tmuxIcon) || strings.Contains(view, "tmux:session:") {
+		t.Fatalf("taskList() shows the removed tmux badge or reference:\n%s", view)
 	}
 }
 
@@ -581,7 +581,7 @@ func TestTaskListKeepsSelectedSourceRefsVisible(t *testing.T) {
 	}}
 
 	view := model.taskList(100, 4)
-	for _, want := range []string{"selected", gitWorktreeIcon + " 1", "ABC-1"} {
+	for _, want := range []string{"selected", "ABC-1"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("taskList() missing %q:\n%s", want, view)
 		}
@@ -624,7 +624,7 @@ func TestTaskListTruncatesLongRows(t *testing.T) {
 	}}}
 
 	view := model.taskList(60, 20)
-	for _, want := range []string{gitWorktreeIcon + " 1", unresolvedIcon + " unresolved"} {
+	for _, want := range []string{unresolvedIcon + " unresolved"} {
 		if !strings.Contains(ansi.Strip(view), want) {
 			t.Fatalf("taskList() truncated resource badge %q:\n%s", want, view)
 		}

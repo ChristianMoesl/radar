@@ -7,6 +7,23 @@ import (
 	"testing"
 )
 
+func TestConfiguredPortForwardPresentationRoundTrip(t *testing.T) {
+	for _, ports := range [][]PortForward{nil, {{HostPort: 8080, SandboxPort: 3000}, {HostPort: 5173, SandboxPort: 5173}}} {
+		presentation := SourceRefPresentation{PortForwards: ports}
+		data, err := json.Marshal(presentation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "port_forwards") != (len(ports) > 0) {
+			t.Fatalf("unexpected optional port field: %s", data)
+		}
+		var decoded SourceRefPresentation
+		if err := json.Unmarshal(data, &decoded); err != nil || !reflect.DeepEqual(decoded, presentation) {
+			t.Fatalf("presentation round trip = %+v, err=%v", decoded, err)
+		}
+	}
+}
+
 func TestResponseIncludesCleanupPayloads(t *testing.T) {
 	preview := CleanupPreview{TaskID: 7, TaskTitle: "ship", Targets: []CleanupTarget{{SourceRefID: "tmux:session:$1", Source: "tmux", Kind: "session", ResourceID: "$1"}}}
 	result := CleanupResult{TaskID: 7, Targets: preview.Targets}

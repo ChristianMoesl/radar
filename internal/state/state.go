@@ -1297,6 +1297,7 @@ func cloneSourceRefs(sourceRefs []protocol.SourceRef) []protocol.SourceRef {
 		cloned[i].Bindings = append([]protocol.SourceBinding(nil), sourceRef.Bindings...)
 		cloned[i].LinkingKeys = append([]string(nil), sourceRef.LinkingKeys...)
 		cloned[i].CleanupIssues = append([]string(nil), sourceRef.CleanupIssues...)
+		cloned[i].Presentation.PortForwards = append([]protocol.PortForward(nil), sourceRef.Presentation.PortForwards...)
 		if sourceRef.Metadata != nil {
 			cloned[i].Metadata = cloneMetadata(sourceRef.Metadata)
 		}

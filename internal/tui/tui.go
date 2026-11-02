@@ -69,13 +69,14 @@ type cleanupPreviewMsg struct {
 }
 
 type linkChoice struct {
-	Key    string
-	Source string
-	Label  string
-	Detail string
-	URL    string
-	Action string
-	Ref    protocol.SourceRef
+	Key         string
+	Source      string
+	Label       string
+	Detail      string
+	URL         string
+	Action      string
+	Ref         protocol.SourceRef
+	PortForward bool
 }
 
 type picker struct {
@@ -1571,6 +1572,7 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 	m.ensureVisibleSelection()
 	m.syncTaskScroll()
 	m.clampDetailScroll()
+	m.refreshPortLinks()
 }
 
 // Restore the visible selection, not a hidden task index. Task identity follows
@@ -1935,7 +1937,7 @@ func taskLinks(task protocol.Task) []linkChoice {
 		}
 	}
 	addURL("link", task.Title, task.URL)
-	return links
+	return withPortLinks(links, task)
 }
 
 func matchingLink(links []linkChoice, key string) (linkChoice, bool) {
@@ -2149,6 +2151,16 @@ func taskLine(task protocol.Task, selected bool, width int) string {
 		title += metadataStyle.Render("  " + reason)
 	}
 	badges := taskResourceBadges(task)
+	if ports := taskPortBadge(task); ports != "" {
+		// Bound long port lists before the other badges, retaining the existing
+		// title truncation and cleanup-warning visibility conventions.
+		portWidth := width - lipgloss.Width(badges) - 3
+		if badges != "" {
+			portWidth--
+		}
+		ports = truncateLine(ports, max(1, portWidth))
+		badges = strings.TrimSpace(ports + " " + badges)
+	}
 	if badges == "" {
 		return truncateLine(title, width)
 	}
@@ -2198,19 +2210,15 @@ func overviewSourceRefs(task protocol.Task) []protocol.SourceRef {
 }
 
 func taskResourceBadges(task protocol.Task) string {
-	counts := make(map[string]int)
+	notes := 0
 	for _, ref := range task.SourceRefs {
-		icon := resourceIcon(ref)
-		if icon == "" {
-			continue
+		if resourceIcon(ref) == obsidianIcon {
+			notes++
 		}
-		counts[icon]++
 	}
 	var badges []string
-	for _, icon := range []string{gitWorktreeIcon, sandboxIcon, tmuxIcon, obsidianIcon} {
-		if count := counts[icon]; count > 0 {
-			badges = append(badges, fmt.Sprintf("%s %d", icon, count))
-		}
+	if notes > 0 {
+		badges = append(badges, fmt.Sprintf("%s %d", obsidianIcon, notes))
 	}
 	if len(cleanup.Unresolved(task)) > 0 {
 		badges = append(badges, attentionStyle.Render(unresolvedIcon+" unresolved"))
