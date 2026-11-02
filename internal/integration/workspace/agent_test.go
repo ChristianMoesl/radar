@@ -15,6 +15,9 @@ import (
 
 func agentWorkspaceFixture(t *testing.T) (CreateOptions, integration.AgentWorkspaceRequest, *recreationRunner) {
 	t.Helper()
+	// This fake-runner lifecycle fixture must not depend on the host's KVM
+	// device. Native Linux preflight remains covered by the SBX client tests.
+	withWorkspaceGOOS(t, "darwin")
 	root := configureWorkspaceRoot(t)
 	options := CreateOptions{WorkspaceRoot: root, PrepareOnly: true, NoteAuthor: testNoteAuthor(t), Sandbox: true, SandboxKitName: "shell"}
 	request := integration.AgentWorkspaceRequest{ID: "fixture", DataDir: filepath.Join(t.TempDir(), "agents", "fixture")}
