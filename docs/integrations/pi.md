@@ -87,10 +87,15 @@ reports do not require a proven root cause; feature requests develop scope,
 acceptance criteria and a grounded plan. Existing conversation and `notes.md`
 prevent repeated classification/checklists, and assumptions remain separate from
 confirmed decisions. The assistant searches related issues, presents the exact
-title/body/destination and leads into the existing exact-request MCP confirmation,
-not an extra conversational approval. Denial, missing UI and lost MCP availability
-still block writes. Only confirmed creation yields an identifier/link for the user
-and `notes.md`; filing does not implement the request or close the workspace.
+title/body/destination and proceeds when the user clearly requests submission,
+without an Improve Radar-specific MCP write dialog or mandatory “are you sure?”
+question. Unclear intent still needs targeted clarification; readiness alone is
+not permission to create an issue. This applies to direct, codemode and deferred
+calls, without changing Pi/MCP authentication, tool access or approval behavior
+outside feedback. Lost MCP availability still blocks feedback calls, and actual
+host-command and private-log approvals remain unchanged. Only confirmed creation
+yields an identifier/link for the user and `notes.md`; filing does not implement
+the request or close the workspace.
 
 `radar_diagnostics` is a fixed, read-only host tool available only in enabled
 feedback sessions. Its default `overview` returns the installed CLI version,

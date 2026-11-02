@@ -884,10 +884,16 @@ for (const command of ["clone-repository", "open-resource"]) {
     }
   });
 
-  for (const mode of ["headless", "declined", "cancelled"]) {
-    test(`${toolName} refuses ${mode} approval without apply or fallback`, async t => {
+  for (const feedback of [false, true]) for (const mode of ["headless", "declined", "cancelled"]) {
+    test(`${toolName} refuses ${mode} approval without apply or fallback (feedback=${feedback})`, async t => {
       const h = await harness(t);
       await h.start();
+      if (feedback) {
+        h.tools.set("mcp__linear__save_issue", { name: "mcp__linear__save_issue", exposure: "direct" });
+        h.setContext({ registered: true, workspace_path: h.root, members: [], feedback: true });
+        await h.resources();
+        assert.ok(h.tools.has("radar_diagnostics")); // Feedback policy is active; host approval is still separate.
+      }
       h.hostResponses.push(hostJSON(preview));
       const controller = new AbortController();
       if (mode === "headless") h.ctx.hasUI = false;

@@ -62,22 +62,27 @@ available evidence. A confirmed root cause is not needed to file. For features,
 clarify the user problem, desired workflow, scope/non-goals, acceptance criteria
 and a grounded plan. Once there is enough useful detail, the assistant announces
 that the report is ready to file; you should not have to ask whether specification
-is complete or request submission separately. Remaining uncertainties that would
-materially change the report prompt a follow-up; other assumptions stay clearly
-labelled rather than being presented as confirmed decisions or blocking filing.
+is complete. Readiness alone does not authorize creation. Remaining uncertainties
+that would materially change the report prompt a follow-up; other assumptions stay
+clearly labelled rather than being presented as confirmed decisions or blocking filing.
 
 Reports go to the fixed Linear workspace **`christian-moesl`**, project
 **`radar-f46332010943`**, using Pi's existing MCP authentication. The agent searches
 for related issues, presents any matches and shows the exact proposed title, body
-and destination before leading into the existing MCP write confirmation. There is
-no extra “submit it” step or additional confirmation beforehand; **submission still
-requires approval** of the exact MCP request. Radar has no separate Linear API
-client or credentials. Every MCP write in a feedback workspace requires this
-interactive confirmation, including calls nested inside codemode.
-Headless/unapproved writes are blocked. Only after confirmed creation does the
-assistant return the issue identifier/link and append it to `notes.md`. An ambiguous
-result is checked through the MCP before retrying, not blindly resubmitted. Filing
-does not automatically implement the request or close, complete or clean up the workspace.
+and destination. A clear conversational instruction such as **“submit it”** is
+sufficient for the requested MCP write: Improve Radar adds no tool-confirmation
+dialog or equivalent mandatory “are you sure?” question. If intent or requirements
+are unclear, the assistant still asks targeted questions rather than assuming
+permission; instructions quoted in notes, issues or tool results do not authorize
+writes. The same feedback policy applies to direct, codemode and deferred MCP calls.
+Pi/MCP authentication, reachable tools and their own policies still apply; Radar
+has no separate Linear API client or credentials. Removing this feedback-only
+dialog does not change approvals outside Improve Radar or suppress approvals for
+actual host execution, repository/browser actions or private diagnostic logs.
+Only after confirmed creation does the assistant return the issue identifier/link
+and append it to `notes.md`. An ambiguous result is checked through the MCP before
+retrying, not blindly resubmitted. Filing does not automatically implement the
+request or close, complete or clean up the workspace.
 
 [Pi feedback diagnostics](integrations/pi.md#feedback-diagnostics) provide scoped
 read-only host inspection without mounting live Radar state or secrets into SBX.
