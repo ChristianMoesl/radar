@@ -48,18 +48,36 @@ apply. The new/resumed feedback session checks its own tools as well; a
 project-local MCP available only in the original workspace is not copied into it.
 
 The conversation is for brainstorming, bug investigation and feature shaping,
-not automatic implementation. Findings and an evolving issue draft belong in
-`notes.md`. Bugs work toward reproduction, expected/actual behavior, impact and
-evidence; features work toward the problem, desired workflow, scope, acceptance
-criteria and a grounded plan. Neither must be classified before discussion starts.
+not automatic implementation. Start by describing the experience or desired
+change, without filling in a classification form. After that description, the
+assistant suggests **bug report** or **feature request** for you to confirm or
+correct. It guides the discussion in manageable rounds of one to three targeted
+questions, reusing what you have already supplied instead of repeating a checklist.
+Findings, confirmed decisions, unresolved assumptions and the evolving issue draft
+belong in `notes.md`, preserving existing user content and an already-confirmed
+classification when the conversation resumes.
+
+For bugs, clarify reproduction, expected versus actual behavior, impact and
+available evidence. A confirmed root cause is not needed to file. For features,
+clarify the user problem, desired workflow, scope/non-goals, acceptance criteria
+and a grounded plan. Once there is enough useful detail, the assistant announces
+that the report is ready to file; you should not have to ask whether specification
+is complete or request submission separately. Remaining uncertainties that would
+materially change the report prompt a follow-up; other assumptions stay clearly
+labelled rather than being presented as confirmed decisions or blocking filing.
 
 Reports go to the fixed Linear workspace **`christian-moesl`**, project
 **`radar-f46332010943`**, using Pi's existing MCP authentication. The agent searches
-for related issues and creates the reviewed issue directly through the MCP; Radar
-has no separate Linear API client or credentials. Every MCP write in a feedback
-workspace requires an interactive confirmation of its exact arguments, including
-calls nested inside codemode. Headless/unapproved writes are blocked. Save the
-returned issue link in the note; filing does not complete or clean up the workspace.
+for related issues, presents any matches and shows the exact proposed title, body
+and destination before leading into the existing MCP write confirmation. There is
+no extra “submit it” step or additional confirmation beforehand; **submission still
+requires approval** of the exact MCP request. Radar has no separate Linear API
+client or credentials. Every MCP write in a feedback workspace requires this
+interactive confirmation, including calls nested inside codemode.
+Headless/unapproved writes are blocked. Only after confirmed creation does the
+assistant return the issue identifier/link and append it to `notes.md`. An ambiguous
+result is checked through the MCP before retrying, not blindly resubmitted. Filing
+does not automatically implement the request or close, complete or clean up the workspace.
 
 [Pi feedback diagnostics](integrations/pi.md#feedback-diagnostics) provide scoped
 read-only host inspection without mounting live Radar state or secrets into SBX.

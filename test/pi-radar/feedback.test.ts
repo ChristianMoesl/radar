@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerFeedbackSession, feedbackLinearProject } from "../../extensions/pi-radar/feedback.ts";
+import { registerFeedbackSession, feedbackLinearProject, feedbackLinearWorkspace } from "../../extensions/pi-radar/feedback.ts";
 import { linearAvailable } from "../../extensions/pi-radar/linear.ts";
 
 function harness() {
@@ -76,6 +76,74 @@ test("feedback restores its purpose, origin, fixed destination and shaping instr
   assert.ok(h.tools.has("radar_diagnostics"));
   assert.equal(h.statuses.at(-1), "Improve Radar");
 });
+
+test("feedback proactively guides classification, targeted rounds, readiness and a resumable handoff", () => {
+  const h = harness();
+  h.activate();
+  const instructions = h.session.instructions()!;
+  for (const text of [
+    "After the initial description, suggest bug report or feature request",
+    "confirm or correct that classification",
+    "Reuse an already-confirmed classification",
+    "one to three questions per round, only about missing information",
+    "Reuse information already provided in the conversation and notes.md",
+    "do not repeat a fixed checklist",
+    "proactively announce that the report is ready to file",
+    "Do not wait for the user",
+    "only if it materially changes the report",
+    "label unresolved assumptions separately from confirmed decisions",
+    "Present the exact proposed title, body and destination together",
+    "lead directly into the existing MCP write confirmation",
+    "do not ask for an additional confirmation beforehand",
+    "never submit without approval",
+    "return the issue identifier/link to the user and append it to notes.md",
+    "Do not claim creation or save an issue identifier/link before confirmed success",
+    "never blindly repeat a create",
+    "does not automatically implement the request or close, complete or delete this workspace",
+  ]) assert.ok(instructions.includes(text), text);
+  assert.ok(instructions.indexOf("Search for relevant existing issues") < instructions.indexOf("Present the exact proposed title"));
+  assert.ok(instructions.indexOf("Present the exact proposed title") < instructions.indexOf("After confirmed MCP success"));
+  h.activate(); // Guidance survives resume/reload without adding a new wizard/state.
+  assert.equal(h.session.instructions(), instructions);
+  assert.deepEqual(h.confirmations, []);
+  assert.deepEqual(h.calls, []);
+});
+
+for (const scenario of [
+  {
+    kind: "bug report",
+    guidance: ["For bugs", "reproduction steps", "expected/actual behavior", "impact", "supporting evidence", "not required to file"],
+    title: "Task list does not refresh after adding a port",
+    description: "## Reproduction\nAdd a configured forward and refresh the task list.\n\n## Expected versus actual\nThe new host port should appear but is absent.\n\n## Impact and evidence\nThe local development link is unavailable; a screenshot is available.\n\n## Assumptions\nRoot cause remains unconfirmed; it is not required to file.",
+  },
+  {
+    kind: "feature request",
+    guidance: ["For features", "user problem", "desired workflow", "scope/non-goals", "acceptance criteria", "grounded plan", "do not start coding automatically"],
+    title: "Make local development links easier to discover",
+    description: "## User problem and desired workflow\nOpen configured development links from the task row.\n\n## Scope and non-goals\nUse registered host ports; do not scan services.\n\n## Acceptance criteria\nList each configured host URL and omit empty entries.\n\n## Plan\nReuse the existing link picker.\n\n## Assumptions\nNo HTTP availability is inferred.",
+  },
+]) {
+  test(`${scenario.kind} guidance leads to reviewed submission without bypassing the existing MCP approval`, async () => {
+    const h = harness();
+    h.activate();
+    const instructions = h.session.instructions()!;
+    for (const text of scenario.guidance) assert.ok(instructions.includes(text), text);
+    h.tools.set("mcp__linear__list_issues", { name: "mcp__linear__list_issues", annotations: { readOnlyHint: true } });
+    assert.equal(await h.linear("mcp__linear__get_project", { query: feedbackLinearProject }), undefined);
+    assert.equal(await h.linear("mcp__linear__list_issues", { project: feedbackLinearProject, query: scenario.title }), undefined);
+    assert.equal(h.confirmations.length, 0); // Readiness and related-issue reads are not extra approval dialogs.
+    const draft = { title: scenario.title, description: scenario.description, project: feedbackLinearProject };
+    assert.equal((await h.linear("mcp__linear__save_issue", draft)).block, true);
+    assert.equal(h.confirmations.length, 1);
+    assert.ok(h.confirmations[0].includes(`Workspace: ${feedbackLinearWorkspace}`));
+    assert.ok(h.confirmations[0].includes(`Project: ${feedbackLinearProject}`));
+    assert.ok(h.confirmations[0].includes(JSON.stringify(draft, null, 2)));
+    h.approvals.push(true);
+    assert.equal(await h.linear("mcp__linear__save_issue", draft), undefined);
+    assert.equal(h.confirmations.length, 2); // One exact-request confirmation per write attempt.
+    assert.deepEqual(h.calls, []); // No host command or direct API/CLI submission fallback.
+  });
+}
 
 test("unavailable MCP disables feedback; connecting later enables it without configuration reads", () => {
   const h = harness();

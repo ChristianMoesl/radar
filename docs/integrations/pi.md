@@ -81,6 +81,17 @@ exposure are supported when the corresponding calling mechanism is available.
 Pi owns MCP connections, authentication and tool execution; no MCP configuration
 or credentials are copied to a feedback workspace.
 
+The restored guidance leads from the initial description to a suggested bug/feature
+classification, targeted follow-ups and an explicit readiness announcement. Bug
+reports do not require a proven root cause; feature requests develop scope,
+acceptance criteria and a grounded plan. Existing conversation and `notes.md`
+prevent repeated classification/checklists, and assumptions remain separate from
+confirmed decisions. The assistant searches related issues, presents the exact
+title/body/destination and leads into the existing exact-request MCP confirmation,
+not an extra conversational approval. Denial, missing UI and lost MCP availability
+still block writes. Only confirmed creation yields an identifier/link for the user
+and `notes.md`; filing does not implement the request or close the workspace.
+
 `radar_diagnostics` is a fixed, read-only host tool available only in enabled
 feedback sessions. Its default `overview` returns the installed CLI version,
 loaded extension version, cached daemon/provider health, allowlisted non-secret
