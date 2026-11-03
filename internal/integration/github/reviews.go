@@ -59,6 +59,7 @@ const reviewPageQuery = `query RadarReviewRequests($reviewQuery: String!, $curso
   nodes { ... on PullRequest {
    id number title url state isDraft headRefName headRefOid body
    author { __typename login } repository { nameWithOwner }
+   ` + mergedReviewFields + `
    reviewThreads(first: 25) { nodes { id isResolved comments(first: 25) { nodes { author { __typename login } createdAt } } } }
   } }
  }
@@ -153,7 +154,7 @@ func FetchMergedReviewRequests(ctx context.Context, previous []protocol.Task, cf
 				failures = append(failures, fmt.Errorf("invalid merged review identity/state"))
 				continue
 			}
-			if err := prepareMergedReview(ctx, &pr, login, cfg, now, teams, logger); err != nil {
+			if err := prepareReviewRequests(ctx, &pr, login, cfg, now, teams, logger); err != nil {
 				failures = append(failures, err)
 				continue
 			}
@@ -237,6 +238,10 @@ func mergedReviewTask(pr searchPullRequest, login string, previous []protocol.Ta
 		ref.Status = task.Reason
 		ref.Metadata["merged_review_pending"] = "true"
 		delete(ref.Metadata, "completed_at")
+		ref.ActionableSignals, err = reviewRequestOccurrences(pr, login)
+		if err != nil {
+			return protocol.Task{}, err
+		}
 	} else {
 		// Review completion/expiry starts a new cleanup grace period, not one
 		// backdated to the merge. Reuse an already-confirmed completion timestamp.
@@ -297,9 +302,9 @@ func terminalPullRequestTask(pr searchPullRequest) protocol.Task {
 // Team membership is not exposed as a viewer flag on GitHub's Team type.
 // Resolve only teams that actually requested a review, reusing answers within
 // the collection instead of listing every member of every repository team.
-func prepareMergedReview(ctx context.Context, pr *searchPullRequest, login string, cfg settings.ReviewRequestsConfig, now time.Time, teams map[string]bool, logger *slog.Logger) error {
+func prepareReviewRequests(ctx context.Context, pr *searchPullRequest, login string, cfg settings.ReviewRequestsConfig, now time.Time, teams map[string]bool, logger *slog.Logger) error {
 	mergedAt, err := time.Parse(time.RFC3339, pr.MergedAt)
-	if pr.State != "MERGED" || !cfg.IncludesMerged(repoName(*pr)) || err != nil || !mergedAt.After(cfg.Cutoff(now)) {
+	if pr.State != "OPEN" && (pr.State != "MERGED" || !cfg.IncludesMerged(repoName(*pr)) || err != nil || !mergedAt.After(cfg.Cutoff(now))) {
 		return nil
 	}
 	if pr.Author != nil && strings.EqualFold(pr.Author.Login, login) {
@@ -363,4 +368,34 @@ func prepareMergedReview(ctx context.Context, pr *searchPullRequest, login strin
 		reviewer.ViewerIsAMember = teams[reviewer.NodeID]
 	}
 	return nil
+}
+
+// Current request identities establish relevance. The latest corresponding
+// provider event distinguishes a real re-request on the same PR from polling,
+// pushes, title edits and review requests addressed to somebody else.
+func reviewRequestOccurrences(pr searchPullRequest, login string) ([]string, error) {
+	if pr.ReviewRequests.Page == nil || pr.ReviewRequests.Page.HasNextPage || pr.ReviewRequests.Nodes == nil {
+		return nil, fmt.Errorf("incomplete review requests for %s#%d", repoName(pr), pr.Number)
+	}
+	var keys []string
+	for _, request := range pr.ReviewRequests.Nodes {
+		key := reviewerKey(request.RequestedReviewer, login)
+		if key == "" {
+			continue
+		}
+		latest := ""
+		for _, event := range pr.TimelineItems.Nodes {
+			if reviewerKey(event.RequestedReviewer, login) == key && event.CreatedAt > latest {
+				latest = event.CreatedAt
+			}
+		}
+		if _, err := time.Parse(time.RFC3339, latest); err != nil {
+			return nil, fmt.Errorf("missing current review request occurrence for %s#%d", repoName(pr), pr.Number)
+		}
+		if review := pr.ViewerLatestReview; review != nil && review.State != "PENDING" && review.SubmittedAt >= latest {
+			continue
+		}
+		keys = append(keys, "review-request:"+key+":"+latest)
+	}
+	return keys, nil
 }

@@ -28,6 +28,11 @@ type Task struct {
 	// ManualCompletionStates is nil for automatic completion; an empty map is
 	// an explicit Done with no known contributors. Keys are source-ref IDs.
 	ManualCompletionStates map[string]string
+	// LowPriorityBaseline is durable user intent, independent of the observed
+	// projection/cache and never written into the Markdown note.
+	LowPriorityBaseline map[string][]string
+	// Incremented only for a new completion/result-review hold, not note edits.
+	AgentReviewGeneration uint64
 }
 
 func Path() (string, error) {

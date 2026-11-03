@@ -9,7 +9,14 @@ import (
 
 type ActivityPublisher interface {
 	Integration
-	PublishActivity(ctx context.Context, activity protocol.Activity) error
+	PublishActivity(ctx context.Context, publication ActivityPublication) error
+}
+
+// Prompt IDs belong to actual UI lifetimes, never collector polls or inferred
+// busy/idle transitions. Multiple sessions may prompt on the same pane.
+type ActivityPublication struct {
+	Activity  protocol.Activity
+	PromptIDs []string
 }
 
 // ActivityReader verifies current runtime activity at completion/cleanup time.

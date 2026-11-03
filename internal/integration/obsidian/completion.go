@@ -139,9 +139,13 @@ func (s Source) agentReviewUpdates(current note, ref protocol.SourceRef, request
 		return nil, fmt.Errorf("agent review note association changed")
 	}
 	merged, _ := mergeBindings(current.Bindings, bindings)
+	if current.AgentReviewGeneration == ^uint64(0) {
+		return nil, fmt.Errorf("agent review generation is exhausted")
+	}
 	return map[string]string{
 		"state": "open", "completed_at": "", "agent_review": "true", "manual_completion_states": "null",
-		"bindings": encodeBindings(merged),
+		"agent_review_generation": fmt.Sprint(current.AgentReviewGeneration + 1),
+		"bindings":                encodeBindings(merged),
 	}, nil
 }
 

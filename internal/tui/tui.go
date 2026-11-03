@@ -125,6 +125,8 @@ type model struct {
 	operationFrame         int
 	taskFailures           []taskFailure
 	cleanupTask            protocol.Task
+	priorityTask           protocol.Task
+	priorityChoice         int
 	deletion               taskDeletionState
 	editor                 workspaceEditor
 	socketPath             string
@@ -288,6 +290,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.message = "Cleanup in progress\nRetry Enter when finished"
 			}
 			return m, nil
+		}
+		if m.mode == "task_priority" {
+			return m.updatePriority(msg)
 		}
 		if strings.HasPrefix(m.mode, "workspace_") && !m.operationOnRow() {
 			return m.updateWorkspace(msg)
@@ -464,9 +469,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "p":
 			if task, ok := m.selectedTask(); ok {
-				ref, ok := authoredTaskRef(task)
-				if !ok {
-					m.message = "Selected task does not support authored priority changes"
+				if !prioritySupported(task) {
+					m.message = "Selected task does not support priority changes"
 					return m, nil
 				}
 				if task.Attention == "done" {
@@ -474,12 +478,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				priority := "urgent"
-				if ref.Metadata["priority"] == "urgent" {
+				if task.Priority == "urgent" {
 					priority = "normal"
 				}
 				m.loading = true
 				m.err = nil
 				return m, m.setTaskPriority(task, priority)
+			}
+		case "P":
+			if task, ok := m.selectedTask(); ok && task.Attention != "done" && prioritySupported(task) {
+				m.mode, m.priorityTask, m.priorityChoice = "task_priority", task, 0
+				m.err, m.message = nil, ""
 			}
 		case "c":
 			return m.newWorkspace()
@@ -732,6 +741,9 @@ func (m model) View() string {
 	}
 	if m.mode == "cleanup_confirm" {
 		return m.cleanupScreen()
+	}
+	if m.mode == "task_priority" {
+		return m.priorityScreen()
 	}
 	contentWidth := m.contentWidth()
 
@@ -1271,7 +1283,9 @@ func (m model) setTaskPriority(task protocol.Task, priority string) tea.Cmd {
 			return actionMsg{err: fmt.Errorf("%s", response.Error)}
 		}
 		message := "Task marked urgent"
-		if priority == "normal" {
+		if priority == "low" {
+			message = "Task deferred to Low priority"
+		} else if priority == "normal" {
 			message = "Task restored to natural priority"
 		}
 		return actionMsg{response: &response, message: message}

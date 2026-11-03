@@ -3,6 +3,7 @@ package obsidian
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -52,6 +53,11 @@ func applyStateUpdates(current note, updates map[string]string) (note, error) {
 			updated.State = value
 		case "priority":
 			updated.Priority = value
+		case "low_priority_baseline":
+			updated.LowPriorityBaseline = nil
+			if err := json.Unmarshal([]byte(value), &updated.LowPriorityBaseline); err != nil {
+				return current, fmt.Errorf("invalid Low priority baseline: %w", err)
+			}
 		case "completed_at":
 			updated.CompletedAt = value
 		case "completion_baseline":
@@ -75,6 +81,12 @@ func applyStateUpdates(current note, updates map[string]string) (note, error) {
 			if err := yaml.Unmarshal([]byte(value), &updated.AgentReview); err != nil {
 				return current, err
 			}
+		case "agent_review_generation":
+			generation, err := strconv.ParseUint(value, 10, 64)
+			if err != nil {
+				return current, fmt.Errorf("invalid agent review generation: %w", err)
+			}
+			updated.AgentReviewGeneration = generation
 		case "bindings":
 			var node yaml.Node
 			if err := yaml.Unmarshal([]byte(value), &node); err != nil {
@@ -93,8 +105,11 @@ func applyStateUpdates(current note, updates map[string]string) (note, error) {
 	if updated.State != "open" && updated.State != "done" {
 		return current, fmt.Errorf("invalid task lifecycle")
 	}
-	if updated.Priority != "normal" && updated.Priority != "urgent" {
+	if updated.Priority != "low" && updated.Priority != "normal" && updated.Priority != "urgent" {
 		return current, fmt.Errorf("invalid task priority")
+	}
+	if updated.Priority == "low" && updated.LowPriorityBaseline == nil {
+		return current, fmt.Errorf("Low priority requires a captured signal baseline")
 	}
 	if updated.AgentReview && updated.State == "done" {
 		return current, fmt.Errorf("review hold must be cleared before completing task")

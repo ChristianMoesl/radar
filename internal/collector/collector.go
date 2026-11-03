@@ -212,6 +212,7 @@ func collectSource(ctx context.Context, source integration.Source, descriptor in
 				}
 			}
 		}
+		retainLowPriorityActions(previous, descriptor.Name, &collection.result)
 		logger.Debug("source collection skipped", "source", descriptor.Name, "duration", time.Since(started), "status_duration", statusDuration, "status", collection.status.Status.Status)
 		return collection
 	}
@@ -249,6 +250,7 @@ func collectSource(ctx context.Context, source integration.Source, descriptor in
 			}
 		}
 	}
+	retainLowPriorityActions(previous, descriptor.Name, &collection.result)
 	if collection.result.SourceStatus != nil {
 		collection.status.Status = *collection.result.SourceStatus
 		if collection.status.Status.Name == "" {
@@ -274,6 +276,13 @@ func cloneTasks(tasks []protocol.Task) []protocol.Task {
 		cloned[i].SourceRefs = make([]protocol.SourceRef, len(task.SourceRefs))
 		for j, ref := range task.SourceRefs {
 			cloned[i].SourceRefs[j] = ref
+			cloned[i].SourceRefs[j].ActionableSignals = append([]string(nil), ref.ActionableSignals...)
+			if ref.LowPriorityBaseline != nil {
+				cloned[i].SourceRefs[j].LowPriorityBaseline = make(map[string][]string, len(ref.LowPriorityBaseline))
+				for id, signals := range ref.LowPriorityBaseline {
+					cloned[i].SourceRefs[j].LowPriorityBaseline[id] = append([]string(nil), signals...)
+				}
+			}
 			cloned[i].SourceRefs[j].Bindings = append([]protocol.SourceBinding(nil), ref.Bindings...)
 			cloned[i].SourceRefs[j].CleanupIssues = append([]string(nil), ref.CleanupIssues...)
 			cloned[i].SourceRefs[j].LinkingKeys = append([]string(nil), ref.LinkingKeys...)

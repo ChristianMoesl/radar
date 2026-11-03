@@ -155,7 +155,7 @@ func (*fakeMuteAuthor) SetLifecycle(context.Context, protocol.SourceRef, string,
 	return integration.AuthoredTaskIdentity{}, errors.New("not used by mute tests")
 }
 
-func (*fakeMuteAuthor) SetPriority(context.Context, protocol.SourceRef, string) (integration.AuthoredTaskIdentity, error) {
+func (*fakeMuteAuthor) SetPriority(context.Context, protocol.Task, string) (integration.AuthoredTaskIdentity, error) {
 	return integration.AuthoredTaskIdentity{}, errors.New("not used by mute tests")
 }
 

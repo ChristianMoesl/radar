@@ -4,6 +4,7 @@ import { showWorkspaceAttached } from "./workspace-notice.ts";
 import { reportLoadedVersion } from "./runtime-version.ts";
 import { showReloadNotice } from "./reload-notice.ts";
 import { homedir, tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { Type } from "typebox";
@@ -155,8 +156,8 @@ const ResourceEntry = "radar-workspace-resources";
 type Activity = "idle" | "busy" | "waiting";
 
 type ProcessActivity = {
-  sessions: Map<symbol, Activity>;
-  published?: Activity;
+  sessions: Map<symbol, { activity: Activity; promptID?: string }>;
+  published?: string;
   pending: Promise<void>;
 };
 
@@ -171,22 +172,26 @@ function activityTracker(pi: ExtensionAPI) {
   const session = Symbol("Radar activity session");
   let running = false;
   let promptOpen = false;
+  let promptID: string | undefined;
   let stopped = false;
 
   function publish(force = false) {
     if (stopped) processActivity.sessions.delete(session);
-    else processActivity.sessions.set(session, promptOpen ? "waiting" : running ? "busy" : "idle");
-    const activities = [...processActivity.sessions.values()];
+    else processActivity.sessions.set(session, { activity: promptOpen ? "waiting" : running ? "busy" : "idle", promptID });
+    const sessions = [...processActivity.sessions.values()];
+    const activities = sessions.map(state => state.activity);
     const activity: Activity = activities.includes("waiting") ? "waiting" : activities.includes("busy") ? "busy" : "idle";
+    const promptIDs = sessions.flatMap(state => state.promptID ? [state.promptID] : []).sort();
+    const publication = JSON.stringify([activity, promptIDs]);
     // Pi does not await prompt hooks. All sessions must share the write queue
     // and deduplication state: a child's idle/shutdown cannot clear its parent
     // or siblings, nor can a slow write overtake another session's transition.
     processActivity.pending = processActivity.pending.then(async () => {
-      if (!force && activity === processActivity.published) return;
+      if (!force && publication === processActivity.published) return;
       const binary = process.env.RADAR_BINARY?.trim() || "radar";
       try {
-        const result = await pi.exec(binary, ["activity", activity], { timeout: 5000 });
-        processActivity.published = result.code === 0 ? activity : undefined;
+        const result = await pi.exec(binary, ["activity", ...promptIDs.flatMap(id => ["--prompt-id", id]), activity], { timeout: 5000 });
+        processActivity.published = result.code === 0 ? publication : undefined;
       } catch {
         processActivity.published = undefined;
         // Activity is informational: never interfere with prompts or tools.
@@ -205,6 +210,8 @@ function activityTracker(pi: ExtensionAPI) {
     prompt(value: boolean) {
       if (stopped) return processActivity.pending;
       // Pi coalesces nested/overlapping prompts into one outer span.
+      if (value && !promptOpen) promptID = randomUUID();
+      if (!value) promptID = undefined;
       promptOpen = value;
       return publish();
     },
@@ -212,6 +219,7 @@ function activityTracker(pi: ExtensionAPI) {
       if (stopped) return processActivity.pending;
       stopped = true;
       running = promptOpen = false;
+      promptID = undefined;
       return publish(true);
     },
   };

@@ -28,6 +28,7 @@ A new note is an empty file. Radar generates no headings, body text or frontmatt
 radar task create --title "Plan authentication"
 radar task title 7 "Updated title"
 radar task priority 7 urgent
+radar task priority 7 low
 radar task done 7
 radar task reopen 7
 ```

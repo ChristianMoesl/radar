@@ -20,7 +20,7 @@ radar task reopen <task-id>
 radar task mute <task-id>
 radar task unmute <task-id>
 radar task delete <task-id>
-radar task priority <task-id> urgent|normal
+radar task priority <task-id> low|normal|urgent
 radar task title <task-id> <title>
 radar task note <task-id> <absolute-note-path>
 radar migrate-state [--apply|--resume|--rollback]
@@ -54,6 +54,28 @@ radar config-path
 radar state-path
 radar log-path
 ```
+
+## Manual task priority
+
+`radar task priority 7 low` defers the whole task to Low Priority without muting it,
+acknowledging its sources, or changing its lifecycle. New actionable requests can
+temporarily resurface it; addressing those requests returns it to Low Priority.
+The retained preference survives refresh, restart and cache reset. Set `low` again
+to defer currently outstanding requests, `normal` to restore the current
+source-derived category, or `urgent` to select the existing urgent mode. Done
+tasks cannot change priority; new activity never unmutes a task.
+
+Source-only tasks reuse durable bound-note adoption without creating workspace
+resources. Priority mutations themselves do not send OS notifications. In the
+dashboard, `P` selects a priority, `p` keeps its urgent/normal shortcut, and Inspect
+shows retained priority separately from the effective attention category. See
+[attention policy](attention-algorithm.md#manual-low-priority).
+
+Activity producers can use `radar activity --prompt-id <id> waiting` (repeat the
+option for overlapping sessions). IDs identify actual prompt lifetimes: reuse
+them while the same prompts remain open and omit them on `busy` or `idle`. Pi
+publishes these automatically without prompt text. Waiting without an occurrence
+ID remains an activity badge/completion veto, not evidence of a new Low request.
 
 ## Offline documentation
 

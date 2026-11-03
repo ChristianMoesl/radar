@@ -276,6 +276,9 @@ func (s *Service) MutateTask(ctx context.Context, method string, mutation *proto
 	if method == "task-mute" || method == "task-unmute" {
 		return s.SetMuted(ctx, mutation.TaskID, method == "task-mute")
 	}
+	if method == "task-priority" {
+		return s.SetPriority(ctx, mutation.TaskID, mutation.Priority)
+	}
 	provider, err := s.integrations.TaskAuthoring()
 	if err != nil {
 		return protocol.Task{}, err
@@ -286,7 +289,7 @@ func (s *Service) MutateTask(ctx context.Context, method string, mutation *proto
 	switch method {
 	case "task-create":
 		identity, err = provider.Create(ctx, mutation.Title)
-	case "task-done", "task-reopen", "task-priority", "task-title", "task-note":
+	case "task-done", "task-reopen", "task-title", "task-note":
 		task, ok := taskByID(s.store.Tasks(), mutation.TaskID)
 		if !ok {
 			return protocol.Task{}, fmt.Errorf("task %d not found", mutation.TaskID)
@@ -322,11 +325,6 @@ func (s *Service) MutateTask(ctx context.Context, method string, mutation *proto
 			identity, err = provider.SetLifecycle(ctx, ref, "done", tracked.SourceRefs)
 		case "task-reopen":
 			identity, err = provider.SetLifecycle(ctx, ref, "open", nil)
-		case "task-priority":
-			if task.Attention == "done" {
-				return protocol.Task{}, fmt.Errorf("task %d is done and cannot change priority", mutation.TaskID)
-			}
-			identity, err = provider.SetPriority(ctx, ref, mutation.Priority)
 		}
 	default:
 		return protocol.Task{}, fmt.Errorf("unknown task mutation: %s", method)

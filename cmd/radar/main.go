@@ -222,6 +222,11 @@ func runTUIWithMode(mode string) {
 }
 
 func runActivity(args []string) {
+	var promptIDs []string
+	for len(args) >= 2 && args[0] == "--prompt-id" {
+		promptIDs = append(promptIDs, args[1])
+		args = args[2:]
+	}
 	args = positionalArgs("activity", args, 1)
 	activity, err := protocol.ParseActivity(args[0])
 	if err != nil {
@@ -230,7 +235,7 @@ func runActivity(args []string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := app.DefaultIntegrations().PublishActivity(ctx, activity); err != nil {
+	if err := app.DefaultIntegrations().PublishActivity(ctx, integration.ActivityPublication{Activity: activity, PromptIDs: promptIDs}); err != nil {
 		fatal(err)
 	}
 	// Publication remains useful without a daemon. The normal local poll can
@@ -293,7 +298,7 @@ func runTask(args []string) {
 		request = protocol.Request{Method: "task-" + command, TaskMutation: mutation}
 	case "priority":
 		args = positionalArgs("task priority", args, 2)
-		if args[1] != "urgent" && args[1] != "normal" {
+		if args[1] != "low" && args[1] != "urgent" && args[1] != "normal" {
 			taskUsage()
 			os.Exit(2)
 		}
@@ -1226,7 +1231,7 @@ Tasks:
   radar task mute <task-id>
   radar task unmute <task-id>
   radar task delete <task-id>
-  radar task priority <task-id> urgent|normal
+  radar task priority <task-id> low|normal|urgent
   radar task title <task-id> <title>
   radar task note <task-id> <absolute-note-path>
 
@@ -1304,7 +1309,7 @@ func taskUsage() {
        radar task mute <task-id>
        radar task unmute <task-id>
        radar task delete <task-id>
-       radar task priority <task-id> urgent|normal
+       radar task priority <task-id> low|normal|urgent
        radar task title <task-id> <title>
        radar task note <task-id> <absolute-note-path>
 

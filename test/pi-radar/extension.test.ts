@@ -96,7 +96,7 @@ async function harness(t: TestContext, registered: unknown = true) {
         return { code: 0, stdout: JSON.stringify(responses.shift()), stderr: "" };
       }
       if (args[0] === "documentation") return documentationResponse;
-      if (args[0] === "activity" && activityExec) return activityExec(args[1]);
+      if (args[0] === "activity" && activityExec) return activityExec(args.at(-1)!);
       return { code: 0, stdout: "{}", stderr: "" };
     },
   };
@@ -140,7 +140,7 @@ async function harness(t: TestContext, registered: unknown = true) {
     registrationOutput: (value: string) => { registrationOutput = value; },
     reloads: () => reloads,
     activityExec: (handler: (state: string) => Promise<any>) => { activityExec = handler; },
-    activities: () => calls.filter(call => call.args[0] === "activity").map(call => call.args[1]),
+    activities: () => calls.filter(call => call.args[0] === "activity").map(call => call.args.at(-1)),
     reconcile: () => tools.get("radar_reconcile_workspace").execute("call", {
       revision: "revision", desired: { note: null, worktrees: [], sandbox: null },
     }, undefined, undefined, ctx),
@@ -639,6 +639,38 @@ test("waiting spans sessions and closing the last prompt restores a busy child",
   assert.equal(h.activities().at(-1), "waiting");
   await h.emit("ui_prompt_end");
   assert.equal(h.activities().at(-1), "idle");
+});
+
+test("prompt identities belong to real per-session lifetimes, not busy/idle or retries", async t => {
+  const h = await harness(t);
+  await h.start();
+  const ids = () => {
+    const args = h.calls.filter(call => call.args[0] === "activity").at(-1)!.args;
+    return args.flatMap((arg, index) => arg === "--prompt-id" ? [args[index + 1]] : []).sort();
+  };
+  await h.emit("ui_prompt_start", { title: "Private prompt" });
+  const first = ids();
+  assert.equal(first.length, 1);
+  assert.match(first[0], /^[0-9a-f-]{36}$/);
+  await h.emit("ui_prompt_start");
+  await h.emit("agent_start");
+  await h.emit("agent_settled");
+  assert.deepEqual(ids(), first);
+  const child = h.peer();
+  await child.start();
+  assert.deepEqual(ids(), first);
+  await child.emit("ui_prompt_start");
+  const both = ids();
+  assert.equal(both.length, 2);
+  assert.ok(both.includes(first[0]));
+  await child.emit("ui_prompt_end");
+  assert.deepEqual(ids(), first, "ending a child prompt must not replace the parent's identity");
+  await h.emit("ui_prompt_end");
+  assert.deepEqual(ids(), []);
+  await h.emit("ui_prompt_start");
+  assert.equal(ids().length, 1);
+  assert.notEqual(ids()[0], first[0], "same-pane recurrence needs a new identity");
+  assert.ok(h.calls.every(call => !call.args.includes("Private prompt")));
 });
 
 for (const outcome of ["success", "error", "cancelled"]) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ func TestPublishActivityUsesOnlyCurrentPane(t *testing.T) {
 	t.Setenv("ACTIVITY_TEST_OUTPUT", output)
 	t.Setenv("TMUX_PANE", "%7")
 	for _, activity := range []protocol.Activity{protocol.ActivityBusy, protocol.ActivityWaiting, protocol.ActivityIdle} {
-		if err := (Source{}).PublishActivity(context.Background(), activity); err != nil {
+		if err := (Source{}).PublishActivity(context.Background(), integration.ActivityPublication{Activity: activity}); err != nil {
 			t.Fatal(err)
 		}
 		data, err := os.ReadFile(output)
@@ -31,6 +32,7 @@ func TestPublishActivityUsesOnlyCurrentPane(t *testing.T) {
 		if activity == protocol.ActivityIdle {
 			want = "set-option\n-p\n-u\n-t\n%7\n@radar_activity\n"
 		}
+		want += ";\nset-option\n-p\n-u\n-t\n%7\n@radar_prompt_ids\n"
 		if string(data) != want {
 			t.Fatalf("arguments = %q, want %q", data, want)
 		}
@@ -39,20 +41,20 @@ func TestPublishActivityUsesOnlyCurrentPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("TMUX_PANE", "")
-	if err := (Source{}).PublishActivity(context.Background(), protocol.ActivityWaiting); err != nil {
+	if err := (Source{}).PublishActivity(context.Background(), integration.ActivityPublication{Activity: protocol.ActivityWaiting}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(output); !os.IsNotExist(err) {
 		t.Fatal("published without a pane")
 	}
-	if err := (Source{}).PublishActivity(context.Background(), protocol.Activity("invalid")); err == nil {
+	if err := (Source{}).PublishActivity(context.Background(), integration.ActivityPublication{Activity: protocol.Activity("invalid")}); err == nil {
 		t.Fatal("accepted invalid activity")
 	}
 	t.Setenv("TMUX_PANE", "%7")
 	if err := os.WriteFile(executable, []byte("#!/bin/sh\necho unavailable >&2\nexit 1\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := (Source{}).PublishActivity(context.Background(), protocol.ActivityWaiting); err == nil || !strings.Contains(err.Error(), "unavailable") {
+	if err := (Source{}).PublishActivity(context.Background(), integration.ActivityPublication{Activity: protocol.ActivityWaiting}); err == nil || !strings.Contains(err.Error(), "unavailable") {
 		t.Fatalf("publication failure = %v", err)
 	}
 }

@@ -18,7 +18,7 @@ import (
 
 const (
 	sessionFormat      = "#{pid}\t#{session_created}\t#{session_id}\t#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_path}"
-	activityPaneFormat = "#{session_id}\t#{pane_dead}\t#{@radar_activity}"
+	activityPaneFormat = "#{session_id}\t#{pane_dead}\t#{@radar_activity}\t#{pane_id}\t#{@radar_prompt_ids}"
 )
 
 type session struct {
@@ -30,6 +30,7 @@ type session struct {
 	WindowCount   int
 	Path          string
 	Activity      protocol.Activity
+	PromptIDs     []string
 }
 
 func SourceStatus(ctx context.Context) protocol.SourceStatus {
@@ -68,7 +69,7 @@ func FetchSessions(ctx context.Context, logger *slog.Logger, marks linking.MarkM
 		status.Detail = tmuxErrorDetail(err)
 		return nil, status
 	}
-	sessionActivities, err := parseSessionActivities(paneOutput)
+	sessionActivities, prompts, err := parseSessionActivities(paneOutput)
 	if err != nil {
 		status.Status = "error"
 		status.Detail = err.Error()
@@ -78,6 +79,7 @@ func FetchSessions(ctx context.Context, logger *slog.Logger, marks linking.MarkM
 	sourceRefs := make([]protocol.SourceRef, 0, len(sessions))
 	for _, s := range sessions {
 		s.Activity = sessionActivities[s.ID]
+		s.PromptIDs = prompts[s.ID]
 		sourceRefs = append(sourceRefs, s.SourceRef(marks))
 	}
 
@@ -122,8 +124,9 @@ func parseSessions(output string) ([]session, error) {
 	return sessions, scanner.Err()
 }
 
-func parseSessionActivities(output string) (map[string]protocol.Activity, error) {
+func parseSessionActivities(output string) (map[string]protocol.Activity, map[string][]string, error) {
 	activities := make(map[string]protocol.Activity)
+	prompts := make(map[string][]string)
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -131,8 +134,8 @@ func parseSessionActivities(output string) (map[string]protocol.Activity, error)
 			continue
 		}
 		fields := strings.Split(line, "\t")
-		if len(fields) != 3 {
-			return nil, fmt.Errorf("unexpected tmux pane activity output: got %d fields", len(fields))
+		if len(fields) != 5 {
+			return nil, nil, fmt.Errorf("unexpected tmux pane activity output: got %d fields", len(fields))
 		}
 		if fields[1] != "0" {
 			continue
@@ -143,11 +146,19 @@ func parseSessionActivities(output string) (map[string]protocol.Activity, error)
 		}
 		activity, err := protocol.ParseActivity(value)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		activities[fields[0]] = protocol.MergeActivity(activities[fields[0]], activity)
+		if activity == protocol.ActivityWaiting && fields[3] != "" && fields[4] != "" {
+			for _, id := range strings.Split(fields[4], ",") {
+				if !validPromptIdentity(id) {
+					return nil, nil, fmt.Errorf("invalid tmux prompt identity")
+				}
+				prompts[fields[0]] = append(prompts[fields[0]], "prompt:"+fields[3]+":"+id)
+			}
+		}
 	}
-	return activities, scanner.Err()
+	return activities, prompts, scanner.Err()
 }
 
 func (s session) sourceRefID() string {
@@ -175,18 +186,19 @@ func (s session) SourceRef(marks linking.MarkMatcher) protocol.SourceRef {
 	}
 
 	return protocol.SourceRef{
-		ID:          s.sourceRefID(),
-		Activity:    s.Activity,
-		InUse:       s.AttachedCount > 0,
-		Source:      "tmux",
-		SourceLabel: "tmux",
-		Kind:        "session",
-		Role:        protocol.SourceRefRoleAuthoritative,
-		EntityID:    s.sourceRefID(),
-		Lifecycle:   protocol.SourceRefLifecycleResource,
-		Authority:   protocol.SourceRefAuthorityNone,
-		Title:       s.Name,
-		Path:        s.Path,
+		ID:                s.sourceRefID(),
+		Activity:          s.Activity,
+		ActionableSignals: append([]string(nil), s.PromptIDs...),
+		InUse:             s.AttachedCount > 0,
+		Source:            "tmux",
+		SourceLabel:       "tmux",
+		Kind:              "session",
+		Role:              protocol.SourceRefRoleAuthoritative,
+		EntityID:          s.sourceRefID(),
+		Lifecycle:         protocol.SourceRefLifecycleResource,
+		Authority:         protocol.SourceRefAuthorityNone,
+		Title:             s.Name,
+		Path:              s.Path,
 		Presentation: protocol.SourceRefPresentation{
 			Label: "tmux:session:" + s.Name,
 		},

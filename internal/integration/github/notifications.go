@@ -120,6 +120,7 @@ const pullRequestsGraphQLQuery = `query($reviewQuery: String!, $authoredQuery: S
         body
         author { __typename login }
         repository { nameWithOwner }
+        ` + mergedReviewFields + `
         reviewThreads(first: 25) { nodes { id isResolved comments(first: 25) { nodes { author { __typename login } createdAt } } } }
       }
     }
@@ -187,7 +188,16 @@ func FetchPullRequests(ctx context.Context, previous []protocol.Task, cfg []filt
 		return nil, nil, nil, err
 	}
 	previousActivity := activityStateFromPrevious(previous)
-	reviewItems := reviewRequestTasks(reviewPRs)
+	teams := map[string]bool{}
+	for i := range reviewPRs {
+		if err := prepareReviewRequests(ctx, &reviewPRs[i], login, settings.ReviewRequestsConfig{}, time.Time{}, teams, logger); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	reviewItems, err := reviewRequestTasks(reviewPRs, login)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	authoredItems := authoredPullRequestTasks(response.Data.Authored.Nodes)
 	activityItems := activityPullRequestItems(response.Data.Participated.Nodes, login, previousActivity, cfg)
 	applyActivity(authoredItems, response.Data.Authored.Nodes, login, previousActivity, cfg, true)
@@ -202,15 +212,8 @@ func FetchPullRequests(ctx context.Context, previous []protocol.Task, cfg []filt
 }
 
 func FetchReviewRequests(ctx context.Context, logger *slog.Logger) ([]protocol.Task, error) {
-	prs, err := fetchReviewRequestedPullRequests(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("fetch review requested pull requests: %w", err)
-	}
-	logger.Debug("fetched github review requested pull requests", "count", len(prs))
-
-	items := reviewRequestTasks(prs)
-	logger.Debug("github review requests classified", "count", len(items))
-	return items, nil
+	items, _, _, err := FetchPullRequests(ctx, nil, nil, logger)
+	return items, err
 }
 
 func FetchAuthoredPullRequests(ctx context.Context, logger *slog.Logger) ([]protocol.Task, error) {
@@ -225,7 +228,7 @@ func FetchAuthoredPullRequests(ctx context.Context, logger *slog.Logger) ([]prot
 	return items, nil
 }
 
-func reviewRequestTasks(prs []searchPullRequest) []protocol.Task {
+func reviewRequestTasks(prs []searchPullRequest, login string) ([]protocol.Task, error) {
 	items := make([]protocol.Task, 0, len(prs))
 	for _, pr := range prs {
 		repo := repoName(pr)
@@ -239,9 +242,17 @@ func reviewRequestTasks(prs []searchPullRequest) []protocol.Task {
 			Metadata:  pullRequestMetadata(pr),
 		}
 		item.SourceRefs = []protocol.SourceRef{newGitHubPullRequestSourceRef(item, repo, pr.Number, "pull_request", pr.HeadRefName, pr.Body)}
+		keys, err := reviewRequestOccurrences(pr, login)
+		if err != nil {
+			return nil, err
+		}
+		if len(keys) == 0 {
+			item = trackedPullRequestTask(pr)
+		}
+		item.SourceRefs[0].ActionableSignals = keys
 		items = append(items, item)
 	}
-	return items
+	return items, nil
 }
 
 func authoredPullRequestTasks(prs []searchPullRequest) []protocol.Task {
@@ -276,6 +287,7 @@ type pullRequestActivity struct {
 	unresolvedReviewThreads int
 	newGeneralComments      int
 	latestGeneralCommentAt  string
+	actionableSignals       []string
 }
 
 type previousPullRequestActivity struct {
@@ -348,6 +360,16 @@ func detectActivity(pr searchPullRequest, login string, previous previousPullReq
 			continue
 		}
 		activity.unresolvedReviewThreads++
+		latestReply := ""
+		for _, comment := range thread.Comments.Nodes {
+			if comment.Author.Login != "" && !strings.EqualFold(comment.Author.Login, login) &&
+				!filters.SuppressesActivity(cfg, repo, githubActorAliases(comment.Author)) && comment.CreatedAt > latestReply {
+				latestReply = comment.CreatedAt
+			}
+		}
+		if thread.ID != "" && latestReply != "" {
+			activity.actionableSignals = append(activity.actionableSignals, "thread:"+thread.ID+":"+latestReply)
+		}
 	}
 	if authored {
 		for _, comment := range append(pr.Comments.Nodes, pr.Reviews.Nodes...) {
@@ -355,6 +377,7 @@ func detectActivity(pr searchPullRequest, login string, previous previousPullReq
 				continue
 			}
 			activity.newGeneralComments++
+			activity.actionableSignals = append(activity.actionableSignals, "comment:"+comment.CreatedAt)
 			if comment.CreatedAt > activity.latestGeneralCommentAt {
 				activity.latestGeneralCommentAt = comment.CreatedAt
 			}
@@ -406,6 +429,7 @@ func (activity pullRequestActivity) reason() string {
 }
 
 func setActivityMetadata(sourceRef *protocol.SourceRef, activity pullRequestActivity, fallbackSignal string, fallbackReason string, hideWhenAcknowledged bool) {
+	sourceRef.ActionableSignals = append(sourceRef.ActionableSignals, activity.actionableSignals...)
 	if sourceRef.Metadata == nil {
 		sourceRef.Metadata = map[string]string{}
 	}
@@ -526,7 +550,7 @@ func ResolveDonePullRequests(ctx context.Context, previous []protocol.Task, acti
 				if pr.State == "OPEN" {
 					continue
 				}
-				if err := prepareMergedReview(ctx, &pr.searchPullRequest, login, reviews, time.Now(), nil, logger); err != nil {
+				if err := prepareReviewRequests(ctx, &pr.searchPullRequest, login, reviews, time.Now(), nil, logger); err != nil {
 					logger.Warn("could not resolve review team", "id", sourceRef.ID, "error", err)
 					continue
 				}
@@ -746,21 +770,6 @@ func fetchNotifications(ctx context.Context) ([]notification, error) {
 		return nil, err
 	}
 	return notifications, nil
-}
-
-func fetchReviewRequestedPullRequests(ctx context.Context) ([]searchPullRequest, error) {
-	var prs []searchPullRequest
-	args := []string{
-		"search", "prs",
-		"--review-requested", "@me",
-		"--state", "open",
-		"--limit", "100",
-		"--json", "number,title,url,repository,isDraft,state,body,author",
-	}
-	if err := ghJSON(ctx, args, &prs); err != nil {
-		return nil, err
-	}
-	return prs, nil
 }
 
 func fetchAuthoredPullRequests(ctx context.Context) ([]searchPullRequest, error) {

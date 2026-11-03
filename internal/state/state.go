@@ -1294,6 +1294,13 @@ func cloneSourceRefs(sourceRefs []protocol.SourceRef) []protocol.SourceRef {
 	cloned := make([]protocol.SourceRef, len(sourceRefs))
 	for i, sourceRef := range sourceRefs {
 		cloned[i] = sourceRef
+		cloned[i].ActionableSignals = slices.Clone(sourceRef.ActionableSignals)
+		if sourceRef.LowPriorityBaseline != nil {
+			cloned[i].LowPriorityBaseline = make(map[string][]string, len(sourceRef.LowPriorityBaseline))
+			for id, signals := range sourceRef.LowPriorityBaseline {
+				cloned[i].LowPriorityBaseline[id] = slices.Clone(signals)
+			}
+		}
 		cloned[i].Bindings = append([]protocol.SourceBinding(nil), sourceRef.Bindings...)
 		cloned[i].LinkingKeys = append([]string(nil), sourceRef.LinkingKeys...)
 		cloned[i].CleanupIssues = append([]string(nil), sourceRef.CleanupIssues...)

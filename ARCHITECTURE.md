@@ -207,6 +207,25 @@ Projected tasks are rebuilt from this state. Done tasks remain in durable histor
 
 `taskservice.Service` separates slow collection from short cache publication. The daemon's collection mutex still serializes background refreshes, reset, and garbage collection; authored mutations do not acquire it. A separate publication mutex serializes note mutations, source-scoped cache updates, and full-refresh automatic completion. An in-memory authoring revision fences collections started before a mutation: before publishing such a result, the service replaces its authoring and runtime-activity observations, status, and completeness evidence with fresh collections. Remote sources' results are retained, not retried. This also protects task creation, reopening, priority changes, and provider errors after partial writes. The socket mutation methods are `task-mute` and `task-unmute`, with typed `Muted` preference and binding fields. Source snapshot fields retain their wire names; SQLite schema versioning is independent of the projection format. No runtime aliases or old-field readers are provided.
 
+`task-priority` accepts `low | normal | urgent` using the same serialized
+author-only mutation/publication path. The author receives the whole current task
+for source-only adoption and occurrence capture, not just an authored ref.
+`taskdb.Task.LowPriorityBaseline` and `AgentReviewGeneration` are additive fields
+in existing `authored_tasks.data` JSON; SQLite schema remains version 1, with no
+new table, importer, compatibility reader or note metadata. Normal/Urgent clears
+obsolete Low baseline data. Mute and priority share one bound-note transaction.
+
+Providers expose native action occurrences in `SourceRef.ActionableSignals`.
+`protocol.ProjectAttention` applies Low after effective acknowledgement and source
+policy, retaining `Task.Priority` while new current occurrences break through.
+Snapshot clones deep-copy occurrence lists and baseline maps. Prompt IDs are
+allocated per real Pi UI lifetime, aggregated process-wide, serialized with
+activity publication and read only from live tmux panes. Busy/idle does not create
+an occurrence or change ordinary task categories. The collector retains the last
+known outstanding Low action during incomplete collection, without inventing
+freshness/completeness or changing lifecycle/resource checks. Notifications consume
+the same effective projection and skip user mutations.
+
 SQLite transactions serialize related state writes with full synchronous durability. `authored_tasks` and `bindings` own task decisions, stable UUIDs, note associations and safe provider identities. `task_records` retains numeric identity, acknowledgements and pending review intent; `observed_refs` stores collected observations. `documents` holds metadata/cutover bookkeeping, and `file_moves` journals no-overwrite archive/restore/trash moves for startup recovery under the note lock. Reset clears observations/derived snapshots and retains durable decisions. Unknown schemas/projection versions and corrupt data fail closed; none are silently discarded. Notes have no Radar frontmatter, including no in-note ID. Database backup uses SQLite snapshots; notes and application records require coordinated backup. The embedded driver preserves CGO-free platform builds.
 
 ## Config

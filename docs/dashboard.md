@@ -35,6 +35,7 @@ Refreshes preserve selected identity and the active view. Removed registrations 
 | <kbd>i</kbd> | Inspect the selected task and its linked sources |
 | <kbd>n</kbd> | Create an Obsidian-backed task |
 | <kbd>d</kbd> / <kbd>p</kbd> | Complete or reopen a task / toggle urgent priority |
+| <kbd>P</kbd> | Select Low, Normal or Urgent for the selected task |
 | <kbd>m</kbd> | Mute or unmute the selected task |
 | <kbd>D</kbd> | Delete an authored task with confirmation (move to vault trash) |
 | <kbd>c</kbd> | Create a workspace |
@@ -105,6 +106,22 @@ Local resource references no longer occupy separate overview rows. The logical `
 Workspace inspection, preparation, creation/updates, cleanup checks and execution, and session creation show an animated spinner in a fixed slot beside the affected task, with a short operation label. You can navigate and inspect tasks while work runs; other actions wait until it finishes. Pressing Enter on a task during cleanup or its resource check shows **Cleanup in progress — Retry Enter when finished**, including for an unrelated workspace. The request is not queued: press Enter again after cleanup succeeds or fails. Switching resumes when the cleanup response arrives, even if the resource list is still refreshing; failed cleanup remains available in the initiating task's Inspect view. Confirmation and editing screens do not spin while waiting for input. Workspace creation without an existing task shows progress inline until the new task is available.
 
 Failures stay on the task row with an `!` marker and an `i inspect` hint. Inspect shows the full explanation, including any recovery guidance supplied by the operation. Errors remain for the current TUI session across navigation and live refreshes. Starting the same operation again replaces the marker with the spinner but retains the previous explanation until success; another failure replaces it. Successful unrelated operations do not dismiss the error. Routine completion toasts are omitted, but workspace warnings and resource-reload guidance remain visible. Global refresh, garbage collection, and repository/branch picker loading are unchanged.
+
+## Manual Low priority
+
+Press `P` to choose Low, Normal or Urgent. Low keeps the task visible while
+deferring its known activity. New relevant replies, review requests, actionable
+failures, Pi prompts or result handoffs can temporarily raise it to Attention or
+Immediate without clearing Low. Once addressed under the source's existing
+rules, it returns to Low Priority. Choose Low again to defer an outstanding
+request. Normal restores current source priority; the existing `p` urgent/normal
+shortcut is unchanged. Escape cancels the picker, which keeps the selected choice
+visible on short terminals.
+
+Inspect shows retained **Priority** separately from effective attention, including
+during a breakthrough. Low does not acknowledge, unmute, complete or authorize
+cleanup. Source-only tasks can be lowered without creating workspace resources.
+See [attention policy](attention-algorithm.md#manual-low-priority).
 
 ## Inspect
 

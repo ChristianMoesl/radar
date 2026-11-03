@@ -30,6 +30,8 @@ case "$*" in
         {
           "number": 12,
           "title": "Review me",
+		  "reviewRequests": {"nodes": [{"requestedReviewer": {"login": "me"}}], "pageInfo": {"hasNextPage": false}},
+		  "timelineItems": {"nodes": [{"createdAt": "2026-06-11T09:00:00Z", "requestedReviewer": {"login": "me"}}]},
           "url": "https://github.com/acme/widgets/pull/12",
           "state": "OPEN",
           "isDraft": false,

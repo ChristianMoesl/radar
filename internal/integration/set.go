@@ -82,16 +82,16 @@ func (r Registry) ActionProviders() []ActionProvider {
 	return providers
 }
 
-func (r Registry) PublishActivity(ctx context.Context, activity protocol.Activity) error {
-	if !activity.Valid() {
-		return fmt.Errorf("invalid activity %q", activity)
+func (r Registry) PublishActivity(ctx context.Context, publication ActivityPublication) error {
+	if !publication.Activity.Valid() {
+		return fmt.Errorf("invalid activity %q", publication.Activity)
 	}
 	for _, candidate := range r.integrations {
 		provider, ok := candidate.(ActivityPublisher)
 		if !ok {
 			continue
 		}
-		if err := provider.PublishActivity(ctx, activity); err != nil {
+		if err := provider.PublishActivity(ctx, publication); err != nil {
 			return err
 		}
 	}

@@ -59,7 +59,10 @@ esac
 				if err != nil {
 					t.Fatal(err)
 				}
-				tasks = reviewRequestTasks(prs)
+				tasks, err = reviewRequestTasks(prs, "me")
+				if err != nil {
+					t.Fatal(err)
+				}
 			} else {
 				var err error
 				tasks, err = FetchMergedReviewRequests(context.Background(), nil, mergedReviewSettings().ReviewRequests, testLogger())

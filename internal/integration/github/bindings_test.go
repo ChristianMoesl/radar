@@ -124,7 +124,8 @@ func TestResolveBindingsPreservesReviewAndActivityClassificationAndFilters(t *te
 			pr["author"] = map[string]any{"login": test.author}
 			pr["comments"] = map[string]any{"nodes": []any{map[string]any{"author": map[string]any{"__typename": "Bot", "login": "review-bot"}, "createdAt": "2026-01-01T10:00:00Z"}}}
 			if test.review {
-				pr["reviewRequests"] = map[string]any{"nodes": []any{map[string]any{"requestedReviewer": map[string]any{"login": "me"}}}}
+				pr["reviewRequests"] = map[string]any{"nodes": []any{map[string]any{"requestedReviewer": map[string]any{"login": "me"}}}, "pageInfo": map[string]any{"hasNextPage": false}}
+				pr["timelineItems"] = map[string]any{"nodes": []any{map[string]any{"createdAt": "2026-01-01T09:00:00Z", "requestedReviewer": map[string]any{"login": "me"}}}}
 			}
 			fakeBoundGH(t, boundGHResponse(pr), false)
 			result := NewSource().ResolveBindings(context.Background(), boundGitHubRequest())

@@ -111,9 +111,18 @@ func (Source) ClientActive() bool {
 	return os.Getenv("TMUX") != ""
 }
 
-func (Source) PublishActivity(ctx context.Context, activity protocol.Activity) error {
+func (Source) PublishActivity(ctx context.Context, publication integration.ActivityPublication) error {
+	activity := publication.Activity
 	if !activity.Valid() {
 		return fmt.Errorf("invalid activity %q", activity)
+	}
+	for _, id := range publication.PromptIDs {
+		if !validPromptIdentity(id) {
+			return fmt.Errorf("invalid prompt identity")
+		}
+	}
+	if activity != protocol.ActivityWaiting && len(publication.PromptIDs) != 0 {
+		return fmt.Errorf("prompt identities require waiting activity")
 	}
 	pane := strings.TrimSpace(os.Getenv("TMUX_PANE"))
 	if pane == "" {
@@ -123,8 +132,19 @@ func (Source) PublishActivity(ctx context.Context, activity protocol.Activity) e
 	if activity == protocol.ActivityIdle {
 		args = []string{"set-option", "-p", "-u", "-t", pane, "@radar_activity"}
 	}
+	if len(publication.PromptIDs) > 0 {
+		args = append([]string{"set-option", "-p", "-t", pane, "@radar_prompt_ids", strings.Join(publication.PromptIDs, ","), ";"}, args...)
+	} else {
+		args = append(args, ";", "set-option", "-p", "-u", "-t", pane, "@radar_prompt_ids")
+	}
 	_, err := workspace.ExecRunner{}.Run(ctx, "", "tmux", args...)
 	return err
+}
+
+func validPromptIdentity(id string) bool {
+	return id != "" && len(id) <= 128 && strings.IndexFunc(id, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_')
+	}) < 0
 }
 
 func (Source) Current(ctx context.Context) (integration.SessionContext, bool, error) {

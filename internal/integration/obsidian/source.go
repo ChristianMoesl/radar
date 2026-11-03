@@ -320,6 +320,14 @@ func observationsFor(vault string, current note) []integration.Observation {
 	} else if current.Priority == "urgent" {
 		signal = integration.SignalImmediate
 	}
+	reviewGeneration := current.AgentReviewGeneration
+	if !current.AgentReview && reviewGeneration != ^uint64(0) {
+		reviewGeneration++
+	}
+	// Reserve the same identity for a pending handoff write and the eventual
+	// saved hold. It is actionable only while review/persistence is pending;
+	// quiet notes cannot pre-defer a future generation.
+	actions := []string{fmt.Sprintf("agent-review:%s:%d", current.ID, reviewGeneration)}
 	return []integration.Observation{{
 		Ref: protocol.SourceRef{
 			ID: identity, EntityID: identity, Source: "obsidian", SourceLabel: "Obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
@@ -327,6 +335,8 @@ func observationsFor(vault string, current note) []integration.Observation {
 			Presentation: protocol.SourceRefPresentation{PreferTitle: true, WorkspaceName: current.Title}, Title: current.Title, URL: uri,
 			Status: current.State, CanonicalKey: identity, LinkingKeys: linking.Keys(keys...), Metadata: metadata,
 			WorkspaceAnchorPath: current.Path, Authored: true, Muted: current.Muted, Bindings: current.Bindings, AgentReview: current.AgentReview,
+			LowPriorityBaseline: current.LowPriorityBaseline,
+			ActionableSignals:   actions,
 		},
 		Signal: signal, Reason: "Obsidian task is " + current.State,
 	}}
@@ -393,11 +403,11 @@ func (s Source) SetLifecycle(_ context.Context, ref protocol.SourceRef, state st
 	return integration.AuthoredTaskIdentity{SourceRefID: ref.ID}, err
 }
 
-func (s Source) SetPriority(_ context.Context, ref protocol.SourceRef, priority string) (integration.AuthoredTaskIdentity, error) {
-	if priority != "normal" && priority != "urgent" {
+func (s Source) SetPriority(ctx context.Context, task protocol.Task, priority string) (integration.AuthoredTaskIdentity, error) {
+	if priority != "low" && priority != "normal" && priority != "urgent" {
 		return integration.AuthoredTaskIdentity{}, fmt.Errorf("unsupported Obsidian priority %q", priority)
 	}
-	return s.mutate(ref, map[string]string{"priority": priority})
+	return s.setTaskPreference(ctx, task, nil, priority)
 }
 
 func (s Source) mutate(ref protocol.SourceRef, updates map[string]string) (integration.AuthoredTaskIdentity, error) {

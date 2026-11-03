@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"radar/internal/integration"
+	"radar/internal/protocol"
 	"radar/internal/taskdb"
 )
 
@@ -46,7 +47,7 @@ func TestTitleMetadataEditsPreservePathsIdentityAndUserContent(t *testing.T) {
 	if ref.Title != "Setup: screenshots #1" || ref.Presentation.WorkspaceName != ref.Title || ref.ID != desired.LinkingKey || ref.WorkspaceAnchorPath != desired.Path {
 		t.Fatalf("ref = %+v", ref)
 	}
-	if _, err := source.SetPriority(ctx, ref, "urgent"); err != nil {
+	if _, err := source.SetPriority(ctx, protocol.Task{SourceRefs: []protocol.SourceRef{ref}}, "urgent"); err != nil {
 		t.Fatal(err)
 	}
 	after, err := os.ReadFile(desired.Path)
@@ -99,7 +100,7 @@ func TestLegacyFrontmatterIsRejectedWithoutChangingContent(t *testing.T) {
 	if result.Complete || result.SourceStatus.Status != "partial" || !strings.Contains(result.SourceStatus.Detail, "legacy Radar frontmatter") || len(result.Observations) != 1 {
 		t.Fatalf("collection = %+v", result)
 	}
-	if _, err := source.SetPriority(ctx, initial.Observations[0].Ref, "urgent"); err == nil {
+	if _, err := source.SetPriority(ctx, protocol.Task{SourceRefs: []protocol.SourceRef{initial.Observations[0].Ref}}, "urgent"); err == nil {
 		t.Fatal("unmigrated note mutated")
 	}
 	after, err := os.ReadFile(desired.Path)

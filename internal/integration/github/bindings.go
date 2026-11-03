@@ -96,7 +96,7 @@ func (Source) ResolveBindings(ctx context.Context, req integration.BindingReques
 			bindingFailure(&result, req, fmt.Errorf("resolve %s: %w", binding.ID, err))
 			continue
 		}
-		if err := prepareMergedReview(ctx, &pr.searchPullRequest, login, cfg.GitHub.ReviewRequests, time.Now(), nil, req.Logger); err != nil {
+		if err := prepareReviewRequests(ctx, &pr.searchPullRequest, login, cfg.GitHub.ReviewRequests, time.Now(), nil, req.Logger); err != nil {
 			bindingFailure(&result, req, err)
 			continue
 		}
@@ -207,8 +207,12 @@ func boundPullRequestTask(pr boundPullRequest, login string, previous []protocol
 		items = authoredPullRequestTasks([]searchPullRequest{pr.searchPullRequest})
 	} else {
 		for _, request := range pr.ReviewRequests.Nodes {
-			if strings.EqualFold(request.RequestedReviewer.Login, login) {
-				items = reviewRequestTasks([]searchPullRequest{pr.searchPullRequest})
+			if reviewerKey(request.RequestedReviewer, login) != "" {
+				var err error
+				items, err = reviewRequestTasks([]searchPullRequest{pr.searchPullRequest}, login)
+				if err != nil {
+					return protocol.Task{}, err
+				}
 				break
 			}
 		}

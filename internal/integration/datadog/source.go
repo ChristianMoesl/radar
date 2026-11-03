@@ -162,6 +162,10 @@ func observationFromMonitor(cfg connection, statuses []string, monitor monitor) 
 	if monitor.OverallStateModified > 0 {
 		metadata["state_changed_at"] = time.Unix(monitor.OverallStateModified, 0).UTC().Format(time.RFC3339)
 	}
+	var actions []string
+	if monitor.OverallStateModified > 0 || monitor.LastTriggeredUnix > 0 {
+		actions = []string{fmt.Sprintf("monitor:%d:%s:%d:%d", monitor.ID, strings.ToLower(monitor.Status), monitor.OverallStateModified, monitor.LastTriggeredUnix)}
+	}
 
 	title := strings.TrimSpace(monitor.Name)
 	if title == "" {
@@ -170,21 +174,22 @@ func observationFromMonitor(cfg connection, statuses []string, monitor monitor) 
 	monitorURL := fmt.Sprintf("%s/monitors/%d", cfg.AppBaseURL, monitor.ID)
 	return integration.Observation{
 		Ref: protocol.SourceRef{
-			ID:             id,
-			Source:         "datadog",
-			SourceLabel:    "Datadog",
-			Kind:           "monitor",
-			Role:           protocol.SourceRefRoleAuthoritative,
-			EntityID:       id,
-			Lifecycle:      protocol.SourceRefLifecycleWorkItem,
-			Authority:      protocol.SourceRefAuthorityContributing,
-			RetainInactive: true,
-			Title:          title,
-			URL:            monitorURL,
-			Status:         monitor.Status,
-			WorkflowState:  strings.ToLower(strings.TrimSpace(monitor.Status)) + ":" + metadata["state_changed_at"],
-			CanonicalKey:   id,
-			Metadata:       metadata,
+			ID:                id,
+			Source:            "datadog",
+			SourceLabel:       "Datadog",
+			Kind:              "monitor",
+			Role:              protocol.SourceRefRoleAuthoritative,
+			EntityID:          id,
+			Lifecycle:         protocol.SourceRefLifecycleWorkItem,
+			Authority:         protocol.SourceRefAuthorityContributing,
+			RetainInactive:    true,
+			Title:             title,
+			URL:               monitorURL,
+			Status:            monitor.Status,
+			WorkflowState:     strings.ToLower(strings.TrimSpace(monitor.Status)) + ":" + metadata["state_changed_at"],
+			CanonicalKey:      id,
+			Metadata:          metadata,
+			ActionableSignals: actions,
 		},
 		Signal: signal,
 		Reason: reason,

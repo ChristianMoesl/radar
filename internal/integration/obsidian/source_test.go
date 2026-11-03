@@ -71,7 +71,7 @@ func TestCreateCollectAndMutateTaskNote(t *testing.T) {
 	if err := os.WriteFile(notePath, []byte(updated), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.SetPriority(context.Background(), taskRef, "urgent"); err != nil {
+	if _, err := source.SetPriority(context.Background(), protocol.Task{SourceRefs: []protocol.SourceRef{taskRef}}, "urgent"); err != nil {
 		t.Fatal(err)
 	}
 	urgent := source.Collect(context.Background(), integration.CollectRequest{})
@@ -165,7 +165,7 @@ func TestMalformedAndDuplicateNotesArePartialAndPreserveKnownRefs(t *testing.T) 
 	if result.Complete || len(result.Observations) != 1 || strings.Contains(result.SourceStatus.Detail, "secret body") {
 		t.Fatalf("malformed collection = %+v", result)
 	}
-	if _, err := source.SetPriority(context.Background(), previous[0].SourceRefs[0], "urgent"); err == nil {
+	if _, err := source.SetPriority(context.Background(), protocol.Task{SourceRefs: []protocol.SourceRef{previous[0].SourceRefs[0]}}, "urgent"); err == nil {
 		t.Fatal("malformed note mutation succeeded")
 	}
 }

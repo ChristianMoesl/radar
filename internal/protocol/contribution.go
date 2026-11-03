@@ -22,6 +22,8 @@ func ProjectAttention(task Task, policy ContributionPolicy) (Task, bool) {
 		return task, true
 	}
 	done := task.Attention == "done"
+	priority, baseline := priorityPreference(task)
+	task.Priority = priority
 	visible := false
 	bestRank := -1
 	bestSignal, bestReason, bestID := "", "", ""
@@ -36,28 +38,12 @@ func ProjectAttention(task Task, policy ContributionPolicy) (Task, bool) {
 		if action == ContributionMute || ref.Presentation.Hidden {
 			continue
 		}
-		signal, reason := ref.Signal, ref.Status
-		if !done && ref.Authored && (ref.AgentReview || task.AgentReviewPending) && signal != "immediate" {
-			if task.Activity == ActivityIdle {
-				signal, reason = "attention", "Agent finished — review result"
-			} else {
-				signal, reason = "in_progress", "Agent working — completion held for review"
-			}
+		signal, reason, contributionVisible := effectiveContribution(task, ref)
+		if priority == "low" {
+			signal, reason, contributionVisible = lowPriorityContribution(task, ref)
 		}
-		if signal == "" {
-			// A resource with no urgency still represents visible local work.
-			// Never inherit a different source's cached attention signal.
-			signal = "low_priority"
-		}
-		if !done {
-			if ack := ref.Acknowledgement; ack != nil && task.AcknowledgementCursor != "" &&
-				!ack.Blocking && (ack.Cursor == "" || ack.Cursor <= task.AcknowledgementCursor) {
-				if ack.FallbackSignal != "" {
-					signal, reason = ack.FallbackSignal, ack.FallbackReason
-				} else if ack.HideWhenAcknowledged {
-					continue
-				}
-			}
+		if !contributionVisible {
+			continue
 		}
 		visible = true
 		if done {
@@ -77,6 +63,13 @@ func ProjectAttention(task Task, policy ContributionPolicy) (Task, bool) {
 				reason = "low priority: " + reason
 			}
 		}
+		// Apply whole-task Low only after acknowledgement and source filtering.
+		// An actionable new occurrence can break through without changing the
+		// preference. Ordinary activity and already-deferred actions cannot.
+		if priority == "low" && signal != "low_priority" &&
+			(contributionRank(signal) < contributionRank("attention") || !newActionableSignal(task, ref, baseline)) {
+			signal, reason = "low_priority", "Manual low priority"
+		}
 		rank := contributionRank(signal)
 		if rank > bestRank {
 			bestRank, bestSignal, bestReason, bestID = rank, signal, reason, ref.ID
@@ -93,6 +86,33 @@ func ProjectAttention(task Task, policy ContributionPolicy) (Task, bool) {
 		task.AttentionSourceRefID = bestID
 	}
 	return task, true
+}
+
+func effectiveContribution(task Task, ref SourceRef) (signal, reason string, visible bool) {
+	signal, reason = ref.Signal, ref.Status
+	done := task.Attention == "done"
+	if !done && ref.Authored && (ref.AgentReview || task.AgentReviewPending) && signal != "immediate" {
+		if task.Activity == ActivityIdle {
+			signal, reason = "attention", "Agent finished — review result"
+		} else {
+			signal, reason = "in_progress", "Agent working — completion held for review"
+		}
+	}
+	if signal == "" {
+		// A quiet resource never inherits another source's cached signal.
+		signal = "low_priority"
+	}
+	if !done {
+		if ack := ref.Acknowledgement; ack != nil && task.AcknowledgementCursor != "" &&
+			!ack.Blocking && (ack.Cursor == "" || ack.Cursor <= task.AcknowledgementCursor) {
+			if ack.FallbackSignal != "" {
+				signal, reason = ack.FallbackSignal, ack.FallbackReason
+			} else if ack.HideWhenAcknowledged {
+				return "", "", false
+			}
+		}
+	}
+	return signal, reason, true
 }
 
 func contributionRank(signal string) int {

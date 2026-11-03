@@ -16,7 +16,9 @@ type TaskAuthoringProvider interface {
 	// Explicit Done receives the latest known aggregate refs so its remote
 	// baseline is saved with the mutation, without collecting remote sources.
 	SetLifecycle(ctx context.Context, ref protocol.SourceRef, state string, contributors []protocol.SourceRef) (AuthoredTaskIdentity, error)
-	SetPriority(ctx context.Context, ref protocol.SourceRef, priority string) (AuthoredTaskIdentity, error)
+	// Priority captures the aggregate's current actions when selecting Low and
+	// can adopt source-only work through the ordinary durable binding path.
+	SetPriority(ctx context.Context, task protocol.Task, priority string) (AuthoredTaskIdentity, error)
 	PreviewDelete(ctx context.Context, ref protocol.SourceRef) (protocol.TaskDeletionPreview, error)
 	Delete(ctx context.Context, ref protocol.SourceRef, preview protocol.TaskDeletionPreview) (protocol.TaskDeletionResult, error)
 }

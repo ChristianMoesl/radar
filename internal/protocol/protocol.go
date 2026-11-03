@@ -159,7 +159,15 @@ type SourceRefAcknowledgement struct {
 }
 
 type SourceRef struct {
-	AgentID string `json:"agent_id,omitempty"`
+	// ActionableSignals identifies provider-owned action occurrences, considered
+	// only with an actionable contribution (including a pending handoff write).
+	// These are never polling timestamps, titles or generic resource activity.
+	ActionableSignals []string `json:"actionable_signals,omitempty"`
+	// LowPriorityBaseline is authored SQLite intent, never note metadata or an
+	// acknowledgement. Keys are stable source-ref IDs; values are occurrences
+	// explicitly deferred when the user last selected Low.
+	LowPriorityBaseline map[string][]string `json:"low_priority_baseline,omitempty"`
+	AgentID             string              `json:"agent_id,omitempty"`
 	// AgentReview is an authored hold: completion waits for explicit Done.
 	AgentReview  bool            `json:"agent_review,omitempty"`
 	BindingError string          `json:"binding_error,omitempty"`
@@ -204,6 +212,8 @@ type SourceRef struct {
 }
 
 type Task struct {
+	// Priority is the retained authored preference, not the effective category.
+	Priority string `json:"priority,omitempty"`
 	// AgentReviewPending means the canonical handoff write must be retried.
 	AgentReviewPending bool `json:"agent_review_pending,omitempty"`
 	// AttentionSourceRefID identifies the effective signal, not a filtered-out raw one.

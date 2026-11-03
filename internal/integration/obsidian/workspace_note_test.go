@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"radar/internal/integration"
+	"radar/internal/protocol"
 	"radar/internal/taskdb"
 )
 
@@ -113,7 +114,7 @@ func TestWorkspaceNoteSanitizesBeforePlanningAndCollects(t *testing.T) {
 			if ref.Title != strings.TrimSpace(title) || ref.Presentation.WorkspaceName != strings.TrimSpace(title) || ref.ID != desired.LinkingKey || ref.WorkspaceAnchorPath != desired.Path {
 				t.Fatalf("collected ref = %+v", ref)
 			}
-			if _, err := source.SetPriority(ctx, ref, "urgent"); err != nil {
+			if _, err := source.SetPriority(ctx, protocol.Task{SourceRefs: []protocol.SourceRef{ref}}, "urgent"); err != nil {
 				t.Fatalf("mutate sanitized note: %v", err)
 			}
 		})
@@ -202,7 +203,7 @@ func TestExistingNoteWithUnsanitizedNameRemainsUsable(t *testing.T) {
 	if !result.Complete || len(result.Observations) != 1 || result.Observations[0].Ref.Title != "Plan" {
 		t.Fatalf("existing note collection = %+v", result)
 	}
-	if _, err := source.SetPriority(ctx, result.Observations[0].Ref, "urgent"); err != nil {
+	if _, err := source.SetPriority(ctx, protocol.Task{SourceRefs: []protocol.SourceRef{result.Observations[0].Ref}}, "urgent"); err != nil {
 		t.Fatal(err)
 	}
 }

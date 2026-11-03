@@ -23,11 +23,11 @@ func TestReadActivityMatchesLiveTaskSessionsAndWorkspaceMembers(t *testing.T) {
 		}
 	}
 	workspace := protocol.Task{SourceRefs: []protocol.SourceRef{{Role: protocol.SourceRefRoleAuthoritative, ProvidesWorkspace: true, Path: "/work/task"}}}
-	write("$1\t0\tbusy\n$1\t0\twaiting\n$2\t0\tbusy\n")
+	write("$1\t0\tbusy\t%1\t\n$1\t0\twaiting\t%1\t\n$2\t0\tbusy\t%1\t\n")
 	if activity, err := (Source{}).ReadActivity(context.Background(), workspace); err != nil || activity != protocol.ActivityWaiting {
 		t.Fatalf("workspace activity=%s %v", activity, err)
 	}
-	write("$1\t1\twaiting\n$2\t0\tbusy\n")
+	write("$1\t1\twaiting\t%1\t\n$2\t0\tbusy\t%1\t\n")
 	if activity, err := (Source{}).ReadActivity(context.Background(), workspace); err != nil || activity != protocol.ActivityIdle {
 		t.Fatalf("dead/unrelated pane activity=%s %v", activity, err)
 	}

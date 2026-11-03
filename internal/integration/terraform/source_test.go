@@ -217,6 +217,9 @@ func TestRunOutcomesAndFailureReview(t *testing.T) {
 				if observation.Signal != integration.SignalAttention || observation.Ref.Acknowledgement == nil {
 					t.Fatal("failure not actionable")
 				}
+				if len(observation.Ref.ActionableSignals) != 1 || observation.Ref.ActionableSignals[0] != "failure:run-one:"+observation.Ref.Acknowledgement.Cursor {
+					t.Fatal("failure occurrence did not reuse the existing provider-owned review cursor")
+				}
 				previous := tasksFrom(result)
 				previous[0].AcknowledgementCursor = time.Now().UTC().Format(time.RFC3339)
 				reviewed := s.Collect(context.Background(), integration.CollectRequest{Previous: previous})

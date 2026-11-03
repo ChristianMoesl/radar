@@ -51,9 +51,20 @@ The multiplexer capability owns current-client detection, task target selection,
 
 `radar activity <idle|busy|waiting>` publishes generic runtime activity. Only this integration resolves `TMUX_PANE` and writes its `@radar_activity` option (`busy` or `waiting`), unsetting it for idle. Publication without a pane is a no-op. Invalid states are rejected. Collection ignores dead panes and reduces live pane states per session with `waiting > busy > idle`. Empty/unset state is idle. Malformed pane state reports a collection error rather than inventing activity.
 
+Pi also publishes an opaque ID for each real prompt lifetime using
+`radar activity --prompt-id <id> waiting`, repeating the option for overlapping
+sessions. IDs contain only ASCII letters, digits, hyphens or underscores (at most
+128 characters); prompt text is never sent. The integration stores their list in
+the pane's `@radar_prompt_ids` option and clears it on busy/idle publication.
+Collection attaches IDs only to live waiting panes. A new prompt can temporarily
+resurface a manually Low task, but repeated publication of the same prompt,
+busy/idle churn and child shutdown cannot fabricate a new request. Waiting without
+an ID remains a badge/veto. Restart existing Pi sessions after updating to load
+the new publisher; do not mix old and new extension versions within one process.
+
 Source refs expose typed `Activity`; task projection applies the same precedence across active authoritative refs without interpreting provider metadata. Current authoritative activity prevents a task from being projected done. The TUI shows amber `! waiting` instead of `● busy`, and details show `Activity: waiting`. Navigation and permission decisions remain in the existing session/agent workflow.
 
-The Pi adapter uses native `ui_prompt_start` / `ui_prompt_end` hooks (Pi >= 0.85.1), which span extension `confirm`, `select`, `input`, `editor`, and `custom` calls. Pi coalesces nested/overlapping prompts into a single span. The adapter tracks running and prompt-open independently per Pi session. Parent and in-process subagent extension instances share a process-wide activity map, publication queue, and deduplication state, including when Pi loads separate module instances. Contributions reduce with `waiting > busy > idle` before publication. Startup adds an idle contribution; shutdown removes only that session's contribution and republishes the aggregate. Neither can clear a busy or waiting parent/sibling. The pane is idle only when no contributing session is busy or waiting. Late events from a shut-down instance cannot restore activity. It publishes only state, never prompt text or answers. Failed commands remain best-effort and may retry on subsequent lifecycle events. Each CLI invocation requests a local refresh with a one-second socket deadline after publishing; a stopped/slow daemon does not fail the publication, and the regular local refresh remains available.
+The Pi adapter uses native `ui_prompt_start` / `ui_prompt_end` hooks (Pi >= 0.85.1), which span extension `confirm`, `select`, `input`, `editor`, and `custom` calls. Pi coalesces nested/overlapping prompts into a single span. The adapter tracks running and prompt-open independently per Pi session. Parent and in-process subagent extension instances share a process-wide activity map, publication queue, and deduplication state, including when Pi loads separate module instances. Contributions reduce with `waiting > busy > idle` before publication. Startup adds an idle contribution; shutdown removes only that session's contribution and republishes the aggregate. Neither can clear a busy or waiting parent/sibling. The pane is idle only when no contributing session is busy or waiting. Late events from a shut-down instance cannot restore activity. It publishes activity and opaque prompt identities, never prompt text or answers. Failed commands remain best-effort and may retry on subsequent lifecycle events. Each CLI invocation requests a local refresh with a one-second socket deadline after publishing; a stopped/slow daemon does not fail the publication, and the regular local refresh remains available.
 
 `ActivityReader` rechecks live sessions and pane states before automatic
 completion, explicit Done, and automatic cleanup. It matches stable session

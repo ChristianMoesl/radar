@@ -29,6 +29,30 @@ func (s *Service) SetMuted(ctx context.Context, taskID int, muted bool) (protoco
 	if !ok {
 		return protocol.Task{}, fmt.Errorf("%s task authoring integration does not support mute/unmute", author.Descriptor().Label)
 	}
+	return s.setPreference(ctx, taskID, author, "mute", muted, func(task protocol.Task) (integration.AuthoredTaskIdentity, error) {
+		return provider.SetMuted(ctx, task, muted)
+	}, func(task protocol.Task) bool { return task.Muted == muted })
+}
+
+func (s *Service) SetPriority(ctx context.Context, taskID int, priority string) (protocol.Task, error) {
+	if priority != "low" && priority != "normal" && priority != "urgent" {
+		return protocol.Task{}, fmt.Errorf("task priority must be low, normal or urgent")
+	}
+	author, err := s.integrations.TaskAuthoring()
+	if err != nil {
+		return protocol.Task{}, err
+	}
+	return s.setPreference(ctx, taskID, author, "priority", priority != "normal", func(task protocol.Task) (integration.AuthoredTaskIdentity, error) {
+		if task.Attention == "done" {
+			return integration.AuthoredTaskIdentity{}, fmt.Errorf("task %d is done and cannot change priority", taskID)
+		}
+		return author.SetPriority(ctx, task, priority)
+	}, func(task protocol.Task) bool {
+		return task.Priority == priority || (priority == "normal" && task.Priority == "")
+	})
+}
+
+func (s *Service) setPreference(ctx context.Context, taskID int, author integration.Source, kind string, requireIdentity bool, change func(protocol.Task) (integration.AuthoredTaskIdentity, error), matches func(protocol.Task) bool) (protocol.Task, error) {
 
 	s.applyMu.Lock()
 	defer s.applyMu.Unlock()
@@ -39,15 +63,15 @@ func (s *Service) SetMuted(ctx context.Context, taskID int, muted bool) (protoco
 	if !ok {
 		return protocol.Task{}, fmt.Errorf("task %d not found", taskID)
 	}
-	identity, err := provider.SetMuted(ctx, task, muted)
+	identity, err := change(task)
 	// An error can follow a successful note write. Fence in-flight refreshes on
 	// both success and failure, just as lifecycle and deletion mutations do.
 	s.authoringRevision++
 	if err != nil {
 		return protocol.Task{}, err
 	}
-	if muted && identity.SourceRefID == "" {
-		return protocol.Task{}, fmt.Errorf("task %d mute mutation did not return an authored identity", taskID)
+	if requireIdentity && identity.SourceRefID == "" {
+		return protocol.Task{}, fmt.Errorf("task %d %s mutation did not return an authored identity", taskID, kind)
 	}
 	result := collector.Collect(ctx, s.store.CollectionTasks(), s.logger, []integration.Source{author})
 	s.applyLocal(result)
@@ -59,19 +83,19 @@ func (s *Service) SetMuted(ctx context.Context, taskID int, muted bool) (protoco
 				break
 			}
 		}
-		return protocol.Task{}, fmt.Errorf("task mute preference could not be collected from %s: %s", author.Descriptor().Label, detail)
+		return protocol.Task{}, fmt.Errorf("task %s preference could not be collected from %s: %s", kind, author.Descriptor().Label, detail)
 	}
 	for _, current := range s.store.Tasks() {
-		matches := identity.SourceRefID == "" && current.ID == taskID
+		associated := identity.SourceRefID == "" && current.ID == taskID
 		for _, ref := range current.SourceRefs {
-			matches = matches || (identity.SourceRefID != "" && ref.ID == identity.SourceRefID)
+			associated = associated || (identity.SourceRefID != "" && ref.ID == identity.SourceRefID)
 		}
-		if matches {
-			if current.Muted != muted {
-				return protocol.Task{}, fmt.Errorf("task %d mute preference was not collected after mutation", taskID)
+		if associated {
+			if !matches(current) {
+				return protocol.Task{}, fmt.Errorf("task %d %s preference was not collected after mutation", taskID, kind)
 			}
 			return current, nil
 		}
 	}
-	return protocol.Task{}, fmt.Errorf("task %d was not collected after mute preference mutation", taskID)
+	return protocol.Task{}, fmt.Errorf("task %d was not collected after %s preference mutation", taskID, kind)
 }

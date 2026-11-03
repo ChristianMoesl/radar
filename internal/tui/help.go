@@ -47,6 +47,7 @@ var mainKeyHints = [][]keyHint{
 		{"m", "mute/unmute"},
 		{"D", "delete task"},
 		{"p", "urgent/normal"},
+		{"P", "task priority"},
 		{"o", "open link"},
 		{"i", "inspect"},
 	},
@@ -117,7 +118,7 @@ func (m model) mainHelpGroups() [][]keyHint {
 				}
 			case "p":
 				groups[0][i].action = "make urgent"
-				if ref.Metadata["priority"] == "urgent" {
+				if task.Priority == "urgent" {
 					groups[0][i].action = "make normal"
 				}
 			}
@@ -154,9 +155,11 @@ func (m model) mainHintAvailable(key string, task protocol.Task, selected bool) 
 		return selected
 	case "o":
 		return selected && len(taskLinks(task)) > 0
-	case "d", "D", "p":
+	case "p", "P":
+		return selected && task.Attention != "done" && prioritySupported(task)
+	case "d", "D":
 		_, authored := authoredTaskRef(task)
-		return selected && authored && (key != "p" || task.Attention != "done")
+		return selected && authored
 	default:
 		return true
 	}

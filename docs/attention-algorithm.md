@@ -65,6 +65,46 @@ Manual Done atomically saves the latest known workflow state of each linked cont
 
 The urgent database priority emits a primary immediate signal. Returning it to `normal` restores the current source-derived category. Priority cannot reopen done work, bypass the per-task muted display group, or generate an OS notification for the user’s own mutation. GitHub PR policy cannot suppress the note’s urgency.
 
+### Manual Low priority
+
+Task priority is `low | normal | urgent`. Low records the currently known
+actionable occurrences by stable source identity in the canonical SQLite task,
+not in note metadata or the resettable observation cache. It survives refreshes,
+restarts, cache resets, note renames and workspace cleanup. Source-only tasks reuse
+the same bound-note adoption as Mute; no workspace resources are created.
+
+The shared projection applies Low after source policy and acknowledgement. Known
+actions and ordinary In Progress contributions become Low Priority. A genuinely
+new, still-actionable occurrence can temporarily contribute Attention or
+Immediate while the retained priority remains Low. Resolving or acknowledging it
+under that source's existing rules removes the breakthrough. Setting Low again
+captures currently outstanding actions without invoking acknowledgement effects.
+It retains previously deferred occurrence identities when a source is missing or
+quiet, so an old request cannot become new merely by reappearing.
+Normal clears the deferral baseline; Urgent selects the existing urgent mode.
+
+Occurrence evidence is provider-owned: relevant GitHub reply/thread events,
+current viewer/team review-request events, Terraform action/failure cursors,
+Datadog trigger/state events, per-session Pi prompt lifetimes, and durable
+agent-result review generations. Repeated polling, PR merges alone, title edits,
+generic update timestamps and busy/idle churn do not create requests. Existing
+linked Jira status contributions can be deferred; ordinary workflow/status
+snapshots do not manufacture successive request events. Filters still suppress
+ignored/deprioritized activity. Missing native occurrence evidence is not a
+license to infer a new request from presentation changes.
+
+Waiting normally remains an activity badge and completion veto. For Low work,
+only a new identified prompt can temporarily raise the category; another session's
+prompt cannot replace the identity of a still-open parent prompt. Pending result
+review persistence and the subsequently saved review hold share one occurrence,
+and deferring either does not release its completion/cleanup veto.
+
+Incomplete or failed collection preserves an outstanding breakthrough and never
+erases the saved baseline or grants completeness. Done and Muted retain
+precedence; new activity does not unmute a task. Existing effective-category
+notifications apply to breakthroughs, not the user's own priority mutations.
+Inspect displays retained priority separately from the effective category.
+
 ## Agent-result handoff
 
 When an authored task would automatically complete while an agent is busy or

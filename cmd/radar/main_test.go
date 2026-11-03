@@ -147,11 +147,16 @@ github:
 }
 
 func TestActivityPublishesAndRequestsOnlyLocalRefresh(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "radar-activity-")
+	// Keep the socket path short without requiring executable global /tmp.
+	dir, err := os.MkdirTemp(".", ".radar-activity-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
+	dir, err = filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(dir, "s")
 	output := filepath.Join(dir, "args")
 	t.Setenv("RADAR_SOCKET", path)
@@ -182,7 +187,11 @@ func TestActivityPublishesAndRequestsOnlyLocalRefresh(t *testing.T) {
 		}
 	}()
 	for _, activity := range []string{"busy", "waiting", "idle"} {
-		runActivity([]string{activity})
+		args := []string{activity}
+		if activity == "waiting" {
+			args = []string{"--prompt-id", "prompt-one", "--prompt-id", "prompt-two", activity}
+		}
+		runActivity(args)
 		select {
 		case request := <-requests:
 			if request.Method != "refresh-local" {
@@ -194,6 +203,9 @@ func TestActivityPublishesAndRequestsOnlyLocalRefresh(t *testing.T) {
 		data, err := os.ReadFile(output)
 		if err != nil || !strings.Contains(string(data), "@radar_activity") {
 			t.Fatalf("pane publication = %q, %v", data, err)
+		}
+		if activity == "waiting" && !strings.Contains(string(data), "prompt-one,prompt-two") {
+			t.Fatal("CLI discarded provider-owned prompt identities")
 		}
 	}
 	// An absent daemon must not make a successful pane publication fail.

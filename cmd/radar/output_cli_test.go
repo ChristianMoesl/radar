@@ -190,6 +190,7 @@ func TestOutputCLIDaemonCommands(t *testing.T) {
 		{[]string{"task", "mute", "42"}, "Task 42: CLI fixture", false},
 		{[]string{"task", "unmute", "42"}, "Task 42: CLI fixture", false},
 		{[]string{"task", "priority", "42", "urgent"}, "Task 42: CLI fixture", false},
+		{[]string{"task", "priority", "42", "low"}, "Task 42: CLI fixture", false},
 		{[]string{"task", "delete", "42"}, "Deleted authored task 42", true},
 		{[]string{"cleanup", "42"}, "Cleaned up 0 local resource(s)", true},
 	} {

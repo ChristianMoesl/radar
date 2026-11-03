@@ -31,7 +31,7 @@ func mainRailGroups() []railGroup {
 		{title: "Selected task"},
 		{title: "Global", hints: []keyHint{byKey["n"]}},
 	}
-	for _, key := range []string{"enter", "o", "i", "d", "m", "p", "w", "x", "D"} {
+	for _, key := range []string{"enter", "o", "i", "d", "m", "p", "P", "w", "x", "D"} {
 		groups[1].hints = append(groups[1].hints, byKey[key])
 	}
 	for _, hint := range mainKeyHints[1] {

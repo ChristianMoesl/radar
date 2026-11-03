@@ -112,6 +112,7 @@ func taskDetailViewAt(task protocol.Task, width int, now time.Time) string {
 	// The fixed heading is abbreviated; retain the full title in the body.
 	appendDetailLine("Title", task.Title)
 	appendDetailLine("Status", task.Attention)
+	appendDetailLine("Priority", task.Priority)
 	appendDetailLine("Muted", fmt.Sprint(task.Muted))
 	if task.DisplayGroup() != task.Attention {
 		appendDetailLine("Section", task.DisplayGroup())

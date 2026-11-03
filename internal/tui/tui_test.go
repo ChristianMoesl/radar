@@ -253,7 +253,7 @@ func TestTextInputsAcceptSpaceKey(t *testing.T) {
 }
 
 func authoredTaskForTUITest(state, priority, attention string) protocol.Task {
-	return protocol.Task{ID: 7, Attention: attention, SourceRefs: []protocol.SourceRef{{
+	return protocol.Task{ID: 7, Priority: priority, Attention: attention, SourceRefs: []protocol.SourceRef{{
 		ID: "obsidian:task:test", Source: "obsidian", Kind: "task", Role: protocol.SourceRefRoleAuthoritative,
 		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary,
 		Authored: true, Metadata: map[string]string{"state": state, "priority": priority},

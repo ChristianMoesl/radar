@@ -158,7 +158,7 @@ case "$*" in
 esac`)
 	cache := map[string]bool{}
 	for i := 0; i < 2; i++ {
-		if err := prepareMergedReview(context.Background(), &pr, "me", mergedReviewSettings().ReviewRequests, now, cache, testLogger()); err != nil {
+		if err := prepareReviewRequests(context.Background(), &pr, "me", mergedReviewSettings().ReviewRequests, now, cache, testLogger()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -448,7 +448,7 @@ func TestDirectMergedReviewDoesNotRequireUnrelatedTeamMembership(t *testing.T) {
 	team.RequestedReviewer = user{Type: "Team", NodeID: "unrelated"}
 	pr.ReviewRequests.Nodes = append(pr.ReviewRequests.Nodes, team)
 	installFakeGH(t, "#!/bin/sh\necho 'membership lookup must not be needed' >&2; exit 1\n")
-	if err := prepareMergedReview(context.Background(), &pr, "me", mergedReviewSettings().ReviewRequests, now, nil, testLogger()); err != nil {
+	if err := prepareReviewRequests(context.Background(), &pr, "me", mergedReviewSettings().ReviewRequests, now, nil, testLogger()); err != nil {
 		t.Fatal(err)
 	}
 	if pending, err := outstandingMergedReview(pr, "me"); err != nil || !pending {

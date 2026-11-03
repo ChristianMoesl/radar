@@ -2,6 +2,7 @@ package obsidian
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -20,11 +21,18 @@ import (
 // bound-note write share the existing note lock, including retries after a
 // successful write whose subsequent collection/publication failed.
 func (s Source) SetMuted(ctx context.Context, task protocol.Task, muted bool) (integration.AuthoredTaskIdentity, error) {
+	return s.setTaskPreference(ctx, task, &muted, "")
+}
+
+// Mute and priority use one adoption/binding transaction. Neither provisions a
+// workspace or rewrites the note body, lifecycle, acknowledgement or other
+// preference. Setting Low again explicitly captures the outstanding actions.
+func (s Source) setTaskPreference(ctx context.Context, task protocol.Task, muted *bool, priority string) (integration.AuthoredTaskIdentity, error) {
 	// An explicit authored identity is enough to clear an existing preference
 	// when a supporting resource's lifetime is temporarily unreadable. Never
 	// use that resource's unsafe raw identity to discover or adopt a note.
 	requireIdentity := true
-	if !muted {
+	if (muted != nil && !*muted) || priority == "normal" {
 		for _, ref := range task.SourceRefs {
 			if ref.Role == protocol.SourceRefRoleAuthoritative && ref.Source == "obsidian" && ref.Kind == "task" && ref.Authority == protocol.SourceRefAuthorityPrimary {
 				requireIdentity = false
@@ -40,6 +48,23 @@ func (s Source) SetMuted(ctx context.Context, task protocol.Task, muted bool) (i
 		return integration.AuthoredTaskIdentity{}, err
 	}
 	var identity integration.AuthoredTaskIdentity
+	adopt := (muted != nil && *muted) || (priority != "" && priority != "normal")
+	updates := map[string]string{}
+	if muted != nil {
+		updates["muted"] = strconv.FormatBool(*muted)
+	}
+	if priority != "" {
+		updates["priority"] = priority
+		var baseline map[string][]string
+		if priority == "low" {
+			baseline = protocol.CaptureLowPriorityBaseline(task)
+		}
+		data, err := json.Marshal(baseline)
+		if err != nil {
+			return identity, err
+		}
+		updates["low_priority_baseline"] = string(data)
+	}
 	err = workspacegroup.WithNoteLock(root, func() error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -48,13 +73,27 @@ func (s Source) SetMuted(ctx context.Context, task protocol.Task, muted bool) (i
 		if err != nil {
 			return err
 		}
+		if priority != "" {
+			// Priority retains the existing explicit-ref path/identity validation
+			// (including stale renamed paths) before reusing bound-note adoption.
+			for _, ref := range task.SourceRefs {
+				if ref.Authored || (ref.Source == "obsidian" && ref.Authority == protocol.SourceRefAuthorityPrimary) {
+					if _, err := s.noteForRef(ref); err != nil {
+						return err
+					}
+				}
+			}
+		}
 		current, err := associatedNote(vault, task, bindings)
 		if err != nil {
 			return err
 		}
+		if priority != "" && (task.Attention == "done" || (current != nil && current.State == "done")) {
+			return fmt.Errorf("done task cannot change priority")
+		}
 		if current == nil {
 			// Clearing a preference that has never been authored is a true no-op.
-			if !muted {
+			if !adopt {
 				return nil
 			}
 			if len(bindings) == 0 {
@@ -66,7 +105,7 @@ func (s Source) SetMuted(ctx context.Context, task protocol.Task, muted bool) (i
 			}
 
 			prepared := newTaskNote(desired)
-			updates := map[string]string{"muted": "true", "bindings": encodeBindings(bindings)}
+			updates["bindings"] = encodeBindings(bindings)
 			if task.Attention == "done" {
 				completed := task.DoneAt
 				if completed == "" {
@@ -88,11 +127,10 @@ func (s Source) SetMuted(ctx context.Context, task protocol.Task, muted bool) (i
 			return nil
 		}
 		identity.SourceRefID = "obsidian:task:" + current.ID
-		updates := map[string]string{}
-		if current.Muted != muted {
-			updates["muted"] = strconv.FormatBool(muted)
+		if muted != nil && current.Muted == *muted {
+			delete(updates, "muted")
 		}
-		if muted {
+		if adopt {
 			merged, changed := mergeBindings(current.Bindings, bindings)
 			if changed || !current.Adopted {
 				updates["bindings"] = encodeBindings(merged)

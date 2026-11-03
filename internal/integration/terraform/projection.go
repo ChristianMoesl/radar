@@ -64,15 +64,19 @@ func (s Source) observe(ctx context.Context, session session, cfg settings.Confi
 	} else {
 		metadata["run_type"] = "plan and apply"
 	}
-	if failure {
-		cursor := created.UTC().Format(time.RFC3339)
-		for _, stamp := range attrs.Timestamps {
-			if at, err := time.Parse(time.RFC3339, stamp); err == nil && at.After(created) {
-				created = at
-				cursor = at.UTC().Format(time.RFC3339)
-			}
+	eventAt := created
+	for _, stamp := range attrs.Timestamps {
+		if at, err := time.Parse(time.RFC3339, stamp); err == nil && at.After(eventAt) {
+			eventAt = at
 		}
+	}
+	cursor := eventAt.UTC().Format(time.RFC3339)
+	if signal == integration.SignalAttention || signal == integration.SignalImmediate {
+		ref.ActionableSignals = []string{"run-action:" + run.ID + ":" + attrs.Status + ":" + cursor}
+	}
+	if failure {
 		metadata["failure_cursor"] = cursor
+		ref.ActionableSignals = []string{"failure:" + run.ID + ":" + cursor}
 		reviewed := false
 		for _, task := range req.Previous {
 			for _, previous := range task.SourceRefs {

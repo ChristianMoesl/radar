@@ -31,8 +31,8 @@ func TestParseSessions(t *testing.T) {
 }
 
 func TestParseSessionActivities(t *testing.T) {
-	output := "$1\t0\tbusy\n$1\t0\twaiting\n$1\t0\tbusy\n$2\t0\t\n$3\t0\tidle\n$4\t1\twaiting\n$5\t0\tbusy\n$6\t0\twaiting\n$6\t0\tidle\n"
-	activities, err := parseSessionActivities(output)
+	output := "$1\t0\tbusy\t%1\t\n$1\t0\twaiting\t%1\t\n$1\t0\tbusy\t%1\t\n$2\t0\t\t%1\t\n$3\t0\tidle\t%1\t\n$4\t1\twaiting\t%1\t\n$5\t0\tbusy\t%1\t\n$6\t0\twaiting\t%1\t\n$6\t0\tidle\t%1\t\n"
+	activities, _, err := parseSessionActivities(output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestParseSessionActivities(t *testing.T) {
 		}
 	}
 	// Collection is a fresh snapshot, not a latch of previous waiting state.
-	activities, err = parseSessionActivities("$1\t0\tbusy\n")
+	activities, _, err = parseSessionActivities("$1\t0\tbusy\t%1\t\n")
 	if err != nil || activities["$1"] != protocol.ActivityBusy {
 		t.Fatalf("activities = %v, error = %v", activities, err)
 	}
@@ -54,7 +54,7 @@ func TestParseSessionActivities(t *testing.T) {
 
 func TestParseSessionActivitiesRejectsMalformedOutput(t *testing.T) {
 	for _, output := range []string{"$1\t0\twaiting\textra\n", "$1\t0\tinvalid\n"} {
-		if _, err := parseSessionActivities(output); err == nil {
+		if _, _, err := parseSessionActivities(output); err == nil {
 			t.Fatalf("accepted malformed output %q", output)
 		}
 	}
