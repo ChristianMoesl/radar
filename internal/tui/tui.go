@@ -2229,7 +2229,7 @@ func taskLine(task protocol.Task, selected bool, width int) string {
 	if badges == "" {
 		return truncateLine(title, width)
 	}
-	// Keep resource counts and the unresolved warning visible even for long titles.
+	// Keep the remaining badges visible even for long titles.
 	title = truncateLine(title, max(1, width-lipgloss.Width(badges)-2))
 	badgeStyle := textStyle
 	if selected {
@@ -2275,20 +2275,10 @@ func overviewSourceRefs(task protocol.Task) []protocol.SourceRef {
 }
 
 func taskResourceBadges(task protocol.Task) string {
-	notes := 0
-	for _, ref := range task.SourceRefs {
-		if resourceIcon(ref) == obsidianIcon {
-			notes++
-		}
-	}
-	var badges []string
-	if notes > 0 {
-		badges = append(badges, fmt.Sprintf("%s %d", obsidianIcon, notes))
-	}
 	if len(cleanup.Unresolved(task)) > 0 {
-		badges = append(badges, attentionStyle.Render(unresolvedIcon+" unresolved"))
+		return attentionStyle.Render(unresolvedIcon + " unresolved")
 	}
-	return strings.Join(badges, " ")
+	return ""
 }
 
 func displayTaskReason(task protocol.Task) string {

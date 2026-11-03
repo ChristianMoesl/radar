@@ -103,7 +103,7 @@ func TestPortProjectionDeduplicatesWithoutMutatingResourceActions(t *testing.T) 
 	if !reflect.DeepEqual(task.SourceRefs[len(task.SourceRefs)-1].Presentation.PortForwards, before) {
 		t.Fatal("rendering changed configured forwards")
 	}
-	for _, icon := range []string{gitWorktreeIcon, sandboxIcon, tmuxIcon} {
+	for _, icon := range []string{gitWorktreeIcon, sandboxIcon, tmuxIcon, obsidianIcon} {
 		if strings.Contains(ansi.Strip(taskLine(task, false, 140)), icon) {
 			t.Fatalf("removed overview badge %s is still visible", icon)
 		}
@@ -119,7 +119,7 @@ func TestLongPortListsTruncateOnlyOverviewAndRetainOtherBadges(t *testing.T) {
 	for _, width := range []int{60, 80, 100} {
 		for _, selected := range []bool{false, true} {
 			row := ansi.Strip(taskLine(task, selected, width))
-			for _, want := range []string{portIcon, "10000", "…", obsidianIcon + " 1", unresolvedIcon + " unresolved"} {
+			for _, want := range []string{portIcon, "10000", "…", unresolvedIcon + " unresolved"} {
 				if !strings.Contains(row, want) {
 					t.Fatalf("width %d: lost %q in %s", width, want, row)
 				}
