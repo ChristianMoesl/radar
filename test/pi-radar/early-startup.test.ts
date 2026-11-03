@@ -154,7 +154,7 @@ async function fixture(t: TestContext, initiallyPresent = false) {
   const workspace = join(root, "workspace");
   const shared = join(root, "shared");
   const bin = join(root, "bin");
-  for (const directory of [agent, workspace, shared, bin]) await mkdir(directory, { recursive: true });
+  for (const directory of [agent, workspace, shared, bin]) await mkdir(directory, { recursive: true, mode: 0o700 });
   const discoveryGate = join(root, "discovery-released");
   const appearanceGate = join(root, "sandbox-appeared");
   const readinessGate = join(root, "readiness-released");
@@ -257,6 +257,8 @@ require('node:module').syncBuiltinESMExports();
   // assistant streaming and tool calls flow through Pi's normal agent loop.
   const probe = join(root, "offline-model.ts");
   await writeFile(probe, `import { appendFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 export default function(pi) {
   let counter = 0;
@@ -296,6 +298,11 @@ export default function(pi) {
   });
   pi.registerCommand('fixture-snapshot', {description: 'Fixture runtime metadata', handler: async (_args, ctx) => {
     writeFileSync(${JSON.stringify(snapshot)}, JSON.stringify({tools: pi.getAllTools(), active: pi.getActiveTools(), commands: pi.getCommands(), sessionId: ctx.sessionManager.getSessionId(), tmpdir: process.env.TMPDIR}));
+  }});
+  pi.registerCommand('fixture-clipboard', {description: 'Fixture clipboard path at paste time', handler: async () => {
+    const path = join(tmpdir(), 'pi-clipboard-first.png');
+    writeFileSync(path, Buffer.from('89504e470d0a1a0a', 'hex'));
+    writeFileSync(${JSON.stringify(snapshot)}, JSON.stringify({path, hostTemp: process.env.RADAR_HOST_TMPDIR}));
   }});
 }
 `);
@@ -376,7 +383,7 @@ test("real offline Pi talks before discovery, fails closed while absent/initiali
   assert.equal((await h.records()).some(record => record.kind === "discovery-result"), false,
     "the first actual model turn must finish while SBX discovery is deliberately held");
   const original = await h.assertProvenance(); // Also proves the real release passes the launch guard.
-  assert.equal(original.tmpdir, h.root);
+  assert.equal(original.tmpdir, h.shared, "private host clipboard storage must not wait for sandbox discovery");
 
   await writeFile(h.discoveryGate, "released");
   const absentDiscovery = await h.waitSbx("discovery-result");
@@ -442,6 +449,27 @@ test("real offline Pi talks before discovery, fails closed while absent/initiali
   assert.equal(h.client.events.some(event => event.type === "extension_ui_request" && event.method === "confirm"), false);
   await h.assertClean();
   t.diagnostic(`fixture launch-to-first-completed-conversation: ${(first.completedAt - h.client.launchedAt).toFixed(0)}ms; SBX readiness deliberately withheld for ${(readinessReleasedAt - h.client.launchedAt).toFixed(0)}ms; absent/initializing tool waits: ${absentTool.elapsedMs.toFixed(0)}/${pendingTool.elapsedMs.toFixed(0)}ms (not a performance threshold)`);
+});
+
+test("real offline Pi saves its first clipboard-path fixture after idle readiness without a model turn", { timeout: 30000 }, async t => {
+  const h = await fixture(t, true);
+  await h.waitStatus("initializing");
+  const initial = await h.metadata();
+  assert.equal(initial.tmpdir, h.shared);
+  const before = (await jsonLines(h.radarLog)).filter(call => call.args.includes("--resources-only")).length;
+  assert.deepEqual(await jsonLines(h.providerLog), [], "no initial agent turn is allowed");
+  await writeFile(h.readinessGate, "released");
+  await h.waitStatus("sbx: fixture-workspace");
+  await h.client.request("prompt", { message: "/fixture-clipboard" });
+  const clipboard = JSON.parse(await readFile(join(h.root, "snapshot.json"), "utf8"));
+  assert.equal(clipboard.path, join(h.shared, "pi-clipboard-first.png"));
+  assert.equal(clipboard.hostTemp, h.root);
+  assert.equal((await readFile(clipboard.path)).toString("hex"), "89504e470d0a1a0a");
+  assert.deepEqual(await jsonLines(h.providerLog), []);
+  assert.equal((await jsonLines(h.radarLog)).filter(call => call.args.includes("--resources-only")).length, before,
+    "idle readiness and paste must not need another Radar inspection or reload");
+  assert.equal((await h.records()).some(record => record.kind === "worker-request"), false);
+  await h.assertClean();
 });
 
 test("real offline Pi's first conversational turn also completes when SBX is already initializing at startup", { timeout: 30000 }, async t => {

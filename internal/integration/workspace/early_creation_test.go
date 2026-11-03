@@ -174,6 +174,14 @@ func earlyCreationResources(root, anchor string, members int) (workspacegroup.Wo
 			return group, fmt.Errorf("host resource %s missing: %w", path, err)
 		}
 	}
+	// Clipboard selection is independent of later live mount readiness. Both
+	// private host directories must already be usable at the actual Pi launch.
+	for _, path := range []string{filepath.Dir(group.Sandbox.SharedDirectory), group.Sandbox.SharedDirectory} {
+		info, err := os.Lstat(path)
+		if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+			return group, fmt.Errorf("early clipboard storage is not a private directory: %s: %v", path, err)
+		}
+	}
 	return group, nil
 }
 

@@ -5,8 +5,9 @@ import { reportLoadedVersion } from "./runtime-version.ts";
 import { showReloadNotice } from "./reload-notice.ts";
 import { homedir, tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { constants } from "node:fs";
+import { access, lstat, readdir, readFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -101,6 +102,23 @@ type WorkspaceResourcesResult = {
 
 const ProcessSharedDirectoriesKey = Symbol.for("@christianmoesl/pi-radar/shared-directories");
 
+// Runtime preparation creates this recorded host resource before early Pi
+// launch. Clipboard storage does not need the live SBX mount yet; sandbox tools
+// still require their independently observed readiness. Never create a path or
+// select a shared/symlinked/foreign directory just because the registry names it.
+async function hostSharedDirectoryReady(directory: string): Promise<boolean> {
+  if (!isAbsolute(directory) || resolve(directory) !== directory) return false;
+  try {
+    const entries = await Promise.all([lstat(dirname(directory)), lstat(directory)]);
+    const uid = process.getuid?.();
+    if (uid === undefined || entries.some(info => !info.isDirectory() || info.uid !== uid || (info.mode & 0o777) !== 0o700)) return false;
+    await access(directory, constants.W_OK | constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // In-process subagents and independently loaded modules share process.env.
 // Each extension may release only its own directory, not another live session's.
 function sharedDirectoryTracker() {
@@ -108,10 +126,9 @@ function sharedDirectoryTracker() {
   const directories = shared[ProcessSharedDirectoriesKey] ??= new Map<symbol, string>();
   const session = Symbol("Radar shared directory session");
   let stopped = false;
+  let revision = 0;
 
-  function configure(context: WorkspaceResourcesResult | undefined) {
-    if (stopped) return;
-    const directory = context?.sandbox?.shared_directory_ready ? context.sandbox.shared_directory : undefined;
+  function select(directory: string | undefined) {
     directories.delete(session);
     if (directory) {
       // Change only Pi's host process, not tmux or Linux tools in SBX. Preserve
@@ -124,11 +141,22 @@ function sharedDirectoryTracker() {
     else if (process.env.RADAR_HOST_TMPDIR) process.env.TMPDIR = process.env.RADAR_HOST_TMPDIR;
   }
 
+  async function configure(context: WorkspaceResourcesResult | undefined) {
+    if (stopped) return;
+    const requested = ++revision;
+    const path = context?.sandbox?.shared_directory;
+    const directory = path && await hostSharedDirectoryReady(path) ? path : undefined;
+    if (stopped || requested !== revision) return;
+    select(directory);
+  }
+
   return {
     configure,
     shutdown() {
-      configure(undefined);
+      if (stopped) return;
       stopped = true;
+      revision++;
+      select(undefined);
     },
   };
 }
@@ -448,7 +476,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
     try {
       sandboxRoutingAccepted=false;
       knownContext = await inspectWorkspaceResources(pi, event.cwd);
-      sharedDirectory.configure(knownContext);
+      await sharedDirectory.configure(knownContext);
       feedback.update(knownContext, ctx);
       requireSandboxRouting(knownContext);
       const discovered = await discoverResources(knownContext, (message, level) => ctx.ui.notify(message, level));
@@ -460,7 +488,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
       pi.appendEntry(ResourceEntry, resources);
       return { skillPaths: resources.skillPaths };
     } catch (error) {
-      sharedDirectory.configure(undefined);
+      await sharedDirectory.configure(undefined);
       if (event.reason === "reload") ctx.ui.notify(`Radar workspace resource refresh failed; keeping the previous resource set: ${error instanceof Error ? error.message : error}`, "warning");
       return { skillPaths: previousResources.skillPaths };
     }
@@ -476,7 +504,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
     try {
       sandboxRoutingAccepted=false;
       knownContext = await inspectWorkspaceResources(pi, ctx.cwd, ctx.signal);
-      sharedDirectory.configure(knownContext);
+      await sharedDirectory.configure(knownContext);
       feedback.update(knownContext, ctx);
       requireSandboxRouting(knownContext);
       const resources = await discoverResources(knownContext);
@@ -491,7 +519,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
       const guidelines = [
         "Radar workspace instructions:",
         knownContext.sandbox?.shared_directory_ready ? `- Shared host/sandbox directory: ${knownContext.sandbox.shared_directory}. It is mounted read/write at the same absolute path in both environments. Save and share screenshots here (use unique filenames), not /tmp/screenshots. Pi saves pasted clipboard images here. Keep the sandbox's TMPDIR and /tmp local; pass the shared output path explicitly to screenshot tools. These files are temporary and are removed during workspace cleanup; copy anything worth retaining into the workspace.` : "",
-        knownContext.sandbox && !knownContext.sandbox.shared_directory_ready ? "- The workspace shared screenshot directory is not ready. Reconcile the workspace and reload Pi before using it; do not assume host temporary paths are accessible in the sandbox." : "",
+        knownContext.sandbox && !knownContext.sandbox.shared_directory_ready ? "- The workspace shared screenshot directory is not ready in the sandbox yet. Let provisioning finish; inspect/reconcile the workspace if it failed. Do not assume host temporary paths are accessible or request host execution to copy images." : "",
         knownContext.note ? `- notes.md is the canonical Obsidian task note at ${knownContext.note.path}. Its body may be empty. Do not invent a template unless the user asks or the work requires one.` : "",
         knownContext.note ? "- notes.md contains user and agent content. Radar task identity, title, lifecycle, priority and preferences live in SQLite. Read the existing note before editing and preserve user content and user-owned frontmatter unless the requested edit changes them. Do not add radar-* metadata or replace the whole note with a summary or template." : "",
         knownContext.note ? "- Change task state through Radar commands, not Markdown metadata. Use radar task title for the display title, and radar task done/reopen/priority/mute/unmute for task decisions. Missing frontmatter is normal." : "",
@@ -501,7 +529,7 @@ function activateRadar(pi: ExtensionAPI, ctx: ExtensionContext) {
       ].filter(Boolean).join("\n");
       return { systemPrompt: [event.systemPrompt, guidelines, feedback.instructions(), radarInstructions, ...blocks].filter(Boolean).join("\n\n") };
     } catch {
-      sharedDirectory.configure(undefined);
+      await sharedDirectory.configure(undefined);
       if (radarInstructions || feedback.instructions()) return { systemPrompt: [event.systemPrompt, feedback.instructions(), radarInstructions].filter(Boolean).join("\n\n") };
       return undefined;
     }

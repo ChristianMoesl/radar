@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -307,10 +307,81 @@ test("does not hide collisions inside the first worktree when another copy exist
   assert.deepEqual(h.notices, [`Radar did not load duplicate skill shared: ${paths[0]}, ${paths[1]}`]);
 });
 
+for (const readyBeforePaste of [false, true]) {
+  test(`first clipboard image uses shared storage before any turn (mount ready: ${readyBeforePaste})`, async t => {
+    const h = await harness(t);
+    const shared = join(h.root, "shared");
+    await mkdir(shared, { mode: 0o700 });
+    h.setContext({ members: [], sandbox: { name: "fixture", shared_directory: shared, shared_directory_ready: false } });
+    await h.start();
+    await h.resources();
+    if (readyBeforePaste) {
+      // SBX becomes available while the initial prompt stays idle. No turn,
+      // resource reload, context query or notification reaches Radar here.
+      h.setContext({ members: [], sandbox: { name: "fixture", shared_directory: shared, shared_directory_ready: true } });
+    }
+    const calls = h.calls.length;
+    // Pi's native clipboard handler chooses os.tmpdir() at paste time.
+    const image = join(tmpdir(), "pi-clipboard-first.png");
+    await writeFile(image, "first screenshot bytes");
+    assert.equal(image, join(shared, "pi-clipboard-first.png"));
+    assert.equal(await readFile(join(shared, "pi-clipboard-first.png"), "utf8"), "first screenshot bytes");
+    assert.equal(h.calls.length, calls, "pasting must not require a readiness poll or prior turn");
+    assert.equal(process.env.RADAR_HOST_TMPDIR, h.root);
+  });
+}
+
+for (const unsafe of ["missing", "shared-child", "shared-parent", "child-link", "parent-link", "relative", "noncanonical"]) {
+  test(`clipboard selection rejects ${unsafe} storage even with a ready mount claim`, async t => {
+    const h = await harness(t);
+    const parent = join(h.root, "exchange");
+    await mkdir(parent, { mode: unsafe === "shared-parent" ? 0o755 : 0o700 });
+    let shared = join(parent, "shared");
+    if (unsafe === "child-link") {
+      const target = join(parent, "target");
+      await mkdir(target, { mode: 0o700 });
+      await symlink(target, shared);
+    } else if (unsafe !== "missing") {
+      await mkdir(shared, { mode: unsafe === "shared-child" ? 0o755 : 0o700 });
+    }
+    if (unsafe === "parent-link") {
+      const link = join(h.root, "link");
+      await symlink(parent, link);
+      shared = join(link, "shared");
+    }
+    if (unsafe === "relative") shared = "relative/shared";
+    if (unsafe === "noncanonical") shared = parent + "/./shared";
+    h.setContext({ members: [], sandbox: { shared_directory: shared, shared_directory_ready: true } });
+    await h.start();
+    await h.resources();
+    assert.equal(tmpdir(), h.root);
+    assert.equal(process.env.RADAR_HOST_TMPDIR, undefined);
+    if (unsafe === "missing") await assert.rejects(lstat(shared), { code: "ENOENT" });
+  });
+}
+
+test("late clipboard validation cannot reclaim TMPDIR after shutdown or a newer refresh", async t => {
+  const h = await harness(t);
+  const first = join(h.root, "first"), second = join(h.root, "second");
+  await mkdir(first, { mode: 0o700 });
+  await mkdir(second, { mode: 0o700 });
+  await h.start();
+  h.setContext({ members: [], sandbox: { shared_directory: first, shared_directory_ready: false } });
+  const older = h.resources();
+  h.setContext({ members: [], sandbox: { shared_directory: second, shared_directory_ready: false } });
+  const newer = h.resources("reload");
+  await Promise.all([older, newer]);
+  assert.equal(tmpdir(), second);
+  const pending = h.resources("reload");
+  await h.emit("session_shutdown");
+  await pending;
+  assert.equal(tmpdir(), h.root);
+});
+
 test("restores shared TMPDIR before Pi replaces the session", async (t) => {
   const h = await harness(t);
   const shared = join(h.root, "shared");
-  await mkdir(shared);
+  await mkdir(shared, { mode: 0o700 });
   h.setContext({ members: [], sandbox: { shared_directory: shared, shared_directory_ready: true } });
   await h.start();
   await h.resources();
@@ -323,7 +394,7 @@ test("restores shared TMPDIR before Pi replaces the session", async (t) => {
 test("subagent shutdown keeps clipboard images in the parent's shared directory", async (t) => {
   const h = await harness(t);
   const shared = join(h.root, "shared");
-  await mkdir(shared);
+  await mkdir(shared, { mode: 0o700 });
   h.setContext({ members: [], sandbox: { shared_directory: shared, shared_directory_ready: true } });
   await h.start();
   await h.resources();
@@ -351,7 +422,7 @@ test("subagent shutdown keeps clipboard images in the parent's shared directory"
 test("a peer without a ready shared directory does not reset the parent's TMPDIR", async (t) => {
   const h = await harness(t);
   const shared = join(h.root, "shared");
-  await mkdir(shared);
+  await mkdir(shared, { mode: 0o700 });
   h.setContext({ members: [], sandbox: { shared_directory: shared, shared_directory_ready: true } });
   await h.start();
   await h.resources();
@@ -369,8 +440,8 @@ test("a peer without a ready shared directory does not reset the parent's TMPDIR
 test("old session shutdown does not clear a replacement's shared directory", async (t) => {
   const h = await harness(t);
   const first = join(h.root, "first"), second = join(h.root, "second");
-  await mkdir(first);
-  await mkdir(second);
+  await mkdir(first, { mode: 0o700 });
+  await mkdir(second, { mode: 0o700 });
   h.setContext({ members: [], sandbox: { shared_directory: first, shared_directory_ready: true } });
   await h.start();
   await h.resources();

@@ -15,7 +15,12 @@ func TestRadarExtensionConfiguresSharedDirectoryOnStartupReloadAndSwitch(t *test
 	if err != nil {
 		t.Skip("node is required for the extension runtime test")
 	}
-	dir := t.TempDir()
+	// Match the private host temp root used by runtime preparation, rather
+	// than relying on testing.TempDir's child-directory permission defaults.
+	dir, err := os.MkdirTemp(t.TempDir(), "private-")
+	if err != nil {
+		t.Fatal(err)
+	}
 	text := strings.ReplaceAll(extensionSource(t), `import { Type } from "typebox";`, `const Type = new Proxy({}, { get: () => () => ({}) });`)
 	text = strings.ReplaceAll(text, `import { showWorkspaceAttached } from "./workspace-notice.ts";`, `async function showWorkspaceAttached() {}`)
 	text = strings.ReplaceAll(text, `import { reportLoadedVersion } from "./runtime-version.ts";`, `async function reportLoadedVersion() {}`)
@@ -36,8 +41,8 @@ process.env.TMPDIR = root;
 delete process.env.RADAR_HOST_TMPDIR;
 process.env.XDG_CONFIG_HOME = join(root, 'config');
 const first = join(root, 'first'), second = join(root, 'second');
-mkdirSync(first); mkdirSync(second);
-let context = { registered: true, workspace_path: root, members: [], sandbox: { shared_directory: first, shared_directory_ready: true } };
+mkdirSync(first, {mode: 0o700}); mkdirSync(second, {mode: 0o700});
+let context = { registered: true, workspace_path: root, members: [], sandbox: { shared_directory: first, shared_directory_ready: false } };
 let fail = false;
 const hooks = new Map();
 const pi = {
@@ -54,6 +59,7 @@ assert.equal(process.env.RADAR_HOST_TMPDIR, root);
 const clipboard = join(tmpdir(), 'pi-clipboard-fixture.png');
 writeFileSync(clipboard, 'clipboard bytes');
 assert.equal(readFileSync(join(first, 'pi-clipboard-fixture.png'), 'utf8'), 'clipboard bytes');
+context.sandbox.shared_directory_ready = true;
 const prompt = await hooks.get('before_agent_start')({ systemPrompt: 'base' }, ctx);
 assert.ok(prompt.systemPrompt.includes('Shared host/sandbox directory: ' + first));
 assert.ok(prompt.systemPrompt.includes("Keep the sandbox's TMPDIR and /tmp local"));
@@ -63,7 +69,7 @@ assert.equal(tmpdir(), second);
 assert.equal(process.env.RADAR_HOST_TMPDIR, root);
 context.sandbox.shared_directory_ready = false;
 await hooks.get('before_agent_start')({ systemPrompt: 'base' }, ctx);
-assert.equal(tmpdir(), root);
+assert.equal(tmpdir(), second); // Mount readiness does not revoke safe host storage.
 context.sandbox.shared_directory_ready = true;
 await hooks.get('resources_discover')({ cwd: root, reason: 'reload' }, ctx);
 assert.equal(tmpdir(), second);

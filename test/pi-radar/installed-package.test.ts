@@ -26,7 +26,7 @@ test("installed package activates on startup/reload/restart and disappears on a 
   const shared = join(root, "shared");
   const bin = join(root, "bin");
   const skill = join(member, ".agents", "skills", "fixture");
-  for (const path of [agent, outside, shared, bin, skill]) await mkdir(path, { recursive: true });
+  for (const path of [agent, outside, shared, bin, skill]) await mkdir(path, { recursive: true, mode: 0o700 });
   await writeFile(join(skill, "SKILL.md"), "---\nname: fixture\ndescription: Fixture only\n---\nFixture");
   await writeFile(join(agent, "settings.json"), JSON.stringify({ defaultProjectTrust: "always" }));
   await writeFile(join(bin, "radar"), `#!/usr/bin/env node
