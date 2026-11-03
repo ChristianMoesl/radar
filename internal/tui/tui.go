@@ -111,6 +111,10 @@ type createForm struct {
 }
 
 type model struct {
+	activeView             string
+	agents                 agentsOverview
+	rawTasks               []protocol.Task
+	detailReturn           string
 	feedbackAvailable      bool
 	agent                  agentState
 	releaseNotice          update.Notice
@@ -213,8 +217,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentResultMsg:
 		return m.agentResult(msg)
 	case agentTickMsg:
-		if m.mode != "agent" || m.agent.id != msg.id || m.agent.generation != msg.generation {
+		if (m.mode != "agent" && m.detailReturn != "agent") || m.agent.id != msg.id || m.agent.generation != msg.generation {
 			return m, nil
+		}
+		if m.mode != "agent" {
+			return m, m.agentTick()
 		}
 		if !m.agent.input && !m.agent.busy {
 			m.agent.busy = true
@@ -265,6 +272,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncTaskScroll()
 		m.clampDetailScroll()
 		m.syncSelectionScroll()
+		m.syncAgentsSelection()
 		if m.mode == "open_link" {
 			m.syncLinkScroll()
 		}
@@ -385,6 +393,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// A confirmation is modal: Enter and main-view shortcuts do nothing.
 			return m, nil
 		}
+		if msg.String() == "tab" && m.mode == "" {
+			if m.activeView == "agents" {
+				m.activeView = ""
+			} else {
+				m.activeView = "agents"
+			}
+			m.syncAgentsSelection()
+			return m, nil
+		}
+		if m.activeView == "agents" {
+			// Only truly global operations fall through to the existing handlers.
+			// Task lifecycle/resource shortcuts must never act on a hidden cursor.
+			switch msg.String() {
+			case "n", "c", "F", "f", "X", "s", "r", "q", "ctrl+c":
+			default:
+				return m.updateAgentsOverview(msg)
+			}
+		}
 		m.ensureVisibleSelection()
 		switch msg.String() {
 		case "/":
@@ -466,9 +492,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.openConfig()
 		case "i", "right":
 			if task, ok := m.selectedTask(); ok {
-				if id := taskAgentID(task); id != "" {
-					return m.openAgent(id)
-				}
 				m.mode = "detail"
 				m.detail = detailState{task: task, available: true}
 			}
@@ -597,6 +620,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case fetchMsg:
 		m.loading = false
 		m.err = msg.err
+		if msg.err != nil {
+			m.agents.problem = msg.err.Error()
+		}
 		if msg.err == nil {
 			m.message = ""
 			m.applyResponse(msg.response, true)
@@ -616,6 +642,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// a restarted daemon's snapshots are not mistaken for stale replies.
 			m.revision = 0
 			m.err = msg.err
+			m.agents.problem = msg.err.Error()
 			return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return watchRetryMsg{} })
 		}
 		m.err = nil
@@ -738,6 +765,9 @@ func (m model) View() string {
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
 
+	if m.activeView == "agents" {
+		return m.agentsOverviewView()
+	}
 	listWidth := m.taskListWidth()
 	sections = m.beforeTaskSections(listWidth)
 	afterTaskSections := m.afterTaskSections(listWidth)
@@ -808,6 +838,9 @@ func (m model) frameStyle() lipgloss.Style {
 	}
 	if m.height > 0 && m.height < 30 {
 		style = style.PaddingTop(1).PaddingBottom(1)
+	}
+	if m.height > 0 && m.height < 24 {
+		style = style.PaddingBottom(0)
 	}
 	if m.height > 0 && m.height < 20 {
 		style = style.PaddingTop(0).PaddingBottom(0)
@@ -1520,7 +1553,8 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 	var selectedTask *protocol.Task
 	selectedSection := m.selectedSection
 	selectedPosition, activePosition := m.cursorPosition(), -1
-	if selected, ok := m.selectedTask(); response.Tasks != nil && ok {
+	rebuildTasks := response.Tasks != nil || (response.Sources != nil && m.rawTasks != nil)
+	if selected, ok := m.selectedTask(); rebuildTasks && ok {
 		selectedTask = &selected
 		activePosition = 0
 		for _, entry := range m.overviewLayout().entries {
@@ -1542,28 +1576,43 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 	if response.Summary != nil {
 		m.summary = *response.Summary
 	}
+	if response.Sources != nil {
+		m.sources = response.Sources
+	}
 	if response.Tasks != nil {
-		m.tasks = response.Tasks
+		m.rawTasks = response.Tasks
+	}
+	if response.Tasks != nil || response.Sources != nil {
+		m.refreshAgents()
+	}
+	if rebuildTasks {
+		owners := m.agents.rows
+		if m.agents.problem != "" {
+			owners = nil
+		} // Stale ownership cannot hide ordinary work.
+		m.tasks = workspaceTasks(m.rawTasks, owners)
+		m.summary = protocol.SummarizeTasks(m.tasks)
 		m.restoreCursor(selectedTask, selectedSection, selectedPosition, activePosition)
 		if m.mode == "detail" {
 			wasAvailable := m.detail.available
-			cursor, ok := matchingTaskCursor(m.tasks, m.detail.task)
+			detailTasks := m.tasks
+			if m.detailReturn == "agent" {
+				detailTasks = m.rawTasks
+			}
+			cursor, ok := matchingTaskCursor(detailTasks, m.detail.task)
 			m.detail.available = ok
 			if ok {
-				m.detail.task = m.tasks[cursor]
+				m.detail.task = detailTasks[cursor]
 				// Keep Inspect pinned independently of the overview fallback.
 				// A returning task regains selection, but a completed/muted
 				// task must not pull the overview back into history on refresh.
-				if !wasAvailable {
+				if !wasAvailable && m.detailReturn != "agent" {
 					m.selectTaskCursor(cursor)
 				}
 			}
 		}
 	}
-	if response.Sources != nil {
-		m.sources = response.Sources
-	}
-	if selectCurrentTask && !m.selectedCurrentTask && m.mode != "detail" {
+	if selectCurrentTask && !m.selectedCurrentTask && m.mode != "detail" && m.activeView != "agents" {
 		if cursor, ok := currentTaskCursor(m.tasks); ok {
 			m.selectTaskCursor(cursor)
 		}
@@ -1703,9 +1752,6 @@ func (m model) activateSelected() (tea.Model, tea.Cmd) {
 	task, ok := m.selectedTask()
 	if !ok {
 		return m, nil
-	}
-	if id := taskAgentID(task); id != "" {
-		return m.openAgent(id)
 	}
 	// Reopen managed workspaces through their registration so a closed tmux
 	// session is recreated instead of trusting a stale collected target.
@@ -2199,7 +2245,7 @@ func resourceIcon(ref protocol.SourceRef) string {
 func overviewSourceRefs(task protocol.Task) []protocol.SourceRef {
 	var refs []protocol.SourceRef
 	for _, ref := range task.SourceRefs {
-		if ref.Source == "workspace" && ref.Kind == "workspace" {
+		if durableAgentRef(ref) || (ref.Source == "workspace" && ref.Kind == "workspace") {
 			continue
 		}
 		if resourceIcon(ref) == "" {

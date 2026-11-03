@@ -128,7 +128,7 @@ func TestSourceToggleReclaimsRowsAndKeepsSelectionVisible(t *testing.T) {
 					if strings.Contains(view, "1 refs") != expanded || strings.Contains(view, "[s] hide") != expanded {
 						t.Fatalf("source details do not match expansion state:\n%s", view)
 					}
-					lines, start, end := m.taskLines(m.contentWidth())
+					lines, start, end := m.taskViewportLines(m.contentWidth(), wantRows)
 					if want := adjustedTaskScroll(lines, start, end, m.scroll, wantRows); m.scroll != want {
 						t.Fatalf("scroll was not synchronized: got %d want %d", m.scroll, want)
 					}

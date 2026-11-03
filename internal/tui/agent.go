@@ -19,6 +19,7 @@ import (
 )
 
 type agentState struct {
+	unavailable  bool
 	generation   uint64
 	conversation int
 	id           string
@@ -52,15 +53,6 @@ type agentChoice struct {
 	workspace string
 }
 
-func taskAgentID(task protocol.Task) string {
-	for _, ref := range task.SourceRefs {
-		if ref.AgentID != "" {
-			return ref.AgentID
-		}
-	}
-	return ""
-}
-
 func (m model) openAgent(id string) (tea.Model, tea.Cmd) {
 	m.mode = "agent"
 	m.agent = agentState{id: id, busy: true, generation: uint64(time.Now().UnixNano())}
@@ -86,10 +78,13 @@ func (m model) agentTick() tea.Cmd {
 }
 
 func (m model) agentChoices() []agentChoice {
+	if m.agent.unavailable {
+		return nil
+	}
 	var choices []agentChoice
 	s := m.agent.status
 	if s.Workspace.Path != "" {
-		choices = append(choices, agentChoice{label: "Open associated workspace", operation: "open", workspace: s.Workspace.Path})
+		choices = append(choices, agentChoice{label: "Open associated workspace", operation: "open", workspace: s.Workspace.Path}, agentChoice{label: "Inspect associated workspace", operation: "inspect_workspace"}, agentChoice{label: "Workspace resources", operation: "resources"})
 	}
 	if s.Running {
 		if s.Snapshot != nil {
@@ -124,6 +119,17 @@ func (m model) agentChoices() []agentChoice {
 func (m model) updateAgent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
+	}
+	if m.agent.unavailable {
+		switch msg.String() {
+		case "esc", "backspace":
+			m.mode = ""
+			m.agent = agentState{}
+			m.err = nil
+		case "q":
+			return m, tea.Quit
+		}
+		return m, nil
 	}
 	if m.agent.input {
 		if m.agent.request != nil && msg.String() != "esc" && msg.String() != "enter" {
@@ -188,6 +194,19 @@ func (m model) updateAgent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.agent.cursor = max(0, min(m.agent.cursor, len(choices)-1))
 		choice := choices[m.agent.cursor]
+		if choice.operation == "inspect_workspace" || choice.operation == "resources" {
+			task, ok := m.associatedWorkspaceTask()
+			if !ok {
+				m.err = fmt.Errorf("associated workspace is unavailable in the current resource snapshot; refresh to inspect recovery information")
+				return m, nil
+			}
+			if choice.operation == "resources" {
+				return m.editWorkspace(task)
+			}
+			m.mode, m.detailReturn = "detail", "agent"
+			m.detail = detailState{task: task, available: true}
+			return m, nil
+		}
 		if choice.operation == "schedules" {
 			m.agent.detail = agentScheduleDetails(m.agent.status)
 			m.agent.scroll = 0
@@ -344,9 +363,16 @@ func conversationText(data json.RawMessage) string {
 func (m model) agentView() string {
 	width := m.contentWidth()
 	s := m.agent.status
-	title, summary := m.agent.id, "Stopped"
+	title, summary := m.agent.id, "No summary available"
+	runtimeStatus := "Stopped"
 	if s.Running {
-		summary = "Idle"
+		runtimeStatus = "Running"
+	}
+	if s.Snapshot != nil && s.Snapshot.Presentation.Attention {
+		runtimeStatus += " · Attention"
+	}
+	if m.agent.unavailable {
+		runtimeStatus = "Agent no longer available"
 	}
 	var lines []string
 	if s.Snapshot != nil {
@@ -364,7 +390,7 @@ func (m model) agentView() string {
 	if len(summaryLines) > limit {
 		summaryLines = append(summaryLines[:limit], "… press s for the full summary")
 	}
-	lines = append([]string{titleStyle.Render(ansi.Strip(title)), "", strings.Join(summaryLines, "\n")}, lines...)
+	lines = append([]string{titleStyle.Render(ansi.Strip(title)), runtimeStatus, "", strings.Join(summaryLines, "\n")}, lines...)
 	lines = append(lines, fmt.Sprintf("Workspace: %s · %s", ansi.Strip(s.Workspace.Path), ansi.Strip(s.Workspace.Mode)))
 	if s.Collection != "" {
 		lines = append(lines, fmt.Sprintf("Collection: %s · %d pending deliveries", ansi.Strip(s.Collection), s.CollectionPending))

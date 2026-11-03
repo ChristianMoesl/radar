@@ -51,8 +51,8 @@ func mainRailMinHeight() int {
 }
 
 func (m model) mainRailHeight() int {
-	height := m.height - m.frameHeight() - lipgloss.Height(m.header(m.contentWidth())) - 1
-	if m.mode == "search" || m.searchQuery != "" {
+	height := m.height - m.frameHeight() - lipgloss.Height(m.overviewHeader(m.contentWidth())) - 1
+	if (m.mode == "search" && m.activeView != "agents") || m.searchQuery != "" {
 		height -= 2 // Search field and its section boundary.
 	}
 	return height
@@ -84,7 +84,7 @@ func railHintLine(hint keyHint) string {
 }
 
 func (m model) mainRail(height int) string {
-	if m.mode == "search" {
+	if m.mode == "search" && m.activeView != "agents" {
 		return m.searchRail(height)
 	}
 	available := map[string]keyHint{}

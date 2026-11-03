@@ -26,7 +26,8 @@ type detailState struct {
 func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "backspace":
-		m.mode = ""
+		m.mode = m.detailReturn
+		m.detailReturn = ""
 		m.detail = detailState{}
 		m.ensureVisibleSelection()
 		m.syncTaskScroll()

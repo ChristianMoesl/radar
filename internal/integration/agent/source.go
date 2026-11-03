@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 
 	"radar/internal/agentservice"
 	"radar/internal/integration"
+	"radar/internal/integration/workspace"
 	"radar/internal/protocol"
 )
 
@@ -127,9 +130,41 @@ func (s *Source) Collect(ctx context.Context, _ integration.CollectRequest) inte
 			ID:      "agent:instance:" + agent.ID, EntityID: "agent:instance:" + agent.ID, Source: "agent", Kind: "agent",
 			Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Authority: protocol.SourceRefAuthorityNone,
 			CanonicalKey: "agent:instance:" + agent.ID, Title: title, Status: summary, Activity: activity,
-			Metadata: map[string]string{"agent_id": agent.ID, "data_dir": agent.DataDir, "entrypoint": agent.Entrypoint, "workspace_path": agent.Workspace.Path, "execution": agent.Workspace.Mode},
+			Metadata: agentPresentationMetadata(agent),
 		}
 		result.Observations = append(result.Observations, integration.Observation{Ref: ref, Signal: signal, Reason: summary, TaskKind: "agent"})
 	}
 	return result
+}
+
+func agentPresentationMetadata(agent protocol.AgentStatus) map[string]string {
+	metadata := map[string]string{"agent_id": agent.ID, "data_dir": agent.DataDir, "entrypoint": agent.Entrypoint, "workspace_path": agent.Workspace.Path, "execution": agent.Workspace.Mode}
+	// Transport definition-authored presentation separately from aggregate
+	// urgency/activity. A running process is not a business-state inference.
+	metadata["running"] = strconv.FormatBool(agent.Running)
+	metadata["workspace_id"] = agent.Workspace.ID
+	problems := []string{agent.Error, agent.CollectionError, agent.ScheduleError}
+	if agent.Snapshot != nil {
+		metadata["attention"] = strconv.FormatBool(agent.Snapshot.Presentation.Attention)
+		metadata["summary"] = agent.Snapshot.Presentation.Summary
+		problems = append(problems, agent.Snapshot.Problem)
+	}
+	for _, schedule := range agent.Schedules {
+		problems = append(problems, schedule.Error)
+	}
+	if note, err := workspace.AgentWorkspaceNote(agent.ID, agent.DataDir, agent.Workspace); err != nil {
+		problems = append(problems, err.Error())
+	} else if note != nil {
+		metadata["owned_workspace_id"] = agent.Workspace.ID
+		metadata["owned_note_path"] = note.Path
+		metadata["owned_note_key"] = note.LinkingKey
+	}
+	var nonempty []string
+	for _, problem := range problems {
+		if problem != "" {
+			nonempty = append(nonempty, problem)
+		}
+	}
+	metadata["runtime_error"] = strings.Join(nonempty, "\n")
+	return metadata
 }

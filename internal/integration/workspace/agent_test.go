@@ -251,3 +251,80 @@ func TestExplicitAgentWorkspaceIsNotSilentlyManaged(t *testing.T) {
 		t.Fatal("SBX policy fell back to host")
 	}
 }
+
+func TestAgentWorkspacePresentationOwnershipIsReadOnlyAndIdentityChecked(t *testing.T) {
+	options, request, runner := agentWorkspaceFixture(t)
+	binding, _, err := prepareAgentWorkspace(context.Background(), runner, options, request, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intentPath := filepath.Join(request.DataDir, "workspace.json")
+	before, err := os.ReadFile(intentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registryBefore, err := os.ReadFile(workspacegroup.Path(options.WorkspaceRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := len(runner.calls)
+	note, err := AgentWorkspaceNote(request.ID, request.DataDir, binding)
+	if err != nil || note == nil || note.Path == "" || note.LinkingKey == "" {
+		t.Fatalf("owned backing note not exposed: %+v %v", note, err)
+	}
+	after, _ := os.ReadFile(intentPath)
+	registryAfter, _ := os.ReadFile(workspacegroup.Path(options.WorkspaceRoot))
+	if string(before) != string(after) || string(registryBefore) != string(registryAfter) || len(runner.calls) != calls {
+		t.Fatal("presentation inspection mutated ownership/resources")
+	}
+	for _, change := range []string{"registration", "workspace", "agent"} {
+		other := binding
+		id := request.ID
+		dir := request.DataDir
+		switch change {
+		case "registration":
+			other.ID = "changed"
+		case "workspace":
+			other.Path += "-changed"
+		case "agent":
+			id = "different"
+		}
+		if note, err := AgentWorkspaceNote(id, dir, other); err == nil || note != nil {
+			t.Fatalf("%s identity drift was trusted", change)
+		}
+	}
+	if note, err := AgentWorkspaceNote(request.ID, t.TempDir(), binding); err != nil || note != nil {
+		t.Fatal("explicit binding was inferred to be owned")
+	}
+	registry, err := workspacegroup.Load(options.WorkspaceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry.Workspaces = nil
+	if err := workspacegroup.Save(options.WorkspaceRoot, registry); err != nil {
+		t.Fatal(err)
+	}
+	if note, err := AgentWorkspaceNote(request.ID, request.DataDir, binding); err == nil || note != nil {
+		t.Fatal("missing ownership registration was trusted")
+	}
+}
+
+func TestAgentWorkspacePresentationDoesNotCreateMissingOwnershipRoot(t *testing.T) {
+	dataDir := t.TempDir()
+	root := filepath.Join(t.TempDir(), "must-not-be-created")
+	binding := protocol.AgentWorkspaceBinding{ID: "owned", Path: "/work/owned", Mode: "local"}
+	intent := agentWorkspaceIntent{Version: 1, AgentID: "one", Root: root, Binding: binding, Note: &DesiredWorkspaceNote{Path: "/notes/one.md", LinkingKey: "obsidian:task:one"}}
+	data, err := json.Marshal(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "workspace.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if note, err := AgentWorkspaceNote("one", dataDir, binding); err == nil || note != nil {
+		t.Fatal("missing ownership root trusted")
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatal("read-only presentation created a directory or lock")
+	}
+}

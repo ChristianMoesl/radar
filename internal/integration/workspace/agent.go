@@ -26,6 +26,44 @@ type agentWorkspaceIntent struct {
 	Note    *DesiredWorkspaceNote          `json:"note"`
 }
 
+// AgentWorkspaceNote returns the existing dedicated-workspace ownership proof
+// for dashboard presentation. Explicit bindings have no intent. This read-only
+// inspection never provisions, repairs, migrates or rewrites retained work.
+func AgentWorkspaceNote(id, dataDir string, binding protocol.AgentWorkspaceBinding) (*DesiredWorkspaceNote, error) {
+	data, err := os.ReadFile(filepath.Join(dataDir, "workspace.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var intent agentWorkspaceIntent
+	if err := json.Unmarshal(data, &intent); err != nil {
+		return nil, fmt.Errorf("invalid agent workspace ownership: %w", err)
+	}
+	if intent.Version != 1 || intent.AgentID != id || intent.Binding != binding || binding.ID == "" || intent.Root == "" || intent.Note == nil || intent.Note.Path == "" || intent.Note.LinkingKey == "" {
+		return nil, fmt.Errorf("agent workspace ownership identity changed")
+	}
+	// Registry writes are atomic. Read the existing snapshot directly so a
+	// missing/changed root cannot create even a directory or advisory lock.
+	data, err = os.ReadFile(workspacegroup.Path(intent.Root))
+	if err != nil {
+		return nil, err
+	}
+	var registry workspacegroup.Registry
+	if err := json.Unmarshal(data, &registry); err != nil {
+		return nil, err
+	}
+	if registry.Version != workspacegroup.Version {
+		return nil, fmt.Errorf("unsupported workspace registration version")
+	}
+	registered, found := workspacegroup.FindByID(registry, binding.ID)
+	if !found || workspaceBinding(registered) != binding || registered.TaskLinkingKey != "radar.agent:"+id || !sameCleanPath(registered.NotePath, intent.Note.Path) || registered.NoteKey() != intent.Note.LinkingKey {
+		return nil, fmt.Errorf("agent-owned workspace registration changed or is unavailable")
+	}
+	return intent.Note, nil
+}
+
 func (s Source) PrepareAgentWorkspace(ctx context.Context, req integration.AgentWorkspaceRequest) (protocol.AgentWorkspaceBinding, integration.WorkspaceReconcilePlan, error) {
 	options, err := s.createOptions(integration.ManagedWorkspaceRequest{PrepareOnly: true, Name: "agent-" + req.ID, TaskLinkingKey: "radar.agent:" + req.ID})
 	if err != nil {

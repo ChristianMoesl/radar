@@ -79,7 +79,7 @@ func (m model) mainHelp(width int) string {
 // The compact footer and the right-hand rail share contextual labels and
 // availability. Neither changes the key handlers or adds a new interaction.
 func (m model) mainHelpGroups() [][]keyHint {
-	if m.mode == "search" {
+	if m.mode == "search" && m.activeView != "agents" {
 		return searchHelpGroups()
 	}
 	task, selected := m.selectedTask()

@@ -11,13 +11,26 @@ bind-key r display-popup -E -w 90% -h 90% -d '#{pane_current_path}' radar
 bind-key F display-popup -E "radar fork"
 ```
 
+## Workspaces and Agents
+
+The dashboard starts in **Workspaces**, the existing task list (including source-only work without a workspace). Above it, `[Workspaces]   Agents N · !M` provides two peer views. **N** counts all registered durable-agent instances, including stopped/unhealthy ones; **!M** counts distinct instances requesting attention or reporting runtime, provisioning, collection-delivery or schedule errors. An instance counts once even if it has both attention and an error. Zero attention omits the suffix. Counts remain global while searching either view.
+
+Press **Tab** from either overview to switch directly; arrows and j/k select list rows, not a tab header. Each view keeps its own selection, scroll and applied query for the current session. Tab does not switch while entering search text, inspecting details, editing forms or confirming actions. Enter applies search and returns to navigation; Escape clears search as before. No configuration or cross-session UI preference is saved.
+
+**Agents** shows one row per registration, ordered attention/errors first, then title and registration ID. Running/Stopped is runtime state, not Idle/Busy or business success. Definition-authored attention and one summary line are separate; full content remains in details. `/` searches only local registration ID, title and summary, case-insensitively with every term matching. It never searches logs/conversations or remote services. An empty view says **No durable agents registered**; a filter with no matches says **No agents match your search**.
+
+Registered-agent contributions and proven dedicated backing-only workspace tasks are separated from Workspaces, including its search, Muted/Done sections and category counts. Ordinary explicitly bound workspaces, independent linked source/user work and interactive Pi activity remain visible. Separation uses registration/source identities and validated existing ownership metadata, not names or path prefixes; uncertain ownership leaves ordinary work visible. No tasks or source facts are deleted, completed, muted or unregistered, and cleanup policy is unchanged.
+
+Refreshes preserve selected identity and the active view. Removed registrations select the nearest remaining row; open details instead report unavailability. Failed collection keeps last-known information and source diagnostics, with `?` in navigation (an unknown count is not `0`). The navigation and Tab hint remain available in compact layouts; essential runtime/attention/error state takes precedence over summaries.
+
 ## Keyboard shortcuts
 
 | Key | Action |
 | --- | --- |
-| <kbd>j</kbd> / <kbd>↓</kbd>, <kbd>k</kbd> / <kbd>↑</kbd> | Move between tasks |
-| <kbd>Enter</kbd> | Switch to or create the selected task's tmux session |
-| <kbd>/</kbd> | Search tasks; <kbd>Esc</kbd> clears search and returns to the normal list |
+| <kbd>Tab</kbd> | Switch Workspaces / Agents from either overview |
+| <kbd>j</kbd> / <kbd>↓</kbd>, <kbd>k</kbd> / <kbd>↑</kbd> | Move within the current list |
+| <kbd>Enter</kbd> | Workspaces: open/create the selected session; Agents: open existing agent details |
+| <kbd>/</kbd> | Search the current view; <kbd>Esc</kbd> clears only that view's query |
 | <kbd>o</kbd> | Open the source action or link |
 | <kbd>i</kbd> | Inspect the selected task and its linked sources |
 | <kbd>n</kbd> | Create an Obsidian-backed task |
@@ -101,4 +114,6 @@ Inspect is a read-only view of the selected task. Task details (including config
 
 ## Durable agents
 
-The Agents source shows registered durable programs. Enter opens the agent's summary, runtime health, associated workspace, declared actions and optional conversations/messages. Use `s` to read the full summary; arrows navigate or scroll, `r` refreshes, and Escape returns. Start/stop/restart and logs are available in the same view. Actions that changed while you were responding require a fresh decision. See [durable agents](durable-agents.md) for authoring and event delivery.
+Switch to **Agents** with Tab. Enter opens the existing agent's summary, runtime health, associated workspace, declared actions and optional conversations/messages. Use `s` to read the full summary; arrows navigate or scroll, `r` refreshes, and Escape returns to Agents with its list context intact. Start/stop/restart, schedules and logs remain available. **Open associated workspace**, **Inspect associated workspace** and **Workspace resources** retain the existing workspace opening, inspection and reconciliation flows; missing resources report their existing error/recovery information. CLI workspace inspection/cleanup and its ownership/lease protections are unchanged.
+
+Done, Mute, task priority and task cleanup are not agent-row operations; the overview help shows only applicable and global commands. Viewing details, switching views or opening a workspace does not start an agent, clear attention, acknowledge a report or complete a task. Existing action revision, confirmation and ambiguous-delivery retry protections remain unchanged. Actions that changed while you were responding require a fresh decision. See [durable agents](durable-agents.md) for authoring and event delivery.

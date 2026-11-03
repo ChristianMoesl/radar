@@ -22,6 +22,9 @@ func matchesTaskSearch(task protocol.Task, terms []string) bool {
 	}
 	fields := []string{task.Title, task.Repo}
 	for _, ref := range task.SourceRefs {
+		if durableAgentRef(ref) {
+			continue
+		}
 		fields = append(fields, ref.Title, ref.ID, ref.EntityID, ref.Repo, ref.Branch,
 			ref.Path, ref.Presentation.Label, ref.Presentation.WorkspaceName)
 		fields = append(fields, ref.LinkingKeys...)
@@ -40,6 +43,9 @@ func (m model) searchTerms() []string {
 }
 
 func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.activeView == "agents" {
+		return m.updateAgentsSearch(msg)
+	}
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -66,7 +72,8 @@ func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) searchBar(width int) string {
-	if m.mode != "search" && m.searchQuery == "" {
+	editing := m.mode == "search" && m.activeView != "agents"
+	if !editing && m.searchQuery == "" {
 		return ""
 	}
 	matches := 0
@@ -78,7 +85,7 @@ func (m model) searchBar(width int) string {
 	}
 	count := fmt.Sprintf("  %d/%d", matches, len(m.tasks))
 	query := m.searchQuery
-	if m.mode == "search" {
+	if editing {
 		query += "▏"
 	}
 	query = strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(query)
@@ -86,7 +93,7 @@ func (m model) searchBar(width int) string {
 }
 
 func (m model) beforeTaskSections(width int) []string {
-	sections := []string{m.header(m.contentWidth())}
+	sections := []string{m.overviewHeader(m.contentWidth())}
 	if bar := m.searchBar(width); bar != "" {
 		sections = append(sections, bar)
 	}

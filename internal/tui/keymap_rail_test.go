@@ -138,7 +138,7 @@ func TestRailUsesFullTaskHeightAndFixedWidth(t *testing.T) {
 			if rightMargin != 36 {
 				t.Fatalf("rail isn't 32 columns wide: right margin=%d", rightMargin)
 			}
-			wantRows := m.height - m.frameHeight() - lipgloss.Height(m.header(m.contentWidth())) - lipgloss.Height(m.sourceList(m.contentWidth())) - 2
+			wantRows := m.height - m.frameHeight() - lipgloss.Height(m.overviewHeader(m.contentWidth())) - lipgloss.Height(m.sourceList(m.contentWidth())) - 2
 			if rows := m.taskListHeight(m.contentWidth()); rows != wantRows {
 				t.Fatalf("keymap used task rows: got %d, want %d", rows, wantRows)
 			}
