@@ -228,12 +228,24 @@ remote resources.
 
 ## Cleanup response timing
 
-Explicit cleanup returns after refreshing local resource observations. That
-refresh can include remote Git safety checks for other workspaces, so an
-unavailable remote can delay the response even after the selected workspace
-has been removed. Publication-verification failures remain unresolved issues;
-before registered-workspace expiry they are not permission for GC to discard
-local work. Expiry permits that data loss but not structural safety failures.
+Explicit cleanup returns after executing the confirmed removal plan, without
+waiting for follow-up resource collection. The response retains the current
+resource snapshot and marks **Resource list refresh pending**, including after
+a failure that may have changed resources. Later collection reconciles those
+observations; a pending snapshot cannot authorize another cleanup preview or
+execution.
+
+During the cleanup check or execution, dashboard task-row Enter explains
+**Cleanup in progress — Retry Enter when finished** rather than silently
+ignoring a workspace switch. The existing restriction also covers unrelated
+workspaces. Navigation and Inspect remain available. Success or failure clears
+the operation lock and the explanation; press Enter again to switch. No switch
+is queued or replayed automatically. Follow-up resource collection does not
+keep that switching lock held.
+
+Publication-verification failures remain unresolved issues; before registered
+workspace expiry they are not permission for GC to discard local work. Expiry
+permits that data loss but not structural safety failures.
 
 Publication/merge verification has one 10-second budget covering Git fetch,
 GitHub proof, and retries. This applies to collection, explicit cleanup

@@ -282,6 +282,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSearch(msg)
 		}
 		if m.operation.kind != "" && (!operationNavigationKey(msg.String()) || (msg.String() == "enter" && (m.mode != "" || m.selectedSection == ""))) {
+			if msg.String() == "enter" && m.mode == "" && m.selectedSection == "" && (m.operation.kind == "cleanup" || m.operation.kind == "cleanup-check") {
+				// Keep the existing resource-operation lock, but explain a blocked
+				// switch even when cleanup's task is off-screen or filtered out.
+				m.message = "Cleanup in progress\nRetry Enter when finished"
+			}
 			return m, nil
 		}
 		if strings.HasPrefix(m.mode, "workspace_") && !m.operationOnRow() {
