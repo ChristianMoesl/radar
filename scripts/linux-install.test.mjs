@@ -175,6 +175,15 @@ test('Linux installation runs as a real unprivileged user', () => {
   assert.notEqual(process.getuid(), 0, 'Run this suite as an ordinary user; CI explicitly drops root.');
 });
 
+test('Fedora CI installs the su provider before dropping privileges', () => {
+  const workflow = readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8');
+  const job = workflow.split('\n  linux-installer:')[1]?.split('\n  linux-homebrew:')[0];
+  assert.ok(job, 'rootless installer matrix must remain covered');
+  const packages = job.match(/dnf install -y ([^\n]+)/)?.[1].trim().split(/\s+/) ?? [];
+  assert.ok(packages.includes('util-linux'), 'Fedora needs util-linux for su; shadow-utils provides useradd only');
+  assert.match(job, /su -s \/bin\/bash radar-test -c/);
+});
+
 test('embedded publisher trust still matches the updater', () => {
   const keys = JSON.parse(source.match(/const trustedKeys = (\{[^\n]+\});/)[1]);
   assert.deepEqual(keys, JSON.parse(readFileSync(join(root, 'internal/update/keys.json'))));

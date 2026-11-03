@@ -267,7 +267,8 @@ jobs:
             apt-get update
             DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bash git ca-certificates passwd zsh fish
           elif command -v dnf >/dev/null; then
-            dnf install -y bash git ca-certificates shadow-utils zsh fish
+            # Fedora's minimal image does not include su (provided by util-linux).
+            dnf install -y bash git ca-certificates shadow-utils util-linux zsh fish
           else
             pacman -Syu --noconfirm bash git ca-certificates shadow zsh fish
           fi
