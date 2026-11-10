@@ -53,11 +53,15 @@ type apiClient struct {
 	output func(context.Context, setup.Command) (string, error)
 }
 
+// Only sanitized verification failures may become collection status details.
+// Provider request diagnostics must remain private.
+type oauthVerificationError struct{ error }
+
 func (c apiClient) Search(ctx context.Context, cfg connection, userQuery string, statuses []string) (monitorSearchResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	if err := verifyPup(ctx, cfg, c.output); err != nil {
-		return monitorSearchResponse{}, err
+		return monitorSearchResponse{}, &oauthVerificationError{err}
 	}
 	args := pupArgs(cfg, "api", "/api/v1/monitor/search", "-f", "query="+combinedMonitorQuery(userQuery, statuses), "-F", "page=0", "-F", fmt.Sprintf("per_page=%d", monitorPageSize))
 	data, err := pupOutput(ctx, cfg, args, c.output)
@@ -167,7 +171,7 @@ func verifyPup(ctx context.Context, cfg connection, output func(context.Context,
 	}
 	data, err := run(pupArgs(cfg, "auth", "status"))
 	if err != nil {
-		return fmt.Errorf("Pup OAuth session is unavailable; run radar setup")
+		return fmt.Errorf("Pup OAuth status could not be checked; check CLI storage and connectivity, then reconnect in foreground with radar setup if login is required")
 	}
 	var status struct {
 		Authenticated bool     `json:"authenticated"`
@@ -179,8 +183,20 @@ func verifyPup(ctx context.Context, cfg connection, output func(context.Context,
 		Status        string   `json:"status"`
 		Scopes        []string `json:"scopes"`
 	}
-	if json.Unmarshal(data, &status) != nil || !status.Authenticated || status.AuthMethod != "" || !strings.EqualFold(status.TokenType, "Bearer") || !status.HasRefresh || status.Status != "valid" || status.Site != cfg.Site || status.Org != cfg.Org {
-		return fmt.Errorf("Pup requires a valid OAuth session for %s (%s); run radar setup", cfg.Site, cfg.Org)
+	if json.Unmarshal(data, &status) != nil || !status.Authenticated || status.AuthMethod != "" || !strings.EqualFold(status.TokenType, "Bearer") || status.Site != cfg.Site || status.Org != cfg.Org {
+		return fmt.Errorf("Pup requires the selected OAuth session for %s (%s); reconnect in foreground with radar setup", cfg.Site, cfg.Org)
+	}
+	if !status.HasRefresh {
+		return fmt.Errorf("Pup OAuth session has no refresh grant; reconnect in foreground with radar setup")
+	}
+	// Pup config loading already attempts native renewal, including for auth
+	// status. An expired result is not proof of revocation: unavailable storage,
+	// missing client registration and network failures produce the same result.
+	if status.Status == "expired" {
+		return fmt.Errorf("Pup could not silently renew OAuth; check CLI storage, client registration and connectivity; reconnect in foreground with radar setup if the refresh grant expired or was revoked")
+	}
+	if status.Status != "valid" {
+		return fmt.Errorf("Pup returned an unrecognized OAuth status; check pup auth status and radar setup")
 	}
 	for _, scope := range status.Scopes {
 		if scope == "monitors_read" {

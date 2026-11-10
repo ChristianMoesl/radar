@@ -53,7 +53,7 @@ func outputResult(ctx context.Context, name string, args, env []string, version 
 	}
 	if err != nil {
 		if exit, ok := err.(*exec.ExitError); ok {
-			return out.buffer.Bytes(), fmt.Errorf("%s exited with status %d; check CLI OAuth login and permissions with radar setup", name, exit.ExitCode())
+			return out.buffer.Bytes(), fmt.Errorf("%s exited with status %d; check CLI status, permissions and connectivity; reconnect in foreground with radar setup only if login is required", name, exit.ExitCode())
 		}
 		return nil, fmt.Errorf("%s could not run; install it on PATH and rerun radar setup", name)
 	}

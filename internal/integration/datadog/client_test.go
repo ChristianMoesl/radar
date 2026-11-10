@@ -51,7 +51,7 @@ func TestPupSearchRejectsMissingOrMalformedCompletenessEvidence(t *testing.T) {
 		}
 	}
 }
-func TestPupRejectsStaticExpiredWrongContextAndMissingScope(t *testing.T) {
+func TestPupRejectsStaticUnknownStatusWrongContextAndMissingScope(t *testing.T) {
 	var valid map[string]any
 	if err := json.Unmarshal([]byte(oauthStatus), &valid); err != nil {
 		t.Fatal(err)

@@ -57,6 +57,10 @@ the browser when signing in. Radar always selects this label explicitly; Pup own
 credential storage and refresh. The default label is `radar`, and the default site
 is `datadoghq.eu`. Supported regions retain their existing monitor URLs.
 
+Pup attempts native renewal while loading its configuration, including for the
+OAuth status check. An expired result means renewal did not succeed, not necessarily
+that the grant was revoked. See [source authentication and reconnection](../source-authentication.md).
+
 Each refresh checks Pup's version and OAuth status, then invokes one
 `pup --org radar --no-envelope --output json api /api/v1/monitor/search` request.
 Radar owns query/status construction and response completeness; Pup owns HTTP and

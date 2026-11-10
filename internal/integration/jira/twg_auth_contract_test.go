@@ -23,8 +23,11 @@ func TestReleasedTWGSavedProfileAuthModes(t *testing.T) {
 	if binary == "" {
 		t.Skip("set RADAR_TEST_TWG to the verified TWG 1.3.8 binary")
 	}
-	var requests atomic.Int32
+	var requests, renewals atomic.Int32
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host == "auth.atlassian.com:443" {
+			renewals.Add(1)
+		}
 		if r.Host == "api.atlassian.com:443" {
 			requests.Add(1)
 		}
@@ -93,6 +96,27 @@ func TestReleasedTWGSavedProfileAuthModes(t *testing.T) {
 			t.Fatal("TWG did not attempt API dispatch with the selected synthetic credentials")
 		}
 	}
+
+	t.Run("doctor attempts native renewal for an expired OAuth profile", func(t *testing.T) {
+		writeTWGAuthFixture(t, root, "oauth")
+		path := filepath.Join(root, "auth-profiles.json")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data = []byte(strings.ReplaceAll(string(data), "2099-01-01T00:00:00Z", "2000-01-01T00:00:00Z"))
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		renewals.Store(0)
+		// A rejecting CONNECT proxy proves native renewal dispatch without
+		// sending synthetic credentials to any real OAuth endpoint. This does
+		// not qualify successful renewal or classify grant revocation.
+		_, _ = run(t, append(append([]string(nil), prefix...), "doctor")...)
+		if renewals.Load() == 0 {
+			t.Fatal("doctor did not attempt native OAuth renewal")
+		}
+	})
 
 	t.Run("saved PAT is accepted with explicit profile and site", func(t *testing.T) {
 		writeTWGAuthFixture(t, root, "pat")

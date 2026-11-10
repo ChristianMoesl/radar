@@ -2,6 +2,7 @@ package datadog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -84,7 +85,12 @@ func (s Source) Collect(ctx context.Context, req integration.CollectRequest) int
 	}
 	response, err := searcher.Search(ctx, connection, query, userConfig.Datadog.MonitorStatuses)
 	if err != nil {
-		return failedCollection(req, status, "monitor search failed", err)
+		detail := "monitor search failed"
+		var auth *oauthVerificationError
+		if errors.As(err, &auth) {
+			detail = auth.Error()
+		}
+		return failedCollection(req, status, detail, err)
 	}
 	if response.Metadata.PageCount > 1 || response.Metadata.TotalCount > len(response.Monitors) {
 		detail := fmt.Sprintf("query matched %d monitors; narrow datadog.monitor_query below %d", response.Metadata.TotalCount, monitorPageSize+1)

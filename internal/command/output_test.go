@@ -46,6 +46,9 @@ func TestProviderOutputIsBoundedAndRedactsDiagnostics(t *testing.T) {
 		if err == nil || len(out) != 0 || strings.Contains(err.Error(), "private credential") {
 			t.Fatalf("mode=%s output=%d err=%v", mode, len(out), err)
 		}
+		if mode == "private" && (!strings.Contains(err.Error(), "permissions and connectivity") || !strings.Contains(err.Error(), "only if login is required")) {
+			t.Fatalf("an arbitrary nonzero exit must not diagnose an expired login: %v", err)
+		}
 	}
 }
 func TestProviderOutputHonorsDeadline(t *testing.T) {
