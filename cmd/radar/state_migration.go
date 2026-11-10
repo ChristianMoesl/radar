@@ -11,6 +11,7 @@ import (
 	"radar/internal/integration/obsidian/statemigration"
 	workspacegroup "radar/internal/integration/workspace/group"
 	"radar/internal/process"
+	"radar/internal/state"
 	"radar/internal/taskdb"
 )
 
@@ -155,7 +156,11 @@ func runStateExport(args []string) {
 	if len(projection) == 0 {
 		projection = []byte("null")
 	}
-	if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": taskdb.SchemaVersion, "tasks": tasks, "projection": json.RawMessage(projection)}); err != nil {
+	conflicts, err := state.InspectLinkConflicts(projection)
+	if err != nil {
+		fatal(err)
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": taskdb.SchemaVersion, "tasks": tasks, "projection": json.RawMessage(projection), "link_conflicts": conflicts}); err != nil {
 		fatal(err)
 	}
 }

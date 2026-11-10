@@ -132,8 +132,16 @@ func TestStartupMigratesGroupedNotesWithoutGuessingBindingOwnership(t *testing.T
 	if err := json.Unmarshal(backup, &saved); err != nil || !reflect.DeepEqual(saved.Notes, p.Notes) {
 		t.Fatal("grouped notes were not backed up exactly", err)
 	}
-	if _, err := state.NewStore(startupLogger()); err != nil {
-		t.Fatal("runtime rejected migrated grouped state", err)
+	if _, err := state.NewStore(startupLogger()); err == nil || !strings.Contains(err.Error(), "task:7") || !strings.Contains(err.Error(), "state-export") {
+		t.Fatal("runtime did not reject the ambiguous projection with repair guidance", err)
+	}
+	conflicts, err := state.InspectLinkConflicts(projection)
+	if err != nil || len(conflicts) != 1 || len(conflicts[0].AuthoredIDs) != 2 {
+		t.Fatalf("missing grouped repair plan: %+v (%v)", conflicts, err)
+	}
+	preserved, err := taskdb.ReadProjection(p.Database)
+	if err != nil || !bytes.Equal(preserved, projection) {
+		t.Fatal("rejected runtime startup rewrote grouped history", err)
 	}
 }
 

@@ -64,6 +64,8 @@ func main() {
 	}
 	command, args := args[0], args[1:]
 	switch command {
+	case "repair-task-links":
+		runTaskLinkRepair(args)
 	case "migrate-state":
 		runMigrateState(args)
 	case "state-backup":
@@ -1280,6 +1282,7 @@ Setup and maintenance:
 Other:
   radar ack <task-id>
   radar log-path
+  radar repair-task-links [--apply plan.json --backup /new/backup.db] [--json]
   radar migrate-state [--apply|--resume|--rollback]
   radar state-backup <destination.db>
   radar state-export

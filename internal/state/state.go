@@ -158,6 +158,10 @@ func (s *Store) Load() error {
 		state.SourceRefs = []SourceRefRecord{}
 	}
 
+	if err := validateAuthoredLinks(state); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	s.state = state
 	s.items = projectTasks(state)
@@ -197,6 +201,18 @@ func sourceScope(sourceNames []string) map[string]bool {
 
 func (s *Store) setTasks(items []protocol.Task, sources map[string]bool, statuses *[]protocol.SourceStatus) {
 	s.mu.Lock()
+	for _, task := range items {
+		if len(authoredIdentities(task.SourceRefs)) > 1 {
+			s.mu.Unlock()
+			s.logger.Error("collection contains conflicting authored-note identities; previous state preserved")
+			return
+		}
+	}
+	if err := validateAuthoredLinks(s.state); err != nil {
+		s.mu.Unlock()
+		s.logger.Error("refusing conflicting task publication", "error", err)
+		return
+	}
 	s.state = reconcileStateForSources(s.state, items, time.Now().UTC(), sources)
 	s.items = projectTasks(s.state)
 	if statuses != nil {
@@ -227,6 +243,10 @@ func (s *Store) saveProjectionLocked() (err error) {
 	// cannot change while JSON encoding is in progress. saveMu keeps snapshots
 	// and replacements ordered, preventing an older save from winning a race.
 	s.mu.RLock()
+	if err := validateAuthoredLinks(s.state); err != nil {
+		s.mu.RUnlock()
+		return err
+	}
 	data, err := json.MarshalIndent(s.state, "", "  ")
 	recordCount := len(s.state.Records)
 	sourceRefCount := len(s.state.SourceRefs)
@@ -528,7 +548,16 @@ func reconcileState(previous persistedState, observed []protocol.Task, now time.
 }
 
 func reconcileStateForSources(previous persistedState, observed []protocol.Task, now time.Time, sourceScope map[string]bool) persistedState {
+	if validateAuthoredLinks(previous) != nil {
+		return previous // Requires an explicit repair, never an implicit history split.
+	}
+	for _, task := range observed {
+		if len(authoredIdentities(task.SourceRefs)) > 1 {
+			return previous
+		}
+	}
 	state := detachReplacedBindings(previous, observed)
+	owners := recordAuthoredIdentities(state)
 	state.Version = stateVersion
 	nowText := now.Format(time.RFC3339)
 	if state.Records == nil {
@@ -574,10 +603,10 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 		sourceRefsByID[state.SourceRefs[i].ID] = i
 	}
 
-	for _, task := range mergeObservedTasks(observed) {
+	for _, task := range observed {
 		task = taskWithSourceSignals(task)
 		key := canonicalTaskKey(task)
-		record := matchingRecord(task, key, recordsByNumericID, recordsBySourceRef, recordsByKey)
+		record := matchingRecord(task, key, recordsByNumericID, recordsBySourceRef, recordsByKey, owners)
 		if record == nil {
 			state.NextTaskID++
 			record = &TaskRecord{
@@ -598,6 +627,7 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 			recordsByKey[record.CanonicalKey] = record
 		}
 
+		owners[record.ID] = mergeStringSet(owners[record.ID], authoredIdentities(task.SourceRefs))
 		record.LastSeen = nowText
 		record.UpdatedAt = nowText
 		authoritative := taskHasAuthoritativeSource(task)
@@ -666,14 +696,30 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 }
 
 func relinkState(state persistedState) persistedState {
-	for _, group := range sourceRefLinkGroups(state.SourceRefs) {
-		state = mergeRelatedRecords(state, uniqueTaskRecordIDs(group))
+	owners := recordAuthoredIdentities(state)
+	blocked := map[string]bool{}
+	groups := sourceRefLinkGroups(state.SourceRefs)
+	// Qualify whole connected components before any union. Greedy pairwise
+	// checks would assign a shared bridge to whichever note was visited first.
+	for _, group := range groups {
+		ids := uniqueTaskRecordIDs(group)
+		if len(combinedAuthoredIdentities(owners, ids)) > 1 {
+			for _, id := range ids {
+				blocked[id] = true
+			}
+		}
 	}
-	state = relinkHistoricalWorkspaceBranches(state)
+	for _, group := range groups {
+		ids := uniqueTaskRecordIDs(group)
+		if !containsBlockedRecord(ids, blocked) {
+			state = mergeRelatedRecords(state, ids)
+		}
+	}
+	state = relinkHistoricalWorkspaceBranches(state, blocked)
 
 	byCanonicalKey := map[string][]string{}
 	for _, record := range state.Records {
-		if record.CanonicalKey != "" {
+		if record.CanonicalKey != "" && !blocked[record.ID] {
 			byCanonicalKey[record.CanonicalKey] = append(byCanonicalKey[record.CanonicalKey], record.ID)
 		}
 	}
@@ -689,7 +735,7 @@ func relinkState(state persistedState) persistedState {
 }
 
 func mergeRelatedRecords(state persistedState, recordIDs []string) persistedState {
-	if len(recordIDs) < 2 {
+	if len(recordIDs) < 2 || len(combinedAuthoredIdentities(recordAuthoredIdentities(state), recordIDs)) > 1 {
 		return state
 	}
 	winnerID := winningRecordID(state.Records, recordIDs)
@@ -784,7 +830,7 @@ func sourceRefLinkGroups(refs []SourceRefRecord) [][]SourceRefRecord {
 				if used[j] || !refs[j].Active || refs[j].TaskRecordID == "" || !authoritativeRef(refs[j].Snapshot) {
 					continue
 				}
-				if matchesAnyString(keys[idx], keys[j]) {
+				if refs[idx].TaskRecordID == refs[j].TaskRecordID || matchesAnyString(keys[idx], keys[j]) {
 					used[j] = true
 					queue = append(queue, j)
 				}
@@ -798,7 +844,7 @@ func sourceRefLinkGroups(refs []SourceRefRecord) [][]SourceRefRecord {
 // relinkHistoricalWorkspaceBranches lets a removed worktree preserve its
 // repository/branch association while the workspace task itself remains open.
 // Ambiguous historical branches are deliberately ignored.
-func relinkHistoricalWorkspaceBranches(state persistedState) persistedState {
+func relinkHistoricalWorkspaceBranches(state persistedState, blocked map[string]bool) persistedState {
 	activeWorkspaceRecords := map[string]bool{}
 	for _, ref := range state.SourceRefs {
 		if ref.Active && ref.TaskRecordID != "" && authoritativeRef(ref.Snapshot) && ref.Snapshot.Lifecycle == protocol.SourceRefLifecycleWorkspace {
@@ -824,6 +870,7 @@ func relinkHistoricalWorkspaceBranches(state persistedState) persistedState {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	var candidates [][]string
 	for _, key := range keys {
 		targets := targetsByBranch[key]
 		if len(targets) != 1 {
@@ -842,7 +889,25 @@ func relinkHistoricalWorkspaceBranches(state persistedState) persistedState {
 				recordIDs = append(recordIDs, ref.TaskRecordID)
 			}
 		}
-		state = mergeRelatedRecords(state, recordIDs)
+		candidates = append(candidates, recordIDs)
+	}
+	// A single contributor may bridge different historical branches. Qualify
+	// all proposed unions together, not one lexical branch at a time.
+	for len(candidates) > 0 {
+		group := candidates[0]
+		candidates = candidates[1:]
+		for i := 0; i < len(candidates); {
+			if matchesAnyString(group, candidates[i]) {
+				group = mergeStringSet(group, candidates[i])
+				candidates = append(candidates[:i], candidates[i+1:]...)
+				i = 0
+			} else {
+				i++
+			}
+		}
+		if !containsBlockedRecord(group, blocked) {
+			state = mergeRelatedRecords(state, group)
+		}
 	}
 	return state
 }
@@ -918,6 +983,9 @@ func recordMergeRank(record TaskRecord) int {
 }
 
 func mergeTaskRecords(records []TaskRecord, ids []string, winnerID string, refs []SourceRefRecord) []TaskRecord {
+	if len(combinedAuthoredIdentities(recordAuthoredIdentities(persistedState{Records: records, SourceRefs: refs}), ids)) > 1 {
+		return records
+	}
 	merged := make([]TaskRecord, 0, len(records))
 	winnerRecord := recordByID(records, winnerID)
 	if winnerRecord == nil {
@@ -1068,43 +1136,40 @@ func containsString(values []string, value string) bool {
 	return false
 }
 
-func matchingRecord(task protocol.Task, key string, byNumericID map[int]*TaskRecord, bySourceRef map[string]*TaskRecord, byKey map[string]*TaskRecord) *TaskRecord {
+func containsBlockedRecord(ids []string, blocked map[string]bool) bool {
+	for _, id := range ids {
+		if blocked[id] {
+			return true
+		}
+	}
+	return false
+}
+
+func matchingRecord(task protocol.Task, key string, byNumericID map[int]*TaskRecord, bySourceRef map[string]*TaskRecord, byKey map[string]*TaskRecord, owners map[string][]string) *TaskRecord {
+	incoming := authoredIdentities(task.SourceRefs)
+	compatible := func(record *TaskRecord) bool {
+		return record != nil && len(mergeStringSet(slices.Clone(owners[record.ID]), incoming)) <= 1
+	}
+	// Stable source ownership takes precedence over a coincidental shared key.
+	for _, sourceRef := range task.SourceRefs {
+		if authoritativeRef(sourceRef) {
+			if record := bySourceRef[sourceRef.ID]; compatible(record) {
+				return record
+			}
+		}
+	}
 	if task.TargetTaskID != 0 {
-		if record := byNumericID[task.TargetTaskID]; record != nil {
+		if record := byNumericID[task.TargetTaskID]; compatible(record) {
 			return record
 		}
 	}
 	if key != "" {
-		if record := byKey[key]; record != nil {
-			return record
-		}
-	}
-	for _, sourceRef := range task.SourceRefs {
-		if !authoritativeRef(sourceRef) {
-			continue
-		}
-		if record := bySourceRef[sourceRef.ID]; record != nil {
+		if record := byKey[key]; compatible(record) &&
+			(len(owners[record.ID]) == 0 || len(incoming) > 0) {
 			return record
 		}
 	}
 	return nil
-}
-
-func mergeObservedTasks(tasks []protocol.Task) []protocol.Task {
-	merged := make([]protocol.Task, 0, len(tasks))
-	byKey := map[string]int{}
-	for _, task := range tasks {
-		key := canonicalTaskKey(task)
-		if key != "" {
-			if idx, ok := byKey[key]; ok {
-				merged[idx] = mergeTasks(merged[idx], task)
-				continue
-			}
-			byKey[key] = len(merged)
-		}
-		merged = append(merged, task)
-	}
-	return merged
 }
 
 func mergeTasks(left, right protocol.Task) protocol.Task {
@@ -1325,6 +1390,9 @@ func cloneMetadata(metadata map[string]string) map[string]string {
 }
 
 func canonicalTaskKey(task protocol.Task) string {
+	if ids := authoredIdentities(task.SourceRefs); len(ids) == 1 {
+		return ids[0]
+	}
 	if key := firstLinkingMarkKey(task); key != "" {
 		return key
 	}

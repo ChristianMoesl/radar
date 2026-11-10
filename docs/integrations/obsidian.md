@@ -77,3 +77,7 @@ Explicit task deletion requires a fresh preview and `y` confirmation. Referencin
 A trashed task remains a durable record and stays out of ordinary collection. Moving its original content back to its original path restores the same identity. Database backups and note backups must be kept together; restoring notes alone no longer reconstructs application state.
 
 See [SQLite migration, recovery, backup and export](../sqlite-state-migration.md) for the rollout contract.
+
+## Linking independent notes
+
+An aggregate has at most one distinct authored-note identity. Shared issues, branches, workspaces and transitive bridges do not merge independent notes or select a contributor owner by collection order. Existing source/binding ownership is retained; new ambiguous associations stay separate. Old invalid aggregates fail closed with actionable diagnostics and an explicit, backed-up [offline repair path](../task-link-repair.md). Review ownership and persistence safeguards are unchanged.

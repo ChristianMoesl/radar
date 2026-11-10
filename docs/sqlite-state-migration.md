@@ -11,7 +11,7 @@ Radar now keeps task authority in a local SQLite database. Notes contain only us
 | Private and archived task frontmatter | Import identity, title, lifecycle, priority, timestamps, mute/review preferences, bindings and completion safeguards; remove known Radar fields |
 | Version 8 `tasks.json` | Import task/numeric IDs, acknowledgements, pending review intent, source ownership/history and collected observations; retain the original file |
 | Safe cache-only associations | Promote to durable bindings for their existing authored task |
-| Legacy groups containing multiple authored notes | Preserve each note's identity and explicit bindings, plus grouped observations, numeric ID and acknowledgements; report cache-only associations without guessing a note owner |
+| Legacy groups containing multiple authored notes | Preserve identities, explicit bindings, observations, numeric ID and acknowledgements; runtime rejects invalid aggregates until an explicit [offline link repair](task-link-repair.md), never guessing a note owner |
 | Unprovable resource lifetimes | Retain observations; report them without inventing durable selectors |
 | Unknown frontmatter, note bodies, permissions, attachments and paths | Preserve; otherwise-empty notes retain one newline so synced file providers do not restore old frontmatter after a zero-byte replacement |
 | Workspace registry, note symlinks, agent registrations/stores, configuration and credentials | Preserve their existing formats; validate workspace note associations |
@@ -89,6 +89,10 @@ radar task note 7 /absolute/path/to/Tasks/Plan--12345678/Renamed.md
 ```
 
 Changing the title does not rewrite or relocate content. An external directory move or archived-file rename requires explicit note reassociation. The old path must be missing, the new path must fit the managed layout, and a private directory retains its stable UUID suffix. Referencing workspaces must be cleaned up first. Missing notes remain durable task records with diagnostics, including after reset; Radar does not recover identity by matching titles or content.
+
+## Authored-identity conflicts
+
+A shared issue/branch/workspace cannot combine independently authored tasks. Existing invalid aggregates remain intact but cannot be served until explicitly repaired. Inventory and choose handling before upgrading affected data; use the read-only `radar repair-task-links --json` plan on the configured SQLite database. Repair requires explicit task-number, contributor and acknowledgement/review attribution, a new backup and offline transactional apply. See [task link repair](task-link-repair.md).
 
 ## Qualification
 

@@ -23,6 +23,7 @@ radar task delete <task-id>
 radar task priority <task-id> low|normal|urgent
 radar task title <task-id> <title>
 radar task note <task-id> <absolute-note-path>
+radar repair-task-links [--apply plan.json --backup /new/backup.db] [--json]
 radar migrate-state [--apply|--resume|--rollback]
 radar state-backup <destination.db>
 radar state-export
@@ -183,3 +184,5 @@ Supported levels: `debug`, `info`, `warn`, `error`. Default is `info`.
 `workspace-context --resources-only` is the fresh lifecycle projection used by Pi. It returns member instructions/skills and owned sandbox/shared-directory routing without ports, dirty status, repository discovery, opening resources or a reconciliation revision. Use full `workspace-context` before reconciliation.
 
 Completed cleanup and reconciliation responses can contain `resource_refresh_pending: true`. Removal/provisioning has completed; the cached task/resource list is explicitly pending the next local collection. Partial cleanup failures include their successful removal prefix. The dashboard labels pending lists. A complete collection started after the mutation clears the marker; failed or canceled collection keeps it pending.
+
+Authored-note identity conflicts are never automatically merged or reset. `repair-task-links` defaults to a read-only JSON plan; applying requires explicit ownership/history decisions, an offline state lock and a new SQLite backup. See [task link repair](task-link-repair.md).
