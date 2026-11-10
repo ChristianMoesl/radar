@@ -381,3 +381,45 @@ createInterface({input:process.stdin}).on("line",async line=>{
     }
   },
 );
+
+test("simple tool-using agent resumes after SIGKILL without replaying committed evidence or resetting limits", { timeout: 30000 }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), "radar-simple-recovery-"));
+  const socketPath = join(dir, "agent.sock"), config = join(dir, "config.json"), calls = join(dir, "calls.jsonl");
+  const settings = join(dir, "settings.json"), mcp = join(dir, "mcp.json"), helper = join(dir, "radar-helper");
+  await writeFile(config, "{}"); await writeFile(settings, "{}"); await writeFile(calls, "");
+  const binding = { id: "fixture", path: dir, mode: "sbx", sandbox: "fixture" };
+  await writeFile(helper, `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify(binding)}'\n`, { mode: 0o700 });
+  await writeFile(mcp, JSON.stringify({ mcpServers: { fixture: { command: process.execPath,
+    args: [resolve(import.meta.dirname, "fixtures/scoped-mcp.mjs"), settings, calls] } } }));
+  let child: ChildProcess | undefined;
+  const start = async () => {
+    child = spawn(process.execPath, [resolve(import.meta.dirname, "../src/runner.ts"), "--id", "simple-recovery",
+      "--entrypoint", resolve(import.meta.dirname, "fixtures/simple-recovery.ts"), "--data-dir", join(dir, "data"),
+      "--socket", socketPath, "--config", config, "--workspace", dir, "--workspace-id", "fixture"], {
+      env: { ...process.env, RADAR_BINARY: helper, RADAR_MCP_CONFIG: mcp, RADAR_MCP_STATE_DIR: join(dir, "oauth"), RADAR_SIMPLE_RECOVERY_DIR: dir },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let errors = ""; child.stderr?.on("data", data => errors += data);
+    await until(async () => { try { return (await rpc(socketPath, "hello")).instanceId === "simple-recovery"; }
+      catch { if (child?.exitCode !== null) throw new Error(errors); return false; } });
+  };
+  try {
+    await start();
+    const event = { source: "fixture", id: "one", payload: { alert: "synthetic" } };
+    const receipt = await rpc(socketPath, "deliver", event);
+    await until(async () => { try { return await readFile(join(dir, "answer-started"), "utf8") === "ready"; } catch { return false; } });
+    child!.kill("SIGKILL"); await once(child!, "exit");
+    const before = (await readFile(calls, "utf8")).trim().split("\n"); assert.equal(before.length, 1);
+    await writeFile(join(dir, "allow-answer"), "yes");
+    await start();
+    await until(async () => (await rpc(socketPath, "snapshot")).presentation.summary.includes("Recovered fixture investigation"));
+    const snapshot = await rpc(socketPath, "snapshot");
+    assert.equal(snapshot.pending, 0);
+    assert.equal((await rpc(socketPath, "deliver", event)).taskId, receipt.taskId);
+    assert.equal(await readFile(calls, "utf8"), before.join("\n") + "\n", "committed tool evidence must not be fetched again after restart");
+    assert.match(JSON.stringify(await rpc(socketPath, "conversation", { id: snapshot.presentation.conversations[0].id })), /synthetic evidence/);
+  } finally {
+    if (child && child.exitCode === null) { child.kill("SIGKILL"); await once(child, "exit").catch(() => {}); }
+    await rm(dir, { recursive: true, force: true });
+  }
+});

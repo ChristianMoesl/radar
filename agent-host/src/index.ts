@@ -15,6 +15,7 @@ export * from "@earendil-works/pi-durable";
 export { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 export { createModels } from "@earendil-works/pi-ai/models";
 export type { JsonValue } from "@earendil-works/chord";
+export { defineAgent, type AgentLimits, type SimpleAgentOptions } from "./define-agent.ts";
 
 export const PROTOCOL_VERSION = 1;
 export const MAX_FRAME_BYTES = 1024 * 1024;

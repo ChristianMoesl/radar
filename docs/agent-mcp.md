@@ -74,6 +74,10 @@ separate non-read call intent and retains uncertain-write reconciliation.
 Responses are limited to 1 MiB, calls are bounded/cancellable, and remote errors,
 provider bodies and server stderr are not emitted as diagnostics.
 
+## Minimal tool-using agents
+
+For ordinary model-driven investigations, [`defineAgent`](durable-agents.md#minimal-tool-using-agent) registers and dispatches exact selected native tools without per-definition runtime wiring. Choose `mcp.placement: "host"` explicitly to reuse the host profiles below, or `"workspace"` with the existing workspace config/state paths. Neither placement falls back to the other. A minimal Datadog definition is in `agent-host/examples/datadog-simple.ts`; the model chooses queries rather than receiving a hand-coded telemetry pipeline. Existing advanced definitions and their retained state do not change.
+
 ## Explicit host-client tool selections
 
 A definition can give a host `McpServices` client a non-secret selection from its

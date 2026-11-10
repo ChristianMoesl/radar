@@ -22,7 +22,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     case "tools/call": {
       appendFileSync(callsPath, JSON.stringify(message.params) + "\n");
       if (settings.delay) await new Promise(resolve => setTimeout(resolve, 10000));
-      result = { content: [{ type: "text", text: settings.oversized ? "x".repeat(1024 * 1024) : "synthetic evidence" }], structuredContent: { count: message.params.arguments.count },
+      result = { content: [{ type: "text", text: settings.oversized ? "x".repeat(1024 * 1024) : "synthetic evidence" }], structuredContent: { count: message.params.arguments.count, ...(settings.structuredPartial ? { partial: true } : {}) },
         ...(settings.partial ? { _meta: { partial: true } } : {}), ...(settings.error ? { isError: true } : {}) };
       break;
     }

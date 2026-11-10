@@ -1,6 +1,40 @@
 # Programmable durable agents
 
-Radar can supervise a code-defined [pi-durable](https://github.com/earendil-works/pi/tree/main/packages/durable) program, deliver events to it, and show its progress and requests for attention. By default, Radar provisions a dedicated managed workspace for each registration, including its sandbox when SBX is enabled. An explicit existing workspace binding remains available. The definition owns models, tools, routing, tasks, conversations, and business behavior. Radar has no built-in mapping from a pull request, ticket, or alert to an agent.
+Radar can supervise a code-defined [pi-durable](https://github.com/earendil-works/pi/tree/main/packages/durable) program, deliver events to it, and show its progress and requests for attention. By default, Radar provisions a dedicated managed workspace for each registration, including its sandbox when SBX is enabled. An explicit existing workspace binding remains available. Ordinary tool-using definitions can use `defineAgent` below; the low-level API remains available when routing, tasks, conversations or domain-specific state need custom behavior. Radar has no built-in mapping from a pull request, ticket, or alert to an agent.
+
+## Minimal tool-using agent
+
+`defineAgent` composes the existing durable runtime. A definition can be plain JavaScript, with no provider registration, tool dispatcher, task phases or presentation documents:
+
+```js
+import { defineAgent } from "@christianmoesl/radar-agent-host";
+
+export default defineAgent({
+  name: "datadog-health",
+  instructions: "Investigate alerts with read-only telemetry. Report evidence, query windows, uncertainty and next actions. Missing data never proves health. Do not remediate.",
+  model: { provider: "openai", modelId: "gpt-4.1-mini" },
+  mcp: {
+    placement: "host",
+    connections: [{ server: "datadog", tools: [
+      "search_datadog_monitors", "get_datadog_metric", "search_datadog_logs",
+    ] }],
+  },
+});
+```
+
+The editable [minimal Datadog example](../agent-host/examples/datadog-simple.ts) uses this API. Its model chooses telemetry queries; there is no coded collection pipeline or required coverage/findings schema. Domain-specific workflows remain optional in the programmable API. The existing advanced `datadog.ts` definition and its stored task/document identities are unchanged.
+
+Configure model authentication **once in the runtime host's environment**, not in each definition: the selected built-in provider resolves its usual environment variables. Alternatively, explicitly set `RADAR_AGENT_AUTH_FILE` to an absolute, private, runtime-owned pi-ai-format credential JSON file (`provider -> { type: "api_key", ... }` or OAuth credentials). The host does not search interactive Pi/other-agent stores, copy credentials into registrations or SBX, perform login, change providers or fall back to a different account. The configured file must exist, be owned by the runtime user and have no group/other access. Stored credentials take precedence; OAuth refresh is serialized across processes using a token-free adjacent SQLite lock and atomically preserves other provider entries. Failed/malformed stores and refresh failures are not bypassed with an environment key. Credential values must never be put in agent config, events or definitions. Restart Radar after changing inherited configuration. Static models resolve from the installed pi-ai catalog; an unavailable selected model fails visibly, without an implicit replacement.
+
+MCP profiles/authentication use the existing [once-per-host setup](agent-mcp.md). `placement: "host"` deliberately keeps remote-service clients on the host, independent of workspace SBX tools. Only the exact selected tools are registered, with their native validated schemas; permissions/read-only annotations and schemas are checked again at dispatch. No shell, generic dispatcher, write tool or newly discovered tool is added. Independently verify that the selected operations and server-side permissions are read-only; an advisory annotation alone is not authorization.
+
+For an existing **workspace-routed** profile use `mcp: { placement: "workspace", config: "/absolute/workspace/mcp.json", state: "/absolute/workspace/state", connections: [...] }`. This reuses the existing `createMcpTools` adapter and expected local/SBX binding. Its package, server and authentication remain in that selected environment. Missing SBX/package/auth never switches to host-service placement. The helper does not provision credentials, change execution placement or install anything.
+
+Each event gets its own native conversation and a stable submission ID. Admission receipts, checkpoints, tool evidence and the default result/error presentation persist through restart. Missing selected tools/authentication fail visibly; partial, truncated, invalid or failed tool evidence cannot become a completed review even if the model returns an optimistic answer. Inspect the exposed conversation for evidence. The final summary requires attention, and failures are persisted as failed event tasks, not successful reviews.
+
+Optional `limits` default to `{ maxTurns: 12, maxToolCalls: 32, maxDurationMs: 300000 }`; values must be positive integers, capped at 100 turns, 256 tool calls and one hour. Turns are completed native assistant rounds, not a guarantee of exact provider billing: an interrupted request can be replayed after a crash. Tool reservations are durable per native tool task; replay-safe reads may also be repeated after interruption. Automatic compaction and automatic provider/durable retries are disabled for this bounded adapter. Its original persisted deadline includes downtime; restart does not reset the budget. Exhaustion, cancellation, missing answers and model failures are incomplete, never an all-clear. Results/errors use ordinary Radar presentation; custom providers can supply an optional `models` factory, while custom phases, conversation routing, findings or business actions belong in the retained low-level API.
+
+This is an additive authoring API, not a storage migration. Existing registered definitions, native SQLite stores, ownership/leases and task/doc versions are retained. Do not replace an old definition's pending task kinds with the helper or reset its state implicitly: use a new registration for a new definition, or design an explicit native migration. No live registration/cutover is required to install the API.
 
 ## Install and register
 

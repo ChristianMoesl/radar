@@ -159,6 +159,7 @@ export class McpServices {
   private controller = new AbortController();
   private queues = new Map<string, Promise<unknown>>();
   private active = new Set<Promise<unknown>>();
+  private children = new Set<McpServices>();
   private proxyReady = false;
   private paths: ReturnType<typeof mcpPaths>;
   private readonly selection?: Map<string, Set<string>>;
@@ -167,6 +168,20 @@ export class McpServices {
   constructor(paths = mcpPaths(), selection?: unknown) {
     this.paths = paths;
     if (selection !== undefined) this.selection = selectedTools(selection);
+  }
+
+  /** A narrower client sharing only the configured paths, with parent-owned
+   * shutdown. A restricted parent cannot grant a child additional tools. */
+  scoped(value: unknown): McpServices {
+    this.controller.signal.throwIfAborted();
+    const selection = snapshotMcpSelection(value);
+    for (const connection of selection) {
+      this.allowed(connection.server);
+      for (const tool of connection.tools) this.allowed(connection.server, tool);
+    }
+    const child = new McpServices(this.paths, selection);
+    this.children.add(child);
+    return child;
   }
 
   private allowed(server: string, tool?: string): void {
@@ -585,6 +600,7 @@ export class McpServices {
 
   async close(): Promise<void> {
     this.controller.abort();
-    await Promise.allSettled([...this.active]);
+    await Promise.allSettled([...this.active, ...[...this.children].map(child => child.close())]);
+    this.children.clear();
   }
 }

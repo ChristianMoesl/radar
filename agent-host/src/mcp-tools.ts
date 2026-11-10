@@ -3,7 +3,7 @@ import { isAbsolute } from "node:path";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { TSchema } from "typebox";
 import type { Tool, CallToolResult } from "@earendil-works/pi-mcp";
-import { snapshotMcpSelection } from "./mcp.ts";
+import { snapshotMcpSelection, type McpServices, type McpToolSelection } from "./mcp.ts";
 import { mcpInputValidator } from "./mcp-schema.ts";
 import type { WorkspaceExecution } from "./environment.ts";
 
@@ -75,6 +75,32 @@ export async function createMcpTools(execution: WorkspaceExecution, value: unkno
     }
   }
 
+  return selectedMcpTools(connections, request, binding);
+}
+
+/** Trusted host-service placement is explicit, never a workspace fallback. */
+export async function createHostMcpTools(parent: McpServices, value: unknown) {
+  const connections = snapshotMcpSelection(value);
+  const client = parent.scoped(connections);
+  async function request<T>(operation: "tools" | "call", server: string,
+    tool?: string, args?: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
+    const selected = connections.find(connection => connection.server === server);
+    if (!selected || (tool !== undefined && !selected.tools.includes(tool)))
+      throw new Error("MCP server or tool is not explicitly selected");
+    if (operation === "call")
+      return await client.call(server, tool!, args!, signal, true) as T;
+    const catalog = await client.tools(server, signal);
+    return catalog.filter(tool => selected.tools.includes(tool.name)) as T;
+  }
+  return selectedMcpTools(connections, request, { mode: "host-service" as const });
+}
+
+async function selectedMcpTools(
+  connections: McpToolSelection[],
+  request: <T>(operation: "tools" | "call", server: string, tool?: string,
+    args?: Record<string, unknown>, signal?: AbortSignal) => Promise<T>,
+  binding: object,
+) {
   const bindings: { server: string; tool: string; modelName: string }[] = [];
   const validators = new Map<string, (args: unknown) => void>();
   async function read(server: string, tool: string, args: Record<string, unknown>, signal?: AbortSignal) {
@@ -83,7 +109,8 @@ export async function createMcpTools(execution: WorkspaceExecution, value: unkno
     validate(args);
     const result = await request<CallToolResult>("call", server, tool, args, signal);
     const meta = (result as { _meta?: { partial?: boolean; truncated?: boolean } })._meta;
-    if (result.isError || meta?.partial || meta?.truncated)
+    const structured = result.structuredContent as { partial?: boolean; truncated?: boolean } | undefined;
+    if (result.isError || meta?.partial || meta?.truncated || structured?.partial || structured?.truncated)
       throw new Error("MCP evidence is incomplete; do not report an all-clear");
     return result;
   }

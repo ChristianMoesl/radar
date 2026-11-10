@@ -40,14 +40,14 @@ try {
     join(dir, "probe.mjs"),
     `
 import assert from 'node:assert/strict';
-import {PROTOCOL_VERSION,createModels,createRegistry,WorkspaceExecution,defineTask,present} from '@christianmoesl/radar-agent-host';
+import {PROTOCOL_VERSION,createModels,createRegistry,WorkspaceExecution,defineTask,present,defineAgent} from '@christianmoesl/radar-agent-host';
 import {createReadOnlyTools,previewWorkspace} from '@christianmoesl/radar-agent-host/tools';
 import {githubSignature,forwardEvent} from '@christianmoesl/radar-agent-host/adapters';
 import {McpServices} from '@christianmoesl/radar-agent-host/mcp';
 import {createMcpTools,mcpModelToolName} from '@christianmoesl/radar-agent-host/mcp-tools';
 assert.equal(PROTOCOL_VERSION,1);
-for(const value of [createModels,createRegistry,WorkspaceExecution,defineTask,present,createReadOnlyTools,previewWorkspace,githubSignature,forwardEvent,McpServices,createMcpTools,mcpModelToolName]) assert.equal(typeof value,'function');
-for(const name of ['counter','review','jira','datadog','mcp-check']) {
+for(const value of [createModels,createRegistry,WorkspaceExecution,defineTask,present,defineAgent,createReadOnlyTools,previewWorkspace,githubSignature,forwardEvent,McpServices,createMcpTools,mcpModelToolName]) assert.equal(typeof value,'function');
+for(const name of ['counter','review','jira','datadog','datadog-simple','mcp-check']) {
  const definition=(await import('./node_modules/@christianmoesl/radar-agent-host/dist/examples/'+name+'.js')).default;
  assert.equal(typeof definition.configure,'function');assert.ok(definition.eventTask.definition);
 }
@@ -59,7 +59,10 @@ for(const name of ['counter','review','jira','datadog','mcp-check']) {
   await writeFile(
     join(dir, "probe.mts"),
     `
-import {type HostContext,type WorkspaceBinding} from '@christianmoesl/radar-agent-host';
+import {defineAgent,type SimpleAgentOptions,type AgentLimits,type HostContext,type WorkspaceBinding} from '@christianmoesl/radar-agent-host';
+const limits:AgentLimits={maxTurns:3};
+const options:SimpleAgentOptions={name:'fixture',instructions:'Review fixture',model:{provider:'openai',modelId:'gpt-4.1-mini'},mcp:{placement:'host',connections:[]},limits};
+const definition=defineAgent(options);
 const binding:WorkspaceBinding={id:'fixture',path:'/workspace',mode:'sbx',sandbox:'fixture'};
 // @ts-expect-error Required binding fields must remain visible to consumers.
 const missing:WorkspaceBinding={};
