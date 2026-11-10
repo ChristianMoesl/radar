@@ -44,9 +44,9 @@ import {PROTOCOL_VERSION,createModels,createRegistry,WorkspaceExecution,defineTa
 import {createReadOnlyTools,previewWorkspace} from '@christianmoesl/radar-agent-host/tools';
 import {githubSignature,forwardEvent} from '@christianmoesl/radar-agent-host/adapters';
 import {McpServices} from '@christianmoesl/radar-agent-host/mcp';
-import {createMcpTools,mcpModelToolName} from '@christianmoesl/radar-agent-host/mcp-tools';
+import {createMcpTools,createHostMcpTools,mcpModelToolName} from '@christianmoesl/radar-agent-host/mcp-tools';
 assert.equal(PROTOCOL_VERSION,1);
-for(const value of [createModels,createRegistry,WorkspaceExecution,defineTask,present,defineAgent,createReadOnlyTools,previewWorkspace,githubSignature,forwardEvent,McpServices,createMcpTools,mcpModelToolName]) assert.equal(typeof value,'function');
+for(const value of [createModels,createRegistry,WorkspaceExecution,defineTask,present,defineAgent,createReadOnlyTools,previewWorkspace,githubSignature,forwardEvent,McpServices,createMcpTools,createHostMcpTools,mcpModelToolName]) assert.equal(typeof value,'function');
 for(const name of ['counter','review','jira','datadog','datadog-simple','mcp-check']) {
  const definition=(await import('./node_modules/@christianmoesl/radar-agent-host/dist/examples/'+name+'.js')).default;
  assert.equal(typeof definition.configure,'function');assert.ok(definition.eventTask.definition);
@@ -63,6 +63,14 @@ import {defineAgent,type SimpleAgentOptions,type AgentLimits,type HostContext,ty
 const limits:AgentLimits={maxTurns:3};
 const options:SimpleAgentOptions={name:'fixture',instructions:'Review fixture',model:{provider:'openai',modelId:'gpt-4.1-mini'},mcp:{placement:'host',connections:[]},limits};
 const definition=defineAgent(options);
+import {createMcpTools,createHostMcpTools,type WorkspaceMcpConfig} from '@christianmoesl/radar-agent-host/mcp-tools';
+async function inspectTools(host:HostContext,config:WorkspaceMcpConfig){
+ const workspace=await createMcpTools(host.execution,config);
+ const mode:'local'|'sbx'=workspace.inspection.execution.mode;
+ const id:string=workspace.inspection.execution.id;
+ const selected=await createHostMcpTools(host.mcp,[]);
+ const placement:'host-service'=selected.inspection.execution.mode;
+}
 const binding:WorkspaceBinding={id:'fixture',path:'/workspace',mode:'sbx',sandbox:'fixture'};
 // @ts-expect-error Required binding fields must remain visible to consumers.
 const missing:WorkspaceBinding={};

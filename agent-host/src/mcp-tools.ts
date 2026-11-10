@@ -95,11 +95,11 @@ export async function createHostMcpTools(parent: McpServices, value: unknown) {
   return selectedMcpTools(connections, request, { mode: "host-service" as const });
 }
 
-async function selectedMcpTools(
+async function selectedMcpTools<Binding extends object>(
   connections: McpToolSelection[],
   request: <T>(operation: "tools" | "call", server: string, tool?: string,
     args?: Record<string, unknown>, signal?: AbortSignal) => Promise<T>,
-  binding: object,
+  binding: Binding,
 ) {
   const bindings: { server: string; tool: string; modelName: string }[] = [];
   const validators = new Map<string, (args: unknown) => void>();
