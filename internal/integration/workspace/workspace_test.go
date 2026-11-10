@@ -1049,7 +1049,7 @@ func TestRemoveSessionIgnoresMissingSession(t *testing.T) {
 func TestRemoveWorktreeRefusesDirtyWorktree(t *testing.T) {
 	runner := &dirtyRunner{}
 	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if _, err := RemoveWorktree(context.Background(), runner, path, false); err == nil {
+	if _, err := RemoveWorktree(context.Background(), runner, path, integration.CleanupSafe); err == nil {
 		t.Fatal("RemoveWorktree() error = nil, want dirty worktree error")
 	}
 	assertNotCalledContains(t, runner.calls, "git", "worktree remove")
@@ -1058,7 +1058,7 @@ func TestRemoveWorktreeRefusesDirtyWorktree(t *testing.T) {
 func TestRemoveWorktreeForceRemovesDirtyWorktree(t *testing.T) {
 	runner := &dirtyRunner{}
 	path := filepath.Join(t.TempDir(), "repo", "small-fix")
-	if _, err := RemoveWorktree(context.Background(), runner, path, true); err != nil {
+	if _, err := RemoveWorktree(context.Background(), runner, path, integration.CleanupConfirmed); err != nil {
 		t.Fatal(err)
 	}
 	assertCalled(t, runner.calls, "git", "-C "+path+" worktree remove --force "+path)

@@ -91,8 +91,8 @@ func previewCleanup(ctx context.Context, req integration.CleanupPreviewRequest, 
 			continue // Protected primary checkouts are kept, not cleanup issues.
 		}
 		status, err := gitOutput(ctx, ref.Path, "status", "--porcelain")
-		if err != nil {
-			return nil, err
+		if err != nil && (req.Mode != integration.CleanupConfirmed || ctx.Err() != nil) {
+			return nil, fmt.Errorf("inspect worktree status %s: %w", ref.Path, err)
 		}
 		target := protocol.CleanupTarget{
 			SourceRefID: ref.ID, Source: "git", Kind: "worktree", Title: ref.Title,
@@ -102,7 +102,12 @@ func previewCleanup(ctx context.Context, req integration.CleanupPreviewRequest, 
 			ResourceRole: "workspace", ResourceID: ref.Path, Path: ref.Path, Branch: ref.Branch,
 			ProvidesWorkspace: ref.ProvidesWorkspace, WorkspaceID: strings.TrimSpace(ref.WorkspaceID),
 		}
-		if strings.TrimSpace(status) != "" {
+		if err != nil {
+			target.Safety = append(target.Safety, protocol.CleanupSafety{
+				Kind: "safety_check_unavailable", BlocksAutomatic: true,
+				Message: fmt.Sprintf("worktree status could not be inspected for %s: %v; confirmed cleanup will discard any local changes", ref.Path, err),
+			})
+		} else if strings.TrimSpace(status) != "" {
 			target.Safety = append(target.Safety, protocol.CleanupSafety{
 				Kind: "local_changes", Message: "uncommitted changes will be discarded", BlocksAutomatic: true, Expires: true,
 			})
@@ -203,7 +208,7 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		}
 		// Standalone worktrees do not participate in workspace mutation locking
 		// or update a registration that may have appeared during removal.
-		if _, err := workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Mode.DiscardChanges()); err != nil {
+		if _, err := workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Mode); err != nil {
 			return protocol.CleanupTarget{}, err
 		}
 		return req.Target, nil
@@ -227,7 +232,7 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 			}
 			// Still unregistered after creation completed: an independently
 			// created worktree or a partial addition may be explicitly cleaned.
-			_, err := workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Mode.DiscardChanges())
+			_, err := workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, req.Target.Path, req.Mode)
 			return err
 		}
 		// A just-created member may be explicitly removed after waiting for
@@ -251,7 +256,7 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		if req.Target.Operation["delete_branch"] == "" {
 			// A preview that promised to keep a protected/shared branch must not
 			// start deleting it if the other checkout disappears before execution.
-			_, err = workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, member.Path, req.Mode.DiscardChanges())
+			_, err = workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, member.Path, req.Mode)
 		} else {
 			// Automatic cleanup rechecks after preview; explicit user-confirmed
 			// cleanup keeps its existing force semantics.
@@ -270,7 +275,7 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 					}
 				}
 			}
-			_, err = workspace.RemoveManagedWorktree(ctx, workspace.ExecRunner{}, member, req.Mode.DiscardChanges())
+			_, err = workspace.RemoveManagedWorktree(ctx, workspace.ExecRunner{}, member, req.Mode)
 		}
 		if err != nil {
 			return err

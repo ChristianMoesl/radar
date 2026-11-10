@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"radar/internal/integration"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/phasetiming"
 )
@@ -121,14 +122,14 @@ func PlanManagedWorktreeRemoval(ctx context.Context, runner Runner, member works
 // RemoveManagedWorktree removes a registered worktree. Non-protected local
 // branches are deleted using their expected old object ID so branch movement
 // during cleanup fails safely.
-func RemoveManagedWorktree(ctx context.Context, runner Runner, member workspacegroup.Member, force bool) (Workspace, error) {
+func RemoveManagedWorktree(ctx context.Context, runner Runner, member workspacegroup.Member, mode integration.CleanupMode) (Workspace, error) {
 	defer phasetiming.Start(ctx, "managed_worktree_removal")()
 	plan, err := PlanManagedWorktreeRemoval(ctx, runner, member)
 	if err != nil {
 		return Workspace{}, err
 	}
 	if !plan.DeleteBranch {
-		return RemoveWorktree(ctx, runner, member.Path, force)
+		return RemoveWorktree(ctx, runner, member.Path, mode)
 	}
 	branch := strings.TrimSpace(member.Branch)
 	ref := "refs/heads/" + branch
@@ -137,7 +138,7 @@ func RemoveManagedWorktree(ctx context.Context, runner Runner, member workspaceg
 		return Workspace{}, fmt.Errorf("inspect managed branch %q: %w", branch, err)
 	}
 	head = strings.TrimSpace(head)
-	removed, err := RemoveWorktree(ctx, runner, member.Path, force)
+	removed, err := RemoveWorktree(ctx, runner, member.Path, mode)
 	if err != nil {
 		return Workspace{}, err
 	}

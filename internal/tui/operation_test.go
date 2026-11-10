@@ -251,8 +251,8 @@ func TestOperationLayoutHasFixedSlotAndFitsNarrowViews(t *testing.T) {
 		}
 		assertNoWideLines(t, m.View(), width)
 		m = updateOperation(m, cleanupPreviewMsg{err: errors.New(strings.Repeat("very long error path/", 20))})
-		if got := renderedColumnIndex(m.View(), "ABC-123"); got != column {
-			t.Fatalf("width %d: error shifted title from %d to %d", width, column, got)
+		if m.mode != "cleanup_error" || !strings.Contains(m.View(), "Cleanup needs attention") {
+			t.Fatal("failed resource check did not expose its error and retry screen")
 		}
 		assertNoWideLines(t, m.View(), width)
 		m = updateOperation(m, runeKey('i'))

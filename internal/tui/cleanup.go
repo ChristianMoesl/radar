@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"radar/internal/client"
 	"radar/internal/protocol"
 )
 
@@ -21,6 +23,9 @@ func cleanupWrap(text string, width int) string {
 }
 
 func (m model) cleanupConfirmView(width int) string {
+	if m.mode == "cleanup_error" {
+		return cleanupWrap(titleStyle.Render("Cleanup needs attention")+"\n"+m.cleanupTask.Title+"\n\n"+m.operationDetails(m.cleanupTask, width)+"\n\nCleanup did not report success; some resources may already be removed. Retry refreshes the resource list and builds a new preview; review and confirm it again before deletion.", width)
+	}
 	lines := []string{titleStyle.Render("Clean up local resources?")}
 	if m.cleanup.TaskTitle != "" {
 		title := m.cleanup.TaskTitle
@@ -183,6 +188,9 @@ func cleanupTargetDetails(target protocol.CleanupTarget) []string {
 }
 
 func (m model) cleanupFooter(width int) string {
+	if m.mode == "cleanup_error" {
+		return cleanupWrap(helpStyle.Render("[r/x] Refresh and retry check    [i] Inspect    [Esc/n] Back    [q] Quit"), width)
+	}
 	details := "[d] Show full paths and branch names"
 	if m.cleanupDetails {
 		details = "[d] Hide details"
@@ -238,4 +246,48 @@ func (m model) cleanupScreen() string {
 	offset := max(0, min(m.cleanupScroll, len(lines)-min(rows, len(lines))))
 	content := strings.Join(lines[offset:min(len(lines), offset+rows)], "\n") + "\n\n" + footer
 	return m.renderFrame(content, m.cleanupWidth())
+}
+
+func (m *model) showCleanupFailure(task protocol.Task) {
+	m.cleanupTask, m.mode, m.cleanupScroll = task, "cleanup_error", 0
+}
+
+func (m model) updateCleanupFailure(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch key.String() {
+	case "esc", "n", "backspace":
+		m.mode = ""
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "i":
+		m.detail = detailState{task: m.cleanupTask, available: true}
+		m.mode, m.detailReturn = "detail", "cleanup_error"
+	case "r", "x":
+		m.mode = ""
+		cmd := m.startOperation(m.cleanupTask, "cleanup-check", "Checking local resources…", "Resource check failed", m.retryCleanup(m.cleanupTask))
+		return m, cmd
+	default:
+		m.scrollCleanup(key.String())
+	}
+	return m, nil
+}
+
+// A failed deletion may already have removed a prefix of the bundle. Never
+// replay its old plan: refresh first and require confirmation of a new preview.
+func (m model) retryCleanup(task protocol.Task) tea.Cmd {
+	return func() tea.Msg {
+		response, err := client.Call(m.socketPath, "refresh")
+		if err != nil {
+			return cleanupPreviewMsg{err: err}
+		}
+		if !response.OK {
+			return cleanupPreviewMsg{err: fmt.Errorf("refresh before cleanup retry: %s", response.Error)}
+		}
+		cursor, ok := matchingTaskCursor(response.Tasks, task)
+		if !ok {
+			return cleanupPreviewMsg{response: &response, err: fmt.Errorf("task no longer has available resources after refresh; return to the dashboard")}
+		}
+		msg := m.previewCleanup(response.Tasks[cursor])().(cleanupPreviewMsg)
+		msg.response = &response
+		return msg
+	}
 }

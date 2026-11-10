@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"radar/internal/integration/workspace/group"
 	"strings"
 	"testing"
+
+	"radar/internal/integration"
+	"radar/internal/integration/workspace/group"
 )
 
 func TestBranchPublishedRequiresBranchTipOnRemote(t *testing.T) {
@@ -70,7 +72,7 @@ func TestSharedBranchIsKeptWhenRemovingOneWorktree(t *testing.T) {
 	if err != nil || plan.DeleteBranch {
 		t.Fatalf("shared branch should be kept: %+v %v", plan, err)
 	}
-	if _, err := RemoveManagedWorktree(ctx, ExecRunner{}, member, false); err != nil {
+	if _, err := RemoveManagedWorktree(ctx, ExecRunner{}, member, integration.CleanupSafe); err != nil {
 		t.Fatal(err)
 	}
 	runGitE2E(t, ctx, repo, "show-ref", "--verify", "refs/heads/feature")

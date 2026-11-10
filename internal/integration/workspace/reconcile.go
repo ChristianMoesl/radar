@@ -653,7 +653,7 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 		}
 	}
 	for _, removal := range plan.removals {
-		if _, removeErr := RemoveManagedWorktree(ctx, runner, removal.member, false); removeErr != nil {
+		if _, removeErr := RemoveManagedWorktree(ctx, runner, removal.member, integration.CleanupSafe); removeErr != nil {
 			logReconciliationFailure(logger, plan.WorkspaceID, "worktrees", result, removeErr)
 			return result, removeErr
 		}

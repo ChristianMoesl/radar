@@ -210,6 +210,22 @@ Press `d` for full paths/branches and arrows or Page Up/Down to scroll. Only `y`
 confirms; Enter does nothing, and Escape or `n` cancels. Read all warnings before
 confirming: manual cleanup can discard local changes and unpublished commits.
 
+If Git cannot inspect a worktree's local changes, manual cleanup shows the
+underlying status-check error and affected path as a warning. Only explicit
+confirmation permits removal despite that unknown local-data state; automatic
+GC, including seven-day expiry, still stops on that inspection failure. This
+exception does not bypass resource identity, ownership, registry/path safety,
+protected repositories/branches, durable-agent leases, or Git removal errors.
+
+Other failed resource checks open **Cleanup needs attention** with the underlying
+provider/resource error. Use `i` to inspect, Escape/`n` to return, or `r`/`x` to
+refresh and retry. Retry builds a fresh preview for the same task and requires
+`y` again; it never replays the old deletion plan. If removal fails partway,
+Radar reports the completed count and remaining targets (including a possibly
+partially removed target), preserves remaining registration, and offers the same
+retry path. Fix the reported permission/identity/provider problem before retrying;
+registration-only removal is not a substitute for deleting owned resources.
+
 GC results distinguish runtime-retired, deleted and skipped workspaces. `radar gc` also prints paths and skip
 reasons; use `radar gc --json` for structured results.
 
@@ -248,7 +264,10 @@ During the cleanup check or execution, dashboard task-row Enter explains
 ignoring a workspace switch. The existing restriction also covers unrelated
 workspaces. Navigation and Inspect remain available. Success or failure clears
 the operation lock and the explanation; press Enter again to switch. No switch
-is queued or replayed automatically. Follow-up resource collection does not
+is queued or replayed automatically. On the initiating task, a failed cleanup
+opens its error/retry screen; Escape returns to the dashboard before switching.
+If you have moved to another task, the failure stays attached to its initiating
+task without interrupting navigation. Follow-up resource collection does not
 keep that switching lock held.
 
 Publication-verification failures remain unresolved issues; before registered

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"radar/internal/agentservice"
 	"radar/internal/integration"
@@ -34,7 +35,16 @@ func (s Service) Preview(ctx context.Context, task protocol.Task, mode integrati
 	for _, provider := range s.providers {
 		providerTargets, err := provider.PreviewCleanup(ctx, integration.CleanupPreviewRequest{Task: task, Mode: mode})
 		if err != nil {
-			return protocol.CleanupPreview{}, err
+			var resources []string
+			for _, ref := range task.SourceRefs {
+				if ref.Source == provider.Descriptor().Name {
+					resources = append(resources, resourceLabel(protocol.CleanupTarget{Source: ref.Source, Kind: ref.Kind, Path: ref.Path, ResourceID: ref.ID}))
+				}
+			}
+			if len(resources) == 0 {
+				resources = append(resources, provider.Descriptor().Name)
+			}
+			return protocol.CleanupPreview{}, fmt.Errorf("resource check failed for %s: %w; refresh Radar and retry cleanup", strings.Join(resources, ", "), err)
 		}
 		targets = append(targets, providerTargets...)
 	}
@@ -74,15 +84,15 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 	seen := map[string]bool{}
 	for _, target := range preview.Targets {
 		if err := ctx.Err(); err != nil {
-			return result, err
+			return result, remainingError(preview, result, err)
 		}
 		if target.Path != "" && !seen[target.Path] {
 			if err := agentservice.CheckWorkspaceRemoval(target.Path); err != nil {
-				return result, err
+				return result, remainingError(preview, result, fmt.Errorf("%s: %w", resourceLabel(target), err))
 			}
 			release, err := workspacelease.Acquire(target.Path, true)
 			if err != nil {
-				return result, err
+				return result, remainingError(preview, result, fmt.Errorf("%s: %w", resourceLabel(target), err))
 			}
 			releases = append(releases, release)
 			seen[target.Path] = true
@@ -92,23 +102,23 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 	for _, provider := range s.providers {
 		if err := ctx.Err(); err != nil {
 			preflightDone()
-			return result, err
+			return result, remainingError(preview, result, err)
 		}
 		if preflight, ok := provider.(integration.CleanupPreflightProvider); ok {
 			if err := preflight.PreflightCleanup(ctx, preview.Targets, options.Mode); err != nil {
 				preflightDone()
-				return result, err
+				return result, remainingError(preview, result, fmt.Errorf("%s cleanup preflight: %w", provider.Descriptor().Name, err))
 			}
 		}
 	}
 	preflightDone()
 	for _, target := range preview.Targets {
 		if err := ctx.Err(); err != nil {
-			return result, err
+			return result, remainingError(preview, result, err)
 		}
 		provider, ok := s.provider(target.Source)
 		if !ok {
-			return result, fmt.Errorf("source %q cannot clean up local resources", target.Source)
+			return result, remainingError(preview, result, fmt.Errorf("source %q cannot clean up local resources", target.Source))
 		}
 		phase := "cleanup_resource"
 		switch target.Kind {
@@ -123,11 +133,31 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 		cleaned, err := provider.Cleanup(ctx, integration.CleanupRequest{Target: target, Mode: options.Mode})
 		done()
 		if err != nil {
-			return result, fmt.Errorf("cleanup stopped after %d of %d resources: %w", len(result.Targets), len(preview.Targets), err)
+			return result, remainingError(preview, result, fmt.Errorf("%s: %w", resourceLabel(target), err))
 		}
 		result.Targets = append(result.Targets, cleaned)
 	}
 	return result, nil
+}
+
+func resourceLabel(target protocol.CleanupTarget) string {
+	identity := target.Path
+	if identity == "" {
+		identity = target.ResourceID
+	}
+	label := strings.TrimSpace(target.Source + " " + target.Kind)
+	if identity != "" {
+		label += " " + identity
+	}
+	return label
+}
+
+func remainingError(preview protocol.CleanupPreview, result protocol.CleanupResult, problem error) error {
+	var remaining []string
+	for _, target := range preview.Targets[len(result.Targets):] {
+		remaining = append(remaining, resourceLabel(target))
+	}
+	return fmt.Errorf("cleanup stopped after %d of %d resources: %w; remaining resources (including any partially removed target): %s; refresh Radar and preview cleanup again to retry", len(result.Targets), len(preview.Targets), problem, strings.Join(remaining, ", "))
 }
 
 func (s Service) provider(sourceName string) (integration.CleanupProvider, bool) {

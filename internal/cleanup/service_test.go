@@ -12,11 +12,12 @@ import (
 )
 
 type fakeProvider struct {
-	name     string
-	targets  []protocol.CleanupTarget
-	calls    *[]string
-	forces   *[]bool
-	failPath string
+	name       string
+	targets    []protocol.CleanupTarget
+	calls      *[]string
+	forces     *[]bool
+	failPath   string
+	previewErr error
 }
 
 func (f fakeProvider) Descriptor() integration.Descriptor {
@@ -26,7 +27,7 @@ func (fakeProvider) Collect(context.Context, integration.CollectRequest) integra
 	return integration.CollectResult{}
 }
 func (f fakeProvider) PreviewCleanup(context.Context, integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
-	return append([]protocol.CleanupTarget(nil), f.targets...), nil
+	return append([]protocol.CleanupTarget(nil), f.targets...), f.previewErr
 }
 func (f fakeProvider) Cleanup(_ context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
 	if f.calls != nil {
@@ -80,6 +81,20 @@ func TestExecutePassesForceAndReportsPartialCompletion(t *testing.T) {
 	}
 	if !reflect.DeepEqual(forces, []bool{true, true}) {
 		t.Fatalf("forces = %v", forces)
+	}
+	for _, want := range []string{"fake /two", "fake /three", "refresh Radar", "preview cleanup again"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("partial failure omits remaining-resource recovery %q: %v", want, err)
+		}
+	}
+}
+
+func TestPreviewErrorNamesProviderResourceAndRetainsCause(t *testing.T) {
+	problem := errors.New("inspection unavailable")
+	service := New([]integration.CleanupProvider{fakeProvider{name: "git", previewErr: problem}})
+	_, err := service.Preview(context.Background(), protocol.Task{SourceRefs: []protocol.SourceRef{{Source: "git", Kind: "worktree", Path: "/work/selected"}}}, integration.CleanupConfirmed)
+	if !errors.Is(err, problem) || !strings.Contains(err.Error(), "git worktree /work/selected") || !strings.Contains(err.Error(), "retry cleanup") {
+		t.Fatalf("unactionable resource-check error: %v", err)
 	}
 }
 

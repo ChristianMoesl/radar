@@ -644,8 +644,11 @@ func RemoveSession(ctx context.Context, runner Runner, sessionName string) (Work
 	return Workspace{SessionName: sessionName}, nil
 }
 
-func RemoveWorktree(ctx context.Context, runner Runner, path string, force bool) (Workspace, error) {
+func RemoveWorktree(ctx context.Context, runner Runner, path string, mode integration.CleanupMode) (Workspace, error) {
 	defer phasetiming.Start(ctx, "worktree_removal")()
+	if mode != integration.CleanupSafe && mode != integration.CleanupConfirmed && mode != integration.CleanupExpired {
+		return Workspace{}, fmt.Errorf("invalid worktree cleanup mode")
+	}
 	if strings.TrimSpace(path) == "" {
 		return Workspace{}, fmt.Errorf("workspace path is required")
 	}
@@ -654,9 +657,16 @@ func RemoveWorktree(ctx context.Context, runner Runner, path string, force bool)
 		return Workspace{}, err
 	}
 	status, err := runner.Run(ctx, "", "git", "-C", path, "status", "--porcelain")
-	if err != nil {
+	if ctx.Err() != nil {
+		return Workspace{}, ctx.Err()
+	}
+	// Confirmation authorizes losing unknown local changes, not ownership.
+	// Git still performs the actual worktree removal and can refuse it. Safe
+	// cleanup and automatic expiry retain their existing inspection blockers.
+	if err != nil && mode != integration.CleanupConfirmed {
 		return Workspace{}, err
 	}
+	force := mode.DiscardChanges()
 	if status != "" && !force {
 		return Workspace{}, fmt.Errorf("workspace has local changes; force is required to clean it up")
 	}

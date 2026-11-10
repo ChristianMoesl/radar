@@ -63,8 +63,9 @@ type branchesMsg struct {
 }
 
 type cleanupPreviewMsg struct {
-	preview protocol.CleanupPreview
-	err     error
+	preview  protocol.CleanupPreview
+	err      error
+	response *protocol.Response
 }
 
 type linkChoice struct {
@@ -249,6 +250,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.operationTick()
 	case taskActionMsg:
 		action := msg.action
+		failedCleanup := m.operation.kind == "cleanup" && action.err != nil
+		cleanupTask := m.operation.task
 		if m.operation.kind == "session" || m.operation.kind == "cleanup" {
 			action.message = ""
 		}
@@ -256,6 +259,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.message = action.message
 		if action.response != nil {
 			m.applyResponse(*action.response, false)
+		}
+		if selected, ok := m.selectedTask(); failedCleanup && ok && sameTask(selected, cleanupTask) && m.mode == "" {
+			m.showCleanupFailure(cleanupTask)
 		}
 		if action.session != "" && action.err == nil {
 			return m, m.switchTmuxSession(action.session)
@@ -279,6 +285,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
+		if m.mode == "cleanup_error" {
+			return m.updateCleanupFailure(msg)
+		}
 		if m.mode == "search" {
 			return m.updateSearch(msg)
 		}
@@ -700,6 +709,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = "task_delete_confirm"
 		}
 	case cleanupPreviewMsg:
+		if msg.response != nil {
+			m.applyResponse(*msg.response, false)
+		}
 		m.finishOperation(msg.err, true)
 		m.message = ""
 		if msg.err == nil {
@@ -707,6 +719,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cleanupDetails = false
 			m.cleanupScroll = 0
 			m.mode = "cleanup_confirm"
+		} else {
+			m.showCleanupFailure(m.cleanupTask)
 		}
 	case actionMsg:
 		m.loading = false
@@ -738,7 +752,7 @@ func (m model) View() string {
 	if m.mode == "task_delete_confirm" {
 		return m.taskDeletionScreen()
 	}
-	if m.mode == "cleanup_confirm" {
+	if m.mode == "cleanup_confirm" || m.mode == "cleanup_error" {
 		return m.cleanupScreen()
 	}
 	if m.mode == "task_priority" {
