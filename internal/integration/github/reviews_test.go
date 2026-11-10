@@ -409,8 +409,23 @@ func TestMergedReviewContributionControlsLifecycleAndCleanup(t *testing.T) {
 	done.SourceRefs[0].Signal = "done"
 	done.SourceRefs = append(done.SourceRefs, workspace)
 	store.SetTasks([]protocol.Task{done})
-	if plan, err := workspacegc.BuildPlan(store, now.Add(time.Hour), workspacegc.Options{WorkspaceRoot: "/workspaces", IgnoreRetention: true}); err != nil || len(plan.Candidates) != 1 {
-		t.Fatalf("completed review blocked cleanup: %+v, %v", plan, err)
+	for _, tc := range []struct {
+		name       string
+		age        time.Duration
+		candidates int
+	}{
+		{"retain completed workspace before day one", time.Hour, 0},
+		{"retire runtimes after day one", 25 * time.Hour, 1},
+		{"collect workspace after day seven", 7*24*time.Hour + time.Minute, 1},
+	} {
+		for _, ignoreRetention := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/manual_gc=%t", tc.name, ignoreRetention), func(t *testing.T) {
+				plan, err := workspacegc.BuildPlan(store, now.Add(tc.age), workspacegc.Options{WorkspaceRoot: "/workspaces", IgnoreRetention: ignoreRetention})
+				if err != nil || len(plan.Candidates) != tc.candidates {
+					t.Fatalf("completed review cleanup eligibility: %+v, %v", plan, err)
+				}
+			})
+		}
 	}
 }
 
