@@ -9,6 +9,15 @@ session together. Start with a plan and add code when you need it.
 
 The workspace editor starts with a name and a draft. Add zero or more repositories, then press Enter to create and open the workspace without a confirmation dialog. Radar still validates the complete plan before applying it. Every workspace automatically gets a canonical Obsidian note exposed as `notes.md`. Press `w` to edit an existing workspace, `a` to add a repository, `x` to remove the selected repository. Repository addition uses repository search and branch selection. New branch names are prefilled once from the workspace name using Radar's branch-name sanitization. You can edit or clear the suggestion without changing the workspace name; Radar does not overwrite your edits. Each added repository starts with its own suggestion. It tries to refresh origin before listing branches. If that fetch fails, Radar shows a warning and continues with locally cached refs, so previously fetched branches remain available offline. Repository paths are shortened to `~/...` when they are inside your home directory.
 
+Pressing Enter on a source task creates resources for that task: the source,
+canonical note and workspace appear as one logical task. Radar keeps its existing
+explicit linking-key precedence; an authoritative source with no usable linking
+key can supply its canonical identity instead. That association is saved in the
+workspace registry, survives refresh and daemon restart, and makes subsequent
+Enter presses reopen the same workspace. Informational refs and matching titles
+do not establish ownership. This prevents new splits; it does not repair existing
+unassociated tasks or workspaces.
+
 Open the interactive workspace creation flow:
 
 ```sh

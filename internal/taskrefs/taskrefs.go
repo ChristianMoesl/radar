@@ -18,21 +18,32 @@ func WorkspaceName(task protocol.Task) string {
 }
 
 func TaskLinkingKey(task protocol.Task) string {
+	// Preserve explicit-link selection across all eligible refs before
+	// considering a canonical-only source identity.
+	if key := preferredTaskKey(task, stableLinkingKey); key != "" {
+		return key
+	}
+	return preferredTaskKey(task, func(ref protocol.SourceRef) string {
+		return strings.TrimSpace(ref.CanonicalKey)
+	})
+}
+
+func preferredTaskKey(task protocol.Task, keyForRef func(protocol.SourceRef) string) string {
 	for _, ref := range task.SourceRefs {
 		if ref.Role == protocol.SourceRefRoleAuthoritative && ref.Lifecycle == protocol.SourceRefLifecycleWorkItem && ref.Authority == protocol.SourceRefAuthorityPrimary {
-			if key := stableLinkingKey(ref); key != "" {
+			if key := keyForRef(ref); key != "" {
 				return key
 			}
 		}
 	}
 	if ref, ok := WorkspaceCandidate(task); ok {
-		if key := stableLinkingKey(ref); key != "" {
+		if key := keyForRef(ref); key != "" {
 			return key
 		}
 	}
 	for _, ref := range task.SourceRefs {
 		if ref.Role == protocol.SourceRefRoleAuthoritative {
-			if key := stableLinkingKey(ref); key != "" {
+			if key := keyForRef(ref); key != "" {
 				return key
 			}
 		}

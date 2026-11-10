@@ -939,6 +939,14 @@ func linkKeysForSourceRef(ref protocol.SourceRef) []string {
 		seen[key] = true
 		keys = append(keys, key)
 	}
+	// Canonical-only sources can be selected when creating a workspace.
+	// Match that retained association without broadening explicit-link or
+	// concrete resource-lifetime ownership.
+	if len(seen) == 0 && ref.BindingKey == "" {
+		if canonical := strings.TrimSpace(ref.CanonicalKey); canonical != "" {
+			keys = append(keys, canonical)
+		}
+	}
 	return keys
 }
 

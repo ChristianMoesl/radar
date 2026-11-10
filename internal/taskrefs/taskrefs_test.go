@@ -130,3 +130,43 @@ func TestSessionTargetUsesStableSessionID(t *testing.T) {
 		t.Fatalf("SessionTarget() = %q, want $3", got)
 	}
 }
+
+func TestTaskLinkingKeyCanonicalFallbackPreservesExplicitSelection(t *testing.T) {
+	primary := protocol.SourceRef{ID: "notes:ref:one", Role: protocol.SourceRefRoleAuthoritative,
+		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary, CanonicalKey: "notes:task:one"}
+	candidate := protocol.SourceRef{ID: "review:ref:one", Role: protocol.SourceRefRoleAuthoritative,
+		CanonicalKey: "review:change:one", Presentation: protocol.SourceRefPresentation{WorkspaceName: "Review"}}
+	contributor := protocol.SourceRef{ID: "alerts:ref:one", Role: protocol.SourceRefRoleAuthoritative,
+		Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityContributing, CanonicalKey: "alerts:monitor:one"}
+	explicit := func(ref protocol.SourceRef, keys ...string) protocol.SourceRef {
+		ref.LinkingKeys = keys
+		return ref
+	}
+	informational := candidate
+	informational.Role = protocol.SourceRefRoleInformational
+	for _, tt := range []struct {
+		name string
+		refs []protocol.SourceRef
+		want string
+	}{
+		{"canonical only contributor", []protocol.SourceRef{contributor}, contributor.CanonicalKey},
+		{"blank explicit links", []protocol.SourceRef{explicit(contributor, "", " \t")}, contributor.CanonicalKey},
+		{"primary canonical fallback", []protocol.SourceRef{candidate, contributor, primary}, primary.CanonicalKey},
+		{"candidate canonical fallback", []protocol.SourceRef{contributor, candidate}, candidate.CanonicalKey},
+		{"candidate explicit beats primary canonical", []protocol.SourceRef{primary, explicit(candidate, "mark:ABC-1")}, "mark:ABC-1"},
+		{"contributor explicit beats candidate canonical", []protocol.SourceRef{candidate, explicit(contributor, "mark:ABC-2")}, "mark:ABC-2"},
+		{"primary explicit wins", []protocol.SourceRef{explicit(candidate, "mark:ABC-1"), explicit(primary, "mark:ABC-2")}, "mark:ABC-2"},
+		{"explicit canonical wins within ref", []protocol.SourceRef{explicit(candidate, "mark:ABC-1", candidate.CanonicalKey)}, candidate.CanonicalKey},
+		{"other explicit link preserved", []protocol.SourceRef{explicit(candidate, " mark:ABC-1 ")}, "mark:ABC-1"},
+		{"informational canonical cannot own", []protocol.SourceRef{informational}, ""},
+		{"informational explicit cannot own", []protocol.SourceRef{explicit(informational, "mark:ABC-1"), contributor}, contributor.CanonicalKey},
+		{"no ID or title fallback", []protocol.SourceRef{{ID: "alerts:ref:one", Role: protocol.SourceRefRoleAuthoritative, Title: "Same title"}}, ""},
+		{"unclassified canonical cannot own", []protocol.SourceRef{{CanonicalKey: "alerts:monitor:one"}}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := TaskLinkingKey(protocol.Task{SourceRefs: tt.refs}); got != tt.want {
+				t.Fatalf("TaskLinkingKey() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
