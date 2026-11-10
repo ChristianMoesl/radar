@@ -70,7 +70,13 @@ func writeResult(stdout, stderr io.Writer, value any, asJSON bool) error {
 			p.line("Resource list refresh pending.")
 		}
 		p.line("Garbage collection: %d deleted, %d skipped.", len(v.Deleted), len(v.Skipped))
+		if len(v.Retired) > 0 {
+			p.line("Retired runtimes for %d workspace(s); files and registration retained.", len(v.Retired))
+		}
 		rows := [][]string{{"RESULT", "TASK", "PATH", "REASON"}}
+		for _, item := range v.Retired {
+			rows = append(rows, []string{"Runtime retired", fmt.Sprint(item.TaskID), item.Path, "files retained"})
+		}
 		for _, item := range v.Deleted {
 			rows = append(rows, []string{"Deleted", fmt.Sprint(item.TaskID), item.Path, ""})
 		}

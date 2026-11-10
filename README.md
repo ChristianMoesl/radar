@@ -48,8 +48,8 @@ repositories later with **`w`**. If Pi needs model access, use **`/login`** in P
 Back in the dashboard, use **↑/↓** to choose a task, **Enter** to resume its
 workspace, **`i`** to inspect it, or **`o`** to open its issue, PR or note.
 
-Workspaces are disposable: completed ones are automatically cleaned up, and
-can lose uncommitted work after eight days. Read the [cleanup policy](docs/workspace-cleanup.md).
+Workspaces are disposable: completed ones have runtimes retired after 24 hours,
+and can lose local files and uncommitted work after seven days. Read the [cleanup policy](docs/workspace-cleanup.md).
 
 ## Learn more
 

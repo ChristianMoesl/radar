@@ -812,6 +812,8 @@ Existing configured mounts are preserved. If configuration explicitly mounts the
 
 ## Collection and refs
 
+Registered completed workspaces follow [staged cleanup](../workspace-cleanup.md): after 24 hours done, GC uses `sbx stop <name>` and removes linked tmux sessions while preserving the sandbox, its local state, mounts, files and registration. The normal open/recovery flow can restart it. At seven days done the stopped sandbox becomes eligible for removal with the rest of the registered bundle. Both stages retain activity, pending-review, runtime-identity, path, and durable-agent ownership/lease protections; already-stopped or missing runtimes are safe to retry. Standalone resources do not acquire destructive expiry.
+
 With SBX installed, local refreshes parse `sbx ls --json` and emit stable sandbox refs linked by name, mark, and primary workspace. Global `sbx.enabled: false` disables collection of unmanaged sandboxes, but registered workspace runtimes are still observed and remain available for explicit cleanup. This preserves existing workspace behavior and repository opt-ins. Changing defaults never adds or removes a sandbox from an existing registration. The runtime capability resolves provider-owned sandbox names. Shell actions use the registered multiplexer rather than invoking tmux themselves.
 
 Cleanup descriptions and opaque resource IDs are provider-owned. Workspace reconciliation preserves mount, port, recreation, and failure behavior; failed runtime recreation does not roll back completed filesystem or Git changes.

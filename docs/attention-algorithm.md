@@ -157,7 +157,7 @@ Collapsed children and source-ref rows are absent from navigation and layout. Co
 
 ## Cleanup after remote completion
 
-Completion and local cleanup are separate. A remotely completed task without active agent work or a pending result review remains `done` while Radar conservatively garbage-collects eligible local worktrees, tmux sessions, and sandboxes. Cleanup bookkeeping must not make completed work compete for the user's attention. Muting alone never sets a completion timestamp, archives an open note, authorizes cleanup, or makes a workspace eligible for automatic garbage collection. Existing manual cleanup remains available, and genuinely done muted work follows the same retention and safety checks as any other done task.
+Completion and local cleanup are separate. A remotely completed task without active agent work or a pending result review remains `done` while Radar retires registered-workspace runtimes after 24 hours done and garbage-collects their files, worktrees and stopped sandboxes after seven days. Dirty or unpublished local work does not block runtime retirement; activity, pending review, unverifiable activity and ownership/lease protections still block both automatic stages. Standalone observed worktrees keep conservative GC. Cleanup bookkeeping must not make completed work compete for the user's attention. Muting alone never sets a completion timestamp, archives an open note, authorizes cleanup, or makes a workspace eligible for automatic garbage collection. Existing manual cleanup remains available, and genuinely done muted work follows the same retention and safety checks as any other done task.
 
 ## GitHub activity
 

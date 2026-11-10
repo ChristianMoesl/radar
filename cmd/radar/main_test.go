@@ -94,9 +94,13 @@ func TestCleanupTargetDescriptionUsesProviderDescription(t *testing.T) {
 
 func TestGarbageCollectionResultConvertsDeletedAndSkippedWorkspaces(t *testing.T) {
 	result := garbageCollectionResult(workspacegc.Result{
+		Retired: []workspacegc.Candidate{{TaskID: 6, Path: "/workspaces/retained"}},
 		Deleted: []workspacegc.Candidate{{TaskID: 7, Path: "/workspaces/deleted"}},
 		Skipped: []workspacegc.Skipped{{TaskID: 8, Path: "/workspaces/skipped", Reason: "workspace has local changes"}},
 	})
+	if len(result.Retired) != 1 || result.Retired[0].TaskID != 6 {
+		t.Fatalf("retired = %+v", result.Retired)
+	}
 	if len(result.Deleted) != 1 || result.Deleted[0].TaskID != 7 || result.Deleted[0].Path != "/workspaces/deleted" {
 		t.Fatalf("deleted = %+v", result.Deleted)
 	}

@@ -119,7 +119,7 @@ func TestLongPortListsTruncateOnlyOverviewAndRetainOtherBadges(t *testing.T) {
 	for _, width := range []int{60, 80, 100} {
 		for _, selected := range []bool{false, true} {
 			row := ansi.Strip(taskLine(task, selected, width))
-			for _, want := range []string{portIcon, "10000", "…", unresolvedIcon + " unresolved"} {
+			for _, want := range []string{portIcon, "10000", "…"} {
 				if !strings.Contains(row, want) {
 					t.Fatalf("width %d: lost %q in %s", width, want, row)
 				}

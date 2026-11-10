@@ -84,7 +84,7 @@ apply. Existing explicit `false` settings remain unchanged.
 `workspace.cleanup.disposable_entries` authorizes deletion of exact workspace-root
 entries, not glob patterns. The default is empty. Read the
 [cleanup policy](workspace-cleanup.md#disposable-workspace-root-entries) before
-adding anything; completed registered workspaces also have an eight-day expiry.
+adding anything; completed registered workspaces have 24-hour runtime retirement and seven-day destructive expiry.
 
 `model` and `thinking` become Pi's `--model` and `--thinking` arguments for new
 workspace sessions. Choose a model available through your Pi provider. A

@@ -19,7 +19,7 @@ import (
 )
 
 const DefaultRetention = 24 * time.Hour
-const ExpiryRetention = 8 * 24 * time.Hour
+const ExpiryRetention = 7 * 24 * time.Hour
 
 // ExpiryAt is shared by GC and read-only presentation. Only registered
 // workspaces have an automatic destructive deadline; observed worktrees do not.
@@ -70,6 +70,7 @@ type Plan struct {
 }
 
 type Result struct {
+	Retired []Candidate
 	Deleted []Candidate
 	Skipped []Skipped
 }
@@ -112,6 +113,11 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 			return orderedRefs[i].WorkspaceEntry && !orderedRefs[j].WorkspaceEntry
 		})
 		for _, ref := range orderedRefs {
+			// Manual GC may bypass standalone retention, never either registered
+			// workspace deadline. Explicit confirmed cleanup is a separate action.
+			if ref.WorkspaceID != "" && !doneLongEnough(record.DoneAt, now, DefaultRetention) {
+				continue
+			}
 			if !ref.ProvidesWorkspace || strings.TrimSpace(ref.Path) == "" {
 				continue
 			}
@@ -150,12 +156,20 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 	result := Result{Skipped: append([]Skipped(nil), plan.Skipped...)}
 	for _, candidate := range plan.Candidates {
 		mode := integration.CleanupSafe
-		if deadline, ok := ExpiryAt(candidate.Task); candidate.WorkspaceID != "" && ok && !now.Before(deadline) {
-			mode = integration.CleanupExpired
+		if candidate.WorkspaceID != "" {
+			deadline, ok := ExpiryAt(candidate.Task)
+			if !ok {
+				result.skip(candidate, fmt.Errorf("registered workspace completion time is invalid"), logger)
+				continue
+			}
+			mode = integration.CleanupRetire
+			if !now.Before(deadline) {
+				mode = integration.CleanupExpired
+			}
 		}
 		preview, err := cleanupService.Preview(ctx, candidate.Task, mode)
 		if err != nil {
-			if errors.Is(err, cleanup.ErrNoResources) && pathMissing(candidate.Path) {
+			if mode != integration.CleanupRetire && errors.Is(err, cleanup.ErrNoResources) && pathMissing(candidate.Path) {
 				result.Deleted = append(result.Deleted, candidate)
 				continue // Already gone; the post-GC local refresh drops stale refs.
 			}
@@ -167,7 +181,7 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			result.skip(candidate, fmt.Errorf("matching workspace cleanup target was not found"), logger)
 			continue
 		}
-		if len(selected.Targets) == 0 && pathMissing(candidate.Path) {
+		if mode != integration.CleanupRetire && len(selected.Targets) == 0 && pathMissing(candidate.Path) {
 			result.Deleted = append(result.Deleted, candidate)
 			continue
 		}
@@ -175,6 +189,7 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			result.skip(candidate, errors.New(messages[0]), logger)
 			continue
 		}
+		runtimeChanged := false
 		execute := func() error {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -182,7 +197,10 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			if !candidateStillDone(store, candidate) {
 				return fmt.Errorf("task completion changed during cleanup; preview again")
 			}
-			_, err := cleanupService.Execute(ctx, selected, cleanup.ExecuteOptions{Mode: mode})
+			cleaned, err := cleanupService.Execute(ctx, selected, cleanup.ExecuteOptions{Mode: mode})
+			for _, target := range cleaned.Targets {
+				runtimeChanged = runtimeChanged || target.Operation["runtime_retired"] == "true"
+			}
 			return err
 		}
 		var executeErr error
@@ -195,6 +213,12 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			result.skip(candidate, err, logger)
 			continue
 		}
+		if mode == integration.CleanupRetire {
+			if runtimeChanged {
+				result.Retired = append(result.Retired, candidate)
+			}
+			continue
+		}
 		result.Deleted = append(result.Deleted, candidate)
 		if logger != nil {
 			logger.Info("workspace gc deleted workspace", "task", candidate.TaskID, "path", candidate.Path, "expired", mode == integration.CleanupExpired)
@@ -204,6 +228,15 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 }
 
 func candidateStillDone(store *state.Store, candidate Candidate) bool {
+	refs := activeRefsByRecord(store.SourceRefs())[candidate.RecordID]
+	if protocol.SourceRefsActivity(refs) != protocol.ActivityIdle {
+		return false
+	}
+	for _, ref := range refs {
+		if ref.AgentReview {
+			return false
+		}
+	}
 	for _, record := range store.Records() {
 		if record.ID == candidate.RecordID {
 			return record.State == "done" && record.DoneAt == candidate.DoneAt

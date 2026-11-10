@@ -33,7 +33,10 @@ type recordedRuntime struct {
 func (p recordedRuntime) Descriptor() integration.Descriptor {
 	return integration.Descriptor{Name: p.name}
 }
-func (p recordedRuntime) PreviewCleanup(context.Context, integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
+func (p recordedRuntime) PreviewCleanup(_ context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
+	if req.Mode == integration.CleanupRetire {
+		return nil, nil
+	}
 	// Actual runtime providers identify the shared workspace by path, not ID.
 	return []protocol.CleanupTarget{{Source: p.name, Path: p.path, ResourceID: p.name}}, nil
 }

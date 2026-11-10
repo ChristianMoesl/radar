@@ -51,7 +51,7 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 		return protocol.CleanupResult{}, lockErr
 	}
 	defer release()
-	if options.Mode != integration.CleanupSafe && options.Mode != integration.CleanupConfirmed && options.Mode != integration.CleanupExpired {
+	if options.Mode != integration.CleanupSafe && options.Mode != integration.CleanupConfirmed && options.Mode != integration.CleanupExpired && options.Mode != integration.CleanupRetire {
 		return protocol.CleanupResult{}, fmt.Errorf("invalid cleanup mode")
 	}
 	if options.Mode != integration.CleanupConfirmed {

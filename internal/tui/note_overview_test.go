@@ -52,7 +52,7 @@ func TestOverviewNoteAttachmentsDoNotChangeRows(t *testing.T) {
 	}
 }
 
-func TestOverviewNotesPreservePortsWarningsAndActivity(t *testing.T) {
+func TestOverviewNotesPreservePortsAndActivity(t *testing.T) {
 	baseline := resourceBadgeFixture()
 	baseline.SourceRefs = append(baseline.SourceRefs[:6:6], baseline.SourceRefs[7:]...)
 	baseline.Title = strings.Repeat("Long task 界 ", 20)
@@ -66,7 +66,7 @@ func TestOverviewNotesPreservePortsWarningsAndActivity(t *testing.T) {
 				if want := ansi.Strip(taskLine(baseline, selected, width)); row != want {
 					t.Fatalf("notes=%d width=%d selected=%t changed other badges: %q, want %q", count, width, selected, row, want)
 				}
-				for _, want := range []string{"🔌 8080", unresolvedIcon + " unresolved", "● busy"} {
+				for _, want := range []string{"🔌 8080", "● busy"} {
 					if !strings.Contains(row, want) {
 						t.Fatalf("notes=%d width=%d lost %q: %s", count, width, want, row)
 					}

@@ -90,6 +90,7 @@ type GarbageCollectionItem struct {
 }
 
 type GarbageCollectionResult struct {
+	Retired                []GarbageCollectionItem `json:"retired,omitempty"`
 	ResourceRefreshPending bool                    `json:"resource_refresh_pending,omitempty"`
 	Deleted                []GarbageCollectionItem `json:"deleted"`
 	Skipped                []GarbageCollectionItem `json:"skipped"`

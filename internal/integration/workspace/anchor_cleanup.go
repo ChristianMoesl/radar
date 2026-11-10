@@ -121,6 +121,23 @@ func ValidateDiscardingWorkspace(root, id string, mode integration.CleanupMode) 
 // PreflightCleanup scans every affected anchor once before any bundle side
 // effects. It is deliberately fresh; previews never serve as deletion authority.
 func (Source) PreflightCleanup(ctx context.Context, targets []protocol.CleanupTarget, mode integration.CleanupMode) error {
+	if mode == integration.CleanupRetire {
+		root, err := DefaultRoot()
+		if err != nil {
+			return err
+		}
+		return workspacegroup.WithNoteLock(root, func() error {
+			for _, target := range targets {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if _, err := ValidateRuntimeCleanupTarget(root, target); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
 	if !mode.DiscardChanges() {
 		return nil
 	}

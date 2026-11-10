@@ -725,8 +725,9 @@ Bare `pi update` is not the package-update command.
   and run the [explicit migration](integrations/obsidian.md#migrating-task-muting)
   before starting the new version. A cache reset does not migrate note preferences.
 - **Workspace expiry:** already-completed registered workspaces keep their original
-  completion time. Those eight days past completion can be deleted at the next
-  GC run, including local changes and unpublished commits. There is no recovery
+  completion time. Those 24 hours past completion can have SBX stopped and tmux
+  removed; those seven days past completion can be deleted at the next GC run,
+  including local changes, sandbox-local state and unpublished commits. There is no recovery
   archive or new startup grace period. Review and preserve work or reopen the task
   before installing; see [expiry rollout](workspace-cleanup.md#before-installing-this-policy).
 - **Configuration and notes:** review integration-specific rollout instructions

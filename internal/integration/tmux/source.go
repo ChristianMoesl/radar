@@ -44,6 +44,9 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 }
 
 func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
+	if req.Mode == integration.CleanupRetire {
+		return workspace.RuntimeCleanupTargets(req.Task, "tmux")
+	}
 	_ = ctx
 	targets := make([]protocol.CleanupTarget, 0)
 	for _, ref := range req.Task.SourceRefs {
@@ -67,6 +70,9 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 }
 
 func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+	if req.Mode == integration.CleanupRetire {
+		return retireSession(ctx, workspace.ExecRunner{}, req.Target)
+	}
 	if strings.TrimSpace(req.Target.ResourceID) == "" {
 		return protocol.CleanupTarget{}, fmt.Errorf("tmux session is required")
 	}

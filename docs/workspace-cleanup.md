@@ -1,11 +1,12 @@
-# Workspace cleanup and Unresolved issues
+# Staged workspace cleanup and safety details
 
 **Unresolved** means Radar found local work that may need preserving, or a
 persistent cleanup problem. It does not mean that a task is unfinished or that
 a terminal is currently being used. Local-data warnings block conservative
-cleanup, but do not extend a registered workspace's eight-day expiry deadline.
+cleanup, but do not block runtime retirement or extend a registered workspace's
+seven-day destructive expiry deadline.
 
-The overview has one `unresolved` badge. Inspect (`i`) shows task details first,
+The overview has no cleanup-status badge or replacement indicator. Inspect (`i`) shows task details first,
 then **Workspace expiry** for a done task with a valid completion time and a
 registered workspace, then **Unresolved** with affected resources and reasons,
 and **Source refs**. Expiry includes a local date/time with timezone and an
@@ -23,16 +24,17 @@ is one bundle, including its linked tmux session and sandbox.
 
 | Time continuously done | Garbage-collection policy |
 | --- | --- |
-| Less than 24 hours | Automatic GC waits. `radar gc` / TUI `X` may collect a safe workspace earlier. |
-| 24 hours to less than eight days | Conservative GC: local changes, unpublished commits, unavailable publication verification, or unknown anchor files block the bundle. |
-| Eight days (192 hours) or more | Registered workspace expiry: GC may discard that local data despite those warnings. Structural safety conditions still apply. |
+| Less than 24 hours | Keep the registered workspace and its runtimes available, including during `radar gc` / TUI `X`. |
+| 24 hours to less than seven days | Stop SBX and remove the linked tmux session. Preserve the stopped sandbox, sandbox-local state, workspace files, worktrees, branches, shared directory, and registration. Dirty/unpublished work and unavailable publication verification do not block this runtime-only stage. |
+| Seven days (168 hours) or more | Registered workspace expiry: GC may discard local data and remove the remaining eligible resources, including the stopped sandbox. Structural safety conditions still apply. |
 
 **Expiry can permanently delete local changes, unpublished commits in deletable
 Radar-owned branches, and unknown workspace-root files. There is no recovery
 archive.** Move valuable work outside the workspace or publish it before the
 deadline. Keeping a local commit inside a deletable branch is not preservation.
 
-The deadline is the task's completion time (`DoneAt`) plus eight days, not
+Both stages use the latest transition to Done: runtime retirement is `DoneAt`
+plus 24 hours, and destructive expiry is `DoneAt` plus seven days, not
 workspace creation, file modification times, recent terminal activity, or daemon
 startup. Reopening the task cancels expiry; completing it again starts a new
 completion-based deadline. A missing or malformed completion time does not grant
@@ -59,8 +61,9 @@ or commits.
 ### Before installing this policy
 
 Already-done registered workspaces use their **existing `DoneAt`**. Those already
-eight days past completion can be removed at the next GC run after the new
-binary starts, or by `radar gc` / `X`. There is no installation-time or startup
+24 hours past completion can have runtimes retired; those seven days past
+completion can be removed at the next GC run after the new binary starts, or by
+`radar gc` / `X`. There is no installation-time or startup
 grace period, configuration switch, schema change, or timestamp migration.
 
 Before installing, disclose this behavior and inventory registered workspaces
@@ -71,12 +74,16 @@ local data.
 
 ## Agent activity and result review
 
-Automatic GC, including expired-workspace GC, rechecks reported agent activity
+Both automatic stages recheck task completion and reported agent activity
 before destructive execution. Busy, waiting, unverifiable activity, and pending
 handoff writes prevent removal even when an older preview or completion timestamp
 would otherwise authorize it. Activity-driven reopening clears the completion
 time; the review hold keeps the task unfinished after agents settle. Explicit
-Done after reviewing starts the completion clock again. Terminal attachment alone
+Done after reviewing starts both clocks again. Retained registrations keep the
+runtime configuration, so the normal workspace open/recovery flow can restart a
+stopped sandbox and recreate its missing tmux session. Partial runtime failures
+retain the registration and are safe to retry; missing/stopped runtimes are
+idempotent, but identification and inspection errors still block the operation. Terminal attachment alone
 is not an activity signal, and unrelated idle sessions do not prevent cleanup.
 
 Explicit `radar cleanup` / `x` remains a separately confirmed destructive action;
@@ -110,7 +117,7 @@ merged-PR evidence cannot authorise deleting a newer local tip.
 Done tasks with a current unresolved workspace stay visible beyond the ordinary
 three-day display limit. Once issues clear or the workspace disappears, normal
 visibility rules apply again. This does not reset task completion dates or
-change automatic GC's 24-hour retention period or eight-day expiry deadline.
+change automatic runtime retirement at 24 hours or destructive expiry at seven days.
 
 ## Conditions that no longer need user intervention
 
@@ -124,7 +131,7 @@ change automatic GC's 24-hour retention period or eight-day expiry deadline.
   prevent cleanup of an eligible completed workspace. Reported busy/waiting agent
   activity separately prevents automatic cleanup. Removing the session can
   terminate its shells, agents, or other commands. This does **not** make active
-  tasks eligible for GC or shorten the eight-day destructive grace period.
+  tasks eligible for GC or shorten the seven-day destructive grace period.
 - **Branch used by another worktree:** remove the selected worktree but keep the
   shared branch and the other checkout. Cleanup must honour a preview that said
   the branch would be kept even if that other checkout subsequently disappears.
@@ -187,7 +194,7 @@ Radar unlinks disposable symlinks without following their targets, including
 links inside disposable directories. It refuses symlinked anchors and symlinked
 parents below the configured workspace root. Conservative cleanup recursively
 removes only approved entries; the anchor must then be empty. The allowlist does
-not shorten task-completion retention or the eight-day destructive grace period. Expiry can remove unknown entries inside the
+not shorten task-completion retention or the seven-day destructive grace period. Expiry can remove unknown entries inside the
 validated anchor, without following symlink targets or overriding canonical-note,
 primary-repository, or member ownership protections.
 
@@ -203,14 +210,15 @@ Press `d` for full paths/branches and arrows or Page Up/Down to scroll. Only `y`
 confirms; Enter does nothing, and Escape or `n` cancels. Read all warnings before
 confirming: manual cleanup can discard local changes and unpublished commits.
 
-GC results show deleted/skipped counts. `radar gc` also prints paths and skip
+GC results distinguish runtime-retired, deleted and skipped workspaces. `radar gc` also prints paths and skip
 reasons; use `radar gc --json` for structured results.
 
-GC cleans only completed, eligible workspaces. `radar gc` and TUI `X` can bypass
-the initial 24-hour safe-cleanup wait, but **never** the eight-day destructive
-grace period or hard structural safety conditions. Before expiry they retain
-local-data protections; after expiry they use the same registered-workspace
-policy as the hourly daemon run.
+GC acts only on completed, eligible workspaces. For registered workspaces,
+`radar gc` and TUI `X` use the same 24-hour runtime and seven-day destructive
+deadlines as the hourly daemon; they never delete files or worktrees before day
+seven, even when clean. Standalone observed worktrees keep their conservative
+cleanup policy and may bypass its initial wait with manual GC. Neither path
+bypasses activity, durable-agent ownership/lease, or structural safety checks.
 
 The selected task's `x` / `radar cleanup <task-id>` is a separate, explicitly
 confirmed cleanup and can discard local work without waiting for GC retention.

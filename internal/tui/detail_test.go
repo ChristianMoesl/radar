@@ -321,7 +321,7 @@ func TestInspectUnresolvedUpdatesWithTheTaskAndWrapsWithoutTruncation(t *testing
 	updatedTask.SourceRefs[0].CleanupIssues = nil
 	updated, _ = m.Update(watchMsg{response: protocol.Response{Tasks: []protocol.Task{updatedTask}}})
 	m = updated.(model)
-	if strings.Contains(m.View(), "Unresolved") || strings.Contains(taskResourceBadges(m.detail.task), "unresolved") {
+	if strings.Contains(m.View(), "Unresolved") || strings.Contains(taskLine(m.detail.task, false, 140), "unresolved") {
 		t.Fatalf("cleared issues remain:\n%s", m.View())
 	}
 }

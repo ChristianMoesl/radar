@@ -106,6 +106,9 @@ func (Source) Collect(ctx context.Context, req integration.CollectRequest) integ
 }
 
 func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
+	if req.Mode == integration.CleanupRetire {
+		return RuntimeCleanupTargets(req.Task, "workspace")
+	}
 	root, disposable, err := loadAnchorCleanupSettings()
 	if err != nil {
 		return nil, err
@@ -173,6 +176,13 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 	root, err := DefaultRoot()
 	if err != nil {
 		return protocol.CleanupTarget{}, err
+	}
+	if req.Mode == integration.CleanupRetire {
+		err := workspacegroup.WithNoteLock(root, func() error {
+			_, err := ValidateRuntimeCleanupTarget(root, req.Target)
+			return err
+		})
+		return req.Target, err // Do not alter files, members, branches, notes or registration.
 	}
 	if req.Target.Kind == "missing_member" {
 		err := forgetMissingMember(ctx, ExecRunner{}, root, req.Target)

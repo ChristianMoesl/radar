@@ -27,10 +27,12 @@ func resourceBadgeFixture() protocol.Task {
 	}
 }
 
-func TestResourceBadgesUseEmoji(t *testing.T) {
-	got := ansi.Strip(taskResourceBadges(resourceBadgeFixture()))
-	if want := "⚠️ unresolved"; got != want {
-		t.Fatalf("badges = %q, want %q", got, want)
+func TestOverviewOmitsCleanupStatusBadges(t *testing.T) {
+	got := ansi.Strip(taskLine(resourceBadgeFixture(), false, 140))
+	for _, hidden := range []string{unresolvedIcon, "unresolved"} {
+		if strings.Contains(got, hidden) {
+			t.Fatalf("overview contains cleanup badge: %q", got)
+		}
 	}
 }
 
@@ -38,12 +40,12 @@ func TestTaskResourceBadges(t *testing.T) {
 	for _, cursor := range []int{0, 1} {
 		m := model{cursor: cursor, tasks: []protocol.Task{resourceBadgeFixture(), {Title: "Other", Attention: "attention"}}}
 		view := ansi.Strip(m.taskList(140, 20))
-		for _, want := range []string{"● busy  Resource badges", unresolvedIcon + " unresolved", "jira:issue:ABC-123", "github:pr:owner/repo:42"} {
+		for _, want := range []string{"● busy  Resource badges", "jira:issue:ABC-123", "github:pr:owner/repo:42"} {
 			if !strings.Contains(view, want) {
 				t.Fatalf("cursor %d: missing %q:\n%s", cursor, want, view)
 			}
 		}
-		for _, hidden := range []string{gitWorktreeIcon, sandboxIcon, tmuxIcon, obsidianIcon, "git:worktree:", "sbx:sandbox:", "tmux:session:", "obsidian:task:", "workspace:dev", "/workspaces/dev", "ahead 1"} {
+		for _, hidden := range []string{gitWorktreeIcon, sandboxIcon, tmuxIcon, obsidianIcon, unresolvedIcon, "unresolved", "git:worktree:", "sbx:sandbox:", "tmux:session:", "obsidian:task:", "workspace:dev", "/workspaces/dev", "ahead 1"} {
 			if strings.Contains(view, hidden) {
 				t.Fatalf("overview contains %q:\n%s", hidden, view)
 			}
@@ -71,7 +73,7 @@ func TestResourceBadgesRetainInspectDetailsAndSourceRefs(t *testing.T) {
 	}
 }
 
-func TestUnresolvedBadgeUsesCleanupIssues(t *testing.T) {
+func TestCleanupIssuesRemainOnlyInInspect(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		ref  protocol.SourceRef
@@ -85,16 +87,19 @@ func TestUnresolvedBadgeUsesCleanupIssues(t *testing.T) {
 		{"ahead only", protocol.SourceRef{Source: "git", Kind: "worktree", Metadata: map[string]string{"ahead": "2"}}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			badges := taskResourceBadges(protocol.Task{SourceRefs: []protocol.SourceRef{tc.ref}})
-			if got := strings.Contains(badges, unresolvedIcon+" unresolved"); got != tc.want {
-				t.Fatalf("unresolved = %v, want %v: %s", got, tc.want, badges)
+			task := protocol.Task{SourceRefs: []protocol.SourceRef{tc.ref}}
+			if row := taskLine(task, false, 140); strings.Contains(row, "unresolved") {
+				t.Fatalf("cleanup badge remains: %s", row)
+			}
+			if view := taskDetailView(task, 200); strings.Contains(view, "Unresolved") != tc.want {
+				t.Fatalf("Inspect lost cleanup details: %s", view)
 			}
 		})
 	}
 }
 
 func TestResourceBadgesOmitZeroCountsAndKeepOtherKinds(t *testing.T) {
-	if got := taskResourceBadges(protocol.Task{}); got != "" {
+	if got := taskPortBadge(protocol.Task{}); got != "" {
 		t.Fatalf("empty task badges = %q", got)
 	}
 	task := protocol.Task{SourceRefs: []protocol.SourceRef{
@@ -103,7 +108,7 @@ func TestResourceBadgesOmitZeroCountsAndKeepOtherKinds(t *testing.T) {
 		{Source: "custom", Kind: "worktree"},
 		{Source: "workspace", Kind: "workspace"},
 	}}
-	if got := taskResourceBadges(task); got != "" {
+	if got := taskPortBadge(task); got != "" {
 		t.Fatalf("badges = %q", got)
 	}
 	if got := overviewSourceRefs(task); !reflect.DeepEqual(got, task.SourceRefs[1:3]) {
@@ -119,7 +124,7 @@ func TestWorkspaceOnlyTaskHasNoReferenceRowOrBadge(t *testing.T) {
 	if !strings.Contains(view, "Empty workspace") || strings.Contains(view, "↳") || strings.Contains(view, ref.ID) {
 		t.Fatalf("unexpected workspace-only task rendering:\n%s", view)
 	}
-	if badges := taskResourceBadges(task); badges != "" {
+	if badges := taskPortBadge(task); badges != "" {
 		t.Fatalf("workspace anchor must not add a resource badge: %q", badges)
 	}
 	_, count := m.taskRowPositions()
@@ -158,7 +163,7 @@ func TestResourceBadgesStayVisibleOnNarrowRows(t *testing.T) {
 	for _, width := range []int{60, 80, 100} {
 		m := model{tasks: []protocol.Task{task}}
 		view := ansi.Strip(m.taskList(width, 20))
-		for _, want := range []string{unresolvedIcon + " unresolved", "● busy"} {
+		for _, want := range []string{"● busy"} {
 			if !strings.Contains(strings.Split(view, "\n")[1], want) {
 				t.Fatalf("width %d: task row missing %q:\n%s", width, want, view)
 			}

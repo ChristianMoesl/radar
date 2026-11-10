@@ -58,6 +58,9 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 }
 
 func previewCleanup(ctx context.Context, req integration.CleanupPreviewRequest, runner workspace.Runner) ([]protocol.CleanupTarget, error) {
+	if req.Mode == integration.CleanupRetire {
+		return nil, nil // Runtime retirement never inspects or removes local Git data.
+	}
 	verification := workspace.NewBranchVerificationPhase(runner)
 	targets := make([]protocol.CleanupTarget, 0)
 	root, err := workspace.DefaultRoot()
@@ -179,6 +182,9 @@ func cleanupDescription(target protocol.CleanupTarget) string {
 }
 
 func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+	if req.Mode == integration.CleanupRetire {
+		return protocol.CleanupTarget{}, fmt.Errorf("runtime retirement cannot remove Git resources")
+	}
 	root, err := workspace.DefaultRoot()
 	if err != nil {
 		return protocol.CleanupTarget{}, err

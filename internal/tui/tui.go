@@ -17,7 +17,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"radar/internal/app"
-	"radar/internal/cleanup"
 	"radar/internal/client"
 	"radar/internal/config"
 	"radar/internal/integration"
@@ -1309,10 +1308,14 @@ func (m model) garbageCollect() tea.Cmd {
 }
 
 func garbageCollectionMessage(result protocol.GarbageCollectionResult) string {
-	if len(result.Deleted) == 0 && len(result.Skipped) == 0 {
+	if len(result.Deleted) == 0 && len(result.Skipped) == 0 && len(result.Retired) == 0 {
 		return "No workspaces eligible for garbage collection"
 	}
-	return fmt.Sprintf("Garbage collection: deleted %d, skipped %d", len(result.Deleted), len(result.Skipped))
+	message := fmt.Sprintf("Garbage collection: deleted %d, skipped %d", len(result.Deleted), len(result.Skipped))
+	if len(result.Retired) > 0 {
+		message += fmt.Sprintf(", retired runtimes %d", len(result.Retired))
+	}
+	return message
 }
 
 func (m model) previewCleanup(task protocol.Task) tea.Cmd {
@@ -2215,17 +2218,7 @@ func taskLine(task protocol.Task, selected bool, width int) string {
 	if reason := displayTaskReason(task); reason != "" {
 		title += metadataStyle.Render("  " + reason)
 	}
-	badges := taskResourceBadges(task)
-	if ports := taskPortBadge(task); ports != "" {
-		// Bound long port lists before the other badges, retaining the existing
-		// title truncation and cleanup-warning visibility conventions.
-		portWidth := width - lipgloss.Width(badges) - 3
-		if badges != "" {
-			portWidth--
-		}
-		ports = truncateLine(ports, max(1, portWidth))
-		badges = strings.TrimSpace(ports + " " + badges)
-	}
+	badges := truncateLine(taskPortBadge(task), max(1, width-3))
 	if badges == "" {
 		return truncateLine(title, width)
 	}
@@ -2272,13 +2265,6 @@ func overviewSourceRefs(task protocol.Task) []protocol.SourceRef {
 		}
 	}
 	return refs
-}
-
-func taskResourceBadges(task protocol.Task) string {
-	if len(cleanup.Unresolved(task)) > 0 {
-		return attentionStyle.Render(unresolvedIcon + " unresolved")
-	}
-	return ""
 }
 
 func displayTaskReason(task protocol.Task) string {

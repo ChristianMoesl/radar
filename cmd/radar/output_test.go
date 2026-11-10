@@ -25,6 +25,7 @@ func TestResultFormats(t *testing.T) {
 		{"delete", &protocol.TaskDeletionResult{TaskID: 42, OriginalPath: "/notes/task.md", TrashPath: "/notes/.trash/task.md"}, []string{"Deleted authored task 42.", "Original path: /notes/task.md", "Trash path: /notes/.trash/task.md"}, ""},
 		{"cleanup", &protocol.CleanupResult{TaskID: 42, Targets: []protocol.CleanupTarget{{Description: "worktree /work/feature"}}}, []string{"Cleaned up 1 local resource(s) for task 42.", "worktree /work/feature"}, ""},
 		{"gc", &protocol.GarbageCollectionResult{Deleted: []protocol.GarbageCollectionItem{{TaskID: 42, Path: "/work/old"}}, Skipped: []protocol.GarbageCollectionItem{{TaskID: 43, Path: "/work/dirty", Reason: "local changes"}}}, []string{"1 deleted, 1 skipped", "/work/old", "/work/dirty", "local changes"}, ""},
+		{"runtime retirement", &protocol.GarbageCollectionResult{Retired: []protocol.GarbageCollectionItem{{TaskID: 41, Path: "/work/retained"}}}, []string{"0 deleted, 0 skipped", "Retired runtimes for 1 workspace(s)", "/work/retained", "files retained"}, ""},
 		{"empty gc", &protocol.GarbageCollectionResult{}, []string{"0 deleted, 0 skipped"}, ""},
 		{"create", integration.Workspace{Name: "feature", Path: "/work/feature", Branch: "feature", Warning: "refresh failed"}, []string{"Workspace ready.", "Path: /work/feature", "Branch: feature"}, "refresh failed"},
 		{"registered", registrationResult{Registered: true, WorkspacePath: "/work/feature"}, []string{"Registered Radar workspace: /work/feature"}, ""},

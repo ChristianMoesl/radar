@@ -61,7 +61,7 @@ func TestInspectWorkspaceExpiryDeadlineAndPermanentLoss(t *testing.T) {
 				"Permanent loss:", "local changes", "unpublished commits", "unknown workspace files",
 				"No recovery archive.", "next hourly GC run after the deadline",
 				"structural safety checks can still block cleanup",
-				"Clean workspaces may be removed earlier after 24 hours done",
+				"After 24 hours done, SBX is stopped", "workspace files and registration remain until day seven",
 				"Reopening cancels expiry", "file timestamps do not extend it",
 			} {
 				if !strings.Contains(view, want) {

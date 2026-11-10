@@ -624,10 +624,8 @@ func TestTaskListTruncatesLongRows(t *testing.T) {
 	}}}
 
 	view := model.taskList(60, 20)
-	for _, want := range []string{unresolvedIcon + " unresolved"} {
-		if !strings.Contains(ansi.Strip(view), want) {
-			t.Fatalf("taskList() truncated resource badge %q:\n%s", want, view)
-		}
+	if strings.Contains(ansi.Strip(view), "unresolved") {
+		t.Fatalf("taskList() retained cleanup status badge:\n%s", view)
 	}
 	for _, line := range strings.Split(view, "\n") {
 		if got := lipgloss.Width(ansi.Strip(line)); got > 60 {

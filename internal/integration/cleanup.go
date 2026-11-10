@@ -14,6 +14,8 @@ const (
 	CleanupSafe CleanupMode = iota
 	CleanupConfirmed
 	CleanupExpired
+	// CleanupRetire stops registered workspace runtimes without removing data.
+	CleanupRetire
 )
 
 func (m CleanupMode) DiscardChanges() bool {

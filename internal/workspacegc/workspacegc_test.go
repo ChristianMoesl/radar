@@ -64,7 +64,7 @@ func TestRunGarbageCollectsNoteOnlyWorkspace(t *testing.T) {
 	store.SetTasks([]protocol.Task{makeTask("done", "completed", workItem), makeTask("in_progress", "workspace", workspaceRef)})
 	calls := []cleanupCall{}
 	provider := gcProvider{name: "workspace", calls: &calls}
-	result, err := Run(context.Background(), store, cleanup.New([]integration.CleanupProvider{provider}), nil, time.Now().Add(time.Second), Options{WorkspaceRoot: root, Retention: time.Nanosecond})
+	result, err := Run(context.Background(), store, cleanup.New([]integration.CleanupProvider{provider}), nil, time.Now().Add(ExpiryRetention+time.Second), Options{WorkspaceRoot: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestRunSelectsOneWorkspaceBundleAndUsesConservativeExecution(t *testing.T) 
 	}
 }
 
-func TestRunTreatsRegisteredMembersAsOneConservativeBundle(t *testing.T) {
+func TestRunTreatsRegisteredMembersAsOneRetirementBundle(t *testing.T) {
 	store := testStore(t)
 	root := filepath.Join(t.TempDir(), "workspaces")
 	anchor := filepath.Join(root, "ABC-7-ship")
@@ -201,7 +201,7 @@ func TestRunTreatsRegisteredMembersAsOneConservativeBundle(t *testing.T) {
 		makeTask("in_progress", "secondary", secondaryRef),
 		makeTask("in_progress", "tmux", detachedSessionRef(anchor, "session")),
 	})
-	plan, err := BuildPlan(store, time.Now().Add(time.Second), Options{WorkspaceRoot: root, Retention: time.Nanosecond})
+	plan, err := BuildPlan(store, time.Now().Add(25*time.Hour), Options{WorkspaceRoot: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,12 +210,12 @@ func TestRunTreatsRegisteredMembersAsOneConservativeBundle(t *testing.T) {
 	}
 
 	calls := []cleanupCall{}
-	providers := []integration.CleanupProvider{gcProvider{name: "tmux", calls: &calls}, gcProvider{name: "git", calls: &calls, dirtyPath: secondary}}
-	result, err := Run(context.Background(), store, cleanup.New(providers), nil, time.Now().Add(time.Second), Options{WorkspaceRoot: root, Retention: time.Nanosecond})
+	providers := []integration.CleanupProvider{gcProvider{name: "tmux", calls: &calls}, gcProvider{name: "git", calls: &calls, dirtyPath: secondary}, gcProvider{name: "workspace", calls: &calls}}
+	result, err := Run(context.Background(), store, cleanup.New(providers), nil, time.Now().Add(25*time.Hour), Options{WorkspaceRoot: root})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Deleted) != 0 || len(result.Skipped) != 1 || len(calls) != 0 {
+	if len(result.Deleted) != 0 || len(result.Retired) != 1 || len(result.Skipped) != 0 || len(calls) != 2 {
 		t.Fatalf("result = %+v, calls = %+v", result, calls)
 	}
 }
@@ -321,6 +321,9 @@ func (gcProvider) Collect(context.Context, integration.CollectRequest) integrati
 	return integration.CollectResult{}
 }
 func (p gcProvider) PreviewCleanup(_ context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
+	if req.Mode == integration.CleanupRetire && p.name == "git" {
+		return nil, nil
+	}
 	targets := []protocol.CleanupTarget{}
 	for _, ref := range req.Task.SourceRefs {
 		if ref.Source != p.name {
@@ -349,6 +352,9 @@ func (p gcProvider) PreviewCleanup(_ context.Context, req integration.CleanupPre
 	return targets, nil
 }
 func (p gcProvider) Cleanup(_ context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+	if req.Mode == integration.CleanupRetire && p.name == "tmux" {
+		req.Target.Operation = map[string]string{"runtime_retired": "true"}
+	}
 	*p.calls = append(*p.calls, cleanupCall{source: p.name, path: req.Target.Path, force: req.Mode.DiscardChanges()})
 	if req.Target.Path == p.failPath {
 		return protocol.CleanupTarget{}, errors.New("failed")

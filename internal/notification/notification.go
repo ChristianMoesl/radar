@@ -60,7 +60,10 @@ func (s Service) NotifyGarbageCollection(ctx context.Context, result protocol.Ga
 		return
 	}
 	body := fmt.Sprintf("Deleted %d workspace(s), skipped %d", len(result.Deleted), len(result.Skipped))
-	if len(result.Deleted) == 0 && len(result.Skipped) == 0 {
+	if len(result.Retired) > 0 {
+		body += fmt.Sprintf(", retired runtimes for %d workspace(s)", len(result.Retired))
+	}
+	if len(result.Deleted) == 0 && len(result.Skipped) == 0 && len(result.Retired) == 0 {
 		body = "No workspaces eligible for cleanup"
 	}
 	notification := Notification{Title: "Radar: Garbage collection", Body: body}

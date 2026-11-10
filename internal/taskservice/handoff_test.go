@@ -367,33 +367,37 @@ func (p *handoffCleanup) Cleanup(_ context.Context, req integration.CleanupReque
 	return req.Target, nil
 }
 
-func TestExpiredGCRechecksActivityAfterPreview(t *testing.T) {
-	for _, unavailable := range []bool{false, true} {
-		t.Run(map[bool]string{false: "new busy run", true: "unavailable activity"}[unavailable], func(t *testing.T) {
-			f, _, runtime := newHandoffFixture(t)
-			f.service.Refresh(context.Background(), false)
-			root := t.TempDir()
-			path := filepath.Join(root, "completed")
-			ref := protocol.SourceRef{ID: "workspace-test", Source: "workspace", Kind: "workspace", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace, Authority: protocol.SourceRefAuthorityNone, Path: path, ProvidesWorkspace: true, WorkspaceID: "workspace-test", LinkingKeys: []string{f.task.SourceRefs[0].ID}}
-			f.store.SetTasksForSources([]protocol.Task{{Attention: "in_progress", SourceRefs: []protocol.SourceRef{ref}}}, []string{"workspace"})
-			done := f.mutate(t, "task-done", &protocol.TaskMutation{TaskID: f.task.ID})
-			doneAt, err := time.Parse(time.RFC3339, done.DoneAt)
-			if err != nil {
-				t.Fatal(err)
-			}
-			provider := &handoffCleanup{path: path, beforeExecute: func() {
-				if unavailable {
-					runtime.readError = errors.New("unavailable")
-				} else {
-					runtime.activity = protocol.ActivityBusy
-				}
-			}}
-			result, err := workspacegc.Run(context.Background(), f.store, cleanup.New([]integration.CleanupProvider{provider}), f.service.logger, doneAt.Add(9*24*time.Hour), workspacegc.Options{WorkspaceRoot: root, GuardExecution: f.service.GuardCleanup})
-			if err != nil || provider.executed || len(result.Deleted) != 0 || len(result.Skipped) != 1 {
-				t.Fatalf("expired GC ignored activity: %+v %v executed=%v", result, err, provider.executed)
-			}
-			if !strings.Contains(result.Skipped[0].Reason, "activity") && !strings.Contains(result.Skipped[0].Reason, "agent busy") {
-				t.Fatalf("GC skipped for an unrelated reason: %+v", result.Skipped)
+func TestBothGCStagesRecheckActivityAfterManualDone(t *testing.T) {
+	for _, age := range []time.Duration{24 * time.Hour, 7 * 24 * time.Hour} {
+		t.Run(age.String(), func(t *testing.T) {
+			for _, unavailable := range []bool{false, true} {
+				t.Run(map[bool]string{false: "new busy run", true: "unavailable activity"}[unavailable], func(t *testing.T) {
+					f, _, runtime := newHandoffFixture(t)
+					f.service.Refresh(context.Background(), false)
+					root := t.TempDir()
+					path := filepath.Join(root, "completed")
+					ref := protocol.SourceRef{ID: "workspace-test", Source: "workspace", Kind: "workspace", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkspace, Authority: protocol.SourceRefAuthorityNone, Path: path, ProvidesWorkspace: true, WorkspaceID: "workspace-test", LinkingKeys: []string{f.task.SourceRefs[0].ID}}
+					f.store.SetTasksForSources([]protocol.Task{{Attention: "in_progress", SourceRefs: []protocol.SourceRef{ref}}}, []string{"workspace"})
+					done := f.mutate(t, "task-done", &protocol.TaskMutation{TaskID: f.task.ID})
+					doneAt, err := time.Parse(time.RFC3339, done.DoneAt)
+					if err != nil {
+						t.Fatal(err)
+					}
+					provider := &handoffCleanup{path: path, beforeExecute: func() {
+						if unavailable {
+							runtime.readError = errors.New("unavailable")
+						} else {
+							runtime.activity = protocol.ActivityBusy
+						}
+					}}
+					result, err := workspacegc.Run(context.Background(), f.store, cleanup.New([]integration.CleanupProvider{provider}), f.service.logger, doneAt.Add(age), workspacegc.Options{WorkspaceRoot: root, GuardExecution: f.service.GuardCleanup})
+					if err != nil || provider.executed || len(result.Deleted) != 0 || len(result.Skipped) != 1 {
+						t.Fatalf("expired GC ignored activity: %+v %v executed=%v", result, err, provider.executed)
+					}
+					if !strings.Contains(result.Skipped[0].Reason, "activity") && !strings.Contains(result.Skipped[0].Reason, "agent busy") {
+						t.Fatalf("GC skipped for an unrelated reason: %+v", result.Skipped)
+					}
+				})
 			}
 		})
 	}

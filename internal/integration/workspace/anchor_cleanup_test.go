@@ -306,6 +306,9 @@ func TestGarbageCollectionUsesDisposableEntryPolicy(t *testing.T) {
 			}
 			service := cleanup.New([]integration.CleanupProvider{guard, Source{}})
 			now := time.Now().Add(25 * time.Hour)
+			if mode == "configured" {
+				now = time.Now().Add(workspacegc.ExpiryRetention)
+			}
 			if mode == "within retention" {
 				now = time.Now()
 			}

@@ -151,9 +151,9 @@ func taskDetailViewAt(task protocol.Task, width int, now time.Time) string {
 		appendDetailLine("Expiry", eligibility+expiryAt.Local().Format("2006-01-02 15:04:05 MST (UTC-07:00)"))
 		lines = append(lines,
 			attentionStyle.Render("  Permanent loss: cleanup can discard local changes, unpublished commits, and unknown workspace files. No recovery archive."),
-			"  Only registered workspaces expire, eight days after completion. Standalone observed workspaces stay conservative.",
+			"  Only registered workspaces expire, seven days after completion. Standalone observed workspaces stay conservative.",
 			"  Removal can happen at the next hourly GC run after the deadline; structural safety checks can still block cleanup.",
-			"  Clean workspaces may be removed earlier after 24 hours done. Reopening cancels expiry; file timestamps do not extend it.",
+			"  After 24 hours done, SBX is stopped and linked tmux sessions are removed; workspace files and registration remain until day seven. Reopening cancels expiry; file timestamps do not extend it.",
 		)
 	}
 	if issues := cleanup.Unresolved(task); len(issues) > 0 {

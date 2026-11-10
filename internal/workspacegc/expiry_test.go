@@ -33,7 +33,7 @@ func TestExpiryAt(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			task := protocol.Task{Attention: tc.attention, DoneAt: tc.doneAt, SourceRefs: []protocol.SourceRef{{WorkspaceID: tc.workspaceID, Path: tc.path, ProvidesWorkspace: tc.provides}}}
 			got, ok := ExpiryAt(task)
-			if ok != tc.want || (ok && !got.Equal(done.Add(8*24*time.Hour))) {
+			if ok != tc.want || (ok && !got.Equal(done.Add(7*24*time.Hour))) {
 				t.Fatalf("ExpiryAt = %s, %v", got, ok)
 			}
 		})
@@ -99,7 +99,7 @@ func expiryFixture(t *testing.T) (*state.Store, string, time.Time, []protocol.Ta
 	return store, root, done, tasks
 }
 
-func TestExpiryHasIndependentEightDayBoundary(t *testing.T) {
+func TestExpiryHasIndependentSevenDayBoundary(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		age    time.Duration
@@ -128,7 +128,7 @@ func TestExpiryHasIndependentEightDayBoundary(t *testing.T) {
 			if err != nil || (len(result.Deleted) == 1) != tc.want {
 				t.Fatalf("result = %+v, err = %v", result, err)
 			}
-			if !tc.want && len(calls) != 0 {
+			if !tc.want && tc.age < DefaultRetention && len(calls) != 0 {
 				t.Fatalf("blocked bundle partially removed: %+v", calls)
 			}
 			if tc.want {

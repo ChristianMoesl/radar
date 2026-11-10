@@ -993,7 +993,7 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 				tasks.MarkResourceRefreshPending()
 				if err != nil {
 					logger.Warn("workspace gc failed", "error", err)
-				} else if len(gcResult.Deleted) > 0 {
+				} else if len(gcResult.Deleted) > 0 || len(gcResult.Retired) > 0 {
 					converted := garbageCollectionResult(gcResult)
 					gcNotification = &converted
 					result = tasks.Refresh(ctx, true)
@@ -1066,6 +1066,9 @@ func garbageCollectionResult(result workspacegc.Result) protocol.GarbageCollecti
 	converted := protocol.GarbageCollectionResult{
 		Deleted: make([]protocol.GarbageCollectionItem, 0, len(result.Deleted)),
 		Skipped: make([]protocol.GarbageCollectionItem, 0, len(result.Skipped)),
+	}
+	for _, retired := range result.Retired {
+		converted.Retired = append(converted.Retired, protocol.GarbageCollectionItem{TaskID: retired.TaskID, Path: retired.Path})
 	}
 	for _, deleted := range result.Deleted {
 		converted.Deleted = append(converted.Deleted, protocol.GarbageCollectionItem{TaskID: deleted.TaskID, Path: deleted.Path})
