@@ -65,20 +65,27 @@ func (s *Service) deletionTarget(taskID int) (integration.TaskAuthoringProvider,
 	if !ok {
 		return nil, protocol.SourceRef{}, fmt.Errorf("task %d not found", taskID)
 	}
+	ref, err := taskDeletionSourceRef(task, provider.Descriptor().Name)
+	return provider, ref, err
+}
+
+// Keep the destructive boundary independently fail-closed even though normal
+// state publication now prevents multi-authored aggregates upstream.
+func taskDeletionSourceRef(task protocol.Task, source string) (protocol.SourceRef, error) {
 	var target protocol.SourceRef
 	for _, ref := range task.SourceRefs {
-		if ref.Source != provider.Descriptor().Name || !ref.Authored {
+		if ref.Source != source || !ref.Authored {
 			continue
 		}
 		if target.ID != "" {
-			return nil, protocol.SourceRef{}, fmt.Errorf("task %d has multiple authored notes; cannot choose a note to delete", taskID)
+			return protocol.SourceRef{}, fmt.Errorf("task %d has multiple authored notes; cannot choose a note to delete", task.ID)
 		}
 		target = ref
 	}
 	if target.ID == "" {
-		return nil, protocol.SourceRef{}, fmt.Errorf("task %d has no authored note to delete; source items are not deleted by Radar", taskID)
+		return protocol.SourceRef{}, fmt.Errorf("task %d has no authored note to delete; source items are not deleted by Radar", task.ID)
 	}
-	return provider, target, nil
+	return target, nil
 }
 
 func withoutSourceRef(tasks []protocol.Task, id string) []protocol.Task {

@@ -186,11 +186,19 @@ func TestDeletionRejectsMissingAmbiguousOrChangedTargets(t *testing.T) {
 	linked := other.SourceRefs[0]
 	linked.LinkingKeys = append(linked.LinkingKeys, f.task.SourceRefs[0].ID)
 	f.store.SetTasksForSources([]protocol.Task{f.task, {SourceRefs: []protocol.SourceRef{linked}, Attention: "low_priority"}}, []string{"obsidian"})
-	if _, err := f.service.PreviewDeleteTask(context.Background(), f.task.ID); err == nil || !strings.Contains(err.Error(), "multiple authored notes") {
-		t.Fatalf("ambiguous target error = %v", err)
+	if tasks := f.store.Tasks(); len(tasks) != 2 {
+		t.Fatalf("shared association combined independent delete targets: %+v", tasks)
 	}
-	if _, err := f.service.DeleteTask(context.Background(), &preview); err == nil {
-		t.Fatal("accepted newly ambiguous target")
+	current, err := f.service.PreviewDeleteTask(context.Background(), f.task.ID)
+	if err != nil || current.SourceRefID != preview.SourceRefID {
+		t.Fatalf("upstream identity boundary changed the confirmed target: %+v %v", current, err)
+	}
+	// Inject an invalid task directly at the destructive boundary: the state
+	// linker can no longer be used to manufacture one as a test fixture.
+	ambiguous := f.task
+	ambiguous.SourceRefs = append(append([]protocol.SourceRef(nil), f.task.SourceRefs...), linked)
+	if _, err := taskDeletionSourceRef(ambiguous, f.author.Descriptor().Name); err == nil || !strings.Contains(err.Error(), "multiple authored notes") {
+		t.Fatalf("ambiguous target safety net was weakened: %v", err)
 	}
 	if _, err := os.Stat(preview.Path); err != nil {
 		t.Fatalf("validation removed note: %v", err)
