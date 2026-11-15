@@ -179,7 +179,7 @@ func TestWorkspaceCleanupRemovesRecordedSharedDirectory(t *testing.T) {
 	if err := registerWorkspace(root, group); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := removeWorkspaceAnchor(root, protocol.CleanupTarget{SourceRefID: "workspace:" + group.ID}, integration.CleanupSafe); err != nil {
+	if _, err := removeWorkspaceAnchor(context.Background(), &fakeRunner{}, root, protocol.CleanupTarget{SourceRefID: "workspace:" + group.ID}, integration.CleanupSafe); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(group.Sandbox.SharedDirectory); !os.IsNotExist(err) {

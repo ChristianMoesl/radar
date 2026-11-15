@@ -191,7 +191,7 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 	var removed workspacegroup.Workspace
 	err = workspacegroup.WithNoteLock(root, func() error {
 		var err error
-		removed, err = removeWorkspaceAnchor(root, req.Target, req.Mode)
+		removed, err = removeWorkspaceAnchor(ctx, ExecRunner{}, root, req.Target, req.Mode)
 		return err
 	})
 	if err != nil {

@@ -59,8 +59,36 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 	if req.Mode == integration.CleanupRetire {
 		return workspace.RuntimeCleanupTargets(req.Task, "sbx")
 	}
-	_ = ctx
 	targets := make([]protocol.CleanupTarget, 0)
+	managed := map[string]bool{}
+	for _, ref := range req.Task.SourceRefs {
+		if ref.Source != "workspace" || ref.Kind != "workspace" || !ref.ProvidesWorkspace {
+			continue
+		}
+		registered, err := workspace.RuntimeCleanupTargets(req.Task, "sbx")
+		if err != nil {
+			return nil, err
+		}
+		for _, target := range registered {
+			runtime, err := sbxclient.New(workspace.ExecRunner{}).FindRuntime(ctx, target.ResourceID)
+			if err != nil {
+				return nil, err
+			}
+			if runtime == nil {
+				target.Operation["runtime_absent"] = "true"
+			} else {
+				if expected := target.Operation["runtime_id"]; expected != "" && expected != runtime.ID {
+					return nil, fmt.Errorf("sandbox runtime identity changed; preview cleanup again")
+				}
+				target.Operation["runtime_id"] = runtime.ID
+			}
+			target.Presentation = protocol.CleanupPresentation{Singular: "sandbox", Plural: "sandboxes"}
+			target.Description = "SBX sandbox " + target.ResourceID
+			managed[target.ResourceID] = true
+			targets = append(targets, target)
+		}
+		break
+	}
 	for _, ref := range req.Task.SourceRefs {
 		if !IsSandboxRef(ref) {
 			continue
@@ -68,6 +96,9 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 		name := SandboxName(ref)
 		if name == "" {
 			return nil, fmt.Errorf("sbx sandbox name is required")
+		}
+		if managed[name] {
+			continue
 		}
 		targets = append(targets, protocol.CleanupTarget{
 			SourceRefID:  ref.ID,
@@ -84,6 +115,9 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
 	if req.Mode == integration.CleanupRetire {
 		return retireSandbox(ctx, workspace.ExecRunner{}, req.Target)
+	}
+	if req.Target.WorkspaceID != "" {
+		return cleanupRegisteredSandbox(ctx, workspace.ExecRunner{}, req.Target, true)
 	}
 	name := strings.TrimSpace(req.Target.ResourceID)
 	if name == "" {

@@ -115,7 +115,8 @@ func testAnchorRemovesUnknownEntriesWithoutFollowingSymlinks(t *testing.T, mode 
 	if len(target.Safety) != 1 || !target.Safety[0].Expires || !target.Safety[0].BlocksAutomatic || !strings.Contains(target.Description, target.Safety[0].Message) {
 		t.Fatalf("data loss missing from preview: %+v", target)
 	}
-	if _, err := (Source{}).Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: mode}); err != nil {
+	// This anchor-only fixture models a sandbox already removed by its provider.
+	if _, err := removeWorkspaceAnchor(context.Background(), &fakeRunner{sbxListOutput: "[]"}, root, target, mode); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(group.Path); !os.IsNotExist(err) {

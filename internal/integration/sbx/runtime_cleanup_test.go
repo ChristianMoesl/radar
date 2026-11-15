@@ -18,13 +18,20 @@ type retirementRunner struct {
 	listing    string
 	inspectErr error
 	commands   []string
+	removed    bool
 }
 
 func (*retirementRunner) LookPath(string) error { return nil }
 func (r *retirementRunner) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
 	r.commands = append(r.commands, name+" "+strings.Join(args, " "))
 	if len(args) > 0 && args[0] == "ls" {
+		if r.removed {
+			return "[]", nil
+		}
 		return r.listing, r.inspectErr
+	}
+	if len(args) > 0 && args[0] == "rm" {
+		r.removed = true
 	}
 	return "", nil
 }
@@ -89,6 +96,16 @@ func TestSandboxRetirementFailsClosedAndNeverRemovesSandbox(t *testing.T) {
 			log := strings.Join(runner.commands, "\n")
 			if strings.Contains(log, "sbx rm") || strings.Contains(log, "sbx stop") != (scenario == "running") {
 				t.Fatalf("unsafe commands:\n%s", log)
+			}
+			runner.commands = nil
+			_, err = cleanupRegisteredSandbox(context.Background(), runner, targets[0], true)
+			if (err != nil) != wantError {
+				t.Fatalf("destructive err=%v wantError=%v", err, wantError)
+			}
+			log = strings.Join(runner.commands, "\n")
+			wantRemove := scenario == "running" || scenario == "stopped"
+			if strings.Contains(log, "sbx stop") || strings.Contains(log, "sbx rm --force container-1") != wantRemove {
+				t.Fatalf("unsafe destructive commands:\n%s", log)
 			}
 		})
 	}

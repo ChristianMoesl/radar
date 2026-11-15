@@ -13,6 +13,7 @@ import (
 	"radar/internal/cleanup"
 	"radar/internal/config"
 	"radar/internal/integration"
+	sbxclient "radar/internal/integration/sbx/client"
 	workspacegroup "radar/internal/integration/workspace/group"
 	"radar/internal/phasetiming"
 	"radar/internal/protocol"
@@ -440,7 +441,7 @@ func addUnknownEntriesPreview(target *protocol.CleanupTarget, entries []string, 
 	})
 }
 
-func removeWorkspaceAnchor(root string, target protocol.CleanupTarget, mode integration.CleanupMode) (workspacegroup.Workspace, error) {
+func removeWorkspaceAnchor(ctx context.Context, runner Runner, root string, target protocol.CleanupTarget, mode integration.CleanupMode) (workspacegroup.Workspace, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return workspacegroup.Workspace{}, err
@@ -498,6 +499,17 @@ func removeWorkspaceAnchor(root string, target protocol.CleanupTarget, mode inte
 			if !slices.Contains(previewedUnknown, name) {
 				return workspacegroup.Workspace{}, fmt.Errorf("unknown workspace entry %q was not in the confirmed cleanup preview; preview cleanup again", name)
 			}
+		}
+	}
+	// The last owner must not disappear while its runtime survives. Recheck
+	// under the note lock immediately before deleting any anchor contents.
+	if group.Sandbox != nil {
+		runtime, err := sbxclient.New(runner).FindRuntime(ctx, group.Sandbox.Name)
+		if err != nil {
+			return workspacegroup.Workspace{}, fmt.Errorf("verify registered sandbox absence: %w", err)
+		}
+		if runtime != nil {
+			return workspacegroup.Workspace{}, fmt.Errorf("registered sandbox still exists; remove it before deleting its workspace")
 		}
 	}
 	if a.anchor != nil {

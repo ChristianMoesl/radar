@@ -172,7 +172,7 @@ func TestManagedWorkspaceCleanupDoesNotRecursivelyLock(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"tmux", "sbx"} {
-		if err := os.WriteFile(filepath.Join(home, name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(home, name), []byte("#!/bin/sh\nif [ \"$1\" = ls ]; then printf '[]'; fi\nexit 0\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}

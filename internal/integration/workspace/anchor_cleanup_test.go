@@ -229,7 +229,7 @@ func TestAnchorCleanupRejectsUnsafeLocationsAndSymlinkedAnchors(t *testing.T) {
 			group.ID = workspacegroup.ID(group.Path)
 			saveAnchorFixture(t, root, group)
 			target.SourceRefID = "workspace:" + group.ID
-			if _, err := removeWorkspaceAnchor(root, target, integration.CleanupSafe); err == nil {
+			if _, err := removeWorkspaceAnchor(context.Background(), &fakeRunner{}, root, target, integration.CleanupSafe); err == nil {
 				t.Fatal("unsafe anchor accepted")
 			}
 			if _, err := anchorCleanupEntries(root, workspacegroup.Registry{Workspaces: []workspacegroup.Workspace{group}}, group, []string{".pnpm-store"}, integration.CleanupSafe); err == nil {
@@ -267,7 +267,7 @@ func TestDisposableNameCannotOverrideManagedMemberOrCanonicalNote(t *testing.T) 
 			// A removed member that reappears is not part of the pinned deletion list.
 			group.Members = nil
 			saveAnchorFixture(t, root, group)
-			if _, err := removeWorkspaceAnchor(root, targets[0], integration.CleanupSafe); err == nil {
+			if _, err := removeWorkspaceAnchor(context.Background(), &fakeRunner{}, root, targets[0], integration.CleanupSafe); err == nil {
 				t.Fatal("reappearing member deleted as disposable")
 			}
 			assertAnchorFileKept(t, filepath.Join(group.Path, ".pnpm-store", "v10", "content"))
@@ -370,7 +370,7 @@ func TestCleanupToleratesAlreadyRemovedDisposableEntriesAndAnchors(t *testing.T)
 			if err := os.RemoveAll(path); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := removeWorkspaceAnchor(root, target, integration.CleanupSafe); err != nil {
+			if _, err := removeWorkspaceAnchor(context.Background(), &fakeRunner{}, root, target, integration.CleanupSafe); err != nil {
 				t.Fatal(err)
 			}
 			if registry, err := workspacegroup.Load(root); err != nil || len(registry.Workspaces) != 0 {
