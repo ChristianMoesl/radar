@@ -1,6 +1,8 @@
 package workspace
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	"radar/internal/integration"
@@ -9,6 +11,34 @@ import (
 )
 
 var _ integration.WorkspaceRegistrationDiagnostics = Source{}
+var _ integration.WorkspaceRetirementPreview = Source{}
+
+func (Source) DiagnosticRetirementTargets(ctx context.Context, task protocol.Task, workspaceID string) ([]protocol.CleanupTarget, error) {
+	// Keep only the selected workspace anchor. Runtime refs are retained solely
+	// for the native planner's cached-lifetime matching; it does not probe them.
+	refs := make([]protocol.SourceRef, 0, len(task.SourceRefs))
+	for _, ref := range task.SourceRefs {
+		if ref.Source != "workspace" || ref.WorkspaceID == workspaceID {
+			refs = append(refs, ref)
+		}
+	}
+	task.SourceRefs = refs
+	targets := []protocol.CleanupTarget{}
+	for _, source := range []string{"tmux", "sbx", "workspace"} {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		planned, err := RuntimeCleanupTargets(task, source)
+		if err != nil {
+			return nil, err
+		}
+		if len(planned) > 1 {
+			return nil, fmt.Errorf("retirement preview requires one registered workspace")
+		}
+		targets = append(targets, planned...)
+	}
+	return targets, ctx.Err()
+}
 
 func (Source) DiagnosticWorkspaceRegistrations() ([]protocol.DiagnosticWorkspace, error) {
 	root, err := DefaultRoot()

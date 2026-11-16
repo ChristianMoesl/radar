@@ -21,9 +21,13 @@ const RuntimeProbeTimeout = 5 * time.Second
 
 // Probe is separate from Read: only an explicitly selected registered workspace
 // or agent may trigger bounded native runtime listings or runner socket reads.
-// It never calls collection, cleanup preview/execution, refresh, login, startup
-// or lease acquisition.
+// retirement_preview is a separate explicit registration-only native planner;
+// full cleanup previews (which can fetch Git refs) and execution are not exposed.
+// No section calls collection, refresh, login, startup or lease acquisition.
 func Probe(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
+	if req.Section == "retirement_preview" {
+		return retirementPreview(ctx, store, req, pending, providers)
+	}
 	if req.Section == "agent_probe" {
 		return probeAgent(ctx, store, req, pending)
 	}

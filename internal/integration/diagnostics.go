@@ -24,6 +24,14 @@ type WorkspaceRegistrationDiagnostics interface {
 	DiagnosticWorkspaceRegistrations() ([]protocol.DiagnosticWorkspace, error)
 }
 
+// WorkspaceRetirementPreview uses only the native registration/path planner for
+// one workspace. Unlike full cleanup previews it must not fetch Git refs, probe
+// runtimes, acquire leases, refresh or mutate. Targets are proposals, not authority.
+type WorkspaceRetirementPreview interface {
+	WorkspaceRegistrationDiagnostics
+	DiagnosticRetirementTargets(context.Context, protocol.Task, string) ([]protocol.CleanupTarget, error)
+}
+
 // RuntimeProbeProvider runs only bounded observation, never collection, login,
 // startup or maintenance. The caller must resolve exact registered scope first.
 type RuntimeProbeProvider interface {

@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 13
+const DiagnosticsVersion = 14
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -17,7 +17,8 @@ func DiagnosticText(value string) string {
 // DiagnosticsRequest has no mutation or arbitrary filesystem parameters.
 // Workspace is host-resolved scope: lexical filtering for cached reads,
 // exact registered identity for probes.
-// runtime_probe and agent_probe require the separate explicit diagnostics-probe RPC.
+// runtime_probe, agent_probe and retirement_preview require the separate explicit
+// diagnostics-probe RPC. No request can apply a preview.
 type DiagnosticsRequest struct {
 	Section   string `json:"section"`
 	ParentID  string `json:"parent_id,omitempty"`
@@ -284,6 +285,28 @@ type DiagnosticRuntime struct {
 	LeaseEvidence       string                       `json:"lease_evidence"`
 }
 
+// DiagnosticRetirementPreview contains only proposed native retirement effects.
+// It is neither an observed runtime result nor an executable/accepted plan.
+type DiagnosticRetirementPreview struct {
+	ID                   string                       `json:"id"`
+	RecordID             string                       `json:"record_id"`
+	TaskID               int                          `json:"task_id"`
+	Stage                string                       `json:"stage"`
+	Targets              []DiagnosticRetirementTarget `json:"targets"`
+	Preserved            []string                     `json:"preserved"`
+	ExecutionEligibility string                       `json:"execution_eligibility"`
+	OwnershipEvidence    string                       `json:"ownership_evidence"`
+	LeaseEvidence        string                       `json:"lease_evidence"`
+}
+
+type DiagnosticRetirementTarget struct {
+	ID                    string `json:"id"`
+	Provider              string `json:"provider"`
+	Effect                string `json:"effect"`
+	SafetyNoticeCount     int    `json:"safety_notice_count"`
+	AutomaticBlockerCount int    `json:"automatic_blocker_count"`
+}
+
 // Capabilities describe registered interfaces, not tool availability, provider
 // configuration, authentication or permission to run any operation.
 type DiagnosticIntegrationCapabilities struct {
@@ -317,6 +340,7 @@ type DiagnosticIntegration struct {
 }
 
 type DiagnosticItem struct {
+	RetirementPreview *DiagnosticRetirementPreview  `json:"retirement_preview,omitempty"`
 	AgentProbe        *DiagnosticAgentProbe         `json:"agent_probe,omitempty"`
 	Integration       *DiagnosticIntegration        `json:"integration,omitempty"`
 	Runtime           *DiagnosticRuntime            `json:"runtime,omitempty"`

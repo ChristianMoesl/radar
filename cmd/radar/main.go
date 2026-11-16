@@ -1246,7 +1246,7 @@ Workspaces:
   radar create --prepare-only --name <name> [--repo <repo> --base <revision>] [--workspace <path>] [--preview]
   radar reconcile-workspace --request <json> [--workspace <path>] [--preview]
   radar recreate-sandboxes [--workspace <path>] [--preview] [--yes]
-  radar feedback-diagnostics --workspace <feedback-workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|runtime_probe|integrations|logs --json
+  radar feedback-diagnostics --workspace <feedback-workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|runtime_probe|agent_probe|retirement_preview|integrations|logs --json
   radar workspace-context [--workspace <path>]
   radar clone-repository --request <json> [--workspace <path>] [--preview | --plan <id>]
   radar open-resource --request <json> [--workspace <path>] [--preview | --plan <id>]
