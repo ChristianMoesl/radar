@@ -1,6 +1,18 @@
 package protocol
 
+import "strings"
+
 const DiagnosticsVersion = 1
+const DiagnosticChildLimit = 16
+
+// DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
+func DiagnosticText(value string) string {
+	const max = 512
+	if len(value) > max {
+		return strings.ToValidUTF8(value[:max], "�") + "…"
+	}
+	return strings.ToValidUTF8(value, "�")
+}
 
 // DiagnosticsRequest has no execution or arbitrary filesystem parameters.
 // Workspace is a lexical cache filter; the host facade resolves registered scope.

@@ -193,7 +193,7 @@ func (s *Server) handle(conn net.Conn) {
 				continue
 			}
 			pending := s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending
-			page, err := diagnostics.Read(s.store, *req.Diagnostics, pending)
+			page, err := diagnostics.Read(s.store, *req.Diagnostics, pending, s.integrations)
 			if err != nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error()})
 				continue

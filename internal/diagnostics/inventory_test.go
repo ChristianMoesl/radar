@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"radar/internal/agentservice"
+	"radar/internal/integration"
+	"radar/internal/integration/workspace"
 	workspacegroup "radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
 	"radar/internal/state"
@@ -53,7 +55,7 @@ func TestInventoryIncludesHiddenRetainedRecordsWithoutPrivatePayloads(t *testing
 	if len(store.Tasks()) != 0 {
 		t.Fatal("fixture must be hidden from dashboard")
 	}
-	page, err := Read(store, protocol.DiagnosticsRequest{Section: "tasks"}, false)
+	page, err := read(store, protocol.DiagnosticsRequest{Section: "tasks"}, false)
 	if err != nil || page.Total != 1 || !page.Complete || len(page.Items) != 1 {
 		t.Fatalf("page=%+v err=%v", page, err)
 	}
@@ -77,7 +79,7 @@ func TestInventoryIncludesHiddenRetainedRecordsWithoutPrivatePayloads(t *testing
 	if err := os.WriteFile(filepath.Join(agentDir, "registration.json"), registration, 0600); err != nil {
 		t.Fatal(err)
 	}
-	page, err = Read(store, protocol.DiagnosticsRequest{Section: "workspaces"}, true)
+	page, err = read(store, protocol.DiagnosticsRequest{Section: "workspaces"}, true)
 	if err != nil || page.Total != 1 || !page.ResourceRefreshPending {
 		t.Fatalf("page=%+v err=%v", page, err)
 	}
@@ -99,7 +101,7 @@ func TestPaginationScopeFiltersAndSnapshotChanges(t *testing.T) {
 	req := protocol.DiagnosticsRequest{Section: "tasks", Limit: 1}
 	seen := map[string]bool{}
 	for {
-		page, err := Read(store, req, false)
+		page, err := read(store, req, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -118,25 +120,25 @@ func TestPaginationScopeFiltersAndSnapshotChanges(t *testing.T) {
 	if len(seen) != 3 {
 		t.Fatal("pagination incomplete")
 	}
-	page, err := Read(store, protocol.DiagnosticsRequest{Section: "tasks", Workspace: path}, false)
+	page, err := read(store, protocol.DiagnosticsRequest{Section: "tasks", Workspace: path}, false)
 	if err != nil || page.Total != 1 {
 		t.Fatalf("scope escaped prefix boundary: %+v %v", page, err)
 	}
-	first, err := Read(store, protocol.DiagnosticsRequest{Section: "tasks", Limit: 1}, false)
+	first, err := read(store, protocol.DiagnosticsRequest{Section: "tasks", Limit: 1}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req = protocol.DiagnosticsRequest{Section: "tasks", Limit: 1, Cursor: first.NextCursor, State: "done"}
-	if _, err := Read(store, req, false); err == nil {
+	if _, err := read(store, req, false); err == nil {
 		t.Fatal("cursor accepted changed selector")
 	}
 	req.State = ""
 	store.SetSources([]protocol.SourceStatus{{Name: "test", Status: "ok"}})
-	if _, err := Read(store, req, false); err == nil {
+	if _, err := read(store, req, false); err == nil {
 		t.Fatal("cursor accepted changed revision")
 	}
 	for _, bad := range []protocol.DiagnosticsRequest{{Section: "shell"}, {Section: "tasks", Limit: 51}, {Section: "tasks", Limit: -1}, {Section: "tasks", Workspace: "relative"}, {Section: "tasks", Cursor: "not-a-cursor"}, {Section: "tasks", ID: strings.Repeat("x", 513)}} {
-		if _, err := Read(store, bad, false); err == nil {
+		if _, err := read(store, bad, false); err == nil {
 			t.Fatalf("accepted %+v", bad)
 		}
 	}
@@ -151,7 +153,7 @@ func TestUnavailableOwnershipIsNotNoOwnersAndRegistryChangesInvalidateCursor(t *
 	if err := os.WriteFile(os.Getenv("RADAR_AGENT_ROOT"), []byte("not a directory"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	page, err := Read(store, protocol.DiagnosticsRequest{Section: "workspaces", Limit: 1}, false)
+	page, err := read(store, protocol.DiagnosticsRequest{Section: "workspaces", Limit: 1}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +164,7 @@ func TestUnavailableOwnershipIsNotNoOwnersAndRegistryChangesInvalidateCursor(t *
 	if err := workspacegroup.Save(root, registry); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Read(store, protocol.DiagnosticsRequest{Section: "workspaces", Limit: 1, Cursor: page.NextCursor}, false); err == nil {
+	if _, err := read(store, protocol.DiagnosticsRequest{Section: "workspaces", Limit: 1, Cursor: page.NextCursor}, false); err == nil {
 		t.Fatal("cursor accepted changed registration")
 	}
 }
@@ -199,7 +201,7 @@ func TestAllRetainedWorkspacesAreAccountedForAcrossPages(t *testing.T) {
 	req := protocol.DiagnosticsRequest{Section: "workspaces", Limit: 20}
 	seen := map[string]bool{}
 	for {
-		page, err := Read(store, req, false)
+		page, err := read(store, req, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -229,7 +231,7 @@ func TestPageByteLimitAndNestedTruncationAreExplicit(t *testing.T) {
 		input.SourceRefs = append(input.SourceRefs, protocol.SourceRef{ID: "test:ref-" + strconv.Itoa(i), Source: "test", Title: "private-title", Metadata: map[string]string{"token": "private-token"}})
 	}
 	store.SetTasks([]protocol.Task{input})
-	page, err := Read(store, protocol.DiagnosticsRequest{Section: "tasks"}, false)
+	page, err := read(store, protocol.DiagnosticsRequest{Section: "tasks"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,5 +253,19 @@ func TestPageByteLimitAndNestedTruncationAreExplicit(t *testing.T) {
 	encoded, _ := json.Marshal(page)
 	if len(encoded) > maxPageBytes || page.Complete || page.NextCursor == "" || len(page.Items) == 0 {
 		t.Fatalf("output bound not respected: bytes=%d items=%d", len(encoded), len(page.Items))
+	}
+}
+
+func read(store *state.Store, req protocol.DiagnosticsRequest, pending bool) (protocol.DiagnosticsPage, error) {
+	return Read(store, req, pending, integration.NewRegistry(workspace.Source{}))
+}
+
+func TestWorkspaceInventoryWithoutProviderFailsExplicitly(t *testing.T) {
+	store, _, _ := fixture(t)
+	if _, err := Read(store, protocol.DiagnosticsRequest{Section: "workspaces"}, false, integration.NewRegistry()); err == nil {
+		t.Fatal("missing capability looked like no registrations")
+	}
+	if _, err := Read(store, protocol.DiagnosticsRequest{Section: "tasks"}, false, integration.NewRegistry()); err != nil {
+		t.Fatal(err)
 	}
 }

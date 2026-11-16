@@ -15,17 +15,16 @@ import (
 	"time"
 
 	"radar/internal/agentservice"
-	"radar/internal/integration/workspace"
-	workspacegroup "radar/internal/integration/workspace/group"
+	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/state"
 	"radar/internal/workspacegc"
 )
 
 const maxPageBytes = 256 * 1024
-const maxChildren = 16
+const maxChildren = protocol.DiagnosticChildLimit
 
-func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool) (protocol.DiagnosticsPage, error) {
+func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
 	if req.Section != "tasks" && req.Section != "workspaces" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("unsupported diagnostic inventory")
 	}
@@ -63,27 +62,36 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool) (pr
 			items = append(items, protocol.DiagnosticItem{ID: task.RecordID, Task: &task})
 		}
 	} else {
-		root, err := workspace.DefaultRoot()
+		provider, err := providers.WorkspaceDiagnostics()
+		if err != nil {
+			return protocol.DiagnosticsPage{}, fmt.Errorf("workspace registration diagnostics unsupported")
+		}
+		groups, err := provider.DiagnosticWorkspaceRegistrations()
 		if err != nil {
 			return protocol.DiagnosticsPage{}, fmt.Errorf("workspace registration unavailable")
 		}
-		registry, err := workspacegroup.Load(root)
-		if err != nil {
-			return protocol.DiagnosticsPage{}, fmt.Errorf("workspace registration unavailable")
-		}
-		paths := make([]string, 0, len(registry.Workspaces))
-		for _, group := range registry.Workspaces {
+
+		paths := make([]string, 0, len(groups))
+		for _, group := range groups {
 			paths = append(paths, group.Path)
 		}
 		owners, ownerErr := agentservice.WorkspaceRemovalOwners(paths)
-		for _, group := range registry.Workspaces {
+		for _, group := range groups {
 			if req.ID != "" && req.ID != group.ID {
 				continue
 			}
 			if req.Workspace != "" && filepath.Clean(req.Workspace) != filepath.Clean(group.Path) {
 				continue
 			}
-			item := protocol.DiagnosticWorkspace{ID: clip(group.ID), Path: clip(group.Path), Registered: true, Feedback: group.Feedback, FeedbackOrigin: clip(group.FeedbackOrigin), Mounts: []protocol.DiagnosticMount{}, Ports: []protocol.PortForward{}, TaskIDs: []int{}, Members: []protocol.DiagnosticMember{}, AgentOwners: []string{}, Retention: []protocol.DiagnosticRetention{}, RuntimeEvidence: "unknown_not_probed", AgentOwnershipEvidence: "fresh_registration", ExecutionEligibility: "unknown_planner_not_run"}
+			item := group
+			item.ID, item.Path = clip(group.ID), clip(group.Path)
+			item.TaskIDs = []int{}
+			item.AgentOwners = []string{}
+			item.Retention = []protocol.DiagnosticRetention{}
+			item.RuntimeEvidence = "unknown_not_probed"
+			item.AgentOwnershipEvidence = "fresh_registration"
+			item.ExecutionEligibility = "unknown_planner_not_run"
+
 			if ownerErr != nil {
 				item.AgentOwnershipEvidence = "unavailable"
 			} else {
@@ -98,38 +106,7 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool) (pr
 			if len(item.AgentOwners) > 0 {
 				item.ExecutionEligibility = "blocked_registered_agent"
 			}
-			item.NotePath, item.SessionName = clip(group.NotePath), clip(group.SessionName)
-			if group.Sandbox != nil {
-				item.SandboxName, item.SharedDirectory = clip(group.Sandbox.Name), clip(group.Sandbox.SharedDirectory)
-				for _, mount := range group.Sandbox.Mounts {
-					if len(item.Mounts) == maxChildren {
-						item.Truncated = true
-						break
-					}
-					item.Mounts = append(item.Mounts, protocol.DiagnosticMount{Path: clip(mount)})
-				}
-				for _, mount := range group.Sandbox.AdditionalMounts {
-					if len(item.Mounts) == maxChildren {
-						item.Truncated = true
-						break
-					}
-					item.Mounts = append(item.Mounts, protocol.DiagnosticMount{Path: clip(mount.Path), ReadOnly: mount.ReadOnly})
-				}
-				for _, port := range group.Sandbox.Ports {
-					if len(item.Ports) == maxChildren {
-						item.Truncated = true
-						break
-					}
-					item.Ports = append(item.Ports, protocol.PortForward{HostPort: port.HostPort, SandboxPort: port.SandboxPort})
-				}
-			}
-			for _, member := range group.Members {
-				if len(item.Members) == maxChildren {
-					item.Truncated = true
-					break
-				}
-				item.Members = append(item.Members, protocol.DiagnosticMember{Path: clip(member.Path), Repository: clip(member.Repository)})
-			}
+
 			for _, record := range records {
 				if !recordInWorkspace(byRecord[record.ID], group.Path) {
 					continue
@@ -211,13 +188,7 @@ func recordInWorkspace(refs []state.SourceRefRecord, path string) bool {
 	return false
 }
 
-func clip(value string) string {
-	const max = 512
-	if len(value) > max {
-		return strings.ToValidUTF8(value[:max], "�") + "…"
-	}
-	return strings.ToValidUTF8(value, "�")
-}
+func clip(value string) string { return protocol.DiagnosticText(value) }
 
 func paginate(req protocol.DiagnosticsRequest, items []protocol.DiagnosticItem, revision int64, pending bool, evidence string) (protocol.DiagnosticsPage, error) {
 	cursor := req.Cursor
