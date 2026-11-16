@@ -5,6 +5,7 @@ import "encoding/json"
 const Version = "0.1.0"
 
 type Request struct {
+	Diagnostics  *DiagnosticsRequest  `json:"diagnostics,omitempty"`
 	Agent        *AgentRequest        `json:"agent,omitempty"`
 	Method       string               `json:"method"`
 	TaskID       int                  `json:"task_id,omitempty"`
@@ -238,6 +239,7 @@ type Task struct {
 }
 
 type Response struct {
+	Diagnostics             *DiagnosticsPage         `json:"diagnostics,omitempty"`
 	ResourceRefreshPending  bool                     `json:"resource_refresh_pending,omitempty"`
 	AgentErrorCode          int                      `json:"agent_error_code,omitempty"`
 	AgentResult             json.RawMessage          `json:"agent_result,omitempty"`
@@ -259,6 +261,9 @@ type Response struct {
 
 func (r Response) MarshalJSON() ([]byte, error) {
 	fields := map[string]any{"ok": r.OK}
+	if r.Diagnostics != nil {
+		fields["diagnostics"] = r.Diagnostics
+	}
 	if r.ResourceRefreshPending {
 		fields["resource_refresh_pending"] = true
 	}

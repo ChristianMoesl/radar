@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"radar/internal/cleanup"
+	"radar/internal/diagnostics"
 	"radar/internal/integration"
 	"radar/internal/phasetiming"
 	"radar/internal/protocol"
@@ -186,6 +187,18 @@ func (s *Server) handle(conn net.Conn) {
 			_ = encoder.Encode(protocol.Response{OK: true, AgentResult: result})
 		case "version":
 			_ = encoder.Encode(protocol.Response{OK: true, Version: version.Current(), PID: os.Getpid(), Revision: s.store.Revision()})
+		case "diagnostics":
+			if req.Diagnostics == nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "diagnostic selectors are required"})
+				continue
+			}
+			pending := s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending
+			page, err := diagnostics.Read(s.store, *req.Diagnostics, pending)
+			if err != nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error()})
+				continue
+			}
+			_ = encoder.Encode(protocol.Response{OK: true, Revision: page.Revision, Diagnostics: &page})
 		case "summary":
 			response := s.tasksResponse()
 			response.Tasks = nil

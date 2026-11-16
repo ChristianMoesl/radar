@@ -3,12 +3,14 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	workspacegroup "radar/internal/integration/workspace/group"
+	"radar/internal/protocol"
 )
 
 func feedbackDiagnosticsFixture(t *testing.T) (string, string, string) {
@@ -131,5 +133,151 @@ func TestFeedbackDiagnosticsCLIUsesStrictMachineBoundary(t *testing.T) {
 		if _, _, code := outputCLI(t, args, "", env...); code == 0 {
 			t.Fatalf("accepted invalid request: %v", args)
 		}
+	}
+}
+
+func TestFeedbackOverviewDoesNotProbeRegisteredRuntime(t *testing.T) {
+	root, anchor, _ := feedbackDiagnosticsFixture(t)
+	registry, _ := workspacegroup.Load(root)
+	origin := workspacegroup.Workspace{ID: workspacegroup.ID(filepath.Join(root, "origin")), Name: "origin", Path: filepath.Join(root, "origin"), Sandbox: &workspacegroup.Sandbox{Name: "runtime", Agent: "shell"}}
+	if err := os.MkdirAll(origin.Path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	registry.Workspaces[0].FeedbackOrigin = origin.Path
+	registry.Workspaces = append(registry.Workspaces, origin)
+	if err := workspacegroup.Save(root, registry); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	called := filepath.Join(bin, "called")
+	if err := os.WriteFile(filepath.Join(bin, "sbx"), fmt.Appendf(nil, "#!/bin/sh\n: > %q\nexit 1\n", called), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	result, err := feedbackDiagnostics(anchor, "overview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["origin"].(map[string]any)["available"] != true {
+		t.Fatal("registered origin unavailable")
+	}
+	if _, err := os.Stat(called); !os.IsNotExist(err) {
+		t.Fatal("overview implicitly probed SBX")
+	}
+}
+
+func TestFeedbackInventoryUnavailableIsNotEmptyOrImplicitInstallationScope(t *testing.T) {
+	_, anchor, _ := feedbackDiagnosticsFixture(t)
+	for _, scope := range []string{"origin", "feedback", "installation"} {
+		result, err := feedbackInventory(anchor, scope, protocol.DiagnosticsRequest{Section: "tasks", Limit: 20})
+		if err != nil || result["available"] != false || result["inventory"] != nil {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+		want := "daemon_unavailable"
+		if scope == "origin" {
+			want = "origin_not_registered"
+		}
+		if result["reason"] != want {
+			t.Fatalf("scope %s did not fail closed: %+v", scope, result)
+		}
+	}
+	for _, scope := range []string{"arbitrary", "../host"} {
+		if _, err := feedbackInventory(anchor, scope, protocol.DiagnosticsRequest{Section: "tasks", Limit: 20}); err == nil {
+			t.Fatal("invalid scope")
+		}
+	}
+	for _, limit := range []int{-1, 0, 51} {
+		if _, err := feedbackInventory(anchor, "installation", protocol.DiagnosticsRequest{Section: "tasks", Limit: limit}); err == nil {
+			t.Fatal("invalid limit")
+		}
+	}
+}
+
+func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *testing.T) {
+	root, anchor, _ := feedbackDiagnosticsFixture(t)
+	origin := filepath.Join(root, "origin")
+	registry, _ := workspacegroup.Load(root)
+	registry.Workspaces[0].FeedbackOrigin = origin
+	registry.Workspaces = append(registry.Workspaces, workspacegroup.Workspace{ID: workspacegroup.ID(origin), Name: "origin", Path: origin})
+	if err := workspacegroup.Save(root, registry); err != nil {
+		t.Fatal(err)
+	}
+	socketDir, err := os.MkdirTemp("", "fd-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(socketDir)
+	path := filepath.Join(socketDir, "s")
+	t.Setenv("RADAR_SOCKET", path)
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	observed := make(chan protocol.Request, 5)
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; i < 5; i++ {
+			conn, err := listener.Accept()
+			if err != nil {
+				done <- err
+				return
+			}
+			var req protocol.Request
+			err = json.NewDecoder(conn).Decode(&req)
+			if err != nil {
+				conn.Close()
+				done <- err
+				return
+			}
+			observed <- req
+			response := protocol.Response{OK: true, Diagnostics: &protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: "tasks", Evidence: "cached_daemon_state", Items: []protocol.DiagnosticItem{}, Complete: true}}
+			if i == 3 {
+				response.Diagnostics.Schema = 99
+			}
+			if i == 4 {
+				response = protocol.Response{OK: false, Error: "unknown method: diagnostics; private-provider-value"}
+			}
+			err = json.NewEncoder(conn).Encode(response)
+			conn.Close()
+			if err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	for _, scope := range []string{"origin", "feedback", "installation"} {
+		result, err := feedbackInventory(anchor, scope, protocol.DiagnosticsRequest{Section: "tasks", Workspace: "/must-not-pass-through", Limit: 7, ID: "123", State: "done", Cursor: "opaque"})
+		if err != nil || result["available"] != true {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+		req := <-observed
+		want := ""
+		if scope == "origin" {
+			want = origin
+		}
+		if scope == "feedback" {
+			want = anchor
+		}
+		if req.Method != "diagnostics" || req.Diagnostics == nil || req.Diagnostics.Workspace != want || req.Diagnostics.ID != "123" || req.Diagnostics.Limit != 7 || req.Diagnostics.Cursor != "opaque" || req.Diagnostics.State != "done" {
+			t.Fatalf("unexpected request: %+v", req)
+		}
+		if result["feedback_workspace_id"] != workspacegroup.ID(anchor) {
+			t.Fatal("lost feedback identity")
+		}
+		if scope == "origin" && result["origin_workspace_id"] != workspacegroup.ID(origin) {
+			t.Fatal("lost origin identity")
+		}
+	}
+	for i := 0; i < 2; i++ {
+		result, err := feedbackInventory(anchor, "installation", protocol.DiagnosticsRequest{Section: "tasks", Limit: 20})
+		<-observed
+		if err == nil || result != nil || strings.Contains(err.Error(), "private-provider-value") {
+			t.Fatalf("mismatch did not fail privately: %+v %v", result, err)
+		}
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

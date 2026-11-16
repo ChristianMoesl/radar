@@ -97,13 +97,78 @@ host-command and private-log approvals remain unchanged. Only confirmed creation
 yields an identifier/link for the user and `notes.md`; filing does not implement
 the request or close the workspace.
 
-`radar_diagnostics` is a fixed, read-only host tool available only in enabled
-feedback sessions. Its default `overview` returns the installed CLI version,
-loaded extension version, cached daemon/provider health, allowlisted non-secret
-settings and resources of the registered originating workspace, when captured.
-It does not start the daemon, refresh providers, export task state, read note
-contents or serialize configuration/credentials. Missing daemon/origin resources
-are reported as unavailable, not repaired or enrolled.
+`radar_diagnostics` is a typed host tool available only in enabled feedback
+sessions. The current delivery is **observation only**: the overview advertises
+its capabilities explicitly. Runtime probes, deeper cleanup explanations,
+operation history and maintenance adapters are not yet exposed; unsupported
+requests fail instead of running arbitrary commands or changing state.
+
+The default `overview` returns the installed CLI version, loaded extension
+version, cached daemon/provider status and allowlisted non-secret settings.
+The originating workspace is projected from its registration only: it does not
+run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
+not proof that it exists or is running. Missing daemon/origin evidence is
+unavailable, not healthy, empty, repaired or enrolled.
+
+### Retained inventories (diagnostics schema 1)
+
+Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
+dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
+workspace, or `"installation"` for explicitly requested installation-wide
+inspection. The response identifies the feedback and origin independently.
+An absent/unregistered origin never falls back to installation-wide access.
+
+Inventories support `id` (stable record/workspace ID, or numeric task ID), `state`
+(exact task state), `limit` (1–50, default 20), and `cursor`. For example:
+
+```json
+{"section":"workspaces","scope":"installation","state":"done","limit":20}
+```
+
+The equivalent fixed facade is:
+
+```sh
+radar feedback-diagnostics --workspace /registered/feedback --section workspaces --scope installation --state done --limit 20 --json
+```
+
+Follow `inventory.next_cursor` with the same selectors until
+`pagination_complete` is true; `total` covers all matching top-level records.
+A changed daemon revision, registration projection or refresh-pending state
+invalidates the cursor. Restart at the first page when
+`reason: "snapshot_changed_restart_pagination"` is returned. No long-lived
+snapshot is persisted. Items are sorted by stable ID, pages are capped at
+256 KiB, nested lists at 16 entries, and text fields at 512 bytes. Inspect each
+item's `truncated` and the page's `limitations`; complete pagination is not a
+claim of complete nested evidence or current runtime health.
+
+Task views include retained lifecycle state, `DoneAt`, source observation times,
+active/inactive refs, ownership identifiers, acknowledgement/review/activity
+facts and binding/problem counts. `lifecycle_input` uses the exact production
+selection of active authoritative work items (including primary precedence),
+not a second lifecycle policy. Free-form titles, reasons, bindings and private
+payloads are withheld; historical manual intent is not reconstructed.
+
+Workspace views include registration paths/members/source repositories, note
+association (never its contents), desired SBX/tmux names, mounts/ports/shared
+directory, cached task history, completion-based expiry from production
+`workspacegc.ExpiryAt`, and fresh durable-agent ownership registrations. A
+stopped agent registration still blocks removal; unavailable owner inventory
+is **unknown**, never no owners. Runtime evidence remains `unknown_not_probed`,
+and without a cleanup planner result the tool cannot assert eligibility or
+propose safe deletion. Historical task ownership does not establish a current
+owner. Canonical notes, primary repositories and mount targets are not deletion
+recommendations.
+
+`observed_at` is the diagnostic assembly time, not the collection time of cached
+facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
+`resource_refresh_pending` and `limitations` distinguish fresh registration
+reads from cached observations. Reads never start the daemon, refresh providers,
+export raw state, read note/conversation contents or serialize credentials,
+environment files, startup commands or full configuration. CLI, daemon and
+extension must support diagnostics schema 1; version mismatches fail closed
+without a legacy command/state-export fallback. Update the CLI and the actual
+Pi extension source together, then reload Pi; `make install` alone does not
+update a separately installed npm extension.
 
 The `logs` section requires a **fresh interactive confirmation** before reading
 at most the last 100 lines / 32 KiB of the configured host daemon log. That log

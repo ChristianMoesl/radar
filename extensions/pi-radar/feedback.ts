@@ -23,6 +23,7 @@ export function registerFeedbackSession(pi: ExtensionAPI) {
       "- Lead the conversation with concise, targeted follow-up questions: one to three questions per round, only about missing information. Reuse information already provided in the conversation and notes.md; do not repeat a fixed checklist. Distinguish facts, hypotheses, confirmed decisions and open questions.",
       "- Consult radar_documentation for the installed version. Use radar_diagnostics for scoped host inspection; keep source searches, notes and experiments inside the normal workspace execution boundary. Never mount live Radar state, sockets or secret directories as a shortcut.",
       `- Loaded pi-radar version: ${radarPackageVersion}. A source checkout may differ from the installed CLI or extension; label evidence accordingly.`,
+      "- radar_diagnostics tasks/workspaces inventories default to the registered origin. Use scope=feedback for this feedback workspace; use scope=installation only for requested installation-wide inspection. Follow next_cursor to complete an inventory; restart if the snapshot changes. Cached observations and registration are not live runtime evidence or cleanup permission. Missing evidence is unknown. Inventories omit note/conversation contents and raw provider errors; deeper explanations, probes and maintenance adapters are not yet exposed. Do not substitute host shell, state mounts or arbitrary commands.",
       origin ? `- The originating workspace being investigated is ${JSON.stringify(origin)}, not this feedback workspace. radar_diagnostics inspects that registered origin when available.` : "- No originating workspace was captured; diagnose Radar generally without inventing a target.",
       "- Read notes.md first and preserve user content. Keep the evolving problem, evidence, decisions, alternatives, open questions and issue draft there so the conversation can be resumed. Do not add Radar task metadata to Markdown.",
       "- For bugs, shape reproduction steps, expected/actual behavior, impact and supporting evidence. A root-cause hypothesis is not a confirmed cause and is not required to file.",
@@ -55,19 +56,33 @@ export function registerFeedbackSession(pi: ExtensionAPI) {
     pi.registerTool({
       name: "radar_diagnostics",
       label: "Inspect Radar Internals",
-      description: "Read scoped diagnostics from the host Radar instance in a feedback workspace. Overview includes version, cached daemon/provider health, allowlisted settings and originating-workspace resources. Logs require fresh confirmation and return at most 100 lines / 32 KiB; they may contain private values. No arbitrary paths, commands, SQL, state exports, credentials, refreshes or repairs.",
+      description: "Observe host Radar in a feedback workspace. Overview reports versions/settings. Tasks and workspaces provide bounded retained-record inventories with explicit origin/feedback/installation scope, stable IDs, pagination, cache revisions and unknown evidence. No implicit probes, refreshes or maintenance. Private logs require fresh confirmation (100 lines / 32 KiB). No arbitrary paths, commands, SQL, raw state, credentials or conversation/note contents.",
       promptSnippet: "Read scoped host Radar diagnostics; log access requires approval",
       promptGuidelines: [
         "Use radar_diagnostics rather than host shell commands or mounting live Radar state to investigate Radar itself.",
         "radar_diagnostics logs are private evidence, not automatic Linear attachments; redact and review anything proposed for publication.",
       ],
       parameters: Type.Object({
-        section: Type.Optional(Type.Unsafe<"overview" | "logs">({ type: "string", enum: ["overview", "logs"], description: "Read the overview (default) or a bounded private daemon log tail" })),
+        section: Type.Optional(Type.Unsafe<"overview" | "tasks" | "workspaces" | "logs">({ type: "string", enum: ["overview", "tasks", "workspaces", "logs"] })),
+        scope: Type.Optional(Type.Unsafe<"origin" | "feedback" | "installation">({ type: "string", enum: ["origin", "feedback", "installation"], description: "Inventories only: origin (default), feedback workspace, or explicitly requested installation-wide inspection" })),
+        id: Type.Optional(Type.String({ maxLength:512,description:"Stable task record ID/numeric ID or workspace ID" })),
+        state: Type.Optional(Type.String({ maxLength:64,description:"Exact retained task lifecycle state" })),
+        limit: Type.Optional(Type.Integer({ minimum:1,maximum:50 })),
+        cursor: Type.Optional(Type.String({ maxLength:512,description:"next_cursor from the same inventory; restart if changed" })),
       }, { additionalProperties: false }),
       executionMode: "sequential",
       async execute(_id, params, signal, _update, ctx) {
         if (!available()) throw new Error("Radar feedback diagnostics require the linear MCP in a feedback workspace");
-        const section = (params as { section?: "overview" | "logs" }).section ?? "overview";
+        const section = params.section ?? "overview";
+        if (!["overview", "tasks", "workspaces", "logs"].includes(section)) throw new Error("Unsupported diagnostic section");
+        for (const [key, maximum] of [["id", 512], ["state", 64], ["cursor", 512]] as const) {
+          const value = params[key];
+          if (value !== undefined && (typeof value !== "string" || Buffer.byteLength(value, "utf8") > maximum)) throw new Error(`Invalid diagnostic ${key}`);
+        }
+        const inventory = section === "tasks" || section === "workspaces";
+        if (!inventory && [params.scope, params.id, params.state, params.limit, params.cursor].some(value => value !== undefined)) throw new Error("Inventory selectors require tasks or workspaces");
+        if (params.scope !== undefined && !["origin", "feedback", "installation"].includes(params.scope)) throw new Error("Invalid diagnostic scope");
+        if (params.limit !== undefined && (!Number.isInteger(params.limit) || params.limit < 1 || params.limit > 50)) throw new Error("Invalid diagnostic page limit");
         signal?.throwIfAborted();
         if (section === "logs") {
           if (!ctx.hasUI) throw new Error("Reading private host Radar logs requires an interactive confirmation");
@@ -78,11 +93,24 @@ export function registerFeedbackSession(pi: ExtensionAPI) {
         }
         if (!available()) throw new Error("The linear MCP became unavailable; no diagnostics read");
         const binary = process.env.RADAR_BINARY?.trim() || "radar";
-        const result = await pi.exec(binary, ["feedback-diagnostics", "--workspace", resolve(ctx.cwd), "--section", section, "--json"], { signal, timeout: 15_000 });
+        const args = ["feedback-diagnostics", "--workspace", resolve(ctx.cwd), "--section", section, "--json"];
+        if (inventory) {
+          if (params.scope !== undefined) args.push("--scope", params.scope);
+          if (params.id !== undefined) args.push("--id", params.id);
+          if (params.state !== undefined) args.push("--state", params.state);
+          if (params.limit !== undefined) args.push("--limit", String(params.limit));
+          if (params.cursor !== undefined) args.push("--cursor", params.cursor);
+        }
+        const result = await pi.exec(binary, args, { signal, timeout: 15_000 });
         signal?.throwIfAborted();
         if (result.code !== 0) throw new Error("Radar diagnostics unavailable; update the host CLI or inspect the workspace registration. No host changes made.");
+        if (Buffer.byteLength(result.stdout,"utf8") > 300 * 1024) throw new Error("Radar diagnostic response exceeds output bound");
         const data = JSON.parse(result.stdout) as Record<string, unknown>;
-        if (!data || data.section !== section) throw new Error("Invalid Radar diagnostics response");
+        if (!data || data.diagnostics_schema !== 1 || data.section !== section) throw new Error("Invalid Radar diagnostics response");
+        if (inventory && data.available === true) {
+          const page = data.inventory as Record<string, unknown> | undefined;
+          if (!page || page.diagnostics_schema !== 1 || page.section !== section) throw new Error("Invalid Radar diagnostic inventory version");
+        }
         data.loaded_pi_radar_version = radarPackageVersion;
         return { content: [{ type: "text" as const, text: JSON.stringify(data) }], details: data };
       },

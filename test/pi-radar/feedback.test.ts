@@ -26,7 +26,7 @@ function harness() {
     on: (event: string, handler: any) => hooks.set(event, handler),
     exec: async (binary: string, args: string[], options: any) => {
       calls.push({ binary, args, options });
-      return { code: 0, stdout: JSON.stringify({ section: args[args.indexOf("--section") + 1], version: "v1.2.3" }) };
+      return { code: 0, stdout: JSON.stringify({ diagnostics_schema:1, section: args[args.indexOf("--section") + 1], version: "v1.2.3" }) };
     },
   } as unknown as ExtensionAPI;
   const session = registerFeedbackSession(pi);
@@ -284,4 +284,58 @@ test("a feedback MCP write neither consumes nor replaces fresh private-log appro
   await h.diagnostic("logs"); // No second approval: the second log read is refused.
   assert.equal(h.confirmations.length, 2);
   assert.equal(h.calls.length, 1);
+});
+
+for (const scope of [undefined, "origin", "feedback", "installation"]) {
+  test(`bounded inventory forwards only fixed selectors (scope=${scope ?? "default"})`, async () => {
+    const h = harness(); h.activate();
+    const params = { section:"workspaces", scope, id:"workspace-id", state:"done", limit:7, cursor:"opaque-cursor" };
+    await h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx);
+    const expected = ["feedback-diagnostics","--workspace","/work/feedback","--section","workspaces","--json"];
+    if (scope !== undefined) expected.push("--scope",scope);
+    expected.push("--id","workspace-id","--state","done","--limit","7","--cursor","opaque-cursor");
+    assert.deepEqual(h.calls[0].args,expected);
+    assert.deepEqual(h.confirmations,[]);
+    assert.ok(h.session.instructions()!.includes("Cached observations and registration are not live runtime evidence or cleanup permission"));
+  });
+}
+
+for (const params of [
+  {section:"execute"},{section:"overview",scope:"installation"},{section:"logs",id:"entity"},
+  {section:"tasks",scope:"/arbitrary/path"},{section:"tasks",limit:51},{section:"tasks",limit:1.5},
+  {section:"tasks",id:"x".repeat(513)},{section:"tasks",state:"x".repeat(65)},
+  {section:"tasks",cursor:"x".repeat(513)},{section:"tasks",id:"🙂".repeat(200)},
+]) {
+  test(`invalid selectors never execute a host diagnostic (${JSON.stringify(params).slice(0,80)})`,async()=>{
+    const h=harness();h.activate();
+    await assert.rejects(h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx));
+    assert.deepEqual(h.calls,[]);assert.deepEqual(h.confirmations,[]);
+  });
+}
+
+for (const data of [
+  {section:"tasks"}, {diagnostics_schema:2,section:"tasks"},
+  {diagnostics_schema:1,section:"tasks",available:true},
+  {diagnostics_schema:1,section:"tasks",available:true,inventory:{diagnostics_schema:2,section:"tasks"}},
+  {diagnostics_schema:1,section:"tasks",available:true,inventory:{diagnostics_schema:1,section:"workspaces"}},
+]) {
+  test(`incompatible CLI or daemon inventory fails closed (${JSON.stringify(data)})`,async()=>{
+    const h=harness();h.activate();
+    h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+    await assert.rejects(h.diagnostic("tasks"),/Invalid Radar/);
+  });
+}
+
+test("inventory cannot consume private-log approval or hide cancellation",async()=>{
+  const h=harness();h.activate();h.approvals.push(true);
+  await h.diagnostic("tasks");assert.equal(h.approvals.length,1);
+  await h.diagnostic("logs");assert.equal(h.confirmations.length,1);
+  const controller=new AbortController();controller.abort();
+  await assert.rejects(h.diagnostic("tasks",controller.signal),/abort/i);
+  assert.equal(h.calls.length,2);
+});
+
+test("oversized host responses are not accepted",async()=>{
+  const h=harness();h.activate();h.pi.exec=async()=>({code:0,stdout:"x".repeat(300*1024+1),stderr:"",killed:false});
+  await assert.rejects(h.diagnostic(),/output bound/);
 });

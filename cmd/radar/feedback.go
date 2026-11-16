@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"io"
 	"os"
@@ -13,25 +12,40 @@ import (
 	"radar/internal/config"
 	"radar/internal/integration/workspace"
 	"radar/internal/logging"
+	"radar/internal/protocol"
 	"radar/internal/socket"
 	"radar/internal/version"
 )
 
 // This command is the fixed, read-only host boundary for feedback sessions. It
-// never starts/restarts the daemon, refreshes providers, exports state or reads
+// never starts/restarts the daemon, refreshes providers, exports raw state or reads
 // secrets. Log contents require a separate confirmation in the Pi tool.
 func runFeedbackDiagnostics(args []string) {
 	flags := outputFlags("radar feedback-diagnostics")
 	current := flags.String("workspace", "", "registered feedback workspace")
-	section := flags.String("section", "overview", "overview or logs")
+	section := flags.String("section", "overview", "overview, tasks, workspaces or logs")
+	scope := flags.String("scope", "origin", "origin, feedback or installation (inventories only)")
+	id := flags.String("id", "", "stable entity ID filter")
+	state := flags.String("state", "", "exact retained task state filter")
+	limit := flags.Int("limit", 20, "inventory page size (1-50)")
+	cursor := flags.String("cursor", "", "opaque inventory continuation cursor")
 	_ = parseFlags(flags, args)
-	if flags.NArg() != 0 || *current == "" || (*section != "overview" && *section != "logs") {
-		fatal(errors.New("usage: radar feedback-diagnostics --workspace <feedback workspace> --section overview|logs --json"))
+	if flags.NArg() != 0 || *current == "" || (*section != "overview" && *section != "logs" && *section != "tasks" && *section != "workspaces") {
+		fatal(errors.New("usage: radar feedback-diagnostics --workspace <feedback workspace> --section overview|tasks|workspaces|logs --json"))
 	}
 	if !jsonOutput {
 		fatal(errors.New("feedback-diagnostics requires --json"))
 	}
-	result, err := feedbackDiagnostics(*current, *section)
+	var result map[string]any
+	var err error
+	if *section == "tasks" || *section == "workspaces" {
+		result, err = feedbackInventory(*current, *scope, protocol.DiagnosticsRequest{Section: *section, ID: *id, State: *state, Limit: *limit, Cursor: *cursor})
+	} else {
+		if *scope != "origin" || *id != "" || *state != "" || *cursor != "" || *limit != 20 {
+			fatal(errors.New("inventory selectors require tasks or workspaces"))
+		}
+		result, err = feedbackDiagnostics(*current, *section)
+	}
 	if err != nil {
 		fatal(err)
 	}
@@ -52,13 +66,14 @@ func feedbackDiagnostics(current, section string) (map[string]any, error) {
 		if err != nil {
 			return nil, errors.New("Radar log unavailable")
 		}
-		return map[string]any{"section": section, "private": true, "logs": text, "truncated": truncated,
+		return map[string]any{"diagnostics_schema": protocol.DiagnosticsVersion, "section": section, "private": true, "logs": text, "truncated": truncated,
 			"warning": "Logs may contain private values. Do not publish raw logs; review and include only approved, redacted evidence."}, nil
 	}
 	result := map[string]any{
-		"section": "overview", "version": version.Number, "commit": version.Commit,
+		"diagnostics_schema": protocol.DiagnosticsVersion, "section": "overview", "version": version.Number, "commit": version.Commit,
 		"built": version.Date, "os": runtime.GOOS, "arch": runtime.GOARCH,
-		"daemon": map[string]any{"available": false},
+		"daemon":       map[string]any{"available": false},
+		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "logs"}, "maintenance": false, "runtime_probes": false, "retained_inventory_requires_matching_daemon": true},
 	}
 	// Explicit allowlist: do not serialize config.Config, credentials, provider
 	// endpoints, environment files, startup commands or task/note contents.
@@ -81,23 +96,16 @@ func feedbackDiagnostics(current, section string) (map[string]any, error) {
 		// host filesystem access. Never enroll an unmanaged directory.
 		_, origin, exists, err := workspace.RegisteredWorkspace(group.FeedbackOrigin, root)
 		if err == nil && exists && origin.Path == group.FeedbackOrigin {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			resources, inspectErr := workspace.InspectWorkspaceResources(ctx, workspace.ExecRunner{}, origin.Path, root)
-			cancel()
-			if inspectErr == nil {
-				members := make([]map[string]string, 0, len(resources.Members))
-				for _, member := range resources.Members {
-					members = append(members, map[string]string{"path": member.Path, "repository": member.Repository})
-				}
-				// Do not forward provider stderr/runtime_error strings in the
-				// automatic projection. Detailed evidence belongs in approved logs.
-				var sandbox any
-				if resources.Sandbox != nil {
-					sandbox = map[string]any{"name": resources.Sandbox.Name, "shared_directory_ready": resources.Sandbox.SharedDirectoryReady,
-						"runtime_error": resources.Sandbox.RuntimeError != ""}
-				}
-				result["origin"] = map[string]any{"available": true, "path": origin.Path, "members": members, "sandbox": sandbox}
+			members := make([]map[string]string, 0, len(origin.Members))
+			for _, member := range origin.Members[:min(len(origin.Members), 16)] {
+				members = append(members, map[string]string{"path": member.Path, "repository": member.Repository})
 			}
+			var sandbox any
+			if origin.Sandbox != nil {
+				sandbox = map[string]any{"name": origin.Sandbox.Name, "runtime_evidence": "unknown_not_probed"}
+			}
+			result["origin"] = map[string]any{"available": true, "id": origin.ID, "path": origin.Path, "members": members, "sandbox": sandbox, "evidence": "fresh_registration", "truncated": len(origin.Members) > 16}
+
 		}
 		if result["origin"] == nil {
 			result["origin"] = map[string]any{"available": false}
@@ -138,4 +146,59 @@ func feedbackLogTail(path string) (string, bool, error) {
 		lines = lines[len(lines)-100:]
 	}
 	return strings.Join(lines, "\n"), truncated, nil
+}
+
+func feedbackInventory(current, scope string, req protocol.DiagnosticsRequest) (map[string]any, error) {
+	if scope != "origin" && scope != "feedback" && scope != "installation" {
+		return nil, errors.New("invalid diagnostic scope")
+	}
+	if req.Limit < 1 || req.Limit > 50 || len(req.ID) > 512 || len(req.State) > 64 || len(req.Cursor) > 512 {
+		return nil, errors.New("diagnostic selector exceeds bounds")
+	}
+	root, group, found, err := workspace.RegisteredWorkspace(current, "")
+	if err != nil || !found || !group.Feedback {
+		return nil, errors.New("diagnostics require a registered Radar feedback workspace")
+	}
+	result := map[string]any{"diagnostics_schema": protocol.DiagnosticsVersion, "section": req.Section, "scope": scope, "available": false, "feedback_workspace_id": group.ID, "evidence": "unavailable"}
+	req.Workspace = "" // Only the registered scope below may supply a path.
+	if scope == "feedback" {
+		req.Workspace = group.Path
+	}
+	if scope == "origin" {
+		if group.FeedbackOrigin == "" {
+			result["reason"] = "origin_not_registered"
+			return result, nil
+		}
+		_, origin, exists, err := workspace.RegisteredWorkspace(group.FeedbackOrigin, root)
+		if err != nil || !exists || origin.Path != group.FeedbackOrigin {
+			result["reason"] = "origin_not_registered"
+			return result, nil
+		}
+		req.Workspace = origin.Path
+		result["origin_workspace_id"] = origin.ID
+	}
+	path, err := socket.Path()
+	if err != nil {
+		result["reason"] = "daemon_unavailable"
+		return result, nil
+	}
+	response, err := client.InspectDiagnostics(path, req, 2*time.Second)
+	if err != nil {
+		result["reason"] = "daemon_unavailable"
+		return result, nil
+	}
+	if !response.OK && strings.HasPrefix(response.Error, "diagnostic snapshot changed;") {
+		result["reason"] = "snapshot_changed_restart_pagination"
+		return result, nil
+	}
+	if !response.OK || response.Diagnostics == nil {
+		return nil, errors.New("diagnostic inventory unavailable: matching daemon/CLI support and a fresh pagination snapshot are required")
+	}
+	if response.Diagnostics.Schema != protocol.DiagnosticsVersion || response.Diagnostics.Section != req.Section {
+		return nil, errors.New("diagnostic inventory version mismatch")
+	}
+	result["available"] = true
+	result["evidence"] = response.Diagnostics.Evidence
+	result["inventory"] = response.Diagnostics
+	return result, nil
 }

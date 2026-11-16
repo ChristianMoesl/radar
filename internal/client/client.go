@@ -86,3 +86,8 @@ func callRequest(socketPath string, req protocol.Request, timeout time.Duration)
 	}
 	return res, nil
 }
+
+// InspectDiagnostics reads cached state and registration only, without daemon startup.
+func InspectDiagnostics(socketPath string, request protocol.DiagnosticsRequest, timeout time.Duration) (protocol.Response, error) {
+	return callRequest(socketPath, protocol.Request{Method: "diagnostics", Diagnostics: &request}, timeout)
+}

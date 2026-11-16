@@ -1598,3 +1598,23 @@ func (s *Store) RequireAgentReview(taskID int) {
 		s.logger.Warn("could not save pending agent review", "error", err)
 	}
 }
+
+// InspectionSnapshot reads retained records (including dashboard-hidden ones)
+// and their evidence atomically. Callers must project an explicit allowlist;
+// these internal snapshots must never be serialized as a diagnostic export.
+func (s *Store) InspectionSnapshot() ([]TaskRecord, []SourceRefRecord, int64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	records := make([]TaskRecord, len(s.state.Records))
+	for i, record := range s.state.Records {
+		records[i] = record
+		records[i].SourceRefIDs = slices.Clone(record.SourceRefIDs)
+		records[i].Snapshot = cloneTask(record.Snapshot)
+	}
+	refs := make([]SourceRefRecord, len(s.state.SourceRefs))
+	for i, ref := range s.state.SourceRefs {
+		refs[i] = ref
+		refs[i].Snapshot = cloneSourceRefs([]protocol.SourceRef{ref.Snapshot})[0]
+	}
+	return records, refs, s.revision
+}
