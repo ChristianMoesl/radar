@@ -214,10 +214,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	observed := make(chan protocol.Request, 12)
+	observed := make(chan protocol.Request, 15)
 	done := make(chan error, 1)
 	go func() {
-		for i := 0; i < 12; i++ {
+		for i := 0; i < 15; i++ {
 			conn, err := listener.Accept()
 			if err != nil {
 				done <- err
@@ -232,10 +232,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 			}
 			observed <- req
 			response := protocol.Response{OK: true, Diagnostics: &protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: req.Diagnostics.Section, Evidence: "cached_daemon_state", Items: []protocol.DiagnosticItem{}, Complete: true}}
-			if i == 10 {
+			if i == 13 {
 				response.Diagnostics.Schema = 99
 			}
-			if i == 11 {
+			if i == 14 {
 				response = protocol.Response{OK: false, Error: "unknown method: diagnostics; private-provider-value"}
 			}
 			err = json.NewEncoder(conn).Encode(response)
@@ -247,10 +247,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		}
 		done <- nil
 	}()
-	for index, scope := range []string{"origin", "feedback", "installation", "origin", "origin", "feedback", "installation", "origin", "feedback", "installation"} {
-		section := []string{"tasks", "source_refs", "bindings", "agents", "workspace_resources", "workspace_resources", "workspace_resources", "agent_schedules", "agent_schedules", "agent_schedules"}[index]
+	for index, scope := range []string{"origin", "feedback", "installation", "origin", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation"} {
+		section := []string{"tasks", "source_refs", "bindings", "agents", "workspace_resources", "workspace_resources", "workspace_resources", "agent_schedules", "agent_schedules", "agent_schedules", "gc_plan", "gc_plan", "gc_plan"}[index]
 		parent := ""
-		if index == 1 || index == 2 || section == "workspace_resources" || section == "agent_schedules" {
+		if index == 1 || index == 2 || section == "workspace_resources" || section == "agent_schedules" || section == "gc_plan" {
 			parent = "opaque-parent"
 		}
 		state := "done"

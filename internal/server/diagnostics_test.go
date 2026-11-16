@@ -1,15 +1,19 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"radar/internal/cleanup"
 	"radar/internal/integration"
+	"radar/internal/integration/workspace"
 	"radar/internal/protocol"
 	"radar/internal/state"
 )
@@ -36,6 +40,7 @@ func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "bindings"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agents"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agent_schedules"}},
+		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "gc_plan"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agent_schedules", State: "done"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agents", State: "done"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "workspace_resources"}},
@@ -66,4 +71,68 @@ func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T
 	if mutations != 0 {
 		t.Fatal("inspection caused mutation or refresh")
 	}
+}
+
+func TestGCPlanRPCIncludesHiddenTasksWithoutCallingPreviewOrMutation(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, "workspaces")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("RADAR_STATE", filepath.Join(home, "state.db"))
+	if err := os.MkdirAll(filepath.Join(home, "config", "radar"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "radar", "config.yaml"), []byte("workspace: {root_dir: "+root+"}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetTasks([]protocol.Task{{Attention: "done", Title: "private-title", SourceRefs: []protocol.SourceRef{{ID: "workitem", EntityID: "workitem", Source: "test", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary, Signal: "done", Metadata: map[string]string{"completed_at": "2026-01-02T10:20:30Z"}}, {ID: "workspace:group", Source: "workspace", Path: filepath.Join(root, "group"), WorkspaceID: "group", ProvidesWorkspace: true}}}})
+	if len(store.Tasks()) != 0 {
+		t.Fatal("fixture must be UI hidden")
+	}
+	effects := 0
+	service := cleanup.New([]integration.CleanupProvider{diagnosticNoCleanup{fakeCleanupSource: fakeCleanupSource{name: "fake"}, calls: &effects}})
+	server := New(store, logger, func() { effects++ }, func() error { effects++; return nil }, nil, integration.NewRegistry(workspace.Source{}), service).SetResourcePublication(func() { effects++ }, func() protocol.Response { return protocol.Response{ResourceRefreshPending: true} })
+	host, client := net.Pipe()
+	done := make(chan struct{})
+	go func() { defer close(done); server.handle(host) }()
+	encoder, decoder := json.NewEncoder(client), json.NewDecoder(client)
+	for _, req := range []protocol.DiagnosticsRequest{{Section: "gc_plan"}, {Section: "gc_plan", ParentID: strconv.Itoa(store.Records()[0].NumericID)}, {Section: "gc_plan", State: "done", Workspace: root}, {Section: "gc_plan", ID: "absent"}} {
+		if err := encoder.Encode(protocol.Request{Method: "diagnostics", Diagnostics: &req}); err != nil {
+			t.Fatal(err)
+		}
+		var response protocol.Response
+		if err := decoder.Decode(&response); err != nil {
+			t.Fatal(err)
+		}
+		if !response.OK || response.Diagnostics == nil || response.Diagnostics.Schema != protocol.DiagnosticsVersion || !response.Diagnostics.ResourceRefreshPending {
+			t.Fatalf("response=%+v", response)
+		}
+		if req.ID == "" && (response.Diagnostics.Total != 1 || response.Diagnostics.Items[0].GCPlan.Decision != "candidate") {
+			t.Fatalf("hidden record omitted: %+v", response.Diagnostics)
+		}
+	}
+	_ = client.Close()
+	<-done
+	if effects != 0 {
+		t.Fatal("cached diagnostic called provider preview, cleanup or refresh")
+	}
+}
+
+type diagnosticNoCleanup struct {
+	fakeCleanupSource
+	calls *int
+}
+
+func (p diagnosticNoCleanup) PreviewCleanup(context.Context, integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
+	*p.calls++
+	return nil, nil
+}
+func (p diagnosticNoCleanup) Cleanup(context.Context, integration.CleanupRequest) (protocol.CleanupTarget, error) {
+	*p.calls++
+	return protocol.CleanupTarget{}, nil
 }

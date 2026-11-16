@@ -59,9 +59,11 @@ type Candidate struct {
 }
 
 type Skipped struct {
-	TaskID int
-	Path   string
-	Reason string
+	TaskID      int
+	Path        string
+	Reason      string
+	Decision    string // Allowlisted planner code; runtime failures remain unclassified.
+	WorkspaceID string
 }
 
 type Plan struct {
@@ -76,19 +78,27 @@ type Result struct {
 }
 
 func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error) {
+	records, refs, _ := store.InspectionSnapshot()
+	return InspectPlan(records, refs, now, options)
+}
+
+// InspectPlan is the production candidate/skip planner on one immutable snapshot.
+// It performs no I/O or provider preflight and never establishes execution
+// eligibility, observed presence, ownership, leases or user consent.
+func InspectPlan(records []state.TaskRecord, refs []state.SourceRefRecord, now time.Time, options Options) (Plan, error) {
 	root := strings.TrimSpace(options.WorkspaceRoot)
 	if root == "" {
 		return Plan{}, fmt.Errorf("workspace root is required")
 	}
 	root = filepath.Clean(root)
 
-	refsByRecord := activeRefsByRecord(store.SourceRefs())
+	refsByRecord := activeRefsByRecord(refs)
 	plan := Plan{}
-	for _, record := range store.Records() {
+	for _, record := range records {
 		refs := refsByRecord[record.ID]
 		gate := retentionGate(record, refs, now, options)
 		if gate.Decision == retentionHeld {
-			plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Reason: "agent work or result review is pending"})
+			plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Reason: "agent work or result review is pending", Decision: retentionHeld})
 			continue
 		}
 		if gate.Decision != retentionPassed {
@@ -123,7 +133,7 @@ func BuildPlan(store *state.Store, now time.Time, options Options) (Plan, error)
 				seenGroups[workspaceID] = true
 			}
 			if reason := cleanup.LocationIssue(path, root); reason != "" {
-				plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Path: path, Reason: reason})
+				plan.Skipped = append(plan.Skipped, Skipped{TaskID: record.NumericID, Path: path, Reason: reason, Decision: "outside_workspace_root", WorkspaceID: workspaceID})
 				continue
 			}
 			plan.Candidates = append(plan.Candidates, Candidate{
@@ -148,17 +158,10 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 	}
 	result := Result{Skipped: append([]Skipped(nil), plan.Skipped...)}
 	for _, candidate := range plan.Candidates {
-		mode := integration.CleanupSafe
-		if candidate.WorkspaceID != "" {
-			deadline, ok := ExpiryAt(candidate.Task)
-			if !ok {
-				result.skip(candidate, fmt.Errorf("registered workspace completion time is invalid"), logger)
-				continue
-			}
-			mode = integration.CleanupRetire
-			if !now.Before(deadline) {
-				mode = integration.CleanupExpired
-			}
+		mode, err := CandidateMode(candidate, now)
+		if err != nil {
+			result.skip(candidate, err, logger)
+			continue
 		}
 		preview, err := cleanupService.Preview(ctx, candidate.Task, mode)
 		if err != nil {
@@ -218,6 +221,21 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 		}
 	}
 	return result, nil
+}
+
+// CandidateMode is the production next-stage choice, not execution permission.
+func CandidateMode(candidate Candidate, now time.Time) (integration.CleanupMode, error) {
+	if candidate.WorkspaceID == "" {
+		return integration.CleanupSafe, nil
+	}
+	deadline, ok := ExpiryAt(candidate.Task)
+	if !ok {
+		return integration.CleanupSafe, fmt.Errorf("registered workspace completion time is invalid")
+	}
+	if !now.Before(deadline) {
+		return integration.CleanupExpired, nil
+	}
+	return integration.CleanupRetire, nil
 }
 
 func candidateStillDone(store *state.Store, candidate Candidate) bool {

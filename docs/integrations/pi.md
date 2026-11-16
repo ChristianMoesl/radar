@@ -110,7 +110,7 @@ run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
 not proof that it exists or is running. Missing daemon/origin evidence is
 unavailable, not healthy, empty, repaired or enrolled.
 
-### Retained inventories (diagnostics schema 7)
+### Retained inventories (diagnostics schema 8)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -219,7 +219,7 @@ provider refresh, provenance of a manual change, cleanup eligibility or user
 consent. Free-form reasons, source status text and metadata are withheld.
 `source_completion_ready` never updates state or starts maintenance.
 
-### Cleanup-retention explanations
+### Cleanup-retention and cached GC-plan explanations
 
 Task views and each workspace retention entry include `gc_retention`, using
 exactly the production GC gate and its active-ref selection. Its decision is
@@ -236,6 +236,43 @@ A stopped registered owner can block execution after retention has passed.
 Activity/review checks use all production-selected active refs, not just the
 16 shown in a task summary. No provider preview, runtime probe, cleanup planner
 or executor is run to obtain this evidence.
+
+Use `section: "gc_plan", parent_id: "<task record or numeric ID>"` for the
+complete production candidate/skip plan beyond that first gate. Omit `parent_id`
+for all scoped retained tasks, including UI-hidden work, or use `id` for an exact
+opaque GC-plan entry. `state`, `limit` and `cursor` work as for other inventories.
+Scope selects the owning task and its complete related resource plan, including
+resources related to that task outside the matching workspace. It does not grant
+mutation authority. No task title, free-form reason, provider error, command or
+executable operation map is returned.
+
+The plan uses one immutable retained-state snapshot, the workspace manager's
+production configured root, and the **same pure planner used by automatic GC**.
+It retains active-ref selection, anchor-first registered-workspace deduplication,
+normal retention/activity/review gates and lexical root exclusions. A row is a
+`candidate`, `outside_workspace_root`, a retention-gate decision, or
+`no_workspace_candidates` when the passing record has no planner candidates.
+Inactive history may select an owning task's scope but does not create a current
+candidate. Duplicate standalone candidate identities retain an `occurrences`
+count. Unknown/unavailable workspace configuration fails explicitly, not as an
+apparently complete empty plan.
+
+`next_stage` reuses production's `safe_cleanup` (standalone),
+`runtime_retirement` (registered workspace before expiry), or `expired_cleanup`
+choice. Registered `expiry_at` is the existing production deadline, not consent
+or proof of data presence. Candidate IDs hash full record/resource identity
+before text clipping; decision, age and next-stage changes preserve identity
+while invalidating pagination snapshots. A changed resource-refresh-pending bit
+also invalidates cursors; pending state remains visible, not a refresh request.
+
+Evidence is `production_gc_plan_on_cached_inputs`. `execution_eligibility`
+remains `unknown_provider_ownership_lease_checks_not_run`, even for a candidate:
+provider preview/preflight, actual resource presence, agent ownership, leases,
+fresh drift checks and user consent are **not established**. This is not an
+executable cleanup preview, a full list of provider deletion targets or evidence
+of a completed cleanup/retirement. It performs no filesystem existence checks,
+runtime/network probes, provider refreshes, lease acquisitions or mutations.
+Explicit provider previews and apply adapters remain separate future operations.
 
 ### Durable-agent registration and checkpoint evidence
 
@@ -316,7 +353,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 7; version mismatches fail closed
+extension must support diagnostics schema 8; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

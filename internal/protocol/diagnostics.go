@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 7
+const DiagnosticsVersion = 8
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -230,7 +230,25 @@ type DiagnosticAgentScheduleEntry struct {
 	Schedule DiagnosticAgentSchedule `json:"schedule"`
 }
 
+// DiagnosticGCPlan describes production candidate/skip selection from cached
+// retained inputs. It is not provider preflight, an executable target or consent.
+type DiagnosticGCPlan struct {
+	ID                   string                `json:"id"`
+	RecordID             string                `json:"record_id"`
+	TaskID               int                   `json:"task_id"`
+	Decision             string                `json:"decision"`
+	Path                 string                `json:"path,omitempty"`
+	WorkspaceID          string                `json:"workspace_id,omitempty"`
+	NextStage            string                `json:"next_stage,omitempty"`
+	ExpiryAt             string                `json:"expiry_at,omitempty"`
+	GCRetention          DiagnosticGCRetention `json:"gc_retention"`
+	Evidence             string                `json:"evidence"`
+	ExecutionEligibility string                `json:"execution_eligibility"`
+	Occurrences          int                   `json:"occurrences"`
+}
+
 type DiagnosticItem struct {
+	GCPlan            *DiagnosticGCPlan             `json:"gc_plan,omitempty"`
 	AgentSchedule     *DiagnosticAgentScheduleEntry `json:"agent_schedule,omitempty"`
 	WorkspaceResource *DiagnosticWorkspaceResource  `json:"workspace_resource,omitempty"`
 	Agent             *DiagnosticAgent              `json:"agent,omitempty"`

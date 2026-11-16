@@ -23,23 +23,23 @@ import (
 func runFeedbackDiagnostics(args []string) {
 	flags := outputFlags("radar feedback-diagnostics")
 	current := flags.String("workspace", "", "registered feedback workspace")
-	section := flags.String("section", "overview", "overview, tasks, workspaces, source_refs, bindings, workspace_resources, agents, agent_schedules or logs")
+	section := flags.String("section", "overview", "overview, tasks, workspaces, source_refs, bindings, workspace_resources, agents, agent_schedules, gc_plan or logs")
 	scope := flags.String("scope", "origin", "origin, feedback or installation (inventories only)")
 	id := flags.String("id", "", "stable entity ID filter")
-	parentID := flags.String("parent-id", "", "source_refs: task ID; bindings: retained source-ref ID; workspace_resources: registered workspace ID; agent_schedules: agent registration ID")
+	parentID := flags.String("parent-id", "", "source_refs: task ID; bindings: retained source-ref ID; workspace_resources: registered workspace ID; agent_schedules: agent registration ID; gc_plan: owning task ID")
 	state := flags.String("state", "", "exact retained task state filter")
 	limit := flags.Int("limit", 20, "inventory page size (1-50)")
 	cursor := flags.String("cursor", "", "opaque inventory continuation cursor")
 	_ = parseFlags(flags, args)
-	if flags.NArg() != 0 || *current == "" || (*section != "overview" && *section != "logs" && *section != "tasks" && *section != "workspaces" && *section != "source_refs" && *section != "bindings" && *section != "workspace_resources" && *section != "agents" && *section != "agent_schedules") {
-		fatal(errors.New("usage: radar feedback-diagnostics --workspace <feedback workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|logs --json"))
+	if flags.NArg() != 0 || *current == "" || (*section != "overview" && *section != "logs" && *section != "tasks" && *section != "workspaces" && *section != "source_refs" && *section != "bindings" && *section != "workspace_resources" && *section != "agents" && *section != "agent_schedules" && *section != "gc_plan") {
+		fatal(errors.New("usage: radar feedback-diagnostics --workspace <feedback workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|logs --json"))
 	}
 	if !jsonOutput {
 		fatal(errors.New("feedback-diagnostics requires --json"))
 	}
 	var result map[string]any
 	var err error
-	if *section == "tasks" || *section == "workspaces" || *section == "source_refs" || *section == "bindings" || *section == "workspace_resources" || *section == "agents" || *section == "agent_schedules" {
+	if *section == "tasks" || *section == "workspaces" || *section == "source_refs" || *section == "bindings" || *section == "workspace_resources" || *section == "agents" || *section == "agent_schedules" || *section == "gc_plan" {
 		result, err = feedbackInventory(*current, *scope, protocol.DiagnosticsRequest{Section: *section, ParentID: *parentID, ID: *id, State: *state, Limit: *limit, Cursor: *cursor})
 	} else {
 		if *scope != "origin" || *id != "" || *parentID != "" || *state != "" || *cursor != "" || *limit != 20 {
@@ -74,7 +74,7 @@ func feedbackDiagnostics(current, section string) (map[string]any, error) {
 		"diagnostics_schema": protocol.DiagnosticsVersion, "section": "overview", "version": version.Number, "commit": version.Commit,
 		"built": version.Date, "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"daemon":       map[string]any{"available": false},
-		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "logs"}, "maintenance": false, "runtime_probes": false, "retained_inventory_requires_matching_daemon": true},
+		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "gc_plan", "logs"}, "maintenance": false, "runtime_probes": false, "retained_inventory_requires_matching_daemon": true},
 	}
 	// Explicit allowlist: do not serialize config.Config, credentials, provider
 	// endpoints, environment files, startup commands or task/note contents.
@@ -156,8 +156,8 @@ func feedbackInventory(current, scope string, req protocol.DiagnosticsRequest) (
 	if req.Limit < 1 || req.Limit > 50 || len(req.ID) > 512 || len(req.ParentID) > 512 || len(req.State) > 64 || len(req.Cursor) > 512 {
 		return nil, errors.New("diagnostic selector exceeds bounds")
 	}
-	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "workspace_resources" && req.Section != "agent_schedules" {
-		return nil, errors.New("parent-id requires source_refs, bindings, workspace_resources or agent_schedules")
+	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "workspace_resources" && req.Section != "agent_schedules" && req.Section != "gc_plan" {
+		return nil, errors.New("parent-id requires source_refs, bindings, workspace_resources, agent_schedules or gc_plan")
 	}
 	if (req.Section == "agents" || req.Section == "agent_schedules") && req.State != "" {
 		return nil, errors.New("state filters retained task lifecycle, not agent runner state")

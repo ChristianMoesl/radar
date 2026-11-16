@@ -26,7 +26,7 @@ function harness() {
     on: (event: string, handler: any) => hooks.set(event, handler),
     exec: async (binary: string, args: string[], options: any) => {
       calls.push({ binary, args, options });
-      return { code: 0, stdout: JSON.stringify({ diagnostics_schema:7, section: args[args.indexOf("--section") + 1], version: "v1.2.3" }) };
+      return { code: 0, stdout: JSON.stringify({ diagnostics_schema:8, section: args[args.indexOf("--section") + 1], version: "v1.2.3" }) };
     },
   } as unknown as ExtensionAPI;
   const session = registerFeedbackSession(pi);
@@ -314,10 +314,10 @@ for (const params of [
 }
 
 for (const data of [
-  {section:"tasks"}, {diagnostics_schema:1,section:"tasks"}, {diagnostics_schema:2,section:"tasks"}, {diagnostics_schema:3,section:"tasks"}, {diagnostics_schema:4,section:"tasks"}, {diagnostics_schema:5,section:"tasks"}, {diagnostics_schema:6,section:"tasks"}, {diagnostics_schema:8,section:"tasks"},
-  {diagnostics_schema:7,section:"tasks",available:true},
-  {diagnostics_schema:7,section:"tasks",available:true,inventory:{diagnostics_schema:8,section:"tasks"}},
-  {diagnostics_schema:7,section:"tasks",available:true,inventory:{diagnostics_schema:7,section:"workspaces"}},
+  {section:"tasks"}, {diagnostics_schema:1,section:"tasks"}, {diagnostics_schema:2,section:"tasks"}, {diagnostics_schema:3,section:"tasks"}, {diagnostics_schema:4,section:"tasks"}, {diagnostics_schema:5,section:"tasks"}, {diagnostics_schema:6,section:"tasks"}, {diagnostics_schema:7,section:"tasks"}, {diagnostics_schema:99,section:"tasks"},
+  {diagnostics_schema:8,section:"tasks",available:true},
+  {diagnostics_schema:8,section:"tasks",available:true,inventory:{diagnostics_schema:99,section:"tasks"}},
+  {diagnostics_schema:8,section:"tasks",available:true,inventory:{diagnostics_schema:8,section:"workspaces"}},
 ]) {
   test(`incompatible CLI or daemon inventory fails closed (${JSON.stringify(data)})`,async()=>{
     const h=harness();h.activate();
@@ -345,7 +345,7 @@ test("lifecycle source decisions remain distinct from recorded state without app
   const task={state:"done",lifecycle:{evidence:"production_lifecycle_evaluation_on_cached_inputs",decision:"activity_or_review_pending",source_state:"active",activity_holds:1,recorded_review_pending:false,next_review_pending:true}};
   h.pi.exec=async(binary,args,options)=>{
     h.calls.push({binary,args,options});
-    return {code:0,stdout:JSON.stringify({diagnostics_schema:7,section:"tasks",available:true,inventory:{diagnostics_schema:7,section:"tasks",items:[{id:"record",task}]}}),stderr:"",killed:false};
+    return {code:0,stdout:JSON.stringify({diagnostics_schema:8,section:"tasks",available:true,inventory:{diagnostics_schema:8,section:"tasks",items:[{id:"record",task}]}}),stderr:"",killed:false};
   };
   const result=await h.diagnostic("tasks");
   assert.deepEqual(JSON.parse(result.content[0].text).inventory.items[0].task,task);
@@ -354,12 +354,12 @@ test("lifecycle source decisions remain distinct from recorded state without app
   for (const text of ["exact production transition on cached inputs", "separate from recorded state", "not a mutation or proof of historical manual intent"]) assert.ok(h.session.instructions()!.includes(text));
 });
 
-for (const [section,parent_id] of [["source_refs","123"],["bindings","retained-ref"],["workspace_resources","workspace-id"],["agent_schedules","agent-id"]]) {
+for (const [section,parent_id] of [["source_refs","123"],["bindings","retained-ref"],["workspace_resources","workspace-id"],["agent_schedules","agent-id"],["gc_plan","123"]]) {
   test(`nested ${section} inventories use fixed argv and the matching schema`,async()=>{
     const h=harness();h.activate();
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:7,section,available:true,inventory:{diagnostics_schema:7,section,items:[]}}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:8,section,available:true,inventory:{diagnostics_schema:8,section,items:[]}}),stderr:"",killed:false};
     };
     await h.tools.get("radar_diagnostics").execute("call",{section,parent_id,scope:"origin",limit:5},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section",section,"--json","--scope","origin","--parent-id",parent_id,"--limit","5"]);
@@ -371,10 +371,10 @@ for (const [section,parent_id] of [["source_refs","123"],["bindings","retained-r
 for (const scope of ["origin","feedback","installation"]) {
   test(`workspace resource drill-down preserves ${scope} scope and unknown ownership`,async()=>{
     const h=harness();h.activate();h.approvals.push(true);
-    const inventory={diagnostics_schema:7,section:"workspace_resources",evidence:"fresh_registration_with_cached_task_ownership_agent_ownership_unavailable",total:1,items:[{id:"resource",workspace_resource:{id:"resource",workspace_id:"workspace",kind:"mount",evidence:"fresh_registration",occurrences:1,mount:{path:"/registered/mount",read_only:true}}}],pagination_complete:true};
+    const inventory={diagnostics_schema:8,section:"workspace_resources",evidence:"fresh_registration_with_cached_task_ownership_agent_ownership_unavailable",total:1,items:[{id:"resource",workspace_resource:{id:"resource",workspace_id:"workspace",kind:"mount",evidence:"fresh_registration",occurrences:1,mount:{path:"/registered/mount",read_only:true}}}],pagination_complete:true};
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:7,section:"workspace_resources",available:true,inventory}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:8,section:"workspace_resources",available:true,inventory}),stderr:"",killed:false};
     };
     const result=await h.tools.get("radar_diagnostics").execute("call",{section:"workspace_resources",scope,parent_id:"workspace",id:"resource",limit:3,cursor:"opaque"},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","workspace_resources","--json","--scope",scope,"--id","resource","--parent-id","workspace","--limit","3","--cursor","opaque"]);
@@ -387,10 +387,10 @@ for (const scope of ["origin","feedback","installation"]) {
 for (const scope of ["origin","feedback","installation"]) {
   test(`complete agent schedules preserve ${scope} scope and checkpoint evidence`,async()=>{
     const h=harness();h.activate();h.approvals.push(true);
-    const inventory={diagnostics_schema:7,section:"agent_schedules",evidence:"fresh_schedule_checkpoints_runtime_errors_unknown",total:1,items:[{id:"opaque-schedule",agent_schedule:{id:"opaque-schedule",agent_id:"stopped",schedule:{id:"native-schedule",enabled:false,delivery_problem:true}}}],pagination_complete:true};
+    const inventory={diagnostics_schema:8,section:"agent_schedules",evidence:"fresh_schedule_checkpoints_runtime_errors_unknown",total:1,items:[{id:"opaque-schedule",agent_schedule:{id:"opaque-schedule",agent_id:"stopped",schedule:{id:"native-schedule",enabled:false,delivery_problem:true}}}],pagination_complete:true};
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:7,section:"agent_schedules",available:true,inventory}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:8,section:"agent_schedules",available:true,inventory}),stderr:"",killed:false};
     };
     const result=await h.tools.get("radar_diagnostics").execute("call",{section:"agent_schedules",scope,parent_id:"stopped",id:"opaque-schedule",limit:3,cursor:"opaque"},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","agent_schedules","--json","--scope",scope,"--id","opaque-schedule","--parent-id","stopped","--limit","3","--cursor","opaque"]);
@@ -422,5 +422,21 @@ for (const params of [{section:"agents",state:"done"},{section:"agent_schedules"
     const h=harness();h.activate();
     await assert.rejects(h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx));
     assert.deepEqual(h.calls,[]);
+  });
+}
+
+for (const scope of ["origin","feedback","installation"]) {
+  test(`production GC plans preserve ${scope} scope and unknown execution eligibility`,async()=>{
+    const h=harness();h.activate();h.approvals.push(true);
+    const inventory={diagnostics_schema:8,section:"gc_plan",evidence:"production_gc_plan_on_cached_inputs",total:1,items:[{id:"opaque-plan",gc_plan:{id:"opaque-plan",record_id:"record",task_id:7,decision:"candidate",next_stage:"runtime_retirement",execution_eligibility:"unknown_provider_ownership_lease_checks_not_run",occurrences:1}}],pagination_complete:true};
+    h.pi.exec=async(binary,args,options)=>{
+      h.calls.push({binary,args,options});
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:8,section:"gc_plan",available:true,inventory}),stderr:"",killed:false};
+    };
+    const result=await h.tools.get("radar_diagnostics").execute("call",{section:"gc_plan",scope,parent_id:"record",id:"opaque-plan",state:"done",limit:3,cursor:"opaque"},undefined,undefined,h.ctx);
+    assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","gc_plan","--json","--scope",scope,"--id","opaque-plan","--parent-id","record","--state","done","--limit","3","--cursor","opaque"]);
+    assert.deepEqual(JSON.parse(result.content[0].text).inventory,inventory);
+    assert.equal(h.approvals.length,1);assert.deepEqual(h.confirmations,[]);
+    for (const text of ["A candidate is not executable eligibility or consent", "Scope selects the owning task", "provider cleanup previews and maintenance adapters are not yet exposed"]) assert.ok(h.session.instructions()!.includes(text));
   });
 }

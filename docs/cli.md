@@ -11,7 +11,7 @@ radar setup notifications     # macOS launch/notification approval
 radar update                  # Confirm a managed macOS release
 radar version
 radar documentation [--topic <source>] [--json]
-radar feedback-diagnostics --workspace <feedback-workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|logs --json
+radar feedback-diagnostics --workspace <feedback-workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|logs --json
 radar create                  # Interactive workspace creation
 radar fork
 radar task create --title <title>

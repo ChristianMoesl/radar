@@ -25,7 +25,7 @@ const maxPageBytes = 256 * 1024
 const maxChildren = protocol.DiagnosticChildLimit
 
 func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
-	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "workspace_resources" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "agents" && req.Section != "agent_schedules" {
+	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "workspace_resources" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "agents" && req.Section != "agent_schedules" && req.Section != "gc_plan" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("unsupported diagnostic inventory")
 	}
 	if req.Limit == 0 {
@@ -34,8 +34,8 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 	if req.Limit < 1 || req.Limit > 50 || len(req.Cursor) > 512 || len(req.ID) > 512 || len(req.ParentID) > 512 || len(req.State) > 64 || len(req.Workspace) > 4096 {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic selector exceeds bounds")
 	}
-	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "workspace_resources" && req.Section != "agent_schedules" {
-		return protocol.DiagnosticsPage{}, fmt.Errorf("parent_id requires source_refs, bindings, workspace_resources or agent_schedules")
+	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "workspace_resources" && req.Section != "agent_schedules" && req.Section != "gc_plan" {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("parent_id requires source_refs, bindings, workspace_resources, agent_schedules or gc_plan")
 	}
 	if req.Section == "workspace_resources" && req.State != "" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("state filters retained task lifecycle, not workspace resources")
@@ -72,6 +72,13 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 			task := taskView(record, byRecord[record.ID], linking[record.ID], now)
 			items = append(items, protocol.DiagnosticItem{ID: task.RecordID, Task: &task})
 		}
+	} else if req.Section == "gc_plan" {
+		var err error
+		items, err = gcPlanItems(req, records, refs, now, providers)
+		if err != nil {
+			return protocol.DiagnosticsPage{}, err
+		}
+		evidence = "production_gc_plan_on_cached_inputs"
 	} else if req.Section == "agents" {
 		agents, err := agentservice.DiagnosticAgents(req.Workspace, req.ID)
 		if err != nil {
@@ -198,6 +205,9 @@ func paginate(req protocol.DiagnosticsRequest, items []protocol.DiagnosticItem, 
 		}
 	}
 	page := protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: req.Section, Evidence: evidence, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano), Revision: revision, Snapshot: snapshot, Total: len(items), ResourceRefreshPending: pending, Limitations: []string{"free_form_content_withheld", "runtime_not_probed", "cleanup_planner_not_run", "provider_freshness_not_established", "text_fields_limited_to_512_bytes", "nested_lists_limited_to_16_entries", "historical_manual_intent_not_reconstructed", "registration_paths_are_not_observed_resource_presence"}}
+	if req.Section == "gc_plan" {
+		page.Limitations = []string{"free_form_content_withheld", "runtime_not_probed", "provider_preview_not_run", "provider_freshness_not_established", "ownership_and_leases_not_checked", "candidate_is_not_execution_eligibility_or_consent", "pending_resource_refresh_may_change_plan", "text_fields_limited_to_512_bytes", "scope_selects_owning_task_including_related_resources"}
+	}
 	end := min(offset+req.Limit, len(items))
 	for {
 		page.Items = items[offset:end]
