@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	workspacegroup "radar/internal/integration/workspace/group"
+	"radar/internal/logging"
 	"radar/internal/protocol"
 )
 
@@ -43,7 +44,7 @@ func feedbackDiagnosticsFixture(t *testing.T) (string, string, string) {
 func TestFeedbackDiagnosticsAreScopedReadOnlyAndDoNotReadLogsOrSecretsByDefault(t *testing.T) {
 	root, anchor, log := feedbackDiagnosticsFixture(t)
 	private := "do-not-include-private-content"
-	if err := os.WriteFile(log, []byte(private), 0600); err != nil {
+	if err := os.WriteFile(log, []byte(private+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	secrets := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar/secrets.yaml")
@@ -51,7 +52,7 @@ func TestFeedbackDiagnosticsAreScopedReadOnlyAndDoNotReadLogsOrSecretsByDefault(
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(workspacegroup.Path(root))
-	result, err := feedbackDiagnostics(anchor, "overview")
+	result, err := feedbackDiagnostics(anchor, "overview", logging.LogQuery{Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +67,8 @@ func TestFeedbackDiagnosticsAreScopedReadOnlyAndDoNotReadLogsOrSecretsByDefault(
 	if _, err := os.Stat(os.Getenv("RADAR_SOCKET")); !os.IsNotExist(err) {
 		t.Fatal("diagnostics started a daemon")
 	}
-	result, err = feedbackDiagnostics(anchor, "logs")
-	if err != nil || result["private"] != true || result["logs"] != private {
+	result, err = feedbackDiagnostics(anchor, "logs", logging.LogQuery{Limit: 20})
+	if err != nil || result["private"] != true || len(result["logs"].(logging.LogPage).Entries) != 1 {
 		t.Fatalf("explicit log projection: %+v %v", result, err)
 	}
 	registry, _ := workspacegroup.Load(root)
@@ -75,10 +76,10 @@ func TestFeedbackDiagnosticsAreScopedReadOnlyAndDoNotReadLogsOrSecretsByDefault(
 	if err := workspacegroup.Save(root, registry); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := feedbackDiagnostics(anchor, "overview"); err == nil {
+	if _, err := feedbackDiagnostics(anchor, "overview", logging.LogQuery{Limit: 20}); err == nil {
 		t.Fatal("ordinary workspace gained host diagnostics")
 	}
-	if _, err := feedbackDiagnostics(t.TempDir(), "logs"); err == nil {
+	if _, err := feedbackDiagnostics(t.TempDir(), "logs", logging.LogQuery{Limit: 20}); err == nil {
 		t.Fatal("unmanaged directory gained host diagnostics")
 	}
 }
@@ -90,31 +91,9 @@ func TestFeedbackDiagnosticsDoNotEnrollRemovedOrigin(t *testing.T) {
 	if err := workspacegroup.Save(root, registry); err != nil {
 		t.Fatal(err)
 	}
-	result, err := feedbackDiagnostics(anchor, "overview")
+	result, err := feedbackDiagnostics(anchor, "overview", logging.LogQuery{Limit: 20})
 	if err != nil || result["origin"].(map[string]any)["available"] != false {
 		t.Fatalf("removed origin was inspected/enrolled: %+v %v", result, err)
-	}
-}
-
-func TestFeedbackLogTailIsBoundedByLinesAndBytes(t *testing.T) {
-	_, _, log := feedbackDiagnosticsFixture(t)
-	var lines []string
-	for i := range 200 {
-		lines = append(lines, fmt.Sprintf("line-%03d", i))
-	}
-	if err := os.WriteFile(log, []byte(strings.Join(lines, "\n")+"\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	text, truncated, err := feedbackLogTail(log)
-	if err != nil || !truncated || len(strings.Split(text, "\n")) != 100 || !strings.HasPrefix(text, "line-100") || !strings.HasSuffix(text, "line-199") {
-		t.Fatalf("tail=%q truncated=%v err=%v", text, truncated, err)
-	}
-	if err := os.WriteFile(log, []byte(strings.Repeat("x", 100000)), 0600); err != nil {
-		t.Fatal(err)
-	}
-	text, truncated, err = feedbackLogTail(log)
-	if err != nil || !truncated || len(text) > 32*1024 {
-		t.Fatalf("unbounded tail: %d %v %v", len(text), truncated, err)
 	}
 }
 
@@ -154,7 +133,7 @@ func TestFeedbackOverviewDoesNotProbeRegisteredRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	result, err := feedbackDiagnostics(anchor, "overview")
+	result, err := feedbackDiagnostics(anchor, "overview", logging.LogQuery{Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,5 +271,34 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFeedbackLogCLIFiltersNativeMetadataAndRejectsMixedSelectors(t *testing.T) {
+	_, anchor, log := feedbackDiagnosticsFixture(t)
+	private := "private-secret-conversation"
+	raw := "2026-11-16 12:00:00 WRN source collection skipped source=github duration=1ms error=" + private + "\n"
+	if err := os.WriteFile(log, []byte(raw), 0600); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"HOME=" + os.Getenv("HOME"), "XDG_CONFIG_HOME=" + os.Getenv("XDG_CONFIG_HOME"), "RADAR_LOG=" + log}
+	base := []string{"feedback-diagnostics", "--workspace", anchor, "--section", "logs", "--json"}
+	stdout, stderr, code := outputCLI(t, append(append([]string{}, base...), "--severity", "warn", "--since", "2026-11-16 12:00:00", "--until", "2026-11-16 12:00:00", "--limit", "100"), "", env...)
+	if code != 0 || strings.Contains(stdout, private) || !strings.Contains(stdout, `"event":"source_collection_skipped"`) || !strings.Contains(stdout, `"outcome":"unknown_not_recorded"`) || !strings.Contains(stdout, `"scope":"installation"`) {
+		t.Fatalf("%d %s %s", code, stdout, stderr)
+	}
+	for _, selectors := range [][]string{{"--scope", "origin"}, {"--id", "entity"}, {"--parent-id", "workspace"}, {"--state", "done"}, {"--provider", "github"}, {"--severity", "fatal"}, {"--since", "2026-02-30 00:00:00"}, {"--limit", "101"}, {"--path", log}} {
+		if _, _, code := outputCLI(t, append(append([]string{}, base...), selectors...), "", env...); code == 0 {
+			t.Fatalf("accepted invalid log selectors %v", selectors)
+		}
+	}
+	stdout, stderr, code = outputCLI(t, append(append([]string{}, base...), "--cursor", "stale"), "", env...)
+	if code != 0 || !strings.Contains(stdout, `"reason":"snapshot_changed_restart_pagination"`) || !strings.Contains(stdout, `"available":false`) || strings.Contains(stdout, `"logs":`) {
+		t.Fatalf("drift became empty/success: %d %s %s", code, stdout, stderr)
+	}
+	for _, section := range []string{"overview", "tasks", "runtime_probe"} {
+		if _, _, code := outputCLI(t, []string{"feedback-diagnostics", "--workspace", anchor, "--section", section, "--severity", "error", "--json"}, "", env...); code == 0 {
+			t.Fatal("accepted log selector on non-log section")
+		}
 	}
 }

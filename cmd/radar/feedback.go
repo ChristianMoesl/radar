@@ -2,8 +2,7 @@ package main
 
 import (
 	"errors"
-	"io"
-	"os"
+	"flag"
 	"runtime"
 	"strings"
 	"time"
@@ -28,8 +27,14 @@ func runFeedbackDiagnostics(args []string) {
 	id := flags.String("id", "", "stable entity ID filter")
 	parentID := flags.String("parent-id", "", "source_refs: task ID; bindings: retained source-ref ID; workspace_resources: registered workspace ID; agent_schedules: agent registration ID; gc_plan: owning task ID; runtime_probe: required registered workspace ID")
 	state := flags.String("state", "", "exact retained task state filter")
-	limit := flags.Int("limit", 20, "inventory page size (1-50)")
-	cursor := flags.String("cursor", "", "opaque inventory continuation cursor")
+	limit := flags.Int("limit", 20, "page size (inventories 1-50; logs 1-100)")
+	cursor := flags.String("cursor", "", "opaque inventory/log continuation cursor")
+	since := flags.String("since", "", "logs: inclusive native daemon wall time YYYY-MM-DD HH:MM:SS")
+	until := flags.String("until", "", "logs: inclusive native daemon wall time YYYY-MM-DD HH:MM:SS")
+	severity := flags.String("severity", "", "logs: exact debug, info, warn or error")
+	provider := flags.String("provider", "", "logs: opaque provider identity from log metadata")
+	entity := flags.String("entity", "", "logs: opaque entity identity from log metadata")
+	operation := flags.String("operation", "", "logs: opaque operation/correlation identity from log metadata")
 	_ = parseFlags(flags, args)
 	if flags.NArg() != 0 || *current == "" || (*section != "overview" && *section != "logs" && *section != "tasks" && *section != "workspaces" && *section != "source_refs" && *section != "bindings" && *section != "workspace_resources" && *section != "agents" && *section != "agent_schedules" && *section != "gc_plan" && *section != "runtime_probe" && *section != "integrations") {
 		fatal(errors.New("usage: radar feedback-diagnostics --workspace <feedback workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|runtime_probe|integrations|logs --json"))
@@ -37,15 +42,28 @@ func runFeedbackDiagnostics(args []string) {
 	if !jsonOutput {
 		fatal(errors.New("feedback-diagnostics requires --json"))
 	}
+	invalidSelector := false
+	flags.Visit(func(f *flag.Flag) {
+		if *section == "logs" && (f.Name == "scope" || f.Name == "id" || f.Name == "parent-id" || f.Name == "state") {
+			invalidSelector = true
+		}
+		if *section != "logs" && (f.Name == "since" || f.Name == "until" || f.Name == "severity" || f.Name == "provider" || f.Name == "entity" || f.Name == "operation") {
+			invalidSelector = true
+		}
+	})
+	if invalidSelector {
+		fatal(errors.New("diagnostic selectors do not match the selected section"))
+	}
+	query := logging.LogQuery{Since: *since, Until: *until, Severity: *severity, Provider: *provider, Entity: *entity, Operation: *operation, Limit: *limit, Cursor: *cursor}
 	var result map[string]any
 	var err error
 	if *section == "tasks" || *section == "workspaces" || *section == "source_refs" || *section == "bindings" || *section == "workspace_resources" || *section == "agents" || *section == "agent_schedules" || *section == "gc_plan" || *section == "runtime_probe" || *section == "integrations" {
 		result, err = feedbackInventory(*current, *scope, protocol.DiagnosticsRequest{Section: *section, ParentID: *parentID, ID: *id, State: *state, Limit: *limit, Cursor: *cursor})
 	} else {
-		if *scope != "origin" || *id != "" || *parentID != "" || *state != "" || *cursor != "" || *limit != 20 {
+		if *scope != "origin" || *id != "" || *parentID != "" || *state != "" || (*section != "logs" && (*cursor != "" || *limit != 20)) {
 			fatal(errors.New("inventory selectors require an inventory section"))
 		}
-		result, err = feedbackDiagnostics(*current, *section)
+		result, err = feedbackDiagnostics(*current, *section, query)
 	}
 	if err != nil {
 		fatal(err)
@@ -53,28 +71,27 @@ func runFeedbackDiagnostics(args []string) {
 	printResult(result)
 }
 
-func feedbackDiagnostics(current, section string) (map[string]any, error) {
+func feedbackDiagnostics(current, section string, logQuery logging.LogQuery) (map[string]any, error) {
 	root, group, found, err := workspace.RegisteredWorkspace(current, "")
 	if err != nil || !found || !group.Feedback {
 		return nil, errors.New("diagnostics require a registered Radar feedback workspace")
 	}
 	if section == "logs" {
-		path, err := logging.Path()
-		if err != nil {
-			return nil, errors.New("Radar log path unavailable")
+		page, err := logging.DiagnosticLogs(logQuery)
+		if errors.Is(err, logging.ErrDiagnosticLogSnapshotChanged) {
+			return map[string]any{"diagnostics_schema": protocol.DiagnosticsVersion, "section": section, "private": true, "scope": "installation", "available": false, "evidence": "unavailable", "reason": "snapshot_changed_restart_pagination"}, nil
 		}
-		text, truncated, err := feedbackLogTail(path)
 		if err != nil {
-			return nil, errors.New("Radar log unavailable")
+			return nil, err
 		}
-		return map[string]any{"diagnostics_schema": protocol.DiagnosticsVersion, "section": section, "private": true, "logs": text, "truncated": truncated,
-			"warning": "Logs may contain private values. Do not publish raw logs; review and include only approved, redacted evidence."}, nil
+		return map[string]any{"diagnostics_schema": protocol.DiagnosticsVersion, "section": section, "private": true, "scope": "installation", "available": true, "evidence": "bounded_native_log_metadata_not_operation_history", "logs": page,
+			"warning": "Private installation-wide log metadata only. Raw messages/errors/values are withheld. Missing evidence and completed timings are not success; approval does not authorize publication."}, nil
 	}
 	result := map[string]any{
 		"diagnostics_schema": protocol.DiagnosticsVersion, "section": "overview", "version": version.Number, "commit": version.Commit,
 		"built": version.Date, "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"daemon":       map[string]any{"available": false},
-		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "gc_plan", "runtime_probe", "integrations", "logs"}, "maintenance": false, "runtime_probes": true, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false},
+		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "gc_plan", "runtime_probe", "integrations", "logs"}, "maintenance": false, "runtime_probes": true, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false, "filtered_redacted_log_metadata": true, "raw_log_contents": false},
 	}
 	// Explicit allowlist: do not serialize config.Config, credentials, provider
 	// endpoints, environment files, startup commands or task/note contents.
@@ -113,40 +130,6 @@ func feedbackDiagnostics(current, section string) (map[string]any, error) {
 		}
 	}
 	return result, nil
-}
-
-func feedbackLogTail(path string) (string, bool, error) {
-	const maxBytes = 32 * 1024
-	file, err := os.Open(path)
-	if err != nil {
-		return "", false, err
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return "", false, err
-	}
-	if !info.Mode().IsRegular() {
-		return "", false, errors.New("log is not a regular file")
-	}
-	offset := max(int64(0), info.Size()-maxBytes)
-	data := make([]byte, min(info.Size(), maxBytes))
-	n, err := file.ReadAt(data, offset)
-	if err != nil && err != io.EOF {
-		return "", false, err
-	}
-	text := string(data[:n])
-	if offset > 0 {
-		if newline := strings.IndexByte(text, '\n'); newline >= 0 {
-			text = text[newline+1:]
-		}
-	}
-	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-	truncated := offset > 0 || len(lines) > 100
-	if len(lines) > 100 {
-		lines = lines[len(lines)-100:]
-	}
-	return strings.Join(lines, "\n"), truncated, nil
 }
 
 func feedbackInventory(current, scope string, req protocol.DiagnosticsRequest) (map[string]any, error) {

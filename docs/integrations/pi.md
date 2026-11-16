@@ -146,7 +146,7 @@ looking up/running tools, reading provider credentials/configuration or refreshi
 provider. Native references and statuses share one atomic cache revision; cursors
 also bind selected scope, registration/capability changes and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 10; older versions fail closed.
+and extension must all support schema 11; older versions fail closed.
 
 ### Explicit registered-runtime observations
 
@@ -186,7 +186,7 @@ not returned. Unregistered runtimes are not classified. Cached inventories never
 start these probes implicitly; use existing retained references for cached
 history, not as proof of liveness.
 
-### Retained inventories (diagnostics schema 10)
+### Retained inventories (diagnostics schema 11)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -429,19 +429,59 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 10; version mismatches fail closed
+extension must support diagnostics schema 11; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.
 
-The `logs` section requires a **fresh interactive confirmation** before reading
-at most the last 100 lines / 32 KiB of the configured host daemon log. That log
-can include private values from other workspaces; approval permits inspection,
-not publication. Raw logs are not automatically redacted or attached to Linear.
-Review and redact any proposed evidence separately. Denial, missing UI and
-cancellation make no log read. The tool accepts no arbitrary path, executable,
-SQL or shell input. Source reads and experiments stay in the workspace's normal
-execution boundary; no live database/config-directory/socket mounts are needed.
+The `logs` section requires **fresh interactive approval for every exact query/page**.
+It scans at most the latest 1 MiB of the single configured installation-wide native
+Tint daemon log, and returns typed redacted metadata only: at most 100 entries
+(default 20) and 32 KiB per page. It no longer returns a raw log tail. Free-form
+messages/errors, arbitrary attributes, source locations, paths, credentials and
+raw identities are withheld; unknown messages remain unclassified rather than
+being interpreted as success or failure. No log format, collection policy,
+persisted schema or telemetry/history service changes.
+
+Use `since`/`until` as inclusive `YYYY-MM-DD HH:MM:SS` **native daemon wall times**,
+not UTC/RFC3339 instants: native logs have second precision and no timezone.
+No historical timezone or DST disambiguation is inferred. `severity` is an exact
+`debug`, `info`, `warn` or `error` match. `provider`, `entity` and `operation`
+accept only opaque IDs from returned `identities`, never substrings/names/paths.
+Entry IDs bind native file lifetime, absolute byte offset and full line, staying
+stable across filters/appends while distinguishing rotated files. Identity IDs
+hash the complete native attribute value under its field name: they do not
+prove cross-field identity, ownership or operation correlation. Only attributes
+following known static native event messages are interpreted; apparent fields
+inside free-form messages/errors are never searched. Missing correlation and
+unrecognized formats remain unknown.
+
+Pass `limit` (1–100) and `cursor=logs.next_cursor` to page the same bounded window.
+Each page repeats the bounded read and fresh query-specific approval. Changed
+file contents/size/mtime, filters or page size reject the cursor; restart rather
+than combining snapshots. Drift returns `available: false`,
+`reason: "snapshot_changed_restart_pagination"`, without an empty log page.
+`pagination_complete` only covers matching metadata
+inside that window, **not all historical operations**. `window_truncated`,
+`partial_tail_withheld`, `unparsed_lines`, `query_unknown_lines`, scanned bounds
+and limitations disclose missing evidence. Unlinked identity-filter rows are
+conservatively counted as unknown, even if other identities are present.
+First partial records and unfinished
+last lines are withheld; symlinks, FIFOs and nonregular files fail closed.
+Rotated files are not followed. A zero-match result is not absence or health.
+
+Allowlisted phase durations (including lock waits) describe a completed timing
+measurement, **never successful business execution**. Every row explicitly marks
+outcome `unknown_not_recorded`; even a reported deletion/failure is only a log
+event, not independently verified resource state or a complete target outcome.
+Failed/remaining targets, retries, live locks and full operation outcomes remain
+unknown unless separately observed. Log approval permits local inspection, not
+publication or automatic Linear attachment; review proposed evidence separately.
+Denial, missing UI, cancellation or MCP loss make no log read. Log filters are
+rejected outside `logs`; inventory scope/parent/task-state selectors are rejected
+for logs, which remain explicitly installation-wide. The tool accepts no arbitrary
+path, executable, SQL or shell input. Source reads and experiments stay inside the
+normal workspace boundary; no live state/config/socket mounts are needed.
 
 The dashboard learns MCP creation availability through the existing per-session
 loaded-version reports, refreshed every five seconds and removed on shutdown.

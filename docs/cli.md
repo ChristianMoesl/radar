@@ -12,6 +12,7 @@ radar update                  # Confirm a managed macOS release
 radar version
 radar documentation [--topic <source>] [--json]
 radar feedback-diagnostics --workspace <feedback-workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|runtime_probe|integrations|logs --json
+radar feedback-diagnostics --workspace <feedback-workspace> --section logs [--since "YYYY-MM-DD HH:MM:SS"] [--until "YYYY-MM-DD HH:MM:SS"] [--severity debug|info|warn|error] [--provider <opaque-log-id>] [--entity <opaque-log-id>] [--operation <opaque-log-id>] [--limit 1-100] [--cursor <log-cursor>] --json
 radar create                  # Interactive workspace creation
 radar fork
 radar task create --title <title>
