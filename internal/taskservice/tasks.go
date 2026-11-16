@@ -78,6 +78,10 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 		result = collector.CollectRemote(ctx, s.store.CollectionTasks(), s.logger, s.integrations.Sources())
 	}
 
+	// Record the returned native attempt even if cancellation or resource drift
+	// prevents publication. This evidence never certifies cache freshness.
+	s.store.RecordCollectionAttempts(result.Attempts)
+
 	s.applyMu.Lock()
 	var previous, current []protocol.Task
 	defer func() {
@@ -123,6 +127,7 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 		if provider, err := s.integrations.TaskAuthoring(); err == nil {
 			for _, source := range append([]integration.Source{provider}, s.activitySources()...) {
 				fresh := collector.Collect(ctx, s.store.CollectionTasks(), s.logger, []integration.Source{source})
+				s.store.RecordCollectionAttempts(fresh.Attempts)
 				result.ReplaceSource(source.Descriptor().Name, fresh)
 			}
 		}

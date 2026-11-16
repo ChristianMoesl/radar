@@ -177,17 +177,48 @@ distinguish them (including skipped collection), so they cannot prove none.
 Active/inactive reference counts and latest valid retained-reference observation
 timestamps describe only the selected scope. Invalid/missing timestamps are
 counted as unknown. Such timestamps never establish the last collection attempt,
-last successful collection, provider cache freshness or authentication. Those
-histories are not recorded in the existing native status model and remain
-explicitly unknown; no new telemetry or persisted schema is introduced.
+last successful collection, provider cache freshness or authentication. The
+separate current-daemon native envelopes below never turn these retained
+timestamps into collection history;
+no persisted schema is introduced.
 
 Registration and cached status/reference snapshots are projected without calling
 provider `Status`, `Collect`, authentication, rate-limit or runtime methods,
 looking up/running tools, reading provider credentials/configuration or refreshing any
 provider. Native references and statuses share one atomic cache revision; cursors
-also bind selected scope, registration/capability changes and pending publication.
+also bind selected scope, registration/capability changes, returned collection
+attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 15; older versions fail closed.
+and extension must all support schema 16; older versions fail closed.
+
+### Current-daemon collection attempt evidence
+
+`integrations` includes `collection_evidence` and, when available, `collection`:
+the latest returned native Status/Collect/ResolveBindings envelope, with UTC
+start/finish times, an optional actual collection-start time, and a finite
+`complete`, `incomplete`, `skipped_before_collection` or
+`cancelled_or_timed_out` outcome. `last_complete_collection_finished_at` retains
+the latest complete native collection across later failures/skips. A skipped
+precheck is not a collection. `complete` requires the native collection/bound
+lookup completeness flag, final status `ok`, and a non-cancelled envelope; it
+does not establish reconciliation, publication or business success.
+
+This is bounded latest-per-provider evidence in the **current daemon's memory**,
+not a persisted history platform. Restarted/unobserved sources are unknown;
+there is no inferred history from retained reference timestamps. Only normal
+refresh discovery attempts are recorded, including attempts whose cache
+publication was cancelled or superseded by resource mutation. Reconciliation,
+authoring, delivery and cache publication may fail independently. Active/queued
+attempts are not recorded here. Completion does not prove live authentication,
+current access, cache freshness, workspace health or maintenance eligibility.
+Workspace scope selects related providers; envelope evidence remains
+installation-wide for that provider, not workspace-specific collection success.
+
+Reads use one atomic retained-reference/status/attempt snapshot without provider
+calls. Attempt changes invalidate diagnostic cursors but never advance task
+revisions, notify task watchers or write the projection database. Raw provider
+messages/results, credentials and private payloads are withheld. Collection and
+native publication policies, access permissions and persisted formats are unchanged.
 
 ### Explicit runtime-retirement target preview
 
@@ -236,7 +267,7 @@ leases and execution preflight remain unverified; pending resource refresh is
 reported, not ignored. The snapshot is not an executable plan, freshness token
 for apply, execution eligibility or user consent. **Maintenance apply, full
 cleanup/expiry previews and verified operation outcomes are still unsupported.**
-Schema 15 must match in the CLI, daemon and loaded Pi extension; update the
+Schema 16 must match in the CLI, daemon and loaded Pi extension; update the
 extension sources and reload separately from `make install`.
 
 ### Explicit registered-runtime observations
@@ -310,10 +341,10 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 15; there is no legacy fallback. Separately
+extension must all support schema 16; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-### Retained inventories (diagnostics schema 15)
+### Retained inventories (diagnostics schema 16)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -556,7 +587,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 15; version mismatches fail closed
+extension must support diagnostics schema 16; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

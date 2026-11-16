@@ -50,8 +50,8 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 		if req.State != "" {
 			return protocol.DiagnosticsPage{}, fmt.Errorf("state filters retained task lifecycle, not integrations")
 		}
-		refs, statuses, revision := store.SourceInspectionSnapshot()
-		items, err := integrationItems(req, refs, statuses, providers)
+		refs, statuses, attempts, revision := store.SourceInspectionSnapshot()
+		items, err := integrationItems(req, refs, statuses, attempts, providers)
 		if err != nil {
 			return protocol.DiagnosticsPage{}, err
 		}
@@ -220,7 +220,7 @@ func paginate(req protocol.DiagnosticsRequest, items []protocol.DiagnosticItem, 
 		page.Limitations = []string{"free_form_content_withheld", "runtime_not_probed", "provider_preview_not_run", "provider_freshness_not_established", "ownership_and_leases_not_checked", "candidate_is_not_execution_eligibility_or_consent", "pending_resource_refresh_may_change_plan", "text_fields_limited_to_512_bytes", "scope_selects_owning_task_including_related_resources"}
 	}
 	if req.Section == "integrations" {
-		page.Limitations = []string{"cached_status_is_installation_wide_not_workspace_health", "workspace_scope_selects_only_related_retained_refs", "ref_observation_time_is_not_collection_attempt_or_success", "effective_enablement_auth_tools_rate_limits_and_collection_history_unknown", "registered_capability_is_not_execution_permission", "no_provider_status_collection_auth_rate_limit_probe_or_refresh", "raw_provider_details_withheld", "text_fields_limited_to_512_bytes"}
+		page.Limitations = []string{"cached_status_is_installation_wide_not_workspace_health", "workspace_scope_selects_only_related_retained_refs", "ref_observation_time_is_not_collection_attempt_or_success", "current_daemon_completed_attempts_are_not_reconciliation_publication_or_business_success", "no_active_attempt_or_pre_restart_history", "attempts_do_not_establish_live_access_or_cache_freshness", "effective_enablement_auth_tools_and_rate_limits_unknown", "registered_capability_is_not_execution_permission", "no_provider_status_collection_auth_rate_limit_probe_or_refresh", "raw_provider_details_withheld", "text_fields_limited_to_512_bytes"}
 	}
 	if req.Section == "runtime_probe" {
 		page.Limitations = []string{"explicit_registered_runtime_listing_only", "cached_identity_is_not_registration_ownership", "ownership_and_leases_not_checked", "unregistered_runtimes_not_classified", "no_startup_refresh_login_or_maintenance", "provider_errors_and_unrelated_listing_rows_withheld", "unknown_is_not_absence", "presence_is_not_health_or_execution_eligibility", "text_fields_limited_to_512_bytes", "each_page_repeats_the_bounded_probe"}

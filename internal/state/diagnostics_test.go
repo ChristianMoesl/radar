@@ -35,7 +35,7 @@ func TestSourceInspectionSnapshotIsAtomicAndDoesNotShareProviderPayloads(t *test
 	}()
 	inspections := 0
 	for {
-		refs, statuses, revision := store.SourceInspectionSnapshot()
+		refs, statuses, _, revision := store.SourceInspectionSnapshot()
 		if len(refs) != 1 || len(statuses) != 1 || revision <= 0 || refs[0].Snapshot.Metadata["snapshot_marker"] != statuses[0].Detail {
 			t.Fatal("cached status and retained reference came from different publications")
 		}

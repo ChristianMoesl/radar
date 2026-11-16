@@ -28,6 +28,9 @@ const stateVersion = 8
 const doneTaskDisplayRetention = 3 * 24 * time.Hour
 
 type Store struct {
+	// Current-daemon evidence only; never persisted or part of task revisions.
+	collectionAttempts map[string]protocol.DiagnosticCollectionEvidence
+
 	mu         sync.RWMutex
 	saveMu     sync.Mutex
 	state      persistedState
@@ -1578,12 +1581,17 @@ func (s *Store) InspectionSnapshot() ([]TaskRecord, []SourceRefRecord, int64) {
 }
 
 // SourceInspectionSnapshot atomically reads retained native references and cached
-// installation-wide source status. It never collects or probes providers. Callers
-// must project an allowlist rather than export either internal snapshot.
-func (s *Store) SourceInspectionSnapshot() ([]SourceRefRecord, []protocol.SourceStatus, int64) {
+// installation-wide source status and current-daemon completed attempts. It never
+// collects or probes providers. Callers must project an allowlist rather than
+// export internal snapshots.
+func (s *Store) SourceInspectionSnapshot() ([]SourceRefRecord, []protocol.SourceStatus, map[string]protocol.DiagnosticCollectionEvidence, int64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.inspectionSourceRefsLocked(), slices.Clone(s.state.Sources), s.revision
+	attempts := make(map[string]protocol.DiagnosticCollectionEvidence, len(s.collectionAttempts))
+	for name, attempt := range s.collectionAttempts {
+		attempts[name] = attempt
+	}
+	return s.inspectionSourceRefsLocked(), slices.Clone(s.state.Sources), attempts, s.revision
 }
 
 func (s *Store) inspectionSourceRefsLocked() []SourceRefRecord {

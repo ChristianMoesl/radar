@@ -13,6 +13,8 @@ import (
 )
 
 type Collected struct {
+	Attempts map[string]protocol.DiagnosticCollectionAttempt
+
 	Observations []integration.Observation
 	Sources      []protocol.SourceStatus
 	SourceNames  []string
@@ -21,6 +23,9 @@ type Collected struct {
 }
 
 type Result struct {
+	// Attempts describe only this actual collection call, never copied cached results.
+	Attempts map[string]protocol.DiagnosticCollectionAttempt
+
 	PendingAgentReviews []int
 
 	Tasks       []protocol.Task
@@ -115,7 +120,7 @@ func reconcileSources(ctx context.Context, previous []protocol.Task, logger *slo
 	for name, result := range collected.Results {
 		complete[name] = result.Complete
 	}
-	return Result{Tasks: deduplicateReconciledTasks(observedTasks(collected)), Sources: collected.Sources, SourceNames: collected.SourceNames, Complete: complete}
+	return Result{Attempts: collected.Attempts, Tasks: deduplicateReconciledTasks(observedTasks(collected)), Sources: collected.Sources, SourceNames: collected.SourceNames, Complete: complete}
 }
 
 func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Result {
@@ -124,11 +129,12 @@ func CollectLocal(ctx context.Context, previous []protocol.Task, logger *slog.Lo
 	for name, result := range collected.Results {
 		complete[name] = result.Complete
 	}
-	return Result{Tasks: observedTasks(collected), Sources: collected.Sources, SourceNames: collected.SourceNames, Complete: complete}
+	return Result{Attempts: collected.Attempts, Tasks: observedTasks(collected), Sources: collected.Sources, SourceNames: collected.SourceNames, Complete: complete}
 }
 
 func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.Logger, sources []integration.Source) Collected {
 	result := Collected{
+		Attempts:     map[string]protocol.DiagnosticCollectionAttempt{},
 		Observations: make([]integration.Observation, 0),
 		Sources:      make([]protocol.SourceStatus, 0, len(sources)),
 		SourceNames:  make([]string, 0, len(sources)),
@@ -168,6 +174,7 @@ func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.
 	// Aggregate in registration order so task projection, source statuses, and
 	// presentation remain deterministic regardless of completion order.
 	for _, collection := range collections {
+		result.Attempts[collection.descriptor.Name] = collection.attempt
 		result.SourceNames = append(result.SourceNames, collection.descriptor.Name)
 		result.Sources = append(result.Sources, collection.status.Status)
 		result.Observations = append(result.Observations, collection.result.Observations...)
@@ -181,14 +188,34 @@ func CollectSources(ctx context.Context, previous []protocol.Task, logger *slog.
 }
 
 type sourceCollection struct {
+	attempt    protocol.DiagnosticCollectionAttempt
 	descriptor integration.Descriptor
 	status     integration.StatusResult
 	result     integration.CollectResult
 }
 
-func collectSource(ctx context.Context, source integration.Source, descriptor integration.Descriptor, previous []protocol.Task, bindings []protocol.SourceBinding, marks linking.MarkMatcher, logger *slog.Logger) sourceCollection {
+func collectSource(ctx context.Context, source integration.Source, descriptor integration.Descriptor, previous []protocol.Task, bindings []protocol.SourceBinding, marks linking.MarkMatcher, logger *slog.Logger) (collection sourceCollection) {
 	started := time.Now()
-	collection := sourceCollection{
+	collectedAt := time.Time{}
+	defer func() {
+		finished := time.Now()
+		outcome := "skipped_before_collection"
+		if !collectedAt.IsZero() {
+			outcome = "incomplete"
+			if collection.result.Complete && collection.status.Status.Status == "ok" {
+				outcome = "complete"
+			}
+		}
+		deadline, bounded := ctx.Deadline()
+		if ctx.Err() != nil || (bounded && !finished.Before(deadline)) {
+			outcome = "cancelled_or_timed_out"
+		}
+		collection.attempt = protocol.DiagnosticCollectionAttempt{StartedAt: started.UTC().Format(time.RFC3339Nano), FinishedAt: finished.UTC().Format(time.RFC3339Nano), Outcome: outcome}
+		if !collectedAt.IsZero() {
+			collection.attempt.CollectionStartedAt = collectedAt.UTC().Format(time.RFC3339Nano)
+		}
+	}()
+	collection = sourceCollection{
 		descriptor: descriptor,
 		status: integration.StatusResult{
 			Status: protocol.SourceStatus{Name: descriptor.Name, Status: "ok"},
@@ -227,6 +254,7 @@ func collectSource(ctx context.Context, source integration.Source, descriptor in
 			}
 		}
 	}
+	collectedAt = time.Now()
 	collection.result = source.Collect(ctx, integration.CollectRequest{
 		Previous:     discoveryPrevious,
 		LinkingMarks: marks,

@@ -83,7 +83,7 @@ func TestIntegrationInventoryCompletelyPagesCapabilitiesAndCachedStatusesWithout
 		}
 		for _, item := range page.Items {
 			v := item.Integration
-			if v == nil || v.ID != item.ID || seen[item.ID] || v.AccessEvidence != "unknown_not_checked" || v.FreshnessEvidence != "unknown_collection_history_not_recorded" || v.StatusEvidence != "cached_installation_status" {
+			if v == nil || v.ID != item.ID || seen[item.ID] || v.AccessEvidence != "unknown_not_checked" || v.FreshnessEvidence != "unknown_cache_freshness_not_established" || v.StatusEvidence != "cached_installation_status" {
 				t.Fatalf("evidence=%+v", v)
 			}
 			seen[item.ID] = true
@@ -153,7 +153,7 @@ func TestIntegrationProjectionSeparatesScopedRefsFromInstallationStatusAndUnknow
 	}
 	statuses := []protocol.SourceStatus{{Name: "provider", Status: "disabled", Detail: "private-provider-error", SourceRefCount: 80}, {Name: "unrelated", Status: "ok"}}
 	providers := integration.NewRegistry(diagnosticIntegrationTrap{"provider"})
-	items, err := integrationItems(protocol.DiagnosticsRequest{Workspace: path}, refs, statuses, providers)
+	items, err := integrationItems(protocol.DiagnosticsRequest{Workspace: path}, refs, statuses, nil, providers)
 	if err != nil || len(items) != 2 {
 		t.Fatalf("items=%+v %v", items, err)
 	}
@@ -178,7 +178,7 @@ func TestIntegrationProjectionSeparatesScopedRefsFromInstallationStatusAndUnknow
 	}
 	for _, stateValue := range []string{"ok", "partial", "error", "disabled", "private-state"} {
 		statuses[0].Status = stateValue
-		items, err = integrationItems(protocol.DiagnosticsRequest{ID: providerID}, refs, statuses, providers)
+		items, err = integrationItems(protocol.DiagnosticsRequest{ID: providerID}, refs, statuses, nil, providers)
 		if err != nil || len(items) != 1 {
 			t.Fatal(err)
 		}
@@ -195,12 +195,12 @@ func TestIntegrationProjectionSeparatesScopedRefsFromInstallationStatusAndUnknow
 func TestIntegrationIdentityClippingDuplicateAndInvalidEvidence(t *testing.T) {
 	name := strings.Repeat("same-prefix", 60)
 	providers := integration.NewRegistry(diagnosticIntegrationTrap{name + "first"}, diagnosticIntegrationTrap{name + "second"})
-	items, err := integrationItems(protocol.DiagnosticsRequest{}, nil, nil, providers)
+	items, err := integrationItems(protocol.DiagnosticsRequest{}, nil, nil, nil, providers)
 	if err != nil || len(items) != 2 || items[0].ID == items[1].ID || items[0].Integration.Name != items[1].Integration.Name {
 		t.Fatalf("full identity clipped: %+v %v", items, err)
 	}
 	duplicate := integration.NewRegistry(diagnosticIntegrationTrap{"duplicate"}, diagnosticIntegrationTrap{"duplicate"})
-	items, err = integrationItems(protocol.DiagnosticsRequest{}, nil, []protocol.SourceStatus{{Name: "duplicate", Status: "ok"}, {Name: "duplicate", Status: "error", Detail: "private-error"}}, duplicate)
+	items, err = integrationItems(protocol.DiagnosticsRequest{}, nil, []protocol.SourceStatus{{Name: "duplicate", Status: "ok"}, {Name: "duplicate", Status: "error", Detail: "private-error"}}, nil, duplicate)
 	v := items[0].Integration
 	if err != nil || v.RegistrationCount != 2 || v.Capabilities != nil || v.CapabilityEvidence != "ambiguous_registration" || v.CachedStatusCount != 2 || v.CachedStatus != "unknown" || v.StatusEvidence != "ambiguous_cached_status" || v.InstallationReportedRefCount != nil {
 		t.Fatalf("ambiguous=%+v %v", v, err)
@@ -214,7 +214,7 @@ func TestIntegrationIdentityClippingDuplicateAndInvalidEvidence(t *testing.T) {
 		{statuses: []protocol.SourceStatus{{Name: "", Status: "ok"}}},
 		{refs: []state.SourceRefRecord{{Source: ""}}},
 	} {
-		if _, err := integrationItems(protocol.DiagnosticsRequest{}, tc.refs, tc.statuses, tc.providers); err == nil {
+		if _, err := integrationItems(protocol.DiagnosticsRequest{}, tc.refs, tc.statuses, nil, tc.providers); err == nil {
 			t.Fatal("unidentifiable evidence became an apparently complete inventory")
 		}
 	}
@@ -240,7 +240,7 @@ func TestIntegrationReadIncludesHiddenWorkspaceRelationshipsAndOmitsUnknownNativ
 		t.Fatal("lexical sibling leaked into scoped integrations")
 	}
 	for _, count := range []int{-1, 0} {
-		items, err := integrationItems(protocol.DiagnosticsRequest{}, nil, []protocol.SourceStatus{{Name: "provider", Status: "ok", SourceRefCount: count}}, providers)
+		items, err := integrationItems(protocol.DiagnosticsRequest{}, nil, []protocol.SourceStatus{{Name: "provider", Status: "ok", SourceRefCount: count}}, nil, providers)
 		if err != nil {
 			t.Fatal(err)
 		}

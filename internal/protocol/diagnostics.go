@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 15
+const DiagnosticsVersion = 16
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -320,7 +320,23 @@ type DiagnosticIntegrationCapabilities struct {
 	RateLimit                 bool `json:"rate_limit"`
 }
 
+// DiagnosticCollectionAttempt is the native Status/Collect/ResolveBindings
+// envelope, not reconciliation, cache publication or business success.
+type DiagnosticCollectionAttempt struct {
+	StartedAt           string `json:"started_at"`
+	CollectionStartedAt string `json:"collection_started_at,omitempty"`
+	FinishedAt          string `json:"finished_at"`
+	Outcome             string `json:"outcome"`
+}
+
+type DiagnosticCollectionEvidence struct {
+	Latest         DiagnosticCollectionAttempt `json:"latest"`
+	LastCompleteAt string                      `json:"last_complete_collection_finished_at,omitempty"`
+}
+
 type DiagnosticIntegration struct {
+	CollectionEvidence           string                             `json:"collection_evidence"`
+	Collection                   *DiagnosticCollectionEvidence      `json:"collection,omitempty"`
 	ID                           string                             `json:"id"`
 	Name                         string                             `json:"name"`
 	Label                        string                             `json:"label,omitempty"`

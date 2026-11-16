@@ -12,7 +12,7 @@ import (
 	"radar/internal/state"
 )
 
-func integrationItems(req protocol.DiagnosticsRequest, refs []state.SourceRefRecord, statuses []protocol.SourceStatus, providers integration.Registry) ([]protocol.DiagnosticItem, error) {
+func integrationItems(req protocol.DiagnosticsRequest, refs []state.SourceRefRecord, statuses []protocol.SourceStatus, attempts map[string]protocol.DiagnosticCollectionEvidence, providers integration.Registry) ([]protocol.DiagnosticItem, error) {
 	registrations := map[string][]protocol.DiagnosticIntegration{}
 	cached := map[string][]protocol.SourceStatus{}
 	scoped := map[string][]state.SourceRefRecord{}
@@ -45,6 +45,11 @@ func integrationItems(req protocol.DiagnosticsRequest, refs []state.SourceRefRec
 		names[ref.Source] = true
 		scoped[ref.Source] = append(scoped[ref.Source], ref)
 	}
+	if req.Workspace == "" {
+		for name := range attempts {
+			names[name] = true
+		}
+	}
 	items := []protocol.DiagnosticItem{}
 	for name := range names {
 		hash := sha256.Sum256([]byte(name))
@@ -52,7 +57,7 @@ func integrationItems(req protocol.DiagnosticsRequest, refs []state.SourceRefRec
 		if req.ID != "" && req.ID != id {
 			continue
 		}
-		view := protocol.DiagnosticIntegration{ID: id, Name: clip(name), RegistrationCount: len(registrations[name]), CachedStatusCount: len(cached[name]), CachedStatus: "unknown", CapabilityEvidence: "not_registered", StatusEvidence: "unavailable", AccessEvidence: "unknown_not_checked", FreshnessEvidence: "unknown_collection_history_not_recorded"}
+		view := protocol.DiagnosticIntegration{ID: id, Name: clip(name), RegistrationCount: len(registrations[name]), CachedStatusCount: len(cached[name]), CachedStatus: "unknown", CapabilityEvidence: "not_registered", StatusEvidence: "unavailable", AccessEvidence: "unknown_not_checked", FreshnessEvidence: "unknown_cache_freshness_not_established", CollectionEvidence: "unknown_no_current_daemon_attempt"}
 		switch view.RegistrationCount {
 		case 0:
 		case 1:
@@ -80,6 +85,14 @@ func integrationItems(req protocol.DiagnosticsRequest, refs []state.SourceRefRec
 			}
 		default:
 			view.StatusEvidence = "ambiguous_cached_status"
+		}
+		if attempt, ok := attempts[name]; ok {
+			if view.RegistrationCount > 1 {
+				view.CollectionEvidence = "ambiguous_registration"
+			} else {
+				copy := attempt
+				view.CollectionEvidence, view.Collection = "current_daemon_completed_attempt", &copy
+			}
 		}
 		var latest time.Time
 		for _, ref := range scoped[name] {
