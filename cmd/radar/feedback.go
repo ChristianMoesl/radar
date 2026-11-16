@@ -91,14 +91,12 @@ func feedbackDiagnostics(current, section string, logQuery logging.LogQuery) (ma
 		"diagnostics_schema": protocol.DiagnosticsVersion, "section": "overview", "version": version.Number, "commit": version.Commit,
 		"built": version.Date, "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"daemon":       map[string]any{"available": false},
-		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "gc_plan", "runtime_probe", "integrations", "logs"}, "maintenance": false, "runtime_probes": true, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false, "filtered_redacted_log_metadata": true, "raw_log_contents": false},
+		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "gc_plan", "runtime_probe", "integrations", "logs"}, "maintenance": false, "runtime_probes": true, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false, "filtered_redacted_log_metadata": true, "raw_log_contents": false, "configuration_policy_origins": true, "workspace_effective_policy": false, "daemon_environment": false},
 	}
-	// Explicit allowlist: do not serialize config.Config, credentials, provider
-	// endpoints, environment files, startup commands or task/note contents.
-	if cfg, err := config.Load(); err == nil {
-		result["settings"] = map[string]any{"model": cfg.Model, "thinking": cfg.Thinking,
-			"workspace_auto_confirm": cfg.Workspace.AutoConfirm, "feedback_sandboxed": group.Sandbox != nil}
-	}
+	// Native defaults and configuration origins share the exact production
+	// decoder. No arbitrary configuration strings or referenced files escape.
+	result["settings"] = config.DiagnosticSettings()
+	result["feedback_sandbox_registered"] = group.Sandbox != nil
 	if path, err := socket.Path(); err == nil {
 		if response, err := client.CallWithTimeout(path, "summary", time.Second); err == nil && response.OK {
 			providers := make([]map[string]any, 0, len(response.Sources))

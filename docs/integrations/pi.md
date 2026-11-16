@@ -105,7 +105,48 @@ and maintenance adapters are not yet exposed; unsupported
 requests fail instead of running arbitrary commands or changing state.
 
 The default `overview` returns the installed CLI version, loaded extension
-version, cached daemon/provider status and allowlisted non-secret settings.
+version, cached daemon/provider status and a typed `settings` policy projection.
+`feedback_sandbox_registered` separately describes the feedback registration;
+it is not runtime presence or an effective sandbox-permission check.
+
+### Configuration policy and origins
+
+Overview `settings` are **CLI-process global defaults**, not the running daemon's
+environment, repository/workspace-effective configuration, current provider access
+or execution permission. The native defaults, YAML decoder and validation are
+shared with production. Values and declarations come from the same bounded read
+of the configured `config.yaml`; no second file is used to guess origins.
+
+The finite ten-setting allowlist contains:
+- `workspace.auto_confirm`: `true`/`false`.
+- `sbx.enabled`, `github.enabled`, `jira.enabled`, `datadog.enabled`,
+  `terraform.enabled`: `automatic`, `required` or `disabled`. `required` expresses
+  configuration intent, not usable tools/authentication or an enabled runtime.
+- `workspace.cleanup.disposable_entries` and `sbx.additional_mounts`: counts only,
+  not names, paths, accepted deletion targets or permission to delete anything.
+- `sbx.env_file` and `sbx.ready_command`: configured presence only; paths,
+  command/argument values and referenced file contents are never read or returned.
+
+Each setting identifies `origin` (`compiled_default` or `configuration_file`) and
+`declaration` (`absent`, `null` or `value`). Explicit values equal to defaults still
+have file provenance; native null/default behavior, aliases and YAML merges are
+preserved. `location_origin` identifies only `xdg_config_home` or `user_home`, never
+the path or an environment dump. Model/thinking strings and arbitrary old settings
+maps are no longer returned. The revision hashes only these allowlisted values
+and declarations, not private configuration bytes. `captured_at` is read assembly
+time, not evidence that a daemon loaded this configuration.
+
+At most 64 KiB is read from the fixed native configuration file. Leaf symlinks
+(including legitimate user-managed configuration symlinks), FIFOs, nonregular,
+oversized, invalid, replaced or incomplete reads are unavailable, not valid
+policy or authorization. An actually absent file yields compiled defaults without
+creating it. Raw parser/validation errors are withheld. A prior workspace
+registration lookup still uses its native configuration-loading rules; this
+bounded projection does not change normal configuration or startup behavior.
+Provider credentials, secret/environment files, tools, network access, repository
+configuration, daemon environment and maintenance are never inspected or invoked
+by this projection. No persisted configuration or policy was changed.
+
 The originating workspace is projected from its registration only: it does not
 run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
 not proof that it exists or is running. Missing daemon/origin evidence is
@@ -146,7 +187,7 @@ looking up/running tools, reading provider credentials/configuration or refreshi
 provider. Native references and statuses share one atomic cache revision; cursors
 also bind selected scope, registration/capability changes and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 11; older versions fail closed.
+and extension must all support schema 12; older versions fail closed.
 
 ### Explicit registered-runtime observations
 
@@ -186,7 +227,7 @@ not returned. Unregistered runtimes are not classified. Cached inventories never
 start these probes implicitly; use existing retained references for cached
 history, not as proof of liveness.
 
-### Retained inventories (diagnostics schema 11)
+### Retained inventories (diagnostics schema 12)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -429,7 +470,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 11; version mismatches fail closed
+extension must support diagnostics schema 12; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

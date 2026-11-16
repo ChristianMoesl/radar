@@ -4,6 +4,15 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerFeedbackSession, feedbackLinearProject, feedbackLinearWorkspace } from "../../extensions/pi-radar/feedback.ts";
 import { linearAvailable } from "../../extensions/pi-radar/linear.ts";
 
+function policyFixture() {
+  return {available:true,scope:"cli_process_global_defaults",location_origin:"xdg_config_home",evidence:"fresh_bounded_native_configuration",captured_at:"2026-11-16T13:23:00Z",revision:"a".repeat(64),settings:[
+    {key:"workspace.auto_confirm",value:"true"},
+    ...["sbx","github","jira","datadog","terraform"].map(name=>({key:`${name}.enabled`,value:"automatic"})),
+    {key:"workspace.cleanup.disposable_entries",value:"0"},{key:"sbx.additional_mounts",value:"0"},
+    {key:"sbx.env_file",value:"false"},{key:"sbx.ready_command",value:"false"},
+  ].map(item=>({...item,origin:"compiled_default",declaration:"absent"}))};
+}
+
 function harness() {
   const tools = new Map<string, any>();
   tools.set("mcp__linear__save_issue", { name: "mcp__linear__save_issue", exposure: "codemode" });
@@ -26,7 +35,7 @@ function harness() {
     on: (event: string, handler: any) => hooks.set(event, handler),
     exec: async (binary: string, args: string[], options: any) => {
       calls.push({ binary, args, options });
-      return { code: 0, stdout: JSON.stringify({ diagnostics_schema:11, section: args[args.indexOf("--section") + 1], version: "v1.2.3", scope:"installation", private:true, logs:{entries:[],snapshot:"snapshot",pagination_complete:true} }) };
+      return { code: 0, stdout: JSON.stringify({ diagnostics_schema:12, section: args[args.indexOf("--section") + 1], version: "v1.2.3", settings:policyFixture(), scope:"installation", private:true, logs:{entries:[],snapshot:"snapshot",pagination_complete:true} }) };
     },
   } as unknown as ExtensionAPI;
   const session = registerFeedbackSession(pi);
@@ -314,10 +323,10 @@ for (const params of [
 }
 
 for (const data of [
-  {section:"tasks"}, {diagnostics_schema:1,section:"tasks"}, {diagnostics_schema:2,section:"tasks"}, {diagnostics_schema:3,section:"tasks"}, {diagnostics_schema:4,section:"tasks"}, {diagnostics_schema:5,section:"tasks"}, {diagnostics_schema:6,section:"tasks"}, {diagnostics_schema:7,section:"tasks"}, {diagnostics_schema:8,section:"tasks"}, {diagnostics_schema:9,section:"tasks"}, {diagnostics_schema:10,section:"tasks"}, {diagnostics_schema:99,section:"tasks"},
-  {diagnostics_schema:11,section:"tasks",available:true},
-  {diagnostics_schema:11,section:"tasks",available:true,inventory:{diagnostics_schema:99,section:"tasks"}},
-  {diagnostics_schema:11,section:"tasks",available:true,inventory:{diagnostics_schema:11,section:"workspaces"}},
+  {section:"tasks"}, {diagnostics_schema:1,section:"tasks"}, {diagnostics_schema:2,section:"tasks"}, {diagnostics_schema:3,section:"tasks"}, {diagnostics_schema:4,section:"tasks"}, {diagnostics_schema:5,section:"tasks"}, {diagnostics_schema:6,section:"tasks"}, {diagnostics_schema:7,section:"tasks"}, {diagnostics_schema:8,section:"tasks"}, {diagnostics_schema:9,section:"tasks"}, {diagnostics_schema:10,section:"tasks"}, {diagnostics_schema:11,section:"tasks"}, {diagnostics_schema:99,section:"tasks"},
+  {diagnostics_schema:12,section:"tasks",available:true},
+  {diagnostics_schema:12,section:"tasks",available:true,inventory:{diagnostics_schema:99,section:"tasks"}},
+  {diagnostics_schema:12,section:"tasks",available:true,inventory:{diagnostics_schema:12,section:"workspaces"}},
 ]) {
   test(`incompatible CLI or daemon inventory fails closed (${JSON.stringify(data)})`,async()=>{
     const h=harness();h.activate();
@@ -345,7 +354,7 @@ test("lifecycle source decisions remain distinct from recorded state without app
   const task={state:"done",lifecycle:{evidence:"production_lifecycle_evaluation_on_cached_inputs",decision:"activity_or_review_pending",source_state:"active",activity_holds:1,recorded_review_pending:false,next_review_pending:true}};
   h.pi.exec=async(binary,args,options)=>{
     h.calls.push({binary,args,options});
-    return {code:0,stdout:JSON.stringify({diagnostics_schema:11,section:"tasks",available:true,inventory:{diagnostics_schema:11,section:"tasks",items:[{id:"record",task}]}}),stderr:"",killed:false};
+    return {code:0,stdout:JSON.stringify({diagnostics_schema:12,section:"tasks",available:true,inventory:{diagnostics_schema:12,section:"tasks",items:[{id:"record",task}]}}),stderr:"",killed:false};
   };
   const result=await h.diagnostic("tasks");
   assert.deepEqual(JSON.parse(result.content[0].text).inventory.items[0].task,task);
@@ -359,7 +368,7 @@ for (const [section,parent_id] of [["source_refs","123"],["bindings","retained-r
     const h=harness();h.activate();
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:11,section,available:true,inventory:{diagnostics_schema:11,section,items:[]}}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:12,section,available:true,inventory:{diagnostics_schema:12,section,items:[]}}),stderr:"",killed:false};
     };
     await h.tools.get("radar_diagnostics").execute("call",{section,parent_id,scope:"origin",limit:5},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section",section,"--json","--scope","origin","--parent-id",parent_id,"--limit","5"]);
@@ -371,10 +380,10 @@ for (const [section,parent_id] of [["source_refs","123"],["bindings","retained-r
 for (const scope of ["origin","feedback","installation"]) {
   test(`workspace resource drill-down preserves ${scope} scope and unknown ownership`,async()=>{
     const h=harness();h.activate();h.approvals.push(true);
-    const inventory={diagnostics_schema:11,section:"workspace_resources",evidence:"fresh_registration_with_cached_task_ownership_agent_ownership_unavailable",total:1,items:[{id:"resource",workspace_resource:{id:"resource",workspace_id:"workspace",kind:"mount",evidence:"fresh_registration",occurrences:1,mount:{path:"/registered/mount",read_only:true}}}],pagination_complete:true};
+    const inventory={diagnostics_schema:12,section:"workspace_resources",evidence:"fresh_registration_with_cached_task_ownership_agent_ownership_unavailable",total:1,items:[{id:"resource",workspace_resource:{id:"resource",workspace_id:"workspace",kind:"mount",evidence:"fresh_registration",occurrences:1,mount:{path:"/registered/mount",read_only:true}}}],pagination_complete:true};
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:11,section:"workspace_resources",available:true,inventory}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:12,section:"workspace_resources",available:true,inventory}),stderr:"",killed:false};
     };
     const result=await h.tools.get("radar_diagnostics").execute("call",{section:"workspace_resources",scope,parent_id:"workspace",id:"resource",limit:3,cursor:"opaque"},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","workspace_resources","--json","--scope",scope,"--id","resource","--parent-id","workspace","--limit","3","--cursor","opaque"]);
@@ -387,10 +396,10 @@ for (const scope of ["origin","feedback","installation"]) {
 for (const scope of ["origin","feedback","installation"]) {
   test(`complete agent schedules preserve ${scope} scope and checkpoint evidence`,async()=>{
     const h=harness();h.activate();h.approvals.push(true);
-    const inventory={diagnostics_schema:11,section:"agent_schedules",evidence:"fresh_schedule_checkpoints_runtime_errors_unknown",total:1,items:[{id:"opaque-schedule",agent_schedule:{id:"opaque-schedule",agent_id:"stopped",schedule:{id:"native-schedule",enabled:false,delivery_problem:true}}}],pagination_complete:true};
+    const inventory={diagnostics_schema:12,section:"agent_schedules",evidence:"fresh_schedule_checkpoints_runtime_errors_unknown",total:1,items:[{id:"opaque-schedule",agent_schedule:{id:"opaque-schedule",agent_id:"stopped",schedule:{id:"native-schedule",enabled:false,delivery_problem:true}}}],pagination_complete:true};
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:11,section:"agent_schedules",available:true,inventory}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:12,section:"agent_schedules",available:true,inventory}),stderr:"",killed:false};
     };
     const result=await h.tools.get("radar_diagnostics").execute("call",{section:"agent_schedules",scope,parent_id:"stopped",id:"opaque-schedule",limit:3,cursor:"opaque"},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","agent_schedules","--json","--scope",scope,"--id","opaque-schedule","--parent-id","stopped","--limit","3","--cursor","opaque"]);
@@ -428,10 +437,10 @@ for (const params of [{section:"agents",state:"done"},{section:"agent_schedules"
 for (const scope of ["origin","feedback","installation"]) {
   test(`production GC plans preserve ${scope} scope and unknown execution eligibility`,async()=>{
     const h=harness();h.activate();h.approvals.push(true);
-    const inventory={diagnostics_schema:11,section:"gc_plan",evidence:"production_gc_plan_on_cached_inputs",total:1,items:[{id:"opaque-plan",gc_plan:{id:"opaque-plan",record_id:"record",task_id:7,decision:"candidate",next_stage:"runtime_retirement",execution_eligibility:"unknown_provider_ownership_lease_checks_not_run",occurrences:1}}],pagination_complete:true};
+    const inventory={diagnostics_schema:12,section:"gc_plan",evidence:"production_gc_plan_on_cached_inputs",total:1,items:[{id:"opaque-plan",gc_plan:{id:"opaque-plan",record_id:"record",task_id:7,decision:"candidate",next_stage:"runtime_retirement",execution_eligibility:"unknown_provider_ownership_lease_checks_not_run",occurrences:1}}],pagination_complete:true};
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:11,section:"gc_plan",available:true,inventory}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:12,section:"gc_plan",available:true,inventory}),stderr:"",killed:false};
     };
     const result=await h.tools.get("radar_diagnostics").execute("call",{section:"gc_plan",scope,parent_id:"record",id:"opaque-plan",state:"done",limit:3,cursor:"opaque"},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","gc_plan","--json","--scope",scope,"--id","opaque-plan","--parent-id","record","--state","done","--limit","3","--cursor","opaque"]);
@@ -478,8 +487,8 @@ for (const params of [{section:"runtime_probe"},{section:"runtime_probe",parent_
 for (const scope of ["origin","feedback","installation"]) {
  test(`cached integrations preserve ${scope} scope without consuming private approvals`,async()=>{
   const h=harness();h.activate();h.approvals.push(true);
-  const inventory={diagnostics_schema:11,section:"integrations",evidence:"registered_capabilities_with_cached_installation_status_and_scoped_retained_refs",items:[{id:"opaque-integration",integration:{name:"provider",cached_status:"partial",status_evidence:"cached_installation_status",access_evidence:"unknown_not_checked",freshness_evidence:"unknown_collection_history_not_recorded"}}]};
-  h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify({diagnostics_schema:11,section:"integrations",available:true,inventory}),stderr:"",killed:false};};
+  const inventory={diagnostics_schema:12,section:"integrations",evidence:"registered_capabilities_with_cached_installation_status_and_scoped_retained_refs",items:[{id:"opaque-integration",integration:{name:"provider",cached_status:"partial",status_evidence:"cached_installation_status",access_evidence:"unknown_not_checked",freshness_evidence:"unknown_collection_history_not_recorded"}}]};
+  h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify({diagnostics_schema:12,section:"integrations",available:true,inventory}),stderr:"",killed:false};};
   const result=await h.tools.get("radar_diagnostics").execute("call",{section:"integrations",scope,id:"opaque-integration",limit:4,cursor:"opaque"},undefined,undefined,h.ctx);
   assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","integrations","--json","--scope",scope,"--id","opaque-integration","--limit","4","--cursor","opaque"]);
   assert.deepEqual(JSON.parse(result.content[0].text).inventory,inventory);assert.deepEqual(h.confirmations,[]);assert.equal(h.approvals.length,1);
@@ -537,8 +546,8 @@ for(const condition of ["abort","MCP loss","request drift"]) test(`log approval 
 
 for(const response of [
   {diagnostics_schema:10,section:"logs",logs:"private raw tail"},
-  {diagnostics_schema:11,section:"logs",private:true,scope:"installation",logs:"private raw tail"},
-  {diagnostics_schema:11,section:"logs",private:true,scope:"origin",logs:{entries:[],snapshot:"x",pagination_complete:true}},
+  {diagnostics_schema:12,section:"logs",private:true,scope:"installation",logs:"private raw tail"},
+  {diagnostics_schema:12,section:"logs",private:true,scope:"origin",logs:{entries:[],snapshot:"x",pagination_complete:true}},
 ])test("old/raw or incorrectly scoped log responses never escape as diagnostics",async()=>{
   const h=harness();h.activate();h.approvals.push(true);
   h.pi.exec=async()=>({code:0,stdout:JSON.stringify(response),stderr:"",killed:false});
@@ -548,8 +557,49 @@ for(const response of [
 
 test("changed private log snapshots remain unavailable, not empty or successful",async()=>{
   const h=harness();h.activate();h.approvals.push(true);
-  const response={diagnostics_schema:11,section:"logs",private:true,scope:"installation",available:false,evidence:"unavailable",reason:"snapshot_changed_restart_pagination"};
+  const response={diagnostics_schema:12,section:"logs",private:true,scope:"installation",available:false,evidence:"unavailable",reason:"snapshot_changed_restart_pagination"};
   h.pi.exec=async()=>({code:0,stdout:JSON.stringify(response),stderr:"",killed:false});
   const result=await h.tools.get("radar_diagnostics").execute("call",{section:"logs",cursor:"stale-page"},undefined,undefined,h.ctx);
   assert.equal(result.details.available,false);assert.equal(result.details.reason,"snapshot_changed_restart_pagination");assert.equal(result.details.logs,undefined);
+});
+
+test("overview preserves global-default provenance without granting workspace or action authority",async()=>{
+  const h=harness();h.activate();h.approvals.push(true);
+  const result=await h.diagnostic("overview");
+  const data=JSON.parse(result.content[0].text);
+  assert.deepEqual(data.settings,policyFixture());
+  assert.equal(h.approvals.length,1);
+  assert.deepEqual(h.confirmations,[]);
+  for(const text of ["native configuration decoder","CLI-process defaults are not daemon environment","workspace-effective settings or action permission","Configuration strings, paths and referenced files are withheld"]) assert.ok(h.session.instructions()!.includes(text),text);
+});
+
+for(const mutation of [
+  (p:any)=>{p.scope="installation_effective_permissions";},
+  (p:any)=>{p.settings[0].value="private-string";},
+  (p:any)=>{p.settings[0].origin="repository";},
+  (p:any)=>{p.settings[0].declaration="value";},
+  (p:any)=>{p.settings.push(p.settings[0]);},
+  (p:any)=>{p.settings.pop();},
+  (p:any)=>{p.settings[1].value="healthy";},
+  (p:any)=>{p.settings[6].value="-1";},
+  (p:any)=>{p.settings[0].private="withheld";},
+  (p:any)=>{p.model="private-model";},
+  (p:any)=>{p.revision="not-a-revision";},
+  (p:any)=>{p.available=false;},
+]) {
+  test(`invalid overview policy fails closed (${mutation.toString()})`,async()=>{
+    const h=harness();h.activate();const settings=policyFixture();mutation(settings);
+    h.pi.exec=async()=>({code:0,stdout:JSON.stringify({diagnostics_schema:12,section:"overview",settings}),stderr:"",killed:false});
+    await assert.rejects(h.diagnostic("overview"),/Invalid .*configuration policy/);
+    assert.deepEqual(h.confirmations,[]);
+  });
+}
+
+test("unavailable configuration policy remains unknown without an automatic retry or fallback",async()=>{
+  const h=harness();h.activate();
+  const settings={available:false,scope:"cli_process_global_defaults",location_origin:"user_home",evidence:"unavailable",reason:"configuration_read_unavailable",captured_at:"2026-11-16T13:23:00Z",settings:[]};
+  h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify({diagnostics_schema:12,section:"overview",settings}),stderr:"",killed:false};};
+  const result=await h.diagnostic("overview");
+  assert.deepEqual(JSON.parse(result.content[0].text).settings,settings);
+  assert.equal(h.calls.length,1);assert.deepEqual(h.confirmations,[]);
 });

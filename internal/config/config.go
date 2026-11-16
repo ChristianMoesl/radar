@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 
+	"go.yaml.in/yaml/v3"
+
 	"radar/internal/configfile"
 	datadogsettings "radar/internal/integration/datadog/settings"
 	githubsettings "radar/internal/integration/github/settings"
@@ -75,17 +77,29 @@ func Load() (Config, error) {
 		}
 		return Config{}, err
 	}
+	cfg, _, err = decodeConfiguration(data, path)
+	return cfg, err
+}
+
+// Decode values and provenance from the same document. Diagnostics must not
+// reimplement defaults/validation or reread a different file for field origins.
+func decodeConfiguration(data []byte, path string) (Config, *yaml.Node, error) {
+	cfg := Default()
 	if len(strings.TrimSpace(string(data))) == 0 {
-		return cfg, nil
+		return cfg, nil, nil
 	}
-	if err := configfile.Decode(data, &cfg); err != nil {
-		return Config{}, fmt.Errorf("read %s: %w", path, err)
+	doc, err := configfile.Parse(data)
+	if err == nil {
+		err = doc.Decode(&cfg)
+	}
+	if err != nil {
+		return Config{}, nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	applyDefaults(&cfg)
 	if err := validate(cfg); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
-	return cfg, nil
+	return cfg, doc, nil
 }
 
 func EnsureFile() (string, error) {

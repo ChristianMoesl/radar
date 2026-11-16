@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"radar/internal/config"
 	workspacegroup "radar/internal/integration/workspace/group"
 	"radar/internal/logging"
 	"radar/internal/protocol"
@@ -300,5 +301,65 @@ func TestFeedbackLogCLIFiltersNativeMetadataAndRejectsMixedSelectors(t *testing.
 		if _, _, code := outputCLI(t, []string{"feedback-diagnostics", "--workspace", anchor, "--section", section, "--severity", "error", "--json"}, "", env...); code == 0 {
 			t.Fatal("accepted log selector on non-log section")
 		}
+	}
+}
+
+func TestFeedbackOverviewReturnsNativePolicySourcesWithoutPrivateSettings(t *testing.T) {
+	root, anchor, _ := feedbackDiagnosticsFixture(t)
+	path := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar", "config.yaml")
+	private := "private-model-command-env-path-ABC-123"
+	data := fmt.Sprintf("workspace:\n  root_dir: %s\n  auto_confirm: false\nsbx:\n  enabled: false\n  env_file: /%s\n  ready_command: [%s]\nmodel: %s\n", root, private, private, private)
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := feedbackDiagnostics(anchor, "overview", logging.LogQuery{Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(result)
+	if strings.Contains(string(encoded), private) || result["diagnostics_schema"] != protocol.DiagnosticsVersion || result["feedback_sandbox_registered"] != false {
+		t.Fatalf("private or invalid overview: %s", encoded)
+	}
+	policy := result["settings"].(config.DiagnosticPolicy)
+	if !policy.Available || policy.Scope != "cli_process_global_defaults" || len(policy.Settings) != 10 {
+		t.Fatalf("%+v", policy)
+	}
+	for _, setting := range policy.Settings {
+		if setting.Key == "workspace.auto_confirm" && (setting.Value != "false" || setting.Origin != "configuration_file") {
+			t.Fatal("native configuration provenance was lost")
+		}
+	}
+	capabilities := result["capabilities"].(map[string]any)
+	if capabilities["configuration_policy_origins"] != true || capabilities["workspace_effective_policy"] != false || capabilities["daemon_environment"] != false || capabilities["maintenance"] != false {
+		t.Fatalf("policy advertised as authority: %+v", capabilities)
+	}
+}
+
+func TestFeedbackOverviewUnsafePolicyRemainsUnavailable(t *testing.T) {
+	_, anchor, _ := feedbackDiagnosticsFixture(t)
+	path := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "radar", "config.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(filepath.Dir(path), "linked.yaml")
+	if err := os.WriteFile(target, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	// Normal registration lookup still accepts the native configured symlink;
+	// the narrower metadata read cannot silently substitute usable defaults.
+	result, err := feedbackDiagnostics(anchor, "overview", logging.LogQuery{Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := result["settings"].(config.DiagnosticPolicy)
+	if policy.Available || policy.Evidence != "unavailable" || len(policy.Settings) != 0 || policy.Revision != "" {
+		t.Fatalf("unsafe policy became usable defaults: %+v", policy)
 	}
 }

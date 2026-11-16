@@ -187,3 +187,12 @@ Supported levels: `debug`, `info`, `warn`, `error`. Default is `info`.
 Completed cleanup and reconciliation responses can contain `resource_refresh_pending: true`. Removal/provisioning has completed; the cached task/resource list is explicitly pending the next local collection. Partial cleanup failures include their successful removal prefix. The dashboard labels pending lists. A complete collection started after the mutation clears the marker; failed or canceled collection keeps it pending.
 
 Authored-note identity conflicts are never automatically merged or reset. `repair-task-links` defaults to a read-only JSON plan; applying requires explicit ownership/history decisions, an offline state lock and a new SQLite backup. See [task link repair](task-link-repair.md).
+
+`feedback-diagnostics --section overview` reports schema-12 typed configuration
+policy values and file/default provenance. Its fixed ten-setting allowlist returns
+only booleans, enablement modes and counts from a bounded native configuration
+read, never model strings, paths, commands, secrets or referenced file contents.
+These are CLI-process global defaults, not daemon environment, repository/workspace
+effective settings, live access or action permission. Unsafe/invalid evidence is
+unavailable; no refresh or maintenance follows. See [configuration policy and
+origins](integrations/pi.md#configuration-policy-and-origins) for exact semantics.
