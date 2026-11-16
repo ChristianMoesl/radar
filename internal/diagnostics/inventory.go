@@ -163,9 +163,14 @@ func taskView(record state.TaskRecord, refs []state.SourceRefRecord, linking sta
 	task := productionTask(record, refs)
 	inputs := state.LifecycleInputs(record, refs)
 	view := protocol.DiagnosticTask{RecordID: clip(record.ID), TaskID: record.NumericID, State: clip(record.State), DoneAt: clip(record.DoneAt), UpdatedAt: clip(record.UpdatedAt), Activity: protocol.SourceRefsActivity(task.SourceRefs).String(), Review: record.AgentReviewPending, Acknowledged: record.Ack.Cursor != "", DecisionReasonAvailable: record.Reason != "", SourceCount: len(refs), Sources: []protocol.DiagnosticRef{}}
-	view.DecisionEvidence = "cached_state_no_active_work_item_inputs"
-	if len(inputs) > 0 {
-		view.DecisionEvidence = "cached_state_with_production_selected_work_item_inputs"
+	decision := state.InspectLifecycle(record, refs)
+	view.Lifecycle = protocol.DiagnosticLifecycle{
+		Evidence: "production_lifecycle_evaluation_on_cached_inputs",
+		Decision: decision.Decision, SourceState: decision.SourceState,
+		WorkItemInputs: decision.WorkItemInputs, DoneWorkItemInputs: decision.DoneWorkItemInputs,
+		FallbackWorkItemInputs: decision.FallbackWorkItemInputs, AuthoritativeRefs: decision.AuthoritativeRefs,
+		ActivityHolds: decision.ActivityHolds, ReviewHolds: decision.ReviewHolds,
+		RecordedReviewPending: decision.RecordedReviewPending, NextReviewPending: decision.NextReviewPending,
 	}
 	for _, record := range refs {
 		if record.Active {

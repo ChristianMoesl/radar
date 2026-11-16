@@ -26,7 +26,7 @@ function harness() {
     on: (event: string, handler: any) => hooks.set(event, handler),
     exec: async (binary: string, args: string[], options: any) => {
       calls.push({ binary, args, options });
-      return { code: 0, stdout: JSON.stringify({ diagnostics_schema:4, section: args[args.indexOf("--section") + 1], version: "v1.2.3" }) };
+      return { code: 0, stdout: JSON.stringify({ diagnostics_schema:5, section: args[args.indexOf("--section") + 1], version: "v1.2.3" }) };
     },
   } as unknown as ExtensionAPI;
   const session = registerFeedbackSession(pi);
@@ -314,10 +314,10 @@ for (const params of [
 }
 
 for (const data of [
-  {section:"tasks"}, {diagnostics_schema:1,section:"tasks"}, {diagnostics_schema:2,section:"tasks"}, {diagnostics_schema:3,section:"tasks"}, {diagnostics_schema:5,section:"tasks"},
-  {diagnostics_schema:4,section:"tasks",available:true},
-  {diagnostics_schema:4,section:"tasks",available:true,inventory:{diagnostics_schema:5,section:"tasks"}},
-  {diagnostics_schema:4,section:"tasks",available:true,inventory:{diagnostics_schema:4,section:"workspaces"}},
+  {section:"tasks"}, {diagnostics_schema:1,section:"tasks"}, {diagnostics_schema:2,section:"tasks"}, {diagnostics_schema:3,section:"tasks"}, {diagnostics_schema:4,section:"tasks"}, {diagnostics_schema:6,section:"tasks"},
+  {diagnostics_schema:5,section:"tasks",available:true},
+  {diagnostics_schema:5,section:"tasks",available:true,inventory:{diagnostics_schema:6,section:"tasks"}},
+  {diagnostics_schema:5,section:"tasks",available:true,inventory:{diagnostics_schema:5,section:"workspaces"}},
 ]) {
   test(`incompatible CLI or daemon inventory fails closed (${JSON.stringify(data)})`,async()=>{
     const h=harness();h.activate();
@@ -340,12 +340,26 @@ test("oversized host responses are not accepted",async()=>{
   await assert.rejects(h.diagnostic(),/output bound/);
 });
 
+test("lifecycle source decisions remain distinct from recorded state without applying them",async()=>{
+  const h=harness();h.activate();
+  const task={state:"done",lifecycle:{evidence:"production_lifecycle_evaluation_on_cached_inputs",decision:"activity_or_review_pending",source_state:"active",activity_holds:1,recorded_review_pending:false,next_review_pending:true}};
+  h.pi.exec=async(binary,args,options)=>{
+    h.calls.push({binary,args,options});
+    return {code:0,stdout:JSON.stringify({diagnostics_schema:5,section:"tasks",available:true,inventory:{diagnostics_schema:5,section:"tasks",items:[{id:"record",task}]}}),stderr:"",killed:false};
+  };
+  const result=await h.diagnostic("tasks");
+  assert.deepEqual(JSON.parse(result.content[0].text).inventory.items[0].task,task);
+  assert.equal(h.calls.length,1);
+  assert.deepEqual(h.confirmations,[]);
+  for (const text of ["exact production transition on cached inputs", "separate from recorded state", "not a mutation or proof of historical manual intent"]) assert.ok(h.session.instructions()!.includes(text));
+});
+
 for (const [section,parent_id] of [["source_refs","123"],["bindings","retained-ref"]]) {
   test(`nested ${section} inventories use fixed argv and the matching schema`,async()=>{
     const h=harness();h.activate();
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:4,section,available:true,inventory:{diagnostics_schema:4,section,items:[]}}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:5,section,available:true,inventory:{diagnostics_schema:5,section,items:[]}}),stderr:"",killed:false};
     };
     await h.tools.get("radar_diagnostics").execute("call",{section,parent_id,scope:"origin",limit:5},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section",section,"--json","--scope","origin","--parent-id",parent_id,"--limit","5"]);

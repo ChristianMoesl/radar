@@ -110,7 +110,7 @@ run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
 not proof that it exists or is running. Missing daemon/origin evidence is
 unavailable, not healthy, empty, repaired or enrolled.
 
-### Retained inventories (diagnostics schema 4)
+### Retained inventories (diagnostics schema 5)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -167,6 +167,30 @@ blocked bridge between distinct authored notes is explained, never merged or
 repaired by inspection. Counts reveal related ownership without leaking other
 tasks' note contents. A zero component count means no current authoritative
 linking evidence, not proven absence of external links.
+
+### Lifecycle explanations
+
+Task `state`, `done_at` and `review` remain recorded evidence. The separate
+`lifecycle` object evaluates the **same production transition** on all retained
+active authoritative inputs, including entries beyond the summary limit. It
+never applies that transition or reconstructs historical manual intent.
+`source_state` is the prospective `active`/`done` result, or `unchanged` when
+there are no selected work-item inputs; it can differ from recorded state.
+
+The bounded `decision` is `no_work_item_inputs`, `work_item_not_done`,
+`activity_or_review_pending`, `durable_review_pending` or
+`source_completion_ready`. Counts report selected/done work items, inputs
+using cached task attention as their signal fallback, authoritative refs and
+activity/review holds. Primary work items take precedence over secondary work
+items, exactly as in production. `recorded_review_pending` is the stored hold;
+`next_review_pending` includes production's authored-completion/review handoff.
+With no work-item inputs, production preserves state and the durable hold;
+zero evaluated holds then means no transition was evaluated, not no activity.
+
+Evidence is `production_lifecycle_evaluation_on_cached_inputs`, not a live
+provider refresh, provenance of a manual change, cleanup eligibility or user
+consent. Free-form reasons, source status text and metadata are withheld.
+`source_completion_ready` never updates state or starts maintenance.
 
 ### Cleanup-retention explanations
 
@@ -242,7 +266,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 4; version mismatches fail closed
+extension must support diagnostics schema 5; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

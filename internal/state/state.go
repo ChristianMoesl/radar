@@ -1016,41 +1016,14 @@ func mergeTaskRecords(records []TaskRecord, ids []string, winnerID string, refs 
 
 func updateRecordLifecycles(records []TaskRecord, sourceRefs []SourceRefRecord, nowText string) {
 	for i := range records {
-		refs := activeSourceRefRecordsForRecord(records[i].ID, sourceRefs)
-		workItems := lifecycleWorkItems(refs)
+		decision := evaluateLifecycle(records[i], sourceRefs)
+		workItems := decision.workItems
 		if len(workItems) == 0 {
 			continue
 		}
 		fallback := records[i].Snapshot.Attention
-		allDone := true
-		for _, ref := range workItems {
-			if sourceSignal(ref.Snapshot, fallback) != "done" {
-				allDone = false
-				break
-			}
-		}
-		completionCandidate := allDone
-		for _, ref := range refs {
-			if ref.Snapshot.Activity != protocol.ActivityIdle || ref.Snapshot.AgentReview {
-				allDone = false
-			}
-		}
-		if completionCandidate && !allDone {
-			for _, ref := range refs {
-				if ref.Snapshot.Authored {
-					records[i].AgentReviewPending = true
-				}
-			}
-		}
-		for _, ref := range refs {
-			if ref.Snapshot.Authored && ref.Snapshot.AgentReview {
-				records[i].AgentReviewPending = false
-			}
-		}
-		if records[i].AgentReviewPending {
-			allDone = false
-		}
-		if allDone {
+		records[i].AgentReviewPending = decision.evidence.NextReviewPending
+		if decision.evidence.SourceState == "done" {
 			records[i].State = "done"
 			records[i].DoneAt = firstNonEmpty(completionTimestamp(workItems), records[i].DoneAt, nowText)
 			records[i].Reason = firstDoneReason(workItems, fallback)

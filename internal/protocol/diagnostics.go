@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 4
+const DiagnosticsVersion = 5
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -57,7 +57,7 @@ type DiagnosticTask struct {
 	AuthoredIdentityCount   int                   `json:"authored_identity_count"`
 	LinkingComponentRecords int                   `json:"linking_component_records"`
 	LinkingBlocked          bool                  `json:"linking_blocked"`
-	DecisionEvidence        string                `json:"decision_evidence"`
+	Lifecycle               DiagnosticLifecycle   `json:"lifecycle"`
 	RecordID                string                `json:"record_id"`
 	TaskID                  int                   `json:"task_id"`
 	State                   string                `json:"state"`
@@ -118,6 +118,22 @@ type DiagnosticGCRetention struct {
 	Decision string `json:"decision"`
 	ReadyAt  string `json:"ready_at,omitempty"`
 	Evidence string `json:"evidence"`
+}
+
+// DiagnosticLifecycle is a prospective evaluation on cached inputs, not proof
+// of the provenance of recorded state or permission to apply a transition.
+type DiagnosticLifecycle struct {
+	Evidence               string `json:"evidence"`
+	Decision               string `json:"decision"`
+	SourceState            string `json:"source_state"`
+	WorkItemInputs         int    `json:"work_item_inputs"`
+	DoneWorkItemInputs     int    `json:"done_work_item_inputs"`
+	FallbackWorkItemInputs int    `json:"fallback_work_item_inputs"`
+	AuthoritativeRefs      int    `json:"authoritative_refs"`
+	ActivityHolds          int    `json:"activity_holds"`
+	ReviewHolds            int    `json:"review_holds"`
+	RecordedReviewPending  bool   `json:"recorded_review_pending"`
+	NextReviewPending      bool   `json:"next_review_pending"`
 }
 
 type DiagnosticBinding struct {
