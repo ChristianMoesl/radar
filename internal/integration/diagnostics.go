@@ -15,9 +15,10 @@ type RateLimitReporter interface {
 
 // WorkspaceRegistrationDiagnostics is observation-only. Implementations project
 // their registration allowlist without probing runtimes or collecting sources.
-// ID and Path retain full identity for core scope/ownership matching; callers
-// must bound their final diagnostic output. Ownership and lifecycle fields are
-// populated separately by their owning services, not by this capability.
+// Identity fields retain full values for scope matching and stable child IDs;
+// child lists are complete. Callers must bound their final diagnostic output.
+// Ownership and lifecycle fields are populated separately by their owning
+// services, not by this capability.
 type WorkspaceRegistrationDiagnostics interface {
 	Integration
 	DiagnosticWorkspaceRegistrations() ([]protocol.DiagnosticWorkspace, error)

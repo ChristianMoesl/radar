@@ -36,6 +36,8 @@ func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "bindings"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agents"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agents", State: "done"}},
+		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "workspace_resources"}},
+		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "workspace_resources", State: "done"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "tasks", ParentID: "must-not-be-ignored"}},
 		{Method: "diagnostics"}, {Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "execute"}}} {
 		if err := encoder.Encode(req); err != nil {

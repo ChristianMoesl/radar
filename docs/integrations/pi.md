@@ -110,7 +110,7 @@ run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
 not proof that it exists or is running. Missing daemon/origin evidence is
 unavailable, not healthy, empty, repaired or enrolled.
 
-### Retained inventories (diagnostics schema 5)
+### Retained inventories (diagnostics schema 6)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -158,7 +158,34 @@ key and work-item intent, never arbitrary metadata or raw provider errors.
 Stable binding IDs hash the owning retained ref and the binding's identity;
 identical repeated entries have one ID with an `occurrences` count. Neither a
 binding nor its presence proves that the remote entity currently exists.
-`parent_id` on other sections is rejected, not ignored.
+`parent_id` on unrelated sections is rejected, not ignored.
+
+Use `section: "workspace_resources", parent_id: "<registered workspace ID>"`
+to page every registered member, mount, port and retained task/registered-agent
+owner beyond a workspace summary's 16 entries. Omit `parent_id` for the scoped
+inventory or use `id` to select an exact resource relationship. `state` is
+rejected for this section, not applied to only some resource kinds. All three
+origin/feedback/installation scopes retain the same registered boundaries.
+
+Each `workspace_resource` identifies its workspace, `kind`, evidence and one
+allowlisted `member`, `mount`, `port`, `task` or `agent_id`. `task_owner` includes
+the recorded state/DoneAt/retention gate and a task `record_id` for further task
+drill-down. Stable IDs hash full relationship identities before text clipping;
+identical relationships share an ID with an `occurrences` count. Changing a
+task's state/retention does not change its relationship ID. Summary
+`member_count`, `mount_count`, `port_count`, `task_count` and `agent_owner_count`
+cover full lists (including duplicate occurrences), not just shown entries.
+Task counts respect a workspace inventory's `state` filter.
+
+Agent ownership uses the exact production removal-owner lookup, including
+stopped registrations and backing workspaces inside a group. On lookup failure,
+`agent_owner_count` is omitted, summary ownership is `unavailable`, and page
+evidence explicitly ends in `agent_ownership_unavailable`; zero returned owner
+rows then must not be read as no owners. Members/mounts/ports/agent owners are
+fresh registration evidence; task ownership includes cached inactive history.
+Neither is a runtime probe or full cleanup eligibility. No commands, secret-file
+contents, environment values, note bodies or conversation/event payloads are
+read or exposed.
 
 Task `authored_identity_count`, `linking_component_records` and `linking_blocked`
 reuse production's active connected components and the exact authored-identity
@@ -266,7 +293,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 5; version mismatches fail closed
+extension must support diagnostics schema 6; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

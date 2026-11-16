@@ -214,10 +214,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	observed := make(chan protocol.Request, 6)
+	observed := make(chan protocol.Request, 9)
 	done := make(chan error, 1)
 	go func() {
-		for i := 0; i < 6; i++ {
+		for i := 0; i < 9; i++ {
 			conn, err := listener.Accept()
 			if err != nil {
 				done <- err
@@ -232,10 +232,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 			}
 			observed <- req
 			response := protocol.Response{OK: true, Diagnostics: &protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: req.Diagnostics.Section, Evidence: "cached_daemon_state", Items: []protocol.DiagnosticItem{}, Complete: true}}
-			if i == 4 {
+			if i == 7 {
 				response.Diagnostics.Schema = 99
 			}
-			if i == 5 {
+			if i == 8 {
 				response = protocol.Response{OK: false, Error: "unknown method: diagnostics; private-provider-value"}
 			}
 			err = json.NewEncoder(conn).Encode(response)
@@ -247,14 +247,14 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		}
 		done <- nil
 	}()
-	for index, scope := range []string{"origin", "feedback", "installation", "origin"} {
-		section := []string{"tasks", "source_refs", "bindings", "agents"}[index]
+	for index, scope := range []string{"origin", "feedback", "installation", "origin", "origin", "feedback", "installation"} {
+		section := []string{"tasks", "source_refs", "bindings", "agents", "workspace_resources", "workspace_resources", "workspace_resources"}[index]
 		parent := ""
-		if index == 1 || index == 2 {
+		if index == 1 || index == 2 || section == "workspace_resources" {
 			parent = "opaque-parent"
 		}
 		state := "done"
-		if section == "agents" {
+		if section == "agents" || section == "workspace_resources" {
 			state = ""
 		}
 		result, err := feedbackInventory(anchor, scope, protocol.DiagnosticsRequest{Section: section, ParentID: parent, Workspace: "/must-not-pass-through", Limit: 7, ID: "123", State: state, Cursor: "opaque"})

@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 5
+const DiagnosticsVersion = 6
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -73,6 +73,11 @@ type DiagnosticTask struct {
 }
 
 type DiagnosticWorkspace struct {
+	MemberCount            int                   `json:"member_count"`
+	MountCount             int                   `json:"mount_count"`
+	PortCount              int                   `json:"port_count"`
+	TaskCount              int                   `json:"task_count"`
+	AgentOwnerCount        *int                  `json:"agent_owner_count,omitempty"`
 	Feedback               bool                  `json:"feedback"`
 	FeedbackOrigin         string                `json:"feedback_origin,omitempty"`
 	Mounts                 []DiagnosticMount     `json:"registered_mounts"`
@@ -102,6 +107,22 @@ type DiagnosticMount struct {
 type DiagnosticMember struct {
 	Path       string `json:"path"`
 	Repository string `json:"repository"`
+}
+
+// DiagnosticWorkspaceResource pages complete allowlisted registration/ownership
+// relationships. Presence is not runtime observation or cleanup authorization.
+type DiagnosticWorkspaceResource struct {
+	ID          string               `json:"id"`
+	WorkspaceID string               `json:"workspace_id"`
+	Kind        string               `json:"kind"`
+	Evidence    string               `json:"evidence"`
+	Occurrences int                  `json:"occurrences"`
+	Member      *DiagnosticMember    `json:"member,omitempty"`
+	Mount       *DiagnosticMount     `json:"mount,omitempty"`
+	Port        *PortForward         `json:"port,omitempty"`
+	RecordID    string               `json:"record_id,omitempty"`
+	Task        *DiagnosticRetention `json:"task,omitempty"`
+	AgentID     string               `json:"agent_id,omitempty"`
 }
 
 type DiagnosticRetention struct {
@@ -204,12 +225,13 @@ type DiagnosticAgentAdmission struct {
 }
 
 type DiagnosticItem struct {
-	Agent     *DiagnosticAgent     `json:"agent,omitempty"`
-	Ref       *DiagnosticRef       `json:"source_ref,omitempty"`
-	Binding   *DiagnosticBinding   `json:"binding,omitempty"`
-	ID        string               `json:"id"`
-	Task      *DiagnosticTask      `json:"task,omitempty"`
-	Workspace *DiagnosticWorkspace `json:"workspace,omitempty"`
+	WorkspaceResource *DiagnosticWorkspaceResource `json:"workspace_resource,omitempty"`
+	Agent             *DiagnosticAgent             `json:"agent,omitempty"`
+	Ref               *DiagnosticRef               `json:"source_ref,omitempty"`
+	Binding           *DiagnosticBinding           `json:"binding,omitempty"`
+	ID                string                       `json:"id"`
+	Task              *DiagnosticTask              `json:"task,omitempty"`
+	Workspace         *DiagnosticWorkspace         `json:"workspace,omitempty"`
 }
 
 type DiagnosticsPage struct {

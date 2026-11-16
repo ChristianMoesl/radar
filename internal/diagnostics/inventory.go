@@ -25,7 +25,7 @@ const maxPageBytes = 256 * 1024
 const maxChildren = protocol.DiagnosticChildLimit
 
 func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
-	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "agents" {
+	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "workspace_resources" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "agents" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("unsupported diagnostic inventory")
 	}
 	if req.Limit == 0 {
@@ -34,8 +34,11 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 	if req.Limit < 1 || req.Limit > 50 || len(req.Cursor) > 512 || len(req.ID) > 512 || len(req.ParentID) > 512 || len(req.State) > 64 || len(req.Workspace) > 4096 {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic selector exceeds bounds")
 	}
-	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" {
-		return protocol.DiagnosticsPage{}, fmt.Errorf("parent_id requires source_refs or bindings")
+	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "workspace_resources" {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("parent_id requires source_refs, bindings or workspace_resources")
+	}
+	if req.Section == "workspace_resources" && req.State != "" {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("state filters retained task lifecycle, not workspace resources")
 	}
 	if req.Section == "agents" && req.State != "" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("state filters retained task lifecycle, not agent runner state")
@@ -81,79 +84,11 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 	} else if req.Section == "source_refs" || req.Section == "bindings" {
 		items = referenceItems(req, records, refs, byRecord)
 	} else {
-		provider, err := providers.WorkspaceDiagnostics()
+		var err error
+		items, evidence, err = workspaceItems(req, records, byRecord, now, providers)
 		if err != nil {
-			return protocol.DiagnosticsPage{}, fmt.Errorf("workspace registration diagnostics unsupported")
+			return protocol.DiagnosticsPage{}, err
 		}
-		groups, err := provider.DiagnosticWorkspaceRegistrations()
-		if err != nil {
-			return protocol.DiagnosticsPage{}, fmt.Errorf("workspace registration unavailable")
-		}
-
-		paths := make([]string, 0, len(groups))
-		for _, group := range groups {
-			paths = append(paths, group.Path)
-		}
-		owners, ownerErr := agentservice.WorkspaceRemovalOwners(paths)
-		for _, group := range groups {
-			if req.ID != "" && req.ID != group.ID {
-				continue
-			}
-			if req.Workspace != "" && filepath.Clean(req.Workspace) != filepath.Clean(group.Path) {
-				continue
-			}
-			item := group
-			item.ID, item.Path = clip(group.ID), clip(group.Path)
-			item.TaskIDs = []int{}
-			item.AgentOwners = []string{}
-			item.Retention = []protocol.DiagnosticRetention{}
-			item.RuntimeEvidence = "unknown_not_probed"
-			item.AgentOwnershipEvidence = "fresh_registration"
-			item.ExecutionEligibility = "unknown_planner_not_run"
-
-			if ownerErr != nil {
-				item.AgentOwnershipEvidence = "unavailable"
-			} else {
-				for _, id := range owners[group.Path] {
-					if len(item.AgentOwners) == maxChildren {
-						item.Truncated = true
-						break
-					}
-					item.AgentOwners = append(item.AgentOwners, clip(id))
-				}
-			}
-			if len(item.AgentOwners) > 0 {
-				item.ExecutionEligibility = "blocked_registered_agent"
-			}
-
-			for _, record := range records {
-				if !recordInWorkspace(byRecord[record.ID], group.Path) {
-					continue
-				}
-				if req.State != "" && req.State != record.State {
-					continue
-				}
-				if len(item.TaskIDs) == maxChildren {
-					item.Truncated = true
-					break
-				}
-				item.TaskIDs = append(item.TaskIDs, record.NumericID)
-				task := productionTask(record, byRecord[record.ID])
-				retention := protocol.DiagnosticRetention{GCRetention: gcRetentionView(record, byRecord[record.ID], now), TaskID: record.NumericID, State: clip(record.State), DoneAt: clip(record.DoneAt), Activity: protocol.SourceRefsActivity(task.SourceRefs).String(), Review: record.AgentReviewPending}
-				for _, ref := range task.SourceRefs {
-					retention.Review = retention.Review || ref.AgentReview
-				}
-				if expiry, ok := workspacegc.ExpiryAt(task); ok {
-					retention.ExpiryAt = expiry.UTC().Format(time.RFC3339)
-				}
-				item.Retention = append(item.Retention, retention)
-			}
-			if req.State != "" && len(item.TaskIDs) == 0 {
-				continue
-			}
-			items = append(items, protocol.DiagnosticItem{ID: item.ID, Workspace: &item})
-		}
-		evidence = "fresh_registration_with_cached_task_ownership_including_history"
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return paginate(req, items, revision, pending, evidence)
@@ -234,7 +169,8 @@ func paginate(req protocol.DiagnosticsRequest, items []protocol.DiagnosticItem, 
 		Items    []protocol.DiagnosticItem
 		Revision int64
 		Pending  bool
-	}{req, items, revision, pending})
+		Evidence string
+	}{req, items, revision, pending, evidence})
 	hash := sha256.Sum256(raw)
 	snapshot := hex.EncodeToString(hash[:])
 	offset := 0
