@@ -83,7 +83,7 @@ func TestRetirementPreviewNativeParityPrivacyScopeAndNoSideEffects(t *testing.T)
 		t.Fatalf("page=%+v %v", page, err)
 	}
 	view := page.Items[0].RetirementPreview
-	if view == nil || view.ID != group.ID || view.Stage != "runtime_retirement" || view.ExecutionEligibility != "unknown_fresh_execution_guards_not_run" || view.OwnershipEvidence != "unknown_not_checked" || view.LeaseEvidence != "unknown_not_checked" || len(view.Targets) != len(native.Targets) || len(view.Preserved) != 4 {
+	if view == nil || view.ID != group.ID || view.Stage != "runtime_retirement" || view.ExecutionEligibility != "unknown_fresh_execution_guards_not_run" || view.OwnershipEvidence != "fresh_bounded_registration" || view.AgentOwnerCount == nil || *view.AgentOwnerCount != 0 || view.LeaseEvidence != "unknown_not_checked" || len(view.Targets) != len(native.Targets) || len(view.Preserved) != 4 {
 		t.Fatalf("incorrect preview=%+v", view)
 	}
 	for i, target := range view.Targets {

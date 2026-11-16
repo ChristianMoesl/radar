@@ -187,7 +187,7 @@ looking up/running tools, reading provider credentials/configuration or refreshi
 provider. Native references and statuses share one atomic cache revision; cursors
 also bind selected scope, registration/capability changes and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 14; older versions fail closed.
+and extension must all support schema 15; older versions fail closed.
 
 ### Explicit runtime-retirement target preview
 
@@ -217,14 +217,26 @@ notice/blocker counts and fixed effect labels replace raw provider operations,
 names, errors and task/note contents. Registration, target and cache drift, a
 stage change or the five-second evidence budget invalidate the result.
 
-No runtime/Git/network probes, Git fetch/prune, ownership/lease checks, locks,
-refresh, login or mutations run. In particular this does not invoke the full
-cleanup previews, which can fetch Git refs. Ownership, fresh activity/review,
+Fresh registered-agent removal ownership is checked with the production decoder
+and ownership rule, including stopped owners and nested backing workspaces.
+`ownership_evidence: fresh_bounded_registration` includes `agent_owner_count`;
+a positive count sets `execution_eligibility: blocked_registered_agent`. Zero
+registered owners never means runtime ownership, lease safety or permission.
+Unsafe, invalid or over-budget registration evidence is `unavailable` with **no
+count**, never an apparently complete zero. The scan reads at most 1024 registry
+entries, 64 KiB per registration and 1 MiB total per pass, inside the shared
+five-second budget. Two private full-registration fingerprints detect drift,
+including unchanged-count owner replacement and availability changes. No private
+registration commands, owner IDs, tokens or checkpoint contents are returned.
+
+No runtime/Git/network probes, Git fetch/prune, lease checks, locks, refresh,
+login or mutations run. In particular this does not invoke the full cleanup
+previews, which can fetch Git refs. Runtime ownership, fresh activity/review,
 leases and execution preflight remain unverified; pending resource refresh is
 reported, not ignored. The snapshot is not an executable plan, freshness token
 for apply, execution eligibility or user consent. **Maintenance apply, full
 cleanup/expiry previews and verified operation outcomes are still unsupported.**
-Schema 14 must match in the CLI, daemon and loaded Pi extension; update the
+Schema 15 must match in the CLI, daemon and loaded Pi extension; update the
 extension sources and reload separately from `make install`.
 
 ### Explicit registered-runtime observations
@@ -298,10 +310,10 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 14; there is no legacy fallback. Separately
+extension must all support schema 15; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-### Retained inventories (diagnostics schema 14)
+### Retained inventories (diagnostics schema 15)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -544,7 +556,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 14; version mismatches fail closed
+extension must support diagnostics schema 15; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

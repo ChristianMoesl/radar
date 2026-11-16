@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"radar/internal/agentservice"
 	"radar/internal/cleanup"
 	"radar/internal/integration"
 	"radar/internal/integration/workspace"
@@ -25,6 +26,7 @@ func TestRetirementPreviewRPCRequiresExplicitMethodAndExactScopeWithoutMutation(
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", config)
 	t.Setenv("RADAR_STATE", filepath.Join(home, "state.db"))
+	t.Setenv("RADAR_AGENT_ROOT", filepath.Join(home, "agents"))
 	if err := os.MkdirAll(filepath.Join(config, "radar"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -36,6 +38,17 @@ func TestRetirementPreviewRPCRequiresExplicitMethodAndExactScopeWithoutMutation(
 	}
 	group := workspacegroup.Workspace{ID: workspacegroup.ID(path), Name: "retained", Path: path, SessionName: "registered-session", Sandbox: &workspacegroup.Sandbox{Name: "registered-sandbox", Agent: "shell"}}
 	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+		t.Fatal(err)
+	}
+	ownerDir := filepath.Join(home, "agents", "stopped")
+	if err := os.MkdirAll(ownerDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := json.Marshal(agentservice.Registration{Version: 1, ID: "stopped", Desired: false, Workspace: protocol.AgentWorkspaceBinding{ID: group.ID, Path: path, Mode: "local"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ownerDir, "registration.json"), owner, 0600); err != nil {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -72,8 +85,14 @@ func TestRetirementPreviewRPCRequiresExplicitMethodAndExactScopeWithoutMutation(
 			if response.OK || response.Diagnostics != nil {
 				t.Fatalf("implicit/unscoped preview accepted: %+v", response)
 			}
-		} else if !response.OK || response.Diagnostics == nil || response.Diagnostics.Total != 1 || response.Diagnostics.Schema != protocol.DiagnosticsVersion || !response.Diagnostics.ResourceRefreshPending || len(response.Diagnostics.Items[0].RetirementPreview.Targets) != 3 {
-			t.Fatalf("explicit proposal missing: %+v", response)
+		} else {
+			if !response.OK || response.Diagnostics == nil || response.Diagnostics.Total != 1 || response.Diagnostics.Schema != protocol.DiagnosticsVersion || !response.Diagnostics.ResourceRefreshPending || len(response.Diagnostics.Items[0].RetirementPreview.Targets) != 3 {
+				t.Fatalf("explicit proposal missing: %+v", response)
+			}
+			view := response.Diagnostics.Items[0].RetirementPreview
+			if view.OwnershipEvidence != "fresh_bounded_registration" || view.AgentOwnerCount == nil || *view.AgentOwnerCount != 1 || view.ExecutionEligibility != "blocked_registered_agent" {
+				t.Fatalf("stopped-owner execution block lost across RPC: %+v", view)
+			}
 		}
 	}
 	_ = client.Close()
