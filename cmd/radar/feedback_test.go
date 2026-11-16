@@ -194,10 +194,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	observed := make(chan protocol.Request, 27)
+	observed := make(chan protocol.Request, 30)
 	done := make(chan error, 1)
 	go func() {
-		for i := 0; i < 27; i++ {
+		for i := 0; i < 30; i++ {
 			conn, err := listener.Accept()
 			if err != nil {
 				done <- err
@@ -212,10 +212,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 			}
 			observed <- req
 			response := protocol.Response{OK: true, Diagnostics: &protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: req.Diagnostics.Section, Evidence: "cached_daemon_state", Items: []protocol.DiagnosticItem{}, Complete: true}}
-			if i == 25 {
+			if i == 28 {
 				response.Diagnostics.Schema = 99
 			}
-			if i == 26 {
+			if i == 29 {
 				response = protocol.Response{OK: false, Error: "unknown method: diagnostics; private-provider-value"}
 			}
 			err = json.NewEncoder(conn).Encode(response)
@@ -227,14 +227,14 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		}
 		done <- nil
 	}()
-	for index, scope := range []string{"origin", "feedback", "installation", "origin", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation"} {
-		section := []string{"tasks", "source_refs", "bindings", "agents", "workspace_resources", "workspace_resources", "workspace_resources", "agent_schedules", "agent_schedules", "agent_schedules", "gc_plan", "gc_plan", "gc_plan", "runtime_probe", "runtime_probe", "runtime_probe", "integrations", "integrations", "integrations", "agent_probe", "agent_probe", "agent_probe", "retirement_preview", "retirement_preview", "retirement_preview"}[index]
+	for index, scope := range []string{"origin", "feedback", "installation", "origin", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation"} {
+		section := []string{"tasks", "source_refs", "bindings", "agents", "workspace_resources", "workspace_resources", "workspace_resources", "agent_schedules", "agent_schedules", "agent_schedules", "gc_plan", "gc_plan", "gc_plan", "runtime_probe", "runtime_probe", "runtime_probe", "integrations", "integrations", "integrations", "agent_probe", "agent_probe", "agent_probe", "retirement_preview", "retirement_preview", "retirement_preview", "cleanup_preview", "cleanup_preview", "cleanup_preview"}[index]
 		parent := ""
-		if index == 1 || index == 2 || section == "workspace_resources" || section == "agent_schedules" || section == "gc_plan" || section == "runtime_probe" || section == "agent_probe" || section == "retirement_preview" {
+		if index == 1 || index == 2 || section == "workspace_resources" || section == "agent_schedules" || section == "gc_plan" || section == "runtime_probe" || section == "agent_probe" || section == "retirement_preview" || section == "cleanup_preview" {
 			parent = "opaque-parent"
 		}
 		state := "done"
-		if section == "agents" || section == "workspace_resources" || section == "agent_schedules" || section == "runtime_probe" || section == "integrations" || section == "agent_probe" || section == "retirement_preview" {
+		if section == "agents" || section == "workspace_resources" || section == "agent_schedules" || section == "runtime_probe" || section == "integrations" || section == "agent_probe" || section == "retirement_preview" || section == "cleanup_preview" {
 			state = ""
 		}
 		id, cursor := "123", "opaque"
@@ -254,7 +254,7 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 			want = anchor
 		}
 		method := "diagnostics"
-		if section == "runtime_probe" || section == "agent_probe" || section == "retirement_preview" {
+		if section == "runtime_probe" || section == "agent_probe" || section == "retirement_preview" || section == "cleanup_preview" {
 			method = "diagnostics-probe"
 		}
 		if req.Method != method || req.Diagnostics == nil || req.Diagnostics.Workspace != want || req.Diagnostics.Section != section || req.Diagnostics.ParentID != parent || req.Diagnostics.ID != id || req.Diagnostics.Limit != 7 || req.Diagnostics.Cursor != cursor || req.Diagnostics.State != state {

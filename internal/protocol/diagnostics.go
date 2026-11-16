@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 16
+const DiagnosticsVersion = 17
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -356,7 +356,29 @@ type DiagnosticIntegration struct {
 	FreshnessEvidence            string                             `json:"freshness_evidence"`
 }
 
+type DiagnosticCleanupSafety struct {
+	Kind            string `json:"kind"`
+	BlocksAutomatic bool   `json:"blocks_automatic"`
+	Expires         bool   `json:"expires"`
+	Count           int    `json:"count"`
+}
+
+type DiagnosticCleanupTarget struct {
+	ID                    string                    `json:"id"`
+	RecordID              string                    `json:"record_id"`
+	TaskID                int                       `json:"task_id"`
+	Provider              string                    `json:"provider"`
+	Effect                string                    `json:"effect"`
+	BranchEffect          string                    `json:"branch_effect,omitempty"`
+	Preserved             []string                  `json:"preserved"`
+	Safety                []DiagnosticCleanupSafety `json:"safety"`
+	SafetyNoticeCount     int                       `json:"safety_notice_count"`
+	AutomaticBlockerCount int                       `json:"automatic_blocker_count"`
+	ExecutionEligibility  string                    `json:"execution_eligibility"`
+}
+
 type DiagnosticItem struct {
+	CleanupPreview    *DiagnosticCleanupTarget      `json:"cleanup_preview,omitempty"`
 	RetirementPreview *DiagnosticRetirementPreview  `json:"retirement_preview,omitempty"`
 	AgentProbe        *DiagnosticAgentProbe         `json:"agent_probe,omitempty"`
 	Integration       *DiagnosticIntegration        `json:"integration,omitempty"`

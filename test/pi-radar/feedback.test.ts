@@ -4,6 +4,69 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerFeedbackSession, feedbackLinearProject, feedbackLinearWorkspace } from "../../extensions/pi-radar/feedback.ts";
 import { linearAvailable } from "../../extensions/pi-radar/linear.ts";
 
+const cleanupLimitations = ["explicit_exact_retained_task_manual_cleanup_proposal_only", "scope_selects_task_entire_related_resource_bundle_including_other_workspaces", "native_provider_reads_and_git_fetch_prune_may_refresh_reference_metadata", "no_cleanup_execution_or_apply_authority", "cached_task_inputs_with_native_point_in_time_checks", "each_page_repeats_native_preview_with_fresh_approval", "snapshot_is_not_an_executable_plan_or_consent", "active_ownership_activity_leases_and_fresh_execution_guards_not_run", "expiry_policy_and_automatic_eligibility_not_evaluated", "raw_paths_messages_names_and_operations_withheld", "at_most_256_active_refs_and_512_targets", "unknown_safety_notices_remain_unknown"];
+
+for(const [provider,effect,branch] of [
+ ["git","remove_worktree_and_local_changes","delete_local_branch"],
+ ["sbx","remove_sandbox_and_local_state",undefined],
+ ["tmux","remove_terminal_session_and_processes",undefined],
+ ["workspace","remove_workspace_local_files_registration_and_archive_completed_note",undefined],
+ ["workspace","forget_missing_worktree_registration","retain_local_branch"],
+])test(`manual cleanup accepts finite ${provider}/${effect} effects and native safety flags without execution authority`,async()=>{
+ const h=harness();h.activate();h.approvals.push(true);const data:any=cleanupPreviewFixture(),target=data.inventory.items[0].cleanup_preview;
+ target.provider=provider;target.effect=effect;target.branch_effect=branch;
+ target.safety=[{kind:"safety_check_unavailable",blocks_automatic:true,expires:true,count:2},{kind:"other_notice",blocks_automatic:false,expires:false,count:1}];target.safety_notice_count=3;target.automatic_blocker_count=2;
+ h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+ const result=await h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",parent_id:"7",id:target.id},undefined,undefined,h.ctx);
+ assert.deepEqual(result.details.inventory.items[0].cleanup_preview,JSON.parse(JSON.stringify(target)));
+ assert.equal(result.details.inventory.items[0].cleanup_preview.execution_eligibility,"unknown_fresh_execution_guards_not_run");
+});
+function cleanupPreviewFixture(scope = "origin") {
+ const id="cleanup-target:"+"a".repeat(64);
+ return {diagnostics_schema:17,section:"cleanup_preview",scope,available:true,feedback_workspace_id:"feedback",evidence:"explicit_native_manual_cleanup_preview_not_execution_plan",inventory:{diagnostics_schema:17,section:"cleanup_preview",evidence:"explicit_native_manual_cleanup_preview_not_execution_plan",observed_at:"2026-11-16T18:35:00Z",revision:1,snapshot:"b".repeat(64),total:1,items:[{id,cleanup_preview:{id,record_id:"record",task_id:7,provider:"git",effect:"remove_worktree_and_local_changes",branch_effect:"retain_local_branch",preserved:["remote_repositories"],safety:[],safety_notice_count:0,automatic_blocker_count:0,execution_eligibility:"unknown_fresh_execution_guards_not_run"}}],pagination_complete:true,resource_refresh_pending:false,limitations:[...cleanupLimitations]}};
+}
+
+for(const scope of ["origin","feedback","installation"])test(`manual cleanup preview binds approval and ${scope} scope on every page`,async()=>{
+ const h=harness();h.activate();h.approvals.push(true,true);let n=0;
+ h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});const data:any=cleanupPreviewFixture(scope);if(n++===0){data.inventory.total=2;data.inventory.pagination_complete=false;data.inventory.next_cursor="cursor";}return {code:0,stdout:JSON.stringify(data),stderr:"",killed:false};};
+ const params={section:"cleanup_preview",parent_id:"record",scope,limit:1};
+ const first=await h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx);
+ assert.equal(first.details.inventory.next_cursor,"cursor");
+ await h.tools.get("radar_diagnostics").execute("call",{...params,cursor:"cursor"},undefined,undefined,h.ctx);
+ assert.equal(h.confirmations.length,2);assert.equal(h.calls.length,2);assert.equal(h.calls[0].options.timeout,35000);assert.ok(h.calls[1].args.includes("cursor"));
+ for(const text of ["record",scope,"entire resource bundle","other workspaces","30 seconds","Git fetch --prune","delete worktrees/branches","No login","not expiry eligibility","consent to apply"])assert.ok(h.confirmations[0].includes(text),text);
+ const cancelled=await h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx);assert.equal(cancelled.details.cancelled,true);assert.equal(h.calls.length,2);
+});
+for(const mode of ["headless","pre-aborted","approval-aborted","lost-MCP","target-drift"])test(`manual cleanup approval fails closed or binds immutable request: ${mode}`,async()=>{
+ const h=harness();h.activate();const abort=new AbortController();const params={section:"cleanup_preview",parent_id:"record",scope:"origin"};
+ if(mode==="headless")h.ctx.hasUI=false;if(mode==="pre-aborted")abort.abort();
+ h.ctx.ui.confirm=async()=>{if(mode==="approval-aborted")abort.abort();if(mode==="lost-MCP")h.tools.clear();if(mode==="target-drift"){params.parent_id="other";params.scope="installation";}return true;};
+ h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify(cleanupPreviewFixture()),stderr:"",killed:false};};
+ const call=h.tools.get("radar_diagnostics").execute("call",params,abort.signal,undefined,h.ctx);
+ if(mode==="target-drift"){await call;assert.ok(h.calls[0].args.includes("record"));assert.ok(!h.calls[0].args.includes("other"));}else{await assert.rejects(call);assert.deepEqual(h.calls,[]);}
+});
+for(const params of [{section:"cleanup_preview"},{section:"cleanup_preview",parent_id:""},{section:"cleanup_preview",parent_id:"record",state:"done"},{section:"cleanup_preview",parent_id:"record",severity:"error"}])test(`manual cleanup rejects invalid selectors before approval: ${JSON.stringify(params)}`,async()=>{
+ const h=harness();h.activate();await assert.rejects(h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx));assert.deepEqual(h.calls,[]);assert.deepEqual(h.confirmations,[]);
+});
+for(const kind of ["scope","parent","envelope","page","row","target","provider","effect","branch","preserved","eligibility","notice","blocker","count","pending","raw-limitations","raw-time","revision","snapshot","cursor","duplicate","schema","old-schema","origin","reason","oversized"])test(`manual cleanup rejects malformed or private evidence: ${kind}`,async()=>{
+ const h=harness();h.activate();h.approvals.push(true);const data:any=cleanupPreviewFixture();const page=data.inventory,row=page.items[0],target=row.cleanup_preview;
+ switch(kind){
+ case "scope":data.scope="installation";break;case "parent":target.record_id="other";break;
+ case "envelope":data.private="private";break;case "page":page.private="private";break;case "row":row.path="private";break;case "target":target.operation={token:"private"};break;
+ case "provider":target.provider="unknown";break;case "effect":target.effect="unknown";break;case "branch":target.branch_effect="unknown";break;case "preserved":target.preserved.push("local_changes");break;case "eligibility":target.execution_eligibility="ready";break;
+ case "notice":target.safety=[{kind:"private",blocks_automatic:true,expires:true,count:1}];target.safety_notice_count=1;target.automatic_blocker_count=1;break;
+ case "blocker":target.automatic_blocker_count=1;break;case "count":target.safety_notice_count=-1;break;case "pending":page.resource_refresh_pending=true;break;
+ case "raw-limitations":page.limitations=["private"];break;case "raw-time":page.observed_at+=" private";break;case "revision":page.revision=-1;break;case "snapshot":page.snapshot="private";break;case "cursor":page.next_cursor="cursor";break;
+ case "duplicate":page.items.push(row);page.total=2;break;case "schema":page.diagnostics_schema=16;break;case "old-schema":data.diagnostics_schema=16;break;case "origin":data.origin_workspace_id={path:"private"};break;case "reason":data.reason="private";break;case "oversized":page.limitations.push("p".repeat(33000));break;
+ }
+ h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});await assert.rejects(h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",parent_id:"record"},undefined,undefined,h.ctx));
+});
+for(const kind of ["valid","raw","fallback","unknown-reason"])test(`manual cleanup unavailable is unknown without fallback: ${kind}`,async()=>{
+ const h=harness();h.activate();h.approvals.push(true);const data:any={diagnostics_schema:17,section:"cleanup_preview",scope:"origin",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason:"daemon_unavailable"};
+ if(kind==="raw")data.private="private";if(kind==="fallback")data.inventory=cleanupPreviewFixture().inventory;if(kind==="unknown-reason")data.reason="private";
+ h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});const call=h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",parent_id:"record"},undefined,undefined,h.ctx);if(kind==="valid")assert.equal((await call).details.available,false);else await assert.rejects(call);
+});
+
 function policyFixture() {
   return {available:true,scope:"cli_process_global_defaults",location_origin:"xdg_config_home",evidence:"fresh_bounded_native_configuration",captured_at:"2026-11-16T13:23:00Z",revision:"a".repeat(64),settings:[
     {key:"workspace.auto_confirm",value:"true"},
@@ -35,7 +98,7 @@ function harness() {
     on: (event: string, handler: any) => hooks.set(event, handler),
     exec: async (binary: string, args: string[], options: any) => {
       calls.push({ binary, args, options });
-      return { code: 0, stdout: JSON.stringify({ diagnostics_schema:16, section: args[args.indexOf("--section") + 1], version: "v1.2.3", settings:policyFixture(), scope:"installation", private:true, logs:{entries:[],snapshot:"snapshot",pagination_complete:true} }) };
+      return { code: 0, stdout: JSON.stringify({ diagnostics_schema:17, section: args[args.indexOf("--section") + 1], version: "v1.2.3", settings:policyFixture(), scope:"installation", private:true, logs:{entries:[],snapshot:"snapshot",pagination_complete:true} }) };
     },
   } as unknown as ExtensionAPI;
   const session = registerFeedbackSession(pi);
@@ -323,10 +386,10 @@ for (const params of [
 }
 
 for (const data of [
-  {section:"tasks"}, {diagnostics_schema:1,section:"tasks"}, {diagnostics_schema:2,section:"tasks"}, {diagnostics_schema:3,section:"tasks"}, {diagnostics_schema:4,section:"tasks"}, {diagnostics_schema:5,section:"tasks"}, {diagnostics_schema:6,section:"tasks"}, {diagnostics_schema:7,section:"tasks"}, {diagnostics_schema:8,section:"tasks"}, {diagnostics_schema:9,section:"tasks"}, {diagnostics_schema:10,section:"tasks"}, {diagnostics_schema:11,section:"tasks"}, {diagnostics_schema:12,section:"tasks"}, {diagnostics_schema:13,section:"tasks"}, {diagnostics_schema:14,section:"tasks"}, {diagnostics_schema:15,section:"tasks"}, {diagnostics_schema:99,section:"tasks"},
-  {diagnostics_schema:16,section:"tasks",available:true},
-  {diagnostics_schema:16,section:"tasks",available:true,inventory:{diagnostics_schema:99,section:"tasks"}},
-  {diagnostics_schema:16,section:"tasks",available:true,inventory:{diagnostics_schema:16,section:"workspaces"}},
+  {section:"tasks"}, {diagnostics_schema:1,section:"tasks"}, {diagnostics_schema:2,section:"tasks"}, {diagnostics_schema:3,section:"tasks"}, {diagnostics_schema:4,section:"tasks"}, {diagnostics_schema:5,section:"tasks"}, {diagnostics_schema:6,section:"tasks"}, {diagnostics_schema:7,section:"tasks"}, {diagnostics_schema:8,section:"tasks"}, {diagnostics_schema:9,section:"tasks"}, {diagnostics_schema:10,section:"tasks"}, {diagnostics_schema:11,section:"tasks"}, {diagnostics_schema:12,section:"tasks"}, {diagnostics_schema:13,section:"tasks"}, {diagnostics_schema:14,section:"tasks"}, {diagnostics_schema:15,section:"tasks"}, {diagnostics_schema:16,section:"tasks"}, {diagnostics_schema:99,section:"tasks"},
+  {diagnostics_schema:17,section:"tasks",available:true},
+  {diagnostics_schema:17,section:"tasks",available:true,inventory:{diagnostics_schema:99,section:"tasks"}},
+  {diagnostics_schema:17,section:"tasks",available:true,inventory:{diagnostics_schema:17,section:"workspaces"}},
 ]) {
   test(`incompatible CLI or daemon inventory fails closed (${JSON.stringify(data)})`,async()=>{
     const h=harness();h.activate();
@@ -354,7 +417,7 @@ test("lifecycle source decisions remain distinct from recorded state without app
   const task={state:"done",lifecycle:{evidence:"production_lifecycle_evaluation_on_cached_inputs",decision:"activity_or_review_pending",source_state:"active",activity_holds:1,recorded_review_pending:false,next_review_pending:true}};
   h.pi.exec=async(binary,args,options)=>{
     h.calls.push({binary,args,options});
-    return {code:0,stdout:JSON.stringify({diagnostics_schema:16,section:"tasks",available:true,inventory:{diagnostics_schema:16,section:"tasks",items:[{id:"record",task}]}}),stderr:"",killed:false};
+    return {code:0,stdout:JSON.stringify({diagnostics_schema:17,section:"tasks",available:true,inventory:{diagnostics_schema:17,section:"tasks",items:[{id:"record",task}]}}),stderr:"",killed:false};
   };
   const result=await h.diagnostic("tasks");
   assert.deepEqual(JSON.parse(result.content[0].text).inventory.items[0].task,task);
@@ -368,7 +431,7 @@ for (const [section,parent_id] of [["source_refs","123"],["bindings","retained-r
     const h=harness();h.activate();
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:16,section,available:true,inventory:{diagnostics_schema:16,section,items:[]}}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:17,section,available:true,inventory:{diagnostics_schema:17,section,items:[]}}),stderr:"",killed:false};
     };
     await h.tools.get("radar_diagnostics").execute("call",{section,parent_id,scope:"origin",limit:5},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section",section,"--json","--scope","origin","--parent-id",parent_id,"--limit","5"]);
@@ -380,10 +443,10 @@ for (const [section,parent_id] of [["source_refs","123"],["bindings","retained-r
 for (const scope of ["origin","feedback","installation"]) {
   test(`workspace resource drill-down preserves ${scope} scope and unknown ownership`,async()=>{
     const h=harness();h.activate();h.approvals.push(true);
-    const inventory={diagnostics_schema:16,section:"workspace_resources",evidence:"fresh_registration_with_cached_task_ownership_agent_ownership_unavailable",total:1,items:[{id:"resource",workspace_resource:{id:"resource",workspace_id:"workspace",kind:"mount",evidence:"fresh_registration",occurrences:1,mount:{path:"/registered/mount",read_only:true}}}],pagination_complete:true};
+    const inventory={diagnostics_schema:17,section:"workspace_resources",evidence:"fresh_registration_with_cached_task_ownership_agent_ownership_unavailable",total:1,items:[{id:"resource",workspace_resource:{id:"resource",workspace_id:"workspace",kind:"mount",evidence:"fresh_registration",occurrences:1,mount:{path:"/registered/mount",read_only:true}}}],pagination_complete:true};
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:16,section:"workspace_resources",available:true,inventory}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:17,section:"workspace_resources",available:true,inventory}),stderr:"",killed:false};
     };
     const result=await h.tools.get("radar_diagnostics").execute("call",{section:"workspace_resources",scope,parent_id:"workspace",id:"resource",limit:3,cursor:"opaque"},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","workspace_resources","--json","--scope",scope,"--id","resource","--parent-id","workspace","--limit","3","--cursor","opaque"]);
@@ -396,10 +459,10 @@ for (const scope of ["origin","feedback","installation"]) {
 for (const scope of ["origin","feedback","installation"]) {
   test(`complete agent schedules preserve ${scope} scope and checkpoint evidence`,async()=>{
     const h=harness();h.activate();h.approvals.push(true);
-    const inventory={diagnostics_schema:16,section:"agent_schedules",evidence:"fresh_schedule_checkpoints_runtime_errors_unknown",total:1,items:[{id:"opaque-schedule",agent_schedule:{id:"opaque-schedule",agent_id:"stopped",schedule:{id:"native-schedule",enabled:false,delivery_problem:true}}}],pagination_complete:true};
+    const inventory={diagnostics_schema:17,section:"agent_schedules",evidence:"fresh_schedule_checkpoints_runtime_errors_unknown",total:1,items:[{id:"opaque-schedule",agent_schedule:{id:"opaque-schedule",agent_id:"stopped",schedule:{id:"native-schedule",enabled:false,delivery_problem:true}}}],pagination_complete:true};
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:16,section:"agent_schedules",available:true,inventory}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:17,section:"agent_schedules",available:true,inventory}),stderr:"",killed:false};
     };
     const result=await h.tools.get("radar_diagnostics").execute("call",{section:"agent_schedules",scope,parent_id:"stopped",id:"opaque-schedule",limit:3,cursor:"opaque"},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","agent_schedules","--json","--scope",scope,"--id","opaque-schedule","--parent-id","stopped","--limit","3","--cursor","opaque"]);
@@ -437,16 +500,16 @@ for (const params of [{section:"agents",state:"done"},{section:"agent_schedules"
 for (const scope of ["origin","feedback","installation"]) {
   test(`production GC plans preserve ${scope} scope and unknown execution eligibility`,async()=>{
     const h=harness();h.activate();h.approvals.push(true);
-    const inventory={diagnostics_schema:16,section:"gc_plan",evidence:"production_gc_plan_on_cached_inputs",total:1,items:[{id:"opaque-plan",gc_plan:{id:"opaque-plan",record_id:"record",task_id:7,decision:"candidate",next_stage:"runtime_retirement",execution_eligibility:"unknown_provider_ownership_lease_checks_not_run",occurrences:1}}],pagination_complete:true};
+    const inventory={diagnostics_schema:17,section:"gc_plan",evidence:"production_gc_plan_on_cached_inputs",total:1,items:[{id:"opaque-plan",gc_plan:{id:"opaque-plan",record_id:"record",task_id:7,decision:"candidate",next_stage:"runtime_retirement",execution_eligibility:"unknown_provider_ownership_lease_checks_not_run",occurrences:1}}],pagination_complete:true};
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:16,section:"gc_plan",available:true,inventory}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:17,section:"gc_plan",available:true,inventory}),stderr:"",killed:false};
     };
     const result=await h.tools.get("radar_diagnostics").execute("call",{section:"gc_plan",scope,parent_id:"record",id:"opaque-plan",state:"done",limit:3,cursor:"opaque"},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","gc_plan","--json","--scope",scope,"--id","opaque-plan","--parent-id","record","--state","done","--limit","3","--cursor","opaque"]);
     assert.deepEqual(JSON.parse(result.content[0].text).inventory,inventory);
     assert.equal(h.approvals.length,1);assert.deepEqual(h.confirmations,[]);
-    for (const text of ["A candidate is not executable eligibility or consent", "Scope selects the owning task", "full cleanup/expiry previews are unsupported", "Maintenance apply is not yet exposed"]) assert.ok(h.session.instructions()!.includes(text));
+    for (const text of ["A candidate is not executable eligibility or consent", "Scope selects the owning task", "expiry previews are unsupported", "Maintenance apply is not yet exposed"]) assert.ok(h.session.instructions()!.includes(text));
   });
 }
 
@@ -487,8 +550,8 @@ for (const params of [{section:"runtime_probe"},{section:"runtime_probe",parent_
 for (const scope of ["origin","feedback","installation"]) {
  test(`cached integrations preserve ${scope} scope without consuming private approvals`,async()=>{
   const h=harness();h.activate();h.approvals.push(true);
-  const inventory={diagnostics_schema:16,section:"integrations",evidence:"registered_capabilities_with_cached_installation_status_and_scoped_retained_refs",items:[{id:"opaque-integration",integration:{name:"provider",cached_status:"partial",status_evidence:"cached_installation_status",access_evidence:"unknown_not_checked",freshness_evidence:"unknown_cache_freshness_not_established",collection_evidence:"unknown_no_current_daemon_attempt"}}]};
-  h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify({diagnostics_schema:16,section:"integrations",available:true,inventory}),stderr:"",killed:false};};
+  const inventory={diagnostics_schema:17,section:"integrations",evidence:"registered_capabilities_with_cached_installation_status_and_scoped_retained_refs",items:[{id:"opaque-integration",integration:{name:"provider",cached_status:"partial",status_evidence:"cached_installation_status",access_evidence:"unknown_not_checked",freshness_evidence:"unknown_cache_freshness_not_established",collection_evidence:"unknown_no_current_daemon_attempt"}}]};
+  h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify({diagnostics_schema:17,section:"integrations",available:true,inventory}),stderr:"",killed:false};};
   const result=await h.tools.get("radar_diagnostics").execute("call",{section:"integrations",scope,id:"opaque-integration",limit:4,cursor:"opaque"},undefined,undefined,h.ctx);
   assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","integrations","--json","--scope",scope,"--id","opaque-integration","--limit","4","--cursor","opaque"]);
   assert.deepEqual(JSON.parse(result.content[0].text).inventory,inventory);assert.deepEqual(h.confirmations,[]);assert.equal(h.approvals.length,1);
@@ -546,8 +609,8 @@ for(const condition of ["abort","MCP loss","request drift"]) test(`log approval 
 
 for(const response of [
   {diagnostics_schema:10,section:"logs",logs:"private raw tail"},
-  {diagnostics_schema:16,section:"logs",private:true,scope:"installation",logs:"private raw tail"},
-  {diagnostics_schema:16,section:"logs",private:true,scope:"origin",logs:{entries:[],snapshot:"x",pagination_complete:true}},
+  {diagnostics_schema:17,section:"logs",private:true,scope:"installation",logs:"private raw tail"},
+  {diagnostics_schema:17,section:"logs",private:true,scope:"origin",logs:{entries:[],snapshot:"x",pagination_complete:true}},
 ])test("old/raw or incorrectly scoped log responses never escape as diagnostics",async()=>{
   const h=harness();h.activate();h.approvals.push(true);
   h.pi.exec=async()=>({code:0,stdout:JSON.stringify(response),stderr:"",killed:false});
@@ -557,7 +620,7 @@ for(const response of [
 
 test("changed private log snapshots remain unavailable, not empty or successful",async()=>{
   const h=harness();h.activate();h.approvals.push(true);
-  const response={diagnostics_schema:16,section:"logs",private:true,scope:"installation",available:false,evidence:"unavailable",reason:"snapshot_changed_restart_pagination"};
+  const response={diagnostics_schema:17,section:"logs",private:true,scope:"installation",available:false,evidence:"unavailable",reason:"snapshot_changed_restart_pagination"};
   h.pi.exec=async()=>({code:0,stdout:JSON.stringify(response),stderr:"",killed:false});
   const result=await h.tools.get("radar_diagnostics").execute("call",{section:"logs",cursor:"stale-page"},undefined,undefined,h.ctx);
   assert.equal(result.details.available,false);assert.equal(result.details.reason,"snapshot_changed_restart_pagination");assert.equal(result.details.logs,undefined);
@@ -589,7 +652,7 @@ for(const mutation of [
 ]) {
   test(`invalid overview policy fails closed (${mutation.toString()})`,async()=>{
     const h=harness();h.activate();const settings=policyFixture();mutation(settings);
-    h.pi.exec=async()=>({code:0,stdout:JSON.stringify({diagnostics_schema:16,section:"overview",settings}),stderr:"",killed:false});
+    h.pi.exec=async()=>({code:0,stdout:JSON.stringify({diagnostics_schema:17,section:"overview",settings}),stderr:"",killed:false});
     await assert.rejects(h.diagnostic("overview"),/Invalid .*configuration policy/);
     assert.deepEqual(h.confirmations,[]);
   });
@@ -598,14 +661,14 @@ for(const mutation of [
 test("unavailable configuration policy remains unknown without an automatic retry or fallback",async()=>{
   const h=harness();h.activate();
   const settings={available:false,scope:"cli_process_global_defaults",location_origin:"user_home",evidence:"unavailable",reason:"configuration_read_unavailable",captured_at:"2026-11-16T13:23:00Z",settings:[]};
-  h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify({diagnostics_schema:16,section:"overview",settings}),stderr:"",killed:false};};
+  h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify({diagnostics_schema:17,section:"overview",settings}),stderr:"",killed:false};};
   const result=await h.diagnostic("overview");
   assert.deepEqual(JSON.parse(result.content[0].text).settings,settings);
   assert.equal(h.calls.length,1);assert.deepEqual(h.confirmations,[]);
 });
 
 function agentProbeFixture(scope = "origin") {
-  return {diagnostics_schema:16,section:"agent_probe",scope,feedback_workspace_id:"feedback-id",evidence:"explicit_agent_socket_probe_no_checkpoint_fallback",available:true,inventory:{diagnostics_schema:16,section:"agent_probe",observed_at:"2026-11-16T14:43:00Z",revision:1,snapshot:"a".repeat(64),resource_refresh_pending:false,limitations:["explicit_exact_registered_agent_socket_only", "matching_hello_is_not_work_execution_or_runtime_health", "snapshot_is_live_point_in_time_not_business_success", "unreachable_is_unknown_not_stopped_or_absent", "stopped_registration_still_holds_ownership", "workspace_runtime_and_leases_not_probed", "no_checkpoint_fallback", "no_startup_refresh_login_or_maintenance", "private_runner_payloads_and_errors_withheld"],evidence:"explicit_agent_socket_probe_no_checkpoint_fallback",total:1,pagination_complete:true,items:[{id:"worker",agent_probe:{id:"worker",registered:true,desired:false,ownership_hold:"registered_owner_even_when_stopped",runner_evidence:"reachable_matching_protocol_identity",snapshot_evidence:"fresh_runner_snapshot",snapshot:{definition_version:1,revision:0,pending:3,attention:true,problem:false},problem:"none",lease_evidence:"unknown_not_inspected"}}]}};
+  return {diagnostics_schema:17,section:"agent_probe",scope,feedback_workspace_id:"feedback-id",evidence:"explicit_agent_socket_probe_no_checkpoint_fallback",available:true,inventory:{diagnostics_schema:17,section:"agent_probe",observed_at:"2026-11-16T14:43:00Z",revision:1,snapshot:"a".repeat(64),resource_refresh_pending:false,limitations:["explicit_exact_registered_agent_socket_only", "matching_hello_is_not_work_execution_or_runtime_health", "snapshot_is_live_point_in_time_not_business_success", "unreachable_is_unknown_not_stopped_or_absent", "stopped_registration_still_holds_ownership", "workspace_runtime_and_leases_not_probed", "no_checkpoint_fallback", "no_startup_refresh_login_or_maintenance", "private_runner_payloads_and_errors_withheld"],evidence:"explicit_agent_socket_probe_no_checkpoint_fallback",total:1,pagination_complete:true,items:[{id:"worker",agent_probe:{id:"worker",registered:true,desired:false,ownership_hold:"registered_owner_even_when_stopped",runner_evidence:"reachable_matching_protocol_identity",snapshot_evidence:"fresh_runner_snapshot",snapshot:{definition_version:1,revision:0,pending:3,attention:true,problem:false},problem:"none",lease_evidence:"unknown_not_inspected"}}]}};
 }
 
 for (const scope of ["origin","feedback","installation"]) test(`live agent probe binds exact approval and ${scope} scope`, async()=>{
@@ -670,7 +733,7 @@ test("agent probe preserves unreachable unknown without inventing stopped state"
 });
 
 for(const kind of ["valid","raw","cached","missing-availability","unknown-reason"]) test(`unavailable agent probe envelope is fail-closed: ${kind}`,async()=>{
- const h=harness();h.activate();h.approvals.push(true);const data:any={diagnostics_schema:16,section:"agent_probe",scope:"origin",feedback_workspace_id:"feedback-id",available:false,evidence:"unavailable",reason:"daemon_unavailable"};
+ const h=harness();h.activate();h.approvals.push(true);const data:any={diagnostics_schema:17,section:"agent_probe",scope:"origin",feedback_workspace_id:"feedback-id",available:false,evidence:"unavailable",reason:"daemon_unavailable"};
  if(kind==="raw")data.raw="private";
  if(kind==="cached")data.inventory=agentProbeFixture().inventory;
  if(kind==="missing-availability")delete data.available;
@@ -681,7 +744,7 @@ for(const kind of ["valid","raw","cached","missing-availability","unknown-reason
 });
 
 function retirementPreviewFixture(scope = "origin") {
-  return {diagnostics_schema:16,section:"retirement_preview",scope,feedback_workspace_id:"feedback-id",available:true,evidence:"explicit_native_registration_only_retirement_preview",inventory:{diagnostics_schema:16,section:"retirement_preview",evidence:"explicit_native_registration_only_retirement_preview",observed_at:"2026-11-16T15:34:00Z",revision:1,snapshot:"a".repeat(64),total:1,pagination_complete:true,resource_refresh_pending:true,limitations:["explicit_exact_workspace_retirement_proposal_only", "cached_gc_candidate_with_fresh_native_registration_path_checks", "runtime_presence_and_state_not_probed", "registered_agent_ownership_counts_are_not_runtime_ownership_or_execution_permission", "stopped_registered_agents_block_retirement", "unavailable_owner_evidence_has_no_count", "runtime_ownership_activity_and_leases_require_fresh_execution_guards", "proposed_runtime_stops_may_interrupt_commands_and_services", "tmux_removal_may_lose_terminal_processes_and_contents", "no_git_fetch_refresh_login_locks_or_mutation", "preview_is_not_execution_eligibility_freshness_token_or_consent", "pending_resource_refresh_may_change_plan", "private_provider_operations_and_errors_withheld"],items:[{id:"registered",retirement_preview:{id:"registered",record_id:"record",task_id:7,stage:"runtime_retirement",execution_eligibility:"unknown_fresh_execution_guards_not_run",ownership_evidence:"fresh_bounded_registration",agent_owner_count:0,lease_evidence:"unknown_not_checked",preserved:["workspace_files","worktrees_and_branches","sandbox_and_local_state","registration"],targets:[{id:"retirement-target:"+"a".repeat(64),provider:"tmux",effect:"remove_terminal_session_and_processes",safety_notice_count:0,automatic_blocker_count:0},{id:"retirement-target:"+"b".repeat(64),provider:"sbx",effect:"stop_sandbox_commands_and_services",safety_notice_count:0,automatic_blocker_count:0},{id:"retirement-target:"+"c".repeat(64),provider:"workspace",effect:"retain_workspace_files_and_registration",safety_notice_count:0,automatic_blocker_count:0}]}}]}};
+  return {diagnostics_schema:17,section:"retirement_preview",scope,feedback_workspace_id:"feedback-id",available:true,evidence:"explicit_native_registration_only_retirement_preview",inventory:{diagnostics_schema:17,section:"retirement_preview",evidence:"explicit_native_registration_only_retirement_preview",observed_at:"2026-11-16T15:34:00Z",revision:1,snapshot:"a".repeat(64),total:1,pagination_complete:true,resource_refresh_pending:true,limitations:["explicit_exact_workspace_retirement_proposal_only", "cached_gc_candidate_with_fresh_native_registration_path_checks", "runtime_presence_and_state_not_probed", "registered_agent_ownership_counts_are_not_runtime_ownership_or_execution_permission", "stopped_registered_agents_block_retirement", "unavailable_owner_evidence_has_no_count", "runtime_ownership_activity_and_leases_require_fresh_execution_guards", "proposed_runtime_stops_may_interrupt_commands_and_services", "tmux_removal_may_lose_terminal_processes_and_contents", "no_git_fetch_refresh_login_locks_or_mutation", "preview_is_not_execution_eligibility_freshness_token_or_consent", "pending_resource_refresh_may_change_plan", "private_provider_operations_and_errors_withheld"],items:[{id:"registered",retirement_preview:{id:"registered",record_id:"record",task_id:7,stage:"runtime_retirement",execution_eligibility:"unknown_fresh_execution_guards_not_run",ownership_evidence:"fresh_bounded_registration",agent_owner_count:0,lease_evidence:"unknown_not_checked",preserved:["workspace_files","worktrees_and_branches","sandbox_and_local_state","registration"],targets:[{id:"retirement-target:"+"a".repeat(64),provider:"tmux",effect:"remove_terminal_session_and_processes",safety_notice_count:0,automatic_blocker_count:0},{id:"retirement-target:"+"b".repeat(64),provider:"sbx",effect:"stop_sandbox_commands_and_services",safety_notice_count:0,automatic_blocker_count:0},{id:"retirement-target:"+"c".repeat(64),provider:"workspace",effect:"retain_workspace_files_and_registration",safety_notice_count:0,automatic_blocker_count:0}]}}]}};
 }
 
 for (const scope of ["origin","feedback","installation"]) test(`retirement preview binds fresh exact target and ${scope} scope`,async()=>{
@@ -742,7 +805,7 @@ for(const kind of ["scope","parent","envelope","page","row","private-preview","p
  if(kind==="snapshot")page.snapshot="private";
  if(kind==="cursor")page.next_cursor="cursor";
  if(kind==="multiple")page.items.push(row);
- if(kind==="version")page.diagnostics_schema=15;
+ if(kind==="version")page.diagnostics_schema=16;
  if(kind==="missing-record")delete preview.record_id;
  if(kind==="missing-task")delete preview.task_id;
  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
@@ -750,7 +813,7 @@ for(const kind of ["scope","parent","envelope","page","row","private-preview","p
 });
 
 for(const kind of ["valid","raw","fallback","unknown-reason"])test(`unavailable retirement preview has no fallback: ${kind}`,async()=>{
- const h=harness();h.activate();h.approvals.push(true);const data:any={diagnostics_schema:16,section:"retirement_preview",scope:"origin",feedback_workspace_id:"feedback-id",available:false,evidence:"unavailable",reason:"daemon_unavailable"};
+ const h=harness();h.activate();h.approvals.push(true);const data:any={diagnostics_schema:17,section:"retirement_preview",scope:"origin",feedback_workspace_id:"feedback-id",available:false,evidence:"unavailable",reason:"daemon_unavailable"};
  if(kind==="raw")data.raw="private";
  if(kind==="fallback")data.inventory=retirementPreviewFixture().inventory;
  if(kind==="unknown-reason")data.reason="private-error";
@@ -794,7 +857,7 @@ for (const kind of ["missing", "negative", "fraction", "excess", "unsafe", "stri
 });
 
 function integrationCollectionFixture() {
- return {diagnostics_schema:16,section:"integrations",available:true,inventory:{diagnostics_schema:16,section:"integrations",items:[{id:"integration",integration:{collection_evidence:"current_daemon_completed_attempt",collection:{latest:{started_at:"2026-11-16T17:01:00.000000001Z",collection_started_at:"2026-11-16T17:01:01Z",finished_at:"2026-11-16T17:01:02Z",outcome:"complete"},last_complete_collection_finished_at:"2026-11-16T17:01:02Z"}}}]}};
+ return {diagnostics_schema:17,section:"integrations",available:true,inventory:{diagnostics_schema:17,section:"integrations",items:[{id:"integration",integration:{collection_evidence:"current_daemon_completed_attempt",collection:{latest:{started_at:"2026-11-16T17:01:00.000000001Z",collection_started_at:"2026-11-16T17:01:01Z",finished_at:"2026-11-16T17:01:02Z",outcome:"complete"},last_complete_collection_finished_at:"2026-11-16T17:01:02Z"}}}]}};
 }
 for (const outcome of ["complete","incomplete","skipped_before_collection","cancelled_or_timed_out"]) test(`current-daemon ${outcome} collection envelope remains distinct from cache freshness`,async()=>{
  const h=harness();h.activate();const data=integrationCollectionFixture();const collection:any=data.inventory.items[0].integration.collection;collection.latest.outcome=outcome;
