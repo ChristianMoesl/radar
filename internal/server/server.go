@@ -187,6 +187,18 @@ func (s *Server) handle(conn net.Conn) {
 			_ = encoder.Encode(protocol.Response{OK: true, AgentResult: result})
 		case "version":
 			_ = encoder.Encode(protocol.Response{OK: true, Version: version.Current(), PID: os.Getpid(), Revision: s.store.Revision()})
+		case "diagnostics-probe":
+			if req.Diagnostics == nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "explicit runtime probe selectors are required"})
+				continue
+			}
+			pending := s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending
+			page, err := diagnostics.Probe(context.Background(), s.store, *req.Diagnostics, pending, s.integrations)
+			if err != nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error()})
+				continue
+			}
+			_ = encoder.Encode(protocol.Response{OK: true, Revision: page.Revision, Diagnostics: &page})
 		case "diagnostics":
 			if req.Diagnostics == nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "diagnostic selectors are required"})

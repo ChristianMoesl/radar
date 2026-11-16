@@ -99,8 +99,9 @@ the request or close the workspace.
 
 `radar_diagnostics` is a typed host tool available only in enabled feedback
 sessions. The current delivery is **observation only**: the overview advertises
-its capabilities explicitly. Runtime probes, deeper cleanup explanations,
-operation history and maintenance adapters are not yet exposed; unsupported
+its capabilities explicitly. Explicit registered-runtime observations require
+fresh interactive approval. Full provider cleanup eligibility, operation history
+and maintenance adapters are not yet exposed; unsupported
 requests fail instead of running arbitrary commands or changing state.
 
 The default `overview` returns the installed CLI version, loaded extension
@@ -110,7 +111,45 @@ run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
 not proof that it exists or is running. Missing daemon/origin evidence is
 unavailable, not healthy, empty, repaired or enrolled.
 
-### Retained inventories (diagnostics schema 8)
+### Explicit registered-runtime observations
+
+Use `section: "runtime_probe", parent_id: "<registered workspace ID>"` only for
+requested live runtime evidence. The usual origin (default), feedback and
+installation scopes still apply; even installation scope requires one exact
+registered workspace. Task-state filters are rejected. Every request/page needs
+fresh interactive confirmation naming its parent, scope and optional runtime ID.
+Headless, declined or aborted confirmation never starts a probe. The explicit
+CLI invocation is `radar feedback-diagnostics --workspace <feedback workspace>
+--section runtime_probe --parent-id <registered workspace ID> --json`; the normal
+cached diagnostics RPC rejects probes, with no older-daemon fallback.
+
+The provider-owned adapters run only native `sbx ls --json` and
+`tmux list-sessions` (including native SBX/WSL executable selection, environment
+and listing path normalization). One request has a shared five-second deadline;
+stdout is capped at 20 MiB per command, stderr/provider errors are withheld, and
+cancellation terminates command process groups. No collection, pane content,
+startup, login, Git/network refresh, provider cleanup preview, ownership/lease
+acquisition or maintenance runs. A runtime CLI may contact its own backend;
+this is not a cached or offline observation.
+
+Each item reports registered name, provider, bounded presence/state, opaque
+runtime-lifetime ID and comparison against active cached native identities for
+that exact workspace/name. Full native identities are compared before hashing
+or clipping; reuse of a name with a different lifetime is explicit. A complete
+identifiable listing may establish absence; malformed, ambiguous, unsupported,
+failed or timed-out evidence is **unknown**, never absence. Shared registered
+names are not probed. Changed registration/cache evidence rejects the result;
+changed observations invalidate pagination cursors, and every page repeats the
+bounded listing. The observation timestamp is not a guarantee of future state.
+
+Runtime matches, absence or mismatches establish neither registration ownership,
+lease safety, orphan absence nor cleanup eligibility/consent. Unrelated listing
+rows, native lifetime IDs, mounts, environment, pane contents and raw errors are
+not returned. Unregistered runtimes are not classified. Cached inventories never
+start these probes implicitly; use existing retained references for cached
+history, not as proof of liveness.
+
+### Retained inventories (diagnostics schema 9)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -353,7 +392,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 8; version mismatches fail closed
+extension must support diagnostics schema 9; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

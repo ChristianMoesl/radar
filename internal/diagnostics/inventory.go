@@ -208,6 +208,9 @@ func paginate(req protocol.DiagnosticsRequest, items []protocol.DiagnosticItem, 
 	if req.Section == "gc_plan" {
 		page.Limitations = []string{"free_form_content_withheld", "runtime_not_probed", "provider_preview_not_run", "provider_freshness_not_established", "ownership_and_leases_not_checked", "candidate_is_not_execution_eligibility_or_consent", "pending_resource_refresh_may_change_plan", "text_fields_limited_to_512_bytes", "scope_selects_owning_task_including_related_resources"}
 	}
+	if req.Section == "runtime_probe" {
+		page.Limitations = []string{"explicit_registered_runtime_listing_only", "cached_identity_is_not_registration_ownership", "ownership_and_leases_not_checked", "unregistered_runtimes_not_classified", "no_startup_refresh_login_or_maintenance", "provider_errors_and_unrelated_listing_rows_withheld", "unknown_is_not_absence", "presence_is_not_health_or_execution_eligibility", "text_fields_limited_to_512_bytes", "each_page_repeats_the_bounded_probe"}
+	}
 	end := min(offset+req.Limit, len(items))
 	for {
 		page.Items = items[offset:end]

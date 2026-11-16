@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -13,6 +14,13 @@ import (
 
 func TestOutputHelper(t *testing.T) {
 	switch os.Getenv("RADAR_OUTPUT_HELPER") {
+	case "cwd":
+		dir, err := os.Getwd()
+		if err != nil {
+			os.Exit(2)
+		}
+		_, _ = os.Stdout.WriteString(dir)
+		os.Exit(0)
 	case "large":
 		_, _ = os.Stdout.Write(bytes.Repeat([]byte("x"), 21<<20))
 		os.Exit(0)
@@ -57,5 +65,26 @@ func TestProviderOutputHonorsDeadline(t *testing.T) {
 	_, err := Output(ctx, "/bin/sh", []string{"-c", "sleep 30"}, nil)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal(err)
+	}
+}
+
+func TestProviderOutputInDirPreservesNativeWorkingDirectoryAndBounds(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	out, err := OutputInDir(context.Background(), dir, binary, []string{"-test.run=^TestOutputHelper$"}, append(os.Environ(), "RADAR_OUTPUT_HELPER=cwd"))
+	// Darwin can report /private/var for its /var temporary directory.
+	want, _ := filepath.EvalSymlinks(dir)
+	got, _ := filepath.EvalSymlinks(string(out))
+	if err != nil || got != want {
+		t.Fatalf("cwd=%q err=%v", out, err)
+	}
+	for _, mode := range []string{"large", "private"} {
+		out, err = OutputInDir(context.Background(), dir, binary, []string{"-test.run=^TestOutputHelper$"}, append(os.Environ(), "RADAR_OUTPUT_HELPER="+mode))
+		if err == nil || len(out) != 0 || strings.Contains(err.Error(), "private credential") {
+			t.Fatalf("bound/privacy lost: %d %v", len(out), err)
+		}
 	}
 }

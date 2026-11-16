@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 8
+const DiagnosticsVersion = 9
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -14,8 +14,10 @@ func DiagnosticText(value string) string {
 	return strings.ToValidUTF8(value, "�")
 }
 
-// DiagnosticsRequest has no execution or arbitrary filesystem parameters.
-// Workspace is a lexical cache filter; the host facade resolves registered scope.
+// DiagnosticsRequest has no mutation or arbitrary filesystem parameters.
+// Workspace is host-resolved scope: lexical filtering for cached reads,
+// exact registered identity for probes.
+// runtime_probe is accepted only by the separate explicit diagnostics-probe RPC.
 type DiagnosticsRequest struct {
 	Section   string `json:"section"`
 	ParentID  string `json:"parent_id,omitempty"`
@@ -247,7 +249,29 @@ type DiagnosticGCPlan struct {
 	Occurrences          int                   `json:"occurrences"`
 }
 
+// DiagnosticRuntimeObservation is provider-owned bounded presence evidence.
+// No raw listing, mounts, environment, pane contents or provider error is exposed.
+type DiagnosticRuntimeObservation struct {
+	Presence string `json:"presence"`
+	ID       string `json:"id,omitempty"`
+	State    string `json:"state"`
+	Problem  string `json:"problem,omitempty"`
+}
+
+type DiagnosticRuntime struct {
+	ID                  string                       `json:"id"`
+	WorkspaceID         string                       `json:"workspace_id"`
+	Provider            string                       `json:"provider"`
+	Name                string                       `json:"registered_name"`
+	Observation         DiagnosticRuntimeObservation `json:"observation"`
+	CachedIdentityCount int                          `json:"cached_identity_count"`
+	IdentityComparison  string                       `json:"identity_comparison"`
+	OwnershipEvidence   string                       `json:"ownership_evidence"`
+	LeaseEvidence       string                       `json:"lease_evidence"`
+}
+
 type DiagnosticItem struct {
+	Runtime           *DiagnosticRuntime            `json:"runtime,omitempty"`
 	GCPlan            *DiagnosticGCPlan             `json:"gc_plan,omitempty"`
 	AgentSchedule     *DiagnosticAgentScheduleEntry `json:"agent_schedule,omitempty"`
 	WorkspaceResource *DiagnosticWorkspaceResource  `json:"workspace_resource,omitempty"`

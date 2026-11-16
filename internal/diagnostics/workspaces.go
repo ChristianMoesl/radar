@@ -86,6 +86,7 @@ func workspaceRetention(record state.TaskRecord, refs []state.SourceRefRecord, n
 func workspaceSummary(group protocol.DiagnosticWorkspace, tasks []workspaceTask, owners []string, ownershipKnown bool) protocol.DiagnosticWorkspace {
 	view := group
 	view.ID, view.Path = clip(group.ID), clip(group.Path)
+	view.SandboxName, view.SessionName = clip(group.SandboxName), clip(group.SessionName)
 	view.MemberCount, view.MountCount, view.PortCount, view.TaskCount = len(group.Members), len(group.Mounts), len(group.Ports), len(tasks)
 	view.Members, view.Mounts, view.Ports = []protocol.DiagnosticMember{}, []protocol.DiagnosticMount{}, []protocol.PortForward{}
 	view.TaskIDs, view.AgentOwners, view.Retention = []int{}, []string{}, []protocol.DiagnosticRetention{}

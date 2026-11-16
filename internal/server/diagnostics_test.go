@@ -14,6 +14,7 @@ import (
 	"radar/internal/cleanup"
 	"radar/internal/integration"
 	"radar/internal/integration/workspace"
+	workspacegroup "radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
 	"radar/internal/state"
 )
@@ -135,4 +136,73 @@ func (p diagnosticNoCleanup) PreviewCleanup(context.Context, integration.Cleanup
 func (p diagnosticNoCleanup) Cleanup(context.Context, integration.CleanupRequest) (protocol.CleanupTarget, error) {
 	*p.calls++
 	return protocol.CleanupTarget{}, nil
+}
+
+func TestRuntimeProbeRPCRequiresExplicitMethodExactScopeAndNeverMutates(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, "workspaces")
+	path := filepath.Join(root, "registered")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("RADAR_STATE", filepath.Join(home, "state.db"))
+	if err := os.MkdirAll(filepath.Join(home, "config", "radar"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "radar", "config.yaml"), []byte("workspace: {root_dir: "+root+"}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	group := workspacegroup.Workspace{ID: workspacegroup.ID(path), Name: "registered", Path: path, Sandbox: &workspacegroup.Sandbox{Name: "runtime-name", Agent: "shell"}}
+	if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effects, probes := 0, 0
+	source := diagnosticRuntimeSource{diagnosticNoCleanup: diagnosticNoCleanup{fakeCleanupSource: fakeCleanupSource{name: "sbx"}, calls: &effects}, probes: &probes}
+	server := New(store, logger, func() { effects++ }, func() error { effects++; return nil }, nil, integration.NewRegistry(workspace.Source{}, source), cleanup.New([]integration.CleanupProvider{source})).SetResourcePublication(func() { effects++ }, func() protocol.Response { return protocol.Response{ResourceRefreshPending: true} })
+	host, client := net.Pipe()
+	done := make(chan struct{})
+	go func() { defer close(done); server.handle(host) }()
+	encoder, decoder := json.NewEncoder(client), json.NewDecoder(client)
+	for index, req := range []protocol.Request{
+		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "runtime_probe", ParentID: group.ID}},
+		{Method: "diagnostics-probe"},
+		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "runtime_probe"}},
+		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "tasks", ParentID: group.ID}},
+		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "runtime_probe", ParentID: group.ID, Workspace: path + "-other"}},
+		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "runtime_probe", ParentID: group.ID, Workspace: path}},
+	} {
+		if err := encoder.Encode(req); err != nil {
+			t.Fatal(err)
+		}
+		var response protocol.Response
+		if err := decoder.Decode(&response); err != nil {
+			t.Fatal(err)
+		}
+		if index < 5 {
+			if response.OK || probes != 0 {
+				t.Fatalf("implicit/unscoped probe accepted: %+v", response)
+			}
+		} else if !response.OK || response.Diagnostics == nil || response.Diagnostics.Total != 1 || !response.Diagnostics.ResourceRefreshPending || response.Diagnostics.Schema != protocol.DiagnosticsVersion || response.Diagnostics.Items[0].Runtime.Observation.Presence != "present" || probes != 1 {
+			t.Fatalf("explicit probe missing: %+v", response)
+		}
+	}
+	_ = client.Close()
+	<-done
+	if effects != 0 {
+		t.Fatal("runtime observation called cleanup, collection or refresh")
+	}
+}
+
+type diagnosticRuntimeSource struct {
+	diagnosticNoCleanup
+	probes *int
+}
+
+func (p diagnosticRuntimeSource) DiagnosticRuntime(context.Context, string) protocol.DiagnosticRuntimeObservation {
+	*p.probes++
+	return protocol.DiagnosticRuntimeObservation{Presence: "present", State: "running", ID: "native-lifetime"}
 }

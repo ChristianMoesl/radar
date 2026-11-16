@@ -23,20 +23,31 @@ func Output(ctx context.Context, name string, args, env []string) ([]byte, error
 // OutputResult also retains bounded stdout on a nonzero exit. Callers may decode
 // a provider's structured error result, but must never log this untrusted output.
 func OutputResult(ctx context.Context, name string, args, env []string) ([]byte, error) {
-	return outputResult(ctx, name, args, env, false)
+	return outputResult(ctx, "", name, args, env, false)
+}
+
+// OutputInDir preserves provider-owned executable working-directory rules while
+// retaining the same output/cancellation/privacy bounds as Output.
+func OutputInDir(ctx context.Context, dir, name string, args, env []string) ([]byte, error) {
+	data, err := outputResult(ctx, dir, name, args, env, false)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // Version supports tools which print --version on stderr. It is deliberately
 // limited to that non-secret command; ordinary requests discard diagnostics.
 func Version(ctx context.Context, name string, env []string) ([]byte, error) {
-	return outputResult(ctx, name, []string{"--version"}, env, true)
+	return outputResult(ctx, "", name, []string{"--version"}, env, true)
 }
 
-func outputResult(ctx context.Context, name string, args, env []string, version bool) ([]byte, error) {
+func outputResult(ctx context.Context, dir, name string, args, env []string, version bool) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	cmd := CommandContext(ctx, name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.Dir = dir
 	cmd.Env = env
 	var out boundedOutput
 	var diagnostic boundedOutput

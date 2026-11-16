@@ -87,6 +87,12 @@ func callRequest(socketPath string, req protocol.Request, timeout time.Duration)
 	return res, nil
 }
 
+// ProbeDiagnostics explicitly requests a bounded registered runtime observation.
+// It never starts the daemon or falls back to a general command endpoint.
+func ProbeDiagnostics(socketPath string, request protocol.DiagnosticsRequest, timeout time.Duration) (protocol.Response, error) {
+	return callRequest(socketPath, protocol.Request{Method: "diagnostics-probe", Diagnostics: &request}, timeout)
+}
+
 // InspectDiagnostics reads cached state and registration only, without daemon startup.
 func InspectDiagnostics(socketPath string, request protocol.DiagnosticsRequest, timeout time.Duration) (protocol.Response, error) {
 	return callRequest(socketPath, protocol.Request{Method: "diagnostics", Diagnostics: &request}, timeout)

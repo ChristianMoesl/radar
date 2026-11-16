@@ -214,10 +214,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	observed := make(chan protocol.Request, 15)
+	observed := make(chan protocol.Request, 18)
 	done := make(chan error, 1)
 	go func() {
-		for i := 0; i < 15; i++ {
+		for i := 0; i < 18; i++ {
 			conn, err := listener.Accept()
 			if err != nil {
 				done <- err
@@ -232,10 +232,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 			}
 			observed <- req
 			response := protocol.Response{OK: true, Diagnostics: &protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: req.Diagnostics.Section, Evidence: "cached_daemon_state", Items: []protocol.DiagnosticItem{}, Complete: true}}
-			if i == 13 {
+			if i == 16 {
 				response.Diagnostics.Schema = 99
 			}
-			if i == 14 {
+			if i == 17 {
 				response = protocol.Response{OK: false, Error: "unknown method: diagnostics; private-provider-value"}
 			}
 			err = json.NewEncoder(conn).Encode(response)
@@ -247,14 +247,14 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		}
 		done <- nil
 	}()
-	for index, scope := range []string{"origin", "feedback", "installation", "origin", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation"} {
-		section := []string{"tasks", "source_refs", "bindings", "agents", "workspace_resources", "workspace_resources", "workspace_resources", "agent_schedules", "agent_schedules", "agent_schedules", "gc_plan", "gc_plan", "gc_plan"}[index]
+	for index, scope := range []string{"origin", "feedback", "installation", "origin", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation"} {
+		section := []string{"tasks", "source_refs", "bindings", "agents", "workspace_resources", "workspace_resources", "workspace_resources", "agent_schedules", "agent_schedules", "agent_schedules", "gc_plan", "gc_plan", "gc_plan", "runtime_probe", "runtime_probe", "runtime_probe"}[index]
 		parent := ""
-		if index == 1 || index == 2 || section == "workspace_resources" || section == "agent_schedules" || section == "gc_plan" {
+		if index == 1 || index == 2 || section == "workspace_resources" || section == "agent_schedules" || section == "gc_plan" || section == "runtime_probe" {
 			parent = "opaque-parent"
 		}
 		state := "done"
-		if section == "agents" || section == "workspace_resources" || section == "agent_schedules" {
+		if section == "agents" || section == "workspace_resources" || section == "agent_schedules" || section == "runtime_probe" {
 			state = ""
 		}
 		result, err := feedbackInventory(anchor, scope, protocol.DiagnosticsRequest{Section: section, ParentID: parent, Workspace: "/must-not-pass-through", Limit: 7, ID: "123", State: state, Cursor: "opaque"})
@@ -269,7 +269,11 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		if scope == "feedback" {
 			want = anchor
 		}
-		if req.Method != "diagnostics" || req.Diagnostics == nil || req.Diagnostics.Workspace != want || req.Diagnostics.Section != section || req.Diagnostics.ParentID != parent || req.Diagnostics.ID != "123" || req.Diagnostics.Limit != 7 || req.Diagnostics.Cursor != "opaque" || req.Diagnostics.State != state {
+		method := "diagnostics"
+		if section == "runtime_probe" {
+			method = "diagnostics-probe"
+		}
+		if req.Method != method || req.Diagnostics == nil || req.Diagnostics.Workspace != want || req.Diagnostics.Section != section || req.Diagnostics.ParentID != parent || req.Diagnostics.ID != "123" || req.Diagnostics.Limit != 7 || req.Diagnostics.Cursor != "opaque" || req.Diagnostics.State != state {
 			t.Fatalf("unexpected request: %+v", req)
 		}
 		if result["feedback_workspace_id"] != workspacegroup.ID(anchor) {

@@ -24,6 +24,26 @@ type WorkspaceRegistrationDiagnostics interface {
 	DiagnosticWorkspaceRegistrations() ([]protocol.DiagnosticWorkspace, error)
 }
 
+// RuntimeProbeProvider runs only bounded observation, never collection, login,
+// startup or maintenance. The caller must resolve exact registered scope first.
+type RuntimeProbeProvider interface {
+	Integration
+	DiagnosticRuntime(context.Context, string) protocol.DiagnosticRuntimeObservation
+}
+
+func (r Registry) RuntimeProbe(source string) (RuntimeProbeProvider, error) {
+	var selected []RuntimeProbeProvider
+	for _, candidate := range r.integrations {
+		if provider, ok := candidate.(RuntimeProbeProvider); ok && provider.Descriptor().Name == source {
+			selected = append(selected, provider)
+		}
+	}
+	if len(selected) != 1 {
+		return nil, fmt.Errorf("runtime probe unsupported")
+	}
+	return selected[0], nil
+}
+
 func (r Registry) WorkspaceDiagnostics() (WorkspaceRegistrationDiagnostics, error) {
 	var providers []WorkspaceRegistrationDiagnostics
 	for _, candidate := range r.integrations {
