@@ -1,5 +1,5 @@
 // Package diagnostics projects bounded, allowlisted observations. It never
-// collects providers, starts runtimes, reads private logs or executes maintenance.
+// implicitly collects providers, starts runtimes, reads private logs or executes maintenance.
 package diagnostics
 
 import (
@@ -25,7 +25,7 @@ const maxPageBytes = 256 * 1024
 const maxChildren = protocol.DiagnosticChildLimit
 
 func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
-	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "workspace_resources" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "agents" && req.Section != "agent_schedules" && req.Section != "gc_plan" {
+	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "workspace_resources" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "agents" && req.Section != "agent_schedules" && req.Section != "gc_plan" && req.Section != "integrations" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("unsupported diagnostic inventory")
 	}
 	if req.Limit == 0 {
@@ -45,6 +45,17 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 	}
 	if req.Workspace != "" && !filepath.IsAbs(req.Workspace) {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic scope must be absolute")
+	}
+	if req.Section == "integrations" {
+		if req.State != "" {
+			return protocol.DiagnosticsPage{}, fmt.Errorf("state filters retained task lifecycle, not integrations")
+		}
+		refs, statuses, revision := store.SourceInspectionSnapshot()
+		items, err := integrationItems(req, refs, statuses, providers)
+		if err != nil {
+			return protocol.DiagnosticsPage{}, err
+		}
+		return paginate(req, items, revision, pending, "registered_capabilities_with_cached_installation_status_and_scoped_retained_refs")
 	}
 	records, refs, revision := store.InspectionSnapshot()
 	byRecord := map[string][]state.SourceRefRecord{}
@@ -207,6 +218,9 @@ func paginate(req protocol.DiagnosticsRequest, items []protocol.DiagnosticItem, 
 	page := protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: req.Section, Evidence: evidence, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano), Revision: revision, Snapshot: snapshot, Total: len(items), ResourceRefreshPending: pending, Limitations: []string{"free_form_content_withheld", "runtime_not_probed", "cleanup_planner_not_run", "provider_freshness_not_established", "text_fields_limited_to_512_bytes", "nested_lists_limited_to_16_entries", "historical_manual_intent_not_reconstructed", "registration_paths_are_not_observed_resource_presence"}}
 	if req.Section == "gc_plan" {
 		page.Limitations = []string{"free_form_content_withheld", "runtime_not_probed", "provider_preview_not_run", "provider_freshness_not_established", "ownership_and_leases_not_checked", "candidate_is_not_execution_eligibility_or_consent", "pending_resource_refresh_may_change_plan", "text_fields_limited_to_512_bytes", "scope_selects_owning_task_including_related_resources"}
+	}
+	if req.Section == "integrations" {
+		page.Limitations = []string{"cached_status_is_installation_wide_not_workspace_health", "workspace_scope_selects_only_related_retained_refs", "ref_observation_time_is_not_collection_attempt_or_success", "effective_enablement_auth_tools_rate_limits_and_collection_history_unknown", "registered_capability_is_not_execution_permission", "no_provider_status_collection_auth_rate_limit_probe_or_refresh", "raw_provider_details_withheld", "text_fields_limited_to_512_bytes"}
 	}
 	if req.Section == "runtime_probe" {
 		page.Limitations = []string{"explicit_registered_runtime_listing_only", "cached_identity_is_not_registration_ownership", "ownership_and_leases_not_checked", "unregistered_runtimes_not_classified", "no_startup_refresh_login_or_maintenance", "provider_errors_and_unrelated_listing_rows_withheld", "unknown_is_not_absence", "presence_is_not_health_or_execution_eligibility", "text_fields_limited_to_512_bytes", "each_page_repeats_the_bounded_probe"}

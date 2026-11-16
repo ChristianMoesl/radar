@@ -42,6 +42,8 @@ func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agents"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agent_schedules"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "gc_plan"}},
+		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "integrations"}},
+		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "integrations", State: "done"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agent_schedules", State: "done"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agents", State: "done"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "workspace_resources"}},
@@ -55,13 +57,16 @@ func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T
 		if err := decoder.Decode(&response); err != nil {
 			t.Fatal(err)
 		}
-		if req.Diagnostics != nil && req.Diagnostics.ParentID == "" && req.Diagnostics.State == "" && (req.Diagnostics.Section == "tasks" || req.Diagnostics.Section == "source_refs" || req.Diagnostics.Section == "bindings" || req.Diagnostics.Section == "agents" || req.Diagnostics.Section == "agent_schedules") {
+		if req.Diagnostics != nil && req.Diagnostics.ParentID == "" && req.Diagnostics.State == "" && (req.Diagnostics.Section == "tasks" || req.Diagnostics.Section == "source_refs" || req.Diagnostics.Section == "bindings" || req.Diagnostics.Section == "agents" || req.Diagnostics.Section == "agent_schedules" || req.Diagnostics.Section == "integrations") {
 			expected := 1
 			if req.Diagnostics.Section == "bindings" || req.Diagnostics.Section == "agents" || req.Diagnostics.Section == "agent_schedules" {
 				expected = 0
 			}
 			if !response.OK || response.Diagnostics == nil || response.Diagnostics.Total != expected || response.Diagnostics.Schema != protocol.DiagnosticsVersion || !response.Diagnostics.ResourceRefreshPending {
 				t.Fatalf("response=%+v", response)
+			}
+			if req.Diagnostics.Section == "integrations" && (response.Diagnostics.Items[0].Integration.Name != "test" || response.Diagnostics.Items[0].Integration.CachedStatus != "unknown" || response.Diagnostics.Items[0].Integration.CapabilityEvidence != "not_registered") {
+				t.Fatal("retained source without registration/status must remain visible with unknown evidence")
 			}
 		} else if response.OK {
 			t.Fatal("invalid request accepted")

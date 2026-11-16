@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 9
+const DiagnosticsVersion = 10
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -270,7 +270,40 @@ type DiagnosticRuntime struct {
 	LeaseEvidence       string                       `json:"lease_evidence"`
 }
 
+// Capabilities describe registered interfaces, not tool availability, provider
+// configuration, authentication or permission to run any operation.
+type DiagnosticIntegrationCapabilities struct {
+	Collection                bool `json:"collection"`
+	StatusCheck               bool `json:"status_check"`
+	InteractiveAuthentication bool `json:"interactive_authentication"`
+	BoundResolution           bool `json:"bound_resolution"`
+	Cleanup                   bool `json:"cleanup"`
+	RuntimeProbe              bool `json:"runtime_probe"`
+	RateLimit                 bool `json:"rate_limit"`
+}
+
+type DiagnosticIntegration struct {
+	ID                           string                             `json:"id"`
+	Name                         string                             `json:"name"`
+	Label                        string                             `json:"label,omitempty"`
+	RegistrationCount            int                                `json:"registration_count"`
+	Capabilities                 *DiagnosticIntegrationCapabilities `json:"capabilities,omitempty"`
+	CapabilityEvidence           string                             `json:"capability_evidence"`
+	CachedStatusCount            int                                `json:"cached_status_count"`
+	CachedStatus                 string                             `json:"cached_status"`
+	StatusEvidence               string                             `json:"status_evidence"`
+	DetailsAvailable             bool                               `json:"details_available"`
+	InstallationReportedRefCount *int                               `json:"installation_reported_ref_count,omitempty"`
+	ActiveRefs                   int                                `json:"active_refs"`
+	InactiveRefs                 int                                `json:"inactive_refs"`
+	LatestRefObservedAt          string                             `json:"latest_retained_ref_observed_at,omitempty"`
+	UnknownRefObservedAt         int                                `json:"refs_with_unknown_observed_at"`
+	AccessEvidence               string                             `json:"access_evidence"`
+	FreshnessEvidence            string                             `json:"freshness_evidence"`
+}
+
 type DiagnosticItem struct {
+	Integration       *DiagnosticIntegration        `json:"integration,omitempty"`
 	Runtime           *DiagnosticRuntime            `json:"runtime,omitempty"`
 	GCPlan            *DiagnosticGCPlan             `json:"gc_plan,omitempty"`
 	AgentSchedule     *DiagnosticAgentScheduleEntry `json:"agent_schedule,omitempty"`

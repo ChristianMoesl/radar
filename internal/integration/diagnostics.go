@@ -56,3 +56,25 @@ func (r Registry) WorkspaceDiagnostics() (WorkspaceRegistrationDiagnostics, erro
 	}
 	return providers[0], nil
 }
+
+// DiagnosticIntegrations projects static registration/interfaces only. Never call
+// Status, Collect, authentication, rate-limit reporting, setup or tool discovery
+// here: those methods can contact providers or read credentials.
+func (r Registry) DiagnosticIntegrations() []protocol.DiagnosticIntegration {
+	items := make([]protocol.DiagnosticIntegration, 0, len(r.integrations))
+	for _, candidate := range r.integrations {
+		if candidate == nil {
+			continue
+		}
+		descriptor := candidate.Descriptor()
+		_, collection := candidate.(Source)
+		_, status := candidate.(StatusReporter)
+		_, auth := candidate.(InteractiveAuthenticator)
+		_, bindings := candidate.(BoundSourceResolver)
+		_, cleanup := candidate.(CleanupProvider)
+		_, runtimeProbe := candidate.(RuntimeProbeProvider)
+		_, rateLimit := candidate.(RateLimitReporter)
+		items = append(items, protocol.DiagnosticIntegration{Name: descriptor.Name, Label: descriptor.Label, Capabilities: &protocol.DiagnosticIntegrationCapabilities{Collection: collection, StatusCheck: status, InteractiveAuthentication: auth, BoundResolution: bindings, Cleanup: cleanup, RuntimeProbe: runtimeProbe, RateLimit: rateLimit}})
+	}
+	return items
+}

@@ -111,6 +111,43 @@ run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
 not proof that it exists or is running. Missing daemon/origin evidence is
 unavailable, not healthy, empty, repaired or enrolled.
 
+### Cached integration evidence
+
+Use `section: "integrations"` for the complete paginated union of registered
+integration capabilities, cached installation-wide provider statuses and retained
+reference providers (including no-longer-registered ones). `id` selects an opaque
+stable integration ID. Installation scope includes
+all these rows; origin/feedback scopes select only providers with directly related
+retained references, including inactive and dashboard-hidden records. There is
+no inference that an unrelated provider is unused, healthy or unavailable for a
+workspace. Parent and task-state selectors are rejected rather than ignored.
+
+Capabilities are static registered interfaces, not effective configuration,
+tool availability, authorization or permission to execute an operation. Cached
+statuses are explicitly installation-wide even in workspace scope; status alone
+is not workspace health. Only `ok`, `partial`, `error` and `disabled` are projected;
+missing or unrecognized evidence stays `unknown`. Duplicate registration/status
+identities have explicit ambiguity evidence and do not invent capabilities or
+health. Raw provider errors/details are withheld behind `details_available`.
+Installation-reported observation counts are omitted in workspace scope. Native
+zero/missing counts are also omitted: the persisted status model does not
+distinguish them (including skipped collection), so they cannot prove none.
+
+Active/inactive reference counts and latest valid retained-reference observation
+timestamps describe only the selected scope. Invalid/missing timestamps are
+counted as unknown. Such timestamps never establish the last collection attempt,
+last successful collection, provider cache freshness or authentication. Those
+histories are not recorded in the existing native status model and remain
+explicitly unknown; no new telemetry or persisted schema is introduced.
+
+Registration and cached status/reference snapshots are projected without calling
+provider `Status`, `Collect`, authentication, rate-limit or runtime methods,
+looking up/running tools, reading provider credentials/configuration or refreshing any
+provider. Native references and statuses share one atomic cache revision; cursors
+also bind selected scope, registration/capability changes and pending publication.
+IDs hash full native provider identity before clipping display text. CLI, daemon
+and extension must all support schema 10; older versions fail closed.
+
 ### Explicit registered-runtime observations
 
 Use `section: "runtime_probe", parent_id: "<registered workspace ID>"` only for
@@ -149,7 +186,7 @@ not returned. Unregistered runtimes are not classified. Cached inventories never
 start these probes implicitly; use existing retained references for cached
 history, not as proof of liveness.
 
-### Retained inventories (diagnostics schema 9)
+### Retained inventories (diagnostics schema 10)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -392,7 +429,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 9; version mismatches fail closed
+extension must support diagnostics schema 10; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

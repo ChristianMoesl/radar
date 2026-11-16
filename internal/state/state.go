@@ -1574,10 +1574,23 @@ func (s *Store) InspectionSnapshot() ([]TaskRecord, []SourceRefRecord, int64) {
 		records[i].SourceRefIDs = slices.Clone(record.SourceRefIDs)
 		records[i].Snapshot = cloneTask(record.Snapshot)
 	}
+	return records, s.inspectionSourceRefsLocked(), s.revision
+}
+
+// SourceInspectionSnapshot atomically reads retained native references and cached
+// installation-wide source status. It never collects or probes providers. Callers
+// must project an allowlist rather than export either internal snapshot.
+func (s *Store) SourceInspectionSnapshot() ([]SourceRefRecord, []protocol.SourceStatus, int64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.inspectionSourceRefsLocked(), slices.Clone(s.state.Sources), s.revision
+}
+
+func (s *Store) inspectionSourceRefsLocked() []SourceRefRecord {
 	refs := make([]SourceRefRecord, len(s.state.SourceRefs))
 	for i, ref := range s.state.SourceRefs {
 		refs[i] = ref
 		refs[i].Snapshot = cloneSourceRefs([]protocol.SourceRef{ref.Snapshot})[0]
 	}
-	return records, refs, s.revision
+	return refs
 }
