@@ -53,6 +53,7 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 	}
 	items := []protocol.DiagnosticItem{}
 	evidence := "cached_daemon_state"
+	now := time.Now()
 	if req.Section == "tasks" {
 		linking := state.LinkingInputs(records, refs)
 		for _, record := range records {
@@ -65,7 +66,7 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 			if req.Workspace != "" && !recordInWorkspace(byRecord[record.ID], req.Workspace) {
 				continue
 			}
-			task := taskView(record, byRecord[record.ID], linking[record.ID])
+			task := taskView(record, byRecord[record.ID], linking[record.ID], now)
 			items = append(items, protocol.DiagnosticItem{ID: task.RecordID, Task: &task})
 		}
 	} else if req.Section == "agents" {
@@ -138,7 +139,7 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 				}
 				item.TaskIDs = append(item.TaskIDs, record.NumericID)
 				task := productionTask(record, byRecord[record.ID])
-				retention := protocol.DiagnosticRetention{TaskID: record.NumericID, State: clip(record.State), DoneAt: clip(record.DoneAt), Activity: protocol.SourceRefsActivity(task.SourceRefs).String(), Review: record.AgentReviewPending}
+				retention := protocol.DiagnosticRetention{GCRetention: gcRetentionView(record, byRecord[record.ID], now), TaskID: record.NumericID, State: clip(record.State), DoneAt: clip(record.DoneAt), Activity: protocol.SourceRefsActivity(task.SourceRefs).String(), Review: record.AgentReviewPending}
 				for _, ref := range task.SourceRefs {
 					retention.Review = retention.Review || ref.AgentReview
 				}
@@ -158,7 +159,7 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 	return paginate(req, items, revision, pending, evidence)
 }
 
-func taskView(record state.TaskRecord, refs []state.SourceRefRecord, linking state.LinkingEvidence) protocol.DiagnosticTask {
+func taskView(record state.TaskRecord, refs []state.SourceRefRecord, linking state.LinkingEvidence, now time.Time) protocol.DiagnosticTask {
 	task := productionTask(record, refs)
 	inputs := state.LifecycleInputs(record, refs)
 	view := protocol.DiagnosticTask{RecordID: clip(record.ID), TaskID: record.NumericID, State: clip(record.State), DoneAt: clip(record.DoneAt), UpdatedAt: clip(record.UpdatedAt), Activity: protocol.SourceRefsActivity(task.SourceRefs).String(), Review: record.AgentReviewPending, Acknowledged: record.Ack.Cursor != "", DecisionReasonAvailable: record.Reason != "", SourceCount: len(refs), Sources: []protocol.DiagnosticRef{}}
@@ -179,6 +180,16 @@ func taskView(record state.TaskRecord, refs []state.SourceRefRecord, linking sta
 	view.AuthoredIdentityCount = linking.AuthoredIdentities
 	view.LinkingComponentRecords = linking.ConnectedRecords
 	view.LinkingBlocked = linking.Blocked
+	view.GCRetention = gcRetentionView(record, refs, now)
+	return view
+}
+
+func gcRetentionView(record state.TaskRecord, refs []state.SourceRefRecord, now time.Time) protocol.DiagnosticGCRetention {
+	gate := workspacegc.InspectRetention(record, refs, now)
+	view := protocol.DiagnosticGCRetention{Decision: gate.Decision, Evidence: "production_gc_retention_gate_only"}
+	if !gate.ReadyAt.IsZero() {
+		view.ReadyAt = gate.ReadyAt.UTC().Format(time.RFC3339Nano)
+	}
 	return view
 }
 

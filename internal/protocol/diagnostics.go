@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 3
+const DiagnosticsVersion = 4
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -53,22 +53,23 @@ type DiagnosticRef struct {
 }
 
 type DiagnosticTask struct {
-	AuthoredIdentityCount   int             `json:"authored_identity_count"`
-	LinkingComponentRecords int             `json:"linking_component_records"`
-	LinkingBlocked          bool            `json:"linking_blocked"`
-	DecisionEvidence        string          `json:"decision_evidence"`
-	RecordID                string          `json:"record_id"`
-	TaskID                  int             `json:"task_id"`
-	State                   string          `json:"state"`
-	DoneAt                  string          `json:"done_at,omitempty"`
-	UpdatedAt               string          `json:"updated_at,omitempty"`
-	Activity                string          `json:"activity"`
-	Review                  bool            `json:"review"`
-	Acknowledged            bool            `json:"acknowledged"`
-	DecisionReasonAvailable bool            `json:"decision_reason_available"`
-	SourceCount             int             `json:"source_count"`
-	Sources                 []DiagnosticRef `json:"sources"`
-	Truncated               bool            `json:"truncated"`
+	GCRetention             DiagnosticGCRetention `json:"gc_retention"`
+	AuthoredIdentityCount   int                   `json:"authored_identity_count"`
+	LinkingComponentRecords int                   `json:"linking_component_records"`
+	LinkingBlocked          bool                  `json:"linking_blocked"`
+	DecisionEvidence        string                `json:"decision_evidence"`
+	RecordID                string                `json:"record_id"`
+	TaskID                  int                   `json:"task_id"`
+	State                   string                `json:"state"`
+	DoneAt                  string                `json:"done_at,omitempty"`
+	UpdatedAt               string                `json:"updated_at,omitempty"`
+	Activity                string                `json:"activity"`
+	Review                  bool                  `json:"review"`
+	Acknowledged            bool                  `json:"acknowledged"`
+	DecisionReasonAvailable bool                  `json:"decision_reason_available"`
+	SourceCount             int                   `json:"source_count"`
+	Sources                 []DiagnosticRef       `json:"sources"`
+	Truncated               bool                  `json:"truncated"`
 }
 
 type DiagnosticWorkspace struct {
@@ -104,12 +105,19 @@ type DiagnosticMember struct {
 }
 
 type DiagnosticRetention struct {
-	TaskID   int    `json:"task_id"`
-	State    string `json:"state"`
-	DoneAt   string `json:"done_at,omitempty"`
-	ExpiryAt string `json:"expiry_at,omitempty"`
-	Activity string `json:"activity"`
-	Review   bool   `json:"review"`
+	GCRetention DiagnosticGCRetention `json:"gc_retention"`
+	TaskID      int                   `json:"task_id"`
+	State       string                `json:"state"`
+	DoneAt      string                `json:"done_at,omitempty"`
+	ExpiryAt    string                `json:"expiry_at,omitempty"`
+	Activity    string                `json:"activity"`
+	Review      bool                  `json:"review"`
+}
+
+type DiagnosticGCRetention struct {
+	Decision string `json:"decision"`
+	ReadyAt  string `json:"ready_at,omitempty"`
+	Evidence string `json:"evidence"`
 }
 
 type DiagnosticBinding struct {

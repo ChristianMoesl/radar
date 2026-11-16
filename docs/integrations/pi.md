@@ -110,7 +110,7 @@ run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
 not proof that it exists or is running. Missing daemon/origin evidence is
 unavailable, not healthy, empty, repaired or enrolled.
 
-### Retained inventories (diagnostics schema 3)
+### Retained inventories (diagnostics schema 4)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -168,6 +168,24 @@ repaired by inspection. Counts reveal related ownership without leaking other
 tasks' note contents. A zero component count means no current authoritative
 linking evidence, not proven absence of external links.
 
+### Cleanup-retention explanations
+
+Task views and each workspace retention entry include `gc_retention`, using
+exactly the production GC gate and its active-ref selection. Its decision is
+`task_not_done`, `completion_time_missing_or_invalid`, `retention_pending`,
+`agent_work_or_review_pending` or `retention_gate_passed`. `ready_at` is the
+normal retention boundary, not a deletion deadline or authorization. The
+registered workspace's separate `expiry_at` still uses the existing expiry
+policy; inspection changes neither deadline.
+
+Evidence is explicitly `production_gc_retention_gate_only`. A passing gate
+never establishes cleanup execution eligibility: location, registered-agent
+ownership, provider safety, leases, drift and confirmation checks still apply.
+A stopped registered owner can block execution after retention has passed.
+Activity/review checks use all production-selected active refs, not just the
+16 shown in a task summary. No provider preview, runtime probe, cleanup planner
+or executor is run to obtain this evidence.
+
 ### Durable-agent registration and checkpoint evidence
 
 Use `section: "agents"` with the same origin/feedback/installation scopes and
@@ -224,7 +242,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 3; version mismatches fail closed
+extension must support diagnostics schema 4; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

@@ -62,6 +62,9 @@ func TestInventoryIncludesHiddenRetainedRecordsWithoutPrivatePayloads(t *testing
 	if view := page.Items[0].Task; view.State != "done" || view.DoneAt != "2026-01-02T10:20:30Z" || len(view.Sources) != 2 {
 		t.Fatalf("view=%+v", view)
 	}
+	if gate := page.Items[0].Task.GCRetention; gate.Decision != "retention_gate_passed" || gate.ReadyAt != "2026-01-03T10:20:30Z" || gate.Evidence != "production_gc_retention_gate_only" {
+		t.Fatalf("wrong production gate evidence: %+v", gate)
+	}
 	encoded, _ := json.Marshal(page)
 	for _, private := range []string{"private-title", "private-provider-body", "private-token", "private-env", "completed_at"} {
 		if strings.Contains(string(encoded), private) {
@@ -87,6 +90,9 @@ func TestInventoryIncludesHiddenRetainedRecordsWithoutPrivatePayloads(t *testing
 	done, _ := time.Parse(time.RFC3339, "2026-01-02T10:20:30Z")
 	if len(view.Retention) != 1 || view.Retention[0].ExpiryAt != done.Add(workspacegc.ExpiryRetention).Format(time.RFC3339) || len(view.AgentOwners) != 1 || view.AgentOwners[0] != "stopped-owner" || view.RuntimeEvidence != "unknown_not_probed" || view.ExecutionEligibility != "blocked_registered_agent" {
 		t.Fatalf("view=%+v", view)
+	}
+	if view.Retention[0].GCRetention.Decision != "retention_gate_passed" {
+		t.Fatal("retention gate should pass without overriding the stopped-owner execution block")
 	}
 	encoded, _ = json.Marshal(page)
 	if strings.Contains(string(encoded), "private-") {
