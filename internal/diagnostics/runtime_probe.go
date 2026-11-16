@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"radar/internal/agentservice"
 	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/state"
@@ -19,9 +20,13 @@ import (
 const RuntimeProbeTimeout = 5 * time.Second
 
 // Probe is separate from Read: only an explicitly selected registered workspace
-// may trigger bounded native runtime listings. It never calls collection,
-// cleanup preview/execution, refresh, login, startup or lease acquisition.
+// or agent may trigger bounded native runtime listings or runner socket reads.
+// It never calls collection, cleanup preview/execution, refresh, login, startup
+// or lease acquisition.
 func Probe(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
+	if req.Section == "agent_probe" {
+		return probeAgent(ctx, store, req, pending)
+	}
 	if req.Section != "runtime_probe" || req.ParentID == "" || len(req.ParentID) > 512 || len(req.ID) > 512 || len(req.Cursor) > 512 || req.State != "" || (req.Workspace != "" && (!filepath.IsAbs(req.Workspace) || len(req.Workspace) > 4096)) || req.Limit < 0 || req.Limit > 50 {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("runtime probe requires an exact registered workspace parent and bounded selectors")
 	}
@@ -164,4 +169,20 @@ func runtimeObservation(view protocol.DiagnosticRuntimeObservation) protocol.Dia
 		view.State = "unknown"
 	}
 	return view
+}
+
+func probeAgent(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequest, pending bool) (protocol.DiagnosticsPage, error) {
+	if req.ParentID == "" || len(req.ParentID) > 64 || req.ID != "" || req.State != "" || req.Cursor != "" || req.Limit < 0 || req.Limit > 50 || (req.Workspace != "" && (!filepath.IsAbs(req.Workspace) || len(req.Workspace) > 4096)) {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("agent probe requires one exact registered agent parent and no row/state/cursor selectors")
+	}
+	revision := store.Revision()
+	view, err := agentservice.ProbeDiagnosticAgent(ctx, req.Workspace, req.ParentID)
+	if err != nil {
+		return protocol.DiagnosticsPage{}, err
+	}
+	if revision != store.Revision() {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic snapshot changed; probe again")
+	}
+	req.Limit = 1
+	return paginate(req, []protocol.DiagnosticItem{{ID: view.ID, AgentProbe: &view}}, revision, pending, "explicit_agent_socket_probe_no_checkpoint_fallback")
 }

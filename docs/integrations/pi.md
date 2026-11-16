@@ -187,7 +187,7 @@ looking up/running tools, reading provider credentials/configuration or refreshi
 provider. Native references and statuses share one atomic cache revision; cursors
 also bind selected scope, registration/capability changes and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 12; older versions fail closed.
+and extension must all support schema 13; older versions fail closed.
 
 ### Explicit registered-runtime observations
 
@@ -227,7 +227,43 @@ not returned. Unregistered runtimes are not classified. Cached inventories never
 start these probes implicitly; use existing retained references for cached
 history, not as proof of liveness.
 
-### Retained inventories (diagnostics schema 12)
+### Explicit registered-agent observation
+
+Use `section: "agent_probe", parent_id: "<agent registration ID>"` only when the
+user requests a live observation of that exact registered agent. Origin is the
+default scope; feedback and installation remain explicit and distinct. Each call
+requires fresh interactive approval naming the exact agent and scope. Headless,
+declined, aborted or lost-MCP requests never contact the runner. Approval does
+not authorize publication, work execution or maintenance.
+
+The fixed host facade sends only native `hello` and `snapshot` RPCs to that
+registration's socket, within one five-second deadline and native 1 MiB response
+frame bounds. Registration is a stable, no-follow regular-file read capped at
+64 KiB, decoded with the production registration rules and rechecked after the
+probe. Invalid/unsafe/out-of-scope registrations fail before socket access;
+registration or daemon-state drift invalidates the result. This is one target
+and one result, not a paginated runner sweep; row/state/cursor selectors are
+rejected. A page-size selector does not widen the target set.
+
+A matching protocol/instance hello and a valid live snapshot are separate
+facts. Only definition version, presentation revision, pending count, attention
+and problem-presence flags are returned. Missing fields, incompatible identity,
+oversized frames, transport failures and timeouts remain unknown. There is no
+persisted-snapshot fallback: an unreachable runner is not verified stopped or
+absent. A stopped registration still pins its workspace under native ownership
+policy. Private presentations, actions, task/event/conversation payloads, PID,
+raw errors and tokens are not returned; no token/checkpoint reads, workspace
+runtime inspection, lease acquisition, refresh, startup, login or maintenance
+occurs. Socket reachability and counters never establish business success,
+workspace health, lease state or cleanup eligibility.
+
+The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
+feedback workspace> --section agent_probe --parent-id <agent registration ID>
+--json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
+extension must all support schema 13; there is no legacy fallback. Separately
+installed extensions require matching sources/reload.
+
+### Retained inventories (diagnostics schema 13)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -470,7 +506,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 12; version mismatches fail closed
+extension must support diagnostics schema 13; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

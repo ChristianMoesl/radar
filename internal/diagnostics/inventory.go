@@ -225,6 +225,9 @@ func paginate(req protocol.DiagnosticsRequest, items []protocol.DiagnosticItem, 
 	if req.Section == "runtime_probe" {
 		page.Limitations = []string{"explicit_registered_runtime_listing_only", "cached_identity_is_not_registration_ownership", "ownership_and_leases_not_checked", "unregistered_runtimes_not_classified", "no_startup_refresh_login_or_maintenance", "provider_errors_and_unrelated_listing_rows_withheld", "unknown_is_not_absence", "presence_is_not_health_or_execution_eligibility", "text_fields_limited_to_512_bytes", "each_page_repeats_the_bounded_probe"}
 	}
+	if req.Section == "agent_probe" {
+		page.Limitations = []string{"explicit_exact_registered_agent_socket_only", "matching_hello_is_not_work_execution_or_runtime_health", "snapshot_is_live_point_in_time_not_business_success", "unreachable_is_unknown_not_stopped_or_absent", "stopped_registration_still_holds_ownership", "workspace_runtime_and_leases_not_probed", "no_checkpoint_fallback", "no_startup_refresh_login_or_maintenance", "private_runner_payloads_and_errors_withheld"}
+	}
 	end := min(offset+req.Limit, len(items))
 	for {
 		page.Items = items[offset:end]

@@ -22,10 +22,10 @@ import (
 func runFeedbackDiagnostics(args []string) {
 	flags := outputFlags("radar feedback-diagnostics")
 	current := flags.String("workspace", "", "registered feedback workspace")
-	section := flags.String("section", "overview", "overview, tasks, workspaces, source_refs, bindings, workspace_resources, agents, agent_schedules, gc_plan, runtime_probe, integrations or logs")
+	section := flags.String("section", "overview", "overview, tasks, workspaces, source_refs, bindings, workspace_resources, agents, agent_schedules, gc_plan, runtime_probe, agent_probe, integrations or logs")
 	scope := flags.String("scope", "origin", "origin, feedback or installation (inventories only)")
 	id := flags.String("id", "", "stable entity ID filter")
-	parentID := flags.String("parent-id", "", "source_refs: task ID; bindings: retained source-ref ID; workspace_resources: registered workspace ID; agent_schedules: agent registration ID; gc_plan: owning task ID; runtime_probe: required registered workspace ID")
+	parentID := flags.String("parent-id", "", "source_refs: task ID; bindings: retained source-ref ID; workspace_resources: registered workspace ID; agent_schedules: agent registration ID; gc_plan: owning task ID; runtime_probe: required registered workspace ID; agent_probe: required agent registration ID")
 	state := flags.String("state", "", "exact retained task state filter")
 	limit := flags.Int("limit", 20, "page size (inventories 1-50; logs 1-100)")
 	cursor := flags.String("cursor", "", "opaque inventory/log continuation cursor")
@@ -36,8 +36,8 @@ func runFeedbackDiagnostics(args []string) {
 	entity := flags.String("entity", "", "logs: opaque entity identity from log metadata")
 	operation := flags.String("operation", "", "logs: opaque operation/correlation identity from log metadata")
 	_ = parseFlags(flags, args)
-	if flags.NArg() != 0 || *current == "" || (*section != "overview" && *section != "logs" && *section != "tasks" && *section != "workspaces" && *section != "source_refs" && *section != "bindings" && *section != "workspace_resources" && *section != "agents" && *section != "agent_schedules" && *section != "gc_plan" && *section != "runtime_probe" && *section != "integrations") {
-		fatal(errors.New("usage: radar feedback-diagnostics --workspace <feedback workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|runtime_probe|integrations|logs --json"))
+	if flags.NArg() != 0 || *current == "" || (*section != "overview" && *section != "logs" && *section != "tasks" && *section != "workspaces" && *section != "source_refs" && *section != "bindings" && *section != "workspace_resources" && *section != "agents" && *section != "agent_schedules" && *section != "gc_plan" && *section != "runtime_probe" && *section != "agent_probe" && *section != "integrations") {
+		fatal(errors.New("usage: radar feedback-diagnostics --workspace <feedback workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|runtime_probe|agent_probe|integrations|logs --json"))
 	}
 	if !jsonOutput {
 		fatal(errors.New("feedback-diagnostics requires --json"))
@@ -57,7 +57,7 @@ func runFeedbackDiagnostics(args []string) {
 	query := logging.LogQuery{Since: *since, Until: *until, Severity: *severity, Provider: *provider, Entity: *entity, Operation: *operation, Limit: *limit, Cursor: *cursor}
 	var result map[string]any
 	var err error
-	if *section == "tasks" || *section == "workspaces" || *section == "source_refs" || *section == "bindings" || *section == "workspace_resources" || *section == "agents" || *section == "agent_schedules" || *section == "gc_plan" || *section == "runtime_probe" || *section == "integrations" {
+	if *section == "tasks" || *section == "workspaces" || *section == "source_refs" || *section == "bindings" || *section == "workspace_resources" || *section == "agents" || *section == "agent_schedules" || *section == "gc_plan" || *section == "runtime_probe" || *section == "agent_probe" || *section == "integrations" {
 		result, err = feedbackInventory(*current, *scope, protocol.DiagnosticsRequest{Section: *section, ParentID: *parentID, ID: *id, State: *state, Limit: *limit, Cursor: *cursor})
 	} else {
 		if *scope != "origin" || *id != "" || *parentID != "" || *state != "" || (*section != "logs" && (*cursor != "" || *limit != 20)) {
@@ -91,7 +91,7 @@ func feedbackDiagnostics(current, section string, logQuery logging.LogQuery) (ma
 		"diagnostics_schema": protocol.DiagnosticsVersion, "section": "overview", "version": version.Number, "commit": version.Commit,
 		"built": version.Date, "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"daemon":       map[string]any{"available": false},
-		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "gc_plan", "runtime_probe", "integrations", "logs"}, "maintenance": false, "runtime_probes": true, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false, "filtered_redacted_log_metadata": true, "raw_log_contents": false, "configuration_policy_origins": true, "workspace_effective_policy": false, "daemon_environment": false},
+		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "gc_plan", "runtime_probe", "agent_probe", "integrations", "logs"}, "maintenance": false, "runtime_probes": true, "agent_socket_probes": true, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false, "filtered_redacted_log_metadata": true, "raw_log_contents": false, "configuration_policy_origins": true, "workspace_effective_policy": false, "daemon_environment": false},
 	}
 	// Native defaults and configuration origins share the exact production
 	// decoder. No arbitrary configuration strings or referenced files escape.
@@ -137,8 +137,8 @@ func feedbackInventory(current, scope string, req protocol.DiagnosticsRequest) (
 	if req.Limit < 1 || req.Limit > 50 || len(req.ID) > 512 || len(req.ParentID) > 512 || len(req.State) > 64 || len(req.Cursor) > 512 {
 		return nil, errors.New("diagnostic selector exceeds bounds")
 	}
-	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "workspace_resources" && req.Section != "agent_schedules" && req.Section != "gc_plan" && req.Section != "runtime_probe" {
-		return nil, errors.New("parent-id requires source_refs, bindings, workspace_resources, agent_schedules, gc_plan or runtime_probe")
+	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "workspace_resources" && req.Section != "agent_schedules" && req.Section != "gc_plan" && req.Section != "runtime_probe" && req.Section != "agent_probe" {
+		return nil, errors.New("parent-id requires source_refs, bindings, workspace_resources, agent_schedules, gc_plan, runtime_probe or agent_probe")
 	}
 	if (req.Section == "agents" || req.Section == "agent_schedules") && req.State != "" {
 		return nil, errors.New("state filters retained task lifecycle, not agent runner state")
@@ -151,6 +151,9 @@ func feedbackInventory(current, scope string, req protocol.DiagnosticsRequest) (
 	}
 	if req.Section == "runtime_probe" && (req.ParentID == "" || req.State != "") {
 		return nil, errors.New("runtime probe requires an exact registered workspace parent and no task-state filter")
+	}
+	if req.Section == "agent_probe" && (req.ParentID == "" || len(req.ParentID) > 64 || req.ID != "" || req.State != "" || req.Cursor != "") {
+		return nil, errors.New("agent probe requires an exact registered agent parent and no row/state/cursor selectors")
 	}
 	root, group, found, err := workspace.RegisteredWorkspace(current, "")
 	if err != nil || !found || !group.Feedback {
@@ -180,7 +183,7 @@ func feedbackInventory(current, scope string, req protocol.DiagnosticsRequest) (
 		return result, nil
 	}
 	var response protocol.Response
-	if req.Section == "runtime_probe" {
+	if req.Section == "runtime_probe" || req.Section == "agent_probe" {
 		response, err = client.ProbeDiagnostics(path, req, 7*time.Second)
 	} else {
 		response, err = client.InspectDiagnostics(path, req, 2*time.Second)

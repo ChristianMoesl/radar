@@ -189,7 +189,7 @@ func (s *Server) handle(conn net.Conn) {
 			_ = encoder.Encode(protocol.Response{OK: true, Version: version.Current(), PID: os.Getpid(), Revision: s.store.Revision()})
 		case "diagnostics-probe":
 			if req.Diagnostics == nil {
-				_ = encoder.Encode(protocol.Response{OK: false, Error: "explicit runtime probe selectors are required"})
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "explicit registered runtime or agent probe selectors are required"})
 				continue
 			}
 			pending := s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending

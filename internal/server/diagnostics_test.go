@@ -211,3 +211,58 @@ func (p diagnosticRuntimeSource) DiagnosticRuntime(context.Context, string) prot
 	*p.probes++
 	return protocol.DiagnosticRuntimeObservation{Presence: "present", State: "running", ID: "native-lifetime"}
 }
+
+func TestAgentProbeRPCRequiresExplicitSingleRegisteredTarget(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "state.db"))
+	root := t.TempDir()
+	t.Setenv("RADAR_AGENT_ROOT", root)
+	t.Setenv("RADAR_SOCKET", filepath.Join(root, "absent.sock"))
+	dir := filepath.Join(root, "worker")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	reg := map[string]any{"version": 1, "id": "worker", "desired": false, "workspace": map[string]any{"id": "workspace", "path": filepath.Join(root, "workspace"), "mode": "local"}}
+	raw, _ := json.Marshal(reg)
+	if err := os.WriteFile(filepath.Join(dir, "registration.json"), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := state.NewStore(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effects := 0
+	server := New(store, logger, func() { effects++ }, func() error { effects++; return nil }, nil, integration.NewRegistry(), cleanup.New(nil)).SetResourcePublication(func() { effects++ }, func() protocol.Response { return protocol.Response{ResourceRefreshPending: true} })
+	host, client := net.Pipe()
+	done := make(chan struct{})
+	go func() { defer close(done); server.handle(host) }()
+	encoder, decoder := json.NewEncoder(client), json.NewDecoder(client)
+	for index, req := range []protocol.Request{
+		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agent_probe", ParentID: "worker"}},
+		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "agent_probe"}},
+		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "agent_probe", ParentID: "worker", ID: "other"}},
+		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "agent_probe", ParentID: "worker", Cursor: "cursor"}},
+		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "agent_probe", ParentID: "worker", Workspace: filepath.Join(root, "workspace-other")}},
+		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "agent_probe", ParentID: "worker"}},
+	} {
+		if err := encoder.Encode(req); err != nil {
+			t.Fatal(err)
+		}
+		var response protocol.Response
+		if err := decoder.Decode(&response); err != nil {
+			t.Fatal(err)
+		}
+		if index < 5 {
+			if response.OK {
+				t.Fatalf("implicit/unscoped request accepted: %+v", response)
+			}
+		} else if !response.OK || response.Diagnostics == nil || response.Diagnostics.Total != 1 || !response.Diagnostics.ResourceRefreshPending || response.Diagnostics.Items[0].AgentProbe.RunnerEvidence != "unknown_not_reached" || response.Diagnostics.Items[0].AgentProbe.Snapshot != nil {
+			t.Fatalf("unknown evidence lost: %+v", response)
+		}
+	}
+	client.Close()
+	<-done
+	if effects != 0 {
+		t.Fatal("probe mutated/refreshed resources")
+	}
+}

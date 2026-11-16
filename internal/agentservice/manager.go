@@ -140,6 +140,10 @@ func load(id string) (Registration, error) {
 	if err != nil {
 		return Registration{}, err
 	}
+	return decodeRegistration(data, id)
+}
+
+func decodeRegistration(data []byte, id string) (Registration, error) {
 	var reg Registration
 	if err := json.Unmarshal(data, &reg); err != nil {
 		return reg, err
@@ -233,7 +237,7 @@ func status(ctx context.Context, reg Registration) protocol.AgentStatus {
 		}
 		return result
 	}
-	if hello.Protocol != protocol.AgentProtocolVersion || hello.InstanceID != reg.ID {
+	if !runnerIdentityMatches(hello.Protocol, hello.InstanceID, reg.ID) {
 		result.Error = "agent protocol/identity mismatch"
 		return result
 	}

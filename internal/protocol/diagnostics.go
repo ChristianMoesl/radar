@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 12
+const DiagnosticsVersion = 13
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -17,7 +17,7 @@ func DiagnosticText(value string) string {
 // DiagnosticsRequest has no mutation or arbitrary filesystem parameters.
 // Workspace is host-resolved scope: lexical filtering for cached reads,
 // exact registered identity for probes.
-// runtime_probe is accepted only by the separate explicit diagnostics-probe RPC.
+// runtime_probe and agent_probe require the separate explicit diagnostics-probe RPC.
 type DiagnosticsRequest struct {
 	Section   string `json:"section"`
 	ParentID  string `json:"parent_id,omitempty"`
@@ -199,6 +199,20 @@ type DiagnosticAgentSnapshot struct {
 	Problem           bool `json:"problem"`
 }
 
+// DiagnosticAgentProbe separates a matching live hello from a valid snapshot.
+// Neither establishes work execution, workspace runtime health or leases.
+type DiagnosticAgentProbe struct {
+	ID               string                   `json:"id"`
+	Registered       bool                     `json:"registered"`
+	Desired          bool                     `json:"desired"`
+	OwnershipHold    string                   `json:"ownership_hold"`
+	RunnerEvidence   string                   `json:"runner_evidence"`
+	SnapshotEvidence string                   `json:"snapshot_evidence"`
+	Snapshot         *DiagnosticAgentSnapshot `json:"snapshot,omitempty"`
+	Problem          string                   `json:"problem"`
+	LeaseEvidence    string                   `json:"lease_evidence"`
+}
+
 type DiagnosticAgentCollection struct {
 	Source          string `json:"source"`
 	Pending         int    `json:"pending"`
@@ -303,6 +317,7 @@ type DiagnosticIntegration struct {
 }
 
 type DiagnosticItem struct {
+	AgentProbe        *DiagnosticAgentProbe         `json:"agent_probe,omitempty"`
 	Integration       *DiagnosticIntegration        `json:"integration,omitempty"`
 	Runtime           *DiagnosticRuntime            `json:"runtime,omitempty"`
 	GCPlan            *DiagnosticGCPlan             `json:"gc_plan,omitempty"`
