@@ -25,14 +25,17 @@ const maxPageBytes = 256 * 1024
 const maxChildren = protocol.DiagnosticChildLimit
 
 func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
-	if req.Section != "tasks" && req.Section != "workspaces" {
+	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "source_refs" && req.Section != "bindings" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("unsupported diagnostic inventory")
 	}
 	if req.Limit == 0 {
 		req.Limit = 20
 	}
-	if req.Limit < 1 || req.Limit > 50 || len(req.Cursor) > 512 || len(req.ID) > 512 || len(req.State) > 64 || len(req.Workspace) > 4096 {
+	if req.Limit < 1 || req.Limit > 50 || len(req.Cursor) > 512 || len(req.ID) > 512 || len(req.ParentID) > 512 || len(req.State) > 64 || len(req.Workspace) > 4096 {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic selector exceeds bounds")
+	}
+	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("parent_id requires source_refs or bindings")
 	}
 	if req.Workspace != "" && !filepath.IsAbs(req.Workspace) {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic scope must be absolute")
@@ -48,6 +51,7 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 	items := []protocol.DiagnosticItem{}
 	evidence := "cached_daemon_state"
 	if req.Section == "tasks" {
+		linking := state.LinkingInputs(records, refs)
 		for _, record := range records {
 			if req.ID != "" && req.ID != record.ID && req.ID != strconv.Itoa(record.NumericID) {
 				continue
@@ -58,9 +62,11 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 			if req.Workspace != "" && !recordInWorkspace(byRecord[record.ID], req.Workspace) {
 				continue
 			}
-			task := taskView(record, byRecord[record.ID])
+			task := taskView(record, byRecord[record.ID], linking[record.ID])
 			items = append(items, protocol.DiagnosticItem{ID: task.RecordID, Task: &task})
 		}
+	} else if req.Section == "source_refs" || req.Section == "bindings" {
+		items = referenceItems(req, records, refs, byRecord)
 	} else {
 		provider, err := providers.WorkspaceDiagnostics()
 		if err != nil {
@@ -140,7 +146,7 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 	return paginate(req, items, revision, pending, evidence)
 }
 
-func taskView(record state.TaskRecord, refs []state.SourceRefRecord) protocol.DiagnosticTask {
+func taskView(record state.TaskRecord, refs []state.SourceRefRecord, linking state.LinkingEvidence) protocol.DiagnosticTask {
 	task := productionTask(record, refs)
 	inputs := state.LifecycleInputs(record, refs)
 	view := protocol.DiagnosticTask{RecordID: clip(record.ID), TaskID: record.NumericID, State: clip(record.State), DoneAt: clip(record.DoneAt), UpdatedAt: clip(record.UpdatedAt), Activity: protocol.SourceRefsActivity(task.SourceRefs).String(), Review: record.AgentReviewPending, Acknowledged: record.Ack.Cursor != "", DecisionReasonAvailable: record.Reason != "", SourceCount: len(refs), Sources: []protocol.DiagnosticRef{}}
@@ -156,9 +162,11 @@ func taskView(record state.TaskRecord, refs []state.SourceRefRecord) protocol.Di
 			view.Truncated = true
 			continue
 		}
-		ref := record.Snapshot
-		view.Sources = append(view.Sources, protocol.DiagnosticRef{LifecycleInput: inputs[record.ID], ID: clip(ref.ID), Source: clip(ref.Source), Kind: clip(ref.Kind), Role: ref.Role, Lifecycle: ref.Lifecycle, Authority: ref.Authority, Active: record.Active, ObservedAt: clip(record.ObservedAt), Path: clip(ref.Path), WorkspaceID: clip(ref.WorkspaceID), AgentID: clip(ref.AgentID), Signal: clip(ref.Signal), Activity: ref.Activity.String(), Authored: ref.Authored, Review: ref.AgentReview, Muted: ref.Muted, BindingCount: len(ref.Bindings), BindingProblem: ref.BindingError != "", CleanupProblemCount: len(ref.CleanupIssues)})
+		view.Sources = append(view.Sources, sourceView(record, view.RecordID, view.TaskID, inputs[record.ID]))
 	}
+	view.AuthoredIdentityCount = linking.AuthoredIdentities
+	view.LinkingComponentRecords = linking.ConnectedRecords
+	view.LinkingBlocked = linking.Blocked
 	return view
 }
 

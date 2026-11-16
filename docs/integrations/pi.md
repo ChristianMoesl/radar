@@ -110,7 +110,7 @@ run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
 not proof that it exists or is running. Missing daemon/origin evidence is
 unavailable, not healthy, empty, repaired or enrolled.
 
-### Retained inventories (diagnostics schema 1)
+### Retained inventories (diagnostics schema 2)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -141,12 +141,39 @@ snapshot is persisted. Items are sorted by stable ID, pages are capped at
 item's `truncated` and the page's `limitations`; complete pagination is not a
 claim of complete nested evidence or current runtime health.
 
+### Identity and nested drill-down
+
+Use `section: "source_refs", parent_id: "<task record or numeric ID>"` to page
+all retained source refs rather than stopping at the task summary's 16 entries.
+Each ref has an opaque stable `id` derived from the complete retained identity
+(never a clipped path). It distinguishes that ID from the bounded `provider_id`, identifies its
+owning record/numeric task, and keeps inactive history explicitly marked.
+Omit `parent_id` for the scoped source-ref inventory, or select an exact retained
+ref with `id`. A scoped unowned ref is matched only against itself, never an
+unrelated unowned record. `state` still filters the owning task lifecycle.
+
+Use `section: "bindings", parent_id: "<retained source-ref ID>"` to page authored
+binding intent. Entries expose provider/kind/target identity, concrete-lifetime
+key and work-item intent, never arbitrary metadata or raw provider errors.
+Stable binding IDs hash the owning retained ref and the binding's identity;
+identical repeated entries have one ID with an `occurrences` count. Neither a
+binding nor its presence proves that the remote entity currently exists.
+`parent_id` on other sections is rejected, not ignored.
+
+Task `authored_identity_count`, `linking_component_records` and `linking_blocked`
+reuse production's active connected components and the exact authored-identity
+merge guard. Inactive authored history still protects its numeric identity. A
+blocked bridge between distinct authored notes is explained, never merged or
+repaired by inspection. Counts reveal related ownership without leaking other
+tasks' note contents. A zero component count means no current authoritative
+linking evidence, not proven absence of external links.
+
 Task views include retained lifecycle state, `DoneAt`, source observation times,
 active/inactive refs, ownership identifiers, acknowledgement/review/activity
 facts and binding/problem counts. `lifecycle_input` uses the exact production
 selection of active authoritative work items (including primary precedence),
-not a second lifecycle policy. Free-form titles, reasons, bindings and private
-payloads are withheld; historical manual intent is not reconstructed.
+not a second lifecycle policy. Free-form titles/reasons and private payloads are withheld; authored binding
+identities are available only through the bounded `bindings` inventory; historical manual intent is not reconstructed.
 
 Workspace views include registration paths/members/source repositories, note
 association (never its contents), desired SBX/tmux names, mounts/ports/shared
@@ -165,7 +192,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 1; version mismatches fail closed
+extension must support diagnostics schema 2; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

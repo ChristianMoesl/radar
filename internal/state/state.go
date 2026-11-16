@@ -697,18 +697,8 @@ func reconcileStateForSources(previous persistedState, observed []protocol.Task,
 
 func relinkState(state persistedState) persistedState {
 	owners := recordAuthoredIdentities(state)
-	blocked := map[string]bool{}
 	groups := sourceRefLinkGroups(state.SourceRefs)
-	// Qualify whole connected components before any union. Greedy pairwise
-	// checks would assign a shared bridge to whichever note was visited first.
-	for _, group := range groups {
-		ids := uniqueTaskRecordIDs(group)
-		if len(combinedAuthoredIdentities(owners, ids)) > 1 {
-			for _, id := range ids {
-				blocked[id] = true
-			}
-		}
-	}
+	blocked := blockedLinkRecords(owners, groups)
 	for _, group := range groups {
 		ids := uniqueTaskRecordIDs(group)
 		if !containsBlockedRecord(ids, blocked) {

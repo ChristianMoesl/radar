@@ -114,3 +114,18 @@ func validateAuthoredLinks(state persistedState) error {
 	}
 	return fmt.Errorf("conflicting authored-note identities in %s; state preserved, no automatic split: stop Radar, use radar state-backup, radar state-export and radar repair-task-links to plan an explicit repair (docs/task-link-repair.md)", strings.Join(records, "; "))
 }
+
+func blockedLinkRecords(owners map[string][]string, groups [][]SourceRefRecord) map[string]bool {
+	blocked := map[string]bool{}
+	// Qualify entire connected components before any union. Greedy pairwise
+	// checks would assign a shared bridge to whichever note was visited first.
+	for _, group := range groups {
+		ids := uniqueTaskRecordIDs(group)
+		if len(combinedAuthoredIdentities(owners, ids)) > 1 {
+			for _, id := range ids {
+				blocked[id] = true
+			}
+		}
+	}
+	return blocked
+}

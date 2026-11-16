@@ -231,7 +231,7 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 				return
 			}
 			observed <- req
-			response := protocol.Response{OK: true, Diagnostics: &protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: "tasks", Evidence: "cached_daemon_state", Items: []protocol.DiagnosticItem{}, Complete: true}}
+			response := protocol.Response{OK: true, Diagnostics: &protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: req.Diagnostics.Section, Evidence: "cached_daemon_state", Items: []protocol.DiagnosticItem{}, Complete: true}}
 			if i == 3 {
 				response.Diagnostics.Schema = 99
 			}
@@ -247,8 +247,13 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		}
 		done <- nil
 	}()
-	for _, scope := range []string{"origin", "feedback", "installation"} {
-		result, err := feedbackInventory(anchor, scope, protocol.DiagnosticsRequest{Section: "tasks", Workspace: "/must-not-pass-through", Limit: 7, ID: "123", State: "done", Cursor: "opaque"})
+	for index, scope := range []string{"origin", "feedback", "installation"} {
+		section := []string{"tasks", "source_refs", "bindings"}[index]
+		parent := ""
+		if index > 0 {
+			parent = "opaque-parent"
+		}
+		result, err := feedbackInventory(anchor, scope, protocol.DiagnosticsRequest{Section: section, ParentID: parent, Workspace: "/must-not-pass-through", Limit: 7, ID: "123", State: "done", Cursor: "opaque"})
 		if err != nil || result["available"] != true {
 			t.Fatalf("result=%+v err=%v", result, err)
 		}
@@ -260,7 +265,7 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		if scope == "feedback" {
 			want = anchor
 		}
-		if req.Method != "diagnostics" || req.Diagnostics == nil || req.Diagnostics.Workspace != want || req.Diagnostics.ID != "123" || req.Diagnostics.Limit != 7 || req.Diagnostics.Cursor != "opaque" || req.Diagnostics.State != "done" {
+		if req.Method != "diagnostics" || req.Diagnostics == nil || req.Diagnostics.Workspace != want || req.Diagnostics.Section != section || req.Diagnostics.ParentID != parent || req.Diagnostics.ID != "123" || req.Diagnostics.Limit != 7 || req.Diagnostics.Cursor != "opaque" || req.Diagnostics.State != "done" {
 			t.Fatalf("unexpected request: %+v", req)
 		}
 		if result["feedback_workspace_id"] != workspacegroup.ID(anchor) {

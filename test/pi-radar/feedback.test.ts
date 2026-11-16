@@ -26,7 +26,7 @@ function harness() {
     on: (event: string, handler: any) => hooks.set(event, handler),
     exec: async (binary: string, args: string[], options: any) => {
       calls.push({ binary, args, options });
-      return { code: 0, stdout: JSON.stringify({ diagnostics_schema:1, section: args[args.indexOf("--section") + 1], version: "v1.2.3" }) };
+      return { code: 0, stdout: JSON.stringify({ diagnostics_schema:2, section: args[args.indexOf("--section") + 1], version: "v1.2.3" }) };
     },
   } as unknown as ExtensionAPI;
   const session = registerFeedbackSession(pi);
@@ -314,10 +314,10 @@ for (const params of [
 }
 
 for (const data of [
-  {section:"tasks"}, {diagnostics_schema:2,section:"tasks"},
-  {diagnostics_schema:1,section:"tasks",available:true},
-  {diagnostics_schema:1,section:"tasks",available:true,inventory:{diagnostics_schema:2,section:"tasks"}},
-  {diagnostics_schema:1,section:"tasks",available:true,inventory:{diagnostics_schema:1,section:"workspaces"}},
+  {section:"tasks"}, {diagnostics_schema:1,section:"tasks"}, {diagnostics_schema:3,section:"tasks"},
+  {diagnostics_schema:2,section:"tasks",available:true},
+  {diagnostics_schema:2,section:"tasks",available:true,inventory:{diagnostics_schema:3,section:"tasks"}},
+  {diagnostics_schema:2,section:"tasks",available:true,inventory:{diagnostics_schema:2,section:"workspaces"}},
 ]) {
   test(`incompatible CLI or daemon inventory fails closed (${JSON.stringify(data)})`,async()=>{
     const h=harness();h.activate();
@@ -339,3 +339,25 @@ test("oversized host responses are not accepted",async()=>{
   const h=harness();h.activate();h.pi.exec=async()=>({code:0,stdout:"x".repeat(300*1024+1),stderr:"",killed:false});
   await assert.rejects(h.diagnostic(),/output bound/);
 });
+
+for (const [section,parent_id] of [["source_refs","123"],["bindings","retained-ref"]]) {
+  test(`nested ${section} inventories use fixed argv and the matching schema`,async()=>{
+    const h=harness();h.activate();
+    h.pi.exec=async(binary,args,options)=>{
+      h.calls.push({binary,args,options});
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:2,section,available:true,inventory:{diagnostics_schema:2,section,items:[]}}),stderr:"",killed:false};
+    };
+    await h.tools.get("radar_diagnostics").execute("call",{section,parent_id,scope:"origin",limit:5},undefined,undefined,h.ctx);
+    assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section",section,"--json","--scope","origin","--parent-id",parent_id,"--limit","5"]);
+    assert.deepEqual(h.confirmations,[]);
+    assert.ok(h.session.instructions()!.includes("Task linking_blocked"));
+  });
+}
+
+for (const params of [{section:"tasks",parent_id:"123"},{section:"workspaces",parent_id:"123"},{section:"source_refs",parent_id:"x".repeat(513)}]) {
+  test(`invalid parent selectors never call the host (${params.section})`,async()=>{
+    const h=harness();h.activate();
+    await assert.rejects(h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx));
+    assert.deepEqual(h.calls,[]);
+  });
+}

@@ -11,3 +11,32 @@ func LifecycleInputs(record TaskRecord, refs []SourceRefRecord) map[string]bool 
 	}
 	return ids
 }
+
+// LinkingEvidence reports production identity protection, never repair intent.
+type LinkingEvidence struct {
+	AuthoredIdentities int
+	ConnectedRecords   int
+	Blocked            bool
+}
+
+// LinkingInputs uses production's connected components and the same authored
+// identity guard used before merging. Inactive authored history still owns its
+// numeric identity; no note contents or free-form provider reasons are read.
+func LinkingInputs(records []TaskRecord, refs []SourceRefRecord) map[string]LinkingEvidence {
+	owners := recordAuthoredIdentities(persistedState{Records: records, SourceRefs: refs})
+	groups := sourceRefLinkGroups(refs)
+	blocked := blockedLinkRecords(owners, groups)
+	result := make(map[string]LinkingEvidence, len(records))
+	for _, record := range records {
+		result[record.ID] = LinkingEvidence{AuthoredIdentities: len(owners[record.ID]), Blocked: blocked[record.ID]}
+	}
+	for _, group := range groups {
+		ids := uniqueTaskRecordIDs(group)
+		for _, id := range ids {
+			e := result[id]
+			e.ConnectedRecords = len(ids)
+			result[id] = e
+		}
+	}
+	return result
+}
