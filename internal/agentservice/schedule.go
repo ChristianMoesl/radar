@@ -103,7 +103,12 @@ func loadSchedules(reg Registration) (scheduleState, error) {
 	if err != nil {
 		return state, err
 	}
-	state = scheduleState{}
+	return decodeSchedules(data)
+}
+
+// Both production and bounded diagnostic reads use exactly this validation.
+func decodeSchedules(data []byte) (scheduleState, error) {
+	state := scheduleState{}
 	if err := json.Unmarshal(data, &state); err != nil {
 		return state, err
 	}
@@ -271,6 +276,10 @@ func scheduleStatuses(reg Registration, now time.Time) ([]protocol.AgentSchedule
 	if err != nil {
 		return nil, err
 	}
+	return scheduleStateStatuses(state, now), nil
+}
+
+func scheduleStateStatuses(state scheduleState, now time.Time) []protocol.AgentScheduleStatus {
 	var values []protocol.AgentScheduleStatus
 	for _, s := range state.Schedules {
 		value := protocol.AgentScheduleStatus{AgentScheduleConfig: s.AgentScheduleConfig, ID: s.ID, Enabled: s.Enabled, LastAdmission: s.LastAdmission, LastMissedAt: s.LastMissedAt, Error: s.Problem}
@@ -286,7 +295,7 @@ func scheduleStatuses(reg Registration, now time.Time) ([]protocol.AgentSchedule
 		}
 		values = append(values, value)
 	}
-	return values, nil
+	return values
 }
 
 // Caller holds m.mu, shared with configuration and lifecycle operations.

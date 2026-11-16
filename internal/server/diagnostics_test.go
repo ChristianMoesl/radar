@@ -35,6 +35,8 @@ func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T
 	for _, req := range []protocol.Request{{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "tasks", Limit: 1}}, {Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "source_refs"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "bindings"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agents"}},
+		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agent_schedules"}},
+		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agent_schedules", State: "done"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agents", State: "done"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "workspace_resources"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "workspace_resources", State: "done"}},
@@ -47,9 +49,9 @@ func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T
 		if err := decoder.Decode(&response); err != nil {
 			t.Fatal(err)
 		}
-		if req.Diagnostics != nil && req.Diagnostics.ParentID == "" && req.Diagnostics.State == "" && (req.Diagnostics.Section == "tasks" || req.Diagnostics.Section == "source_refs" || req.Diagnostics.Section == "bindings" || req.Diagnostics.Section == "agents") {
+		if req.Diagnostics != nil && req.Diagnostics.ParentID == "" && req.Diagnostics.State == "" && (req.Diagnostics.Section == "tasks" || req.Diagnostics.Section == "source_refs" || req.Diagnostics.Section == "bindings" || req.Diagnostics.Section == "agents" || req.Diagnostics.Section == "agent_schedules") {
 			expected := 1
-			if req.Diagnostics.Section == "bindings" || req.Diagnostics.Section == "agents" {
+			if req.Diagnostics.Section == "bindings" || req.Diagnostics.Section == "agents" || req.Diagnostics.Section == "agent_schedules" {
 				expected = 0
 			}
 			if !response.OK || response.Diagnostics == nil || response.Diagnostics.Total != expected || response.Diagnostics.Schema != protocol.DiagnosticsVersion || !response.Diagnostics.ResourceRefreshPending {

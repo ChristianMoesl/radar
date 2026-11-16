@@ -110,7 +110,7 @@ run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
 not proof that it exists or is running. Missing daemon/origin evidence is
 unavailable, not healthy, empty, repaired or enrolled.
 
-### Retained inventories (diagnostics schema 6)
+### Retained inventories (diagnostics schema 7)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -265,7 +265,30 @@ admission timestamps/task IDs. Admission is not execution or business success.
 Schedule due calculations reuse production scheduling; cached checkpoint errors
 do not reconstruct in-memory supervision errors. At most 16 schedule summaries
 are returned per agent with the full `schedule_count` and explicit `truncated`;
-complete agent pagination does not imply complete nested schedule evidence.
+follow `section: "agent_schedules", parent_id: "<agent registration ID>"` to
+page all persisted schedules with the same scope and selectors. Omit `parent_id`
+for the scoped schedule inventory, or use `id` for an exact opaque schedule ID.
+Native bounded schedule IDs are separate from selectable opaque IDs, which hash
+the complete agent/native schedule identity before text clipping. State and due
+time changes do not change that identity. Task `state` filters are rejected.
+
+Schedule inventories and summaries share one projection, production checkpoint
+validation and production due calculation. Diagnostic schedule reads are capped
+at 1 MiB, no-follow/nonblocking and regular-file checked. Missing schedule files
+mean no configured persisted schedules, exactly as in production, not a stopped
+or healthy runner. Invalid/oversized/unsafe checkpoints make summaries unavailable
+with no schedule count; the schedule inventory fails explicitly, never returning
+an apparently complete empty/partial list. Scope and parent filters are applied
+before checkpoint reads, so an unrelated unavailable checkpoint can be excluded.
+
+Each `agent_schedule` identifies its owning agent and allowlisted calendar,
+checkpoint/admission metadata and delivery-problem flag. Evidence is
+`fresh_schedule_checkpoints_runtime_errors_unknown`: in-memory supervision errors,
+runner liveness, leases, execution and business outcomes remain unknown. Private
+event/payload bodies, admission event IDs and free-form provider errors stay
+withheld. Reads never tick a schedule, admit/replay events or write checkpoints.
+Changes in shown checkpoint evidence, including beyond summary truncation,
+invalidate cursors; complete pagination proves only this scoped projection.
 Definition commands, tokens, raw errors, titles, conversation references, task
 and event bodies, action payloads and schedule payloads are never returned.
 
@@ -293,7 +316,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 6; version mismatches fail closed
+extension must support diagnostics schema 7; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

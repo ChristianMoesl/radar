@@ -25,7 +25,7 @@ const maxPageBytes = 256 * 1024
 const maxChildren = protocol.DiagnosticChildLimit
 
 func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
-	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "workspace_resources" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "agents" {
+	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "workspace_resources" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "agents" && req.Section != "agent_schedules" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("unsupported diagnostic inventory")
 	}
 	if req.Limit == 0 {
@@ -34,13 +34,13 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 	if req.Limit < 1 || req.Limit > 50 || len(req.Cursor) > 512 || len(req.ID) > 512 || len(req.ParentID) > 512 || len(req.State) > 64 || len(req.Workspace) > 4096 {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic selector exceeds bounds")
 	}
-	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "workspace_resources" {
-		return protocol.DiagnosticsPage{}, fmt.Errorf("parent_id requires source_refs, bindings or workspace_resources")
+	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "workspace_resources" && req.Section != "agent_schedules" {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("parent_id requires source_refs, bindings, workspace_resources or agent_schedules")
 	}
 	if req.Section == "workspace_resources" && req.State != "" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("state filters retained task lifecycle, not workspace resources")
 	}
-	if req.Section == "agents" && req.State != "" {
+	if (req.Section == "agents" || req.Section == "agent_schedules") && req.State != "" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("state filters retained task lifecycle, not agent runner state")
 	}
 	if req.Workspace != "" && !filepath.IsAbs(req.Workspace) {
@@ -81,6 +81,15 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 			items = append(items, protocol.DiagnosticItem{ID: agent.ID, Agent: &agent})
 		}
 		evidence = "fresh_registration_with_persisted_agent_checkpoints"
+	} else if req.Section == "agent_schedules" {
+		schedules, err := agentservice.DiagnosticAgentSchedules(req.Workspace, req.ParentID, req.ID)
+		if err != nil {
+			return protocol.DiagnosticsPage{}, fmt.Errorf("agent schedule checkpoint diagnostics unavailable")
+		}
+		for _, schedule := range schedules {
+			items = append(items, protocol.DiagnosticItem{ID: schedule.ID, AgentSchedule: &schedule})
+		}
+		evidence = "fresh_schedule_checkpoints_runtime_errors_unknown"
 	} else if req.Section == "source_refs" || req.Section == "bindings" {
 		items = referenceItems(req, records, refs, byRecord)
 	} else {

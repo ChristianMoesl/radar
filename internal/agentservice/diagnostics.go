@@ -39,7 +39,7 @@ func DiagnosticAgents(workspace, id string) ([]protocol.DiagnosticAgent, error) 
 		}
 		// Reuse production's validated schedule projection and due calculation.
 		// In-memory supervision errors cannot be reconstructed from checkpoints.
-		schedules, err := scheduleStatuses(reg, time.Now())
+		schedules, err := diagnosticScheduleViews(reg, time.Now())
 		item.SchedulesEvidence = "unavailable"
 		if err == nil {
 			item.SchedulesEvidence = "fresh_checkpoint_runtime_errors_unknown"
@@ -50,11 +50,7 @@ func DiagnosticAgents(workspace, id string) ([]protocol.DiagnosticAgent, error) 
 					item.Truncated = true
 					break
 				}
-				view := protocol.DiagnosticAgentSchedule{ID: protocol.DiagnosticText(schedule.ID), Name: protocol.DiagnosticText(schedule.Name), Enabled: schedule.Enabled, Time: schedule.Time, Timezone: protocol.DiagnosticText(schedule.Timezone), Weekdays: schedule.Weekdays, NextDue: diagnosticTime(schedule.NextDue), PendingAt: diagnosticTime(schedule.PendingAt), LastMissedAt: diagnosticTime(schedule.LastMissedAt), DeliveryProblem: schedule.Error != ""}
-				if admission := schedule.LastAdmission; admission != nil {
-					view.LastAdmission = &protocol.DiagnosticAgentAdmission{ScheduledAt: diagnosticTime(admission.ScheduledAt), AcceptedAt: diagnosticTime(admission.AcceptedAt), TaskID: admission.TaskID, CatchUp: admission.CatchUp}
-				}
-				item.Schedules = append(item.Schedules, view)
+				item.Schedules = append(item.Schedules, schedule.Schedule)
 			}
 		}
 		items = append(items, item)

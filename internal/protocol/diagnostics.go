@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 6
+const DiagnosticsVersion = 7
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -224,14 +224,21 @@ type DiagnosticAgentAdmission struct {
 	CatchUp     bool   `json:"catch_up"`
 }
 
+type DiagnosticAgentScheduleEntry struct {
+	ID       string                  `json:"id"`
+	AgentID  string                  `json:"agent_id"`
+	Schedule DiagnosticAgentSchedule `json:"schedule"`
+}
+
 type DiagnosticItem struct {
-	WorkspaceResource *DiagnosticWorkspaceResource `json:"workspace_resource,omitempty"`
-	Agent             *DiagnosticAgent             `json:"agent,omitempty"`
-	Ref               *DiagnosticRef               `json:"source_ref,omitempty"`
-	Binding           *DiagnosticBinding           `json:"binding,omitempty"`
-	ID                string                       `json:"id"`
-	Task              *DiagnosticTask              `json:"task,omitempty"`
-	Workspace         *DiagnosticWorkspace         `json:"workspace,omitempty"`
+	AgentSchedule     *DiagnosticAgentScheduleEntry `json:"agent_schedule,omitempty"`
+	WorkspaceResource *DiagnosticWorkspaceResource  `json:"workspace_resource,omitempty"`
+	Agent             *DiagnosticAgent              `json:"agent,omitempty"`
+	Ref               *DiagnosticRef                `json:"source_ref,omitempty"`
+	Binding           *DiagnosticBinding            `json:"binding,omitempty"`
+	ID                string                        `json:"id"`
+	Task              *DiagnosticTask               `json:"task,omitempty"`
+	Workspace         *DiagnosticWorkspace          `json:"workspace,omitempty"`
 }
 
 type DiagnosticsPage struct {

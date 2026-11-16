@@ -86,6 +86,23 @@ func TestDiagnosticAgentsKeepStoppedOwnersAndProjectOnlyBoundedCheckpointEvidenc
 	if view.ScheduleCount == nil || *view.ScheduleCount != 19 || len(view.Schedules) != protocol.DiagnosticChildLimit || !view.Truncated || view.SchedulesEvidence != "fresh_checkpoint_runtime_errors_unknown" || !view.Schedules[0].DeliveryProblem || view.Schedules[0].PendingAt == "" || view.Schedules[0].NextDue == "" || view.Schedules[0].LastAdmission.TaskID != 3 {
 		t.Fatalf("schedule evidence lost or unbounded: %+v", view)
 	}
+	full, err := DiagnosticAgentSchedules(workspace, reg.ID, "")
+	if err != nil || len(full) != 19 {
+		t.Fatalf("complete schedule drill-down lost entries: %+v %v", full, err)
+	}
+	for i, entry := range full {
+		if entry.AgentID != reg.ID || (i < len(view.Schedules) && entry.Schedule.ID != view.Schedules[i].ID) {
+			t.Fatal("summary and drill-down projections disagree")
+		}
+		exact, err := DiagnosticAgentSchedules(workspace, reg.ID, entry.ID)
+		if err != nil || len(exact) != 1 || exact[0].ID != entry.ID {
+			t.Fatal("opaque schedule identity not selectable")
+		}
+	}
+	complete, _ := json.Marshal(full)
+	if strings.Contains(string(complete), "private-") || strings.Contains(string(complete), "event_id") || strings.Contains(string(complete), "payload") {
+		t.Fatalf("schedule payload exposed: %s", complete)
+	}
 	encoded, _ := json.Marshal(view)
 	if strings.Contains(string(encoded), "private-") || strings.Contains(string(encoded), "987654") || strings.Contains(string(encoded), "event_id") {
 		t.Fatalf("private payload exposed: %s", encoded)
