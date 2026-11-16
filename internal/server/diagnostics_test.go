@@ -15,6 +15,7 @@ import (
 )
 
 func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T) {
+	t.Setenv("RADAR_AGENT_ROOT", filepath.Join(t.TempDir(), "agents"))
 	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "state.db"))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	store, err := state.NewStore(logger)
@@ -33,6 +34,8 @@ func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T
 	encoder, decoder := json.NewEncoder(client), json.NewDecoder(client)
 	for _, req := range []protocol.Request{{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "tasks", Limit: 1}}, {Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "source_refs"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "bindings"}},
+		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agents"}},
+		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agents", State: "done"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "tasks", ParentID: "must-not-be-ignored"}},
 		{Method: "diagnostics"}, {Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "execute"}}} {
 		if err := encoder.Encode(req); err != nil {
@@ -42,9 +45,9 @@ func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T
 		if err := decoder.Decode(&response); err != nil {
 			t.Fatal(err)
 		}
-		if req.Diagnostics != nil && req.Diagnostics.ParentID == "" && (req.Diagnostics.Section == "tasks" || req.Diagnostics.Section == "source_refs" || req.Diagnostics.Section == "bindings") {
+		if req.Diagnostics != nil && req.Diagnostics.ParentID == "" && req.Diagnostics.State == "" && (req.Diagnostics.Section == "tasks" || req.Diagnostics.Section == "source_refs" || req.Diagnostics.Section == "bindings" || req.Diagnostics.Section == "agents") {
 			expected := 1
-			if req.Diagnostics.Section == "bindings" {
+			if req.Diagnostics.Section == "bindings" || req.Diagnostics.Section == "agents" {
 				expected = 0
 			}
 			if !response.OK || response.Diagnostics == nil || response.Diagnostics.Total != expected || response.Diagnostics.Schema != protocol.DiagnosticsVersion || !response.Diagnostics.ResourceRefreshPending {

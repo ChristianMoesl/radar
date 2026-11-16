@@ -110,7 +110,7 @@ run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
 not proof that it exists or is running. Missing daemon/origin evidence is
 unavailable, not healthy, empty, repaired or enrolled.
 
-### Retained inventories (diagnostics schema 2)
+### Retained inventories (diagnostics schema 3)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -168,6 +168,38 @@ repaired by inspection. Counts reveal related ownership without leaking other
 tasks' note contents. A zero component count means no current authoritative
 linking evidence, not proven absence of external links.
 
+### Durable-agent registration and checkpoint evidence
+
+Use `section: "agents"` with the same origin/feedback/installation scopes and
+revision-bound pagination, or select an exact agent registration with `id`.
+The scope uses the production workspace-ownership relationship, including agents
+whose backing workspace is inside the selected workspace. `state` is a retained
+task-lifecycle filter, not a runner-state filter; it and `parent_id` are rejected
+for this section rather than silently ignored.
+
+Each item distinguishes registered desired state from observed runner state.
+An intentionally stopped registration still owns and protects its workspace;
+absence from a scoped inventory is not permission to delete resources. Reads
+never contact a runner socket, inspect/start a runtime, acquire a lease or replay
+an outbox. `runner_evidence` and `lease_evidence` remain explicitly unknown.
+
+A compatible persisted runner snapshot provides only definition/presentation
+revision, pending count, attention and a problem flag. `snapshot_saved_at` is the
+snapshot file's persistence time, **not** a fresh runner observation or proof of
+liveness. A missing, invalid, oversized or unsupported snapshot is unavailable
+evidence, not zero work or a healthy/stopped runner. Snapshot reads are limited
+to 1 MiB and reject symlinks and non-regular files.
+
+Production-owned collection/schedule readers expose pending counts, delivery
+problem flags, configured calendar metadata, derived next due times and bounded
+admission timestamps/task IDs. Admission is not execution or business success.
+Schedule due calculations reuse production scheduling; cached checkpoint errors
+do not reconstruct in-memory supervision errors. At most 16 schedule summaries
+are returned per agent with the full `schedule_count` and explicit `truncated`;
+complete agent pagination does not imply complete nested schedule evidence.
+Definition commands, tokens, raw errors, titles, conversation references, task
+and event bodies, action payloads and schedule payloads are never returned.
+
 Task views include retained lifecycle state, `DoneAt`, source observation times,
 active/inactive refs, ownership identifiers, acknowledgement/review/activity
 facts and binding/problem counts. `lifecycle_input` uses the exact production
@@ -192,7 +224,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 2; version mismatches fail closed
+extension must support diagnostics schema 3; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 2
+const DiagnosticsVersion = 3
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -125,7 +125,62 @@ type DiagnosticBinding struct {
 	Occurrences int    `json:"occurrences"`
 }
 
+type DiagnosticAgent struct {
+	ID                 string                     `json:"id"`
+	Registered         bool                       `json:"registered"`
+	Desired            bool                       `json:"desired"`
+	Workspace          AgentWorkspaceBinding      `json:"workspace"`
+	OwnershipHold      string                     `json:"ownership_hold"`
+	RunnerEvidence     string                     `json:"runner_evidence"`
+	LeaseEvidence      string                     `json:"lease_evidence"`
+	SnapshotEvidence   string                     `json:"snapshot_evidence"`
+	SnapshotSavedAt    string                     `json:"snapshot_saved_at,omitempty"`
+	Snapshot           *DiagnosticAgentSnapshot   `json:"snapshot,omitempty"`
+	CollectionEvidence string                     `json:"collection_evidence"`
+	Collection         *DiagnosticAgentCollection `json:"collection,omitempty"`
+	SchedulesEvidence  string                     `json:"schedules_evidence"`
+	ScheduleCount      *int                       `json:"schedule_count,omitempty"`
+	Schedules          []DiagnosticAgentSchedule  `json:"schedules"`
+	Truncated          bool                       `json:"truncated"`
+}
+
+type DiagnosticAgentSnapshot struct {
+	DefinitionVersion int  `json:"definition_version"`
+	Revision          int  `json:"revision"`
+	Pending           int  `json:"pending"`
+	Attention         bool `json:"attention"`
+	Problem           bool `json:"problem"`
+}
+
+type DiagnosticAgentCollection struct {
+	Source          string `json:"source"`
+	Pending         int    `json:"pending"`
+	DeliveryProblem bool   `json:"delivery_problem"`
+}
+
+type DiagnosticAgentSchedule struct {
+	ID              string                    `json:"id"`
+	Name            string                    `json:"name"`
+	Enabled         bool                      `json:"enabled"`
+	Time            string                    `json:"time"`
+	Timezone        string                    `json:"timezone"`
+	Weekdays        []string                  `json:"weekdays"`
+	NextDue         string                    `json:"next_due,omitempty"`
+	PendingAt       string                    `json:"pending_at,omitempty"`
+	LastMissedAt    string                    `json:"last_missed_at,omitempty"`
+	LastAdmission   *DiagnosticAgentAdmission `json:"last_admission,omitempty"`
+	DeliveryProblem bool                      `json:"delivery_problem"`
+}
+
+type DiagnosticAgentAdmission struct {
+	ScheduledAt string `json:"scheduled_at"`
+	AcceptedAt  string `json:"accepted_at"`
+	TaskID      int    `json:"task_id"`
+	CatchUp     bool   `json:"catch_up"`
+}
+
 type DiagnosticItem struct {
+	Agent     *DiagnosticAgent     `json:"agent,omitempty"`
 	Ref       *DiagnosticRef       `json:"source_ref,omitempty"`
 	Binding   *DiagnosticBinding   `json:"binding,omitempty"`
 	ID        string               `json:"id"`

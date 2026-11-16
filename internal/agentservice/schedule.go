@@ -257,16 +257,25 @@ func pauseSchedules(reg Registration) error {
 }
 
 func (m *Manager) scheduleStatus(reg Registration, status *protocol.AgentStatus) {
-	state, err := loadSchedules(reg)
+	values, err := scheduleStatuses(reg, m.now())
 	if err != nil {
 		status.ScheduleError = err.Error()
 		return
 	}
 	status.ScheduleError = m.scheduleErrors[reg.ID]
+	status.Schedules = append(status.Schedules, values...)
+}
+
+func scheduleStatuses(reg Registration, now time.Time) ([]protocol.AgentScheduleStatus, error) {
+	state, err := loadSchedules(reg)
+	if err != nil {
+		return nil, err
+	}
+	var values []protocol.AgentScheduleStatus
 	for _, s := range state.Schedules {
 		value := protocol.AgentScheduleStatus{AgentScheduleConfig: s.AgentScheduleConfig, ID: s.ID, Enabled: s.Enabled, LastAdmission: s.LastAdmission, LastMissedAt: s.LastMissedAt, Error: s.Problem}
 		if s.Enabled {
-			floor := m.now()
+			floor := now
 			if floor.Before(s.EligibleAfter) {
 				floor = s.EligibleAfter
 			}
@@ -275,8 +284,9 @@ func (m *Manager) scheduleStatus(reg Registration, status *protocol.AgentStatus)
 		if s.Pending != nil {
 			value.PendingAt = s.Pending.ScheduledAt
 		}
-		status.Schedules = append(status.Schedules, value)
+		values = append(values, value)
 	}
+	return values, nil
 }
 
 // Caller holds m.mu, shared with configuration and lifecycle operations.

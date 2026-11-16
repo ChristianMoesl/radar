@@ -22,13 +22,17 @@ func WorkspaceRemovalOwners(paths []string) (map[string][]string, error) {
 		}
 		owners[path] = []string{}
 		for _, reg := range regs {
-			relative, err := filepath.Rel(candidate, reg.Workspace.Path)
-			if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative) {
+			if registrationWithinWorkspace(reg, candidate) {
 				owners[path] = append(owners[path], reg.ID)
 			}
 		}
 	}
 	return owners, nil
+}
+
+func registrationWithinWorkspace(reg Registration, path string) bool {
+	relative, err := filepath.Rel(path, reg.Workspace.Path)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
 }
 
 // Registration pins its workspace even when intentionally stopped. Remove the

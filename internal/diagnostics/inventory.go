@@ -25,7 +25,7 @@ const maxPageBytes = 256 * 1024
 const maxChildren = protocol.DiagnosticChildLimit
 
 func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
-	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "source_refs" && req.Section != "bindings" {
+	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "agents" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("unsupported diagnostic inventory")
 	}
 	if req.Limit == 0 {
@@ -36,6 +36,9 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 	}
 	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("parent_id requires source_refs or bindings")
+	}
+	if req.Section == "agents" && req.State != "" {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("state filters retained task lifecycle, not agent runner state")
 	}
 	if req.Workspace != "" && !filepath.IsAbs(req.Workspace) {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic scope must be absolute")
@@ -65,6 +68,15 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 			task := taskView(record, byRecord[record.ID], linking[record.ID])
 			items = append(items, protocol.DiagnosticItem{ID: task.RecordID, Task: &task})
 		}
+	} else if req.Section == "agents" {
+		agents, err := agentservice.DiagnosticAgents(req.Workspace, req.ID)
+		if err != nil {
+			return protocol.DiagnosticsPage{}, fmt.Errorf("agent registration diagnostics unavailable")
+		}
+		for _, agent := range agents {
+			items = append(items, protocol.DiagnosticItem{ID: agent.ID, Agent: &agent})
+		}
+		evidence = "fresh_registration_with_persisted_agent_checkpoints"
 	} else if req.Section == "source_refs" || req.Section == "bindings" {
 		items = referenceItems(req, records, refs, byRecord)
 	} else {

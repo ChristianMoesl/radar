@@ -23,7 +23,7 @@ import (
 func runFeedbackDiagnostics(args []string) {
 	flags := outputFlags("radar feedback-diagnostics")
 	current := flags.String("workspace", "", "registered feedback workspace")
-	section := flags.String("section", "overview", "overview, tasks, workspaces, source_refs, bindings or logs")
+	section := flags.String("section", "overview", "overview, tasks, workspaces, source_refs, bindings, agents or logs")
 	scope := flags.String("scope", "origin", "origin, feedback or installation (inventories only)")
 	id := flags.String("id", "", "stable entity ID filter")
 	parentID := flags.String("parent-id", "", "source_refs: task ID; bindings: retained source-ref ID")
@@ -31,15 +31,15 @@ func runFeedbackDiagnostics(args []string) {
 	limit := flags.Int("limit", 20, "inventory page size (1-50)")
 	cursor := flags.String("cursor", "", "opaque inventory continuation cursor")
 	_ = parseFlags(flags, args)
-	if flags.NArg() != 0 || *current == "" || (*section != "overview" && *section != "logs" && *section != "tasks" && *section != "workspaces" && *section != "source_refs" && *section != "bindings") {
-		fatal(errors.New("usage: radar feedback-diagnostics --workspace <feedback workspace> --section overview|tasks|workspaces|source_refs|bindings|logs --json"))
+	if flags.NArg() != 0 || *current == "" || (*section != "overview" && *section != "logs" && *section != "tasks" && *section != "workspaces" && *section != "source_refs" && *section != "bindings" && *section != "agents") {
+		fatal(errors.New("usage: radar feedback-diagnostics --workspace <feedback workspace> --section overview|tasks|workspaces|source_refs|bindings|agents|logs --json"))
 	}
 	if !jsonOutput {
 		fatal(errors.New("feedback-diagnostics requires --json"))
 	}
 	var result map[string]any
 	var err error
-	if *section == "tasks" || *section == "workspaces" || *section == "source_refs" || *section == "bindings" {
+	if *section == "tasks" || *section == "workspaces" || *section == "source_refs" || *section == "bindings" || *section == "agents" {
 		result, err = feedbackInventory(*current, *scope, protocol.DiagnosticsRequest{Section: *section, ParentID: *parentID, ID: *id, State: *state, Limit: *limit, Cursor: *cursor})
 	} else {
 		if *scope != "origin" || *id != "" || *parentID != "" || *state != "" || *cursor != "" || *limit != 20 {
@@ -74,7 +74,7 @@ func feedbackDiagnostics(current, section string) (map[string]any, error) {
 		"diagnostics_schema": protocol.DiagnosticsVersion, "section": "overview", "version": version.Number, "commit": version.Commit,
 		"built": version.Date, "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"daemon":       map[string]any{"available": false},
-		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "logs"}, "maintenance": false, "runtime_probes": false, "retained_inventory_requires_matching_daemon": true},
+		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "agents", "logs"}, "maintenance": false, "runtime_probes": false, "retained_inventory_requires_matching_daemon": true},
 	}
 	// Explicit allowlist: do not serialize config.Config, credentials, provider
 	// endpoints, environment files, startup commands or task/note contents.
@@ -158,6 +158,9 @@ func feedbackInventory(current, scope string, req protocol.DiagnosticsRequest) (
 	}
 	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" {
 		return nil, errors.New("parent-id requires source_refs or bindings")
+	}
+	if req.Section == "agents" && req.State != "" {
+		return nil, errors.New("state filters retained task lifecycle, not agent runner state")
 	}
 	root, group, found, err := workspace.RegisteredWorkspace(current, "")
 	if err != nil || !found || !group.Feedback {

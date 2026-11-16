@@ -214,10 +214,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	observed := make(chan protocol.Request, 5)
+	observed := make(chan protocol.Request, 6)
 	done := make(chan error, 1)
 	go func() {
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 6; i++ {
 			conn, err := listener.Accept()
 			if err != nil {
 				done <- err
@@ -232,10 +232,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 			}
 			observed <- req
 			response := protocol.Response{OK: true, Diagnostics: &protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: req.Diagnostics.Section, Evidence: "cached_daemon_state", Items: []protocol.DiagnosticItem{}, Complete: true}}
-			if i == 3 {
+			if i == 4 {
 				response.Diagnostics.Schema = 99
 			}
-			if i == 4 {
+			if i == 5 {
 				response = protocol.Response{OK: false, Error: "unknown method: diagnostics; private-provider-value"}
 			}
 			err = json.NewEncoder(conn).Encode(response)
@@ -247,13 +247,17 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		}
 		done <- nil
 	}()
-	for index, scope := range []string{"origin", "feedback", "installation"} {
-		section := []string{"tasks", "source_refs", "bindings"}[index]
+	for index, scope := range []string{"origin", "feedback", "installation", "origin"} {
+		section := []string{"tasks", "source_refs", "bindings", "agents"}[index]
 		parent := ""
-		if index > 0 {
+		if index == 1 || index == 2 {
 			parent = "opaque-parent"
 		}
-		result, err := feedbackInventory(anchor, scope, protocol.DiagnosticsRequest{Section: section, ParentID: parent, Workspace: "/must-not-pass-through", Limit: 7, ID: "123", State: "done", Cursor: "opaque"})
+		state := "done"
+		if section == "agents" {
+			state = ""
+		}
+		result, err := feedbackInventory(anchor, scope, protocol.DiagnosticsRequest{Section: section, ParentID: parent, Workspace: "/must-not-pass-through", Limit: 7, ID: "123", State: state, Cursor: "opaque"})
 		if err != nil || result["available"] != true {
 			t.Fatalf("result=%+v err=%v", result, err)
 		}
@@ -265,7 +269,7 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		if scope == "feedback" {
 			want = anchor
 		}
-		if req.Method != "diagnostics" || req.Diagnostics == nil || req.Diagnostics.Workspace != want || req.Diagnostics.Section != section || req.Diagnostics.ParentID != parent || req.Diagnostics.ID != "123" || req.Diagnostics.Limit != 7 || req.Diagnostics.Cursor != "opaque" || req.Diagnostics.State != "done" {
+		if req.Method != "diagnostics" || req.Diagnostics == nil || req.Diagnostics.Workspace != want || req.Diagnostics.Section != section || req.Diagnostics.ParentID != parent || req.Diagnostics.ID != "123" || req.Diagnostics.Limit != 7 || req.Diagnostics.Cursor != "opaque" || req.Diagnostics.State != state {
 			t.Fatalf("unexpected request: %+v", req)
 		}
 		if result["feedback_workspace_id"] != workspacegroup.ID(anchor) {
