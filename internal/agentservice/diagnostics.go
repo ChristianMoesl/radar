@@ -27,7 +27,7 @@ func DiagnosticAgents(workspace, id string) ([]protocol.DiagnosticAgent, error) 
 		binding := reg.Workspace
 		binding.ID, binding.Path = protocol.DiagnosticText(binding.ID), protocol.DiagnosticText(binding.Path)
 		binding.Mode, binding.Sandbox = protocol.DiagnosticText(binding.Mode), protocol.DiagnosticText(binding.Sandbox)
-		item := protocol.DiagnosticAgent{ID: reg.ID, Registered: true, Desired: reg.Desired, Workspace: binding, OwnershipHold: "registered_owner_even_when_stopped", RunnerEvidence: "unknown_not_probed", LeaseEvidence: "unknown_not_inspected", CollectionEvidence: "not_configured", Schedules: []protocol.DiagnosticAgentSchedule{}}
+		item := protocol.DiagnosticAgent{ID: reg.ID, Registered: true, Desired: reg.Desired, Workspace: binding, OwnershipHold: "registered_owner_even_when_stopped", RunnerEvidence: "unknown_not_probed", LeaseEvidence: "unknown_not_inspected", CollectionEvidence: "not_configured", Schedules: []protocol.DiagnosticAgentSchedule{}, SupervisionEvidence: "unavailable_not_observed"}
 		diagnosticSnapshot(reg, &item)
 		if reg.Collection != "" {
 			checkpoint, err := loadCollection(reg)
@@ -56,6 +56,31 @@ func DiagnosticAgents(workspace, id string) ([]protocol.DiagnosticAgent, error) 
 		items = append(items, item)
 	}
 	return items, nil
+}
+
+// DiagnosticAgentSupervision copies only already-held retry/error evidence for
+// the scoped registration IDs. The supervisor holds mu across native I/O, so a
+// busy mutex returns unknown immediately rather than delaying inspection.
+// No registration/checkpoint reads, status calls or work are initiated here.
+func (m *Manager) DiagnosticAgentSupervision(ids []string) map[string]protocol.DiagnosticAgentSupervision {
+	if !m.mu.TryLock() {
+		return nil
+	}
+	defer m.mu.Unlock()
+	items := make(map[string]protocol.DiagnosticAgentSupervision, len(ids))
+	for _, id := range ids {
+		view := protocol.DiagnosticAgentSupervision{RetryRecordEvidence: "no_current_record", ScheduleDeliveryProblem: m.scheduleErrors[id] != ""}
+		if retry, ok := m.retry[id]; ok {
+			next := diagnosticTime(retry.next)
+			if retry.attempts < 1 || uint64(retry.attempts) > 1<<53-1 || retry.next.IsZero() || retry.next.UTC().Year() < 1 || retry.next.UTC().Year() > 9999 || len(next) > 35 {
+				continue // Invalid native evidence is unavailable, never zero/healthy.
+			}
+			view.RetryRecordEvidence = "current_record"
+			view.Retry = &protocol.DiagnosticAgentRetry{FailedStartAttempts: retry.attempts, RetryNotBefore: next, StartProblem: retry.problem != ""}
+		}
+		items[id] = view
+	}
+	return items
 }
 
 func diagnosticTime(value time.Time) string {

@@ -13,6 +13,26 @@ type RateLimitReporter interface {
 	RateLimitSummary(ctx context.Context, logger *slog.Logger) (string, error)
 }
 
+// AgentSupervisionDiagnostics reads current-daemon manager memory only. Busy or
+// unsupported managers return no evidence, not a healthy/no-retry conclusion.
+type AgentSupervisionDiagnostics interface {
+	Integration
+	DiagnosticAgentSupervision([]string) map[string]protocol.DiagnosticAgentSupervision
+}
+
+func (r Registry) DiagnosticAgentSupervision(ids []string) map[string]protocol.DiagnosticAgentSupervision {
+	var providers []AgentSupervisionDiagnostics
+	for _, candidate := range r.integrations {
+		if provider, ok := candidate.(AgentSupervisionDiagnostics); ok {
+			providers = append(providers, provider)
+		}
+	}
+	if len(ids) == 0 || len(providers) != 1 {
+		return nil
+	}
+	return providers[0].DiagnosticAgentSupervision(ids)
+}
+
 // WorkspaceRegistrationDiagnostics is observation-only. Implementations project
 // their registration allowlist without probing runtimes or collecting sources.
 // Identity fields retain full values for scope matching and stable child IDs;

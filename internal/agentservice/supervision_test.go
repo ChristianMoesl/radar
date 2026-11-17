@@ -53,6 +53,10 @@ func TestCrashBackoffAndIntentionallyStoppedRegistration(t *testing.T) {
 	}
 	cancel()
 	<-done
+	view := manager.DiagnosticAgentSupervision([]string{"crashing", "stopped"})
+	if view["crashing"].Retry == nil || view["crashing"].Retry.FailedStartAttempts < 2 || !view["crashing"].Retry.StartProblem || view["stopped"].Retry != nil || view["stopped"].RetryRecordEvidence != "no_current_record" {
+		t.Fatalf("diagnostics did not reuse actual supervisor backoff: %+v", view)
+	}
 	reg, err := load("stopped")
 	if err != nil || reg.Desired {
 		t.Fatalf("stopped intention changed: %+v %v", reg, err)

@@ -207,7 +207,16 @@ Missing/unavailable evidence is unknown, not no leases; available-at-probe is no
 execution eligibility. Observed inode/contention drift invalidates pages. No apply
 or reserved lock is exposed. See [cleanup previews](integrations/pi.md#explicit-native-manual-cleanup-previews).
 
-`feedback-diagnostics --section overview` reports schema-22 typed configuration
+`feedback-diagnostics --section agents` separately exposes available current-daemon
+native retry/backoff records and schedule-delivery-error presence, without runner
+or runtime probes. Busy/missing/ambiguous managers are unavailable, not healthy;
+no retry record is not success or stopped-state evidence. Records are volatile,
+ID-keyed and not registration-lifetime/history attestations; retry deadlines are
+not execution guarantees. Scoped pagination invalidates on shown memory changes.
+See the Pi diagnostics documentation for fields and limitations. CLI, daemon and
+loaded Pi must match schema 23; no maintenance apply is exposed.
+
+`feedback-diagnostics --section overview` reports schema-23 typed configuration
 policy values and file/default provenance. Its fixed ten-setting allowlist returns
 only booleans, enablement modes and counts from a bounded native configuration
 read, never model strings, paths, commands, secrets or referenced file contents.

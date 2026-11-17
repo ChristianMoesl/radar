@@ -337,7 +337,7 @@ func TestFeedbackOverviewReturnsNativePolicySourcesWithoutPrivateSettings(t *tes
 		}
 	}
 	capabilities := result["capabilities"].(map[string]any)
-	if capabilities["configuration_policy_origins"] != true || capabilities["daemon_process_configuration"] != true || capabilities["workspace_effective_policy"] != false || capabilities["daemon_environment"] != false || capabilities["maintenance"] != false || capabilities["current_daemon_managed_operations"] != true || capabilities["durable_operation_history"] != false || capabilities["verified_operation_resource_outcomes"] != false || capabilities["cleanup_preview_lease_contention_probes"] != true {
+	if capabilities["configuration_policy_origins"] != true || capabilities["daemon_process_configuration"] != true || capabilities["workspace_effective_policy"] != false || capabilities["daemon_environment"] != false || capabilities["maintenance"] != false || capabilities["current_daemon_managed_operations"] != true || capabilities["durable_operation_history"] != false || capabilities["verified_operation_resource_outcomes"] != false || capabilities["cleanup_preview_lease_contention_probes"] != true || capabilities["current_daemon_agent_supervision"] != true || capabilities["agent_supervision_history"] != false {
 		t.Fatalf("policy advertised as authority: %+v", capabilities)
 	}
 }

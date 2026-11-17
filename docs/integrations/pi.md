@@ -114,7 +114,7 @@ it is not runtime presence or an effective sandbox-permission check.
 Overview `settings` are **CLI-process global defaults**. With a matching daemon,
 `daemon.settings` separately reports **daemon-process global defaults** from the
 same native bounded reader executed in the running daemon process. The existing
-`diagnostics` RPC's selector-free `overview` returns this typed schema-22
+`diagnostics` RPC's selector-free `overview` returns this typed schema-23
 projection; it never uses task visibility filters or provider calls. No new public
 tool or general file/configuration endpoint is added.
 
@@ -206,7 +206,7 @@ provider. Native references and statuses share one atomic cache revision; cursor
 also bind selected scope, registration/capability changes, returned collection
 attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 22; older versions fail closed.
+and extension must all support schema 23; older versions fail closed.
 
 ### Current-daemon collection attempt evidence
 
@@ -369,7 +369,7 @@ preflight, expiry policy and automatic eligibility still require fresh guards. A
 not an executable plan, an apply token, publication approval or apply consent.
 Native safety flags describe planner evidence, never permission to
 weaken a safeguard. Maintenance apply remains unsupported; expired proposals use the explicit mode below.
-CLI, daemon and the actual loaded Pi extension must match schema 22 without a
+CLI, daemon and the actual loaded Pi extension must match schema 23 without a
 legacy fallback; separately installed extension sources require updating/reload
 independently from `make install`. No persisted format or cleanup policy changes.
 
@@ -408,7 +408,7 @@ bundle even when an expiring warning no longer does. All existing
 30-second/output/privacy/drift safeguards apply. The preview never calls cleanup
 execution, creates/reserves leases, changes retention policy or removes data.
 Maintenance apply remains unsupported. CLI, daemon and loaded Pi extension must
-match diagnostics schema 22; there is no legacy fallback.
+match diagnostics schema 23; there is no legacy fallback.
 
 ### Explicit registered-runtime observations
 
@@ -481,10 +481,10 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 22; there is no legacy fallback. Separately
+extension must all support schema 23; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-### Retained inventories (diagnostics schema 22)
+### Retained inventories (diagnostics schema 23)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -552,7 +552,7 @@ are distinct from the log query's opaque hashed correlation IDs.
 Capabilities advertise `current_daemon_managed_operations: true`, but
 `durable_operation_history`, `verified_operation_resource_outcomes` and
 `maintenance` remain false. CLI, daemon and separately loaded Pi sources must
-match schema 22; `make install` alone does not update/reload installed Pi sources.
+match schema 23; `make install` alone does not update/reload installed Pi sources.
 
 ### Identity and nested drill-down
 
@@ -713,7 +713,9 @@ Production-owned collection/schedule readers expose pending counts, delivery
 problem flags, configured calendar metadata, derived next due times and bounded
 admission timestamps/task IDs. Admission is not execution or business success.
 Schedule due calculations reuse production scheduling; cached checkpoint errors
-do not reconstruct in-memory supervision errors. At most 16 schedule summaries
+do not reconstruct in-memory supervision errors. The separate supervision
+projection below supplies available current-daemon error-presence evidence,
+not a change to checkpoint evidence. At most 16 schedule summaries
 are returned per agent with the full `schedule_count` and explicit `truncated`;
 follow `section: "agent_schedules", parent_id: "<agent registration ID>"` to
 page all persisted schedules with the same scope and selectors. Omit `parent_id`
@@ -742,6 +744,39 @@ invalidate cursors; complete pagination proves only this scoped projection.
 Definition commands, tokens, raw errors, titles, conversation references, task
 and event bodies, action payloads and schedule payloads are never returned.
 
+`agents` also includes `supervision_evidence`. When exactly one native manager is
+available and its mutex can be read immediately, this is
+`current_daemon_retry_and_schedule_errors`; `supervision` contains
+`retry_record_evidence` (`current_record` or `no_current_record`) and a
+`schedule_delivery_problem` boolean copied from the manager's schedule-error map.
+A current retry record additionally exposes `retry.failed_start_attempts`,
+`retry.retry_not_before` (UTC) and `retry.start_problem` (presence only).
+These reuse the actual supervisor retry/backoff state, not a diagnostic policy.
+
+This evidence is volatile and keyed only by registration ID in this daemon's
+memory. It is not complete history, a registration-lifetime attestation, the
+last runner observation, a running-loop guarantee or a new socket/runtime probe.
+A retry record may remain after desired state changes; desired state and stopped
+ownership remain separate. No record means only no current retry record, **not**
+health, successful work, zero historical attempts or a stopped/absent runner.
+`retry_not_before` is the recorded backoff gate, not guaranteed future execution;
+it may be in the past. The schedule flag is only current in-memory delivery-error
+presence, not runner health, checkpoint validity or successful event execution.
+Private error strings never leave the manager projection.
+
+A busy, missing or ambiguous manager returns `unavailable_not_observed` with no
+`supervision` object, not false error flags or zero retries. No inspection waits
+behind the supervisor's I/O mutex, calls status/recovery, ticks schedules or writes
+checkpoints. Scope and exact registration selection precede memory lookup.
+Registration/checkpoint reads and the memory copy are not atomic; `observed_at`
+is page capture time, not a retry/runner observation time. Shown supervision
+changes anywhere in the scoped inventory (including availability changes)
+invalidate pagination. No pre-restart evidence is reconstructed. Overview
+capabilities advertise `current_daemon_agent_supervision: true` and
+`agent_supervision_history: false`. CLI, daemon and loaded Pi must match schema
+23; separately installed Pi sources still require updating/reloading independently
+of `make install`.
+
 Task views include retained lifecycle state, `DoneAt`, source observation times,
 active/inactive refs, ownership identifiers, acknowledgement/review/activity
 facts and binding/problem counts. `lifecycle_input` uses the exact production
@@ -766,7 +801,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 22; version mismatches fail closed
+extension must support diagnostics schema 23; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

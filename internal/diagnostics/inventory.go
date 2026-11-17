@@ -105,10 +105,19 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 		if err != nil {
 			return protocol.DiagnosticsPage{}, fmt.Errorf("agent registration diagnostics unavailable")
 		}
+		ids := make([]string, 0, len(agents))
 		for _, agent := range agents {
+			ids = append(ids, agent.ID)
+		}
+		supervision := providers.DiagnosticAgentSupervision(ids)
+		for _, agent := range agents {
+			if view, ok := supervision[agent.ID]; ok {
+				agent.SupervisionEvidence = "current_daemon_retry_and_schedule_errors"
+				agent.Supervision = &view
+			}
 			items = append(items, protocol.DiagnosticItem{ID: agent.ID, Agent: &agent})
 		}
-		evidence = "fresh_registration_with_persisted_agent_checkpoints"
+		evidence = "fresh_registration_persisted_checkpoints_and_available_daemon_supervision"
 	} else if req.Section == "agent_schedules" {
 		schedules, err := agentservice.DiagnosticAgentSchedules(req.Workspace, req.ParentID, req.ID)
 		if err != nil {
@@ -228,6 +237,9 @@ func paginate(req protocol.DiagnosticsRequest, items []protocol.DiagnosticItem, 
 	page := protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: req.Section, Evidence: evidence, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano), Revision: revision, Snapshot: snapshot, Total: len(items), ResourceRefreshPending: pending, Limitations: []string{"free_form_content_withheld", "runtime_not_probed", "cleanup_planner_not_run", "provider_freshness_not_established", "text_fields_limited_to_512_bytes", "nested_lists_limited_to_16_entries", "historical_manual_intent_not_reconstructed", "registration_paths_are_not_observed_resource_presence"}}
 	if req.Section == "gc_plan" {
 		page.Limitations = []string{"free_form_content_withheld", "runtime_not_probed", "provider_preview_not_run", "provider_freshness_not_established", "ownership_and_leases_not_checked", "candidate_is_not_execution_eligibility_or_consent", "pending_resource_refresh_may_change_plan", "text_fields_limited_to_512_bytes", "scope_selects_owning_task_including_related_resources"}
+	}
+	if req.Section == "agents" {
+		page.Limitations = []string{"registration_and_checkpoints_are_not_runner_liveness", "current_daemon_id_keyed_retry_and_schedule_error_memory_only", "no_retry_record_is_not_success_health_or_stopped_state", "busy_missing_or_ambiguous_supervisor_is_unknown", "observed_at_is_page_capture_not_retry_or_runner_observation_time", "registrations_checkpoints_and_supervision_are_not_atomic", "no_pre_restart_history_or_registration_lifetime_attestation", "retry_not_before_is_not_a_scheduled_execution_guarantee", "stopped_registration_still_holds_ownership", "no_runner_runtime_lease_network_probe_or_maintenance", "private_errors_definitions_and_payloads_withheld", "nested_lists_limited_to_16_entries", "text_fields_limited_to_512_bytes"}
 	}
 	if req.Section == "integrations" {
 		page.Limitations = []string{"cached_status_is_installation_wide_not_workspace_health", "workspace_scope_selects_only_related_retained_refs", "ref_observation_time_is_not_collection_attempt_or_success", "current_daemon_completed_attempts_are_not_reconciliation_publication_or_business_success", "no_active_attempt_or_pre_restart_history", "attempts_do_not_establish_live_access_or_cache_freshness", "effective_enablement_auth_tools_and_rate_limits_unknown", "registered_capability_is_not_execution_permission", "no_provider_status_collection_auth_rate_limit_probe_or_refresh", "raw_provider_details_withheld", "text_fields_limited_to_512_bytes"}

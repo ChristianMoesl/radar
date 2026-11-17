@@ -32,6 +32,10 @@ func (s *Source) ObserveCollection(ctx context.Context, source string, items []i
 	return s.manager.ObserveCollection(ctx, source, items)
 }
 
+func (s *Source) DiagnosticAgentSupervision(ids []string) map[string]protocol.DiagnosticAgentSupervision {
+	return s.manager.DiagnosticAgentSupervision(ids)
+}
+
 func (s *Source) Status(ctx context.Context, _ *slog.Logger) integration.StatusResult {
 	data, err := s.manager.Handle(ctx, protocol.AgentRequest{Operation: "list"})
 	status := protocol.SourceStatus{Name: "agent", Status: "ok"}

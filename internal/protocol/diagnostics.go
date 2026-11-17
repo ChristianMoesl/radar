@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 22
+const DiagnosticsVersion = 23
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -178,22 +178,38 @@ type DiagnosticBinding struct {
 }
 
 type DiagnosticAgent struct {
-	ID                 string                     `json:"id"`
-	Registered         bool                       `json:"registered"`
-	Desired            bool                       `json:"desired"`
-	Workspace          AgentWorkspaceBinding      `json:"workspace"`
-	OwnershipHold      string                     `json:"ownership_hold"`
-	RunnerEvidence     string                     `json:"runner_evidence"`
-	LeaseEvidence      string                     `json:"lease_evidence"`
-	SnapshotEvidence   string                     `json:"snapshot_evidence"`
-	SnapshotSavedAt    string                     `json:"snapshot_saved_at,omitempty"`
-	Snapshot           *DiagnosticAgentSnapshot   `json:"snapshot,omitempty"`
-	CollectionEvidence string                     `json:"collection_evidence"`
-	Collection         *DiagnosticAgentCollection `json:"collection,omitempty"`
-	SchedulesEvidence  string                     `json:"schedules_evidence"`
-	ScheduleCount      *int                       `json:"schedule_count,omitempty"`
-	Schedules          []DiagnosticAgentSchedule  `json:"schedules"`
-	Truncated          bool                       `json:"truncated"`
+	ID                  string                      `json:"id"`
+	Registered          bool                        `json:"registered"`
+	Desired             bool                        `json:"desired"`
+	Workspace           AgentWorkspaceBinding       `json:"workspace"`
+	OwnershipHold       string                      `json:"ownership_hold"`
+	RunnerEvidence      string                      `json:"runner_evidence"`
+	LeaseEvidence       string                      `json:"lease_evidence"`
+	SnapshotEvidence    string                      `json:"snapshot_evidence"`
+	SnapshotSavedAt     string                      `json:"snapshot_saved_at,omitempty"`
+	Snapshot            *DiagnosticAgentSnapshot    `json:"snapshot,omitempty"`
+	CollectionEvidence  string                      `json:"collection_evidence"`
+	Collection          *DiagnosticAgentCollection  `json:"collection,omitempty"`
+	SchedulesEvidence   string                      `json:"schedules_evidence"`
+	ScheduleCount       *int                        `json:"schedule_count,omitempty"`
+	Schedules           []DiagnosticAgentSchedule   `json:"schedules"`
+	Truncated           bool                        `json:"truncated"`
+	SupervisionEvidence string                      `json:"supervision_evidence"`
+	Supervision         *DiagnosticAgentSupervision `json:"supervision,omitempty"`
+}
+
+// DiagnosticAgentSupervision is an ID-keyed current-daemon memory projection,
+// not a fresh runner observation, registration-lifetime attestation or history.
+type DiagnosticAgentSupervision struct {
+	RetryRecordEvidence     string                `json:"retry_record_evidence"`
+	Retry                   *DiagnosticAgentRetry `json:"retry,omitempty"`
+	ScheduleDeliveryProblem bool                  `json:"schedule_delivery_problem"`
+}
+
+type DiagnosticAgentRetry struct {
+	FailedStartAttempts int    `json:"failed_start_attempts"`
+	RetryNotBefore      string `json:"retry_not_before"`
+	StartProblem        bool   `json:"start_problem"`
 }
 
 type DiagnosticAgentSnapshot struct {
