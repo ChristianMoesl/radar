@@ -56,6 +56,12 @@ func ReportResourceMutation(socketPath string, target protocol.ResourceMutation)
 	return callRequest(socketPath, protocol.Request{Method: "resources-mutated", ResourceMutation: &target}, time.Second)
 }
 
+// MaintainDiagnostics uses only the dedicated typed maintenance RPC. It never
+// starts the daemon, retries an ambiguous apply, or invokes ordinary refresh/GC.
+func MaintainDiagnostics(socketPath string, req protocol.DiagnosticMaintenanceRequest, timeout time.Duration) (protocol.Response, error) {
+	return callRequest(socketPath, protocol.Request{Method: "diagnostics-maintenance", Maintenance: &req}, timeout)
+}
+
 func CallRequest(socketPath string, req protocol.Request) (protocol.Response, error) {
 	return callRequest(socketPath, req, 0)
 }

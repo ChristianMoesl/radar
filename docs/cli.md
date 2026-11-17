@@ -11,8 +11,9 @@ radar setup notifications     # macOS launch/notification approval
 radar update                  # Confirm a managed macOS release
 radar version
 radar documentation [--topic <source>] [--json]
-radar feedback-diagnostics --workspace <feedback-workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|runtime_probe|agent_probe|retirement_preview|cleanup_preview|integrations|operations|logs --json
+radar feedback-diagnostics --workspace <feedback-workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|runtime_probe|agent_probe|retirement_preview|cleanup_preview|integrations|operations|refresh|logs --json
 radar feedback-diagnostics --workspace <feedback-workspace> --section cleanup_preview --parent-id <retained-task-id> --cleanup-mode expired --workspace-id <registered-workspace-id> --scope origin|feedback|installation --json
+radar feedback-diagnostics --workspace <feedback-workspace> --section refresh --scope installation [--action preview|apply] [--plan-id <fresh-preview-id>] --json
 radar feedback-diagnostics --workspace <feedback-workspace> --section logs [--since "YYYY-MM-DD HH:MM:SS"] [--until "YYYY-MM-DD HH:MM:SS"] [--severity debug|info|warn|error] [--provider <opaque-log-id>] [--entity <opaque-log-id>] [--operation <opaque-log-id>] [--limit 1-100] [--cursor <log-cursor>] --json
 radar create                  # Interactive workspace creation
 radar fork
@@ -189,6 +190,23 @@ Completed cleanup and reconciliation responses can contain `resource_refresh_pen
 
 Authored-note identity conflicts are never automatically merged or reset. `repair-task-links` defaults to a read-only JSON plan; applying requires explicit ownership/history decisions, an offline state lock and a new SQLite backup. See [task link repair](task-link-repair.md).
 
+`feedback-diagnostics --section refresh --scope installation` defaults to a
+non-mutating preview of all registered collection sources. Apply requires
+`--action apply --plan-id <latest-preview-id>` and separate fresh consent in the
+Pi tool; plan identity is freshness, not consent. Only installation-wide native
+collection/reconciliation is supported, not provider/workspace subsets. The
+collection-only taskservice adapter never invokes ordinary daemon refresh or its
+hourly workspace GC. Native reconciliation may update notes, bindings, lifecycle
+and deliver collection events; provider reads may refresh Git metadata using
+existing access. No cleanup, login/setup or runtime start is requested. Busy
+admission fails without queued work. One-use current-daemon plans expire after
+60 seconds or revision/target drift; native execution has a cooperative 30-second
+deadline. Cancellation/disconnect can leave partial changes, not rollback.
+Returned per-source counts are collection attempts, not verified resources;
+missing/canceled evidence stays unverified. Never replay an unknown apply outcome.
+CLI/daemon/Pi schema 26 must match before apply, with no fallback. See
+[refresh safeguards](integrations/pi-diagnostics.md#explicit-installation-wide-collection-refresh).
+
 `feedback-diagnostics --section operations` pages volatile current-daemon managed
 operation observations using origin/feedback/installation scope and exact `--id`.
 Active plus latest 64 terminal/client-reported entries are not complete history.
@@ -223,9 +241,9 @@ no retry record is not success or stopped-state evidence. Records are volatile,
 ID-keyed and not registration-lifetime/history attestations; retry deadlines are
 not execution guarantees. Scoped pagination invalidates on shown memory changes.
 See the Pi diagnostics documentation for fields and limitations. CLI, daemon and
-loaded Pi must match schema 25; no maintenance apply is exposed.
+loaded Pi must match schema 26; no maintenance apply is exposed.
 
-`feedback-diagnostics --section overview` reports schema-25 typed configuration
+`feedback-diagnostics --section overview` reports schema-26 typed configuration
 policy values and file/default provenance. Its fixed ten-setting allowlist returns
 only booleans, enablement modes and counts from a bounded native configuration
 read, never model strings, paths, commands, secrets or referenced file contents.

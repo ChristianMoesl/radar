@@ -74,7 +74,15 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 		// remote provider, including the first collection after reset/startup.
 		s.Refresh(ctx, true)
 	}
-	s.applyMu.Lock()
+	return s.refreshCollected(ctx, localOnly)
+}
+
+// refreshCollected uses the production collector/publication path. Callers own
+// the corresponding collection mutex. Diagnostic refresh never invokes daemon GC.
+func (s *Service) refreshCollected(ctx context.Context, localOnly bool) collector.Result {
+	if !lockCollectionContext(ctx, &s.applyMu) {
+		return collector.Result{}
+	}
 	revision := s.authoringRevision
 	resourceRevision := s.resourceRevision.Load()
 	s.applyMu.Unlock()
@@ -90,7 +98,9 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 	// prevents publication. This evidence never certifies cache freshness.
 	s.store.RecordCollectionAttempts(result.Attempts)
 
-	s.applyMu.Lock()
+	if !lockCollectionContext(ctx, &s.applyMu) {
+		return collector.Result{Attempts: result.Attempts}
+	}
 	var previous, current []protocol.Task
 	defer func() {
 		s.applyMu.Unlock()
@@ -99,14 +109,14 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 		}
 	}()
 	if ctx.Err() != nil {
-		return collector.Result{}
+		return collector.Result{Attempts: result.Attempts}
 	}
 	if resourceRevision != s.resourceRevision.Load() {
 		// A completed resource mutation supersedes this entire observation.
 		// Never publish it or clear the pending marker, even if every provider
 		// reported success. The next scheduled collection starts a fresh read.
 		s.logger.Debug("collection superseded by resource mutation")
-		return collector.Result{Tasks: s.store.CollectionTasks(), Sources: s.store.Sources()}
+		return collector.Result{Attempts: result.Attempts, Tasks: s.store.CollectionTasks(), Sources: s.store.Sources()}
 	}
 	if !localOnly {
 		observerErrors := append([]protocol.SourceStatus(nil), result.Sources...)

@@ -5,14 +5,15 @@ import "encoding/json"
 const Version = "0.1.0"
 
 type Request struct {
-	ResourceMutation *ResourceMutation    `json:"resource_mutation,omitempty"`
-	Diagnostics      *DiagnosticsRequest  `json:"diagnostics,omitempty"`
-	Agent            *AgentRequest        `json:"agent,omitempty"`
-	Method           string               `json:"method"`
-	TaskID           int                  `json:"task_id,omitempty"`
-	TaskMutation     *TaskMutation        `json:"task_mutation,omitempty"`
-	Cleanup          *CleanupPreview      `json:"cleanup,omitempty"`
-	TaskDeletion     *TaskDeletionPreview `json:"task_deletion,omitempty"`
+	Maintenance      *DiagnosticMaintenanceRequest `json:"maintenance,omitempty"`
+	ResourceMutation *ResourceMutation             `json:"resource_mutation,omitempty"`
+	Diagnostics      *DiagnosticsRequest           `json:"diagnostics,omitempty"`
+	Agent            *AgentRequest                 `json:"agent,omitempty"`
+	Method           string                        `json:"method"`
+	TaskID           int                           `json:"task_id,omitempty"`
+	TaskMutation     *TaskMutation                 `json:"task_mutation,omitempty"`
+	Cleanup          *CleanupPreview               `json:"cleanup,omitempty"`
+	TaskDeletion     *TaskDeletionPreview          `json:"task_deletion,omitempty"`
 }
 
 type TaskMutation struct {
@@ -241,6 +242,7 @@ type Task struct {
 }
 
 type Response struct {
+	Maintenance             *DiagnosticMaintenance   `json:"maintenance,omitempty"`
 	OperationID             string                   `json:"operation_id,omitempty"`
 	Operations              []ManagedOperation       `json:"operations,omitempty"`
 	DiagnosticOverview      *DiagnosticOverview      `json:"diagnostic_overview,omitempty"`
@@ -266,6 +268,9 @@ type Response struct {
 
 func (r Response) MarshalJSON() ([]byte, error) {
 	fields := map[string]any{"ok": r.OK}
+	if r.Maintenance != nil {
+		fields["maintenance"] = r.Maintenance
+	}
 	if r.OperationID != "" {
 		fields["operation_id"] = r.OperationID
 	}

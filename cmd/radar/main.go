@@ -20,6 +20,7 @@ import (
 	"radar/internal/app"
 	"radar/internal/cleanup"
 	"radar/internal/client"
+	"radar/internal/collector"
 	"radar/internal/config"
 	"radar/internal/integration"
 	"radar/internal/logging"
@@ -808,7 +809,12 @@ func runDaemon() {
 		}
 	}
 	integrations.StartBackground(ctx, tasks.MarkResourceRefreshPending)
-	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(ctx, logger, collectionMu, tasks), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).SetResourcePublication(tasks.MarkResourceRefreshPending, tasks.ResourceSnapshot).SetTaskMutation(tasks.MutateTask).SetTaskDeletion(tasks.PreviewDeleteTask, tasks.DeleteTask).SetOnReady(syncPackages).ListenAndServe(ctx, path); err != nil {
+	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(ctx, logger, collectionMu, tasks), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).SetDiagnosticRefresh(func(refreshCtx context.Context) (collector.Result, error) {
+		if collectionDisabled() {
+			return collector.Result{}, fmt.Errorf("source collection disabled")
+		}
+		return tasks.RefreshDiagnostics(refreshCtx)
+	}).SetResourcePublication(tasks.MarkResourceRefreshPending, tasks.ResourceSnapshot).SetTaskMutation(tasks.MutateTask).SetTaskDeletion(tasks.PreviewDeleteTask, tasks.DeleteTask).SetOnReady(syncPackages).ListenAndServe(ctx, path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}

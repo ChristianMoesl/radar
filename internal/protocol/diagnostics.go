@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 25
+const DiagnosticsVersion = 26
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.

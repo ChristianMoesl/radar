@@ -16,18 +16,20 @@ import (
 	"radar/internal/version"
 )
 
-// This command is the fixed, read-only host boundary for feedback sessions. It
-// never starts/restarts the daemon, refreshes providers, exports raw state or reads
-// secrets. Log contents require a separate confirmation in the Pi tool.
+// Fixed feedback host boundary. Reads/probes never imply mutation. Only explicit
+// collection-only refresh apply may mutate through the dedicated native adapter.
+// No daemon startup, ordinary refresh/GC fallback, raw state or secret export.
 func runFeedbackDiagnostics(args []string) {
 	flags := outputFlags("radar feedback-diagnostics")
 	current := flags.String("workspace", "", "registered feedback workspace")
-	section := flags.String("section", "overview", "overview, tasks, workspaces, source_refs, bindings, workspace_resources, agents, agent_schedules, gc_plan, runtime_probe, agent_probe, retirement_preview, cleanup_preview, integrations, operations or logs")
-	scope := flags.String("scope", "origin", "origin, feedback or installation (inventories only)")
+	section := flags.String("section", "overview", "overview, tasks, workspaces, source_refs, bindings, workspace_resources, agents, agent_schedules, gc_plan, runtime_probe, agent_probe, retirement_preview, cleanup_preview, integrations, operations, refresh or logs")
+	scope := flags.String("scope", "origin", "inventories: origin, feedback or installation; refresh requires installation")
 	id := flags.String("id", "", "stable entity ID filter")
 	parentID := flags.String("parent-id", "", "source_refs: task ID; bindings: retained source-ref ID; workspace_resources: registered workspace ID; agent_schedules: agent registration ID; gc_plan: owning task ID; runtime_probe/retirement_preview: required registered workspace ID; agent_probe: required agent registration ID; cleanup_preview: required retained task ID")
 	cleanupMode := flags.String("cleanup-mode", "", "cleanup_preview only: manual (default) or expired")
 	workspaceID := flags.String("workspace-id", "", "expired cleanup_preview only: exact registered GC candidate workspace ID")
+	action := flags.String("action", "preview", "refresh only: preview (default) or explicit apply")
+	planID := flags.String("plan-id", "", "refresh apply only: exact fresh preview ID, not consent")
 	state := flags.String("state", "", "exact retained task state filter")
 	limit := flags.Int("limit", 20, "page size (inventories 1-50; logs 1-100)")
 	cursor := flags.String("cursor", "", "opaque inventory/log continuation cursor")
@@ -38,14 +40,23 @@ func runFeedbackDiagnostics(args []string) {
 	entity := flags.String("entity", "", "logs: opaque entity identity from log metadata")
 	operation := flags.String("operation", "", "logs: opaque operation/correlation identity from log metadata")
 	_ = parseFlags(flags, args)
-	if flags.NArg() != 0 || *current == "" || (*section != "overview" && *section != "logs" && *section != "tasks" && *section != "workspaces" && *section != "source_refs" && *section != "bindings" && *section != "workspace_resources" && *section != "agents" && *section != "agent_schedules" && *section != "gc_plan" && *section != "runtime_probe" && *section != "agent_probe" && *section != "cleanup_preview" && *section != "retirement_preview" && *section != "integrations" && *section != "operations") {
-		fatal(errors.New("usage: radar feedback-diagnostics --workspace <feedback workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|runtime_probe|agent_probe|retirement_preview|cleanup_preview|integrations|operations|logs --json"))
+	if flags.NArg() != 0 || *current == "" || (*section != "refresh" && *section != "overview" && *section != "logs" && *section != "tasks" && *section != "workspaces" && *section != "source_refs" && *section != "bindings" && *section != "workspace_resources" && *section != "agents" && *section != "agent_schedules" && *section != "gc_plan" && *section != "runtime_probe" && *section != "agent_probe" && *section != "cleanup_preview" && *section != "retirement_preview" && *section != "integrations" && *section != "operations") {
+		fatal(errors.New("usage: radar feedback-diagnostics --workspace <feedback workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|runtime_probe|agent_probe|retirement_preview|cleanup_preview|integrations|operations|refresh|logs --json"))
 	}
 	if !jsonOutput {
 		fatal(errors.New("feedback-diagnostics requires --json"))
 	}
 	invalidSelector := false
 	flags.Visit(func(f *flag.Flag) {
+		if *section == "refresh" {
+			switch f.Name {
+			case "workspace", "section", "scope", "action", "plan-id", "json":
+			default:
+				invalidSelector = true
+			}
+		} else if f.Name == "action" || f.Name == "plan-id" {
+			invalidSelector = true
+		}
 		if *section != "cleanup_preview" && (f.Name == "cleanup-mode" || f.Name == "workspace-id") {
 			invalidSelector = true
 		}
@@ -58,6 +69,14 @@ func runFeedbackDiagnostics(args []string) {
 	})
 	if invalidSelector {
 		fatal(errors.New("diagnostic selectors do not match the selected section"))
+	}
+	if *section == "refresh" {
+		result, err := feedbackRefresh(*current, *scope, protocol.DiagnosticMaintenanceRequest{Operation: "refresh", Mode: *action, PlanID: *planID})
+		if err != nil {
+			fatal(err)
+		}
+		printResult(result)
+		return
 	}
 	query := logging.LogQuery{Since: *since, Until: *until, Severity: *severity, Provider: *provider, Entity: *entity, Operation: *operation, Limit: *limit, Cursor: *cursor}
 	var result map[string]any
@@ -96,7 +115,7 @@ func feedbackDiagnostics(current, section string, logQuery logging.LogQuery) (ma
 		"diagnostics_schema": protocol.DiagnosticsVersion, "section": "overview", "version": version.Number, "commit": version.Commit,
 		"built": version.Date, "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"daemon":       map[string]any{"available": false, "reason": "daemon_unavailable"},
-		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "gc_plan", "runtime_probe", "agent_probe", "retirement_preview", "cleanup_preview", "integrations", "operations", "logs"}, "maintenance": false, "runtime_retirement_previews": true, "manual_cleanup_previews": true, "expiry_cleanup_previews": true, "cleanup_preview_lease_contention_probes": true, "runtime_probes": true, "agent_socket_probes": true, "current_daemon_agent_supervision": true, "agent_supervision_history": false, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false, "current_daemon_collection_attempts": true, "current_daemon_managed_operations": true, "native_managed_handler_timing": true, "native_cleanup_completed_phase_aggregates": true, "durable_operation_history": false, "verified_operation_resource_outcomes": false, "filtered_redacted_log_metadata": true, "raw_log_contents": false, "configuration_policy_origins": true, "daemon_process_configuration": true, "workspace_effective_policy": false, "daemon_environment": false},
+		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "gc_plan", "runtime_probe", "agent_probe", "retirement_preview", "cleanup_preview", "integrations", "operations", "refresh", "logs"}, "maintenance": true, "collection_only_refresh": true, "cleanup_apply": false, "runtime_controls": false, "runtime_retirement_previews": true, "manual_cleanup_previews": true, "expiry_cleanup_previews": true, "cleanup_preview_lease_contention_probes": true, "runtime_probes": true, "agent_socket_probes": true, "current_daemon_agent_supervision": true, "agent_supervision_history": false, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false, "current_daemon_collection_attempts": true, "current_daemon_managed_operations": true, "native_managed_handler_timing": true, "native_cleanup_completed_phase_aggregates": true, "durable_operation_history": false, "verified_operation_resource_outcomes": false, "filtered_redacted_log_metadata": true, "raw_log_contents": false, "configuration_policy_origins": true, "daemon_process_configuration": true, "workspace_effective_policy": false, "daemon_environment": false},
 	}
 	// Native defaults and configuration origins share the exact production
 	// decoder. No arbitrary configuration strings or referenced files escape.

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"radar/internal/cleanup"
+	"radar/internal/collector"
 	"radar/internal/config"
 	"radar/internal/diagnostics"
 	"radar/internal/integration"
@@ -22,11 +24,15 @@ import (
 	"radar/internal/socket"
 	"radar/internal/state"
 	"radar/internal/version"
+	"sync"
 )
 
 var watchTimeout = 30 * time.Second
 
 type Server struct {
+	diagnosticRefresh    func(context.Context) (collector.Result, error)
+	maintenanceMu        sync.Mutex
+	refreshPlan          *diagnosticRefreshPlan
 	store                *state.Store
 	logger               *slog.Logger
 	refresh              func()
@@ -199,6 +205,25 @@ func (s *Server) handle(conn net.Conn) {
 			_ = encoder.Encode(protocol.Response{OK: true, AgentResult: result})
 		case "version":
 			_ = encoder.Encode(protocol.Response{OK: true, Version: version.Current(), PID: os.Getpid(), Revision: s.store.Revision()})
+		case "diagnostics-maintenance":
+			// Unlike the general legacy RPC, maintenance accepts only this exact
+			// envelope and typed fields, including no silently ignored selectors.
+			var boundary struct {
+				Method      string                                 `json:"method"`
+				Maintenance *protocol.DiagnosticMaintenanceRequest `json:"maintenance"`
+			}
+			decoder := json.NewDecoder(bytes.NewReader(scanner.Bytes()))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&boundary); err != nil || boundary.Maintenance == nil || req != (protocol.Request{Method: "diagnostics-maintenance", Maintenance: req.Maintenance}) {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "exact typed maintenance request required"})
+				continue
+			}
+			view, err := s.maintainDiagnostics(context.Background(), *req.Maintenance)
+			if err != nil {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error()})
+				continue
+			}
+			_ = encoder.Encode(protocol.Response{OK: true, Maintenance: &view})
 		case "diagnostics-probe":
 			if req.Diagnostics == nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "explicit registered runtime, agent probe or retirement preview selectors are required"})

@@ -27,10 +27,10 @@ yields an identifier/link for the user and `notes.md`; filing does not implement
 the request or close the workspace.
 
 `radar_diagnostics` is a typed host tool available only in enabled feedback
-sessions. The current delivery is **observation, registration-only retirement previews and explicit native manual/expiry cleanup previews, never apply**: the overview advertises
+sessions. The current delivery is **observation, registration-only retirement previews, explicit native manual/expiry cleanup previews, and explicitly confirmed collection-only refresh**: the overview advertises
 its capabilities explicitly. Explicit registered-runtime observations require
-fresh interactive approval. Full provider cleanup eligibility, operation history
-and maintenance adapters are not yet exposed; unsupported
+fresh interactive approval. Full provider cleanup eligibility, durable operation history, cleanup apply
+and runtime controls are not yet exposed; unsupported
 requests fail instead of running arbitrary commands or changing state.
 
 The default `overview` returns the installed CLI version, loaded extension
@@ -38,12 +38,92 @@ version, cached daemon/provider status and a typed `settings` policy projection.
 `feedback_sandbox_registered` separately describes the feedback registration;
 it is not runtime presence or an effective sandbox-permission check.
 
+## Explicit installation-wide collection refresh
+
+`section: "refresh", scope: "installation"` defaults to `action: "preview"`.
+This is the only maintenance apply currently exposed. Origin/feedback scope,
+provider/entity subsets, inventory/log selectors and cleanup selectors are
+rejected; installation-wide **inspection never authorizes mutation**. Preview
+requires a registered feedback workspace and matching daemon but no provider
+calls, locks, collection or mutation. At most 32 unique registered collection
+sources are returned as sorted opaque `integration:<hash>` IDs, matching the
+integration inventory. Disabled/unavailable sources remain targets, not proof
+that they can collect. No raw names, paths, provider payloads or errors are added.
+
+Preview discloses installation-wide effects, unverified target counts,
+resource-refresh-pending state and finite limitations. The latest preview in
+this daemon replaces any earlier unconsumed preview. Its random `plan_id` expires
+after **60 seconds** using the daemon's monotonic clock; store revision or source
+identity drift also invalidates apply. The displayed `expires_at` is UTC wall
+time. The Pi tool also rejects expired/far-future previews; clock skew can block
+consent rather than silently extending it. No on-disk plan, job queue or history
+service is introduced. Restart discards plans and results. **A plan ID establishes
+freshness, not user consent.** A preview is not a frozen provider configuration or
+an attestation of effective permissions; native configuration/access is evaluated
+by the existing services at execution.
+
+For a separately requested refresh, use `action: "apply", plan_id: "<latest ID>"`
+in the same feedback workspace. The actual tool accepts only a validated preview
+it has just shown in that workspace, and requires fresh interactive confirmation
+of the exact plan, complete source target set and installation-wide effects.
+Headless apply, canceled approval, expired approval, lost MCP availability or
+unmatched previews fail closed. CLI/Pi/daemon must match **schema 26**; the typed
+maintenance request carries the schema and the daemon rejects mismatches before
+admission. Read/probe RPCs cannot apply maintenance. The fixed CLI form is
+`feedback-diagnostics --section refresh --scope installation --action apply
+--plan-id <ID> --workspace <feedback-workspace> --json`; direct host CLI callers
+remain responsible for obtaining human consent. No arbitrary command, SQL,
+file, target-path or state-edit parameter exists.
+
+Apply reuses production taskservice local-then-remote collection, authoring
+reconciliation, collection-event delivery, publication and native freshness
+fences. **It does not call ordinary daemon refresh**, because that callback also
+runs hourly workspace GC. This dedicated collection-only adapter never requests
+workspace GC, cleanup, login/setup or runtime startup. Native provider reads can
+use existing authentication and refresh Git metadata; reconciliation can update
+notes, bindings and task lifecycle and deliver collection events. This is a
+mutation, not an observational probe or promise that downstream configured event
+consumers have no effects. Existing provider/network/cloud permissions still
+apply; no implicit setup or credential fallback is added.
+
+Full/local collection admission is nonblocking: busy work is not queued or
+coalesced and then misreported as this request's collection. The existing
+publication mutex honors cancellation. Native execution has a **30-second
+cooperative context deadline**, with a 32-second CLI response deadline and a
+35-second Pi budget. Providers must honor context cancellation; this is not a
+hard process kill or transaction. Cancellation/disconnect after dispatch can
+leave local publication, authoring or event-delivery changes. It is **not
+rollback** and never permission to replay. The current-daemon plan is consumed
+before calling the adapter, including failures; duplicate RPCs return the same
+operation's running/returned evidence without executing again. While running,
+a new preview is rejected. Pi consumes its cached preview before dispatch, so
+an ambiguous/invalid/oversized response cannot be used to retry automatically.
+Obtain a new preview and fresh user request/confirmation before another action.
+
+The response separately reports `status` (`preview`, `running`, `returned`), a
+finite `problem` (`none`, `native_error`, `cancelled_or_timed_out`,
+`incomplete_or_unverified`), correlation `operation_id` after admission, and exact
+per-source attempt outcomes: `complete`, `incomplete`, `skipped_before_collection`,
+`cancelled_or_timed_out` or `unknown_not_attempted`. Counts are `complete`,
+`incomplete`, `skipped` and `unverified`; canceled/missing attempts remain
+unverified, never success or absence. Running/preview counts are all unverified.
+A `complete` attempt is not successful reconciliation, remote health or verified
+resource outcomes. The resource-refresh-pending marker certifies only its
+existing local publication contract, independently of remote completeness.
+`problem: none` is not business success; handler timings measure the native
+publication interval only. Native `operations` includes kind `refresh` at
+installation scope; it has no task/workspace target or fabricated cleanup counts.
+No durable audit history, automatic retry, resource verification, cleanup apply
+or runtime-control capability is claimed. An unavailable/old daemon has no
+fallback. A lost apply reply returns `request_outcome_unknown_do_not_replay`,
+not "no host changes made" or an apparently successful empty result.
+
 ## Configuration policy and origins
 
 Overview `settings` are **CLI-process global defaults**. With a matching daemon,
 `daemon.settings` separately reports **daemon-process global defaults** from the
 same native bounded reader executed in the running daemon process. The existing
-`diagnostics` RPC's selector-free `overview` returns this typed schema-25
+`diagnostics` RPC's selector-free `overview` returns this typed schema-26
 projection; it never uses task visibility filters or provider calls. No new public
 tool or general file/configuration endpoint is added.
 
@@ -135,7 +215,7 @@ provider. Native references and statuses share one atomic cache revision; cursor
 also bind selected scope, registration/capability changes, returned collection
 attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 25; older versions fail closed.
+and extension must all support schema 26; older versions fail closed.
 
 ## Current-daemon collection attempt evidence
 
@@ -298,7 +378,7 @@ preflight, expiry policy and automatic eligibility still require fresh guards. A
 not an executable plan, an apply token, publication approval or apply consent.
 Native safety flags describe planner evidence, never permission to
 weaken a safeguard. Maintenance apply remains unsupported; expired proposals use the explicit mode below.
-CLI, daemon and the actual loaded Pi extension must match schema 25 without a
+CLI, daemon and the actual loaded Pi extension must match schema 26 without a
 legacy fallback; separately installed extension sources require updating/reload
 independently from `make install`. No persisted format or cleanup policy changes.
 
@@ -337,7 +417,7 @@ bundle even when an expiring warning no longer does. All existing
 30-second/output/privacy/drift safeguards apply. The preview never calls cleanup
 execution, creates/reserves leases, changes retention policy or removes data.
 Maintenance apply remains unsupported. CLI, daemon and loaded Pi extension must
-match diagnostics schema 25; there is no legacy fallback.
+match diagnostics schema 26; there is no legacy fallback.
 
 ## Explicit registered-runtime observations
 
@@ -410,10 +490,10 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 25; there is no legacy fallback. Separately
+extension must all support schema 26; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-## Retained inventories (diagnostics schema 25)
+## Retained inventories (diagnostics schema 26)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -528,9 +608,10 @@ invalidate scoped pagination just like handler timing changes.
 Capabilities advertise `current_daemon_managed_operations: true`,
 `native_managed_handler_timing: true` and
 `native_cleanup_completed_phase_aggregates: true`, but
-`durable_operation_history`, `verified_operation_resource_outcomes` and
-`maintenance` remain false. CLI, daemon and separately loaded Pi sources must
-match schema 25; `make install` alone does not update/reload installed Pi sources.
+`durable_operation_history`, `verified_operation_resource_outcomes`,
+`cleanup_apply` and `runtime_controls` remain false. Only the collection-only
+refresh adapter advertises `maintenance` and `collection_only_refresh` as true. CLI, daemon and separately loaded Pi sources must
+match schema 26; `make install` alone does not update/reload installed Pi sources.
 
 ## Identity and nested drill-down
 
@@ -779,7 +860,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 25; version mismatches fail closed
+extension must support diagnostics schema 26; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.
