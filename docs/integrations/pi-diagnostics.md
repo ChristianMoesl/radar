@@ -812,6 +812,16 @@ invalidate cursors; complete pagination proves only this scoped projection.
 Definition commands, tokens, raw errors, titles, conversation references, task
 and event bodies, action payloads and schedule payloads are never returned.
 
+The complete agent inventory envelope and nested workspace, cached snapshot,
+collection checkpoint, schedule/admission and supervision objects are allowlisted
+before model-facing text or details. Unknown private sibling fields, invalid
+counts/types, contradictory unavailable evidence, schedule truncation or pagination
+fail closed with fixed sanitized errors. Unavailable supervision never bypasses
+checkpoint validation. Native bounded UTF-8 replacement/ellipsis expansion and
+nanosecond timestamps are preserved. This repairs the existing schema-26 wire
+shape; it adds no runner calls, checkpoint reads, maintenance or persisted-format
+change. Separately installed Pi sources require matching update/reload.
+
 `agents` also includes `supervision_evidence`. When exactly one native manager is
 available and its mutex can be read immediately, this is
 `current_daemon_retry_and_schedule_errors`; `supervision` contains

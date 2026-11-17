@@ -57,6 +57,7 @@ func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
 		"does not call ordinary daemon refresh", "cleanup_apply", "schema 26",
 		"complete integration envelope", "Unknown sibling fields", "wire shape unchanged",
 		"## Durable-agent registration and checkpoint evidence",
+		"complete agent inventory envelope", "Unavailable supervision never bypasses",
 	} {
 		if !strings.Contains(diagnostics.Content, contract) {
 			t.Errorf("diagnostic contract omitted from embedded topic: %q", contract)
