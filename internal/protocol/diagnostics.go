@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 18
+const DiagnosticsVersion = 19
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -17,16 +17,19 @@ func DiagnosticText(value string) string {
 // DiagnosticsRequest has no mutation or arbitrary filesystem parameters.
 // Workspace is host-resolved scope: lexical filtering for cached reads,
 // exact registered identity for probes.
-// runtime_probe, agent_probe and retirement_preview require the separate explicit
-// diagnostics-probe RPC. No request can apply a preview.
+// runtime_probe, agent_probe, retirement_preview and cleanup_preview require explicit
+// diagnostics-probe RPC. CleanupMode/WorkspaceID are cleanup-preview selectors only.
+// No request can apply a preview.
 type DiagnosticsRequest struct {
-	Section   string `json:"section"`
-	ParentID  string `json:"parent_id,omitempty"`
-	Workspace string `json:"workspace,omitempty"`
-	ID        string `json:"id,omitempty"`
-	State     string `json:"state,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
-	Cursor    string `json:"cursor,omitempty"`
+	CleanupMode string `json:"cleanup_mode,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	Section     string `json:"section"`
+	ParentID    string `json:"parent_id,omitempty"`
+	Workspace   string `json:"workspace,omitempty"`
+	ID          string `json:"id,omitempty"`
+	State       string `json:"state,omitempty"`
+	Limit       int    `json:"limit,omitempty"`
+	Cursor      string `json:"cursor,omitempty"`
 }
 
 type DiagnosticRef struct {
@@ -364,6 +367,9 @@ type DiagnosticCleanupSafety struct {
 }
 
 type DiagnosticCleanupTarget struct {
+	CleanupMode           string                    `json:"cleanup_mode"`
+	WorkspaceID           string                    `json:"workspace_id,omitempty"`
+	ExpiryAt              string                    `json:"expiry_at,omitempty"`
 	OwnershipEvidence     string                    `json:"ownership_evidence"`
 	AgentOwnerCount       *int                      `json:"agent_owner_count,omitempty"`
 	ID                    string                    `json:"id"`

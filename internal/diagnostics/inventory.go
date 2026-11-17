@@ -25,6 +25,9 @@ const maxPageBytes = 256 * 1024
 const maxChildren = protocol.DiagnosticChildLimit
 
 func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
+	if req.CleanupMode != "" || req.WorkspaceID != "" {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup selectors require explicit cleanup preview")
+	}
 	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "workspace_resources" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "agents" && req.Section != "agent_schedules" && req.Section != "gc_plan" && req.Section != "integrations" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("unsupported diagnostic inventory")
 	}
@@ -230,6 +233,18 @@ func paginate(req protocol.DiagnosticsRequest, items []protocol.DiagnosticItem, 
 	}
 	if req.Section == "cleanup_preview" {
 		page.Limitations = []string{"explicit_exact_retained_task_manual_cleanup_proposal_only", "scope_selects_task_entire_related_resource_bundle_including_other_workspaces", "native_provider_reads_and_git_fetch_prune_may_refresh_reference_metadata", "no_cleanup_execution_or_apply_authority", "cached_task_inputs_with_native_point_in_time_checks", "each_page_repeats_native_preview_with_fresh_approval", "snapshot_is_not_an_executable_plan_or_consent", "registered_owner_counts_are_per_target_not_bundle_permission", "runtime_ownership_activity_leases_and_fresh_execution_guards_not_run", "expiry_policy_and_automatic_eligibility_not_evaluated", "raw_paths_messages_names_and_operations_withheld", "at_most_256_active_refs_and_512_targets", "unknown_safety_notices_remain_unknown"}
+	}
+	if req.Section == "cleanup_preview" && req.CleanupMode == "expired" {
+		for i, limitation := range page.Limitations {
+			switch limitation {
+			case "explicit_exact_retained_task_manual_cleanup_proposal_only":
+				page.Limitations[i] = "explicit_exact_registered_expired_workspace_cleanup_proposal_only"
+			case "scope_selects_task_entire_related_resource_bundle_including_other_workspaces":
+				page.Limitations[i] = "effects_selected_by_production_gc_candidate_provider_reads_cover_owning_task"
+			case "expiry_policy_and_automatic_eligibility_not_evaluated":
+				page.Limitations[i] = "production_cached_expiry_gate_and_native_expiring_blockers_not_execution_eligibility"
+			}
+		}
 	}
 	if req.Section == "retirement_preview" {
 		page.Limitations = []string{"explicit_exact_workspace_retirement_proposal_only", "cached_gc_candidate_with_fresh_native_registration_path_checks", "runtime_presence_and_state_not_probed", "registered_agent_ownership_counts_are_not_runtime_ownership_or_execution_permission", "stopped_registered_agents_block_retirement", "unavailable_owner_evidence_has_no_count", "runtime_ownership_activity_and_leases_require_fresh_execution_guards", "proposed_runtime_stops_may_interrupt_commands_and_services", "tmux_removal_may_lose_terminal_processes_and_contents", "no_git_fetch_refresh_login_locks_or_mutation", "preview_is_not_execution_eligibility_freshness_token_or_consent", "pending_resource_refresh_may_change_plan", "private_provider_operations_and_errors_withheld"}

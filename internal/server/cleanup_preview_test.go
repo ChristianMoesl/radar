@@ -88,9 +88,10 @@ func TestManualCleanupPreviewRPCRequiresExplicitMethodAndExactTask(t *testing.T)
 		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "cleanup_preview", ParentID: records[0].ID, State: "done"}},
 		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "cleanup_preview", ParentID: records[0].ID, Workspace: filepath.Join(root, "other")}},
 		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "cleanup_preview", ParentID: records[0].ID}},
+		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "cleanup_preview", ParentID: records[0].ID, CleanupMode: "expired", WorkspaceID: "not-registered"}},
 		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "cleanup_preview", ParentID: records[0].ID}},
 	} {
-		if i == 5 {
+		if i == 6 {
 			pending = true
 		}
 		if err := encoder.Encode(req); err != nil {

@@ -98,7 +98,7 @@ yields an identifier/link for the user and `notes.md`; filing does not implement
 the request or close the workspace.
 
 `radar_diagnostics` is a typed host tool available only in enabled feedback
-sessions. The current delivery is **observation, registration-only retirement previews and explicit native manual-cleanup previews, never apply**: the overview advertises
+sessions. The current delivery is **observation, registration-only retirement previews and explicit native manual/expiry cleanup previews, never apply**: the overview advertises
 its capabilities explicitly. Explicit registered-runtime observations require
 fresh interactive approval. Full provider cleanup eligibility, operation history
 and maintenance adapters are not yet exposed; unsupported
@@ -189,7 +189,7 @@ provider. Native references and statuses share one atomic cache revision; cursor
 also bind selected scope, registration/capability changes, returned collection
 attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 18; older versions fail closed.
+and extension must all support schema 19; older versions fail closed.
 
 ### Current-daemon collection attempt evidence
 
@@ -265,9 +265,9 @@ login or mutations run. In particular this does not invoke the full cleanup
 previews, which can fetch Git refs. Runtime ownership, fresh activity/review,
 leases and execution preflight remain unverified; pending resource refresh is
 reported, not ignored. The snapshot is not an executable plan, freshness token
-for apply, execution eligibility or user consent. **Maintenance apply, expiry previews and verified operation outcomes are still unsupported.**
-Use the separate explicitly approved manual-cleanup preview below for full native targets.
-Schema 18 must match in the CLI, daemon and loaded Pi extension; update the
+for apply, execution eligibility or user consent. **Maintenance apply and verified operation outcomes are still unsupported.**
+Use the separately approved cleanup preview below for manual or expired native targets.
+Schema 19 must match in the CLI, daemon and loaded Pi extension; update the
 extension sources and reload separately from `make install`.
 
 ### Explicit native manual-cleanup previews
@@ -325,10 +325,44 @@ ownership, active work, fresh review/activity, leases, execution preflight, expi
 policy and automatic eligibility still require fresh guards. A native proposal is
 not an executable plan, an apply token, publication approval or apply consent.
 Native safety flags describe planner evidence, never permission to
-weaken a safeguard. Maintenance apply and expiry previews remain unsupported.
-CLI, daemon and the actual loaded Pi extension must match schema 18 without a
+weaken a safeguard. Maintenance apply remains unsupported; expired proposals use the explicit mode below.
+CLI, daemon and the actual loaded Pi extension must match schema 19 without a
 legacy fallback; separately installed extension sources require updating/reload
 independently from `make install`. No persisted format or cleanup policy changes.
+
+### Explicit expired-cleanup proposals
+
+The same `cleanup_preview` section accepts `cleanup_mode: "expired"` plus
+`workspace_id: "<exact registered workspace ID>"` and the owning retained task
+`parent_id`. Manual mode remains the default and rejects `workspace_id`; no
+safe-mode fallback, policy override or apply operation is added. The fixed CLI
+selectors are `--cleanup-mode expired --workspace-id <ID>`.
+
+Expired mode requires a unique current registration and the production cached GC
+candidate/retention/stage gate (`InspectPlan` and `CandidateMode == CleanupExpired`).
+The exact candidate must lie in the selected origin/feedback scope, or in explicit
+installation scope. A different workspace of the same task cannot bypass that
+boundary. Not-done, recent, active/review-held, unregistered, ambiguous, outside-root,
+wrong-stage and refresh-pending candidates fail closed before provider checks.
+
+The native expiry planner receives the whole owning task, just as GC does. Its
+provider reads may inspect **other workspaces** and refresh Git reference metadata;
+fresh per-page consent says so. Only proposed effects selected by the production
+`SelectTargetsForCandidate` helper are returned, with a required matching workspace
+anchor. An absent anchor fails unavailable, never an apparently empty/safe plan.
+The complete pre-filter bundle shares the 512-target / 1 MiB evidence budgets and
+private cursor fingerprint, including excluded-resource drift.
+
+Every row identifies `cleanup_mode: "expired"`, the exact registered `workspace_id`
+and production `expiry_at`. `automatic_blocker_count` reuses native expired-mode
+semantics: explicitly expiring warnings can cease blocking, while other blockers
+remain. Original safety flags/counts are preserved. The expiry gate is cached,
+not execution eligibility; registered-agent counts still include stopped owners,
+and zero/unavailable counts do not establish runtime ownership, leases or consent.
+All existing 30-second/output/privacy/drift safeguards apply. The preview never
+calls cleanup execution, acquires leases, changes retention policy or removes data.
+Maintenance apply remains unsupported. CLI, daemon and loaded Pi extension must
+match diagnostics schema 19; there is no legacy fallback.
 
 ### Explicit registered-runtime observations
 
@@ -401,10 +435,10 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 18; there is no legacy fallback. Separately
+extension must all support schema 19; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-### Retained inventories (diagnostics schema 18)
+### Retained inventories (diagnostics schema 19)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -647,7 +681,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 18; version mismatches fail closed
+extension must support diagnostics schema 19; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

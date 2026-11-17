@@ -101,6 +101,7 @@ type cleanupDiagnosticProvider struct {
 	run     func(context.Context)
 	err     error
 	task    protocol.Task
+	mode    integration.CleanupMode
 }
 
 func (p *cleanupDiagnosticProvider) Descriptor() integration.Descriptor {
@@ -115,7 +116,11 @@ func (*cleanupDiagnosticProvider) Cleanup(context.Context, integration.CleanupRe
 func (p *cleanupDiagnosticProvider) PreviewCleanup(ctx context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
 	p.calls++
 	p.task = req.Task
-	if req.Mode != integration.CleanupConfirmed {
+	expected := p.mode
+	if expected == integration.CleanupSafe {
+		expected = integration.CleanupConfirmed
+	}
+	if req.Mode != expected {
 		panic("wrong native cleanup mode")
 	}
 	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > CleanupPreviewTimeout {

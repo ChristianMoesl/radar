@@ -22,11 +22,14 @@ const RuntimeProbeTimeout = 5 * time.Second
 // Probe is separate from Read: only an explicitly selected registered workspace
 // or agent may trigger bounded native runtime listings or runner socket reads.
 // retirement_preview is a separate explicit registration-only native planner;
-// cleanup_preview separately invokes the manual planner, which can fetch Git
+// cleanup_preview separately invokes manual or expiry planners, which can fetch Git
 // refs and use authenticated provider reads. Execution is not exposed.
 // No section calls collection, general provider refresh, login, startup or
-// lease acquisition. Only the explicit manual preview can refresh Git refs.
+// lease acquisition. Only explicit native cleanup previews can refresh Git refs.
 func Probe(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
+	if req.Section != "cleanup_preview" && (req.CleanupMode != "" || req.WorkspaceID != "") {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup selectors require explicit cleanup preview")
+	}
 	if req.Section == "cleanup_preview" {
 		return cleanupPreview(ctx, store, req, pending, providers)
 	}

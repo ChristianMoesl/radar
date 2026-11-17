@@ -241,7 +241,11 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		if section == "agent_probe" || section == "retirement_preview" {
 			id, cursor = "", ""
 		}
-		result, err := feedbackInventory(anchor, scope, protocol.DiagnosticsRequest{Section: section, ParentID: parent, Workspace: "/must-not-pass-through", Limit: 7, ID: id, State: state, Cursor: cursor})
+		cleanupMode, workspaceID := "", ""
+		if section == "cleanup_preview" && index > 25 {
+			cleanupMode, workspaceID = "expired", "registered-candidate"
+		}
+		result, err := feedbackInventory(anchor, scope, protocol.DiagnosticsRequest{Section: section, ParentID: parent, Workspace: "/must-not-pass-through", Limit: 7, ID: id, State: state, Cursor: cursor, CleanupMode: cleanupMode, WorkspaceID: workspaceID})
 		if err != nil || result["available"] != true {
 			t.Fatalf("result=%+v err=%v", result, err)
 		}
@@ -257,7 +261,7 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		if section == "runtime_probe" || section == "agent_probe" || section == "retirement_preview" || section == "cleanup_preview" {
 			method = "diagnostics-probe"
 		}
-		if req.Method != method || req.Diagnostics == nil || req.Diagnostics.Workspace != want || req.Diagnostics.Section != section || req.Diagnostics.ParentID != parent || req.Diagnostics.ID != id || req.Diagnostics.Limit != 7 || req.Diagnostics.Cursor != cursor || req.Diagnostics.State != state {
+		if req.Method != method || req.Diagnostics == nil || req.Diagnostics.Workspace != want || req.Diagnostics.Section != section || req.Diagnostics.ParentID != parent || req.Diagnostics.ID != id || req.Diagnostics.Limit != 7 || req.Diagnostics.Cursor != cursor || req.Diagnostics.State != state || req.Diagnostics.CleanupMode != cleanupMode || req.Diagnostics.WorkspaceID != workspaceID {
 			t.Fatalf("unexpected request: %+v", req)
 		}
 		if result["feedback_workspace_id"] != workspacegroup.ID(anchor) {

@@ -172,7 +172,7 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			result.skip(candidate, err, logger)
 			continue
 		}
-		selected, workspaceTarget := targetsForCandidate(preview, candidate)
+		selected, workspaceTarget := SelectTargetsForCandidate(preview, candidate)
 		if workspaceTarget == nil && (candidate.WorkspaceID != "" || !pathMissing(candidate.Path)) {
 			result.skip(candidate, fmt.Errorf("matching workspace cleanup target was not found"), logger)
 			continue
@@ -256,7 +256,9 @@ func candidateStillDone(store *state.Store, candidate Candidate) bool {
 	return false
 }
 
-func targetsForCandidate(preview protocol.CleanupPreview, candidate Candidate) (protocol.CleanupPreview, *protocol.CleanupTarget) {
+// SelectTargetsForCandidate is the production GC resource-boundary selection.
+// Selection alone does not validate the candidate, establish safety or execute.
+func SelectTargetsForCandidate(preview protocol.CleanupPreview, candidate Candidate) (protocol.CleanupPreview, *protocol.CleanupTarget) {
 	selected := protocol.CleanupPreview{TaskID: preview.TaskID, TaskTitle: preview.TaskTitle}
 	var workspaceTarget *protocol.CleanupTarget
 	for _, target := range preview.Targets {

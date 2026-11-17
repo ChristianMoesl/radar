@@ -26,6 +26,8 @@ func runFeedbackDiagnostics(args []string) {
 	scope := flags.String("scope", "origin", "origin, feedback or installation (inventories only)")
 	id := flags.String("id", "", "stable entity ID filter")
 	parentID := flags.String("parent-id", "", "source_refs: task ID; bindings: retained source-ref ID; workspace_resources: registered workspace ID; agent_schedules: agent registration ID; gc_plan: owning task ID; runtime_probe/retirement_preview: required registered workspace ID; agent_probe: required agent registration ID; cleanup_preview: required retained task ID")
+	cleanupMode := flags.String("cleanup-mode", "", "cleanup_preview only: manual (default) or expired")
+	workspaceID := flags.String("workspace-id", "", "expired cleanup_preview only: exact registered GC candidate workspace ID")
 	state := flags.String("state", "", "exact retained task state filter")
 	limit := flags.Int("limit", 20, "page size (inventories 1-50; logs 1-100)")
 	cursor := flags.String("cursor", "", "opaque inventory/log continuation cursor")
@@ -44,6 +46,9 @@ func runFeedbackDiagnostics(args []string) {
 	}
 	invalidSelector := false
 	flags.Visit(func(f *flag.Flag) {
+		if *section != "cleanup_preview" && (f.Name == "cleanup-mode" || f.Name == "workspace-id") {
+			invalidSelector = true
+		}
 		if *section == "logs" && (f.Name == "scope" || f.Name == "id" || f.Name == "parent-id" || f.Name == "state") {
 			invalidSelector = true
 		}
@@ -58,7 +63,7 @@ func runFeedbackDiagnostics(args []string) {
 	var result map[string]any
 	var err error
 	if *section == "tasks" || *section == "workspaces" || *section == "source_refs" || *section == "bindings" || *section == "workspace_resources" || *section == "agents" || *section == "agent_schedules" || *section == "gc_plan" || *section == "runtime_probe" || *section == "agent_probe" || *section == "cleanup_preview" || *section == "retirement_preview" || *section == "integrations" {
-		result, err = feedbackInventory(*current, *scope, protocol.DiagnosticsRequest{Section: *section, ParentID: *parentID, ID: *id, State: *state, Limit: *limit, Cursor: *cursor})
+		result, err = feedbackInventory(*current, *scope, protocol.DiagnosticsRequest{Section: *section, ParentID: *parentID, ID: *id, State: *state, Limit: *limit, Cursor: *cursor, CleanupMode: *cleanupMode, WorkspaceID: *workspaceID})
 	} else {
 		if *scope != "origin" || *id != "" || *parentID != "" || *state != "" || (*section != "logs" && (*cursor != "" || *limit != 20)) {
 			fatal(errors.New("inventory selectors require an inventory section"))
@@ -91,7 +96,7 @@ func feedbackDiagnostics(current, section string, logQuery logging.LogQuery) (ma
 		"diagnostics_schema": protocol.DiagnosticsVersion, "section": "overview", "version": version.Number, "commit": version.Commit,
 		"built": version.Date, "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"daemon":       map[string]any{"available": false},
-		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "gc_plan", "runtime_probe", "agent_probe", "retirement_preview", "cleanup_preview", "integrations", "logs"}, "maintenance": false, "runtime_retirement_previews": true, "manual_cleanup_previews": true, "expiry_cleanup_previews": false, "runtime_probes": true, "agent_socket_probes": true, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false, "current_daemon_collection_attempts": true, "filtered_redacted_log_metadata": true, "raw_log_contents": false, "configuration_policy_origins": true, "workspace_effective_policy": false, "daemon_environment": false},
+		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "gc_plan", "runtime_probe", "agent_probe", "retirement_preview", "cleanup_preview", "integrations", "logs"}, "maintenance": false, "runtime_retirement_previews": true, "manual_cleanup_previews": true, "expiry_cleanup_previews": true, "runtime_probes": true, "agent_socket_probes": true, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false, "current_daemon_collection_attempts": true, "filtered_redacted_log_metadata": true, "raw_log_contents": false, "configuration_policy_origins": true, "workspace_effective_policy": false, "daemon_environment": false},
 	}
 	// Native defaults and configuration origins share the exact production
 	// decoder. No arbitrary configuration strings or referenced files escape.
@@ -131,6 +136,12 @@ func feedbackDiagnostics(current, section string, logQuery logging.LogQuery) (ma
 }
 
 func feedbackInventory(current, scope string, req protocol.DiagnosticsRequest) (map[string]any, error) {
+	if req.Section != "cleanup_preview" && (req.CleanupMode != "" || req.WorkspaceID != "") {
+		return nil, errors.New("cleanup selectors require cleanup_preview")
+	}
+	if (req.CleanupMode != "" && req.CleanupMode != "manual" && req.CleanupMode != "expired") || len(req.WorkspaceID) > 512 || (req.CleanupMode == "expired" && req.WorkspaceID == "") || (req.CleanupMode != "expired" && req.WorkspaceID != "") {
+		return nil, errors.New("invalid cleanup mode or registered workspace ID")
+	}
 	if scope != "origin" && scope != "feedback" && scope != "installation" {
 		return nil, errors.New("invalid diagnostic scope")
 	}

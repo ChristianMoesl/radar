@@ -16,16 +16,23 @@ import (
 	"radar/internal/integration"
 	"radar/internal/protocol"
 	"radar/internal/state"
+	"radar/internal/workspacegc"
 )
 
 const CleanupPreviewTimeout = 30 * time.Second
 
-// cleanupPreview invokes the actual manual cleanup planner, not its executor.
+// cleanupPreview invokes the actual manual or expiry planner, never its executor.
 // Explicit consent must warn about provider reads and native Git fetch/prune:
 // unlike retirement_preview this can refresh local Git reference metadata.
 func cleanupPreview(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
 	if req.ParentID == "" || len(req.ParentID) > 512 || len(req.ID) > 512 || len(req.Cursor) > 512 || req.State != "" || req.Limit < 0 || req.Limit > 50 || (req.Workspace != "" && (!filepath.IsAbs(req.Workspace) || len(req.Workspace) > 4096)) {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview requires one exact retained task parent and bounded selectors")
+	}
+	if req.CleanupMode == "" {
+		req.CleanupMode = "manual"
+	}
+	if (req.CleanupMode != "manual" && req.CleanupMode != "expired") || len(req.WorkspaceID) > 512 || (req.CleanupMode == "manual" && req.WorkspaceID != "") || (req.CleanupMode == "expired" && req.WorkspaceID == "") {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup mode requires manual or expired with an exact registered workspace ID")
 	}
 	if req.Limit == 0 {
 		req.Limit = 20
@@ -84,7 +91,19 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 	if err != nil {
 		return protocol.DiagnosticsPage{}, err
 	}
-	preview, err := cleanup.New(nativeProviders).Preview(ctx, task, integration.CleanupConfirmed)
+	mode := integration.CleanupConfirmed
+	var candidate *workspacegc.Candidate
+	if req.CleanupMode == "expired" {
+		candidate, err = expiredCleanupCandidate(req, records, refs, providers, registration, selected.ID)
+		if err != nil {
+			return protocol.DiagnosticsPage{}, err
+		}
+		task, mode = candidate.Task, integration.CleanupExpired
+	}
+	if len(task.SourceRefs) > 256 {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview exceeds native reference budget")
+	}
+	preview, err := cleanup.New(nativeProviders).Preview(ctx, task, mode)
 	if err != nil {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("native cleanup preview unavailable; provider errors withheld")
 	}
@@ -93,6 +112,30 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 	}
 	if len(preview.Targets) == 0 || len(preview.Targets) > 512 {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview target coverage exceeds bounds")
+	}
+	bundleHash := sha256.New()
+	bundleBytes := 0
+	for _, target := range preview.Targets {
+		if len(target.Safety) > 1024 {
+			return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview safety evidence exceeds bounds")
+		}
+		raw, marshalErr := json.Marshal(target)
+		if marshalErr != nil || len(raw) > 64*1024 {
+			return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview native target exceeds bounds")
+		}
+		bundleBytes += len(raw)
+		if bundleBytes > 1024*1024 {
+			return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview native evidence exceeds bounds")
+		}
+		fmt.Fprintf(bundleHash, "%d:", len(raw))
+		bundleHash.Write(raw)
+	}
+	if candidate != nil {
+		selectedPreview, anchor := workspacegc.SelectTargetsForCandidate(preview, *candidate)
+		if anchor == nil || len(selectedPreview.Targets) == 0 {
+			return protocol.DiagnosticsPage{}, fmt.Errorf("native expired cleanup anchor unavailable; no executable plan created")
+		}
+		preview = selectedPreview
 	}
 	// Match Execute's path-based registered-owner guard, without acquiring any
 	// lease or operation lock. All targets (including filtered-out pages) share
@@ -121,6 +164,15 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 		if err != nil {
 			return protocol.DiagnosticsPage{}, err
 		}
+		view.CleanupMode = req.CleanupMode
+		view.AutomaticBlockerCount = len(cleanup.AutomaticBlockingMessages([]protocol.CleanupTarget{target}, mode == integration.CleanupExpired))
+		if candidate != nil {
+			expiry, ok := workspacegc.ExpiryAt(candidate.Task)
+			if !ok {
+				return protocol.DiagnosticsPage{}, fmt.Errorf("expired cleanup deadline unavailable")
+			}
+			view.WorkspaceID, view.ExpiryAt = candidate.WorkspaceID, expiry.UTC().Format(time.RFC3339Nano)
+		}
 		// Full native target bytes make identity sensitive to private operation and
 		// safety drift without returning the underlying paths/messages/operations.
 		if len(target.Safety) > 1024 {
@@ -137,6 +189,7 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 		// Include the full private registration fingerprint, not only counts, so
 		// same-count owner changes invalidate the next page without exposing IDs.
 		identity := append(append([]byte{}, registrationSum[:]...), ownerSnapshot[:]...)
+		identity = append(identity, bundleHash.Sum(nil)...)
 		sum := sha256.Sum256(append(identity, raw...))
 		view.ID = "cleanup-target:" + hex.EncodeToString(sum[:])
 		resourceIdentity := target.Source + "\x00" + target.Kind + "\x00" + target.ResourceID
@@ -181,7 +234,11 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview cancelled or timed out")
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	return paginate(req, items, revision, pending, "explicit_native_manual_cleanup_preview_not_execution_plan")
+	evidence := "explicit_native_manual_cleanup_preview_not_execution_plan"
+	if candidate != nil {
+		evidence = "explicit_native_expired_cleanup_preview_not_execution_plan"
+	}
+	return paginate(req, items, revision, pending, evidence)
 }
 
 func cleanupProviderKnown(name string) bool {
