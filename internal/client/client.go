@@ -93,7 +93,8 @@ func ProbeDiagnostics(socketPath string, request protocol.DiagnosticsRequest, ti
 	return callRequest(socketPath, protocol.Request{Method: "diagnostics-probe", Diagnostics: &request}, timeout)
 }
 
-// InspectDiagnostics reads cached state and registration only, without daemon startup.
+// InspectDiagnostics reads cached state/registration or the fixed daemon-process
+// configuration allowlist for overview, without daemon startup or provider calls.
 func InspectDiagnostics(socketPath string, request protocol.DiagnosticsRequest, timeout time.Duration) (protocol.Response, error) {
 	return callRequest(socketPath, protocol.Request{Method: "diagnostics", Diagnostics: &request}, timeout)
 }

@@ -1602,3 +1602,11 @@ func (s *Store) inspectionSourceRefsLocked() []SourceRefRecord {
 	}
 	return refs
 }
+
+// SourceStatusSnapshot returns only cached installation status and revision,
+// without cloning retained task/reference payloads or contacting providers.
+func (s *Store) SourceStatusSnapshot() ([]protocol.SourceStatus, int64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return slices.Clone(s.state.Sources), s.revision
+}

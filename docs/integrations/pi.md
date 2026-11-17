@@ -111,9 +111,23 @@ it is not runtime presence or an effective sandbox-permission check.
 
 ### Configuration policy and origins
 
-Overview `settings` are **CLI-process global defaults**, not the running daemon's
-environment, repository/workspace-effective configuration, current provider access
-or execution permission. The native defaults, YAML decoder and validation are
+Overview `settings` are **CLI-process global defaults**. With a matching daemon,
+`daemon.settings` separately reports **daemon-process global defaults** from the
+same native bounded reader executed in the running daemon process. The existing
+`diagnostics` RPC's selector-free `overview` returns this typed schema-20
+projection; it never uses task visibility filters or provider calls. No new public
+tool or general file/configuration endpoint is added.
+
+Both projections reread their process's current fixed configuration location.
+They have independent capture times/scopes, and neither is an environment dump,
+startup/loaded-settings attestation, repository/workspace-effective configuration,
+current provider access or execution permission. Differences help diagnose process
+configuration drift; matching allowlisted revisions do not prove the same file,
+environment or private configuration. `daemon_environment` and
+`workspace_effective_policy` remain false; `daemon_process_configuration` advertises
+only this narrow projection. Missing/old/mismatched daemon support is explicitly
+unavailable with no legacy summary fallback. A valid daemon response can contain
+unavailable policy evidence; it must not be replaced with CLI settings or defaults. The native defaults, YAML decoder and validation are
 shared with production. Values and declarations come from the same bounded read
 of the configured `config.yaml`; no second file is used to guess origins.
 
@@ -134,7 +148,10 @@ preserved. `location_origin` identifies only `xdg_config_home` or `user_home`, n
 the path or an environment dump. Model/thinking strings and arbitrary old settings
 maps are no longer returned. The revision hashes only these allowlisted values
 and declarations, not private configuration bytes. `captured_at` is read assembly
-time, not evidence that a daemon loaded this configuration.
+time, not evidence that a daemon loaded this configuration. The daemon overview
+also carries at most 32 bounded cached provider status rows, with only detail
+presence (never detail text), and the current resource-refresh-pending marker.
+Cached status is installation-wide, not live access, collection or workspace health.
 
 At most 64 KiB is read from the fixed native configuration file. Leaf symlinks
 (including legitimate user-managed configuration symlinks), FIFOs, nonregular,
@@ -189,7 +206,7 @@ provider. Native references and statuses share one atomic cache revision; cursor
 also bind selected scope, registration/capability changes, returned collection
 attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 19; older versions fail closed.
+and extension must all support schema 20; older versions fail closed.
 
 ### Current-daemon collection attempt evidence
 
@@ -326,7 +343,7 @@ policy and automatic eligibility still require fresh guards. A native proposal i
 not an executable plan, an apply token, publication approval or apply consent.
 Native safety flags describe planner evidence, never permission to
 weaken a safeguard. Maintenance apply remains unsupported; expired proposals use the explicit mode below.
-CLI, daemon and the actual loaded Pi extension must match schema 19 without a
+CLI, daemon and the actual loaded Pi extension must match schema 20 without a
 legacy fallback; separately installed extension sources require updating/reload
 independently from `make install`. No persisted format or cleanup policy changes.
 
@@ -362,7 +379,7 @@ and zero/unavailable counts do not establish runtime ownership, leases or consen
 All existing 30-second/output/privacy/drift safeguards apply. The preview never
 calls cleanup execution, acquires leases, changes retention policy or removes data.
 Maintenance apply remains unsupported. CLI, daemon and loaded Pi extension must
-match diagnostics schema 19; there is no legacy fallback.
+match diagnostics schema 20; there is no legacy fallback.
 
 ### Explicit registered-runtime observations
 
@@ -435,10 +452,10 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 19; there is no legacy fallback. Separately
+extension must all support schema 20; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-### Retained inventories (diagnostics schema 19)
+### Retained inventories (diagnostics schema 20)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -681,7 +698,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 19; version mismatches fail closed
+extension must support diagnostics schema 20; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

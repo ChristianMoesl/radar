@@ -95,21 +95,19 @@ func feedbackDiagnostics(current, section string, logQuery logging.LogQuery) (ma
 	result := map[string]any{
 		"diagnostics_schema": protocol.DiagnosticsVersion, "section": "overview", "version": version.Number, "commit": version.Commit,
 		"built": version.Date, "os": runtime.GOOS, "arch": runtime.GOARCH,
-		"daemon":       map[string]any{"available": false},
-		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "gc_plan", "runtime_probe", "agent_probe", "retirement_preview", "cleanup_preview", "integrations", "logs"}, "maintenance": false, "runtime_retirement_previews": true, "manual_cleanup_previews": true, "expiry_cleanup_previews": true, "runtime_probes": true, "agent_socket_probes": true, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false, "current_daemon_collection_attempts": true, "filtered_redacted_log_metadata": true, "raw_log_contents": false, "configuration_policy_origins": true, "workspace_effective_policy": false, "daemon_environment": false},
+		"daemon":       map[string]any{"available": false, "reason": "daemon_unavailable"},
+		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "agents", "agent_schedules", "gc_plan", "runtime_probe", "agent_probe", "retirement_preview", "cleanup_preview", "integrations", "logs"}, "maintenance": false, "runtime_retirement_previews": true, "manual_cleanup_previews": true, "expiry_cleanup_previews": true, "runtime_probes": true, "agent_socket_probes": true, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false, "current_daemon_collection_attempts": true, "filtered_redacted_log_metadata": true, "raw_log_contents": false, "configuration_policy_origins": true, "daemon_process_configuration": true, "workspace_effective_policy": false, "daemon_environment": false},
 	}
 	// Native defaults and configuration origins share the exact production
 	// decoder. No arbitrary configuration strings or referenced files escape.
 	result["settings"] = config.DiagnosticSettings()
 	result["feedback_sandbox_registered"] = group.Sandbox != nil
 	if path, err := socket.Path(); err == nil {
-		if response, err := client.CallWithTimeout(path, "summary", time.Second); err == nil && response.OK {
-			providers := make([]map[string]any, 0, len(response.Sources))
-			for _, source := range response.Sources {
-				providers = append(providers, map[string]any{"name": source.Name, "status": source.Status,
-					"details_available": source.Detail != ""})
+		if response, err := client.InspectDiagnostics(path, protocol.DiagnosticsRequest{Section: "overview"}, time.Second); err == nil {
+			result["daemon"] = map[string]any{"available": false, "reason": "matching_daemon_overview_required"}
+			if response.OK && response.DiagnosticOverview != nil && response.DiagnosticOverview.Schema == protocol.DiagnosticsVersion && response.DiagnosticOverview.Settings.Scope == "daemon_process_global_defaults" && len(response.DiagnosticOverview.Providers) <= 32 {
+				result["daemon"] = map[string]any{"available": true, "version": response.Version, "providers": response.DiagnosticOverview.Providers, "diagnostics_schema": response.DiagnosticOverview.Schema, "settings": response.DiagnosticOverview.Settings, "resource_refresh_pending": response.ResourceRefreshPending}
 			}
-			result["daemon"] = map[string]any{"available": true, "version": response.Version, "providers": providers}
 		}
 	}
 	if group.FeedbackOrigin != "" {

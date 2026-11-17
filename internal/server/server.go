@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"radar/internal/cleanup"
+	"radar/internal/config"
 	"radar/internal/diagnostics"
 	"radar/internal/integration"
 	"radar/internal/phasetiming"
@@ -205,6 +206,49 @@ func (s *Server) handle(conn net.Conn) {
 				continue
 			}
 			pending := s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending
+			if req.Diagnostics.Section == "overview" {
+				// Overview has no scope/path/entity selectors. Read the daemon's
+				// own fixed config location, not any path supplied by a client.
+				if *req.Diagnostics != (protocol.DiagnosticsRequest{Section: "overview"}) {
+					_ = encoder.Encode(protocol.Response{OK: false, Error: "diagnostic overview does not accept selectors"})
+					continue
+				}
+				policy := config.DiagnosticSettings()
+				policy.Scope = "daemon_process_global_defaults"
+				// Do not call tasksResponse: overview must not invoke visibility
+				// filters or inspect/export task or source payloads.
+				statuses, revision := s.store.SourceStatusSnapshot()
+				if len(statuses) > 32 {
+					_ = encoder.Encode(protocol.Response{OK: false, Error: "diagnostic provider status exceeds bounds"})
+					continue
+				}
+				sources := make([]protocol.DiagnosticProviderStatus, 0, len(statuses))
+				valid := true
+				for _, status := range statuses {
+					if status.Name == "" {
+						valid = false
+						break
+					}
+					state := "unknown"
+					switch status.Status {
+					case "ok", "partial", "error", "disabled":
+						state = status.Status
+					}
+					sources = append(sources, protocol.DiagnosticProviderStatus{Name: protocol.DiagnosticText(status.Name), Status: state, DetailsAvailable: status.Detail != ""})
+				}
+				if !valid {
+					_ = encoder.Encode(protocol.Response{OK: false, Error: "diagnostic provider identity unavailable"})
+					continue
+				}
+				response := protocol.Response{OK: true, Version: version.Current(), Revision: revision, ResourceRefreshPending: pending, DiagnosticOverview: &protocol.DiagnosticOverview{Schema: protocol.DiagnosticsVersion, Settings: policy, Providers: sources}}
+				encoded, err := json.Marshal(response)
+				if err != nil || len(encoded) > 32*1024 {
+					_ = encoder.Encode(protocol.Response{OK: false, Error: "diagnostic overview exceeds output bound"})
+					continue
+				}
+				_ = encoder.Encode(response)
+				continue
+			}
 			page, err := diagnostics.Read(s.store, *req.Diagnostics, pending, s.integrations)
 			if err != nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error()})

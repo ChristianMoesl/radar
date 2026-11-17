@@ -13,36 +13,19 @@ import (
 
 	"go.yaml.in/yaml/v3"
 	"radar/internal/configfile"
+	"radar/internal/protocol"
 )
 
 const diagnosticConfigLimit = 64 << 10
 
-// DiagnosticSetting contains only a fixed boolean, mode or count, never a
-// configuration string, command, path, identity, endpoint or secret value.
-type DiagnosticSetting struct {
-	Key         string `json:"key"`
-	Value       string `json:"value"`
-	Origin      string `json:"origin"`
-	Declaration string `json:"declaration"`
-}
-
-type DiagnosticPolicy struct {
-	Available      bool                `json:"available"`
-	LocationOrigin string              `json:"location_origin"`
-	Scope          string              `json:"scope"`
-	Evidence       string              `json:"evidence"`
-	Reason         string              `json:"reason,omitempty"`
-	CapturedAt     string              `json:"captured_at"`
-	Revision       string              `json:"revision,omitempty"`
-	Settings       []DiagnosticSetting `json:"settings"`
-}
-
 // DiagnosticSettings observes the configured native file, never secrets.yaml,
 // environment/secret files referenced by it, providers, tools or workspaces.
-// These are CLI-process global defaults, not daemon environment, repository
-// overrides, live access, execution eligibility or permission to perform actions.
-func DiagnosticSettings() DiagnosticPolicy {
-	view := DiagnosticPolicy{Scope: "cli_process_global_defaults", Evidence: "unavailable", CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), Settings: []DiagnosticSetting{}}
+// The caller gets process-global defaults: the CLI label is the default; the
+// daemon sets its own process scope after reading in that process. Neither is
+// loaded-settings attestation, environment contents, repository overrides, live
+// access, execution eligibility or permission to perform actions.
+func DiagnosticSettings() protocol.DiagnosticPolicy {
+	view := protocol.DiagnosticPolicy{Scope: "cli_process_global_defaults", Evidence: "unavailable", CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), Settings: []protocol.DiagnosticSetting{}}
 	view.LocationOrigin = "user_home"
 	if os.Getenv("XDG_CONFIG_HOME") != "" {
 		view.LocationOrigin = "xdg_config_home"
@@ -89,7 +72,7 @@ func DiagnosticSettings() DiagnosticPolicy {
 		return view // Raw parser/validation errors can contain private values.
 	}
 	add := func(key, value string) {
-		setting := DiagnosticSetting{Key: key, Value: value, Origin: "compiled_default", Declaration: "absent"}
+		setting := protocol.DiagnosticSetting{Key: key, Value: value, Origin: "compiled_default", Declaration: "absent"}
 		node := doc
 		for _, part := range strings.Split(key, ".") {
 			if node == nil {

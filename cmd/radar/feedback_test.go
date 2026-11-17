@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"radar/internal/config"
 	workspacegroup "radar/internal/integration/workspace/group"
 	"radar/internal/logging"
 	"radar/internal/protocol"
@@ -328,7 +327,7 @@ func TestFeedbackOverviewReturnsNativePolicySourcesWithoutPrivateSettings(t *tes
 	if strings.Contains(string(encoded), private) || result["diagnostics_schema"] != protocol.DiagnosticsVersion || result["feedback_sandbox_registered"] != false {
 		t.Fatalf("private or invalid overview: %s", encoded)
 	}
-	policy := result["settings"].(config.DiagnosticPolicy)
+	policy := result["settings"].(protocol.DiagnosticPolicy)
 	if !policy.Available || policy.Scope != "cli_process_global_defaults" || len(policy.Settings) != 10 {
 		t.Fatalf("%+v", policy)
 	}
@@ -338,7 +337,7 @@ func TestFeedbackOverviewReturnsNativePolicySourcesWithoutPrivateSettings(t *tes
 		}
 	}
 	capabilities := result["capabilities"].(map[string]any)
-	if capabilities["configuration_policy_origins"] != true || capabilities["workspace_effective_policy"] != false || capabilities["daemon_environment"] != false || capabilities["maintenance"] != false {
+	if capabilities["configuration_policy_origins"] != true || capabilities["daemon_process_configuration"] != true || capabilities["workspace_effective_policy"] != false || capabilities["daemon_environment"] != false || capabilities["maintenance"] != false {
 		t.Fatalf("policy advertised as authority: %+v", capabilities)
 	}
 }
@@ -366,8 +365,87 @@ func TestFeedbackOverviewUnsafePolicyRemainsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := result["settings"].(config.DiagnosticPolicy)
+	policy := result["settings"].(protocol.DiagnosticPolicy)
 	if policy.Available || policy.Evidence != "unavailable" || len(policy.Settings) != 0 || policy.Revision != "" {
 		t.Fatalf("unsafe policy became usable defaults: %+v", policy)
+	}
+}
+
+func TestFeedbackOverviewKeepsDaemonPolicyDistinctAndRequiresMatchingSchema(t *testing.T) {
+	_, anchor, _ := feedbackDiagnosticsFixture(t)
+	socketDir, err := os.MkdirTemp("", "fo-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(socketDir)
+	path := filepath.Join(socketDir, "s")
+	t.Setenv("RADAR_SOCKET", path)
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	observed := make(chan protocol.Request, 4)
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; i < 4; i++ {
+			conn, err := listener.Accept()
+			if err != nil {
+				done <- err
+				return
+			}
+			var req protocol.Request
+			if err := json.NewDecoder(conn).Decode(&req); err != nil {
+				conn.Close()
+				done <- err
+				return
+			}
+			observed <- req
+			policy := protocol.DiagnosticPolicy{Scope: "daemon_process_global_defaults", Available: true, LocationOrigin: "user_home", Evidence: "compiled_defaults_configuration_absent", CapturedAt: "2026-11-17T09:00:00Z", Settings: []protocol.DiagnosticSetting{{Key: "workspace.auto_confirm", Value: "false", Origin: "configuration_file", Declaration: "value"}}}
+			response := protocol.Response{OK: true, Version: "daemon-version", ResourceRefreshPending: true, DiagnosticOverview: &protocol.DiagnosticOverview{Schema: protocol.DiagnosticsVersion, Settings: policy, Providers: []protocol.DiagnosticProviderStatus{{Name: "test", Status: "partial", DetailsAvailable: true}}}}
+			if i == 1 {
+				response.DiagnosticOverview.Schema--
+			}
+			if i == 2 {
+				response = protocol.Response{OK: true, Version: "old-summary"}
+			}
+			if i == 3 {
+				response = protocol.Response{OK: false, Error: "private-provider-error"}
+			}
+			err = json.NewEncoder(conn).Encode(response)
+			conn.Close()
+			if err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	for i := 0; i < 4; i++ {
+		result, err := feedbackDiagnostics(anchor, "overview", logging.LogQuery{Limit: 20})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := <-observed
+		if req.Method != "diagnostics" || req.Diagnostics == nil || *req.Diagnostics != (protocol.DiagnosticsRequest{Section: "overview"}) {
+			t.Fatalf("overview used general command/fallback: %+v", req)
+		}
+		daemon := result["daemon"].(map[string]any)
+		raw, _ := json.Marshal(result)
+		if strings.Contains(string(raw), "private-provider-error") {
+			t.Fatal("daemon error escaped")
+		}
+		if i == 0 {
+			policy := daemon["settings"].(protocol.DiagnosticPolicy)
+			cli := result["settings"].(protocol.DiagnosticPolicy)
+			if daemon["available"] != true || policy.Scope == cli.Scope || policy.Settings[0].Value == cli.Settings[0].Value || daemon["resource_refresh_pending"] != true {
+				t.Fatalf("daemon/CLI evidence conflated: %s", raw)
+			}
+		} else if daemon["available"] != false || daemon["reason"] != "matching_daemon_overview_required" || daemon["settings"] != nil {
+			t.Fatalf("version mismatch used fallback: %s", raw)
+		}
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

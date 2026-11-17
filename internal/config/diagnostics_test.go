@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"radar/internal/protocol"
 	"reflect"
 	"strconv"
 	"strings"
@@ -27,8 +28,8 @@ func diagnosticConfigFixture(t *testing.T) string {
 	return path
 }
 
-func settingMap(view DiagnosticPolicy) map[string]DiagnosticSetting {
-	result := map[string]DiagnosticSetting{}
+func settingMap(view protocol.DiagnosticPolicy) map[string]protocol.DiagnosticSetting {
+	result := map[string]protocol.DiagnosticSetting{}
 	for _, setting := range view.Settings {
 		result[setting.Key] = setting
 	}

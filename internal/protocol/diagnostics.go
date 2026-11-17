@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 19
+const DiagnosticsVersion = 20
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -19,7 +19,8 @@ func DiagnosticText(value string) string {
 // exact registered identity for probes.
 // runtime_probe, agent_probe, retirement_preview and cleanup_preview require explicit
 // diagnostics-probe RPC. CleanupMode/WorkspaceID are cleanup-preview selectors only.
-// No request can apply a preview.
+// No request can apply a preview. The selector-free overview is the fixed
+// daemon-process configuration projection; no workspace/path override is accepted.
 type DiagnosticsRequest struct {
 	CleanupMode string `json:"cleanup_mode,omitempty"`
 	WorkspaceID string `json:"workspace_id,omitempty"`
@@ -415,4 +416,40 @@ type DiagnosticsPage struct {
 	Complete               bool             `json:"pagination_complete"`
 	ResourceRefreshPending bool             `json:"resource_refresh_pending"`
 	Limitations            []string         `json:"limitations"`
+}
+
+// DiagnosticSetting contains only a fixed boolean, mode or count, never a
+// configuration string, command, path, identity, endpoint or secret value.
+type DiagnosticSetting struct {
+	Key         string `json:"key"`
+	Value       string `json:"value"`
+	Origin      string `json:"origin"`
+	Declaration string `json:"declaration"`
+}
+
+type DiagnosticPolicy struct {
+	Available      bool                `json:"available"`
+	LocationOrigin string              `json:"location_origin"`
+	Scope          string              `json:"scope"`
+	Evidence       string              `json:"evidence"`
+	Reason         string              `json:"reason,omitempty"`
+	CapturedAt     string              `json:"captured_at"`
+	Revision       string              `json:"revision,omitempty"`
+	Settings       []DiagnosticSetting `json:"settings"`
+}
+
+// DiagnosticOverview is one version-matched daemon-process projection, not an
+// environment dump, loaded-settings attestation or workspace-effective policy.
+type DiagnosticOverview struct {
+	Schema    int                        `json:"diagnostics_schema"`
+	Settings  DiagnosticPolicy           `json:"settings"`
+	Providers []DiagnosticProviderStatus `json:"providers"`
+}
+
+// DiagnosticProviderStatus is cached installation-wide status, not a fresh
+// access check. Private detail text and ref counts are deliberately absent.
+type DiagnosticProviderStatus struct {
+	Name             string `json:"name"`
+	Status           string `json:"status"`
+	DetailsAvailable bool   `json:"details_available"`
 }
