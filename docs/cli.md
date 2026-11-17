@@ -11,7 +11,7 @@ radar setup notifications     # macOS launch/notification approval
 radar update                  # Confirm a managed macOS release
 radar version
 radar documentation [--topic <source>] [--json]
-radar feedback-diagnostics --workspace <feedback-workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|runtime_probe|agent_probe|retirement_preview|cleanup_preview|integrations|logs --json
+radar feedback-diagnostics --workspace <feedback-workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|runtime_probe|agent_probe|retirement_preview|cleanup_preview|integrations|operations|logs --json
 radar feedback-diagnostics --workspace <feedback-workspace> --section cleanup_preview --parent-id <retained-task-id> --cleanup-mode expired --workspace-id <registered-workspace-id> --scope origin|feedback|installation --json
 radar feedback-diagnostics --workspace <feedback-workspace> --section logs [--since "YYYY-MM-DD HH:MM:SS"] [--until "YYYY-MM-DD HH:MM:SS"] [--severity debug|info|warn|error] [--provider <opaque-log-id>] [--entity <opaque-log-id>] [--operation <opaque-log-id>] [--limit 1-100] [--cursor <log-cursor>] --json
 radar create                  # Interactive workspace creation
@@ -189,7 +189,17 @@ Completed cleanup and reconciliation responses can contain `resource_refresh_pen
 
 Authored-note identity conflicts are never automatically merged or reset. `repair-task-links` defaults to a read-only JSON plan; applying requires explicit ownership/history decisions, an offline state lock and a new SQLite backup. See [task link repair](task-link-repair.md).
 
-`feedback-diagnostics --section overview` reports schema-20 typed configuration
+`feedback-diagnostics --section operations` pages volatile current-daemon managed
+operation observations using origin/feedback/installation scope and exact `--id`.
+Active plus latest 64 terminal/client-reported entries are not complete history.
+Client reports remain unverified; handler success is not resource verification.
+Cleanup counts describe only the successful prefix and original target count,
+not failed/remaining target identities. Scope uses cached retained references,
+not verified ownership; task-wide effects may include other workspaces. No replay,
+refresh or maintenance occurs. Pages are capped at 32 KiB; `--state` and
+`--parent-id` are rejected. See [managed operation evidence](integrations/pi.md#current-daemon-managed-operations).
+
+`feedback-diagnostics --section overview` reports schema-21 typed configuration
 policy values and file/default provenance. Its fixed ten-setting allowlist returns
 only booleans, enablement modes and counts from a bounded native configuration
 read, never model strings, paths, commands, secrets or referenced file contents.

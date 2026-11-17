@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 20
+const DiagnosticsVersion = 21
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -386,7 +386,22 @@ type DiagnosticCleanupTarget struct {
 	ExecutionEligibility  string                    `json:"execution_eligibility"`
 }
 
+// DiagnosticOperation is a volatile daemon handler observation, never a job,
+// replay token, durable audit record or verification of resource outcomes.
+type DiagnosticOperation struct {
+	ID                string `json:"id"`
+	Kind              string `json:"kind"`
+	Status            string `json:"status"`
+	TaskID            int    `json:"task_id,omitempty"`
+	WorkspaceID       string `json:"workspace_id,omitempty"`
+	ExecutionEvidence string `json:"execution_evidence"`
+	TargetEvidence    string `json:"target_evidence"`
+	CompletedTargets  *int   `json:"completed_targets,omitempty"`
+	TotalTargets      *int   `json:"total_targets,omitempty"`
+}
+
 type DiagnosticItem struct {
+	Operation         *DiagnosticOperation          `json:"operation,omitempty"`
 	CleanupPreview    *DiagnosticCleanupTarget      `json:"cleanup_preview,omitempty"`
 	RetirementPreview *DiagnosticRetirementPreview  `json:"retirement_preview,omitempty"`
 	AgentProbe        *DiagnosticAgentProbe         `json:"agent_probe,omitempty"`

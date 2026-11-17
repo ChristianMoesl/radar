@@ -92,3 +92,12 @@ func (s *Store) DashboardSnapshot() protocol.Response {
 	}
 	return protocol.Response{Tasks: tasks, Sources: append([]protocol.SourceStatus{}, s.state.Sources...), Operations: append([]protocol.ManagedOperation{}, s.operations...), Revision: s.revision}
 }
+
+// OperationInspectionSnapshot joins volatile operations to retained scope
+// evidence at one revision, including hidden records. Callers must project an
+// allowlist; client-reported target identities are not verified ownership.
+func (s *Store) OperationInspectionSnapshot() ([]TaskRecord, []SourceRefRecord, []protocol.ManagedOperation, int64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.inspectionRecordsLocked(), s.inspectionSourceRefsLocked(), append([]protocol.ManagedOperation{}, s.operations...), s.revision
+}

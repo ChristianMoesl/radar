@@ -1575,13 +1575,17 @@ func (s *Store) RequireAgentReview(taskID int) {
 func (s *Store) InspectionSnapshot() ([]TaskRecord, []SourceRefRecord, int64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.inspectionRecordsLocked(), s.inspectionSourceRefsLocked(), s.revision
+}
+
+func (s *Store) inspectionRecordsLocked() []TaskRecord {
 	records := make([]TaskRecord, len(s.state.Records))
 	for i, record := range s.state.Records {
 		records[i] = record
 		records[i].SourceRefIDs = slices.Clone(record.SourceRefIDs)
 		records[i].Snapshot = cloneTask(record.Snapshot)
 	}
-	return records, s.inspectionSourceRefsLocked(), s.revision
+	return records
 }
 
 // SourceInspectionSnapshot atomically reads retained native references and cached

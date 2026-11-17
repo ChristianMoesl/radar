@@ -5,6 +5,8 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"testing"
 
 	"radar/internal/protocol"
@@ -59,5 +61,49 @@ func TestOperationsAreRevisionedBoundedClonedAndNotPersisted(t *testing.T) {
 	}
 	if len(store.DashboardSnapshot().Operations) != 0 {
 		t.Fatal("reset retained cache-local operation targets")
+	}
+}
+
+func TestOperationInspectionSnapshotPairsRetainedScopeAndOperationRevision(t *testing.T) {
+	t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "state.db"))
+	store, err := NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	publish := func(n int) {
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		store.state.Records = []TaskRecord{{ID: "record", NumericID: n, SourceRefIDs: []string{"ref"}, Snapshot: protocol.Task{Metadata: map[string]string{"marker": strconv.Itoa(n)}}}}
+		store.state.SourceRefs = []SourceRefRecord{{ID: "ref", TaskRecordID: "record", Snapshot: protocol.SourceRef{Path: strconv.Itoa(n), Metadata: map[string]string{"marker": strconv.Itoa(n)}}}}
+		store.operations = []protocol.ManagedOperation{{ID: "op", TaskID: n, Status: "running", Kind: "cleanup"}}
+		store.bumpRevisionLocked()
+	}
+	publish(1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 2; i < 200; i++ {
+			publish(i)
+		}
+	}()
+	for {
+		records, refs, ops, rev := store.OperationInspectionSnapshot()
+		if len(records) != 1 || len(refs) != 1 || len(ops) != 1 || rev <= 0 || records[0].NumericID != ops[0].TaskID || refs[0].Snapshot.Path != strconv.Itoa(ops[0].TaskID) || records[0].Snapshot.Metadata["marker"] != refs[0].Snapshot.Metadata["marker"] || records[0].SourceRefIDs[0] != "ref" || ops[0].Status != "running" {
+			t.Fatal("scope/operation snapshot was torn or caller mutation escaped")
+		}
+		records[0].Snapshot.Metadata["marker"] = "caller changed clone"
+		records[0].SourceRefIDs[0] = "caller changed clone"
+		refs[0].Snapshot.Metadata["marker"] = "caller changed clone"
+		ops[0].Status = "caller changed clone"
+		select {
+		case <-done:
+			_, _, again, _ := store.OperationInspectionSnapshot()
+			if again[0].Status != "running" {
+				t.Fatal("operation clone escaped")
+			}
+			return
+		default:
+			runtime.Gosched()
+		}
 	}
 }

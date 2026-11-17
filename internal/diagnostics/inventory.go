@@ -28,7 +28,7 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 	if req.CleanupMode != "" || req.WorkspaceID != "" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup selectors require explicit cleanup preview")
 	}
-	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "workspace_resources" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "agents" && req.Section != "agent_schedules" && req.Section != "gc_plan" && req.Section != "integrations" {
+	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "workspace_resources" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "agents" && req.Section != "agent_schedules" && req.Section != "gc_plan" && req.Section != "integrations" && req.Section != "operations" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("unsupported diagnostic inventory")
 	}
 	if req.Limit == 0 {
@@ -48,6 +48,13 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 	}
 	if req.Workspace != "" && !filepath.IsAbs(req.Workspace) {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic scope must be absolute")
+	}
+	if req.Section == "operations" {
+		if req.State != "" {
+			return protocol.DiagnosticsPage{}, fmt.Errorf("state filters retained task lifecycle, not operations")
+		}
+		records, refs, operations, revision := store.OperationInspectionSnapshot()
+		return paginate(req, operationItems(req, records, refs, operations), revision, pending, "volatile_current_daemon_managed_operation_observations")
 	}
 	if req.Section == "integrations" {
 		if req.State != "" {
@@ -225,6 +232,9 @@ func paginate(req protocol.DiagnosticsRequest, items []protocol.DiagnosticItem, 
 	if req.Section == "integrations" {
 		page.Limitations = []string{"cached_status_is_installation_wide_not_workspace_health", "workspace_scope_selects_only_related_retained_refs", "ref_observation_time_is_not_collection_attempt_or_success", "current_daemon_completed_attempts_are_not_reconciliation_publication_or_business_success", "no_active_attempt_or_pre_restart_history", "attempts_do_not_establish_live_access_or_cache_freshness", "effective_enablement_auth_tools_and_rate_limits_unknown", "registered_capability_is_not_execution_permission", "no_provider_status_collection_auth_rate_limit_probe_or_refresh", "raw_provider_details_withheld", "text_fields_limited_to_512_bytes"}
 	}
+	if req.Section == "operations" {
+		page.Limitations = []string{"volatile_current_daemon_only_no_pre_restart_history", "active_plus_latest_64_terminal_or_reported_observations_not_complete_history", "observed_at_is_snapshot_read_time_not_operation_time", "workspace_scope_uses_cached_retained_refs_not_verified_ownership", "task_scope_can_include_effects_in_other_workspaces", "client_reports_are_unverified_not_daemon_execution", "handler_success_is_not_resource_verification_or_reconciliation", "cleanup_counts_are_successful_prefix_not_failed_or_remaining_target_identities", "running_counts_timings_retries_and_lock_waits_unknown", "untracked_gc_runtime_and_remote_operations_not_covered", "no_replay_refresh_probe_or_maintenance", "raw_errors_paths_payloads_and_target_details_withheld"}
+	}
 	if req.Section == "runtime_probe" {
 		page.Limitations = []string{"explicit_registered_runtime_listing_only", "cached_identity_is_not_registration_ownership", "ownership_and_leases_not_checked", "unregistered_runtimes_not_classified", "no_startup_refresh_login_or_maintenance", "provider_errors_and_unrelated_listing_rows_withheld", "unknown_is_not_absence", "presence_is_not_health_or_execution_eligibility", "text_fields_limited_to_512_bytes", "each_page_repeats_the_bounded_probe"}
 	}
@@ -259,7 +269,7 @@ func paginate(req protocol.DiagnosticsRequest, items []protocol.DiagnosticItem, 
 		}
 		output, _ := json.Marshal(page)
 		pageBound := maxPageBytes
-		if req.Section == "cleanup_preview" {
+		if req.Section == "cleanup_preview" || req.Section == "operations" {
 			pageBound = 32 * 1024
 		}
 		if len(output) <= pageBound {

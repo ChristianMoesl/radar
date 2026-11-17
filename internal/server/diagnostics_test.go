@@ -28,6 +28,8 @@ func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T
 		t.Fatal(err)
 	}
 	store.SetTasks([]protocol.Task{{Attention: "done", Title: "private-title", SourceRefs: []protocol.SourceRef{{ID: "test:ABC-123", Source: "test", EntityID: "test:ABC-123", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary, Signal: "done", Metadata: map[string]string{"completed_at": "2026-01-02T10:20:30Z"}}}}})
+	operationID := store.BeginOperation("cleanup", store.Records()[0].NumericID, "")
+	store.FinishOperation(operationID, protocol.ManagedOperation{Status: "partial", CompletedTargets: 1, TotalTargets: 2})
 	if len(store.Tasks()) != 0 {
 		t.Fatal("fixture must be hidden")
 	}
@@ -44,6 +46,9 @@ func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "gc_plan"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "integrations"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "integrations", State: "done"}},
+		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "operations"}},
+		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "operations", State: "running"}},
+		{Method: "diagnostics-probe", Diagnostics: &protocol.DiagnosticsRequest{Section: "operations"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agent_schedules", State: "done"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "agents", State: "done"}},
 		{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "workspace_resources"}},
@@ -57,7 +62,7 @@ func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T
 		if err := decoder.Decode(&response); err != nil {
 			t.Fatal(err)
 		}
-		if req.Diagnostics != nil && req.Diagnostics.ParentID == "" && req.Diagnostics.State == "" && (req.Diagnostics.Section == "tasks" || req.Diagnostics.Section == "source_refs" || req.Diagnostics.Section == "bindings" || req.Diagnostics.Section == "agents" || req.Diagnostics.Section == "agent_schedules" || req.Diagnostics.Section == "integrations") {
+		if req.Method == "diagnostics" && req.Diagnostics != nil && req.Diagnostics.ParentID == "" && req.Diagnostics.State == "" && (req.Diagnostics.Section == "tasks" || req.Diagnostics.Section == "source_refs" || req.Diagnostics.Section == "bindings" || req.Diagnostics.Section == "agents" || req.Diagnostics.Section == "agent_schedules" || req.Diagnostics.Section == "integrations" || req.Diagnostics.Section == "operations") {
 			expected := 1
 			if req.Diagnostics.Section == "bindings" || req.Diagnostics.Section == "agents" || req.Diagnostics.Section == "agent_schedules" {
 				expected = 0
@@ -67,6 +72,9 @@ func TestDiagnosticsRPCIsBoundedReadOnlyAndDoesNotFilterHiddenState(t *testing.T
 			}
 			if req.Diagnostics.Section == "integrations" && (response.Diagnostics.Items[0].Integration.Name != "test" || response.Diagnostics.Items[0].Integration.CachedStatus != "unknown" || response.Diagnostics.Items[0].Integration.CapabilityEvidence != "not_registered") {
 				t.Fatal("retained source without registration/status must remain visible with unknown evidence")
+			}
+			if req.Diagnostics.Section == "operations" && (response.Diagnostics.Items[0].Operation.ID != operationID || response.Diagnostics.Items[0].Operation.Status != "partial" || *response.Diagnostics.Items[0].Operation.CompletedTargets != 1) {
+				t.Fatal("diagnostic RPC lost native partial operation evidence")
 			}
 		} else if response.OK {
 			t.Fatal("invalid request accepted")

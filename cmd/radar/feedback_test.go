@@ -193,10 +193,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	observed := make(chan protocol.Request, 30)
+	observed := make(chan protocol.Request, 33)
 	done := make(chan error, 1)
 	go func() {
-		for i := 0; i < 30; i++ {
+		for i := 0; i < 33; i++ {
 			conn, err := listener.Accept()
 			if err != nil {
 				done <- err
@@ -211,10 +211,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 			}
 			observed <- req
 			response := protocol.Response{OK: true, Diagnostics: &protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: req.Diagnostics.Section, Evidence: "cached_daemon_state", Items: []protocol.DiagnosticItem{}, Complete: true}}
-			if i == 28 {
+			if i == 31 {
 				response.Diagnostics.Schema = 99
 			}
-			if i == 29 {
+			if i == 32 {
 				response = protocol.Response{OK: false, Error: "unknown method: diagnostics; private-provider-value"}
 			}
 			err = json.NewEncoder(conn).Encode(response)
@@ -226,14 +226,14 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		}
 		done <- nil
 	}()
-	for index, scope := range []string{"origin", "feedback", "installation", "origin", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation"} {
-		section := []string{"tasks", "source_refs", "bindings", "agents", "workspace_resources", "workspace_resources", "workspace_resources", "agent_schedules", "agent_schedules", "agent_schedules", "gc_plan", "gc_plan", "gc_plan", "runtime_probe", "runtime_probe", "runtime_probe", "integrations", "integrations", "integrations", "agent_probe", "agent_probe", "agent_probe", "retirement_preview", "retirement_preview", "retirement_preview", "cleanup_preview", "cleanup_preview", "cleanup_preview"}[index]
+	for index, scope := range []string{"origin", "feedback", "installation", "origin", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation"} {
+		section := []string{"tasks", "source_refs", "bindings", "agents", "workspace_resources", "workspace_resources", "workspace_resources", "agent_schedules", "agent_schedules", "agent_schedules", "gc_plan", "gc_plan", "gc_plan", "runtime_probe", "runtime_probe", "runtime_probe", "integrations", "integrations", "integrations", "agent_probe", "agent_probe", "agent_probe", "retirement_preview", "retirement_preview", "retirement_preview", "cleanup_preview", "cleanup_preview", "cleanup_preview", "operations", "operations", "operations"}[index]
 		parent := ""
 		if index == 1 || index == 2 || section == "workspace_resources" || section == "agent_schedules" || section == "gc_plan" || section == "runtime_probe" || section == "agent_probe" || section == "retirement_preview" || section == "cleanup_preview" {
 			parent = "opaque-parent"
 		}
 		state := "done"
-		if section == "agents" || section == "workspace_resources" || section == "agent_schedules" || section == "runtime_probe" || section == "integrations" || section == "agent_probe" || section == "retirement_preview" || section == "cleanup_preview" {
+		if section == "agents" || section == "workspace_resources" || section == "agent_schedules" || section == "runtime_probe" || section == "integrations" || section == "agent_probe" || section == "retirement_preview" || section == "cleanup_preview" || section == "operations" {
 			state = ""
 		}
 		id, cursor := "123", "opaque"
@@ -337,7 +337,7 @@ func TestFeedbackOverviewReturnsNativePolicySourcesWithoutPrivateSettings(t *tes
 		}
 	}
 	capabilities := result["capabilities"].(map[string]any)
-	if capabilities["configuration_policy_origins"] != true || capabilities["daemon_process_configuration"] != true || capabilities["workspace_effective_policy"] != false || capabilities["daemon_environment"] != false || capabilities["maintenance"] != false {
+	if capabilities["configuration_policy_origins"] != true || capabilities["daemon_process_configuration"] != true || capabilities["workspace_effective_policy"] != false || capabilities["daemon_environment"] != false || capabilities["maintenance"] != false || capabilities["current_daemon_managed_operations"] != true || capabilities["durable_operation_history"] != false || capabilities["verified_operation_resource_outcomes"] != false {
 		t.Fatalf("policy advertised as authority: %+v", capabilities)
 	}
 }
