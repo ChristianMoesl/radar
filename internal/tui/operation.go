@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -102,20 +103,67 @@ func (m model) taskOperationStatus(task protocol.Task) (marker, label string) {
 			return errorStyle.Render("!"), failure.operation.failure + " · i inspect"
 		}
 	}
+	if operation, ok := m.managedOperation(task); ok {
+		marker := "·"
+		if operation.Status == "running" {
+			marker = "…"
+		} else if operation.Status == "failed" || operation.Status == "partial" {
+			marker = "!"
+		}
+		return marker, managedOperationLabel(operation)
+	}
 	return " ", ""
 }
 
 func (m model) operationDetails(task protocol.Task, width int) string {
 	var lines []string
 	if m.operation.kind != "" && sameTask(m.operation.task, task) {
-		lines = append(lines, progressStyle.Render(m.operationMarker()+" "+m.operation.label))
+		lines = append(lines, progressStyle.Render(m.operationMarker()+" Local request: "+m.operation.label))
 	}
 	for _, failure := range m.taskFailures {
 		if sameTask(failure.operation.task, task) {
 			lines = append(lines, errorStyle.Render(failure.operation.failure), failure.err.Error())
 		}
 	}
+	if operation, ok := m.managedOperation(task); ok {
+		lines = append(lines, managedOperationLabel(operation), "Operation: "+operation.ID)
+	}
 	return ansi.Wrap(strings.Join(lines, "\n"), max(1, width), "")
+}
+
+func (m model) managedOperation(task protocol.Task) (protocol.ManagedOperation, bool) {
+	var latest protocol.ManagedOperation
+	for i := len(m.managedOperations) - 1; i >= 0; i-- {
+		op := m.managedOperations[i]
+		matches := op.TaskID != 0 && op.TaskID == task.ID
+		if op.WorkspaceID != "" {
+			for _, ref := range task.SourceRefs {
+				if ref.WorkspaceID == op.WorkspaceID {
+					matches = true
+				}
+			}
+		}
+		if matches {
+			if op.Status == "running" {
+				return op, true
+			}
+			if latest.ID == "" {
+				latest = op
+			}
+		}
+	}
+	return latest, latest.ID != ""
+}
+
+func managedOperationLabel(op protocol.ManagedOperation) string {
+	if op.Status == "reported" {
+		return "Workspace change reported · not daemon execution"
+	}
+	label := "Daemon: " + op.Kind + " " + op.Status
+	if op.TotalTargets > 0 {
+		label += fmt.Sprintf(" (%d/%d targets)", op.CompletedTargets, op.TotalTargets)
+	}
+	return label
 }
 
 func operationNavigationKey(key string) bool {

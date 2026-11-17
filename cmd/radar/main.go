@@ -243,7 +243,7 @@ func runActivity(args []string) {
 	// Publication remains useful without a daemon. The normal local poll can
 	// recover a missed refresh; never delay an approval on stalled collection.
 	if path, err := socket.Path(); err == nil {
-		_, _ = client.CallWithTimeout(path, "refresh-local", time.Second)
+		_, _ = client.CallWithTimeout(path, "resources-mutated", time.Second)
 	}
 	if jsonOutput {
 		printResult(map[string]any{"ok": true, "activity": activity})
@@ -426,6 +426,17 @@ func runCreate(args []string) {
 		}
 	}
 	result, err := manager.CreateWorkspace(context.Background(), request)
+	// Creation may have changed resources before returning an error. Report
+	// conservatively before exiting, including prepare-only/Pi invocations.
+	target := protocol.ResourceMutation{}
+	if result.Path != "" {
+		if registration, ok, lookupErr := manager.RegisteredWorkspace(result.Path); lookupErr == nil && ok {
+			target.WorkspaceID = registration.ID
+		}
+	}
+	if publishErr := notifyResourceMutation(target); publishErr != nil {
+		fmt.Fprintln(os.Stderr, "workspace observations remain pending:", publishErr)
+	}
 	if err != nil {
 		fatal(err)
 	}
@@ -506,14 +517,10 @@ func runReconcileWorkspace(args []string) {
 	if result.Plan != nil {
 		result.Plan.AutoConfirm = cfg.Workspace.AutoConfirm
 	}
-	if err != nil {
-		closeLog()
-		fatal(err)
-	}
-	if result.OK || result.Retryable || result.WorktreesAdded > 0 || result.WorktreesRemoved > 0 {
+	if err != nil || result.OK || result.Retryable || result.WorktreesAdded > 0 || result.WorktreesRemoved > 0 {
 		result.ResourceRefreshPending = true
 		refreshDone := phasetiming.Start(phasetiming.WithLogger(context.Background(), logger), "post_mutation_publication")
-		if err := notifyResourceMutation(); err != nil {
+		if err := notifyResourceMutation(protocol.ResourceMutation{WorkspaceID: result.WorkspaceID}); err != nil {
 			warning := "workspace mutation completed, but Radar could not mark its resource list pending refresh: " + err.Error()
 			if result.Warning == "" {
 				result.Warning = warning
@@ -524,15 +531,18 @@ func runReconcileWorkspace(args []string) {
 		refreshDone()
 	}
 	closeLog()
+	if err != nil {
+		fatal(err)
+	}
 	printResult(result)
 }
 
-func notifyResourceMutation() error {
+func notifyResourceMutation(target protocol.ResourceMutation) error {
 	path, err := socket.Path()
 	if err != nil {
 		return err
 	}
-	response, err := client.CallWithTimeout(path, "resources-mutated", time.Second)
+	response, err := client.ReportResourceMutation(path, target)
 	if err != nil {
 		return err
 	}
@@ -767,6 +777,14 @@ func runDaemon() {
 	tasks := taskservice.New(store, logger, integrations).SetOnRefresh(func(previous, current []protocol.Task) {
 		notifyActionableTransitions(ctx, previous, current, logger, integrations, notificationService)
 	})
+	localRefresh := localRefresher(phasetiming.WithLogger(ctx, logger), collectionMu, tasks)
+	requestLocal, localDone := localRefreshRequests(ctx, func() {
+		if !collectionDisabled() {
+			localRefresh()
+		}
+	})
+	defer func() { stop(); <-localDone }()
+	tasks.SetLocalRefreshRequest(requestLocal)
 	refresh := refresher(ctx, store, logger, collectionMu, integrations, cleanupService, notificationService, tasks)
 	garbageCollect := garbageCollector(ctx, store, logger, collectionMu, integrations, cleanupService, notificationService, tasks)
 	if collectionDisabled() {
@@ -789,8 +807,7 @@ func runDaemon() {
 			logger.Warn("Pi package synchronization incomplete; retry with radar restart", "profile", profile, "error", err)
 		}
 	}
-	localRefresh := localRefresher(phasetiming.WithLogger(ctx, logger), collectionMu, tasks)
-	integrations.StartBackground(ctx, localRefresh)
+	integrations.StartBackground(ctx, tasks.MarkResourceRefreshPending)
 	if err := server.New(store, logger, func() { refresh(refreshFull, true) }, resetter(ctx, logger, collectionMu, tasks), garbageCollect, integrations, cleanupService).SetLocalRefresh(localRefresh).SetResourcePublication(tasks.MarkResourceRefreshPending, tasks.ResourceSnapshot).SetTaskMutation(tasks.MutateTask).SetTaskDeletion(tasks.PreviewDeleteTask, tasks.DeleteTask).SetOnReady(syncPackages).ListenAndServe(ctx, path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
@@ -991,7 +1008,7 @@ func refresher(ctx context.Context, store *state.Store, logger *slog.Logger, mu 
 			} else if root, rootErr := manager.DefaultRoot(); rootErr != nil {
 				logger.Warn("workspace gc failed", "error", rootErr)
 			} else {
-				gcResult, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, GuardExecution: guardCollectedCleanup(tasks)})
+				gcResult, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, GuardExecution: guardCollectedCleanup(tasks, store)})
 				tasks.MarkResourceRefreshPending()
 				if err != nil {
 					logger.Warn("workspace gc failed", "error", err)
@@ -1037,14 +1054,14 @@ func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logg
 			mu.Unlock()
 			return protocol.GarbageCollectionResult{}, err
 		}
-		result, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, IgnoreRetention: true, GuardExecution: guardCollectedCleanup(tasks)})
+		result, err := workspacegc.Run(ctx, store, cleanupService, logger, time.Now(), workspacegc.Options{WorkspaceRoot: root, IgnoreRetention: true, GuardExecution: guardCollectedCleanup(tasks, store)})
 		tasks.MarkResourceRefreshPending()
-		if err != nil {
-			mu.Unlock()
-			return protocol.GarbageCollectionResult{}, err
-		}
 		converted := garbageCollectionResult(result)
 		converted.ResourceRefreshPending = true
+		if err != nil {
+			mu.Unlock()
+			return converted, err
+		}
 		mu.Unlock()
 		notificationService.NotifyGarbageCollection(ctx, converted)
 		return converted, nil
@@ -1053,13 +1070,20 @@ func garbageCollector(ctx context.Context, store *state.Store, logger *slog.Logg
 
 // Automatic cleanup consumes the collected resource graph. A pending graph
 // cannot authorize another deletion; explicit reconciliation still reads live.
-func guardCollectedCleanup(tasks *taskservice.Service) func(context.Context, protocol.Task, func() error) error {
+func guardCollectedCleanup(tasks *taskservice.Service, store *state.Store) func(context.Context, protocol.Task, func() error) error {
 	return func(ctx context.Context, task protocol.Task, execute func() error) error {
 		return tasks.GuardCleanup(ctx, task, func() error {
 			if tasks.ResourceSnapshot().ResourceRefreshPending {
 				return errors.New("resource list refresh pending; collect local resources before cleanup")
 			}
-			return execute()
+			op := store.BeginOperation("gc", task.ID, "")
+			err := execute()
+			status := "succeeded"
+			if err != nil {
+				status = "failed"
+			}
+			store.FinishOperation(op, protocol.ManagedOperation{Status: status, TaskID: task.ID})
+			return err
 		})
 	}
 }

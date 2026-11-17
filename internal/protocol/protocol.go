@@ -5,13 +5,14 @@ import "encoding/json"
 const Version = "0.1.0"
 
 type Request struct {
-	Diagnostics  *DiagnosticsRequest  `json:"diagnostics,omitempty"`
-	Agent        *AgentRequest        `json:"agent,omitempty"`
-	Method       string               `json:"method"`
-	TaskID       int                  `json:"task_id,omitempty"`
-	TaskMutation *TaskMutation        `json:"task_mutation,omitempty"`
-	Cleanup      *CleanupPreview      `json:"cleanup,omitempty"`
-	TaskDeletion *TaskDeletionPreview `json:"task_deletion,omitempty"`
+	ResourceMutation *ResourceMutation    `json:"resource_mutation,omitempty"`
+	Diagnostics      *DiagnosticsRequest  `json:"diagnostics,omitempty"`
+	Agent            *AgentRequest        `json:"agent,omitempty"`
+	Method           string               `json:"method"`
+	TaskID           int                  `json:"task_id,omitempty"`
+	TaskMutation     *TaskMutation        `json:"task_mutation,omitempty"`
+	Cleanup          *CleanupPreview      `json:"cleanup,omitempty"`
+	TaskDeletion     *TaskDeletionPreview `json:"task_deletion,omitempty"`
 }
 
 type TaskMutation struct {
@@ -79,6 +80,7 @@ type CleanupPreview struct {
 }
 
 type CleanupResult struct {
+	OperationID            string          `json:"operation_id,omitempty"`
 	ResourceRefreshPending bool            `json:"resource_refresh_pending,omitempty"`
 	TaskID                 int             `json:"task_id"`
 	Targets                []CleanupTarget `json:"targets"`
@@ -239,6 +241,8 @@ type Task struct {
 }
 
 type Response struct {
+	OperationID             string                   `json:"operation_id,omitempty"`
+	Operations              []ManagedOperation       `json:"operations,omitempty"`
 	DiagnosticOverview      *DiagnosticOverview      `json:"diagnostic_overview,omitempty"`
 	Diagnostics             *DiagnosticsPage         `json:"diagnostics,omitempty"`
 	ResourceRefreshPending  bool                     `json:"resource_refresh_pending,omitempty"`
@@ -262,6 +266,12 @@ type Response struct {
 
 func (r Response) MarshalJSON() ([]byte, error) {
 	fields := map[string]any{"ok": r.OK}
+	if r.OperationID != "" {
+		fields["operation_id"] = r.OperationID
+	}
+	if r.Operations != nil {
+		fields["operations"] = r.Operations
+	}
 	if r.DiagnosticOverview != nil {
 		fields["diagnostic_overview"] = r.DiagnosticOverview
 	}

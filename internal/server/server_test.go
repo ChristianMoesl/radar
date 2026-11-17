@@ -197,9 +197,13 @@ func TestStructuredTaskMutations(t *testing.T) {
 		}
 		return response
 	}
-	if response := exchange(protocol.Request{Method: "task-delete"}); response.OK {
+	invalid := exchange(protocol.Request{Method: "task-delete"})
+	if invalid.OK {
 		t.Fatal("accepted deletion without preview")
 	}
+	// The rejected execution publishes operation failure, but the following
+	// read-only preview must not change that revision or the task projection.
+	revision = invalid.Revision
 	previewResponse := exchange(protocol.Request{Method: "task-delete-preview", TaskID: 1})
 	if !previewResponse.OK || previewResponse.TaskDeletionPreview == nil || previewResponse.Revision != revision {
 		t.Fatalf("preview mutated cache or failed: %+v", previewResponse)

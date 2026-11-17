@@ -133,6 +133,7 @@ type model struct {
 	width                  int
 	height                 int
 	resourceRefreshPending bool
+	managedOperations      []protocol.ManagedOperation
 	loading                bool
 	err                    error
 	summary                protocol.Summary
@@ -598,6 +599,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case workspaceAppliedMsg:
 		m.message = ""
+		if msg.publication != nil && msg.publication.response != nil {
+			m.applyResponse(*msg.publication.response, true)
+		}
 		if msg.err == nil && msg.result.ReconfirmRequired && msg.result.Plan != nil {
 			m.finishOperation(nil, false)
 			m.editor.plan, m.mode = *msg.result.Plan, "workspace_confirm"
@@ -606,6 +610,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		problem := msg.err
+		if problem == nil && msg.publication != nil {
+			problem = msg.publication.err
+		}
 		if problem == nil && msg.created.Path == "" && !msg.result.OK {
 			problem = fmt.Errorf("workspace changes did not finish: %s; reopen the editor to inspect completed work", msg.result.Error)
 		}
@@ -614,7 +621,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = ""
 		}
 		m.editor = workspaceEditor{}
-		m.resourceRefreshPending = true
+		if msg.publication == nil || msg.publication.response == nil {
+			m.resourceRefreshPending = true
+		}
 		if problem == nil && msg.created.Path != "" && (canSwitchMultiplexer() || (msg.created.SessionName != "" && msg.created.Warning == "")) {
 			m.finishOperation(nil, true)
 			if canSwitchMultiplexer() {
@@ -635,10 +644,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.message = strings.Join(notices, ". ")
 		if problem != nil {
 			m.finishOperation(problem, false)
-			// Mark partial work pending without erasing its explanation.
-			return m, m.publishWorkspaceResult(m.message, m.err)
+			return m, nil
 		}
-		return m, taskAction(m.publishWorkspaceResult(m.message, nil))
+		m.finishOperation(nil, true)
+		return m, nil
 	case fetchMsg:
 		m.loading = false
 		m.err = msg.err
@@ -1605,6 +1614,9 @@ func (m *model) applyResponse(response protocol.Response, selectCurrentTask bool
 
 	if response.Revision > m.revision {
 		m.revision = response.Revision
+	}
+	if response.Operations != nil {
+		m.managedOperations = response.Operations
 	}
 	if response.Tasks != nil || response.Sources != nil || response.ResourceRefreshPending {
 		m.resourceRefreshPending = response.ResourceRefreshPending

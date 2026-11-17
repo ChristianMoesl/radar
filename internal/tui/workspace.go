@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -40,9 +39,10 @@ type workspacePlanMsg struct {
 	err  error
 }
 type workspaceAppliedMsg struct {
-	result  integration.WorkspaceReconcileResult
-	created integration.Workspace
-	err     error
+	publication *actionMsg
+	result      integration.WorkspaceReconcileResult
+	created     integration.Workspace
+	err         error
 }
 
 func (m model) editWorkspace(task protocol.Task) (tea.Model, tea.Cmd) {
@@ -262,7 +262,7 @@ func (m model) applyWorkspace() (tea.Model, tea.Cmd) {
 	if editor.createsWorkspace() {
 		label, failure = "Creating workspace…", "Workspace creation failed"
 	}
-	action := func() tea.Msg {
+	apply := func() tea.Msg {
 		manager, err := app.DefaultIntegrations().WorkspaceManager()
 		if err != nil {
 			return workspaceAppliedMsg{err: err}
@@ -286,6 +286,20 @@ func (m model) applyWorkspace() (tea.Model, tea.Cmd) {
 		defer file.Close()
 		result, err := manager.ApplyReconcile(context.Background(), logger, request)
 		return workspaceAppliedMsg{result: result, err: err}
+	}
+	action := func() tea.Msg {
+		msg := apply().(workspaceAppliedMsg)
+		if !msg.result.ReconfirmRequired {
+			// Publication belongs to the accepted action, not the UI message
+			// loop: creation can finish after its popup has already exited.
+			publisher := m
+			if msg.result.WorkspaceID != "" {
+				publisher.editor.state.ID = msg.result.WorkspaceID
+			}
+			publication := publisher.publishWorkspaceResult("", msg.err)().(actionMsg)
+			msg.publication = &publication
+		}
+		return msg
 	}
 	// Only accepted new creations outlive the UI. Start before constructing
 	// the batch, which Bubble Tea may discard when the popup closes.
@@ -361,10 +375,16 @@ func (m model) workspaceListFooter(width int) string {
 
 func (m model) publishWorkspaceResult(message string, problem error) tea.Cmd {
 	return func() tea.Msg {
-		response, err := client.CallWithTimeout(m.socketPath, "resources-mutated", time.Second)
+		workspaceID := m.editor.state.ID
+		if workspaceID == "" {
+			workspaceID = m.editor.plan.WorkspaceID
+		}
+		response, err := client.ReportResourceMutation(m.socketPath, protocol.ResourceMutation{TaskID: m.editor.task.ID, WorkspaceID: workspaceID})
 		// A failed notification cannot make the completed mutation's cached
 		// projection fresh. Keep that fact visible until collection succeeds.
-		response.ResourceRefreshPending = true
+		if err != nil || !response.OK {
+			response.ResourceRefreshPending = true
+		}
 		if problem == nil && err != nil {
 			problem = err
 		}

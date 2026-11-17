@@ -32,6 +32,7 @@ type Service struct {
 	authoringRevision     uint64
 	resourceRevision      atomic.Uint64
 	resourcePublication   atomic.Pointer[resourcePublication]
+	requestLocalRefresh   func()
 }
 
 type resourcePublication struct {
@@ -49,6 +50,13 @@ func New(store *state.Store, logger *slog.Logger, integrations integration.Regis
 // the exact publication pair after releasing the authoring/publication lock.
 func (s *Service) SetOnRefresh(callback func([]protocol.Task, []protocol.Task)) *Service {
 	s.onRefresh = callback
+	return s
+}
+
+// SetLocalRefreshRequest is configured before collectors and mutation handlers
+// start. The callback must enqueue, never collect inline under mutation locks.
+func (s *Service) SetLocalRefreshRequest(request func()) *Service {
+	s.requestLocalRefresh = request
 	return s
 }
 
@@ -166,7 +174,14 @@ func (s *Service) Refresh(ctx context.Context, localOnly bool) collector.Result 
 		s.localResourceRevision = resourceRevision
 	}
 	if s.localResourceRevision == resourceRevision && s.localCollectionComplete(result) {
+		previousPublication := s.resourcePublication.Load()
 		s.resourcePublication.Store(&resourcePublication{epoch: resourceRevision, storeRevision: s.store.Revision()})
+		if previousPublication == nil || previousPublication.epoch != resourceRevision {
+			// A complete reread can return identical observations. Freshness
+			// still changed, so watch clients need a newer revision to clear
+			// pending without waiting for another unrelated task mutation.
+			s.store.NotifyChange()
+		}
 	}
 	return result
 }
@@ -179,16 +194,19 @@ func (s *Service) MarkResourceRefreshPending() {
 	// freshness after this atomic invalidation, even if publication is underway.
 	s.resourceRevision.Add(1)
 	s.store.NotifyChange()
+	if s.requestLocalRefresh != nil {
+		s.requestLocalRefresh()
+	}
 }
 
 // ResourceSnapshot pairs the projection revision with its epoch certificate,
 // so an old snapshot cannot be paired with a newer "fresh" marker.
 func (s *Service) ResourceSnapshot() protocol.Response {
 	epoch := s.resourceRevision.Load()
-	tasks, sources, revision := s.store.Snapshot()
+	response := s.store.DashboardSnapshot()
 	published := s.resourcePublication.Load()
-	pending := published == nil || published.epoch != epoch || revision < published.storeRevision || epoch != s.resourceRevision.Load()
-	return protocol.Response{Tasks: tasks, Sources: sources, Revision: revision, ResourceRefreshPending: pending}
+	response.ResourceRefreshPending = published == nil || published.epoch != epoch || response.Revision < published.storeRevision || epoch != s.resourceRevision.Load()
+	return response
 }
 
 func (s *Service) localCollectionComplete(result collector.Result) bool {

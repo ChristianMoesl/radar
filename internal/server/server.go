@@ -158,6 +158,7 @@ func (s *Server) handle(conn net.Conn) {
 			response := s.tasksResponse()
 			if response.Revision <= revision {
 				response.Tasks, response.Sources, response.Summary = nil, nil, nil
+				response.Operations = nil
 			}
 			_ = encoder.Encode(response)
 			continue
@@ -168,8 +169,18 @@ func (s *Server) handle(conn net.Conn) {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "resource publication is unavailable", ResourceRefreshPending: true})
 				continue
 			}
+			if req.ResourceMutation != nil && (req.ResourceMutation.TaskID < 0 || len(req.ResourceMutation.WorkspaceID) > 256) {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "invalid resource mutation target"})
+				continue
+			}
 			s.markResourcesPending()
-			_ = encoder.Encode(s.tasksResponse())
+			operationID := ""
+			if req.ResourceMutation != nil && (req.ResourceMutation.TaskID != 0 || req.ResourceMutation.WorkspaceID != "") {
+				operationID = s.store.ReportResourceMutation(*req.ResourceMutation)
+			}
+			response := s.tasksResponse()
+			response.OperationID = operationID
+			_ = encoder.Encode(response)
 		case "agent":
 			if req.Agent == nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "agent request is required"})
@@ -287,22 +298,42 @@ func (s *Server) handle(conn net.Conn) {
 				result, err = s.garbageCollect()
 				if err != nil {
 					s.logger.Warn("garbage collection failed", "error", err)
-					_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
+					response := s.tasksResponse()
+					response.OK, response.Error, response.GarbageCollectionResult = false, err.Error(), &result
+					_ = encoder.Encode(response)
 					continue
 				}
 			}
-			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), GarbageCollectionResult: &result})
+			response := s.tasksResponse()
+			response.GarbageCollectionResult = &result
+			_ = encoder.Encode(response)
 		case "task-create", "task-done", "task-reopen", "task-priority", "task-mute", "task-unmute", "task-title", "task-note":
 			if s.taskMutation == nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "task mutations are not configured", Revision: s.store.Revision()})
 				continue
 			}
+			taskID := 0
+			if req.TaskMutation != nil {
+				taskID = req.TaskMutation.TaskID
+			}
+			op := s.store.BeginOperation(req.Method, taskID, "")
 			task, err := s.taskMutation(context.Background(), req.Method, req.TaskMutation)
+			if err != nil && s.markResourcesPending != nil {
+				// Authoring may have succeeded before a later persistence or
+				// recollection failure. Reconcile without replaying the command.
+				s.markResourcesPending()
+			}
+			s.finishOperation(op, task.ID, err)
 			if err != nil {
-				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
+				response := s.tasksResponse()
+				response.OperationID = op
+				response.OK, response.Error = false, err.Error()
+				_ = encoder.Encode(response)
 				continue
 			}
-			_ = encoder.Encode(s.taskMutationResponse(task))
+			response := s.taskMutationResponse(task)
+			response.OperationID = op
+			_ = encoder.Encode(response)
 		case "task-delete-preview":
 			if s.previewTaskDeletion == nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "task deletion is not configured", Revision: s.store.Revision()})
@@ -319,13 +350,26 @@ func (s *Server) handle(conn net.Conn) {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "task deletion is not configured", Revision: s.store.Revision()})
 				continue
 			}
+			taskID := 0
+			if req.TaskDeletion != nil {
+				taskID = req.TaskDeletion.TaskID
+			}
+			op := s.store.BeginOperation(req.Method, taskID, "")
 			result, err := s.deleteTask(context.Background(), req.TaskDeletion)
+			if err != nil && s.markResourcesPending != nil {
+				s.markResourcesPending()
+			}
+			s.finishOperation(op, taskID, err)
 			if err != nil {
-				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
+				response := s.tasksResponse()
+				response.OperationID = op
+				response.OK, response.Error = false, err.Error()
+				_ = encoder.Encode(response)
 				continue
 			}
 			response := s.tasksResponse()
 			response.TaskDeletionResult = &result
+			response.OperationID = op
 			_ = encoder.Encode(response)
 		case "cleanup-preview":
 			preview, err := s.cleanupPreview(context.Background(), req.TaskID)
@@ -336,16 +380,19 @@ func (s *Server) handle(conn net.Conn) {
 			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), CleanupPreview: &preview})
 		case "cleanup":
 			result, err := s.cleanup(context.Background(), req.Cleanup)
-			if err != nil {
-				response := s.tasksResponse()
-				response.OK, response.Error, response.CleanupResult = false, err.Error(), &result
-				response.ResourceRefreshPending = response.ResourceRefreshPending || result.ResourceRefreshPending
-				_ = encoder.Encode(response)
-				continue
-			}
 			response := s.tasksResponse()
+			if s.resourceSnapshot != nil {
+				// A queued reread may already have finished. Do not pair its
+				// fresh revision with an obsolete pending result marker.
+				result.ResourceRefreshPending = response.ResourceRefreshPending
+			} else {
+				response.ResourceRefreshPending = result.ResourceRefreshPending
+			}
 			response.CleanupResult = &result
-			response.ResourceRefreshPending = response.ResourceRefreshPending || result.ResourceRefreshPending
+			response.OperationID = result.OperationID
+			if err != nil {
+				response.OK, response.Error = false, err.Error()
+			}
 			_ = encoder.Encode(response)
 		default:
 			s.logger.Warn("unknown method", "method", req.Method)
@@ -385,14 +432,32 @@ func (s *Server) cleanup(ctx context.Context, preview *protocol.CleanupPreview) 
 	}
 	ctx = phasetiming.WithLogger(ctx, s.logger)
 	defer phasetiming.Start(ctx, "cleanup_response")()
+	op := s.store.BeginOperation("cleanup", preview.TaskID, "")
 	result, err := s.cleanupService.Execute(ctx, *preview, cleanup.ExecuteOptions{Mode: integration.CleanupConfirmed})
+	result.OperationID = op
 	// A provider can fail after changing part of its target. Mark pending even
 	// on failure; successful prefix removals remain visible in the response.
 	result.ResourceRefreshPending = true
 	if s.markResourcesPending != nil {
 		s.markResourcesPending()
 	}
+	status := "succeeded"
+	if err != nil {
+		status = "failed"
+		if len(result.Targets) > 0 {
+			status = "partial"
+		}
+	}
+	s.store.FinishOperation(op, protocol.ManagedOperation{Status: status, TaskID: preview.TaskID, CompletedTargets: len(result.Targets), TotalTargets: len(preview.Targets)})
 	return result, err
+}
+
+func (s *Server) finishOperation(id string, taskID int, err error) {
+	status := "succeeded"
+	if err != nil {
+		status = "failed"
+	}
+	s.store.FinishOperation(id, protocol.ManagedOperation{Status: status, TaskID: taskID})
 }
 
 func taskByID(tasks []protocol.Task, id int) (protocol.Task, bool) {
@@ -405,13 +470,11 @@ func taskByID(tasks []protocol.Task, id int) (protocol.Task, bool) {
 }
 
 func (s *Server) tasksResponse() protocol.Response {
-	tasks, sources, revision := s.store.Snapshot()
-	response := protocol.Response{Tasks: tasks, Sources: sources, Revision: revision}
+	response := s.store.DashboardSnapshot()
 	if s.resourceSnapshot != nil {
 		response = s.resourceSnapshot()
-		tasks, sources, revision = response.Tasks, response.Sources, response.Revision
 	}
-	tasks = s.integrations.FilterTasks(tasks, s.logger)
+	tasks := s.integrations.FilterTasks(response.Tasks, s.logger)
 	summary := protocol.SummarizeTasks(tasks)
 	response.OK, response.Version, response.Summary, response.Tasks = true, version.Current(), &summary, tasks
 	return response

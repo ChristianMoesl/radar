@@ -50,6 +50,12 @@ func CallWithTimeout(socketPath, method string, timeout time.Duration) (protocol
 	return callRequest(socketPath, protocol.Request{Method: method}, timeout)
 }
 
+// ReportResourceMutation acknowledges completed or possibly partial local
+// changes. It never asks the daemon to execute or replay the reported action.
+func ReportResourceMutation(socketPath string, target protocol.ResourceMutation) (protocol.Response, error) {
+	return callRequest(socketPath, protocol.Request{Method: "resources-mutated", ResourceMutation: &target}, time.Second)
+}
+
 func CallRequest(socketPath string, req protocol.Request) (protocol.Response, error) {
 	return callRequest(socketPath, req, 0)
 }

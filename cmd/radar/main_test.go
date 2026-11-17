@@ -70,7 +70,7 @@ func TestReconcileAcknowledgesPendingResourcesWithoutGlobalRefresh(t *testing.T)
 		_ = json.NewEncoder(connection).Encode(protocol.Response{OK: true})
 	}()
 
-	if err := notifyResourceMutation(); err != nil {
+	if err := notifyResourceMutation(protocol.ResourceMutation{WorkspaceID: "workspace-one"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := <-method; got != "resources-mutated" {
@@ -198,7 +198,7 @@ func TestActivityPublishesAndRequestsOnlyLocalRefresh(t *testing.T) {
 		runActivity(args)
 		select {
 		case request := <-requests:
-			if request.Method != "refresh-local" {
+			if request.Method != "resources-mutated" {
 				t.Fatalf("unexpected request: %+v", request)
 			}
 		case <-time.After(time.Second):

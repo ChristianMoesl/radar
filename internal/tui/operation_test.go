@@ -213,13 +213,9 @@ func TestWorkspaceOperationPhasesAndWarnings(t *testing.T) {
 	if m.operation.label != "Creating workspace…" {
 		t.Fatal("creation plan did not advance the row status")
 	}
-	m = updateOperation(m, workspaceAppliedMsg{created: integration.Workspace{Path: "/work/plan", Warning: "Session could not be opened"}})
-	if m.operation.kind == "" {
-		t.Fatal("spinner stopped before local resources were refreshed")
-	}
-	m = updateOperation(m, taskActionMsg{action: actionMsg{message: m.message}})
-	if m.operation.kind != "" || !strings.Contains(m.message, "Session could not be opened") {
-		t.Fatal("completion discarded a meaningful workspace warning")
+	m = updateOperation(m, workspaceAppliedMsg{created: integration.Workspace{Path: "/work/plan", Warning: "Session could not be opened"}, publication: &actionMsg{response: &protocol.Response{OK: true, ResourceRefreshPending: true}}})
+	if m.operation.kind != "" || !m.resourceRefreshPending || !strings.Contains(m.message, "Session could not be opened") {
+		t.Fatal("completion must stop request animation, retain pending observations and preserve its workspace warning")
 	}
 }
 
