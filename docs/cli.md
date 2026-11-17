@@ -201,7 +201,7 @@ Cleanup counts describe only the successful prefix and original target count,
 not failed/remaining target identities. Scope uses cached retained references,
 not verified ownership; task-wide effects may include other workspaces. No replay,
 refresh or maintenance occurs. Pages are capped at 32 KiB; `--state` and
-`--parent-id` are rejected. See [managed operation evidence](integrations/pi.md#current-daemon-managed-operations).
+`--parent-id` are rejected. See [managed operation evidence](integrations/pi-diagnostics.md#current-daemon-managed-operations).
 
 `feedback-diagnostics --section cleanup_preview` additionally reports per-target
 native lease contention with fresh per-page consent. Existing lock files are
@@ -209,7 +209,7 @@ nonblocking-exclusively tested and immediately released; probes may transiently
 contend with new operations. They never create lease state or read its contents.
 Missing/unavailable evidence is unknown, not no leases; available-at-probe is not
 execution eligibility. Observed inode/contention drift invalidates pages. No apply
-or reserved lock is exposed. See [cleanup previews](integrations/pi.md#explicit-native-manual-cleanup-previews).
+or reserved lock is exposed. See [cleanup previews](integrations/pi-diagnostics.md#explicit-native-manual-cleanup-previews).
 
 `feedback-diagnostics --section agents` separately exposes available current-daemon
 native retry/backoff records and schedule-delivery-error presence, without runner
@@ -230,4 +230,4 @@ and capture times distinguish process configuration drift. Neither is an environ
 dump, loaded-settings attestation, repository/workspace-effective policy, live access
 or action permission. Old/mismatched daemons remain unavailable without fallback. Unsafe/invalid evidence is
 unavailable; no refresh or maintenance follows. See [configuration policy and
-origins](integrations/pi.md#configuration-policy-and-origins) for exact semantics.
+origins](integrations/pi-diagnostics.md#configuration-policy-and-origins) for exact semantics.

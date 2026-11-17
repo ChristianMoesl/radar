@@ -14,6 +14,7 @@ func TestDocumentationCLIWithoutSetupOrTools(t *testing.T) {
 		{[]string{"documentation", "--json"}, `"source":"docs/configuration.md"`, 0},
 		{[]string{"--json", "documentation", "--topic", "docs/configuration.md"}, `"version":"dev"`, 0},
 		{[]string{"documentation", "--topic", "docs/integrations/pi.md", "--json"}, `"content":`, 0},
+		{[]string{"documentation", "--topic", "docs/integrations/pi-diagnostics.md", "--json"}, `"title":"Pi feedback diagnostics"`, 0},
 		{[]string{"documentation", "--topic", "docs/configuration.md"}, "# Configuration", 0},
 		{[]string{"documentation"}, "Radar dev documentation", 0},
 		{[]string{"documentation", "--topic", "/etc/passwd", "--json"}, "unknown documentation topic", 1},

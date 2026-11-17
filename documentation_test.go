@@ -37,6 +37,32 @@ func TestDocumentationCannotReadHostFiles(t *testing.T) {
 	}
 }
 
+func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
+	guide, err := Read("docs/integrations/pi.md")
+	if err != nil || !strings.Contains(guide.Content, "[Pi feedback diagnostics](pi-diagnostics.md)") {
+		t.Fatalf("Pi guide must link the bounded diagnostics topic: %v", err)
+	}
+	diagnostics, err := Read("docs/integrations/pi-diagnostics.md")
+	if err != nil || diagnostics.Title != "Pi feedback diagnostics" {
+		t.Fatalf("dedicated diagnostics topic unavailable: %+v %v", diagnostics.Topic, err)
+	}
+	for _, contract := range []string{
+		"[Pi integration](pi.md)",
+		"## Current-daemon managed operations",
+		"native_handler_start_only", "native_handler_monotonic_elapsed",
+		"elapsed_milliseconds", "unknown_not_captured",
+		"## Configuration policy and origins", "## Explicit native manual-cleanup previews",
+		"## Durable-agent registration and checkpoint evidence",
+	} {
+		if !strings.Contains(diagnostics.Content, contract) {
+			t.Errorf("diagnostic contract omitted from embedded topic: %q", contract)
+		}
+	}
+	if strings.Contains(guide.Content, "native_handler_monotonic_elapsed") {
+		t.Fatal("keep the detailed contract in one topic rather than duplicating it")
+	}
+}
+
 func TestLocalMarkdownDocumentationLinksAreBundled(t *testing.T) {
 	link := regexp.MustCompile(`\]\(([^)]+)\)`)
 	for _, topic := range Topics() {

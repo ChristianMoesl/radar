@@ -35,7 +35,7 @@ Offline: use `man radar` and `man radar-config`, or [ask Pi about Radar](integra
 | Markdown / Obsidian | [Task notes and lifecycle](integrations/obsidian.md) |
 | Git | [Worktrees and branches](integrations/git.md) |
 | tmux | [Sessions, pane layouts and agent activity](integrations/tmux.md) |
-| Pi | [Installation, workspace tools and session behavior](integrations/pi.md) |
+| Pi | [Installation, workspace tools and session behavior](integrations/pi.md) · [Feedback diagnostics](integrations/pi-diagnostics.md) |
 | Docker SBX | [Local kits, credentials, custom images, startup scripts and recovery](integrations/sbx.md) |
 
 ## Development and releases
