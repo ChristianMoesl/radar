@@ -43,7 +43,7 @@ it is not runtime presence or an effective sandbox-permission check.
 Overview `settings` are **CLI-process global defaults**. With a matching daemon,
 `daemon.settings` separately reports **daemon-process global defaults** from the
 same native bounded reader executed in the running daemon process. The existing
-`diagnostics` RPC's selector-free `overview` returns this typed schema-24
+`diagnostics` RPC's selector-free `overview` returns this typed schema-25
 projection; it never uses task visibility filters or provider calls. No new public
 tool or general file/configuration endpoint is added.
 
@@ -135,7 +135,7 @@ provider. Native references and statuses share one atomic cache revision; cursor
 also bind selected scope, registration/capability changes, returned collection
 attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 24; older versions fail closed.
+and extension must all support schema 25; older versions fail closed.
 
 ## Current-daemon collection attempt evidence
 
@@ -298,7 +298,7 @@ preflight, expiry policy and automatic eligibility still require fresh guards. A
 not an executable plan, an apply token, publication approval or apply consent.
 Native safety flags describe planner evidence, never permission to
 weaken a safeguard. Maintenance apply remains unsupported; expired proposals use the explicit mode below.
-CLI, daemon and the actual loaded Pi extension must match schema 24 without a
+CLI, daemon and the actual loaded Pi extension must match schema 25 without a
 legacy fallback; separately installed extension sources require updating/reload
 independently from `make install`. No persisted format or cleanup policy changes.
 
@@ -337,7 +337,7 @@ bundle even when an expiring warning no longer does. All existing
 30-second/output/privacy/drift safeguards apply. The preview never calls cleanup
 execution, creates/reserves leases, changes retention policy or removes data.
 Maintenance apply remains unsupported. CLI, daemon and loaded Pi extension must
-match diagnostics schema 24; there is no legacy fallback.
+match diagnostics schema 25; there is no legacy fallback.
 
 ## Explicit registered-runtime observations
 
@@ -410,10 +410,10 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 24; there is no legacy fallback. Separately
+extension must all support schema 25; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-## Retained inventories (diagnostics schema 24)
+## Retained inventories (diagnostics schema 25)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -470,8 +470,8 @@ success is not verified resource success or reconciled publication. Terminal
 native cleanup observations expose the successful-prefix count and original
 target count only; absent counts stay unknown rather than zero. They do not
 identify failed/remaining targets or capture possible changes inside a failing
-target. Other operation kinds' target counts, running counts, retries, detailed
-phase timings and lock-wait durations remain unknown. GC/runtime/remote operations
+target. Other operation kinds' target counts, running counts, retries and
+lock-wait durations remain unknown. GC/runtime/remote operations
 outside the existing managed projection are not covered. `observed_at` is the snapshot **read time**, never an
 operation start/completion timestamp. Raw errors, paths, messages, payloads and
 target details are withheld; only bounded identities and fixed evidence labels
@@ -492,17 +492,45 @@ timing; duplicate completions do not overwrite the first recorded native result.
 
 This interval covers work and waits between native lifecycle publication points,
 not a precise provider-call duration. Pre-start queueing/store-lock waits and
-post-finish response delivery/reconciliation are excluded; individual phases and
-lock waits are not measured. Timing completion proves neither business success
+post-finish response delivery/reconciliation are excluded; separate phase
+aggregates below do not measure lock waits or complete phase coverage. Timing completion proves neither business success
 nor resource outcome, even when status is `succeeded`. Inspection never starts a
 timer, changes revisions or probes a resource. Timing remains in the same bounded
 volatile operation projection and is lost on restart/reset.
 
-Capabilities advertise `current_daemon_managed_operations: true` and
-`native_managed_handler_timing: true`, but
+Native cleanup handlers additionally expose `phase_timing_evidence`:
+`native_completed_phase_aggregates` includes a sorted, unique `phase_timings`
+array with fixed `phase`, `completed_intervals` (1–1,000,000) and nonnegative
+`elapsed_milliseconds` (at most 9,223,372,036,854). The sum is of **individually
+millisecond-truncated completed intervals**, including measured zero; it is not
+a wall-time subtraction. An interval that ends in failure is still measured.
+Nested phases overlap: do not add different phases into handler elapsed time,
+progress or resource success. Running operations include only phases already
+returned, never an active-phase timer. Missing/uncaptured evidence is
+`unknown_not_captured`, not zero, no work or complete coverage.
+`unavailable_invalid_or_overflow` withholds the whole aggregate after invalid
+native duration or a count/sum bound; no plausible partial sum is returned.
+
+The eleven allowed labels reuse native instrumentation: `cleanup_execution`,
+`cleanup_bundle_preflight`, `cleanup_resource`, `cleanup_worktree`,
+`cleanup_runtime`, `cleanup_anchor`, `cleanup_protected_scan`,
+`cleanup_member_scan`, `managed_worktree_removal`, `worktree_removal` and
+`branch_publication_verification`. No dynamic command/phase names, paths,
+arguments, errors or payloads are exposed. Uninstrumented phases, preview and
+response delivery, client-executed workspace/GC work, retries and lock waits
+remain unknown. Unsupported labels are ignored, not returned or counted as
+known phases. The native cleanup context supplies correlation and samples;
+result payloads, client reports and callbacks after terminal completion cannot
+inject or overwrite aggregates. No separate telemetry/history service, probe or
+persisted-format change is introduced. Snapshots copy the bounded aggregates; completed phase changes
+invalidate scoped pagination just like handler timing changes.
+
+Capabilities advertise `current_daemon_managed_operations: true`,
+`native_managed_handler_timing: true` and
+`native_cleanup_completed_phase_aggregates: true`, but
 `durable_operation_history`, `verified_operation_resource_outcomes` and
 `maintenance` remain false. CLI, daemon and separately loaded Pi sources must
-match schema 24; `make install` alone does not update/reload installed Pi sources.
+match schema 25; `make install` alone does not update/reload installed Pi sources.
 
 ## Identity and nested drill-down
 
@@ -751,7 +779,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 24; version mismatches fail closed
+extension must support diagnostics schema 25; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

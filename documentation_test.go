@@ -50,7 +50,7 @@ func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
 		"[Pi integration](pi.md)",
 		"## Current-daemon managed operations",
 		"native_handler_start_only", "native_handler_monotonic_elapsed",
-		"elapsed_milliseconds", "unknown_not_captured",
+		"elapsed_milliseconds", "unknown_not_captured", "phase_timing_evidence", "native_completed_phase_aggregates", "completed_intervals", "Nested phases overlap",
 		"## Configuration policy and origins", "## Explicit native manual-cleanup previews",
 		"## Durable-agent registration and checkpoint evidence",
 	} {

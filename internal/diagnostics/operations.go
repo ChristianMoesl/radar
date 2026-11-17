@@ -35,7 +35,7 @@ func operationItems(req protocol.DiagnosticsRequest, records []state.TaskRecord,
 		if req.Workspace != "" && ((op.WorkspaceID != "" && !workspaces[op.WorkspaceID]) || (op.WorkspaceID == "" && !tasks[op.TaskID])) {
 			continue
 		}
-		view := protocol.DiagnosticOperation{ID: clip(op.ID), Kind: "unknown", Status: "unknown", TaskID: op.TaskID, WorkspaceID: clip(op.WorkspaceID), ExecutionEvidence: "unknown_not_captured", TargetEvidence: "unknown_not_captured", TimingEvidence: "unknown_not_captured"}
+		view := protocol.DiagnosticOperation{ID: clip(op.ID), Kind: "unknown", Status: "unknown", TaskID: op.TaskID, WorkspaceID: clip(op.WorkspaceID), ExecutionEvidence: "unknown_not_captured", TargetEvidence: "unknown_not_captured", TimingEvidence: "unknown_not_captured", PhaseTimingEvidence: "unknown_not_captured"}
 		switch op.Kind {
 		case "cleanup", "workspace", "task-create", "task-done", "task-reopen", "task-priority", "task-mute", "task-unmute", "task-title", "task-note", "task-delete":
 			view.Kind = op.Kind
@@ -62,6 +62,14 @@ func operationItems(req protocol.DiagnosticsRequest, records []state.TaskRecord,
 				view.ElapsedMilliseconds = &elapsed
 			}
 		}
+		if view.Kind == "cleanup" && (view.Status == "running" || view.Status == "succeeded" || view.Status == "failed" || view.Status == "partial") {
+			if op.PhaseTimingsUnavailable || !validOperationPhases(op.PhaseTimings) {
+				view.PhaseTimingEvidence = "unavailable_invalid_or_overflow"
+			} else if len(op.PhaseTimings) > 0 {
+				view.PhaseTimingEvidence = "native_completed_phase_aggregates"
+				view.PhaseTimings = append([]protocol.OperationPhaseTiming{}, op.PhaseTimings...)
+			}
+		}
 		items = append(items, protocol.DiagnosticItem{ID: view.ID, Operation: &view})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
@@ -74,4 +82,18 @@ func validOperationTime(value string) bool {
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, value)
 	return err == nil && !parsed.IsZero() && parsed.Year() >= 1 && parsed.Year() <= 9999 && parsed.UTC().Format(time.RFC3339Nano) == value
+}
+
+func validOperationPhases(phases []protocol.OperationPhaseTiming) bool {
+	if len(phases) > 11 {
+		return false
+	}
+	previous := ""
+	for _, phase := range phases {
+		if !protocol.ManagedCleanupPhase(phase.Phase) || phase.Phase <= previous || phase.CompletedIntervals < 1 || phase.CompletedIntervals > protocol.MaxOperationPhaseIntervals || phase.ElapsedMilliseconds < 0 || phase.ElapsedMilliseconds > protocol.MaxOperationPhaseMilliseconds {
+			return false
+		}
+		previous = phase.Phase
+	}
+	return true
 }

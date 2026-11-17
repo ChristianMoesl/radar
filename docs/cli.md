@@ -197,6 +197,11 @@ Native handler rows separately expose start-only or start/finish UTC timestamps
 and monotonic elapsed milliseconds. Missing/report timing is unknown, not zero;
 wall-clock jumps need not match elapsed time. This is not phase/lock-wait timing,
 pre-start queueing, post-finish reconciliation or resource-outcome verification.
+Separately labelled native cleanup phase aggregates expose completed interval
+counts and summed individually millisecond-truncated durations for eleven fixed
+labels. Nested phases overlap, not additive handler elapsed time or active-phase
+progress; missing evidence is unknown and invalid/overflowed sums unavailable.
+No raw phase payloads, lock-wait timings or complete phase coverage are exposed.
 Cleanup counts describe only the successful prefix and original target count,
 not failed/remaining target identities. Scope uses cached retained references,
 not verified ownership; task-wide effects may include other workspaces. No replay,
@@ -218,9 +223,9 @@ no retry record is not success or stopped-state evidence. Records are volatile,
 ID-keyed and not registration-lifetime/history attestations; retry deadlines are
 not execution guarantees. Scoped pagination invalidates on shown memory changes.
 See the Pi diagnostics documentation for fields and limitations. CLI, daemon and
-loaded Pi must match schema 24; no maintenance apply is exposed.
+loaded Pi must match schema 25; no maintenance apply is exposed.
 
-`feedback-diagnostics --section overview` reports schema-24 typed configuration
+`feedback-diagnostics --section overview` reports schema-25 typed configuration
 policy values and file/default provenance. Its fixed ten-setting allowlist returns
 only booleans, enablement modes and counts from a bounded native configuration
 read, never model strings, paths, commands, secrets or referenced file contents.

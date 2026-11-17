@@ -9,12 +9,14 @@ import (
 	"log/slog"
 	"net"
 	"path/filepath"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"radar/internal/cleanup"
 	"radar/internal/integration"
+	"radar/internal/phasetiming"
 	"radar/internal/protocol"
 	"radar/internal/state"
 	"radar/internal/taskservice"
@@ -45,7 +47,11 @@ type managedCleanupSource struct {
 	fail             bool
 }
 
-func (s *managedCleanupSource) Cleanup(_ context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+func (s *managedCleanupSource) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+	sample := phasetiming.Start(ctx, "cleanup_member_scan")
+	sample()
+	sample()
+	phasetiming.Start(ctx, "private-fixture-command-error")()
 	s.calls++
 	if s.calls == 1 {
 		close(s.started)
@@ -84,6 +90,10 @@ func TestManagedCleanupPublishesExecutionIdentityAndReconcilesSuccessOrPartialFa
 			if running.Operations[0].StartedAt == "" || running.Operations[0].FinishedAt != "" {
 				t.Fatal("blocked native handler timing must be start-only")
 			}
+			runningPhases := running.Operations[0].PhaseTimings
+			if len(runningPhases) != 2 || runningPhases[0].Phase != "cleanup_bundle_preflight" || runningPhases[1].Phase != "cleanup_member_scan" || runningPhases[1].CompletedIntervals != 1 {
+				t.Fatalf("unfinished/duplicate/private phase escaped: %+v", runningPhases)
+			}
 			close(provider.release)
 			result := <-finished
 			wantStatus, wantTargets := "succeeded", 2
@@ -104,9 +114,18 @@ func TestManagedCleanupPublishesExecutionIdentityAndReconcilesSuccessOrPartialFa
 			if !diagnostic.OK || diagnostic.Diagnostics == nil || diagnostic.Diagnostics.Total != 1 || diagnostic.Diagnostics.Items[0].Operation.TimingEvidence != "native_handler_monotonic_elapsed" || *diagnostic.Diagnostics.Items[0].Operation.ElapsedMilliseconds != op.ElapsedMilliseconds {
 				t.Fatalf("diagnostic RPC lost native handler timing: %+v", diagnostic)
 			}
+			phaseView := diagnostic.Diagnostics.Items[0].Operation
+			if phaseView.PhaseTimingEvidence != "native_completed_phase_aggregates" || !reflect.DeepEqual(phaseView.PhaseTimings, op.PhaseTimings) || len(op.PhaseTimings) != 5 {
+				t.Fatalf("native phase/RPC bridge lost: %+v", phaseView)
+			}
+			for _, phase := range op.PhaseTimings {
+				if phase.Phase == "cleanup_member_scan" && phase.CompletedIntervals != 2 {
+					t.Fatal("duplicate phase or failed interval missed")
+				}
+			}
 			tasks.Refresh(context.Background(), true)
 			fresh := managedPipeCall(t, s, protocol.Request{Method: fmt.Sprintf("watch:%d", result.Revision)})
-			if fresh.ResourceRefreshPending || fresh.Revision <= result.Revision || fresh.Operations[0] != op {
+			if fresh.ResourceRefreshPending || fresh.Revision <= result.Revision || !reflect.DeepEqual(fresh.Operations[0], op) {
 				t.Fatalf("unchanged authoritative reread failed to publish freshness: %+v", fresh)
 			}
 		})

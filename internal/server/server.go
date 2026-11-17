@@ -433,6 +433,9 @@ func (s *Server) cleanup(ctx context.Context, preview *protocol.CleanupPreview) 
 	ctx = phasetiming.WithLogger(ctx, s.logger)
 	defer phasetiming.Start(ctx, "cleanup_response")()
 	op := s.store.BeginOperation("cleanup", preview.TaskID, "")
+	ctx = phasetiming.WithObserver(ctx, func(phase string, elapsed time.Duration) {
+		s.store.RecordOperationPhase(op, phase, elapsed)
+	})
 	result, err := s.cleanupService.Execute(ctx, *preview, cleanup.ExecuteOptions{Mode: integration.CleanupConfirmed})
 	result.OperationID = op
 	// A provider can fail after changing part of its target. Mark pending even

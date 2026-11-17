@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -38,7 +39,7 @@ func TestNativeOperationTimingIsStoreOwnedMonotonicAndFirstCompletionOnly(t *tes
 		t.Fatalf("finish not native/monotonic: %+v %v", done, err)
 	}
 	store.FinishOperation(id, protocol.ManagedOperation{Status: "succeeded", CompletedTargets: 2, TotalTargets: 2})
-	if again := store.DashboardSnapshot(); again.Revision != terminal.Revision || again.Operations[0] != done {
+	if again := store.DashboardSnapshot(); again.Revision != terminal.Revision || !reflect.DeepEqual(again.Operations[0], done) {
 		t.Fatal("duplicate finish replaced first native result/timing")
 	}
 	report := store.ReportResourceMutation(protocol.ResourceMutation{TaskID: 7})
