@@ -199,7 +199,15 @@ not verified ownership; task-wide effects may include other workspaces. No repla
 refresh or maintenance occurs. Pages are capped at 32 KiB; `--state` and
 `--parent-id` are rejected. See [managed operation evidence](integrations/pi.md#current-daemon-managed-operations).
 
-`feedback-diagnostics --section overview` reports schema-21 typed configuration
+`feedback-diagnostics --section cleanup_preview` additionally reports per-target
+native lease contention with fresh per-page consent. Existing lock files are
+nonblocking-exclusively tested and immediately released; probes may transiently
+contend with new operations. They never create lease state or read its contents.
+Missing/unavailable evidence is unknown, not no leases; available-at-probe is not
+execution eligibility. Observed inode/contention drift invalidates pages. No apply
+or reserved lock is exposed. See [cleanup previews](integrations/pi.md#explicit-native-manual-cleanup-previews).
+
+`feedback-diagnostics --section overview` reports schema-22 typed configuration
 policy values and file/default provenance. Its fixed ten-setting allowlist returns
 only booleans, enablement modes and counts from a bounded native configuration
 read, never model strings, paths, commands, secrets or referenced file contents.

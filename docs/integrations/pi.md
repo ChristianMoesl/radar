@@ -114,7 +114,7 @@ it is not runtime presence or an effective sandbox-permission check.
 Overview `settings` are **CLI-process global defaults**. With a matching daemon,
 `daemon.settings` separately reports **daemon-process global defaults** from the
 same native bounded reader executed in the running daemon process. The existing
-`diagnostics` RPC's selector-free `overview` returns this typed schema-21
+`diagnostics` RPC's selector-free `overview` returns this typed schema-22
 projection; it never uses task visibility filters or provider calls. No new public
 tool or general file/configuration endpoint is added.
 
@@ -206,7 +206,7 @@ provider. Native references and statuses share one atomic cache revision; cursor
 also bind selected scope, registration/capability changes, returned collection
 attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 21; older versions fail closed.
+and extension must all support schema 22; older versions fail closed.
 
 ### Current-daemon collection attempt evidence
 
@@ -300,8 +300,12 @@ closed; there is no cached, safe-mode or expiry-mode fallback.
 Every exact request/page requires fresh interactive Pi confirmation. The native
 `cleanup.Service.Preview(..., CleanupConfirmed)` can perform authenticated
 provider reads and **Git fetch/prune reference-metadata changes**. It never calls
-cleanup execution, collection, login, startup, operation-lock or lease acquisition.
-Existing native registration read locks may be used. Declined, headless, aborted
+cleanup execution, collection, login, startup or operation-lock acquisition.
+With the same fresh explicit confirmation it also tests existing native lease
+files using nonblocking exclusive locks, briefly held then released. These tests
+may transiently contend with a new operation; they never create lease files or
+directories, read contents, or reserve a lock for execution. Existing native
+registration read locks may be used. Declined, headless, aborted
 or lost-MCP requests never reach the host command. Cancellation or failure does
 not roll back reference metadata already refreshed by the native planner.
 
@@ -310,8 +314,9 @@ Each page has a 30-second shared native deadline, at most 256 active task refs,
 Private native target evidence is capped at 64 KiB each / 1 MiB total; safety
 notices are capped at 1024 per target. Registered workspace projections are capped
 at 1024 / 1 MiB per pass. Follow `next_cursor`; each page repeats native checks
-with fresh approval. Cache, projected registration, registered-agent ownership and
-full private target drift invalidate snapshots/cursors, including private changes
+with fresh approval. Cache, projected registration, registered-agent ownership,
+observed lease inode/contention and full private target drift invalidate
+snapshots/cursors, including private changes
 that preserve public counts. No duplicate network preview is run solely to recheck
 one page.
 
@@ -336,14 +341,35 @@ checkpoint, lease or operation lock is read/acquired by this ownership observati
 
 A positive per-target count sets `execution_eligibility: blocked_registered_agent`
 and blocks the **whole native bundle**. Counts are per target, not deduplicated
-bundle totals. Zero, unavailable or pathless evidence leaves eligibility
+bundle totals. Separately, `lease_evidence` tests the same path/lock identity used
+by the native executor, once per distinct path in each of two bounded passes:
+- `contended_at_probe`: the native exclusive lock conflicted with another lock;
+  absent a registered-owner block, eligibility is `blocked_lease_contention`.
+  Either blocker prevents the whole bundle, not just that target.
+- `exclusive_available_at_probe`: the existing inode was exclusively locked and
+  immediately released. This is not a reservation, no-active-work proof or
+  execution permission; the holder and its shared/exclusive mode are unknown.
+- `unknown_no_lock_file`: no file/directory could be opened because it was missing.
+  This is **unknown**, not no leases: a process could still hold an unlinked inode.
+- `unavailable`: unsafe/symlink/non-regular/multiply-linked files, invalid paths,
+  cancellation or failed checks provide no contention evidence.
+- `not_checked_no_target_path`: the native target has no path, matching its guard.
+
+No raw lock filename, path, fingerprint, holder identity or file content is
+returned. Observed inode/status drift rejects the page, including same-status
+inode replacement; transient/ABA changes can escape observation. The two passes
+are not an atomic lease snapshot, and `observed_at` is page capture time, not an
+exact timestamp for every probe. Default inventories, runtime/agent probes and
+registration-only retirement previews never run these lease tests.
+
+Unless an observed owner or lease conflict blocks, eligibility remains
 `unknown_fresh_execution_guards_not_run`, never safe or executable. Runtime
-ownership, active work, fresh review/activity, leases, execution preflight, expiry
-policy and automatic eligibility still require fresh guards. A native proposal is
+ownership, active work, fresh review/activity, actual execution-time leases,
+preflight, expiry policy and automatic eligibility still require fresh guards. A native proposal is
 not an executable plan, an apply token, publication approval or apply consent.
 Native safety flags describe planner evidence, never permission to
 weaken a safeguard. Maintenance apply remains unsupported; expired proposals use the explicit mode below.
-CLI, daemon and the actual loaded Pi extension must match schema 21 without a
+CLI, daemon and the actual loaded Pi extension must match schema 22 without a
 legacy fallback; separately installed extension sources require updating/reload
 independently from `make install`. No persisted format or cleanup policy changes.
 
@@ -376,10 +402,13 @@ semantics: explicitly expiring warnings can cease blocking, while other blockers
 remain. Original safety flags/counts are preserved. The expiry gate is cached,
 not execution eligibility; registered-agent counts still include stopped owners,
 and zero/unavailable counts do not establish runtime ownership, leases or consent.
-All existing 30-second/output/privacy/drift safeguards apply. The preview never
-calls cleanup execution, acquires leases, changes retention policy or removes data.
+The same explicitly approved existing-inode lease probes and point-in-time
+limitations above apply to the selected expiry targets; contention blocks the
+bundle even when an expiring warning no longer does. All existing
+30-second/output/privacy/drift safeguards apply. The preview never calls cleanup
+execution, creates/reserves leases, changes retention policy or removes data.
 Maintenance apply remains unsupported. CLI, daemon and loaded Pi extension must
-match diagnostics schema 21; there is no legacy fallback.
+match diagnostics schema 22; there is no legacy fallback.
 
 ### Explicit registered-runtime observations
 
@@ -452,10 +481,10 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 21; there is no legacy fallback. Separately
+extension must all support schema 22; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-### Retained inventories (diagnostics schema 21)
+### Retained inventories (diagnostics schema 22)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -523,7 +552,7 @@ are distinct from the log query's opaque hashed correlation IDs.
 Capabilities advertise `current_daemon_managed_operations: true`, but
 `durable_operation_history`, `verified_operation_resource_outcomes` and
 `maintenance` remain false. CLI, daemon and separately loaded Pi sources must
-match schema 21; `make install` alone does not update/reload installed Pi sources.
+match schema 22; `make install` alone does not update/reload installed Pi sources.
 
 ### Identity and nested drill-down
 
@@ -737,7 +766,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 21; version mismatches fail closed
+extension must support diagnostics schema 22; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

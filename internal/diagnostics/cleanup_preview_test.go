@@ -63,6 +63,7 @@ func TestCleanupPreviewRealNativeBundleAcrossWorkspacesAndHeldLocks(t *testing.T
 	req := protocol.DiagnosticsRequest{Section: "cleanup_preview", ParentID: fmt.Sprint(records[0].NumericID), Workspace: path, Limit: 1}
 	count := 0
 	blocked := 0
+	leaseBlocked := 0
 	for {
 		page, err := Probe(context.Background(), store, req, false, providers)
 		if err != nil || page.Total != len(native.Targets) {
@@ -77,6 +78,9 @@ func TestCleanupPreviewRealNativeBundleAcrossWorkspacesAndHeldLocks(t *testing.T
 			if view.ExecutionEligibility == "blocked_registered_agent" {
 				blocked++
 			}
+			if view.ExecutionEligibility == "blocked_lease_contention" && view.LeaseEvidence == "contended_at_probe" {
+				leaseBlocked++
+			}
 		}
 		if page.Complete {
 			break
@@ -84,7 +88,7 @@ func TestCleanupPreviewRealNativeBundleAcrossWorkspacesAndHeldLocks(t *testing.T
 		req.Cursor = page.NextCursor
 	}
 	afterRegistry, _ := os.ReadFile(workspacegroup.Path(root))
-	if count != 4 || blocked != 2 || store.Revision() != revision || string(beforeRegistry) != string(afterRegistry) {
+	if count != 4 || blocked != 2 || leaseBlocked != 2 || store.Revision() != revision || string(beforeRegistry) != string(afterRegistry) {
 		t.Fatal("incomplete bundle or changed registration/cache")
 	}
 	for _, anchor := range []string{path, other} {

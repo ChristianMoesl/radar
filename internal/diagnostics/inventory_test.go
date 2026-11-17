@@ -29,6 +29,7 @@ func fixture(t *testing.T) (*state.Store, string, string) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("RADAR_AGENT_ROOT", filepath.Join(home, "agents"))
 	t.Setenv("RADAR_STATE", filepath.Join(home, "state.db"))
+	t.Setenv("RADAR_SOCKET", filepath.Join(home, "radar.sock"))
 	if err := os.MkdirAll(filepath.Join(home, "config", "radar"), 0700); err != nil {
 		t.Fatal(err)
 	}

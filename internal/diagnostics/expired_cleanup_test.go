@@ -91,7 +91,7 @@ func TestExpiredCleanupPreviewUsesProductionCandidateAndExactNativeResourceBound
 		for _, row := range page.Items {
 			v := row.CleanupPreview
 			expiry, ok := workspacegc.ExpiryAt(candidate.Task)
-			if !ok || v.CleanupMode != "expired" || v.WorkspaceID != candidate.WorkspaceID || v.ExpiryAt != expiry.UTC().Format(time.RFC3339Nano) || v.OwnershipEvidence != "fresh_bounded_registration" || v.AgentOwnerCount == nil || *v.AgentOwnerCount != 0 || v.ExecutionEligibility != "unknown_fresh_execution_guards_not_run" {
+			if !ok || v.CleanupMode != "expired" || v.WorkspaceID != candidate.WorkspaceID || v.ExpiryAt != expiry.UTC().Format(time.RFC3339Nano) || v.OwnershipEvidence != "fresh_bounded_registration" || v.AgentOwnerCount == nil || *v.AgentOwnerCount != 0 || v.LeaseEvidence != "contended_at_probe" || v.ExecutionEligibility != "blocked_lease_contention" {
 				t.Fatalf("native candidate projection=%+v", v)
 			}
 			count++

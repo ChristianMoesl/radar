@@ -25,7 +25,8 @@ const RuntimeProbeTimeout = 5 * time.Second
 // cleanup_preview separately invokes manual or expiry planners, which can fetch Git
 // refs and use authenticated provider reads. Execution is not exposed.
 // No section calls collection, general provider refresh, login, startup or
-// lease acquisition. Only explicit native cleanup previews can refresh Git refs.
+// reserved leases. Explicit cleanup previews alone can refresh Git refs and
+// briefly test/release exclusive locks on existing lease files, with consent.
 func Probe(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
 	if req.Section != "cleanup_preview" && (req.CleanupMode != "" || req.WorkspaceID != "") {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup selectors require explicit cleanup preview")

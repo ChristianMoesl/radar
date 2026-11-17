@@ -17,13 +17,15 @@ import (
 	"radar/internal/protocol"
 	"radar/internal/state"
 	"radar/internal/workspacegc"
+	"radar/internal/workspacelease"
 )
 
 const CleanupPreviewTimeout = 30 * time.Second
 
 // cleanupPreview invokes the actual manual or expiry planner, never its executor.
-// Explicit consent must warn about provider reads and native Git fetch/prune:
-// unlike retirement_preview this can refresh local Git reference metadata.
+// Explicit consent must warn about provider reads, native Git fetch/prune and
+// transient nonblocking exclusive probes on existing lease inodes. No lease is
+// created/reserved; unlike retirement_preview Git metadata can be refreshed.
 func cleanupPreview(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
 	if req.ParentID == "" || len(req.ParentID) > 512 || len(req.ID) > 512 || len(req.Cursor) > 512 || req.State != "" || req.Limit < 0 || req.Limit > 50 || (req.Workspace != "" && (!filepath.IsAbs(req.Workspace) || len(req.Workspace) > 4096)) {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview requires one exact retained task parent and bounded selectors")
@@ -137,9 +139,10 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 		}
 		preview = selectedPreview
 	}
-	// Match Execute's path-based registered-owner guard, without acquiring any
-	// lease or operation lock. All targets (including filtered-out pages) share
-	// two bounded scans, with evidence computed before exact-row filtering.
+	// Match Execute's path-based registered-owner and exclusive-lease checks,
+	// without creating/reserving leases or acquiring the operation lock. Explicit
+	// lease probes briefly test existing inodes, then release them. All targets
+	// share two bounded scans before exact-row filtering.
 	paths := []string{}
 	for _, target := range preview.Targets {
 		if target.Path != "" {
@@ -152,6 +155,7 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 	if len(paths) > 0 {
 		ownerCounts, ownerSnapshot, ownerErr = agentservice.DiagnosticWorkspaceRemovalOwners(ctx, paths)
 	}
+	leaseEvidence, leaseSnapshot := cleanupLeaseSnapshot(ctx, paths)
 	items := []protocol.DiagnosticItem{}
 	registrationSum := sha256.Sum256([]byte(registration))
 	identities := map[string]bool{}
@@ -189,6 +193,7 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 		// Include the full private registration fingerprint, not only counts, so
 		// same-count owner changes invalidate the next page without exposing IDs.
 		identity := append(append([]byte{}, registrationSum[:]...), ownerSnapshot[:]...)
+		identity = append(identity, leaseSnapshot[:]...)
 		identity = append(identity, bundleHash.Sum(nil)...)
 		sum := sha256.Sum256(append(identity, raw...))
 		view.ID = "cleanup-target:" + hex.EncodeToString(sum[:])
@@ -200,7 +205,12 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 		view.RecordID, view.TaskID = clip(selected.ID), selected.NumericID
 		view.ExecutionEligibility = "unknown_fresh_execution_guards_not_run"
 		view.OwnershipEvidence = "not_checked_no_target_path"
+		view.LeaseEvidence = "not_checked_no_target_path"
 		if target.Path != "" {
+			view.LeaseEvidence = leaseEvidence[target.Path]
+			if view.LeaseEvidence == "contended_at_probe" {
+				view.ExecutionEligibility = "blocked_lease_contention"
+			}
 			view.OwnershipEvidence = "unavailable"
 			if ownerErr == nil {
 				count := ownerCounts[target.Path]
@@ -227,6 +237,9 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 			return protocol.DiagnosticsPage{}, fmt.Errorf("registered ownership snapshot changed; preview again")
 		}
 	}
+	if _, fresh := cleanupLeaseSnapshot(ctx, paths); fresh != leaseSnapshot {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("workspace lease observation changed; preview again")
+	}
 	if store.Revision() != revision {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic snapshot changed; preview again")
 	}
@@ -239,6 +252,30 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 		evidence = "explicit_native_expired_cleanup_preview_not_execution_plan"
 	}
 	return paginate(req, items, revision, pending, evidence)
+}
+
+// The native bundle is already capped at 512 targets. Distinct paths share one
+// probe per pass. Fingerprints remain private, including same-status inode drift.
+func cleanupLeaseSnapshot(ctx context.Context, paths []string) (map[string]string, [32]byte) {
+	unique := map[string]bool{}
+	for _, path := range paths {
+		unique[path] = true
+	}
+	ordered := make([]string, 0, len(unique))
+	for path := range unique {
+		ordered = append(ordered, path)
+	}
+	sort.Strings(ordered)
+	evidence := make(map[string]string, len(ordered))
+	hash := sha256.New()
+	for _, path := range ordered {
+		value, fingerprint := workspacelease.ProbeExclusive(ctx, path)
+		evidence[path] = value
+		fmt.Fprintf(hash, "%q/%s/%x;", path, value, fingerprint)
+	}
+	var snapshot [32]byte
+	copy(snapshot[:], hash.Sum(nil))
+	return evidence, snapshot
 }
 
 func cleanupProviderKnown(name string) bool {

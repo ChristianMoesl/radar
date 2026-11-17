@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 21
+const DiagnosticsVersion = 22
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -368,6 +368,7 @@ type DiagnosticCleanupSafety struct {
 }
 
 type DiagnosticCleanupTarget struct {
+	LeaseEvidence         string                    `json:"lease_evidence"`
 	CleanupMode           string                    `json:"cleanup_mode"`
 	WorkspaceID           string                    `json:"workspace_id,omitempty"`
 	ExpiryAt              string                    `json:"expiry_at,omitempty"`

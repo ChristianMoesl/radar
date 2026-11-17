@@ -17,17 +17,14 @@ func Acquire(path string, exclusive bool) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	base, err := socket.Path()
+	dir, name, err := location(abs)
 	if err != nil {
 		return nil, err
 	}
-	dir := filepath.Join(filepath.Dir(base), "leases")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	sum := sha256.Sum256([]byte(filepath.Clean(abs)))
-	name := filepath.Join(dir, hex.EncodeToString(sum[:])+".lock")
-	f, err := os.OpenFile(name, os.O_CREATE|os.O_RDWR|unix.O_NOFOLLOW, 0600)
+	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_RDWR|unix.O_NOFOLLOW, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -40,4 +37,14 @@ func Acquire(path string, exclusive bool) (func(), error) {
 		return nil, fmt.Errorf("workspace is in use by another operation: %s", abs)
 	}
 	return func() { _ = unix.Flock(int(f.Fd()), unix.LOCK_UN); _ = f.Close() }, nil
+}
+
+// location is shared by acquisition and explicit probes; abs is absolute.
+func location(abs string) (string, string, error) {
+	base, err := socket.Path()
+	if err != nil {
+		return "", "", err
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(abs)))
+	return filepath.Join(filepath.Dir(base), "leases"), hex.EncodeToString(sum[:]) + ".lock", nil
 }
