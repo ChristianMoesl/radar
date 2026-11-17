@@ -49,6 +49,7 @@ func TestCleanupPreviewRealNativeBundleAcrossWorkspacesAndHeldLocks(t *testing.T
 		t.Fatalf("native targets=%+v %v", native, err)
 	}
 	beforeRegistry, _ := os.ReadFile(workspacegroup.Path(root))
+	retirementOwner(t, other) // A stopped owner in the other workspace still blocks.
 	release, err := operationlock.Acquire(false)
 	if err != nil {
 		t.Fatal(err)
@@ -61,19 +62,29 @@ func TestCleanupPreviewRealNativeBundleAcrossWorkspacesAndHeldLocks(t *testing.T
 	defer lease()
 	req := protocol.DiagnosticsRequest{Section: "cleanup_preview", ParentID: fmt.Sprint(records[0].NumericID), Workspace: path, Limit: 1}
 	count := 0
+	blocked := 0
 	for {
 		page, err := Probe(context.Background(), store, req, false, providers)
 		if err != nil || page.Total != len(native.Targets) {
 			t.Fatalf("page=%+v %v", page, err)
 		}
 		count += len(page.Items)
+		for _, row := range page.Items {
+			view := row.CleanupPreview
+			if view.OwnershipEvidence != "fresh_bounded_registration" || view.AgentOwnerCount == nil {
+				t.Fatal("real native bundle lost registered ownership evidence")
+			}
+			if view.ExecutionEligibility == "blocked_registered_agent" {
+				blocked++
+			}
+		}
 		if page.Complete {
 			break
 		}
 		req.Cursor = page.NextCursor
 	}
 	afterRegistry, _ := os.ReadFile(workspacegroup.Path(root))
-	if count != 4 || store.Revision() != revision || string(beforeRegistry) != string(afterRegistry) {
+	if count != 4 || blocked != 2 || store.Revision() != revision || string(beforeRegistry) != string(afterRegistry) {
 		t.Fatal("incomplete bundle or changed registration/cache")
 	}
 	for _, anchor := range []string{path, other} {
@@ -118,10 +129,14 @@ func (p *cleanupDiagnosticProvider) PreviewCleanup(ctx context.Context, req inte
 
 type cleanupDiagnosticRegistration struct {
 	cleanupDiagnosticProvider
-	groups []protocol.DiagnosticWorkspace
+	groups  []protocol.DiagnosticWorkspace
+	observe func()
 }
 
 func (p *cleanupDiagnosticRegistration) DiagnosticWorkspaceRegistrations() ([]protocol.DiagnosticWorkspace, error) {
+	if p.observe != nil {
+		p.observe()
+	}
 	return p.groups, nil
 }
 

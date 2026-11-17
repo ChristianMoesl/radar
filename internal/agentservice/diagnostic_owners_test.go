@@ -44,11 +44,11 @@ func TestDiagnosticWorkspaceOwnersNativeParityAndNoPrivateReads(t *testing.T) {
 	if err != nil || len(native[workspace]) != 2 || CheckWorkspaceRemoval(workspace) == nil {
 		t.Fatalf("native ownership guard=%v %v", native, err)
 	}
-	count, snapshot, err := DiagnosticWorkspaceRemovalOwners(context.Background(), workspace)
-	if err != nil || count != len(native[workspace]) || snapshot == [32]byte{} {
-		t.Fatalf("count=%d err=%v", count, err)
+	count, snapshot, err := DiagnosticWorkspaceRemovalOwners(context.Background(), []string{workspace})
+	if err != nil || count[workspace] != len(native[workspace]) || snapshot == [32]byte{} {
+		t.Fatalf("count=%v err=%v", count, err)
 	}
-	_, same, err := DiagnosticWorkspaceRemovalOwners(context.Background(), workspace)
+	_, same, err := DiagnosticWorkspaceRemovalOwners(context.Background(), []string{workspace})
 	if err != nil || snapshot != same {
 		t.Fatal("unchanged registration snapshot drifted")
 	}
@@ -60,8 +60,8 @@ func TestDiagnosticWorkspaceOwnersNativeParityAndNoPrivateReads(t *testing.T) {
 	if err := atomicJSON(filepath.Join(root, reg.ID, "registration.json"), reg); err != nil {
 		t.Fatal(err)
 	}
-	changedCount, changed, err := DiagnosticWorkspaceRemovalOwners(context.Background(), workspace)
-	if err != nil || changedCount != count || snapshot == changed {
+	changedCount, changed, err := DiagnosticWorkspaceRemovalOwners(context.Background(), []string{workspace})
+	if err != nil || changedCount[workspace] != count[workspace] || snapshot == changed {
 		t.Fatal("same-count private registration drift was not detected")
 	}
 	if _, err := os.Stat(filepath.Join(root, "leases")); !os.IsNotExist(err) {
@@ -140,9 +140,9 @@ func TestDiagnosticWorkspaceOwnersUnavailableIsNeverPartial(t *testing.T) {
 			case "cancelled":
 				cancel()
 			}
-			count, snapshot, err := DiagnosticWorkspaceRemovalOwners(ctx, workspace)
-			if err == nil || count != 0 || snapshot != [32]byte{} || strings.Contains(err.Error(), "private") {
-				t.Fatalf("partial or private evidence returned: count=%d err=%v", count, err)
+			count, snapshot, err := DiagnosticWorkspaceRemovalOwners(ctx, []string{workspace})
+			if err == nil || count != nil || snapshot != [32]byte{} || strings.Contains(err.Error(), "private") {
+				t.Fatalf("partial or private evidence returned: count=%v err=%v", count, err)
 			}
 		})
 	}
@@ -152,9 +152,9 @@ func TestDiagnosticWorkspaceOwnersMissingRegistryIsObservedWithoutCreatingIt(t *
 	root := filepath.Join(t.TempDir(), "absent")
 	t.Setenv("RADAR_AGENT_ROOT", root)
 	workspace := filepath.Join(t.TempDir(), "workspace")
-	count, missing, err := DiagnosticWorkspaceRemovalOwners(context.Background(), workspace)
-	if err != nil || count != 0 {
-		t.Fatalf("missing root: count=%d err=%v", count, err)
+	count, missing, err := DiagnosticWorkspaceRemovalOwners(context.Background(), []string{workspace})
+	if err != nil || count[workspace] != 0 {
+		t.Fatalf("missing root: count=%v err=%v", count, err)
 	}
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Fatal("diagnostics created a registry")
@@ -165,16 +165,16 @@ func TestDiagnosticWorkspaceOwnersMissingRegistryIsObservedWithoutCreatingIt(t *
 	if err := os.WriteFile(filepath.Join(root, reg.ID, "registration.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	count, present, err := DiagnosticWorkspaceRemovalOwners(context.Background(), workspace)
-	if err != nil || count != 0 || present == missing {
+	count, present, err := DiagnosticWorkspaceRemovalOwners(context.Background(), []string{workspace})
+	if err != nil || count[workspace] != 0 || present == missing {
 		t.Fatal("registry creation was not detected despite unchanged owner count")
 	}
 }
 
 func TestDiagnosticWorkspaceOwnersAbsoluteDeadlineIsNotUsableEvidence(t *testing.T) {
 	ctx := delayedDeadlineContext{Context: context.Background(), deadline: time.Now().Add(-time.Millisecond)}
-	count, fingerprint, err := DiagnosticWorkspaceRemovalOwners(ctx, "/registered/workspace")
-	if err == nil || count != 0 || fingerprint != [32]byte{} {
+	count, fingerprint, err := DiagnosticWorkspaceRemovalOwners(ctx, []string{"/registered/workspace"})
+	if err == nil || count != nil || fingerprint != [32]byte{} {
 		t.Fatal("expired inherited deadline produced usable ownership evidence")
 	}
 }

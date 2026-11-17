@@ -20,17 +20,26 @@ import (
 // drift, not execution eligibility. No runner, checkpoint, token or lease is read.
 // The narrower diagnostic scan fails unavailable rather than returning a partial
 // count when any registration is unsafe/invalid or its scan budget is exceeded.
-func DiagnosticWorkspaceRemovalOwners(ctx context.Context, path string) (int, [32]byte, error) {
+// Up to 512 absolute target paths share one bounded registry pass, not one scan
+// per resource. Counts are per path, not unique owners of the whole bundle.
+func DiagnosticWorkspaceRemovalOwners(ctx context.Context, paths []string) (map[string]int, [32]byte, error) {
 	var empty [32]byte
-	unavailable := func() (int, [32]byte, error) {
-		return 0, empty, fmt.Errorf("registered ownership evidence unavailable")
+	unavailable := func() (map[string]int, [32]byte, error) {
+		return nil, empty, fmt.Errorf("registered ownership evidence unavailable")
 	}
 	expired := func() bool {
 		deadline, bounded := ctx.Deadline()
 		return ctx.Err() != nil || (bounded && !time.Now().Before(deadline))
 	}
-	if !filepath.IsAbs(path) || expired() {
+	if len(paths) < 1 || len(paths) > 512 || expired() {
 		return unavailable()
+	}
+	counts := make(map[string]int, len(paths))
+	for _, path := range paths {
+		if !filepath.IsAbs(path) || len(path) > 4096 {
+			return unavailable()
+		}
+		counts[path] = 0
 	}
 	root, err := Root()
 	if err != nil {
@@ -38,7 +47,7 @@ func DiagnosticWorkspaceRemovalOwners(ctx context.Context, path string) (int, [3
 	}
 	fd, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if errors.Is(err, os.ErrNotExist) {
-		return 0, sha256.Sum256([]byte("registration_root_absent")), nil
+		return counts, sha256.Sum256([]byte("registration_root_absent")), nil
 	}
 	if err != nil {
 		return unavailable()
@@ -61,7 +70,7 @@ func DiagnosticWorkspaceRemovalOwners(ctx context.Context, path string) (int, [3
 		fmt.Fprintf(hash, "%d/%d/%d/%d;", stat.Dev, stat.Ino, info.Size(), info.ModTime().UnixNano())
 	}
 	writeInfo(before)
-	count, bytes := 0, int64(0)
+	bytes := int64(0)
 	for _, entry := range entries {
 		if expired() {
 			return unavailable()
@@ -109,8 +118,10 @@ func DiagnosticWorkspaceRemovalOwners(ctx context.Context, path string) (int, [3
 		}
 		writeInfo(info)
 		hash.Write(data)
-		if registrationWithinWorkspace(reg, filepath.Clean(path)) {
-			count++ // Desired=false still holds ownership, exactly as production.
+		for path := range counts {
+			if registrationWithinWorkspace(reg, filepath.Clean(path)) {
+				counts[path]++ // Desired=false still holds ownership, exactly as production.
+			}
 		}
 	}
 	after, statErr := dir.Stat()
@@ -120,5 +131,5 @@ func DiagnosticWorkspaceRemovalOwners(ctx context.Context, path string) (int, [3
 	}
 	var fingerprint [32]byte
 	copy(fingerprint[:], hash.Sum(nil))
-	return count, fingerprint, nil
+	return counts, fingerprint, nil
 }

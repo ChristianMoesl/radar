@@ -8,8 +8,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"radar/internal/agentservice"
 	"radar/internal/cleanup"
 	"radar/internal/integration"
 	"radar/internal/integration/workspace"
@@ -17,7 +19,10 @@ import (
 	"radar/internal/state"
 )
 
-type manualDiagnosticProvider struct{ previews int }
+type manualDiagnosticProvider struct {
+	previews int
+	path     string
+}
 
 func (*manualDiagnosticProvider) Descriptor() integration.Descriptor {
 	return integration.Descriptor{Name: "tmux"}
@@ -33,7 +38,7 @@ func (p *manualDiagnosticProvider) PreviewCleanup(ctx context.Context, req integ
 		panic("wrong mode")
 	}
 	p.previews++
-	return []protocol.CleanupTarget{{Source: "tmux", Kind: "session", ResourceID: "private-session", Description: "private-description"}}, nil
+	return []protocol.CleanupTarget{{Source: "tmux", Kind: "session", ResourceID: "private-session", Description: "private-description", Path: p.path}}, nil
 }
 
 func TestManualCleanupPreviewRPCRequiresExplicitMethodAndExactTask(t *testing.T) {
@@ -43,6 +48,15 @@ func TestManualCleanupPreviewRPCRequiresExplicitMethodAndExactTask(t *testing.T)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", config)
 	t.Setenv("RADAR_STATE", filepath.Join(home, "state.db"))
+	agents := filepath.Join(home, "agents")
+	t.Setenv("RADAR_AGENT_ROOT", agents)
+	if err := os.MkdirAll(filepath.Join(agents, "private-owner"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	owner, _ := json.Marshal(agentservice.Registration{Version: 1, ID: "private-owner", Desired: false, Entrypoint: "private-command", Workspace: protocol.AgentWorkspaceBinding{ID: "private-workspace", Path: root, Mode: "local"}})
+	if err := os.WriteFile(filepath.Join(agents, "private-owner", "registration.json"), owner, 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(config, "radar"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +73,7 @@ func TestManualCleanupPreviewRPCRequiresExplicitMethodAndExactTask(t *testing.T)
 	if len(records) != 1 {
 		t.Fatal("fixture")
 	}
-	provider := &manualDiagnosticProvider{}
+	provider := &manualDiagnosticProvider{path: root}
 	effects := 0
 	pending := false
 	server := New(store, logger, func() { effects++ }, func() error { effects++; return nil }, nil, integration.NewRegistry(workspace.Source{}, provider), cleanup.New([]integration.CleanupProvider{provider})).SetResourcePublication(func() { effects++ }, func() protocol.Response { return protocol.Response{ResourceRefreshPending: pending} })
@@ -89,6 +103,14 @@ func TestManualCleanupPreviewRPCRequiresExplicitMethodAndExactTask(t *testing.T)
 		if i == 4 {
 			if !response.OK || response.Diagnostics == nil || response.Diagnostics.Schema != protocol.DiagnosticsVersion || response.Diagnostics.Total != 1 || response.Diagnostics.Items[0].CleanupPreview == nil {
 				t.Fatalf("explicit preview missing: %+v", response)
+			}
+			view := response.Diagnostics.Items[0].CleanupPreview
+			if view.OwnershipEvidence != "fresh_bounded_registration" || view.AgentOwnerCount == nil || *view.AgentOwnerCount != 1 || view.ExecutionEligibility != "blocked_registered_agent" {
+				t.Fatalf("RPC lost stopped-owner hold: %+v", view)
+			}
+			raw, _ := json.Marshal(response)
+			if strings.Contains(string(raw), "private-") || strings.Contains(string(raw), root) {
+				t.Fatal("private target/owner data escaped RPC")
 			}
 		} else if response.OK || response.Diagnostics != nil {
 			t.Fatalf("implicit/invalid/pending preview accepted: %+v", response)

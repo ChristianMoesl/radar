@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"radar/internal/agentservice"
 	"radar/internal/cleanup"
 	"radar/internal/integration"
 	"radar/internal/protocol"
@@ -93,6 +94,21 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 	if len(preview.Targets) == 0 || len(preview.Targets) > 512 {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview target coverage exceeds bounds")
 	}
+	// Match Execute's path-based registered-owner guard, without acquiring any
+	// lease or operation lock. All targets (including filtered-out pages) share
+	// two bounded scans, with evidence computed before exact-row filtering.
+	paths := []string{}
+	for _, target := range preview.Targets {
+		if target.Path != "" {
+			paths = append(paths, target.Path)
+		}
+	}
+	var ownerCounts map[string]int
+	var ownerSnapshot [32]byte
+	var ownerErr error
+	if len(paths) > 0 {
+		ownerCounts, ownerSnapshot, ownerErr = agentservice.DiagnosticWorkspaceRemovalOwners(ctx, paths)
+	}
 	items := []protocol.DiagnosticItem{}
 	registrationSum := sha256.Sum256([]byte(registration))
 	identities := map[string]bool{}
@@ -118,7 +134,10 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 		if nativeBytes > 1024*1024 {
 			return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview native evidence exceeds bounds")
 		}
-		sum := sha256.Sum256(append(registrationSum[:], raw...))
+		// Include the full private registration fingerprint, not only counts, so
+		// same-count owner changes invalidate the next page without exposing IDs.
+		identity := append(append([]byte{}, registrationSum[:]...), ownerSnapshot[:]...)
+		sum := sha256.Sum256(append(identity, raw...))
 		view.ID = "cleanup-target:" + hex.EncodeToString(sum[:])
 		resourceIdentity := target.Source + "\x00" + target.Kind + "\x00" + target.ResourceID
 		if identities[resourceIdentity] {
@@ -127,6 +146,17 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 		identities[resourceIdentity] = true
 		view.RecordID, view.TaskID = clip(selected.ID), selected.NumericID
 		view.ExecutionEligibility = "unknown_fresh_execution_guards_not_run"
+		view.OwnershipEvidence = "not_checked_no_target_path"
+		if target.Path != "" {
+			view.OwnershipEvidence = "unavailable"
+			if ownerErr == nil {
+				count := ownerCounts[target.Path]
+				view.OwnershipEvidence, view.AgentOwnerCount = "fresh_bounded_registration", &count
+				if count > 0 {
+					view.ExecutionEligibility = "blocked_registered_agent"
+				}
+			}
+		}
 		if req.ID == "" || req.ID == view.ID {
 			items = append(items, protocol.DiagnosticItem{ID: view.ID, CleanupPreview: &view})
 		}
@@ -136,6 +166,15 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 		return protocol.DiagnosticsPage{}, err
 	}
 	if registration != after || store.Revision() != revision {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic snapshot changed; preview again")
+	}
+	if len(paths) > 0 {
+		_, freshSnapshot, freshErr := agentservice.DiagnosticWorkspaceRemovalOwners(ctx, paths)
+		if (ownerErr == nil) != (freshErr == nil) || (ownerErr == nil && ownerSnapshot != freshSnapshot) {
+			return protocol.DiagnosticsPage{}, fmt.Errorf("registered ownership snapshot changed; preview again")
+		}
+	}
+	if store.Revision() != revision {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic snapshot changed; preview again")
 	}
 	if previewExpired(ctx) {

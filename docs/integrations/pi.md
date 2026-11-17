@@ -189,7 +189,7 @@ provider. Native references and statuses share one atomic cache revision; cursor
 also bind selected scope, registration/capability changes, returned collection
 attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 17; older versions fail closed.
+and extension must all support schema 18; older versions fail closed.
 
 ### Current-daemon collection attempt evidence
 
@@ -267,7 +267,7 @@ leases and execution preflight remain unverified; pending resource refresh is
 reported, not ignored. The snapshot is not an executable plan, freshness token
 for apply, execution eligibility or user consent. **Maintenance apply, expiry previews and verified operation outcomes are still unsupported.**
 Use the separate explicitly approved manual-cleanup preview below for full native targets.
-Schema 17 must match in the CLI, daemon and loaded Pi extension; update the
+Schema 18 must match in the CLI, daemon and loaded Pi extension; update the
 extension sources and reload separately from `make install`.
 
 ### Explicit native manual-cleanup previews
@@ -293,9 +293,10 @@ Each page has a 30-second shared native deadline, at most 256 active task refs,
 Private native target evidence is capped at 64 KiB each / 1 MiB total; safety
 notices are capped at 1024 per target. Registered workspace projections are capped
 at 1024 / 1 MiB per pass. Follow `next_cursor`; each page repeats native checks
-with fresh approval. Cache, projected registration and full private target drift
-invalidate snapshots/cursors, including private operation changes that preserve
-public counts. No duplicate network preview is run solely to recheck one page.
+with fresh approval. Cache, projected registration, registered-agent ownership and
+full private target drift invalidate snapshots/cursors, including private changes
+that preserve public counts. No duplicate network preview is run solely to recheck
+one page.
 
 Only opaque target IDs, retained task identity, fixed provider/effect labels,
 local-branch preservation/deletion, remote-repository preservation and native
@@ -305,13 +306,27 @@ Proposed later cleanup may discard local changes and worktrees/branches, remove
 sandbox/local state and terminal processes, remove workspace files/registration
 and archive a completed note. This preview does not itself remove those resources.
 
-`execution_eligibility` remains `unknown_fresh_execution_guards_not_run`:
-registered ownership, active work, fresh review/activity, leases, execution
-preflight, expiry policy and automatic eligibility are not established. A native
-proposal is not an executable plan, an apply token, publication approval or apply
-consent. Native safety flags describe planner evidence, never permission to
+For each native target with a path, two bounded registry scans reuse the production
+registration decoder and removal-owner predicate. `ownership_evidence` is
+`fresh_bounded_registration` with `agent_owner_count`, or `unavailable` with **no
+count**. Stopped and nested registrations remain owners. Targets with no path
+report `not_checked_no_target_path` without a count, matching the native executor's
+path-based guard. Each scan handles at most 512 paths, 1024 registry entries,
+64 KiB per registration and 1 MiB aggregate; unsafe/invalid/over-budget evidence
+makes the whole batch unavailable, never partial known-zero counts. Private owner
+IDs, definitions, commands and fingerprints are withheld; no runner, token,
+checkpoint, lease or operation lock is read/acquired by this ownership observation.
+
+A positive per-target count sets `execution_eligibility: blocked_registered_agent`
+and blocks the **whole native bundle**. Counts are per target, not deduplicated
+bundle totals. Zero, unavailable or pathless evidence leaves eligibility
+`unknown_fresh_execution_guards_not_run`, never safe or executable. Runtime
+ownership, active work, fresh review/activity, leases, execution preflight, expiry
+policy and automatic eligibility still require fresh guards. A native proposal is
+not an executable plan, an apply token, publication approval or apply consent.
+Native safety flags describe planner evidence, never permission to
 weaken a safeguard. Maintenance apply and expiry previews remain unsupported.
-CLI, daemon and the actual loaded Pi extension must match schema 17 without a
+CLI, daemon and the actual loaded Pi extension must match schema 18 without a
 legacy fallback; separately installed extension sources require updating/reload
 independently from `make install`. No persisted format or cleanup policy changes.
 
@@ -386,10 +401,10 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 17; there is no legacy fallback. Separately
+extension must all support schema 18; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-### Retained inventories (diagnostics schema 17)
+### Retained inventories (diagnostics schema 18)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -632,7 +647,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 17; version mismatches fail closed
+extension must support diagnostics schema 18; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

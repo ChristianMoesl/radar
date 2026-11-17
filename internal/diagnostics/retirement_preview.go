@@ -88,7 +88,7 @@ func retirementPreview(ctx context.Context, store *state.Store, req protocol.Dia
 	if previewExpired(ctx) {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("retirement preview cancelled or timed out")
 	}
-	ownerCount, ownerSnapshot, ownerErr := agentservice.DiagnosticWorkspaceRemovalOwners(ctx, selected.Path)
+	ownerCount, ownerSnapshot, ownerErr := agentservice.DiagnosticWorkspaceRemovalOwners(ctx, []string{selected.Path})
 	targets, err := planner.DiagnosticRetirementTargets(ctx, candidate.Task, selected.ID)
 	if err != nil {
 		// Native path/registration errors can contain private names and paths.
@@ -96,8 +96,9 @@ func retirementPreview(ctx context.Context, store *state.Store, req protocol.Dia
 	}
 	view := protocol.DiagnosticRetirementPreview{ID: selected.ID, RecordID: clip(candidate.RecordID), TaskID: candidate.TaskID, Stage: "runtime_retirement", Targets: []protocol.DiagnosticRetirementTarget{}, Preserved: []string{"workspace_files", "worktrees_and_branches", "sandbox_and_local_state", "registration"}, ExecutionEligibility: "unknown_fresh_execution_guards_not_run", OwnershipEvidence: "unavailable", LeaseEvidence: "unknown_not_checked"}
 	if ownerErr == nil {
-		view.OwnershipEvidence, view.AgentOwnerCount = "fresh_bounded_registration", &ownerCount
-		if ownerCount > 0 {
+		count := ownerCount[selected.Path]
+		view.OwnershipEvidence, view.AgentOwnerCount = "fresh_bounded_registration", &count
+		if count > 0 {
 			view.ExecutionEligibility = "blocked_registered_agent"
 		}
 	}
@@ -147,8 +148,8 @@ func retirementPreview(ctx context.Context, store *state.Store, req protocol.Dia
 	if string(before) != string(after) || string(oldTargets) != string(newTargets) || revision != store.Revision() {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic snapshot changed; preview again")
 	}
-	freshCount, freshOwnerSnapshot, freshOwnerErr := agentservice.DiagnosticWorkspaceRemovalOwners(ctx, selected.Path)
-	if (ownerErr == nil) != (freshOwnerErr == nil) || (ownerErr == nil && (ownerCount != freshCount || ownerSnapshot != freshOwnerSnapshot)) {
+	freshCount, freshOwnerSnapshot, freshOwnerErr := agentservice.DiagnosticWorkspaceRemovalOwners(ctx, []string{selected.Path})
+	if (ownerErr == nil) != (freshOwnerErr == nil) || (ownerErr == nil && (ownerCount[selected.Path] != freshCount[selected.Path] || ownerSnapshot != freshOwnerSnapshot)) {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("registered ownership snapshot changed; preview again")
 	}
 	mode, err = workspacegc.CandidateMode(*candidate, time.Now())
