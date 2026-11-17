@@ -662,10 +662,10 @@ for (const params of [{section:"runtime_probe"},{section:"runtime_probe",parent_
 for (const scope of ["origin","feedback","installation"]) {
  test(`cached integrations preserve ${scope} scope without consuming private approvals`,async()=>{
   const h=harness();h.activate();h.approvals.push(true);
-  const inventory={diagnostics_schema:26,section:"integrations",evidence:"registered_capabilities_with_cached_installation_status_and_scoped_retained_refs",items:[{id:"opaque-integration",integration:{name:"provider",cached_status:"partial",status_evidence:"cached_installation_status",access_evidence:"unknown_not_checked",freshness_evidence:"unknown_cache_freshness_not_established",collection_evidence:"unknown_no_current_daemon_attempt"}}]};
-  h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify({diagnostics_schema:26,section:"integrations",available:true,inventory}),stderr:"",killed:false};};
-  const result=await h.tools.get("radar_diagnostics").execute("call",{section:"integrations",scope,id:"opaque-integration",limit:4,cursor:"opaque"},undefined,undefined,h.ctx);
-  assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","integrations","--json","--scope",scope,"--id","opaque-integration","--limit","4","--cursor","opaque"]);
+  const data=integrationInventoryFixture(scope),inventory=data.inventory,id=inventory.items[0].id;
+  h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify(data),stderr:"",killed:false};};
+  const result=await h.tools.get("radar_diagnostics").execute("call",{section:"integrations",scope,id,limit:4,cursor:"opaque"},undefined,undefined,h.ctx);
+  assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","integrations","--json","--scope",scope,"--id",id,"--limit","4","--cursor","opaque"]);
   assert.deepEqual(JSON.parse(result.content[0].text).inventory,inventory);assert.deepEqual(h.confirmations,[]);assert.equal(h.approvals.length,1);
   for (const text of ["status remains installation-wide, not workspace health","Missing status or history is unknown","never calls provider Status/Collect/auth/rate-limit methods"]) assert.ok(h.session.instructions()!.includes(text));
  });
@@ -968,9 +968,23 @@ for (const kind of ["missing", "negative", "fraction", "excess", "unsafe", "stri
   await assert.rejects(h.tools.get("radar_diagnostics").execute("call", {section: "retirement_preview", parent_id: "registered"}, undefined, undefined, h.ctx));
 });
 
-function integrationCollectionFixture() {
- return {diagnostics_schema:26,section:"integrations",available:true,inventory:{diagnostics_schema:26,section:"integrations",items:[{id:"integration",integration:{collection_evidence:"current_daemon_completed_attempt",collection:{latest:{started_at:"2026-11-16T17:01:00.000000001Z",collection_started_at:"2026-11-16T17:01:01Z",finished_at:"2026-11-16T17:01:02Z",outcome:"complete"},last_complete_collection_finished_at:"2026-11-16T17:01:02Z"}}}]}};
+function integrationInventoryFixture(scope="origin"):any {
+ const evidence="registered_capabilities_with_cached_installation_status_and_scoped_retained_refs";
+ const id="integration:"+"a".repeat(64);
+ return {diagnostics_schema:26,section:"integrations",scope,available:true,feedback_workspace_id:"feedback",origin_workspace_id:"origin",evidence,inventory:{diagnostics_schema:26,section:"integrations",evidence,observed_at:"2026-11-17T17:45:00Z",revision:1,snapshot:"b".repeat(64),total:1,items:[{id,integration:{id,name:"provider",label:"Provider",registration_count:1,capability_evidence:"registered_interfaces_only",capabilities:{collection:true,status_check:true,interactive_authentication:false,bound_resolution:true,cleanup:false,runtime_probe:false,rate_limit:false},cached_status_count:1,cached_status:"partial",status_evidence:"cached_installation_status",details_available:true,active_refs:2,inactive_refs:1,refs_with_unknown_observed_at:1,latest_retained_ref_observed_at:"2026-11-16T17:00:00Z",access_evidence:"unknown_not_checked",freshness_evidence:"unknown_cache_freshness_not_established",collection_evidence:"unknown_no_current_daemon_attempt"}}],pagination_complete:true,resource_refresh_pending:false,limitations:["cached_status_is_installation_wide_not_workspace_health", "workspace_scope_selects_only_related_retained_refs", "ref_observation_time_is_not_collection_attempt_or_success", "current_daemon_completed_attempts_are_not_reconciliation_publication_or_business_success", "no_active_attempt_or_pre_restart_history", "attempts_do_not_establish_live_access_or_cache_freshness", "effective_enablement_auth_tools_and_rate_limits_unknown", "registered_capability_is_not_execution_permission", "no_provider_status_collection_auth_rate_limit_probe_or_refresh", "raw_provider_details_withheld", "text_fields_limited_to_512_bytes"]}};
 }
+function integrationCollectionFixture():any {
+ const data=integrationInventoryFixture(),v=data.inventory.items[0].integration;
+ v.collection_evidence="current_daemon_completed_attempt";
+ v.collection={latest:{started_at:"2026-11-16T17:01:00.000000001Z",collection_started_at:"2026-11-16T17:01:01Z",finished_at:"2026-11-16T17:01:02Z",outcome:"complete"},last_complete_collection_finished_at:"2026-11-16T17:01:02Z"};
+ return data;
+}
+test("integration inventory rejects private sibling payloads outside the collection envelope",async()=>{
+ const h=harness();h.activate();const data:any=integrationCollectionFixture();
+ data.inventory.items[0].integration.provider_error={token:"synthetic-private-marker"};
+ h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+ await assert.rejects(h.diagnostic("integrations"));
+});
 for (const outcome of ["complete","incomplete","skipped_before_collection","cancelled_or_timed_out"]) test(`current-daemon ${outcome} collection envelope remains distinct from cache freshness`,async()=>{
  const h=harness();h.activate();const data=integrationCollectionFixture();const collection:any=data.inventory.items[0].integration.collection;collection.latest.outcome=outcome;
  if(outcome==="skipped_before_collection") delete collection.latest.collection_started_at;
@@ -1282,4 +1296,120 @@ for(const evidence of ["unknown_not_captured","unavailable_invalid_or_overflow"]
 test("native cleanup phase maximum count/duration is bounded independently from handler elapsed",async()=>{
  const h=harness();h.activate();const data=phasedOperationFixture(),sample=data.inventory.items[0].operation.phase_timings[0];sample.completed_intervals=1_000_000;sample.elapsed_milliseconds=9223372036854;
  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});const result=await h.diagnostic("operations");assert.equal(result.details.inventory.items[0].operation.elapsed_milliseconds,0);assert.deepEqual(result.details.inventory.items[0].operation.phase_timings[0],sample);
+});
+
+for(const [name,mutate] of Object.entries({
+ "outer private payload":(d:any)=>{d.raw_error="synthetic-private-marker";},
+ "page private payload":(d:any)=>{d.inventory.environment={token:"synthetic-private-marker"};},
+ "row private payload":(d:any)=>{d.inventory.items[0].provider_result="synthetic-private-marker";},
+ "integration private payload":(d:any)=>{d.inventory.items[0].integration.error="synthetic-private-marker";},
+ "capability private payload":(d:any)=>{d.inventory.items[0].integration.capabilities.command="synthetic-private-marker";},
+ "scope mismatch":(d:any)=>{d.scope="installation";},
+ "missing scope":(d:any)=>{delete d.scope;},
+ "missing feedback identity":(d:any)=>{delete d.feedback_workspace_id;},
+ "missing origin identity":(d:any)=>{delete d.origin_workspace_id;},
+ "private origin identity":(d:any)=>{d.origin_workspace_id={path:"synthetic-private-marker"};},
+ "available not boolean":(d:any)=>{d.available="true";},
+ "unexpected reason":(d:any)=>{d.reason="synthetic-private-marker";},
+ "outer evidence mismatch":(d:any)=>{d.evidence="healthy";},
+ "outer old schema":(d:any)=>{d.diagnostics_schema=25;},
+ "page old schema":(d:any)=>{d.inventory.diagnostics_schema=25;},
+ "page section mismatch":(d:any)=>{d.inventory.section="tasks";},
+ "page evidence mismatch":(d:any)=>{d.inventory.evidence="healthy";},
+ "page array":(d:any)=>{d.inventory=[];},
+ "items not array":(d:any)=>{d.inventory.items={};},
+ "row array":(d:any)=>{d.inventory.items=[[]];},
+ "integration array":(d:any)=>{d.inventory.items[0].integration=[];},
+ "raw capture time":(d:any)=>{d.inventory.observed_at="synthetic-private-marker";},
+ "impossible capture time":(d:any)=>{d.inventory.observed_at="2026-02-30T00:00:00Z";},
+ "non-UTC capture time":(d:any)=>{d.inventory.observed_at="2026-11-17T17:00:00+01:00";},
+ "negative revision":(d:any)=>{d.inventory.revision=-1;},
+ "unsafe revision":(d:any)=>{d.inventory.revision=Number.MAX_SAFE_INTEGER+1;},
+ "invalid snapshot":(d:any)=>{d.inventory.snapshot="synthetic-private-marker";},
+ "fractional total":(d:any)=>{d.inventory.total=1.5;},
+ "missing pending":(d:any)=>{delete d.inventory.resource_refresh_pending;},
+ "private limitation":(d:any)=>{d.inventory.limitations[0]="synthetic-private-marker";},
+ "duplicate limitation":(d:any)=>{d.inventory.limitations[0]=d.inventory.limitations[1];},
+ "oversized page":(d:any)=>{d.inventory.limitations[0]="x".repeat(256*1024);},
+ "nonboolean complete":(d:any)=>{d.inventory.pagination_complete=1;},
+ "terminal cursor":(d:any)=>{d.inventory.next_cursor="cursor";},
+ "missing continuation cursor":(d:any)=>{d.inventory.pagination_complete=false;d.inventory.total=2;},
+ "cursor on full first page":(d:any)=>{d.inventory.pagination_complete=false;d.inventory.next_cursor="cursor";},
+ "empty nonempty first page":(d:any)=>{d.inventory.items=[];},
+ "total below items":(d:any)=>{d.inventory.total=0;},
+ "false complete first page":(d:any)=>{d.inventory.total=2;},
+ "duplicate row":(d:any)=>{d.inventory.items.push(structuredClone(d.inventory.items[0]));d.inventory.total=2;},
+ "out of order rows":(d:any)=>{const row=structuredClone(d.inventory.items[0]);row.id=row.integration.id="integration:"+"0".repeat(64);d.inventory.items.push(row);d.inventory.total=2;},
+ "row identity mismatch":(d:any)=>{d.inventory.items[0].integration.id="integration:"+"b".repeat(64);},
+ "nonopaque identity":(d:any)=>{d.inventory.items[0].id=d.inventory.items[0].integration.id="provider";},
+ "missing provider name":(d:any)=>{delete d.inventory.items[0].integration.name;},
+ "oversized provider text":(d:any)=>{d.inventory.items[0].integration.name="x".repeat(1540);},
+ "negative registration count":(d:any)=>{d.inventory.items[0].integration.registration_count=-1;},
+ "invented capability evidence":(d:any)=>{d.inventory.items[0].integration.capability_evidence="enabled";},
+ "missing registered capability":(d:any)=>{delete d.inventory.items[0].integration.capabilities.cleanup;},
+ "nonboolean capability":(d:any)=>{d.inventory.items[0].integration.capabilities.cleanup="true";},
+ "unregistered capabilities":(d:any)=>{d.inventory.items[0].integration.registration_count=0;},
+ "ambiguous capabilities":(d:any)=>{d.inventory.items[0].integration.registration_count=2;},
+ "missing cached status count":(d:any)=>{delete d.inventory.items[0].integration.cached_status_count;},
+ "inconsistent status evidence":(d:any)=>{d.inventory.items[0].integration.status_evidence="unavailable";},
+ "private status":(d:any)=>{d.inventory.items[0].integration.cached_status="synthetic-private-marker";},
+ "invented healthy absent status":(d:any)=>{d.inventory.items[0].integration.cached_status_count=0;},
+ "ambiguous healthy status":(d:any)=>{d.inventory.items[0].integration.cached_status_count=2;},
+ "nonboolean details":(d:any)=>{d.inventory.items[0].integration.details_available=0;},
+ "scoped installation count":(d:any)=>{d.inventory.items[0].integration.installation_reported_ref_count=1;},
+ "unsafe ref count":(d:any)=>{d.inventory.items[0].integration.active_refs=Number.MAX_SAFE_INTEGER+1;},
+ "overflowing ref sum":(d:any)=>{d.inventory.items[0].integration.active_refs=Number.MAX_SAFE_INTEGER;},
+ "negative inactive count":(d:any)=>{d.inventory.items[0].integration.inactive_refs=-1;},
+ "unknown refs beyond total":(d:any)=>{d.inventory.items[0].integration.refs_with_unknown_observed_at=4;},
+ "raw retained timestamp":(d:any)=>{d.inventory.items[0].integration.latest_retained_ref_observed_at="synthetic-private-marker";},
+ "timestamp without known refs":(d:any)=>{d.inventory.items[0].integration.refs_with_unknown_observed_at=3;},
+ "invented live access":(d:any)=>{d.inventory.items[0].integration.access_evidence="authenticated";},
+ "invented cache freshness":(d:any)=>{d.inventory.items[0].integration.freshness_evidence="fresh";},
+ "ambiguous attempt without ambiguity":(d:any)=>{d.inventory.items[0].integration.collection_evidence="ambiguous_registration";},
+ "private collection array":(d:any)=>{const v=d.inventory.items[0].integration;v.collection_evidence="current_daemon_completed_attempt";v.collection=[];},
+}))test(`integration inventory full privacy allowlist fails closed: ${name}`,async()=>{
+ const h=harness();h.activate();const data=integrationInventoryFixture();mutate(data);
+ h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+ await assert.rejects(h.diagnostic("integrations"),error=>{assert.ok(error instanceof Error);assert.match(error.message,/^(Invalid Radar integration inventory|Invalid Radar diagnostic inventory version|Invalid Radar diagnostics response)$/);assert.ok(!error.message.includes("synthetic-private-marker"));return true;});
+ assert.deepEqual(h.confirmations,[]);
+});
+for(const scope of ["origin","feedback","installation"])test(`integration inventory verifies ${scope} pagination, empty results and exact drill-down without extra approval`,async()=>{
+ const h=harness();h.activate();const data=integrationInventoryFixture(scope),execute=h.tools.get("radar_diagnostics").execute;
+ h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+ data.inventory.pagination_complete=false;data.inventory.next_cursor="cursor";data.inventory.total=2;
+ await execute("call",{section:"integrations",scope,limit:1},undefined,undefined,h.ctx);
+ data.inventory.pagination_complete=true;delete data.inventory.next_cursor;
+ await execute("call",{section:"integrations",scope,limit:1,cursor:"cursor"},undefined,undefined,h.ctx);
+ data.inventory.total=1;
+ await execute("call",{section:"integrations",scope,id:data.inventory.items[0].id},undefined,undefined,h.ctx);
+ await assert.rejects(execute("call",{section:"integrations",scope,id:"integration:"+"c".repeat(64)},undefined,undefined,h.ctx));
+ data.inventory.total=0;data.inventory.items=[];
+ await execute("call",{section:"integrations",scope,id:"integration:"+"c".repeat(64)},undefined,undefined,h.ctx);
+ assert.deepEqual(h.confirmations,[]);
+});
+for(const count of [0,2])test(`integration inventory preserves unknown registration and cached status evidence: ${count}`,async()=>{
+ const h=harness();h.activate();const data=integrationInventoryFixture(),v=data.inventory.items[0].integration;
+ v.registration_count=count;v.capability_evidence=count===0?"not_registered":"ambiguous_registration";delete v.capabilities;delete v.label;
+ v.cached_status_count=count;v.status_evidence=count===0?"unavailable":"ambiguous_cached_status";v.cached_status="unknown";v.details_available=false;
+ if(count===2)v.collection_evidence="ambiguous_registration";
+ delete v.latest_retained_ref_observed_at;v.active_refs=0;v.inactive_refs=0;v.refs_with_unknown_observed_at=0;
+ h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+ assert.deepEqual((await h.diagnostic("integrations")).details.inventory,data.inventory);
+});
+for(const status of ["ok","partial","error","disabled","unknown"])test(`integration inventory accepts native finite cached status ${status} without inferring health`,async()=>{
+ const h=harness();h.activate();const data=integrationInventoryFixture("installation"),v=data.inventory.items[0].integration;v.cached_status=status;v.installation_reported_ref_count=12;
+ // Native 512-byte source clipping plus UTF-8 replacement/ellipsis can expand.
+ v.name="x".repeat(511)+"\uFFFD…";delete v.label;data.inventory.resource_refresh_pending=true;
+ h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+ const result=await h.tools.get("radar_diagnostics").execute("call",{section:"integrations",scope:"installation"},undefined,undefined,h.ctx);assert.equal(result.details.inventory.items[0].integration.cached_status,status);
+});
+for(const scope of ["origin","feedback","installation"])for(const reason of ["daemon_unavailable","snapshot_changed_restart_pagination",...(scope==="origin"?["origin_not_registered"]:[])])test(`integration unavailable remains scoped unknown without fallback: ${scope}/${reason}`,async()=>{
+ const h=harness();h.activate();const data:any={diagnostics_schema:26,section:"integrations",scope,available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason};
+ h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+ const execute=()=>h.tools.get("radar_diagnostics").execute("call",{section:"integrations",scope},undefined,undefined,h.ctx);
+ assert.equal((await execute()).details.available,false);
+ for(const [key,value] of [["raw_error","synthetic-private-marker"],["inventory",integrationInventoryFixture().inventory],["reason","synthetic-private-marker"]]){
+  const old=data[key];data[key]=value;await assert.rejects(execute());if(old===undefined)delete data[key];else data[key]=old;
+ }
+ assert.deepEqual(h.confirmations,[]);
 });

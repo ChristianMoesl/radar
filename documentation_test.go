@@ -55,6 +55,7 @@ func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
 		"## Explicit installation-wide collection refresh", "30-second", "collection-only adapter",
 		"request_outcome_unknown_do_not_replay", "plan ID establishes", "freshness, not user consent",
 		"does not call ordinary daemon refresh", "cleanup_apply", "schema 26",
+		"complete integration envelope", "Unknown sibling fields", "wire shape unchanged",
 		"## Durable-agent registration and checkpoint evidence",
 	} {
 		if !strings.Contains(diagnostics.Content, contract) {

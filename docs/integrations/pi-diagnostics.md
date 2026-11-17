@@ -217,6 +217,15 @@ attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
 and extension must all support schema 26; older versions fail closed.
 
+Pi validates the complete integration envelope, page, row and capability allowlist,
+not only the collection subobject. Unknown sibling fields and inconsistent scope,
+identities, counts, evidence, limits or pagination fail closed before either tool
+text or details reach the model. Unavailable responses cannot include cached
+fallback or private payloads. Native UTF-8 clipping may expand display text through
+replacement/ellipsis; that expansion remains bounded. This validation repair
+keeps schema 26 and its native wire shape unchanged. Separately installed Pi
+sources require an update/reload; `make install` alone does not replace them.
+
 ## Current-daemon collection attempt evidence
 
 `integrations` includes `collection_evidence` and, when available, `collection`:
