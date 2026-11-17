@@ -81,6 +81,9 @@ func TestManagedCleanupPublishesExecutionIdentityAndReconcilesSuccessOrPartialFa
 			if len(running.Operations) != 1 || running.Operations[0].Status != "running" || running.Operations[0].TaskID != 7 {
 				t.Fatalf("blocked CLI/Pi cleanup not observable: %+v", running)
 			}
+			if running.Operations[0].StartedAt == "" || running.Operations[0].FinishedAt != "" {
+				t.Fatal("blocked native handler timing must be start-only")
+			}
 			close(provider.release)
 			result := <-finished
 			wantStatus, wantTargets := "succeeded", 2
@@ -93,6 +96,13 @@ func TestManagedCleanupPublishesExecutionIdentityAndReconcilesSuccessOrPartialFa
 			op := result.Operations[0]
 			if op.ID != running.Operations[0].ID || op.ID != result.OperationID || op.ID != result.CleanupResult.OperationID || op.Status != wantStatus || op.CompletedTargets != wantTargets || op.TotalTargets != 2 || result.Revision <= running.Revision {
 				t.Fatalf("operation completion identity not fenced: %+v", result)
+			}
+			if op.StartedAt != running.Operations[0].StartedAt || op.FinishedAt == "" || op.ElapsedMilliseconds < 0 {
+				t.Fatal("native cleanup completion lost timing")
+			}
+			diagnostic := managedPipeCall(t, s, protocol.Request{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "operations", ID: op.ID}})
+			if !diagnostic.OK || diagnostic.Diagnostics == nil || diagnostic.Diagnostics.Total != 1 || diagnostic.Diagnostics.Items[0].Operation.TimingEvidence != "native_handler_monotonic_elapsed" || *diagnostic.Diagnostics.Items[0].Operation.ElapsedMilliseconds != op.ElapsedMilliseconds {
+				t.Fatalf("diagnostic RPC lost native handler timing: %+v", diagnostic)
 			}
 			tasks.Refresh(context.Background(), true)
 			fresh := managedPipeCall(t, s, protocol.Request{Method: fmt.Sprintf("watch:%d", result.Revision)})
@@ -121,6 +131,9 @@ func TestClientWorkspaceReportIsNotDaemonExecution(t *testing.T) {
 	op := response.Operations[0]
 	if op.Status != "reported" || op.TaskID != 9 || op.WorkspaceID != "workspace-one" {
 		t.Fatalf("client report claimed daemon execution or lost target: %+v", op)
+	}
+	if op.StartedAt != "" || op.FinishedAt != "" || op.ElapsedMilliseconds != 0 {
+		t.Fatal("client report fabricated native timing")
 	}
 	unscoped := managedPipeCall(t, s, protocol.Request{Method: "resources-mutated", ResourceMutation: &protocol.ResourceMutation{}})
 	if !unscoped.OK || !unscoped.ResourceRefreshPending || unscoped.OperationID != "" || len(unscoped.Operations) != 1 || requests.Load() != 2 {

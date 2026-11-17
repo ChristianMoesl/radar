@@ -211,6 +211,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 			}
 			observed <- req
 			response := protocol.Response{OK: true, Diagnostics: &protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: req.Diagnostics.Section, Evidence: "cached_daemon_state", Items: []protocol.DiagnosticItem{}, Complete: true}}
+			if req.Diagnostics.Section == "operations" {
+				elapsed := int64(0)
+				response.Diagnostics.Items = []protocol.DiagnosticItem{{ID: req.Diagnostics.ID, Operation: &protocol.DiagnosticOperation{ID: req.Diagnostics.ID, Kind: "cleanup", Status: "partial", TimingEvidence: "native_handler_monotonic_elapsed", StartedAt: "2026-11-17T14:00:01Z", FinishedAt: "2026-11-17T14:00:00Z", ElapsedMilliseconds: &elapsed}}}
+			}
 			if i == 31 {
 				response.Diagnostics.Schema = 99
 			}
@@ -265,6 +269,12 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		}
 		if result["feedback_workspace_id"] != workspacegroup.ID(anchor) {
 			t.Fatal("lost feedback identity")
+		}
+		if section == "operations" {
+			page := result["inventory"].(*protocol.DiagnosticsPage)
+			if page.Items[0].Operation.TimingEvidence != "native_handler_monotonic_elapsed" || *page.Items[0].Operation.ElapsedMilliseconds != 0 || page.Items[0].Operation.FinishedAt != "2026-11-17T14:00:00Z" {
+				t.Fatal("facade lost native monotonic zero/backward-wall timing")
+			}
 		}
 		if scope == "origin" && result["origin_workspace_id"] != workspacegroup.ID(origin) {
 			t.Fatal("lost origin identity")
@@ -337,7 +347,7 @@ func TestFeedbackOverviewReturnsNativePolicySourcesWithoutPrivateSettings(t *tes
 		}
 	}
 	capabilities := result["capabilities"].(map[string]any)
-	if capabilities["configuration_policy_origins"] != true || capabilities["daemon_process_configuration"] != true || capabilities["workspace_effective_policy"] != false || capabilities["daemon_environment"] != false || capabilities["maintenance"] != false || capabilities["current_daemon_managed_operations"] != true || capabilities["durable_operation_history"] != false || capabilities["verified_operation_resource_outcomes"] != false || capabilities["cleanup_preview_lease_contention_probes"] != true || capabilities["current_daemon_agent_supervision"] != true || capabilities["agent_supervision_history"] != false {
+	if capabilities["configuration_policy_origins"] != true || capabilities["daemon_process_configuration"] != true || capabilities["workspace_effective_policy"] != false || capabilities["daemon_environment"] != false || capabilities["maintenance"] != false || capabilities["current_daemon_managed_operations"] != true || capabilities["native_managed_handler_timing"] != true || capabilities["durable_operation_history"] != false || capabilities["verified_operation_resource_outcomes"] != false || capabilities["cleanup_preview_lease_contention_probes"] != true || capabilities["current_daemon_agent_supervision"] != true || capabilities["agent_supervision_history"] != false {
 		t.Fatalf("policy advertised as authority: %+v", capabilities)
 	}
 }

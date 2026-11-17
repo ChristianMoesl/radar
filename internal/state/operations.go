@@ -3,6 +3,7 @@ package state
 import (
 	"crypto/rand"
 	"fmt"
+	"time"
 
 	"radar/internal/protocol"
 )
@@ -25,7 +26,12 @@ func (s *Store) BeginOperation(kind string, taskID int, workspaceID string) stri
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := s.nextOperationIDLocked()
-	s.appendOperationLocked(protocol.ManagedOperation{ID: id, Kind: kind, TaskID: taskID, WorkspaceID: workspaceID, Status: "running"})
+	now := time.Now()
+	if s.operationStarts == nil {
+		s.operationStarts = map[string]time.Time{}
+	}
+	s.operationStarts[id] = now
+	s.appendOperationLocked(protocol.ManagedOperation{ID: id, Kind: kind, TaskID: taskID, WorkspaceID: workspaceID, Status: "running", StartedAt: now.UTC().Format(time.RFC3339Nano)})
 	return id
 }
 
@@ -62,11 +68,22 @@ func (s *Store) trimOperationsLocked() {
 }
 
 func (s *Store) FinishOperation(id string, result protocol.ManagedOperation) {
+	if result.Status != "succeeded" && result.Status != "failed" && result.Status != "partial" {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.operations {
-		if s.operations[i].ID == id {
+		if s.operations[i].ID == id && s.operations[i].Status == "running" {
 			op := s.operations[i]
+			// Only the store's native lifecycle supplies timing. Ignore timestamps
+			// in result, and keep first completion immutable on duplicate finishes.
+			if start, ok := s.operationStarts[id]; ok {
+				now := time.Now()
+				op.FinishedAt = now.UTC().Format(time.RFC3339Nano)
+				op.ElapsedMilliseconds = now.Sub(start).Milliseconds()
+				delete(s.operationStarts, id)
+			}
 			op.Status = result.Status
 			op.CompletedTargets, op.TotalTargets = result.CompletedTargets, result.TotalTargets
 			if result.TaskID != 0 {

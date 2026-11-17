@@ -31,6 +31,7 @@ type Store struct {
 	operations         []protocol.ManagedOperation
 	operationNamespace string
 	operationSequence  uint64
+	operationStarts    map[string]time.Time // Monotonic start instants; active native handlers only.
 	// Current-daemon evidence only; never persisted or part of task revisions.
 	collectionAttempts map[string]protocol.DiagnosticCollectionEvidence
 
@@ -272,6 +273,7 @@ func (s *Store) saveProjectionLocked() (err error) {
 func (s *Store) Reset() error {
 	s.mu.Lock()
 	s.operations = nil
+	s.operationStarts = nil
 	retained := make([]TaskRecord, 0)
 	for _, record := range s.state.Records {
 

@@ -54,7 +54,7 @@ func TestDiagnosticsRPCAgentSupervisionUsesNativeMemoryWithoutRuntimeCalls(t *te
 		if err := decoder.Decode(&response); err != nil {
 			t.Fatal(err)
 		}
-		if !response.OK || response.Diagnostics == nil || response.Diagnostics.Schema != 23 || response.Tasks != nil || response.Sources != nil {
+		if !response.OK || response.Diagnostics == nil || response.Diagnostics.Schema != protocol.DiagnosticsVersion || response.Tasks != nil || response.Sources != nil {
 			t.Fatalf("unexpected response: %+v", response)
 		}
 		if scope == reg.Workspace.Path+"-other" {

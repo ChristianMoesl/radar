@@ -3,13 +3,19 @@ package protocol
 // ManagedOperation is current-daemon evidence, not a durable job or permission
 // to replay an action. Reported changes were executed by a client, not daemon.
 type ManagedOperation struct {
-	ID               string `json:"id"`
-	Kind             string `json:"kind"`
-	TaskID           int    `json:"task_id,omitempty"`
-	WorkspaceID      string `json:"workspace_id,omitempty"`
-	Status           string `json:"status"`
-	CompletedTargets int    `json:"completed_targets,omitempty"`
-	TotalTargets     int    `json:"total_targets,omitempty"`
+	// Native daemon-handler boundaries only. ElapsedMilliseconds uses the
+	// monotonic clock, not subtraction of wall timestamps. Client reports have
+	// no timing; a running operation has only StartedAt. Never persisted.
+	StartedAt           string `json:"started_at,omitempty"`
+	FinishedAt          string `json:"finished_at,omitempty"`
+	ElapsedMilliseconds int64  `json:"elapsed_milliseconds,omitempty"`
+	ID                  string `json:"id"`
+	Kind                string `json:"kind"`
+	TaskID              int    `json:"task_id,omitempty"`
+	WorkspaceID         string `json:"workspace_id,omitempty"`
+	Status              string `json:"status"`
+	CompletedTargets    int    `json:"completed_targets,omitempty"`
+	TotalTargets        int    `json:"total_targets,omitempty"`
 }
 
 // ResourceMutation identifies a client-reported change. It invalidates cached

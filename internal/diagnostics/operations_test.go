@@ -83,7 +83,7 @@ func TestOperationInventoryIsScopedPrivateAndPreservesPartialEvidence(t *testing
 		t.Fatalf("all=%+v %v", all, err)
 	}
 	raw, _ := json.Marshal(all)
-	for _, secret := range []string{"private-", path, "SourceRefs", "completed_at", "operation_id", "duration"} {
+	for _, secret := range []string{"private-", path, "SourceRefs", "completed_at", "operation_id", "private_error"} {
 		if strings.Contains(string(raw), secret) {
 			t.Fatalf("private/unavailable detail leaked: %s", raw)
 		}
