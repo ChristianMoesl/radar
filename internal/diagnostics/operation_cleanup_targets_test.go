@@ -109,7 +109,7 @@ func TestCleanupReturnedTargetSummaryIsScopedSnapshotBoundAndReadOnly(t *testing
 	if first.Items[0].ID == b {
 		offpage = a
 	}
-	store.FinishCleanupOperation(offpage, protocol.ManagedOperation{Status: "failed", TotalTargets: 1}, []protocol.CleanupTarget{{Source: "git", Kind: "worktree", ResourceID: "private-resource"}})
+	store.FinishCleanupOperation(offpage, protocol.ManagedOperation{Status: "failed", TotalTargets: 1}, []protocol.CleanupTarget{{Source: "git", Kind: "worktree", ResourceID: "private-resource"}}, nil)
 	req.Cursor = first.NextCursor
 	if _, err := Read(store, req, false, integration.NewRegistry()); err == nil {
 		t.Fatal("cursor survived off-page capture")

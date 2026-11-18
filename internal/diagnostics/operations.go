@@ -37,7 +37,7 @@ func operationItems(req protocol.DiagnosticsRequest, records []state.TaskRecord,
 		if req.Workspace != "" && ((op.WorkspaceID != "" && !workspaces[op.WorkspaceID]) || (op.WorkspaceID == "" && !tasks[op.TaskID])) {
 			continue
 		}
-		view := protocol.DiagnosticOperation{ID: clip(op.ID), Kind: "unknown", Status: "unknown", TaskID: op.TaskID, WorkspaceID: clip(op.WorkspaceID), ExecutionEvidence: "unknown_not_captured", TargetEvidence: "unknown_not_captured", CleanupTargetEvidence: "unknown_not_captured", TimingEvidence: "unknown_not_captured", PhaseTimingEvidence: "unknown_not_captured"}
+		view := protocol.DiagnosticOperation{ID: clip(op.ID), Kind: "unknown", Status: "unknown", TaskID: op.TaskID, WorkspaceID: clip(op.WorkspaceID), ExecutionEvidence: "unknown_not_captured", TargetEvidence: "unknown_not_captured", CleanupTargetEvidence: "unknown_not_captured", CleanupExecutionEvidence: "unknown_not_captured", TimingEvidence: "unknown_not_captured", PhaseTimingEvidence: "unknown_not_captured"}
 		switch op.Kind {
 		case "refresh", "cleanup", "workspace", "task-create", "task-done", "task-reopen", "task-priority", "task-mute", "task-unmute", "task-title", "task-note", "task-delete":
 			view.Kind = op.Kind
@@ -65,6 +65,13 @@ func operationItems(req protocol.DiagnosticsRequest, records []state.TaskRecord,
 			}
 		}
 		if view.Kind == "cleanup" && (view.Status == "succeeded" || view.Status == "failed" || view.Status == "partial") {
+			if op.CleanupExecutionUnavailable || (op.CleanupExecution != nil && !protocol.ValidCleanupExecution(*op.CleanupExecution, op.Status, op.CompletedTargets, op.TotalTargets)) {
+				view.CleanupExecutionEvidence = "unavailable_invalid_or_over_budget"
+			} else if op.CleanupExecution != nil {
+				view.CleanupExecutionEvidence = "native_executor_dispatch_boundaries_not_resource_verification"
+				value := *op.CleanupExecution
+				view.CleanupExecution = &value
+			}
 			if op.CleanupTargetsUnavailable || (op.CleanupTargetsCaptured && !validCleanupTargetSummary(op)) {
 				view.CleanupTargetEvidence = "unavailable_invalid_or_over_budget"
 			} else if op.CleanupTargetsCaptured {

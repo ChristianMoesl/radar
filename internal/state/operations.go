@@ -70,17 +70,17 @@ func (s *Store) trimOperationsLocked() {
 }
 
 func (s *Store) FinishOperation(id string, result protocol.ManagedOperation) {
-	s.finishOperation(id, result, nil, false)
+	s.finishOperation(id, result, nil, nil, false)
 }
 
 // FinishCleanupOperation captures only a bounded allowlist from the exact native
 // handler input and its returned successful-prefix count. No raw targets persist
 // in the operation store, and ordinary FinishOperation cannot inject capture.
-func (s *Store) FinishCleanupOperation(id string, result protocol.ManagedOperation, targets []protocol.CleanupTarget) {
-	s.finishOperation(id, result, targets, true)
+func (s *Store) FinishCleanupOperation(id string, result protocol.ManagedOperation, targets []protocol.CleanupTarget, execution *protocol.OperationCleanupExecution) {
+	s.finishOperation(id, result, targets, execution, true)
 }
 
-func (s *Store) finishOperation(id string, result protocol.ManagedOperation, targets []protocol.CleanupTarget, capture bool) {
+func (s *Store) finishOperation(id string, result protocol.ManagedOperation, targets []protocol.CleanupTarget, execution *protocol.OperationCleanupExecution, capture bool) {
 	if result.Status != "succeeded" && result.Status != "failed" && result.Status != "partial" {
 		return
 	}
@@ -100,6 +100,14 @@ func (s *Store) finishOperation(id string, result protocol.ManagedOperation, tar
 			op.Status = result.Status
 			op.CompletedTargets, op.TotalTargets = result.CompletedTargets, result.TotalTargets
 			if capture && op.Kind == "cleanup" {
+				if execution != nil {
+					if protocol.ValidCleanupExecution(*execution, result.Status, result.CompletedTargets, result.TotalTargets) {
+						value := *execution
+						op.CleanupExecution = &value
+					} else {
+						op.CleanupExecutionUnavailable = true
+					}
+				}
 				op.CleanupTargets, op.CleanupTargetsCaptured = cleanupReturnedTargets(id, result, targets)
 				op.CleanupTargetsUnavailable = !op.CleanupTargetsCaptured
 				op.CleanupTargetsTruncated = op.CleanupTargetsCaptured && len(targets) > len(op.CleanupTargets)
@@ -142,6 +150,10 @@ func cloneOperations(operations []protocol.ManagedOperation) []protocol.ManagedO
 	for i := range result {
 		result[i].PhaseTimings = slices.Clone(result[i].PhaseTimings)
 		result[i].CleanupTargets = slices.Clone(result[i].CleanupTargets)
+		if result[i].CleanupExecution != nil {
+			value := *result[i].CleanupExecution
+			result[i].CleanupExecution = &value
+		}
 	}
 	return result
 }

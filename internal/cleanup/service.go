@@ -54,7 +54,9 @@ func (s Service) Preview(ctx context.Context, task protocol.Task, mode integrati
 	return protocol.CleanupPreview{TaskID: task.ID, TaskTitle: task.Title, Targets: targets}, nil
 }
 
-func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, options ExecuteOptions) (protocol.CleanupResult, error) {
+func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, options ExecuteOptions) (result protocol.CleanupResult, err error) {
+	observation := protocol.OperationCleanupExecution{Stage: "admission"}
+	defer func() { result.ExecutionObservation = &observation }()
 	defer phasetiming.Start(ctx, "cleanup_execution")()
 	release, lockErr := operationlock.Acquire(false)
 	if lockErr != nil {
@@ -72,7 +74,7 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 	if len(preview.Targets) == 0 {
 		return protocol.CleanupResult{}, fmt.Errorf("cleanup targets are required")
 	}
-	result := protocol.CleanupResult{TaskID: preview.TaskID, Targets: make([]protocol.CleanupTarget, 0, len(preview.Targets))}
+	result = protocol.CleanupResult{TaskID: preview.TaskID, Targets: make([]protocol.CleanupTarget, 0, len(preview.Targets))}
 	// Acquire the entire set before deleting any resource. Workspace providers
 	// include the anchor, so its shared agent lease protects the full bundle.
 	var releases []func()
@@ -82,6 +84,7 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 		}
 	}()
 	seen := map[string]bool{}
+	observation.Stage = "ownership_and_leases"
 	for _, target := range preview.Targets {
 		if err := ctx.Err(); err != nil {
 			return result, remainingError(preview, result, err)
@@ -98,6 +101,7 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 			seen[target.Path] = true
 		}
 	}
+	observation.Stage = "bundle_preflight"
 	preflightDone := phasetiming.Start(ctx, "cleanup_bundle_preflight")
 	for _, provider := range s.providers {
 		if err := ctx.Err(); err != nil {
@@ -112,6 +116,7 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 		}
 	}
 	preflightDone()
+	observation.Stage = "target_dispatch"
 	for _, target := range preview.Targets {
 		if err := ctx.Err(); err != nil {
 			return result, remainingError(preview, result, err)
@@ -130,13 +135,17 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 			phase = "cleanup_anchor"
 		}
 		done := phasetiming.Start(ctx, phase)
+		observation.Stage = "provider_call"
+		observation.AttemptedTargets++
 		cleaned, err := provider.Cleanup(ctx, integration.CleanupRequest{Target: target, Mode: options.Mode})
 		done()
 		if err != nil {
 			return result, remainingError(preview, result, fmt.Errorf("%s: %w", resourceLabel(target), err))
 		}
 		result.Targets = append(result.Targets, cleaned)
+		observation.Stage = "target_dispatch"
 	}
+	observation.Stage = "completed"
 	return result, nil
 }
 

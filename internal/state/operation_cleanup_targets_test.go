@@ -32,7 +32,7 @@ func TestCleanupReturnedTargetsAreNativeBoundedPrivateAndImmutable(t *testing.T)
 				t.Fatal("running capture invented")
 			}
 			targets := returnedTargetFixture(sample.total)
-			store.FinishCleanupOperation(id, protocol.ManagedOperation{Status: sample.status, CompletedTargets: sample.completed, TotalTargets: sample.total}, targets)
+			store.FinishCleanupOperation(id, protocol.ManagedOperation{Status: sample.status, CompletedTargets: sample.completed, TotalTargets: sample.total}, targets, nil)
 			first := store.DashboardSnapshot()
 			op := first.Operations[0]
 			if !op.CleanupTargetsCaptured || op.CleanupTargetsUnavailable || len(op.CleanupTargets) != min(sample.total, 16) || op.CleanupTargetsTruncated != (sample.total > 16) {
@@ -54,7 +54,7 @@ func TestCleanupReturnedTargetsAreNativeBoundedPrivateAndImmutable(t *testing.T)
 				t.Fatal("private target retained", string(raw))
 			}
 			targets[0].ResourceID = "caller-edit"
-			store.FinishCleanupOperation(id, protocol.ManagedOperation{Status: "failed", TotalTargets: sample.total}, targets)
+			store.FinishCleanupOperation(id, protocol.ManagedOperation{Status: "failed", TotalTargets: sample.total}, targets, nil)
 			if !reflect.DeepEqual(first, store.DashboardSnapshot()) {
 				t.Fatal("duplicate changed first completion")
 			}
@@ -129,7 +129,7 @@ func TestCleanupReturnedTargetsRejectUnsafeAndIncompleteInputWithoutRawFallback(
 				result.TotalTargets = 20
 				targets[19].Kind = "private-command"
 			}
-			store.FinishCleanupOperation(id, result, targets)
+			store.FinishCleanupOperation(id, result, targets, nil)
 			op := store.DashboardSnapshot().Operations[0]
 			if !op.CleanupTargetsUnavailable || op.CleanupTargetsCaptured || len(op.CleanupTargets) != 0 || op.CleanupTargetsTruncated {
 				t.Fatal("bad capture returned plausible subset", op)
@@ -146,12 +146,12 @@ func TestCleanupReturnedTargetsCannotBeInjectedByGenericResultsOrReports(t *test
 		if kind == "cleanup" {
 			store.FinishOperation(id, forged)
 		} else {
-			store.FinishCleanupOperation(id, forged, returnedTargetFixture(1))
+			store.FinishCleanupOperation(id, forged, returnedTargetFixture(1), nil)
 		}
 	}
 	report := store.ReportResourceMutation(protocol.ResourceMutation{TaskID: 7})
 	before := store.Revision()
-	store.FinishCleanupOperation(report, protocol.ManagedOperation{Status: "succeeded", CompletedTargets: 1, TotalTargets: 1}, returnedTargetFixture(1))
+	store.FinishCleanupOperation(report, protocol.ManagedOperation{Status: "succeeded", CompletedTargets: 1, TotalTargets: 1}, returnedTargetFixture(1), nil)
 	if before != store.Revision() {
 		t.Fatal("report became native")
 	}
@@ -161,9 +161,9 @@ func TestCleanupReturnedTargetsCannotBeInjectedByGenericResultsOrReports(t *test
 		}
 	}
 	a := store.BeginOperation("cleanup", 7, "")
-	store.FinishCleanupOperation(a, protocol.ManagedOperation{Status: "succeeded", CompletedTargets: 1, TotalTargets: 1}, returnedTargetFixture(1))
+	store.FinishCleanupOperation(a, protocol.ManagedOperation{Status: "succeeded", CompletedTargets: 1, TotalTargets: 1}, returnedTargetFixture(1), nil)
 	b := store.BeginOperation("cleanup", 7, "")
-	store.FinishCleanupOperation(b, protocol.ManagedOperation{Status: "succeeded", CompletedTargets: 1, TotalTargets: 1}, returnedTargetFixture(1))
+	store.FinishCleanupOperation(b, protocol.ManagedOperation{Status: "succeeded", CompletedTargets: 1, TotalTargets: 1}, returnedTargetFixture(1), nil)
 	ops := store.DashboardSnapshot().Operations
 	if ops[len(ops)-1].CleanupTargets[0].ID == ops[len(ops)-2].CleanupTargets[0].ID {
 		t.Fatal("opaque IDs claimed cross-operation identity")

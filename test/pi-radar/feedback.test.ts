@@ -98,7 +98,7 @@ for(const [evidence,count,eligibility] of [
 });
 function cleanupPreviewFixture(scope = "origin") {
  const id="cleanup-target:"+"a".repeat(64);
- return {diagnostics_schema:27,section:"cleanup_preview",scope,available:true,feedback_workspace_id:"feedback",evidence:"explicit_native_manual_cleanup_preview_not_execution_plan",inventory:{diagnostics_schema:27,section:"cleanup_preview",evidence:"explicit_native_manual_cleanup_preview_not_execution_plan",observed_at:"2026-11-16T18:35:00Z",revision:1,snapshot:"b".repeat(64),total:1,items:[{id,cleanup_preview:{id,cleanup_mode:"manual",record_id:"record",task_id:7,provider:"git",effect:"remove_worktree_and_local_changes",branch_effect:"retain_local_branch",preserved:["remote_repositories"],safety:[],safety_notice_count:0,automatic_blocker_count:0,ownership_evidence:"fresh_bounded_registration",agent_owner_count:0,lease_evidence:"unknown_no_lock_file",execution_eligibility:"unknown_fresh_execution_guards_not_run"}}],pagination_complete:true,resource_refresh_pending:false,limitations:[...cleanupLimitations]}};
+ return {diagnostics_schema:28,section:"cleanup_preview",scope,available:true,feedback_workspace_id:"feedback",evidence:"explicit_native_manual_cleanup_preview_not_execution_plan",inventory:{diagnostics_schema:28,section:"cleanup_preview",evidence:"explicit_native_manual_cleanup_preview_not_execution_plan",observed_at:"2026-11-16T18:35:00Z",revision:1,snapshot:"b".repeat(64),total:1,items:[{id,cleanup_preview:{id,cleanup_mode:"manual",record_id:"record",task_id:7,provider:"git",effect:"remove_worktree_and_local_changes",branch_effect:"retain_local_branch",preserved:["remote_repositories"],safety:[],safety_notice_count:0,automatic_blocker_count:0,ownership_evidence:"fresh_bounded_registration",agent_owner_count:0,lease_evidence:"unknown_no_lock_file",execution_eligibility:"unknown_fresh_execution_guards_not_run"}}],pagination_complete:true,resource_refresh_pending:false,limitations:[...cleanupLimitations]}};
 }
 
 for(const scope of ["origin","feedback","installation"])test(`manual cleanup preview binds approval and ${scope} scope on every page`,async()=>{
@@ -137,7 +137,7 @@ for(const kind of ["scope","parent","envelope","page","row","target","provider",
  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});await assert.rejects(h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",parent_id:"record"},undefined,undefined,h.ctx));
 });
 for(const kind of ["valid","raw","fallback","unknown-reason"])test(`manual cleanup unavailable is unknown without fallback: ${kind}`,async()=>{
- const h=harness();h.activate();h.approvals.push(true);const data:any={diagnostics_schema:27,section:"cleanup_preview",scope:"origin",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason:"daemon_unavailable"};
+ const h=harness();h.activate();h.approvals.push(true);const data:any={diagnostics_schema:28,section:"cleanup_preview",scope:"origin",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason:"daemon_unavailable"};
  if(kind==="raw")data.private="private";if(kind==="fallback")data.inventory=cleanupPreviewFixture().inventory;if(kind==="unknown-reason")data.reason="private";
  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});const call=h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",parent_id:"record"},undefined,undefined,h.ctx);if(kind==="valid")assert.equal((await call).details.available,false);else await assert.rejects(call);
 });
@@ -173,7 +173,7 @@ function harness() {
     on: (event: string, handler: any) => hooks.set(event, handler),
     exec: async (binary: string, args: string[], options: any) => {
       calls.push({ binary, args, options });
-      return { code: 0, stdout: JSON.stringify({ diagnostics_schema:27, section: args[args.indexOf("--section") + 1], version: "v1.2.3", settings:policyFixture(), daemon:{available:false,reason:"daemon_unavailable"}, scope:"installation", private:true, logs:{entries:[],snapshot:"snapshot",pagination_complete:true} }) };
+      return { code: 0, stdout: JSON.stringify({ diagnostics_schema:28, section: args[args.indexOf("--section") + 1], version: "v1.2.3", settings:policyFixture(), daemon:{available:false,reason:"daemon_unavailable"}, scope:"installation", private:true, logs:{entries:[],snapshot:"snapshot",pagination_complete:true} }) };
     },
   } as unknown as ExtensionAPI;
   const session = registerFeedbackSession(pi);
@@ -462,9 +462,9 @@ for (const params of [
 
 for (const data of [
   {section:"tasks"}, {diagnostics_schema:1,section:"tasks"}, {diagnostics_schema:2,section:"tasks"}, {diagnostics_schema:3,section:"tasks"}, {diagnostics_schema:4,section:"tasks"}, {diagnostics_schema:5,section:"tasks"}, {diagnostics_schema:6,section:"tasks"}, {diagnostics_schema:7,section:"tasks"}, {diagnostics_schema:8,section:"tasks"}, {diagnostics_schema:9,section:"tasks"}, {diagnostics_schema:10,section:"tasks"}, {diagnostics_schema:11,section:"tasks"}, {diagnostics_schema:12,section:"tasks"}, {diagnostics_schema:13,section:"tasks"}, {diagnostics_schema:14,section:"tasks"}, {diagnostics_schema:15,section:"tasks"}, {diagnostics_schema:16,section:"tasks"}, {diagnostics_schema:17,section:"tasks"}, {diagnostics_schema:18,section:"tasks"}, {diagnostics_schema:99,section:"tasks"},
-  {diagnostics_schema:27,section:"tasks",available:true},
-  {diagnostics_schema:27,section:"tasks",available:true,inventory:{diagnostics_schema:99,section:"tasks"}},
-  {diagnostics_schema:27,section:"tasks",available:true,inventory:{diagnostics_schema:27,section:"workspaces"}},
+  {diagnostics_schema:28,section:"tasks",available:true},
+  {diagnostics_schema:28,section:"tasks",available:true,inventory:{diagnostics_schema:99,section:"tasks"}},
+  {diagnostics_schema:28,section:"tasks",available:true,inventory:{diagnostics_schema:28,section:"workspaces"}},
 ]) {
   test(`incompatible CLI or daemon inventory fails closed (${JSON.stringify(data)})`,async()=>{
     const h=harness();h.activate();
@@ -492,7 +492,7 @@ test("lifecycle source decisions remain distinct from recorded state without app
   const task={state:"done",lifecycle:{evidence:"production_lifecycle_evaluation_on_cached_inputs",decision:"activity_or_review_pending",source_state:"active",activity_holds:1,recorded_review_pending:false,next_review_pending:true}};
   h.pi.exec=async(binary,args,options)=>{
     h.calls.push({binary,args,options});
-    return {code:0,stdout:JSON.stringify({diagnostics_schema:27,section:"tasks",available:true,inventory:{diagnostics_schema:27,section:"tasks",items:[{id:"record",task}]}}),stderr:"",killed:false};
+    return {code:0,stdout:JSON.stringify({diagnostics_schema:28,section:"tasks",available:true,inventory:{diagnostics_schema:28,section:"tasks",items:[{id:"record",task}]}}),stderr:"",killed:false};
   };
   const result=await h.diagnostic("tasks");
   assert.deepEqual(JSON.parse(result.content[0].text).inventory.items[0].task,task);
@@ -506,7 +506,7 @@ for (const [section,parent_id] of [["source_refs","123"],["bindings","retained-r
     const h=harness();h.activate();
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:27,section,available:true,inventory:{diagnostics_schema:27,section,items:[]}}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:28,section,available:true,inventory:{diagnostics_schema:28,section,items:[]}}),stderr:"",killed:false};
     };
     await h.tools.get("radar_diagnostics").execute("call",{section,parent_id,scope:"origin",limit:5},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section",section,"--json","--scope","origin","--parent-id",parent_id,"--limit","5"]);
@@ -518,10 +518,10 @@ for (const [section,parent_id] of [["source_refs","123"],["bindings","retained-r
 for (const scope of ["origin","feedback","installation"]) {
   test(`workspace resource drill-down preserves ${scope} scope and unknown ownership`,async()=>{
     const h=harness();h.activate();h.approvals.push(true);
-    const inventory={diagnostics_schema:27,section:"workspace_resources",evidence:"fresh_registration_with_cached_task_ownership_agent_ownership_unavailable",total:1,items:[{id:"resource",workspace_resource:{id:"resource",workspace_id:"workspace",kind:"mount",evidence:"fresh_registration",occurrences:1,mount:{path:"/registered/mount",read_only:true}}}],pagination_complete:true};
+    const inventory={diagnostics_schema:28,section:"workspace_resources",evidence:"fresh_registration_with_cached_task_ownership_agent_ownership_unavailable",total:1,items:[{id:"resource",workspace_resource:{id:"resource",workspace_id:"workspace",kind:"mount",evidence:"fresh_registration",occurrences:1,mount:{path:"/registered/mount",read_only:true}}}],pagination_complete:true};
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:27,section:"workspace_resources",available:true,inventory}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:28,section:"workspace_resources",available:true,inventory}),stderr:"",killed:false};
     };
     const result=await h.tools.get("radar_diagnostics").execute("call",{section:"workspace_resources",scope,parent_id:"workspace",id:"resource",limit:3,cursor:"opaque"},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","workspace_resources","--json","--scope",scope,"--id","resource","--parent-id","workspace","--limit","3","--cursor","opaque"]);
@@ -534,10 +534,10 @@ for (const scope of ["origin","feedback","installation"]) {
 for (const scope of ["origin","feedback","installation"]) {
   test(`complete agent schedules preserve ${scope} scope and checkpoint evidence`,async()=>{
     const h=harness();h.activate();h.approvals.push(true);
-    const inventory={diagnostics_schema:27,section:"agent_schedules",evidence:"fresh_schedule_checkpoints_runtime_errors_unknown",total:1,items:[{id:"opaque-schedule",agent_schedule:{id:"opaque-schedule",agent_id:"stopped",schedule:{id:"native-schedule",enabled:false,delivery_problem:true}}}],pagination_complete:true};
+    const inventory={diagnostics_schema:28,section:"agent_schedules",evidence:"fresh_schedule_checkpoints_runtime_errors_unknown",total:1,items:[{id:"opaque-schedule",agent_schedule:{id:"opaque-schedule",agent_id:"stopped",schedule:{id:"native-schedule",enabled:false,delivery_problem:true}}}],pagination_complete:true};
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:27,section:"agent_schedules",available:true,inventory}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:28,section:"agent_schedules",available:true,inventory}),stderr:"",killed:false};
     };
     const result=await h.tools.get("radar_diagnostics").execute("call",{section:"agent_schedules",scope,parent_id:"stopped",id:"opaque-schedule",limit:3,cursor:"opaque"},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","agent_schedules","--json","--scope",scope,"--id","opaque-schedule","--parent-id","stopped","--limit","3","--cursor","opaque"]);
@@ -566,7 +566,7 @@ test("agent inventory rejects private snapshot siblings before model output", as
 const supervisionLimitations = ["registration_and_checkpoints_are_not_runner_liveness", "current_daemon_id_keyed_retry_and_schedule_error_memory_only", "no_retry_record_is_not_success_health_or_stopped_state", "busy_missing_or_ambiguous_supervisor_is_unknown", "observed_at_is_page_capture_not_retry_or_runner_observation_time", "registrations_checkpoints_and_supervision_are_not_atomic", "no_pre_restart_history_or_registration_lifetime_attestation", "retry_not_before_is_not_a_scheduled_execution_guarantee", "stopped_registration_still_holds_ownership", "no_runner_runtime_lease_network_probe_or_maintenance", "private_errors_definitions_and_payloads_withheld", "nested_lists_limited_to_16_entries", "text_fields_limited_to_512_bytes"];
 function agentSupervisionFixture(scope = "origin"): any {
   const evidence = "fresh_registration_persisted_checkpoints_and_available_daemon_supervision";
-  return {diagnostics_schema:27,section:"agents",scope,available:true,feedback_workspace_id:"feedback",origin_workspace_id:"origin",evidence,inventory:{diagnostics_schema:27,section:"agents",evidence,observed_at:"2026-11-17T13:00:00.123456789Z",revision:1,snapshot:"c".repeat(64),total:1,items:[{id:"stopped-owner",agent:{id:"stopped-owner",registered:true,desired:false,workspace:{id:"backing",path:"/work/origin/backing",mode:"local"},ownership_hold:"registered_owner_even_when_stopped",runner_evidence:"unknown_not_probed",lease_evidence:"unknown_not_inspected",snapshot_evidence:"missing_no_runtime_conclusion",collection_evidence:"not_configured",schedules_evidence:"fresh_checkpoint_runtime_errors_unknown",schedule_count:0,schedules:[],truncated:false,supervision_evidence:"current_daemon_retry_and_schedule_errors",supervision:{retry_record_evidence:"current_record",retry:{failed_start_attempts:3,retry_not_before:"2026-11-17T13:00:08Z",start_problem:true},schedule_delivery_problem:true}}}],pagination_complete:true,resource_refresh_pending:false,limitations:[...supervisionLimitations]}};
+  return {diagnostics_schema:28,section:"agents",scope,available:true,feedback_workspace_id:"feedback",origin_workspace_id:"origin",evidence,inventory:{diagnostics_schema:28,section:"agents",evidence,observed_at:"2026-11-17T13:00:00.123456789Z",revision:1,snapshot:"c".repeat(64),total:1,items:[{id:"stopped-owner",agent:{id:"stopped-owner",registered:true,desired:false,workspace:{id:"backing",path:"/work/origin/backing",mode:"local"},ownership_hold:"registered_owner_even_when_stopped",runner_evidence:"unknown_not_probed",lease_evidence:"unknown_not_inspected",snapshot_evidence:"missing_no_runtime_conclusion",collection_evidence:"not_configured",schedules_evidence:"fresh_checkpoint_runtime_errors_unknown",schedule_count:0,schedules:[],truncated:false,supervision_evidence:"current_daemon_retry_and_schedule_errors",supervision:{retry_record_evidence:"current_record",retry:{failed_start_attempts:3,retry_not_before:"2026-11-17T13:00:08Z",start_problem:true},schedule_delivery_problem:true}}}],pagination_complete:true,resource_refresh_pending:false,limitations:[...supervisionLimitations]}};
 }
 for (const scope of ["origin", "feedback", "installation"]) {
   test(`agent inventories use the fixed facade and explicit ${scope} scope`, async () => {
@@ -591,7 +591,7 @@ for (const state of ["retry", "no-record", "unavailable", "page", "empty"]) test
  assert.deepEqual(result.details.inventory,page);assert.deepEqual(h.confirmations,[]);
 });
 for (const reason of ["origin_not_registered","daemon_unavailable","snapshot_changed_restart_pagination"]) test(`unavailable agent inventory stays unknown: ${reason}`,async()=>{
- const h=harness();h.activate();h.pi.exec=async()=>({code:0,stdout:JSON.stringify({diagnostics_schema:27,section:"agents",scope:"origin",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason}),stderr:"",killed:false});
+ const h=harness();h.activate();h.pi.exec=async()=>({code:0,stdout:JSON.stringify({diagnostics_schema:28,section:"agents",scope:"origin",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason}),stderr:"",killed:false});
  const result=await h.tools.get("radar_diagnostics").execute("call",{section:"agents"},undefined,undefined,h.ctx);assert.equal(result.details.available,false);
 });
 for (const kind of ["old-schema","old-page-schema","scope","extra-envelope","extra-page","evidence","limitations","duplicate-limitations","identity","exact-id","private-agent","runner-claim","lease-claim","ownership","unknown-with-values","missing-supervision","unknown-evidence","private-error","retry-error","negative","zero","fraction","unsafe-integer","invalid-time","impossible-time","schedule-error-text","start-error-text","no-record-with-retry","retry-without-record","missing-retry","missing-schedule","duplicate-row","too-many","invalid-cursor","private-reason"]) test(`agent supervision rejects contradictory/private evidence: ${kind}`,async()=>{
@@ -620,10 +620,10 @@ for (const params of [{section:"agents",state:"done"},{section:"agent_schedules"
 for (const scope of ["origin","feedback","installation"]) {
   test(`production GC plans preserve ${scope} scope and unknown execution eligibility`,async()=>{
     const h=harness();h.activate();h.approvals.push(true);
-    const inventory={diagnostics_schema:27,section:"gc_plan",evidence:"production_gc_plan_on_cached_inputs",total:1,items:[{id:"opaque-plan",gc_plan:{id:"opaque-plan",record_id:"record",task_id:7,decision:"candidate",next_stage:"runtime_retirement",execution_eligibility:"unknown_provider_ownership_lease_checks_not_run",occurrences:1}}],pagination_complete:true};
+    const inventory={diagnostics_schema:28,section:"gc_plan",evidence:"production_gc_plan_on_cached_inputs",total:1,items:[{id:"opaque-plan",gc_plan:{id:"opaque-plan",record_id:"record",task_id:7,decision:"candidate",next_stage:"runtime_retirement",execution_eligibility:"unknown_provider_ownership_lease_checks_not_run",occurrences:1}}],pagination_complete:true};
     h.pi.exec=async(binary,args,options)=>{
       h.calls.push({binary,args,options});
-      return {code:0,stdout:JSON.stringify({diagnostics_schema:27,section:"gc_plan",available:true,inventory}),stderr:"",killed:false};
+      return {code:0,stdout:JSON.stringify({diagnostics_schema:28,section:"gc_plan",available:true,inventory}),stderr:"",killed:false};
     };
     const result=await h.tools.get("radar_diagnostics").execute("call",{section:"gc_plan",scope,parent_id:"record",id:"opaque-plan",state:"done",limit:3,cursor:"opaque"},undefined,undefined,h.ctx);
     assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","gc_plan","--json","--scope",scope,"--id","opaque-plan","--parent-id","record","--state","done","--limit","3","--cursor","opaque"]);
@@ -729,8 +729,8 @@ for(const condition of ["abort","MCP loss","request drift"]) test(`log approval 
 
 for(const response of [
   {diagnostics_schema:10,section:"logs",logs:"private raw tail"},
-  {diagnostics_schema:27,section:"logs",private:true,scope:"installation",logs:"private raw tail"},
-  {diagnostics_schema:27,section:"logs",private:true,scope:"origin",logs:{entries:[],snapshot:"x",pagination_complete:true}},
+  {diagnostics_schema:28,section:"logs",private:true,scope:"installation",logs:"private raw tail"},
+  {diagnostics_schema:28,section:"logs",private:true,scope:"origin",logs:{entries:[],snapshot:"x",pagination_complete:true}},
 ])test("old/raw or incorrectly scoped log responses never escape as diagnostics",async()=>{
   const h=harness();h.activate();h.approvals.push(true);
   h.pi.exec=async()=>({code:0,stdout:JSON.stringify(response),stderr:"",killed:false});
@@ -740,7 +740,7 @@ for(const response of [
 
 test("changed private log snapshots remain unavailable, not empty or successful",async()=>{
   const h=harness();h.activate();h.approvals.push(true);
-  const response={diagnostics_schema:27,section:"logs",private:true,scope:"installation",available:false,evidence:"unavailable",reason:"snapshot_changed_restart_pagination"};
+  const response={diagnostics_schema:28,section:"logs",private:true,scope:"installation",available:false,evidence:"unavailable",reason:"snapshot_changed_restart_pagination"};
   h.pi.exec=async()=>({code:0,stdout:JSON.stringify(response),stderr:"",killed:false});
   const result=await h.tools.get("radar_diagnostics").execute("call",{section:"logs",cursor:"stale-page"},undefined,undefined,h.ctx);
   assert.equal(result.details.available,false);assert.equal(result.details.reason,"snapshot_changed_restart_pagination");assert.equal(result.details.logs,undefined);
@@ -772,7 +772,7 @@ for(const mutation of [
 ]) {
   test(`invalid overview policy fails closed (${mutation.toString()})`,async()=>{
     const h=harness();h.activate();const settings=policyFixture();mutation(settings);
-    h.pi.exec=async()=>({code:0,stdout:JSON.stringify({diagnostics_schema:27,section:"overview",settings,daemon:{available:false,reason:"daemon_unavailable"}}),stderr:"",killed:false});
+    h.pi.exec=async()=>({code:0,stdout:JSON.stringify({diagnostics_schema:28,section:"overview",settings,daemon:{available:false,reason:"daemon_unavailable"}}),stderr:"",killed:false});
     await assert.rejects(h.diagnostic("overview"),/Invalid .*configuration policy/);
     assert.deepEqual(h.confirmations,[]);
   });
@@ -781,14 +781,14 @@ for(const mutation of [
 test("unavailable configuration policy remains unknown without an automatic retry or fallback",async()=>{
   const h=harness();h.activate();
   const settings={available:false,scope:"cli_process_global_defaults",location_origin:"user_home",evidence:"unavailable",reason:"configuration_read_unavailable",captured_at:"2026-11-16T13:23:00Z",settings:[]};
-  h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify({diagnostics_schema:27,section:"overview",settings,daemon:{available:false,reason:"daemon_unavailable"}}),stderr:"",killed:false};};
+  h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify({diagnostics_schema:28,section:"overview",settings,daemon:{available:false,reason:"daemon_unavailable"}}),stderr:"",killed:false};};
   const result=await h.diagnostic("overview");
   assert.deepEqual(JSON.parse(result.content[0].text).settings,settings);
   assert.equal(h.calls.length,1);assert.deepEqual(h.confirmations,[]);
 });
 
 function agentProbeFixture(scope = "origin") {
-  return {diagnostics_schema:27,section:"agent_probe",scope,feedback_workspace_id:"feedback-id",evidence:"explicit_agent_socket_probe_no_checkpoint_fallback",available:true,inventory:{diagnostics_schema:27,section:"agent_probe",observed_at:"2026-11-16T14:43:00Z",revision:1,snapshot:"a".repeat(64),resource_refresh_pending:false,limitations:["explicit_exact_registered_agent_socket_only", "matching_hello_is_not_work_execution_or_runtime_health", "snapshot_is_live_point_in_time_not_business_success", "unreachable_is_unknown_not_stopped_or_absent", "stopped_registration_still_holds_ownership", "workspace_runtime_and_leases_not_probed", "no_checkpoint_fallback", "no_startup_refresh_login_or_maintenance", "private_runner_payloads_and_errors_withheld"],evidence:"explicit_agent_socket_probe_no_checkpoint_fallback",total:1,pagination_complete:true,items:[{id:"worker",agent_probe:{id:"worker",registered:true,desired:false,ownership_hold:"registered_owner_even_when_stopped",runner_evidence:"reachable_matching_protocol_identity",snapshot_evidence:"fresh_runner_snapshot",snapshot:{definition_version:1,revision:0,pending:3,attention:true,problem:false},problem:"none",lease_evidence:"unknown_not_inspected"}}]}};
+  return {diagnostics_schema:28,section:"agent_probe",scope,feedback_workspace_id:"feedback-id",evidence:"explicit_agent_socket_probe_no_checkpoint_fallback",available:true,inventory:{diagnostics_schema:28,section:"agent_probe",observed_at:"2026-11-16T14:43:00Z",revision:1,snapshot:"a".repeat(64),resource_refresh_pending:false,limitations:["explicit_exact_registered_agent_socket_only", "matching_hello_is_not_work_execution_or_runtime_health", "snapshot_is_live_point_in_time_not_business_success", "unreachable_is_unknown_not_stopped_or_absent", "stopped_registration_still_holds_ownership", "workspace_runtime_and_leases_not_probed", "no_checkpoint_fallback", "no_startup_refresh_login_or_maintenance", "private_runner_payloads_and_errors_withheld"],evidence:"explicit_agent_socket_probe_no_checkpoint_fallback",total:1,pagination_complete:true,items:[{id:"worker",agent_probe:{id:"worker",registered:true,desired:false,ownership_hold:"registered_owner_even_when_stopped",runner_evidence:"reachable_matching_protocol_identity",snapshot_evidence:"fresh_runner_snapshot",snapshot:{definition_version:1,revision:0,pending:3,attention:true,problem:false},problem:"none",lease_evidence:"unknown_not_inspected"}}]}};
 }
 
 for (const scope of ["origin","feedback","installation"]) test(`live agent probe binds exact approval and ${scope} scope`, async()=>{
@@ -853,7 +853,7 @@ test("agent probe preserves unreachable unknown without inventing stopped state"
 });
 
 for(const kind of ["valid","raw","cached","missing-availability","unknown-reason"]) test(`unavailable agent probe envelope is fail-closed: ${kind}`,async()=>{
- const h=harness();h.activate();h.approvals.push(true);const data:any={diagnostics_schema:27,section:"agent_probe",scope:"origin",feedback_workspace_id:"feedback-id",available:false,evidence:"unavailable",reason:"daemon_unavailable"};
+ const h=harness();h.activate();h.approvals.push(true);const data:any={diagnostics_schema:28,section:"agent_probe",scope:"origin",feedback_workspace_id:"feedback-id",available:false,evidence:"unavailable",reason:"daemon_unavailable"};
  if(kind==="raw")data.raw="private";
  if(kind==="cached")data.inventory=agentProbeFixture().inventory;
  if(kind==="missing-availability")delete data.available;
@@ -864,7 +864,7 @@ for(const kind of ["valid","raw","cached","missing-availability","unknown-reason
 });
 
 function retirementPreviewFixture(scope = "origin") {
-  return {diagnostics_schema:27,section:"retirement_preview",scope,feedback_workspace_id:"feedback-id",available:true,evidence:"explicit_native_registration_only_retirement_preview",inventory:{diagnostics_schema:27,section:"retirement_preview",evidence:"explicit_native_registration_only_retirement_preview",observed_at:"2026-11-16T15:34:00Z",revision:1,snapshot:"a".repeat(64),total:1,pagination_complete:true,resource_refresh_pending:true,limitations:["explicit_exact_workspace_retirement_proposal_only", "cached_gc_candidate_with_fresh_native_registration_path_checks", "runtime_presence_and_state_not_probed", "registered_agent_ownership_counts_are_not_runtime_ownership_or_execution_permission", "stopped_registered_agents_block_retirement", "unavailable_owner_evidence_has_no_count", "runtime_ownership_activity_and_leases_require_fresh_execution_guards", "proposed_runtime_stops_may_interrupt_commands_and_services", "tmux_removal_may_lose_terminal_processes_and_contents", "no_git_fetch_refresh_login_locks_or_mutation", "preview_is_not_execution_eligibility_freshness_token_or_consent", "pending_resource_refresh_may_change_plan", "private_provider_operations_and_errors_withheld"],items:[{id:"registered",retirement_preview:{id:"registered",record_id:"record",task_id:7,stage:"runtime_retirement",execution_eligibility:"unknown_fresh_execution_guards_not_run",ownership_evidence:"fresh_bounded_registration",agent_owner_count:0,lease_evidence:"unknown_not_checked",preserved:["workspace_files","worktrees_and_branches","sandbox_and_local_state","registration"],targets:[{id:"retirement-target:"+"a".repeat(64),provider:"tmux",effect:"remove_terminal_session_and_processes",safety_notice_count:0,automatic_blocker_count:0},{id:"retirement-target:"+"b".repeat(64),provider:"sbx",effect:"stop_sandbox_commands_and_services",safety_notice_count:0,automatic_blocker_count:0},{id:"retirement-target:"+"c".repeat(64),provider:"workspace",effect:"retain_workspace_files_and_registration",safety_notice_count:0,automatic_blocker_count:0}]}}]}};
+  return {diagnostics_schema:28,section:"retirement_preview",scope,feedback_workspace_id:"feedback-id",available:true,evidence:"explicit_native_registration_only_retirement_preview",inventory:{diagnostics_schema:28,section:"retirement_preview",evidence:"explicit_native_registration_only_retirement_preview",observed_at:"2026-11-16T15:34:00Z",revision:1,snapshot:"a".repeat(64),total:1,pagination_complete:true,resource_refresh_pending:true,limitations:["explicit_exact_workspace_retirement_proposal_only", "cached_gc_candidate_with_fresh_native_registration_path_checks", "runtime_presence_and_state_not_probed", "registered_agent_ownership_counts_are_not_runtime_ownership_or_execution_permission", "stopped_registered_agents_block_retirement", "unavailable_owner_evidence_has_no_count", "runtime_ownership_activity_and_leases_require_fresh_execution_guards", "proposed_runtime_stops_may_interrupt_commands_and_services", "tmux_removal_may_lose_terminal_processes_and_contents", "no_git_fetch_refresh_login_locks_or_mutation", "preview_is_not_execution_eligibility_freshness_token_or_consent", "pending_resource_refresh_may_change_plan", "private_provider_operations_and_errors_withheld"],items:[{id:"registered",retirement_preview:{id:"registered",record_id:"record",task_id:7,stage:"runtime_retirement",execution_eligibility:"unknown_fresh_execution_guards_not_run",ownership_evidence:"fresh_bounded_registration",agent_owner_count:0,lease_evidence:"unknown_not_checked",preserved:["workspace_files","worktrees_and_branches","sandbox_and_local_state","registration"],targets:[{id:"retirement-target:"+"a".repeat(64),provider:"tmux",effect:"remove_terminal_session_and_processes",safety_notice_count:0,automatic_blocker_count:0},{id:"retirement-target:"+"b".repeat(64),provider:"sbx",effect:"stop_sandbox_commands_and_services",safety_notice_count:0,automatic_blocker_count:0},{id:"retirement-target:"+"c".repeat(64),provider:"workspace",effect:"retain_workspace_files_and_registration",safety_notice_count:0,automatic_blocker_count:0}]}}]}};
 }
 
 for (const scope of ["origin","feedback","installation"]) test(`retirement preview binds fresh exact target and ${scope} scope`,async()=>{
@@ -933,7 +933,7 @@ for(const kind of ["scope","parent","envelope","page","row","private-preview","p
 });
 
 for(const kind of ["valid","raw","fallback","unknown-reason"])test(`unavailable retirement preview has no fallback: ${kind}`,async()=>{
- const h=harness();h.activate();h.approvals.push(true);const data:any={diagnostics_schema:27,section:"retirement_preview",scope:"origin",feedback_workspace_id:"feedback-id",available:false,evidence:"unavailable",reason:"daemon_unavailable"};
+ const h=harness();h.activate();h.approvals.push(true);const data:any={diagnostics_schema:28,section:"retirement_preview",scope:"origin",feedback_workspace_id:"feedback-id",available:false,evidence:"unavailable",reason:"daemon_unavailable"};
  if(kind==="raw")data.raw="private";
  if(kind==="fallback")data.inventory=retirementPreviewFixture().inventory;
  if(kind==="unknown-reason")data.reason="private-error";
@@ -979,7 +979,7 @@ for (const kind of ["missing", "negative", "fraction", "excess", "unsafe", "stri
 function integrationInventoryFixture(scope="origin"):any {
  const evidence="registered_capabilities_with_cached_installation_status_and_scoped_retained_refs";
  const id="integration:"+"a".repeat(64);
- return {diagnostics_schema:27,section:"integrations",scope,available:true,feedback_workspace_id:"feedback",origin_workspace_id:"origin",evidence,inventory:{diagnostics_schema:27,section:"integrations",evidence,observed_at:"2026-11-17T17:45:00Z",revision:1,snapshot:"b".repeat(64),total:1,items:[{id,integration:{id,name:"provider",label:"Provider",registration_count:1,capability_evidence:"registered_interfaces_only",capabilities:{collection:true,status_check:true,interactive_authentication:false,bound_resolution:true,cleanup:false,runtime_probe:false,rate_limit:false},cached_status_count:1,cached_status:"partial",status_evidence:"cached_installation_status",details_available:true,active_refs:2,inactive_refs:1,refs_with_unknown_observed_at:1,latest_retained_ref_observed_at:"2026-11-16T17:00:00Z",access_evidence:"unknown_not_checked",freshness_evidence:"unknown_cache_freshness_not_established",collection_evidence:"unknown_no_current_daemon_attempt"}}],pagination_complete:true,resource_refresh_pending:false,limitations:["cached_status_is_installation_wide_not_workspace_health", "workspace_scope_selects_only_related_retained_refs", "ref_observation_time_is_not_collection_attempt_or_success", "current_daemon_completed_attempts_are_not_reconciliation_publication_or_business_success", "no_active_attempt_or_pre_restart_history", "attempts_do_not_establish_live_access_or_cache_freshness", "effective_enablement_auth_tools_and_rate_limits_unknown", "registered_capability_is_not_execution_permission", "no_provider_status_collection_auth_rate_limit_probe_or_refresh", "raw_provider_details_withheld", "text_fields_limited_to_512_bytes"]}};
+ return {diagnostics_schema:28,section:"integrations",scope,available:true,feedback_workspace_id:"feedback",origin_workspace_id:"origin",evidence,inventory:{diagnostics_schema:28,section:"integrations",evidence,observed_at:"2026-11-17T17:45:00Z",revision:1,snapshot:"b".repeat(64),total:1,items:[{id,integration:{id,name:"provider",label:"Provider",registration_count:1,capability_evidence:"registered_interfaces_only",capabilities:{collection:true,status_check:true,interactive_authentication:false,bound_resolution:true,cleanup:false,runtime_probe:false,rate_limit:false},cached_status_count:1,cached_status:"partial",status_evidence:"cached_installation_status",details_available:true,active_refs:2,inactive_refs:1,refs_with_unknown_observed_at:1,latest_retained_ref_observed_at:"2026-11-16T17:00:00Z",access_evidence:"unknown_not_checked",freshness_evidence:"unknown_cache_freshness_not_established",collection_evidence:"unknown_no_current_daemon_attempt"}}],pagination_complete:true,resource_refresh_pending:false,limitations:["cached_status_is_installation_wide_not_workspace_health", "workspace_scope_selects_only_related_retained_refs", "ref_observation_time_is_not_collection_attempt_or_success", "current_daemon_completed_attempts_are_not_reconciliation_publication_or_business_success", "no_active_attempt_or_pre_restart_history", "attempts_do_not_establish_live_access_or_cache_freshness", "effective_enablement_auth_tools_and_rate_limits_unknown", "registered_capability_is_not_execution_permission", "no_provider_status_collection_auth_rate_limit_probe_or_refresh", "raw_provider_details_withheld", "text_fields_limited_to_512_bytes"]}};
 }
 function integrationCollectionFixture():any {
  const data=integrationInventoryFixture(),v=data.inventory.items[0].integration;
@@ -1027,7 +1027,7 @@ for (const [name,mutate] of Object.entries({
 function daemonOverviewFixture() {
  const settings=policyFixture();settings.scope="daemon_process_global_defaults";
  settings.settings[0]={key:"workspace.auto_confirm",value:"false",origin:"configuration_file",declaration:"value"};
- return {diagnostics_schema:27,section:"overview",settings:policyFixture(),daemon:{available:true,diagnostics_schema:27,version:"v1.2.3",settings,providers:[{name:"provider",status:"partial",details_available:true}],resource_refresh_pending:true}};
+ return {diagnostics_schema:28,section:"overview",settings:policyFixture(),daemon:{available:true,diagnostics_schema:28,version:"v1.2.3",settings,providers:[{name:"provider",status:"partial",details_available:true}],resource_refresh_pending:true}};
 }
 
 test("overview keeps independent daemon/CLI policy, captures and cached status without approval or probe",async()=>{
@@ -1074,10 +1074,10 @@ test("reachable daemon with unsafe policy remains reachable but policy unknown",
 });
 
 
-const operationLimitations = ["volatile_current_daemon_only_no_pre_restart_history", "active_plus_latest_64_terminal_or_reported_observations_not_complete_history", "observed_at_is_snapshot_read_time_not_operation_time", "workspace_scope_uses_cached_retained_refs_not_verified_ownership", "task_scope_can_include_effects_in_other_workspaces", "client_reports_are_unverified_not_daemon_execution", "handler_success_is_not_resource_verification_or_reconciliation", "cleanup_target_summary_is_first_16_original_ordinals_not_failure_pinpointing", "incomplete_target_may_be_partially_changed_or_not_attempted", "opaque_target_ids_are_operation_local_not_preview_or_replay_tokens", "running_counts_retries_and_lock_waits_unknown", "completed_cleanup_phases_only_no_active_phase_progress", "phase_aggregates_overlap_and_sum_individually_truncated_milliseconds", "missing_phase_evidence_is_unknown_not_zero_or_complete_coverage", "handler_timing_excludes_pre_start_queue_and_post_return_reconciliation", "wall_timestamps_may_jump_elapsed_uses_monotonic_clock", "missing_or_invalid_timing_is_unknown_not_zero", "untracked_gc_runtime_and_remote_operations_not_covered", "no_replay_refresh_probe_or_maintenance", "raw_errors_paths_payloads_and_target_details_withheld"];
+const operationLimitations = ["volatile_current_daemon_only_no_pre_restart_history", "active_plus_latest_64_terminal_or_reported_observations_not_complete_history", "observed_at_is_snapshot_read_time_not_operation_time", "workspace_scope_uses_cached_retained_refs_not_verified_ownership", "task_scope_can_include_effects_in_other_workspaces", "client_reports_are_unverified_not_daemon_execution", "handler_success_is_not_resource_verification_or_reconciliation", "cleanup_target_summary_is_first_16_original_ordinals_not_failure_pinpointing", "incomplete_target_may_be_partially_changed_or_not_attempted", "dispatch_count_is_provider_cleanup_calls_not_resource_outcomes", "opaque_target_ids_are_operation_local_not_preview_or_replay_tokens", "running_counts_retries_and_lock_waits_unknown", "completed_cleanup_phases_only_no_active_phase_progress", "phase_aggregates_overlap_and_sum_individually_truncated_milliseconds", "missing_phase_evidence_is_unknown_not_zero_or_complete_coverage", "handler_timing_excludes_pre_start_queue_and_post_return_reconciliation", "wall_timestamps_may_jump_elapsed_uses_monotonic_clock", "missing_or_invalid_timing_is_unknown_not_zero", "untracked_gc_runtime_and_remote_operations_not_covered", "no_replay_refresh_probe_or_maintenance", "raw_errors_paths_payloads_and_target_details_withheld"];
 function operationFixture(scope = "origin"): any {
   const evidence = "volatile_current_daemon_managed_operation_observations";
-  return {diagnostics_schema:27,section:"operations",scope,available:true,feedback_workspace_id:"feedback",...(scope==="origin"?{origin_workspace_id:"origin"}:{}),evidence,inventory:{diagnostics_schema:27,section:"operations",evidence,observed_at:"2026-11-17T11:30:00.000000001Z",revision:2,snapshot:"a".repeat(64),total:1,items:[{id:"opaque:2",operation:{id:"opaque:2",kind:"cleanup",status:"partial",task_id:7,execution_evidence:"daemon_handler_result_not_resource_verification",target_evidence:"native_cleanup_successful_prefix_only",timing_evidence:"unknown_not_captured",phase_timing_evidence:"unknown_not_captured",cleanup_target_evidence:"unknown_not_captured",completed_targets:1,total_targets:3}}],pagination_complete:true,resource_refresh_pending:true,limitations:[...operationLimitations]}};
+  return {diagnostics_schema:28,section:"operations",scope,available:true,feedback_workspace_id:"feedback",...(scope==="origin"?{origin_workspace_id:"origin"}:{}),evidence,inventory:{diagnostics_schema:28,section:"operations",evidence,observed_at:"2026-11-17T11:30:00.000000001Z",revision:2,snapshot:"a".repeat(64),total:1,items:[{id:"opaque:2",operation:{id:"opaque:2",kind:"cleanup",status:"partial",task_id:7,execution_evidence:"daemon_handler_result_not_resource_verification",target_evidence:"native_cleanup_successful_prefix_only",timing_evidence:"unknown_not_captured",phase_timing_evidence:"unknown_not_captured",cleanup_target_evidence:"unknown_not_captured",cleanup_execution_evidence:"unknown_not_captured",completed_targets:1,total_targets:3}}],pagination_complete:true,resource_refresh_pending:true,limitations:[...operationLimitations]}};
 }
 for (const scope of ["origin","feedback","installation"]) test(`managed operation diagnostics use fixed ${scope} scope without approval or execution`, async () => {
   const h=harness();h.activate();h.ctx.hasUI=false;const data=operationFixture(scope);
@@ -1145,7 +1145,7 @@ test("managed operation cursor pages preserve scope and exact ID drilldown",asyn
  await assert.rejects(tool.execute("call",{section:"operations",id:"other",cursor:"opaque-cursor"},undefined,undefined,h.ctx));
 });
 for(const reason of ["origin_not_registered","daemon_unavailable","snapshot_changed_restart_pagination"])test(`managed operation unavailable remains unknown: ${reason}`,async()=>{
- const h=harness();h.activate();const data:any={diagnostics_schema:27,section:"operations",scope:"origin",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason};
+ const h=harness();h.activate();const data:any={diagnostics_schema:28,section:"operations",scope:"origin",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason};
  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
  const result=await h.diagnostic("operations");assert.equal(result.details.available,false);assert.equal(result.details.inventory,undefined);
  data.inventory=operationFixture().inventory;await assert.rejects(h.diagnostic("operations"));
@@ -1412,7 +1412,7 @@ for(const status of ["ok","partial","error","disabled","unknown"])test(`integrat
  const result=await h.tools.get("radar_diagnostics").execute("call",{section:"integrations",scope:"installation"},undefined,undefined,h.ctx);assert.equal(result.details.inventory.items[0].integration.cached_status,status);
 });
 for(const scope of ["origin","feedback","installation"])for(const reason of ["daemon_unavailable","snapshot_changed_restart_pagination",...(scope==="origin"?["origin_not_registered"]:[])])test(`integration unavailable remains scoped unknown without fallback: ${scope}/${reason}`,async()=>{
- const h=harness();h.activate();const data:any={diagnostics_schema:27,section:"integrations",scope,available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason};
+ const h=harness();h.activate();const data:any={diagnostics_schema:28,section:"integrations",scope,available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason};
  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
  const execute=()=>h.tools.get("radar_diagnostics").execute("call",{section:"integrations",scope},undefined,undefined,h.ctx);
  assert.equal((await execute()).details.available,false);
@@ -1465,7 +1465,7 @@ for(const kind of ["workspace-private","workspace-array","workspace-id","workspa
  assert.deepEqual(h.confirmations,[]);
 });
 for(const scope of ["feedback","installation"])test(`unavailable agent origin cannot be claimed in ${scope} scope`,async()=>{
- const h=harness();h.activate();h.pi.exec=async()=>({code:0,stdout:JSON.stringify({diagnostics_schema:27,section:"agents",scope,available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason:"origin_not_registered"}),stderr:"",killed:false});
+ const h=harness();h.activate();h.pi.exec=async()=>({code:0,stdout:JSON.stringify({diagnostics_schema:28,section:"agents",scope,available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason:"origin_not_registered"}),stderr:"",killed:false});
  await assert.rejects(h.tools.get("radar_diagnostics").execute("call",{section:"agents",scope},undefined,undefined,h.ctx),/Invalid Radar agent/);
 });
 
@@ -1542,4 +1542,76 @@ for(const label of ["unknown_not_captured","unavailable_invalid_or_over_budget"]
 for(const [provider,kind] of [["git","worktree"],["sbx","sandbox"],["tmux","session"],["workspace","workspace"],["workspace","missing_member"]])test(`native cleanup summary permits only fixed provider-kind labels: ${provider}/${kind}`,async()=>{
  const h=harness();h.activate();const data=returnedCleanupTargetsFixture("succeeded",1,1);Object.assign(data.inventory.items[0].operation.cleanup_targets[0],{provider,kind});
  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});assert.equal((await h.diagnostic("operations")).details.inventory.items[0].operation.cleanup_targets[0].kind,kind);
+});
+
+function cleanupDispatchFixture(stage = "provider_call", status = "partial", attempted = 2, completed = 1, total = 3, scope = "origin"): any {
+ const d=operationFixture(scope),op=d.inventory.items[0].operation;
+ Object.assign(op,{status,completed_targets:completed,total_targets:total,cleanup_execution_evidence:"native_executor_dispatch_boundaries_not_resource_verification",cleanup_execution:{stage,attempted_targets:attempted}});
+ return d;
+}
+for(const scope of ["origin","feedback","installation"]) for(const [stage,status,attempted,completed,total] of [
+ ["admission","failed",0,0,0],["admission","failed",0,0,3],["ownership_and_leases","failed",0,0,3],
+ ["bundle_preflight","failed",0,0,3],["target_dispatch","failed",0,0,3],["target_dispatch","partial",1,1,3],
+ ["provider_call","failed",1,0,3],["provider_call","partial",2,1,3],["provider_call","partial",512,511,512],
+ ["completed","succeeded",3,3,3],
+] as const)test(`native cleanup dispatch evidence remains observational: ${scope}/${stage}/${attempted}/${total}`,async()=>{
+ const h=harness();h.activate();h.ctx.hasUI=false;const data=cleanupDispatchFixture(stage,status,attempted,completed,total,scope);
+ h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify(data),stderr:"",killed:false};};
+ const result=await h.tools.get("radar_diagnostics").execute("call",{section:"operations",scope},undefined,undefined,h.ctx);
+ assert.deepEqual(result.details.inventory.items[0].operation.cleanup_execution,data.inventory.items[0].operation.cleanup_execution);
+ assert.equal(h.calls.length,1);assert.deepEqual(h.confirmations,[]);
+ for(const text of ["attempted_targets","provider_call","zero Cleanup calls","No provider-internal steps"])assert.ok(h.session.instructions()?.includes(text),text);
+});
+const invalidCleanupDispatch:Record<string,(d:any)=>void>={
+ "schema27 envelope":d=>{d.diagnostics_schema=27;},"schema27 page":d=>{d.inventory.diagnostics_schema=27;},
+ "missing evidence":d=>{delete d.inventory.items[0].operation.cleanup_execution_evidence;},
+ "private evidence":d=>{d.inventory.items[0].operation.cleanup_execution_evidence="private-value";},
+ "missing observation":d=>{delete d.inventory.items[0].operation.cleanup_execution;},
+ "null observation":d=>{d.inventory.items[0].operation.cleanup_execution=null;},
+ "array observation":d=>{d.inventory.items[0].operation.cleanup_execution=[];},
+ "private sibling":d=>{d.inventory.items[0].operation.cleanup_execution.error="private-value";},
+ "private stage":d=>{d.inventory.items[0].operation.cleanup_execution.stage="private-value";},
+ "missing stage":d=>{delete d.inventory.items[0].operation.cleanup_execution.stage;},
+ "missing count":d=>{delete d.inventory.items[0].operation.cleanup_execution.attempted_targets;},
+ "negative count":d=>{d.inventory.items[0].operation.cleanup_execution.attempted_targets=-1;},
+ "fractional count":d=>{d.inventory.items[0].operation.cleanup_execution.attempted_targets=1.5;},
+ "unsafe count":d=>{d.inventory.items[0].operation.cleanup_execution.attempted_targets=Number.MAX_SAFE_INTEGER+1;},
+ "string count":d=>{d.inventory.items[0].operation.cleanup_execution.attempted_targets="2";},
+ "null count":d=>{d.inventory.items[0].operation.cleanup_execution.attempted_targets=null;},
+ "below complete":d=>{d.inventory.items[0].operation.cleanup_execution.attempted_targets=0;},
+ "above total":d=>{d.inventory.items[0].operation.cleanup_execution.attempted_targets=4;},
+ "not exact error boundary":d=>{d.inventory.items[0].operation.cleanup_execution.attempted_targets=1;},
+ "over-budget":d=>{d.inventory.items[0].operation.total_targets=513;},
+ "false complete":d=>{d.inventory.items[0].operation.cleanup_execution.stage="completed";},
+ "false preflight":d=>{d.inventory.items[0].operation.cleanup_execution.stage="bundle_preflight";},
+ "false admission":d=>{d.inventory.items[0].operation.cleanup_execution.stage="admission";},
+ "false leases":d=>{d.inventory.items[0].operation.cleanup_execution.stage="ownership_and_leases";},
+ "false dispatch":d=>{d.inventory.items[0].operation.cleanup_execution.stage="target_dispatch";},
+ "false success":d=>{d.inventory.items[0].operation.status="succeeded";},
+ "false failure":d=>{d.inventory.items[0].operation.status="failed";},
+ "false partial":d=>{d.inventory.items[0].operation.completed_targets=0;},
+ "zero preflight":d=>{Object.assign(d.inventory.items[0].operation,{status:"failed",completed_targets:0,total_targets:0,cleanup_execution:{stage:"bundle_preflight",attempted_targets:0}});},
+ "unknown with observation":d=>{d.inventory.items[0].operation.cleanup_execution_evidence="unknown_not_captured";},
+ "unavailable with observation":d=>{d.inventory.items[0].operation.cleanup_execution_evidence="unavailable_invalid_or_over_budget";},
+ "running":d=>{Object.assign(d.inventory.items[0].operation,{status:"running",execution_evidence:"daemon_handler_running",target_evidence:"unknown_not_captured"});delete d.inventory.items[0].operation.completed_targets;delete d.inventory.items[0].operation.total_targets;},
+ "reported":d=>{Object.assign(d.inventory.items[0].operation,{kind:"workspace",status:"reported",execution_evidence:"unverified_client_report_not_daemon_execution",target_evidence:"unknown_not_captured"});delete d.inventory.items[0].operation.completed_targets;delete d.inventory.items[0].operation.total_targets;},
+ "other kind":d=>{d.inventory.items[0].operation.kind="task-note";},
+};
+for(const [name,mutate] of Object.entries(invalidCleanupDispatch))test(`native cleanup dispatch rejects unsafe evidence before delivery: ${name}`,async()=>{
+ const h=harness();h.activate();const data=cleanupDispatchFixture();mutate(data);
+ h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+ await assert.rejects(h.diagnostic("operations"),error=>error instanceof Error && !error.message.includes("private-value"));
+ assert.deepEqual(h.confirmations,[]);
+});
+for(const evidence of ["unknown_not_captured","unavailable_invalid_or_over_budget"])test(`native cleanup dispatch ${evidence} has no guessed fields`,async()=>{
+ const h=harness();h.activate();const data=operationFixture();data.inventory.items[0].operation.cleanup_execution_evidence=evidence;
+ h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+ assert.equal((await h.diagnostic("operations")).details.inventory.items[0].operation.cleanup_execution,undefined);
+});
+test("native cleanup dispatch remains independent of truncated target-return summary",async()=>{
+ const h=harness();h.activate();const data=returnedCleanupTargetsFixture("partial",512,511);
+ Object.assign(data.inventory.items[0].operation,{cleanup_execution_evidence:"native_executor_dispatch_boundaries_not_resource_verification",cleanup_execution:{stage:"provider_call",attempted_targets:512}});
+ h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+ const op=(await h.diagnostic("operations")).details.inventory.items[0].operation;
+ assert.equal(op.cleanup_targets.length,16);assert.equal(op.cleanup_targets_truncated,true);assert.equal(op.cleanup_execution.attempted_targets,512);
 });

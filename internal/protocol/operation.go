@@ -3,6 +3,8 @@ package protocol
 // ManagedOperation is current-daemon evidence, not a durable job or permission
 // to replay an action. Reported changes were executed by a client, not daemon.
 type ManagedOperation struct {
+	CleanupExecution            *OperationCleanupExecution `json:"cleanup_execution,omitempty"`
+	CleanupExecutionUnavailable bool                       `json:"cleanup_execution_unavailable,omitempty"`
 	// Captured only at the native cleanup handler return, never from reports.
 	CleanupTargets            []OperationCleanupTarget `json:"cleanup_targets,omitempty"`
 	CleanupTargetsCaptured    bool                     `json:"cleanup_targets_captured,omitempty"`
@@ -24,6 +26,37 @@ type ManagedOperation struct {
 	Status              string `json:"status"`
 	CompletedTargets    int    `json:"completed_targets,omitempty"`
 	TotalTargets        int    `json:"total_targets,omitempty"`
+}
+
+// OperationCleanupExecution observes native dispatch boundaries, not provider
+// internals or resource outcomes. AttemptedTargets counts provider Cleanup calls
+// entered, including a call that returns an error after possibly changing data.
+type OperationCleanupExecution struct {
+	Stage            string `json:"stage"`
+	AttemptedTargets int    `json:"attempted_targets"`
+}
+
+func ValidCleanupExecution(v OperationCleanupExecution, status string, completed, total int) bool {
+	if total < 0 || total > 512 || completed < 0 || completed > total || v.AttemptedTargets < completed || v.AttemptedTargets > total {
+		return false
+	}
+	if status != "succeeded" && status != "failed" && status != "partial" ||
+		(status == "succeeded" && completed != total) ||
+		(status == "failed" && completed != 0) ||
+		(status == "partial" && (completed == 0 || completed == total)) {
+		return false
+	}
+	switch v.Stage {
+	case "admission", "ownership_and_leases", "bundle_preflight":
+		return status == "failed" && v.AttemptedTargets == 0 && (v.Stage == "admission" || total > 0)
+	case "target_dispatch":
+		return status != "succeeded" && completed < total && v.AttemptedTargets == completed
+	case "provider_call":
+		return status != "succeeded" && completed < total && v.AttemptedTargets == completed+1
+	case "completed":
+		return status == "succeeded" && total > 0 && v.AttemptedTargets == total
+	}
+	return false
 }
 
 // OperationCleanupTarget identifies an ordinal in the handler's original target

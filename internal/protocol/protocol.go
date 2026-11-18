@@ -81,10 +81,12 @@ type CleanupPreview struct {
 }
 
 type CleanupResult struct {
-	OperationID            string          `json:"operation_id,omitempty"`
-	ResourceRefreshPending bool            `json:"resource_refresh_pending,omitempty"`
-	TaskID                 int             `json:"task_id"`
-	Targets                []CleanupTarget `json:"targets"`
+	// In-process native executor observation only. Requests/JSON cannot supply it.
+	ExecutionObservation   *OperationCleanupExecution `json:"-"`
+	OperationID            string                     `json:"operation_id,omitempty"`
+	ResourceRefreshPending bool                       `json:"resource_refresh_pending,omitempty"`
+	TaskID                 int                        `json:"task_id"`
+	Targets                []CleanupTarget            `json:"targets"`
 }
 
 type GarbageCollectionItem struct {

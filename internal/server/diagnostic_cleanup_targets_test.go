@@ -43,10 +43,19 @@ func TestNativeCleanupReturnedTargetsReachDiagnosticsWithoutExecutingOnInspectio
 			before := store.DashboardSnapshot()
 			calls := provider.calls
 			view := managedPipeCall(t, s, protocol.Request{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "operations", ID: result.OperationID}})
-			if !view.OK || view.Diagnostics == nil || view.Diagnostics.Schema != 27 || view.Diagnostics.Total != 1 {
+			if !view.OK || view.Diagnostics == nil || view.Diagnostics.Schema != 28 || view.Diagnostics.Total != 1 {
 				t.Fatal("RPC bridge", view)
 			}
 			op := view.Diagnostics.Items[0].Operation
+			stage := "completed"
+			if mode == "partial" {
+				stage = "provider_call"
+			} else if mode == "cancelled-before-provider" {
+				stage = "ownership_and_leases"
+			}
+			if op.CleanupExecutionEvidence != "native_executor_dispatch_boundaries_not_resource_verification" || op.CleanupExecution == nil || op.CleanupExecution.Stage != stage || op.CleanupExecution.AttemptedTargets != provider.calls {
+				t.Fatal("native executor dispatch bridge lost", op)
+			}
 			if op.CleanupTargetEvidence != "native_returned_target_prefix_not_resource_verification" || len(op.CleanupTargets) != 2 || op.CleanupTargetsTruncated == nil || *op.CleanupTargetsTruncated {
 				t.Fatal("capture missing", op)
 			}
