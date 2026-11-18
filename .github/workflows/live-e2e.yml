@@ -64,6 +64,20 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Check required environment inputs before preparing the runner
+        env:
+          LIVE_E2E_SESSIONS: ${{ secrets.LIVE_E2E_SESSIONS }}
+          LIVE_E2E_STATE_WRITER_TOKEN: ${{ secrets.LIVE_E2E_STATE_WRITER_TOKEN }}
+          LIVE_E2E_GITHUB_TOKEN: ${{ secrets.LIVE_E2E_GITHUB_TOKEN }}
+        run: |
+          missing=0
+          for name in LIVE_E2E_SESSIONS LIVE_E2E_STATE_WRITER_TOKEN LIVE_E2E_GITHUB_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Configure $name in live-e2e-main before running provider E2E. See docs/live-e2e.md."
+              missing=1
+            fi
+          done
+          exit "$missing"
       - uses: pnpm/action-setup@v6.1.0
       - uses: actions/setup-node@v7.1.0
         with:

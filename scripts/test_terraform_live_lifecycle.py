@@ -232,6 +232,16 @@ class LifecycleSafeguards(unittest.TestCase):
                 for private in ("private", "synthetic-token", "code=secret", "/unused/radar"):
                     self.assertNotIn(private, diagnostic)
 
+    def test_refresh_timeout_and_status_mismatch_do_not_log_private_values(self):
+        daemon = object.__new__(live.Daemon)
+        daemon.fixture = self.fixture
+        with patch.object(daemon, "rpc", side_effect=TimeoutError("private payload")):
+            with self.assertRaisesRegex(live.Failure, r"^Terraform daemon refresh timed out after \d+s \(attempt 1/3, expected source status ok\)\.$"):
+                daemon.snapshot()
+        with patch.object(daemon, "rpc", return_value={"sources": [{"name": "terraform", "status": "private payload"}]}):
+            with self.assertRaisesRegex(live.Failure, r"^Terraform source status differs \(expected ok, got unrecognized\) in a non-pending daemon snapshot\.$"):
+                daemon.snapshot()
+
     def test_pending_startup_snapshot_requires_a_fresh_remote_status(self):
         daemon = object.__new__(live.Daemon)
         daemon.fixture = self.fixture

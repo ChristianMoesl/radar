@@ -77,8 +77,13 @@ and restores only MCP state; full collector and MCP-only bundles cannot be
 restored in each other's scope. Existing full-bundle behavior is retained.
 
 Only sanitized JUnit results are uploaded, for 14 days. Runner credential files
-are removed after the job. Interrupted writeback may require reauthentication
-and explicit reseeding. No source store is deleted or remote grant revoked.
+are removed after the job. Interrupted writeback or a rejected OAuth grant can
+require a new sign-in. If Actions reports `MCP_AUTH_REQUIRED`, wait for the
+current run to finish, select the dedicated CI profiles on a computer with a
+browser, run `radar-mcp login <provider>` for the affected provider, then rerun
+the setup command above. It qualifies both providers locally before reseeding
+`MCP_LIVE_SESSIONS` and dispatching CI. A workflow rerun alone cannot replace
+an invalid grant. Do not reuse the separate combined provider grant.
 
 A successful run proves native read contracts, completeness and reconnect on
 the selected platforms. The harness also records whether each access token was

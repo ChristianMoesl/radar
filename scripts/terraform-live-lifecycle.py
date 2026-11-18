@@ -24,6 +24,9 @@ HOST = "app.terraform.io"
 ORGANIZATION = "radar-oss"
 WORKSPACE = "radar-oauth-e2e"
 FILES = ("main.tf", "variables.tf", "outputs.tf")
+# Successful live scans have already exceeded 90s. Leave room for one slow
+# read to recover while the workflow still caps the entire lifecycle step.
+REFRESH_TIMEOUT = 150
 TERMINAL = {"applied", "planned_and_finished", "errored", "canceled", "force_canceled", "discarded", "policy_soft_failed"}
 
 
@@ -266,7 +269,7 @@ class Daemon:
             **{source: {"enabled": False} for source in ("github", "jira", "datadog", "sbx")},
             "terraform": {"enabled": True, "profile": "default", "organization": ORGANIZATION, "workspaces": [WORKSPACE]}}))
 
-    def rpc(self, method, timeout=90):
+    def rpc(self, method, timeout=REFRESH_TIMEOUT):
         with socket.socket(socket.AF_UNIX) as connection:
             connection.settimeout(timeout)
             connection.connect(self.env["RADAR_SOCKET"])
@@ -313,11 +316,20 @@ class Daemon:
         # Pending responses may contain local-only status or persisted old
         # facts. Retry mismatches only while that explicit marker is present.
         for attempt in range(3):
-            result = self.rpc("refresh")
+            try:
+                result = self.rpc("refresh")
+            except TimeoutError:
+                raise Failure(f"Terraform daemon refresh timed out after {REFRESH_TIMEOUT}s "
+                              f"(attempt {attempt + 1}/3, expected source status {source_status}).") from None
             source = next((item for item in result.get("sources", []) if item["name"] == "terraform"), None)
             mismatch = "Terraform status is missing"
             if source is not None:
-                mismatch = "Terraform source status differs" if source["status"] != source_status else ""
+                actual = source.get("status")
+                if actual == source_status:
+                    mismatch = ""
+                else:
+                    safe_status = actual if actual in ("ok", "partial", "error", "disabled", "unavailable") else "unrecognized"
+                    mismatch = f"Terraform source status differs (expected {source_status}, got {safe_status})"
                 facts = {}
                 for task in result.get("tasks", []):
                     for ref in task.get("source_refs", []):

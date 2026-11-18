@@ -131,20 +131,26 @@ func (s Source) observe(ctx context.Context, session session, cfg settings.Confi
 	if validID(cvID, "cv-") {
 		metadata["configuration_version_id"] = cvID
 	}
+	var ingressAbsent bool
 	for _, item := range included {
-		if item.Type == "configuration-versions" && item.ID == run.related("configuration-version").ID {
-			for _, linked := range included {
-				if linked.Type == "ingress-attributes" && linked.ID == item.related("ingress-attributes").ID {
-					ingress = linked
-				}
+		if item.Type != "configuration-versions" || item.ID != cvID {
+			continue
+		}
+		// CLI/API-driven versions may explicitly have no VCS metadata. Only
+		// null linkage proves absence; omitted linkage still needs the GET.
+		ingressAbsent = item.relationshipIsNull("ingress-attributes")
+		ingressID := item.related("ingress-attributes").ID
+		for _, linked := range included {
+			if ingressID != "" && linked.Type == "ingress-attributes" && linked.ID == ingressID {
+				ingress = linked
+				break
 			}
 		}
+		break
 	}
-	if ingress.ID == "" {
-		if cv := run.related("configuration-version").ID; validID(cv, "cv-") {
-			if doc, e := session.client.get(ctx, "/configuration-versions/"+cv+"/ingress-attributes"); e == nil {
-				ingress, _ = doc.one("ingress-attributes")
-			}
+	if ingress.ID == "" && !ingressAbsent && validID(cvID, "cv-") {
+		if doc, e := session.client.get(ctx, "/configuration-versions/"+cvID+"/ingress-attributes"); e == nil {
+			ingress, _ = doc.one("ingress-attributes")
 		}
 	}
 	var git ingressAttributes

@@ -1,6 +1,7 @@
 package terraform
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -26,6 +27,13 @@ func (r resource) related(name string) linkage {
 	}
 	_ = json.Unmarshal(r.Relationships[name], &relation)
 	return relation.Data
+}
+
+func (r resource) relationshipIsNull(name string) bool {
+	var relation struct {
+		Data json.RawMessage `json:"data"`
+	}
+	return json.Unmarshal(r.Relationships[name], &relation) == nil && bytes.Equal(bytes.TrimSpace(relation.Data), []byte("null"))
 }
 
 type document struct {

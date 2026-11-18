@@ -25,7 +25,7 @@ def command(arguments, directory, env, timeout, expect_failure=False):
         result = subprocess.run(["terraform", f"-chdir={directory}", *arguments],
                                 capture_output=True, text=True, env=env, timeout=timeout)
     except subprocess.TimeoutExpired:
-        raise Failure("Terraform fixture operation timed out; inspect the disposable workspace before retrying.") from None
+        raise Failure(f"Terraform fixture {arguments[0]} timed out after {timeout}s; inspect the disposable workspace before retrying.") from None
     output = result.stdout + "\n" + result.stderr
     if expect_failure:
         if result.returncode != 1 or "Error: Resource precondition failed" not in output or INTENTIONAL_FAILURE not in output:

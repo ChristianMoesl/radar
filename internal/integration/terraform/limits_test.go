@@ -3,6 +3,7 @@ package terraform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -136,6 +137,84 @@ func TestRunPagePacingAllowsSlowRequestsAndCancellation(t *testing.T) {
 			t.Fatal("canceled scan should not make an initial request", err)
 		}
 	})
+}
+
+func TestRunScanRetriesOnlyAReadTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		first     error
+		retry     error
+		wantCalls int
+	}{
+		{"recovers", fmt.Errorf("private response: %w", context.DeadlineExceeded), nil, 2},
+		{"bounded", context.DeadlineExceeded, context.DeadlineExceeded, 2},
+		{"other failure", errors.New("private response"), nil, 1},
+		{"canceled", context.Canceled, nil, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				s, api, _ := fixtureSource(t, runFixture("run-one", "applied", "user-me"))
+				calls := 0
+				start := time.Now()
+				api.pages = func(u *url.URL) (string, error) {
+					calls++
+					if u.Query().Get("page[number]") != "1" {
+						t.Fatalf("retry skipped the missing page")
+					}
+					if calls == 1 {
+						return "", tc.first
+					}
+					if time.Since(start) < runListInterval {
+						t.Fatal("retry ignored run-list pacing")
+					}
+					return encode(map[string]any{"data": api.runs, "links": map[string]any{"next": nil}}), tc.retry
+				}
+				result := s.Collect(context.Background(), integration.CollectRequest{})
+				if calls != tc.wantCalls || result.Complete != (tc.name == "recovers") {
+					t.Fatalf("calls=%d, complete=%v, status=%+v", calls, result.Complete, result.SourceStatus)
+				}
+				if result.Complete && len(result.Observations) != 1 {
+					t.Fatal("retry lost the requested page")
+				}
+				if !result.Complete && (!strings.Contains(result.SourceStatus.Detail, "run list page 1") || strings.Contains(result.SourceStatus.Detail, "private response")) {
+					t.Fatalf("missing or unsafe failure detail: %q", result.SourceStatus.Detail)
+				}
+			})
+		})
+	}
+}
+
+func TestIngressFallbackDistinguishesAbsentFromOmittedLinkage(t *testing.T) {
+	s, _, cfg := fixtureSource(t)
+	r := runFixture("run-one", "applied", "user-me")
+	r.Relationships["configuration-version"] = rel("cv-one", "configuration-versions")
+	for _, tc := range []struct {
+		name      string
+		link      json.RawMessage
+		wantCalls int
+	}{
+		{"explicit absence", raw(map[string]any{"data": nil}), 0},
+		{"omitted linkage", raw(map[string]any{"links": map[string]any{}}), 1},
+		{"not included", rel("ia-one", "ingress-attributes"), 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			sess := session{host: "app.terraform.io", userID: "user-me", spaces: map[string]string{"ws-one": "production-network"},
+				client: client{profile: "default", output: func(_ context.Context, command setup.Command) (string, error) {
+					calls++
+					if command.Args[1] != "/configuration-versions/cv-one/ingress-attributes" {
+						t.Fatal("unexpected enrichment path")
+					}
+					return encode(map[string]any{"data": resource{ID: "ia-one", Type: "ingress-attributes", Attributes: raw(ingressAttributes{Branch: "ABC-123"})}}), nil
+				}}}
+			included := []resource{{ID: "cv-one", Type: "configuration-versions", Relationships: map[string]json.RawMessage{"ingress-attributes": tc.link}}}
+			observed, owned, err := s.observe(context.Background(), sess, cfg, r, included, integration.CollectRequest{})
+			if err != nil || !owned || observed.Ref.Metadata["configuration_version_id"] != "cv-one" || calls != tc.wantCalls ||
+				(observed.Ref.Metadata["source_branch"] == "ABC-123") != (tc.wantCalls != 0) {
+				t.Fatalf("calls=%d, owned=%v, observed=%+v, err=%v", calls, owned, observed, err)
+			}
+		})
+	}
 }
 
 func TestUnavailableImmutableContextRetainsKnownAssociations(t *testing.T) {

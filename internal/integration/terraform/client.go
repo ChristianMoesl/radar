@@ -4,6 +4,7 @@ package terraform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -53,6 +54,13 @@ func (c client) get(ctx context.Context, path string) (document, error) {
 	}
 	data, err := c.run(ctx, "api", path, "--method=GET")
 	if err != nil {
+		// Keep known context outcomes, never subprocess diagnostics.
+		if errors.Is(err, context.DeadlineExceeded) {
+			return document{}, fmt.Errorf("tfctl read timed out: %w", context.DeadlineExceeded)
+		}
+		if errors.Is(err, context.Canceled) {
+			return document{}, fmt.Errorf("tfctl read canceled: %w", context.Canceled)
+		}
 		return document{}, fmt.Errorf("Terraform read failed; check tfctl authentication, access and connectivity")
 	}
 	var doc document

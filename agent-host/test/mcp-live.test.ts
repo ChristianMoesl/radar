@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import { McpServices, mcpPaths } from "../src/mcp.ts";
+import { McpAuthenticationError, McpServices, mcpPaths } from "../src/mcp.ts";
 import { jiraRead } from "../examples/jira-mcp.ts";
 import { schemaShape } from "./mcp-contract-shape.ts";
 
@@ -49,6 +49,7 @@ test(
       expired.set(server, expiry !== undefined && expiry <= Date.now());
     }
     const selectedIssues = new Map<string, string[]>();
+    const reportedAuthFailures = new Set<string>();
     for (const fixture of fixtures) {
       await context.test(`${fixture.server} / ${fixture.tool}`, async () => {
         for (let attempt = 0; attempt < 2; attempt++) {
@@ -145,6 +146,18 @@ test(
               result.structuredContent !== undefined || result.content?.length,
               "a live MCP read must return evidence; success alone does not establish ingestion",
             );
+          } catch (error) {
+            const summary = process.env.GITHUB_STEP_SUMMARY;
+            if (summary && error instanceof McpAuthenticationError &&
+                (error.profile === "datadog" || error.profile === "jira") &&
+                !reportedAuthFailures.has(error.profile)) {
+              reportedAuthFailures.add(error.profile);
+              // Actions needs an owner-facing recovery step, not another retry
+              // of the same rejected grant. Keep the original test failure.
+              const recovery = `- **${error.profile} MCP sign-in required (${error.reason}).** Reauthenticate the dedicated profile with \`radar-mcp login ${error.profile}\`, then reseed the session for this workflow. See \`docs/mcp-live.md\` or \`docs/live-e2e.md\`.\n`;
+              await appendFile(summary, recovery).catch(() => console.error(recovery.trim()));
+            }
+            throw error;
           } finally {
             await client.close();
           }

@@ -3,6 +3,7 @@ package terraform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -49,9 +50,19 @@ scan:
 			}
 			lastRequest = time.Now()
 			query.Set("page[number]", strconv.Itoa(page))
-			doc, err := session.client.get(ctx, path+"?"+query.Encode())
+			endpoint := path + "?" + query.Encode()
+			doc, err := session.client.get(ctx, endpoint)
+			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+				// Retry only the timed-out GET, once, at the same scan pace.
+				if err := waitForRunPage(ctx, lastRequest); err != nil {
+					addFailure(&result, "Terraform run scan interrupted; previous facts retained")
+					break scan
+				}
+				lastRequest = time.Now()
+				doc, err = session.client.get(ctx, endpoint)
+			}
 			if err != nil {
-				addFailure(&result, err.Error())
+				addFailure(&result, fmt.Sprintf("Terraform run list page %d (%s): %v", page, time.Since(lastRequest).Round(time.Millisecond), err))
 				break
 			}
 			var records []resource
