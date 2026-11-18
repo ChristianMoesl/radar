@@ -11,9 +11,10 @@ import (
 )
 
 type fakeMultiplexer struct {
-	created  integration.EnsureSessionRequest
-	opened   integration.OpenWindowRequest
+	opened   integration.OpenSessionRequest
 	existing bool
+	calls    int
+	switches int
 }
 
 type availableRunner struct{}
@@ -36,16 +37,16 @@ func (fakeMultiplexer) AttachCommand(context.Context, integration.SessionTarget)
 func (fakeMultiplexer) Current(context.Context) (integration.SessionContext, bool, error) {
 	return integration.SessionContext{}, false, nil
 }
-func (m *fakeMultiplexer) EnsureSession(_ context.Context, req integration.EnsureSessionRequest) (integration.Session, error) {
-	m.created = req
+func (m *fakeMultiplexer) OpenSession(_ context.Context, req integration.OpenSessionRequest) (integration.Session, error) {
+	m.opened = req
+	m.calls++
 	return integration.Session{Name: req.Name, Created: !m.existing}, nil
 }
-func (m *fakeMultiplexer) OpenWindow(_ context.Context, req integration.OpenWindowRequest) error {
-	m.opened = req
+func (m *fakeMultiplexer) Switch(context.Context, integration.SessionTarget) error {
+	m.switches++
 	return nil
 }
-func (fakeMultiplexer) Switch(context.Context, integration.SessionTarget) error { return nil }
-func (fakeMultiplexer) Target(protocol.Task) string                             { return "" }
+func (fakeMultiplexer) Target(protocol.Task) string { return "" }
 func (fakeMultiplexer) MatchesCurrent(protocol.SourceRef, protocol.CurrentContext) bool {
 	return false
 }
@@ -65,8 +66,8 @@ func TestOpenShellCreatesSessionThroughMultiplexer(t *testing.T) {
 	if sbxclient.IsWSL() {
 		wantCommand = "env " + sbxclient.CacheEnvironment + "=0 " + wantCommand
 	}
-	if multiplexer.created.Name != "repo-ABC-600-shell" || multiplexer.created.FirstCommand != wantCommand {
-		t.Fatalf("request = %+v", multiplexer.created)
+	if multiplexer.opened.Name != "repo-ABC-600-shell" || multiplexer.opened.Command != wantCommand || multiplexer.opened.Window != "sbx" || !multiplexer.opened.Switch || multiplexer.calls != 1 || multiplexer.switches != 0 {
+		t.Fatalf("request = %+v calls=%d split switches=%d", multiplexer.opened, multiplexer.calls, multiplexer.switches)
 	}
 }
 
@@ -78,7 +79,7 @@ func TestOpenShellOpensWindowThroughMultiplexer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.CreatedSession || result.SessionName != "$3" || multiplexer.opened.SessionName != "$3" {
+	if result.CreatedSession || result.SessionName != "$3" || multiplexer.opened.Name != "$3" || multiplexer.opened.Switch || multiplexer.calls != 1 || multiplexer.switches != 0 {
 		t.Fatalf("result = %+v request = %+v", result, multiplexer.opened)
 	}
 }

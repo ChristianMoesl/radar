@@ -183,12 +183,8 @@ func (Source) Current(ctx context.Context) (integration.SessionContext, bool, er
 	return current, true, nil
 }
 
-func (Source) EnsureSession(ctx context.Context, req integration.EnsureSessionRequest) (integration.Session, error) {
-	return ensureSession(ctx, workspace.ExecRunner{}, req)
-}
-
-func (Source) OpenWindow(ctx context.Context, req integration.OpenWindowRequest) error {
-	return openWindow(ctx, workspace.ExecRunner{}, req)
+func (Source) OpenSession(ctx context.Context, req integration.OpenSessionRequest) (integration.Session, error) {
+	return openSession(ctx, workspace.ExecRunner{}, req)
 }
 
 func (Source) Target(task protocol.Task) string {

@@ -227,21 +227,11 @@ func openShell(ctx context.Context, runner workspace.Runner, multiplexer integra
 	}
 	path := strings.TrimSpace(ref.Path)
 	result := OpenShellResult{SessionName: sessionName}
-	session, err := multiplexer.EnsureSession(ctx, integration.EnsureSessionRequest{Name: sessionName, Path: path, FirstWindow: "sbx", FirstCommand: command})
+	session, err := multiplexer.OpenSession(ctx, integration.OpenSessionRequest{Name: sessionName, Path: path, Window: "sbx", Command: command, Switch: options.SwitchClient})
 	if err != nil {
 		return OpenShellResult{}, err
 	}
 	result.CreatedSession = session.Created
-	if !session.Created {
-		if err := multiplexer.OpenWindow(ctx, integration.OpenWindowRequest{SessionName: sessionName, Name: "sbx", Path: path, Command: command}); err != nil {
-			return OpenShellResult{}, err
-		}
-	}
-	if options.SwitchClient {
-		if err := multiplexer.Switch(ctx, integration.SessionTarget{Name: sessionName}); err != nil {
-			return OpenShellResult{}, err
-		}
-	}
 	return result, nil
 }
 

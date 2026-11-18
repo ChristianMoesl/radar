@@ -85,8 +85,8 @@ func TestWindowsSBXLifecycleE2E(t *testing.T) {
 		if _, err := openShell(ctx, workspace.ExecRunner{}, multiplexer, ref, OpenShellOptions{}); err != nil {
 			t.Fatal(err)
 		}
-		if multiplexer.created.FirstCommand != "cd / && exec sbx.exe run --name '"+name+"'" || multiplexer.created.Path != mount {
-			t.Fatalf("shell action: %+v", multiplexer.created)
+		if multiplexer.opened.Command != "cd / && exec sbx.exe run --name '"+name+"'" || multiplexer.opened.Path != mount {
+			t.Fatalf("shell action: %+v", multiplexer.opened)
 		}
 	}
 	if !found {

@@ -11,9 +11,10 @@ import (
 	"radar/internal/operationlock"
 )
 
-// EnsureSession and OpenWindow are used by sandbox-shell navigation as well as
-// workspace navigation. Paths alone do not identify their shared tmux runtime.
-func ensureSession(ctx context.Context, runner workspace.Runner, req integration.EnsureSessionRequest) (integration.Session, error) {
+// Keep the whole command-opening handoff admitted. Splitting existence, window
+// creation and switching into separate provider calls lets cleanup enter their
+// gaps or lets a later name lookup silently select a replacement runtime.
+func openSession(ctx context.Context, runner workspace.Runner, req integration.OpenSessionRequest) (integration.Session, error) {
 	if err := ctx.Err(); err != nil {
 		return integration.Session{}, err
 	}
@@ -37,16 +38,16 @@ func ensureSession(ctx context.Context, runner workspace.Runner, req integration
 	if err != nil {
 		return integration.Session{}, err
 	}
+	window := req.Window
+	if window == "" {
+		window = "pi"
+	}
+	command := req.Command
+	if command == "" {
+		command = "pi"
+	}
 	created := identity.ID == ""
 	if created {
-		window := req.FirstWindow
-		if window == "" {
-			window = "pi"
-		}
-		command := req.FirstCommand
-		if command == "" {
-			command = "pi"
-		}
 		// Capture the incarnation from this creation, not a subsequent name
 		// lookup that could silently select an externally replaced session.
 		args := []string{"new-session", "-d", "-s", req.Name, "-n", window, "-P", "-F", "#{pid}:#{session_created}:#{session_id}"}
@@ -66,10 +67,19 @@ func ensureSession(ctx context.Context, runner workspace.Runner, req integration
 		if identity.ID == "" {
 			return integration.Session{}, fmt.Errorf("created tmux session no longer exists; refresh and retry")
 		}
+	} else {
+		args := []string{"new-window", "-t", identity.ID + ":", "-n", window}
+		if req.Path != "" {
+			args = append(args, "-c", req.Path)
+		}
+		args = append(args, command)
+		if _, err := runner.Run(ctx, "", "tmux", args...); err != nil {
+			return integration.Session{}, err
+		}
 	}
 	if req.Switch {
-		// Revalidate the original incarnation and dispatch its pinned ID while
-		// retaining both the name and runtime admission through native return.
+		// Revalidate the original incarnation, not the reusable caller name,
+		// after window/session creation and before the final native handoff.
 		identity, err = admission.Admit(ctx, runner, sessionlease.Request{Selector: identity.ID, Name: identity.Name, Expected: identity.Key()})
 		if err != nil {
 			return integration.Session{}, err
@@ -78,41 +88,5 @@ func ensureSession(ctx context.Context, runner workspace.Runner, req integration
 			return integration.Session{}, err
 		}
 	}
-	return integration.Session{Name: req.Name, ID: identity.ID, Path: req.Path, Created: created}, nil
-}
-
-func openWindow(ctx context.Context, runner workspace.Runner, req integration.OpenWindowRequest) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if strings.TrimSpace(req.SessionName) == "" {
-		return fmt.Errorf("tmux session name is required")
-	}
-	releaseOperation, err := operationlock.Acquire(false)
-	if err != nil {
-		return err
-	}
-	defer releaseOperation()
-	admission := sessionlease.New(false)
-	defer admission.Close()
-	request := sessionlease.Request{Selector: "=" + req.SessionName, Name: req.SessionName}
-	if strings.HasPrefix(req.SessionName, "$") {
-		request = sessionlease.Request{Selector: req.SessionName}
-	}
-	identity, err := admission.Admit(ctx, runner, request)
-	if err != nil {
-		return err
-	}
-	args := []string{"new-window", "-t", identity.ID + ":"}
-	if req.Name != "" {
-		args = append(args, "-n", req.Name)
-	}
-	if req.Path != "" {
-		args = append(args, "-c", req.Path)
-	}
-	if req.Command != "" {
-		args = append(args, req.Command)
-	}
-	_, err = runner.Run(ctx, "", "tmux", args...)
-	return err
+	return integration.Session{Name: identity.Name, ID: identity.ID, Path: req.Path, Created: created}, nil
 }

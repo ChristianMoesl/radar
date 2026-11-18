@@ -19,15 +19,16 @@ import (
 	"radar/internal/workspacelease"
 )
 
-type ensureRunner struct {
+type openSessionRunner struct {
 	*admissionRunner
 	effects       [][]string
 	effect        func(context.Context, []string) error
 	createdOutput string
 	afterCreate   func()
+	afterWindow   func()
 }
 
-func (r *ensureRunner) Run(ctx context.Context, cwd, name string, args ...string) (string, error) {
+func (r *openSessionRunner) Run(ctx context.Context, cwd, name string, args ...string) (string, error) {
 	if args[0] != "new-session" && args[0] != "new-window" && args[0] != "switch-client" {
 		return r.admissionRunner.Run(ctx, cwd, name, args...)
 	}
@@ -48,14 +49,17 @@ func (r *ensureRunner) Run(ctx context.Context, cwd, name string, args ...string
 		}
 		return "12:35:$9\n", nil
 	}
+	if args[0] == "new-window" && r.afterWindow != nil {
+		r.afterWindow()
+	}
 	return "", nil
 }
 
-func ensureFixture(t *testing.T) *ensureRunner {
-	return &ensureRunner{admissionRunner: admissionFixture(t)}
+func openSessionFixture(t *testing.T) *openSessionRunner {
+	return &openSessionRunner{admissionRunner: admissionFixture(t)}
 }
 
-func assertEnsureReleased(t *testing.T, r *ensureRunner, name string) {
+func assertOpenSessionReleased(t *testing.T, r *openSessionRunner, name string) {
 	t.Helper()
 	probe := sessionlease.New(true)
 	defer probe.Close()
@@ -69,7 +73,7 @@ func assertEnsureReleased(t *testing.T, r *ensureRunner, name string) {
 	update()
 }
 
-func TestEnsureAndWindowRejectCleanupAliasesBeforeEffects(t *testing.T) {
+func TestOpenSessionRejectCleanupAliasesBeforeEffects(t *testing.T) {
 	for _, route := range []string{"ensure-live", "ensure-missing", "window"} {
 		selectors := []string{"workspace-alpha", "=workspace-alpha", "workspace-alph", "workspace-alpha*", "$7"}
 		if route == "ensure-missing" {
@@ -77,7 +81,7 @@ func TestEnsureAndWindowRejectCleanupAliasesBeforeEffects(t *testing.T) {
 		}
 		for _, selector := range selectors {
 			t.Run(route+"/"+selector, func(t *testing.T) {
-				r := ensureFixture(t)
+				r := openSessionFixture(t)
 				name := "workspace-alpha"
 				if route == "ensure-missing" {
 					name, selector = "missing-runtime", "=missing-runtime"
@@ -89,9 +93,9 @@ func TestEnsureAndWindowRejectCleanupAliasesBeforeEffects(t *testing.T) {
 				}
 				var err error
 				if route == "window" {
-					err = openWindow(context.Background(), r, integration.OpenWindowRequest{SessionName: name})
+					_, err = openSession(context.Background(), r, integration.OpenSessionRequest{Name: name, Command: "sleep 120"})
 				} else {
-					_, err = ensureSession(context.Background(), r, integration.EnsureSessionRequest{Name: name, Switch: true})
+					_, err = openSession(context.Background(), r, integration.OpenSessionRequest{Name: name, Switch: true})
 				}
 				if err == nil || !strings.Contains(err.Error(), "tmux session is in use") || len(r.effects) != 0 {
 					t.Fatal("consumer bypassed cleanup admission", err, r.effects)
@@ -101,11 +105,11 @@ func TestEnsureAndWindowRejectCleanupAliasesBeforeEffects(t *testing.T) {
 	}
 }
 
-func TestEnsureAndWindowHoldAdmissionThroughEveryNativeOutcome(t *testing.T) {
+func TestOpenSessionHoldAdmissionThroughEveryNativeOutcome(t *testing.T) {
 	for _, route := range []string{"ensure-live", "ensure-missing", "window"} {
 		for _, outcome := range []string{"success", "failure", "cancelled"} {
 			t.Run(route+"/"+outcome, func(t *testing.T) {
-				r := ensureFixture(t)
+				r := openSessionFixture(t)
 				name := "workspace-alpha"
 				if route == "ensure-missing" {
 					name = "missing-runtime"
@@ -154,10 +158,10 @@ func TestEnsureAndWindowHoldAdmissionThroughEveryNativeOutcome(t *testing.T) {
 				}
 				var err error
 				if route == "window" {
-					err = openWindow(ctx, r, integration.OpenWindowRequest{SessionName: name, Name: "shell", Path: "/unrelated/path", Command: "sleep 120"})
+					_, err = openSession(ctx, r, integration.OpenSessionRequest{Name: name, Window: "shell", Path: "/unrelated/path", Command: "sleep 120"})
 				} else {
 					var session integration.Session
-					session, err = ensureSession(ctx, r, integration.EnsureSessionRequest{Name: name, Switch: true})
+					session, err = openSession(ctx, r, integration.OpenSessionRequest{Name: name, Switch: true})
 					if err == nil && (session.Created != (route == "ensure-missing") || session.ID == "") {
 						t.Fatal(session)
 					}
@@ -168,17 +172,17 @@ func TestEnsureAndWindowHoldAdmissionThroughEveryNativeOutcome(t *testing.T) {
 				if outcome == "cancelled" && !errors.Is(err, context.Canceled) {
 					t.Fatal(err)
 				}
-				assertEnsureReleased(t, r, name)
+				assertOpenSessionReleased(t, r, name)
 			})
 		}
 	}
 }
 
-func TestEnsureAndWindowAcceptCollectedIDsButNeverRecreateMissingIDs(t *testing.T) {
+func TestOpenSessionAcceptCollectedIDsButNeverRecreateMissingIDs(t *testing.T) {
 	for _, route := range []string{"ensure", "window"} {
 		for _, state := range []string{"live", "missing", "cleanup-held"} {
 			t.Run(route+"/"+state, func(t *testing.T) {
-				r := ensureFixture(t)
+				r := openSessionFixture(t)
 				if state == "missing" {
 					delete(r.sessions, "$7")
 				}
@@ -192,12 +196,12 @@ func TestEnsureAndWindowAcceptCollectedIDsButNeverRecreateMissingIDs(t *testing.
 				var err error
 				if route == "ensure" {
 					var result integration.Session
-					result, err = ensureSession(context.Background(), r, integration.EnsureSessionRequest{Name: "$7", Switch: true})
+					result, err = openSession(context.Background(), r, integration.OpenSessionRequest{Name: "$7", Switch: true})
 					if err == nil && (result.Created || result.ID != "$7") {
 						t.Fatal("collected ID was not reused", result)
 					}
 				} else {
-					err = openWindow(context.Background(), r, integration.OpenWindowRequest{SessionName: "$7"})
+					_, err = openSession(context.Background(), r, integration.OpenSessionRequest{Name: "$7"})
 				}
 				if (err == nil) != (state == "live") || state != "live" && len(r.effects) != 0 {
 					t.Fatal("collected ID selected or created another runtime", err, r.effects)
@@ -207,10 +211,10 @@ func TestEnsureAndWindowAcceptCollectedIDsButNeverRecreateMissingIDs(t *testing.
 	}
 }
 
-func TestEnsureCreationRevalidatesBeforeSwitch(t *testing.T) {
+func TestOpenSessionCreationRevalidatesBeforeSwitch(t *testing.T) {
 	for _, change := range []string{"restart", "replacement", "missing", "malformed-output", "cancelled", "switch-error", "switch-cancelled"} {
 		t.Run(change, func(t *testing.T) {
-			r := ensureFixture(t)
+			r := openSessionFixture(t)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			r.afterCreate = func() {
@@ -245,15 +249,15 @@ func TestEnsureCreationRevalidatesBeforeSwitch(t *testing.T) {
 				}
 				return nil
 			}
-			if _, err := ensureSession(ctx, r, integration.EnsureSessionRequest{Name: "missing-runtime", Switch: true}); err == nil {
+			if _, err := openSession(ctx, r, integration.OpenSessionRequest{Name: "missing-runtime", Switch: true}); err == nil {
 				t.Fatal("unsafe created runtime accepted")
 			}
-			assertEnsureReleased(t, r, "missing-runtime")
+			assertOpenSessionReleased(t, r, "missing-runtime")
 		})
 	}
 }
 
-func TestEnsureAndWindowRejectBeforeEffectsAndRelease(t *testing.T) {
+func TestOpenSessionRejectBeforeEffectsAndRelease(t *testing.T) {
 	for _, route := range []string{"ensure", "window"} {
 		invalidInputs := []string{"empty", "colon", "control", "pre-cancelled"}
 		if runtime.GOOS == "darwin" {
@@ -261,7 +265,7 @@ func TestEnsureAndWindowRejectBeforeEffectsAndRelease(t *testing.T) {
 		}
 		for _, invalid := range invalidInputs {
 			t.Run(route+"/"+invalid, func(t *testing.T) {
-				r := ensureFixture(t)
+				r := openSessionFixture(t)
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				name := "workspace-alpha"
@@ -283,9 +287,9 @@ func TestEnsureAndWindowRejectBeforeEffectsAndRelease(t *testing.T) {
 				}
 				var err error
 				if route == "ensure" {
-					_, err = ensureSession(ctx, r, integration.EnsureSessionRequest{Name: name})
+					_, err = openSession(ctx, r, integration.OpenSessionRequest{Name: name, Command: "sleep 120"})
 				} else {
-					err = openWindow(ctx, r, integration.OpenWindowRequest{SessionName: name})
+					_, err = openSession(ctx, r, integration.OpenSessionRequest{Name: name, Command: "sleep 120"})
 				}
 				if err == nil || len(r.effects) != 0 {
 					t.Fatal("invalid consumer performed native effect", err, r.effects)
@@ -295,20 +299,21 @@ func TestEnsureAndWindowRejectBeforeEffectsAndRelease(t *testing.T) {
 	}
 }
 
-func TestEnsureAndWindowRemainAvailableDuringUnrelatedCleanup(t *testing.T) {
+func TestOpenSessionRemainAvailableDuringUnrelatedCleanup(t *testing.T) {
 	for _, route := range []string{"ensure-live", "ensure-missing", "window"} {
 		t.Run(route, func(t *testing.T) {
-			r := ensureFixture(t)
+			r := openSessionFixture(t)
 			effects := 0
 			provider := effectProvider{calls: &effects, run: func() error {
 				if route == "window" {
-					return openWindow(context.Background(), r, integration.OpenWindowRequest{SessionName: "workspace-beta"})
+					_, err := openSession(context.Background(), r, integration.OpenSessionRequest{Name: "workspace-beta"})
+					return err
 				}
 				name := "workspace-beta"
 				if route == "ensure-missing" {
 					name = "missing-runtime"
 				}
-				_, err := ensureSession(context.Background(), r, integration.EnsureSessionRequest{Name: name, Switch: true})
+				_, err := openSession(context.Background(), r, integration.OpenSessionRequest{Name: name, Switch: true})
 				return err
 			}}
 			// Native alpha cleanup is completed but its bundle remains held while
@@ -322,7 +327,7 @@ func TestEnsureAndWindowRemainAvailableDuringUnrelatedCleanup(t *testing.T) {
 	}
 }
 
-func TestNativeEnsureAndWindowUseExactNameAndCreationIdentity(t *testing.T) {
+func TestNativeOpenSessionUseExactNameAndCreationIdentity(t *testing.T) {
 	binary, err := exec.LookPath("tmux")
 	if err != nil {
 		t.Skip("tmux is not installed")
@@ -339,15 +344,15 @@ func TestNativeEnsureAndWindowUseExactNameAndCreationIdentity(t *testing.T) {
 	runner := privateTmuxRunner{binary: binary, socket: filepath.Join(dir, "s")}
 	defer func() { _, _ = runner.Run(context.Background(), "", "tmux", "kill-server") }()
 	for _, name := range []string{"workspace-alphabet", "workspace-alpha"} {
-		result, err := ensureSession(context.Background(), runner, integration.EnsureSessionRequest{Name: name, FirstWindow: "shell", FirstCommand: "sleep 120"})
+		result, err := openSession(context.Background(), runner, integration.OpenSessionRequest{Name: name, Window: "shell", Command: "sleep 120"})
 		if err != nil || !result.Created || result.ID == "" {
 			t.Fatal("native creation/incarnation capture failed", result, err)
 		}
-		reused, err := ensureSession(context.Background(), runner, integration.EnsureSessionRequest{Name: name})
+		reused, err := openSession(context.Background(), runner, integration.OpenSessionRequest{Name: name, Command: "sleep 120"})
 		if err != nil || reused.Created || reused.ID != result.ID {
 			t.Fatal("native exact reuse failed", reused, result, err)
 		}
-		byID, err := ensureSession(context.Background(), runner, integration.EnsureSessionRequest{Name: result.ID})
+		byID, err := openSession(context.Background(), runner, integration.OpenSessionRequest{Name: result.ID, Command: "sleep 120"})
 		if err != nil || byID.Created || byID.ID != result.ID {
 			t.Fatal("native collected-ID reuse failed", byID, result, err)
 		}
@@ -355,11 +360,11 @@ func TestNativeEnsureAndWindowUseExactNameAndCreationIdentity(t *testing.T) {
 		if name == "workspace-alpha" {
 			target = result.ID
 		}
-		if err := openWindow(context.Background(), runner, integration.OpenWindowRequest{SessionName: target, Name: "another", Command: "sleep 120"}); err != nil {
+		if _, err := openSession(context.Background(), runner, integration.OpenSessionRequest{Name: target, Window: "another", Command: "sleep 120"}); err != nil {
 			t.Fatal(err)
 		}
 		output, err := runner.Run(context.Background(), "", "tmux", "display-message", "-p", "-t", result.ID+":", "#{session_name}:#{session_windows}")
-		if err != nil || strings.TrimSpace(output) != fmt.Sprint(name, ":2") {
+		if err != nil || strings.TrimSpace(output) != fmt.Sprint(name, ":4") {
 			t.Fatal("native window went to wrong session", output, err)
 		}
 	}

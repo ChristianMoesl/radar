@@ -17,20 +17,22 @@ type leaseMultiplexer struct {
 	visit func(string) error
 }
 
-func (m *leaseMultiplexer) EnsureSession(ctx context.Context, req integration.EnsureSessionRequest) (integration.Session, error) {
-	if err := m.visit("ensure"); err != nil {
-		return integration.Session{}, err
+func (m *leaseMultiplexer) OpenSession(ctx context.Context, req integration.OpenSessionRequest) (integration.Session, error) {
+	// One provider operation owns all native stages. These callbacks retain
+	// the existing sandbox-lease assertions across each failure boundary.
+	stages := []string{"ensure"}
+	if m.existing {
+		stages = append(stages, "window")
 	}
-	return m.fakeMultiplexer.EnsureSession(ctx, req)
-}
-func (m *leaseMultiplexer) OpenWindow(ctx context.Context, req integration.OpenWindowRequest) error {
-	if err := m.visit("window"); err != nil {
-		return err
+	if req.Switch {
+		stages = append(stages, "switch")
 	}
-	return m.fakeMultiplexer.OpenWindow(ctx, req)
-}
-func (m *leaseMultiplexer) Switch(ctx context.Context, target integration.SessionTarget) error {
-	return m.visit("switch")
+	for _, stage := range stages {
+		if err := m.visit(stage); err != nil {
+			return integration.Session{}, err
+		}
+	}
+	return m.fakeMultiplexer.OpenSession(ctx, req)
 }
 
 func TestOpenShellSandboxNameContentionRejectsAllReferenceForms(t *testing.T) {

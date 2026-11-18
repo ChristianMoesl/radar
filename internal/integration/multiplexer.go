@@ -21,20 +21,14 @@ type Session struct {
 	Created bool
 }
 
-type EnsureSessionRequest struct {
-	Name          string
-	Path          string
-	FirstWindow   string
-	FirstCommand  string
-	Switch        bool
-	ForkPiSession string
-}
-
-type OpenWindowRequest struct {
-	SessionName string
-	Name        string
-	Path        string
-	Command     string
+// OpenSessionRequest opens a command in a new session or a new window of an
+// existing session, optionally switching the client, as one admitted operation.
+type OpenSessionRequest struct {
+	Name    string // Exact reusable session name or a collected native session ID.
+	Path    string
+	Window  string
+	Command string
+	Switch  bool
 }
 
 type SessionTarget struct {
@@ -83,8 +77,7 @@ type MultiplexerProvider interface {
 	ClientActive() bool
 	AttachCommand(context.Context, SessionTarget) (SessionAttachment, error)
 	Current(ctx context.Context) (SessionContext, bool, error)
-	EnsureSession(ctx context.Context, req EnsureSessionRequest) (Session, error)
-	OpenWindow(ctx context.Context, req OpenWindowRequest) error
+	OpenSession(ctx context.Context, req OpenSessionRequest) (Session, error)
 	Switch(ctx context.Context, target SessionTarget) error
 	Target(task protocol.Task) string
 	MatchesCurrent(ref protocol.SourceRef, current protocol.CurrentContext) bool
