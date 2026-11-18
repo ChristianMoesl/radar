@@ -175,6 +175,14 @@ type CreateSessionOptions struct {
 }
 
 func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string, switchClient bool) (Workspace, error) {
+	if err := ctx.Err(); err != nil {
+		return Workspace{}, err
+	}
+	releaseOperation, err := operationlock.Acquire(false)
+	if err != nil {
+		return Workspace{}, err
+	}
+	defer releaseOperation()
 	root, group, found, err := RegisteredWorkspace(current, "")
 	if err != nil {
 		return Workspace{}, err
@@ -182,9 +190,22 @@ func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string,
 	if !found {
 		return Workspace{}, fmt.Errorf("no registered Radar workspace contains %s", current)
 	}
+	release, err := acquireActivationLeases(ctx, group)
+	if err != nil {
+		return Workspace{}, err
+	}
+	defer release()
+	if _, err := activationRegistration(ctx, root, current, group); err != nil {
+		return Workspace{}, err
+	}
 	// Entering a live session is navigation, not runtime recovery. Keep it
-	// independent of note locks, filesystem repairs and SBX readiness checks.
-	if _, err := runner.Run(ctx, "", "tmux", "has-session", "-t", "="+group.SessionName); err == nil {
+	// independent of note locks, filesystem repairs and SBX readiness checks,
+	// but hold matching cleanup leases until the native call returns.
+	_, sessionErr := runner.Run(ctx, "", "tmux", "has-session", "-t", "="+group.SessionName)
+	if _, err := activationRegistration(ctx, root, current, group); err != nil {
+		return Workspace{}, err
+	}
+	if sessionErr == nil {
 		if switchClient {
 			if _, err := runner.Run(ctx, "", "tmux", "switch-client", "-t", group.SessionName); err != nil {
 				return Workspace{}, err
@@ -195,7 +216,7 @@ func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string,
 	var result Workspace
 	err = workspacegroup.WithNoteLock(root, func() error {
 		var err error
-		result, err = openRegisteredWorkspaceAt(ctx, runner, root, current, switchClient)
+		result, err = openRegisteredWorkspaceAt(ctx, runner, root, current, group, switchClient)
 		return err
 	})
 	return result, err
@@ -203,13 +224,10 @@ func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string,
 
 // Re-read registration under the creation/cleanup lock. Read-only inspection
 // remains independent so the early Pi conversation can load its context.
-func openRegisteredWorkspaceAt(ctx context.Context, runner Runner, root, current string, switchClient bool) (Workspace, error) {
-	_, group, found, err := RegisteredWorkspace(current, root)
+func openRegisteredWorkspaceAt(ctx context.Context, runner Runner, root, current string, expected workspacegroup.Workspace, switchClient bool) (Workspace, error) {
+	group, err := activationRegistration(ctx, root, current, expected)
 	if err != nil {
 		return Workspace{}, err
-	}
-	if !found {
-		return Workspace{}, fmt.Errorf("no registered Radar workspace contains %s", current)
 	}
 	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, "")
 	if err != nil {
