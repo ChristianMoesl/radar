@@ -19,6 +19,13 @@ type layoutNativeRunner struct {
 	afterCreate func()
 }
 
+func testLayoutAdmission(t *testing.T) *sessionlease.Set {
+	t.Helper()
+	admission := sessionlease.New(false)
+	t.Cleanup(admission.Close)
+	return admission
+}
+
 func layoutNativeFixture(t *testing.T) *layoutNativeRunner {
 	t.Helper()
 	sessionLeasePaths(t, false)
@@ -69,27 +76,31 @@ func assertLayoutAdmissionReleased(t *testing.T) {
 }
 func TestLayoutConstructorRejectsNativeCleanupBeforeCreation(t *testing.T) {
 	r := layoutNativeFixture(t)
+	admission := testLayoutAdmission(t)
 	release, err := workspacelease.AcquireTmux("name:workspace", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = createTmuxWorkspace(context.Background(), r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil)
+	_, err = createTmuxWorkspace(context.Background(), r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil, admission)
 	release()
 	if err == nil || len(r.calls) != 0 {
 		t.Fatal("constructor bypassed native cleanup", err, r.calls)
 	}
+	admission.Close()
 	assertLayoutAdmissionReleased(t)
 }
 func TestLayoutConstructorRejectsAnAlreadyLiveExactName(t *testing.T) {
 	r := layoutNativeFixture(t)
+	admission := testLayoutAdmission(t)
 	id := sessionlease.Identity{ServerPID: "12", Created: "34", ID: "$9", Name: "workspace"}
 	r.sessions[id.Name], r.sessions[id.ID] = id, id
-	if err := createTmuxWorkspace(context.Background(), r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if _, err := createTmuxWorkspace(context.Background(), r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil, admission); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatal("constructor accepted an existing runtime", err)
 	}
 	if len(r.calls) != 0 {
 		t.Fatal("constructor modified an existing runtime", r.calls)
 	}
+	admission.Close()
 	assertLayoutAdmissionReleased(t)
 }
 
@@ -98,6 +109,7 @@ func TestLayoutConstructorRetainsAdmissionAndPinsEveryOutcome(t *testing.T) {
 		for _, outcome := range []string{"success", "create-error", "pane-error", "cancelled"} {
 			t.Run(fmt.Sprint("early=", early, "/", outcome), func(t *testing.T) {
 				r := layoutNativeFixture(t)
+				admission := testLayoutAdmission(t)
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				checked := 0
@@ -135,13 +147,25 @@ func TestLayoutConstructorRetainsAdmissionAndPinsEveryOutcome(t *testing.T) {
 					}
 					return nil
 				}
-				err := createTmuxWorkspaceWithGates(ctx, r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil, early)
+				created, err := createTmuxWorkspaceWithGates(ctx, r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil, early, admission)
 				if checked == 0 || (err != nil) != (outcome != "success") {
 					t.Fatal("unexpected constructor outcome", checked, err)
 				}
 				if cleanup != (outcome == "pane-error" || outcome == "cancelled") {
 					t.Fatal("incorrect verified rollback", cleanup, err)
 				}
+				if err == nil {
+					if created.Key() != "tmux:session:12:34:$9" {
+						t.Fatal("constructor lost creation identity", created)
+					}
+					for _, key := range []string{"name:workspace", "runtime:" + created.Key()} {
+						if release, err := workspacelease.AcquireTmux(key, true); err == nil {
+							release()
+							t.Error("constructor released caller-owned admission", key)
+						}
+					}
+				}
+				admission.Close()
 				assertLayoutAdmissionReleased(t)
 			})
 		}
@@ -151,6 +175,7 @@ func TestLayoutConstructorCapturesCreationAndRejectsReplacement(t *testing.T) {
 	for _, change := range []string{"restart", "replacement", "missing", "rename-and-reuse"} {
 		t.Run(change, func(t *testing.T) {
 			r := layoutNativeFixture(t)
+			admission := testLayoutAdmission(t)
 			r.afterCreate = func() {
 				id := r.sessions["$9"]
 				switch change {
@@ -171,7 +196,7 @@ func TestLayoutConstructorCapturesCreationAndRejectsReplacement(t *testing.T) {
 				}
 				r.sessions[id.Name], r.sessions[id.ID] = id, id
 			}
-			err := createTmuxWorkspace(context.Background(), r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil)
+			_, err := createTmuxWorkspace(context.Background(), r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil, admission)
 			if change == "rename-and-reuse" {
 				if err != nil {
 					t.Fatal("original renamed runtime lost", err)
@@ -184,12 +209,14 @@ func TestLayoutConstructorCapturesCreationAndRejectsReplacement(t *testing.T) {
 				assertNotCalledContains(t, r.calls, "tmux", "new-window")
 				assertNotCalledContains(t, r.calls, "tmux", "kill-session")
 			}
+			admission.Close()
 			assertLayoutAdmissionReleased(t)
 		})
 	}
 }
 func TestLayoutConstructorRevalidatesBetweenPaneEffects(t *testing.T) {
 	r := layoutNativeFixture(t)
+	admission := testLayoutAdmission(t)
 	r.effect = func(_ context.Context, args []string) error {
 		if args[0] == "split-window" {
 			id := r.sessions["$9"]
@@ -198,11 +225,12 @@ func TestLayoutConstructorRevalidatesBetweenPaneEffects(t *testing.T) {
 		}
 		return nil
 	}
-	if err := createTmuxWorkspace(context.Background(), r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil); err == nil {
+	if _, err := createTmuxWorkspace(context.Background(), r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil, admission); err == nil {
 		t.Fatal("replacement between pane effects accepted")
 	}
 	assertNotCalledContains(t, r.calls, "tmux", "new-window")
 	assertNotCalledContains(t, r.calls, "tmux", "kill-session")
+	admission.Close()
 	assertLayoutAdmissionReleased(t)
 }
 
@@ -210,12 +238,14 @@ func TestLayoutConstructorNeverRollsBackAnUnidentifiedCreation(t *testing.T) {
 	for _, output := range []string{"", "bad IDs", "12:: @1 %1", "12:34:workspace @1 %1"} {
 		t.Run(output, func(t *testing.T) {
 			r := layoutNativeFixture(t)
+			admission := testLayoutAdmission(t)
 			r.output = func(args []string) (string, bool) { return output, args[0] == "new-session" }
-			if err := createTmuxWorkspace(context.Background(), r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil); err == nil {
+			if _, err := createTmuxWorkspace(context.Background(), r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil, admission); err == nil {
 				t.Fatal("unidentified creation accepted")
 			}
 			assertNotCalledContains(t, r.calls, "tmux", "kill-session")
 			assertNotCalledContains(t, r.calls, "tmux", "split-window")
+			admission.Close()
 			assertLayoutAdmissionReleased(t)
 		})
 	}
@@ -223,14 +253,16 @@ func TestLayoutConstructorNeverRollsBackAnUnidentifiedCreation(t *testing.T) {
 
 func TestLayoutConstructorRollbackAfterPostCreationCancellation(t *testing.T) {
 	r := layoutNativeFixture(t)
+	admission := testLayoutAdmission(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	r.afterCreate = cancel
-	if err := createTmuxWorkspace(ctx, r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil); !errors.Is(err, context.Canceled) {
+	if _, err := createTmuxWorkspace(ctx, r, "", "/workspace", "workspace", layoutAdmissionConfig(), "", nil, admission); !errors.Is(err, context.Canceled) {
 		t.Fatal("creation cancellation lost", err)
 	}
 	assertCalledContains(t, r.calls, "tmux", "kill-session -t $9")
 	assertNotCalledContains(t, r.calls, "tmux", "split-window")
+	admission.Close()
 	assertLayoutAdmissionReleased(t)
 }
 
@@ -299,7 +331,8 @@ func TestLayoutConstructorNativeRenameReuseAndVerifiedRollback(t *testing.T) {
 				{Name: "pi", Panes: []sessionlayout.Pane{{Command: "sleep 120 # " + sessionlayout.PiArgsPlaceholder}}},
 				{Name: "other", Panes: []sessionlayout.Pane{{Command: "sleep 120"}}},
 			}}
-			err := createTmuxWorkspace(ctx, r, path, path, "workspace", cfg, "", nil)
+			admission := testLayoutAdmission(t)
+			_, err := createTmuxWorkspace(ctx, r, path, path, "workspace", cfg, "", nil, admission)
 			if !checked || (err != nil) != fail || (fail && !errors.Is(err, sentinel)) {
 				t.Fatal("native constructor outcome", checked, err)
 			}
@@ -309,6 +342,7 @@ func TestLayoutConstructorNativeRenameReuseAndVerifiedRollback(t *testing.T) {
 			if output, err := native.Run(ctx, path, "tmux", "has-session", "-t", originalID); (err != nil) != fail {
 				t.Fatal("verified rollback affected wrong runtime", output, err)
 			}
+			admission.Close()
 			for _, key := range []string{"name:workspace", "name:renamed-runtime", "runtime:" + expected} {
 				release, err := workspacelease.AcquireTmux(key, true)
 				if err != nil {

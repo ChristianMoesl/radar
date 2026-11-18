@@ -621,11 +621,12 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 	liveAdmission := sessionlease.New(false)
 	defer liveAdmission.Close()
 	var live sessionlease.Identity
-	if sessionErr == nil {
-		live, err = liveAdmission.Admit(ctx, runner, sessionlease.Request{Selector: "=" + sessionName, Name: sessionName})
-		if err != nil {
-			return Workspace{}, err
-		}
+	live, err = liveAdmission.Admit(ctx, runner, sessionlease.Request{Selector: "=" + sessionName, Name: sessionName, AllowMissing: sessionErr != nil})
+	if err != nil {
+		return Workspace{}, err
+	}
+	if sessionErr != nil && live.ID != "" {
+		return Workspace{}, fmt.Errorf("tmux session changed before recovery; refresh and retry")
 	}
 	if sessionErr != nil {
 		if err := validateSessionDependencies(runner, options.Tmux); err != nil {
@@ -671,7 +672,8 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 			}
 			environment["PI_SBX_REQUIRED_SANDBOX"] = sandboxName
 		}
-		if err := createTmuxWorkspace(ctx, runner, "", path, sessionName, options.Tmux, piArgsText, environment); err != nil {
+		live, err = createTmuxWorkspace(ctx, runner, "", path, sessionName, options.Tmux, piArgsText, environment, liveAdmission)
+		if err != nil {
 			if createdSandbox {
 				_, _ = stopSandbox(ctx, runner, path, sandboxName)
 			}
@@ -679,11 +681,7 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 		}
 	}
 	if options.Switch {
-		if sessionErr == nil {
-			err = switchLiveSession(ctx, runner, "", liveAdmission, live)
-		} else {
-			_, err = runner.Run(ctx, "", "tmux", "switch-client", "-t", sessionName)
-		}
+		err = switchLiveSession(ctx, runner, "", liveAdmission, live)
 		if err != nil {
 			return Workspace{}, err
 		}
@@ -1027,27 +1025,27 @@ func sbxCommandError(err error) error {
 	return err
 }
 
-func createTmuxWorkspace(ctx context.Context, runner Runner, cwd string, path string, sessionName string, cfg sessionlayout.Config, piArgsText string, environment map[string]string) error {
-	return createTmuxWorkspaceWithGates(ctx, runner, cwd, path, sessionName, cfg, piArgsText, environment, false)
+func createTmuxWorkspace(ctx context.Context, runner Runner, cwd string, path string, sessionName string, cfg sessionlayout.Config, piArgsText string, environment map[string]string, admission *sessionlease.Set) (sessionlease.Identity, error) {
+	return createTmuxWorkspaceWithGates(ctx, runner, cwd, path, sessionName, cfg, piArgsText, environment, false, admission)
 }
 
-func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string, path string, sessionName string, cfg sessionlayout.Config, piArgsText string, environment map[string]string, early bool) error {
+// The caller owns admission through its last effect, not just construction.
+// Return the emitted incarnation for that handoff; never resolve its name anew.
+func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string, path string, sessionName string, cfg sessionlayout.Config, piArgsText string, environment map[string]string, early bool, admission *sessionlease.Set) (sessionlease.Identity, error) {
 	cfg = sessionlayout.WithDefaults(cfg)
 	if err := sessionlayout.Validate(cfg); err != nil {
-		return err
+		return sessionlease.Identity{}, err
 	}
 
-	admission := sessionlease.New(false)
-	defer admission.Close()
 	live, err := admission.Admit(ctx, runner, sessionlease.Request{Selector: "=" + sessionName, Name: sessionName, AllowMissing: true})
 	if err != nil {
-		return err
+		return sessionlease.Identity{}, err
 	}
 	if live.ID != "" {
-		return fmt.Errorf("tmux session %s already exists; refresh before creating its layout", sessionName)
+		return sessionlease.Identity{}, fmt.Errorf("tmux session %s already exists; refresh before creating its layout", sessionName)
 	}
 	var createdExpected, createdID string
-	cleanup := func(err error) error {
+	cleanup := func(err error) (sessionlease.Identity, error) {
 		if createdExpected != "" {
 			// Cancellation between pane creation and gate registration must not
 			// leave a live pane waiting on an unrecorded, unrecoverable gate.
@@ -1062,7 +1060,7 @@ func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string
 				_, _ = runner.Run(cleanupCtx, cwd, "tmux", "kill-session", "-t", original.ID)
 			}
 		}
-		return err
+		return sessionlease.Identity{}, err
 	}
 	runAdmitted := func(args ...string) (string, error) {
 		current, err := admission.Admit(ctx, runner, sessionlease.Request{Selector: live.ID, Name: live.Name, Expected: live.Key()})
@@ -1159,7 +1157,7 @@ func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string
 	if _, err := runAdmitted("select-pane", "-t", piPaneID); err != nil {
 		return cleanup(err)
 	}
-	return nil
+	return live, nil
 }
 
 func parseTmuxIDs(output string) (string, string, error) {

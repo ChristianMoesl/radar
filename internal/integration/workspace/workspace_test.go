@@ -970,7 +970,7 @@ func TestCreateSessionCreatesTmuxSessionForWorktree(t *testing.T) {
 	}
 	assertCalled(t, runner.calls, "tmux", "new-session -d -s repo-small-fix")
 	assertNotCalledContains(t, runner.calls, "tmux", "new-window")
-	assertCalled(t, runner.calls, "tmux", "switch-client -t repo-small-fix")
+	assertCalled(t, runner.calls, "tmux", "switch-client -t $9")
 }
 
 func TestCreateSessionMountsLinkedWorktreeGitDirectoryInNewSandbox(t *testing.T) {

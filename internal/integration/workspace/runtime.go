@@ -6,6 +6,7 @@ import (
 
 	obsidiansettings "radar/internal/integration/obsidian/settings"
 	sbxsettings "radar/internal/integration/sbx/settings"
+	"radar/internal/integration/tmux/sessionlease"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/pi"
 )
@@ -147,8 +148,10 @@ func startWorkspaceSession(ctx context.Context, runner Runner, group workspacegr
 	if group.Sandbox != nil {
 		environment["PI_SBX_REQUIRED_SANDBOX"] = group.Sandbox.Name
 	}
-	if early {
-		return createTmuxWorkspaceWithGates(ctx, runner, group.Path, group.Path, group.SessionName, group.Tmux, args, environment, true)
-	}
-	return createTmuxWorkspace(ctx, runner, group.Path, group.Path, group.SessionName, group.Tmux, args, environment)
+	// Registered runtime callers remain constructor-scoped until their outer
+	// runtime/provisioning handoff is migrated to explicit native ownership.
+	admission := sessionlease.New(false)
+	defer admission.Close()
+	_, err := createTmuxWorkspaceWithGates(ctx, runner, group.Path, group.Path, group.SessionName, group.Tmux, args, environment, early, admission)
+	return err
 }

@@ -48,7 +48,7 @@ func TestWorkspacePanesRealTmuxAfterServerDirectoryRemoved(t *testing.T) {
 					{Command: cwdCommand("other-cwd")},
 				}},
 			}}
-			if err := createTmuxWorkspaceWithGates(ctx, runner, path, path, "workspace", cfg, "--name test", nil, early); err != nil {
+			if _, err := createTmuxWorkspaceWithGates(ctx, runner, path, path, "workspace", cfg, "--name test", nil, early, testLayoutAdmission(t)); err != nil {
 				t.Fatal(err)
 			}
 			if early {

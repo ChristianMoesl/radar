@@ -91,10 +91,10 @@ func TestEarlyTmuxWorkspacePreservesLayoutAndPiPosition(t *testing.T) {
 				}}
 				normal, early := &paneGateRunner{}, &paneGateRunner{}
 				ctx := context.Background()
-				if err := createTmuxWorkspace(ctx, normal, "/creator", "/workspace", "test", cfg, "--name 'test'", nil); err != nil {
+				if _, err := createTmuxWorkspace(ctx, normal, "/creator", "/workspace", "test", cfg, "--name 'test'", nil, testLayoutAdmission(t)); err != nil {
 					t.Fatal(err)
 				}
-				if err := createEarlyTmuxWorkspace(ctx, early, "/creator", "/workspace", "test", cfg, "--name 'test'"); err != nil {
+				if _, err := createEarlyTmuxWorkspace(ctx, early, "/creator", "/workspace", "test", cfg, "--name 'test'", testLayoutAdmission(t)); err != nil {
 					t.Fatal(err)
 				}
 				var ungated []call
@@ -162,7 +162,7 @@ func TestEarlyTmuxWorkspacePreservesLayoutAndPiPosition(t *testing.T) {
 
 func TestEarlyTmuxWorkspaceDefaultsToPiOnly(t *testing.T) {
 	runner := &paneGateRunner{}
-	if err := createEarlyTmuxWorkspace(context.Background(), runner, "", "/workspace", "pi-only", sessionlayout.Config{}, "--name test"); err != nil {
+	if _, err := createEarlyTmuxWorkspace(context.Background(), runner, "", "/workspace", "pi-only", sessionlayout.Config{}, "--name test", testLayoutAdmission(t)); err != nil {
 		t.Fatal(err)
 	}
 	if len(runner.pending) != 0 {
@@ -178,7 +178,7 @@ func TestEarlyTmuxWorkspaceFreshGates(t *testing.T) {
 	var previous string
 	for range 2 {
 		runner := &paneGateRunner{}
-		if err := createEarlyTmuxWorkspace(context.Background(), runner, "", "/workspace", "same-name", cfg, "--name test"); err != nil {
+		if _, err := createEarlyTmuxWorkspace(context.Background(), runner, "", "/workspace", "same-name", cfg, "--name test", testLayoutAdmission(t)); err != nil {
 			t.Fatal(err)
 		}
 		if len(runner.pending) != 1 || runner.pending["%2"] == "" {
@@ -209,7 +209,7 @@ func TestEarlyTmuxWorkspaceCleansUpConstructorFailures(t *testing.T) {
 			if failure == "parse" {
 				runner.output = func(args []string) (string, bool) { return "12:34:$9 bad IDs", args[0] == "new-session" }
 			}
-			err := createEarlyTmuxWorkspace(context.Background(), runner, "", "/workspace", "test", cfg, "")
+			_, err := createEarlyTmuxWorkspace(context.Background(), runner, "", "/workspace", "test", cfg, "", testLayoutAdmission(t))
 			if err == nil || (failure != "parse" && !errors.Is(err, sentinel)) {
 				t.Fatalf("constructor error = %v", err)
 			}
@@ -223,7 +223,7 @@ func TestEarlyTmuxWorkspaceCleansUpConstructorFailures(t *testing.T) {
 	}
 	invalid := sessionlayout.Config{Windows: []sessionlayout.Window{{Name: "invalid", Panes: []sessionlayout.Pane{{Command: "no Pi"}}}}}
 	runner := &paneGateRunner{}
-	if err := createEarlyTmuxWorkspace(context.Background(), runner, "", "/workspace", "test", invalid, ""); err == nil || len(runner.calls) != 0 {
+	if _, err := createEarlyTmuxWorkspace(context.Background(), runner, "", "/workspace", "test", invalid, "", testLayoutAdmission(t)); err == nil || len(runner.calls) != 0 {
 		t.Fatalf("invalid configuration launched panes: err=%v calls=%+v", err, runner.calls)
 	}
 }
@@ -367,7 +367,7 @@ func TestEarlyPanesRealTmuxOriginalShellQuotingAndOneShotRecovery(t *testing.T) 
 	cfg := sessionlayout.Config{Windows: []sessionlayout.Window{
 		{Name: "aux-first", Layout: "horizontal", Panes: []sessionlayout.Pane{{Command: original}, {Command: "printf '%s\\n' pi >> " + shellQuote(piOutput) + "; sleep 60 # " + sessionlayout.PiArgsPlaceholder}}},
 	}}
-	if err := createEarlyTmuxWorkspace(ctx, runner, path, path, "workspace", cfg, "--name 'test'"); err != nil {
+	if _, err := createEarlyTmuxWorkspace(ctx, runner, path, path, "workspace", cfg, "--name 'test'", testLayoutAdmission(t)); err != nil {
 		t.Fatal(err)
 	}
 	waitPaneCondition(t, func() bool { _, err := os.Stat(piOutput); return err == nil })
@@ -467,7 +467,7 @@ func TestEarlyPaneConstructorCancellationCleansUnrecordedGate(t *testing.T) {
 	runner := &canceledPaneConstructorRunner{cancel: cancel}
 	cfg := sessionlayout.Default()
 	cfg.Windows = append(cfg.Windows, sessionlayout.Window{Name: "editor", Panes: []sessionlayout.Pane{{Command: "editor ."}}})
-	err := createEarlyTmuxWorkspace(ctx, runner, "", "/workspace", "fixture", cfg, "--name fixture")
+	_, err := createEarlyTmuxWorkspace(ctx, runner, "", "/workspace", "fixture", cfg, "--name fixture", testLayoutAdmission(t))
 	if !errors.Is(err, context.Canceled) || !runner.cleaned {
 		t.Fatalf("canceled constructor stranded an unrecorded pane: err=%v cleaned=%t", err, runner.cleaned)
 	}

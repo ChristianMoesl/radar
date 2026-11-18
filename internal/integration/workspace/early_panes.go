@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	sessionlayout "radar/internal/integration/tmux/layout"
+	"radar/internal/integration/tmux/sessionlease"
 )
 
 const workspacePaneGateOption = "@radar_workspace_gate"
@@ -15,8 +16,8 @@ const workspacePaneGateOption = "@radar_workspace_gate"
 // createEarlyTmuxWorkspace builds the normal layout, but only the Pi pane may
 // execute its command before readiness. The constructor owns cleanup until it
 // returns; after that, pane gates are recoverable from the tmux server alone.
-func createEarlyTmuxWorkspace(ctx context.Context, runner Runner, cwd, path, sessionName string, cfg sessionlayout.Config, piArgsText string) error {
-	return createTmuxWorkspaceWithGates(ctx, runner, cwd, path, sessionName, cfg, piArgsText, nil, true)
+func createEarlyTmuxWorkspace(ctx context.Context, runner Runner, cwd, path, sessionName string, cfg sessionlayout.Config, piArgsText string, admission *sessionlease.Set) (sessionlease.Identity, error) {
+	return createTmuxWorkspaceWithGates(ctx, runner, cwd, path, sessionName, cfg, piArgsText, nil, true, admission)
 }
 
 func workspacePaneCommand(path, command, piArgsText string, early bool) (string, string) {
