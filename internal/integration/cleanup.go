@@ -44,3 +44,12 @@ type CleanupProvider interface {
 type CleanupPreflightProvider interface {
 	PreflightCleanup(context.Context, []protocol.CleanupTarget, CleanupMode) error
 }
+
+// CleanupAdmissionProvider binds native resource identities for the entire
+// provider bundle before any cleanup effects. The returned provider executes
+// those admitted targets; release remains owned by the service until its last
+// provider call, including errors and cancellation. Admission errors unwind
+// any partially acquired resources themselves.
+type CleanupAdmissionProvider interface {
+	AdmitCleanup(context.Context, []protocol.CleanupTarget, CleanupMode) (CleanupProvider, func(), error)
+}

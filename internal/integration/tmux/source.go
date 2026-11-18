@@ -12,6 +12,7 @@ import (
 	"radar/internal/integration/workspace"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
+	"radar/internal/sessionlease"
 )
 
 type Source struct{}
@@ -70,11 +71,22 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 }
 
 func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
-	if req.Mode == integration.CleanupRetire {
-		return retireSession(ctx, workspace.ExecRunner{}, req.Target)
+	bound, release, err := admitCleanup(ctx, workspace.ExecRunner{}, []protocol.CleanupTarget{req.Target}, req.Mode)
+	if err != nil {
+		return req.Target, err
 	}
-	if strings.TrimSpace(req.Target.ResourceID) == "" {
-		return protocol.CleanupTarget{}, fmt.Errorf("tmux session is required")
+	defer release()
+	return bound.Cleanup(ctx, req)
+}
+
+func cleanupSessionTarget(ctx context.Context, runner workspace.Runner, target protocol.CleanupTarget, verify func() (sessionlease.Identity, error)) (protocol.CleanupTarget, error) {
+	remove := func() error {
+		identity, err := verify()
+		if err != nil || identity.ID == "" {
+			return err
+		}
+		_, err = runner.Run(ctx, "", "tmux", "kill-session", "-t", identity.ID)
+		return err
 	}
 	root, err := workspace.DefaultRoot()
 	if err != nil {
@@ -87,7 +99,7 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 	for _, group := range registry.Workspaces {
 		// Preview uses the runtime session ID as ResourceID and keeps the
 		// registered session name in Title. Direct name targets work too.
-		if group.SessionName == "" || (group.SessionName != req.Target.Title && group.SessionName != req.Target.ResourceID) {
+		if group.SessionName == "" || (group.SessionName != target.Title && group.SessionName != target.ResourceID) {
 			continue
 		}
 		err := workspacegroup.WithNoteLock(root, func() error {
@@ -99,18 +111,17 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 			if !found || current.SessionName != group.SessionName {
 				return fmt.Errorf("managed tmux session registration changed; preview cleanup again")
 			}
-			_, err = workspace.RemoveSession(ctx, workspace.ExecRunner{}, req.Target.ResourceID)
-			return err
+			return remove()
 		})
 		if err != nil {
 			return protocol.CleanupTarget{}, err
 		}
-		return req.Target, nil
+		return target, nil
 	}
-	if _, err := workspace.RemoveSession(ctx, workspace.ExecRunner{}, req.Target.ResourceID); err != nil {
+	if err := remove(); err != nil {
 		return protocol.CleanupTarget{}, err
 	}
-	return req.Target, nil
+	return target, nil
 }
 
 func (Source) ClientActive() bool {
@@ -232,12 +243,7 @@ func (Source) MatchesCurrent(ref protocol.SourceRef, current protocol.CurrentCon
 }
 
 func (Source) Switch(ctx context.Context, target integration.SessionTarget) error {
-	tmuxTarget := firstNonEmpty(target.ID, target.Name)
-	if tmuxTarget == "" {
-		return fmt.Errorf("tmux session target is required")
-	}
-	_, err := workspace.ExecRunner{}.Run(ctx, "", "tmux", "switch-client", "-t", tmuxTarget)
-	return err
+	return switchSession(ctx, workspace.ExecRunner{}, target)
 }
 
 func firstNonEmpty(values ...string) string {

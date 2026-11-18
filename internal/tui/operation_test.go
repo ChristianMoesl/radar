@@ -2,6 +2,8 @@ package tui
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -385,6 +387,13 @@ func TestOperationRunsAsynchronouslyWithTeatest(t *testing.T) {
 
 func TestCreatedWorkspaceAttachesOnlyWithReadySession(t *testing.T) {
 	t.Setenv("TMUX", "")
+	home := t.TempDir()
+	t.Setenv("RADAR_SOCKET", filepath.Join(home, "radar.sock"))
+	stub := "#!/bin/sh\nif [ \"$1\" = display-message ]; then if [ \"$5\" = '#{session_name}' ]; then echo ready; else echo '12:34:$7'; fi; fi\n"
+	if err := os.WriteFile(filepath.Join(home, "tmux"), []byte(stub), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", home+string(os.PathListSeparator)+os.Getenv("PATH"))
 	m := operationFixture()
 	m.startOperation(m.tasks[0], "workspace", "Creating workspace…", "Workspace creation failed", nil)
 	updated, cmd := m.Update(operationReply(m, workspaceAppliedMsg{created: integration.Workspace{Path: "/work/ready", SessionName: "ready"}}))
@@ -400,5 +409,8 @@ func TestCreatedWorkspaceAttachesOnlyWithReadySession(t *testing.T) {
 	}
 	if _, action := message.(actionMsg); action {
 		t.Fatal("outside workspace tried background switch instead of terminal handoff")
+	}
+	if result := runForeground(t, cmd); result.err != nil || !result.refresh {
+		t.Fatal("foreground handoff did not return through its callback", result)
 	}
 }

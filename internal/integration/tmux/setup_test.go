@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"radar/internal/integration"
@@ -125,11 +126,16 @@ func TestTmuxConfigPlanRejectsChangesMadeDuringReview(t *testing.T) {
 }
 
 func TestAttachArgsAndSupportedVersions(t *testing.T) {
-	args, err := (Source{}).AttachCommand(integration.SessionTarget{Name: "workspace with spaces", ID: "$12"})
-	if err != nil || strings.Join(args.Args, "|") != "tmux|attach-session|-t|$12" {
+	t.Setenv("RADAR_SOCKET", filepath.Join(t.TempDir(), "radar.sock"))
+	args, err := prepareAttach(context.Background(), &navigationRunner{}, integration.SessionTarget{Name: "workspace with spaces", ID: "$7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer args.Release()
+	if strings.Join(args.Command.Args, "|") != "tmux|attach-session|-t|$7" {
 		t.Fatalf("attach: %v %v", args, err)
 	}
-	if _, err := (Source{}).AttachCommand(integration.SessionTarget{}); err == nil {
+	if _, err := (Source{}).AttachCommand(context.Background(), integration.SessionTarget{}); err == nil {
 		t.Fatal("empty target accepted")
 	}
 	for version, want := range map[string]bool{"tmux 3.1c": false, "tmux 3.2": true, "tmux 3.4a": true, "tmux next-3.6": true, "tmux 4.0": true, "unknown": false} {

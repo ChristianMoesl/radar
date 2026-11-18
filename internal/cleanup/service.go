@@ -123,6 +123,28 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 			seen[path] = true
 		}
 	}
+	// Native aliases are provider-owned: resolve their full set before even
+	// the first provider's preflight or destructive call can run.
+	admitted := make(map[string]integration.CleanupProvider)
+	for _, provider := range s.providers {
+		if admission, ok := provider.(integration.CleanupAdmissionProvider); ok {
+			var targets []protocol.CleanupTarget
+			for _, target := range preview.Targets {
+				if target.Source == provider.Descriptor().Name {
+					targets = append(targets, target)
+				}
+			}
+			if len(targets) == 0 {
+				continue
+			}
+			bound, release, err := admission.AdmitCleanup(ctx, targets, options.Mode)
+			if err != nil {
+				return result, remainingError(preview, result, fmt.Errorf("%s cleanup admission: %w", provider.Descriptor().Name, err))
+			}
+			releases = append(releases, release)
+			admitted[provider.Descriptor().Name] = bound
+		}
+	}
 	observation.Stage = "bundle_preflight"
 	preflightDone := phasetiming.Start(ctx, "cleanup_bundle_preflight")
 	for _, provider := range s.providers {
@@ -146,6 +168,9 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 		provider, ok := s.provider(target.Source)
 		if !ok {
 			return result, remainingError(preview, result, fmt.Errorf("source %q cannot clean up local resources", target.Source))
+		}
+		if bound, ok := admitted[target.Source]; ok {
+			provider = bound
 		}
 		phase := "cleanup_resource"
 		switch target.Kind {

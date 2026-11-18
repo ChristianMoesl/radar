@@ -1856,13 +1856,11 @@ func (m model) switchTmuxSession(target string) tea.Cmd {
 		return func() tea.Msg { return actionMsg{err: err} }
 	}
 	if !multiplexer.ClientActive() {
-		command, err := multiplexer.AttachCommand(integration.SessionTarget{Name: target})
+		attachment, err := multiplexer.AttachCommand(context.Background(), integration.SessionTarget{Name: target})
 		if err != nil {
 			return func() tea.Msg { return actionMsg{err: err} }
 		}
-		return tea.ExecProcess(command, func(err error) tea.Msg {
-			return actionMsg{err: err, refresh: err == nil, message: "Returned from workspace"}
-		})
+		return attachSession(attachment)
 	}
 	return func() tea.Msg {
 		if err := multiplexer.Switch(context.Background(), integration.SessionTarget{Name: target}); err != nil {
@@ -1870,6 +1868,13 @@ func (m model) switchTmuxSession(target string) tea.Cmd {
 		}
 		return actionMsg{quit: true}
 	}
+}
+
+func attachSession(attachment integration.SessionAttachment) tea.Cmd {
+	return tea.Exec(attachment, func(err error) tea.Msg {
+		attachment.Release()
+		return actionMsg{err: err, refresh: err == nil, message: "Returned from workspace"}
+	})
 }
 
 func workspaceAnchorRef(task protocol.Task) (protocol.SourceRef, bool) {

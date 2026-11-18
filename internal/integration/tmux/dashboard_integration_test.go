@@ -1,12 +1,14 @@
 package tmux
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"radar/internal/integration"
+	"radar/internal/sessionlease"
 	"strings"
 	"testing"
 	"time"
@@ -72,11 +74,16 @@ func TestRealTmuxAttachAndPrefixBinding(t *testing.T) {
 			if output, err := tmux("new-session", "-d", "-s", "workspace", "-c", home).CombinedOutput(); err != nil {
 				t.Fatalf("start workspace: %v %s", err, output)
 			}
-			attach, err := (Source{}).AttachCommand(integration.SessionTarget{Name: "workspace"})
+			t.Setenv("RADAR_SOCKET", filepath.Join(home, "radar.sock"))
+			attach, err := prepareAttach(context.Background(), privateTmuxRunner{binary: binary, socket: socket}, integration.SessionTarget{Name: "workspace"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			cmd := tmux(attach.Args[1:]...)
+			defer attach.Release()
+			if err := attach.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			cmd := tmux(attach.Command.Args[1:]...)
 			terminal, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 140})
 			if err != nil {
 				t.Fatal(err)
@@ -86,6 +93,11 @@ func TestRealTmuxAttachAndPrefixBinding(t *testing.T) {
 			done := make(chan error, 1)
 			go func() { done <- cmd.Wait() }()
 			t.Cleanup(func() { _ = cmd.Process.Kill() })
+			cleanup := sessionlease.New(true)
+			if _, err := cleanup.Admit(context.Background(), privateTmuxRunner{binary: binary, socket: socket}, sessionlease.Request{Selector: "=workspace"}); err == nil {
+				cleanup.Close()
+				t.Fatal("cleanup entered native foreground attachment")
+			}
 			waitPopup := func(count int) {
 				t.Helper()
 				for deadline := time.Now().Add(6 * time.Second); time.Now().Before(deadline); {
@@ -123,12 +135,29 @@ func TestRealTmuxAttachAndPrefixBinding(t *testing.T) {
 			}
 			select {
 			case err := <-done:
+				attach.Release()
 				if err != nil {
 					t.Fatal(err)
 				}
 			case <-time.After(5 * time.Second):
 				t.Fatal("client did not detach")
 			}
+			cleanup = sessionlease.New(true)
+			defer cleanup.Close()
+			if _, err := cleanup.Admit(context.Background(), privateTmuxRunner{binary: binary, socket: socket}, sessionlease.Request{Selector: "=workspace"}); err != nil {
+				t.Fatal("foreground admission leaked after native detach", err)
+			}
 		})
 	}
+}
+
+// Admission queries use the same private server as the foreground client.
+type privateTmuxRunner struct{ binary, socket string }
+
+func (privateTmuxRunner) LookPath(string) error { return nil }
+func (r privateTmuxRunner) Run(ctx context.Context, cwd, _ string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, r.binary, append([]string{"-S", r.socket, "-f", "/dev/null"}, args...)...)
+	cmd.Dir = cwd
+	output, err := cmd.CombinedOutput()
+	return string(output), err
 }

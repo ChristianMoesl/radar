@@ -53,10 +53,22 @@ func TestSessionCleanupWaitsOnlyForManagedResources(t *testing.T) {
 				t.Fatal(err)
 			}
 			callsPath := filepath.Join(home, "calls")
-			body := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> %q\n", callsPath)
-			if tc.missing {
-				body += "[ \"$1\" != has-session ]\n"
+			name := "standalone-session"
+			if tc.managed {
+				name = group.SessionName
 			}
+			identity := "12:34:$7"
+			if tc.missing {
+				identity = "12::"
+			}
+			body := fmt.Sprintf(`#!/bin/sh
+if [ "$1" = display-message ]; then
+ if [ "$5" = '#{session_name}' ]; then printf '%%s\n' %q; else printf '%%s\n' '%s'; fi
+ exit 0
+fi
+printf '%%s\n' "$*" >> %q
+`, name, identity, callsPath)
+			t.Setenv("RADAR_SOCKET", filepath.Join(home, "radar.sock"))
 			if err := os.WriteFile(filepath.Join(home, "tmux"), []byte(body), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -112,11 +124,11 @@ func TestSessionCleanupWaitsOnlyForManagedResources(t *testing.T) {
 					t.Fatalf("stale managed target was removed: %s, %v", data, err)
 				}
 			} else {
-				want := "has-session -t " + target.ResourceID + "\n"
+				want := ""
 				if !tc.missing {
-					want += "kill-session -t " + target.ResourceID + "\n"
+					want = "kill-session -t $7\n"
 				}
-				if err != nil || string(data) != want {
+				if (err != nil && !(tc.missing && os.IsNotExist(err))) || string(data) != want {
 					t.Fatalf("session cleanup calls = %q, want %q, error = %v", data, want, err)
 				}
 			}
@@ -172,10 +184,15 @@ func TestManagedWorkspaceCleanupDoesNotRecursivelyLock(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"tmux", "sbx"} {
-		if err := os.WriteFile(filepath.Join(home, name), []byte("#!/bin/sh\nif [ \"$1\" = ls ]; then printf '[]'; fi\nexit 0\n"), 0o755); err != nil {
+		body := "#!/bin/sh\nif [ \"$1\" = ls ]; then printf '[]'; fi\nexit 0\n"
+		if name == "tmux" {
+			body = "#!/bin/sh\nif [ \"$1\" = display-message ]; then if [ \"$5\" = '#{session_name}' ]; then echo managed-session; else echo '12:34:$7'; fi; fi\nexit 0\n"
+		}
+		if err := os.WriteFile(filepath.Join(home, name), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
+	t.Setenv("RADAR_SOCKET", filepath.Join(home, "radar.sock"))
 	t.Setenv("PATH", home+string(os.PathListSeparator)+os.Getenv("PATH"))
 	group := workspacegroup.Workspace{
 		ID: workspacegroup.ID(anchor), Name: "feature", Path: anchor, SessionName: "managed-session",

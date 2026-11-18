@@ -78,9 +78,20 @@ func TestDashboardOpensDirectlyAndEntersWorkspaceOnDemand(t *testing.T) {
 				t.Fatal(err)
 			}
 			writeStartupTools(t, bin, "")
-			script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HOME/calls\"\nexit 0\n"
+			script := `#!/bin/sh
+printf '%s\n' "$*" >> "$HOME/calls"
+case "$1" in
+display-message)
+ if [ "$5" = '#{session_name}' ]; then printf 'fixture-workspace\n'; else printf '12:34:$7\n'; fi
+ exit 0;;
+attach-session|switch-client) ;;
+*) exit 42;;
+esac
+`
 			if scenario.fail {
-				script = strings.Replace(script, "exit 0", "exit 23", 1)
+				script += "exit 23\n"
+			} else {
+				script += "exit 0\n"
 			}
 			if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte(script), 0755); err != nil {
 				t.Fatal(err)

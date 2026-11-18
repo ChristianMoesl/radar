@@ -37,6 +37,7 @@ func TestStagedRuntimeRetirementPreservesDataAndRetries(t *testing.T) {
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", configHome)
 			t.Setenv("RADAR_STATE", filepath.Join(home, "state.db"))
+			t.Setenv("RADAR_SOCKET", filepath.Join(home, "radar.sock"))
 			write := func(path, body string, mode os.FileMode) {
 				t.Helper()
 				if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -79,12 +80,14 @@ esac
 			write(filepath.Join(bin, "tmux"), fmt.Sprintf(`#!/bin/sh
 printf 'tmux %%s\n' "$*" >> %q
 case "$1" in
+display-message) if [ -f %q ]; then printf 'no server running' >&2; exit 1; fi
+if [ "$5" = '#{session_name}' ]; then printf 'registered-session\n'; else printf '101:1700000001:$1\n'; fi;;
 list-sessions) if [ -f %q ]; then printf 'no server running' >&2; exit 1; fi
 printf '101\t1700000001\t$1\tregistered-session\t1\t1\t%%s\n' %q;;
 kill-session) : > %q;;
 *) exit 42;;
 esac
-`, calls, removed, anchor, removed), 0755)
+`, calls, removed, removed, anchor, removed), 0755)
 			write(filepath.Join(bin, "git"), "#!/bin/sh\nexit 42\n", 0755)
 			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 			store, err := state.NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)))

@@ -2,7 +2,6 @@ package sbx
 
 import (
 	"context"
-	"os/exec"
 	"testing"
 
 	"radar/internal/integration"
@@ -30,8 +29,10 @@ func (fakeMultiplexer) Descriptor() integration.Descriptor {
 func (fakeMultiplexer) Collect(context.Context, integration.CollectRequest) integration.CollectResult {
 	return integration.CollectResult{}
 }
-func (fakeMultiplexer) ClientActive() bool                                         { return false }
-func (fakeMultiplexer) AttachCommand(integration.SessionTarget) (*exec.Cmd, error) { return nil, nil }
+func (fakeMultiplexer) ClientActive() bool { return false }
+func (fakeMultiplexer) AttachCommand(context.Context, integration.SessionTarget) (integration.SessionAttachment, error) {
+	return integration.SessionAttachment{Validate: func() error { return nil }, Release: func() {}}, nil
+}
 func (fakeMultiplexer) Current(context.Context) (integration.SessionContext, bool, error) {
 	return integration.SessionContext{}, false, nil
 }
