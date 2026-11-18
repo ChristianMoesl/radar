@@ -70,6 +70,12 @@ func (r *earlyCreationRunner) Run(ctx context.Context, cwd, name string, args ..
 			}
 			r.pane++
 			output := fmt.Sprintf("@%d %%%d", r.window, r.pane)
+			if args[0] == "new-session" {
+				creation, _ := r.fakeRunner.Run(ctx, cwd, name, args...)
+				if strings.Contains(strings.Join(args, " "), "#{pid}") {
+					output = strings.Fields(creation)[0] + " " + output
+				}
+			}
 			r.mu.Unlock()
 			return output, nil
 		case "set-option":

@@ -131,10 +131,27 @@ func installCreateWorkspaceFakeTools(t *testing.T, tmp string, logPath string) {
 	tmux := `#!/bin/sh
 printf 'tmux|%s|%s\n' "$PWD" "$*" >> "$RADAR_CREATE_E2E_LOG"
 if [ "$1" = "has-session" ]; then
-  exit 1
+  test -f "$RADAR_CREATE_E2E_LOG.tmux-session"
+  exit $?
 fi
-if [ "$1" = "new-session" ] || [ "$1" = "new-window" ] || [ "$1" = "split-window" ]; then
+if [ "$1" = "display-message" ]; then
+  if [ ! -f "$RADAR_CREATE_E2E_LOG.tmux-session" ]; then
+    printf '12::\n'
+  elif [ "$5" = '#{session_name}' ]; then
+    cat "$RADAR_CREATE_E2E_LOG.tmux-session"
+  else
+    printf '12:34:$9\n'
+  fi
+fi
+if [ "$1" = "new-session" ]; then
+  printf '%s\n' "$4" > "$RADAR_CREATE_E2E_LOG.tmux-session"
+  printf '12:34:$9 @1 %%1\n'
+fi
+if [ "$1" = "new-window" ] || [ "$1" = "split-window" ]; then
   printf '@1 %%1\n'
+fi
+if [ "$1" = "kill-session" ]; then
+  rm -f "$RADAR_CREATE_E2E_LOG.tmux-session"
 fi
 exit 0
 `

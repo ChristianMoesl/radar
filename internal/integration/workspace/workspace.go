@@ -1037,16 +1037,40 @@ func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string
 		return err
 	}
 
-	createdSession := false
+	admission := sessionlease.New(false)
+	defer admission.Close()
+	live, err := admission.Admit(ctx, runner, sessionlease.Request{Selector: "=" + sessionName, Name: sessionName, AllowMissing: true})
+	if err != nil {
+		return err
+	}
+	if live.ID != "" {
+		return fmt.Errorf("tmux session %s already exists; refresh before creating its layout", sessionName)
+	}
+	var createdExpected, createdID string
 	cleanup := func(err error) error {
-		if createdSession {
+		if createdExpected != "" {
 			// Cancellation between pane creation and gate registration must not
 			// leave a live pane waiting on an unrecorded, unrecoverable gate.
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 			defer cancel()
-			_, _ = runner.Run(cleanupCtx, cwd, "tmux", "kill-session", "-t", sessionName)
+			// A failed/canceled admission unwinds its Set. Rollback must freshly
+			// admit the identity emitted by this creation, never its reused name.
+			rollback := sessionlease.New(false)
+			defer rollback.Close()
+			original, verifyErr := rollback.Admit(cleanupCtx, runner, sessionlease.Request{Selector: createdID, Name: sessionName, Expected: createdExpected})
+			if verifyErr == nil {
+				_, _ = runner.Run(cleanupCtx, cwd, "tmux", "kill-session", "-t", original.ID)
+			}
 		}
 		return err
+	}
+	runAdmitted := func(args ...string) (string, error) {
+		current, err := admission.Admit(ctx, runner, sessionlease.Request{Selector: live.ID, Name: live.Name, Expected: live.Key()})
+		if err != nil {
+			return "", err
+		}
+		live = current
+		return runner.Run(ctx, cwd, "tmux", args...)
 	}
 	var piWindowID string
 	var piPaneID string
@@ -1055,7 +1079,7 @@ func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string
 		var output string
 		var err error
 		if windowIndex == 0 {
-			args := []string{"new-session", "-d", "-s", sessionName, "-n", window.Name, "-c", path, "-P", "-F", "#{window_id} #{pane_id}"}
+			args := []string{"new-session", "-d", "-s", sessionName, "-n", window.Name, "-c", path, "-P", "-F", "#{pid}:#{session_created}:#{session_id} #{window_id} #{pane_id}"}
 			keys := make([]string, 0, len(environment))
 			for key := range environment {
 				keys = append(keys, key)
@@ -1067,10 +1091,20 @@ func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string
 			args = append(args, firstCommand)
 			output, err = runner.Run(ctx, cwd, "tmux", args...)
 			if err == nil {
-				createdSession = true
+				fields := strings.Fields(output)
+				if len(fields) == 0 {
+					return cleanup(fmt.Errorf("created tmux runtime identity is unavailable; inspect it before retrying"))
+				}
+				identity := strings.Split(fields[0], ":")
+				if len(identity) != 3 {
+					return cleanup(fmt.Errorf("created tmux runtime identity is unavailable; inspect it before retrying"))
+				}
+				createdExpected, createdID = "tmux:session:"+fields[0], identity[2]
+				live, err = admission.Admit(ctx, runner, sessionlease.Request{Selector: createdID, Name: sessionName, Expected: createdExpected})
+				output = strings.Join(fields[1:], " ")
 			}
 		} else {
-			output, err = runner.Run(ctx, cwd, "tmux", "new-window", "-t", sessionName+":", "-d", "-n", window.Name, "-c", path, "-P", "-F", "#{window_id} #{pane_id}", firstCommand)
+			output, err = runAdmitted("new-window", "-t", live.ID+":", "-d", "-n", window.Name, "-c", path, "-P", "-F", "#{window_id} #{pane_id}", firstCommand)
 		}
 		if err != nil {
 			return cleanup(err)
@@ -1080,7 +1114,7 @@ func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string
 			return cleanup(err)
 		}
 		if firstGate != "" {
-			if _, err := runner.Run(ctx, cwd, "tmux", "set-option", "-p", "-t", firstPaneID, workspacePaneGateOption, firstGate); err != nil {
+			if _, err := runAdmitted("set-option", "-p", "-t", firstPaneID, workspacePaneGateOption, firstGate); err != nil {
 				return cleanup(err)
 			}
 		}
@@ -1091,7 +1125,7 @@ func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string
 
 		for _, pane := range window.Panes[1:] {
 			command, gate := workspacePaneCommand(path, pane.Command, piArgsText, early)
-			output, err := runner.Run(ctx, cwd, "tmux", "split-window", "-d", "-t", firstPaneID, "-c", path, "-P", "-F", "#{window_id} #{pane_id}", command)
+			output, err := runAdmitted("split-window", "-d", "-t", firstPaneID, "-c", path, "-P", "-F", "#{window_id} #{pane_id}", command)
 			if err != nil {
 				return cleanup(err)
 			}
@@ -1100,7 +1134,7 @@ func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string
 				return cleanup(err)
 			}
 			if gate != "" {
-				if _, err := runner.Run(ctx, cwd, "tmux", "set-option", "-p", "-t", paneID, workspacePaneGateOption, gate); err != nil {
+				if _, err := runAdmitted("set-option", "-p", "-t", paneID, workspacePaneGateOption, gate); err != nil {
 					return cleanup(err)
 				}
 			}
@@ -1114,15 +1148,15 @@ func createTmuxWorkspaceWithGates(ctx context.Context, runner Runner, cwd string
 			return cleanup(err)
 		}
 		if layout != "" {
-			if _, err := runner.Run(ctx, cwd, "tmux", "select-layout", "-t", windowID, layout); err != nil {
+			if _, err := runAdmitted("select-layout", "-t", windowID, layout); err != nil {
 				return cleanup(err)
 			}
 		}
 	}
-	if _, err := runner.Run(ctx, cwd, "tmux", "select-window", "-t", piWindowID); err != nil {
+	if _, err := runAdmitted("select-window", "-t", piWindowID); err != nil {
 		return cleanup(err)
 	}
-	if _, err := runner.Run(ctx, cwd, "tmux", "select-pane", "-t", piPaneID); err != nil {
+	if _, err := runAdmitted("select-pane", "-t", piPaneID); err != nil {
 		return cleanup(err)
 	}
 	return nil

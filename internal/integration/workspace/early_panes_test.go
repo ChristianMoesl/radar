@@ -17,6 +17,7 @@ import (
 )
 
 type paneGateRunner struct {
+	native  fakeRunner
 	calls   []call
 	pending map[string]string
 	window  int
@@ -27,12 +28,16 @@ type paneGateRunner struct {
 
 func (*paneGateRunner) LookPath(string) error { return nil }
 
-func (r *paneGateRunner) Run(_ context.Context, cwd, name string, args ...string) (string, error) {
+func (r *paneGateRunner) Run(ctx context.Context, cwd, name string, args ...string) (string, error) {
 	r.calls = append(r.calls, call{cwd: cwd, name: name, args: args})
 	if r.fail != nil {
 		if err := r.fail(args); err != nil {
 			return "", err
 		}
+	}
+	var creation string
+	if args[0] == "new-session" {
+		creation, _ = r.native.Run(ctx, cwd, name, args...)
 	}
 	if r.output != nil {
 		if output, ok := r.output(args); ok {
@@ -40,12 +45,18 @@ func (r *paneGateRunner) Run(_ context.Context, cwd, name string, args ...string
 		}
 	}
 	switch args[0] {
+	case "display-message", "kill-session":
+		return r.native.Run(ctx, cwd, name, args...)
 	case "new-session", "new-window", "split-window":
 		if args[0] != "split-window" {
 			r.window++
 		}
 		r.pane++
-		return fmt.Sprintf("@%d %%%d", r.window, r.pane), nil
+		output := fmt.Sprintf("@%d %%%d", r.window, r.pane)
+		if args[0] == "new-session" && strings.Contains(strings.Join(args, " "), "#{pid}") {
+			output = strings.Fields(creation)[0] + " " + output
+		}
+		return output, nil
 	case "set-option":
 		if r.pending == nil {
 			r.pending = map[string]string{}
@@ -89,7 +100,23 @@ func TestEarlyTmuxWorkspacePreservesLayoutAndPiPosition(t *testing.T) {
 				var ungated []call
 				paneIndex := 0
 				gates := map[string]bool{}
-				for i, c := range early.calls {
+				// Admission probes have no pane effects and intentionally run
+				// without a working directory. Compare all remaining native effects.
+				effects := func(calls []call) []call {
+					var result []call
+					for _, c := range calls {
+						if c.args[0] == "display-message" {
+							if c.cwd != "" || c.name != "tmux" {
+								t.Fatalf("wrong admission probe context: %+v", c)
+							}
+							continue
+						}
+						result = append(result, c)
+					}
+					return result
+				}
+				earlyEffects := effects(early.calls)
+				for i, c := range earlyEffects {
 					if c.cwd != "/creator" || c.name != "tmux" {
 						t.Fatalf("wrong execution context: %+v", c)
 					}
@@ -109,7 +136,7 @@ func TestEarlyTmuxWorkspacePreservesLayoutAndPiPosition(t *testing.T) {
 							if !strings.HasSuffix(command, "\n"+want) || !strings.HasPrefix(command, "tmux wait-for '") {
 								t.Fatalf("auxiliary command not gated intact: %q", command)
 							}
-							option := early.calls[i+1]
+							option := earlyEffects[i+1]
 							wantPrefix := []string{"set-option", "-p", "-t", fmt.Sprintf("%%%d", paneIndex+1), workspacePaneGateOption}
 							if len(option.args) != 6 || !reflect.DeepEqual(option.args[:5], wantPrefix) {
 								t.Fatalf("gate not stored immediately after pane creation: %+v", option)
@@ -125,7 +152,7 @@ func TestEarlyTmuxWorkspacePreservesLayoutAndPiPosition(t *testing.T) {
 					}
 					ungated = append(ungated, call{cwd: c.cwd, name: c.name, args: args})
 				}
-				if !reflect.DeepEqual(ungated, normal.calls) || len(early.pending) != 4 {
+				if !reflect.DeepEqual(ungated, effects(normal.calls)) || len(early.pending) != 4 {
 					t.Fatalf("early layout/order differs from normal: early=%+v normal=%+v pending=%v", ungated, normal.calls, early.pending)
 				}
 			})
@@ -180,7 +207,7 @@ func TestEarlyTmuxWorkspaceCleansUpConstructorFailures(t *testing.T) {
 				return nil
 			}}
 			if failure == "parse" {
-				runner.output = func(args []string) (string, bool) { return "bad IDs", args[0] == "new-session" }
+				runner.output = func(args []string) (string, bool) { return "12:34:$9 bad IDs", args[0] == "new-session" }
 			}
 			err := createEarlyTmuxWorkspace(context.Background(), runner, "", "/workspace", "test", cfg, "")
 			if err == nil || (failure != "parse" && !errors.Is(err, sentinel)) {
@@ -188,10 +215,8 @@ func TestEarlyTmuxWorkspaceCleansUpConstructorFailures(t *testing.T) {
 			}
 			last := runner.calls[len(runner.calls)-1]
 			if failure == "new-session" {
-				if len(runner.calls) != 1 {
-					t.Fatalf("attempted cleanup of uncreated session: %+v", runner.calls)
-				}
-			} else if !reflect.DeepEqual(last.args, []string{"kill-session", "-t", "test"}) {
+				assertNotCalledContains(t, runner.calls, "tmux", "kill-session")
+			} else if !reflect.DeepEqual(last.args, []string{"kill-session", "-t", "$9"}) {
 				t.Fatalf("missing constructor cleanup: %+v", runner.calls)
 			}
 		})

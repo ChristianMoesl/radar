@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,7 @@ type fakeRunner struct {
 	gitCommonDir    string
 	hasSession      bool
 	liveSessionName string
+	nativeCreated   map[string]string
 	failSetupWindow bool
 	sbxListOutput   string
 	refs            map[string]bool
@@ -55,23 +57,58 @@ func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...str
 	if name == "tmux" && len(args) > 0 && args[0] == "has-session" {
 		f.liveSessionName = strings.TrimPrefix(args[len(args)-1], "=")
 		if !f.hasSession {
+			// Tests use hasSession=false to model an externally missing runtime.
+			// Do not leave an earlier constructor's identity discoverable.
+			delete(f.nativeCreated, f.liveSessionName)
 			return "", errors.New("missing")
 		}
 		return "", nil
 	}
-	if name == "tmux" && len(args) == 5 && args[0] == "display-message" && f.hasSession {
+	if name == "tmux" && len(args) == 5 && args[0] == "display-message" {
+		selector := strings.TrimSuffix(strings.TrimPrefix(args[3], "="), ":")
+		id, sessionName := f.nativeCreated[selector], selector
+		if strings.HasPrefix(selector, "$") {
+			for candidate, value := range f.nativeCreated {
+				if value == selector {
+					id, sessionName = value, candidate
+				}
+			}
+		}
+		if id == "" && f.hasSession {
+			id, sessionName = "$7", f.liveSessionName
+		}
 		switch args[4] {
 		case "#{pid}:#{session_created}:#{session_id}":
-			return "12:34:$7\n", nil
+			if id == "" {
+				return "12::\n", nil
+			}
+			return "12:34:" + id + "\n", nil
 		case "#{session_name}":
-			return f.liveSessionName + "\n", nil
+			return sessionName + "\n", nil
 		}
 	}
 	if name == "tmux" && len(args) > 0 && (args[0] == "new-session" || args[0] == "new-window" || args[0] == "split-window") {
 		if f.failSetupWindow && args[0] == "new-window" && strings.Contains(strings.Join(args, " "), "-n setup") {
 			return "", errors.New("setup window failed")
 		}
+		if args[0] == "new-session" {
+			if f.nativeCreated == nil {
+				f.nativeCreated = make(map[string]string)
+			}
+			id := fmt.Sprintf("$%d", 9+len(f.nativeCreated))
+			f.nativeCreated[args[3]] = id
+			if strings.Contains(strings.Join(args, " "), "#{pid}") {
+				return "12:34:" + id + " @1 %1", nil
+			}
+		}
 		return "@1 %1", nil
+	}
+	if name == "tmux" && len(args) == 3 && args[0] == "kill-session" {
+		for sessionName, id := range f.nativeCreated {
+			if args[2] == id || args[2] == sessionName {
+				delete(f.nativeCreated, sessionName)
+			}
+		}
 	}
 	if name == "git" && len(args) > 0 && args[0] == "show-ref" {
 		if f.refs[args[len(args)-1]] {
