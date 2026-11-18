@@ -173,7 +173,7 @@ func TestWorkspaceCreationSkipsConfirmation(t *testing.T) {
 		},
 		Warnings: []string{"The canonical note is retained", "recreating the sandbox interrupts processes running inside it"},
 	}
-	updated, cmd = m.Update(workspacePlanMsg{plan: plan})
+	updated, cmd = m.Update(operationReply(m, workspacePlanMsg{plan: plan}))
 	m = updated.(model)
 	if cmd == nil || m.mode != "workspace_applying" || m.editor.plan.PlanID != "validated" || m.message != "" || m.operation.label != "Creating workspace…" {
 		t.Fatalf("creation did not apply validated plan directly: %+v", m)
@@ -191,7 +191,8 @@ func TestWorkspaceCreationSkipsConfirmation(t *testing.T) {
 
 func TestWorkspaceCreationPreviewFailureDoesNotApply(t *testing.T) {
 	m := model{mode: "workspace_loading", editor: workspaceEditor{active: true, create: integration.ManagedWorkspaceRequest{Name: "New"}}}
-	updated, cmd := m.Update(workspacePlanMsg{err: fmt.Errorf("vault unavailable")})
+	m.startOperation(m.editor.task, "workspace-prepare", "Working…", "Workspace failed", nil)
+	updated, cmd := m.Update(operationReply(m, workspacePlanMsg{err: fmt.Errorf("vault unavailable")}))
 	got := updated.(model)
 	if cmd != nil || got.mode != "workspace_edit" || got.err == nil || !got.editor.active {
 		t.Fatal("failed validation applied or discarded the draft")
@@ -201,7 +202,8 @@ func TestWorkspaceCreationPreviewFailureDoesNotApply(t *testing.T) {
 func TestWorkspaceCreationResolvingToExistingWorkspaceRequiresConfirmation(t *testing.T) {
 	m := model{mode: "workspace_loading", editor: workspaceEditor{active: true, create: integration.ManagedWorkspaceRequest{Name: "Existing"}}}
 	plan := integration.WorkspaceReconcilePlan{Changes: []integration.WorkspaceChange{{Action: "recreate", Resource: "sandbox"}}, Warnings: []string{"recreating the sandbox interrupts processes running inside it"}}
-	updated, cmd := m.Update(workspacePlanMsg{plan: plan})
+	m.startOperation(m.editor.task, "workspace-prepare", "Working…", "Workspace failed", nil)
+	updated, cmd := m.Update(operationReply(m, workspacePlanMsg{plan: plan}))
 	got := updated.(model)
 	if cmd != nil || got.mode != "workspace_confirm" || !strings.Contains(got.View(), plan.Warnings[0]) {
 		t.Fatal("existing workspace changes bypassed confirmation")
@@ -209,7 +211,9 @@ func TestWorkspaceCreationResolvingToExistingWorkspaceRequiresConfirmation(t *te
 }
 
 func TestWorkspaceUnchangedPlanDoesNotApply(t *testing.T) {
-	updated, cmd := editorModel().Update(workspacePlanMsg{plan: integration.WorkspaceReconcilePlan{PlanID: "unchanged"}})
+	m := editorModel()
+	m.startOperation(m.editor.task, "workspace-prepare", "Preparing changes…", "Workspace preparation failed", nil)
+	updated, cmd := m.Update(operationReply(m, workspacePlanMsg{plan: integration.WorkspaceReconcilePlan{PlanID: "unchanged"}}))
 	got := updated.(model)
 	if cmd != nil || got.mode != "workspace_edit" || got.message != "No workspace changes" {
 		t.Fatal("unchanged plan applied or requested confirmation")
@@ -224,7 +228,7 @@ func TestWorkspacePreviewRequiresConfirmation(t *testing.T) {
 		t.Fatal("review did not request a preview")
 	}
 	plan := integration.WorkspaceReconcilePlan{PlanID: "confirmed", Changes: []integration.WorkspaceChange{{Summary: "remove app worktree"}}, Warnings: []string{"unpublished branch"}}
-	updated, cmd = got.Update(workspacePlanMsg{plan: plan})
+	updated, cmd = got.Update(operationReply(got, workspacePlanMsg{plan: plan}))
 	got = updated.(model)
 	if cmd != nil || got.mode != "workspace_confirm" || !strings.Contains(got.View(), "unpublished branch") {
 		t.Fatal("preview did not show confirmation")
@@ -243,7 +247,8 @@ func TestWorkspaceChangedPlanRequiresAnotherConfirmation(t *testing.T) {
 	m := editorModel()
 	m.mode = "workspace_applying"
 	plan := &integration.WorkspaceReconcilePlan{PlanID: "changed", Changes: []integration.WorkspaceChange{{Summary: "new consequence"}}}
-	updated, cmd := m.Update(workspaceAppliedMsg{result: integration.WorkspaceReconcileResult{ReconfirmRequired: true, Plan: plan}})
+	m.startOperation(m.editor.task, "workspace", "Working…", "Workspace failed", nil)
+	updated, cmd := m.Update(operationReply(m, workspaceAppliedMsg{result: integration.WorkspaceReconcileResult{ReconfirmRequired: true, Plan: plan}}))
 	got := updated.(model)
 	if cmd != nil || got.mode != "workspace_confirm" || got.editor.plan.PlanID != "changed" {
 		t.Fatal("changed plan was not shown")
@@ -252,7 +257,8 @@ func TestWorkspaceChangedPlanRequiresAnotherConfirmation(t *testing.T) {
 
 func TestWorkspaceFailedApplyDiscardsStaleDraft(t *testing.T) {
 	m := editorModel()
-	updated, _ := m.Update(workspaceAppliedMsg{err: fmt.Errorf("stale revision")})
+	m.startOperation(m.editor.task, "workspace", "Working…", "Workspace failed", nil)
+	updated, _ := m.Update(operationReply(m, workspaceAppliedMsg{err: fmt.Errorf("stale revision")}))
 	got := updated.(model)
 	if got.editor.active || got.err == nil {
 		t.Fatal("failed apply retained stale draft")
@@ -289,7 +295,7 @@ func TestWorkspaceNoteReusesSelectedTasksAuthoredNote(t *testing.T) {
 		{ID: "obsidian:task:existing", Authored: true, WorkspaceAnchorPath: "/vault/Tasks/Existing/Existing.md"},
 	}}
 	_, cmd := (model{}).editWorkspace(task)
-	msg := cmd().(tea.BatchMsg)[0]().(workspaceStateMsg)
+	msg := cmd().(tea.BatchMsg)[0]().(operationResultMsg).result.(workspaceStateMsg)
 	if msg.err != nil || msg.editor.desired.Note == nil || msg.editor.desired.Note.Create || msg.editor.desired.Note.LinkingKey != "obsidian:task:existing" {
 		t.Fatalf("existing authored note was not reused: %+v", msg)
 	}
@@ -310,7 +316,8 @@ func TestWorkspaceEditorDoesNotOfferNoteControls(t *testing.T) {
 func TestWorkspacePreviewRetainsPreparedNote(t *testing.T) {
 	m := model{mode: "workspace_loading", editor: workspaceEditor{create: integration.ManagedWorkspaceRequest{Name: "New"}}}
 	note := &integration.DesiredWorkspaceNote{Create: true, Title: "New", Path: "/vault/Tasks/New--12345678/New.md", LinkingKey: "obsidian:task:12345678"}
-	updated, cmd := m.Update(workspacePlanMsg{plan: integration.WorkspaceReconcilePlan{PlanID: "plan", Note: note, Changes: []integration.WorkspaceChange{{Action: "add", Resource: "workspace"}, {Resource: "note"}}}})
+	m.startOperation(m.editor.task, "workspace-prepare", "Working…", "Workspace failed", nil)
+	updated, cmd := m.Update(operationReply(m, workspacePlanMsg{plan: integration.WorkspaceReconcilePlan{PlanID: "plan", Note: note, Changes: []integration.WorkspaceChange{{Action: "add", Resource: "workspace"}, {Resource: "note"}}}}))
 	got := updated.(model)
 	if cmd == nil || got.mode != "workspace_applying" || got.editor.createRequest().Note != note || got.editor.plan.PlanID != "plan" {
 		t.Fatal("direct apply lost prepared note or validated plan identity")

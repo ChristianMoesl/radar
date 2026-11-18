@@ -96,7 +96,7 @@ esac
 	if cmd == nil {
 		t.Fatal("Enter did not inspect the selected task for workspace creation")
 	}
-	msg := cmd().(tea.BatchMsg)[0]().(workspaceStateMsg)
+	msg := cmd().(tea.BatchMsg)[0]().(operationResultMsg).result.(workspaceStateMsg)
 	if msg.err != nil {
 		t.Fatal(msg.err)
 	}

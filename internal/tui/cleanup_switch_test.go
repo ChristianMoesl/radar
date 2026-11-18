@@ -22,10 +22,10 @@ func TestCleanupEnterExplainsTemporarySwitchRestriction(t *testing.T) {
 					m := operationFixture()
 					m.width, m.cursor = width, cursor
 					m.startOperation(m.tasks[0], kind, "Cleaning up…", "Cleanup failed", nil)
-					operation, generation := m.operation, m.operationGeneration
+					operation, generation := m.cleanupOperation, m.operationGeneration
 					updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 					m = updated.(model)
-					if cmd != nil || m.operation.kind != operation.kind || m.operation.task.ID != operation.task.ID || m.operationGeneration != generation || m.cursor != cursor {
+					if cmd != nil || m.cleanupOperation.kind != operation.kind || m.cleanupOperation.task.ID != operation.task.ID || m.operationGeneration != generation || m.cursor != cursor {
 						t.Fatal("blocked Enter changed selection, cleanup or submitted another operation")
 					}
 					view := ansi.Strip(m.View())
@@ -63,9 +63,9 @@ func TestCleanupCompletionRestoresWorkspaceEnter(t *testing.T) {
 			case "initiating task removed":
 				response.Tasks = m.tasks[1:]
 			}
-			updated, cmd := m.Update(taskActionMsg{action: action})
+			updated, cmd := m.Update(operationReply(m, taskActionMsg{action: action}))
 			m = updated.(model)
-			if cmd != nil || m.operation.kind != "" || m.message != "" {
+			if cmd != nil || m.hasActiveOperation() || m.message != "" {
 				t.Fatal("completion retained a switch restriction or automatically replayed the blocked request")
 			}
 			if action.err != nil && (len(m.taskFailures) != 1 || m.taskFailures[0].operation.task.ID != 1 || m.taskFailures[0].err != action.err) {
@@ -91,7 +91,7 @@ func TestCleanupSwitchFeedbackDoesNotInterceptOtherEnterContexts(t *testing.T) {
 			m.mode, m.searchQuery = mode, "ABC"
 			updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			m = updated.(model)
-			if cmd != nil || m.message != "" || m.operation.kind != "cleanup" {
+			if cmd != nil || m.message != "" || m.cleanupOperation.kind != "cleanup" {
 				t.Fatal("non-overview Enter changed cleanup or displayed a workspace-switch warning")
 			}
 			if mode == "search" && (m.mode != "" || m.searchQuery != "ABC") {
@@ -103,7 +103,7 @@ func TestCleanupSwitchFeedbackDoesNotInterceptOtherEnterContexts(t *testing.T) {
 	m.startOperation(m.tasks[0], "cleanup", "Cleaning up…", "Cleanup failed", nil)
 	m.selectEntry(visibleEntry{section: "done"})
 	m = pressSectionKey(t, m, "enter")
-	if !m.sectionExpanded("done") || m.message != "" || m.operation.kind != "cleanup" {
+	if !m.sectionExpanded("done") || m.message != "" || m.cleanupOperation.kind != "cleanup" {
 		t.Fatal("section-header Enter was mistaken for a workspace-switch request")
 	}
 }
@@ -133,7 +133,7 @@ func TestCleanupSwitchRecoversAsynchronouslyWithTeatest(t *testing.T) {
 	waitFor("Cleanup failed")
 	tm.Send(runeKey('q'))
 	final := tm.FinalModel(t, teatest.WithFinalTimeout(time.Second)).(staticTUIModel).model
-	if final.operation.kind != "" || final.message != "" || !final.resourceRefreshPending || len(final.taskFailures) != 1 || final.taskFailures[0].operation.task.ID != 1 {
+	if final.hasActiveOperation() || final.message != "" || !final.resourceRefreshPending || len(final.taskFailures) != 1 || final.taskFailures[0].operation.task.ID != 1 {
 		t.Fatal("asynchronous completion retained the lock/warning or lost cleanup context")
 	}
 	updated, cmd := final.Update(tea.KeyMsg{Type: tea.KeyEnter})

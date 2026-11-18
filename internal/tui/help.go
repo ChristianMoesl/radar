@@ -140,7 +140,7 @@ func (m model) mainHintAvailable(key string, task protocol.Task, selected bool) 
 	if key == mainKeyHints[0][0].keys || key == mainKeyHints[0][1].keys {
 		return true
 	}
-	if m.operation.kind != "" && (!operationNavigationKey(key) || (key == "enter" && (m.mode != "" || m.selectedSection == ""))) {
+	if m.hasActiveOperation() && (!operationNavigationKey(key) || (key == "enter" && (m.mode != "" || m.selectedSection == ""))) {
 		return false
 	}
 	if key == "enter" && m.selectedSection != "" {

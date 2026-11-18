@@ -84,7 +84,7 @@ func TestCleanupRetryRefreshesAndRepreviewsTheOriginalIdentity(t *testing.T) {
 	}()
 	next, cmd := m.Update(runeKey('r'))
 	m = next.(model)
-	if cmd == nil || m.operation.kind != "cleanup-check" {
+	if cmd == nil || m.cleanupOperation.kind != "cleanup-check" {
 		t.Fatal("retry did not start a new resource check")
 	}
 	msg := cmd().(tea.BatchMsg)[0]()

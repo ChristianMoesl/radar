@@ -312,7 +312,7 @@ func (m model) applyWorkspace() (tea.Model, tea.Cmd) {
 
 func (m model) workspaceView(width int) string {
 	if m.operation.kind != "" {
-		return titleStyle.Render("Workspace: "+m.workspaceEditorName()) + "\n\n" + m.operationMarker() + " " + m.operation.label
+		return titleStyle.Render("Workspace: "+m.workspaceEditorName()) + "\n\n" + m.operationMarker(m.operation) + " " + m.operation.label
 	}
 	if m.mode == "workspace_name" {
 		title := "Create workspace"

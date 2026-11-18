@@ -209,15 +209,15 @@ func TestGlobalActionsRemainAvailableOnHeaders(t *testing.T) {
 
 func TestHeaderExpansionDuringResourceOperationIsClientOnly(t *testing.T) {
 	m := sectionFixture()
-	m.operation = taskOperation{task: m.tasks[0], kind: "cleanup", label: "Cleaning up…"}
+	m.cleanupOperation = taskOperation{task: m.tasks[0], kind: "cleanup", label: "Cleaning up…"}
 	m.selectEntry(visibleEntry{section: "done"})
 	m = pressSectionKey(t, m, "enter")
-	if !m.sectionExpanded("done") || m.operation.kind != "cleanup" {
+	if !m.sectionExpanded("done") || m.cleanupOperation.kind != "cleanup" {
 		t.Fatal("header expansion interfered with a running task operation")
 	}
 	m.selectEntry(visibleEntry{task: 0})
 	m = pressSectionKey(t, m, "enter")
-	if m.operation.kind != "cleanup" {
+	if m.cleanupOperation.kind != "cleanup" {
 		t.Fatal("task Enter replaced an in-flight operation")
 	}
 }
@@ -236,6 +236,10 @@ func TestHeaderSelectionSurvivesRefreshAndMutationSnapshots(t *testing.T) {
 			actionMsg{response: &protocol.Response{Tasks: tasks}},
 			taskActionMsg{action: actionMsg{response: &protocol.Response{Tasks: tasks}}},
 		} {
+			if _, ok := msg.(taskActionMsg); ok {
+				m.startOperation(m.tasks[0], "task-delete", "Deleting task…", "Task deletion failed", nil)
+				msg = operationReply(m, msg)
+			}
 			updated, _ := m.Update(msg)
 			m = updated.(model)
 			if m.selectedSection != "done" || !m.sectionExpanded("done") || m.sectionExpanded("muted") {

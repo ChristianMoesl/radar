@@ -121,8 +121,8 @@ type model struct {
 	relaunch               bool
 	creations              *creationTracker
 	operation              taskOperation
+	cleanupOperation       taskOperation
 	operationGeneration    uint64
-	operationFrame         int
 	taskFailures           []taskFailure
 	cleanupTask            protocol.Task
 	priorityTask           protocol.Task
@@ -216,6 +216,16 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var operationID uint64
+	if result, ok := msg.(operationResultMsg); ok {
+		op := m.operationByID(result.id)
+		if op == nil || !operationResultMatches(op.kind, result.result) {
+			return m, nil
+		}
+		operationID, msg = result.id, result.result
+	} else if isOperationResult(msg) {
+		return m, nil
+	}
 	switch msg := msg.(type) {
 	case agentResultMsg:
 		return m.agentResult(msg)
@@ -244,19 +254,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncTaskScroll()
 		return m, nil
 	case operationTickMsg:
-		if m.operation.kind == "" || uint64(msg) != m.operationGeneration {
+		op := m.operationByID(uint64(msg))
+		if op == nil {
 			return m, nil
 		}
-		m.operationFrame++
-		return m, m.operationTick()
+		op.frame++
+		return m, m.operationTick(op.id)
 	case taskActionMsg:
 		action := msg.action
-		failedCleanup := m.operation.kind == "cleanup" && action.err != nil
-		cleanupTask := m.operation.task
-		if m.operation.kind == "session" || m.operation.kind == "cleanup" {
+		op := *m.operationByID(operationID)
+		failedCleanup := op.kind == "cleanup" && action.err != nil
+		cleanupTask := op.task
+		if op.kind == "session" || op.kind == "cleanup" {
 			action.message = ""
 		}
-		m.finishOperation(action.err, true)
+		m.finishOperation(operationID, action.err, true)
 		m.message = action.message
 		if action.response != nil {
 			m.applyResponse(*action.response, false)
@@ -292,8 +304,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == "search" {
 			return m.updateSearch(msg)
 		}
-		if m.operation.kind != "" && (!operationNavigationKey(msg.String()) || (msg.String() == "enter" && (m.mode != "" || m.selectedSection == ""))) {
-			if msg.String() == "enter" && m.mode == "" && m.selectedSection == "" && (m.operation.kind == "cleanup" || m.operation.kind == "cleanup-check") {
+		if m.hasActiveOperation() && (!operationNavigationKey(msg.String()) || (msg.String() == "enter" && (m.mode != "" || m.selectedSection == ""))) {
+			if msg.String() == "enter" && m.mode == "" && m.selectedSection == "" && m.cleanupOperation.kind != "" {
 				// Keep the existing resource-operation lock, but explain a blocked
 				// switch even when cleanup's task is off-screen or filtered out.
 				m.message = "Cleanup in progress\nRetry Enter when finished"
@@ -303,7 +315,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == "task_priority" {
 			return m.updatePriority(msg)
 		}
-		if strings.HasPrefix(m.mode, "workspace_") && !m.operationOnRow() {
+		if strings.HasPrefix(m.mode, "workspace_") && !m.operationOnRow(m.operation) {
 			return m.updateWorkspace(msg)
 		}
 		if m.mode == "task_authoring" {
@@ -554,11 +566,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "k", "up", "ctrl+p":
 			m.moveCursor(-1)
 		case "ctrl+d", "pgdown":
-			if m.mode == "" || m.operationOnRow() {
+			if m.mode == "" || m.operationOnRow(m.operation) || m.operationOnRow(m.cleanupOperation) {
 				m.moveCursorPage(1)
 			}
 		case "ctrl+u", "pgup":
-			if m.mode == "" || m.operationOnRow() {
+			if m.mode == "" || m.operationOnRow(m.operation) || m.operationOnRow(m.cleanupOperation) {
 				m.moveCursorPage(-1)
 			}
 		case "g", "home":
@@ -570,7 +582,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case workspaceStateMsg:
 		m.message = ""
-		m.finishOperation(msg.err, true)
+		m.finishOperation(operationID, msg.err, true)
 		if msg.err != nil {
 			m.mode = ""
 			m.editor = workspaceEditor{}
@@ -582,7 +594,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case workspacePlanMsg:
 		m.mode, m.message = "workspace_edit", ""
-		m.finishOperation(msg.err, true)
+		m.finishOperation(operationID, msg.err, true)
 		if msg.err == nil {
 			m.editor.plan = msg.plan
 			if msg.plan.Note != nil {
@@ -603,7 +615,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyResponse(*msg.publication.response, true)
 		}
 		if msg.err == nil && msg.result.ReconfirmRequired && msg.result.Plan != nil {
-			m.finishOperation(nil, false)
+			m.finishOperation(operationID, nil, false)
 			m.editor.plan, m.mode = *msg.result.Plan, "workspace_confirm"
 			m.editor.scroll = 0
 			m.message = "Workspace plan changed; review it again"
@@ -625,7 +637,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resourceRefreshPending = true
 		}
 		if problem == nil && msg.created.Path != "" && (canSwitchMultiplexer() || (msg.created.SessionName != "" && msg.created.Warning == "")) {
-			m.finishOperation(nil, true)
+			m.finishOperation(operationID, nil, true)
 			if canSwitchMultiplexer() {
 				return m, tea.Quit
 			}
@@ -643,10 +655,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.message = strings.Join(notices, ". ")
 		if problem != nil {
-			m.finishOperation(problem, false)
+			m.finishOperation(operationID, problem, false)
 			return m, nil
 		}
-		m.finishOperation(nil, true)
+		m.finishOperation(operationID, nil, true)
 		return m, nil
 	case fetchMsg:
 		m.loading = false
@@ -711,17 +723,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case taskDeletionPreviewMsg:
-		m.finishOperation(msg.err, true)
+		m.deletion.task = m.operationByID(operationID).task
+		m.finishOperation(operationID, msg.err, true)
 		m.message = ""
 		if msg.err == nil {
 			m.deletion.preview, m.deletion.scroll = msg.preview, 0
 			m.mode = "task_delete_confirm"
 		}
 	case cleanupPreviewMsg:
+		m.cleanupTask = m.operationByID(operationID).task
 		if msg.response != nil {
 			m.applyResponse(*msg.response, false)
 		}
-		m.finishOperation(msg.err, true)
+		m.finishOperation(operationID, msg.err, true)
 		m.message = ""
 		if msg.err == nil {
 			m.cleanup = msg.preview
@@ -772,7 +786,7 @@ func (m model) View() string {
 	var sections []string
 	sections = append(sections, m.header(contentWidth))
 
-	if strings.HasPrefix(m.mode, "workspace_") && !m.operationOnRow() {
+	if strings.HasPrefix(m.mode, "workspace_") && !m.operationOnRow(m.operation) {
 		sections = append(sections, m.workspaceView(contentWidth))
 		return m.renderFrame(strings.Join(sections, "\n\n"), contentWidth)
 	}
@@ -836,12 +850,15 @@ func (m model) View() string {
 
 func (m model) afterTaskSections(width int) []string {
 	sections := []string{}
-	if m.operation.kind != "" && !m.operationOnRow() {
-		label := m.operation.label
-		if m.operation.task.Title != "" {
-			label = m.operation.task.Title + " · " + label
+	for _, op := range m.localOperations() {
+		if op.kind == "" || m.operationOnRow(op) {
+			continue
 		}
-		sections = append(sections, truncateLine(m.operationMarker()+" "+label, width))
+		label := op.label
+		if op.task.Title != "" {
+			label += " · " + op.task.Title
+		}
+		sections = append(sections, truncateLine(m.operationMarker(op)+" "+label, width))
 	}
 	if len(m.sources) > 0 {
 		sections = append(sections, m.sourceList(width))

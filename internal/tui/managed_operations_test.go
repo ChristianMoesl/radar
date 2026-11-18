@@ -40,7 +40,7 @@ func TestExternalClientOperationIdentityReachesTUIThroughRevisionWatch(t *testin
 	f.store.FinishOperation(id, protocol.ManagedOperation{Status: "failed", TaskID: task.ID})
 	f.model = updateOperation(f.model, f.model.watch(f.model.revision)())
 	detail := ansi.Strip(f.model.operationDetails(task, 120))
-	if !strings.Contains(detail, "Local request:") || !strings.Contains(detail, "Daemon: cleanup failed") || !strings.Contains(detail, id) || f.model.operation.kind == "" {
+	if !strings.Contains(detail, "Local request:") || !strings.Contains(detail, "Daemon: cleanup failed") || !strings.Contains(detail, id) || f.model.cleanupOperation.kind == "" {
 		t.Fatalf("local feedback confused with confirmed result: %s", detail)
 	}
 	f.model = updateOperation(f.model, old)

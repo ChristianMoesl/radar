@@ -33,7 +33,7 @@ func TestTaskDeletionKeyStartsPreviewAndRequiresAuthoredTask(t *testing.T) {
 			if cmd == nil || got.operation.kind != "task-delete-check" || got.mode != "" || got.deletion.task.ID != 7 {
 				t.Fatal("D should preview, not delete, including for done tasks")
 			}
-			updated, _ = got.Update(taskDeletionPreviewMsg{preview: deletionFixture().deletion.preview})
+			updated, _ = got.Update(operationReply(got, taskDeletionPreviewMsg{preview: deletionFixture().deletion.preview}))
 			got = updated.(model)
 			if got.mode != "task_delete_confirm" || got.operation.kind != "" {
 				t.Fatal("preview did not stop for confirmation")
@@ -78,7 +78,7 @@ func TestTaskDeletionPreviewFailureStaysOnInitiatingTask(t *testing.T) {
 	m := deletionFixture()
 	m.mode = ""
 	m.startOperation(m.tasks[0], "task-delete-check", "Checking task deletion…", "Task deletion check failed", nil)
-	updated, cmd := m.Update(taskDeletionPreviewMsg{err: errors.New("clean up its workspace first")})
+	updated, cmd := m.Update(operationReply(m, taskDeletionPreviewMsg{err: errors.New("clean up its workspace first")}))
 	got := updated.(model)
 	if cmd != nil || got.mode != "" || got.operation.kind != "" || len(got.taskFailures) != 1 || !strings.Contains(got.operationDetails(got.tasks[0], 100), "clean up its workspace first") {
 		t.Fatal("preview failure was lost or showed a confirmation")
@@ -101,7 +101,7 @@ func TestDeletionRemovesLastRowAndIgnoresOlderSnapshots(t *testing.T) {
 	m.mode = ""
 	oldTasks := m.tasks
 	m.startOperation(m.tasks[0], "task-delete", "Deleting task…", "Task deletion failed", nil)
-	updated, _ := m.Update(taskActionMsg{action: actionMsg{response: &protocol.Response{OK: true, Revision: 3, Tasks: []protocol.Task{}, Summary: &protocol.Summary{}}, message: "Task moved to trash"}})
+	updated, _ := m.Update(operationReply(m, taskActionMsg{action: actionMsg{response: &protocol.Response{OK: true, Revision: 3, Tasks: []protocol.Task{}, Summary: &protocol.Summary{}}, message: "Task moved to trash"}}))
 	m = updated.(model)
 	if m.operation.kind != "" || len(m.tasks) != 0 || m.cursor != 0 || m.message == "" {
 		t.Fatal("deleting last task did not clear the dashboard")

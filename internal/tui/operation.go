@@ -11,9 +11,12 @@ import (
 	"radar/internal/protocol"
 )
 
-// Operations belong to the initiating task, never the current selection. Only
-// one resource operation runs at a time; browsing and Inspect remain available.
+// Operations belong to the initiating request and task, never the selection.
+// Cleanup has its own slot. Admission remains serialized until backend resource
+// identities make overlapping native activation safe.
 type taskOperation struct {
+	id      uint64
+	frame   int
 	task    protocol.Task
 	kind    string
 	label   string
@@ -31,23 +34,87 @@ type taskActionMsg struct {
 	action actionMsg
 }
 
+type operationResultMsg struct {
+	id     uint64
+	result tea.Msg
+}
+
 var operationFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-func (m model) operationTick() tea.Cmd {
-	generation := m.operationGeneration
-	return tea.Tick(80*time.Millisecond, func(time.Time) tea.Msg { return operationTickMsg(generation) })
+func (m model) operationTick(id uint64) tea.Cmd {
+	return tea.Tick(80*time.Millisecond, func(time.Time) tea.Msg { return operationTickMsg(id) })
 }
 
 func (m *model) startOperation(task protocol.Task, kind, label, failure string, cmd tea.Cmd) tea.Cmd {
-	m.operation = taskOperation{task: task, kind: kind, label: label, failure: failure}
+	slot := &m.operation
+	if kind == "cleanup" || kind == "cleanup-check" {
+		slot = &m.cleanupOperation
+	}
+	if slot.kind != "" {
+		return nil
+	}
 	m.operationGeneration++
-	m.operationFrame = 0
+	id := m.operationGeneration
+	*slot = taskOperation{id: id, task: task, kind: kind, label: label, failure: failure}
 	m.err, m.message = nil, ""
-	return tea.Batch(cmd, m.operationTick())
+	var result tea.Cmd
+	if cmd != nil {
+		result = func() tea.Msg { return operationResultMsg{id: id, result: cmd()} }
+	}
+	return tea.Batch(result, m.operationTick(id))
 }
 
-func (m model) operationMarker() string {
-	return operationFrames[m.operationFrame%len(operationFrames)]
+func (m model) operationMarker(op taskOperation) string {
+	return operationFrames[op.frame%len(operationFrames)]
+}
+
+func (m model) localOperations() [2]taskOperation {
+	return [2]taskOperation{m.operation, m.cleanupOperation}
+}
+
+func (m model) hasActiveOperation() bool {
+	return m.operation.kind != "" || m.cleanupOperation.kind != ""
+}
+
+func (m *model) operationByID(id uint64) *taskOperation {
+	if id == 0 {
+		return nil
+	}
+	for _, op := range []*taskOperation{&m.operation, &m.cleanupOperation} {
+		if op.kind != "" && op.id == id {
+			return op
+		}
+	}
+	return nil
+}
+
+// Only the expected typed result can finish a live request. Untagged, stale,
+// duplicate and wrong-phase results must not publish snapshots or hand off the
+// terminal either, even if they happen to name the same task.
+func operationResultMatches(kind string, result tea.Msg) bool {
+	switch result.(type) {
+	case taskActionMsg:
+		return kind == "session" || kind == "cleanup" || kind == "task-delete"
+	case cleanupPreviewMsg:
+		return kind == "cleanup-check"
+	case workspaceStateMsg:
+		return kind == "workspace-inspect"
+	case workspacePlanMsg:
+		return kind == "workspace-prepare"
+	case workspaceAppliedMsg:
+		return kind == "workspace"
+	case taskDeletionPreviewMsg:
+		return kind == "task-delete-check"
+	}
+	return false
+}
+
+func isOperationResult(msg tea.Msg) bool {
+	switch msg.(type) {
+	case taskActionMsg, cleanupPreviewMsg, workspaceStateMsg, workspacePlanMsg, workspaceAppliedMsg, taskDeletionPreviewMsg:
+		return true
+	}
+	return false
 }
 
 func sameTask(left, right protocol.Task) bool {
@@ -55,20 +122,26 @@ func sameTask(left, right protocol.Task) bool {
 	return ok
 }
 
-func (m model) operationOnRow() bool {
-	cursor, ok := matchingTaskCursor(m.tasks, m.operation.task)
-	if m.operation.kind == "" || !ok {
+func (m model) operationOnRow(op taskOperation) bool {
+	cursor, ok := matchingTaskCursor(m.tasks, op.task)
+	if op.kind == "" || !ok {
 		return false
 	}
 	_, visible := m.overviewLayout().bounds[visibleEntry{task: cursor}]
 	return visible
 }
 
-func (m *model) finishOperation(problem error, clearFailure bool) {
-	op := m.operation
-	m.operation = taskOperation{}
-	if op.kind == "" || (op.task.ID == 0 && len(op.task.SourceRefs) == 0) {
-		m.err = problem
+func (m *model) finishOperation(id uint64, problem error, clearFailure bool) {
+	slot := m.operationByID(id)
+	if slot == nil {
+		return
+	}
+	op := *slot
+	*slot = taskOperation{}
+	if op.task.ID == 0 && len(op.task.SourceRefs) == 0 {
+		if problem != nil {
+			m.err = problem
+		}
 		return
 	}
 	if problem == nil && !clearFailure {
@@ -84,7 +157,6 @@ func (m *model) finishOperation(problem error, clearFailure bool) {
 		failures = append(failures, taskFailure{operation: op, err: problem})
 	}
 	m.taskFailures = failures
-	m.err = nil
 }
 
 // Tag only resource-operation results. Unrelated refreshes, watch updates, and
@@ -94,8 +166,15 @@ func taskAction(cmd tea.Cmd) tea.Cmd {
 }
 
 func (m model) taskOperationStatus(task protocol.Task) (marker, label string) {
-	if m.operation.kind != "" && sameTask(m.operation.task, task) {
-		return progressStyle.Render(m.operationMarker()), m.operation.label
+	var labels []string
+	for _, op := range m.localOperations() {
+		if op.kind != "" && sameTask(op.task, task) {
+			marker = progressStyle.Render(m.operationMarker(op))
+			labels = append(labels, op.label)
+		}
+	}
+	if len(labels) > 0 {
+		return marker, strings.Join(labels, " · ")
 	}
 	for i := len(m.taskFailures) - 1; i >= 0; i-- {
 		failure := m.taskFailures[i]
@@ -117,8 +196,10 @@ func (m model) taskOperationStatus(task protocol.Task) (marker, label string) {
 
 func (m model) operationDetails(task protocol.Task, width int) string {
 	var lines []string
-	if m.operation.kind != "" && sameTask(m.operation.task, task) {
-		lines = append(lines, progressStyle.Render(m.operationMarker()+" Local request: "+m.operation.label))
+	for _, op := range m.localOperations() {
+		if op.kind != "" && sameTask(op.task, task) {
+			lines = append(lines, progressStyle.Render(m.operationMarker(op)+" Local request: "+op.label))
+		}
 	}
 	for _, failure := range m.taskFailures {
 		if sameTask(failure.operation.task, task) {

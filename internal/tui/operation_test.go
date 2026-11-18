@@ -24,8 +24,22 @@ func operationFixture() model {
 }
 
 func updateOperation(m model, msg tea.Msg) model {
+	if isOperationResult(msg) {
+		msg = operationReply(m, msg)
+	}
 	updated, _ := m.Update(msg)
 	return updated.(model)
+}
+
+// Fixtures must establish the production request phase explicitly. The helper
+// tags its result but never starts work or accepts an unexpected result kind.
+func operationReply(m model, result tea.Msg) operationResultMsg {
+	for _, op := range m.localOperations() {
+		if op.id != 0 && operationResultMatches(op.kind, result) {
+			return operationResultMsg{id: op.id, result: result}
+		}
+	}
+	panic("test result has no matching active request")
 }
 
 func runeKey(key rune) tea.KeyMsg {
@@ -74,7 +88,8 @@ func TestResourceOperationEntryPoints(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			updated, cmd := tc.start(operationFixture())
 			m := updated.(model)
-			if cmd == nil || m.operation.label != tc.label || m.message != "" || m.loading || m.err != nil {
+			_, label := m.taskOperationStatus(m.tasks[0])
+			if cmd == nil || label != tc.label || m.message != "" || m.loading || m.err != nil {
 				t.Fatalf("operation=%+v, notification=%q, error=%v", m.operation, m.message, m.err)
 			}
 			if batch, ok := cmd().(tea.BatchMsg); !ok || len(batch) != 2 {
@@ -91,10 +106,10 @@ func TestResourceOperationEntryPoints(t *testing.T) {
 func TestOperationAnimationAndNavigation(t *testing.T) {
 	m := updateOperation(operationFixture(), runeKey('w'))
 	generation := m.operationGeneration
-	before := m.operationMarker()
+	before := m.operationMarker(m.operation)
 	updated, cmd := m.Update(operationTickMsg(generation))
 	m = updated.(model)
-	if cmd == nil || m.operationMarker() == before {
+	if cmd == nil || m.operationMarker(m.operation) == before {
 		t.Fatal("spinner did not advance and schedule the next frame")
 	}
 	m = updateOperation(m, tea.KeyMsg{Type: tea.KeyDown})
@@ -127,7 +142,7 @@ func TestOperationAnimationAndNavigation(t *testing.T) {
 	}
 	m = updateOperation(m, runeKey('w'))
 	updated, cmd = m.Update(operationTickMsg(generation))
-	if cmd != nil || updated.(model).operationFrame != 0 {
+	if cmd != nil || updated.(model).operation.frame != 0 {
 		t.Fatal("stale animation tick affected a new operation")
 	}
 }
@@ -138,15 +153,15 @@ func TestCleanupSpinsOnlyDuringWorkAndRetainsTarget(t *testing.T) {
 	preview := cleanupFixture()
 	preview.TaskID = 1
 	m = updateOperation(m, cleanupPreviewMsg{preview: preview})
-	if m.operation.kind != "" || m.mode != "cleanup_confirm" || m.cleanupTask.ID != 1 {
+	if m.cleanupOperation.kind != "" || m.mode != "cleanup_confirm" || m.cleanupTask.ID != 1 {
 		t.Fatal("cleanup confirmation lost the initiating task or kept spinning")
 	}
 	m = updateOperation(m, runeKey('y'))
-	if m.mode != "" || m.operation.task.ID != 1 || m.operation.label != "Cleaning up…" {
+	if m.mode != "" || m.cleanupOperation.task.ID != 1 || m.cleanupOperation.label != "Cleaning up…" {
 		t.Fatal("confirmed cleanup runs on the current selection instead of the preview target")
 	}
 	m = updateOperation(m, taskActionMsg{action: actionMsg{err: errors.New("sandbox removal failed")}})
-	if m.err != nil || m.message != "" || m.operation.kind != "" || len(m.taskFailures) != 1 {
+	if m.err != nil || m.message != "" || m.cleanupOperation.kind != "" || len(m.taskFailures) != 1 {
 		t.Fatal("cleanup error was not attached to its task")
 	}
 }
@@ -194,7 +209,7 @@ func TestTaskFailureSurvivesRefreshAndClearsOnlyOnSuccessfulOperation(t *testing
 	}
 	m.startOperation(replacement, "cleanup", "Cleaning up…", "Cleanup failed", nil)
 	m = updateOperation(m, taskActionMsg{action: actionMsg{message: "Cleaned up 3 local resources"}})
-	if len(m.taskFailures) != 0 || m.operation.kind != "" || m.message != "" {
+	if len(m.taskFailures) != 0 || m.cleanupOperation.kind != "" || m.message != "" {
 		t.Fatal("success did not clear the error quietly")
 	}
 }
@@ -271,7 +286,7 @@ func TestUnrelatedMessagesDoNotCompleteResourceOperation(t *testing.T) {
 	m := updateOperation(operationFixture(), runeKey('x'))
 	for _, msg := range []tea.Msg{watchMsg{}, fetchMsg{}, actionMsg{message: "Unrelated action"}} {
 		m = updateOperation(m, msg)
-		if m.operation.kind != "cleanup-check" {
+		if m.cleanupOperation.kind != "cleanup-check" {
 			t.Fatal("unrelated message completed resource operation")
 		}
 	}
@@ -315,7 +330,7 @@ func TestCleanupCompletionCanRemoveInitiatingTask(t *testing.T) {
 	m := operationFixture()
 	m.startOperation(m.tasks[0], "cleanup", "Cleaning up…", "Cleanup failed", nil)
 	m = updateOperation(m, taskActionMsg{action: actionMsg{response: &protocol.Response{Tasks: m.tasks[1:]}}})
-	if len(m.tasks) != 1 || m.operation.kind != "" || m.cursor != 0 || m.tasks[0].ID != 2 {
+	if len(m.tasks) != 1 || m.cleanupOperation.kind != "" || m.cursor != 0 || m.tasks[0].ID != 2 {
 		t.Fatal("cleanup completion did not safely remove the initiating task")
 	}
 	if marker, status := m.taskOperationStatus(m.tasks[0]); strings.TrimSpace(marker) != "" || status != "" {
@@ -326,7 +341,7 @@ func TestCleanupCompletionCanRemoveInitiatingTask(t *testing.T) {
 func TestTaskActionFailureCannotSwitchOrRefresh(t *testing.T) {
 	m := operationFixture()
 	m.startOperation(m.tasks[0], "session", "Starting session…", "Session start failed", nil)
-	updated, cmd := m.Update(taskActionMsg{action: actionMsg{err: errors.New("failed"), quit: true, refresh: true}})
+	updated, cmd := m.Update(operationReply(m, taskActionMsg{action: actionMsg{err: errors.New("failed"), quit: true, refresh: true}}))
 	if cmd != nil || len(updated.(model).taskFailures) != 1 {
 		t.Fatal("moving the error into task state changed completion semantics")
 	}
@@ -371,8 +386,8 @@ func TestOperationRunsAsynchronouslyWithTeatest(t *testing.T) {
 func TestCreatedWorkspaceAttachesOnlyWithReadySession(t *testing.T) {
 	t.Setenv("TMUX", "")
 	m := operationFixture()
-	m.operation = taskOperation{kind: "workspace", label: "Creating workspace…"}
-	updated, cmd := m.Update(workspaceAppliedMsg{created: integration.Workspace{Path: "/work/ready", SessionName: "ready"}})
+	m.startOperation(m.tasks[0], "workspace", "Creating workspace…", "Workspace creation failed", nil)
+	updated, cmd := m.Update(operationReply(m, workspaceAppliedMsg{created: integration.Workspace{Path: "/work/ready", SessionName: "ready"}}))
 	next := updated.(model)
 	if cmd == nil || next.operation.kind != "" {
 		t.Fatal("ready workspace did not finish creation and hand off to attachment")

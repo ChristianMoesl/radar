@@ -125,7 +125,7 @@ func TestCleanupKeysAreModal(t *testing.T) {
 	for _, key := range []rune{'y', 'Y'} {
 		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
 		got := updated.(model)
-		if cmd == nil || got.mode != "" || got.operation.label != "Cleaning up…" || got.message != "" || !reflect.DeepEqual(got.cleanup, m.cleanup) {
+		if cmd == nil || got.mode != "" || got.cleanupOperation.label != "Cleaning up…" || got.message != "" || !reflect.DeepEqual(got.cleanup, m.cleanup) {
 			t.Fatalf("%c did not submit the unchanged preview", key)
 		}
 	}
@@ -142,7 +142,8 @@ func TestCleanupKeysAreModal(t *testing.T) {
 
 func TestCleanupPreviewResetsDetailsAndScroll(t *testing.T) {
 	m := model{cleanupDetails: true, cleanupScroll: 99}
-	updated, _ := m.Update(cleanupPreviewMsg{preview: cleanupFixture()})
+	m.startOperation(protocol.Task{}, "cleanup-check", "Checking local resources…", "Resource check failed", nil)
+	updated, _ := m.Update(operationReply(m, cleanupPreviewMsg{preview: cleanupFixture()}))
 	got := updated.(model)
 	if got.cleanupDetails || got.cleanupScroll != 0 || got.mode != "cleanup_confirm" {
 		t.Fatalf("new preview should start compact at the top: %+v", got)

@@ -106,8 +106,8 @@ func TestStaleSnapshotCannotUndoMuteSelectionOrSessionExpansion(t *testing.T) {
 
 func TestHiddenResourceOperationStillAppearsOutsideCollapsedList(t *testing.T) {
 	m := sectionFixture()
-	m.operation = taskOperation{task: m.tasks[1], kind: "cleanup", label: "Cleaning up…"}
-	if m.operationOnRow() {
+	m.cleanupOperation = taskOperation{task: m.tasks[1], kind: "cleanup", label: "Cleaning up…"}
+	if m.operationOnRow(m.cleanupOperation) {
 		t.Fatal("collapsed child is still treated as an operation row")
 	}
 	view := ansi.Strip(m.View())
@@ -115,7 +115,7 @@ func TestHiddenResourceOperationStillAppearsOutsideCollapsedList(t *testing.T) {
 		t.Fatal("collapsing history hid an in-flight operation's status")
 	}
 	m.expandedSections = map[string]bool{"muted": true}
-	if !m.operationOnRow() {
+	if !m.operationOnRow(m.cleanupOperation) {
 		t.Fatal("expanding history failed to restore its task operation row")
 	}
 }
