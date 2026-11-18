@@ -89,16 +89,23 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 		if err := ctx.Err(); err != nil {
 			return result, remainingError(preview, result, err)
 		}
-		if target.Path != "" && !seen[target.Path] {
+		if target.Path != "" {
+			path, err := workspacelease.CanonicalPath(target.Path)
+			if err != nil {
+				return result, remainingError(preview, result, fmt.Errorf("%s: %w", resourceLabel(target), err))
+			}
 			if err := agentservice.CheckWorkspaceRemoval(target.Path); err != nil {
 				return result, remainingError(preview, result, fmt.Errorf("%s: %w", resourceLabel(target), err))
 			}
-			release, err := workspacelease.Acquire(target.Path, true)
+			if seen[path] {
+				continue
+			}
+			release, err := workspacelease.Acquire(path, true)
 			if err != nil {
 				return result, remainingError(preview, result, fmt.Errorf("%s: %w", resourceLabel(target), err))
 			}
 			releases = append(releases, release)
-			seen[target.Path] = true
+			seen[path] = true
 		}
 	}
 	observation.Stage = "bundle_preflight"

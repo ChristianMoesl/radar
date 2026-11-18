@@ -74,6 +74,41 @@ func TestCleanupPreviewLeaseEvidenceIsPerTargetNotExecutionPermission(t *testing
 	}
 }
 
+func TestCleanupPreviewObservesCanonicalAliasLeaseWithoutExposingPaths(t *testing.T) {
+	store, _, path := fixture(t)
+	if err := os.MkdirAll(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "private-alias")
+	if err := os.Symlink(path, alias); err != nil {
+		t.Fatal(err)
+	}
+	store.SetTasks([]protocol.Task{task(path, "test:ABC-123")})
+	records, _, revision := store.InspectionSnapshot()
+	provider, registration := manualPreviewFixture(t, 2)
+	for i := range provider.targets {
+		provider.targets[i].Path = alias
+	}
+	release, err := workspacelease.Acquire(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	page, err := Probe(context.Background(), store, protocol.DiagnosticsRequest{Section: "cleanup_preview", ParentID: records[0].ID, Workspace: path}, false, integration.NewRegistry(provider, registration))
+	if err != nil || len(page.Items) != 2 {
+		t.Fatalf("alias preview=%+v %v", page, err)
+	}
+	for _, row := range page.Items {
+		if row.CleanupPreview.LeaseEvidence != "contended_at_probe" || row.CleanupPreview.ExecutionEligibility != "blocked_lease_contention" {
+			t.Fatal("alias preview missed the physical resource holder")
+		}
+	}
+	raw, err := json.Marshal(page)
+	if err != nil || strings.Contains(string(raw), path) || strings.Contains(string(raw), alias) || store.Revision() != revision {
+		t.Fatal("alias preview leaked a path or mutated cached state", err)
+	}
+}
+
 func TestCleanupPreviewLeaseDriftRejectsPageAndCursor(t *testing.T) {
 	for _, kind := range []string{"created", "acquired", "released", "replaced", "removed"} {
 		for _, during := range []bool{false, true} {
