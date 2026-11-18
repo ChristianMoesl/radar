@@ -29,6 +29,7 @@ import (
 	"radar/internal/phasetiming"
 	"radar/internal/pi"
 	"radar/internal/taskdb"
+	"radar/internal/workspacelease"
 )
 
 var invalidWorkspaceNameCharacters = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
@@ -546,6 +547,9 @@ func CreateSession(ctx context.Context, runner Runner, path string, sessionName 
 }
 
 func CreateSessionWithOptions(ctx context.Context, runner Runner, options CreateSessionOptions) (Workspace, error) {
+	if err := ctx.Err(); err != nil {
+		return Workspace{}, err
+	}
 	release, lockErr := operationlock.Acquire(false)
 	if lockErr != nil {
 		return Workspace{}, lockErr
@@ -561,6 +565,13 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 	if err != nil {
 		return Workspace{}, err
 	}
+	// Standalone worktree activation can also switch a live session or create
+	// a sandbox. Match cleanup's canonical path lease through either return.
+	releasePath, err := workspacelease.Acquire(path, false)
+	if err != nil {
+		return Workspace{}, err
+	}
+	defer releasePath()
 	repoConfig, err := loadRepoConfig(path)
 	if err != nil {
 		return Workspace{}, err
