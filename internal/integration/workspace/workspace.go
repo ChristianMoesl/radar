@@ -590,15 +590,22 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 	if sandboxName != "" {
 		sandbox.Enabled = true
 	}
-	if err := validateSandboxDependencies(ctx, runner, sandbox.Enabled); err != nil {
-		return Workspace{}, err
-	}
 	sessionName := options.SessionName
 	if sessionName == "" {
 		sessionName = SessionName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
 	}
 	if sandbox.Enabled && sandboxName == "" {
 		sandboxName = SandboxName(filepath.Base(filepath.Dir(path)), filepath.Base(path))
+	}
+	if sandbox.Enabled {
+		releaseSandbox, err := workspacelease.AcquireSandbox(sandboxName, false)
+		if err != nil {
+			return Workspace{}, err
+		}
+		defer releaseSandbox()
+	}
+	if err := validateSandboxDependencies(ctx, runner, sandbox.Enabled); err != nil {
+		return Workspace{}, err
 	}
 	_, sessionErr := runner.Run(ctx, "", "tmux", "has-session", "-t", sessionName)
 	if sessionErr != nil {

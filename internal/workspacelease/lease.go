@@ -17,6 +17,10 @@ func Acquire(path string, exclusive bool) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
+	return acquire(dir, name, exclusive, "workspace", path)
+}
+
+func acquire(dir, name string, exclusive bool, kind, identity string) (func(), error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
@@ -30,7 +34,7 @@ func Acquire(path string, exclusive bool) (func(), error) {
 	}
 	if err := unix.Flock(int(f.Fd()), op|unix.LOCK_NB); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("workspace is in use by another operation: %s", path)
+		return nil, fmt.Errorf("%s is in use by another operation: %s", kind, identity)
 	}
 	return func() { _ = unix.Flock(int(f.Fd()), unix.LOCK_UN); _ = f.Close() }, nil
 }

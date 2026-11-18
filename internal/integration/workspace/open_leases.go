@@ -10,8 +10,9 @@ import (
 )
 
 // Lease the registered bundle, never the caller's possibly nested/member path.
-// These are the same path identities cleanup already leases exclusively. Keep
-// the lock-file scheme and note/registry critical sections unchanged.
+// Match cleanup's canonical paths and reusable sandbox name. The name is
+// independent of paths because another workspace may share the same runtime.
+// Keep note/registry critical sections unchanged.
 func acquireActivationLeases(ctx context.Context, group workspacegroup.Workspace) (func(), error) {
 	var releases []func()
 	releaseAll := func() {
@@ -29,6 +30,18 @@ func acquireActivationLeases(ctx context.Context, group workspacegroup.Workspace
 			return nil, err
 		}
 		release, err := workspacelease.Acquire(path, false)
+		if err != nil {
+			releaseAll()
+			return nil, err
+		}
+		releases = append(releases, release)
+	}
+	if group.Sandbox != nil {
+		if err := ctx.Err(); err != nil {
+			releaseAll()
+			return nil, err
+		}
+		release, err := workspacelease.AcquireSandbox(group.Sandbox.Name, false)
 		if err != nil {
 			releaseAll()
 			return nil, err

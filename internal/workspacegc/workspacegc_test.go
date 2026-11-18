@@ -333,6 +333,10 @@ func (p gcProvider) PreviewCleanup(_ context.Context, req integration.CleanupPre
 			SourceRefID: ref.ID, Source: ref.Source, Kind: ref.Kind, Path: ref.Path,
 			ProvidesWorkspace: ref.ProvidesWorkspace, WorkspaceID: ref.WorkspaceID,
 		}
+		if p.name == "sbx" {
+			// Match the real provider's reusable sandbox-name identity.
+			target.ResourceID = ref.Metadata["name"]
+		}
 		if p.name == "git" {
 			if p.dirty || (p.dirtyPath != "" && ref.Path == p.dirtyPath) {
 				target.Safety = append(target.Safety, protocol.CleanupSafety{Kind: "local_changes", Message: "workspace has local changes", BlocksAutomatic: true, Expires: true})

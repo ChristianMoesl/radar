@@ -84,10 +84,25 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 		}
 	}()
 	seen := map[string]bool{}
+	seenSandboxes := map[string]bool{}
 	observation.Stage = "ownership_and_leases"
 	for _, target := range preview.Targets {
 		if err := ctx.Err(); err != nil {
 			return result, remainingError(preview, result, err)
+		}
+		// A sandbox can be shared by different paths, or have no path at all.
+		// Admit its reusable name before any provider runs, independently of
+		// canonical path deduplication below.
+		if target.Source == "sbx" && target.Kind == "sandbox" {
+			name := strings.TrimSpace(target.ResourceID)
+			if !seenSandboxes[name] {
+				release, err := workspacelease.AcquireSandbox(name, true)
+				if err != nil {
+					return result, remainingError(preview, result, fmt.Errorf("%s: %w", resourceLabel(target), err))
+				}
+				releases = append(releases, release)
+				seenSandboxes[name] = true
+			}
 		}
 		if target.Path != "" {
 			path, err := workspacelease.CanonicalPath(target.Path)

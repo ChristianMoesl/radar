@@ -13,6 +13,7 @@ import (
 	"radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
 	"radar/internal/taskrefs"
+	"radar/internal/workspacelease"
 )
 
 type Source struct{}
@@ -196,10 +197,18 @@ func openShellWithMultiplexer(ctx context.Context, multiplexer integration.Multi
 }
 
 func openShell(ctx context.Context, runner workspace.Runner, multiplexer integration.MultiplexerProvider, ref protocol.SourceRef, options OpenShellOptions) (OpenShellResult, error) {
+	if err := ctx.Err(); err != nil {
+		return OpenShellResult{}, err
+	}
 	name := SandboxName(ref)
 	if name == "" {
 		return OpenShellResult{}, fmt.Errorf("sbx sandbox name is required")
 	}
+	release, err := workspacelease.AcquireSandbox(name, false)
+	if err != nil {
+		return OpenShellResult{}, err
+	}
+	defer release()
 	client := sbxclient.New(runner)
 	executable, err := client.ShellExecutable()
 	if err != nil {
