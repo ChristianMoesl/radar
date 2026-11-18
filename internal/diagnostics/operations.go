@@ -1,7 +1,9 @@
 package diagnostics
 
 import (
+	"encoding/hex"
 	"sort"
+	"strings"
 	"time"
 
 	"radar/internal/protocol"
@@ -35,7 +37,7 @@ func operationItems(req protocol.DiagnosticsRequest, records []state.TaskRecord,
 		if req.Workspace != "" && ((op.WorkspaceID != "" && !workspaces[op.WorkspaceID]) || (op.WorkspaceID == "" && !tasks[op.TaskID])) {
 			continue
 		}
-		view := protocol.DiagnosticOperation{ID: clip(op.ID), Kind: "unknown", Status: "unknown", TaskID: op.TaskID, WorkspaceID: clip(op.WorkspaceID), ExecutionEvidence: "unknown_not_captured", TargetEvidence: "unknown_not_captured", TimingEvidence: "unknown_not_captured", PhaseTimingEvidence: "unknown_not_captured"}
+		view := protocol.DiagnosticOperation{ID: clip(op.ID), Kind: "unknown", Status: "unknown", TaskID: op.TaskID, WorkspaceID: clip(op.WorkspaceID), ExecutionEvidence: "unknown_not_captured", TargetEvidence: "unknown_not_captured", CleanupTargetEvidence: "unknown_not_captured", TimingEvidence: "unknown_not_captured", PhaseTimingEvidence: "unknown_not_captured"}
 		switch op.Kind {
 		case "refresh", "cleanup", "workspace", "task-create", "task-done", "task-reopen", "task-priority", "task-mute", "task-unmute", "task-title", "task-note", "task-delete":
 			view.Kind = op.Kind
@@ -62,6 +64,16 @@ func operationItems(req protocol.DiagnosticsRequest, records []state.TaskRecord,
 				view.ElapsedMilliseconds = &elapsed
 			}
 		}
+		if view.Kind == "cleanup" && (view.Status == "succeeded" || view.Status == "failed" || view.Status == "partial") {
+			if op.CleanupTargetsUnavailable || (op.CleanupTargetsCaptured && !validCleanupTargetSummary(op)) {
+				view.CleanupTargetEvidence = "unavailable_invalid_or_over_budget"
+			} else if op.CleanupTargetsCaptured {
+				view.CleanupTargetEvidence = "native_returned_target_prefix_not_resource_verification"
+				view.CleanupTargets = append([]protocol.OperationCleanupTarget{}, op.CleanupTargets...)
+				truncated := op.CleanupTargetsTruncated
+				view.CleanupTargetsTruncated = &truncated
+			}
+		}
 		if view.Kind == "cleanup" && (view.Status == "running" || view.Status == "succeeded" || view.Status == "failed" || view.Status == "partial") {
 			if op.PhaseTimingsUnavailable || !validOperationPhases(op.PhaseTimings) {
 				view.PhaseTimingEvidence = "unavailable_invalid_or_overflow"
@@ -82,6 +94,31 @@ func validOperationTime(value string) bool {
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, value)
 	return err == nil && !parsed.IsZero() && parsed.Year() >= 1 && parsed.Year() <= 9999 && parsed.UTC().Format(time.RFC3339Nano) == value
+}
+
+func validCleanupTargetSummary(op protocol.ManagedOperation) bool {
+	if op.TotalTargets < 1 || op.TotalTargets > 512 || op.CompletedTargets < 0 || op.CompletedTargets > op.TotalTargets ||
+		(op.Status == "succeeded" && op.CompletedTargets != op.TotalTargets) ||
+		(op.Status == "failed" && op.CompletedTargets != 0) ||
+		(op.Status == "partial" && (op.CompletedTargets == 0 || op.CompletedTargets == op.TotalTargets)) ||
+		len(op.CleanupTargets) != min(op.TotalTargets, protocol.DiagnosticChildLimit) ||
+		op.CleanupTargetsTruncated != (op.TotalTargets > protocol.DiagnosticChildLimit) {
+		return false
+	}
+	seen := map[string]bool{}
+	for i, target := range op.CleanupTargets {
+		hexID := strings.TrimPrefix(target.ID, "cleanup-result:")
+		_, err := hex.DecodeString(hexID)
+		outcome := "not_completed_may_be_partial"
+		if i < op.CompletedTargets {
+			outcome = "returned_success_unverified"
+		}
+		if target.Index != i || len(target.ID) != 79 || len(hexID) != 64 || err != nil || hexID != strings.ToLower(hexID) || seen[target.ID] || !protocol.ManagedCleanupTargetKind(target.Provider, target.Kind) || target.Outcome != outcome {
+			return false
+		}
+		seen[target.ID] = true
+	}
+	return true
 }
 
 func validOperationPhases(phases []protocol.OperationPhaseTiming) bool {

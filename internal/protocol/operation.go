@@ -3,6 +3,11 @@ package protocol
 // ManagedOperation is current-daemon evidence, not a durable job or permission
 // to replay an action. Reported changes were executed by a client, not daemon.
 type ManagedOperation struct {
+	// Captured only at the native cleanup handler return, never from reports.
+	CleanupTargets            []OperationCleanupTarget `json:"cleanup_targets,omitempty"`
+	CleanupTargetsCaptured    bool                     `json:"cleanup_targets_captured,omitempty"`
+	CleanupTargetsUnavailable bool                     `json:"cleanup_targets_unavailable,omitempty"`
+	CleanupTargetsTruncated   bool                     `json:"cleanup_targets_truncated,omitempty"`
 	// Bounded native completed cleanup intervals only; no paths or phase payloads.
 	PhaseTimings            []OperationPhaseTiming `json:"phase_timings,omitempty"`
 	PhaseTimingsUnavailable bool                   `json:"phase_timings_unavailable,omitempty"`
@@ -19,6 +24,24 @@ type ManagedOperation struct {
 	Status              string `json:"status"`
 	CompletedTargets    int    `json:"completed_targets,omitempty"`
 	TotalTargets        int    `json:"total_targets,omitempty"`
+}
+
+// OperationCleanupTarget identifies an ordinal in the handler's original target
+// bundle. IDs are operation-local opaque observations, not preview/apply tokens.
+// Return evidence never proves absence, reconciliation or a resource outcome.
+type OperationCleanupTarget struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+	Kind     string `json:"kind"`
+	Outcome  string `json:"outcome"`
+}
+
+func ManagedCleanupTargetKind(provider, kind string) bool {
+	return provider == "git" && kind == "worktree" ||
+		provider == "sbx" && kind == "sandbox" ||
+		provider == "tmux" && kind == "session" ||
+		provider == "workspace" && (kind == "workspace" || kind == "missing_member")
 }
 
 // ResourceMutation identifies a client-reported change. It invalidates cached

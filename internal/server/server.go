@@ -476,7 +476,7 @@ func (s *Server) cleanup(ctx context.Context, preview *protocol.CleanupPreview) 
 			status = "partial"
 		}
 	}
-	s.store.FinishOperation(op, protocol.ManagedOperation{Status: status, TaskID: preview.TaskID, CompletedTargets: len(result.Targets), TotalTargets: len(preview.Targets)})
+	s.store.FinishCleanupOperation(op, protocol.ManagedOperation{Status: status, TaskID: preview.TaskID, CompletedTargets: len(result.Targets), TotalTargets: len(preview.Targets)}, preview.Targets)
 	return result, err
 }
 

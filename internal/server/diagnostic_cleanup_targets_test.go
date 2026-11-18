@@ -1,0 +1,68 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"radar/internal/cleanup"
+	"radar/internal/integration"
+	"radar/internal/protocol"
+	"radar/internal/state"
+)
+
+func TestNativeCleanupReturnedTargetsReachDiagnosticsWithoutExecutingOnInspection(t *testing.T) {
+	for _, mode := range []string{"success", "partial", "cancelled-before-provider"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv("RADAR_STATE", filepath.Join(t.TempDir(), "state.db"))
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			store, err := state.NewStore(logger)
+			if err != nil {
+				t.Fatal(err)
+			}
+			provider := &managedCleanupSource{fakeCleanupSource: fakeCleanupSource{name: "git"}, started: make(chan struct{}), release: make(chan struct{}), fail: mode == "partial"}
+			close(provider.release)
+			s := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{provider}))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if mode == "cancelled-before-provider" {
+				cancel()
+			}
+			preview := protocol.CleanupPreview{TaskID: 7, TaskTitle: "private-task", Targets: []protocol.CleanupTarget{
+				{Source: "git", Kind: "worktree", ResourceID: "private-first", Title: "private-title", Operation: map[string]string{"secret": "private-operation"}},
+				{Source: "git", Kind: "worktree", ResourceID: "private-second"},
+			}}
+			result, err := s.cleanup(ctx, &preview)
+			if (err == nil) != (mode == "success") || !result.ResourceRefreshPending {
+				t.Fatal("native cleanup changed", result, err)
+			}
+			before := store.DashboardSnapshot()
+			calls := provider.calls
+			view := managedPipeCall(t, s, protocol.Request{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "operations", ID: result.OperationID}})
+			if !view.OK || view.Diagnostics == nil || view.Diagnostics.Schema != 27 || view.Diagnostics.Total != 1 {
+				t.Fatal("RPC bridge", view)
+			}
+			op := view.Diagnostics.Items[0].Operation
+			if op.CleanupTargetEvidence != "native_returned_target_prefix_not_resource_verification" || len(op.CleanupTargets) != 2 || op.CleanupTargetsTruncated == nil || *op.CleanupTargetsTruncated {
+				t.Fatal("capture missing", op)
+			}
+			for i, target := range op.CleanupTargets {
+				want := "not_completed_may_be_partial"
+				if i < len(result.Targets) {
+					want = "returned_success_unverified"
+				}
+				if target.Index != i || target.Provider != "git" || target.Kind != "worktree" || target.Outcome != want {
+					t.Fatal("wrong ordinal/evidence", target)
+				}
+			}
+			raw, _ := json.Marshal(view)
+			if strings.Contains(string(raw), "private-") || provider.calls != calls || store.Revision() != before.Revision {
+				t.Fatal("inspection leaked or executed", string(raw))
+			}
+		})
+	}
+}

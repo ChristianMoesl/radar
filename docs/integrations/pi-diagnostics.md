@@ -67,7 +67,7 @@ in the same feedback workspace. The actual tool accepts only a validated preview
 it has just shown in that workspace, and requires fresh interactive confirmation
 of the exact plan, complete source target set and installation-wide effects.
 Headless apply, canceled approval, expired approval, lost MCP availability or
-unmatched previews fail closed. CLI/Pi/daemon must match **schema 26**; the typed
+unmatched previews fail closed. CLI/Pi/daemon must match **schema 27**; the typed
 maintenance request carries the schema and the daemon rejects mismatches before
 admission. Read/probe RPCs cannot apply maintenance. The fixed CLI form is
 `feedback-diagnostics --section refresh --scope installation --action apply
@@ -123,7 +123,7 @@ not "no host changes made" or an apparently successful empty result.
 Overview `settings` are **CLI-process global defaults**. With a matching daemon,
 `daemon.settings` separately reports **daemon-process global defaults** from the
 same native bounded reader executed in the running daemon process. The existing
-`diagnostics` RPC's selector-free `overview` returns this typed schema-26
+`diagnostics` RPC's selector-free `overview` returns this typed schema-27
 projection; it never uses task visibility filters or provider calls. No new public
 tool or general file/configuration endpoint is added.
 
@@ -215,7 +215,7 @@ provider. Native references and statuses share one atomic cache revision; cursor
 also bind selected scope, registration/capability changes, returned collection
 attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 26; older versions fail closed.
+and extension must all support schema 27; older versions fail closed.
 
 Pi validates the complete integration envelope, page, row and capability allowlist,
 not only the collection subobject. Unknown sibling fields and inconsistent scope,
@@ -223,7 +223,7 @@ identities, counts, evidence, limits or pagination fail closed before either too
 text or details reach the model. Unavailable responses cannot include cached
 fallback or private payloads. Native UTF-8 clipping may expand display text through
 replacement/ellipsis; that expansion remains bounded. This validation repair
-keeps schema 26 and its native wire shape unchanged. Separately installed Pi
+keeps schema 27 and its native wire shape unchanged. Separately installed Pi
 sources require an update/reload; `make install` alone does not replace them.
 
 ## Current-daemon collection attempt evidence
@@ -387,7 +387,7 @@ preflight, expiry policy and automatic eligibility still require fresh guards. A
 not an executable plan, an apply token, publication approval or apply consent.
 Native safety flags describe planner evidence, never permission to
 weaken a safeguard. Maintenance apply remains unsupported; expired proposals use the explicit mode below.
-CLI, daemon and the actual loaded Pi extension must match schema 26 without a
+CLI, daemon and the actual loaded Pi extension must match schema 27 without a
 legacy fallback; separately installed extension sources require updating/reload
 independently from `make install`. No persisted format or cleanup policy changes.
 
@@ -426,7 +426,7 @@ bundle even when an expiring warning no longer does. All existing
 30-second/output/privacy/drift safeguards apply. The preview never calls cleanup
 execution, creates/reserves leases, changes retention policy or removes data.
 Maintenance apply remains unsupported. CLI, daemon and loaded Pi extension must
-match diagnostics schema 26; there is no legacy fallback.
+match diagnostics schema 27; there is no legacy fallback.
 
 ## Explicit registered-runtime observations
 
@@ -499,10 +499,10 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 26; there is no legacy fallback. Separately
+extension must all support schema 27; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-## Retained inventories (diagnostics schema 26)
+## Retained inventories (diagnostics schema 27)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -557,9 +557,29 @@ Each row distinguishes `running`, handler-returned `succeeded`/`failed`/`partial
 and `reported` client changes. The latter are never daemon execution. A handler's
 success is not verified resource success or reconciled publication. Terminal
 native cleanup observations expose the successful-prefix count and original
-target count only; absent counts stay unknown rather than zero. They do not
-identify failed/remaining targets or capture possible changes inside a failing
-target. Other operation kinds' target counts, running counts, retries and
+target count; absent counts stay unknown rather than zero. A separate native
+`cleanup_target_evidence` of `native_returned_target_prefix_not_resource_verification`
+adds `cleanup_targets`: at most the first 16 original bundle ordinals (`index`,
+zero-based), opaque operation-local `id`, and fixed `provider`/`kind` labels.
+`returned_success_unverified` marks the successful prefix;
+`not_completed_may_be_partial` includes both a possibly partly changed failing
+target and targets never attempted. Admission/preflight/cancellation can stop
+before any provider executes: never infer the exact failed target, attempted
+status, verified absence or safe retry from this summary. It describes the
+handler's original input, not provider-returned resource identity or current ownership.
+
+`cleanup_targets_truncated` explicitly marks summaries larger than 16; complete
+native target bundles are bounded to 512 and 1 MiB of identity/path input. These
+summaries are not fully paginated target inventories. Opaque IDs include the
+operation ID and ordinal, not raw paths, messages, operations or safety payloads;
+they are not cross-operation runtime identity, diagnostic preview IDs, replay
+or apply tokens. Unknown capture remains `unknown_not_captured`; invalid,
+unsupported or over-budget input is `unavailable_invalid_or_over_budget` with
+no list or truncation assertion. Generic results and client reports cannot
+inject capture. First completion is immutable, snapshots deep-copy targets,
+and reset/restart or existing terminal retention discard this evidence.
+No additional probes, planners, execution or persisted history are added.
+Other operation kinds' target counts, running counts, retries and
 lock-wait durations remain unknown. GC/runtime/remote operations
 outside the existing managed projection are not covered. `observed_at` is the snapshot **read time**, never an
 operation start/completion timestamp. Raw errors, paths, messages, payloads and
@@ -616,11 +636,12 @@ invalidate scoped pagination just like handler timing changes.
 
 Capabilities advertise `current_daemon_managed_operations: true`,
 `native_managed_handler_timing: true` and
-`native_cleanup_completed_phase_aggregates: true`, but
+`native_cleanup_completed_phase_aggregates: true` and
+`native_cleanup_returned_target_summaries: true`, but
 `durable_operation_history`, `verified_operation_resource_outcomes`,
 `cleanup_apply` and `runtime_controls` remain false. Only the collection-only
 refresh adapter advertises `maintenance` and `collection_only_refresh` as true. CLI, daemon and separately loaded Pi sources must
-match schema 26; `make install` alone does not update/reload installed Pi sources.
+match schema 27; `make install` alone does not update/reload installed Pi sources.
 
 ## Identity and nested drill-down
 
@@ -818,7 +839,7 @@ before model-facing text or details. Unknown private sibling fields, invalid
 counts/types, contradictory unavailable evidence, schedule truncation or pagination
 fail closed with fixed sanitized errors. Unavailable supervision never bypasses
 checkpoint validation. Native bounded UTF-8 replacement/ellipsis expansion and
-nanosecond timestamps are preserved. This repairs the existing schema-26 wire
+nanosecond timestamps are preserved. This repairs the existing schema-27 wire
 shape; it adds no runner calls, checkpoint reads, maintenance or persisted-format
 change. Separately installed Pi sources require matching update/reload.
 
@@ -879,7 +900,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 26; version mismatches fail closed
+extension must support diagnostics schema 27; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

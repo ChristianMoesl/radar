@@ -54,7 +54,7 @@ func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
 		"## Configuration policy and origins", "## Explicit native manual-cleanup previews",
 		"## Explicit installation-wide collection refresh", "30-second", "collection-only adapter",
 		"request_outcome_unknown_do_not_replay", "plan ID establishes", "freshness, not user consent",
-		"does not call ordinary daemon refresh", "cleanup_apply", "schema 26",
+		"does not call ordinary daemon refresh", "cleanup_apply", "schema 27", "native_cleanup_returned_target_summaries", "not_completed_may_be_partial",
 		"complete integration envelope", "Unknown sibling fields", "wire shape unchanged",
 		"## Durable-agent registration and checkpoint evidence",
 		"complete agent inventory envelope", "Unavailable supervision never bypasses",
