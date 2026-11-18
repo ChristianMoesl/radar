@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"radar/internal/integration"
-	"radar/internal/sessionlease"
+	"radar/internal/integration/tmux/sessionlease"
 	"strings"
 	"testing"
 	"time"

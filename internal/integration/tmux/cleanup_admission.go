@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"radar/internal/integration"
+	"radar/internal/integration/tmux/sessionlease"
 	"radar/internal/integration/workspace"
 	"radar/internal/protocol"
-	"radar/internal/sessionlease"
 )
 
 type cleanupKey struct{ ref, resource, title string }

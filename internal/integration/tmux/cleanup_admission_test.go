@@ -13,10 +13,10 @@ import (
 
 	"radar/internal/cleanup"
 	"radar/internal/integration"
+	"radar/internal/integration/tmux/sessionlease"
 	"radar/internal/integration/workspace"
 	workspacegroup "radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
-	"radar/internal/sessionlease"
 )
 
 type admissionRunner struct {

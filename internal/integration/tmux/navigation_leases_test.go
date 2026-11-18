@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"radar/internal/integration"
-	"radar/internal/sessionlease"
+	"radar/internal/integration/tmux/sessionlease"
 )
 
 type navigationRunner struct {

@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"radar/internal/integration/tmux/sessionlease"
 	"radar/internal/integration/workspace"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
-	"radar/internal/sessionlease"
 )
 
 func retireSession(ctx context.Context, runner workspace.Runner, target protocol.CleanupTarget, verify func() (sessionlease.Identity, error)) (protocol.CleanupTarget, error) {

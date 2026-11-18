@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"radar/internal/integration"
+	"radar/internal/integration/tmux/sessionlease"
 	"radar/internal/integration/workspace"
 	"radar/internal/operationlock"
-	"radar/internal/sessionlease"
 )
 
 func switchSession(ctx context.Context, runner workspace.Runner, target integration.SessionTarget) error {

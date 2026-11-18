@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"radar/internal/integration"
-	"radar/internal/sessionlease"
+	"radar/internal/integration/tmux/sessionlease"
 )
 
 func TestForegroundLeaseRetainedUntilCallbackOnEveryProcessOutcome(t *testing.T) {
