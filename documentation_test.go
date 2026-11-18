@@ -58,6 +58,7 @@ func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
 		"complete integration envelope", "Unknown sibling fields", "wire shape unchanged",
 		"## Durable-agent registration and checkpoint evidence",
 		"complete agent inventory envelope", "Unavailable supervision never bypasses",
+		"complete runtime probe envelope", "wrong targets and inconsistent evidence",
 	} {
 		if !strings.Contains(diagnostics.Content, contract) {
 			t.Errorf("diagnostic contract omitted from embedded topic: %q", contract)

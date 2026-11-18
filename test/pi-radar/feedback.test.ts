@@ -151,6 +151,110 @@ function policyFixture() {
   ].map(item=>({...item,origin:"compiled_default",declaration:"absent"}))};
 }
 
+function runtimeProbeFixture(scope = "origin") {
+  const id = "runtime:" + "a".repeat(64), evidence = "explicit_runtime_probe_with_cached_identity_comparison";
+  return {diagnostics_schema:28,section:"runtime_probe",scope,available:true,feedback_workspace_id:"feedback",origin_workspace_id:"origin",evidence,inventory:{diagnostics_schema:28,section:"runtime_probe",evidence,observed_at:"2026-11-18T09:00:00.123456789Z",revision:1,snapshot:"b".repeat(64),total:1,items:[{id,runtime:{id,workspace_id:"registered-workspace",provider:"sbx",registered_name:"registered-runtime",observation:{presence:"present",state:"running",id:"runtime-id:"+"c".repeat(64)},cached_identity_count:1,identity_comparison:"matches_cached_identity",ownership_evidence:"unknown_not_checked",lease_evidence:"unknown_not_checked"}}],pagination_complete:true,resource_refresh_pending:false,limitations:["explicit_registered_runtime_listing_only", "cached_identity_is_not_registration_ownership", "ownership_and_leases_not_checked", "unregistered_runtimes_not_classified", "no_startup_refresh_login_or_maintenance", "provider_errors_and_unrelated_listing_rows_withheld", "unknown_is_not_absence", "presence_is_not_health_or_execution_eligibility", "text_fields_limited_to_512_bytes", "each_page_repeats_the_bounded_probe"]}};
+}
+
+for (const kind of ["envelope-private", "page-private", "row-private", "runtime-private", "observation-private", "unavailable-private"]) test(`runtime probe rejects private sibling payload before model output: ${kind}`, async () => {
+  const h=harness();h.activate();h.approvals.push(true);
+  const data:any=runtimeProbeFixture(),page=data.inventory,row=page.items[0],runtime=row.runtime;
+  const marker="synthetic-private-sentinel";
+  if(kind==="envelope-private") data.notes=marker;
+  if(kind==="page-private") page.raw_listing=marker;
+  if(kind==="row-private") row.path=marker;
+  if(kind==="runtime-private") runtime.environment={SECRET:marker};
+  if(kind==="observation-private") runtime.observation.pane_contents=marker;
+  if(kind==="unavailable-private") {data.available=false;data.evidence="unavailable";data.reason="daemon_unavailable";delete data.inventory;data.tasks=marker;}
+  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+  await assert.rejects(h.tools.get("radar_diagnostics").execute("call",{section:"runtime_probe",parent_id:"registered-workspace"},undefined,undefined,h.ctx),error=>error instanceof Error && error.message==="Invalid Radar runtime probe diagnostics" && !error.message.includes(marker));
+});
+
+for (const kind of ["scope", "available", "feedback-id", "origin-id", "missing-origin", "envelope-evidence", "unexpected-reason", "page-evidence", "schema", "section", "time", "impossible-time", "time-offset", "revision", "snapshot", "total", "empty-items", "items-type", "over-limit", "incomplete-without-cursor", "complete-with-cursor", "cursor-type", "oversized-cursor", "limitations", "duplicate-limitations", "pending", "row-type", "row-id", "row-identity", "parent", "provider", "duplicate-provider", "duplicate-id", "ordering", "name-type", "oversized-name", "count", "unsafe-count", "ownership", "leases", "observation-type", "presence", "state", "raw-id", "present-without-id", "present-problem", "no-cache-match", "ambiguous-match", "single-ambiguous", "absent-state", "absent-id", "absent-problem", "unknown-match", "raw-problem", "problem-type", "exact-id", "exact-total", "old-schema"]) test(`runtime probe rejects malformed or contradictory evidence: ${kind}`, async () => {
+  const h=harness();h.activate();h.approvals.push(true);
+  const data:any=runtimeProbeFixture(),page=data.inventory,row=page.items[0],v=row.runtime,o=v.observation;
+  const params:any={section:"runtime_probe",parent_id:"registered-workspace"};
+  switch(kind) {
+    case "scope":data.scope="installation";break;case "available":data.available="true";break;
+    case "feedback-id":data.feedback_workspace_id={path:"private"};break;case "origin-id":data.origin_workspace_id="";break;case "missing-origin":delete data.origin_workspace_id;break;
+    case "envelope-evidence":data.evidence="cached";break;case "unexpected-reason":data.reason="private";break;case "page-evidence":page.evidence="cached";break;case "schema":page.diagnostics_schema=27;break;case "section":page.section="workspaces";break;
+    case "time":page.observed_at="private";break;case "impossible-time":page.observed_at="2026-02-30T00:00:00Z";break;case "time-offset":page.observed_at="2026-11-18T09:00:00+00:00";break;
+    case "revision":page.revision=-1;break;case "snapshot":page.snapshot="private";break;case "total":page.total=3;break;case "empty-items":page.items=[];break;case "items-type":page.items={private:"payload"};break;case "over-limit":params.limit=1;page.items.push(structuredClone(row));page.total=2;break;
+    case "incomplete-without-cursor":page.total=2;page.pagination_complete=false;break;case "complete-with-cursor":page.next_cursor="cursor";break;case "cursor-type":page.total=2;page.pagination_complete=false;page.next_cursor={private:"payload"};break;case "oversized-cursor":page.total=2;page.pagination_complete=false;page.next_cursor="x".repeat(513);break;
+    case "limitations":page.limitations[0]="private";break;case "duplicate-limitations":page.limitations[0]=page.limitations[1];break;case "pending":page.resource_refresh_pending="true";break;
+    case "row-type":page.items=[[]];break;case "row-id":row.id="private";break;case "row-identity":v.id="runtime:"+"d".repeat(64);break;case "parent":v.workspace_id="other-workspace";break;case "provider":v.provider="unknown";break;
+    case "duplicate-provider":{const copy=structuredClone(row);copy.id=copy.runtime.id="runtime:"+"d".repeat(64);page.items.push(copy);page.total=2;break;}
+    case "duplicate-id":page.items.push(structuredClone(row));page.total=2;break;
+    case "ordering":{const copy=structuredClone(row);copy.id=copy.runtime.id="runtime:"+"d".repeat(64);copy.runtime.provider="tmux";page.items.unshift(copy);page.total=2;break;}
+    case "name-type":v.registered_name={private:"payload"};break;case "oversized-name":v.registered_name="x".repeat(1540);break;case "count":v.cached_identity_count=-1;break;case "unsafe-count":v.cached_identity_count=Number.MAX_SAFE_INTEGER+1;break;
+    case "ownership":v.ownership_evidence="verified";break;case "leases":v.lease_evidence="none";break;case "observation-type":v.observation=[];break;case "presence":o.presence="healthy";break;case "state":o.state="private";break;case "raw-id":o.id="private-native-id";break;case "present-without-id":delete o.id;break;case "present-problem":o.problem="probe_failed";break;
+    case "no-cache-match":v.cached_identity_count=0;break;case "ambiguous-match":v.cached_identity_count=2;break;case "single-ambiguous":v.identity_comparison="unknown_ambiguous_cached_identity";break;
+    case "absent-state":o.presence="absent";delete o.id;v.identity_comparison="not_observed";break;
+    case "absent-id":o.presence="absent";o.state="unknown";v.identity_comparison="not_observed";break;
+    case "absent-problem":o.presence="absent";o.state="unknown";delete o.id;o.problem="probe_failed";v.identity_comparison="not_observed";break;
+    case "unknown-match":o.presence="unknown";o.state="unknown";delete o.id;break;
+    case "raw-problem":case "problem-type":o.presence="unknown";o.state="unknown";delete o.id;v.identity_comparison="not_observed";o.problem=kind==="raw-problem"?"private-provider-error":["unsupported"];break;
+    case "exact-id":params.id="runtime:"+"e".repeat(64);break;case "exact-total":params.id=row.id;page.total=2;page.pagination_complete=false;page.next_cursor="cursor";break;case "old-schema":data.diagnostics_schema=27;break;
+  }
+  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+  await assert.rejects(h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx));
+});
+
+for (const [presence,count,comparison,state,problem] of [
+  ["present",0,"unknown_no_cached_identity","unknown",undefined],
+  ["present",1,"matches_cached_identity","running",undefined],
+  ["present",1,"differs_from_cached_identity","stopped",undefined],
+  ["present",2,"unknown_ambiguous_cached_identity","running",undefined],
+  ["absent",1,"not_observed","unknown",undefined],
+  ["unknown",0,"not_observed","unknown",undefined],
+  ...["unsupported","cancelled_or_timed_out","shared_registered_name","invalid_evidence","probe_failed"].map(problem=>["unknown",2,"not_observed","unknown",problem]),
+]) test(`runtime probe preserves finite native observations without inferring safety: ${presence}/${count}/${comparison}/${problem}`, async () => {
+  const h=harness();h.activate();h.approvals.push(true);
+  const data:any=runtimeProbeFixture(),v=data.inventory.items[0].runtime;
+  v.cached_identity_count=count;v.identity_comparison=comparison;v.observation.presence=presence;v.observation.state=state;v.observation.problem=problem;
+  if(presence!=="present")delete v.observation.id;
+  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+  const result=await h.tools.get("radar_diagnostics").execute("call",{section:"runtime_probe",parent_id:"registered-workspace"},undefined,undefined,h.ctx);
+  assert.deepEqual(result.details.inventory,JSON.parse(JSON.stringify(data.inventory)));
+  assert.deepEqual(JSON.parse(result.content[0].text).inventory,result.details.inventory);
+});
+
+for (const kind of ["empty", "two-providers", "utf8-expansion", "pending", "paged"]) test(`runtime probe accepts bounded native coverage: ${kind}`, async () => {
+  const h=harness();h.activate();h.approvals.push(true,true);
+  const data:any=runtimeProbeFixture(),params:any={section:"runtime_probe",parent_id:"registered-workspace"};
+  if(kind==="empty") {data.inventory.items=[];data.inventory.total=0;}
+  if(kind==="utf8-expansion")data.inventory.items[0].runtime.registered_name="�".repeat(512)+"…";
+  if(kind==="pending")data.inventory.resource_refresh_pending=true;
+  if(kind==="two-providers" || kind==="paged") {const row=structuredClone(data.inventory.items[0]);row.id=row.runtime.id="runtime:"+"d".repeat(64);row.runtime.provider="tmux";data.inventory.items.push(row);data.inventory.total=2;}
+  if(kind==="paged")params.limit=1;
+  let n=0;
+  h.pi.exec=async()=>{const reply=structuredClone(data);if(kind==="paged"){reply.inventory.items=[data.inventory.items[n++]];reply.inventory.pagination_complete=n===2;if(n===1)reply.inventory.next_cursor="cursor";}return {code:0,stdout:JSON.stringify(reply),stderr:"",killed:false};};
+  const first=await h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx);
+  assert.equal(first.details.inventory.total,data.inventory.total);
+  if(kind==="paged") {const second=await h.tools.get("radar_diagnostics").execute("call",{...params,cursor:first.details.inventory.next_cursor},undefined,undefined,h.ctx);assert.equal(second.details.inventory.pagination_complete,true);assert.equal(h.confirmations.length,2);assert.notEqual(first.details.inventory.items[0].id,second.details.inventory.items[0].id);}
+});
+
+for (const kind of ["daemon_unavailable", "origin_not_registered", "snapshot_changed_restart_pagination", "fallback", "raw-reason", "reason-type", "scope", "origin-reason-other-scope"]) test(`runtime probe unavailable evidence stays bounded and unknown: ${kind}`, async () => {
+  const h=harness();h.activate();h.approvals.push(true);
+  const data:any={diagnostics_schema:28,section:"runtime_probe",scope:"origin",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason:kind};
+  if(kind==="fallback"){data.reason="daemon_unavailable";data.inventory=runtimeProbeFixture().inventory;}
+  if(kind==="raw-reason")data.reason="private-error";
+  if(kind==="reason-type")data.reason=["daemon_unavailable"];
+  if(kind==="scope"){data.reason="daemon_unavailable";data.scope="installation";}
+  if(kind==="origin-reason-other-scope"){data.reason="origin_not_registered";data.scope="installation";}
+  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+  const call=h.tools.get("radar_diagnostics").execute("call",{section:"runtime_probe",parent_id:"registered-workspace",...(kind==="origin-reason-other-scope"?{scope:"installation"}:{})},undefined,undefined,h.ctx);
+  if(["daemon_unavailable","origin_not_registered","snapshot_changed_restart_pagination"].includes(kind)){const result=await call;assert.equal(result.details.available,false);assert.equal(result.details.inventory,undefined);}else await assert.rejects(call);
+});
+
+test("runtime approval pins immutable scope and target before response validation",async()=>{
+  const h=harness();h.activate();const params={section:"runtime_probe",parent_id:"registered-workspace",scope:"origin"};
+  h.ctx.ui.confirm=async()=>{params.parent_id="other";params.scope="installation";return true;};
+  h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify(runtimeProbeFixture()),stderr:"",killed:false};};
+  await h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx);
+  assert.ok(h.calls[0].args.includes("registered-workspace"));assert.ok(h.calls[0].args.includes("origin"));assert.ok(!h.calls[0].args.includes("other"));
+});
+
 function harness() {
   const tools = new Map<string, any>();
   tools.set("mcp__linear__save_issue", { name: "mcp__linear__save_issue", exposure: "codemode" });
@@ -636,11 +740,13 @@ for (const scope of ["origin","feedback","installation"]) {
 for (const scope of ["origin","feedback","installation"]) {
   test(`runtime probe requires fresh exact-target approval and preserves ${scope} scope`,async()=>{
     const h=harness();h.activate();h.approvals.push(true);
-    const params={section:"runtime_probe",scope,parent_id:"registered-workspace",id:"opaque-runtime",limit:1,cursor:"opaque"};
+    const data=runtimeProbeFixture(scope),id=data.inventory.items[0].id;
+    h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify(data),stderr:"",killed:false};};
+    const params={section:"runtime_probe",scope,parent_id:"registered-workspace",id,limit:1,cursor:"opaque"};
     await h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx);
     assert.equal(h.confirmations.length,1);
-    for (const text of ["registered-workspace",scope,"opaque-runtime","No startup, login, refresh, cleanup","does not authorize maintenance or publication"]) assert.ok(h.confirmations[0].includes(text));
-    assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","runtime_probe","--json","--scope",scope,"--id","opaque-runtime","--parent-id","registered-workspace","--limit","1","--cursor","opaque"]);
+    for (const text of ["registered-workspace",scope,id,"No startup, login, refresh, cleanup","does not authorize maintenance or publication"]) assert.ok(h.confirmations[0].includes(text));
+    assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","runtime_probe","--json","--scope",scope,"--id",id,"--parent-id","registered-workspace","--limit","1","--cursor","opaque"]);
     const cancelled=await h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx);
     assert.equal(cancelled.details.cancelled,true);assert.equal(h.calls.length,1);assert.equal(h.confirmations.length,2);
     for (const text of ["fresh interactive confirmation","not ownership, leases or orphan absence"]) assert.ok(h.session.instructions()!.includes(text));

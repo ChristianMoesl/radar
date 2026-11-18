@@ -459,6 +459,10 @@ names are not probed. Changed registration/cache evidence rejects the result;
 changed observations invalidate pagination cursors, and every page repeats the
 bounded listing. The observation timestamp is not a guarantee of future state.
 
+The complete runtime probe envelope, page, rows and observations are allowlisted
+before model output. Private siblings, wrong targets and inconsistent evidence
+fail closed, including unavailable replies. Schema 28 and wire shape unchanged.
+
 Runtime matches, absence or mismatches establish neither registration ownership,
 lease safety, orphan absence nor cleanup eligibility/consent. Unrelated listing
 rows, native lifetime IDs, mounts, environment, pane contents and raw errors are
