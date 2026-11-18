@@ -154,7 +154,19 @@ func TestTerminalOnboardingMatrixProducesUsableState(t *testing.T) {
 					"node": "echo v24.8.0",
 					"pi":   "echo 1.0.0",
 					"git":  "exit 0", "fd": "exit 0", "npm": "exit 0",
-					"tmux": `case "$1" in -V) echo 'tmux 3.6';; has-session) exit 1;; display-message) printf '%%0\n';; new-session|new-window|split-window) printf '@1 %%1\n';; *) exit 0;; esac`,
+					"tmux": `case "$1" in
+ -V) echo 'tmux 3.6';;
+ has-session) test -s "$HOME/tmux-session";;
+ display-message) case "$5" in
+   '#{pid}:#{session_created}:#{session_id}')
+     if test -s "$HOME/tmux-session"; then printf '12:34:$9\n'; else printf '12::\n'; fi;;
+   '#{session_name}') IFS= read -r session < "$HOME/tmux-session"; printf '%s\n' "$session";;
+   *) printf '%%0\n';;
+ esac;;
+ new-session) printf '%s\n' "$4" > "$HOME/tmux-session"; printf '12:34:$9 @1 %%1\n';;
+ new-window|split-window) printf '@1 %%1\n';;
+ kill-session) : > "$HOME/tmux-session";;
+ *) exit 0;; esac`,
 					"twg": `case "$1" in
  --version) echo '1.3.8';;
  *) case "$*" in
