@@ -184,54 +184,11 @@ func (Source) Current(ctx context.Context) (integration.SessionContext, bool, er
 }
 
 func (Source) EnsureSession(ctx context.Context, req integration.EnsureSessionRequest) (integration.Session, error) {
-	runner := workspace.ExecRunner{}
-	if strings.TrimSpace(req.Name) == "" {
-		return integration.Session{}, fmt.Errorf("tmux session name is required")
-	}
-	created := false
-	if _, err := runner.Run(ctx, "", "tmux", "has-session", "-t", req.Name); err != nil {
-		window := req.FirstWindow
-		if window == "" {
-			window = "pi"
-		}
-		command := req.FirstCommand
-		if command == "" {
-			command = "pi"
-		}
-		args := []string{"new-session", "-d", "-s", req.Name, "-n", window}
-		if req.Path != "" {
-			args = append(args, "-c", req.Path)
-		}
-		args = append(args, command)
-		if _, err := runner.Run(ctx, "", "tmux", args...); err != nil {
-			return integration.Session{}, err
-		}
-		created = true
-	}
-	if req.Switch {
-		if err := (Source{}).Switch(ctx, integration.SessionTarget{Name: req.Name}); err != nil {
-			return integration.Session{}, err
-		}
-	}
-	return integration.Session{Name: req.Name, Path: req.Path, Created: created}, nil
+	return ensureSession(ctx, workspace.ExecRunner{}, req)
 }
 
 func (Source) OpenWindow(ctx context.Context, req integration.OpenWindowRequest) error {
-	if strings.TrimSpace(req.SessionName) == "" {
-		return fmt.Errorf("tmux session name is required")
-	}
-	args := []string{"new-window", "-t", req.SessionName + ":"}
-	if req.Name != "" {
-		args = append(args, "-n", req.Name)
-	}
-	if req.Path != "" {
-		args = append(args, "-c", req.Path)
-	}
-	if req.Command != "" {
-		args = append(args, req.Command)
-	}
-	_, err := workspace.ExecRunner{}.Run(ctx, "", "tmux", args...)
-	return err
+	return openWindow(ctx, workspace.ExecRunner{}, req)
 }
 
 func (Source) Target(task protocol.Task) string {
