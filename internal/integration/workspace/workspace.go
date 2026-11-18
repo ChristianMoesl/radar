@@ -24,6 +24,7 @@ import (
 	sbxclient "radar/internal/integration/sbx/client"
 	sbxsettings "radar/internal/integration/sbx/settings"
 	sessionlayout "radar/internal/integration/tmux/layout"
+	"radar/internal/integration/tmux/sessionlease"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/operationlock"
 	"radar/internal/phasetiming"
@@ -203,12 +204,21 @@ func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string,
 	// independent of note locks, filesystem repairs and SBX readiness checks,
 	// but hold matching cleanup leases until the native call returns.
 	_, sessionErr := runner.Run(ctx, "", "tmux", "has-session", "-t", "="+group.SessionName)
+	liveAdmission := sessionlease.New(false)
+	defer liveAdmission.Close()
+	var live sessionlease.Identity
+	if sessionErr == nil {
+		live, err = liveAdmission.Admit(ctx, runner, sessionlease.Request{Selector: "=" + group.SessionName, Name: group.SessionName})
+		if err != nil {
+			return Workspace{}, err
+		}
+	}
 	if _, err := activationRegistration(ctx, root, current, group); err != nil {
 		return Workspace{}, err
 	}
 	if sessionErr == nil {
 		if switchClient {
-			if _, err := runner.Run(ctx, "", "tmux", "switch-client", "-t", group.SessionName); err != nil {
+			if err := switchLiveSession(ctx, runner, "", liveAdmission, live); err != nil {
 				return Workspace{}, err
 			}
 		}
@@ -607,7 +617,16 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 	if err := validateSandboxDependencies(ctx, runner, sandbox.Enabled); err != nil {
 		return Workspace{}, err
 	}
-	_, sessionErr := runner.Run(ctx, "", "tmux", "has-session", "-t", sessionName)
+	_, sessionErr := runner.Run(ctx, "", "tmux", "has-session", "-t", "="+sessionName)
+	liveAdmission := sessionlease.New(false)
+	defer liveAdmission.Close()
+	var live sessionlease.Identity
+	if sessionErr == nil {
+		live, err = liveAdmission.Admit(ctx, runner, sessionlease.Request{Selector: "=" + sessionName, Name: sessionName})
+		if err != nil {
+			return Workspace{}, err
+		}
+	}
 	if sessionErr != nil {
 		if err := validateSessionDependencies(runner, options.Tmux); err != nil {
 			return Workspace{}, err
@@ -660,7 +679,12 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 		}
 	}
 	if options.Switch {
-		if _, err := runner.Run(ctx, "", "tmux", "switch-client", "-t", sessionName); err != nil {
+		if sessionErr == nil {
+			err = switchLiveSession(ctx, runner, "", liveAdmission, live)
+		} else {
+			_, err = runner.Run(ctx, "", "tmux", "switch-client", "-t", sessionName)
+		}
+		if err != nil {
 			return Workspace{}, err
 		}
 	}

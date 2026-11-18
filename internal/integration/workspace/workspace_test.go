@@ -25,6 +25,7 @@ type fakeRunner struct {
 	repo            string
 	gitCommonDir    string
 	hasSession      bool
+	liveSessionName string
 	failSetupWindow bool
 	sbxListOutput   string
 	refs            map[string]bool
@@ -52,10 +53,19 @@ func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...str
 		return filepath.Join(cwd, ".git"), nil
 	}
 	if name == "tmux" && len(args) > 0 && args[0] == "has-session" {
+		f.liveSessionName = strings.TrimPrefix(args[len(args)-1], "=")
 		if !f.hasSession {
 			return "", errors.New("missing")
 		}
 		return "", nil
+	}
+	if name == "tmux" && len(args) == 5 && args[0] == "display-message" && f.hasSession {
+		switch args[4] {
+		case "#{pid}:#{session_created}:#{session_id}":
+			return "12:34:$7\n", nil
+		case "#{session_name}":
+			return f.liveSessionName + "\n", nil
+		}
 	}
 	if name == "tmux" && len(args) > 0 && (args[0] == "new-session" || args[0] == "new-window" || args[0] == "split-window") {
 		if f.failSetupWindow && args[0] == "new-window" && strings.Contains(strings.Join(args, " "), "-n setup") {

@@ -51,7 +51,11 @@ func TestOpenRegisteredWorkspaceRecoversMissingSessionAndReusesLiveSession(t *te
 				}
 			}
 			if tc.switchTo {
-				assertCalled(t, runner.calls, "tmux", "switch-client -t "+created.SessionName)
+				target := created.SessionName
+				if tc.hasSession {
+					target = "$7"
+				}
+				assertCalled(t, runner.calls, "tmux", "switch-client -t "+target)
 			} else {
 				assertNotCalledContains(t, runner.calls, "tmux", "switch-client")
 			}
@@ -88,8 +92,10 @@ func TestOpenLiveWorkspaceSkipsRuntimeRecovery(t *testing.T) {
 				t.Fatalf("open = %+v, %v", reopened, err)
 			}
 			want := []call{{name: "tmux", args: []string{"has-session", "-t", "=" + created.SessionName}}}
+			want = append(want, liveProbeCalls("="+created.SessionName)...)
 			if switchTo {
-				want = append(want, call{name: "tmux", args: []string{"switch-client", "-t", created.SessionName}})
+				want = append(want, liveProbeCalls("$7")...)
+				want = append(want, call{name: "tmux", args: []string{"switch-client", "-t", "$7"}})
 			}
 			if !reflect.DeepEqual(runner.calls, want) || len(runner.lookups) != 0 {
 				t.Fatalf("live open ran recovery checks: calls=%+v lookups=%v; want %+v", runner.calls, runner.lookups, want)
@@ -99,4 +105,14 @@ func TestOpenLiveWorkspaceSkipsRuntimeRecovery(t *testing.T) {
 			}
 		})
 	}
+}
+
+func liveProbeCalls(selector string) []call {
+	var calls []call
+	for i := 0; i < 2; i++ {
+		calls = append(calls,
+			call{name: "tmux", args: []string{"display-message", "-p", "-t", selector + ":", "#{pid}:#{session_created}:#{session_id}"}},
+			call{name: "tmux", args: []string{"display-message", "-p", "-t", "$7:", "#{session_name}"}})
+	}
+	return calls
 }
