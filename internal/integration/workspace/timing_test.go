@@ -103,7 +103,7 @@ func TestSetupBatchDoesNotRepeatPreflightPerMember(t *testing.T) {
 	// fresh runtime preflight and a fresh setup preflight before executing hooks.
 	runnerWithSetup := setupProbeRunner{inspectionProbeRunner: runner}
 	plan := ReconcileWorkspacePlan{WorkspaceID: group.ID, root: root, group: group, prepareOnly: true}
-	result, err := applyWorkspacePlan(context.Background(), runnerWithSetup, nil, ReconcileWorkspaceRequest{}, plan)
+	result, err := applyWorkspacePlan(context.Background(), runnerWithSetup, nil, ReconcileWorkspaceRequest{}, plan, testWorkspaceSession(t, plan.group.SessionName))
 	if err != nil || !result.OK {
 		t.Fatalf("setup apply: %+v %v", result, err)
 	}
@@ -163,7 +163,7 @@ func TestSetupBatchPreflightFailurePreservesCompletionContract(t *testing.T) {
 			}
 			runner := &failingSetupPreflightRunner{setupProbeRunner: setupProbeRunner{base}}
 			plan := ReconcileWorkspacePlan{WorkspaceID: group.ID, root: root, group: group, prepareOnly: prepareOnly}
-			result, err := applyWorkspacePlan(context.Background(), runner, nil, ReconcileWorkspaceRequest{}, plan)
+			result, err := applyWorkspacePlan(context.Background(), runner, nil, ReconcileWorkspaceRequest{}, plan, testWorkspaceSession(t, plan.group.SessionName))
 			if prepareOnly {
 				if err == nil || result.OK {
 					t.Fatalf("preparation ignored failed preflight: %+v %v", result, err)

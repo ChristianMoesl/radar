@@ -437,12 +437,12 @@ func waitForContext(ctx context.Context, duration time.Duration) error {
 }
 
 // The apply engine freshly preflights the sandbox once for this setup batch.
-func scheduleMemberSetup(ctx context.Context, runner Runner, path, sessionName, sandboxName, repositoryName string, commands []string) error {
+func scheduleMemberSetup(ctx context.Context, runner Runner, path, sandboxName, repositoryName string, commands []string, session *workspaceSession) error {
 	if len(commands) == 0 {
 		return nil
 	}
-	if sessionName != "" {
-		return scheduleSetupCommandsNamedAfterPreflight(ctx, runner, path, sessionName, sandboxName, WorktreeName("setup-"+repositoryName), commands)
+	if session.name != "" {
+		return scheduleSetupCommandsNamedAfterPreflight(ctx, runner, path, sandboxName, WorktreeName("setup-"+repositoryName), commands, session)
 	}
 	steps := make([]string, 0, len(commands))
 	for _, command := range commands {

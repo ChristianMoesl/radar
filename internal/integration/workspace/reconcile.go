@@ -588,13 +588,20 @@ func applyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 		}
 		return result, nil
 	}
-	return applyWorkspacePlan(ctx, runner, logger, request, plan)
+	session := newWorkspaceSession(plan.group.SessionName)
+	defer session.close()
+	return applyWorkspacePlan(ctx, runner, logger, request, plan, session)
 }
 
-func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger, request ReconcileWorkspaceRequest, plan ReconcileWorkspacePlan) (ReconcileWorkspaceResult, error) {
+func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger, request ReconcileWorkspaceRequest, plan ReconcileWorkspacePlan, session *workspaceSession) (ReconcileWorkspaceResult, error) {
 	result := ReconcileWorkspaceResult{WorkspaceID: plan.WorkspaceID}
 	if plan.group.Sandbox != nil {
 		if err := sbxsettings.ValidateReadyCommand(plan.group.Sandbox.ReadyCommand); err != nil {
+			return result, err
+		}
+	}
+	if !plan.prepareOnly && plan.group.SessionName != "" {
+		if _, err := session.probe(ctx, runner, plan.group.Path); err != nil {
 			return result, err
 		}
 	}
@@ -679,9 +686,9 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 	if plan.create && !plan.prepareOnly {
 		var err error
 		if plan.group.Sandbox != nil {
-			result.earlySession, result.switchErr, err = startNewWorkspaceRuntime(ctx, runner, plan.group, plan.forkSession, plan.switchClient)
+			result.earlySession, result.switchErr, err = startNewWorkspaceRuntime(ctx, runner, plan.group, plan.forkSession, plan.switchClient, session)
 		} else {
-			_, _, err = startWorkspaceRuntime(ctx, runner, plan.group, plan.forkSession)
+			_, _, err = startWorkspaceRuntime(ctx, runner, plan.group, plan.forkSession, session)
 		}
 		if err != nil {
 			result.Retryable = true
@@ -739,7 +746,7 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 	if plan.startSession && !plan.create {
 		// Sandbox reconciliation has already gated this runtime. Do not execute
 		// the same optional readiness command twice before launching tmux.
-		if _, _, err := startWorkspaceRuntimeWithReadiness(ctx, runner, plan.group, "", true); err != nil {
+		if _, _, err := startWorkspaceRuntimeWithReadiness(ctx, runner, plan.group, "", true, session); err != nil {
 			result.Retryable = true
 			result.Error = err.Error()
 			if isSandboxReadinessError(err) {
@@ -752,8 +759,8 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 	// A failed/interrupted creation can leave auxiliary panes waiting even
 	// when this reconciliation does not need to start a session for setup.
 	if !plan.create && !plan.startSession && !plan.prepareOnly {
-		if _, sessionErr := runner.Run(ctx, plan.group.Path, "tmux", "has-session", "-t", plan.group.SessionName); sessionErr == nil {
-			if err := releaseWorkspacePanes(ctx, runner, plan.group.Path, plan.group.SessionName); err != nil {
+		if session.identity.ID != "" {
+			if err := releaseWorkspacePanes(ctx, runner, plan.group.Path, session); err != nil {
 				result.Retryable, result.Error = true, err.Error()
 				logRetryableReconciliationFailure(logger, plan, "session", result, err)
 				return result, nil
@@ -800,7 +807,7 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 			plan.group.Members[memberIndex].SetupScheduled = true
 			continue
 		}
-		if setupErr := scheduleMemberSetup(ctx, runner, member.Path, plan.group.SessionName, sandboxName(plan.group), filepath.Base(member.Repository), config.Setup); setupErr != nil {
+		if setupErr := scheduleMemberSetup(ctx, runner, member.Path, sandboxName(plan.group), filepath.Base(member.Repository), config.Setup, session); setupErr != nil {
 			warnings = append(warnings, fmt.Sprintf("workspace setup for %s could not be started: %v", member.Path, setupErr))
 			continue
 		}

@@ -217,7 +217,7 @@ func TestExistingSessionDoesNotRequirePaneToolsToBeReinstalled(t *testing.T) {
 		t.Fatal(err)
 	}
 	running := &setupRunner{fakeRunner: fakeRunner{hasSession: true}, missing: "nvim"}
-	if _, _, err := startWorkspaceRuntime(context.Background(), running, registry.Workspaces[0], ""); err != nil {
+	if _, _, err := startWorkspaceRuntime(context.Background(), running, registry.Workspaces[0], "", testWorkspaceSession(t, registry.Workspaces[0].SessionName)); err != nil {
 		t.Fatalf("could not reopen %s: %v", created.Path, err)
 	}
 	assertNotCalledContains(t, running.calls, "tmux", "new-session")

@@ -51,7 +51,7 @@ func TestOpenRegisteredWorkspaceRecoversMissingSessionAndReusesLiveSession(t *te
 				}
 			}
 			if tc.switchTo {
-				target := created.SessionName
+				target := "$9"
 				if tc.hasSession {
 					target = "$7"
 				}

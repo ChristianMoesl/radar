@@ -217,7 +217,7 @@ func TestOpenWorkspaceRechecksRegistrationAndCancellationUnderNoteLock(t *testin
 				}); err != nil {
 					return err
 				}
-				_, err := openRegisteredWorkspaceAt(ctx, runner, root, group.Path, group, true)
+				_, err := openRegisteredWorkspaceAt(ctx, runner, root, group.Path, group, true, testWorkspaceSession(t, group.SessionName))
 				return err
 			})
 			if err == nil || len(runner.calls) != 0 {

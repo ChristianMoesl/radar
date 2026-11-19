@@ -378,7 +378,7 @@ func TestExistingWorkspaceRecoveryUsesRecordedSandboxEnvFile(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := startWorkspaceRuntime(context.Background(), runner, group, ""); err != nil {
+		if _, _, err := startWorkspaceRuntime(context.Background(), runner, group, "", testWorkspaceSession(t, group.SessionName)); err != nil {
 			t.Fatal(err)
 		}
 		assertSandboxEnvFileArg(t, runner.calls, recordedEnv)
@@ -418,7 +418,7 @@ func TestMissingRecordedEnvFileFailsBeforeRecoveryFilesystemSetup(t *testing.T) 
 	}
 	group.Sandbox.SharedDirectory = shared
 	runner := &fakeRunner{}
-	if _, _, err := startWorkspaceRuntime(context.Background(), runner, group, ""); err == nil || !strings.Contains(err.Error(), "sbx.env_file") {
+	if _, _, err := startWorkspaceRuntime(context.Background(), runner, group, "", testWorkspaceSession(t, group.SessionName)); err == nil || !strings.Contains(err.Error(), "sbx.env_file") {
 		t.Fatalf("recovery error = %v", err)
 	}
 	assertNotCalledContains(t, runner.calls, "tmux", "new-session")
@@ -460,7 +460,7 @@ func TestApplyWorkspacePlanPreflightsEnvFileBeforeResources(t *testing.T) {
 			plan.noteAdded = true
 		}
 		request := ReconcileWorkspaceRequest{Desired: DesiredWorkspaceDescription{Note: &DesiredWorkspaceNote{Path: filepath.Join(root, "note.md")}}}
-		_, err := applyWorkspacePlan(context.Background(), runner, nil, request, plan)
+		_, err := applyWorkspacePlan(context.Background(), runner, nil, request, plan, testWorkspaceSession(t, plan.group.SessionName))
 		if err == nil {
 			t.Fatal("expected failed preflight/note link")
 		}

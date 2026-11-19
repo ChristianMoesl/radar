@@ -58,7 +58,7 @@ func TestWorkspacePanesRealTmuxAfterServerDirectoryRemoved(t *testing.T) {
 						t.Fatalf("auxiliary pane ran before release: %s: %v", name, err)
 					}
 				}
-				if err := releaseWorkspacePanes(ctx, runner, path, "workspace"); err != nil {
+				if err := releaseWorkspacePanes(ctx, runner, path, testPaneSession(t, runner, "workspace")); err != nil {
 					t.Fatal(err)
 				}
 			}

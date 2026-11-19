@@ -204,21 +204,20 @@ func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string,
 	// independent of note locks, filesystem repairs and SBX readiness checks,
 	// but hold matching cleanup leases until the native call returns.
 	_, sessionErr := runner.Run(ctx, "", "tmux", "has-session", "-t", "="+group.SessionName)
-	liveAdmission := sessionlease.New(false)
-	defer liveAdmission.Close()
-	var live sessionlease.Identity
-	if sessionErr == nil {
-		live, err = liveAdmission.Admit(ctx, runner, sessionlease.Request{Selector: "=" + group.SessionName, Name: group.SessionName})
-		if err != nil {
-			return Workspace{}, err
-		}
+	session := newWorkspaceSession(group.SessionName)
+	defer session.close()
+	if err := session.admit(ctx, runner); err != nil {
+		return Workspace{}, err
+	}
+	if (sessionErr == nil) != (session.identity.ID != "") {
+		return Workspace{}, fmt.Errorf("tmux session changed before recovery; refresh and retry")
 	}
 	if _, err := activationRegistration(ctx, root, current, group); err != nil {
 		return Workspace{}, err
 	}
 	if sessionErr == nil {
 		if switchClient {
-			if err := switchLiveSession(ctx, runner, "", liveAdmission, live); err != nil {
+			if err := session.switchClient(ctx, runner, ""); err != nil {
 				return Workspace{}, err
 			}
 		}
@@ -227,7 +226,7 @@ func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string,
 	var result Workspace
 	err = workspacegroup.WithNoteLock(root, func() error {
 		var err error
-		result, err = openRegisteredWorkspaceAt(ctx, runner, root, current, group, switchClient)
+		result, err = openRegisteredWorkspaceAt(ctx, runner, root, current, group, switchClient, session)
 		return err
 	})
 	return result, err
@@ -235,20 +234,20 @@ func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string,
 
 // Re-read registration under the creation/cleanup lock. Read-only inspection
 // remains independent so the early Pi conversation can load its context.
-func openRegisteredWorkspaceAt(ctx context.Context, runner Runner, root, current string, expected workspacegroup.Workspace, switchClient bool) (Workspace, error) {
+func openRegisteredWorkspaceAt(ctx context.Context, runner Runner, root, current string, expected workspacegroup.Workspace, switchClient bool, session *workspaceSession) (Workspace, error) {
 	group, err := activationRegistration(ctx, root, current, expected)
 	if err != nil {
 		return Workspace{}, err
 	}
-	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, "")
+	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, "", session)
 	if err != nil {
 		if !isSandboxReadinessError(err) && !isWorkspacePaneError(err) {
-			rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
+			rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox, session)
 		}
 		return Workspace{}, err
 	}
 	if switchClient {
-		if _, err := runner.Run(ctx, group.Path, "tmux", "switch-client", "-t", group.SessionName); err != nil {
+		if _, err := session.run(ctx, runner, group.Path, "switch-client", "-t", session.identity.ID); err != nil {
 			return Workspace{}, err
 		}
 	}
@@ -270,27 +269,32 @@ func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, gr
 	if options.NotePath != "" && group.NotePath == "" {
 		return Workspace{}, fmt.Errorf("attach the note through workspace reconciliation")
 	}
+	session := newWorkspaceSession(group.SessionName)
+	defer session.close()
+	if _, err := session.probe(ctx, runner, group.Path); err != nil {
+		return Workspace{}, err
+	}
 	if err := registerWorkspace(root, group); err != nil {
 		return Workspace{}, err
 	}
-	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, options.ForkPiSession)
+	createdSession, createdSandbox, err := startWorkspaceRuntime(ctx, runner, group, options.ForkPiSession, session)
 	if err != nil {
 		if !isSandboxReadinessError(err) && !isWorkspacePaneError(err) {
-			rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox)
+			rollbackWorkspaceRuntime(ctx, runner, group, createdSession, createdSandbox, session)
 		}
 		return Workspace{}, err
 	}
 	if options.Switch {
-		if _, err := runner.Run(ctx, group.Path, "tmux", "switch-client", "-t", group.SessionName); err != nil {
+		if _, err := session.run(ctx, runner, group.Path, "switch-client", "-t", session.identity.ID); err != nil {
 			return Workspace{}, err
 		}
 	}
 	return Workspace{Name: group.Name, Branch: branch, Repo: repository, Path: group.Path, SessionName: group.SessionName, SandboxName: sandboxName(group)}, nil
 }
 
-func rollbackWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, session, sandbox bool) {
-	if session {
-		_, _ = runner.Run(ctx, group.Path, "tmux", "kill-session", "-t", group.SessionName)
+func rollbackWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, createdSession, sandbox bool, session *workspaceSession) {
+	if createdSession {
+		session.afterFailure(ctx, runner, group.Path, 2*time.Second, "kill-session", "-t", session.identity.ID)
 	}
 	if sandbox && group.Sandbox != nil {
 		_, _ = stopSandbox(ctx, runner, group.Path, group.Sandbox.Name)
@@ -862,12 +866,17 @@ func scheduleSetupCommandsNamed(ctx context.Context, runner Runner, path string,
 			return err
 		}
 	}
-	return scheduleSetupCommandsNamedAfterPreflight(ctx, runner, path, sessionName, sandboxName, windowName, commands)
+	session := newWorkspaceSession(sessionName)
+	defer session.close()
+	return scheduleSetupCommandsNamedAfterPreflight(ctx, runner, path, sandboxName, windowName, commands, session)
 }
 
 // The caller has freshly preflighted the sandbox for this setup batch.
-func scheduleSetupCommandsNamedAfterPreflight(ctx context.Context, runner Runner, path, sessionName, sandboxName, windowName string, commands []string) error {
-	args := []string{"new-window", "-t", sessionName + ":", "-d", "-n", windowName, "-c", path, "-P", "-F", "#{window_id} #{pane_id}"}
+func scheduleSetupCommandsNamedAfterPreflight(ctx context.Context, runner Runner, path, sandboxName, windowName string, commands []string, session *workspaceSession) error {
+	if err := session.admit(ctx, runner); err != nil {
+		return err
+	}
+	args := []string{"new-window", "-t", session.identity.ID + ":", "-d", "-n", windowName, "-c", path, "-P", "-F", "#{window_id} #{pane_id}"}
 	if sandboxName != "" {
 		client := managedClient(runner)
 		executable, err := client.ShellExecutable()
@@ -881,7 +890,7 @@ func scheduleSetupCommandsNamedAfterPreflight(ctx context.Context, runner Runner
 			"sh -i",
 		}, " "))
 	}
-	output, err := runner.Run(ctx, path, "tmux", args...)
+	output, err := session.run(ctx, runner, path, args...)
 	if err != nil {
 		return err
 	}
@@ -889,13 +898,13 @@ func scheduleSetupCommandsNamedAfterPreflight(ctx context.Context, runner Runner
 	if err != nil {
 		return err
 	}
-	if _, err := runner.Run(ctx, path, "tmux", "set-option", "-p", "-t", paneID, "remain-on-exit", "off"); err != nil {
+	if _, err := session.run(ctx, runner, path, "set-option", "-p", "-t", paneID, "remain-on-exit", "off"); err != nil {
 		return err
 	}
-	if _, err := runner.Run(ctx, path, "tmux", "send-keys", "-l", "-t", paneID, setupInteractiveCommand(commands)); err != nil {
+	if _, err := session.run(ctx, runner, path, "send-keys", "-l", "-t", paneID, setupInteractiveCommand(commands)); err != nil {
 		return err
 	}
-	_, err = runner.Run(ctx, path, "tmux", "send-keys", "-t", paneID, "Enter")
+	_, err = session.run(ctx, runner, path, "send-keys", "-t", paneID, "Enter")
 	return err
 }
 

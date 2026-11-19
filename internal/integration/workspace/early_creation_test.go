@@ -300,7 +300,7 @@ func TestEarlyCreationSwitchAndPiPrecedeProvisioning(t *testing.T) {
 			}
 			order := []call{{name: "tmux", args: []string{"new-session"}}, {name: "tmux", args: []string{"select-pane", "-t", "%2"}}}
 			if options.Switch {
-				order = append(order, call{name: "tmux", args: []string{"switch-client", "-t", options.SessionName}})
+				order = append(order, call{name: "tmux", args: []string{"switch-client", "-t", "$9"}})
 			} else {
 				assertNotCalledContains(t, calls, "tmux", "switch-client")
 			}
@@ -365,7 +365,7 @@ func TestEarlyCreationSwitchAndPiPrecedeProvisioning(t *testing.T) {
 				if !member.SetupScheduled {
 					t.Fatalf("setup not scheduled after readiness: %+v", member)
 				}
-				assertCallOrder(t, calls, call{name: "sbx", args: []string{"exec"}}, call{name: "tmux", args: []string{"new-window", "-t", options.SessionName + ":", "-d", "-n", "setup-" + filepath.Base(member.Repository)}})
+				assertCallOrder(t, calls, call{name: "sbx", args: []string{"exec"}}, call{name: "tmux", args: []string{"new-window", "-t", "$9:", "-d", "-n", "setup-" + filepath.Base(member.Repository)}})
 			}
 			if tt.members > 0 {
 				assertCalledContains(t, calls, "tmux", "echo setup")
@@ -423,7 +423,7 @@ func TestEarlyCreationLateFailureRetainsConversationAndResources(t *testing.T) {
 			}
 			assertCalledContains(t, calls, "tmux", "new-session")
 			assertCalledContains(t, calls, "tmux", "switch-client")
-			assertCalledContains(t, calls, "tmux", "display-message")
+			assertCalledContains(t, calls, "tmux", "Radar workspace preparation failed;")
 			assertNotCalledContains(t, calls, "tmux", "kill-session")
 			assertNotCalledContains(t, calls, "tmux", "wait-for -S")
 			assertNotCalledContains(t, calls, "tmux", "echo setup")

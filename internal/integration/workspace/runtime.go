@@ -6,19 +6,18 @@ import (
 
 	obsidiansettings "radar/internal/integration/obsidian/settings"
 	sbxsettings "radar/internal/integration/sbx/settings"
-	"radar/internal/integration/tmux/sessionlease"
 	"radar/internal/integration/workspace/group"
 	"radar/internal/pi"
 )
 
-func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string) (bool, bool, error) {
-	return startWorkspaceRuntimeWithReadiness(ctx, runner, group, forkSession, false)
+func startWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string, session *workspaceSession) (bool, bool, error) {
+	return startWorkspaceRuntimeWithReadiness(ctx, runner, group, forkSession, false, session)
 }
 
 // Runtime recovery remains sandbox-first. A newly recovered runtime must
 // be checked even if reconciliation already checked the previous instance.
-func startWorkspaceRuntimeWithReadiness(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string, readinessChecked bool) (bool, bool, error) {
-	sessionExists, createSandbox, err := prepareWorkspaceRuntime(ctx, runner, group)
+func startWorkspaceRuntimeWithReadiness(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string, readinessChecked bool, session *workspaceSession) (bool, bool, error) {
+	sessionExists, createSandbox, err := prepareWorkspaceRuntime(ctx, runner, group, session)
 	if err != nil {
 		return false, false, err
 	}
@@ -27,11 +26,11 @@ func startWorkspaceRuntimeWithReadiness(ctx context.Context, runner Runner, grou
 		return false, createdSandbox, err
 	}
 	if !sessionExists {
-		if err := startWorkspaceSession(ctx, runner, group, forkSession, false); err != nil {
+		if err := startWorkspaceSession(ctx, runner, group, forkSession, false, session); err != nil {
 			return false, createdSandbox, err
 		}
 	}
-	if err := releaseWorkspacePanes(ctx, runner, group.Path, group.SessionName); err != nil {
+	if err := releaseWorkspacePanes(ctx, runner, group.Path, session); err != nil {
 		return !sessionExists, createdSandbox, err
 	}
 	return !sessionExists, createdSandbox, nil
@@ -40,36 +39,39 @@ func startWorkspaceRuntimeWithReadiness(ctx context.Context, runner Runner, grou
 // Creation stays owned by its caller after switch-client. The first error is
 // UI-only: finish provisioning even when switching fails, as the old late
 // switch did not prevent resource creation either. Provisioning errors win.
-func startNewWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string, switchClient bool) (started bool, switchErr, err error) {
-	sessionExists, createSandbox, err := prepareWorkspaceRuntime(ctx, runner, group)
+func startNewWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string, switchClient bool, session *workspaceSession) (started bool, switchErr, err error) {
+	sessionExists, createSandbox, err := prepareWorkspaceRuntime(ctx, runner, group, session)
 	if err != nil {
 		return false, nil, err
 	}
 	if sessionExists {
 		return false, nil, fmt.Errorf("tmux session %s already exists; cannot verify its early-start sandbox guard; open its registered workspace or choose a different session name", group.SessionName)
 	}
-	if err := startWorkspaceSession(ctx, runner, group, forkSession, true); err != nil {
+	if err := startWorkspaceSession(ctx, runner, group, forkSession, true, session); err != nil {
 		return false, nil, err
 	}
 	if switchClient {
-		_, switchErr = runner.Run(ctx, group.Path, "tmux", "switch-client", "-t", group.SessionName)
+		switchErr = session.switchClient(ctx, runner, group.Path)
 		if switchErr == nil {
 			// switch-client alone leaves a dashboard popup capturing input.
 			// Create keeps this process alive across the resulting PTY hangup.
-			if _, closeErr := runner.Run(ctx, group.Path, "tmux", "display-popup", "-C"); closeErr != nil {
+			if _, closeErr := session.run(ctx, runner, group.Path, "display-popup", "-C"); closeErr != nil {
 				switchErr = fmt.Errorf("close Radar popup after workspace switch: %w", closeErr)
 			}
 		}
 	}
+	if err := session.admit(ctx, runner); err != nil {
+		return true, switchErr, err
+	}
 	if _, err := prepareWorkspaceSandbox(ctx, runner, group, createSandbox, false); err != nil {
 		return true, switchErr, err
 	}
-	return true, switchErr, releaseWorkspacePanes(ctx, runner, group.Path, group.SessionName)
+	return true, switchErr, releaseWorkspacePanes(ctx, runner, group.Path, session)
 }
 
 // Returns existing-session and missing-sandbox state. Keep env-file validation
 // before note/shared-directory changes during recovery.
-func prepareWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace) (bool, bool, error) {
+func prepareWorkspaceRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, session *workspaceSession) (bool, bool, error) {
 	if group.Sandbox != nil {
 		if err := sbxsettings.ValidateReadyCommand(group.Sandbox.ReadyCommand); err != nil {
 			return false, false, err
@@ -78,8 +80,11 @@ func prepareWorkspaceRuntime(ctx context.Context, runner Runner, group workspace
 			return false, false, err
 		}
 	}
-	_, sessionErr := runner.Run(ctx, group.Path, "tmux", "has-session", "-t", "="+group.SessionName)
-	if sessionErr != nil {
+	sessionExists, err := session.probe(ctx, runner, group.Path)
+	if err != nil {
+		return false, false, err
+	}
+	if !sessionExists {
 		if err := validateSessionDependencies(runner, group.Tmux); err != nil {
 			return false, false, err
 		}
@@ -118,7 +123,7 @@ func prepareWorkspaceRuntime(ctx context.Context, runner Runner, group workspace
 		createSandbox = !exists
 	}
 
-	return sessionErr == nil, createSandbox, nil
+	return sessionExists, createSandbox, nil
 }
 
 func prepareWorkspaceSandbox(ctx context.Context, runner Runner, group workspacegroup.Workspace, createSandbox, readinessChecked bool) (bool, error) {
@@ -135,7 +140,7 @@ func prepareWorkspaceSandbox(ctx context.Context, runner Runner, group workspace
 	return createSandbox, nil
 }
 
-func startWorkspaceSession(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string, early bool) error {
+func startWorkspaceSession(ctx context.Context, runner Runner, group workspacegroup.Workspace, forkSession string, early bool, session *workspaceSession) error {
 	args := piArgsWithPrompt(taskPiSessionID(group.SessionName, group.TaskLinkingKey), group.SessionName, group.Model, group.Thinking, forkSession, "")
 	if group.Sandbox != nil {
 		guard, err := pi.RequireSandboxPath()
@@ -148,10 +153,9 @@ func startWorkspaceSession(ctx context.Context, runner Runner, group workspacegr
 	if group.Sandbox != nil {
 		environment["PI_SBX_REQUIRED_SANDBOX"] = group.Sandbox.Name
 	}
-	// Registered runtime callers remain constructor-scoped until their outer
-	// runtime/provisioning handoff is migrated to explicit native ownership.
-	admission := sessionlease.New(false)
-	defer admission.Close()
-	_, err := createTmuxWorkspaceWithGates(ctx, runner, group.Path, group.Path, group.SessionName, group.Tmux, args, environment, early, admission)
+	created, err := createTmuxWorkspaceWithGates(ctx, runner, group.Path, group.Path, group.SessionName, group.Tmux, args, environment, early, session.admission)
+	if err == nil {
+		session.identity, session.selected = created, true
+	}
 	return err
 }

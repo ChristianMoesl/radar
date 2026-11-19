@@ -248,11 +248,11 @@ func TestMalformedReadyCommandFailsBeforeProvisioning(t *testing.T) {
 				case "session":
 					_, err = CreateSessionWithOptions(context.Background(), runner, CreateSessionOptions{Path: repo, Sandbox: true, SandboxReadyCommand: argv})
 				case "runtime":
-					_, _, err = startWorkspaceRuntime(context.Background(), runner, group, "")
+					_, _, err = startWorkspaceRuntime(context.Background(), runner, group, "", testWorkspaceSession(t, group.SessionName))
 				case "reconcile":
 					err = reconcileSandboxWithPolicy(context.Background(), runner, group, nil, sandboxReconcilePolicy{})
 				case "apply":
-					_, err = applyWorkspacePlan(context.Background(), runner, nil, ReconcileWorkspaceRequest{}, ReconcileWorkspacePlan{group: group, root: root})
+					_, err = applyWorkspacePlan(context.Background(), runner, nil, ReconcileWorkspaceRequest{}, ReconcileWorkspacePlan{group: group, root: root}, testWorkspaceSession(t, group.SessionName))
 				case "repo":
 					data, _ := yaml.Marshal(RepoConfig{SBX: &SandboxConfig{ReadyCommand: &argv}})
 					if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), data, 0600); err != nil {
@@ -317,7 +317,7 @@ sbx:
 			}
 			assertEarlySessionBeforeReadiness(t, runner.calls)
 			if !fail {
-				assertCallOrder(t, runner.calls, checks[0], call{name: "tmux", args: []string{"new-window", "-t", created.SessionName + ":", "-d", "-n", "setup-" + filepath.Base(repo)}})
+				assertCallOrder(t, runner.calls, checks[0], call{name: "tmux", args: []string{"new-window", "-t", "$9:", "-d", "-n", "setup-" + filepath.Base(repo)}})
 				assertCalledContains(t, runner.calls, "tmux", "echo setup")
 			}
 		})
@@ -528,7 +528,7 @@ func TestApplyReadinessFailureIsRetryableAndSetupUnscheduled(t *testing.T) {
 				runner.ready = func(context.Context) (string, error) { return readySecret, errors.New(readySecret) }
 				plan := ReconcileWorkspacePlan{WorkspaceID: group.ID, WorkspaceName: group.Name, group: group, root: root, create: create, startSession: startSession}
 				var logs bytes.Buffer
-				result, err := applyWorkspacePlan(context.Background(), runner, slog.New(slog.NewTextHandler(&logs, nil)), ReconcileWorkspaceRequest{}, plan)
+				result, err := applyWorkspacePlan(context.Background(), runner, slog.New(slog.NewTextHandler(&logs, nil)), ReconcileWorkspaceRequest{}, plan, testWorkspaceSession(t, plan.group.SessionName))
 				if err != nil || result.OK || !result.Retryable || !strings.Contains(result.Error, "readiness") || strings.Contains(result.Error, readySecret) {
 					t.Fatalf("result = %+v, %v", result, err)
 				}
@@ -549,7 +549,7 @@ func TestApplyReadinessFailureIsRetryableAndSetupUnscheduled(t *testing.T) {
 				plan.create = false
 				runner.calls = nil
 				runner.ready = nil
-				result, err = applyWorkspacePlan(context.Background(), runner, nil, ReconcileWorkspaceRequest{}, plan)
+				result, err = applyWorkspacePlan(context.Background(), runner, nil, ReconcileWorkspaceRequest{}, plan, testWorkspaceSession(t, plan.group.SessionName))
 				if err != nil || !result.OK {
 					t.Fatalf("retry = %+v, %v", result, err)
 				}
@@ -654,7 +654,7 @@ func TestApplyMountRecreationReadinessGatesPiAndSetup(t *testing.T) {
 	runner.calls = nil
 	plan := ReconcileWorkspacePlan{WorkspaceID: group.ID, WorkspaceName: group.Name, group: group, root: root, startSession: true}
 	var logs bytes.Buffer
-	result, err := applyWorkspacePlan(context.Background(), runner, slog.New(slog.NewTextHandler(&logs, nil)), ReconcileWorkspaceRequest{}, plan)
+	result, err := applyWorkspacePlan(context.Background(), runner, slog.New(slog.NewTextHandler(&logs, nil)), ReconcileWorkspaceRequest{}, plan, testWorkspaceSession(t, plan.group.SessionName))
 	if err != nil || result.OK || !result.Retryable || !strings.Contains(result.Error, "readiness") {
 		t.Fatalf("recreation = %+v, %v", result, err)
 	}
@@ -673,7 +673,7 @@ func TestApplyMountRecreationReadinessGatesPiAndSetup(t *testing.T) {
 		if readySeen && c.name == "sbx" && len(c.args) > 0 && (c.args[0] == "rm" || c.args[0] == "create") {
 			t.Fatalf("readiness failure entered create retries: %+v", runner.calls)
 		}
-		if c.name == "tmux" {
+		if c.name == "tmux" && c.args[0] != "display-message" && c.args[0] != "has-session" {
 			t.Fatalf("session launched after readiness failure: %+v", c)
 		}
 	}
@@ -686,7 +686,7 @@ func TestApplyMountRecreationReadinessGatesPiAndSetup(t *testing.T) {
 	}
 	runner.ready = nil
 	runner.calls = nil
-	result, err = applyWorkspacePlan(context.Background(), runner, nil, ReconcileWorkspaceRequest{}, plan)
+	result, err = applyWorkspacePlan(context.Background(), runner, nil, ReconcileWorkspaceRequest{}, plan, testWorkspaceSession(t, plan.group.SessionName))
 	if err != nil || !result.OK {
 		t.Fatalf("retry = %+v, %v", result, err)
 	}
@@ -745,7 +745,7 @@ func TestRuntimeRecoveredAfterReconciliationStillChecksReadiness(t *testing.T) {
 	// and launching the runtime. An earlier readiness result cannot cover it.
 	runner.calls = nil
 	runner.ready = func(context.Context) (string, error) { return readySecret, errors.New(readySecret) }
-	session, sandbox, err := startWorkspaceRuntimeWithReadiness(context.Background(), runner, group, "", true)
+	session, sandbox, err := startWorkspaceRuntimeWithReadiness(context.Background(), runner, group, "", true, testWorkspaceSession(t, group.SessionName))
 	if err == nil || !isSandboxReadinessError(err) || session || !sandbox {
 		t.Fatalf("recovery = %t, %t, %v", session, sandbox, err)
 	}

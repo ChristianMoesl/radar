@@ -39,6 +39,9 @@ func (r *paneGateRunner) Run(ctx context.Context, cwd, name string, args ...stri
 	if args[0] == "new-session" {
 		creation, _ = r.native.Run(ctx, cwd, name, args...)
 	}
+	if args[0] == "display-message" {
+		return r.native.Run(ctx, cwd, name, args...)
+	}
 	if r.output != nil {
 		if output, ok := r.output(args); ok {
 			return output, nil
@@ -237,7 +240,7 @@ func TestReleaseWorkspacePanesRecoveryNeverReplaysCommands(t *testing.T) {
 		}
 		return nil
 	}
-	err := releaseWorkspacePanes(context.Background(), runner, "/workspace", "test")
+	err := releaseWorkspacePanes(context.Background(), runner, "/workspace", testPaneSession(t, runner, "test"))
 	if !isWorkspacePaneError(fmt.Errorf("runtime: %w", err)) || !errors.Is(err, sentinel) {
 		t.Fatalf("missing late-release classification/cause: %v", err)
 	}
@@ -245,24 +248,30 @@ func TestReleaseWorkspacePanesRecoveryNeverReplaysCommands(t *testing.T) {
 		t.Fatalf("failed release lost recoverable gate: %v", runner.pending)
 	}
 	runner.fail = nil
-	if err := releaseWorkspacePanes(context.Background(), runner, "/workspace", "test"); err != nil {
+	if err := releaseWorkspacePanes(context.Background(), runner, "/workspace", testPaneSession(t, runner, "test")); err != nil {
 		t.Fatal(err)
 	}
 	before := len(runner.calls)
-	if err := releaseWorkspacePanes(context.Background(), runner, "/workspace", "test"); err != nil {
+	if err := releaseWorkspacePanes(context.Background(), runner, "/workspace", testPaneSession(t, runner, "test")); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.calls) != before+1 || len(runner.pending) != 0 {
+	if len(paneReleaseEffects(runner.calls[before:])) != 1 || len(runner.pending) != 0 {
 		t.Fatalf("repeat release did more than inspect pending options: %+v", runner.calls[before:])
 	}
 	for _, c := range runner.calls {
+		if c.args[0] == "display-message" {
+			if c.cwd != "" {
+				t.Fatalf("admission probe used a workspace cwd: %+v", c)
+			}
+			continue
+		}
 		if c.cwd != "/workspace" || (c.args[0] != "list-panes" && c.args[0] != "wait-for") {
 			t.Fatalf("release mutated layout, replayed or respawned a command: %+v", c)
 		}
 	}
-	wantList := []string{"list-panes", "-s", "-t", "test", "-f", "#{!=:#{" + workspacePaneGateOption + "},}", "-F", "#{pane_id} #{" + workspacePaneGateOption + "}"}
-	if !reflect.DeepEqual(runner.calls[0].args, wantList) {
-		t.Fatalf("release didn't list only pending pane options: %+v", runner.calls[0])
+	wantList := []string{"list-panes", "-s", "-t", "$9", "-f", "#{!=:#{" + workspacePaneGateOption + "},}", "-F", "#{pane_id} #{" + workspacePaneGateOption + "}"}
+	if !reflect.DeepEqual(paneReleaseEffects(runner.calls)[0].args, wantList) {
+		t.Fatalf("release didn't list only pending pane options: %+v", paneReleaseEffects(runner.calls)[0])
 	}
 	if isWorkspacePaneError(nil) || isWorkspacePaneError(sentinel) {
 		t.Fatal("unrelated errors classified as pane-release failures")
@@ -273,7 +282,7 @@ func TestReleaseWorkspacePanesInspectionFailures(t *testing.T) {
 	for _, output := range []string{"", "%1", "%1 unrelated", "bad radar-pane-gate", "%1 radar-pane-gate extra"} {
 		t.Run(output, func(t *testing.T) {
 			runner := &paneGateRunner{output: func([]string) (string, bool) { return output, true }}
-			err := releaseWorkspacePanes(context.Background(), runner, "/workspace", "test")
+			err := releaseWorkspacePanes(context.Background(), runner, "/workspace", testPaneSession(t, runner, "test"))
 			if output == "" {
 				if err != nil {
 					t.Fatal(err)
@@ -281,15 +290,25 @@ func TestReleaseWorkspacePanesInspectionFailures(t *testing.T) {
 			} else if !isWorkspacePaneError(err) {
 				t.Fatalf("malformed option output not classified: %v", err)
 			}
-			if len(runner.calls) != 1 {
+			if len(paneReleaseEffects(runner.calls)) != 1 {
 				t.Fatalf("malformed output signalled a gate: %+v", runner.calls)
 			}
 		})
 	}
 	runner := &paneGateRunner{fail: func([]string) error { return context.Canceled }}
-	if err := releaseWorkspacePanes(context.Background(), runner, "/workspace", "test"); !isWorkspacePaneError(err) || !errors.Is(err, context.Canceled) {
+	if err := releaseWorkspacePanes(context.Background(), runner, "/workspace", testPaneSession(t, runner, "test")); !isWorkspacePaneError(err) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("inspection cancellation = %v", err)
 	}
+}
+
+func paneReleaseEffects(calls []call) []call {
+	var effects []call
+	for _, c := range calls {
+		if c.args[0] != "display-message" {
+			effects = append(effects, c)
+		}
+	}
+	return effects
 }
 
 // Every tmux command targets a fresh socket and ignores user configuration.
@@ -379,13 +398,13 @@ func TestEarlyPanesRealTmuxOriginalShellQuotingAndOneShotRecovery(t *testing.T) 
 		t.Fatalf("auxiliary gate wasn't persisted: pane=%q err=%v", auxPaneID, err)
 	}
 	// No creator state is passed to release: tmux owns recovery after creation.
-	if err := releaseWorkspacePanes(ctx, runner, path, "workspace"); err != nil {
+	if err := releaseWorkspacePanes(ctx, runner, path, testPaneSession(t, runner, "workspace")); err != nil {
 		t.Fatal(err)
 	}
 	want := path + "\nsingle ' double \" dollar $VALUE backtick `nothing` ; && |\ndone\n"
 	waitPaneCondition(t, func() bool { data, _ := os.ReadFile(output); return string(data) == want })
 	for range 3 {
-		if err := releaseWorkspacePanes(ctx, runner, path, "workspace"); err != nil {
+		if err := releaseWorkspacePanes(ctx, runner, path, testPaneSession(t, runner, "workspace")); err != nil {
 			t.Fatal(err)
 		}
 	}

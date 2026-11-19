@@ -278,8 +278,10 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions, 
 		signal.Notify(hangup, syscall.SIGHUP, syscall.SIGTERM)
 		defer signal.Stop(hangup)
 	}
+	session := newWorkspaceSession(plan.group.SessionName)
+	defer session.close()
 	if options.PrepareOnly && !plan.create {
-		result, err := applyWorkspacePlan(ctx, runner, logger, request, plan)
+		result, err := applyWorkspacePlan(ctx, runner, logger, request, plan, session)
 		prepared := Workspace{Name: plan.group.Name, Path: plan.group.Path, SessionName: plan.group.SessionName, SandboxName: sandboxName(plan.group), Warning: result.Warning}
 		if err != nil {
 			return prepared, err
@@ -288,6 +290,11 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions, 
 			return prepared, fmt.Errorf("workspace needs reconciliation: %s", result.Error)
 		}
 		return prepared, nil
+	}
+	if !options.PrepareOnly {
+		if _, err := session.probe(ctx, runner, ""); err != nil {
+			return Workspace{}, err
+		}
 	}
 	if err := createAnchorDirectory(plan.root, plan.group.Path); err != nil {
 		return Workspace{}, err
@@ -299,7 +306,7 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions, 
 		removeEmptyAnchor(initial.Path)
 		return Workspace{}, err
 	}
-	result, err := applyWorkspacePlan(ctx, runner, logger, request, plan)
+	result, err := applyWorkspacePlan(ctx, runner, logger, request, plan, session)
 	created := Workspace{Name: plan.group.Name, Path: plan.group.Path, SessionName: plan.group.SessionName, SandboxName: sandboxName(plan.group), Warning: result.Warning}
 	if len(plan.additions) > 0 {
 		member := plan.additions[0].plan
@@ -309,9 +316,7 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions, 
 		// The originating Radar operation still owns the detailed error, but its
 		// client may now be looking at Pi. Keep the conversation and show only a
 		// safe, bounded diagnostic there, including after caller cancellation.
-		notifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
-		_, _ = runner.Run(notifyCtx, created.Path, "tmux", "display-message", "-t", created.SessionName, "-d", "10000", "Radar workspace preparation failed; inspect radar log-path, then reconcile the retained workspace.")
-		cancel()
+		session.afterFailure(ctx, runner, created.Path, time.Second, "display-message", "-t", session.identity.ID+":", "-d", "10000", "Radar workspace preparation failed; inspect radar log-path, then reconcile the retained workspace.")
 	}
 	if err != nil {
 		return created, fmt.Errorf("workspace %s was partially created; inspect it before retrying: %w", created.Path, err)
@@ -328,7 +333,7 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions, 
 	// Sandboxed creation has already switched before provisioning. Keep the
 	// existing sandbox-less order and final completion/error contract.
 	if options.Switch && plan.group.Sandbox == nil && !options.PrepareOnly {
-		if _, err := runner.Run(ctx, created.Path, "tmux", "switch-client", "-t", created.SessionName); err != nil {
+		if _, err := session.run(ctx, runner, created.Path, "switch-client", "-t", session.identity.ID); err != nil {
 			return created, err
 		}
 	}

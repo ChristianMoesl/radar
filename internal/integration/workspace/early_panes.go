@@ -46,8 +46,14 @@ func workspacePaneCommand(path, command, piArgsText string, early bool) (string,
 // releaseWorkspacePanes only signals pending gates. The waiting shells consume
 // the signals and clear their own options; another release is harmless even if
 // it races that consumption or a previous creator was interrupted mid-release.
-func releaseWorkspacePanes(ctx context.Context, runner Runner, path, sessionName string) error {
-	output, err := runner.Run(ctx, path, "tmux", "list-panes", "-s", "-t", sessionName,
+func releaseWorkspacePanes(ctx context.Context, runner Runner, path string, session *workspaceSession) error {
+	if err := session.admit(ctx, runner); err != nil {
+		return &workspacePaneError{err: err}
+	}
+	if session.identity.ID == "" {
+		return &workspacePaneError{err: fmt.Errorf("tmux session no longer exists; refresh and retry")}
+	}
+	output, err := runner.Run(ctx, path, "tmux", "list-panes", "-s", "-t", session.identity.ID,
 		"-f", "#{!=:#{"+workspacePaneGateOption+"},}", "-F", "#{pane_id} #{"+workspacePaneGateOption+"}")
 	if err != nil {
 		return &workspacePaneError{err: err}
@@ -60,7 +66,7 @@ func releaseWorkspacePanes(ctx context.Context, runner Runner, path, sessionName
 		if len(fields) != 2 || !strings.HasPrefix(fields[0], "%") || !strings.HasPrefix(fields[1], "radar-pane-") {
 			return &workspacePaneError{err: fmt.Errorf("unexpected tmux pane gate output %q", line)}
 		}
-		if _, err := runner.Run(ctx, path, "tmux", "wait-for", "-S", fields[1]); err != nil {
+		if _, err := session.run(ctx, runner, path, "wait-for", "-S", fields[1]); err != nil {
 			return &workspacePaneError{err: fmt.Errorf("signal pane %s: %w", fields[0], err)}
 		}
 	}

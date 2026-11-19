@@ -210,8 +210,8 @@ thinking: high`), 0o600); err != nil {
 	assertNotCalledContains(t, runner.calls, "tmux", "/pi/radar.ts")
 	assertNotCalledContains(t, runner.calls, "tmux", "RADAR_BINARY=")
 	assertCalled(t, runner.calls, "tmux", "new-session -d -s "+workspace.SessionName)
-	assertCalled(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+":")
-	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+workspace.SessionName+": -d -n setup-"+filepath.Base(repo)+" -c "+memberPath+" -P -F #{window_id} #{pane_id}")
+	assertCalled(t, runner.calls, "tmux", "new-window -t $9:")
+	assertCalledContains(t, runner.calls, "tmux", "new-window -t $9: -d -n setup-"+filepath.Base(repo)+" -c "+memberPath+" -P -F #{window_id} #{pane_id}")
 	assertSetupWindowIsDetached(t, runner.calls)
 	assertCalled(t, runner.calls, "tmux", "set-option -p -t %1 remain-on-exit off")
 	assertCalledContains(t, runner.calls, "tmux", "send-keys -l -t %1 sh -lc 'pnpm install --frozen-lockfile' && exit")
@@ -219,9 +219,9 @@ thinking: high`), 0o600); err != nil {
 	assertNotCalledContains(t, runner.calls, "tmux", "kill-window")
 	assertCallOrder(t, runner.calls,
 		call{name: "tmux", args: []string{"select-pane", "-t"}},
-		call{name: "tmux", args: []string{"new-window", "-t", workspace.SessionName + ":", "-d", "-n", "setup-" + filepath.Base(repo)}},
+		call{name: "tmux", args: []string{"new-window", "-t", "$9:", "-d", "-n", "setup-" + filepath.Base(repo)}},
 	)
-	assertCalled(t, runner.calls, "tmux", "switch-client -t "+workspace.SessionName)
+	assertCalled(t, runner.calls, "tmux", "switch-client -t $9")
 }
 
 func TestCreateNoteWorkspaceStartsAtAnchorWithOnlyNoteLink(t *testing.T) {
@@ -521,7 +521,7 @@ sbx:
 	assertNotCalledContains(t, runner.calls, "sbx", "exec")
 	assertNotCalled(t, runner.calls, "sh")
 	memberPath := registeredMemberPath(t, root, created.Path)
-	assertCalledContains(t, runner.calls, "tmux", "new-window -t "+created.SessionName+": -d -n setup-"+filepath.Base(repo)+" -c "+memberPath+" -P -F #{window_id} #{pane_id} sbx exec -it --workdir '"+memberPath+"' '"+created.SandboxName+"' sh -i")
+	assertCalledContains(t, runner.calls, "tmux", "new-window -t $9: -d -n setup-"+filepath.Base(repo)+" -c "+memberPath+" -P -F #{window_id} #{pane_id} sbx exec -it --workdir '"+memberPath+"' '"+created.SandboxName+"' sh -i")
 	assertSetupWindowIsDetached(t, runner.calls)
 	assertCalled(t, runner.calls, "tmux", "set-option -p -t %1 remain-on-exit off")
 	assertCalledContains(t, runner.calls, "tmux", "send-keys -l -t %1 sh -lc 'pnpm install --frozen-lockfile' && sh -lc 'pnpm build' && exit")
@@ -581,7 +581,7 @@ func TestCreatePreservesWorkspaceWhenSetupCannotBeScheduled(t *testing.T) {
 	}
 	assertNotCalledContains(t, runner.calls, "tmux", "kill-session")
 	assertNotCalledContains(t, runner.calls, "git", "worktree remove")
-	assertCalled(t, runner.calls, "tmux", "switch-client -t "+created.SessionName)
+	assertCalled(t, runner.calls, "tmux", "switch-client -t $9")
 }
 
 func TestCreateDoesNotRerunSetupWhenOpeningExistingWorkspace(t *testing.T) {
@@ -637,14 +637,14 @@ func TestSetupInteractiveCommandExitsOnlyAfterEveryCommandSucceeds(t *testing.T)
 }
 
 func TestScheduleMemberSetupCreatesDetachedTmuxWindow(t *testing.T) {
-	runner := &fakeRunner{}
+	runner := &fakeRunner{nativeCreated: map[string]string{"workspace": "$9"}}
 	path := filepath.Join(t.TempDir(), "member")
 
-	if err := scheduleMemberSetup(context.Background(), runner, path, "workspace", "", "repository", []string{"pnpm install"}); err != nil {
+	if err := scheduleMemberSetup(context.Background(), runner, path, "", "repository", []string{"pnpm install"}, testWorkspaceSession(t, "workspace")); err != nil {
 		t.Fatal(err)
 	}
 
-	assertCalledContains(t, runner.calls, "tmux", "new-window -t workspace: -d -n setup-repository -c "+path)
+	assertCalledContains(t, runner.calls, "tmux", "new-window -t $9: -d -n setup-repository -c "+path)
 	assertSetupWindowIsDetached(t, runner.calls)
 }
 

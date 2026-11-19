@@ -205,7 +205,7 @@ func TestArchivedNoteCannotBeAttachedOrMounted(t *testing.T) {
 	if _, err := desiredReconciledSandboxMounts(context.Background(), &fakeRunner{}, group, nil, nil, nil); err == nil {
 		t.Fatal("shared archive mount accepted")
 	}
-	if _, _, err := startWorkspaceRuntime(context.Background(), &fakeRunner{}, group, ""); err == nil {
+	if _, _, err := startWorkspaceRuntime(context.Background(), &fakeRunner{}, group, "", testWorkspaceSession(t, group.SessionName)); err == nil {
 		t.Fatal("archived runtime accepted")
 	}
 	if _, err := source.SetLifecycle(context.Background(), archived, "open", nil); err != nil {
