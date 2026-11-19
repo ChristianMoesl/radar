@@ -175,6 +175,7 @@ This review records the remaining boundary before changing that critical section
 | `operationlock.Acquire(false)` | Shared, nonblocking accepted-mutation protection against a managed macOS update; retained through cleanup or activation. Other platforms currently return a no-op. | Mutual exclusion between two ordinary mutations, or native macOS execution from a Linux test. |
 | Canonical workspace leases | Cleanup acquires the complete exclusive path set before any provider. Workspace activation and writers retain shared anchor/member leases; reconciliation and preparation include current and desired members. Physical aliases, including missing leaves, resolve to the same identity. | Shared deletion admission alone does not exclude another writer. Different task IDs are not independent resource identities. |
 | Workspace mutation leases | Short-lived exclusive canonical path and reusable SBX-name leases serialize workspace-side writers and activation, independently of agents' shared deletion leases. Canonical aliases in a bundle are deduplicated before acquisition. | A replacement for note relocation/reference transactions, or admission for writers outside these workspace entries. |
+| Protected-reference admission | Workspace writers hold shared deletion leases for current/desired anchors, members, canonical notes, primary repositories, shared directories and additional/effective mounts, including lexical and physical ancestors. Standalone sandbox creation admits its planned mounts before directory creation. | Exclusive mutation authority over shared references, protection against external filesystem changes, or completed note-filesystem-writer coverage. |
 | Sandbox name admission | Cleanup's exclusive reusable-name lease matches activation's retained shared lease, including pathless or differently rooted targets. | Permission to adopt a replacement runtime or weaken provider ownership checks. |
 | Native tmux admission | Retained exact missing name and selected/emitted server/session incarnation, with numeric targets and fresh revalidation before later effects. | Note/registry consistency, or permission to release and reacquire a reusable name between phases. |
 | `workspacegroup.WithNoteLock` | Process-global `noteMu`, then root-local blocking `.radar-notes.lock` flock; serializes creation and note lifecycle/relocation transactions. | Cancellation-aware waiting, per-workspace independence, or a lease held only for one note. Changing only the file-lock key would leave process-global contention. |
@@ -271,6 +272,51 @@ external changes still require the scope review below. Global note spans,
 cleanup's final-anchor transaction and the blanket UI gate are unchanged. In
 particular, live navigation during reconciliation is not missing-runtime
 recovery during a global-note-held cleanup.
+
+### Protected-reference admission increment
+
+Final anchor cleanup's protected-path decision includes canonical notes, primary
+repositories and external mounts nested anywhere beneath the deletion target.
+Different anchors or sandbox names alone do not make a new reference safe after
+that decision. Workspace writers therefore also retain shared deletion admission
+for both current and desired references and their ancestors. Resolve physical
+paths, including missing suffixes, and lexical ancestors before deduplicated,
+sorted, nonblocking acquisition. Keep lexical views as well as physical targets:
+a link inside an anchor can lose its view even when its target is elsewhere.
+Invalid resolution, conflicts and cancellation release every partial admission.
+
+These ancestor leases are **shared**, never exclusive mutation leases. Otherwise
+unrelated writers would collide at common roots, and shared repositories/mounts
+or long-lived agents would block normal workspace work. Only the actual mutable
+anchor/member/SBX bundle retains exclusive mutation admission. Reference
+admission uses the existing transient deletion namespace; no persisted format,
+new configuration or alternate activation path is introduced.
+
+Standalone mount planning previously created configured directories while
+assembling mount arguments. It is now read-only. Before any directory creation
+or SBX provisioning, creation admits the full planned mount set, including a
+linked worktree's external Git common directory, and retains it through readiness
+and final switching. Read-only mount suffixes remain SBX arguments, not literal
+directory names or different reference identities. Existing env-file validation,
+native ownership, rollback and recoverable-runtime rules remain unchanged.
+
+Tests pause the actual cleanup `Service` before trying canonical-note,
+primary-repository and additional/effective-mount references through physical and
+alias paths. Both registered entries reject conflicts before effects. Reverse
+admission covers current/desired references, lexical and physical ancestors,
+missing paths, partial conflicts/cancellation, shared reference/agent
+compatibility and unrelated deletion. Separate standalone regressions reproduce
+actual pre-admission mount/provisioning effects at the previous baseline, then
+verify rejection and retained references through runtime success/error/cancel.
+Fixture providers do not delete data. These are prerequisite admission proofs,
+not successful missing-runtime overlap under cleanup's note transaction.
+
+The next boundary remains note filesystem writers: ordinary lifecycle writers
+check retained workspace references, but note creation, unreferenced relocation,
+pending move recovery and explicit state migration can still create or rename
+files beneath an anchor. Their matching path admission must be qualified before
+recursive anchor deletion leaves the shared note transaction. This increment
+changes neither that transaction nor the blanket UI gate.
 
 ### Qualification result and limits
 

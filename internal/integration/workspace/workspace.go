@@ -616,7 +616,7 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 	}
 	// Standalone worktree activation can also switch a live session or create
 	// a sandbox. Match cleanup's canonical path lease through either return.
-	releasePath, err := workspacelease.Acquire(path, false)
+	releasePath, err := workspacelease.AcquireReferences(ctx, path)
 	if err != nil {
 		return Workspace{}, err
 	}
@@ -687,7 +687,43 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 		if exists, err := sandboxExists(ctx, runner, sandboxName); err != nil {
 			return Workspace{}, err
 		} else if !exists {
-			if _, err := startSandbox(ctx, runner, path, sandboxName, sandbox.Kit, sandbox.EnvFile, sandbox.AdditionalMounts); err != nil {
+			envFile, err := resolveSandboxEnvFile(sandbox.EnvFile)
+			if err != nil {
+				return Workspace{}, err
+			}
+			if err := validateSandboxEnvFile(envFile); err != nil {
+				return Workspace{}, err
+			}
+			// Planning is read-only. Admit all effective mounts (including a
+			// linked worktree's external Git directory) before creating any
+			// configured directory or provisioning the runtime. Keep that
+			// shared deletion admission through readiness and final switching.
+			mounts, err := sandboxMounts(ctx, runner, path, sandbox.AdditionalMounts)
+			if err != nil {
+				return Workspace{}, err
+			}
+			mountPaths := make([]string, 0, len(mounts))
+			for _, mount := range mounts {
+				mountPaths = append(mountPaths, strings.TrimSuffix(mount, ":ro"))
+			}
+			releaseMounts, err := workspacelease.AcquireReferences(ctx, mountPaths...)
+			if err != nil {
+				return Workspace{}, err
+			}
+			defer releaseMounts()
+			for _, configured := range sandbox.AdditionalMounts {
+				if strings.TrimSpace(configured) == "" {
+					continue
+				}
+				mount := filepath.Clean(ExpandPath(strings.TrimSuffix(strings.TrimSpace(configured), ":ro")))
+				if err := ctx.Err(); err != nil {
+					return Workspace{}, err
+				}
+				if err := os.MkdirAll(mount, 0o755); err != nil {
+					return Workspace{}, fmt.Errorf("create additional sandbox mount %s: %w", mount, err)
+				}
+			}
+			if _, err := startSandboxWithMounts(ctx, runner, path, sandboxName, sandbox.Kit, envFile, mounts); err != nil {
 				return Workspace{}, err
 			}
 			createdSandbox = true
@@ -962,21 +998,6 @@ func setupInteractiveCommand(commands []string) string {
 	return strings.Join(steps, " && ")
 }
 
-func startSandbox(ctx context.Context, runner Runner, path string, name string, kit SandboxKitConfig, envFile string, additionalMounts []string) (string, error) {
-	envFile, err := resolveSandboxEnvFile(envFile)
-	if err != nil {
-		return "", err
-	}
-	if err := validateSandboxEnvFile(envFile); err != nil {
-		return "", err
-	}
-	mounts, err := sandboxMounts(ctx, runner, path, additionalMounts)
-	if err != nil {
-		return "", err
-	}
-	return startSandboxWithMounts(ctx, runner, path, name, kit, envFile, mounts)
-}
-
 func startSandboxWithMounts(ctx context.Context, runner Runner, path string, name string, kit SandboxKitConfig, envFile string, mounts []string) (string, error) {
 	if err := validateSandboxEnvFile(envFile); err != nil {
 		return "", err
@@ -1013,15 +1034,17 @@ func sandboxMounts(ctx context.Context, runner Runner, path string, additionalMo
 		if mount == "" {
 			continue
 		}
+		suffix := ""
+		if strings.HasSuffix(mount, ":ro") {
+			mount = strings.TrimSuffix(mount, ":ro")
+			suffix = ":ro"
+		}
 		mount = filepath.Clean(ExpandPath(mount))
 		if !filepath.IsAbs(mount) {
 			return nil, fmt.Errorf("additional sandbox mount %q must be absolute or start with ~/", configuredMount)
 		}
-		if err := os.MkdirAll(mount, 0o755); err != nil {
-			return nil, fmt.Errorf("create additional sandbox mount %s: %w", mount, err)
-		}
-		if !containsPath(mounts, mount) {
-			mounts = append(mounts, mount)
+		if !containsPath(mounts, mount+suffix) {
+			mounts = append(mounts, mount+suffix)
 		}
 	}
 	return mounts, nil

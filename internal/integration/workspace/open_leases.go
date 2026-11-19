@@ -24,11 +24,15 @@ func acquireWorkspaceLeases(ctx context.Context, groups ...workspacegroup.Worksp
 		}
 	}
 	paths, sandboxes := map[string]bool{}, map[string]bool{}
+	var references []string
 	for _, group := range groups {
+		references = append(references, group.NotePath)
 		bundlePaths := []string{group.Path}
 		for _, member := range group.Members {
 			bundlePaths = append(bundlePaths, member.Path)
+			references = append(references, member.Repository)
 		}
+		references = append(references, bundlePaths...)
 		for _, path := range bundlePaths {
 			if err := ctx.Err(); err != nil {
 				return nil, err
@@ -41,8 +45,22 @@ func acquireWorkspaceLeases(ctx context.Context, groups ...workspacegroup.Worksp
 		}
 		if group.Sandbox != nil {
 			sandboxes[strings.TrimSpace(group.Sandbox.Name)] = true
+			references = append(references, group.Sandbox.SharedDirectory)
+			for _, mount := range group.Sandbox.AdditionalMounts {
+				references = append(references, mount.Path)
+			}
+			for _, mount := range group.Sandbox.Mounts {
+				references = append(references, strings.TrimSuffix(mount, ":ro"))
+			}
 		}
 	}
+	// A different anchor may publish a note/repository/mount inside cleanup's
+	// target. Match its ancestor deletion admission, not just our own resources.
+	releaseReferences, err := workspacelease.AcquireReferences(ctx, references...)
+	if err != nil {
+		return nil, err
+	}
+	releases = append(releases, releaseReferences)
 	// Deduplicate physical aliases before taking exclusive mutation locks:
 	// an enrolled anchor can itself be a member, or occur in both bundles.
 	orderedPaths, orderedSandboxes := make([]string, 0, len(paths)), make([]string, 0, len(sandboxes))
@@ -54,8 +72,8 @@ func acquireWorkspaceLeases(ctx context.Context, groups ...workspacegroup.Worksp
 	}
 	sort.Strings(orderedPaths)
 	sort.Strings(orderedSandboxes)
-	acquire := func(shared, mutation func() (func(), error)) error {
-		for _, admit := range []func() (func(), error){shared, mutation} {
+	acquire := func(admissions ...func() (func(), error)) error {
+		for _, admit := range admissions {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -68,7 +86,7 @@ func acquireWorkspaceLeases(ctx context.Context, groups ...workspacegroup.Worksp
 		return nil
 	}
 	for _, path := range orderedPaths {
-		if err := acquire(func() (func(), error) { return workspacelease.Acquire(path, false) }, func() (func(), error) { return workspacelease.AcquireMutation(path) }); err != nil {
+		if err := acquire(func() (func(), error) { return workspacelease.AcquireMutation(path) }); err != nil {
 			releaseAll()
 			return nil, err
 		}

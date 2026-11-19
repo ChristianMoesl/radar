@@ -1023,8 +1023,8 @@ func TestSandboxMountsExpandsAndDeduplicatesAdditionalMounts(t *testing.T) {
 	if strings.Join(mounts, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("sandbox mounts = %#v, want %#v", mounts, want)
 	}
-	if info, err := os.Stat(shared); err != nil || !info.IsDir() {
-		t.Fatalf("additional sandbox mount was not created as a directory: info=%v err=%v", info, err)
+	if _, err := os.Lstat(shared); !os.IsNotExist(err) {
+		t.Fatalf("read-only sandbox mount planning created a directory: %v", err)
 	}
 }
 
