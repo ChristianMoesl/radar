@@ -364,6 +364,11 @@ func validateDiscardingAnchor(root string, registry workspacegroup.Registry, gro
 		if other.Sandbox == nil {
 			continue
 		}
+		if other.ID != group.ID {
+			if err := protect(other.Sandbox.SharedDirectory, "another workspace's shared directory"); err != nil {
+				return err
+			}
+		}
 		for _, mount := range other.Sandbox.AdditionalMounts {
 			if err := protect(mount.Path, "an external sandbox mount"); err != nil {
 				return err
@@ -444,6 +449,10 @@ func addUnknownEntriesPreview(target *protocol.CleanupTarget, entries []string, 
 }
 
 func removeWorkspaceAnchor(ctx context.Context, runner Runner, root string, target protocol.CleanupTarget, mode integration.CleanupMode) (workspacegroup.Workspace, error) {
+	return removeWorkspaceAnchorAdmitted(ctx, runner, root, target, mode, nil)
+}
+
+func removeWorkspaceAnchorAdmitted(ctx context.Context, runner Runner, root string, target protocol.CleanupTarget, mode integration.CleanupMode, admission *sharedDirectoryCleanupAdmission) (workspacegroup.Workspace, error) {
 	if err := ctx.Err(); err != nil {
 		return workspacegroup.Workspace{}, err
 	}
@@ -460,6 +469,18 @@ func removeWorkspaceAnchor(ctx context.Context, runner Runner, root string, targ
 	}
 	if len(group.Members) > 0 {
 		return workspacegroup.Workspace{}, fmt.Errorf("workspace still contains %d managed worktree(s)", len(group.Members))
+	}
+	if admission == nil {
+		// Direct Source callers do not have Service's bundle-bound admission.
+		owned, release, err := acquireSharedDirectoryCleanup(ctx, root, []workspacegroup.Workspace{group})
+		if err != nil {
+			return workspacegroup.Workspace{}, err
+		}
+		defer release()
+		admission = owned
+	}
+	if err := admission.validate(root, group); err != nil {
+		return workspacegroup.Workspace{}, err
 	}
 	if group.Sandbox != nil {
 		// Service owns the deletion bundle. Also reserve the reusable name's
@@ -520,6 +541,9 @@ func removeWorkspaceAnchorLocked(ctx context.Context, root string, target protoc
 	}
 	if len(group.Members) > 0 {
 		return workspacegroup.Workspace{}, fmt.Errorf("workspace still contains %d managed worktree(s)", len(group.Members))
+	}
+	if err := validateSharedDirectoryCleanup(root, registry, group); err != nil {
+		return workspacegroup.Workspace{}, err
 	}
 	a, err := openCleanupAnchor(root, group.Path)
 	if err != nil {

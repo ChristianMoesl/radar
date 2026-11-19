@@ -29,6 +29,10 @@ func (s runnerCleanupSource) Cleanup(ctx context.Context, req integration.Cleanu
 	return s.Source.cleanupWithRunner(ctx, s.runner, req)
 }
 
+func (s runnerCleanupSource) AdmitCleanup(ctx context.Context, targets []protocol.CleanupTarget, mode integration.CleanupMode) (integration.CleanupProvider, func(), error) {
+	return s.Source.admitCleanupWithRunner(ctx, s.runner, targets, mode)
+}
+
 func cleanupRuntimeFixture(t *testing.T, sandbox bool) (string, workspacegroup.Workspace, workspacegroup.Workspace, protocol.CleanupTarget) {
 	t.Helper()
 	withWorkspaceGOOS(t, "darwin")

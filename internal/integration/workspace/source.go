@@ -176,7 +176,11 @@ func (s Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (pr
 	return s.cleanupWithRunner(ctx, ExecRunner{}, req)
 }
 
-func (Source) cleanupWithRunner(ctx context.Context, runner Runner, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+func (s Source) cleanupWithRunner(ctx context.Context, runner Runner, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+	return s.cleanupWithRunnerAndAdmission(ctx, runner, req, nil)
+}
+
+func (Source) cleanupWithRunnerAndAdmission(ctx context.Context, runner Runner, req integration.CleanupRequest, admission *sharedDirectoryCleanupAdmission) (protocol.CleanupTarget, error) {
 	root, err := DefaultRoot()
 	if err != nil {
 		return protocol.CleanupTarget{}, err
@@ -192,7 +196,7 @@ func (Source) cleanupWithRunner(ctx context.Context, runner Runner, req integrat
 		err := forgetMissingMember(ctx, runner, root, req.Target)
 		return req.Target, err
 	}
-	removed, err := removeWorkspaceAnchor(ctx, runner, root, req.Target, req.Mode)
+	removed, err := removeWorkspaceAnchorAdmitted(ctx, runner, root, req.Target, req.Mode, admission)
 	if err != nil {
 		return protocol.CleanupTarget{}, err
 	}
