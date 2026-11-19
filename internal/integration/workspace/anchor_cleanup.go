@@ -141,9 +141,8 @@ func (Source) PreflightCleanup(ctx context.Context, targets []protocol.CleanupTa
 			return nil
 		})
 	}
-	if !mode.DiscardChanges() {
-		return nil
-	}
+	// Safe cleanup also recursively removes configured disposable entries.
+	// Recheck their anchor's references before any earlier provider effects.
 	root, disposable, err := loadAnchorCleanupSettings()
 	if err != nil {
 		return err
@@ -159,8 +158,29 @@ func (Source) PreflightCleanup(ctx context.Context, targets []protocol.CleanupTa
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			// Safe resource-only cleanup does not recursively remove the anchor.
+			if mode == integration.CleanupSafe && (target.Source != "workspace" || target.Kind != "workspace") {
+				continue
+			}
 			group, found := workspacegroup.FindByContainingPath(registry, target.Path)
-			if target.Path == "" && target.WorkspaceID != "" {
+			if mode == integration.CleanupSafe {
+				// Source cleanup resolves by source reference. Bind that owner to
+				// the same canonical path admitted by Service, including aliases.
+				group, found = workspacegroup.FindByID(registry, strings.TrimPrefix(target.SourceRefID, "workspace:"))
+				if found {
+					admitted, err := workspacelease.CanonicalPath(target.Path)
+					if err != nil {
+						return err
+					}
+					owner, err := workspacelease.CanonicalPath(group.Path)
+					if err != nil {
+						return err
+					}
+					if admitted != owner {
+						return fmt.Errorf("workspace cleanup target no longer matches its registration")
+					}
+				}
+			} else if target.Path == "" && target.WorkspaceID != "" {
 				group, found = workspacegroup.FindByID(registry, target.WorkspaceID)
 			}
 			if target.WorkspaceID != "" && (!found || group.ID != target.WorkspaceID) {
@@ -231,10 +251,10 @@ func (a *cleanupAnchor) entries(registry workspacegroup.Registry, group workspac
 	if mode != integration.CleanupSafe && mode != integration.CleanupConfirmed && mode != integration.CleanupExpired {
 		return anchorEntries{}, fmt.Errorf("invalid workspace cleanup mode: %d", mode)
 	}
-	if mode.DiscardChanges() {
-		if err := validateDiscardingAnchor(a.root, registry, group); err != nil {
-			return anchorEntries{}, err
-		}
+	// Configured disposal grants no more ownership over registered/configured
+	// resources than explicit discard does. Apply the same policy in Safe mode.
+	if err := validateDiscardingAnchor(a.root, registry, group); err != nil {
+		return anchorEntries{}, err
 	}
 	if a.anchor == nil {
 		return anchorEntries{}, nil
@@ -324,7 +344,7 @@ func (a *cleanupAnchor) inspectDiscardingTree(group workspacegroup.Workspace, ma
 	})
 }
 
-// Discarding local data never grants permission to delete
+// Neither configured disposal nor explicit discard grants permission to delete
 // another resource. Check both lexical and physical paths: a registered path
 // reached through a symlink must not lose its workspace view either.
 func validateDiscardingAnchor(root string, registry workspacegroup.Registry, group workspacegroup.Workspace) error {
