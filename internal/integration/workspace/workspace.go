@@ -255,6 +255,18 @@ func openRegisteredWorkspaceAt(ctx context.Context, runner Runner, root, current
 }
 
 func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, group workspacegroup.Workspace, options CreateOptions, repository, branch string) (Workspace, error) {
+	// Create(existing) is activation too. The note transaction does not exclude
+	// cleanup's earlier runtime/member providers; match their complete bundle
+	// admission before probing, recovering or switching the registered runtime.
+	release, err := acquireActivationLeases(ctx, group)
+	if err != nil {
+		return Workspace{}, err
+	}
+	defer release()
+	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {
+		return Workspace{}, err
+	}
+	expected := group
 	if options.NotePath != "" && group.NotePath != "" && !sameCleanPath(options.NotePath, group.NotePath) {
 		return Workspace{}, fmt.Errorf("workspace note cannot be replaced")
 	}
@@ -272,6 +284,9 @@ func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, gr
 	session := newWorkspaceSession(group.SessionName)
 	defer session.close()
 	if _, err := session.probe(ctx, runner, group.Path); err != nil {
+		return Workspace{}, err
+	}
+	if _, err := activationRegistration(ctx, root, expected.Path, expected); err != nil {
 		return Workspace{}, err
 	}
 	if err := registerWorkspace(root, group); err != nil {

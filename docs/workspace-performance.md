@@ -155,3 +155,136 @@ The Go suite and Linux installer checks pass with the test fixtures' expected `0
 The completed [CI run for `58c2a71`](https://github.com/ChristianMoesl/radar/actions/runs/41192841028) additionally passed native macOS Go tests, notifier/archive builds, provider CLI contracts on macOS arm64 and Linux amd64/arm64, both Linux Homebrew installs, rootless installers on Debian/Ubuntu/Fedora/Arch, Pi, durable-agent recovery, and a durable agent in real SBX. That existing agent job uses SBX v0.48.0; the performance qualification above separately pins v0.50.0.
 
 New tests cover normalized legacy results, command budgets, deterministic results/error ordering, bounded concurrency/deadlines, unavailable and missing runtimes, live port changes, fresh apply ownership, phase privacy, setup preflight count/failure behavior, fetch failures/cancellation, nested checkouts, symlink changes, canonical notes, and changed ownership/configuration between preflight and removal. Existing stale revision/plan, dirty-worktree, lease, Pi startup/routing, and durable-agent contracts remain exercised by the existing suites.
+
+## Cleanup and activation lock-scope review
+
+**Scope review plus a bounded admission fix, not a note-lock narrowing.**
+The caller-owned native-session admission work at `b952dab` (test isolation
+correction `8ac0011`) closes constructor-to-activation handoff gaps. The matching
+canonical bundle admission described below now also covers `Create(existing)`.
+Neither change makes registered missing-runtime recovery independent of the
+global note transaction or removes the dashboard's blanket activation gate.
+This review records the remaining boundary before changing that critical section.
+
+### Existing authority and lock scopes
+
+| Protection | Current scope and purpose | What it does not establish |
+| --- | --- | --- |
+| `operationlock.Acquire(false)` | Shared, nonblocking accepted-mutation protection against a managed macOS update; retained through cleanup or activation. Other platforms currently return a no-op. | Mutual exclusion between two ordinary mutations, or native macOS execution from a Linux test. |
+| Canonical workspace leases | Cleanup acquires the complete exclusive path set before any provider. Explicit registered open and create-existing activation retain shared anchor/member leases. Physical aliases, including missing leaves, resolve to the same identity. | Exclusion of another writer that never acquires a matching lease. Different task IDs are not independent resource identities. |
+| Sandbox name admission | Cleanup's exclusive reusable-name lease matches activation's retained shared lease, including pathless or differently rooted targets. | Permission to adopt a replacement runtime or weaken provider ownership checks. |
+| Native tmux admission | Retained exact missing name and selected/emitted server/session incarnation, with numeric targets and fresh revalidation before later effects. | Note/registry consistency, or permission to release and reacquire a reusable name between phases. |
+| `workspacegroup.WithNoteLock` | Process-global `noteMu`, then root-local blocking `.radar-notes.lock` flock; serializes creation and note lifecycle/relocation transactions. | Cancellation-aware waiting, per-workspace independence, or a lease held only for one note. Changing only the file-lock key would leave process-global contention. |
+| Registry lock | Process-global registry mutex and root-local shared/exclusive file lock around each atomic load/update. It is separate so a note callback can use the registry. | A snapshot pinned across provider work, or a transaction spanning multiple registry calls. |
+
+These are distinct contracts, not interchangeable locks. In particular, atomic
+registry updates prevent lost whole-file writes, but do not by themselves stop
+an operation from acting on an obsolete workspace description between updates.
+
+### Call sites that a scope change must cover
+
+- `workspace.go`: `OpenRegisteredWorkspace` obtains operation, canonical bundle
+  and native admission, rechecks registration, and bypasses the note lock only
+  for an already-live session. Missing-session recovery holds the note lock
+  across `openRegisteredWorkspaceAt`, preparation, provisioning, pane release
+  and final switching.
+- `create.go`: `Create` takes the note lock before planning and keeps it through
+  creation **and opening an existing registration**. At the reviewed `8ac0011`
+  baseline, this second route omitted `acquireActivationLeases`: the note lock
+  did not exclude cleanup's earlier runtime/member providers. The bounded fix
+  adds matching bundle admission through runtime return and registration
+  revalidation before and after native probing, without narrowing the note
+  transaction. Planning's read-only SBX observation remains before admission;
+  no recovery, provisioning or native effect gains authority from that read.
+- `runtime.go`: preparation validates the canonical note and may repair the
+  managed `notes.md` link and shared directory. Sandbox lookup, creation and
+  readiness can also run inside the caller's note transaction. These phases
+  must not be treated as read-only just because no new registration is created.
+- `reconcile.go` and `recreate_sandboxes.go`: their public mutation entries hold
+  the note lock while planning, changing registered members/note/runtime data,
+  provisioning, setup and publication. They do not obtain the matching canonical
+  bundle leases through `acquireActivationLeases`. Dropping an activation's
+  note lock would therefore remove existing writer exclusion, even while
+  cleanup/activation leases themselves remain correct.
+- `anchor_cleanup.go` and `source.go`: cleanup's fresh protected-path/ownership
+  preflight uses the note lock. Final anchor validation, sandbox-absence lookup,
+  rooted entry removal, shared-directory removal and registry removal also
+  occur within it. A callback paused there can block unrelated recovery. Merely
+  moving recovery's slow work *after* its own note callback does not let it pass
+  a cleanup callback that already owns the lock.
+- Obsidian `delete.go`, `archive.go`, `details.go`, `source.go`, `mute.go`,
+  `rollout.go` and state migration: note identity, binding, lifecycle, recovery
+  and relocation operations depend on the same serialization. Archive,
+  restore, delete and reassociation check workspace references before moving
+  notes. That reference check must remain atomic with any competing registration
+  or final-reference removal; it is not a substitute for the transaction.
+- Workspace collection's `RefreshWorkspaceNote` can repair a link and update
+  registration after an external rename without this note callback. Such drift
+  must continue to fail closed when activation's captured registration is no
+  longer current; a global note lock alone does not exclude external changes.
+
+The acquisition sequences also differ: explicit registered open acquires native
+admission before waiting for the note lock, whereas creation/reconciliation can
+acquire it from inside the note callback. Preserve nonblocking resource
+admission and review every new acquisition order rather than assuming one
+existing total lock order. Do not hold a registry callback over provider work or
+call a registry loader recursively from its update callback.
+
+### Qualification result and limits
+
+A review-only overlay probe at `8ac0011` runs the actual cleanup `Service` with
+an unrelated exclusive path lease. Its fixture provider pauses while holding
+both the real process note mutex and filesystem flock. For both
+`OpenRegisteredWorkspace` and `Create(existing)`, the requirement that unrelated
+missing-runtime recovery finish before cleanup resumes fails. Both recoveries
+complete after the note transaction is released. This is an expected-red
+qualification probe, not a passing product acceptance test, throughput
+measurement, timeout root-cause diagnosis or production incident.
+
+The probe performs no deletion and uses fake runtime commands. It establishes
+this lock-scope dependency, not successful native removal or real SBX recovery.
+Existing live-navigation overlap, canonical/alias conflicts, native identity
+handoff and sandbox admission tests remain separate evidence. A raw unrelated
+lease acquisition or a fake cleanup provider without the note lock does not
+qualify the missing-runtime case above.
+
+### Recommended implementation boundary
+
+Keep the global note/registry transaction for identity and relocation decisions;
+move slow provider work outside it **only after the affected writers share
+matching resource exclusion**. Do not introduce a second activation API or a
+compatibility path to bypass the transaction.
+
+1. Establish canonical per-target mutation ownership for every writer whose
+   state a recovering operation relies on. Cover reconciliation, membership,
+   note association, recreation and final cleanup, not only activation versus
+   cleanup. Retain existing native/SBX admission through the outer operation.
+   Admission must precede effects and must release the whole acquired set on
+   any conflict, error or cancellation.
+2. Separate short metadata validation/commit phases from provisioning,
+   readiness, setup and potentially long filesystem/provider work. Reload and
+   validate the selected registration at phase boundaries. An obsolete preview,
+   note link or runtime identity must never become permission for an effect.
+   New creation and existing-registration recovery need separate proof.
+3. Review cleanup's corresponding long note-held phase before narrowing it.
+   Keep the note referenced until workspace removal actually succeeds, retain
+   rooted deletion/protected-path checks and fresh sandbox absence validation,
+   and preserve correct partial-failure results. Do not publish final-reference
+   removal or archive a note while live workspace state still depends on it.
+4. Qualify actual paused cleanup against unrelated missing-runtime recovery
+   through both registered entries, with sandbox-less and sandbox-backed
+   preparation, errors, cancellation and reversed completion. Keep same-target,
+   physical aliases, shared members, native incarnations and sandbox names
+   protected. Exercise competing note relocation, reconciliation and registry
+   drift under races, not merely task-ID inequality. Distinguish a short active
+   metadata transaction from long resource work; neither may be silently
+   declared independent without a test proving its invariants.
+5. Only then selectively relax UI admission. The dashboard already has separate
+   cleanup/activation slots, request IDs, phase/stale-result rejection and
+   reversed-completion tests in `operation_overlap_test.go`. Preserve and
+   integrate those with genuine user-driven overlap and per-operation error
+   routing instead of reimplementing their existing state model.
+
+No note/registry lock removal, lock-identity change, persisted-format change,
+new runtime worker or UI unlock is implemented by this change. The remaining
+backend overlap and UI acceptance are deliberately still open.
