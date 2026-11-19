@@ -159,7 +159,11 @@ func ValidateDiscardingWorkspace(root, id string, mode integration.CleanupMode) 
 
 // PreflightCleanup scans every affected anchor once before any bundle side
 // effects. It is deliberately fresh; previews never serve as deletion authority.
-func (Source) PreflightCleanup(ctx context.Context, targets []protocol.CleanupTarget, mode integration.CleanupMode) error {
+func (s Source) PreflightCleanup(ctx context.Context, targets []protocol.CleanupTarget, mode integration.CleanupMode) error {
+	return s.preflightCleanupWithScan(ctx, targets, mode, (*cleanupAnchor).entries)
+}
+
+func (Source) preflightCleanupWithScan(ctx context.Context, targets []protocol.CleanupTarget, mode integration.CleanupMode, scan func(*cleanupAnchor, workspacegroup.Registry, workspacegroup.Workspace, []string, integration.CleanupMode) (anchorEntries, error)) error {
 	if mode == integration.CleanupRetire {
 		root, err := DefaultRoot()
 		if err != nil {
@@ -183,55 +187,137 @@ func (Source) PreflightCleanup(ctx context.Context, targets []protocol.CleanupTa
 	if err != nil {
 		return err
 	}
-	return workspacegroup.WithNoteLock(root, func() error {
-		defer phasetiming.Start(ctx, "cleanup_protected_scan")()
-		registry, err := workspacegroup.Load(root)
+	defer phasetiming.Start(ctx, "cleanup_protected_scan")()
+	type inspection struct {
+		group  workspacegroup.Workspace
+		anchor *cleanupAnchor
+	}
+	var inspections []inspection
+	defer func() {
+		for _, inspection := range inspections {
+			inspection.anchor.close()
+		}
+	}()
+	var registry workspacegroup.Registry
+	bindings := make([]string, len(targets))
+	// Capture owners and rooted handles, not tree contents. Direct preflight is
+	// read-only too; it must not assume Service's provider-bound admission exists.
+	err = workspacegroup.WithNoteLock(root, func() error {
+		var err error
+		registry, err = workspacegroup.Load(root)
 		if err != nil {
 			return err
 		}
 		seen := map[string]bool{}
-		for _, target := range targets {
+		for i, target := range targets {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			// Safe resource-only cleanup does not recursively remove the anchor.
-			if mode == integration.CleanupSafe && (target.Source != "workspace" || target.Kind != "workspace") {
+			group, found, err := preflightWorkspace(registry, target, mode)
+			if err != nil {
+				return err
+			}
+			if !found {
 				continue
 			}
-			group, found := workspacegroup.FindByContainingPath(registry, target.Path)
-			if mode == integration.CleanupSafe {
-				// Source cleanup resolves by source reference. Bind that owner to
-				// the same canonical path admitted by Service, including aliases.
-				group, found = workspacegroup.FindByID(registry, strings.TrimPrefix(target.SourceRefID, "workspace:"))
-				if found {
-					admitted, err := workspacelease.CanonicalPath(target.Path)
-					if err != nil {
-						return err
-					}
-					owner, err := workspacelease.CanonicalPath(group.Path)
-					if err != nil {
-						return err
-					}
-					if admitted != owner {
-						return fmt.Errorf("workspace cleanup target no longer matches its registration")
-					}
-				}
-			} else if target.Path == "" && target.WorkspaceID != "" {
-				group, found = workspacegroup.FindByID(registry, target.WorkspaceID)
-			}
-			if target.WorkspaceID != "" && (!found || group.ID != target.WorkspaceID) {
-				return fmt.Errorf("workspace cleanup target no longer matches its registration")
-			}
-			if !found || seen[group.ID] {
+			bindings[i] = group.ID
+			if seen[group.ID] {
 				continue
 			}
 			seen[group.ID] = true
-			if _, err := anchorCleanupEntries(root, registry, group, disposable, mode); err != nil {
+			anchor, err := openCleanupAnchor(root, group.Path)
+			if err != nil {
+				return err
+			}
+			inspections = append(inspections, inspection{group: group, anchor: anchor})
+		}
+		return ctx.Err()
+	})
+	if err != nil {
+		return err
+	}
+	if len(inspections) == 0 {
+		return ctx.Err()
+	}
+	for _, inspection := range inspections {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := scan(inspection.anchor, registry, inspection.group, disposable, mode); err != nil {
+			return err
+		}
+	}
+	// A successful scan is not deletion authority. Recheck fresh metadata and
+	// pinned identities before any provider runs; later providers still revalidate
+	// the actual resource immediately before their own destructive effects.
+	return workspacegroup.WithNoteLock(root, func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		currentRoot, currentDisposable, err := loadAnchorCleanupSettings()
+		if err != nil {
+			return err
+		}
+		if !sameCleanPath(root, currentRoot) || !slices.Equal(disposable, currentDisposable) {
+			return fmt.Errorf("workspace cleanup configuration changed; preview cleanup again")
+		}
+		current, err := workspacegroup.Load(root)
+		if err != nil {
+			return err
+		}
+		for i, target := range targets {
+			group, found, err := preflightWorkspace(current, target, mode)
+			if err != nil {
+				return err
+			}
+			if (found && group.ID != bindings[i]) || (!found && bindings[i] != "") {
+				return fmt.Errorf("workspace cleanup target no longer matches its registration")
+			}
+		}
+		for _, inspection := range inspections {
+			owner, found := workspacegroup.FindByID(current, inspection.group.ID)
+			if !found || !reflect.DeepEqual(owner, inspection.group) {
+				return fmt.Errorf("workspace registration changed; preview cleanup again")
+			}
+			if err := inspection.anchor.validatePath(owner.Path); err != nil {
+				return err
+			}
+			if err := validateDiscardingAnchor(root, current, owner); err != nil {
 				return err
 			}
 		}
 		return ctx.Err()
 	})
+}
+
+func preflightWorkspace(registry workspacegroup.Registry, target protocol.CleanupTarget, mode integration.CleanupMode) (workspacegroup.Workspace, bool, error) {
+	// Safe resource-only cleanup does not recursively remove the anchor.
+	if mode == integration.CleanupSafe && (target.Source != "workspace" || target.Kind != "workspace") {
+		return workspacegroup.Workspace{}, false, nil
+	}
+	group, found := workspacegroup.FindByContainingPath(registry, target.Path)
+	if mode == integration.CleanupSafe {
+		group, found = workspacegroup.FindByID(registry, strings.TrimPrefix(target.SourceRefID, "workspace:"))
+		if found {
+			admitted, err := workspacelease.CanonicalPath(target.Path)
+			if err != nil {
+				return workspacegroup.Workspace{}, false, err
+			}
+			owner, err := workspacelease.CanonicalPath(group.Path)
+			if err != nil {
+				return workspacegroup.Workspace{}, false, err
+			}
+			if admitted != owner {
+				return workspacegroup.Workspace{}, false, fmt.Errorf("workspace cleanup target no longer matches its registration")
+			}
+		}
+	} else if target.Path == "" && target.WorkspaceID != "" {
+		group, found = workspacegroup.FindByID(registry, target.WorkspaceID)
+	}
+	if target.WorkspaceID != "" && (!found || group.ID != target.WorkspaceID) {
+		return workspacegroup.Workspace{}, false, fmt.Errorf("workspace cleanup target no longer matches its registration")
+	}
+	return group, found, nil
 }
 
 // ValidateDiscardingWorkspaceMember reloads all ownership/protected-path metadata
