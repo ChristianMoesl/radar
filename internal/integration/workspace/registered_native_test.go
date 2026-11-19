@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	sessionlayout "radar/internal/integration/tmux/layout"
 	"radar/internal/integration/tmux/sessionlease"
 	workspacegroup "radar/internal/integration/workspace/group"
 	"radar/internal/workspacelease"
@@ -195,6 +196,16 @@ func TestRegisteredRecoveryNativeRenameReuseKeepsOriginal(t *testing.T) {
 	for _, sw := range []bool{false, true} {
 		t.Run(fmt.Sprint("switch=", sw), func(t *testing.T) {
 			_, _, created := registeredRecoveryFixture(t)
+			root, group, _, err := RegisteredWorkspace(created.Path, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Exercise real recovery without requiring or launching Pi/editor.
+			// The placeholder still traverses the normal workspace constructor.
+			group.Tmux = sessionlayout.Config{Windows: []sessionlayout.Window{{Name: "pi", Panes: []sessionlayout.Pane{{Command: "sleep 120 # " + sessionlayout.PiArgsPlaceholder}}}}}
+			if err := registerWorkspace(root, group); err != nil {
+				t.Fatal(err)
+			}
 			native := newIsolatedPaneTmux(t, created.Path)
 			var id, expected string
 			switched := false
@@ -225,7 +236,7 @@ func TestRegisteredRecoveryNativeRenameReuseKeepsOriginal(t *testing.T) {
 				}
 				return nil
 			}}
-			_, err := OpenRegisteredWorkspace(context.Background(), runner, created.Path, sw)
+			_, err = OpenRegisteredWorkspace(context.Background(), runner, created.Path, sw)
 			if switched != sw || (err != nil) != sw {
 				t.Fatal("native registered recovery result", switched, err)
 			}
