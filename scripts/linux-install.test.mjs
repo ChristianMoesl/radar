@@ -184,6 +184,27 @@ test('Fedora CI installs the su provider before dropping privileges', () => {
   assert.match(job, /su -s \/bin\/bash radar-test -c/);
 });
 
+test('Ubuntu CI selects its official Azure mirror without changing signed package policy', t => {
+  const workflow = readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8');
+  const job = workflow.split('\n  linux-installer:')[1]?.split('\n  linux-homebrew:')[0];
+  assert.ok(job, 'rootless installer matrix must remain covered');
+  assert.match(job, /if \[ -f \/etc\/apt\/sources\.list\.d\/ubuntu\.sources \]; then/);
+  assert.match(job, /apt-get update --error-on=any/);
+  assert.doesNotMatch(job, /--allow-unauthenticated|AllowInsecureRepositories|Verify-Peer|trusted=yes|continue-on-error/);
+  const remap = job.match(/sed -i '([^'\n]+)' \/etc\/apt\/sources\.list\.d\/ubuntu\.sources/)?.[1];
+  assert.ok(remap, 'Ubuntu mirror remap must remain explicit');
+  const temp = mkdtempSync(join(tmpdir(), 'radar-apt-sources-'));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const path = join(temp, 'ubuntu.sources');
+  const before = 'Types: deb\nURIs: http://archive.ubuntu.com/ubuntu/\nSuites: noble noble-updates noble-backports\nComponents: main universe\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\nTypes: deb\nURIs: http://security.ubuntu.com/ubuntu/\nSuites: noble-security\nComponents: main universe\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\nURIs: http://deb.debian.org/debian\n';
+  writeFileSync(path, before);
+  const result = spawnSync('sed', ['-i', remap, path], { encoding: 'utf8' });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  const expected = before.replaceAll('http://archive.ubuntu.com/ubuntu', 'http://azure.archive.ubuntu.com/ubuntu').replaceAll('http://security.ubuntu.com/ubuntu', 'http://azure.archive.ubuntu.com/ubuntu');
+  assert.equal(readFileSync(path, 'utf8'), expected);
+});
+
 test('embedded publisher trust still matches the updater', () => {
   const keys = JSON.parse(source.match(/const trustedKeys = (\{[^\n]+\});/)[1]);
   assert.deepEqual(keys, JSON.parse(readFileSync(join(root, 'internal/update/keys.json'))));
