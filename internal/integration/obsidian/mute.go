@@ -119,7 +119,7 @@ func (s Source) setTaskPreference(ctx context.Context, task protocol.Task, muted
 			if err != nil {
 				return err
 			}
-			if err := createRegisteredNote(desired, "", prepared); err != nil {
+			if err := createRegisteredNote(ctx, desired, "", prepared); err != nil {
 				return err
 			}
 

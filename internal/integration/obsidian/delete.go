@@ -12,6 +12,7 @@ import (
 	"radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
 	"radar/internal/taskdb"
+	"radar/internal/workspacelease"
 )
 
 func (s Source) PreviewDelete(ctx context.Context, ref protocol.SourceRef) (protocol.TaskDeletionPreview, error) {
@@ -106,6 +107,11 @@ func (s Source) Delete(ctx context.Context, ref protocol.SourceRef, preview prot
 		if fresh != preview {
 			return fmt.Errorf("task deletion preview changed; preview and confirm deletion again")
 		}
+		release, err := workspacelease.AcquireReferences(ctx, fresh.Path, ref.Metadata["note_path"], fresh.TrashDirectory)
+		if err != nil {
+			return err
+		}
+		defer release()
 		if err := ensureRealDirectory(fresh.TrashDirectory); err != nil {
 			return fmt.Errorf("prepare task trash: %w", err)
 		}
@@ -116,6 +122,12 @@ func (s Source) Delete(ctx context.Context, ref protocol.SourceRef, preview prot
 			return fmt.Errorf("prepare task trash: %w", err)
 		}
 		destination := filepath.Join(container, filepath.Base(fresh.Path))
+		releaseDestination, err := workspacelease.AcquireReferences(ctx, destination)
+		if err != nil {
+			_ = os.Remove(container) // empty only; no move intent was published
+			return err
+		}
+		defer releaseDestination()
 		// This is one atomic no-replace move, never a copy-and-recursive-delete.
 		// Private directories move as a unit; archives move only the one note.
 		current, e := s.noteForRef(ref)

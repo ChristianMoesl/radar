@@ -1,6 +1,7 @@
 package obsidian
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
 	"radar/internal/taskdb"
+	"radar/internal/workspacelease"
 )
 
 // ArchiveCompletedNote is called only after workspace cleanup has succeeded.
@@ -56,10 +58,15 @@ func archiveCompleted(root string, current note) (note, error) {
 		return current, fmt.Errorf("task is done but cannot be archived: %s contains relative links; note left in place", path)
 	}
 	archive := filepath.Join(filepath.Dir(filepath.Dir(path)), settings.ArchiveDirectory)
+	destination := filepath.Join(archive, filepath.Base(path))
+	release, err := workspacelease.AcquireReferences(context.Background(), path, destination)
+	if err != nil {
+		return current, err
+	}
+	defer release()
 	if err := ensureRealDirectory(archive); err != nil {
 		return current, err
 	}
-	destination := filepath.Join(archive, filepath.Base(path))
 	updated := current
 	updated.Path = destination
 	if err := taskdb.Move(&updated.Task, path, destination, renameNote); err != nil {
@@ -86,10 +93,15 @@ func (s Source) restoreNote(root string, current note) (note, error) {
 		return note{}, fmt.Errorf("cannot restore %s with relative links; note left in place", current.Path)
 	}
 	directory := filepath.Join(filepath.Dir(filepath.Dir(current.Path)), taskDirectoryName(taskFilename(current.Title), current.ID))
+	destination := filepath.Join(directory, filepath.Base(current.Path))
+	release, err := workspacelease.AcquireReferences(context.Background(), current.Path, destination)
+	if err != nil {
+		return note{}, err
+	}
+	defer release()
 	if err := os.Mkdir(directory, 0o755); err != nil {
 		return note{}, fmt.Errorf("restore private task directory: %w", err)
 	}
-	destination := filepath.Join(directory, filepath.Base(current.Path))
 	updated := current
 	updated.Path = destination
 	if err := taskdb.Move(&updated.Task, current.Path, destination, renameNote); err != nil {

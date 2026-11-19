@@ -1,10 +1,13 @@
 package settings
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"radar/internal/workspacelease"
 )
 
 type Config struct {
@@ -36,6 +39,16 @@ func (c Config) ValidateAndPrepare() (string, error) {
 	}
 
 	taskRoot := TaskRoot(path)
+	// Collection/status must remain read-only when the directory exists.
+	// Missing-root preparation is a filesystem writer, not just validation.
+	if info, err := os.Stat(taskRoot); err == nil && info.IsDir() {
+		return path, nil
+	}
+	release, err := workspacelease.AcquireReferences(context.Background(), taskRoot)
+	if err != nil {
+		return "", fmt.Errorf("prepare Obsidian task root %s: %w", taskRoot, err)
+	}
+	defer release()
 	if err := os.MkdirAll(taskRoot, 0o755); err != nil {
 		return "", fmt.Errorf("create Obsidian task root %s: %w", taskRoot, err)
 	}

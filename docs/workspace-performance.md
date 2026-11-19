@@ -175,10 +175,10 @@ This review records the remaining boundary before changing that critical section
 | `operationlock.Acquire(false)` | Shared, nonblocking accepted-mutation protection against a managed macOS update; retained through cleanup or activation. Other platforms currently return a no-op. | Mutual exclusion between two ordinary mutations, or native macOS execution from a Linux test. |
 | Canonical workspace leases | Cleanup acquires the complete exclusive path set before any provider. Workspace activation and writers retain shared anchor/member leases; reconciliation and preparation include current and desired members. Physical aliases, including missing leaves, resolve to the same identity. | Shared deletion admission alone does not exclude another writer. Different task IDs are not independent resource identities. |
 | Workspace mutation leases | Short-lived exclusive canonical path and reusable SBX-name leases serialize workspace-side writers and activation, independently of agents' shared deletion leases. Canonical aliases in a bundle are deduplicated before acquisition. | A replacement for note relocation/reference transactions, or admission for writers outside these workspace entries. |
-| Protected-reference admission | Workspace writers hold shared deletion leases for current/desired anchors, members, canonical notes, primary repositories, shared directories and additional/effective mounts, including lexical and physical ancestors. Standalone sandbox creation admits its planned mounts before directory creation. | Exclusive mutation authority over shared references, protection against external filesystem changes, or completed note-filesystem-writer coverage. |
+| Protected-reference admission | Workspace writers hold shared deletion leases for current/desired anchors, members, canonical notes, primary repositories, shared directories and additional/effective mounts, including lexical and physical ancestors. Standalone sandbox creation admits its planned mounts before directory creation. Ordinary note creation/path association and relocation also admit their affected paths before effects. | Exclusive mutation authority over shared references, protection against external filesystem changes, or independence from the remaining note transaction. |
 | Sandbox name admission | Cleanup's exclusive reusable-name lease matches activation's retained shared lease, including pathless or differently rooted targets. | Permission to adopt a replacement runtime or weaken provider ownership checks. |
 | Native tmux admission | Retained exact missing name and selected/emitted server/session incarnation, with numeric targets and fresh revalidation before later effects. | Note/registry consistency, or permission to release and reacquire a reusable name between phases. |
-| `workspacegroup.WithNoteLock` | Process-global `noteMu`, then root-local blocking `.radar-notes.lock` flock; serializes creation and note lifecycle/relocation transactions. | Cancellation-aware waiting, per-workspace independence, or a lease held only for one note. Changing only the file-lock key would leave process-global contention. |
+| `workspacegroup.WithNoteLock` | Process-global `noteMu`, then root-local blocking `.radar-notes.lock` flock; serializes workspace creation and note lifecycle/relocation transactions. Direct authored note creation instead retains path admission. | Cancellation-aware waiting, per-workspace independence, or a lease held only for one note. Changing only the file-lock key would leave process-global contention. |
 | Registry lock | Process-global registry mutex and root-local shared/exclusive file lock around each atomic load/update. It is separate so a note callback can use the registry. | A snapshot pinned across provider work, or a transaction spanning multiple registry calls. |
 
 These are distinct contracts, not interchangeable locks. In particular, atomic
@@ -311,12 +311,53 @@ verify rejection and retained references through runtime success/error/cancel.
 Fixture providers do not delete data. These are prerequisite admission proofs,
 not successful missing-runtime overlap under cleanup's note transaction.
 
-The next boundary remains note filesystem writers: ordinary lifecycle writers
-check retained workspace references, but note creation, unreferenced relocation,
-pending move recovery and explicit state migration can still create or rename
-files beneath an anchor. Their matching path admission must be qualified before
-recursive anchor deletion leaves the shared note transaction. This increment
-changes neither that transaction nor the blanket UI gate.
+At this boundary, note filesystem writers still needed qualification before
+recursive anchor deletion could leave the shared note transaction. The following
+increment admits ordinary path effects and qualifies existing state ownership;
+neither increment narrows that transaction or changes the blanket UI gate.
+
+### Ordinary note-path admission increment
+
+Direct authored note creation does not take the note mutex. It must exclude
+cleanup even before any broader transaction is shortened. Creation now retains
+shared reference/ancestor admission from durable identity publication through
+private-directory and content creation. Workspace authors' existing shared
+reference leases remain compatible. A stopped creation retains its durable
+association so a retry uses the same identity rather than overwriting content.
+
+Archive and restore admit both source and destination before preparing
+directories, journaling the no-replace move and committing its association.
+Trash admits its source, canonical note and trash root before preparation, then
+its unique destination before publishing a move intent. Reassociation admits
+old and new paths before changing authority. Existing note transactions,
+retained-workspace-reference checks, no-overwrite behavior, attachment/relative
+link refusal and recoverable move intents remain intact. Done still commits
+before archival: a resource conflict leaves a completed note in place and
+returns the archival error, not a claim that completion was rolled back.
+
+Configuration validation previously always called `MkdirAll(Tasks)`, including
+from collection/status. Existing roots now have a read-only fast path; missing
+root preparation requires matching admission. This is not a claim that all
+setup or external configuration changes were note-serialized. Pure task
+metadata updates do not acquire unnecessary filesystem writer leases.
+
+Same-state offline migration already takes the daemon's exclusive state lock.
+The daemon retains that lock and finishes startup migration/move recovery before
+initializing or exposing cleanup. CLI regressions exercise apply, resume and
+rollback rejection under that owner, alongside the actual daemon startup gate.
+There is no new permanent recovery lock or on-disk format. Independently
+configured state/socket namespaces and external filesystem mutations are not
+covered by this same-state guarantee.
+
+Nondeleting cleanup-Service fixtures qualify physical/alias source, destination,
+missing-root and association conflicts before effects, honest partial lifecycle
+state, no leaked move intents/admission, nested shared admission, cancellation
+and durable creation retry. Unrelated cleanup permits note operations; existing
+root reads remain usable without writer admission. Only direct creation is
+qualified while the fixture holds the real note transaction. Other lifecycle
+cases qualify the prerequisite resource boundary, not a claim that existing
+note-serialized operations bypassed that mutex. Actual missing-runtime overlap
+and selective UI admission still require the cleanup metadata/resource split.
 
 ### Qualification result and limits
 

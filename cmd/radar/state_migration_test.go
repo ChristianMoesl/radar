@@ -16,6 +16,31 @@ import (
 	"radar/internal/taskdb"
 )
 
+func TestOfflineMigrationRejectsActiveStateOwnerBeforeEffects(t *testing.T) {
+	// The daemon retains this same exclusive state lock before startup migration
+	// and move recovery, and before exposing its cleanup service. Exercise each
+	// actual offline mutation command, not just another direct flock attempt.
+	for _, mode := range []string{"--apply", "--resume", "--rollback"} {
+		t.Run(mode, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "state.db")
+			lock, err := taskdb.Lock(path, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lock.Close()
+			_, stderr, code := outputCLI(t, []string{"migrate-state", mode}, "", "RADAR_STATE="+path)
+			if code != 1 || !strings.Contains(stderr, "state is in use") {
+				t.Fatalf("offline migration bypassed active state owner: code=%d, %s", code, stderr)
+			}
+			for _, candidate := range []string{path, path + ".migration-backup"} {
+				if _, err := os.Lstat(candidate); !os.IsNotExist(err) {
+					t.Fatalf("excluded migration created %s: %v", candidate, err)
+				}
+			}
+		})
+	}
+}
+
 func TestDaemonAutomaticallyMigratesLegacyStateBeforeServing(t *testing.T) {
 	root := t.TempDir()
 	vault, workspace := filepath.Join(root, "vault"), filepath.Join(root, "workspaces")

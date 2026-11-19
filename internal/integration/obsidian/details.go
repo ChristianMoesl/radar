@@ -13,6 +13,7 @@ import (
 	workspacegroup "radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
 	"radar/internal/taskdb"
+	"radar/internal/workspacelease"
 )
 
 func (s Source) SetTitle(_ context.Context, ref protocol.SourceRef, title string) (integration.AuthoredTaskIdentity, error) {
@@ -40,7 +41,7 @@ func (s Source) SetTitle(_ context.Context, ref protocol.SourceRef, title string
 
 // ReassociateNote explicitly repairs an external move. No identity is inferred
 // from the new file's content. A live workspace must be cleaned up first.
-func (s Source) ReassociateNote(_ context.Context, ref protocol.SourceRef, path string) (integration.AuthoredTaskIdentity, error) {
+func (s Source) ReassociateNote(ctx context.Context, ref protocol.SourceRef, path string) (integration.AuthoredTaskIdentity, error) {
 	root, err := workspacegroup.DefaultRoot()
 	if err != nil {
 		return integration.AuthoredTaskIdentity{}, err
@@ -82,6 +83,11 @@ func (s Source) ReassociateNote(_ context.Context, ref protocol.SourceRef, path 
 			if !settings.IsArchivedNote(path) && !strings.HasSuffix(filepath.Base(filepath.Dir(path)), "--"+shortID(task.ID)) {
 				return fmt.Errorf("private task directory must retain its stable suffix --%s", shortID(task.ID))
 			}
+			release, err := workspacelease.AcquireReferences(ctx, task.Path, path)
+			if err != nil {
+				return err
+			}
+			defer release()
 			task.Path = path
 			if _, err := readTaskNote(task); err != nil {
 				return err

@@ -14,10 +14,14 @@ import (
 	"radar/internal/integration"
 	"radar/internal/integration/obsidian/settings"
 	"radar/internal/taskdb"
+	"radar/internal/workspacelease"
 )
 
 // PrepareWorkspaceNote chooses a stable identity without creating a task file.
 func (s Source) PrepareWorkspaceNote(ctx context.Context, title string) (integration.DesiredWorkspaceNote, error) {
+	if err := ctx.Err(); err != nil {
+		return integration.DesiredWorkspaceNote{}, err
+	}
 	title = strings.TrimSpace(title)
 	if title == "" || !utf8.ValidString(title) {
 		return integration.DesiredWorkspaceNote{}, fmt.Errorf("task title must be non-empty UTF-8")
@@ -104,20 +108,30 @@ func (s Source) ValidateWorkspaceNote(_ context.Context, desired integration.Des
 }
 
 func (s Source) EnsureWorkspaceNote(ctx context.Context, desired integration.DesiredWorkspaceNote) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := s.ValidateWorkspaceNote(ctx, desired); err != nil {
 		return err
 	}
 	if _, err := os.Stat(desired.Path); err == nil {
 		return nil
 	}
-	return createRegisteredNote(desired, "", newTaskNote(desired))
+	return createRegisteredNote(ctx, desired, "", newTaskNote(desired))
 }
 
 func newTaskNote(desired integration.DesiredWorkspaceNote) note {
 	return note{Task: taskdb.Task{ID: strings.TrimPrefix(desired.LinkingKey, "obsidian:task:"), Title: desired.Title, State: "open", Priority: "normal", CreatedAt: time.Now().UTC().Format(time.RFC3339), Path: desired.Path, Vault: filepath.Dir(filepath.Dir(filepath.Dir(desired.Path)))}, fields: map[string]fieldRange{}}
 }
 
-func createRegisteredNote(desired integration.DesiredWorkspaceNote, content string, current note) error {
+func createRegisteredNote(ctx context.Context, desired integration.DesiredWorkspaceNote, content string, current note) error {
+	// Exclude deletion before publishing authority as well as creating content.
+	// Workspace authors may already hold compatible shared reference admission.
+	release, err := workspacelease.AcquireReferences(ctx, desired.Path)
+	if err != nil {
+		return err
+	}
+	defer release()
 	// Commit identity before creating content. If the process stops here the
 	// durable association remains and creation can resume with the same identity.
 	existing, err := taskdb.Find(current.ID)
