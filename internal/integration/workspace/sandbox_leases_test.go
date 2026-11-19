@@ -34,6 +34,11 @@ func assertSandboxActivationReleased(t *testing.T, group workspacegroup.Workspac
 		t.Fatal("sandbox activation lease leaked", err)
 	}
 	release()
+	release, err = workspacelease.AcquireSandboxMutation(group.Sandbox.Name)
+	if err != nil {
+		t.Fatal("sandbox mutation lease leaked", err)
+	}
+	release()
 }
 func sandboxActivate(ctx context.Context, runner Runner, group workspacegroup.Workspace, registered bool) (Workspace, error) {
 	if registered {

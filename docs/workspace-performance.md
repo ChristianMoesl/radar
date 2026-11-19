@@ -158,12 +158,14 @@ New tests cover normalized legacy results, command budgets, deterministic result
 
 ## Cleanup and activation lock-scope review
 
-**Scope review plus a bounded admission fix, not a note-lock narrowing.**
+**Scope review and workspace-writer admission, not a note-lock narrowing.**
 The caller-owned native-session admission work at `b952dab` (test isolation
 correction `8ac0011`) closes constructor-to-activation handoff gaps. The matching
-canonical bundle admission described below now also covers `Create(existing)`.
-Neither change makes registered missing-runtime recovery independent of the
-global note transaction or removes the dashboard's blanket activation gate.
+canonical bundle admission described below covers `Create(existing)` and the
+workspace-side mutation entries. Short-lived exclusive mutation admission is
+separate from long-lived agents' shared deletion admission. None of these
+changes makes registered missing-runtime recovery independent of the global
+note transaction or removes the dashboard's blanket activation gate.
 This review records the remaining boundary before changing that critical section.
 
 ### Existing authority and lock scopes
@@ -171,7 +173,8 @@ This review records the remaining boundary before changing that critical section
 | Protection | Current scope and purpose | What it does not establish |
 | --- | --- | --- |
 | `operationlock.Acquire(false)` | Shared, nonblocking accepted-mutation protection against a managed macOS update; retained through cleanup or activation. Other platforms currently return a no-op. | Mutual exclusion between two ordinary mutations, or native macOS execution from a Linux test. |
-| Canonical workspace leases | Cleanup acquires the complete exclusive path set before any provider. Explicit registered open and create-existing activation retain shared anchor/member leases. Physical aliases, including missing leaves, resolve to the same identity. | Exclusion of another writer that never acquires a matching lease. Different task IDs are not independent resource identities. |
+| Canonical workspace leases | Cleanup acquires the complete exclusive path set before any provider. Workspace activation and writers retain shared anchor/member leases; reconciliation and preparation include current and desired members. Physical aliases, including missing leaves, resolve to the same identity. | Shared deletion admission alone does not exclude another writer. Different task IDs are not independent resource identities. |
+| Workspace mutation leases | Short-lived exclusive canonical path and reusable SBX-name leases serialize workspace-side writers and activation, independently of agents' shared deletion leases. Canonical aliases in a bundle are deduplicated before acquisition. | A replacement for note relocation/reference transactions, or admission for writers outside these workspace entries. |
 | Sandbox name admission | Cleanup's exclusive reusable-name lease matches activation's retained shared lease, including pathless or differently rooted targets. | Permission to adopt a replacement runtime or weaken provider ownership checks. |
 | Native tmux admission | Retained exact missing name and selected/emitted server/session incarnation, with numeric targets and fresh revalidation before later effects. | Note/registry consistency, or permission to release and reacquire a reusable name between phases. |
 | `workspacegroup.WithNoteLock` | Process-global `noteMu`, then root-local blocking `.radar-notes.lock` flock; serializes creation and note lifecycle/relocation transactions. | Cancellation-aware waiting, per-workspace independence, or a lease held only for one note. Changing only the file-lock key would leave process-global contention. |
@@ -203,9 +206,11 @@ an operation from acting on an obsolete workspace description between updates.
 - `reconcile.go` and `recreate_sandboxes.go`: their public mutation entries hold
   the note lock while planning, changing registered members/note/runtime data,
   provisioning, setup and publication. They do not obtain the matching canonical
-  bundle leases through `acquireActivationLeases`. Dropping an activation's
-  note lock would therefore remove existing writer exclusion, even while
-  cleanup/activation leases themselves remain correct.
+  bundle leases at the original review baseline. They now retain shared cleanup
+  admission plus exclusive mutation admission through effects and return, with
+  registration checks after admission and read-only preflight. Reconciliation
+  protects the union of old and desired members; recreation handles conflicts
+  per target without discarding independent results. The note span is unchanged.
 - `anchor_cleanup.go` and `source.go`: cleanup's fresh protected-path/ownership
   preflight uses the note lock. Final anchor validation, sandbox-absence lookup,
   rooted entry removal, shared-directory removal and registry removal also
@@ -219,9 +224,11 @@ an operation from acting on an obsolete workspace description between updates.
   notes. That reference check must remain atomic with any competing registration
   or final-reference removal; it is not a substitute for the transaction.
 - Workspace collection's `RefreshWorkspaceNote` can repair a link and update
-  registration after an external rename without this note callback. Such drift
-  must continue to fail closed when activation's captured registration is no
-  longer current; a global note lock alone does not exclude external changes.
+  registration after an external rename without this note callback. Repairs now
+  acquire update protection and the matching cleanup/mutation bundle, then
+  recheck the captured registration before writing. A correct link stays a
+  read-only observation without mutation admission. A global note lock alone
+  still does not exclude external filesystem changes.
 
 The acquisition sequences also differ: explicit registered open acquires native
 admission before waiting for the note lock, whereas creation/reconciliation can
@@ -229,6 +236,41 @@ acquire it from inside the note callback. Preserve nonblocking resource
 admission and review every new acquisition order rather than assuming one
 existing total lock order. Do not hold a registry callback over provider work or
 call a registry loader recursively from its update callback.
+
+### Workspace-writer admission increment
+
+`acquireWorkspaceLeases` retains shared cleanup admission and a distinct
+exclusive mutation lease for each canonical anchor/member and reusable sandbox
+name. The mutation namespace lives alongside the existing transient resource
+locks; it changes no registry or note format. An agent retaining its shared
+workspace lease does not prevent reconciliation. No deletion lease is upgraded.
+Current and desired bundles are canonicalized, deduplicated and sorted before
+nonblocking acquisition; a conflict or cancellation releases the entire partial
+set in reverse order. No registry callback or provider is used as a lock waiter.
+
+Explicit registered open, create-existing, new creation, preparation retry,
+reconciliation, sandbox recreation and standalone activation all participate.
+Creation acquires admission before anchor or initial registration effects.
+Reconciliation retains removed members and absent additions, not just the final
+membership. Recreation revalidates both registration and the confirmed runtime
+before deletion, retaining admission through readiness and state restoration.
+Collection repairs reject stale/removal snapshots instead of recreating links
+or overwriting concurrent membership; already-correct links remain inspectable.
+
+Regression evidence includes actual cleanup `Service` admission at paused native,
+Git member-add/remove and SBX removal boundaries; canonical and missing-leaf
+aliases; different anchors sharing members or SBX names; agent compatibility;
+partial acquisition release; errors/cancellation; stale collection snapshots;
+and independent reconciliation/live-navigation completion in both orders.
+The service fixtures do not delete data. Canonical identity and mutation
+namespace tests are separate from native-incarnation ownership qualification.
+
+This is a workspace-side prerequisite, not proof that every note-lifecycle
+writer has per-target admission. Obsidian relocation/reference transactions and
+external changes still require the scope review below. Global note spans,
+cleanup's final-anchor transaction and the blanket UI gate are unchanged. In
+particular, live navigation during reconciliation is not missing-runtime
+recovery during a global-note-held cleanup.
 
 ### Qualification result and limits
 
@@ -285,6 +327,7 @@ compatibility path to bypass the transaction.
    integrate those with genuine user-driven overlap and per-operation error
    routing instead of reimplementing their existing state model.
 
-No note/registry lock removal, lock-identity change, persisted-format change,
-new runtime worker or UI unlock is implemented by this change. The remaining
-backend overlap and UI acceptance are deliberately still open.
+No note/registry lock removal or identity change, persisted-format change,
+new runtime worker or UI unlock is implemented here. Workspace-side mutation
+admission is implemented; reviewed note-lifecycle coverage, shorter metadata
+transactions, actual missing-runtime overlap and UI acceptance remain open.

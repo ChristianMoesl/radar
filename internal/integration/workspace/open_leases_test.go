@@ -48,6 +48,11 @@ func assertActivationLeasesReleased(t *testing.T, group workspacegroup.Workspace
 			t.Fatalf("lease leaked for %s: %v", path, err)
 		}
 		release()
+		release, err = workspacelease.AcquireMutation(path)
+		if err != nil {
+			t.Fatalf("mutation lease leaked for %s: %v", path, err)
+		}
+		release()
 	}
 }
 

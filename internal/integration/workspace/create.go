@@ -266,6 +266,18 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions, 
 		}
 		return openRegisteredWorkspace(ctx, runner, plan.root, plan.group, options, options.Repo, options.Branch)
 	}
+	// New creation and preparation own both their current and desired bundle
+	// before any anchor, note, worktree, registration or runtime mutation.
+	release, err := acquireWorkspaceLeases(ctx, plan.current, plan.group)
+	if err != nil {
+		return Workspace{}, err
+	}
+	defer release()
+	if !plan.create {
+		if err := validatePlanRegistration(ctx, plan); err != nil {
+			return Workspace{}, err
+		}
+	}
 	if plan.group.Sandbox != nil {
 		if err := validateSandboxEnvFile(plan.group.Sandbox.EnvFile); err != nil {
 			return Workspace{}, err

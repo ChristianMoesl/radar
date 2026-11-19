@@ -192,7 +192,7 @@ func OpenRegisteredWorkspace(ctx context.Context, runner Runner, current string,
 	if !found {
 		return Workspace{}, fmt.Errorf("no registered Radar workspace contains %s", current)
 	}
-	release, err := acquireActivationLeases(ctx, group)
+	release, err := acquireWorkspaceLeases(ctx, group)
 	if err != nil {
 		return Workspace{}, err
 	}
@@ -258,7 +258,7 @@ func openRegisteredWorkspace(ctx context.Context, runner Runner, root string, gr
 	// Create(existing) is activation too. The note transaction does not exclude
 	// cleanup's earlier runtime/member providers; match their complete bundle
 	// admission before probing, recovering or switching the registered runtime.
-	release, err := acquireActivationLeases(ctx, group)
+	release, err := acquireWorkspaceLeases(ctx, group)
 	if err != nil {
 		return Workspace{}, err
 	}
@@ -414,6 +414,26 @@ func ensureNoteLink(anchor, notePath string) error {
 func RefreshWorkspaceNote(root string, group workspacegroup.Workspace) (workspacegroup.Workspace, error) {
 	if group.NotePath == "" {
 		return group, nil
+	}
+	// Collection is normally read-only. A correct link needs no writer
+	// admission and remains inspectable while another operation owns the bundle.
+	if info, err := os.Lstat(group.NotePath); err == nil && info.Mode().IsRegular() {
+		if target, err := os.Readlink(filepath.Join(group.Path, "notes.md")); err == nil && filepath.Clean(target) == group.NotePath {
+			return group, nil
+		}
+	}
+	releaseOperation, err := operationlock.Acquire(false)
+	if err != nil {
+		return group, err
+	}
+	defer releaseOperation()
+	release, err := acquireWorkspaceLeases(context.Background(), group)
+	if err != nil {
+		return group, err
+	}
+	defer release()
+	if _, err := activationRegistration(context.Background(), root, group.Path, group); err != nil {
+		return group, err
 	}
 	if info, err := os.Lstat(group.NotePath); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
 		return group, ensureNoteLink(group.Path, group.NotePath)
@@ -601,6 +621,11 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 		return Workspace{}, err
 	}
 	defer releasePath()
+	releaseMutation, err := workspacelease.AcquireMutation(path)
+	if err != nil {
+		return Workspace{}, err
+	}
+	defer releaseMutation()
 	repoConfig, err := loadRepoConfig(path)
 	if err != nil {
 		return Workspace{}, err
@@ -632,6 +657,11 @@ func CreateSessionWithOptions(ctx context.Context, runner Runner, options Create
 			return Workspace{}, err
 		}
 		defer releaseSandbox()
+		releaseMutation, err := workspacelease.AcquireSandboxMutation(sandboxName)
+		if err != nil {
+			return Workspace{}, err
+		}
+		defer releaseMutation()
 	}
 	if err := validateSandboxDependencies(ctx, runner, sandbox.Enabled); err != nil {
 		return Workspace{}, err

@@ -90,6 +90,8 @@ type ReconcileWorkspacePlan struct {
 
 	root         string
 	group        workspacegroup.Workspace
+	current      workspacegroup.Workspace
+	registered   bool
 	additions    []reconcileAddition
 	removals     []reconcileRemoval
 	noteAdded    bool
@@ -529,11 +531,12 @@ func planWorkspaceObserved(ctx context.Context, runner Runner, root string, grou
 	if err != nil {
 		return ReconcileWorkspacePlan{}, err
 	}
+	_, registered := workspacegroup.FindByID(registry, group.ID)
 	return ReconcileWorkspacePlan{
 		WorkspaceID: group.ID, WorkspaceName: group.Name, Revision: revision,
 		NextRevision: nextRevision, PlanID: planID, EffectiveMountCount: effectiveMountCount,
 		Changes: changes, Warnings: warnings,
-		root: root, group: candidate, additions: additions, removals: removals, noteAdded: noteAdded, startSession: startSession, prepareOnly: request.prepareOnly,
+		root: root, group: candidate, current: group, registered: registered, additions: additions, removals: removals, noteAdded: noteAdded, startSession: startSession, prepareOnly: request.prepareOnly,
 	}, nil
 }
 
@@ -588,6 +591,14 @@ func applyReconcileWorkspace(ctx context.Context, runner Runner, logger *slog.Lo
 		}
 		return result, nil
 	}
+	release, err := acquireWorkspaceLeases(ctx, plan.current, plan.group)
+	if err != nil {
+		return ReconcileWorkspaceResult{WorkspaceID: plan.WorkspaceID}, err
+	}
+	defer release()
+	if err := validatePlanRegistration(ctx, plan); err != nil {
+		return ReconcileWorkspaceResult{WorkspaceID: plan.WorkspaceID}, err
+	}
 	session := newWorkspaceSession(plan.group.SessionName)
 	defer session.close()
 	return applyWorkspacePlan(ctx, runner, logger, request, plan, session)
@@ -622,6 +633,13 @@ func applyWorkspacePlan(ctx context.Context, runner Runner, logger *slog.Logger,
 			if err := validateSandboxEnvFile(plan.group.Sandbox.EnvFile); err != nil {
 				return result, err
 			}
+		}
+	}
+	// Planning/probing is read-only. Recheck the captured registration after
+	// admission and native/env preflight before the first metadata/resource effect.
+	if !plan.create && plan.current.Path != "" {
+		if err := validatePlanRegistration(ctx, plan); err != nil {
+			return result, err
 		}
 	}
 	if plan.noteAdded {

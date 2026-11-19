@@ -278,7 +278,7 @@ func recreateSandboxes(ctx context.Context, runner Runner, logger *slog.Logger, 
 			err := ctx.Err()
 			if err == nil {
 				targetCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-				err = recreateOneSandbox(targetCtx, runner, logger, groups[i], target, policy)
+				err = recreateOneSandbox(targetCtx, runner, logger, req.WorkspaceRoot, groups[i], target, policy)
 				cancel()
 			}
 			if err != nil {
@@ -298,7 +298,15 @@ func recreateSandboxes(ctx context.Context, runner Runner, logger *slog.Logger, 
 	return result, nil
 }
 
-func recreateOneSandbox(ctx context.Context, runner Runner, logger *slog.Logger, group workspacegroup.Workspace, target integration.SandboxRecreateTarget, policy sandboxReconcilePolicy) error {
+func recreateOneSandbox(ctx context.Context, runner Runner, logger *slog.Logger, root string, group workspacegroup.Workspace, target integration.SandboxRecreateTarget, policy sandboxReconcilePolicy) error {
+	release, err := acquireWorkspaceLeases(ctx, group)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {
+		return err
+	}
 	// Recheck immediately before deleting: external SBX changes are not protected
 	// by Radar's workspace lock.
 	actual, found, err := findSandbox(ctx, runner, group.Path, target.SandboxName)
@@ -309,6 +317,9 @@ func recreateOneSandbox(ctx context.Context, runner Runner, logger *slog.Logger,
 		return errors.New("sandbox changed after confirmation; left untouched")
 	}
 	if err := validateSandboxRecreation(ctx, runner, group, actual); err != nil {
+		return err
+	}
+	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {
 		return err
 	}
 	if err := reconcileSandboxWithPolicy(ctx, runner, group, logger, policy); err != nil {
