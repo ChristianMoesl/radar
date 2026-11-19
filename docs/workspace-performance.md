@@ -212,12 +212,18 @@ an operation from acting on an obsolete workspace description between updates.
   registration checks after admission and read-only preflight. Reconciliation
   protects the union of old and desired members; recreation handles conflicts
   per target without discarding independent results. The note span is unchanged.
-- `anchor_cleanup.go` and `source.go`: cleanup's fresh protected-path/ownership
-  preflight uses the note lock. Final anchor validation, sandbox-absence lookup,
-  rooted entry removal, shared-directory removal and registry removal also
-  occur within it. A callback paused there can block unrelated recovery. Merely
-  moving recovery's slow work *after* its own note callback does not let it pass
-  a cleanup callback that already owns the lock.
+- `anchor_cleanup.go`, `shared_directory.go` and `source.go`: cleanup's fresh
+  protected-path/ownership preflight still scans under the note lock. Final
+  anchor and recorded shared-directory scans/deletion now use pinned directory
+  handles outside that transaction, retaining matching resource admission.
+  Short metadata callbacks freshly check owner, configuration, canonical shared
+  identity and protected references before further effects; final unregister
+  compares the expected owner in one atomic registry update. Parent/child
+  replacement, partial deletion and cancellation retain the final reference.
+  Actual paused anchor and shared-directory filesystem tests separately cover
+  unrelated registered open/create-existing recovery, with/without SBX. These
+  bounded splits do not remove the preflight, Git, SBX or note-archive spans or
+  establish whole-cleanup independence from the note transaction.
 - Obsidian `delete.go`, `archive.go`, `details.go`, `source.go`, `mute.go`,
   `rollout.go` and state migration: note identity, binding, lifecycle, recovery
   and relocation operations depend on the same serialization. Archive,

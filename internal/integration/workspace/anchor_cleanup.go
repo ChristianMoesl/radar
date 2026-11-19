@@ -505,10 +505,10 @@ func addUnknownEntriesPreview(target *protocol.CleanupTarget, entries []string, 
 }
 
 func removeWorkspaceAnchor(ctx context.Context, runner Runner, root string, target protocol.CleanupTarget, mode integration.CleanupMode) (workspacegroup.Workspace, error) {
-	return removeWorkspaceAnchorAdmitted(ctx, runner, root, target, mode, nil, (*os.Root).RemoveAll)
+	return removeWorkspaceAnchorAdmitted(ctx, runner, root, target, mode, nil, (*os.Root).RemoveAll, (*os.Root).RemoveAll)
 }
 
-func removeWorkspaceAnchorAdmitted(ctx context.Context, runner Runner, root string, target protocol.CleanupTarget, mode integration.CleanupMode, admission *sharedDirectoryCleanupAdmission, removeAll func(*os.Root, string) error) (workspacegroup.Workspace, error) {
+func removeWorkspaceAnchorAdmitted(ctx context.Context, runner Runner, root string, target protocol.CleanupTarget, mode integration.CleanupMode, admission *sharedDirectoryCleanupAdmission, removeAll, removeSharedEntry func(*os.Root, string) error) (workspacegroup.Workspace, error) {
 	if err := ctx.Err(); err != nil {
 		return workspacegroup.Workspace{}, err
 	}
@@ -570,14 +570,14 @@ func removeWorkspaceAnchorAdmitted(ctx context.Context, runner Runner, root stri
 			return workspacegroup.Workspace{}, fmt.Errorf("registered sandbox still exists; remove it before deleting its workspace")
 		}
 	}
-	return removeWorkspaceAnchorFiles(ctx, root, target, mode, group, removeAll)
+	return removeWorkspaceAnchorFiles(ctx, root, target, mode, group, admission, removeAll, removeSharedEntry)
 }
 
 // Only metadata decisions hold the global note transaction. Anchor scans and
 // rooted deletion retain their resource admission without blocking unrelated
-// registered recovery. Separate shared-directory deletion keeps its original
-// note span until it has equivalent pinned-root protection.
-func removeWorkspaceAnchorFiles(ctx context.Context, root string, target protocol.CleanupTarget, mode integration.CleanupMode, group workspacegroup.Workspace, removeAll func(*os.Root, string) error) (workspacegroup.Workspace, error) {
+// registered recovery. The separate shared directory uses its own pinned root,
+// while final unregister remains an atomic expected-owner metadata decision.
+func removeWorkspaceAnchorFiles(ctx context.Context, root string, target protocol.CleanupTarget, mode integration.CleanupMode, group workspacegroup.Workspace, admission *sharedDirectoryCleanupAdmission, removeAll, removeSharedEntry func(*os.Root, string) error) (workspacegroup.Workspace, error) {
 	var registry workspacegroup.Registry
 	var disposable []string
 	prepared := false
@@ -594,6 +594,9 @@ func removeWorkspaceAnchorFiles(ctx context.Context, root string, target protoco
 		owner, found := workspacegroup.FindByID(current, group.ID)
 		if !found || !reflect.DeepEqual(owner, group) {
 			return fmt.Errorf("workspace registration changed; preview cleanup again")
+		}
+		if err := admission.validate(root, owner); err != nil {
+			return err
 		}
 		if !sameCleanPath(root, ExpandPath(cfg.Workspace.RootDir)) {
 			return fmt.Errorf("configured workspace root changed; preview cleanup again")
@@ -705,13 +708,11 @@ func removeWorkspaceAnchorFiles(ctx context.Context, root string, target protoco
 			return workspacegroup.Workspace{}, err
 		}
 	}
+	refreshShared := func() error { return workspacegroup.WithNoteLock(root, refresh) }
+	if err := removeSharedDirectoryFiles(group, refreshShared, removeSharedEntry); err != nil {
+		return workspacegroup.Workspace{}, err
+	}
 	err = workspacegroup.WithNoteLock(root, func() error {
-		if err := refresh(); err != nil {
-			return err
-		}
-		if err := removeSharedDirectory(group); err != nil {
-			return err
-		}
 		// Compare and remove in one registry transaction, not a stale Load
 		// followed by ID-only removal. Preserve unrelated concurrent updates.
 		return workspacegroup.Update(root, func(current *workspacegroup.Registry) error {

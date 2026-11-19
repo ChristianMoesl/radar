@@ -17,8 +17,9 @@ import (
 // the anchor admitted by Service. Retain its exclusive deletion admission for
 // the whole bundle, including failures in providers preceding anchor cleanup.
 type sharedDirectoryCleanupAdmission struct {
-	root  string
-	paths map[string]string
+	root       string
+	paths      map[string]string
+	identities map[string]string
 }
 
 type admittedWorkspaceCleanup struct {
@@ -113,7 +114,7 @@ func cleanupSharedDirectoryPath(group workspacegroup.Workspace) (string, error) 
 }
 
 func acquireSharedDirectoryCleanup(ctx context.Context, root string, groups []workspacegroup.Workspace) (*sharedDirectoryCleanupAdmission, func(), error) {
-	admission := &sharedDirectoryCleanupAdmission{root: root, paths: map[string]string{}}
+	admission := &sharedDirectoryCleanupAdmission{root: root, paths: map[string]string{}, identities: map[string]string{}}
 	identities := map[string]bool{}
 	for _, group := range groups {
 		if err := ctx.Err(); err != nil {
@@ -129,6 +130,7 @@ func acquireSharedDirectoryCleanup(ctx context.Context, root string, groups []wo
 			if err != nil {
 				return nil, nil, err
 			}
+			admission.identities[group.ID] = identity
 			identities[identity] = true
 		}
 	}
@@ -170,6 +172,15 @@ func (a *sharedDirectoryCleanupAdmission) validate(root string, group workspaceg
 	expected, found := a.paths[group.ID]
 	if !sameCleanPath(root, a.root) || !found || path != expected {
 		return fmt.Errorf("workspace shared directory changed; preview cleanup again")
+	}
+	if path != "" {
+		identity, err := workspacelease.CanonicalPath(path)
+		if err != nil {
+			return err
+		}
+		if identity != a.identities[group.ID] {
+			return fmt.Errorf("workspace shared directory identity changed; preview cleanup again")
+		}
 	}
 	return nil
 }

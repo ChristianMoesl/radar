@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,9 +76,15 @@ func ensureSharedDirectory(group workspacegroup.Workspace) error {
 	return nil
 }
 
-// Remove only the recorded, validated workspace child, never the shared parent
-// or another workspace's files. RemoveAll does not follow symlinks in the child.
+// Remove only the recorded workspace child, never the shared parent or siblings.
 func removeSharedDirectory(group workspacegroup.Workspace) error {
+	return removeSharedDirectoryFiles(group, func() error { return nil }, (*os.Root).RemoveAll)
+}
+
+// Keep filesystem work outside the caller's note transaction. Pin the original
+// parent and child, and recheck metadata and path identity before each effect.
+// Like anchor deletion, nonrecursive final removal refuses late/replaced data.
+func removeSharedDirectoryFiles(group workspacegroup.Workspace, revalidate func() error, removeAll func(*os.Root, string) error) error {
 	if group.Sandbox == nil || group.Sandbox.SharedDirectory == "" {
 		return nil
 	}
@@ -85,17 +92,48 @@ func removeSharedDirectory(group workspacegroup.Workspace) error {
 	if err := workspacegroup.ValidateSharedDirectory(group.Path, path); err != nil {
 		return err
 	}
-	for _, directory := range []string{filepath.Dir(path), path} {
-		info, err := os.Lstat(directory)
-		if os.IsNotExist(err) {
-			return nil
-		}
-		if err != nil {
+	if err := revalidate(); err != nil {
+		return err
+	}
+	// The recorded host temp root may be an alias (for example /var on macOS),
+	// but the shared parent and workspace child below it must be real directories.
+	a, err := openCleanupAnchor(filepath.Dir(filepath.Dir(path)), path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect shared directory: %w", err)
+	}
+	defer a.close()
+	check := func() error {
+		if err := revalidate(); err != nil {
 			return err
 		}
-		if !info.IsDir() {
-			return fmt.Errorf("refusing to clean up shared directory through a symlink or non-directory: %s", directory)
+		if err := a.validatePath(path); err != nil {
+			return fmt.Errorf("shared directory changed during cleanup: %w", err)
+		}
+		return nil
+	}
+	if a.anchor == nil {
+		return check()
+	}
+	entries, err := fs.ReadDir(a.anchor.FS(), ".")
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := check(); err != nil {
+			return err
+		}
+		if err := removeAll(a.anchor, entry.Name()); err != nil {
+			return fmt.Errorf("remove shared directory entry %q: %w", entry.Name(), err)
 		}
 	}
-	return os.RemoveAll(path)
+	if err := check(); err != nil {
+		return err
+	}
+	if err := a.parent.Remove(a.rel); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
