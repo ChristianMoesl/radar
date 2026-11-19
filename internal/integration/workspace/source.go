@@ -180,7 +180,12 @@ func (s Source) cleanupWithRunner(ctx context.Context, runner Runner, req integr
 	return s.cleanupWithRunnerAndAdmission(ctx, runner, req, nil)
 }
 
-func (Source) cleanupWithRunnerAndAdmission(ctx context.Context, runner Runner, req integration.CleanupRequest, admission *sharedDirectoryCleanupAdmission) (protocol.CleanupTarget, error) {
+func (s Source) cleanupWithRunnerAndAdmission(ctx context.Context, runner Runner, req integration.CleanupRequest, admission *sharedDirectoryCleanupAdmission) (protocol.CleanupTarget, error) {
+	return s.cleanupWithFilesystem(ctx, runner, req, admission, (*os.Root).RemoveAll)
+}
+
+// Keep filesystem injection local to this call, never a process-wide test hook.
+func (Source) cleanupWithFilesystem(ctx context.Context, runner Runner, req integration.CleanupRequest, admission *sharedDirectoryCleanupAdmission, removeAll func(*os.Root, string) error) (protocol.CleanupTarget, error) {
 	root, err := DefaultRoot()
 	if err != nil {
 		return protocol.CleanupTarget{}, err
@@ -196,7 +201,7 @@ func (Source) cleanupWithRunnerAndAdmission(ctx context.Context, runner Runner, 
 		err := forgetMissingMember(ctx, runner, root, req.Target)
 		return req.Target, err
 	}
-	removed, err := removeWorkspaceAnchorAdmitted(ctx, runner, root, req.Target, req.Mode, admission)
+	removed, err := removeWorkspaceAnchorAdmitted(ctx, runner, root, req.Target, req.Mode, admission, removeAll)
 	if err != nil {
 		return protocol.CleanupTarget{}, err
 	}

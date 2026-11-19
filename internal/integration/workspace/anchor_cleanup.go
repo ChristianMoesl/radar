@@ -93,6 +93,41 @@ func openCleanupAnchor(root, path string) (*cleanupAnchor, error) {
 	return a, nil
 }
 
+// Refuse a detached/replaced deletion root before the next filesystem effect.
+// All recursive work still uses the original pinned handle, never the new path.
+func (a *cleanupAnchor) validatePath(path string) error {
+	current, err := openCleanupAnchor(a.root, path)
+	if err != nil {
+		return err
+	}
+	defer current.close()
+	parent, err := a.parent.Stat(".")
+	if err != nil {
+		return err
+	}
+	now, err := current.parent.Stat(".")
+	if err != nil {
+		return err
+	}
+	if a.rel != current.rel || !os.SameFile(parent, now) || (a.anchor == nil) != (current.anchor == nil) {
+		return fmt.Errorf("workspace anchor changed during cleanup; preview cleanup again")
+	}
+	if a.anchor != nil {
+		before, err := a.anchor.Stat(".")
+		if err != nil {
+			return err
+		}
+		after, err := current.anchor.Stat(".")
+		if err != nil {
+			return err
+		}
+		if !os.SameFile(before, after) {
+			return fmt.Errorf("workspace anchor changed during cleanup; preview cleanup again")
+		}
+	}
+	return nil
+}
+
 type anchorEntries struct {
 	disposable []string
 	unknown    []string
@@ -470,10 +505,10 @@ func addUnknownEntriesPreview(target *protocol.CleanupTarget, entries []string, 
 }
 
 func removeWorkspaceAnchor(ctx context.Context, runner Runner, root string, target protocol.CleanupTarget, mode integration.CleanupMode) (workspacegroup.Workspace, error) {
-	return removeWorkspaceAnchorAdmitted(ctx, runner, root, target, mode, nil)
+	return removeWorkspaceAnchorAdmitted(ctx, runner, root, target, mode, nil, (*os.Root).RemoveAll)
 }
 
-func removeWorkspaceAnchorAdmitted(ctx context.Context, runner Runner, root string, target protocol.CleanupTarget, mode integration.CleanupMode, admission *sharedDirectoryCleanupAdmission) (workspacegroup.Workspace, error) {
+func removeWorkspaceAnchorAdmitted(ctx context.Context, runner Runner, root string, target protocol.CleanupTarget, mode integration.CleanupMode, admission *sharedDirectoryCleanupAdmission, removeAll func(*os.Root, string) error) (workspacegroup.Workspace, error) {
 	if err := ctx.Err(); err != nil {
 		return workspacegroup.Workspace{}, err
 	}
@@ -535,45 +570,62 @@ func removeWorkspaceAnchorAdmitted(ctx context.Context, runner Runner, root stri
 			return workspacegroup.Workspace{}, fmt.Errorf("registered sandbox still exists; remove it before deleting its workspace")
 		}
 	}
-	var removed workspacegroup.Workspace
-	err = workspacegroup.WithNoteLock(root, func() error {
-		var err error
-		removed, err = removeWorkspaceAnchorLocked(ctx, root, target, mode, group)
-		return err
-	})
-	return removed, err
+	return removeWorkspaceAnchorFiles(ctx, root, target, mode, group, removeAll)
 }
 
-// Filesystem inspection/deletion and final reference removal still share the
-// original note transaction. Revalidate the exact owner after the slow lookup;
-// unrelated registry changes must neither block cleanup nor be overwritten.
-func removeWorkspaceAnchorLocked(ctx context.Context, root string, target protocol.CleanupTarget, mode integration.CleanupMode, expected workspacegroup.Workspace) (workspacegroup.Workspace, error) {
-	if err := ctx.Err(); err != nil {
-		return workspacegroup.Workspace{}, err
+// Only metadata decisions hold the global note transaction. Anchor scans and
+// rooted deletion retain their resource admission without blocking unrelated
+// registered recovery. Separate shared-directory deletion keeps its original
+// note span until it has equivalent pinned-root protection.
+func removeWorkspaceAnchorFiles(ctx context.Context, root string, target protocol.CleanupTarget, mode integration.CleanupMode, group workspacegroup.Workspace, removeAll func(*os.Root, string) error) (workspacegroup.Workspace, error) {
+	var registry workspacegroup.Registry
+	var disposable []string
+	prepared := false
+	// This callback also runs inside the final atomic registry Update. It must
+	// not Load the registry or invoke another callback that takes its mutex.
+	validate := func(current workspacegroup.Registry) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		owner, found := workspacegroup.FindByID(current, group.ID)
+		if !found || !reflect.DeepEqual(owner, group) {
+			return fmt.Errorf("workspace registration changed; preview cleanup again")
+		}
+		if !sameCleanPath(root, ExpandPath(cfg.Workspace.RootDir)) {
+			return fmt.Errorf("configured workspace root changed; preview cleanup again")
+		}
+		if mode.DiscardChanges() && (!sameCleanPath(target.Path, group.Path) || target.WorkspaceID != group.ID) {
+			return fmt.Errorf("workspace cleanup target no longer matches its registration")
+		}
+		if len(group.Members) > 0 {
+			return fmt.Errorf("workspace still contains %d managed worktree(s)", len(group.Members))
+		}
+		if prepared && !slices.Equal(disposable, cfg.Workspace.Cleanup.DisposableEntries) {
+			return fmt.Errorf("workspace disposal configuration changed; preview cleanup again")
+		}
+		if err := validateDiscardingAnchor(root, current, group); err != nil {
+			return err
+		}
+		if err := validateSharedDirectoryCleanup(root, current, group); err != nil {
+			return err
+		}
+		disposable = slices.Clone(cfg.Workspace.Cleanup.DisposableEntries)
+		prepared = true
+		return ctx.Err()
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		return workspacegroup.Workspace{}, err
+	refresh := func() error {
+		var err error
+		registry, err = workspacegroup.Load(root)
+		if err != nil {
+			return err
+		}
+		return validate(registry)
 	}
-	registry, err := workspacegroup.Load(root)
-	if err != nil {
-		return workspacegroup.Workspace{}, err
-	}
-	id := strings.TrimPrefix(target.SourceRefID, "workspace:")
-	group, found := workspacegroup.FindByID(registry, id)
-	if !found || !reflect.DeepEqual(group, expected) {
-		return workspacegroup.Workspace{}, fmt.Errorf("workspace registration changed; preview cleanup again")
-	}
-	if !sameCleanPath(root, ExpandPath(cfg.Workspace.RootDir)) {
-		return workspacegroup.Workspace{}, fmt.Errorf("configured workspace root changed; preview cleanup again")
-	}
-	if mode.DiscardChanges() && (!sameCleanPath(target.Path, group.Path) || target.WorkspaceID != group.ID) {
-		return workspacegroup.Workspace{}, fmt.Errorf("workspace cleanup target no longer matches its registration")
-	}
-	if len(group.Members) > 0 {
-		return workspacegroup.Workspace{}, fmt.Errorf("workspace still contains %d managed worktree(s)", len(group.Members))
-	}
-	if err := validateSharedDirectoryCleanup(root, registry, group); err != nil {
+	if err := workspacegroup.WithNoteLock(root, refresh); err != nil {
 		return workspacegroup.Workspace{}, err
 	}
 	a, err := openCleanupAnchor(root, group.Path)
@@ -581,7 +633,7 @@ func removeWorkspaceAnchorLocked(ctx context.Context, root string, target protoc
 		return workspacegroup.Workspace{}, err
 	}
 	defer a.close()
-	entries, err := a.entries(registry, group, cfg.Workspace.Cleanup.DisposableEntries, mode)
+	entries, err := a.entries(registry, group, disposable, mode)
 	if err != nil {
 		return workspacegroup.Workspace{}, err
 	}
@@ -616,11 +668,23 @@ func removeWorkspaceAnchorLocked(ctx context.Context, root string, target protoc
 			}
 		}
 	}
+	revalidate := func() error {
+		if err := workspacegroup.WithNoteLock(root, refresh); err != nil {
+			return err
+		}
+		return a.validatePath(group.Path)
+	}
 	if a.anchor != nil {
 		for _, name := range entries.names() {
-			if err := a.anchor.RemoveAll(name); err != nil {
+			if err := revalidate(); err != nil {
+				return workspacegroup.Workspace{}, err
+			}
+			if err := removeAll(a.anchor, name); err != nil {
 				return workspacegroup.Workspace{}, fmt.Errorf("remove workspace entry %q: %w", name, err)
 			}
+		}
+		if err := revalidate(); err != nil {
+			return workspacegroup.Workspace{}, err
 		}
 		if info, err := a.anchor.Lstat("notes.md"); err == nil && info.Mode()&os.ModeSymlink != 0 {
 			if err := a.anchor.Remove("notes.md"); err != nil {
@@ -629,14 +693,41 @@ func removeWorkspaceAnchorLocked(ctx context.Context, root string, target protoc
 		}
 		// Do not recursively remove the anchor: newly appearing unknown files
 		// must still prevent its removal.
+		if err := ctx.Err(); err != nil {
+			return workspacegroup.Workspace{}, err
+		}
 		if err := a.parent.Remove(a.rel); err != nil && !os.IsNotExist(err) {
 			return workspacegroup.Workspace{}, err
 		}
 	}
-	if err := removeSharedDirectory(group); err != nil {
-		return workspacegroup.Workspace{}, err
+	if a.anchor == nil {
+		if err := revalidate(); err != nil {
+			return workspacegroup.Workspace{}, err
+		}
 	}
-	if err := workspacegroup.RemoveWorkspace(root, group.ID); err != nil {
+	err = workspacegroup.WithNoteLock(root, func() error {
+		if err := refresh(); err != nil {
+			return err
+		}
+		if err := removeSharedDirectory(group); err != nil {
+			return err
+		}
+		// Compare and remove in one registry transaction, not a stale Load
+		// followed by ID-only removal. Preserve unrelated concurrent updates.
+		return workspacegroup.Update(root, func(current *workspacegroup.Registry) error {
+			if err := validate(*current); err != nil {
+				return err
+			}
+			for i, owner := range current.Workspaces {
+				if owner.ID == group.ID {
+					current.Workspaces = slices.Delete(current.Workspaces, i, i+1)
+					break
+				}
+			}
+			return nil
+		})
+	})
+	if err != nil {
 		return workspacegroup.Workspace{}, err
 	}
 	return group, nil
