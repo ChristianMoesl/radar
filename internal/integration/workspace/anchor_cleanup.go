@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -17,6 +18,7 @@ import (
 	workspacegroup "radar/internal/integration/workspace/group"
 	"radar/internal/phasetiming"
 	"radar/internal/protocol"
+	"radar/internal/workspacelease"
 )
 
 func loadAnchorCleanupSettings() (string, []string, error) {
@@ -442,6 +444,61 @@ func addUnknownEntriesPreview(target *protocol.CleanupTarget, entries []string, 
 }
 
 func removeWorkspaceAnchor(ctx context.Context, runner Runner, root string, target protocol.CleanupTarget, mode integration.CleanupMode) (workspacegroup.Workspace, error) {
+	if err := ctx.Err(); err != nil {
+		return workspacegroup.Workspace{}, err
+	}
+	registry, err := workspacegroup.Load(root)
+	if err != nil {
+		return workspacegroup.Workspace{}, err
+	}
+	group, found := workspacegroup.FindByID(registry, strings.TrimPrefix(target.SourceRefID, "workspace:"))
+	if !found {
+		return workspacegroup.Workspace{}, nil
+	}
+	if mode.DiscardChanges() && (!sameCleanPath(target.Path, group.Path) || target.WorkspaceID != group.ID) {
+		return workspacegroup.Workspace{}, fmt.Errorf("workspace cleanup target no longer matches its registration")
+	}
+	if len(group.Members) > 0 {
+		return workspacegroup.Workspace{}, fmt.Errorf("workspace still contains %d managed worktree(s)", len(group.Members))
+	}
+	if group.Sandbox != nil {
+		// Service owns the deletion bundle. Also reserve the reusable name's
+		// existing writer gate: an absent runtime may have no SBX cleanup target,
+		// yet another anchor must not recreate it after this absence observation.
+		release, err := workspacelease.AcquireSandboxMutation(group.Sandbox.Name)
+		if err != nil {
+			return workspacegroup.Workspace{}, err
+		}
+		defer release()
+		if err := ctx.Err(); err != nil {
+			return workspacegroup.Workspace{}, err
+		}
+		// Slow provider I/O is read-only and holds no global note transaction.
+		// Keep the final reference and reservation until deletion has succeeded.
+		runtime, err := sbxclient.New(runner).FindRuntime(ctx, group.Sandbox.Name)
+		if err != nil {
+			return workspacegroup.Workspace{}, fmt.Errorf("verify registered sandbox absence: %w", err)
+		}
+		if runtime != nil {
+			return workspacegroup.Workspace{}, fmt.Errorf("registered sandbox still exists; remove it before deleting its workspace")
+		}
+	}
+	var removed workspacegroup.Workspace
+	err = workspacegroup.WithNoteLock(root, func() error {
+		var err error
+		removed, err = removeWorkspaceAnchorLocked(ctx, root, target, mode, group)
+		return err
+	})
+	return removed, err
+}
+
+// Filesystem inspection/deletion and final reference removal still share the
+// original note transaction. Revalidate the exact owner after the slow lookup;
+// unrelated registry changes must neither block cleanup nor be overwritten.
+func removeWorkspaceAnchorLocked(ctx context.Context, root string, target protocol.CleanupTarget, mode integration.CleanupMode, expected workspacegroup.Workspace) (workspacegroup.Workspace, error) {
+	if err := ctx.Err(); err != nil {
+		return workspacegroup.Workspace{}, err
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return workspacegroup.Workspace{}, err
@@ -452,8 +509,11 @@ func removeWorkspaceAnchor(ctx context.Context, runner Runner, root string, targ
 	}
 	id := strings.TrimPrefix(target.SourceRefID, "workspace:")
 	group, found := workspacegroup.FindByID(registry, id)
-	if !found {
-		return workspacegroup.Workspace{}, nil
+	if !found || !reflect.DeepEqual(group, expected) {
+		return workspacegroup.Workspace{}, fmt.Errorf("workspace registration changed; preview cleanup again")
+	}
+	if !sameCleanPath(root, ExpandPath(cfg.Workspace.RootDir)) {
+		return workspacegroup.Workspace{}, fmt.Errorf("configured workspace root changed; preview cleanup again")
 	}
 	if mode.DiscardChanges() && (!sameCleanPath(target.Path, group.Path) || target.WorkspaceID != group.ID) {
 		return workspacegroup.Workspace{}, fmt.Errorf("workspace cleanup target no longer matches its registration")
@@ -499,17 +559,6 @@ func removeWorkspaceAnchor(ctx context.Context, runner Runner, root string, targ
 			if !slices.Contains(previewedUnknown, name) {
 				return workspacegroup.Workspace{}, fmt.Errorf("unknown workspace entry %q was not in the confirmed cleanup preview; preview cleanup again", name)
 			}
-		}
-	}
-	// The last owner must not disappear while its runtime survives. Recheck
-	// under the note lock immediately before deleting any anchor contents.
-	if group.Sandbox != nil {
-		runtime, err := sbxclient.New(runner).FindRuntime(ctx, group.Sandbox.Name)
-		if err != nil {
-			return workspacegroup.Workspace{}, fmt.Errorf("verify registered sandbox absence: %w", err)
-		}
-		if runtime != nil {
-			return workspacegroup.Workspace{}, fmt.Errorf("registered sandbox still exists; remove it before deleting its workspace")
 		}
 	}
 	if a.anchor != nil {

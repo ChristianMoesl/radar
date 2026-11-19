@@ -172,7 +172,11 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 	return targets, nil
 }
 
-func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+func (s Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+	return s.cleanupWithRunner(ctx, ExecRunner{}, req)
+}
+
+func (Source) cleanupWithRunner(ctx context.Context, runner Runner, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
 	root, err := DefaultRoot()
 	if err != nil {
 		return protocol.CleanupTarget{}, err
@@ -185,15 +189,10 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		return req.Target, err // Do not alter files, members, branches, notes or registration.
 	}
 	if req.Target.Kind == "missing_member" {
-		err := forgetMissingMember(ctx, ExecRunner{}, root, req.Target)
+		err := forgetMissingMember(ctx, runner, root, req.Target)
 		return req.Target, err
 	}
-	var removed workspacegroup.Workspace
-	err = workspacegroup.WithNoteLock(root, func() error {
-		var err error
-		removed, err = removeWorkspaceAnchor(ctx, ExecRunner{}, root, req.Target, req.Mode)
-		return err
-	})
+	removed, err := removeWorkspaceAnchor(ctx, runner, root, req.Target, req.Mode)
 	if err != nil {
 		return protocol.CleanupTarget{}, err
 	}

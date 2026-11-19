@@ -167,10 +167,10 @@ func TestSharedDirectoryReadinessRequiresWritableObservedMount(t *testing.T) {
 }
 
 func TestWorkspaceCleanupRemovesRecordedSharedDirectory(t *testing.T) {
-	root := t.TempDir()
+	root := configureWorkspaceRoot(t)
 	t.Setenv(hostTempDirEnv, t.TempDir())
 	group := sharedDirectoryFixture(t, root, "cleanup")
-	if err := os.Mkdir(group.Path, 0o755); err != nil {
+	if err := os.MkdirAll(group.Path, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensureSharedDirectory(group); err != nil {
