@@ -84,13 +84,28 @@ func TestManualCleanupCanConfirmUnavailableStatusWithoutChangingGC(t *testing.T)
 
 type failAnchorOnce struct {
 	workspace.Source
-	fail bool
+	fail     bool
+	admitted integration.CleanupProvider
+}
+
+func (s *failAnchorOnce) AdmitCleanup(ctx context.Context, targets []protocol.CleanupTarget, mode integration.CleanupMode) (integration.CleanupProvider, func(), error) {
+	bound, release, err := s.Source.AdmitCleanup(ctx, targets, mode)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Keep the injected failure on the provider Service actually calls, without
+	// discarding the real Source's bundle-bound resource admission on retry.
+	s.admitted = bound
+	return s, release, nil
 }
 
 func (s *failAnchorOnce) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
 	if s.fail {
 		s.fail = false
 		return protocol.CleanupTarget{}, errors.New("fixture anchor removal unavailable")
+	}
+	if s.admitted != nil {
+		return s.admitted.Cleanup(ctx, req)
 	}
 	return s.Source.Cleanup(ctx, req)
 }
