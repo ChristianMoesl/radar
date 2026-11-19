@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"radar/internal/agentservice"
 	"radar/internal/cleanup"
 	"radar/internal/config"
 	"radar/internal/integration"
@@ -491,7 +492,17 @@ func removeWorkspaceAnchorAdmitted(ctx context.Context, runner Runner, root stri
 		return workspacegroup.Workspace{}, fmt.Errorf("workspace still contains %d managed worktree(s)", len(group.Members))
 	}
 	if admission == nil {
-		// Direct Source callers do not have Service's bundle-bound admission.
+		// Service already owns the anchor lease and checks agent retention.
+		// Direct callers must protect the actual registered owner as well,
+		// never a potentially unrelated path supplied by the preview.
+		if err := agentservice.CheckWorkspaceRemoval(group.Path); err != nil {
+			return workspacegroup.Workspace{}, err
+		}
+		releaseAnchor, err := workspacelease.Acquire(group.Path, true)
+		if err != nil {
+			return workspacegroup.Workspace{}, err
+		}
+		defer releaseAnchor()
 		owned, release, err := acquireSharedDirectoryCleanup(ctx, root, []workspacegroup.Workspace{group})
 		if err != nil {
 			return workspacegroup.Workspace{}, err
