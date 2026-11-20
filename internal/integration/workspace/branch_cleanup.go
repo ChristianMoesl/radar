@@ -124,6 +124,11 @@ func PlanManagedWorktreeRemoval(ctx context.Context, runner Runner, member works
 // during cleanup fails safely.
 func RemoveManagedWorktree(ctx context.Context, runner Runner, member workspacegroup.Member, mode integration.CleanupMode) (Workspace, error) {
 	defer phasetiming.Start(ctx, "managed_worktree_removal")()
+	releaseBranch, err := acquireWorktreeBranchMutation(ctx, runner, member.Repository, strings.TrimSpace(member.Branch))
+	if err != nil {
+		return Workspace{}, err
+	}
+	defer releaseBranch()
 	plan, err := PlanManagedWorktreeRemoval(ctx, runner, member)
 	if err != nil {
 		return Workspace{}, err

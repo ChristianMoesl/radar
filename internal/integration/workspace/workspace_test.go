@@ -49,10 +49,16 @@ func (f *fakeRunner) Run(_ context.Context, cwd string, name string, args ...str
 		if f.gitCommonDir != "" {
 			return f.gitCommonDir, nil
 		}
-		if f.repo != "" {
-			return filepath.Join(f.repo, ".git"), nil
+		repo := f.repo
+		if repo == "" {
+			repo = cwd
 		}
-		return filepath.Join(cwd, ".git"), nil
+		// Model the existing directory reported by a successful Git query.
+		common := filepath.Join(repo, ".git")
+		if err := os.MkdirAll(common, 0o755); err != nil {
+			return "", err
+		}
+		return common, nil
 	}
 	if name == "tmux" && len(args) > 0 && args[0] == "has-session" {
 		f.liveSessionName = strings.TrimPrefix(args[len(args)-1], "=")

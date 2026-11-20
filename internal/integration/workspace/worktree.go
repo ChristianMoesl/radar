@@ -142,11 +142,25 @@ func PlanWorktree(ctx context.Context, runner Runner, options WorktreeOptions) (
 // EnsureWorktree applies a validated plan and recognizes an already-correct
 // worktree, making retries safe.
 func EnsureWorktree(ctx context.Context, runner Runner, plan WorktreePlan) (WorktreeResult, error) {
+	branch := strings.TrimSpace(plan.Branch)
+	if plan.BranchMode == integration.WorkspaceBranchExisting {
+		branch = normalizeExistingBranch(branch)
+	} else if branch == "" {
+		branch = BranchName(plan.Name)
+	}
+	releaseBranch, err := acquireWorktreeBranchMutation(ctx, runner, plan.Repo, branch)
+	if err != nil {
+		return WorktreeResult{}, err
+	}
+	defer releaseBranch()
 	revalidated, err := PlanWorktree(ctx, runner, WorktreeOptions{
 		Repo: plan.Repo, BranchMode: plan.BranchMode, Name: plan.Name, Branch: plan.Branch,
 		Base: plan.Base, Path: plan.Path, WorkspaceRoot: plan.Root, AllowExisting: true,
 	})
 	if err != nil {
+		return WorktreeResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return WorktreeResult{}, err
 	}
 	if revalidated.Existing {

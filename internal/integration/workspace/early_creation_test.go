@@ -144,6 +144,9 @@ func earlyCreationFixture(t *testing.T, members int) (*earlyCreationRunner, Crea
 	}
 	for i := range members {
 		repo := t.TempDir()
+		if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(repo, ".radar.yaml"), []byte(`setup:
   - echo setup`), 0600); err != nil {
 			t.Fatal(err)
