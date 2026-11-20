@@ -45,13 +45,13 @@ func (w *fakeWatch) Add(path string) error {
 	}
 	return nil
 }
-func (w *fakeWatch) Remove(path string) error {
+func (w *fakeWatch) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	delete(w.paths, path)
+	w.closed = true
+	w.paths = map[string]bool{}
 	return nil
 }
-func (w *fakeWatch) Close() error { w.mu.Lock(); defer w.mu.Unlock(); w.closed = true; return nil }
 func (w *fakeWatch) WatchList() []string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -310,6 +310,40 @@ func TestWatchUnavailableAndDroppedRegistrationRecoverOnMaintenance(t *testing.T
 			})
 		})
 	}
+}
+
+func TestWatchRootLifecycleReplacesBackendIncarnation(t *testing.T) {
+	root := t.TempDir()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		first, second := newFakeWatch(), newFakeWatch()
+		var opens, requests atomic.Int32
+		done := make(chan struct{})
+		defer func() { cancel(); <-done }()
+		go func() {
+			defer close(done)
+			run(ctx, root, func() []string { return nil }, func() { requests.Add(1) }, func(err error) {
+				if err != nil {
+					t.Error(err)
+				}
+			}, func() (backend, error) {
+				if opens.Add(1) == 1 {
+					return first, nil
+				}
+				return second, nil
+			})
+		}()
+		synctest.Wait()
+		before := requests.Load()
+		// The directory may already be recreated when a queued lifecycle event
+		// is delivered. Hidden child watches are not certified by WatchList or
+		// the currently matching directory inode.
+		first.eventCh <- fsnotify.Event{Name: root, Op: fsnotify.Rename}
+		synctest.Wait()
+		if opens.Load() != 2 || !first.Closed() || len(second.WatchList()) != 2 || requests.Load() <= before {
+			t.Fatalf("old backend incarnation reused: opens=%d firstClosed=%v paths=%v", opens.Load(), first.Closed(), second.WatchList())
+		}
+	})
 }
 
 func TestWatchClosesDirectoryCreationGapBetweenStatAndAdd(t *testing.T) {

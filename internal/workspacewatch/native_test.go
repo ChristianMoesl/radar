@@ -59,6 +59,7 @@ func TestNativeWatchRearmsAfterRootAndParentRecreation(t *testing.T) {
 		}
 	}
 	for _, path := range []string{root, parent} {
+		t.Logf("native recreation phase: %s", filepath.Base(path))
 		if err := os.Rename(path, away); err != nil {
 			t.Fatal(err)
 		}
@@ -86,6 +87,7 @@ func TestNativeWatchRearmsAfterRootAndParentRecreation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	t.Log("native atomic replacement phase")
 	// Atomically replace the now-empty root with a different directory inode.
 	// A later child event must come from the new root, not the old watch.
 	if err := os.Remove(anchor); err != nil {

@@ -24,7 +24,6 @@ const (
 
 type backend interface {
 	Add(string) error
-	Remove(string) error
 	Close() error
 	WatchList() []string
 	events() <-chan fsnotify.Event
@@ -111,14 +110,26 @@ func run(ctx context.Context, root string, known func() []string, request func()
 		for _, path := range w.WatchList() {
 			listed[path] = true
 		}
-		changed := false
+		changed := len(watched) != len(desired)
 		for path, info := range watched {
 			want, keep := desired[path]
 			if !keep || !listed[path] || !os.SameFile(info, want) {
-				_ = w.Remove(path) // It may already have been removed by the OS.
-				delete(watched, path)
 				changed = true
 			}
+		}
+		if changed && len(watched) != 0 {
+			// kqueue keeps internal child descriptors/seen-path bookkeeping in
+			// addition to user watches. Removing and re-adding the same root
+			// name can reuse that old incarnation. Replace the bounded backend
+			// as a unit instead of trusting pathname-only registration reuse.
+			closeWatch()
+			w, err = open()
+			if err != nil {
+				health(err)
+				request()
+				return
+			}
+			events, failures = w.events(), w.errors()
 		}
 		for path, info := range desired {
 			if _, exists := watched[path]; exists {
@@ -135,7 +146,7 @@ func run(ctx context.Context, root string, known func() []string, request func()
 		if changed || coverageErr != nil {
 			request()
 		}
-		if changed && recheckC == nil {
+		if changed && coverageErr == nil && recheckC == nil {
 			// MkdirAll/replacement can create the next directory between our
 			// coverage stat and Add. Recheck after arming to close that gap;
 			// events cannot postpone this fixed window. Healthy coverage does
@@ -181,6 +192,7 @@ func run(ctx context.Context, root string, known func() []string, request func()
 			// Root/ancestor replacement is relevant even with no known anchors.
 			if path == root || strings.HasPrefix(root, path+string(filepath.Separator)) {
 				request()
+				closeWatch()
 				rearm()
 				continue
 			}
