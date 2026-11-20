@@ -80,13 +80,27 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 }
 
 func cleanupSessionTarget(ctx context.Context, runner workspace.Runner, target protocol.CleanupTarget, verify func() (sessionlease.Identity, error)) (protocol.CleanupTarget, error) {
-	remove := func() error {
-		identity, err := verify()
-		if err != nil || identity.ID == "" {
+	remove := func(refresh func() error, expectedName string) error {
+		if err := refresh(); err != nil {
 			return err
 		}
-		_, err = runner.Run(ctx, "", "tmux", "kill-session", "-t", identity.ID)
-		return err
+		identity, err := verify()
+		if err != nil {
+			return err
+		}
+		if err := refresh(); err != nil {
+			return err
+		}
+		if identity.ID == "" {
+			return nil
+		}
+		if expectedName != "" && identity.Name != expectedName {
+			return fmt.Errorf("tmux session no longer belongs to its registered workspace")
+		}
+		if _, err := runner.Run(ctx, "", "tmux", "kill-session", "-t", identity.ID); err != nil {
+			return err
+		}
+		return refresh()
 	}
 	root, err := workspace.DefaultRoot()
 	if err != nil {
@@ -102,23 +116,13 @@ func cleanupSessionTarget(ctx context.Context, runner workspace.Runner, target p
 		if group.SessionName == "" || (group.SessionName != target.Title && group.SessionName != target.ResourceID) {
 			continue
 		}
-		err := workspacegroup.WithNoteLock(root, func() error {
-			registry, err := workspacegroup.Load(root)
-			if err != nil {
-				return err
-			}
-			current, found := workspacegroup.FindByID(registry, group.ID)
-			if !found || current.SessionName != group.SessionName {
-				return fmt.Errorf("managed tmux session registration changed; preview cleanup again")
-			}
-			return remove()
-		})
+		err := cleanupManagedSession(ctx, root, group, target, remove)
 		if err != nil {
 			return protocol.CleanupTarget{}, err
 		}
 		return target, nil
 	}
-	if err := remove(); err != nil {
+	if err := remove(ctx.Err, ""); err != nil {
 		return protocol.CleanupTarget{}, err
 	}
 	return target, nil
