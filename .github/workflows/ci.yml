@@ -22,6 +22,8 @@ jobs:
       - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
+      - name: Qualify native workspace presence invalidation and source-health rendering
+        run: go test ./internal/workspacewatch ./internal/localrefresh ./internal/tui -run '^(TestWatch.*|TestNativeWatch.*|TestLocalRefreshRequests.*|TestWorkspaceWatcher.*)$' -count=1
       - name: Install checksum-pinned tfctl 0.4.0 in the runner temp directory
         run: |
           python3 - <<'PY'

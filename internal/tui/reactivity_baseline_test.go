@@ -85,13 +85,17 @@ func BenchmarkReactivityInput(b *testing.B) {
 // must not be labeled pure publication time.
 type baselineWorkspaceSource struct {
 	workspace.Source
-	duration time.Duration
+	duration     time.Duration
+	afterCollect func(context.Context)
 }
 
 func (s *baselineWorkspaceSource) Collect(ctx context.Context, req integration.CollectRequest) integration.CollectResult {
 	start := time.Now()
 	result := s.Source.Collect(ctx, req)
 	s.duration = time.Since(start)
+	if s.afterCollect != nil {
+		s.afterCollect(ctx)
+	}
 	return result
 }
 

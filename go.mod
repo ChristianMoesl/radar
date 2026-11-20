@@ -12,6 +12,7 @@ require (
 	github.com/charmbracelet/x/term v0.2.1
 	github.com/cpuguy83/go-md2man/v2 v2.0.7
 	github.com/creack/pty v1.1.24
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/lmittmann/tint v1.1.3
 	github.com/muesli/termenv v0.16.0
 	github.com/ncruces/go-sqlite3 v0.30.3

@@ -23,6 +23,7 @@ import (
 	"radar/internal/collector"
 	"radar/internal/config"
 	"radar/internal/integration"
+	"radar/internal/localrefresh"
 	"radar/internal/logging"
 	"radar/internal/notification"
 	"radar/internal/onboarding"
@@ -779,13 +780,15 @@ func runDaemon() {
 		notifyActionableTransitions(ctx, previous, current, logger, integrations, notificationService)
 	})
 	localRefresh := localRefresher(phasetiming.WithLogger(ctx, logger), collectionMu, tasks)
-	requestLocal, localDone := localRefreshRequests(ctx, func() {
+	requestLocal, localDone := localrefresh.Start(ctx, func() {
 		if !collectionDisabled() {
 			localRefresh()
 		}
 	})
 	defer func() { stop(); <-localDone }()
 	tasks.SetLocalRefreshRequest(requestLocal)
+	watchDone := watchWorkspacePresence(ctx, store.CollectionTasks, requestLocal, logger)
+	defer func() { stop(); <-watchDone }()
 	refresh := refresher(ctx, store, logger, collectionMu, integrations, cleanupService, notificationService, tasks)
 	garbageCollect := garbageCollector(ctx, store, logger, collectionMu, integrations, cleanupService, notificationService, tasks)
 	if collectionDisabled() {
