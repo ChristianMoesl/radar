@@ -123,6 +123,11 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 			seen[path] = true
 		}
 	}
+	// Providers may discover the actual owner behind a member/fallback target.
+	// Reuse only this execution's real path leases, never a guessed busy lock.
+	// Invalidate before releasing the bundle, including all failure paths.
+	ctx, invalidatePaths := withAdmittedPaths(ctx, seen)
+	defer invalidatePaths()
 	// Native aliases are provider-owned: resolve their full set before even
 	// the first provider's preflight or destructive call can run.
 	admitted := make(map[string]integration.CleanupProvider)

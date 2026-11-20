@@ -41,6 +41,12 @@ Owner/configuration/filesystem drift, cancellation, unowned session paths and ch
 
 Public direct/Service fixture subprocess tests pause actual retirement verification, listing and kill while both registered recovery entries complete for unrelated sandboxless/SBX workspaces. Matching owner/physical-alias/native-name conflicts, durable-agent ownership, exact binding, provider failures, replacement and lease release are covered separately. The existing fake-platform seam is test-only; native macOS/WSL execution is not claimed locally. Normal managed-name tmux cleanup, Git/member work, managed-name SBX fallback and Obsidian atomic transactions remain separate scopes; the blanket UI activation gate is unchanged.
 
+### Managed Git owner admission
+
+Managed Git cleanup now retains deletion admission for both the fresh actual owner anchor and the target member, not just caller-supplied member metadata. Direct calls perform the actual-owner durable-agent check and retain update prevention. Service providers reuse only a private live execution's real canonical path leases; newly discovered owner paths extend that same bundle through every later provider and outcome. Physical aliases deduplicate, partial acquisitions unwind without releasing existing ownership, and retained contexts cannot borrow expired admission. Admission itself never authorizes deletion.
+
+The existing note callback still encloses all managed Git validation, member scanning, publication verification, removal, expected-OID branch deletion and member-registry updates. Pending/unregistered member rules, stale-registration refusals and safe/confirmed/expiry semantics remain intact. Actual Git regressions cover owner/alias/member and stopped-agent conflicts, full versus member-only Service bundles, later-provider errors/cancellation, pending members and pre-cancellation; concurrent path-extension tests cover lifetime and release. This is matching-resource protection required before narrowing Git I/O, not proof of Git-phase overlap or selective UI acceptance. Normal managed-name tmux/SBX and Obsidian atomic transaction scopes remain unchanged; the blanket UI gate stays in place.
+
 ## Phase diagnostics
 
 Existing Radar logs contain `operation phase completed` records with a fixed `phase` and `duration`. A duration describes time spent in that phase, including failed operations; it is not a success indicator. These diagnostics do not include argv, environment values, credentials, provider output, or startup-hook output.

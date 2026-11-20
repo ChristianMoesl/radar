@@ -9,9 +9,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"radar/internal/agentservice"
+	"radar/internal/cleanup"
 	"radar/internal/integration"
 	"radar/internal/integration/workspace"
 	"radar/internal/integration/workspace/group"
+	"radar/internal/operationlock"
 	"radar/internal/pathdisplay"
 	"radar/internal/phasetiming"
 	"radar/internal/protocol"
@@ -213,7 +216,15 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		}
 		return req.Target, nil
 	}
+	releaseOperation, err := operationlock.Acquire(false)
+	if err != nil {
+		return protocol.CleanupTarget{}, err
+	}
+	defer releaseOperation()
 	err = workspacegroup.WithNoteLock(root, func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		registry, err := workspacegroup.Load(root)
 		if err != nil {
 			return err
@@ -222,6 +233,14 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		if !found || current.ID != group.ID {
 			return fmt.Errorf("managed worktree registration changed; preview cleanup again")
 		}
+		if err := agentservice.CheckWorkspaceRemoval(current.Path); err != nil {
+			return err
+		}
+		release, err := cleanup.AcquirePaths(ctx, current.Path, req.Target.Path)
+		if err != nil {
+			return err
+		}
+		defer release()
 		member, found := workspacegroup.FindMemberByPath(registry, req.Target.Path)
 		if !found {
 			if req.Mode == integration.CleanupExpired {
