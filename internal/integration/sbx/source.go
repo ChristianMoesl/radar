@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"radar/internal/agentservice"
 	"radar/internal/cleanup"
 	"radar/internal/integration"
 	sbxclient "radar/internal/integration/sbx/client"
@@ -114,15 +115,28 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 }
 
 func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
-	if req.Mode == integration.CleanupRetire {
-		return retireSandbox(ctx, workspace.ExecRunner{}, req.Target)
-	}
-	if req.Target.WorkspaceID != "" {
-		return cleanupRegisteredSandbox(ctx, workspace.ExecRunner{}, req.Target, true)
+	return cleanupWithRunner(ctx, workspace.ExecRunner{}, req, false)
+}
+
+func cleanupWithRunner(ctx context.Context, runner workspace.Runner, req integration.CleanupRequest, admitted bool) (protocol.CleanupTarget, error) {
+	if req.Mode == integration.CleanupRetire || req.Target.WorkspaceID != "" {
+		return cleanupRegisteredSandboxAdmitted(ctx, runner, req.Target, req.Mode != integration.CleanupRetire, admitted)
 	}
 	name := strings.TrimSpace(req.Target.ResourceID)
 	if name == "" {
 		return protocol.CleanupTarget{}, fmt.Errorf("sbx sandbox name is required")
+	}
+	if !admitted {
+		// Legacy name-only and standalone entries must not bypass a registered
+		// cleanup's now note-independent runtime span, or ordinary activation.
+		if err := ctx.Err(); err != nil {
+			return req.Target, err
+		}
+		release, err := workspacelease.AcquireSandbox(name, true)
+		if err != nil {
+			return req.Target, err
+		}
+		defer release()
 	}
 	root, err := workspace.DefaultRoot()
 	if err != nil {
@@ -145,7 +159,10 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 			if !found || current.Sandbox == nil || current.Sandbox.Name != name {
 				return fmt.Errorf("managed sandbox registration changed; preview cleanup again")
 			}
-			_, err = cleanupSandbox(ctx, workspace.ExecRunner{}, req.Target)
+			if err := agentservice.CheckWorkspaceRemoval(current.Path); err != nil {
+				return err
+			}
+			_, err = cleanupSandbox(ctx, runner, req.Target)
 			return err
 		})
 		if err != nil {
@@ -153,7 +170,7 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		}
 		return req.Target, nil
 	}
-	return cleanupSandbox(ctx, workspace.ExecRunner{}, req.Target)
+	return cleanupSandbox(ctx, runner, req.Target)
 }
 
 func (Source) Actions(ctx context.Context, req integration.ActionRequest) []integration.Action {
