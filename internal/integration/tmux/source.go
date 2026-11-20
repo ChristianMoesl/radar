@@ -71,7 +71,7 @@ func (Source) PreviewCleanup(ctx context.Context, req integration.CleanupPreview
 }
 
 func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
-	bound, release, err := admitCleanup(ctx, workspace.ExecRunner{}, []protocol.CleanupTarget{req.Target}, req.Mode)
+	bound, release, err := admitCleanup(ctx, workspace.ExecRunner{}, []protocol.CleanupTarget{req.Target}, req.Mode, false)
 	if err != nil {
 		return req.Target, err
 	}

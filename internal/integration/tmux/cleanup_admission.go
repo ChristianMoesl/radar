@@ -3,6 +3,8 @@ package tmux
 import (
 	"context"
 	"fmt"
+	"maps"
+	"reflect"
 	"strings"
 
 	"radar/internal/integration"
@@ -20,9 +22,12 @@ type cleanupSession struct {
 
 type admittedCleanup struct {
 	Source
-	runner   workspace.Runner
-	leases   *sessionlease.Set
-	sessions map[cleanupKey]cleanupSession
+	runner        workspace.Runner
+	leases        *sessionlease.Set
+	sessions      map[cleanupKey]cleanupSession
+	targets       []protocol.CleanupTarget
+	mode          integration.CleanupMode
+	pathsAdmitted bool
 }
 
 func targetKey(target protocol.CleanupTarget) cleanupKey {
@@ -30,12 +35,14 @@ func targetKey(target protocol.CleanupTarget) cleanupKey {
 }
 
 func (Source) AdmitCleanup(ctx context.Context, targets []protocol.CleanupTarget, mode integration.CleanupMode) (integration.CleanupProvider, func(), error) {
-	return admitCleanup(ctx, workspace.ExecRunner{}, targets, mode)
+	return admitCleanup(ctx, workspace.ExecRunner{}, targets, mode, true)
 }
 
-func admitCleanup(ctx context.Context, runner workspace.Runner, targets []protocol.CleanupTarget, mode integration.CleanupMode) (integration.CleanupProvider, func(), error) {
-	bound := &admittedCleanup{runner: runner, leases: sessionlease.New(true), sessions: make(map[cleanupKey]cleanupSession)}
+func admitCleanup(ctx context.Context, runner workspace.Runner, targets []protocol.CleanupTarget, mode integration.CleanupMode, pathsAdmitted bool) (integration.CleanupProvider, func(), error) {
+	bound := &admittedCleanup{runner: runner, leases: sessionlease.New(true), sessions: make(map[cleanupKey]cleanupSession), mode: mode, pathsAdmitted: pathsAdmitted}
 	for _, target := range targets {
+		target.Operation = maps.Clone(target.Operation)
+		bound.targets = append(bound.targets, target)
 		if strings.TrimSpace(target.ResourceID) == "" {
 			bound.leases.Close()
 			return nil, nil, fmt.Errorf("tmux session is required")
@@ -70,6 +77,15 @@ func admitCleanup(ctx context.Context, runner workspace.Runner, targets []protoc
 }
 
 func (b *admittedCleanup) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+	// Only exact Service targets/mode may reuse its canonical path bundle.
+	// Direct callers retain native admission but acquire their own owner path.
+	matched := false
+	for _, target := range b.targets {
+		matched = matched || b.mode == req.Mode && reflect.DeepEqual(target, req.Target)
+	}
+	if !matched {
+		return req.Target, fmt.Errorf("tmux target or mode was not admitted for cleanup")
+	}
 	session, ok := b.sessions[targetKey(req.Target)]
 	if !ok {
 		return req.Target, fmt.Errorf("tmux target was not admitted for cleanup")
@@ -86,7 +102,7 @@ func (b *admittedCleanup) Cleanup(ctx context.Context, req integration.CleanupRe
 		return current, err
 	}
 	if req.Mode == integration.CleanupRetire {
-		return retireSession(ctx, b.runner, req.Target, verify)
+		return retireSession(ctx, b.runner, req.Target, verify, b.pathsAdmitted)
 	}
 	return cleanupSessionTarget(ctx, b.runner, req.Target, verify)
 }

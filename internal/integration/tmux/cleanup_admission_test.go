@@ -85,7 +85,7 @@ type fixtureAdmissionProvider struct {
 }
 
 func (p fixtureAdmissionProvider) AdmitCleanup(ctx context.Context, targets []protocol.CleanupTarget, mode integration.CleanupMode) (integration.CleanupProvider, func(), error) {
-	return admitCleanup(ctx, p.runner, targets, mode)
+	return admitCleanup(ctx, p.runner, targets, mode, true)
 }
 
 type effectProvider struct {
@@ -193,7 +193,7 @@ func TestCleanupRechecksIncarnationAndAbsenceBeforeNativeRemoval(t *testing.T) {
 				delete(r.sessions, "$7")
 				delete(r.sessions, "workspace-alpha")
 			}
-			bound, release, err := admitCleanup(context.Background(), r, []protocol.CleanupTarget{target}, integration.CleanupSafe)
+			bound, release, err := admitCleanup(context.Background(), r, []protocol.CleanupTarget{target}, integration.CleanupSafe, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -263,7 +263,7 @@ func TestRetirementPreservesRegistrationOwnershipAndAdmittedIncarnation(t *testi
 			if outcome == "stale-preview" {
 				target.Operation["runtime_id"] = "tmux:session:99:34:$7"
 			}
-			bound, release, err := admitCleanup(context.Background(), r, []protocol.CleanupTarget{target}, integration.CleanupRetire)
+			bound, release, err := admitCleanup(context.Background(), r, []protocol.CleanupTarget{target}, integration.CleanupRetire, false)
 			if outcome == "stale-preview" {
 				if err == nil {
 					release()
