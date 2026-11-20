@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"radar/internal/agentservice"
 	"radar/internal/cleanup"
 	"radar/internal/integration"
 	sbxclient "radar/internal/integration/sbx/client"
@@ -150,19 +149,8 @@ func cleanupWithRunner(ctx context.Context, runner workspace.Runner, req integra
 		if group.Sandbox == nil || group.Sandbox.Name != name {
 			continue
 		}
-		err := workspacegroup.WithNoteLock(root, func() error {
-			registry, err := workspacegroup.Load(root)
-			if err != nil {
-				return err
-			}
-			current, found := workspacegroup.FindByID(registry, group.ID)
-			if !found || current.Sandbox == nil || current.Sandbox.Name != name {
-				return fmt.Errorf("managed sandbox registration changed; preview cleanup again")
-			}
-			if err := agentservice.CheckWorkspaceRemoval(current.Path); err != nil {
-				return err
-			}
-			_, err = cleanupSandbox(ctx, runner, req.Target)
+		err := cleanupManagedSandbox(ctx, root, group, req.Target, func(refresh func() error) error {
+			_, err := cleanupSandboxChecked(ctx, runner, req.Target, refresh)
 			return err
 		})
 		if err != nil {
@@ -253,12 +241,19 @@ func openShell(ctx context.Context, runner workspace.Runner, multiplexer integra
 }
 
 func cleanupSandbox(ctx context.Context, runner workspace.Runner, target protocol.CleanupTarget) (protocol.CleanupTarget, error) {
+	return cleanupSandboxChecked(ctx, runner, target, ctx.Err)
+}
+
+func cleanupSandboxChecked(ctx context.Context, runner workspace.Runner, target protocol.CleanupTarget, beforeRemove func() error) (protocol.CleanupTarget, error) {
 	name := strings.TrimSpace(target.ResourceID)
 	if name == "" {
 		return protocol.CleanupTarget{}, fmt.Errorf("sbx sandbox name is required")
 	}
 	client := sbxclient.New(runner)
 	if err := client.LookPath(); err != nil {
+		return protocol.CleanupTarget{}, err
+	}
+	if err := beforeRemove(); err != nil {
 		return protocol.CleanupTarget{}, err
 	}
 	if _, err := client.Run(ctx, "", "rm", "--force", name); err != nil {
