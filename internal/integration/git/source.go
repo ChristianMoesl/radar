@@ -221,7 +221,14 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		return protocol.CleanupTarget{}, err
 	}
 	defer releaseOperation()
-	err = workspacegroup.WithNoteLock(root, func() error {
+	var releasePaths func()
+	defer func() {
+		if releasePaths != nil {
+			releasePaths()
+		}
+	}()
+	var publication *cleanupPublication
+	run := func() error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -233,14 +240,20 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		if !found || current.ID != group.ID {
 			return fmt.Errorf("managed worktree registration changed; preview cleanup again")
 		}
+		if publication != nil {
+			if err := publication.refresh(ctx, root, current); err != nil {
+				return err
+			}
+		}
 		if err := agentservice.CheckWorkspaceRemoval(current.Path); err != nil {
 			return err
 		}
-		release, err := cleanup.AcquirePaths(ctx, current.Path, req.Target.Path)
-		if err != nil {
-			return err
+		if releasePaths == nil {
+			releasePaths, err = cleanup.AcquirePaths(ctx, current.Path, req.Target.Path)
+			if err != nil {
+				return err
+			}
 		}
-		defer release()
 		member, found := workspacegroup.FindMemberByPath(registry, req.Target.Path)
 		if !found {
 			if req.Mode == integration.CleanupExpired {
@@ -284,13 +297,15 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 				if planErr != nil {
 					return planErr
 				}
-				if plan.DeleteBranch {
-					safe, verifyErr := workspace.BranchPublishedOrMerged(ctx, workspace.ExecRunner{}, member.Repository, member.Branch)
-					if verifyErr != nil {
-						return fmt.Errorf("branch publication or merge could not be verified: %w", verifyErr)
-					}
-					if !safe {
-						return fmt.Errorf("local branch has commits not verified as published or merged")
+				if plan.DeleteBranch && publication == nil {
+					// Suspend only this read-only phase. Actual deletion and note/
+					// registry changes still share their original transaction.
+					publication, err = newCleanupPublication(ctx, root, current, member)
+					return err
+				}
+				if publication != nil {
+					if err := publication.checkHead(ctx); err != nil {
+						return err
 					}
 				}
 			}
@@ -300,7 +315,14 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 			return err
 		}
 		return workspacegroup.RemoveMember(root, req.Target.Path)
-	})
+	}
+	err = workspacegroup.WithNoteLock(root, run)
+	if err == nil && publication != nil {
+		err = publication.verify(ctx)
+		if err == nil {
+			err = workspacegroup.WithNoteLock(root, run)
+		}
+	}
 	if err != nil {
 		return protocol.CleanupTarget{}, err
 	}
