@@ -189,7 +189,11 @@ func cleanupDescription(target protocol.CleanupTarget) string {
 	return description
 }
 
-func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+func (s Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (protocol.CleanupTarget, error) {
+	return s.cleanupWithMemberScan(ctx, req, func(scan func() error) error { return scan() })
+}
+
+func (Source) cleanupWithMemberScan(ctx context.Context, req integration.CleanupRequest, scan func(func() error) error) (protocol.CleanupTarget, error) {
 	if req.Mode == integration.CleanupRetire {
 		return protocol.CleanupTarget{}, fmt.Errorf("runtime retirement cannot remove Git resources")
 	}
@@ -228,6 +232,12 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		}
 	}()
 	var publication *cleanupPublication
+	var memberValidation *workspace.MemberCleanupValidation
+	defer func() {
+		if memberValidation != nil {
+			memberValidation.Close()
+		}
+	}()
 	run := func() error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -242,6 +252,11 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		}
 		if publication != nil {
 			if err := publication.refresh(ctx, root, current); err != nil {
+				return err
+			}
+		}
+		if memberValidation != nil {
+			if err := memberValidation.Validate(ctx); err != nil {
 				return err
 			}
 		}
@@ -277,13 +292,11 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		if err := validateCleanupMember(ctx, root, member); err != nil {
 			return err
 		}
-		if req.Mode.DiscardChanges() {
-			scanDone := phasetiming.Start(ctx, "cleanup_member_scan")
-			err := workspace.ValidateDiscardingWorkspaceMember(root, current.ID, member, req.Mode)
-			scanDone()
-			if err != nil {
-				return err
-			}
+		if req.Mode.DiscardChanges() && memberValidation == nil {
+			// Suspend only the read-only traversal. The final transaction must
+			// check its complete binding before even considering a fallback.
+			memberValidation, err = workspace.PrepareDiscardingWorkspaceMember(root, current.ID, member, req.Mode)
+			return err
 		}
 		if req.Target.Operation["delete_branch"] == "" {
 			// A preview that promised to keep a protected/shared branch must not
@@ -317,6 +330,14 @@ func (Source) Cleanup(ctx context.Context, req integration.CleanupRequest) (prot
 		return workspacegroup.RemoveMember(root, req.Target.Path)
 	}
 	err = workspacegroup.WithNoteLock(root, run)
+	if err == nil && memberValidation != nil {
+		scanDone := phasetiming.Start(ctx, "cleanup_member_scan")
+		err = scan(func() error { return memberValidation.Scan(ctx) })
+		scanDone()
+		if err == nil {
+			err = workspacegroup.WithNoteLock(root, run)
+		}
+	}
 	if err == nil && publication != nil {
 		err = publication.verify(ctx)
 		if err == nil {

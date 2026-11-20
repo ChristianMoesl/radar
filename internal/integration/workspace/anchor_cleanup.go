@@ -324,38 +324,15 @@ func preflightWorkspace(registry workspacegroup.Registry, target protocol.Cleanu
 // but traverses only the member about to be removed. Other trees are covered by
 // the bundle preflight and are checked again before their own removal.
 func ValidateDiscardingWorkspaceMember(root, id string, expected workspacegroup.Member, mode integration.CleanupMode) error {
-	registry, err := workspacegroup.Load(root)
+	validation, err := PrepareDiscardingWorkspaceMember(root, id, expected, mode)
 	if err != nil {
 		return err
 	}
-	group, found := workspacegroup.FindByID(registry, id)
-	if !found {
-		return fmt.Errorf("discarding cleanup requires a registered workspace: %s", id)
-	}
-	if !slices.ContainsFunc(group.Members, func(member workspacegroup.Member) bool {
-		return sameCleanPath(member.Path, expected.Path) && sameCleanPath(member.Repository, expected.Repository) && member.Branch == expected.Branch
-	}) {
-		return fmt.Errorf("managed worktree registration changed; preview cleanup again")
-	}
-	if !mode.DiscardChanges() {
-		return fmt.Errorf("member discard validation requires a discarding cleanup mode")
-	}
-	if err := validateDiscardingAnchor(root, registry, group); err != nil {
+	defer validation.Close()
+	if err := validation.Scan(context.Background()); err != nil {
 		return err
 	}
-	a, err := openCleanupAnchor(root, group.Path)
-	if err != nil {
-		return err
-	}
-	defer a.close()
-	if a.anchor == nil {
-		return fmt.Errorf("workspace anchor is missing")
-	}
-	managed := map[string]bool{}
-	for _, member := range group.Members {
-		managed[pathKey(filepath.Base(member.Path))] = true
-	}
-	return a.inspectDiscardingTree(group, managed, filepath.Base(expected.Path))
+	return validation.Validate(context.Background())
 }
 
 // Collection, preview and execution classify root entries with the same policy.
