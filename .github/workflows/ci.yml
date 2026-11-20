@@ -24,6 +24,8 @@ jobs:
           go-version-file: go.mod
       - name: Qualify native workspace presence invalidation and source-health rendering
         run: go test ./internal/workspacewatch ./internal/localrefresh ./internal/tui -run '^(TestWatch.*|TestNativeWatch.*|TestLocalRefreshRequests.*|TestWorkspaceWatcher.*)$' -count=1
+      - name: Qualify native TUI input and publication responsiveness
+        run: go test -v ./internal/tui -run '^TestResponsiveness' -count=1 -timeout=90s
       - name: Install checksum-pinned tfctl 0.4.0 in the runner temp directory
         run: |
           python3 - <<'PY'
