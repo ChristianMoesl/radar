@@ -129,26 +129,55 @@ func RemoveManagedWorktree(ctx context.Context, runner Runner, member workspaceg
 		return Workspace{}, err
 	}
 	defer releaseBranch()
+	observation, err := observeRemovalRepository(ctx, runner, member.Repository)
+	if err != nil {
+		return Workspace{}, err
+	}
 	plan, err := PlanManagedWorktreeRemoval(ctx, runner, member)
 	if err != nil {
 		return Workspace{}, err
 	}
-	if !plan.DeleteBranch {
-		return RemoveWorktree(ctx, runner, member.Path, mode)
-	}
 	branch := strings.TrimSpace(member.Branch)
 	ref := "refs/heads/" + branch
-	head, err := runner.Run(ctx, member.Repository, "git", "rev-parse", "--verify", ref)
-	if err != nil {
-		return Workspace{}, fmt.Errorf("inspect managed branch %q: %w", branch, err)
+	var head string
+	if plan.DeleteBranch {
+		head, err = runner.Run(ctx, member.Repository, "git", "rev-parse", "--verify", ref)
+		if err != nil {
+			return Workspace{}, fmt.Errorf("inspect managed branch %q: %w", branch, err)
+		}
+		head = strings.TrimSpace(head)
 	}
-	head = strings.TrimSpace(head)
+	if err := observation.validate(ctx); err != nil {
+		return Workspace{}, err
+	}
 	removed, err := RemoveWorktree(ctx, runner, member.Path, mode)
 	if err != nil {
 		return Workspace{}, err
 	}
+	// A successful command exit is not evidence of actual removal. Never delete
+	// the branch or let the caller drop its member record while the path or Git
+	// registration remains, or when the native observation is unavailable.
+	if err := observation.worktreeRemoved(ctx, runner, member.Path); err != nil {
+		return removed, err
+	}
+	if !plan.DeleteBranch {
+		return removed, nil
+	}
 	if _, err := runner.Run(ctx, member.Repository, "git", "update-ref", "-d", ref, head); err != nil {
 		return removed, fmt.Errorf("worktree removed but local branch %q could not be deleted: %w", branch, err)
+	}
+	if err := observation.validate(ctx); err != nil {
+		return removed, err
+	}
+	remaining, err := runner.Run(ctx, member.Repository, "git", "for-each-ref", "--format=%(refname)", "--", ref)
+	if err != nil {
+		return removed, fmt.Errorf("local branch removal could not be observed: %w", err)
+	}
+	if err := observation.validate(ctx); err != nil {
+		return removed, err
+	}
+	if remaining != "" {
+		return removed, fmt.Errorf("local branch remains or was replaced after removal; inspect before retrying")
 	}
 	return removed, nil
 }
