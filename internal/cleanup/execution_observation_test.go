@@ -74,7 +74,7 @@ func TestCleanupExecutionObservationTracksActualDispatchWithoutChangingGuards(t 
 				stage, attempted, completed = "bundle_preflight", 0, 0
 			case "unsupported-source":
 				preview.Targets[0].Source = "unsupported"
-				stage, attempted, completed = "target_dispatch", 0, 0
+				stage, attempted, completed = "admission", 0, 0
 			case "invalid-mode":
 				options.Mode = integration.CleanupMode(255)
 				stage, attempted, completed = "admission", 0, 0

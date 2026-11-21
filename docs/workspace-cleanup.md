@@ -53,6 +53,13 @@ that cannot be reliably identified still block removal. Symlinks are unlinked
 without following targets outside the cleanup boundary. Protected data found
 inside a proposed deletion boundary remains a blocker, not disposable content.
 
+Execution first resolves every target to exactly one configured cleanup provider.
+A missing or duplicate provider rejects the whole bundle before resource leases
+or provider admission, preflight or removal callbacks. A supported first target
+is not permission to delete it before discovering an unsupported later target.
+Valid bundles retain native target order and all ownership/lease/preflight guards;
+provider failures after dispatch can still be partial and require a fresh preview.
+
 Existing completed-note relocation to `Tasks/Archived/<filename>.md` remains
 unchanged after the last workspace reference disappears. This preserves the
 canonical note; it is **not** a recovery archive for discarded workspace files

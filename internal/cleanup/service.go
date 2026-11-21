@@ -75,6 +75,19 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 		return protocol.CleanupResult{}, fmt.Errorf("cleanup targets are required")
 	}
 	result = protocol.CleanupResult{TaskID: preview.TaskID, Targets: make([]protocol.CleanupTarget, 0, len(preview.Targets))}
+	// Resolve the entire bundle before leases or provider callbacks. A missing
+	// or ambiguous later provider must not leave an earlier resource deleted.
+	providers := make(map[string]integration.CleanupProvider)
+	for _, target := range preview.Targets {
+		if _, ok := providers[target.Source]; ok {
+			continue
+		}
+		provider, ok := s.provider(target.Source)
+		if !ok {
+			return result, remainingError(preview, result, fmt.Errorf("source %q cannot unambiguously clean up local resources", target.Source))
+		}
+		providers[target.Source] = provider
+	}
 	// Acquire the entire set before deleting any resource. Workspace providers
 	// include the anchor, so its shared agent lease protects the full bundle.
 	var releases []func()
@@ -170,10 +183,7 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 		if err := ctx.Err(); err != nil {
 			return result, remainingError(preview, result, err)
 		}
-		provider, ok := s.provider(target.Source)
-		if !ok {
-			return result, remainingError(preview, result, fmt.Errorf("source %q cannot clean up local resources", target.Source))
-		}
+		provider := providers[target.Source]
 		if bound, ok := admitted[target.Source]; ok {
 			provider = bound
 		}
@@ -222,10 +232,14 @@ func remainingError(preview protocol.CleanupPreview, result protocol.CleanupResu
 }
 
 func (s Service) provider(sourceName string) (integration.CleanupProvider, bool) {
+	var selected integration.CleanupProvider
 	for _, provider := range s.providers {
 		if provider.Descriptor().Name == sourceName {
-			return provider, true
+			if selected != nil {
+				return nil, false
+			}
+			selected = provider
 		}
 	}
-	return nil, false
+	return selected, selected != nil
 }

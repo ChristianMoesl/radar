@@ -163,8 +163,10 @@ func TestPreflightScanRetainsServiceResourceConflicts(t *testing.T) {
 				}
 				source := scanCleanupSource{runnerCleanupSource: runnerCleanupSource{runner: &fakeRunner{}}, scan: scan}
 				// The actual reusable SBX name is admitted before provider preflight.
+				// Register its capability too; the failure-only stub must remain
+				// unreachable because the real scan stops the bundle first.
 				targets := []protocol.CleanupTarget{{Source: "sbx", Kind: "sandbox", ResourceID: owner.Sandbox.Name, Path: owner.Path, WorkspaceID: owner.ID}, target}
-				result, err := cleanup.New([]integration.CleanupProvider{source}).Execute(context.Background(), protocol.CleanupPreview{Targets: targets}, cleanup.ExecuteOptions{})
+				result, err := cleanup.New([]integration.CleanupProvider{source, failedSandboxCleanup{}}).Execute(context.Background(), protocol.CleanupPreview{Targets: targets}, cleanup.ExecuteOptions{})
 				if !checked || !errors.Is(err, stop) || len(result.Targets) != 0 {
 					t.Fatal("conflict proof did not run at actual preflight boundary", checked, result, err)
 				}
