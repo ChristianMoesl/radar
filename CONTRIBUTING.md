@@ -82,7 +82,7 @@ pi install /absolute/path/to/radar
 
 The package manifest points to `extensions/pi-radar/index.ts`; Pi loads the TypeScript directly. `pnpm check` typechecks it and runs unit tests, release-version checks, and an isolated packed-package startup/reload/session-switch test. The latter packs the actual npm distribution, verifies its file allowlist and manifest, and loads the extracted artifact without development dependencies. It uses fake Radar commands, separate Pi settings and no model calls. `make test` remains the Go test suite. Run both suites before delivery.
 
-Commit dependency changes with `pnpm-lock.yaml`. `pnpm-workspace.yaml` includes the independently versioned `agent-host` package and configures reviewed dependency build-script approvals. New dependency install scripts must be reviewed rather than globally enabled.
+Commit dependency changes with `pnpm-lock.yaml`. `pnpm-workspace.yaml` includes the shared-version `@christianmoesl/radar-agent` package in `agent-host` and configures reviewed dependency build-script approvals. New dependency install scripts must be reviewed rather than globally enabled.
 
 For sandbox development, keep dependencies on the sandbox's local filesystem if the host-mounted filesystem cannot reliably extract packages. Do not commit environment-specific dependency paths or registry URLs.
 
@@ -100,13 +100,13 @@ make install
 
 ## Release
 
-Releases are tag-driven. The Radar CLI and `@christianmoesl/pi-radar` npm package share a version. From a clean, up-to-date `main` checkout on Linux or macOS, a maintainer runs the [release procedure](docs/releases.md#cut-a-release) with an unused version:
+Releases are tag-driven. The Radar CLI, `@christianmoesl/pi-radar` and `@christianmoesl/radar-agent` share one version, even when one component is unchanged. From a clean, up-to-date `main` checkout on Linux or macOS, a maintainer runs the [release procedure](docs/releases.md#cut-a-release) with an unused version:
 
 ```sh
 make release VERSION=vX.Y.Z
 ```
 
-Do not manually bump version files first. The release script prepares and commits both version files, installs locked Pi dependencies, runs the Pi and Go suites, then signs and atomically pushes the validated commit and release refs. It does not build native archives locally or require Apple SDK tools. Success means the release was submitted, not published. The GitHub release workflow repeats the version and test checks, builds and authenticates the archives on macOS, and requires native Linux validation before publishing `linux/amd64`, `linux/arm64`, and `darwin/arm64` tarballs, plus `checksums.txt`, with generated notes from the changes since the previous tag. After the binary release succeeds, a dedicated GitHub-hosted job stages the packed Pi extension with `npm stage publish` using npm trusted publishing. Stable versions target npm's `latest` dist-tag; prereleases target `next`. A successful workflow means the binaries are published and the npm package is awaiting review, not publicly available yet. Review the package in npm's **Staged Packages** tab and approve with 2FA to make it available. The workflow summary records this approval requirement.
+Do not manually bump version files first. The release script prepares and commits both package manifests plus the Pi loaded-version constant, installs locked workspace dependencies, runs the TypeScript and Go suites, then signs and atomically pushes the validated commit and release refs. It does not build native archives locally or require Apple SDK tools. Success means the release was submitted, not published. The GitHub release workflow repeats the version and test checks, builds and authenticates the archives on macOS, and requires native Linux validation before publishing `linux/amd64`, `linux/arm64`, and `darwin/arm64` tarballs, plus `checksums.txt`, with generated notes from the changes since the previous tag. After the binary release succeeds, a dedicated GitHub-hosted matrix stages both packed npm packages from the same immutable tag commit with `npm stage publish` using stage-only trusted publishing. Stable versions target npm's `latest` dist-tag; prereleases target `next`. A successful workflow means the binaries are published and both npm packages are awaiting review, not publicly available yet. Review each package in npm's **Staged Packages** tab and approve with 2FA to make it available. The workflow summary records this approval requirement.
 
 ### Release notes
 
@@ -151,4 +151,4 @@ For tests against the dedicated real provider accounts, use the
 [live E2E workflow](docs/live-e2e.md). It runs on GitHub-hosted runners with
 encrypted CLI session persistence; regular pull-request CI remains offline.
 
-Install workspace dependencies with `pnpm install --frozen-lockfile`, build the CLI with `go build -o /tmp/radar ./cmd/radar`, then run `RADAR_BINARY=/tmp/radar pnpm --filter @christianmoesl/radar-agent-host check`. Build/pack the independently versioned host with `pnpm --filter @christianmoesl/radar-agent-host build` and `pnpm --dir agent-host pack --out /tmp/radar-agent-host.tgz`. CI runs the actual CLI/workspace fixture as well as provider HTTP fixtures and native checkpoint recovery. Every fixture registration requires a workspace. [The development guide](docs/durable-agents.md) covers SBX, storage, example definitions and stage-only npm publishing.
+Install workspace dependencies with `pnpm install --frozen-lockfile`, build the CLI with `go build -o /tmp/radar ./cmd/radar`, then run `RADAR_BINARY=/tmp/radar pnpm --filter @christianmoesl/radar-agent check`. Build/pack the shared-version SDK with `pnpm --filter @christianmoesl/radar-agent build` and `pnpm --dir agent-host pack --out /tmp/radar-agent.tgz`. CI runs the actual CLI/workspace fixture as well as provider HTTP fixtures and native checkpoint recovery. Every fixture registration requires a workspace. [The development guide](docs/durable-agents.md) covers SBX, storage, example definitions and stage-only npm publishing.

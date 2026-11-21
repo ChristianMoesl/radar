@@ -16,12 +16,16 @@ async function main(mode, tag) {
   if (mode === "validate") return;
 
   const manifestPath = new URL("../package.json", import.meta.url);
+  const agentPath = new URL("../agent-host/package.json", import.meta.url);
   const modulePath = new URL("../extensions/pi-radar/version.ts", import.meta.url);
-  for (const path of [manifestPath, modulePath]) {
+  for (const path of [manifestPath, agentPath, modulePath]) {
     if (!(await lstat(path)).isFile()) throw new Error(`release version file must be a regular file: ${path.pathname}`);
   }
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) throw new Error("package.json must contain an object");
+  const agent = JSON.parse(await readFile(agentPath, "utf8"));
+  if (!agent || typeof agent !== "object" || Array.isArray(agent)) throw new Error("agent-host/package.json must contain an object");
+  if (agent.name !== "@christianmoesl/radar-agent") throw new Error("agent-host/package.json must name @christianmoesl/radar-agent");
   const moduleText = await readFile(modulePath, "utf8");
   const declarations = [...moduleText.matchAll(declaration)];
   if (declarations.length !== 1) throw new Error("extensions/pi-radar/version.ts must contain exactly one literal radarPackageVersion declaration");
@@ -36,15 +40,22 @@ async function main(mode, tag) {
     if (declarations[0][1] !== manifest.version) {
       throw new Error("extensions/pi-radar/version.ts must match package.json (loaded-version reporting)");
     }
+    if (agent.version !== manifest.version) {
+      throw new Error("agent-host/package.json must match package.json (shared release version)");
+    }
     console.log(`Validated release ${tag}`);
     return;
   }
 
-  // Validate both inputs before writing either. Preserve unrelated manifest
+  // Validate all inputs before writing any. Preserve unrelated manifest
   // fields and module contents, and don't dirty already-aligned files.
   if (manifest.version !== target) {
     manifest.version = target;
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+  }
+  if (agent.version !== target) {
+    agent.version = target;
+    await writeFile(agentPath, JSON.stringify(agent, null, 2) + "\n");
   }
   if (declarations[0][1] !== target) {
     await writeFile(modulePath, moduleText.replace(declaration, `export const radarPackageVersion = "${target}";`));

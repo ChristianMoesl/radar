@@ -1,6 +1,6 @@
 # Releases and macOS updates
 
-Radar's CLI and `@christianmoesl/pi-radar` share a release version. The small
+Radar's CLI, `@christianmoesl/pi-radar` and `@christianmoesl/radar-agent` share one release version, including unchanged components. The small
 macOS notifier has its own version and immutable artifacts. Homebrew is the
 recommended Linux installation/update owner after the [publication gate](#linux-homebrew-rollout).
 Linux manual archives/source builds and Windows/WSL remain available. The built-in
@@ -125,9 +125,10 @@ later without replacing the release contract.
   and verifies notifier history/ref identity **before modifying files**. Local
   `main` may be ahead of `origin/main`; behind/diverged branches and staged,
   unstaged or untracked changes are rejected. It never merges or resets work.
-- It synchronizes `package.json` and `extensions/pi-radar/version.ts`, repairing
-  even a previously committed partial bump, and creates `chore: release vX.Y.Z`
-  only when those files change. That commit contains only the two version files.
+- It synchronizes `package.json`, `agent-host/package.json` and
+  `extensions/pi-radar/version.ts`, repairing even a previously committed partial
+  bump, and creates `chore: release vX.Y.Z` only when those files change. That
+  commit contains only these three version files.
   The module still captures the actually loaded version for Pi sessions;
   `pnpm check:release vX.Y.Z` remains a **read-only** check in CI.
 - It installs locked development dependencies and runs `pnpm check` and

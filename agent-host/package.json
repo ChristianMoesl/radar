@@ -1,6 +1,6 @@
 {
-  "name": "@christianmoesl/radar-agent-host",
-  "version": "0.1.0",
+  "name": "@christianmoesl/radar-agent",
+  "version": "0.7.0",
   "description": "Programmable pi-durable agents hosted by Radar",
   "type": "module",
   "license": "MIT",
@@ -46,5 +46,9 @@
     "type": "git",
     "url": "git+https://github.com/ChristianMoesl/radar.git",
     "directory": "agent-host"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   }
 }

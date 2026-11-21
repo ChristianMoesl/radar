@@ -129,18 +129,18 @@ jobs:
           ln -s /usr/bin/fdfind "$RUNNER_TEMP/fd"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - run: go build -o "$RUNNER_TEMP/radar" ./cmd/radar
-      - run: pnpm --filter @christianmoesl/radar-agent-host check
+      - run: pnpm --filter @christianmoesl/radar-agent check
         env:
           RADAR_BINARY: ${{ runner.temp }}/radar
       - name: Validate live MCP setup and revocation safeguards
         run: node --experimental-strip-types --test scripts/mcp-live.test.mjs scripts/mcp-lifecycle.test.mjs
-      - run: pnpm --filter @christianmoesl/radar-agent-host build
-      - run: pnpm --dir agent-host pack --out "$RUNNER_TEMP/radar-agent-host.tgz"
-      - run: node scripts/smoke-agent-package.mjs "$RUNNER_TEMP/radar-agent-host.tgz"
+      - run: pnpm --filter @christianmoesl/radar-agent build
+      - run: pnpm --dir agent-host pack --out "$RUNNER_TEMP/radar-agent.tgz"
+      - run: node scripts/smoke-agent-package.mjs "$RUNNER_TEMP/radar-agent.tgz"
       - uses: actions/upload-artifact@v7.0.2
         with:
-          name: radar-agent-host
-          path: ${{ runner.temp }}/radar-agent-host.tgz
+          name: radar-agent
+          path: ${{ runner.temp }}/radar-agent.tgz
       - run: go test ./internal/agentservice ./internal/workspacelease ./internal/integration/agent
 
   pi:

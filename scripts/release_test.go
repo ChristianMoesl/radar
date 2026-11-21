@@ -37,6 +37,7 @@ func releaseFixture(t *testing.T, failure string) *exec.Cmd {
 	for name, data := range map[string][]byte{
 		"macos/RadarNotifier/VERSION":        []byte("1.2.3\n"),
 		"package.json":                       []byte(`{"version":"0.1.0"}`),
+		"agent-host/package.json":            []byte(`{"name":"@christianmoesl/radar-agent","version":"0.1.0"}`),
 		"extensions/pi-radar/version.ts":     []byte("export const radarPackageVersion = \"0.1.0\";\n"),
 		"scripts/release-version.mjs":        mustReadScript(t, "release-version.mjs"),
 		"scripts/notifier-release-state.mjs": mustReadScript(t, "notifier-release-state.mjs"),
@@ -54,11 +55,11 @@ printf 'git %s\n' "$*" >> "$RELEASE_CALLS"
 case "$*" in
   'rev-parse --show-toplevel') printf '%s\n' "$RELEASE_ROOT";;
   'branch --show-current') printf 'main\n';;
-  'status --porcelain'|'status --porcelain -- . :!package.json :!extensions/pi-radar/version.ts'|'merge-base --is-ancestor origin/main HEAD') ;;
+  'status --porcelain'|'status --porcelain -- . :!package.json :!agent-host/package.json :!extensions/pi-radar/version.ts'|'merge-base --is-ancestor origin/main HEAD') ;;
   'rev-parse HEAD'|'rev-parse origin/main'|'rev-parse --short=12 HEAD') printf 'fixture-commit\n';;
-  'rev-parse -q --verify refs/tags/v0.1.1'|'diff --quiet HEAD -- package.json extensions/pi-radar/version.ts') exit 1;;
+  'rev-parse -q --verify refs/tags/v0.1.1'|'diff --quiet HEAD -- package.json agent-host/package.json extensions/pi-radar/version.ts') exit 1;;
   'ls-remote --exit-code --tags origin refs/tags/v0.1.1') exit 2;;
-  'commit --only -m chore: release v0.1.1 -- package.json extensions/pi-radar/version.ts') ;;
+  'commit --only -m chore: release v0.1.1 -- package.json agent-host/package.json extensions/pi-radar/version.ts') ;;
   'rev-parse -q --verify refs/tags/notifier-v1.2.3')
     case "$RELEASE_MODE" in
       existing) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n';;
@@ -185,7 +186,7 @@ func TestReleaseRestoresTerminalAndPreservesValidationResult(t *testing.T) {
 			if published != (failure == "") {
 				t.Fatalf("tag/push boundary violated: %s", calls)
 			}
-			reminder := "Action required after CI finishes: approve @christianmoesl/pi-radar@0.1.1 with 2FA."
+			reminder := "Action required after CI finishes: approve @christianmoesl/pi-radar@0.1.1 and @christianmoesl/radar-agent@0.1.1 with 2FA."
 			link := "Open Staged Packages: https://www.npmjs.com/settings/christianmoesl/staged-packages"
 			if failure == "" {
 				if !strings.Contains(string(output), reminder) || !strings.Contains(string(output), link) {

@@ -13,7 +13,7 @@ const source = fileURLToPath(new URL("../../", import.meta.url));
 // Real Git commits/refs in disposable repositories only. Pushes go to a bare
 // directory in the fixture, never the user's remote. Git signing is substituted;
 // gh, package installation and builds cannot access the network or user config.
-async function fixture(t: TestContext, manifestVersion = "0.1.0", moduleVersion = "0.1.0") {
+async function fixture(t: TestContext, manifestVersion = "0.1.0", moduleVersion = "0.1.0", agentVersion = manifestVersion) {
   const root = await mkdtemp(join(tmpdir(), "radar-release-git-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, "repo"), origin = join(root, "origin.git"), bin = join(root, "bin");
@@ -33,6 +33,8 @@ async function fixture(t: TestContext, manifestVersion = "0.1.0", moduleVersion 
     await writeFile(join(repo, "scripts", script), await readFile(join(source, "scripts", script)));
   }
   await mkdir(join(repo, "extensions/pi-radar"), { recursive: true });
+  await mkdir(join(repo, "agent-host"));
+  await writeFile(join(repo, "agent-host/package.json"), JSON.stringify({ name: "@christianmoesl/radar-agent", version: agentVersion }) + "\n");
   await mkdir(join(repo, "macos/RadarNotifier"), { recursive: true });
   await writeFile(join(repo, "macos/RadarNotifier/VERSION"), "1.2.3\n");
   await writeFile(join(repo, "package.json"), JSON.stringify({ name: "fixture", version: manifestVersion }) + "\n");
@@ -95,9 +97,9 @@ esac
   };
 }
 
-for (const [manifest, module, expectedCommits] of [["0.1.0", "0.1.0", 2], ["0.2.0", "0.1.0", 2], ["0.2.0", "0.2.0", 1]] as const) {
-  test(`one release command prepares ${manifest}/${module} and submits the tested commit without native builds`, async t => {
-    const h = await fixture(t, manifest, module);
+for (const [manifest, module, agent, expectedCommits] of [["0.1.0", "0.1.0", "0.1.0", 2], ["0.2.0", "0.1.0", "0.2.0", 2], ["0.2.0", "0.2.0", "0.1.0", 2], ["0.2.0", "0.2.0", "0.2.0", 1]] as const) {
+  test(`one release command prepares ${manifest}/${module}/${agent} and submits the tested commit without native builds`, async t => {
+    const h = await fixture(t, manifest, module, agent);
     const notifier = await h.remote("refs/tags/notifier-v1.2.3");
     const { stdout } = await h.run();
     const head = await h.git("rev-parse", "HEAD");
@@ -109,11 +111,12 @@ for (const [manifest, module, expectedCommits] of [["0.1.0", "0.1.0", 2], ["0.2.
     assert.equal(await h.remote("refs/tags/v0.2.0^{}"), head);
     assert.equal(await h.remote("refs/tags/notifier-v1.2.3"), notifier);
     assert.equal(JSON.parse(await h.git("show", `${head}:package.json`)).version, "0.2.0");
+    assert.equal(JSON.parse(await h.git("show", `${head}:agent-host/package.json`)).version, "0.2.0");
     assert.match(await h.git("show", `${head}:extensions/pi-radar/version.ts`), /"0\.2\.0"/);
     if (expectedCommits === 2) {
       assert.equal(await h.git("log", "-1", "--format=%s"), "chore: release v0.2.0");
       const files = (await h.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")).split("\n");
-      assert.ok(files.every(file => ["package.json", "extensions/pi-radar/version.ts"].includes(file)));
+      assert.ok(files.every(file => ["package.json", "agent-host/package.json", "extensions/pi-radar/version.ts"].includes(file)));
     }
     const calls = await h.calls();
     assert.deepEqual(calls.split("\n").filter(call => /^(pnpm|make) /.test(call)), [

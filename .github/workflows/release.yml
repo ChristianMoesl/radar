@@ -146,9 +146,19 @@ jobs:
         run: scripts/publish-release.sh "$GITHUB_REF_NAME"
 
   stage-npm:
-    name: Stage Pi package for npm approval
+    name: Stage ${{ matrix.package }} for npm approval
     needs: publish
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: '@christianmoesl/pi-radar'
+            directory: '.'
+            artifact: pi-radar.tgz
+          - package: '@christianmoesl/radar-agent'
+            directory: agent-host
+            artifact: radar-agent.tgz
     permissions:
       contents: read
       id-token: write
@@ -156,6 +166,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
 
       # No dependency cache in staging jobs. npm uses the job's OIDC identity,
       # not a persistent NODE_AUTH_TOKEN or NPM_TOKEN secret.
@@ -181,9 +193,13 @@ jobs:
         run: pnpm check
 
       - name: Stage using npm trusted publishing
+        env:
+          NPM_PACKAGE_NAME: ${{ matrix.package }}
+          NPM_PACKAGE_DIRECTORY: ${{ matrix.directory }}
+          NPM_PACKAGE_ARTIFACT: ${{ matrix.artifact }}
         run: |
-          package="${RUNNER_TEMP}/pi-radar.tgz"
-          pnpm pack --out "$package"
+          package="${RUNNER_TEMP}/${NPM_PACKAGE_ARTIFACT}"
+          pnpm --dir "$NPM_PACKAGE_DIRECTORY" pack --out "$package"
           version="$(node -p 'require("./package.json").version')"
           tag=latest
           if [[ "$version" == *-* ]]; then
@@ -191,7 +207,7 @@ jobs:
           fi
           npm stage publish "$package" --access public --tag "$tag"
           {
-            printf '## Pi package staged\n\n'
-            printf '`@christianmoesl/pi-radar@%s` is staged for `%s`, not publicly published.\n\n' "$version" "$tag"
+            printf '## npm package staged\n\n'
+            printf '`%s@%s` is staged for `%s`, not publicly published.\n\n' "$NPM_PACKAGE_NAME" "$version" "$tag"
             printf 'Review it in the **Staged Packages** tab on npmjs.com and approve with 2FA to publish.\n'
           } >> "$GITHUB_STEP_SUMMARY"

@@ -23,11 +23,11 @@ try {
     ],
     { maxBuffer: 1024 * 1024 },
   );
-  const packageDir = join(dir, "node_modules/@christianmoesl/radar-agent-host");
+  const packageDir = join(dir, "node_modules/@christianmoesl/radar-agent");
   const metadata = JSON.parse(
     await readFile(join(packageDir, "package.json"), "utf8"),
   );
-  assert.equal(metadata.name, "@christianmoesl/radar-agent-host");
+  assert.equal(metadata.name, "@christianmoesl/radar-agent");
   assert.match(
     await readFile(join(packageDir, metadata.bin["radar-agent-host"]), "utf8"),
     /^#!\/usr\/bin\/env node/,
@@ -40,15 +40,15 @@ try {
     join(dir, "probe.mjs"),
     `
 import assert from 'node:assert/strict';
-import {PROTOCOL_VERSION,createModels,createRegistry,WorkspaceExecution,defineTask,present,defineAgent} from '@christianmoesl/radar-agent-host';
-import {createReadOnlyTools,previewWorkspace} from '@christianmoesl/radar-agent-host/tools';
-import {githubSignature,forwardEvent} from '@christianmoesl/radar-agent-host/adapters';
-import {McpServices} from '@christianmoesl/radar-agent-host/mcp';
-import {createMcpTools,createHostMcpTools,mcpModelToolName} from '@christianmoesl/radar-agent-host/mcp-tools';
+import {PROTOCOL_VERSION,createModels,createRegistry,WorkspaceExecution,defineTask,present,defineAgent} from '@christianmoesl/radar-agent';
+import {createReadOnlyTools,previewWorkspace} from '@christianmoesl/radar-agent/tools';
+import {githubSignature,forwardEvent} from '@christianmoesl/radar-agent/adapters';
+import {McpServices} from '@christianmoesl/radar-agent/mcp';
+import {createMcpTools,createHostMcpTools,mcpModelToolName} from '@christianmoesl/radar-agent/mcp-tools';
 assert.equal(PROTOCOL_VERSION,1);
 for(const value of [createModels,createRegistry,WorkspaceExecution,defineTask,present,defineAgent,createReadOnlyTools,previewWorkspace,githubSignature,forwardEvent,McpServices,createMcpTools,createHostMcpTools,mcpModelToolName]) assert.equal(typeof value,'function');
 for(const name of ['counter','review','jira','datadog','datadog-simple','mcp-check']) {
- const definition=(await import('./node_modules/@christianmoesl/radar-agent-host/dist/examples/'+name+'.js')).default;
+ const definition=(await import('./node_modules/@christianmoesl/radar-agent/dist/examples/'+name+'.js')).default;
  assert.equal(typeof definition.configure,'function');assert.ok(definition.eventTask.definition);
 }
 `,
@@ -59,11 +59,11 @@ for(const name of ['counter','review','jira','datadog','datadog-simple','mcp-che
   await writeFile(
     join(dir, "probe.mts"),
     `
-import {defineAgent,type SimpleAgentOptions,type AgentLimits,type HostContext,type WorkspaceBinding} from '@christianmoesl/radar-agent-host';
+import {defineAgent,type SimpleAgentOptions,type AgentLimits,type HostContext,type WorkspaceBinding} from '@christianmoesl/radar-agent';
 const limits:AgentLimits={maxTurns:3};
 const options:SimpleAgentOptions={name:'fixture',instructions:'Review fixture',model:{provider:'openai',modelId:'gpt-4.1-mini'},mcp:{placement:'host',connections:[]},limits};
 const definition=defineAgent(options);
-import {createMcpTools,createHostMcpTools,type WorkspaceMcpConfig} from '@christianmoesl/radar-agent-host/mcp-tools';
+import {createMcpTools,createHostMcpTools,type WorkspaceMcpConfig} from '@christianmoesl/radar-agent/mcp-tools';
 async function inspectTools(host:HostContext,config:WorkspaceMcpConfig){
  const workspace=await createMcpTools(host.execution,config);
  const mode:'local'|'sbx'=workspace.inspection.execution.mode;

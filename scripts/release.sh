@@ -126,13 +126,13 @@ fi
 # A failed validation leaves this local commit available for inspection/retry;
 # no reset, tag or remote update is performed to hide a failure.
 validate node scripts/release-version.mjs prepare "$version"
-worktree_status="$(git status --porcelain -- . ':!package.json' ':!extensions/pi-radar/version.ts')"
+worktree_status="$(git status --porcelain -- . ':!package.json' ':!agent-host/package.json' ':!extensions/pi-radar/version.ts')"
 if [[ "$(git branch --show-current)" != main || "$(git rev-parse HEAD)" != "$starting_commit" || -n "$worktree_status" ]]; then
   echo "repository changed while preparing the version; inspect local changes before retrying" >&2
   exit 1
 fi
-if ! git diff --quiet HEAD -- package.json extensions/pi-radar/version.ts; then
-  git commit --only -m "chore: release $version" -- package.json extensions/pi-radar/version.ts
+if ! git diff --quiet HEAD -- package.json agent-host/package.json extensions/pi-radar/version.ts; then
+  git commit --only -m "chore: release $version" -- package.json agent-host/package.json extensions/pi-radar/version.ts
 fi
 release_commit="$(git rev-parse HEAD)"
 commit="$(git rev-parse --short=12 HEAD)"
@@ -158,6 +158,6 @@ git tag -s "$version" "$release_commit" -m "$version"
 git push --atomic origin "$release_commit:refs/heads/main" "$notifier_ref" "refs/tags/$version"
 
 echo "submitted release $version from $commit"
-echo "GitHub Actions must build and validate the archives before publishing binaries and staging the Pi package."
-echo "Action required after CI finishes: approve @christianmoesl/pi-radar@${version#v} with 2FA."
+echo "GitHub Actions must build and validate the archives before publishing binaries and staging both npm packages."
+echo "Action required after CI finishes: approve @christianmoesl/pi-radar@${version#v} and @christianmoesl/radar-agent@${version#v} with 2FA."
 echo "Open Staged Packages: https://www.npmjs.com/settings/christianmoesl/staged-packages"

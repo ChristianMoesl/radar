@@ -12,7 +12,7 @@ const MAX_BYTES = 1024 * 1024;
 // Imported in the selected workspace, never from the host installation. That
 // environment owns its MCP config, OAuth store, server processes and packages.
 const bridge = String.raw`
-import {McpServices} from '@christianmoesl/radar-agent-host/mcp';
+import {McpServices} from '@christianmoesl/radar-agent/mcp';
 const request=JSON.parse(process.argv[1]);
 const client=new McpServices(request.paths,request.connections);
 const controller=new AbortController();

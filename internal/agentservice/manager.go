@@ -210,7 +210,7 @@ func hostCommand(entrypoint string) (string, []string, error) {
 			break
 		}
 	}
-	return "", nil, fmt.Errorf("agent host missing; install @christianmoesl/radar-agent-host in the definition's project (RADAR_AGENT_HOST selects a development runner)")
+	return "", nil, fmt.Errorf("agent host missing; install @christianmoesl/radar-agent in the definition's project (RADAR_AGENT_HOST selects a development runner)")
 }
 
 func status(ctx context.Context, reg Registration) protocol.AgentStatus {

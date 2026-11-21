@@ -92,7 +92,7 @@ persisted agent configuration:
 ```
 
 ```ts
-import { McpServices } from "@christianmoesl/radar-agent-host/mcp";
+import { McpServices } from "@christianmoesl/radar-agent/mcp";
 
 const mcp = new McpServices(undefined, host.config.mcpConnections ?? []);
 const tools = await mcp.tools("datadog");
@@ -138,8 +138,8 @@ tool. Persist this **non-secret** configuration with the registered definition:
 ```
 
 ```ts
-import { createRegistry } from "@christianmoesl/radar-agent-host";
-import { createMcpTools } from "@christianmoesl/radar-agent-host/mcp-tools";
+import { createRegistry } from "@christianmoesl/radar-agent";
+import { createMcpTools } from "@christianmoesl/radar-agent/mcp-tools";
 
 // In the existing definition's async configure(host):
 const selected = await createMcpTools(host.execution, host.config.mcp);

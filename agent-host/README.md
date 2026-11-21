@@ -15,11 +15,11 @@ radar agent inspect assistant
 
 Exports:
 
-- `@christianmoesl/radar-agent-host`: `defineAgent`, `SimpleAgentOptions`, `AgentLimits`, native pi-durable APIs, `AgentDefinition`, event/context types, `present`, `WorkspaceExecution` and `HostContext.mcp`.
-- `@christianmoesl/radar-agent-host/tools`: prepared workspace operations, read-only tools, active workspace leases.
-- `@christianmoesl/radar-agent-host/mcp`: trusted host-side MCP connections and the `radar-mcp login/tools` command.
-- `@christianmoesl/radar-agent-host/mcp-tools`: selected native durable MCP tools routed through the associated local/SBX workspace, strict schemas and non-secret execution/tool inspection.
-- `@christianmoesl/radar-agent-host/adapters`: generic event forwarding and signed GitHub webhook bridge.
+- `@christianmoesl/radar-agent`: `defineAgent`, `SimpleAgentOptions`, `AgentLimits`, native pi-durable APIs, `AgentDefinition`, event/context types, `present`, `WorkspaceExecution` and `HostContext.mcp`.
+- `@christianmoesl/radar-agent/tools`: prepared workspace operations, read-only tools, active workspace leases.
+- `@christianmoesl/radar-agent/mcp`: trusted host-side MCP connections and the `radar-mcp login/tools` command.
+- `@christianmoesl/radar-agent/mcp-tools`: selected native durable MCP tools routed through the associated local/SBX workspace, strict schemas and non-secret execution/tool inspection.
+- `@christianmoesl/radar-agent/adapters`: generic event forwarding and signed GitHub webhook bridge.
 
 Start with `dist/examples/datadog-simple.js`: a small tool-using definition with explicit host MCP selection, built-in model resolution and no hand-coded collection pipeline. Configure model/provider authentication once in the runtime host environment, optionally using an explicitly selected private `RADAR_AGENT_AUTH_FILE`; no interactive/other-agent store is discovered or copied. See the guide for limits, recovery, credential refresh and explicit workspace versus host-service placement.
 

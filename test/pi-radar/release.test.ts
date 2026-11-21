@@ -14,6 +14,8 @@ async function fixture(t: { after: (cleanup: () => Promise<void>) => void }, ver
   const root = await mkdtemp(join(tmpdir(), "radar-release-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "scripts"));
+  await mkdir(join(root, "agent-host"));
+  await writeFile(join(root, "agent-host/package.json"), JSON.stringify({ name: "@christianmoesl/radar-agent", version }));
   await mkdir(join(root, "extensions/pi-radar"), { recursive: true });
   await writeFile(join(root, "extensions/pi-radar/version.ts"), `export const radarPackageVersion = "${version}";\n`);
   await writeFile(join(root, "package.json"), JSON.stringify({ version }));
@@ -109,9 +111,10 @@ async function stagingFixture(t: Parameters<typeof fixture>[0], version: string)
   const lines = workflow.split("\n");
   const step = lines.indexOf("      - name: Stage using npm trusted publishing");
   assert.ok(step >= 0, "the release workflow must stage the npm artifact");
-  assert.equal(lines[step + 1], "        run: |");
+  const run = lines.indexOf("        run: |", step);
+  assert.ok(run > step);
   const shell: string[] = [];
-  for (const line of lines.slice(step + 2)) {
+  for (const line of lines.slice(run + 1)) {
     if (!line.startsWith("          ")) break;
     shell.push(line.slice(10));
   }
@@ -124,8 +127,8 @@ async function stagingFixture(t: Parameters<typeof fixture>[0], version: string)
 const { appendFileSync, writeFileSync } = require('node:fs');
 const args = process.argv.slice(2);
 appendFileSync(process.env.FIXTURE_CALLS, JSON.stringify({command: 'pnpm', args}) + '\\n');
-if (process.env.FAIL_PACK || args[0] !== 'pack' || args[1] !== '--out') process.exit(1);
-writeFileSync(args[2], 'fixture tarball');
+if (process.env.FAIL_PACK || args[0] !== '--dir' || args[1] !== process.env.NPM_PACKAGE_DIRECTORY || args[2] !== 'pack' || args[3] !== '--out') process.exit(1);
+writeFileSync(args[4], 'fixture tarball');
 `, { mode: 0o755 });
   await writeFile(join(bin, "npm"), `#!/usr/bin/env node
 const { appendFileSync, existsSync } = require('node:fs');
@@ -136,6 +139,7 @@ if (process.env.FAIL_STAGE || args[0] !== 'stage' || args[1] !== 'publish' || !e
   const env = {
     PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,
     RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: summary, FIXTURE_CALLS: calls,
+    NPM_PACKAGE_NAME: "@christianmoesl/pi-radar", NPM_PACKAGE_DIRECTORY: ".", NPM_PACKAGE_ARTIFACT: "pi-radar.tgz",
   };
   return {
     root, summary,
@@ -146,21 +150,23 @@ if (process.env.FAIL_STAGE || args[0] !== 'stage' || args[1] !== 'publish' || !e
   };
 }
 
-for (const [version, tag] of [["0.1.1", "latest"], ["0.2.0-rc.1", "next"]]) {
-  test(`npm release stages ${version} for ${tag} and requests human approval`, async t => {
-    const staging = await stagingFixture(t, version);
-    await staging.run();
-    const tarball = join(staging.root, "pi-radar.tgz");
-    assert.deepEqual(await staging.calls(), [
-      { command: "pnpm", args: ["pack", "--out", tarball] },
-      { command: "npm", args: ["stage", "publish", tarball, "--access", "public", "--tag", tag] },
-    ]);
-    const summary = await readFile(staging.summary, "utf8");
-    assert.ok(summary.includes(`@christianmoesl/pi-radar@${version}`));
-    assert.ok(summary.includes(`staged for \`${tag}\``));
-    assert.match(summary, /not publicly published/);
-    assert.match(summary, /approve with 2FA/);
-  });
+for (const [name, directory, artifact] of [["@christianmoesl/pi-radar", ".", "pi-radar.tgz"], ["@christianmoesl/radar-agent", "agent-host", "radar-agent.tgz"]]) {
+  for (const [version, tag] of [["0.1.1", "latest"], ["0.2.0-rc.1", "next"]]) {
+    test(`npm release stages ${name}@${version} for ${tag} and requests human approval`, async t => {
+      const staging = await stagingFixture(t, version);
+      await staging.run({ NPM_PACKAGE_NAME: name, NPM_PACKAGE_DIRECTORY: directory, NPM_PACKAGE_ARTIFACT: artifact });
+      const tarball = join(staging.root, artifact);
+      assert.deepEqual(await staging.calls(), [
+        { command: "pnpm", args: ["--dir", directory, "pack", "--out", tarball] },
+        { command: "npm", args: ["stage", "publish", tarball, "--access", "public", "--tag", tag] },
+      ]);
+      const summary = await readFile(staging.summary, "utf8");
+      assert.ok(summary.includes(`${name}@${version}`));
+      assert.ok(summary.includes(`staged for \`${tag}\``));
+      assert.match(summary, /not publicly published/);
+      assert.match(summary, /approve with 2FA/);
+    });
+  }
 }
 
 test("npm release does not stage anything if packing fails", async t => {
@@ -178,7 +184,7 @@ test("failed npm staging fails the job without claiming approval is ready", asyn
 });
 
 for (const moduleVersion of ["0.1.0", "0.2.0"]) {
-  test(`preparation synchronizes both copies, including a partial bump from ${moduleVersion}`, async t => {
+  test(`preparation synchronizes all copies, including a partial bump from ${moduleVersion}`, async t => {
     const { root, script } = await fixture(t, moduleVersion);
     const manifest = { name: "fixture", version: "0.2.0", scripts: { test: "unchanged" }, pi: { extensions: ["entry.ts"] } };
     await writeFile(join(root, "package.json"), JSON.stringify(manifest, null, 4) + "\n");
@@ -195,7 +201,7 @@ for (const moduleVersion of ["0.1.0", "0.2.0"]) {
 for (const version of ["v01.2.3", "v1.02.3", "v1.2.03", "v1.2", "v1.2.3-", "v1.2.3-rc..1", "v1.2.3-01", "v1.2.3+build.1", "1.2.3"]) {
   test(`preparation rejects ${version} without changing either file`, async t => {
     const { root, script } = await fixture(t, "0.1.0");
-    const paths = [join(root, "package.json"), join(root, "extensions/pi-radar/version.ts")];
+    const paths = [join(root, "package.json"), join(root, "agent-host/package.json"), join(root, "extensions/pi-radar/version.ts")];
     const before = await Promise.all(paths.map(path => readFile(path, "utf8")));
     await assert.rejects(exec(process.execPath, [script, "prepare", version]));
     assert.deepEqual(await Promise.all(paths.map(path => readFile(path, "utf8"))), before);
@@ -220,4 +226,56 @@ test("CI check remains read-only and rejects a stale loaded-version constant", a
   await writeFile(join(root, "package.json"), JSON.stringify({ version: "0.2.0" }));
   await assert.rejects(exec(process.execPath, [script, "check", "v0.2.0"]), /loaded-version reporting/);
   assert.match(await readFile(join(root, "extensions/pi-radar/version.ts"), "utf8"), /"0\.1\.0"/);
+});
+
+test("the SDK must use the shared version even when its implementation is unchanged", async t => {
+  const { root, script } = await fixture(t, "0.2.0");
+  const path = join(root, "agent-host/package.json");
+  const agent = { name: "@christianmoesl/radar-agent", version: "0.1.0", exports: { ".": "./dist/src/index.js", "./tools": "./dist/src/tools.js" } };
+  await writeFile(path, JSON.stringify(agent, null, 4) + "\n");
+  const before = await readFile(path, "utf8");
+  await assert.rejects(exec(process.execPath, [script, "check", "v0.2.0"]), /shared release version/);
+  assert.equal(await readFile(path, "utf8"), before);
+  await exec(process.execPath, [script, "prepare", "v0.2.0"]);
+  assert.deepEqual(JSON.parse(await readFile(path, "utf8")), { ...agent, version: "0.2.0" });
+  await exec(process.execPath, [script, "check", "v0.2.0"]);
+  const aligned = await readFile(path, "utf8");
+  await exec(process.execPath, [script, "prepare", "v0.2.0"]);
+  assert.equal(await readFile(path, "utf8"), aligned);
+});
+
+for (const invalid of ["null", "[]", "{", '{"name":"unexpected","version":"0.1.0"}']) {
+  test(`invalid SDK manifest ${invalid} cannot partially bump the other versions`, async t => {
+    const { root, script } = await fixture(t, "0.1.0");
+    await writeFile(join(root, "agent-host/package.json"), invalid);
+    const paths = ["package.json", "agent-host/package.json", "extensions/pi-radar/version.ts"].map(path => join(root, path));
+    const before = await Promise.all(paths.map(path => readFile(path, "utf8")));
+    await assert.rejects(exec(process.execPath, [script, "prepare", "v0.2.0"]));
+    assert.deepEqual(await Promise.all(paths.map(path => readFile(path, "utf8"))), before);
+  });
+}
+
+test("a symlinked or missing SDK manifest fails before any version write", async t => {
+  const { root, script } = await fixture(t, "0.1.0");
+  const agent = join(root, "agent-host/package.json");
+  const before = await readFile(join(root, "package.json"), "utf8");
+  await rm(agent);
+  await assert.rejects(exec(process.execPath, [script, "prepare", "v0.2.0"]));
+  await symlink(join(root, "package.json"), agent);
+  await assert.rejects(exec(process.execPath, [script, "prepare", "v0.2.0"]), /regular file/);
+  assert.equal(await readFile(join(root, "package.json"), "utf8"), before);
+  assert.match(await readFile(join(root, "extensions/pi-radar/version.ts"), "utf8"), /"0\.1\.0"/);
+});
+
+test("both packages stage independently from the same immutable release commit, never a manual second workflow", async () => {
+  const workflow = await readFile(join(repository, ".github/workflows/release.yml"), "utf8");
+  const stage = workflow.split("\n  stage-npm:\n")[1];
+  assert.match(stage, /fail-fast: false/);
+  assert.match(stage, /package: '@christianmoesl\/pi-radar'\n\s+directory: '\.'/);
+  assert.match(stage, /package: '@christianmoesl\/radar-agent'\n\s+directory: agent-host/);
+  assert.match(stage, /ref: \$\{\{ github.sha \}\}/);
+  assert.match(stage, /contents: read\n\s+id-token: write/);
+  assert.match(stage, /check:release "\$\{GITHUB_REF_NAME\}"/);
+  assert.doesNotMatch(stage, /(?:secrets\.(?:NODE_AUTH_TOKEN|NPM_TOKEN)|(?:NODE_AUTH_TOKEN|NPM_TOKEN):|npm publish|npm stage approve)/);
+  await assert.rejects(readFile(join(repository, ".github/workflows/agent-host-package.yml")), { code: "ENOENT" });
 });

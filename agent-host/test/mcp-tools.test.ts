@@ -24,7 +24,7 @@ async function fixture() {
     command: process.execPath,
     args: [resolve(import.meta.dirname, "fixtures/scoped-mcp.mjs"), settings, calls],
   } } }));
-  const pkg = join(dir, "node_modules/@christianmoesl/radar-agent-host");
+  const pkg = join(dir, "node_modules/@christianmoesl/radar-agent");
   await mkdir(pkg, { recursive: true });
   await writeFile(join(pkg, "package.json"), JSON.stringify({ type: "module", exports: { "./mcp": "./mcp.ts" } }));
   await symlink(resolve(import.meta.dirname, "../src/mcp.ts"), join(pkg, "mcp.ts"));

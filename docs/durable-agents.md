@@ -7,7 +7,7 @@ Radar can supervise a code-defined [pi-durable](https://github.com/earendil-work
 `defineAgent` composes the existing durable runtime. A definition can be plain JavaScript, with no provider registration, tool dispatcher, task phases or presentation documents:
 
 ```js
-import { defineAgent } from "@christianmoesl/radar-agent-host";
+import { defineAgent } from "@christianmoesl/radar-agent";
 
 export default defineAgent({
   name: "datadog-health",
@@ -38,18 +38,18 @@ This is an additive authoring API, not a storage migration. Existing registered 
 
 ## Install and register
 
-The Node host is a separate project dependency, `@christianmoesl/radar-agent-host`, requiring Node 24+. It uses pi-durable, pi-ai and chord **1.3.0**. It is independent of the interactive `pi-radar` package. Ordinary Pi extensions and session files are not durable definitions.
+The Node host is a separate project dependency, `@christianmoesl/radar-agent`, requiring Node 24+. It uses pi-durable, pi-ai and chord **1.3.0**. It is independent of the interactive `pi-radar` package. Ordinary Pi extensions and session files are not durable definitions.
 
 Until the first npm release is approved, build and install a local package from this checkout:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm --filter @christianmoesl/radar-agent-host build
-pnpm --dir agent-host pack --out /tmp/radar-agent-host.tgz
+pnpm --filter @christianmoesl/radar-agent build
+pnpm --dir agent-host pack --out /tmp/radar-agent.tgz
 mkdir -p /path/to/my-agents
 cd /path/to/my-agents
 npm init -y
-npm install /tmp/radar-agent-host.tgz
+npm install /tmp/radar-agent.tgz
 ```
 
 After publication, install the exact approved host version in that project and retain its lockfile. Radar finds `node_modules/.bin/radar-agent-host` by walking up from the definition's file. It never downloads a host automatically. For checkout development only, set `RADAR_AGENT_HOST=/path/to/radar/agent-host/src/runner.ts` before starting the daemon. Restart the daemon after changing its inherited environment.
@@ -87,7 +87,7 @@ Create `counter.ts` inside the agent project:
 import {
   createModels, createRegistry, defineDoc, defineTask, present,
   type AgentDefinition, type AgentEvent,
-} from "@christianmoesl/radar-agent-host";
+} from "@christianmoesl/radar-agent";
 
 const Count = defineDoc<{ n: number }>({
   kind: "example.count", version: 1, scope: "session",
@@ -380,7 +380,7 @@ Read failures and posting uncertainty persist attention and a **Reconcile** acti
 
 ## Editable examples
 
-Source lives in `agent-host/examples`; packed JavaScript examples live in the package's `dist/examples`. Copy the selected definition and `shared` helper into your project. Replace their `../src/index` imports with `@christianmoesl/radar-agent-host`, and `../src/tools` imports with `@christianmoesl/radar-agent-host/tools`. Use `.ts` or `.js` consistently for copied helper imports. The SDK is normal code, without a workflow manifest or DSL.
+Source lives in `agent-host/examples`; packed JavaScript examples live in the package's `dist/examples`. Copy the selected definition and `shared` helper into your project. Replace their `../src/index` imports with `@christianmoesl/radar-agent`, and `../src/tools` imports with `@christianmoesl/radar-agent/tools`. Use `.ts` or `.js` consistently for copied helper imports. The SDK is normal code, without a workflow manifest or DSL.
 
 **Review assistant:** configure `reviewer`, `repositories` (GitHub `owner/name` to mounted local repository paths), `modelId`, and optionally `skill`. Register against a prepared workspace containing those repositories. Copy `examples/review/SKILL.md` to `<workspace>/skills/review/SKILL.md` or select a workspace skill. Supply `OPENAI_API_KEY` before starting the daemon. The example filters review requests for the configured user, handles synchronization/end-of-request events, records exact base/head IDs, prepares a distinct review worktree per head inside the associated workspace, and exposes findings/follow-up. Newer heads mark older conversation labels outdated. Findings are local; the example does not post GitHub reviews. It requires local Git access to both commits, or configured origin fetch access inside SBX. With manual workspace confirmation, use its declared preparation action after inspecting the plan.
 
@@ -430,8 +430,8 @@ Tests establish process-crash recovery, not a universal host/power-failure guara
 
 ```sh
 go build -o /tmp/radar ./cmd/radar
-RADAR_BINARY=/tmp/radar pnpm --filter @christianmoesl/radar-agent-host check
-pnpm --filter @christianmoesl/radar-agent-host build
+RADAR_BINARY=/tmp/radar pnpm --filter @christianmoesl/radar-agent check
+pnpm --filter @christianmoesl/radar-agent build
 go test -p 2 ./...
 pnpm check
 ```
@@ -450,4 +450,4 @@ RADAR_BINARY=/tmp/radar RADAR_SBX_KIT="$PWD/sandbox/kit" \
 
 The test creates and removes a disposable sandbox; it needs no model, Jira or Datadog account. `RADAR_SBX_KIT` can select another local kit, including one that pins an image digest. The independent sandbox-image workflow builds and tests the image and its private Docker daemon. The review model remains a labelled fixture. Real provider accounts and real model quality require separate validation; an SBX pass does not establish those results.
 
-Host packages are packed in CI, separately versioned from the CLI, and can be staged by `.github/workflows/agent-host-package.yml`. A maintainer must bootstrap the npm package, configure that workflow as a **stage-only** trusted publisher, then review/approve each stage with 2FA. CI never directly publishes it. See [npm publishing](npm-publishing.md) for the existing staging procedure. No account or external credential is created by this feature.
+The SDK package shares the CLI and Pi extension's release version, even when its implementation is unchanged. The normal immutable-tag `release.yml` workflow stages both npm packages after validated binary publication; there is no separate manual agent-package workflow. A maintainer must bootstrap the renamed npm package if needed, configure `release.yml` as a **stage-only** trusted publisher, then review/approve each package's stage with 2FA. CI never directly publishes it. See [npm publishing](npm-publishing.md) for the existing staging procedure. No account or external credential is created by this feature.

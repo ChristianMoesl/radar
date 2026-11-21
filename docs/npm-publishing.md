@@ -1,11 +1,11 @@
-# Publishing the Pi package
+# Publishing the npm packages
 
-Radar releases its CLI binaries and stages `@christianmoesl/pi-radar` from the same `vX.Y.Z` tags. The npm package version is `X.Y.Z`. Development dependencies and artifact creation use the pnpm version pinned in `package.json`; npm CLI uses trusted publishing to stage the artifact for review. An npm maintainer must approve it with 2FA before it becomes public.
+Radar releases its CLI binaries and stages `@christianmoesl/pi-radar` and `@christianmoesl/radar-agent` from the same immutable `vX.Y.Z` tagged commit. Both npm versions are `X.Y.Z`, even when a component is unchanged. Development dependencies and artifact creation use the pnpm version pinned in `package.json`; npm CLI uses trusted publishing to stage the artifact for review. An npm maintainer must approve it with 2FA before it becomes public.
 
-The package is MIT-licensed and contains `LICENSE`, `package.json`, `README.md`, and the modules under `extensions/pi-radar/` (entrypoint, loaded-version reporter, and version constant). Pi loads the TypeScript directly and supplies its runtime imports. The package neither bundles Pi nor installs the Radar binary.
+The Pi package is MIT-licensed and contains `LICENSE`, `package.json`, `README.md`, and the modules under `extensions/pi-radar/` (entrypoint, loaded-version reporter, and version constant). Pi loads the TypeScript directly and supplies its runtime imports. The package neither bundles Pi nor installs the Radar binary.
 
 Choose the version once with `make release VERSION=vX.Y.Z` from a clean local
-`main` checkout on Linux or macOS. It updates both version files, commits the bump
+`main` checkout on Linux or macOS. It updates both package manifests and the Pi loaded-version constant, commits the bump
 if needed, validates and atomically pushes main plus the signed tags. Native
 archive builds and publication gates run in GitHub Actions, not on the initiating
 host; a successful command means submission, not publication. Do not run `npm version`
@@ -14,14 +14,15 @@ and recovery](releases.md#cut-a-release). npm approval below remains manual.
 
 ## Prerequisites
 
-- The package was bootstrap-published as `0.1.0`. The failed `v0.1.1` release tag is already used; prepare `0.1.2` for the corrected baseline. Use a new unpublished version and never move a used tag or republish the bootstrap version.
-- The approving npm account needs publish access to `@christianmoesl/pi-radar` and 2FA enabled.
+- The Pi package already has a publishing history. The renamed `@christianmoesl/radar-agent` is a separate npm identity: its owner must establish the package and configure its trusted publisher if that has not been done. Any required first publication is a maintainer-reviewed, 2FA-protected bootstrap, not an automated CI fallback. Renaming source does not transfer the old package's access or publisher settings. Do not create tokens or change account/repository permissions to work around missing setup.
+- Choose one new, unused version for all three components. Never move a used tag, replace an existing npm version or publish the checkout's historical baseline version merely to bootstrap the new name.
+- The approving npm account needs publish access to both packages and 2FA enabled.
 - Staged publishing requires npm **11.15.0 or newer** and Node **22.14.0 or newer**. The workflow uses Node 24 and npm `^11.15.0`; use a compatible npm CLI for local review and approval.
 - Configure the package's trusted publisher below. Do not add an npm publishing token to GitHub secrets.
 
 ## Configure npm's trusted publisher
 
-Open `@christianmoesl/pi-radar` on npmjs.com, then **Settings → Trusted publishing**, and select GitHub Actions:
+For **each** of `@christianmoesl/pi-radar` and `@christianmoesl/radar-agent` on npmjs.com, open **Settings → Trusted publishing** and select GitHub Actions:
 
 | Field | Value |
 | --- | --- |
@@ -33,9 +34,9 @@ Open `@christianmoesl/pi-radar` on npmjs.com, then **Settings → Trusted publis
 
 Use the filename only, not `.github/workflows/release.yml`. Values are case-sensitive. The workflow and `package.json.repository.url` must identify the actual GitHub repository. If the connection already permits direct publishing, update its allowed actions so CI can only stage packages.
 
-The shipped workflow uses a dedicated `stage-npm` job with `contents: read` and `id-token: write`. npm exchanges that job's GitHub-issued OIDC identity for short-lived, package-scoped staging credentials. It needs neither `NPM_TOKEN` nor `NODE_AUTH_TOKEN`. The job uses a GitHub-hosted runner, a fresh locked dependency installation without caching, version validation, and Pi checks before packing and running `npm stage publish`. It runs only after binary release validation and publication succeed. Stable versions target `latest`; prereleases target `next`, taking effect only after approval.
+The shipped workflow uses a dedicated `stage-npm` matrix with one independent job per package, `contents: read` and `id-token: write`. Each checks out the exact triggering commit, validates the shared tag/version and packs its own manifest directory; no second manually dispatched package workflow remains. npm exchanges that job's GitHub-issued OIDC identity for short-lived, package-scoped staging credentials. It needs neither `NPM_TOKEN` nor `NODE_AUTH_TOKEN`. The job uses a GitHub-hosted runner, a fresh locked dependency installation without caching, version validation, and Pi checks before packing and running `npm stage publish`. It runs only after binary release validation and publication succeed. Stable versions target `latest`; prereleases target `next`, taking effect only after approval.
 
-A green release workflow means the binaries are published and the npm artifact is staged. The GitHub Actions summary explicitly states that npm review and 2FA approval are still required. Existing npm installs continue to receive the previously approved version until then. CLI binary releases do not wait for npm approval. The coordinated macOS updater, however, offers a release only once the exact matching npm version is public. See [release signatures and notifier artifact reuse](releases.md).
+A green release workflow means the binaries are published and both npm artifacts are staged, not publicly published. The GitHub Actions summary explicitly states that npm review and 2FA approval are still required. Existing npm installs continue to receive the previously approved version until then. CLI binary releases do not wait for npm approval. The coordinated macOS updater, however, offers a release only once the exact matching npm version is public. See [release signatures and notifier artifact reuse](releases.md).
 
 GitHub-hosted Actions runners are supported; custom forge OIDC and self-hosted runners are not. Use `github.com/ChristianMoesl/radar` as `origin` and push release tags directly there. The downstream `code.moesl.net` mirror is not part of the publishing path.
 
@@ -48,6 +49,7 @@ For CLI review, log in interactively on your own machine:
 ```sh
 npm login --registry=https://registry.npmjs.org
 npm stage list @christianmoesl/pi-radar
+npm stage list @christianmoesl/radar-agent
 ```
 
 Use the stage ID from that list, not the package name or release tag:
@@ -61,7 +63,7 @@ npm stage approve "$stage_id"
 
 Approval requires 2FA. If the artifact is wrong, use `npm stage reject "$stage_id"` instead of approving it. Never ask CI to handle an OTP or add an automated approval step: OIDC supports `npm stage publish`, but review/approval commands require interactive authentication.
 
-If staging fails after the binary release succeeds, fix the cause and re-run only the failed `stage-npm` job. If it succeeds, review that existing stage rather than re-running CI to stage it again. Rejection does not retract the already-published binaries; use a new release version for corrected content and never move an existing tag.
+If one package's staging fails after the binary release succeeds, inspect both packages' stages, fix the cause and re-run **only that failed matrix job**. The other package can already be staged: review its existing stage instead of re-staging it. A successful summary identifies only its own package. If both succeeded, review and approve both existing stages; do not re-run the matrix. Rejection does not retract the already-published binaries; use a new release version for corrected content and never move an existing tag.
 
 ## Protect the publishing path
 
