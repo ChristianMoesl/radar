@@ -21,13 +21,28 @@ func BlockingMessages(targets []protocol.CleanupTarget) []string {
 	return AutomaticBlockingMessages(targets, false)
 }
 
+// SafetyExpires recognizes only the native local-data warning kinds whose
+// explicit expiry flag can waive automatic blockers. A flag on an unknown or
+// structural warning must not grant deletion authority.
+func SafetyExpires(safety protocol.CleanupSafety) bool {
+	if !safety.Expires {
+		return false
+	}
+	switch safety.Kind {
+	case "local_changes", "unpublished_data", "safety_check_unavailable", "unknown_entries", "expired_entries":
+		return true
+	default:
+		return false
+	}
+}
+
 // AutomaticBlockingMessages ignores only explicitly expiring data-loss warnings.
 // Unknown safety kinds and structural failures remain blocking at any age.
 func AutomaticBlockingMessages(targets []protocol.CleanupTarget, expired bool) []string {
 	var messages []string
 	for _, target := range targets {
 		for _, safety := range target.Safety {
-			if safety.BlocksAutomatic && !(expired && safety.Expires) {
+			if safety.BlocksAutomatic && !(expired && SafetyExpires(safety)) {
 				messages = append(messages, safety.Message)
 			}
 		}

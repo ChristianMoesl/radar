@@ -343,9 +343,13 @@ Only opaque target IDs, retained task identity, fixed provider/effect labels,
 local-branch preservation/deletion, remote-repository preservation and native
 safety kinds/flags/counts are returned. Raw paths, branch/runtime names, messages,
 errors and private operations are withheld. Unknown notice kinds remain unknown.
-Proposed later cleanup may discard local changes and worktrees/branches, remove
-sandbox/local state and terminal processes, remove workspace files/registration
-and archive a completed note. This preview does not itself remove those resources.
+`expires` uses native policy: only flagged local changes, unpublished data,
+safety-check uncertainty and unknown anchor data expire. Native `expired_entries`
+map to `unknown_entries`; private drift stays bound. Unknown/structural warnings
+never expire; Pi rejects contradictory classifications.
+Later cleanup may discard local changes/worktrees/branches, sandbox/local state,
+terminal processes and workspace files/registration, and archive a completed note.
+This preview removes none of them.
 
 For each native target with a path, two bounded registry scans reuse the production
 registration decoder and removal-owner predicate. `ownership_evidence` is
@@ -388,9 +392,11 @@ preflight, expiry policy and automatic eligibility still require fresh guards. A
 not an executable plan, an apply token, publication approval or apply consent.
 Native safety flags describe planner evidence, never permission to
 weaken a safeguard. Maintenance apply remains unsupported; expired proposals use the explicit mode below.
-CLI, daemon and the actual loaded Pi extension must match schema 28 without a
-legacy fallback; separately installed extension sources require updating/reload
-independently from `make install`. No persisted format or cleanup policy changes.
+CLI, daemon and loaded Pi must match schema 28; no legacy fallback. Update/reload
+separately installed extension sources independently from `make install`.
+Wire shape, persisted formats, known-data expiry and manual confirmation are
+unchanged; automatic unknown/structural blockers cannot expire. Apply remains
+unsupported.
 
 ## Explicit expired-cleanup proposals
 
@@ -415,19 +421,15 @@ anchor. An absent anchor fails unavailable, never an apparently empty/safe plan.
 The complete pre-filter bundle shares the 512-target / 1 MiB evidence budgets and
 private cursor fingerprint, including excluded-resource drift.
 
-Every row identifies `cleanup_mode: "expired"`, the exact registered `workspace_id`
-and production `expiry_at`. `automatic_blocker_count` reuses native expired-mode
-semantics: explicitly expiring warnings can cease blocking, while other blockers
-remain. Original safety flags/counts are preserved. The expiry gate is cached,
-not execution eligibility; registered-agent counts still include stopped owners,
-and zero/unavailable counts do not establish runtime ownership, leases or consent.
-The same explicitly approved existing-inode lease probes and point-in-time
-limitations above apply to the selected expiry targets; contention blocks the
-bundle even when an expiring warning no longer does. All existing
-30-second/output/privacy/drift safeguards apply. The preview never calls cleanup
-execution, creates/reserves leases, changes retention policy or removes data.
-Maintenance apply remains unsupported. CLI, daemon and loaded Pi extension must
-match diagnostics schema 28; there is no legacy fallback.
+Rows identify `cleanup_mode: "expired"`, exact registered `workspace_id` and native
+`expiry_at`. `automatic_blocker_count` uses native expiry semantics and effective
+safety flags/counts above. The cached expiry gate is not execution eligibility.
+Agent counts include stopped owners; zero/unavailable counts establish neither
+runtime ownership nor leases/consent. Approved existing-inode lease probes retain their point-in-time
+limits; contention blocks the whole bundle despite warning expiry. Existing
+30-second/output/privacy/drift guards apply. No cleanup execution, lease creation
+or reservation, policy change or data removal occurs. Apply remains unsupported;
+CLI, daemon and loaded Pi must match schema 28 without fallback.
 
 ## Explicit registered-runtime observations
 

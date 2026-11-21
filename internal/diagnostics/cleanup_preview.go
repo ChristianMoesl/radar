@@ -326,16 +326,20 @@ func cleanupTargetView(target protocol.CleanupTarget) (protocol.DiagnosticCleanu
 	if target.ResourceID == "" {
 		return view, fmt.Errorf("cleanup preview native target identity unavailable")
 	}
-	// Preserve native safety distinctions and blocker/expiry flags, not raw text.
+	// Preserve native safety distinctions and effective expiry policy, not raw
+	// text or an unsupported provider flag. Full native bytes still bind drift.
 	counts := map[protocol.DiagnosticCleanupSafety]int{}
 	for _, notice := range target.Safety {
 		kind := notice.Kind
 		switch kind {
 		case "local_changes", "unpublished_data", "safety_check_unavailable", "deletes_local_data", "unknown_entries", "disposable_data":
+		case "expired_entries":
+			// The same unknown anchor data, selected under native expired mode.
+			kind = "unknown_entries"
 		default:
 			kind = "other_notice"
 		}
-		key := protocol.DiagnosticCleanupSafety{Kind: kind, BlocksAutomatic: notice.BlocksAutomatic, Expires: notice.Expires}
+		key := protocol.DiagnosticCleanupSafety{Kind: kind, BlocksAutomatic: notice.BlocksAutomatic, Expires: cleanup.SafetyExpires(notice)}
 		counts[key]++
 	}
 	for key, count := range counts {

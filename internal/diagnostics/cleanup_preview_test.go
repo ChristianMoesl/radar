@@ -327,7 +327,7 @@ func TestCleanupTargetEffectsAndNativeSafetyFlags(t *testing.T) {
 		{"workspace", "missing_member", "forget_missing_worktree_registration", "retain_local_branch"},
 	} {
 		v, err := cleanupTargetView(protocol.CleanupTarget{Source: tc.source, Kind: tc.kind, ResourceID: "resource", Safety: []protocol.CleanupSafety{{Kind: "new-private-notice", BlocksAutomatic: true, Expires: true, Message: "private"}}})
-		if err != nil || v.Effect != tc.effect || v.BranchEffect != tc.branch || len(v.Safety) != 1 || v.Safety[0].Kind != "other_notice" || !v.Safety[0].BlocksAutomatic || !v.Safety[0].Expires || v.Safety[0].Count != 1 {
+		if err != nil || v.Effect != tc.effect || v.BranchEffect != tc.branch || len(v.Safety) != 1 || v.Safety[0].Kind != "other_notice" || !v.Safety[0].BlocksAutomatic || v.Safety[0].Expires || v.Safety[0].Count != 1 {
 			t.Fatalf("effect/safety=%+v %v", v, err)
 		}
 	}

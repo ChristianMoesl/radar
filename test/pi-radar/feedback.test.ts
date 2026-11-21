@@ -17,6 +17,30 @@ function expiredPreviewFixture(scope="origin") {
  v.safety_notice_count=2;v.automatic_blocker_count=1;
  return data;
 }
+for (const kind of ["other_notice", "deletes_local_data", "disposable_data"]) {
+ for (const mode of ["manual", "expired"]) test(`cleanup preview rejects unsupported expiring safety: ${mode}/${kind}`, async () => {
+  const h=harness(); h.activate(); h.approvals.push(true);
+  const data:any=mode==="expired"?expiredPreviewFixture():cleanupPreviewFixture();
+  const view=data.inventory.items[0].cleanup_preview;
+  view.safety=[{kind,blocks_automatic:true,expires:true,count:1}];
+  view.safety_notice_count=1; view.automatic_blocker_count=mode==="expired"?0:1;
+  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+  await assert.rejects(h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",parent_id:"record",...(mode==="expired"?{cleanup_mode:"expired",workspace_id:"registered"}:{})},undefined,undefined,h.ctx));
+ });
+}
+for (const kind of ["local_changes", "unpublished_data", "safety_check_unavailable", "unknown_entries", "other_notice"]) {
+ for (const mode of ["manual", "expired"]) test(`cleanup preview preserves native expiry classification: ${mode}/${kind}`, async () => {
+  const h=harness(); h.activate(); h.approvals.push(true);
+  const data:any=mode==="expired"?expiredPreviewFixture():cleanupPreviewFixture();
+  const view=data.inventory.items[0].cleanup_preview;
+  const expires=kind!=="other_notice";
+  view.safety=[{kind,blocks_automatic:true,expires,count:1}];
+  view.safety_notice_count=1; view.automatic_blocker_count=mode==="expired"&&expires?0:1;
+  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+  const result=await h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",parent_id:"record",...(mode==="expired"?{cleanup_mode:"expired",workspace_id:"registered"}:{})},undefined,undefined,h.ctx);
+  assert.deepEqual(result.details.inventory.items[0].cleanup_preview,JSON.parse(JSON.stringify(view)));
+ });
+}
 for(const scope of ["origin","feedback","installation"])test(`expired cleanup requires fresh exact candidate approval and ${scope} scope`,async()=>{
  const h=harness();h.activate();h.approvals.push(true);const data=expiredPreviewFixture(scope);
  h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify(data),stderr:"",killed:false};};

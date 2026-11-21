@@ -430,6 +430,8 @@ function validateCleanupPreview(data: Record<string, unknown>, params: {parent_i
   let total=0,blocking=0;const safety=new Set<string>();
   for(const notice of v.safety){
    if(!notice||Object.keys(notice).some(key=>!["kind","blocks_automatic","expires","count"].includes(key))||!["local_changes","unpublished_data","safety_check_unavailable","deletes_local_data","unknown_entries","disposable_data","other_notice"].includes(notice.kind)||typeof notice.blocks_automatic!=="boolean"||typeof notice.expires!=="boolean"||!Number.isSafeInteger(notice.count)||notice.count<1||notice.count>1024)fail();
+   // Native policy never lets unsupported/structural kinds waive a blocker.
+   if(notice.expires&&!["local_changes","unpublished_data","safety_check_unavailable","unknown_entries"].includes(notice.kind))fail();
    const key=JSON.stringify([notice.kind,notice.blocks_automatic,notice.expires]);if(safety.has(key))fail();safety.add(key);total+=notice.count;if(notice.blocks_automatic&&!(expired&&notice.expires))blocking+=notice.count;
   }
   if(total!==v.safety_notice_count||blocking!==v.automatic_blocker_count)fail();
