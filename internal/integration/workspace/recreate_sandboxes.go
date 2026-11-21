@@ -336,5 +336,5 @@ func recreateOneSandbox(ctx context.Context, runner Runner, logger *slog.Logger,
 	} else if _, err := client.Run(ctx, group.Path, "exec", target.SandboxName, "true"); err != nil {
 		return errors.New("sandbox recreated but could not restore running state")
 	}
-	return nil
+	return observeSandboxRecreation(ctx, runner, root, group, target)
 }

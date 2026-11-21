@@ -599,6 +599,16 @@ Sandboxes are rebuilt sequentially using the existing bounded removal/create
 retry path (at most three transient-create attempts), with a five-minute limit
 per target. Readiness retains its existing 60-second bound. Published ports are
 restored and each target's previous running/stopped state is restored on success.
+Before reporting `recreated`, Radar independently observes a different runtime
+lifetime, absence of the original lifetime (including renamed originals), the
+recorded mounts/loopback IPv4 ports, and the requested running/stopped state.
+Identity/state/mount observations bracket the port read under retained workspace
+and sandbox-name admission; registration and cancellation are rechecked. Missing,
+ambiguous, changed or unreadable evidence fails the target without another
+removal, recreation or state-restoration attempt. The resulting runtime and
+registration are retained for inspection; failure can follow partial changes.
+These are bounded point-in-time observations, not an atomic reservation against
+external SBX changes, health/secret/kit-content attestation or safe-retry consent.
 Host worktrees, notes, the workspace registry, and host Pi/tmux sessions are not
 replaced. Commands inside the sandbox are interrupted and never replayed;
 services must be restarted by their normal startup mechanism.
