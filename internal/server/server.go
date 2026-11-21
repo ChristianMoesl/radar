@@ -145,6 +145,11 @@ func (s *Server) handle(conn net.Conn) {
 			continue
 		}
 
+		if !uniqueRequestMembers(scanner.Bytes()) {
+			_ = encoder.Encode(protocol.Response{OK: false, Error: "ambiguous or excessively nested request members"})
+			continue
+		}
+
 		s.logger.Debug("request received", "method", req.Method)
 		if taskID, ok := strings.CutPrefix(req.Method, "ack:"); ok {
 			if err := s.store.Acknowledge(taskID); err != nil {

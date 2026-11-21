@@ -238,6 +238,9 @@ expired/superseded previews and previews from a previous daemon are rejected
 before execution. The ID is freshness evidence, **not consent**: confirmation
 is still required. Native ownership, activity, alias/path/runtime leases and
 preflight checks still run; the ID reserves no resources or future safety.
+The daemon rejects duplicate JSON members before routing or consuming a plan,
+including escaped names and case-folded aliases of typed fields. Provider-owned
+map keys remain case-sensitive; repeated keys in separate targets are distinct.
 
 Plans are consumed before native execution, even on cancellation, guard failure
 or partial removal. A lost response must never be automatically replayed; refresh,
