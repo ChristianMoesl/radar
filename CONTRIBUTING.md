@@ -4,7 +4,15 @@ Radar has a Go CLI and an installable TypeScript Pi extension. Contributions sho
 
 ## Development setup
 
-Install Go and Git for source development (on macOS, `brew install go git`).
+Install Go, Git, Node.js 24+ and the pnpm version pinned in `package.json` for
+source development. Run `pnpm install --frozen-lockfile` before building.
+`make build`, `make install` and `make dist` embed the matching production-only
+agent SDK/dependencies into the CLI, so binary installers and updates need no
+separate runtime installation. Payload generation uses an isolated copy of the
+locked workspace with lifecycle scripts disabled and offline package deployment;
+it never prunes the checkout's development dependencies. Current dependencies are
+portable JavaScript/WASM; the packer rejects native Node addons rather than
+silently including host-specific binaries in cross-platform archives.
 `make install` checks and offers to install required runtime tools: Git, tmux,
 fd, Node.js 24+, npm, Pi and gh. Permission defaults to Yes, but installations
 still require a terminal and explicit acceptance. Suitable existing tools are
@@ -151,4 +159,15 @@ For tests against the dedicated real provider accounts, use the
 [live E2E workflow](docs/live-e2e.md). It runs on GitHub-hosted runners with
 encrypted CLI session persistence; regular pull-request CI remains offline.
 
-Install workspace dependencies with `pnpm install --frozen-lockfile`, build the CLI with `go build -o /tmp/radar ./cmd/radar`, then run `RADAR_BINARY=/tmp/radar pnpm --filter @christianmoesl/radar-agent check`. Build/pack the shared-version SDK with `pnpm --filter @christianmoesl/radar-agent build` and `pnpm --dir agent-host pack --out /tmp/radar-agent.tgz`. CI runs the actual CLI/workspace fixture as well as provider HTTP fixtures and native checkpoint recovery. Every fixture registration requires a workspace. [The development guide](docs/durable-agents.md) covers SBX, storage, example definitions and stage-only npm publishing.
+Install workspace dependencies with `pnpm install --frozen-lockfile`, build with
+`make build`, then run `RADAR_BINARY="$PWD/radar" pnpm --filter @christianmoesl/radar-agent check`.
+`RADAR_TEST_SUPPLIED_RUNTIME=1 go test ./internal/agentservice -run '^TestSuppliedRuntime'`
+requires the embedded payload and exercises clean-directory registration/start
+with root/subpath SDK imports, retained admission and stopped-state supervision.
+For Go-only iteration, generate the payload once with `make agent-runtime` before
+`go build`. Build/pack the independently consumable shared-version npm SDK with
+`pnpm --filter @christianmoesl/radar-agent build` and
+`pnpm --dir agent-host pack --out /tmp/radar-agent.tgz`. CI also runs actual
+CLI/workspace fixtures, provider HTTP fixtures and native checkpoint recovery.
+Every fixture registration requires a workspace. [The development guide](docs/durable-agents.md)
+covers SBX, storage, example definitions and stage-only npm publishing.

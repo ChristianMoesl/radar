@@ -6,6 +6,9 @@ import { AgentHost } from "./host.ts";
 import { MAX_FRAME_BYTES, PROTOCOL_VERSION, RpcError } from "./index.ts";
 import { radar } from "./tools.ts";
 import type { WorkspaceBinding } from "./environment.ts";
+import { installSdkResolution } from "./sdk-resolution.ts";
+
+installSdkResolution();
 
 const args = process.argv.slice(2);
 function arg(name: string): string {

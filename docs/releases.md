@@ -6,6 +6,13 @@ recommended Linux installation/update owner after the [publication gate](#linux-
 Linux manual archives/source builds and Windows/WSL remain available. The built-in
 `radar update` transaction remains macOS-only.
 
+Builds also embed the matching durable-agent SDK and its locked production
+dependencies in each Radar binary. Existing archive authentication, binary
+digests and installation/update rollback therefore cover the SDK without a
+second downloaded component or npm-publication dependency. Node remains a
+runtime prerequisite. Npm staging/approval still applies to independently
+consumed packages; it is not needed to start the SDK supplied with Radar.
+
 ## OAuth collector cutover: released in v0.7.0
 
 The Jira/TWG and Datadog/Pup OAuth changes shipped in the stable

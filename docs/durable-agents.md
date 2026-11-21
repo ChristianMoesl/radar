@@ -38,28 +38,45 @@ This is an additive authoring API, not a storage migration. Existing registered 
 
 ## Install and register
 
-The Node host is a separate project dependency, `@christianmoesl/radar-agent`, requiring Node 24+. It uses pi-durable, pi-ai and chord **1.3.0**. It is independent of the interactive `pi-radar` package. Ordinary Pi extensions and session files are not durable definitions.
+Radar supplies the matching `@christianmoesl/radar-agent` SDK and runner inside
+its binary. Node 24+ remains required. The supplied SDK uses pi-durable, pi-ai and
+chord **1.3.0**; it is independent of interactive Pi extensions/session files.
+Write a definition, register it and start it: no `npm init`, project SDK install,
+global package or separate SDK update command is needed.
 
-Until the first npm release is approved, build and install a local package from this checkout:
+The runtime resolves the public SDK and its supported `/tools`, `/adapters`,
+`/mcp` and `/mcp-tools` subpaths to Radar's copy, even if a project has a different
+SDK installed. Relative imports and other third-party dependencies keep normal
+Node resolution from the importing source file. Install your own dependencies
+normally; Radar does not supply arbitrary packages or rewrite project files.
+Editor autocomplete/type resolution is separate from runtime provisioning.
 
-```sh
-pnpm install --frozen-lockfile
-pnpm --filter @christianmoesl/radar-agent build
-pnpm --dir agent-host pack --out /tmp/radar-agent.tgz
-mkdir -p /path/to/my-agents
-cd /path/to/my-agents
-npm init -y
-npm install /tmp/radar-agent.tgz
-```
+Source builds use `pnpm install --frozen-lockfile` then `make build` (or
+`make install`). Node 24+ and the pinned pnpm must be available for the build.
+`make agent-runtime` generates the payload for direct `go build` development;
+a bare Go build without that payload cannot start supplied agents. For explicit
+checkout-runner development, `RADAR_AGENT_HOST=/path/to/radar/agent-host/src/runner.ts`
+still selects that runner. Restart the daemon after changing its environment.
 
-After publication, install the exact approved host version in that project and retain its lockfile. Radar finds `node_modules/.bin/radar-agent-host` by walking up from the definition's file. It never downloads a host automatically. For checkout development only, set `RADAR_AGENT_HOST=/path/to/radar/agent-host/src/runner.ts` before starting the daemon. Restart the daemon after changing its inherited environment.
+All supported binary installation/update paths carry the SDK with the binary,
+so the existing atomic binary replacement/rollback also selects its runtime.
+On first use, Radar unpacks its embedded, locked production dependencies into a
+private content-addressed `.runtime` directory under the agent state root. This
+is local extraction, never a start-time download or package-manager invocation.
+Subsequent starts reuse that tree. Updating Radar requires no additional SDK
+prompt or project change. New/recovered runners use the runtime in the active
+daemon binary; restart the daemon through the normal installation lifecycle.
+Already-running Node processes are not hot-swapped. Old runtime trees are
+retained so their later imports remain valid; they contain code, not credentials
+or checkpoints. Do not remove them while an old runner may still be alive.
 
 Configure Radar normally with `radar setup`, including the canonical note vault,
 workspace root and SBX settings. `agent add` prepares a dedicated `agent-<id>`
 workspace through the existing resource planner: canonical note, private shared
 directory and configured sandbox. It does not launch tmux or interactive Pi and
 never borrows the current session's workspace. Definitions, dependencies and
-credentials remain where explicitly installed; Radar does not copy or install them.
+credentials remain where explicitly installed; Radar does not copy them into
+the supplied runtime or install user-specific dependencies.
 
 With the default `workspace.auto_confirm: true`, registration provisions these
 resources directly. When confirmation is required, inspect and accept its exact
@@ -81,7 +98,7 @@ instead; Radar validates it but does not claim ownership or repair its runtime.
 Native model tools still follow the separate human-confirmation flow described
 in [workspace reconciliation](workspace-reconciliation.md).
 
-Create `counter.ts` inside the agent project:
+Create `counter.ts` in any ordinary source directory, with or without a package:
 
 ```ts
 import {

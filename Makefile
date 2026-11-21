@@ -1,4 +1,4 @@
-.PHONY: build build-radar manpages notifier install test dist release clean-dist clean
+.PHONY: build build-radar agent-runtime manpages notifier install test dist release clean-dist clean
 
 GO ?= go
 BINARY := radar
@@ -24,7 +24,11 @@ HOST_GOARCH := $(shell $(GO) env GOARCH)
 
 build: build-radar manpages $(if $(filter Darwin,$(HOST_OS)),notifier)
 
-build-radar:
+agent-runtime:
+	pnpm --filter @christianmoesl/radar-agent build
+	GO="$(GO)" node scripts/build-agent-runtime.mjs
+
+build-radar: agent-runtime
 	@if [ "$(shell $(GO) env GOOS)" = darwin ] && [ "$(HOST_GOARCH)" != arm64 ]; then \
 		echo "Radar requires Apple Silicon (arm64) on macOS" >&2; exit 1; \
 	fi
@@ -62,7 +66,7 @@ test:
 	$(GO) test -p 2 ./...
 	node --test scripts/linux-install.test.mjs
 
-dist: clean-dist manpages
+dist: clean-dist manpages agent-runtime
 	@set -eu; \
 	for target in $(DIST_TARGETS); do \
 		goos=$${target%/*}; \
@@ -112,3 +116,4 @@ clean-dist:
 clean: clean-dist
 	rm -rf $(BUILD_DIR)
 	rm -f $(BINARY)
+	rm -f internal/agentruntime/payload/runtime.zip

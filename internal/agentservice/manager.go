@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"radar/internal/agentruntime"
 	"radar/internal/integration"
 	"radar/internal/operationlock"
 	"radar/internal/process"
@@ -196,21 +197,20 @@ func Token(id string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-func hostCommand(entrypoint string) (string, []string, error) {
+func hostCommand() (string, []string, error) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		return "", nil, fmt.Errorf("Node.js 24+ is required for durable agents: %w", err)
+	}
 	if explicit := os.Getenv("RADAR_AGENT_HOST"); explicit != "" {
-		node, err := exec.LookPath("node")
-		return node, []string{explicit}, err
+		return node, []string{explicit}, nil
 	}
-	for dir := filepath.Dir(entrypoint); ; dir = filepath.Dir(dir) {
-		host := filepath.Join(dir, "node_modules", ".bin", "radar-agent-host")
-		if info, err := os.Stat(host); err == nil && info.Mode().IsRegular() {
-			return host, nil, nil
-		}
-		if filepath.Dir(dir) == dir {
-			break
-		}
+	root, err := Root()
+	if err != nil {
+		return "", nil, err
 	}
-	return "", nil, fmt.Errorf("agent host missing; install @christianmoesl/radar-agent in the definition's project (RADAR_AGENT_HOST selects a development runner)")
+	host, err := agentruntime.Ensure(root)
+	return node, []string{host}, err
 }
 
 func status(ctx context.Context, reg Registration) protocol.AgentStatus {
@@ -302,7 +302,7 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 	if ownerAlive(reg) {
 		return fmt.Errorf("runner process exists but is not ready; inspect its logs before replacement")
 	}
-	command, args, err := hostCommand(reg.Entrypoint)
+	command, args, err := hostCommand()
 	if err != nil {
 		return err
 	}

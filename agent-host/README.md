@@ -4,7 +4,8 @@ Code-defined [pi-durable](https://github.com/earendil-works/pi/tree/main/package
 
 Every registered agent belongs to a Radar workspace. Its workspace tools use that workspace's SBX sandbox when enabled. A short `defineAgent({ name, instructions, model, mcp, limits? })` definition gets ordinary durable event-to-conversation execution, exact selected tools, bounded investigation and persisted result/error presentation. The low-level native tasks/models/tools API remains available for custom workflows. Radar supplies durable event admission, supervision, interaction and workspace execution.
 
-Install this package in the definition's project. Export an `AgentDefinition` as the module's default export, then:
+Radar supplies this SDK and runner with its binary; do not install it separately
+to run a definition. Export an `AgentDefinition` as the module's default export, then:
 
 ```sh
 radar agent add ./agent.ts --id assistant --workspace /path/to/registered/workspace --config ./config.json
@@ -25,6 +26,6 @@ Start with `dist/examples/datadog-simple.js`: a small tool-using definition with
 
 Editable advanced examples are in `dist/examples`: counter, GitHub review assistant, Renovate review-agent tagging, Jira discussion assistant, and Datadog investigator. Model-based examples need configured credentials/model selection or explicit `fixture:true` for a deterministic model. Renovate tagging needs no model: subscribe with `--collection github` and confirm its author, exact comment and explicit backlog policy before activation.
 
-Read the [complete development guide](https://github.com/ChristianMoesl/radar/blob/main/docs/durable-agents.md) for the authoring example, installation from a local tarball, event/interaction contract, SBX boundary, retention, recovery guarantees, supported adapter operations and publishing.
+Read the [complete development guide](https://github.com/ChristianMoesl/radar/blob/main/docs/durable-agents.md) for supplied runtime resolution, source builds, the authoring example, event/interaction contract, SBX boundary, retention, recovery guarantees, supported adapter operations and publishing. The npm package remains available for package consumers; it is not an installation prerequisite for Radar-managed agents.
 
 Existing service definitions use trusted host MCP profiles. Definitions requiring workspace-routed MCP use `createMcpTools(host.execution, host.config.mcp)` with explicit configuration/state paths and selected server/tool pairs; the selected environment must own its package installation and read-only MCP session. No host credential store is copied and unavailable SBX never falls back to host execution. Workspace files/builds continue through the same local/SBX boundary. See [MCP setup and manual agent cutover](https://github.com/ChristianMoesl/radar/blob/main/docs/agent-mcp.md).

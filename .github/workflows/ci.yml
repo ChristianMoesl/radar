@@ -128,7 +128,11 @@ jobs:
           sudo apt-get install -y fd-find
           ln -s /usr/bin/fdfind "$RUNNER_TEMP/fd"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Bundle supplied agent runtime
+        run: make agent-runtime
       - run: go build -o "$RUNNER_TEMP/radar" ./cmd/radar
+      - name: Require clean-definition supplied runtime and retained-state lifecycle
+        run: RADAR_TEST_SUPPLIED_RUNTIME=1 go test -v ./internal/agentservice -run '^TestSuppliedRuntime' -count=1
       - run: pnpm --filter @christianmoesl/radar-agent check
         env:
           RADAR_BINARY: ${{ runner.temp }}/radar
@@ -184,6 +188,9 @@ jobs:
         with:
           node-version: 24
 
+      - uses: pnpm/action-setup@v6.1.0
+      - run: pnpm install --frozen-lockfile
+
       - name: Check Go formatting
         run: |
           files=$(gofmt -l .)
@@ -195,6 +202,9 @@ jobs:
 
       - name: Build
         run: make build
+
+      - name: Require supplied agent runtime in the built binary
+        run: RADAR_TEST_SUPPLIED_RUNTIME=1 go test -v ./internal/agentservice -run '^TestSuppliedRuntime' -count=1
 
       - name: Test
         run: make test
@@ -241,6 +251,14 @@ jobs:
         uses: actions/setup-node@v7.1.0
         with:
           node-version: 24
+
+      - uses: pnpm/action-setup@v6.1.0
+      - run: pnpm install --frozen-lockfile
+      - name: Bundle supplied agent runtime for native lifecycle tests
+        run: make agent-runtime
+
+      - name: Require supplied agent runtime on native macOS
+        run: RADAR_TEST_SUPPLIED_RUNTIME=1 go test -v ./internal/agentservice -run '^TestSuppliedRuntime' -count=1
 
       - name: Test installation and integration defaults on macOS
         run: go test ./scripts ./scripts/homebrew ./internal/app ./internal/config ./internal/collector ./internal/pi ./internal/notification ./internal/agentservice ./internal/workspacelease ./internal/onboarding ./internal/hostsetup ./internal/setup/... ./internal/integration/...
@@ -315,6 +333,8 @@ jobs:
         with:
           node-version: 24
       - uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
+      - uses: pnpm/action-setup@v6.1.0
+      - run: pnpm install --frozen-lockfile
       - name: Build native source archive
         run: make dist VERSION=v1.2.3 DIST_TARGETS="linux/${{ matrix.arch }}"
       - name: Install, test and uninstall with real Homebrew

@@ -282,8 +282,12 @@ package manager cannot supply Node 24+ or another required version, install it
 on PATH and rerun the installer. A headless installation succeeds only when all
 prerequisites are already available; piped input never approves installation.
 An existing configuration/instruction file is preserved. A manual source install
-uses `make install`; see [build prerequisites](../CONTRIBUTING.md#development-setup).
-Node is Pi's runtime, not a Go binary runtime requirement. Ensure `~/.local/bin`
+needs Node 24+, the pinned pnpm and `pnpm install --frozen-lockfile` before
+`make install`; see [build prerequisites](../CONTRIBUTING.md#development-setup).
+Source/release builds embed the matching durable-agent SDK and production
+dependencies in the binary, so all installation/update owners carry them
+together without another SDK installation. Node is required for Pi and durable
+agent runners, not Go-only CLI operations. Ensure `~/.local/bin`
 (or your chosen binary directory) is on PATH, then run `radar` for guided setup.
 Linux URL actions need `xdg-open`, usually from `xdg-utils`.
 See [Native Linux/WSL setup and Windows backend limits](integrations/sbx.md#windows--wsl2).

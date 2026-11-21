@@ -8,4 +8,5 @@
 **/node_modules/
 /agent-host/dist/
 /agent-host/*.tgz
+/internal/agentruntime/payload/runtime.zip
 __pycache__/
