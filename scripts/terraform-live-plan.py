@@ -9,29 +9,65 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 FILES = ("main.tf", "variables.tf", "outputs.tf")
 # Terraform 1.17.0's native remote plan header uses this exact route.
 RUN_LINK = re.compile(r"https://app\.terraform\.io/app/radar-oss/radar-oauth-e2e/runs/(run-[A-Za-z0-9]+)(?=\s|$)")
 INTENTIONAL_FAILURE = "Intentional Radar E2E plan failure."
+INSPECTION_GUIDANCE = (
+    "A stopped local CLI does not cancel or prove completion of remote work. "
+    "Inspect run history and current queue in radar-oss/radar-oauth-e2e, including any reported run, "
+    "before retrying. Confirm creator, status and blockers; remote remediation and a manual live "
+    "retry require separate authorization."
+)
 
 
 class Failure(Exception):
     pass
 
 
+def failure_evidence(phase, started, timeout, stdout, stderr):
+    # TimeoutExpired can retain bytes even when subprocess.run used text=True.
+    # Never echo arbitrary CLI text, URLs, provider errors or account details.
+    parts = (stdout or "", stderr or "")
+    run, waiting = "unavailable", "unavailable"
+    if sum(map(len, parts)) <= 65536:
+        output = "\n".join(value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
+                           for value in parts)
+        runs = set(RUN_LINK.findall(output))
+        if not runs:
+            run = "not-observed"
+        elif len(runs) > 1:
+            run = "ambiguous"
+        elif len(next(iter(runs))) <= 68:
+            run = runs.pop()
+        waiting = "yes" if "Waiting for the plan to start..." in output else "no"
+    if phase != "plan":
+        waiting = "not-applicable"
+    elapsed = max(0, int(time.monotonic() - started))
+    # The wait marker is only a CLI observation, never an API queue diagnosis.
+    return (f"phase={phase}; elapsed={elapsed}s; limit={timeout}s; run={run}; "
+            f"plan_start_wait={waiting}; queue=unverified")
+
+
 def command(arguments, directory, env, timeout, expect_failure=False):
+    phase = arguments[0] if arguments[0] in {"init", "plan"} else "unknown"
+    started = time.monotonic()
     try:
         result = subprocess.run(["terraform", f"-chdir={directory}", *arguments],
                                 capture_output=True, text=True, env=env, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        raise Failure(f"Terraform fixture {arguments[0]} timed out after {timeout}s; inspect the disposable workspace before retrying.") from None
+    except subprocess.TimeoutExpired as error:
+        evidence = failure_evidence(phase, started, timeout, error.stdout, error.stderr)
+        raise Failure(f"Terraform fixture {phase} timed out ({evidence}). {INSPECTION_GUIDANCE}") from None
     output = result.stdout + "\n" + result.stderr
     if expect_failure:
         if result.returncode != 1 or "Error: Resource precondition failed" not in output or INTENTIONAL_FAILURE not in output:
-            raise Failure("Terraform did not report the intentional fixture precondition failure; inspect the disposable workspace run history.")
+            evidence = failure_evidence(phase, started, timeout, result.stdout, result.stderr)
+            raise Failure(f"Terraform did not report the intentional fixture precondition failure ({evidence}). {INSPECTION_GUIDANCE}")
     elif result.returncode != 0:
-        raise Failure(f"Terraform {arguments[0]} failed; check the personal token, remote workspace access and its run history.")
+        evidence = failure_evidence(phase, started, timeout, result.stdout, result.stderr)
+        raise Failure(f"Terraform fixture {phase} failed; check authentication and workspace access ({evidence}). {INSPECTION_GUIDANCE}")
     # The CLI owns authentication/upload. Capture provider output privately;
     # never log credentials, remote responses, plan contents or account details.
     return output

@@ -276,6 +276,27 @@ exercise the fixture's deliberate precondition failure. CI requires both the
 expected failure diagnostic and a run URL in the approved workspace; an
 unrelated CLI error or unexpected success fails the job.
 
+If fixture creation fails, its bounded diagnostic reports the `init` or `plan`
+phase, elapsed time and unchanged 90s/360s command limit. It may retain one run
+ID from the exact approved workspace URL and whether the CLI printed “Waiting
+for the plan to start...”; raw output, plan contents and credentials remain
+private. Missing, ambiguous or oversized partial output cannot establish a run
+identity. `plan_start_wait` is only an observed CLI marker, not the current
+queue state or proof that contention caused the failure; `queue=unverified`
+requires an independent workspace read.
+
+A local timeout stops the CLI, **not necessarily the remote run**. Before any
+retry, an authorized operator must inspect the disposable workspace's current
+queue and run history, including the reported run (or runs around the failed
+job's timestamp when no unique ID was captured). Verify creator, speculative
+scope, status, workspace lock, earlier unfinished runs and provider progress.
+Record whether remote work remains active or needs attention; do not infer
+cancellation or recovery from a later successful CI run. Resolve only the
+specific verified blocker under separate authorization: the helper never
+automatically retries, applies, cancels, discards or unlocks work. A manual live
+workflow retry, which also runs the lifecycle mutations below, still requires
+explicit authorization after this inspection.
+
 The live job also runs the trusted
 [lifecycle harness](../../scripts/terraform-live-lifecycle.py). It uploads only
 the three fixture files as a provisional configuration, with automatic run

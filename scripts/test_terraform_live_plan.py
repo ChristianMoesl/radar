@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -36,6 +37,7 @@ class FixturePlan(unittest.TestCase):
         self.assertEqual(run_id, "run-Fixture123")
         commands = [call.args[0] for call in execute.call_args_list]
         self.assertEqual([command[2] for command in commands], ["init", "plan"])
+        self.assertEqual([call.kwargs["timeout"] for call in execute.call_args_list], [90, 360])
         self.assertIn("-var=fail_plan=false", commands[1])
         for command in commands:
             self.assertNotIn("apply", command)
@@ -119,6 +121,96 @@ class FixturePlan(unittest.TestCase):
             with self.assertRaises(plan.Failure):
                 plan.create_plan(self.configuration, self.env)
         self.assertEqual(execute.call_count, 2)
+
+    def command_failure(self, phase="plan", output=None, stderr=None, timeout=360, returncode=None, elapsed=None):
+        result = subprocess.TimeoutExpired([], timeout, output=output, stderr=stderr)
+        if returncode is not None:
+            result = subprocess.CompletedProcess([], returncode, output or "", stderr or "")
+        with patch.object(time, "monotonic", side_effect=[10, 10 + (timeout if elapsed is None else elapsed)]), \
+                patch.object(plan.subprocess, "run", side_effect=[result]) as execute:
+            with self.assertRaises(plan.Failure) as caught:
+                plan.command([phase], self.configuration, self.env, timeout)
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(execute.call_args.kwargs["timeout"], timeout)
+        return str(caught.exception)
+
+    def test_timeout_retains_only_bounded_phase_and_approved_run_evidence(self):
+        output = (RUN_URL + "\nWaiting for the plan to start...\nprivate plan contents").encode()
+        message = self.command_failure(output=output, stderr=b"synthetic-token private provider error\xff")
+        for expected in ("phase=plan", "elapsed=360s", "limit=360s", "run=run-Fixture123",
+                         "plan_start_wait=yes", "queue=unverified", "does not cancel",
+                         "creator, status and blockers", "separate authorization"):
+            self.assertIn(expected, message)
+        for private in ("synthetic-token", "private plan", "private provider"):
+            self.assertNotIn(private, message)
+        self.assertLess(len(message), 1024)
+
+    def test_init_timeout_does_not_claim_a_remote_plan_or_queue_diagnosis(self):
+        message = self.command_failure(phase="init", timeout=90, output=b"private init output")
+        for expected in ("phase=init", "elapsed=90s", "limit=90s", "run=not-observed",
+                         "plan_start_wait=not-applicable", "queue=unverified"):
+            self.assertIn(expected, message)
+        self.assertNotIn("private init", message)
+
+    def test_missing_partial_output_does_not_claim_no_remote_work(self):
+        message = self.command_failure()
+        self.assertIn("run=not-observed", message)
+        self.assertIn("plan_start_wait=no", message)
+        self.assertIn("run history and current queue", message)
+        self.assertNotIn("no remote run", message)
+
+    def test_ambiguous_foreign_and_oversized_output_fail_closed(self):
+        cases = [
+            (RUN_URL + "\n" + RUN_URL.replace("Fixture123", "Other456"), "ambiguous"),
+            (RUN_URL.replace("radar-oauth-e2e", "production"), "not-observed"),
+            (RUN_URL.replace("Fixture123", "X" * 1000), "unavailable"),
+            ("private" * 20000 + RUN_URL, "unavailable"),
+        ]
+        for output, expected in cases:
+            with self.subTest(expected=expected):
+                message = self.command_failure(output=output)
+                self.assertIn("run=" + expected, message)
+                self.assertIn("queue=unverified", message)
+                self.assertNotIn("run-Fixture123", message)
+                self.assertNotIn("Other456", message)
+                self.assertNotIn("private", message)
+                self.assertLess(len(message), 1024)
+
+    def test_wait_marker_is_literal_cli_evidence_not_a_queue_state(self):
+        for suffix, expected in (("Waiting for the plan to start...", "yes"),
+                                 ("private provider says queued", "no")):
+            with self.subTest(expected=expected):
+                message = self.command_failure(output=RUN_URL + "\n" + suffix)
+                self.assertIn("plan_start_wait=" + expected, message)
+                self.assertIn("queue=unverified", message)
+                self.assertNotIn("provider says", message)
+
+    def test_nonzero_failure_keeps_the_same_sanitized_inspection_evidence(self):
+        message = self.command_failure(output=RUN_URL, stderr="synthetic-token", returncode=1, elapsed=12.9)
+        self.assertIn("phase=plan", message)
+        self.assertIn("elapsed=12s", message)
+        self.assertIn("limit=360s", message)
+        self.assertIn("run=run-Fixture123", message)
+        self.assertIn("separate authorization", message)
+        self.assertNotIn("synthetic-token", message)
+
+    def test_repeated_same_run_link_is_not_ambiguous(self):
+        message = self.command_failure(output=RUN_URL + "\n" + RUN_URL)
+        self.assertIn("run=run-Fixture123", message)
+        self.assertNotIn("ambiguous", message)
+
+    def test_failed_expected_failure_check_has_inspection_evidence_without_raw_text(self):
+        with patch.object(time, "monotonic", side_effect=[10, 12]), \
+                patch.object(plan.subprocess, "run", return_value=subprocess.CompletedProcess(
+                    [], 1, RUN_URL, "synthetic-token private provider response")) as execute:
+            with self.assertRaises(plan.Failure) as caught:
+                plan.command(["plan"], self.configuration, self.env, 360, expect_failure=True)
+        self.assertEqual(execute.call_count, 1)
+        message = str(caught.exception)
+        self.assertIn("did not report the intentional fixture precondition failure", message)
+        self.assertIn("phase=plan; elapsed=2s; limit=360s; run=run-Fixture123", message)
+        self.assertNotIn("private provider", message)
+        self.assertNotIn("synthetic-token", message)
 
 
 if __name__ == "__main__":
