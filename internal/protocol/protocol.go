@@ -75,6 +75,9 @@ type CleanupSafety struct {
 }
 
 type CleanupPreview struct {
+	// PlanID binds an exact one-use daemon preview, never user consent. Native
+	// in-process planners leave it empty; the daemon issues and consumes it.
+	PlanID    string          `json:"plan_id,omitempty"`
 	TaskID    int             `json:"task_id"`
 	TaskTitle string          `json:"task_title"`
 	Targets   []CleanupTarget `json:"targets"`

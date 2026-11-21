@@ -75,16 +75,17 @@ func TestManagedCleanupPublishesExecutionIdentityAndReconcilesSuccessOrPartialFa
 			tasks.Refresh(context.Background(), true)
 			var requests atomic.Int32
 			tasks.SetLocalRefreshRequest(func() { requests.Add(1) })
-			provider := &managedCleanupSource{fakeCleanupSource: fakeCleanupSource{name: "fixture"}, started: make(chan struct{}), release: make(chan struct{}), fail: fail}
+			provider := &managedCleanupSource{fakeCleanupSource: fakeCleanupSource{name: "fixture", targets: []protocol.CleanupTarget{{Source: "fixture", Kind: "worktree"}, {Source: "fixture", Kind: "sandbox"}}}, started: make(chan struct{}), release: make(chan struct{}), fail: fail}
 			s := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{provider})).SetResourcePublication(tasks.MarkResourceRefreshPending, tasks.ResourceSnapshot)
+			preview := previewFixtureCleanup(t, s)
 			before := store.Revision()
 			finished := make(chan protocol.Response, 1)
 			go func() {
-				finished <- managedPipeCall(t, s, protocol.Request{Method: "cleanup", Cleanup: &protocol.CleanupPreview{TaskID: 7, Targets: []protocol.CleanupTarget{{Source: "fixture", Kind: "worktree"}, {Source: "fixture", Kind: "sandbox"}}}})
+				finished <- managedPipeCall(t, s, protocol.Request{Method: "cleanup", Cleanup: &preview})
 			}()
 			<-provider.started
 			running := managedPipeCall(t, s, protocol.Request{Method: fmt.Sprintf("watch:%d", before)})
-			if len(running.Operations) != 1 || running.Operations[0].Status != "running" || running.Operations[0].TaskID != 7 {
+			if len(running.Operations) != 1 || running.Operations[0].Status != "running" || running.Operations[0].TaskID != preview.TaskID {
 				t.Fatalf("blocked CLI/Pi cleanup not observable: %+v", running)
 			}
 			if running.Operations[0].StartedAt == "" || running.Operations[0].FinishedAt != "" {
@@ -171,8 +172,9 @@ func TestCleanupResponseDoesNotUndoCompletedReconciliation(t *testing.T) {
 	tasks.Refresh(context.Background(), true)
 	// Simulate the background collector winning before response construction.
 	mark := func() { tasks.MarkResourceRefreshPending(); tasks.Refresh(context.Background(), true) }
-	s := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fixture"}})).SetResourcePublication(mark, tasks.ResourceSnapshot)
-	response := managedPipeCall(t, s, protocol.Request{Method: "cleanup", Cleanup: &protocol.CleanupPreview{TaskID: 7, Targets: []protocol.CleanupTarget{{Source: "fixture", Kind: "worktree"}}}})
+	s := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fixture", targets: []protocol.CleanupTarget{{Source: "fixture", Kind: "worktree"}}}})).SetResourcePublication(mark, tasks.ResourceSnapshot)
+	preview := previewFixtureCleanup(t, s)
+	response := managedPipeCall(t, s, protocol.Request{Method: "cleanup", Cleanup: &preview})
 	if !response.OK || response.ResourceRefreshPending || response.CleanupResult == nil || response.CleanupResult.ResourceRefreshPending {
 		t.Fatalf("fresh snapshot mislabeled pending: %+v", response)
 	}

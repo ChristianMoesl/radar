@@ -298,14 +298,15 @@ func TestCleanupExecutesEveryPreviewTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	preview := protocol.CleanupPreview{TaskID: 1, Targets: []protocol.CleanupTarget{
+	targets := []protocol.CleanupTarget{
 		{Source: "fake", SourceRefID: "fake:ref:1", Path: "/tmp/one"},
 		{Source: "fake", SourceRefID: "fake:ref:2", Path: "/tmp/two"},
-	}}
+	}
 	refreshed := false
-	server := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake"}})).SetLocalRefresh(func() {
+	server := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake", targets: targets}})).SetLocalRefresh(func() {
 		refreshed = true
 	})
+	preview := previewFixtureCleanup(t, server)
 	result, err := server.cleanup(context.Background(), &preview)
 	if err != nil {
 		t.Fatal(err)
@@ -341,9 +342,14 @@ func TestCleanupResponseMarksItsRetainedSnapshotPending(t *testing.T) {
 		}).handle(serverConn)
 	}()
 
-	request := protocol.Request{Method: "cleanup", Cleanup: &protocol.CleanupPreview{TaskID: 1, Targets: []protocol.CleanupTarget{{
-		Source: "fake", SourceRefID: "fake:ref:1", Kind: "worktree",
-	}}}}
+	if err := json.NewEncoder(clientConn).Encode(protocol.Request{Method: "cleanup-preview", TaskID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	var planned protocol.Response
+	if err := json.NewDecoder(clientConn).Decode(&planned); err != nil || !planned.OK || planned.CleanupPreview == nil {
+		t.Fatal("cleanup preview unavailable", planned, err)
+	}
+	request := protocol.Request{Method: "cleanup", Cleanup: planned.CleanupPreview}
 	if err := json.NewEncoder(clientConn).Encode(request); err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +428,10 @@ github:
 	}
 }
 
-type fakeCleanupSource struct{ name string }
+type fakeCleanupSource struct {
+	name    string
+	targets []protocol.CleanupTarget
+}
 
 func (f fakeCleanupSource) Descriptor() integration.Descriptor {
 	return integration.Descriptor{Name: f.name}
@@ -433,6 +442,9 @@ func (fakeCleanupSource) Collect(context.Context, integration.CollectRequest) in
 }
 
 func (f fakeCleanupSource) PreviewCleanup(_ context.Context, req integration.CleanupPreviewRequest) ([]protocol.CleanupTarget, error) {
+	if f.targets != nil {
+		return cloneCleanupPreview(protocol.CleanupPreview{Targets: f.targets}).Targets, nil
+	}
 	targets := make([]protocol.CleanupTarget, 0)
 	for _, ref := range req.Task.SourceRefs {
 		if ref.Source == f.name {

@@ -29,12 +29,13 @@ func TestCleanupAcknowledgesWhileGlobalCollectionIsBlocked(t *testing.T) {
 	service.Refresh(context.Background(), true)
 	started, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var refreshes atomic.Int32
-	server := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake"}})).SetResourcePublication(service.MarkResourceRefreshPending, service.ResourceSnapshot).SetLocalRefresh(func() {
+	server := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake", targets: []protocol.CleanupTarget{{Source: "fake", Kind: "worktree"}}}})).SetResourcePublication(service.MarkResourceRefreshPending, service.ResourceSnapshot).SetLocalRefresh(func() {
 		if refreshes.Add(1) == 1 {
 			close(started)
 		}
 		<-release
 	})
+	preview := previewFixtureCleanup(t, server)
 	go func() { defer close(finished); server.localRefresh() }()
 	<-started
 	defer func() { close(release); <-finished }()
@@ -44,7 +45,7 @@ func TestCleanupAcknowledgesWhileGlobalCollectionIsBlocked(t *testing.T) {
 	if err := clientConn.SetDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	request := protocol.Request{Method: "cleanup", Cleanup: &protocol.CleanupPreview{TaskID: 1, Targets: []protocol.CleanupTarget{{Source: "fake", Kind: "worktree"}}}}
+	request := protocol.Request{Method: "cleanup", Cleanup: &preview}
 	if err := json.NewEncoder(clientConn).Encode(request); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestPendingResourcesCannotAuthorizeAnotherCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := taskservice.New(store, logger, integration.NewRegistry())
-	server := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake"}})).SetResourcePublication(service.MarkResourceRefreshPending, service.ResourceSnapshot)
+	server := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{fakeCleanupSource{name: "fake", targets: []protocol.CleanupTarget{{Source: "fake", Kind: "worktree"}}}})).SetResourcePublication(service.MarkResourceRefreshPending, service.ResourceSnapshot)
 	if _, err := server.cleanupPreview(context.Background(), 1); err == nil {
 		t.Fatal("pending cached targets authorized a cleanup preview")
 	}
@@ -78,6 +79,13 @@ func TestPendingResourcesCannotAuthorizeAnotherCleanup(t *testing.T) {
 		t.Fatalf("pending plan was applied: %+v %v", result, err)
 	}
 	service.Refresh(context.Background(), true)
+	// Collection being fresh does not turn an unissued/stale bundle into consent.
+	result, err = server.cleanup(context.Background(), preview)
+	if err == nil || len(result.Targets) != 0 {
+		t.Fatal("unissued bundle became executable after collection")
+	}
+	fresh := previewFixtureCleanup(t, server)
+	preview = &fresh
 	result, err = server.cleanup(context.Background(), preview)
 	if err != nil || len(result.Targets) != 1 {
 		t.Fatalf("fresh retry failed: %+v %v", result, err)

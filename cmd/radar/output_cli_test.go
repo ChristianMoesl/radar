@@ -151,9 +151,12 @@ func outputDaemonFixture(t *testing.T) string {
 			case "gc":
 				response = protocol.Response{OK: true, GarbageCollectionResult: &protocol.GarbageCollectionResult{Deleted: []protocol.GarbageCollectionItem{}, Skipped: []protocol.GarbageCollectionItem{}}}
 			case "cleanup-preview":
-				response = protocol.Response{OK: true, CleanupPreview: &protocol.CleanupPreview{TaskID: 42, TaskTitle: task.Title}}
+				response = protocol.Response{OK: true, CleanupPreview: &protocol.CleanupPreview{PlanID: strings.Repeat("a", 64), TaskID: 42, TaskTitle: task.Title}}
 			case "cleanup":
 				response = protocol.Response{OK: true, CleanupResult: &protocol.CleanupResult{TaskID: 42}}
+				if request.Cleanup == nil || request.Cleanup.PlanID != strings.Repeat("a", 64) || request.Cleanup.TaskID != 42 || request.Cleanup.TaskTitle != task.Title || len(request.Cleanup.Targets) != 0 {
+					response = protocol.Response{OK: false, Error: "CLI did not preserve exact issued cleanup preview"}
+				}
 			case "task-delete-preview":
 				response = protocol.Response{OK: true, TaskDeletionPreview: &protocol.TaskDeletionPreview{TaskID: 42, TaskTitle: task.Title, Path: "/notes/task.md", TrashDirectory: "/notes/.trash"}}
 			case "task-delete":

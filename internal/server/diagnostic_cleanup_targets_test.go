@@ -24,7 +24,10 @@ func TestNativeCleanupReturnedTargetsReachDiagnosticsWithoutExecutingOnInspectio
 			if err != nil {
 				t.Fatal(err)
 			}
-			provider := &managedCleanupSource{fakeCleanupSource: fakeCleanupSource{name: "git"}, started: make(chan struct{}), release: make(chan struct{}), fail: mode == "partial"}
+			provider := &managedCleanupSource{fakeCleanupSource: fakeCleanupSource{name: "git", targets: []protocol.CleanupTarget{
+				{Source: "git", Kind: "worktree", ResourceID: "private-first", Title: "private-title", Operation: map[string]string{"secret": "private-operation"}},
+				{Source: "git", Kind: "worktree", ResourceID: "private-second"},
+			}}, started: make(chan struct{}), release: make(chan struct{}), fail: mode == "partial"}
 			close(provider.release)
 			s := New(store, logger, nil, nil, nil, integration.NewRegistry(), cleanup.New([]integration.CleanupProvider{provider}))
 			ctx, cancel := context.WithCancel(context.Background())
@@ -32,10 +35,7 @@ func TestNativeCleanupReturnedTargetsReachDiagnosticsWithoutExecutingOnInspectio
 			if mode == "cancelled-before-provider" {
 				cancel()
 			}
-			preview := protocol.CleanupPreview{TaskID: 7, TaskTitle: "private-task", Targets: []protocol.CleanupTarget{
-				{Source: "git", Kind: "worktree", ResourceID: "private-first", Title: "private-title", Operation: map[string]string{"secret": "private-operation"}},
-				{Source: "git", Kind: "worktree", ResourceID: "private-second"},
-			}}
+			preview := previewFixtureCleanup(t, s)
 			result, err := s.cleanup(ctx, &preview)
 			if (err == nil) != (mode == "success") || !result.ResourceRefreshPending {
 				t.Fatal("native cleanup changed", result, err)
@@ -69,7 +69,7 @@ func TestNativeCleanupReturnedTargetsReachDiagnosticsWithoutExecutingOnInspectio
 				}
 			}
 			raw, _ := json.Marshal(view)
-			if strings.Contains(string(raw), "private-") || provider.calls != calls || store.Revision() != before.Revision {
+			if strings.Contains(string(raw), "private-") || strings.Contains(string(raw), preview.PlanID) || provider.calls != calls || store.Revision() != before.Revision {
 				t.Fatal("inspection leaked or executed", string(raw))
 			}
 		})

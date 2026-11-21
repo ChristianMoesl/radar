@@ -30,6 +30,8 @@ import (
 var watchTimeout = 30 * time.Second
 
 type Server struct {
+	cleanupPlanMu        sync.Mutex
+	cleanupPlans         map[int]nativeCleanupPlan
 	diagnosticRefresh    func(context.Context) (collector.Result, error)
 	maintenanceMu        sync.Mutex
 	refreshPlan          *diagnosticRefreshPlan
@@ -397,6 +399,16 @@ func (s *Server) handle(conn net.Conn) {
 			response.OperationID = op
 			_ = encoder.Encode(response)
 		case "cleanup-preview":
+			var boundary struct {
+				Method string `json:"method"`
+				TaskID int    `json:"task_id"`
+			}
+			decoder := json.NewDecoder(bytes.NewReader(scanner.Bytes()))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&boundary); err != nil || req.TaskID <= 0 || req != (protocol.Request{Method: "cleanup-preview", TaskID: req.TaskID}) {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "exact task cleanup preview request required"})
+				continue
+			}
 			preview, err := s.cleanupPreview(context.Background(), req.TaskID)
 			if err != nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error(), Revision: s.store.Revision()})
@@ -404,6 +416,16 @@ func (s *Server) handle(conn net.Conn) {
 			}
 			_ = encoder.Encode(protocol.Response{OK: true, Revision: s.store.Revision(), CleanupPreview: &preview})
 		case "cleanup":
+			var boundary struct {
+				Method  string                   `json:"method"`
+				Cleanup *protocol.CleanupPreview `json:"cleanup"`
+			}
+			decoder := json.NewDecoder(bytes.NewReader(scanner.Bytes()))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&boundary); err != nil || boundary.Cleanup == nil || req != (protocol.Request{Method: "cleanup", Cleanup: req.Cleanup}) {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "exact issued cleanup preview request required"})
+				continue
+			}
 			result, err := s.cleanup(context.Background(), req.Cleanup)
 			response := s.tasksResponse()
 			if s.resourceSnapshot != nil {
@@ -437,15 +459,23 @@ func (s *Server) taskMutationResponse(task protocol.Task) protocol.Response {
 }
 
 func (s *Server) cleanupPreview(ctx context.Context, taskID int) (protocol.CleanupPreview, error) {
+	if err := ctx.Err(); err != nil {
+		return protocol.CleanupPreview{}, err
+	}
 	if s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending {
 		return protocol.CleanupPreview{}, fmt.Errorf("resource list refresh pending; refresh Radar before previewing cleanup")
 	}
 	ctx = phasetiming.WithLogger(ctx, s.logger)
+	revision := s.store.Revision()
 	task, ok := taskByID(s.filteredTasks(), taskID)
 	if !ok {
 		return protocol.CleanupPreview{}, fmt.Errorf("task %d not found", taskID)
 	}
-	return s.cleanupService.Preview(ctx, task, integration.CleanupConfirmed)
+	preview, err := s.cleanupService.Preview(ctx, task, integration.CleanupConfirmed)
+	if err != nil {
+		return protocol.CleanupPreview{}, err
+	}
+	return s.issueCleanupPlan(ctx, preview, revision)
 }
 
 func (s *Server) cleanup(ctx context.Context, preview *protocol.CleanupPreview) (protocol.CleanupResult, error) {
@@ -453,8 +483,16 @@ func (s *Server) cleanup(ctx context.Context, preview *protocol.CleanupPreview) 
 		return protocol.CleanupResult{}, fmt.Errorf("cleanup targets are required")
 	}
 	if s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending {
+		s.discardCleanupPlan(preview)
 		return protocol.CleanupResult{TaskID: preview.TaskID, ResourceRefreshPending: true}, fmt.Errorf("resource list changed or is pending refresh; refresh and preview cleanup again")
 	}
+	bound, err := s.takeCleanupPlan(preview)
+	if err != nil {
+		return protocol.CleanupResult{TaskID: preview.TaskID}, err
+	}
+	// Execute the daemon-owned immutable snapshot, not client-owned maps/slices.
+	// Taking the plan is one-use even if cancellation or a native guard stops it.
+	preview = &bound
 	ctx = phasetiming.WithLogger(ctx, s.logger)
 	defer phasetiming.Start(ctx, "cleanup_response")()
 	op := s.store.BeginOperation("cleanup", preview.TaskID, "")

@@ -217,6 +217,23 @@ Press `d` for full paths/branches and arrows or Page Up/Down to scroll. Only `y`
 confirms; Enter does nothing, and Escape or `n` cancels. Read all warnings before
 confirming: manual cleanup can discard local changes and unpublished commits.
 
+The daemon binds the complete native preview to a random, one-use `plan_id` on
+this existing CLI/TUI path. Only the latest preview for that task is accepted,
+within 60 seconds and at the same cached revision with no pending resource
+refresh. Changed targets, private operations or warnings, unissued bundles,
+expired/superseded previews and previews from a previous daemon are rejected
+before execution. The ID is freshness evidence, **not consent**: confirmation
+is still required. Native ownership, activity, alias/path/runtime leases and
+preflight checks still run; the ID reserves no resources or future safety.
+
+Plans are consumed before native execution, even on cancellation, guard failure
+or partial removal. A lost response must never be automatically replayed; refresh,
+inspect actual resources and obtain a new preview and confirmation. A resource
+reread clearing pending state does not revive an old plan. At most 16 private
+previews of 512 targets / 1 MiB each are retained in current-daemon memory only.
+This does not enable diagnostic/Pi cleanup apply or verified resource outcomes;
+their existing schema-28 proposals remain non-executable.
+
 If Git cannot inspect a worktree's local changes, manual cleanup shows the
 underlying status-check error and affected path as a warning. Only explicit
 confirmation permits removal despite that unknown local-data state; automatic

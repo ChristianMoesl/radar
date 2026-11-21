@@ -6,8 +6,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -30,6 +32,58 @@ func TestCleanupFailureShowsUnderlyingProblemAndRequiresFreshConfirmation(t *tes
 	m = updateOperation(m, tea.KeyMsg{Type: tea.KeyEsc})
 	if m.mode != "" || len(m.taskFailures) != 1 {
 		t.Fatal("back discarded failure/recovery context")
+	}
+}
+
+func TestCleanupConfirmationForwardsExactIssuedPlan(t *testing.T) {
+	dir, err := os.MkdirTemp("", "radar-cleanup-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	socket := filepath.Join(dir, "s")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	preview := cleanupFixture()
+	preview.PlanID = strings.Repeat("a", 64)
+	m := operationFixture()
+	m.socketPath = socket
+	finished := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			finished <- err
+			return
+		}
+		defer conn.Close()
+		if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			finished <- err
+			return
+		}
+		var request protocol.Request
+		if err := json.NewDecoder(conn).Decode(&request); err != nil {
+			finished <- err
+			return
+		}
+		if request.Method != "cleanup" || request.Cleanup == nil || !reflect.DeepEqual(*request.Cleanup, preview) {
+			finished <- errors.New("TUI changed or omitted the exact issued preview")
+			return
+		}
+		finished <- json.NewEncoder(conn).Encode(protocol.Response{OK: true, CleanupResult: &protocol.CleanupResult{TaskID: preview.TaskID}})
+	}()
+	m = updateOperation(m, runeKey('x'))
+	m = updateOperation(m, cleanupPreviewMsg{preview: preview})
+	if m.mode != "cleanup_confirm" || m.cleanup.PlanID != preview.PlanID {
+		t.Fatal("TUI lost issued preview before confirmation")
+	}
+	if result := m.cleanupSelected(m.cleanup)().(actionMsg); result.err != nil {
+		t.Fatal(result.err)
+	}
+	if err := <-finished; err != nil {
+		t.Fatal(err)
 	}
 }
 
