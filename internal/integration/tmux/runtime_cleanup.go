@@ -156,6 +156,19 @@ func retireSession(ctx context.Context, runner workspace.Runner, target protocol
 		if err := refresh(); err != nil {
 			return target, err
 		}
+		// A successful kill exit is not evidence that this lifetime and its
+		// reusable registered name are absent. Reuse native exact admission's
+		// missing/replacement checks while the original bundle is still held.
+		remaining, err := verify()
+		if err != nil {
+			return target, err
+		}
+		if err := refresh(); err != nil {
+			return target, err
+		}
+		if remaining.ID != "" {
+			return target, fmt.Errorf("registered tmux session still exists after retirement")
+		}
 		target.Operation["runtime_retired"] = "true"
 		return target, nil
 	}

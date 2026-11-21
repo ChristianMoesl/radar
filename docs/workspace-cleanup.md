@@ -95,6 +95,12 @@ and current registration/filesystem/cancellation checks must still pass. Missing
 replaced, running or unverifiable post-stop runtimes report failure without
 removal, automatic command replay or dropping registration. This is a bounded
 native SBX observation, not proof of all bundle outcomes or future state.
+Likewise, a successful tmux kill exit counts only after fresh native exact
+identity/name checks observe absence under retained path/name/incarnation
+admission, followed by current registration/filesystem/cancellation checks.
+Ignored kills, replacement lifetimes or names, and unverifiable observations
+fail without another kill or dropping registration. Initially absent sessions
+are unstamped no-ops. These observations do not reserve future external state.
 Partial runtime failures retain registration; obtain fresh eligibility before
 retrying. Initially missing/stopped runtimes are idempotent no-ops, not new
 retirement counts. Identification and inspection errors still block the operation. Terminal attachment alone

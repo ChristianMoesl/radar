@@ -285,6 +285,17 @@ func TestRetirementPreservesRegistrationOwnershipAndAdmittedIncarnation(t *testi
 				}
 			case "foreign-path":
 				r.path = t.TempDir()
+			case "retired":
+				// A successful native kill removes this lifetime, independently
+				// of the fixture's recorded command exit/call count.
+				r.kill = func() error {
+					for selector, id := range r.sessions {
+						if id.ID == "$7" {
+							delete(r.sessions, selector)
+						}
+					}
+					return nil
+				}
 			}
 			result, err := bound.Cleanup(context.Background(), integration.CleanupRequest{Target: target, Mode: integration.CleanupRetire})
 			shouldFail := outcome == "registration-changed" || outcome == "foreign-path"

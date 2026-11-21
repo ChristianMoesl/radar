@@ -26,11 +26,27 @@ type retirementOutcomeRunner struct {
 	armed   bool
 	hook    func(string) error
 	listing string
+	// Keep cached fixture identities available for release probes, while
+	// modelling successful native removal independently of command exit.
+	removed         map[string]bool
+	preserveRuntime bool
 }
 
 func (*retirementOutcomeRunner) LookPath(string) error { return nil }
 func (r *retirementOutcomeRunner) Run(ctx context.Context, cwd, name string, args ...string) (string, error) {
 	output, err := r.base.Run(ctx, cwd, name, args...)
+	if err == nil && args[0] == "kill-session" && !r.preserveRuntime {
+		if r.removed == nil {
+			r.removed = map[string]bool{}
+		}
+		r.removed[r.base.sessions[args[2]].Key()] = true
+	}
+	if err == nil && args[0] == "display-message" && args[4] != "#{session_name}" {
+		selector := strings.TrimPrefix(strings.TrimSuffix(args[3], ":"), "=")
+		if r.removed[r.base.sessions[selector].Key()] {
+			output = "12::\n"
+		}
+	}
 	if err == nil && r.armed && r.hook != nil {
 		err = r.hook(args[0])
 	}
