@@ -126,7 +126,12 @@ func cleanupRegisteredSandboxAdmitted(ctx context.Context, runner workspace.Runn
 		return target, err
 	}
 	client := sbxclient.New(runner)
-	runtime, err := client.FindRuntime(ctx, target.ResourceID)
+	var runtime *sbxclient.Runtime
+	if remove && target.Operation["runtime_id"] != "" {
+		runtime, err = client.FindRuntimeIdentity(ctx, target.ResourceID, target.Operation["runtime_id"])
+	} else {
+		runtime, err = client.FindRuntime(ctx, target.ResourceID)
+	}
 	if err != nil {
 		return target, err
 	}
@@ -171,7 +176,9 @@ func cleanupRegisteredSandboxAdmitted(ctx context.Context, runner workspace.Runn
 		if err := refresh(); err != nil {
 			return target, err
 		}
-		remaining, err := client.FindRuntime(ctx, target.ResourceID)
+		// Require absence of both the reusable name and the inspected lifetime,
+		// including a renamed original. Never replay rm to resolve ambiguity.
+		remaining, err := client.FindRuntimeIdentity(ctx, target.ResourceID, runtime.ID)
 		if err != nil {
 			return target, err
 		}

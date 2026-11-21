@@ -277,6 +277,12 @@ partially removed target), preserves remaining registration, and offers the same
 retry path. Fix the reported permission/identity/provider problem before retrying;
 registration-only removal is not a substitute for deleting owned resources.
 
+Registered SBX deletion requires a fresh identifiable listing proving both the
+previewed lifetime and its reusable name absent. A renamed original, replacement
+or ambiguous listing fails closed under retained path/name admission; no second
+removal is attempted. This bounded observation is not future-state reservation,
+safe-retry evidence or diagnostic/Pi outcome attestation.
+
 GC results distinguish runtime-retired, deleted and skipped workspaces. `radar gc` also prints paths and skip
 reasons; use `radar gc --json` for structured results.
 
