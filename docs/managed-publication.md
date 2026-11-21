@@ -37,6 +37,16 @@ retain all active operations and the latest 64 terminal/reported entries. Old
 terminal entries expire; this is not an audit log. Restart/reset clears evidence
 and no commands are replayed. There is no persisted schema or configuration change.
 
+Diagnostic cleanup targets retain at most the first 16 original bundle ordinals.
+With validated same-operation native dispatch evidence, their outcomes distinguish
+`returned_success_unverified`, `returned_error_may_be_partial`, and
+`not_dispatched_by_cleanup_executor`. The error label identifies only the Cleanup
+call that returned an error; non-dispatch never proves no provider preflight
+effects or unchanged resources. Without valid dispatch evidence, incomplete
+outcomes remain `not_completed_may_be_partial`. Truncation never fabricates an
+off-page failed row. These are volatile handler observations, not independent
+resource verification, replay tokens, rollback guarantees or safe-retry consent.
+
 ## Bounded requests and freshness
 
 A single worker uses a capacity-one request channel and a fixed 100ms window

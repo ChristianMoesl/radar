@@ -56,13 +56,15 @@ func TestNativeCleanupReturnedTargetsReachDiagnosticsWithoutExecutingOnInspectio
 			if op.CleanupExecutionEvidence != "native_executor_dispatch_boundaries_not_resource_verification" || op.CleanupExecution == nil || op.CleanupExecution.Stage != stage || op.CleanupExecution.AttemptedTargets != provider.calls {
 				t.Fatal("native executor dispatch bridge lost", op)
 			}
-			if op.CleanupTargetEvidence != "native_returned_target_prefix_not_resource_verification" || len(op.CleanupTargets) != 2 || op.CleanupTargetsTruncated == nil || *op.CleanupTargetsTruncated {
+			if op.CleanupTargetEvidence != "native_target_returns_with_dispatch_boundaries_not_resource_verification" || len(op.CleanupTargets) != 2 || op.CleanupTargetsTruncated == nil || *op.CleanupTargetsTruncated {
 				t.Fatal("capture missing", op)
 			}
 			for i, target := range op.CleanupTargets {
-				want := "not_completed_may_be_partial"
+				want := "not_dispatched_by_cleanup_executor"
 				if i < len(result.Targets) {
 					want = "returned_success_unverified"
+				} else if stage == "provider_call" && i == len(result.Targets) {
+					want = "returned_error_may_be_partial"
 				}
 				if target.Index != i || target.Provider != "git" || target.Kind != "worktree" || target.Outcome != want {
 					t.Fatal("wrong ordinal/evidence", target)

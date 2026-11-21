@@ -77,6 +77,18 @@ func operationItems(req protocol.DiagnosticsRequest, records []state.TaskRecord,
 			} else if op.CleanupTargetsCaptured {
 				view.CleanupTargetEvidence = "native_returned_target_prefix_not_resource_verification"
 				view.CleanupTargets = append([]protocol.OperationCleanupTarget{}, op.CleanupTargets...)
+				// Refine only with validated boundaries captured for this same
+				// operation. No Cleanup call is not proof of no preflight effects,
+				// and either returned success or error is still unverified state.
+				if view.CleanupExecution != nil {
+					view.CleanupTargetEvidence = "native_target_returns_with_dispatch_boundaries_not_resource_verification"
+					for i := op.CompletedTargets; i < len(view.CleanupTargets); i++ {
+						view.CleanupTargets[i].Outcome = "not_dispatched_by_cleanup_executor"
+						if view.CleanupExecution.Stage == "provider_call" && i == op.CompletedTargets {
+							view.CleanupTargets[i].Outcome = "returned_error_may_be_partial"
+						}
+					}
+				}
 				truncated := op.CleanupTargetsTruncated
 				view.CleanupTargetsTruncated = &truncated
 			}

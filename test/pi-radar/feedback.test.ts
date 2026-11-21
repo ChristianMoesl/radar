@@ -1204,7 +1204,7 @@ test("reachable daemon with unsafe policy remains reachable but policy unknown",
 });
 
 
-const operationLimitations = ["volatile_current_daemon_only_no_pre_restart_history", "active_plus_latest_64_terminal_or_reported_observations_not_complete_history", "observed_at_is_snapshot_read_time_not_operation_time", "workspace_scope_uses_cached_retained_refs_not_verified_ownership", "task_scope_can_include_effects_in_other_workspaces", "client_reports_are_unverified_not_daemon_execution", "handler_success_is_not_resource_verification_or_reconciliation", "cleanup_target_summary_is_first_16_original_ordinals_not_failure_pinpointing", "incomplete_target_may_be_partially_changed_or_not_attempted", "dispatch_count_is_provider_cleanup_calls_not_resource_outcomes", "opaque_target_ids_are_operation_local_not_preview_or_replay_tokens", "running_counts_retries_and_lock_waits_unknown", "completed_cleanup_phases_only_no_active_phase_progress", "phase_aggregates_overlap_and_sum_individually_truncated_milliseconds", "missing_phase_evidence_is_unknown_not_zero_or_complete_coverage", "handler_timing_excludes_pre_start_queue_and_post_return_reconciliation", "wall_timestamps_may_jump_elapsed_uses_monotonic_clock", "missing_or_invalid_timing_is_unknown_not_zero", "untracked_gc_runtime_and_remote_operations_not_covered", "no_replay_refresh_probe_or_maintenance", "raw_errors_paths_payloads_and_target_details_withheld"];
+const operationLimitations = ["volatile_current_daemon_only_no_pre_restart_history", "active_plus_latest_64_terminal_or_reported_observations_not_complete_history", "observed_at_is_snapshot_read_time_not_operation_time", "workspace_scope_uses_cached_retained_refs_not_verified_ownership", "task_scope_can_include_effects_in_other_workspaces", "client_reports_are_unverified_not_daemon_execution", "handler_success_is_not_resource_verification_or_reconciliation", "cleanup_target_summary_is_first_16_original_ordinals_not_provider_internal_effects", "dispatch_qualified_outcomes_require_valid_same_operation_native_boundaries", "dispatch_count_is_provider_cleanup_calls_not_resource_outcomes", "opaque_target_ids_are_operation_local_not_preview_or_replay_tokens", "running_counts_retries_and_lock_waits_unknown", "completed_cleanup_phases_only_no_active_phase_progress", "phase_aggregates_overlap_and_sum_individually_truncated_milliseconds", "missing_phase_evidence_is_unknown_not_zero_or_complete_coverage", "handler_timing_excludes_pre_start_queue_and_post_return_reconciliation", "wall_timestamps_may_jump_elapsed_uses_monotonic_clock", "missing_or_invalid_timing_is_unknown_not_zero", "untracked_gc_runtime_and_remote_operations_not_covered", "no_replay_refresh_probe_or_maintenance", "raw_errors_paths_payloads_and_target_details_withheld"];
 function operationFixture(scope = "origin"): any {
   const evidence = "volatile_current_daemon_managed_operation_observations";
   return {diagnostics_schema:28,section:"operations",scope,available:true,feedback_workspace_id:"feedback",...(scope==="origin"?{origin_workspace_id:"origin"}:{}),evidence,inventory:{diagnostics_schema:28,section:"operations",evidence,observed_at:"2026-11-17T11:30:00.000000001Z",revision:2,snapshot:"a".repeat(64),total:1,items:[{id:"opaque:2",operation:{id:"opaque:2",kind:"cleanup",status:"partial",task_id:7,execution_evidence:"daemon_handler_result_not_resource_verification",target_evidence:"native_cleanup_successful_prefix_only",timing_evidence:"unknown_not_captured",phase_timing_evidence:"unknown_not_captured",cleanup_target_evidence:"unknown_not_captured",cleanup_execution_evidence:"unknown_not_captured",completed_targets:1,total_targets:3}}],pagination_complete:true,resource_refresh_pending:true,limitations:[...operationLimitations]}};
@@ -1740,8 +1740,52 @@ for(const evidence of ["unknown_not_captured","unavailable_invalid_or_over_budge
 });
 test("native cleanup dispatch remains independent of truncated target-return summary",async()=>{
  const h=harness();h.activate();const data=returnedCleanupTargetsFixture("partial",512,511);
- Object.assign(data.inventory.items[0].operation,{cleanup_execution_evidence:"native_executor_dispatch_boundaries_not_resource_verification",cleanup_execution:{stage:"provider_call",attempted_targets:512}});
+ Object.assign(data.inventory.items[0].operation,{cleanup_target_evidence:"native_target_returns_with_dispatch_boundaries_not_resource_verification",cleanup_execution_evidence:"native_executor_dispatch_boundaries_not_resource_verification",cleanup_execution:{stage:"provider_call",attempted_targets:512}});
  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
  const op=(await h.diagnostic("operations")).details.inventory.items[0].operation;
  assert.equal(op.cleanup_targets.length,16);assert.equal(op.cleanup_targets_truncated,true);assert.equal(op.cleanup_execution.attempted_targets,512);
+});
+
+function dispatchQualifiedTargets(stage="provider_call",status="partial",attempted=2,completed=1,total=3,scope="origin"):any {
+ const data=returnedCleanupTargetsFixture(status,total,completed,scope),op=data.inventory.items[0].operation;
+ op.cleanup_execution_evidence="native_executor_dispatch_boundaries_not_resource_verification";
+ op.cleanup_execution={stage,attempted_targets:attempted};
+ op.cleanup_target_evidence="native_target_returns_with_dispatch_boundaries_not_resource_verification";
+ for(const target of op.cleanup_targets)if(target.index>=completed)target.outcome=stage==="provider_call"&&target.index===completed?"returned_error_may_be_partial":"not_dispatched_by_cleanup_executor";
+ return data;
+}
+for(const scope of ["origin","feedback","installation"])for(const [stage,status,attempted,completed,total] of [
+ ["admission","failed",0,0,3],["ownership_and_leases","failed",0,0,3],["bundle_preflight","failed",0,0,3],
+ ["target_dispatch","failed",0,0,3],["target_dispatch","partial",1,1,3],
+ ["provider_call","failed",1,0,3],["provider_call","partial",2,1,3],["provider_call","partial",3,2,3],
+ ["provider_call","partial",16,15,20],["provider_call","partial",17,16,20],["provider_call","partial",512,511,512],
+ ["completed","succeeded",3,3,3],
+] as const)test(`dispatch-qualified target outcomes preserve exact native boundary: ${scope}/${stage}/${attempted}/${total}`,async()=>{
+ const h=harness();h.activate();h.ctx.hasUI=false;const data=dispatchQualifiedTargets(stage,status,attempted,completed,total,scope);
+ h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify(data),stderr:"",killed:false};};
+ const result=await h.tools.get("radar_diagnostics").execute("call",{section:"operations",scope},undefined,undefined,h.ctx);
+ assert.deepEqual(result.details.inventory,data.inventory);assert.deepEqual(JSON.parse(result.content[0].text).inventory,data.inventory);
+ assert.equal(h.calls.length,1);assert.deepEqual(h.confirmations,[]);
+});
+const invalidQualifiedTargets:Record<string,(op:any)=>void>={
+ "missing boundary":op=>{delete op.cleanup_execution;},
+ "unknown boundary":op=>{op.cleanup_execution_evidence="unknown_not_captured";delete op.cleanup_execution;},
+ "unavailable boundary":op=>{op.cleanup_execution_evidence="unavailable_invalid_or_over_budget";delete op.cleanup_execution;},
+ "wrong attempted count":op=>{op.cleanup_execution.attempted_targets=3;},
+ "wrong error ordinal":op=>{op.cleanup_targets[1].outcome="not_dispatched_by_cleanup_executor";op.cleanup_targets[2].outcome="returned_error_may_be_partial";},
+ "unattempted marked error":op=>{op.cleanup_targets[2].outcome="returned_error_may_be_partial";},
+ "failed call hidden":op=>{op.cleanup_targets[1].outcome="not_dispatched_by_cleanup_executor";},
+ "preflight called failure":op=>{op.status="failed";op.completed_targets=0;op.cleanup_execution={stage:"bundle_preflight",attempted_targets:0};for(const t of op.cleanup_targets)t.outcome="not_dispatched_by_cleanup_executor";op.cleanup_targets[0].outcome="returned_error_may_be_partial";},
+ "generic precise outcome":op=>{op.cleanup_targets[1].outcome="not_completed_may_be_partial";},
+ "precise evidence downgraded":op=>{op.cleanup_target_evidence="native_returned_target_prefix_not_resource_verification";},
+ "boundary silently discarded":op=>{op.cleanup_target_evidence="native_returned_target_prefix_not_resource_verification";for(const t of op.cleanup_targets)if(t.index>=op.completed_targets)t.outcome="not_completed_may_be_partial";},
+ "private resource outcome":op=>{op.cleanup_targets[1].outcome="synthetic-private-dispatch-payload";},
+ "private target payload":op=>{op.cleanup_targets[1].raw_result="synthetic-private-dispatch-payload";},
+ "verified absence":op=>{op.cleanup_targets[1].outcome="verified_absent";},
+ "safe retry claim":op=>{op.cleanup_targets[2].outcome="safe_to_retry";},
+};
+for(const [name,mutate]of Object.entries(invalidQualifiedTargets))test(`dispatch-qualified target outcomes reject contradictory or private evidence: ${name}`,async()=>{
+ const h=harness();h.activate();const data=dispatchQualifiedTargets();mutate(data.inventory.items[0].operation);
+ h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+ await assert.rejects(h.diagnostic("operations"),error=>error instanceof Error&&!error.message.includes("synthetic-private-dispatch-payload"));assert.deepEqual(h.confirmations,[]);
 });
