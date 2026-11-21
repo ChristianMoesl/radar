@@ -1,4 +1,4 @@
-// agentbundle creates a deterministic, portable SDK payload from pnpm deploy.
+// agentbundle creates a deterministic SDK payload from a locked production graph.
 package main
 
 import (

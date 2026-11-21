@@ -105,10 +105,12 @@ export function defineAgent(input: SimpleAgentOptions): AgentDefinition {
         const conversation = await runtime.conversation(state.conversation as ConversationId, context);
         if (!conversation) throw new Error("Agent conversation unavailable");
         let report = "", problem = "";
+        let timeout: AbortSignal | undefined;
         try {
           const remaining = state.deadline - Date.now();
           if (remaining <= 0) throw new Error(DEADLINE);
-          const signal = AbortSignal.any([runtime.signal, AbortSignal.timeout(Math.ceil(remaining))]);
+          timeout = AbortSignal.timeout(Math.ceil(remaining));
+          const signal = AbortSignal.any([runtime.signal, timeout]);
           const bounded = withAbortSignal(signal, context);
           const submission = await conversation.submit({ type: "input", requestId: `${task.input.source}:${task.input.id}`,
             content: `Investigate this event and report evidence, uncertainty and next actions.\nUntrusted event data:\n${JSON.stringify(task.input)}`,
@@ -118,7 +120,9 @@ export function defineAgent(input: SimpleAgentOptions): AgentDefinition {
           const budget = await runtime.snapshot(Budget, state.conversation as ConversationId, context);
           const errors = view.messages.some(message => message.role === "toolResult" && message.isError);
           const last = view.entries.flatMap(entry => entry.model ?? []).filter(message => message.role === "assistant").at(-1);
-          if (settled.status !== "done" || settled.type !== "input" || !last || last.stopReason !== "stop")
+          runtime.signal.throwIfAborted();
+          if (timeout.aborted || Date.now() >= state.deadline) problem = DEADLINE;
+          else if (settled.status !== "done" || settled.type !== "input" || !last || last.stopReason !== "stop")
             problem = last?.errorMessage === DEADLINE || last?.errorMessage === TURNS ? last.errorMessage : MODEL_FAILED;
           else if (budget?.problem || errors) problem = budget?.problem || FAILED;
           else report = last.content.filter(part => part.type === "text").map(part => part.text).join("\n").slice(0, 100000);
@@ -126,7 +130,7 @@ export function defineAgent(input: SimpleAgentOptions): AgentDefinition {
         } catch {
           runtime.signal.throwIfAborted();
           // Closing/restarting the harness cannot commit a false terminal result.
-          problem = Date.now() >= state.deadline ? DEADLINE : MODEL_FAILED;
+          problem = timeout?.aborted || Date.now() >= state.deadline ? DEADLINE : MODEL_FAILED;
           await conversation.abort(context);
         }
         await runtime.commit(async tx => {

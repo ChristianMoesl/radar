@@ -130,6 +130,8 @@ jobs:
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Bundle supplied agent runtime
         run: make agent-runtime
+      - name: Check locked production graph without registry metadata
+        run: node --test scripts/agent-runtime-graph.test.mjs
       - run: go build -o "$RUNNER_TEMP/radar" ./cmd/radar
       - name: Require clean-definition supplied runtime and retained-state lifecycle
         run: RADAR_TEST_SUPPLIED_RUNTIME=1 go test -v ./internal/agentservice -run '^TestSuppliedRuntime' -count=1

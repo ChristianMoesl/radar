@@ -3,6 +3,7 @@ import { cp, mkdtemp, mkdir, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { copyProductionGraph } from "./agent-runtime-graph.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const build = join(root, "build");
@@ -14,16 +15,12 @@ function run(command, args, cwd = root, env = process.env) {
   if (result.status !== 0) throw new Error(`${command} exited ${result.status ?? result.signal}`);
 }
 try {
-  // pnpm's production selection/autoinstall metadata must not prune the source
-  // checkout's dev dependencies. All deployment mutations happen in a copy.
-  const workspace = join(stage, "workspace");
-  await mkdir(join(workspace, "agent-host"), { recursive: true });
-  for (const file of ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "LICENSE",
-    "agent-host/package.json", "agent-host/README.md", "agent-host/dist"])
-    await cp(join(root, file), join(workspace, file), { recursive: true });
-  run("pnpm", ["install", "--prod", "--ignore-scripts", "--offline", "--frozen-lockfile"], workspace);
-  run("pnpm", ["--filter", "@christianmoesl/radar-agent", "deploy", "--prod",
-    "--legacy", "--ignore-scripts", "--offline", "--frozen-lockfile", join(stage, "sdk")], workspace);
+  const sdk = join(stage, "sdk");
+  await mkdir(sdk);
+  for (const file of ["package.json", "README.md", "dist"])
+    await cp(join(root, "agent-host", file), join(sdk, file), { recursive: true });
+  await cp(join(root, "LICENSE"), join(sdk, "LICENSE"));
+  await copyProductionGraph(join(root, "agent-host"), sdk, join(root, "node_modules", ".pnpm"));
   // The packer runs on the build host, not the target selected for the CLI.
   const go = process.env.GO || "go";
   const host = spawnSync(go, ["env", "-json", "GOHOSTOS", "GOHOSTARCH"], { cwd: root, encoding: "utf8" });
@@ -31,7 +28,7 @@ try {
   if (host.status !== 0) throw new Error("Cannot determine Go build-host platform");
   const { GOHOSTOS, GOHOSTARCH } = JSON.parse(host.stdout);
   if (!GOHOSTOS || !GOHOSTARCH) throw new Error("Missing Go build-host platform");
-  run(go, ["run", "./internal/cmd/agentbundle", join(stage, "sdk"),
+  run(go, ["run", "./internal/cmd/agentbundle", sdk,
     join(root, "internal/agentruntime/payload/runtime.zip")], root,
     { ...process.env, GOOS: GOHOSTOS, GOARCH: GOHOSTARCH });
 } finally {

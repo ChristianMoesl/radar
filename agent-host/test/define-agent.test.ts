@@ -116,6 +116,22 @@ test("simple agent enforces turn, tool and duration limits and sanitizes model f
   }
 });
 
+test("duration cancellation remains a deadline failure when wall time has not advanced", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const f = await fixture({ scenario: "delay", limits: { maxDurationMs: 300 } });
+  let host: AgentHost | undefined;
+  try {
+    host = await AgentHost.open(f.entry, f.input);
+    assert.equal((await run(host)).state.outcome.status, "failed");
+    assert.match((await host.snapshot()).presentation.summary, /duration limit/);
+    assert.equal((await f.calls()).length, 0);
+  } finally {
+    await host?.close();
+    await f.close();
+    t.mock.timers.reset();
+  }
+});
+
 test("missing tools and unavailable workspace placement fail closed without a host fallback", async () => {
   const f = await fixture({ tools: ["missing"] });
   try { await assert.rejects(AgentHost.open(f.entry, f.input), /missing|ambiguous/); }

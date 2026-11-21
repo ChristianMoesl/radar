@@ -8,8 +8,9 @@ Install Go, Git, Node.js 24+ and the pnpm version pinned in `package.json` for
 source development. Run `pnpm install --frozen-lockfile` before building.
 `make build`, `make install` and `make dist` embed the matching production-only
 agent SDK/dependencies into the CLI, so binary installers and updates need no
-separate runtime installation. Payload generation uses an isolated copy of the
-locked workspace with lifecycle scripts disabled and offline package deployment;
+separate runtime installation. Payload generation copies the production-reachable
+graph from that frozen installation into isolated staging, without registry
+metadata, dependency scripts, new package resolution or another install command;
 it never prunes the checkout's development dependencies. Current dependencies are
 portable JavaScript/WASM; the packer rejects native Node addons rather than
 silently including host-specific binaries in cross-platform archives.
