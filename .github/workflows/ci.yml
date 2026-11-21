@@ -134,7 +134,7 @@ jobs:
         run: node --test scripts/agent-runtime-graph.test.mjs
       - run: go build -o "$RUNNER_TEMP/radar" ./cmd/radar
       - name: Require clean-definition supplied runtime and retained-state lifecycle
-        run: RADAR_TEST_SUPPLIED_RUNTIME=1 go test -v ./internal/agentservice -run '^TestSuppliedRuntime' -count=1
+        run: RADAR_TEST_SUPPLIED_RUNTIME=1 go test -v ./internal/agentservice ./scripts -run '^TestSuppliedRuntime' -count=1
       - run: pnpm --filter @christianmoesl/radar-agent check
         env:
           RADAR_BINARY: ${{ runner.temp }}/radar
@@ -206,7 +206,7 @@ jobs:
         run: make build
 
       - name: Require supplied agent runtime in the built binary
-        run: RADAR_TEST_SUPPLIED_RUNTIME=1 go test -v ./internal/agentservice -run '^TestSuppliedRuntime' -count=1
+        run: RADAR_TEST_SUPPLIED_RUNTIME=1 go test -v ./internal/agentservice ./scripts -run '^TestSuppliedRuntime' -count=1
 
       - name: Test
         run: make test
@@ -260,7 +260,7 @@ jobs:
         run: make agent-runtime
 
       - name: Require supplied agent runtime on native macOS
-        run: RADAR_TEST_SUPPLIED_RUNTIME=1 go test -v ./internal/agentservice -run '^TestSuppliedRuntime' -count=1
+        run: RADAR_TEST_SUPPLIED_RUNTIME=1 go test -v ./internal/agentservice ./scripts -run '^TestSuppliedRuntime' -count=1
 
       - name: Test installation and integration defaults on macOS
         run: go test ./scripts ./scripts/homebrew ./internal/app ./internal/config ./internal/collector ./internal/pi ./internal/notification ./internal/agentservice ./internal/workspacelease ./internal/onboarding ./internal/hostsetup ./internal/setup/... ./internal/integration/...

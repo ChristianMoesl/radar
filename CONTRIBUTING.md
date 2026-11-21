@@ -165,6 +165,16 @@ Install workspace dependencies with `pnpm install --frozen-lockfile`, build with
 `RADAR_TEST_SUPPLIED_RUNTIME=1 go test ./internal/agentservice -run '^TestSuppliedRuntime'`
 requires the embedded payload and exercises clean-directory registration/start
 with root/subpath SDK imports, retained admission and stopped-state supervision.
+`RADAR_TEST_SUPPLIED_RUNTIME=1 go test ./scripts -run '^TestSuppliedRuntime'`
+also builds two real binaries with distinct, compatible fixture SDK revisions and
+upgrades through the bundled release installer. It retains an in-flight checkpoint
+across runner interruption and new-daemon supervision, checks that live runners
+are not hot-swapped and deliberately stopped agents remain stopped, and verifies
+unchanged registrations, configuration, ingress tokens and delivery receipts.
+The revision exports exist only in build overlays; checkout payloads and user
+projects are never rewritten. This qualifies compatible recovery, not arbitrary
+breaking store changes or exactly-once external effects. CI requires both suites
+on native Linux and macOS.
 For Go-only iteration, generate the payload once with `make agent-runtime` before
 `go build`. Build/pack the independently consumable shared-version npm SDK with
 `pnpm --filter @christianmoesl/radar-agent build` and

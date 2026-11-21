@@ -5,6 +5,18 @@ import { dirname, join, relative } from "node:path";
 import test from "node:test";
 import { copyProductionGraph } from "./agent-runtime-graph.mjs";
 
+// Do not use recursive readdir: Node versions can follow directory symlinks,
+// including the dependency cycles that this fixture deliberately preserves.
+async function tree(root, path = "") {
+  const result = [];
+  for (const entry of await readdir(join(root, path), { withFileTypes: true })) {
+    const name = join(path, entry.name);
+    result.push(name);
+    if (entry.isDirectory()) result.push(...await tree(root, name));
+  }
+  return result.sort();
+}
+
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "radar-production-graph-"));
   const source = join(root, "agent-host"), output = join(root, "output"), store = join(root, "node_modules", ".pnpm");
@@ -37,7 +49,7 @@ test("production traversal retains cycles and exact peer variants without dev pa
     for (const [parent, name, target] of [[f.source, "alpha", alpha], [f.source, "development", dev],
       [alpha, "beta", beta], [alpha, "gamma", gamma1], [alpha, "development", dev],
       [beta, "alpha", alpha], [beta, "gamma", gamma2]]) await f.link(parent, name, target);
-    const before = await readdir(f.root, { recursive: true });
+    const before = await tree(f.root);
     await copyProductionGraph(f.source, f.output, f.store);
     const suppliedAlpha = await realpath(join(f.output, "node_modules", "alpha"));
     const suppliedBeta = await realpath(join(suppliedAlpha, "node_modules", "beta"));
@@ -46,9 +58,9 @@ test("production traversal retains cycles and exact peer variants without dev pa
       const metadata = JSON.parse(await readFile(join(parent, "node_modules", "gamma", "package.json"), "utf8"));
       assert.equal(metadata.version, want);
     }
-    const files = await readdir(f.output, { recursive: true });
+    const files = await tree(f.output);
     assert.ok(!files.some(name => name.includes("development") || name.includes("absent")));
-    assert.deepEqual((await readdir(f.root, { recursive: true })).filter(name => !name.startsWith("output/")), before);
+    assert.deepEqual((await tree(f.root)).filter(name => !name.startsWith("output/")), before);
   } finally { await f.close(); }
 });
 
