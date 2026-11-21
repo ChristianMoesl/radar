@@ -88,9 +88,16 @@ would otherwise authorize it. Activity-driven reopening clears the completion
 time; the review hold keeps the task unfinished after agents settle. Explicit
 Done after reviewing starts both clocks again. Retained registrations keep the
 runtime configuration, so the normal workspace open/recovery flow can restart a
-stopped sandbox and recreate its missing tmux session. Partial runtime failures
-retain the registration and are safe to retry; missing/stopped runtimes are
-idempotent, but identification and inspection errors still block the operation. Terminal attachment alone
+stopped sandbox and recreate its missing tmux session. A successful SBX stop exit
+alone does not count as retirement: under retained path/name leases, a fresh
+listing must show the same runtime stopped with its registered read/write mount,
+and current registration/filesystem/cancellation checks must still pass. Missing,
+replaced, running or unverifiable post-stop runtimes report failure without
+removal, automatic command replay or dropping registration. This is a bounded
+native SBX observation, not proof of all bundle outcomes or future state.
+Partial runtime failures retain registration; obtain fresh eligibility before
+retrying. Initially missing/stopped runtimes are idempotent no-ops, not new
+retirement counts. Identification and inspection errors still block the operation. Terminal attachment alone
 is not an activity signal, and unrelated idle sessions do not prevent cleanup.
 
 Explicit `radar cleanup` / `x` remains a separately confirmed destructive action;

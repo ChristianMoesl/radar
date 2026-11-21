@@ -34,6 +34,7 @@ type admissionFixtureRunner struct {
 	owner       workspacegroup.Workspace
 	calls       []string
 	removed     bool
+	stopped     bool
 	hook        func(string) error
 	replacement bool
 }
@@ -55,10 +56,17 @@ func (r *admissionFixtureRunner) Run(_ context.Context, _ string, name string, a
 		if r.removed {
 			id = "replacement"
 		}
-		return fmt.Sprintf(`[{"id":%q,"name":%q,"status":"running","workspaces":[%q]}]`, id, r.owner.Sandbox.Name, r.owner.Path), nil
+		status := "running"
+		if r.stopped {
+			status = "stopped"
+		}
+		return fmt.Sprintf(`[{"id":%q,"name":%q,"status":%q,"workspaces":[%q]}]`, id, r.owner.Sandbox.Name, status, r.owner.Path), nil
 	}
 	if len(args) > 0 && args[0] == "rm" {
 		r.removed = true
+	}
+	if len(args) > 0 && args[0] == "stop" {
+		r.stopped = true
 	}
 	return "", nil
 }

@@ -372,9 +372,9 @@ if $pause && [ ! -e "$fixture/entered" ]; then
  while [ ! -e "$fixture/resume" ]; do sleep 0.02; done
 fi
 case "$1" in
-ls) if [ -e "$fixture/removed" ]; then printf '[]'; else cat "$fixture/listing"; fi ;;
+ls) if [ -e "$fixture/removed" ]; then printf '[]'; elif [ -e "$fixture/stopped" ]; then cat "$fixture/stopped"; else cat "$fixture/listing"; fi ;;
 rm) touch "$fixture/removed" ;;
-stop) : ;;
+stop) sed 's/"status":"running"/"status":"stopped"/' "$fixture/listing" > "$fixture/stopped" ;;
 esac
 `, dir, phase)
 	if err := os.WriteFile(filepath.Join(dir, "sbx"), []byte(script), 0755); err != nil {

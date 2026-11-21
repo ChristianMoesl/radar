@@ -142,13 +142,17 @@ func cleanupRegisteredSandboxAdmitted(ctx context.Context, runner workspace.Runn
 	if expected := target.Operation["runtime_id"]; expected != "" && runtime.ID != expected {
 		return target, fmt.Errorf("sandbox runtime identity changed; preview cleanup again")
 	}
-	owned := false
-	for _, mount := range append(runtime.Workspaces, runtime.Mounts...) {
-		if !strings.HasSuffix(mount, ":ro") && filepath.Clean(mount) == filepath.Clean(target.Path) {
-			owned = true
+	mountsWorkspace := func(runtime *sbxclient.Runtime) bool {
+		for _, mounts := range [][]string{runtime.Workspaces, runtime.Mounts} {
+			for _, mount := range mounts {
+				if !strings.HasSuffix(mount, ":ro") && filepath.Clean(mount) == filepath.Clean(target.Path) {
+					return true
+				}
+			}
 		}
+		return false
 	}
-	if !owned {
+	if !mountsWorkspace(runtime) {
 		return target, fmt.Errorf("sandbox runtime no longer mounts its registered workspace read/write")
 	}
 	switch strings.ToLower(runtime.Status) {
@@ -187,6 +191,25 @@ func cleanupRegisteredSandboxAdmitted(ctx context.Context, runner workspace.Runn
 	}
 	if err := refresh(); err != nil {
 		return target, err
+	}
+	// Command acceptance is not evidence that the registered runtime stopped.
+	// Observe the same lifetime under retained path/name admission and repeat
+	// metadata, filesystem and cancellation guards after the provider read.
+	remaining, err := client.FindRuntime(ctx, target.ResourceID)
+	if err != nil {
+		return target, err
+	}
+	if err := refresh(); err != nil {
+		return target, err
+	}
+	if remaining == nil || remaining.ID != runtime.ID {
+		return target, fmt.Errorf("sandbox runtime identity changed after stop; preview cleanup again")
+	}
+	if !mountsWorkspace(remaining) {
+		return target, fmt.Errorf("sandbox runtime no longer mounts its registered workspace read/write")
+	}
+	if strings.ToLower(remaining.Status) != "stopped" {
+		return target, fmt.Errorf("registered sandbox is not stopped after retirement")
 	}
 	target.Operation["runtime_retired"] = "true"
 	return target, nil

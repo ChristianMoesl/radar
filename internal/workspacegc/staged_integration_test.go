@@ -27,8 +27,13 @@ import (
 // Real cleanup providers operate only on isolated files and fake runtime CLIs.
 // In particular no sandbox, tmux server, remote Git service or user data is used.
 func TestStagedRuntimeRetirementPreservesDataAndRetries(t *testing.T) {
-	for _, failFirst := range []bool{false, true} {
-		t.Run(fmt.Sprintf("partial_failure=%v", failFirst), func(t *testing.T) {
+	for _, scenario := range []string{"success", "stop-error", "ignored-stop"} {
+		t.Run(scenario, func(t *testing.T) {
+			failFirst := scenario != "success"
+			failureExit := 1
+			if scenario == "ignored-stop" {
+				failureExit = 0
+			}
 			home := t.TempDir()
 			root := filepath.Join(home, "workspaces")
 			anchor := filepath.Join(root, "completed")
@@ -72,11 +77,11 @@ printf 'sbx %%s\n' "$*" >> %q
 case "$1" in
 ls) status=running; [ ! -f %q ] || status=stopped
 printf '[{"id":"container-1","name":"registered-sandbox","status":"%%s","workspaces":[%%s]}]' "$status" '%q';;
-stop) [ ! -f %q ] || exit 1
+stop) [ ! -f %q ] || exit %d
 : > %q;;
 *) exit 42;;
 esac
-`, calls, stopped, anchor, fail, stopped), 0755)
+`, calls, stopped, anchor, fail, failureExit, stopped), 0755)
 			write(filepath.Join(bin, "tmux"), fmt.Sprintf(`#!/bin/sh
 printf 'tmux %%s\n' "$*" >> %q
 case "$1" in
@@ -118,6 +123,9 @@ esac
 			if failFirst {
 				if len(first.Skipped) != 1 || len(first.Retired) != 0 {
 					t.Fatalf("partial failure: %+v", first)
+				}
+				if scenario == "ignored-stop" && !strings.Contains(fmt.Sprint(first.Skipped), "not stopped after retirement") {
+					t.Fatalf("unverified stop not reported: %+v", first)
 				}
 				if err := os.Remove(fail); err != nil {
 					t.Fatal(err)

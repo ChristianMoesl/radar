@@ -33,6 +33,9 @@ func (r *retirementRunner) Run(_ context.Context, _ string, name string, args ..
 	if len(args) > 0 && args[0] == "rm" {
 		r.removed = true
 	}
+	if len(args) > 0 && args[0] == "stop" {
+		r.listing = strings.ReplaceAll(r.listing, `"status":"running"`, `"status":"stopped"`)
+	}
 	return "", nil
 }
 
