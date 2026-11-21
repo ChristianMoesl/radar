@@ -30,6 +30,7 @@ type Service struct {
 	localResourceRevision uint64
 	onRefresh             func([]protocol.Task, []protocol.Task)
 	authoringRevision     uint64
+	resetRevision         uint64
 	resourceRevision      atomic.Uint64
 	resourcePublication   atomic.Pointer[resourcePublication]
 	requestLocalRefresh   func()
@@ -84,6 +85,7 @@ func (s *Service) refreshCollected(ctx context.Context, localOnly bool) collecto
 		return collector.Result{}
 	}
 	revision := s.authoringRevision
+	resetRevision := s.resetRevision
 	resourceRevision := s.resourceRevision.Load()
 	s.applyMu.Unlock()
 
@@ -111,37 +113,31 @@ func (s *Service) refreshCollected(ctx context.Context, localOnly bool) collecto
 	if ctx.Err() != nil {
 		return collector.Result{Attempts: result.Attempts}
 	}
-	if resourceRevision != s.resourceRevision.Load() {
-		// A completed resource mutation supersedes this entire observation.
-		// Never publish it or clear the pending marker, even if every provider
-		// reported success. The next scheduled collection starts a fresh read.
-		s.logger.Debug("collection superseded by resource mutation")
+	publicationResourceRevision := s.resourceRevision.Load()
+	if resetRevision != s.resetRevision || (localOnly && resourceRevision != publicationResourceRevision) {
+		// Reset supersedes every in-flight observation. Resource changes fence
+		// local reads, not unrelated remote facts: those are combined below with
+		// the latest local snapshot without certifying an older resource read.
+		s.logger.Debug("collection superseded by resource mutation or cache reset")
 		return collector.Result{Attempts: result.Attempts, Tasks: s.store.CollectionTasks(), Sources: s.store.Sources()}
 	}
+	var observerStatuses []protocol.SourceStatus
 	if !localOnly {
-		observerErrors := append([]protocol.SourceStatus(nil), result.Sources...)
+		observerStatuses = append([]protocol.SourceStatus(nil), result.Sources...)
 		for _, source := range collector.LocalSources(s.integrations.Sources()) {
 			name := source.Descriptor().Name
 			result.ReplaceSource(name, s.localResult.ForSource(name))
-			if s.localResourceRevision != resourceRevision {
+			if s.localResourceRevision != publicationResourceRevision {
 				result.Complete[name] = false
 			}
 		}
-		// Remote event persistence can fail in a local observer. Retain that
-		// error instead of replacing it with the observer's earlier health.
-		for _, status := range observerErrors {
-			for i := range result.Sources {
-				if result.Sources[i].Name == status.Name {
-					result.Sources[i] = status
-				}
-			}
-		}
-		result.OrderSources(s.integrations.Sources())
 	}
-	if revision != s.authoringRevision {
+	if revision != s.authoringRevision || (!localOnly && resourceRevision != publicationResourceRevision) {
 		// A mutation won while collection was in flight. Re-read only the
 		// author and activity sources: a pre-mutation busy snapshot must not
-		// undo explicit Done. Retain every remote source's collected results.
+		// undo explicit Done. Resource drift also needs a complete authoring
+		// read to persist newly discovered bindings before a cache reset.
+		// Retain every remote source's collected results.
 		if provider, err := s.integrations.TaskAuthoring(); err == nil {
 			for _, source := range append([]integration.Source{provider}, s.activitySources()...) {
 				fresh := collector.Collect(ctx, s.store.CollectionTasks(), s.logger, []integration.Source{source})
@@ -149,6 +145,21 @@ func (s *Service) refreshCollected(ctx context.Context, localOnly bool) collecto
 				result.ReplaceSource(source.Descriptor().Name, fresh)
 			}
 		}
+	}
+	if ctx.Err() != nil {
+		return collector.Result{Attempts: result.Attempts}
+	}
+	if !localOnly {
+		// Remote event persistence can fail in a local observer. Retain that
+		// error even if a later author/activity reread reports healthy collection.
+		for _, status := range observerStatuses {
+			for i := range result.Sources {
+				if result.Sources[i].Name == status.Name {
+					result.Sources[i] = status
+				}
+			}
+		}
+		result.OrderSources(s.integrations.Sources())
 	}
 	previous = s.store.Tasks()
 	if localOnly {
@@ -165,7 +176,10 @@ func (s *Service) refreshCollected(ctx context.Context, localOnly bool) collecto
 		// even when a mutation fenced its remote snapshot. Only lifecycle is
 		// deferred: stale facts must not undo manual completion or reopening.
 		reconcile := collector.ReconcileAuthoredTasks
-		if revision != s.authoringRevision {
+		if revision != s.authoringRevision || resourceRevision != s.resourceRevision.Load() {
+			// Remote facts may now publish across resource changes, but must not
+			// infer lifecycle from a batch that predates changed local resources.
+			// Persist associations only; a later stable batch can reconcile Done.
 			reconcile = collector.ReconcileAuthoredBindings
 		}
 		if reconcile(ctx, s.store.CollectionTasks(), &result, s.integrations.Sources(), s.logger) {
@@ -183,10 +197,10 @@ func (s *Service) refreshCollected(ctx context.Context, localOnly bool) collecto
 	if localOnly {
 		s.localResourceRevision = resourceRevision
 	}
-	if s.localResourceRevision == resourceRevision && s.localCollectionComplete(result) {
+	if s.localResourceRevision == publicationResourceRevision && s.localCollectionComplete(result) {
 		previousPublication := s.resourcePublication.Load()
-		s.resourcePublication.Store(&resourcePublication{epoch: resourceRevision, storeRevision: s.store.Revision()})
-		if previousPublication == nil || previousPublication.epoch != resourceRevision {
+		s.resourcePublication.Store(&resourcePublication{epoch: publicationResourceRevision, storeRevision: s.store.Revision()})
+		if previousPublication == nil || previousPublication.epoch != publicationResourceRevision {
 			// A complete reread can return identical observations. Freshness
 			// still changed, so watch clients need a newer revision to clear
 			// pending without waiting for another unrelated task mutation.
@@ -293,6 +307,7 @@ func (s *Service) Reset() error {
 	s.applyMu.Lock()
 	defer s.applyMu.Unlock()
 	s.authoringRevision++
+	s.resetRevision++
 	s.resourceRevision.Add(1)
 	return s.store.Reset()
 }

@@ -242,7 +242,8 @@ This is bounded latest-per-provider evidence in the **current daemon's memory**,
 not a persisted history platform. Restarted/unobserved sources are unknown;
 there is no inferred history from retained reference timestamps. Only normal
 refresh discovery attempts are recorded, including attempts whose cache
-publication was cancelled or superseded by resource mutation. Reconciliation,
+publication was cancelled, superseded by reset, or (local reads only)
+superseded by resource mutation. Reconciliation,
 authoring, delivery and cache publication may fail independently. Active/queued
 attempts are not recorded here. Completion does not prove live authentication,
 current access, cache freshness, workspace health or maintenance eligibility.
