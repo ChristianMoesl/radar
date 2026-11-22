@@ -1,14 +1,16 @@
 package protocol
 
 // DiagnosticMaintenanceRequest is deliberately separate from read/probe selectors.
-// Only installation-wide collection refresh is supported; plan IDs are freshness
-// evidence, never consent or arbitrary execution parameters.
+// Collection refresh and an explicit manual bundle guard check are supported.
+// Plans are freshness evidence, never consent or arbitrary execution parameters.
 type DiagnosticMaintenanceRequest struct {
 	Schema    int    `json:"diagnostics_schema"`
 	Operation string `json:"operation"`
 	Mode      string `json:"mode"`
 	Scope     string `json:"scope"`
 	PlanID    string `json:"plan_id,omitempty"`
+	ParentID  string `json:"parent_id,omitempty"`
+	Workspace string `json:"workspace,omitempty"` // CLI-resolved registered scope, never a target path.
 }
 
 type DiagnosticRefreshTarget struct {

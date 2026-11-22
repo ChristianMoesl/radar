@@ -190,6 +190,20 @@ Completed cleanup and reconciliation responses can contain `resource_refresh_pen
 
 Authored-note identity conflicts are never automatically merged or reset. `repair-task-links` defaults to a read-only JSON plan; applying requires explicit ownership/history decisions, an offline state lock and a new SQLite backup. See [task link repair](task-link-repair.md).
 
+`feedback-diagnostics --section cleanup_check --parent-id <retained-task-id>`
+runs the native confirmed-manual planner and shared bundle admission/preflight,
+never provider Cleanup. It requires separate fresh exact-task/scope approval in
+Pi; direct host callers must obtain that consent themselves. Scope defaults to
+the registered origin and selects the entire ordered task bundle, including
+other workspaces. Real admission may create coordination files/directories,
+inspect tmux/protected workspace trees and transiently contend; provider/Git
+reads may refresh metadata. All locks are released. Returned aggregate guard
+success is not complete last-moment eligibility, runtime/resource evidence,
+a reservation, apply token or deletion/retry consent. No subset, cursor, state,
+expiry/retirement or action/plan selectors; no automatic replay after unknown
+outcomes. Matching schema 31 is required. See
+[guard-check safeguards](integrations/pi-cleanup-check.md).
+
 `feedback-diagnostics --section refresh --scope installation` defaults to a
 non-mutating preview of all registered collection sources. Apply requires
 `--action apply --plan-id <latest-preview-id>` and separate fresh consent in the
@@ -204,7 +218,7 @@ admission fails without queued work. One-use current-daemon plans expire after
 deadline. Cancellation/disconnect can leave partial changes, not rollback.
 Returned per-source counts are collection attempts, not verified resources;
 missing/canceled evidence stays unverified. Never replay an unknown apply outcome.
-CLI/daemon/Pi schema 30 must match before apply, with no fallback. See
+CLI/daemon/Pi schema 31 must match before apply, with no fallback. See
 [refresh safeguards](integrations/pi-diagnostics.md#explicit-installation-wide-collection-refresh).
 
 `feedback-diagnostics --section operations` pages volatile current-daemon managed
@@ -241,7 +255,7 @@ no retry record is not success or stopped-state evidence. Records are volatile,
 ID-keyed and not registration-lifetime/history attestations; retry deadlines are
 not execution guarantees. Scoped pagination invalidates on shown memory changes.
 See the Pi diagnostics documentation for fields and limitations. CLI, daemon and
-loaded Pi must match schema 30; no maintenance apply is exposed.
+loaded Pi must match schema 31; no maintenance apply is exposed.
 
 Native cleanup operation inspection also reports bounded executor stop stages and
 provider Cleanup-call counts, never verified resource outcomes or safe retry.
@@ -253,8 +267,8 @@ It accepts origin/feedback/installation scope, but no row/state/cursor selectors
 No registered sandbox is not runtime absence; unavailable registration has no
 fallback. This is not current repository/global effective policy, historical
 setting provenance, live runtime configuration or execution eligibility. CLI,
-daemon and loaded Pi require schema 30, without a persisted-format change. See
-[the policy evidence contract](integrations/pi-policy.md#recorded-workspace-policy-diagnostics-schema-30).
+daemon and loaded Pi require schema 31, without a persisted-format change. See
+[the policy evidence contract](integrations/pi-policy.md#recorded-workspace-policy-diagnostics-schema-31).
 
 `feedback-diagnostics --section repository_policy --parent-id <registered workspace ID>
 --id <member row ID from workspace_resources>` explicitly reads only that registered
@@ -263,9 +277,9 @@ file-access approval; the CLI request itself is explicit local file inspection, 
 publication consent. Ten presence/mode/count declarations never imply effective
 policy. Missing configuration differs from unavailable repository evidence; no
 referenced files, runtime/provider calls or maintenance. See
-[the repository declaration contract](integrations/pi-policy.md#current-registered-member-repository-declarations-schema-30).
+[the repository declaration contract](integrations/pi-policy.md#current-registered-member-repository-declarations-schema-31).
 
-`feedback-diagnostics --section overview` reports schema-30 typed configuration
+`feedback-diagnostics --section overview` reports schema-31 typed configuration
 policy values and file/default provenance. Its fixed ten-setting allowlist returns
 only booleans, enablement modes and counts from a bounded native configuration
 read, never model strings, paths, commands, secrets or referenced file contents.

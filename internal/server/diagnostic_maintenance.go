@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"sort"
 	"time"
@@ -18,6 +19,39 @@ type diagnosticRefreshPlan struct {
 	view     protocol.DiagnosticMaintenance
 	expires  time.Time // monotonic expiry; wall timestamp is display evidence only
 	consumed bool
+}
+
+// Shared transport fields must not silently become selectors on the other
+// operation, even when supplied as empty strings or null. The common request
+// boundary rejects duplicate/folded members before this exact-key allowlist.
+func diagnosticMaintenanceFields(raw []byte, operation string) bool {
+	var frame map[string]json.RawMessage
+	if json.Unmarshal(raw, &frame) != nil || len(frame) != 2 {
+		return false
+	}
+	if _, ok := frame["method"]; !ok {
+		return false
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(frame["maintenance"], &fields) != nil {
+		return false
+	}
+	for name := range fields {
+		switch name {
+		case "diagnostics_schema", "operation", "mode", "scope":
+		case "plan_id":
+			if operation != "refresh" {
+				return false
+			}
+		case "parent_id", "workspace":
+			if operation != "cleanup_check" {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // SetDiagnosticRefresh MUST receive the collection-only taskservice adapter, not
@@ -57,7 +91,7 @@ func (s *Server) maintainDiagnostics(ctx context.Context, req protocol.Diagnosti
 	fail := func(message string) (protocol.DiagnosticMaintenance, error) {
 		return protocol.DiagnosticMaintenance{}, errors.New(message)
 	}
-	if req.Schema != protocol.DiagnosticsVersion || req.Operation != "refresh" || req.Scope != "installation" || (req.Mode != "preview" && req.Mode != "apply") || (req.Mode == "preview" && req.PlanID != "") || (req.Mode == "apply" && (len(req.PlanID) != 64 || !hexPlanID(req.PlanID))) {
+	if req.Schema != protocol.DiagnosticsVersion || req.Operation != "refresh" || req.ParentID != "" || req.Workspace != "" || req.Scope != "installation" || (req.Mode != "preview" && req.Mode != "apply") || (req.Mode == "preview" && req.PlanID != "") || (req.Mode == "apply" && (len(req.PlanID) != 64 || !hexPlanID(req.PlanID))) {
 		return fail("maintenance requires explicit installation refresh preview or exact-plan apply")
 	}
 	if err := ctx.Err(); err != nil {

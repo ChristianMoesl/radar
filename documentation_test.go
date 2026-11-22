@@ -53,9 +53,10 @@ func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
 		"elapsed_milliseconds", "unknown_not_captured", "phase_timing_evidence", "native_completed_phase_aggregates", "completed_intervals", "Nested phases overlap",
 		"## Configuration policy and origins", "## Explicit native manual-cleanup previews",
 		"## Explicit installation-wide collection refresh", "30-second", "collection-only adapter",
+		"## Explicit manual cleanup bundle guard check", "cleanup_check", "(pi-cleanup-check.md)", "complete_cleanup_execution_eligibility",
 		"request_outcome_unknown_do_not_replay", "plan ID establishes", "freshness, not user consent",
-		"does not call ordinary daemon refresh", "cleanup_apply", "schema 30", "native_cleanup_returned_target_summaries", "native_cleanup_execution_boundaries", "provider_call", "attempted_targets", "not_completed_may_be_partial",
-		"complete integration envelope", "Unknown sibling fields", "wire shape unchanged",
+		"does not call ordinary daemon refresh", "cleanup_apply", "schema 31", "native_cleanup_returned_target_summaries", "native_cleanup_execution_boundaries", "provider_call", "attempted_targets", "not_completed_may_be_partial",
+		"complete integration envelope", "Unknown sibling fields", "native evidence shape",
 		"## Durable-agent registration and checkpoint evidence",
 		"complete agent inventory envelope", "Unavailable supervision never bypasses",
 		"complete runtime probe envelope", "wrong targets and inconsistent evidence",
@@ -69,16 +70,35 @@ func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
 	}
 }
 
+func TestPiCleanupCheckContractIsSeparatelyBundled(t *testing.T) {
+	diagnostics, err := Read("docs/integrations/pi-diagnostics.md")
+	if err != nil || !strings.Contains(diagnostics.Content, "(pi-cleanup-check.md)") {
+		t.Fatalf("diagnostics must link the bounded guard-check contract: %v", err)
+	}
+	check, err := Read("docs/integrations/pi-cleanup-check.md")
+	if err != nil || check.Title != "Pi manual cleanup bundle guard checks" {
+		t.Fatalf("guard-check topic unavailable: %+v %v", check.Topic, err)
+	}
+	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Explicit manual cleanup bundle guard check", "cleanup_check", "entire ordered resource bundle", "fresh interactive exact-task/scope confirmation", "cleanup.Service.CheckBundle", "coordination files/directories", "existing-inode probes", "no-created-lease-files", "cooperative 30-second", "automatically retried", "guards_passed_at_check", "not_passed_or_unavailable", "not be replayed", "last-moment checks", "schema 31", "No apply token"} {
+		if !strings.Contains(check.Content, contract) {
+			t.Errorf("guard-check contract omitted: %q", contract)
+		}
+	}
+	if strings.Contains(diagnostics.Content, "cleanup.Service.CheckBundle") {
+		t.Fatal("keep the detailed check contract in one bounded topic")
+	}
+}
+
 func TestPiPolicyContractsAreSeparatelyBundled(t *testing.T) {
 	diagnostics, err := Read("docs/integrations/pi-diagnostics.md")
-	if err != nil || !strings.Contains(diagnostics.Content, "(pi-policy.md#configuration-policy-and-origins)") || !strings.Contains(diagnostics.Content, "(pi-policy.md#recorded-workspace-policy-diagnostics-schema-30)") {
+	if err != nil || !strings.Contains(diagnostics.Content, "(pi-policy.md#configuration-policy-and-origins)") || !strings.Contains(diagnostics.Content, "(pi-policy.md#recorded-workspace-policy-diagnostics-schema-31)") {
 		t.Fatalf("diagnostics must link both policy contracts: %v", err)
 	}
 	policy, err := Read("docs/integrations/pi-policy.md")
 	if err != nil || policy.Title != "Pi configuration and workspace policy" {
 		t.Fatalf("policy topic unavailable: %+v %v", policy.Topic, err)
 	}
-	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Configuration policy and origins", "CLI-process global defaults", "daemon-process global defaults", "compiled_default", "configuration_file", "At most 64 KiB", "## Recorded workspace policy (diagnostics schema 30)", "registered_workspace_recipe_policy", "workspace_effective_policy", "historical per-setting", "public shape", "not private recipe bytes", "Pi validates the complete envelope", "not a registry/data migration", "separately installed Pi extension", "## Current registered member repository declarations (schema 30)", "current_member_repository_declarations", "registered source repository", "no repository override", "repository_default", "point-in-time checks"} {
+	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Configuration policy and origins", "CLI-process global defaults", "daemon-process global defaults", "compiled_default", "configuration_file", "At most 64 KiB", "## Recorded workspace policy (diagnostics schema 31)", "registered_workspace_recipe_policy", "workspace_effective_policy", "historical per-setting", "public shape", "not private recipe bytes", "Pi validates the complete envelope", "not a registry/data migration", "separately installed Pi extension", "## Current registered member repository declarations (schema 31)", "current_member_repository_declarations", "registered source repository", "no repository override", "repository_default", "point-in-time checks"} {
 		if !strings.Contains(policy.Content, contract) {
 			t.Errorf("policy contract omitted: %q", contract)
 		}

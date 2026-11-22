@@ -22,6 +22,117 @@ import (
 
 const CleanupPreviewTimeout = 30 * time.Second
 
+type cleanupPreparation struct {
+	selected          *state.TaskRecord
+	revision          int64
+	registration      string
+	mode              integration.CleanupMode
+	candidate         *workspacegc.Candidate
+	preview           protocol.CleanupPreview
+	providers         []integration.CleanupProvider
+	seen              map[string]bool
+	bundleFingerprint []byte
+}
+
+// prepareCleanup reuses the same bounded task/scope, production planner and
+// native bundle validation for previews and explicitly authorized guard checks.
+// It never dispatches Cleanup or acquires execution admission.
+func prepareCleanup(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequest, providers integration.Registry) (cleanupPreparation, error) {
+	records, refs, revision := store.InspectionSnapshot()
+	var selected *state.TaskRecord
+	for _, record := range records {
+		if req.ParentID != record.ID && req.ParentID != strconv.Itoa(record.NumericID) {
+			continue
+		}
+		if selected != nil {
+			return cleanupPreparation{}, fmt.Errorf("cleanup preview task identity ambiguous")
+		}
+		copy := record
+		selected = &copy
+	}
+	if selected == nil {
+		return cleanupPreparation{}, fmt.Errorf("cleanup preview task unavailable")
+	}
+	related := []state.SourceRefRecord{}
+	for _, ref := range refs {
+		if ref.TaskRecordID == selected.ID {
+			related = append(related, ref)
+		}
+	}
+	if req.Workspace != "" && !recordInWorkspace(related, req.Workspace) {
+		return cleanupPreparation{}, fmt.Errorf("cleanup preview task is outside selected scope")
+	}
+	task := productionTask(*selected, related)
+	if len(task.SourceRefs) > 256 {
+		return cleanupPreparation{}, fmt.Errorf("cleanup preview exceeds native reference budget")
+	}
+	nativeProviders := providers.CleanupProviders()
+	seen := map[string]bool{}
+	for _, provider := range nativeProviders {
+		name := provider.Descriptor().Name
+		if seen[name] || !cleanupProviderKnown(name) {
+			return cleanupPreparation{}, fmt.Errorf("cleanup preview provider unsupported or ambiguous")
+		}
+		seen[name] = true
+	}
+	if len(nativeProviders) == 0 {
+		return cleanupPreparation{}, fmt.Errorf("native cleanup preview unsupported")
+	}
+	// Frozen registration evidence catches workspace changes during native checks.
+	// No duplicate expensive/network previews are run solely for pagination.
+	registration, err := cleanupRegistrationSnapshot(providers)
+	if err != nil {
+		return cleanupPreparation{}, err
+	}
+	mode := integration.CleanupConfirmed
+	var candidate *workspacegc.Candidate
+	if req.CleanupMode == "expired" {
+		candidate, err = expiredCleanupCandidate(req, records, refs, providers, registration, selected.ID)
+		if err != nil {
+			return cleanupPreparation{}, err
+		}
+		task, mode = candidate.Task, integration.CleanupExpired
+	}
+	if len(task.SourceRefs) > 256 {
+		return cleanupPreparation{}, fmt.Errorf("cleanup preview exceeds native reference budget")
+	}
+	preview, err := cleanup.New(nativeProviders).Preview(ctx, task, mode)
+	if err != nil {
+		return cleanupPreparation{}, fmt.Errorf("native cleanup preview unavailable; provider errors withheld")
+	}
+	if previewExpired(ctx) {
+		return cleanupPreparation{}, fmt.Errorf("cleanup preview cancelled or timed out")
+	}
+	if len(preview.Targets) == 0 || len(preview.Targets) > 512 {
+		return cleanupPreparation{}, fmt.Errorf("cleanup preview target coverage exceeds bounds")
+	}
+	bundleHash := sha256.New()
+	bundleBytes := 0
+	for _, target := range preview.Targets {
+		if len(target.Safety) > 1024 {
+			return cleanupPreparation{}, fmt.Errorf("cleanup preview safety evidence exceeds bounds")
+		}
+		raw, marshalErr := json.Marshal(target)
+		if marshalErr != nil || len(raw) > 64*1024 {
+			return cleanupPreparation{}, fmt.Errorf("cleanup preview native target exceeds bounds")
+		}
+		bundleBytes += len(raw)
+		if bundleBytes > 1024*1024 {
+			return cleanupPreparation{}, fmt.Errorf("cleanup preview native evidence exceeds bounds")
+		}
+		fmt.Fprintf(bundleHash, "%d:", len(raw))
+		bundleHash.Write(raw)
+	}
+	if candidate != nil {
+		selectedPreview, anchor := workspacegc.SelectTargetsForCandidate(preview, *candidate)
+		if anchor == nil || len(selectedPreview.Targets) == 0 {
+			return cleanupPreparation{}, fmt.Errorf("native expired cleanup anchor unavailable; no executable plan created")
+		}
+		preview = selectedPreview
+	}
+	return cleanupPreparation{selected: selected, revision: revision, registration: registration, mode: mode, candidate: candidate, preview: preview, providers: nativeProviders, seen: seen, bundleFingerprint: bundleHash.Sum(nil)}, nil
+}
+
 // cleanupPreview invokes the actual manual or expiry planner, never its executor.
 // Explicit consent must warn about provider reads, native Git fetch/prune and
 // transient nonblocking exclusive probes on existing lease inodes. No lease is
@@ -47,98 +158,12 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 	if pending {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("resource list refresh pending; cleanup preview unavailable")
 	}
-	records, refs, revision := store.InspectionSnapshot()
-	var selected *state.TaskRecord
-	for _, record := range records {
-		if req.ParentID != record.ID && req.ParentID != strconv.Itoa(record.NumericID) {
-			continue
-		}
-		if selected != nil {
-			return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview task identity ambiguous")
-		}
-		copy := record
-		selected = &copy
-	}
-	if selected == nil {
-		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview task unavailable")
-	}
-	related := []state.SourceRefRecord{}
-	for _, ref := range refs {
-		if ref.TaskRecordID == selected.ID {
-			related = append(related, ref)
-		}
-	}
-	if req.Workspace != "" && !recordInWorkspace(related, req.Workspace) {
-		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview task is outside selected scope")
-	}
-	task := productionTask(*selected, related)
-	if len(task.SourceRefs) > 256 {
-		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview exceeds native reference budget")
-	}
-	nativeProviders := providers.CleanupProviders()
-	seen := map[string]bool{}
-	for _, provider := range nativeProviders {
-		name := provider.Descriptor().Name
-		if seen[name] || !cleanupProviderKnown(name) {
-			return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview provider unsupported or ambiguous")
-		}
-		seen[name] = true
-	}
-	if len(nativeProviders) == 0 {
-		return protocol.DiagnosticsPage{}, fmt.Errorf("native cleanup preview unsupported")
-	}
-	// Frozen registration evidence catches workspace changes during native checks.
-	// No duplicate expensive/network previews are run solely for pagination.
-	registration, err := cleanupRegistrationSnapshot(providers)
+	prepared, err := prepareCleanup(ctx, store, req, providers)
 	if err != nil {
 		return protocol.DiagnosticsPage{}, err
 	}
-	mode := integration.CleanupConfirmed
-	var candidate *workspacegc.Candidate
-	if req.CleanupMode == "expired" {
-		candidate, err = expiredCleanupCandidate(req, records, refs, providers, registration, selected.ID)
-		if err != nil {
-			return protocol.DiagnosticsPage{}, err
-		}
-		task, mode = candidate.Task, integration.CleanupExpired
-	}
-	if len(task.SourceRefs) > 256 {
-		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview exceeds native reference budget")
-	}
-	preview, err := cleanup.New(nativeProviders).Preview(ctx, task, mode)
-	if err != nil {
-		return protocol.DiagnosticsPage{}, fmt.Errorf("native cleanup preview unavailable; provider errors withheld")
-	}
-	if previewExpired(ctx) {
-		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview cancelled or timed out")
-	}
-	if len(preview.Targets) == 0 || len(preview.Targets) > 512 {
-		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview target coverage exceeds bounds")
-	}
-	bundleHash := sha256.New()
-	bundleBytes := 0
-	for _, target := range preview.Targets {
-		if len(target.Safety) > 1024 {
-			return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview safety evidence exceeds bounds")
-		}
-		raw, marshalErr := json.Marshal(target)
-		if marshalErr != nil || len(raw) > 64*1024 {
-			return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview native target exceeds bounds")
-		}
-		bundleBytes += len(raw)
-		if bundleBytes > 1024*1024 {
-			return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup preview native evidence exceeds bounds")
-		}
-		fmt.Fprintf(bundleHash, "%d:", len(raw))
-		bundleHash.Write(raw)
-	}
-	if candidate != nil {
-		selectedPreview, anchor := workspacegc.SelectTargetsForCandidate(preview, *candidate)
-		if anchor == nil || len(selectedPreview.Targets) == 0 {
-			return protocol.DiagnosticsPage{}, fmt.Errorf("native expired cleanup anchor unavailable; no executable plan created")
-		}
-		preview = selectedPreview
-	}
+	selected, revision, registration := prepared.selected, prepared.revision, prepared.registration
+	mode, candidate, preview, seen := prepared.mode, prepared.candidate, prepared.preview, prepared.seen
 	// Match Execute's path-based registered-owner and exclusive-lease checks,
 	// without creating/reserving leases or acquiring the operation lock. Explicit
 	// lease probes briefly test existing inodes, then release them. All targets
@@ -194,7 +219,7 @@ func cleanupPreview(ctx context.Context, store *state.Store, req protocol.Diagno
 		// same-count owner changes invalidate the next page without exposing IDs.
 		identity := append(append([]byte{}, registrationSum[:]...), ownerSnapshot[:]...)
 		identity = append(identity, leaseSnapshot[:]...)
-		identity = append(identity, bundleHash.Sum(nil)...)
+		identity = append(identity, prepared.bundleFingerprint...)
 		sum := sha256.Sum256(append(identity, raw...))
 		view.ID = "cleanup-target:" + hex.EncodeToString(sum[:])
 		resourceIdentity := target.Source + "\x00" + target.Kind + "\x00" + target.ResourceID

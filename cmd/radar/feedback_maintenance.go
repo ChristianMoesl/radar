@@ -13,7 +13,7 @@ import (
 // feedbackRefresh never falls back to ordinary refresh: that daemon callback
 // can also execute workspace GC. Inspection breadth never grants mutation scope.
 func feedbackRefresh(current, scope string, req protocol.DiagnosticMaintenanceRequest) (map[string]any, error) {
-	if scope != "installation" || req.Operation != "refresh" || (req.Mode != "preview" && req.Mode != "apply") || (req.Mode == "preview" && req.PlanID != "") || (req.Mode == "apply" && !validFeedbackPlanID(req.PlanID)) {
+	if scope != "installation" || req.ParentID != "" || req.Workspace != "" || req.Operation != "refresh" || (req.Mode != "preview" && req.Mode != "apply") || (req.Mode == "preview" && req.PlanID != "") || (req.Mode == "apply" && !validFeedbackPlanID(req.PlanID)) {
 		return nil, errors.New("refresh requires explicit installation scope and preview or exact-plan apply")
 	}
 	_, group, found, err := workspace.RegisteredWorkspace(current, "")

@@ -221,8 +221,17 @@ func (s *Server) handle(conn net.Conn) {
 			}
 			decoder := json.NewDecoder(bytes.NewReader(scanner.Bytes()))
 			decoder.DisallowUnknownFields()
-			if err := decoder.Decode(&boundary); err != nil || boundary.Maintenance == nil || req != (protocol.Request{Method: "diagnostics-maintenance", Maintenance: req.Maintenance}) {
+			if err := decoder.Decode(&boundary); err != nil || boundary.Maintenance == nil || req != (protocol.Request{Method: "diagnostics-maintenance", Maintenance: req.Maintenance}) || !diagnosticMaintenanceFields(scanner.Bytes(), req.Maintenance.Operation) {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "exact typed maintenance request required"})
+				continue
+			}
+			if req.Maintenance.Operation == "cleanup_check" {
+				view, err := s.checkDiagnosticCleanup(context.Background(), *req.Maintenance)
+				if err != nil {
+					_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error()})
+					continue
+				}
+				_ = encoder.Encode(protocol.Response{OK: true, CleanupCheck: &view})
 				continue
 			}
 			view, err := s.maintainDiagnostics(context.Background(), *req.Maintenance)
