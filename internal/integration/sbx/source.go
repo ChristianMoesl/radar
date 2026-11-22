@@ -158,7 +158,61 @@ func cleanupWithRunner(ctx context.Context, runner workspace.Runner, req integra
 		}
 		return req.Target, nil
 	}
-	return cleanupSandbox(ctx, runner, req.Target)
+	return cleanupStandaloneSandbox(ctx, runner, req.Target)
+}
+
+// Standalone Source cleanup retains reusable-name admission in its caller. Pin
+// the currently observed lifetime, rather than deleting a later name occupant.
+// This is not preview freshness: name-only previews do not bind a lifetime.
+func cleanupStandaloneSandbox(ctx context.Context, runner workspace.Runner, target protocol.CleanupTarget) (protocol.CleanupTarget, error) {
+	if err := ctx.Err(); err != nil {
+		return target, err
+	}
+	client := sbxclient.New(runner)
+	name := strings.TrimSpace(target.ResourceID)
+	runtime, err := client.FindRuntime(ctx, name)
+	if err != nil {
+		return target, err
+	}
+	if err := ctx.Err(); err != nil {
+		return target, err
+	}
+	if runtime == nil {
+		return target, nil
+	}
+	// Recheck the full identity-qualified listing before the only mutation.
+	// A missing name is not absence if the original lifetime was renamed.
+	current, err := client.FindRuntimeIdentity(ctx, name, runtime.ID)
+	if err != nil {
+		return target, err
+	}
+	if err := ctx.Err(); err != nil {
+		return target, err
+	}
+	if current == nil {
+		return target, nil
+	}
+	if current.ID != runtime.ID {
+		return target, fmt.Errorf("standalone sandbox runtime identity changed; preview cleanup again")
+	}
+	if _, err := client.Run(ctx, "", "rm", "--force", runtime.ID); err != nil {
+		// Provider errors, including "not found", are not absence evidence.
+		return target, err
+	}
+	if err := ctx.Err(); err != nil {
+		return target, err
+	}
+	remaining, err := client.FindRuntimeIdentity(ctx, name, runtime.ID)
+	if err != nil {
+		return target, err
+	}
+	if err := ctx.Err(); err != nil {
+		return target, err
+	}
+	if remaining != nil {
+		return target, fmt.Errorf("standalone sandbox still exists after removal; inspect before retrying")
+	}
+	return target, nil
 }
 
 func (Source) Actions(ctx context.Context, req integration.ActionRequest) []integration.Action {

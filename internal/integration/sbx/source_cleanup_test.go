@@ -50,8 +50,16 @@ func TestSandboxCleanupWaitsOnlyForManagedResources(t *testing.T) {
 			}
 			callsPath := filepath.Join(home, "calls")
 			body := fmt.Sprintf("printf '%%s\\n' \"$*\" >> %q\n", callsPath)
-			if tc.missing {
-				body += "printf 'sandbox not found\\n' >&2\nexit 1\n"
+			if !tc.managed {
+				// Standalone success needs independent list evidence, not a
+				// successful rm exit or a provider error containing "not found".
+				removed := filepath.Join(home, "removed")
+				body += fmt.Sprintf("if [ \"$1\" = rm ]; then touch %q; exit 0; fi\n", removed)
+				if tc.missing {
+					body += "printf '[]\\n'\n"
+				} else {
+					body += fmt.Sprintf("if [ -f %q ]; then printf '[]\\n'; else printf '[{\"name\":\"standalone-sandbox\",\"id\":\"standalone-lifetime\"}]\\n'; fi\n", removed)
+				}
 			}
 			installFakeSBX(t, home, body)
 			unlock := holdSandboxCleanupNoteLock(t, root)
@@ -102,8 +110,17 @@ func TestSandboxCleanupWaitsOnlyForManagedResources(t *testing.T) {
 				if !os.IsNotExist(err) {
 					t.Fatalf("stale managed target was removed: %s, %v", data, err)
 				}
-			} else if err != nil || string(data) != "rm --force "+name+"\n" {
-				t.Fatalf("sandbox cleanup calls = %q, error = %v", data, err)
+			} else {
+				expected := "rm --force " + name + "\n"
+				if !tc.managed {
+					expected = "ls --json\n"
+					if !tc.missing {
+						expected += "ls --json\nrm --force standalone-lifetime\nls --json\n"
+					}
+				}
+				if err != nil || string(data) != expected {
+					t.Fatalf("sandbox cleanup calls = %q, want %q, error = %v", data, expected, err)
+				}
 			}
 		})
 	}

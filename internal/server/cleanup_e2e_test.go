@@ -94,11 +94,19 @@ func TestCleanupSbxSandboxE2EUsesForceWithoutWorkspaceCWD(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := strings.TrimSpace(string(logData))
-	if !strings.Contains(log, "|rm --force sandbox-conn-test") {
-		t.Fatalf("fake sbx log = %q, want forced rm", log)
+	lines := strings.Split(log, "\n")
+	expected := []string{"ls --json", "ls --json", "rm --force sandbox-lifetime", "ls --json"}
+	if len(lines) != len(expected) {
+		t.Fatalf("fake sbx log = %q, want identity checks, one forced rm and an outcome observation", log)
 	}
-	if strings.HasPrefix(log, missingWorkspace+"|") {
-		t.Fatalf("fake sbx ran in missing workspace: %q", log)
+	for i, line := range lines {
+		parts := strings.SplitN(line, "|", 2)
+		if len(parts) != 2 || parts[1] != expected[i] {
+			t.Fatalf("fake sbx command %d = %q, want %q", i, line, expected[i])
+		}
+		if parts[0] == missingWorkspace {
+			t.Fatalf("fake sbx ran in missing workspace: %q", log)
+		}
 	}
 }
 
@@ -110,7 +118,16 @@ func installFakeSbx(t *testing.T, tmp string, logPath string) {
 	}
 	script := `#!/bin/sh
 printf '%s|%s\n' "$PWD" "$*" >> "$SBX_LOG"
-if [ "$1" = "rm" ] && [ "$2" = "--force" ] && [ -n "$3" ]; then
+if [ "$1" = "ls" ] && [ "$2" = "--json" ]; then
+  if [ -f "$SBX_REMOVED" ]; then
+    printf '[]\n'
+  else
+    printf '[{"name":"sandbox-conn-test","id":"sandbox-lifetime"}]\n'
+  fi
+  exit 0
+fi
+if [ "$1" = "rm" ] && [ "$2" = "--force" ] && [ "$3" = "sandbox-lifetime" ] && [ "$#" = 3 ]; then
+  touch "$SBX_REMOVED"
   exit 0
 fi
 echo 'ERROR: stdin is not a terminal; use --force to skip confirmation' >&2
@@ -121,4 +138,5 @@ exit 1
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("SBX_LOG", logPath)
+	t.Setenv("SBX_REMOVED", logPath+".removed")
 }
