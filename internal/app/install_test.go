@@ -226,7 +226,16 @@ func TestDisabledSandboxStillObservesRegisteredRuntimes(t *testing.T) {
 	}}}); err != nil {
 		t.Fatal(err)
 	}
-	setupTool(t, "sbx", `printf '%s\n' '[{"name":"managed","id":"one","workspaces":["/ignored"]},{"name":"unmanaged","id":"two","workspaces":["/ignored"]}]'`)
+	setupTool(t, "sbx", `case "$*" in
+ "ls --json")
+  if [ -f "$RADAR_TEST_COMMAND_LOG.removed" ]; then
+   printf '%s\n' '[{"name":"unmanaged","id":"two","workspaces":["/ignored"]}]'
+  else
+   printf '%s\n' '[{"name":"managed","id":"one","workspaces":["/ignored"]},{"name":"unmanaged","id":"two","workspaces":["/ignored"]}]'
+  fi;;
+ "rm --force one") : > "$RADAR_TEST_COMMAND_LOG.removed";;
+ *) exit 99;;
+esac`)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, source := range app.DefaultIntegrations().Sources() {
 		if source.Descriptor().Name != "sbx" {
@@ -241,8 +250,12 @@ func TestDisabledSandboxStillObservesRegisteredRuntimes(t *testing.T) {
 			t.Fatalf("explicit cleanup failed while disabled: %v", err)
 		}
 	}
-	data, _ := os.ReadFile(os.Getenv("RADAR_TEST_COMMAND_LOG"))
-	if !strings.Contains(string(data), "rm --force managed") {
-		t.Fatalf("cleanup was skipped: %s", data)
+	data, err := os.ReadFile(os.Getenv("RADAR_TEST_COMMAND_LOG"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "sbx ls --json\nsbx ls --json\nsbx ls --json\nsbx rm --force one\nsbx ls --json\n"
+	if string(data) != want {
+		t.Fatalf("missing disabled collection or observed-lifetime cleanup evidence: %s", data)
 	}
 }
