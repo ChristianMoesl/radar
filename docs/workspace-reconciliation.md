@@ -146,7 +146,7 @@ Radar derives the effective managed mount set from:
 
 Nested members are already visible through the anchor and are not mounted separately. Parent and duplicate mounts are reduced when their access mode is equivalent.
 
-Changing the effective set removes and recreates the sandbox under the same name. This interrupts sandbox processes and discards private VM state. Radar retries transient create failures with bounded cleanup and backoff. It does not roll back completed note or worktree changes when SBX or port reconciliation fails.
+Changing the effective set removes and recreates the sandbox under the same name. This interrupts sandbox processes and discards private VM state. Radar retries transient create failures with bounded cleanup and backoff. Each removal first observes and rechecks the current lifetime, addresses at most one removal to that ID, then requires both the reusable name and observed lifetime to be absent before creating again. A renamed original, replacement, ambiguous or unavailable listing, cancellation or removal-command error stops that attempt without replaying removal or starting another create. Bounded disappearance polling waits only for the same original lifetime. These observations do not attest preview-lifetime freshness, reserve future safety against external SBX changes or authorize a blind retry. Radar does not roll back completed note or worktree changes when SBX or port reconciliation fails.
 
 ## Pi resources
 

@@ -67,9 +67,17 @@ func (r *recreationRunner) Run(_ context.Context, cwd, executable string, args .
 		}
 		return `{"rules":[]}`, nil
 	case "rm":
-		delete(r.live, args[2])
-		delete(r.ports, args[2])
-		return "", nil
+		if len(args) != 3 || args[1] != "--force" {
+			return "", fmt.Errorf("unexpected removal args: %v", args)
+		}
+		for name, runtime := range r.live {
+			if runtime.ID == args[2] {
+				delete(r.live, name)
+				delete(r.ports, name)
+				return "", nil
+			}
+		}
+		return "", fmt.Errorf("removal must address an observed lifetime: %v", args)
 	case "create":
 		name := args[2]
 		if name == r.failCreate {

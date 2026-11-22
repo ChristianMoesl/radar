@@ -114,8 +114,8 @@ func TestReconcileSandboxStopsAfterBoundedTransientFailures(t *testing.T) {
 	if runner.createCalls != 3 {
 		t.Fatalf("create calls = %d, want 3", runner.createCalls)
 	}
-	if runner.removeCalls != 4 {
-		t.Fatalf("remove calls = %d, want initial removal plus cleanup after every failed create", runner.removeCalls)
+	if runner.removeCalls != 3 {
+		t.Fatalf("remove calls = %d, want one ID-addressed cleanup per observed failed runtime, none for initial absence", runner.removeCalls)
 	}
 	if strings.Contains(err.Error(), mount) {
 		t.Fatalf("create error contains the complete mount command: %v", err)
@@ -139,8 +139,8 @@ func TestReconcileSandboxDoesNotRetryPermanentCreateFailure(t *testing.T) {
 	if runner.createCalls != 1 {
 		t.Fatalf("create calls = %d, want 1", runner.createCalls)
 	}
-	if runner.removeCalls != 2 {
-		t.Fatalf("remove calls = %d, want initial removal and failed-runtime cleanup", runner.removeCalls)
+	if runner.removeCalls != 0 {
+		t.Fatalf("remove calls = %d, want no removal for absent initial and failed runtimes", runner.removeCalls)
 	}
 }
 
@@ -183,12 +183,16 @@ func (r *sandboxRetryRunner) Run(_ context.Context, cwd string, name string, arg
 		sandboxes := []any{}
 		if r.exists {
 			sandboxes = append(sandboxes, map[string]any{
+				"id":   fmt.Sprintf("retry-lifetime-%d", r.createCalls),
 				"name": r.name, "agent": "shell", "status": "running", "workspaces": r.mounts,
 			})
 		}
 		data, _ := json.Marshal(sandboxes)
 		return string(data), nil
 	case "rm":
+		if !r.exists || len(args) != 3 || args[1] != "--force" || args[2] != fmt.Sprintf("retry-lifetime-%d", r.createCalls) {
+			return "", fmt.Errorf("removal must address the observed lifetime: %v", args)
+		}
 		r.removeCalls++
 		r.removing = true
 		r.remainingLinger = r.lingerChecks

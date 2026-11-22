@@ -473,6 +473,7 @@ type sandboxPlanningRunner struct {
 	sandboxName string
 	mounts      []string
 	exists      bool
+	generation  int
 }
 
 func (r *sandboxPlanningRunner) LookPath(string) error { return nil }
@@ -484,6 +485,9 @@ func (r *sandboxPlanningRunner) Run(_ context.Context, _ string, name string, ar
 	if name == "sbx" && len(args) > 0 {
 		switch args[0] {
 		case "rm":
+			if !r.exists || len(args) != 3 || args[1] != "--force" || args[2] != fmt.Sprintf("planning-lifetime-%d", r.generation) {
+				return "", fmt.Errorf("removal must address the observed lifetime: %s", command)
+			}
 			r.exists = false
 			return "", nil
 		case "create":
@@ -492,6 +496,7 @@ func (r *sandboxPlanningRunner) Run(_ context.Context, _ string, name string, ar
 			}
 			r.mounts = append([]string(nil), sandboxCreateMountArgs(args)...)
 			r.exists = true
+			r.generation++
 			return "", nil
 		}
 	}
@@ -503,7 +508,7 @@ func (r *sandboxPlanningRunner) Run(_ context.Context, _ string, name string, ar
 	case "sbx ls --json":
 		sandboxes := []any{}
 		if r.exists {
-			sandboxes = append(sandboxes, map[string]any{"name": r.sandboxName, "agent": "shell", "status": "running", "workspaces": r.mounts})
+			sandboxes = append(sandboxes, map[string]any{"id": fmt.Sprintf("planning-lifetime-%d", r.generation), "name": r.sandboxName, "agent": "shell", "status": "running", "workspaces": r.mounts})
 		}
 		data, _ := json.Marshal(sandboxes)
 		return string(data), nil

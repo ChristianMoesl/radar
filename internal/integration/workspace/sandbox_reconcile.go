@@ -375,21 +375,71 @@ func removeSandboxForRecreation(ctx context.Context, runner Runner, name, worksp
 		logger.Info("workspace reconciliation sandbox remove attempt",
 			"workspace_id", workspaceID, "sandbox", name, "reason", reason)
 	}
-	if _, err := stopSandbox(ctx, runner, "", name); err != nil {
+	// Pin the currently observed lifetime before this removal attempt. A name
+	// can be reused or the original renamed by an external SBX actor despite
+	// Radar's admission. This is not an attestation of the preview lifetime.
+	client := sbxclient.New(runner)
+	read := func(id string) (*sbxclient.Runtime, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, sandboxObservationTimeout)
+		defer cancel()
+		var runtime *sbxclient.Runtime
+		var err error
+		if id == "" {
+			runtime, err = client.FindRuntime(probeCtx, name)
+		} else {
+			runtime, err = client.FindRuntimeIdentity(probeCtx, name, id)
+		}
+		if probeCtx.Err() != nil {
+			return nil, probeCtx.Err()
+		}
+		return runtime, err
+	}
+	completed := func(checks int) error {
+		if logger != nil {
+			logger.Info("workspace reconciliation sandbox removal completed",
+				"workspace_id", workspaceID, "sandbox", name, "checks", checks)
+		}
+		return waitForContext(ctx, policy.settleDelay)
+	}
+	runtime, err := read("")
+	if err != nil {
+		return err
+	}
+	if runtime == nil {
+		return completed(0)
+	}
+	current, err := read(runtime.ID)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return completed(0)
+	}
+	if current.ID != runtime.ID {
+		return fmt.Errorf("sandbox runtime identity changed before recreation removal; inspect before retrying")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// One ID-addressed mutation only. A command error, even "not found", is
+	// not absence evidence and must not allow a new create/retry attempt.
+	if _, err := client.Run(ctx, "", "rm", "--force", runtime.ID); err != nil {
 		return err
 	}
 	checks := max(policy.removalChecks, 1)
 	for check := 0; check < checks; check++ {
-		exists, err := sandboxExists(ctx, runner, name)
+		remaining, err := read(runtime.ID)
 		if err != nil {
 			return err
 		}
-		if !exists {
-			if logger != nil {
-				logger.Info("workspace reconciliation sandbox removal completed",
-					"workspace_id", workspaceID, "sandbox", name, "checks", check+1)
-			}
-			return waitForContext(ctx, policy.settleDelay)
+		if remaining == nil {
+			return completed(check + 1)
+		}
+		if remaining.ID != runtime.ID {
+			return fmt.Errorf("sandbox runtime identity changed after recreation removal; inspect before retrying")
 		}
 		if check+1 < checks {
 			if err := waitForContext(ctx, policy.removalInterval); err != nil {
