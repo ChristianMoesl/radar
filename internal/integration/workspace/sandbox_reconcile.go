@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -270,12 +271,15 @@ var defaultSandboxReconcilePolicy = sandboxReconcilePolicy{
 }
 
 type sandboxReconcilePolicy struct {
-	forceRecreate   bool
-	createAttempts  int
-	removalChecks   int
-	removalInterval time.Duration
-	settleDelay     time.Duration
-	backoff         time.Duration
+	// Only the initial removal of an explicitly confirmed recreation is pinned.
+	// Failed-create cleanup must observe its own newly created lifetime instead.
+	confirmedRemovalID string
+	forceRecreate      bool
+	createAttempts     int
+	removalChecks      int
+	removalInterval    time.Duration
+	settleDelay        time.Duration
+	backoff            time.Duration
 }
 
 func reconcileSandbox(ctx context.Context, runner Runner, group workspacegroup.Workspace, logger *slog.Logger) error {
@@ -329,6 +333,7 @@ func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group worksp
 	if err := removeSandboxForRecreation(ctx, runner, sandbox.Name, group.ID, "before_create", logger, policy); err != nil {
 		return err
 	}
+	policy.confirmedRemovalID = ""
 
 	attempts := max(policy.createAttempts, 1)
 	for attempt := 1; attempt <= attempts; attempt++ {
@@ -375,9 +380,10 @@ func removeSandboxForRecreation(ctx context.Context, runner Runner, name, worksp
 		logger.Info("workspace reconciliation sandbox remove attempt",
 			"workspace_id", workspaceID, "sandbox", name, "reason", reason)
 	}
-	// Pin the currently observed lifetime before this removal attempt. A name
-	// can be reused or the original renamed by an external SBX actor despite
-	// Radar's admission. This is not an attestation of the preview lifetime.
+	// Ordinary reconciliation pins the lifetime observed for this attempt.
+	// Explicit recreation carries its confirmed lifetime through this handoff;
+	// observing a different or absent runtime cannot silently replace consent.
+	// External SBX actors do not share Radar's admission.
 	client := sbxclient.New(runner)
 	read := func(id string) (*sbxclient.Runtime, error) {
 		if err := ctx.Err(); err != nil {
@@ -404,9 +410,12 @@ func removeSandboxForRecreation(ctx context.Context, runner Runner, name, worksp
 		}
 		return waitForContext(ctx, policy.settleDelay)
 	}
-	runtime, err := read("")
+	runtime, err := read(policy.confirmedRemovalID)
 	if err != nil {
 		return err
+	}
+	if policy.confirmedRemovalID != "" && (runtime == nil || runtime.ID != policy.confirmedRemovalID) {
+		return errors.New("confirmed sandbox lifetime changed before recreation removal; preview and confirm again")
 	}
 	if runtime == nil {
 		return completed(0)
@@ -416,6 +425,9 @@ func removeSandboxForRecreation(ctx context.Context, runner Runner, name, worksp
 		return err
 	}
 	if current == nil {
+		if policy.confirmedRemovalID != "" {
+			return errors.New("confirmed sandbox lifetime disappeared before recreation removal; preview and confirm again")
+		}
 		return completed(0)
 	}
 	if current.ID != runtime.ID {

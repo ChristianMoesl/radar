@@ -592,8 +592,15 @@ is unchanged.
 
 The operation serializes with managed workspace mutations, checks its confirmed
 plan again under that lock, and rechecks each runtime's identity and safety
-metadata just before removal. External SBX changes do not share Radar's lock;
-avoid modifying sandbox configuration while recreation runs.
+metadata just before removal. The confirmed lifetime stays pinned through the
+shared reconciler and both pre-removal observations: a disappeared, replaced or
+renamed original refuses before removal or creation, rather than adopting the
+current name holder. Only the first removal uses that confirmed lifetime;
+cleanup after a failed create observes that failed attempt's own lifetime under
+the unchanged bounded retry policy. External SBX changes do not share Radar's
+lock; these point-in-time identity checks do not reserve future safety or prove
+fresh ownership/activity eligibility. Avoid modifying sandbox configuration while
+recreation runs.
 
 Sandboxes are rebuilt sequentially using the existing bounded removal/create
 retry path (at most three transient-create attempts), with a five-minute limit

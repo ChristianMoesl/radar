@@ -322,6 +322,9 @@ func recreateOneSandbox(ctx context.Context, runner Runner, logger *slog.Logger,
 	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {
 		return err
 	}
+	// Do not let the shared reconciler re-adopt a newer lifetime after the
+	// confirmation checks above. Only its first removal targets this lifetime.
+	policy.confirmedRemovalID = target.SandboxID
 	if err := reconcileSandboxWithPolicy(ctx, runner, group, logger, policy); err != nil {
 		return err
 	}
