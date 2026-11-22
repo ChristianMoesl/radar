@@ -52,6 +52,14 @@ type WorkspacePolicyDiagnostics interface {
 	DiagnosticWorkspacePolicy(workspaceID, scope string) (protocol.DiagnosticWorkspacePolicy, error)
 }
 
+// RepositoryPolicyDiagnostics reads only one exact registered member's fixed
+// current repository configuration, never referenced files, runtimes or actions.
+// It is a separate explicit file-access capability, not WorkspacePolicyDiagnostics.
+type RepositoryPolicyDiagnostics interface {
+	WorkspaceRegistrationDiagnostics
+	DiagnosticRepositoryPolicy(context.Context, string, string, string) (protocol.DiagnosticRepositoryPolicy, error)
+}
+
 // WorkspaceRetirementPreview uses only the native registration/path planner for
 // one workspace. Unlike full cleanup previews it must not fetch Git refs, probe
 // runtimes, acquire leases, refresh or mutate. Targets are proposals, not authority.

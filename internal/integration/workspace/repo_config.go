@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"go.yaml.in/yaml/v3"
 	"radar/internal/configfile"
 	sbxsettings "radar/internal/integration/sbx/settings"
 	"radar/internal/pi"
@@ -41,14 +42,27 @@ func loadRepoConfig(repo string) (RepoConfig, error) {
 	if err != nil {
 		return RepoConfig{}, err
 	}
-	var cfg RepoConfig
-	if err := configfile.Decode(data, &cfg); err != nil {
-		return RepoConfig{}, fmt.Errorf("read %s: %w", path, err)
-	}
-	if err := validateRepoConfig(cfg); err != nil {
+	cfg, _, err := decodeRepoConfig(data)
+	if err != nil {
 		return RepoConfig{}, fmt.Errorf("read %s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// One native parse/validation supplies both values and declaration evidence.
+func decodeRepoConfig(data []byte) (RepoConfig, *yaml.Node, error) {
+	doc, err := configfile.Parse(data)
+	if err != nil {
+		return RepoConfig{}, nil, err
+	}
+	var cfg RepoConfig
+	if err := doc.Decode(&cfg); err != nil {
+		return RepoConfig{}, nil, err
+	}
+	if err := validateRepoConfig(cfg); err != nil {
+		return RepoConfig{}, nil, err
+	}
+	return cfg, doc, nil
 }
 
 func validateRepoConfig(cfg RepoConfig) error {

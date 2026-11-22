@@ -1,9 +1,6 @@
 package diagnostics
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -126,14 +123,7 @@ func workspaceResources(id string, group protocol.DiagnosticWorkspace, tasks []w
 	add := func(view protocol.DiagnosticWorkspaceResource) {
 		// Hash complete identity before clipping. Volatile retention decisions
 		// are deliberately excluded so a task relationship keeps its ID.
-		identity, _ := json.Marshal(struct {
-			Workspace, Kind, Record, Agent string
-			Member                         *protocol.DiagnosticMember
-			Mount                          *protocol.DiagnosticMount
-			Port                           *protocol.PortForward
-		}{group.ID, view.Kind, view.RecordID, view.AgentID, view.Member, view.Mount, view.Port})
-		sum := sha256.Sum256(identity)
-		view.ID = "workspace-resource:" + hex.EncodeToString(sum[:])
+		view.ID = protocol.DiagnosticWorkspaceResourceID(group.ID, view)
 		if id != "" && id != view.ID {
 			return
 		}

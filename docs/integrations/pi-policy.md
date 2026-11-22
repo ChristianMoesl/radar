@@ -7,7 +7,7 @@
 Overview `settings` are **CLI-process global defaults**. With a matching daemon,
 `daemon.settings` separately reports **daemon-process global defaults** from the
 same native bounded reader executed in the running daemon process. The existing
-`diagnostics` RPC's selector-free `overview` returns this typed schema-29
+`diagnostics` RPC's selector-free `overview` returns this typed schema-30
 projection; it never uses task visibility filters or provider calls. No new public
 tool or general file/configuration endpoint is added.
 
@@ -62,7 +62,7 @@ run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
 not proof that it exists or is running. Missing daemon/origin evidence is
 unavailable, not healthy, empty, repaired or enrolled.
 
-## Recorded workspace policy (diagnostics schema 29)
+## Recorded workspace policy (diagnostics schema 30)
 
 Use `workspace_policy` with `parent_id=<registered workspace ID>` and the normal
 `origin` (default), `feedback` or explicitly requested `installation` scope. This
@@ -90,6 +90,49 @@ Pi validates the complete envelope, page, row and nested recipe before output,
 including unavailable responses. `registered_workspace_recipe_policy` advertises
 this bounded capability; `workspace_effective_policy` remains false.
 
-CLI, daemon and loaded Pi must match schema 29. This is a transport change only,
-not a registry/data migration; older schema-28 peers fail closed. `make install`
+CLI, daemon and loaded Pi must match schema 30. This is a transport change only,
+not a registry/data migration; older schema-29 peers fail closed. `make install`
 does not update/reload a separately installed Pi extension.
+
+## Current registered member repository declarations (schema 30)
+
+For an explicitly requested file inspection, use `repository_policy` with
+`parent_id=<exact registered workspace ID>` and `id=<member row ID from
+workspace_resources>`. Normal origin/feedback/installation scope applies.
+Fresh interactive confirmation covers that exact parent, member and scope.
+Only the separate `diagnostics-probe` RPC accepts this section; ordinary
+registration-only `workspace_policy` remains unchanged and never reads files.
+No raw path selector, state filter, cursor, fallback scan or implicit file access
+is accepted. A duplicate member occurrence is ambiguous, not permission to pick one.
+
+The native reader resolves the member's **registered source repository**, not
+its worktree. It captures only its fixed `.radar.yaml`, at most 64 KiB, rejecting
+symlink directory components and leaf symlinks, FIFOs, nonregular, oversized,
+malformed or replaced/incomplete files. Unavailable repositories/configuration
+have no settings; an actually absent configuration in an accessible repository
+has repository defaults, without creating a file. Before/after file identity,
+size/modification-time and complete registration checks reject observed drift.
+These are point-in-time checks, not detection of every intervening/ABA change,
+a filesystem transaction or a future-state reservation. Capture time is page
+assembly time, not when production loaded configuration.
+
+The same native YAML decoder and validation supply ten finite settings:
+`copy_files`, `setup` and `sbx.additional_mounts` are counts; `model`, `thinking`,
+`sbx.ready_command`, `sbx.env_file`, `sbx.kit.name` and `sbx.kit.path` are presence
+booleans; `sbx.enabled` is `inherit`, `required` or `disabled`. `inherit` means
+no repository override, not a claim about global policy or runtime enablement.
+Each carries current-document `absent`/`null`/`value` declaration evidence and
+`repository_default`/`repository_file` origin, including native aliases/merges.
+An explicit value equal to a default is still a file declaration.
+
+Raw values, paths, commands and private file hashes are withheld. No referenced
+environment, script, kit, copy or mount contents, global merge, provider/runtime
+probe, collection, lease or maintenance executor is invoked. These are **current
+repository declarations**, not historical recipe origins, operation-effective
+policy, observed live configuration, eligibility or publication consent.
+The snapshot binds public shape only, not private configuration bytes.
+Pi validates the complete envelope/page/row/settings, including unavailable
+evidence, before output. `current_member_repository_declarations` advertises
+this capability; `workspace_effective_policy` remains false. Matching schema-30
+CLI/daemon/loaded Pi is required; schema-29 peers fail closed, with no persisted
+data migration. Separately installed Pi still requires an update/reload.

@@ -83,7 +83,7 @@ export default function(pi) {
     "package/extensions/pi-radar/linear.ts",
     "package/extensions/pi-radar/operation-diagnostics.ts",
     "package/extensions/pi-radar/refresh-diagnostics.ts",
-    "package/extensions/pi-radar/reload-notice.ts",
+    "package/extensions/pi-radar/reload-notice.ts", "package/extensions/pi-radar/repository-policy.ts",
     "package/extensions/pi-radar/retirement-preview.ts",
     "package/extensions/pi-radar/runtime-version.ts",
     "package/extensions/pi-radar/version.ts",

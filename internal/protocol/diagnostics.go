@@ -1,8 +1,13 @@
 package protocol
 
-import "strings"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"strings"
+)
 
-const DiagnosticsVersion = 29
+const DiagnosticsVersion = 30
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -17,7 +22,7 @@ func DiagnosticText(value string) string {
 // DiagnosticsRequest has no mutation or arbitrary filesystem parameters.
 // Workspace is host-resolved scope: lexical filtering for cached reads,
 // exact registered identity for probes.
-// runtime_probe, agent_probe, retirement_preview and cleanup_preview require explicit
+// repository_policy, runtime_probe, agent_probe, retirement_preview and cleanup_preview require explicit
 // diagnostics-probe RPC. CleanupMode/WorkspaceID are cleanup-preview selectors only.
 // No request can apply a preview. The selector-free overview is the fixed
 // daemon-process configuration projection; no workspace/path override is accepted.
@@ -124,6 +129,31 @@ type DiagnosticSandboxRecipe struct {
 	ManagedMountCount      int  `json:"managed_mount_count"`
 	AdditionalMountCount   int  `json:"additional_mount_count"`
 	PortCount              int  `json:"port_count"`
+}
+
+// DiagnosticRepositoryPolicy observes only the current fixed .radar.yaml of
+// one exact registered member repository. It is not operation-effective policy.
+type DiagnosticRepositoryPolicy struct {
+	ID          string              `json:"id"`
+	WorkspaceID string              `json:"workspace_id"`
+	Origin      string              `json:"origin"`
+	Available   bool                `json:"available"`
+	Evidence    string              `json:"evidence"`
+	Reason      string              `json:"reason,omitempty"`
+	Settings    []DiagnosticSetting `json:"settings"`
+}
+
+// DiagnosticWorkspaceResourceID hashes full identities before display clipping.
+// Preserve this shape: existing workspace_resources member IDs are selectors.
+func DiagnosticWorkspaceResourceID(workspace string, view DiagnosticWorkspaceResource) string {
+	identity, _ := json.Marshal(struct {
+		Workspace, Kind, Record, Agent string
+		Member                         *DiagnosticMember
+		Mount                          *DiagnosticMount
+		Port                           *PortForward
+	}{workspace, view.Kind, view.RecordID, view.AgentID, view.Member, view.Mount, view.Port})
+	sum := sha256.Sum256(identity)
+	return "workspace-resource:" + hex.EncodeToString(sum[:])
 }
 
 type DiagnosticMount struct {
@@ -450,6 +480,7 @@ type DiagnosticOperation struct {
 
 type DiagnosticItem struct {
 	WorkspacePolicy   *DiagnosticWorkspacePolicy    `json:"workspace_policy,omitempty"`
+	RepositoryPolicy  *DiagnosticRepositoryPolicy   `json:"repository_policy,omitempty"`
 	Operation         *DiagnosticOperation          `json:"operation,omitempty"`
 	CleanupPreview    *DiagnosticCleanupTarget      `json:"cleanup_preview,omitempty"`
 	RetirementPreview *DiagnosticRetirementPreview  `json:"retirement_preview,omitempty"`
