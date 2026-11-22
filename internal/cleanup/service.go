@@ -54,10 +54,30 @@ func (s Service) Preview(ctx context.Context, task protocol.Task, mode integrati
 	return protocol.CleanupPreview{TaskID: task.ID, TaskTitle: task.Title, Targets: targets}, nil
 }
 
-func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, options ExecuteOptions) (result protocol.CleanupResult, err error) {
+// CheckBundle runs the same mode, capability, ownership, lease, native admission
+// and whole-bundle preflight checks as Execute, but never calls Cleanup. It
+// releases all admission before returning; success is neither a reservation nor
+// deletion authority. Providers still perform last-moment checks during Execute.
+// This is not a read-only probe: native checks may create lock files, inspect
+// runtimes or update metadata. The caller supplies a fresh native preview and is
+// responsible for its scope and any required permission to run these checks.
+func (s Service) CheckBundle(ctx context.Context, preview protocol.CleanupPreview, options ExecuteOptions) error {
+	_, err := s.runBundle(ctx, preview, options, false)
+	return err
+}
+
+func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, options ExecuteOptions) (protocol.CleanupResult, error) {
+	return s.runBundle(ctx, preview, options, true)
+}
+
+// Keep a single guard path. In particular, checking must not call Execute as a
+// dry run or maintain a second approximation of production admission policy.
+func (s Service) runBundle(ctx context.Context, preview protocol.CleanupPreview, options ExecuteOptions, dispatch bool) (result protocol.CleanupResult, err error) {
 	observation := protocol.OperationCleanupExecution{Stage: "admission"}
 	defer func() { result.ExecutionObservation = &observation }()
-	defer phasetiming.Start(ctx, "cleanup_execution")()
+	if dispatch {
+		defer phasetiming.Start(ctx, "cleanup_execution")()
+	}
 	release, lockErr := operationlock.Acquire(false)
 	if lockErr != nil {
 		return protocol.CleanupResult{}, lockErr
@@ -178,6 +198,14 @@ func (s Service) Execute(ctx context.Context, preview protocol.CleanupPreview, o
 		}
 	}
 	preflightDone()
+	if !dispatch {
+		// A final preflight can cancel even when it returns nil. Do not report
+		// successful evidence after that cancellation; no target was attempted.
+		if err := ctx.Err(); err != nil {
+			return result, remainingError(preview, result, err)
+		}
+		return result, nil
+	}
 	observation.Stage = "target_dispatch"
 	for _, target := range preview.Targets {
 		if err := ctx.Err(); err != nil {

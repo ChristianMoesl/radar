@@ -60,6 +60,18 @@ is not permission to delete it before discovering an unsupported later target.
 Valid bundles retain native target order and all ownership/lease/preflight guards;
 provider failures after dispatch can still be partial and require a fresh preview.
 
+The internal native `cleanup.Service.CheckBundle` reuses that exact admission and
+whole-bundle preflight path without calling any provider's `Cleanup`. It releases
+all path, runtime-name, incarnation and provider-discovered admission before
+returning, including on cancellation or error. This is **not a read-only probe**:
+checks can create lock files, inspect runtimes and refresh provider metadata.
+Success is only point-in-time evidence for these shared guards, not complete
+last-moment provider eligibility, a reservation, consent or deletion authority.
+It does not regenerate the caller's preview or establish task/activity/retention
+eligibility supplied by higher-level planners. Execution reacquires admission
+and repeats guards and provider-specific last-moment checks. No CLI, daemon or
+Pi check/apply endpoint is added; their advertised capabilities remain unchanged.
+
 Existing completed-note relocation to `Tasks/Archived/<filename>.md` remains
 unchanged after the last workspace reference disappears. This preserves the
 canonical note; it is **not** a recovery archive for discarded workspace files
