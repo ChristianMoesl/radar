@@ -60,6 +60,10 @@ func TestSandboxCleanupWaitsOnlyForManagedResources(t *testing.T) {
 				} else {
 					body += fmt.Sprintf("if [ -f %q ]; then printf '[]\\n'; else printf '[{\"name\":\"standalone-sandbox\",\"id\":\"standalone-lifetime\"}]\\n'; fi\n", removed)
 				}
+			} else {
+				removed := filepath.Join(home, "managed-removed")
+				body += fmt.Sprintf("if [ \"$1\" = rm ]; then touch %q; exit 0; fi\n", removed)
+				body += fmt.Sprintf("if [ -f %q ]; then printf '[]\\n'; else printf '[{\"name\":\"managed-sandbox\",\"id\":\"managed-lifetime\"}]\\n'; fi\n", removed)
 			}
 			installFakeSBX(t, home, body)
 			unlock := holdSandboxCleanupNoteLock(t, root)
@@ -111,7 +115,7 @@ func TestSandboxCleanupWaitsOnlyForManagedResources(t *testing.T) {
 					t.Fatalf("stale managed target was removed: %s, %v", data, err)
 				}
 			} else {
-				expected := "rm --force " + name + "\n"
+				expected := "ls --json\nls --json\nrm --force managed-lifetime\nls --json\n"
 				if !tc.managed {
 					expected = "ls --json\n"
 					if !tc.missing {

@@ -295,6 +295,17 @@ or ambiguous listing fails closed under retained path/name admission; no second
 removal is attempted. This bounded observation is not future-state reservation,
 safe-retry evidence or diagnostic/Pi outcome attestation.
 
+Ordinary name-only SBX Source cleanup, including targets whose registered owner
+is discovered during removal, also pins the currently observed lifetime,
+revalidates it before one ID-addressed removal, and independently checks both
+name and lifetime absence. Managed targets retain actual-owner/path/name
+admission and repeat registration, filesystem, agent and cancellation checks
+around those observations, without holding the note lock across SBX commands.
+Successful command exits or errors containing `not found` are not absence
+proof. An initial complete absent-name listing has no earlier lifetime to attest.
+This does not bind a name-only preview to a runtime lifetime or grant safe-retry
+consent. Direct low-level cleanup helpers are outside this Source-route contract.
+
 GC results distinguish runtime-retired, deleted and skipped workspaces. `radar gc` also prints paths and skip
 reasons; use `radar gc --json` for structured results.
 

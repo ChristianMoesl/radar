@@ -150,7 +150,7 @@ func cleanupWithRunner(ctx context.Context, runner workspace.Runner, req integra
 			continue
 		}
 		err := cleanupManagedSandbox(ctx, root, group, req.Target, func(refresh func() error) error {
-			_, err := cleanupSandboxChecked(ctx, runner, req.Target, refresh)
+			_, err := cleanupObservedSandbox(ctx, runner, req.Target, refresh)
 			return err
 		})
 		if err != nil {
@@ -161,20 +161,34 @@ func cleanupWithRunner(ctx context.Context, runner workspace.Runner, req integra
 	return cleanupStandaloneSandbox(ctx, runner, req.Target)
 }
 
-// Standalone Source cleanup retains reusable-name admission in its caller. Pin
-// the currently observed lifetime, rather than deleting a later name occupant.
-// This is not preview freshness: name-only previews do not bind a lifetime.
 func cleanupStandaloneSandbox(ctx context.Context, runner workspace.Runner, target protocol.CleanupTarget) (protocol.CleanupTarget, error) {
+	return cleanupObservedSandbox(ctx, runner, target, ctx.Err)
+}
+
+// Source cleanup retains name/path admission in its caller. Managed names also
+// refresh actual-owner authority after lookup and each successful observation,
+// including absence no-ops. No SBX command runs inside that metadata callback.
+// Pin the observed lifetime, not a later name occupant. This is not preview
+// freshness: ordinary name-only previews do not bind a lifetime.
+func cleanupObservedSandbox(ctx context.Context, runner workspace.Runner, target protocol.CleanupTarget, refresh func() error) (protocol.CleanupTarget, error) {
 	if err := ctx.Err(); err != nil {
 		return target, err
 	}
 	client := sbxclient.New(runner)
+	// Executable lookup can race ownership changes, too. Preserve managed
+	// cleanup's existing refusal before even the first native command.
+	if err := client.LookPath(); err != nil {
+		return target, err
+	}
+	if err := refresh(); err != nil {
+		return target, err
+	}
 	name := strings.TrimSpace(target.ResourceID)
 	runtime, err := client.FindRuntime(ctx, name)
 	if err != nil {
 		return target, err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := refresh(); err != nil {
 		return target, err
 	}
 	if runtime == nil {
@@ -186,31 +200,31 @@ func cleanupStandaloneSandbox(ctx context.Context, runner workspace.Runner, targ
 	if err != nil {
 		return target, err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := refresh(); err != nil {
 		return target, err
 	}
 	if current == nil {
 		return target, nil
 	}
 	if current.ID != runtime.ID {
-		return target, fmt.Errorf("standalone sandbox runtime identity changed; preview cleanup again")
+		return target, fmt.Errorf("sandbox runtime identity changed; preview cleanup again")
 	}
 	if _, err := client.Run(ctx, "", "rm", "--force", runtime.ID); err != nil {
 		// Provider errors, including "not found", are not absence evidence.
 		return target, err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := refresh(); err != nil {
 		return target, err
 	}
 	remaining, err := client.FindRuntimeIdentity(ctx, name, runtime.ID)
 	if err != nil {
 		return target, err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := refresh(); err != nil {
 		return target, err
 	}
 	if remaining != nil {
-		return target, fmt.Errorf("standalone sandbox still exists after removal; inspect before retrying")
+		return target, fmt.Errorf("sandbox still exists after removal; inspect before retrying")
 	}
 	return target, nil
 }

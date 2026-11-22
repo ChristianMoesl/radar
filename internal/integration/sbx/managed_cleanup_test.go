@@ -23,6 +23,8 @@ type managedSandboxRunner struct {
 	*admissionFixtureRunner
 	lookup       func() error
 	after        func() error
+	observe      func() error
+	absent       bool
 	removalError error
 }
 
@@ -40,11 +42,21 @@ func (r *managedSandboxRunner) Run(ctx context.Context, cwd, name string, args .
 	if err != nil {
 		return output, err
 	}
-	if r.removalError != nil {
-		return "", r.removalError
+	if len(args) > 0 && args[0] == "ls" {
+		if r.absent {
+			output = "[]"
+		}
+		if r.observe != nil {
+			return output, r.observe()
+		}
 	}
-	if r.after != nil {
-		return output, r.after()
+	if len(args) > 0 && args[0] == "rm" {
+		if r.removalError != nil {
+			return "", r.removalError
+		}
+		if r.after != nil {
+			return output, r.after()
+		}
 	}
 	return output, nil
 }
@@ -322,8 +334,8 @@ func TestManagedSandboxRetainsFullAndDiscoveredBundleThroughLaterOutcomes(t *tes
 					if len(result.Targets) != want {
 						t.Fatal("incorrect partial completion", result)
 					}
-					if strings.Join(runner.calls, "\n") != "sbx rm --force "+owner.Sandbox.Name {
-						t.Fatal("ordinary name-addressed command changed", runner.calls)
+					if strings.Join(runner.calls, "\n") != "sbx ls --json\nsbx ls --json\nsbx rm --force lifetime-1\nsbx ls --json" {
+						t.Fatal("missing observations or incorrect lifetime-addressed removal", runner.calls)
 					}
 					assertRuntimeAdmissionReleased(t, owner)
 				})
@@ -353,7 +365,8 @@ func TestManagedSandboxMissingAndFailureOutcomes(t *testing.T) {
 					case "provider-error":
 						runner.removalError = failure
 					case "missing-runtime", "missing-runtime-drift", "missing-runtime-cancelled":
-						runner.after = func() error {
+						runner.absent = true
+						runner.observe = func() error {
 							if change == "missing-runtime-drift" {
 								if err := workspacegroup.Update(root, func(registry *workspacegroup.Registry) error {
 									for i := range registry.Workspaces {
@@ -369,7 +382,7 @@ func TestManagedSandboxMissingAndFailureOutcomes(t *testing.T) {
 							if change == "missing-runtime-cancelled" {
 								cancel()
 							}
-							return errors.New("sandbox not found")
+							return nil
 						}
 					}
 					if change == "anchor-appears" {

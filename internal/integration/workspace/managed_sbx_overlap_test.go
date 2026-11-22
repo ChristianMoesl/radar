@@ -72,8 +72,8 @@ func TestManagedSandboxIOAllowsUnrelatedRecovery(t *testing.T) {
 							t.Fatal(err)
 						}
 						calls, err := os.ReadFile(filepath.Join(dir, "calls"))
-						if err != nil || !strings.Contains(string(calls), "rm --force "+owner.Sandbox.Name) || strings.Contains(string(calls), "rm --force lifetime-1") {
-							t.Fatal("ordinary managed cleanup command changed", string(calls), err)
+						if err != nil || string(calls) != "ls --json\nls --json\nrm --force lifetime-1\nls --json\n" {
+							t.Fatal("missing managed cleanup observations or incorrect lifetime-addressed removal", string(calls), err)
 						}
 						assertSandboxAdmissionReleased(t, owner)
 					})
