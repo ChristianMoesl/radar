@@ -67,7 +67,7 @@ in the same feedback workspace. The actual tool accepts only a validated preview
 it has just shown in that workspace, and requires fresh interactive confirmation
 of the exact plan, complete source target set and installation-wide effects.
 Headless apply, canceled approval, expired approval, lost MCP availability or
-unmatched previews fail closed. CLI/Pi/daemon must match **schema 28**; the typed
+unmatched previews fail closed. CLI/Pi/daemon must match **schema 29**; the typed
 maintenance request carries the schema and the daemon rejects mismatches before
 admission. Read/probe RPCs cannot apply maintenance. The fixed CLI form is
 `feedback-diagnostics --section refresh --scope installation --action apply
@@ -120,63 +120,9 @@ not "no host changes made" or an apparently successful empty result.
 
 ## Configuration policy and origins
 
-Overview `settings` are **CLI-process global defaults**. With a matching daemon,
-`daemon.settings` separately reports **daemon-process global defaults** from the
-same native bounded reader executed in the running daemon process. The existing
-`diagnostics` RPC's selector-free `overview` returns this typed schema-28
-projection; it never uses task visibility filters or provider calls. No new public
-tool or general file/configuration endpoint is added.
-
-Both projections reread their process's current fixed configuration location.
-They have independent capture times/scopes, and neither is an environment dump,
-startup/loaded-settings attestation, repository/workspace-effective configuration,
-current provider access or execution permission. Differences help diagnose process
-configuration drift; matching allowlisted revisions do not prove the same file,
-environment or private configuration. `daemon_environment` and
-`workspace_effective_policy` remain false; `daemon_process_configuration` advertises
-only this narrow projection. Missing/old/mismatched daemon support is explicitly
-unavailable with no legacy summary fallback. A valid daemon response can contain
-unavailable policy evidence; it must not be replaced with CLI settings or defaults. The native defaults, YAML decoder and validation are
-shared with production. Values and declarations come from the same bounded read
-of the configured `config.yaml`; no second file is used to guess origins.
-
-The finite ten-setting allowlist contains:
-- `workspace.auto_confirm`: `true`/`false`.
-- `sbx.enabled`, `github.enabled`, `jira.enabled`, `datadog.enabled`,
-  `terraform.enabled`: `automatic`, `required` or `disabled`. `required` expresses
-  configuration intent, not usable tools/authentication or an enabled runtime.
-- `workspace.cleanup.disposable_entries` and `sbx.additional_mounts`: counts only,
-  not names, paths, accepted deletion targets or permission to delete anything.
-- `sbx.env_file` and `sbx.ready_command`: configured presence only; paths,
-  command/argument values and referenced file contents are never read or returned.
-
-Each setting identifies `origin` (`compiled_default` or `configuration_file`) and
-`declaration` (`absent`, `null` or `value`). Explicit values equal to defaults still
-have file provenance; native null/default behavior, aliases and YAML merges are
-preserved. `location_origin` identifies only `xdg_config_home` or `user_home`, never
-the path or an environment dump. Model/thinking strings and arbitrary old settings
-maps are no longer returned. The revision hashes only these allowlisted values
-and declarations, not private configuration bytes. `captured_at` is read assembly
-time, not evidence that a daemon loaded this configuration. The daemon overview
-also carries at most 32 bounded cached provider status rows, with only detail
-presence (never detail text), and the current resource-refresh-pending marker.
-Cached status is installation-wide, not live access, collection or workspace health.
-
-At most 64 KiB is read from the fixed native configuration file. Leaf symlinks
-(including legitimate user-managed configuration symlinks), FIFOs, nonregular,
-oversized, invalid, replaced or incomplete reads are unavailable, not valid
-policy or authorization. An actually absent file yields compiled defaults without
-creating it. Raw parser/validation errors are withheld. A prior workspace
-registration lookup still uses its native configuration-loading rules; this
-bounded projection does not change normal configuration or startup behavior.
-Provider credentials, secret/environment files, tools, network access, repository
-configuration, daemon environment and maintenance are never inspected or invoked
-by this projection. No persisted configuration or policy was changed.
-
-The originating workspace is projected from its registration only: it does not
-run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
-not proof that it exists or is running. Missing daemon/origin evidence is
-unavailable, not healthy, empty, repaired or enrolled.
+The CLI and daemon expose separately captured native process-global defaults,
+not workspace-effective policy or action permission. See the complete bounded
+[configuration policy and origins](pi-policy.md#configuration-policy-and-origins) contract.
 
 ## Cached integration evidence
 
@@ -215,7 +161,7 @@ provider. Native references and statuses share one atomic cache revision; cursor
 also bind selected scope, registration/capability changes, returned collection
 attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 28; older versions fail closed.
+and extension must all support schema 29; older versions fail closed.
 
 Pi validates the complete integration envelope, page, row and capability allowlist,
 not only the collection subobject. Unknown sibling fields and inconsistent scope,
@@ -223,7 +169,7 @@ identities, counts, evidence, limits or pagination fail closed before either too
 text or details reach the model. Unavailable responses cannot include cached
 fallback or private payloads. Native UTF-8 clipping may expand display text through
 replacement/ellipsis; that expansion remains bounded. This validation repair
-keeps schema 28 and its native wire shape unchanged. Separately installed Pi
+keeps schema 29 and its native wire shape unchanged. Separately installed Pi
 sources require an update/reload; `make install` alone does not replace them.
 
 ## Current-daemon collection attempt evidence
@@ -392,7 +338,7 @@ preflight, expiry policy and automatic eligibility still require fresh guards. A
 not an executable plan, an apply token, publication approval or apply consent.
 Native safety flags describe planner evidence, never permission to
 weaken a safeguard. Maintenance apply remains unsupported; expired proposals use the explicit mode below.
-CLI, daemon and loaded Pi must match schema 28; no legacy fallback. Update/reload
+CLI, daemon and loaded Pi must match schema 29; no legacy fallback. Update/reload
 separately installed extension sources independently from `make install`.
 Wire shape, persisted formats, known-data expiry and manual confirmation are
 unchanged; automatic unknown/structural blockers cannot expire. Apply remains
@@ -429,7 +375,7 @@ runtime ownership nor leases/consent. Approved existing-inode lease probes retai
 limits; contention blocks the whole bundle despite warning expiry. Existing
 30-second/output/privacy/drift guards apply. No cleanup execution, lease creation
 or reservation, policy change or data removal occurs. Apply remains unsupported;
-CLI, daemon and loaded Pi must match schema 28 without fallback.
+CLI, daemon and loaded Pi must match schema 29 without fallback.
 
 ## Explicit registered-runtime observations
 
@@ -506,10 +452,16 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 28; there is no legacy fallback. Separately
+extension must all support schema 29; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-## Retained inventories (diagnostics schema 28)
+## Recorded workspace policy (diagnostics schema 29)
+
+Exact-parent `workspace_policy` reads the recorded sandbox recipe shape only,
+never current effective configuration or execution eligibility. See the complete
+[registered recipe contract](pi-policy.md#recorded-workspace-policy-diagnostics-schema-29).
+
+## Retained inventories (diagnostics schema 29)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -657,7 +609,7 @@ Capabilities advertise `current_daemon_managed_operations: true`,
 `durable_operation_history`, `verified_operation_resource_outcomes`,
 `cleanup_apply` and `runtime_controls` remain false. Only the collection-only
 refresh adapter advertises `maintenance` and `collection_only_refresh` as true. CLI, daemon and separately loaded Pi sources must
-match schema 28; `make install` alone does not update/reload installed Pi sources.
+match schema 29; `make install` alone does not update/reload installed Pi sources.
 
 ## Identity and nested drill-down
 
@@ -855,7 +807,7 @@ before model-facing text or details. Unknown private sibling fields, invalid
 counts/types, contradictory unavailable evidence, schedule truncation or pagination
 fail closed with fixed sanitized errors. Unavailable supervision never bypasses
 checkpoint validation. Native bounded UTF-8 replacement/ellipsis expansion and
-nanosecond timestamps are preserved. This repairs the existing schema-28 wire
+nanosecond timestamps are preserved. This repairs the existing schema-29 wire
 shape; it adds no runner calls, checkpoint reads, maintenance or persisted-format
 change. Separately installed Pi sources require matching update/reload.
 
@@ -889,7 +841,7 @@ changes anywhere in the scoped inventory (including availability changes)
 invalidate pagination. No pre-restart evidence is reconstructed. Overview
 capabilities advertise `current_daemon_agent_supervision: true` and
 `agent_supervision_history: false`. CLI, daemon and loaded Pi must match schema
-24; separately installed Pi sources still require updating/reloading independently
+29; separately installed Pi sources still require updating/reloading independently
 of `make install`.
 
 Task views include retained lifecycle state, `DoneAt`, source observation times,
@@ -916,7 +868,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 28; version mismatches fail closed
+extension must support diagnostics schema 29; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

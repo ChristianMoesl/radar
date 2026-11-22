@@ -44,6 +44,14 @@ type WorkspaceRegistrationDiagnostics interface {
 	DiagnosticWorkspaceRegistrations() ([]protocol.DiagnosticWorkspace, error)
 }
 
+// WorkspacePolicyDiagnostics reads one exact native registration. Scope is a
+// host-resolved anchor, never a path to configuration or referenced files.
+// Implementations must not probe runtimes, read repository settings or execute.
+type WorkspacePolicyDiagnostics interface {
+	WorkspaceRegistrationDiagnostics
+	DiagnosticWorkspacePolicy(workspaceID, scope string) (protocol.DiagnosticWorkspacePolicy, error)
+}
+
 // WorkspaceRetirementPreview uses only the native registration/path planner for
 // one workspace. Unlike full cleanup previews it must not fetch Git refs, probe
 // runtimes, acquire leases, refresh or mutate. Targets are proposals, not authority.

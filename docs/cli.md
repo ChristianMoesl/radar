@@ -204,7 +204,7 @@ admission fails without queued work. One-use current-daemon plans expire after
 deadline. Cancellation/disconnect can leave partial changes, not rollback.
 Returned per-source counts are collection attempts, not verified resources;
 missing/canceled evidence stays unverified. Never replay an unknown apply outcome.
-CLI/daemon/Pi schema 28 must match before apply, with no fallback. See
+CLI/daemon/Pi schema 29 must match before apply, with no fallback. See
 [refresh safeguards](integrations/pi-diagnostics.md#explicit-installation-wide-collection-refresh).
 
 `feedback-diagnostics --section operations` pages volatile current-daemon managed
@@ -241,12 +241,22 @@ no retry record is not success or stopped-state evidence. Records are volatile,
 ID-keyed and not registration-lifetime/history attestations; retry deadlines are
 not execution guarantees. Scoped pagination invalidates on shown memory changes.
 See the Pi diagnostics documentation for fields and limitations. CLI, daemon and
-loaded Pi must match schema 28; no maintenance apply is exposed.
+loaded Pi must match schema 29; no maintenance apply is exposed.
 
 Native cleanup operation inspection also reports bounded executor stop stages and
 provider Cleanup-call counts, never verified resource outcomes or safe retry.
 
-`feedback-diagnostics --section overview` reports schema-28 typed configuration
+`feedback-diagnostics --section workspace_policy --parent-id <registered workspace ID>`
+reads the exact scoped **recorded sandbox recipe shape**: fixed presence flags
+and complete mount/port counts, never raw names, paths, argv or referenced files.
+It accepts origin/feedback/installation scope, but no row/state/cursor selectors.
+No registered sandbox is not runtime absence; unavailable registration has no
+fallback. This is not current repository/global effective policy, historical
+setting provenance, live runtime configuration or execution eligibility. CLI,
+daemon and loaded Pi require schema 29, without a persisted-format change. See
+[the policy evidence contract](integrations/pi-policy.md#recorded-workspace-policy-diagnostics-schema-29).
+
+`feedback-diagnostics --section overview` reports schema-29 typed configuration
 policy values and file/default provenance. Its fixed ten-setting allowlist returns
 only booleans, enablement modes and counts from a bounded native configuration
 read, never model strings, paths, commands, secrets or referenced file contents.

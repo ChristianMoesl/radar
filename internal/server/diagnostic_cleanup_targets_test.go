@@ -43,7 +43,7 @@ func TestNativeCleanupReturnedTargetsReachDiagnosticsWithoutExecutingOnInspectio
 			before := store.DashboardSnapshot()
 			calls := provider.calls
 			view := managedPipeCall(t, s, protocol.Request{Method: "diagnostics", Diagnostics: &protocol.DiagnosticsRequest{Section: "operations", ID: result.OperationID}})
-			if !view.OK || view.Diagnostics == nil || view.Diagnostics.Schema != 28 || view.Diagnostics.Total != 1 {
+			if !view.OK || view.Diagnostics == nil || view.Diagnostics.Schema != 29 || view.Diagnostics.Total != 1 {
 				t.Fatal("RPC bridge", view)
 			}
 			op := view.Diagnostics.Items[0].Operation

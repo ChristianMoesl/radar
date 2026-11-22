@@ -28,6 +28,9 @@ func Read(store *state.Store, req protocol.DiagnosticsRequest, pending bool, pro
 	if req.CleanupMode != "" || req.WorkspaceID != "" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("cleanup selectors require explicit cleanup preview")
 	}
+	if req.Section == "workspace_policy" {
+		return workspacePolicy(store, req, pending, providers)
+	}
 	if req.Section != "tasks" && req.Section != "workspaces" && req.Section != "workspace_resources" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "agents" && req.Section != "agent_schedules" && req.Section != "gc_plan" && req.Section != "integrations" && req.Section != "operations" {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("unsupported diagnostic inventory")
 	}
@@ -235,6 +238,9 @@ func paginate(req protocol.DiagnosticsRequest, items []protocol.DiagnosticItem, 
 		}
 	}
 	page := protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: req.Section, Evidence: evidence, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano), Revision: revision, Snapshot: snapshot, Total: len(items), ResourceRefreshPending: pending, Limitations: []string{"free_form_content_withheld", "runtime_not_probed", "cleanup_planner_not_run", "provider_freshness_not_established", "text_fields_limited_to_512_bytes", "nested_lists_limited_to_16_entries", "historical_manual_intent_not_reconstructed", "registration_paths_are_not_observed_resource_presence"}}
+	if req.Section == "workspace_policy" {
+		page.Limitations = []string{"exact_registered_workspace_recipe_only", "not_current_repository_or_global_effective_policy", "historical_setting_origins_unknown", "runtime_presence_configuration_and_health_not_probed", "ownership_leases_and_execution_eligibility_not_checked", "no_repository_or_referenced_file_reads_or_maintenance", "private_recipe_values_paths_and_commands_withheld", "snapshot_binds_public_shape_not_private_recipe_values", "single_registration_snapshot_not_future_state_reservation"}
+	}
 	if req.Section == "gc_plan" {
 		page.Limitations = []string{"free_form_content_withheld", "runtime_not_probed", "provider_preview_not_run", "provider_freshness_not_established", "ownership_and_leases_not_checked", "candidate_is_not_execution_eligibility_or_consent", "pending_resource_refresh_may_change_plan", "text_fields_limited_to_512_bytes", "scope_selects_owning_task_including_related_resources"}
 	}

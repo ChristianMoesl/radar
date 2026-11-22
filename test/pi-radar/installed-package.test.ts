@@ -87,7 +87,7 @@ export default function(pi) {
     "package/extensions/pi-radar/retirement-preview.ts",
     "package/extensions/pi-radar/runtime-version.ts",
     "package/extensions/pi-radar/version.ts",
-    "package/extensions/pi-radar/workspace-notice.ts", "package/package.json",
+    "package/extensions/pi-radar/workspace-notice.ts", "package/extensions/pi-radar/workspace-policy.ts", "package/package.json",
   ]);
   await exec("tar", ["-xzf", tarball, "-C", root]);
   const distribution = join(root, "package");

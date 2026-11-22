@@ -54,7 +54,7 @@ func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
 		"## Configuration policy and origins", "## Explicit native manual-cleanup previews",
 		"## Explicit installation-wide collection refresh", "30-second", "collection-only adapter",
 		"request_outcome_unknown_do_not_replay", "plan ID establishes", "freshness, not user consent",
-		"does not call ordinary daemon refresh", "cleanup_apply", "schema 28", "native_cleanup_returned_target_summaries", "native_cleanup_execution_boundaries", "provider_call", "attempted_targets", "not_completed_may_be_partial",
+		"does not call ordinary daemon refresh", "cleanup_apply", "schema 29", "native_cleanup_returned_target_summaries", "native_cleanup_execution_boundaries", "provider_call", "attempted_targets", "not_completed_may_be_partial",
 		"complete integration envelope", "Unknown sibling fields", "wire shape unchanged",
 		"## Durable-agent registration and checkpoint evidence",
 		"complete agent inventory envelope", "Unavailable supervision never bypasses",
@@ -66,6 +66,25 @@ func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
 	}
 	if strings.Contains(guide.Content, "native_handler_monotonic_elapsed") {
 		t.Fatal("keep the detailed contract in one topic rather than duplicating it")
+	}
+}
+
+func TestPiPolicyContractsAreSeparatelyBundled(t *testing.T) {
+	diagnostics, err := Read("docs/integrations/pi-diagnostics.md")
+	if err != nil || !strings.Contains(diagnostics.Content, "(pi-policy.md#configuration-policy-and-origins)") || !strings.Contains(diagnostics.Content, "(pi-policy.md#recorded-workspace-policy-diagnostics-schema-29)") {
+		t.Fatalf("diagnostics must link both policy contracts: %v", err)
+	}
+	policy, err := Read("docs/integrations/pi-policy.md")
+	if err != nil || policy.Title != "Pi configuration and workspace policy" {
+		t.Fatalf("policy topic unavailable: %+v %v", policy.Topic, err)
+	}
+	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Configuration policy and origins", "CLI-process global defaults", "daemon-process global defaults", "compiled_default", "configuration_file", "At most 64 KiB", "## Recorded workspace policy (diagnostics schema 29)", "registered_workspace_recipe_policy", "workspace_effective_policy", "historical per-setting", "public shape", "not private recipe bytes", "Pi validates the complete envelope", "not a registry/data migration", "separately installed Pi extension"} {
+		if !strings.Contains(policy.Content, contract) {
+			t.Errorf("policy contract omitted: %q", contract)
+		}
+	}
+	if strings.Contains(diagnostics.Content, "At most 64 KiB") || strings.Contains(diagnostics.Content, "not private recipe bytes") {
+		t.Fatal("keep detailed policy contracts in one bounded topic")
 	}
 }
 

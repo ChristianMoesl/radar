@@ -2,7 +2,7 @@ package protocol
 
 import "strings"
 
-const DiagnosticsVersion = 28
+const DiagnosticsVersion = 29
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -104,6 +104,26 @@ type DiagnosticWorkspace struct {
 	Retention              []DiagnosticRetention `json:"retention"`
 	ExecutionEligibility   string                `json:"execution_eligibility"`
 	Truncated              bool                  `json:"truncated"`
+}
+
+// DiagnosticWorkspacePolicy is one registered recipe, not current effective
+// policy, historical provenance, live runtime state or execution eligibility.
+// Raw recipe values must never enter this projection.
+type DiagnosticWorkspacePolicy struct {
+	ID                string                   `json:"id"`
+	Origin            string                   `json:"origin"`
+	SandboxRegistered bool                     `json:"sandbox_registered"`
+	Sandbox           *DiagnosticSandboxRecipe `json:"sandbox,omitempty"`
+}
+
+type DiagnosticSandboxRecipe struct {
+	KitConfigured          bool `json:"kit_configured"`
+	KitPathConfigured      bool `json:"kit_path_configured"`
+	EnvFileConfigured      bool `json:"env_file_configured"`
+	ReadyCommandConfigured bool `json:"ready_command_configured"`
+	ManagedMountCount      int  `json:"managed_mount_count"`
+	AdditionalMountCount   int  `json:"additional_mount_count"`
+	PortCount              int  `json:"port_count"`
 }
 
 type DiagnosticMount struct {
@@ -429,6 +449,7 @@ type DiagnosticOperation struct {
 }
 
 type DiagnosticItem struct {
+	WorkspacePolicy   *DiagnosticWorkspacePolicy    `json:"workspace_policy,omitempty"`
 	Operation         *DiagnosticOperation          `json:"operation,omitempty"`
 	CleanupPreview    *DiagnosticCleanupTarget      `json:"cleanup_preview,omitempty"`
 	RetirementPreview *DiagnosticRetirementPreview  `json:"retirement_preview,omitempty"`
