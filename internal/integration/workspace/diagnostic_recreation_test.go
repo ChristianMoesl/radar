@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"radar/internal/integration"
 	workspacegroup "radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
 )
@@ -15,6 +17,16 @@ import (
 type diagnosticRecreationTrackingRunner struct {
 	*recreationRunner
 	touches int
+}
+
+// Diagnostic previews fingerprint these native stores. Other test packages may
+// mutate their defaults, so a stable planner fixture must own both stores too.
+func diagnosticRecreationFixture(t *testing.T, count int) (integration.SandboxRecreateRequest, []workspacegroup.Workspace, *recreationRunner) {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("RADAR_AGENT_ROOT", filepath.Join(root, "agents"))
+	t.Setenv("RADAR_SOCKET", filepath.Join(root, "run", "radar.sock"))
+	return recreationFixture(t, count)
 }
 
 func (r *diagnosticRecreationTrackingRunner) LookPath(name string) error {
@@ -31,7 +43,7 @@ func TestDiagnosticRecreationNativePlannerParityPrivacyAndNoMutation(t *testing.
 	for _, scenario := range []string{"running", "stopped", "absent", "secrets", "policies", "mounts", "unknown_state", "env_file", "metadata_error"} {
 		t.Run(scenario, func(t *testing.T) {
 			withWorkspaceGOOS(t, "darwin")
-			req, groups, runner := recreationFixture(t, 2)
+			req, groups, runner := diagnosticRecreationFixture(t, 2)
 			g := groups[0]
 			live := runner.live[g.Sandbox.Name]
 			switch scenario {
@@ -100,7 +112,7 @@ func TestDiagnosticRecreationRejectsScopeBeforeRunner(t *testing.T) {
 	for _, scenario := range []string{"missing", "empty", "wrong_scope", "nested_scope", "relative_scope", "no_sandbox", "cancelled", "oversize_registration"} {
 		t.Run(scenario, func(t *testing.T) {
 			withWorkspaceGOOS(t, "darwin")
-			req, groups, runner := recreationFixture(t, 1)
+			req, groups, runner := diagnosticRecreationFixture(t, 1)
 			id, scope := groups[0].ID, groups[0].Path
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -137,7 +149,7 @@ func TestDiagnosticRecreationFullPrivateRegistrationDriftAndCancellation(t *test
 	for _, scenario := range []string{"recipe_drift", "other_group_drift", "cancel_ports", "cancel_policy"} {
 		t.Run(scenario, func(t *testing.T) {
 			withWorkspaceGOOS(t, "darwin")
-			req, groups, runner := recreationFixture(t, 2)
+			req, groups, runner := diagnosticRecreationFixture(t, 2)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			changed := false
@@ -171,7 +183,7 @@ func TestDiagnosticRecreationFullPrivateRegistrationDriftAndCancellation(t *test
 
 func TestDiagnosticRecreationPreviewIdentityBindsPrivateRecipe(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
-	req, groups, runner := recreationFixture(t, 1)
+	req, groups, runner := diagnosticRecreationFixture(t, 1)
 	read := func() protocol.DiagnosticRecreationPreview {
 		v, err := diagnosticRecreationPreview(context.Background(), runner, req.WorkspaceRoot, groups[0].ID, "")
 		if err != nil {
@@ -194,4 +206,48 @@ func TestDiagnosticRecreationPreviewIdentityBindsPrivateRecipe(t *testing.T) {
 		t.Fatal("private recipe exposed in public shape")
 	}
 	assertNoRecreationMutation(t, runner)
+}
+
+func TestDiagnosticRecreationFixtureIgnoresAmbientStoreDrift(t *testing.T) {
+	for _, store := range []string{"owners", "leases"} {
+		for _, stage := range []string{"between previews", "during planner"} {
+			t.Run(store+"/"+stage, func(t *testing.T) {
+				withWorkspaceGOOS(t, "darwin")
+				ambient := t.TempDir()
+				ambientOwners, ambientLeases := filepath.Join(ambient, "agents"), filepath.Join(ambient, "run", "leases")
+				t.Setenv("RADAR_AGENT_ROOT", ambientOwners)
+				t.Setenv("RADAR_SOCKET", filepath.Join(ambient, "run", "radar.sock"))
+				req, groups, runner := diagnosticRecreationFixture(t, 1)
+				first, err := diagnosticRecreationPreview(context.Background(), runner, req.WorkspaceRoot, groups[0].ID, "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				changed := false
+				mutate := func() {
+					path := ambientOwners
+					if store == "leases" {
+						path = ambientLeases
+					}
+					if err := os.MkdirAll(path, 0700); err != nil {
+						t.Fatal(err)
+					}
+					changed = true
+				}
+				if stage == "between previews" {
+					mutate()
+				} else {
+					runner.beforeRun = func(args []string) {
+						if !changed && args[0] == "ports" {
+							mutate()
+						}
+					}
+				}
+				second, err := diagnosticRecreationPreview(context.Background(), runner, req.WorkspaceRoot, groups[0].ID, "")
+				if !changed || err != nil || !reflect.DeepEqual(first, second) {
+					t.Fatalf("ambient store mutation contaminated private fixture: changed=%t first=%+v second=%+v err=%v", changed, first, second, err)
+				}
+				assertNoRecreationMutation(t, runner)
+			})
+		}
+	}
 }

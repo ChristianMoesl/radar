@@ -39,7 +39,7 @@ func TestDiagnosticRecreationFinalRuntimeRejectsMetadataWindowDrift(t *testing.T
 			for _, change := range []string{"replacement", "missing", "renamed", "state", "mounts", "readonly"} {
 				t.Run(state+"/"+stage+"/"+change, func(t *testing.T) {
 					withWorkspaceGOOS(t, "darwin")
-					req, groups, base := recreationFixture(t, 1)
+					req, groups, base := diagnosticRecreationFixture(t, 1)
 					g := groups[0]
 					actual := base.live[g.Sandbox.Name]
 					actual.Status = state
@@ -179,7 +179,7 @@ func TestDiagnosticRecreationFinalRuntimePreservesFiniteNativeDecisions(t *testi
 	for _, scenario := range []string{"running", "stopped", "absent", "blocked ports", "blocked state", "blocked mounts"} {
 		t.Run(scenario, func(t *testing.T) {
 			withWorkspaceGOOS(t, "darwin")
-			req, groups, base := recreationFixture(t, 1)
+			req, groups, base := diagnosticRecreationFixture(t, 1)
 			g := groups[0]
 			row := base.live[g.Sandbox.Name]
 			want := "recreate"
@@ -222,7 +222,7 @@ func TestDiagnosticRecreationFinalRuntimePreservesFiniteNativeDecisions(t *testi
 
 func TestDiagnosticRecreationFinalRuntimeAbsenceCannotAdoptNewLifetime(t *testing.T) {
 	withWorkspaceGOOS(t, "darwin")
-	req, groups, base := recreationFixture(t, 1)
+	req, groups, base := diagnosticRecreationFixture(t, 1)
 	g := groups[0]
 	row := base.live[g.Sandbox.Name]
 	delete(base.live, row.Name)
