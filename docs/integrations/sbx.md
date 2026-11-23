@@ -576,8 +576,11 @@ existing mount directories, local kit references, readable env-file, matching
 mounts/IPv4 ports, scoped-secret metadata, and policies. Scoped secrets (including
 custom and env-only entries) block recreation. Sandbox-specific policies also
 block it, except SBX's noneditable, automatically provisioned kit rule. Global
-policies are retained by SBX. Unknown or unreadable safety metadata fails closed;
-Radar neither exports secret values nor offers an override for these blockers.
+policies are retained by SBX. Secret metadata must independently report explicit
+empty service/custom arrays and a zero env-only count. Null inventories and
+negative counts are unknown, not proof of absence; counts are never summed to
+cancel entries. Unknown or unreadable safety metadata fails closed; Radar neither
+exports secret values nor offers an override for these blockers.
 Incomplete registrations with only an unknown resolved agent name are blocked:
 a custom agent name is not a substitute for its original kit reference.
 

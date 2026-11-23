@@ -190,18 +190,20 @@ func validateRecreationCredentialsAndPolicies(ctx context.Context, runner Runner
 		CustomSecrets json.RawMessage `json:"custom_secrets"`
 		EnvOnlyCount  *int            `json:"env_only_count"`
 	}
-	if json.Unmarshal([]byte(output), &secrets) != nil || secrets.Secrets == nil || secrets.CustomSecrets == nil || secrets.EnvOnlyCount == nil {
+	if json.Unmarshal([]byte(output), &secrets) != nil || secrets.Secrets == nil || secrets.CustomSecrets == nil || secrets.EnvOnlyCount == nil || *secrets.EnvOnlyCount < 0 {
 		return errors.New("unrecognized SBX secret metadata; recreation refused")
 	}
-	count := *secrets.EnvOnlyCount
+	// Each inventory must independently prove emptiness. Never add untrusted
+	// counts: negative metadata could cancel real entries, and null is unknown.
+	hasSecrets := *secrets.EnvOnlyCount != 0
 	for _, raw := range []json.RawMessage{secrets.Secrets, secrets.CustomSecrets} {
 		var rows []json.RawMessage
-		if json.Unmarshal(raw, &rows) != nil {
+		if json.Unmarshal(raw, &rows) != nil || rows == nil {
 			return errors.New("unrecognized SBX secret metadata; recreation refused")
 		}
-		count += len(rows)
+		hasSecrets = hasSecrets || len(rows) != 0
 	}
-	if count != 0 {
+	if hasSecrets {
 		return errors.New("sandbox-scoped secrets would be deleted by SBX; preserve/reconfigure them before recreation")
 	}
 	output, err = client.Run(ctx, "", "policy", "ls", name, "--include-inactive", "--json")
