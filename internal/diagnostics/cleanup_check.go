@@ -21,7 +21,7 @@ func CheckCleanupBundle(ctx context.Context, store *state.Store, req protocol.Di
 	fail := func() (protocol.DiagnosticCleanupCheck, error) {
 		return protocol.DiagnosticCleanupCheck{}, errors.New("native manual cleanup guard check unavailable; no Cleanup dispatch requested")
 	}
-	if req.Schema != protocol.DiagnosticsVersion || req.Operation != "cleanup_check" || req.Mode != "check" || req.PlanID != "" || req.ParentID == "" || len(req.ParentID) > 512 || len(req.Workspace) > 4096 || (req.Scope != "origin" && req.Scope != "feedback" && req.Scope != "installation") || (req.Scope == "installation" && req.Workspace != "") || (req.Scope != "installation" && (req.Workspace == "" || !filepath.IsAbs(req.Workspace))) || pending == nil {
+	if req.Schema != protocol.DiagnosticsVersion || req.Operation != "cleanup_check" || req.Mode != "check" || req.PlanID != "" || req.FeedbackWorkspace != "" || req.ParentID == "" || len(req.ParentID) > 512 || len(req.Workspace) > 4096 || (req.Scope != "origin" && req.Scope != "feedback" && req.Scope != "installation") || (req.Scope == "installation" && req.Workspace != "") || (req.Scope != "installation" && (req.Workspace == "" || !filepath.IsAbs(req.Workspace))) || pending == nil {
 		return fail()
 	}
 	ctx, cancel := context.WithTimeout(ctx, CleanupPreviewTimeout)

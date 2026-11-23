@@ -247,6 +247,7 @@ type Task struct {
 }
 
 type Response struct {
+	DiagnosticCleanup       *DiagnosticCleanup       `json:"diagnostic_cleanup,omitempty"`
 	Maintenance             *DiagnosticMaintenance   `json:"maintenance,omitempty"`
 	CleanupCheck            *DiagnosticCleanupCheck  `json:"cleanup_check,omitempty"`
 	OperationID             string                   `json:"operation_id,omitempty"`
@@ -274,6 +275,9 @@ type Response struct {
 
 func (r Response) MarshalJSON() ([]byte, error) {
 	fields := map[string]any{"ok": r.OK}
+	if r.DiagnosticCleanup != nil {
+		fields["diagnostic_cleanup"] = r.DiagnosticCleanup
+	}
 	if r.CleanupCheck != nil {
 		fields["cleanup_check"] = r.CleanupCheck
 	}

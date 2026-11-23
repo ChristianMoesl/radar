@@ -81,6 +81,7 @@ export default function(pi) {
   assert.deepEqual(listing.trim().split("\n").sort(), [
     "package/LICENSE", "package/README.md", "package/extensions/pi-radar/feedback.ts", "package/extensions/pi-radar/host-resources.ts", "package/extensions/pi-radar/index.ts",
     "package/extensions/pi-radar/linear.ts",
+    "package/extensions/pi-radar/manual-cleanup.ts",
     "package/extensions/pi-radar/operation-diagnostics.ts",
     "package/extensions/pi-radar/recreation-preview.ts",
     "package/extensions/pi-radar/refresh-diagnostics.ts",

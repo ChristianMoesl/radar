@@ -2,7 +2,7 @@
 
 `radar_diagnostics` section `recreation_preview` adds an **explicit proposal**, not
 recreation execution. CLI, daemon and loaded Pi must match diagnostics **schema
-33**; old peers fail closed, without compatibility or shell fallback. No
+34**; old peers fail closed, without compatibility or shell fallback. No
 persisted format changes. `make install` does not update/reload separately
 installed Pi sources.
 
@@ -120,7 +120,7 @@ observations are not runtime ownership, fresh activity, holder identity or the
 shared deletion/exclusive writer admission used by native recreation. They do not
 invent an execution blocker or establish complete eligibility or safe retry. The display identity is deliberately **not** a native apply plan: it has no
 apply route, one-use execution cache, expiry promise or consent semantics.
-Cleanup apply and runtime controls remain unsupported. Later apply needs its own
+Recreation apply and runtime controls remain unsupported. Later apply needs its own
 fresh exact-target consent and existing native admission/execution safeguards;
 no proposal, fingerprint, unknown/partial outcome or successful guard check
 supplies that authority.

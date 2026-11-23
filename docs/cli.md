@@ -12,6 +12,7 @@ radar update                  # Confirm a managed macOS release
 radar version
 radar documentation [--topic <source>] [--json]
 radar feedback-diagnostics --workspace <feedback-workspace> --section overview|tasks|workspaces|source_refs|bindings|workspace_resources|agents|agent_schedules|gc_plan|runtime_probe|agent_probe|retirement_preview|cleanup_preview|integrations|operations|refresh|logs --json
+radar feedback-diagnostics --workspace <feedback-workspace> --section cleanup_preview --parent-id <retained-task-id> --scope origin|feedback|installation [--action preview|apply] [--plan-id <exact-preview-id>] --json
 radar feedback-diagnostics --workspace <feedback-workspace> --section cleanup_preview --parent-id <retained-task-id> --cleanup-mode expired --workspace-id <registered-workspace-id> --scope origin|feedback|installation --json
 radar feedback-diagnostics --workspace <feedback-workspace> --section refresh --scope installation [--action preview|apply] [--plan-id <fresh-preview-id>] --json
 radar feedback-diagnostics --workspace <feedback-workspace> --section logs [--since "YYYY-MM-DD HH:MM:SS"] [--until "YYYY-MM-DD HH:MM:SS"] [--severity debug|info|warn|error] [--provider <opaque-log-id>] [--entity <opaque-log-id>] [--operation <opaque-log-id>] [--limit 1-100] [--cursor <log-cursor>] --json
@@ -201,7 +202,7 @@ reads may refresh metadata. All locks are released. Returned aggregate guard
 success is not complete last-moment eligibility, runtime/resource evidence,
 a reservation, apply token or deletion/retry consent. No subset, cursor, state,
 expiry/retirement or action/plan selectors; no automatic replay after unknown
-outcomes. Matching schema 33 is required. See
+outcomes. Matching schema 34 is required. See
 [guard-check safeguards](integrations/pi-cleanup-check.md).
 
 `feedback-diagnostics --section refresh --scope installation` defaults to a
@@ -218,7 +219,7 @@ admission fails without queued work. One-use current-daemon plans expire after
 deadline. Cancellation/disconnect can leave partial changes, not rollback.
 Returned per-source counts are collection attempts, not verified resources;
 missing/canceled evidence stays unverified. Never replay an unknown apply outcome.
-CLI/daemon/Pi schema 33 must match before apply, with no fallback. See
+CLI/daemon/Pi schema 34 must match before apply, with no fallback. See
 [refresh safeguards](integrations/pi-diagnostics.md#explicit-installation-wide-collection-refresh).
 
 `feedback-diagnostics --section operations` pages volatile current-daemon managed
@@ -240,13 +241,28 @@ not verified ownership; task-wide effects may include other workspaces. No repla
 refresh or maintenance occurs. Pages are capped at 32 KiB; `--state` and
 `--parent-id` are rejected. See [managed operation evidence](integrations/pi-diagnostics.md#current-daemon-managed-operations).
 
-`feedback-diagnostics --section cleanup_preview` additionally reports per-target
-native lease contention with fresh per-page consent. Existing lock files are
-nonblocking-exclusively tested and immediately released; probes may transiently
-contend with new operations. They never create lease state or read its contents.
-Missing/unavailable evidence is unknown, not no leases; available-at-probe is not
-execution eligibility. Observed inode/contention drift invalidates pages. No apply
-or reserved lock is exposed. See [cleanup previews](integrations/pi-diagnostics.md#explicit-native-manual-cleanup-previews).
+`feedback-diagnostics --section cleanup_preview --parent-id <retained-task-id>`
+returns a complete confirmed-manual native plan (default `--action preview`).
+`--scope origin|feedback|installation` selects the current production task,
+including its related resources in other workspaces. No manual `--id`, `--limit`,
+`--cursor`, `--state`, `--workspace-id` or target subset is accepted. All ordered
+opaque target/effect/safety entries must fit 32 KiB or no plan is issued.
+Fresh preview approval covers provider/Git metadata reads and transient
+nonblocking exclusive existing-lease probes; missing lease files are unknown.
+Apply uses `--action apply --plan-id <exact-plan-id>` with the same task/scope.
+The caller must separately obtain fresh destructive whole-bundle consent; Pi
+requires its latest immutable unexpired preview and an interactive confirmation.
+A plan is freshness, not consent; native ownership/activity/alias/lease/provider
+guards remain. Cleanup can lose local changes, branches, sandbox state, terminal
+processes and workspace files/registration where disclosed. Native admission
+may create coordination files. One-use plans expire after 60 seconds, reject
+registration/revision/publication drift and cannot be replayed after partial or
+unknown outcomes. Returned operation/prefix/dispatch evidence is not verified
+resource absence or rollback. Deadlines are cooperative (native 30 seconds),
+not forced cancellation. `--cleanup-mode expired --workspace-id <registered-id>`
+remains a separate paged read-only proposal and rejects apply. Match CLI, daemon
+and loaded Pi schema 34; no persisted-format change or legacy fallback. See
+[cleanup previews and apply](integrations/pi-diagnostics.md#explicit-native-manual-cleanup-previews).
 
 `feedback-diagnostics --section agents` separately exposes available current-daemon
 native retry/backoff records and schedule-delivery-error presence, without runner
@@ -255,7 +271,7 @@ no retry record is not success or stopped-state evidence. Records are volatile,
 ID-keyed and not registration-lifetime/history attestations; retry deadlines are
 not execution guarantees. Scoped pagination invalidates on shown memory changes.
 See the Pi diagnostics documentation for fields and limitations. CLI, daemon and
-loaded Pi must match schema 33; no maintenance apply is exposed.
+loaded Pi must match schema 34; agent inventory itself exposes no maintenance action.
 
 Native cleanup operation inspection also reports bounded executor stop stages and
 provider Cleanup-call counts, never verified resource outcomes or safe retry.
@@ -267,8 +283,8 @@ It accepts origin/feedback/installation scope, but no row/state/cursor selectors
 No registered sandbox is not runtime absence; unavailable registration has no
 fallback. This is not current repository/global effective policy, historical
 setting provenance, live runtime configuration or execution eligibility. CLI,
-daemon and loaded Pi require schema 33, without a persisted-format change. See
-[the policy evidence contract](integrations/pi-policy.md#recorded-workspace-policy-diagnostics-schema-33).
+daemon and loaded Pi require schema 34, without a persisted-format change. See
+[the policy evidence contract](integrations/pi-policy.md#recorded-workspace-policy-diagnostics-schema-34).
 
 `feedback-diagnostics --section repository_policy --parent-id <registered workspace ID>
 --id <member row ID from workspace_resources>` explicitly reads only that registered
@@ -277,7 +293,7 @@ file-access approval; the CLI request itself is explicit local file inspection, 
 publication consent. Ten presence/mode/count declarations never imply effective
 policy. Missing configuration differs from unavailable repository evidence; no
 referenced files, runtime/provider calls or maintenance. See
-[the repository declaration contract](integrations/pi-policy.md#current-registered-member-repository-declarations-schema-33).
+[the repository declaration contract](integrations/pi-policy.md#current-registered-member-repository-declarations-schema-34).
 
 `feedback-diagnostics --section recreation_preview --parent-id <registered-workspace-id>`
 selects one exact registered sandbox's native recreation proposal (origin scope by
@@ -287,10 +303,10 @@ recipe accessibility checks, bounded registered-owner scans and transient
 existing-inode deletion-lease probes. Counts/lease status do not prove runtime
 ownership or writer admission; SBX reads may auto-start its daemon, not a sandbox.
 No native apply token, full eligibility, recreation execution or retry permission
-is exposed. Matching CLI/daemon/loaded Pi schema 33 is required. See the
+is exposed. Matching CLI/daemon/loaded Pi schema 34 is required. See the
 [recreation proposal contract](integrations/pi-recreation-preview.md).
 
-`feedback-diagnostics --section overview` reports schema-33 typed configuration
+`feedback-diagnostics --section overview` reports schema-34 typed configuration
 policy values and file/default provenance. Its fixed ten-setting allowlist returns
 only booleans, enablement modes and counts from a bounded native configuration
 read, never model strings, paths, commands, secrets or referenced file contents.

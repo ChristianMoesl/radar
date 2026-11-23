@@ -3,6 +3,8 @@ package client
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"time"
 
@@ -87,11 +89,23 @@ func callRequest(socketPath string, req protocol.Request, timeout time.Duration)
 		return protocol.Response{}, err
 	}
 
-	line, err := bufio.NewReader(conn).ReadBytes('\n')
+	cleanup := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "cleanup"
+	var reader io.Reader = conn
+	if cleanup {
+		reader = io.LimitReader(conn, 36*1024+1)
+	}
+	line, err := bufio.NewReader(reader).ReadBytes('\n')
 	if err != nil {
 		return protocol.Response{}, err
 	}
 
+	if cleanup {
+		response, err := decodeDiagnosticCleanup(line)
+		if err == nil && response.OK && (response.DiagnosticCleanup == nil || !protocol.ValidDiagnosticCleanup(*response.DiagnosticCleanup, *req.Maintenance)) {
+			return protocol.Response{}, errors.New("native manual cleanup response does not match exact request; outcome may be unknown, do not replay")
+		}
+		return response, err
+	}
 	var res protocol.Response
 	if err := json.Unmarshal(line, &res); err != nil {
 		return protocol.Response{}, err

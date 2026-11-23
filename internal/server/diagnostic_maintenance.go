@@ -40,11 +40,18 @@ func diagnosticMaintenanceFields(raw []byte, operation string) bool {
 		switch name {
 		case "diagnostics_schema", "operation", "mode", "scope":
 		case "plan_id":
-			if operation != "refresh" {
+			if operation != "refresh" && operation != "cleanup" {
+				return false
+			}
+			if operation == "cleanup" && string(fields["mode"]) != `"apply"` {
 				return false
 			}
 		case "parent_id", "workspace":
-			if operation != "cleanup_check" {
+			if operation != "cleanup_check" && operation != "cleanup" {
+				return false
+			}
+		case "feedback_workspace":
+			if operation != "cleanup" {
 				return false
 			}
 		default:
@@ -91,7 +98,7 @@ func (s *Server) maintainDiagnostics(ctx context.Context, req protocol.Diagnosti
 	fail := func(message string) (protocol.DiagnosticMaintenance, error) {
 		return protocol.DiagnosticMaintenance{}, errors.New(message)
 	}
-	if req.Schema != protocol.DiagnosticsVersion || req.Operation != "refresh" || req.ParentID != "" || req.Workspace != "" || req.Scope != "installation" || (req.Mode != "preview" && req.Mode != "apply") || (req.Mode == "preview" && req.PlanID != "") || (req.Mode == "apply" && (len(req.PlanID) != 64 || !hexPlanID(req.PlanID))) {
+	if req.Schema != protocol.DiagnosticsVersion || req.Operation != "refresh" || req.ParentID != "" || req.Workspace != "" || req.FeedbackWorkspace != "" || req.Scope != "installation" || (req.Mode != "preview" && req.Mode != "apply") || (req.Mode == "preview" && req.PlanID != "") || (req.Mode == "apply" && (len(req.PlanID) != 64 || !hexPlanID(req.PlanID))) {
 		return fail("maintenance requires explicit installation refresh preview or exact-plan apply")
 	}
 	if err := ctx.Err(); err != nil {

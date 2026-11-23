@@ -74,7 +74,7 @@ in the same feedback workspace. The actual tool accepts only a validated preview
 it has just shown in that workspace, and requires fresh interactive confirmation
 of the exact plan, complete source target set and installation-wide effects.
 Headless apply, canceled approval, expired approval, lost MCP availability or
-unmatched previews fail closed. CLI/Pi/daemon must match **schema 33**; the typed
+unmatched previews fail closed. CLI/Pi/daemon must match **schema 34**; the typed
 maintenance request carries the schema and the daemon rejects mismatches before
 admission. Read/probe RPCs cannot apply maintenance. The fixed CLI form is
 `feedback-diagnostics --section refresh --scope installation --action apply
@@ -168,7 +168,7 @@ provider. Native references and statuses share one atomic cache revision; cursor
 also bind selected scope, registration/capability changes, returned collection
 attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 33; older versions fail closed.
+and extension must all support schema 34; older versions fail closed.
 
 Pi validates the complete integration envelope, page, row and capability allowlist,
 not only the collection subobject. Unknown sibling fields and inconsistent scope,
@@ -256,100 +256,107 @@ leases and execution preflight remain unverified; pending resource refresh is
 reported, not ignored. The snapshot is not an executable plan, freshness token
 for apply, execution eligibility or user consent. **Maintenance apply and verified operation outcomes are still unsupported.**
 Use the separately approved cleanup preview below for manual or expired native targets.
-Schema 19 must match in the CLI, daemon and loaded Pi extension; update the
+Schema 34 must match in the CLI, daemon and loaded Pi extension; update the
 extension sources and reload separately from `make install`.
 
 ## Explicit native manual-cleanup previews
 
 Use `section: "cleanup_preview", parent_id: "<retained task record or numeric ID>"`
-only for a requested confirmed-manual cleanup proposal. Origin (default), feedback
-or installation scope selects the owning retained task, **not a resource boundary**:
-the proposal covers its whole native related-resource bundle, including other
-workspaces. Hidden retained tasks are included. Missing/ambiguous parents,
-state filters, pending publication and unsupported native providers/targets fail
-closed; there is no cached, safe-mode or expiry-mode fallback.
+for an explicitly requested confirmed-manual **complete native plan**. This replaces
+paged manual proposals: `id`, `limit`, `cursor`, `state`, `workspace_id` and
+client-supplied target subsets are rejected, even empty selectors. Origin
+(default), feedback or installation scope selects a unique **current production
+task**, not a resource boundary. Its entire ordered related-resource bundle may
+include other workspaces. Historical retained refs alone are not current scope;
+ambiguous identities, pending publication and unsupported effects fail closed.
 
-Every exact request/page requires fresh interactive Pi confirmation. The native
-`cleanup.Service.Preview(..., CleanupConfirmed)` can perform authenticated
-provider reads and **Git fetch/prune reference-metadata changes**. It never calls
-cleanup execution, collection, login, startup or operation-lock acquisition.
-With the same fresh explicit confirmation it also tests existing native lease
-files using nonblocking exclusive locks, briefly held then released. These tests
-may transiently contend with a new operation; they never create lease files or
-directories, read contents, or reserve a lock for execution. Existing native
-registration read locks may be used. Declined, headless, aborted
-or lost-MCP requests never reach the host command. Cancellation or failure does
-not roll back reference metadata already refreshed by the native planner.
+### Preview is freshness, not consent
 
-Each page has a 30-second shared native deadline, at most 256 active task refs,
-512 native targets and 32 KiB of redacted output (1–50 targets, default 20).
-Private native target evidence is capped at 64 KiB each / 1 MiB total; safety
-notices are capped at 1024 per target. Registered workspace projections are capped
-at 1024 / 1 MiB per pass. Follow `next_cursor`; each page repeats native checks
-with fresh approval. Cache, projected registration, registered-agent ownership,
-observed lease inode/contention and full private target drift invalidate
-snapshots/cursors, including private changes
-that preserve public counts. No duplicate network preview is run solely to recheck
-one page.
+Fresh interactive exact-task/scope preview approval permits existing authenticated
+provider reads, **Git fetch --prune** reference-metadata changes and brief
+nonblocking exclusive locks on existing lease files. Probes may transiently contend;
+no lease file/directory is created, no contents are read and no lock remains
+reserved. No provider `Cleanup`, collection, login, setup or runtime startup is
+requested. Cancellation does not undo refreshed metadata. Headless, declined,
+aborted or lost-MCP requests do not reach the command.
 
-Only opaque target IDs, retained task identity, fixed provider/effect labels,
-local-branch preservation/deletion, remote-repository preservation and native
-safety kinds/flags/counts are returned. Raw paths, branch/runtime names, messages,
-errors and private operations are withheld. Unknown notice kinds remain unknown.
-`expires` uses native policy: only flagged local changes, unpublished data,
-safety-check uncertainty and unknown anchor data expire. Native `expired_entries`
-map to `unknown_entries`; private drift stays bound. Unknown/structural warnings
-never expire; Pi rejects contradictory classifications.
-Later cleanup may discard local changes/worktrees/branches, sandbox/local state,
-terminal processes and workspace files/registration, and archive a completed note.
-This preview removes none of them.
+The native cooperative deadline is 30 seconds (CLI 32 seconds; Pi 35 seconds).
+At most 256 active references, 512 targets and **32 KiB for the complete public
+disclosure** are allowed. Private target evidence remains bounded at 64 KiB per
+target / 1 MiB total; safety notices at 1024 per target. A bundle that cannot be
+completely disclosed is rejected, never truncated or paged. Registered workspace
+projections remain bounded at 1024 / 1 MiB per pass. One planner feeds the existing
+native one-use plan cache, not another executor/cache.
 
-For each native target with a path, two bounded registry scans reuse the production
-registration decoder and removal-owner predicate. `ownership_evidence` is
-`fresh_bounded_registration` with `agent_owner_count`, or `unavailable` with **no
-count**. Stopped and nested registrations remain owners. Targets with no path
-report `not_checked_no_target_path` without a count, matching the native executor's
-path-based guard. Each scan handles at most 512 paths, 1024 registry entries,
-64 KiB per registration and 1 MiB aggregate; unsafe/invalid/over-budget evidence
-makes the whole batch unavailable, never partial known-zero counts. Private owner
-IDs, definitions, commands and fingerprints are withheld; no runner, token,
-checkpoint, lease or operation lock is read/acquired by this ownership observation.
+`cleanup` contains schema, operation/mode/scope, retained record and numeric task
+identity, feedback and selected workspace IDs, revision, `plan_id`, `expires_at`,
+the complete ordered `targets`, status/problem and fixed limitations. The full
+nested public shape is allowlisted before delivery. Each target contains an opaque
+ID; fixed provider/effect labels; branch preservation/deletion where applicable;
+remote-repository preservation; native safety kinds/flags/counts; registered-agent
+owner and existing-lease probe evidence. Raw paths, branch/runtime names, provider
+messages/errors and private executable operations are withheld. A missing
+`workspace_id` is an unknown workspace association, not absence.
 
-A positive per-target count sets `execution_eligibility: blocked_registered_agent`
-and blocks the **whole native bundle**. Counts are per target, not deduplicated
-bundle totals. Separately, `lease_evidence` tests the same path/lock identity used
-by the native executor, once per distinct path in each of two bounded passes:
-- `contended_at_probe`: the native exclusive lock conflicted with another lock;
-  absent a registered-owner block, eligibility is `blocked_lease_contention`.
-  Either blocker prevents the whole bundle, not just that target.
-- `exclusive_available_at_probe`: the existing inode was exclusively locked and
-  immediately released. This is not a reservation, no-active-work proof or
-  execution permission; the holder and its shared/exclusive mode are unknown.
-- `unknown_no_lock_file`: no file/directory could be opened because it was missing.
-  This is **unknown**, not no leases: a process could still hold an unlinked inode.
-- `unavailable`: unsafe/symlink/non-regular/multiply-linked files, invalid paths,
-  cancellation or failed checks provide no contention evidence.
-- `not_checked_no_target_path`: the native target has no path, matching its guard.
+Native safety `expires` flags retain production meaning: only flagged local
+changes, unpublished data, safety-check uncertainty and unknown entries can
+expire; unknown/structural warnings cannot. Warnings are not execution consent
+or permission to weaken guards.
 
-No raw lock filename, path, fingerprint, holder identity or file content is
-returned. Observed inode/status drift rejects the page, including same-status
-inode replacement; transient/ABA changes can escape observation. The two passes
-are not an atomic lease snapshot, and `observed_at` is page capture time, not an
-exact timestamp for every probe. Default inventories, runtime/agent probes and
-registration-only retirement previews never run these lease tests.
+For path targets, two bounded production registered-owner scans include stopped
+and nested registrations (512 paths, 1024 entries, 64 KiB per registration / 1 MiB
+aggregate). Observed owners or unavailable ownership reject the whole plan rather
+than inventing zero owners. Pathless targets explicitly say
+`not_checked_no_target_path`. Existing-inode lease probes disclose
+`exclusive_available_at_probe`, `unknown_no_lock_file`, `unavailable` or
+`not_checked_no_target_path`; observed `contended_at_probe` rejects the whole plan.
+Missing lease files are unknown, including possible unlinked held inodes.
+Same-count owner/private-registration drift and same-status observed inode drift
+invalidate the preview; these are non-atomic point-in-time observations, not a
+reservation, no-active-work proof or full execution eligibility. Transient/ABA
+changes can escape observation. No holder identity, fingerprint or lock content
+is returned. Default inventories and registration-only previews never probe leases.
 
-Unless an observed owner or lease conflict blocks, eligibility remains
-`unknown_fresh_execution_guards_not_run`, never safe or executable. Runtime
-ownership, active work, fresh review/activity, actual execution-time leases,
-preflight, expiry policy and automatic eligibility still require fresh guards. A native proposal is
-not an executable plan, an apply token, publication approval or apply consent.
-Native safety flags describe planner evidence, never permission to
-weaken a safeguard. Maintenance apply remains unsupported; expired proposals use the explicit mode below.
-CLI, daemon and loaded Pi must match schema 33; no legacy fallback. Update/reload
-separately installed extension sources independently from `make install`.
-Wire shape, persisted formats, known-data expiry and manual confirmation are
-unchanged; automatic unknown/structural blockers cannot expire. Apply remains
-unsupported.
+### Separate exact-plan destructive apply
+
+Request the same task/scope with `action: "apply", plan_id: "<preview plan ID>"`.
+Pi requires its latest complete immutable preview in this feedback workspace,
+within the native 60-second expiry, and a **separate fresh interactive destructive
+confirmation** displaying every ordered target/effect/safety entry, including
+other workspaces. Neither preview/check success nor a recommendation/headless
+request is approval. A changed task, workspace/origin, scope, plan, revision,
+expiry or ordered disclosure is rejected. There is no subset apply, cached
+consent, automatic retry, replay or silent replan. Pi consumes its UI binding
+before confirmation/dispatch; native one-use identity is consumed before live
+revalidation. Lost/partial/unknown replies never restore either binding.
+
+Where proposed, cleanup may discard local changes, delete worktrees/branches,
+sandbox/local state, terminal sessions/processes and workspace files/registration,
+and archive a completed note. Execution reuses the existing managed native
+cleanup handler and `cleanup.Service.Execute`, including fresh ownership,
+activity, alias, lease, bundle preflight and last-moment provider guards. Stopped
+registered agents still block removal. Native admission can create coordination
+files/directories and inspect protected workspace trees/runtime evidence. Preview
+or `cleanup_check` does not reserve eligibility or bypass any execution guard.
+
+`mode: "apply", status: "returned"` includes fixed `problem`, `operation_id`,
+`completed_targets`, optional validated `cleanup_execution` (stop stage and
+attempted Cleanup-call count), and `resource_refresh_pending: true`. The complete
+accepted disclosure is repeated unchanged. A successful prefix/returned handler
+is **not independently verified resource absence**, rollback or safe retry.
+Provider errors can leave partial effects. A cooperative timeout, client abort
+or disconnect is **not forced cancellation or rollback**; unknown transport
+outcomes must not be replayed. A new deliberate preview and approval is separate
+work, never an automatic recovery attempt. Operations are current-daemon evidence,
+not durable or pre-restart history.
+
+`cleanup_apply: true` advertises only this confirmed-manual whole-plan flow;
+`complete_cleanup_execution_eligibility`, `verified_operation_resource_outcomes`
+and `runtime_controls` remain false. CLI, daemon and separately loaded Pi must
+match **schema 34** with no legacy fallback. Install/reload Pi sources separately
+from `make install`. This changes the public transport only: persisted formats,
+known-data expiry and native manual confirmation policy are unchanged. Explicit
+expired proposals below remain read-only, never apply tokens.
 
 ## Explicit expired-cleanup proposals
 
@@ -382,7 +389,7 @@ runtime ownership nor leases/consent. Approved existing-inode lease probes retai
 limits; contention blocks the whole bundle despite warning expiry. Existing
 30-second/output/privacy/drift guards apply. No cleanup execution, lease creation
 or reservation, policy change or data removal occurs. Apply remains unsupported;
-CLI, daemon and loaded Pi must match schema 33 without fallback.
+CLI, daemon and loaded Pi must match schema 34 without fallback.
 
 ## Explicit registered-runtime observations
 
@@ -459,10 +466,10 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 33; there is no legacy fallback. Separately
+extension must all support schema 34; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-## Exact registered sandbox recreation proposal (diagnostics schema 33)
+## Exact registered sandbox recreation proposal (diagnostics schema 34)
 
 Use `recreation_preview` with one exact registered workspace `parent_id` and fresh
 interactive scope/target approval. It calls the native recreation planner once,
@@ -474,21 +481,21 @@ observations are not runtime ownership, holder identity or writer admission;
 no raw reason, native apply plan, full eligibility, recreation execution or retry
 authority. See the [complete recreation proposal contract](pi-recreation-preview.md).
 
-## Recorded workspace policy (diagnostics schema 33)
+## Recorded workspace policy (diagnostics schema 34)
 
 Exact-parent `workspace_policy` reads the recorded sandbox recipe shape only,
 never current effective configuration or execution eligibility. See the complete
-[registered recipe contract](pi-policy.md#recorded-workspace-policy-diagnostics-schema-33).
+[registered recipe contract](pi-policy.md#recorded-workspace-policy-diagnostics-schema-34).
 
-## Current repository declarations (diagnostics schema 33)
+## Current repository declarations (diagnostics schema 34)
 
 Explicit `repository_policy` requires an exact registered parent and member row
 ID from `workspace_resources`, plus fresh interactive file-access confirmation.
 It reads only the registered source repository's bounded fixed `.radar.yaml`,
 not the member worktree, referenced files or effective runtime policy. See the
-[complete repository declaration contract](pi-policy.md#current-registered-member-repository-declarations-schema-33).
+[complete repository declaration contract](pi-policy.md#current-registered-member-repository-declarations-schema-34).
 
-## Retained inventories (diagnostics schema 33)
+## Retained inventories (diagnostics schema 34)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -633,12 +640,13 @@ Capabilities advertise `current_daemon_managed_operations: true`,
 `native_cleanup_completed_phase_aggregates: true` and
 `native_cleanup_returned_target_summaries: true` and
 `native_cleanup_execution_boundaries: true`, but
-`durable_operation_history`, `verified_operation_resource_outcomes`,
-`cleanup_apply` and `runtime_controls` remain false. The collection-only
+`durable_operation_history`, `verified_operation_resource_outcomes` and
+`runtime_controls` remain false. `cleanup_apply` is true only for the separately
+confirmed exact native manual whole-plan flow, never expiry/runtime control. The collection-only
 refresh adapter advertises `maintenance` and `collection_only_refresh` as true;
 `manual_cleanup_bundle_guard_checks` separately advertises the explicit guard
 check. `complete_cleanup_execution_eligibility` remains false. CLI, daemon and separately loaded Pi sources must
-match schema 33; `make install` alone does not update/reload installed Pi sources.
+match schema 34; `make install` alone does not update/reload installed Pi sources.
 
 ## Identity and nested drill-down
 
@@ -897,7 +905,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 33; version mismatches fail closed
+extension must support diagnostics schema 34; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.

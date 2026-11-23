@@ -41,7 +41,7 @@ func (p *manualDiagnosticProvider) PreviewCleanup(ctx context.Context, req integ
 	return []protocol.CleanupTarget{{Source: "tmux", Kind: "session", ResourceID: "private-session", Description: "private-description", Path: p.path}}, nil
 }
 
-func TestManualCleanupPreviewRPCRequiresExplicitMethodAndExactTask(t *testing.T) {
+func TestManualCleanupInventoryRPCIsRejectedBeforeProviderReads(t *testing.T) {
 	home := t.TempDir()
 	config := filepath.Join(home, "config")
 	root := filepath.Join(home, "workspaces")
@@ -101,25 +101,17 @@ func TestManualCleanupPreviewRPCRequiresExplicitMethodAndExactTask(t *testing.T)
 		if err := decoder.Decode(&response); err != nil {
 			t.Fatal(err)
 		}
-		if i == 4 {
-			if !response.OK || response.Diagnostics == nil || response.Diagnostics.Schema != protocol.DiagnosticsVersion || response.Diagnostics.Total != 1 || response.Diagnostics.Items[0].CleanupPreview == nil {
-				t.Fatalf("explicit preview missing: %+v", response)
-			}
-			view := response.Diagnostics.Items[0].CleanupPreview
-			if view.OwnershipEvidence != "fresh_bounded_registration" || view.AgentOwnerCount == nil || *view.AgentOwnerCount != 1 || view.ExecutionEligibility != "blocked_registered_agent" {
-				t.Fatalf("RPC lost stopped-owner hold: %+v", view)
-			}
-			raw, _ := json.Marshal(response)
-			if strings.Contains(string(raw), "private-") || strings.Contains(string(raw), root) {
-				t.Fatal("private target/owner data escaped RPC")
-			}
-		} else if response.OK || response.Diagnostics != nil {
-			t.Fatalf("implicit/invalid/pending preview accepted: %+v", response)
+		if response.OK || response.Diagnostics != nil || response.DiagnosticCleanup != nil || response.CleanupPreview != nil {
+			t.Fatalf("obsolete manual/invalid expired inventory route accepted: %+v", response)
+		}
+		encoded, _ := json.Marshal(response)
+		if strings.Contains(string(encoded), "private-") || strings.Contains(string(encoded), root) {
+			t.Fatal("private target/owner data escaped rejected RPC")
 		}
 	}
 	client.Close()
 	<-done
-	if provider.previews != 1 || effects != 0 || store.Revision() != revision {
+	if provider.previews != 0 || effects != 0 || store.Revision() != revision {
 		t.Fatal("invalid preview reached providers or mutated state")
 	}
 }

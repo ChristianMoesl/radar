@@ -225,6 +225,15 @@ func (s *Server) handle(conn net.Conn) {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "exact typed maintenance request required"})
 				continue
 			}
+			if req.Maintenance.Operation == "cleanup" {
+				view, err := s.diagnosticCleanup(context.Background(), *req.Maintenance)
+				if err != nil {
+					_ = encoder.Encode(protocol.Response{OK: false, Error: "exact native manual cleanup unavailable or changed; do not replay or automatically retry"})
+					continue
+				}
+				_ = encoder.Encode(protocol.Response{OK: true, DiagnosticCleanup: &view})
+				continue
+			}
 			if req.Maintenance.Operation == "cleanup_check" {
 				view, err := s.checkDiagnosticCleanup(context.Background(), *req.Maintenance)
 				if err != nil {
@@ -243,6 +252,10 @@ func (s *Server) handle(conn net.Conn) {
 		case "diagnostics-probe":
 			if req.Diagnostics == nil {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "explicit registered runtime, agent probe or retirement preview selectors are required"})
+				continue
+			}
+			if req.Diagnostics.Section == "cleanup_preview" && req.Diagnostics.CleanupMode != "expired" {
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "manual cleanup requires exact typed whole-bundle maintenance preview, not inventory pages"})
 				continue
 			}
 			if req.Diagnostics.Section == "recreation_preview" {
@@ -486,23 +499,33 @@ func (s *Server) taskMutationResponse(task protocol.Task) protocol.Response {
 }
 
 func (s *Server) cleanupPreview(ctx context.Context, taskID int) (protocol.CleanupPreview, error) {
-	if err := ctx.Err(); err != nil {
-		return protocol.CleanupPreview{}, err
-	}
-	if s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending {
-		return protocol.CleanupPreview{}, fmt.Errorf("resource list refresh pending; refresh Radar before previewing cleanup")
-	}
-	ctx = phasetiming.WithLogger(ctx, s.logger)
-	revision := s.store.Revision()
-	task, ok := taskByID(s.filteredTasks(), taskID)
-	if !ok {
-		return protocol.CleanupPreview{}, fmt.Errorf("task %d not found", taskID)
-	}
-	preview, err := s.cleanupService.Preview(ctx, task, integration.CleanupConfirmed)
+	preview, revision, err := s.prepareCleanupPreview(ctx, taskID, nil)
 	if err != nil {
 		return protocol.CleanupPreview{}, err
 	}
 	return s.issueCleanupPlan(ctx, preview, revision)
+}
+
+// The typed adapter discloses this exact native bundle before attaching its
+// context to the same native plan. Never run a second planner at apply time.
+func (s *Server) prepareCleanupPreview(ctx context.Context, taskID int, scope *protocol.DiagnosticMaintenanceRequest) (protocol.CleanupPreview, int64, error) {
+	if err := ctx.Err(); err != nil {
+		return protocol.CleanupPreview{}, 0, err
+	}
+	if s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending {
+		return protocol.CleanupPreview{}, 0, fmt.Errorf("resource list refresh pending; refresh Radar before previewing cleanup")
+	}
+	ctx = phasetiming.WithLogger(ctx, s.logger)
+	revision := s.store.Revision()
+	task, ok := uniqueCleanupTask(s.filteredTasks(), taskID)
+	if !ok || (scope != nil && !diagnostics.ManualCleanupTaskInScope(task, scope.Workspace)) {
+		return protocol.CleanupPreview{}, 0, fmt.Errorf("task %d not found unambiguously in current scope", taskID)
+	}
+	preview, err := s.cleanupService.Preview(ctx, task, integration.CleanupConfirmed)
+	if err != nil {
+		return protocol.CleanupPreview{}, 0, err
+	}
+	return preview, revision, nil
 }
 
 func (s *Server) cleanup(ctx context.Context, preview *protocol.CleanupPreview) (protocol.CleanupResult, error) {
@@ -517,9 +540,13 @@ func (s *Server) cleanup(ctx context.Context, preview *protocol.CleanupPreview) 
 	if err != nil {
 		return protocol.CleanupResult{TaskID: preview.TaskID}, err
 	}
-	// Execute the daemon-owned immutable snapshot, not client-owned maps/slices.
-	// Taking the plan is one-use even if cancellation or a native guard stops it.
-	preview = &bound
+	return s.executeCleanup(ctx, bound)
+}
+
+// Both native and typed cleanup consume their one-use plan before reaching this
+// single managed handler. Inputs are daemon-owned immutable snapshots.
+func (s *Server) executeCleanup(ctx context.Context, bound protocol.CleanupPreview) (protocol.CleanupResult, error) {
+	preview := &bound
 	ctx = phasetiming.WithLogger(ctx, s.logger)
 	defer phasetiming.Start(ctx, "cleanup_response")()
 	op := s.store.BeginOperation("cleanup", preview.TaskID, "")
@@ -551,6 +578,18 @@ func (s *Server) finishOperation(id string, taskID int, err error) {
 		status = "failed"
 	}
 	s.store.FinishOperation(id, protocol.ManagedOperation{Status: status, TaskID: taskID})
+}
+
+func uniqueCleanupTask(tasks []protocol.Task, id int) (protocol.Task, bool) {
+	var selected protocol.Task
+	matches := 0
+	for _, task := range tasks {
+		if task.ID == id {
+			selected = task
+			matches++
+		}
+	}
+	return selected, matches == 1
 }
 
 func taskByID(tasks []protocol.Task, id int) (protocol.Task, bool) {

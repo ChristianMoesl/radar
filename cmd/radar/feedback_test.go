@@ -245,7 +245,7 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 			id, cursor = "", ""
 		}
 		cleanupMode, workspaceID := "", ""
-		if section == "cleanup_preview" && index > 25 {
+		if section == "cleanup_preview" {
 			cleanupMode, workspaceID = "expired", "registered-candidate"
 		}
 		result, err := feedbackInventory(anchor, scope, protocol.DiagnosticsRequest{Section: section, ParentID: parent, Workspace: "/must-not-pass-through", Limit: 7, ID: id, State: state, Cursor: cursor, CleanupMode: cleanupMode, WorkspaceID: workspaceID})
@@ -347,7 +347,7 @@ func TestFeedbackOverviewReturnsNativePolicySourcesWithoutPrivateSettings(t *tes
 		}
 	}
 	capabilities := result["capabilities"].(map[string]any)
-	if capabilities["configuration_policy_origins"] != true || capabilities["daemon_process_configuration"] != true || capabilities["workspace_effective_policy"] != false || capabilities["daemon_environment"] != false || capabilities["maintenance"] != true || capabilities["collection_only_refresh"] != true || capabilities["cleanup_apply"] != false || capabilities["runtime_controls"] != false || capabilities["current_daemon_managed_operations"] != true || capabilities["native_managed_handler_timing"] != true || capabilities["native_cleanup_completed_phase_aggregates"] != true || capabilities["native_cleanup_returned_target_summaries"] != true || capabilities["native_cleanup_execution_boundaries"] != true || capabilities["durable_operation_history"] != false || capabilities["verified_operation_resource_outcomes"] != false || capabilities["cleanup_preview_lease_contention_probes"] != true || capabilities["current_daemon_agent_supervision"] != true || capabilities["agent_supervision_history"] != false {
+	if capabilities["configuration_policy_origins"] != true || capabilities["daemon_process_configuration"] != true || capabilities["workspace_effective_policy"] != false || capabilities["daemon_environment"] != false || capabilities["maintenance"] != true || capabilities["collection_only_refresh"] != true || capabilities["cleanup_apply"] != true || capabilities["runtime_controls"] != false || capabilities["current_daemon_managed_operations"] != true || capabilities["native_managed_handler_timing"] != true || capabilities["native_cleanup_completed_phase_aggregates"] != true || capabilities["native_cleanup_returned_target_summaries"] != true || capabilities["native_cleanup_execution_boundaries"] != true || capabilities["durable_operation_history"] != false || capabilities["verified_operation_resource_outcomes"] != false || capabilities["cleanup_preview_lease_contention_probes"] != true || capabilities["current_daemon_agent_supervision"] != true || capabilities["agent_supervision_history"] != false {
 		t.Fatalf("policy advertised as authority: %+v", capabilities)
 	}
 }
