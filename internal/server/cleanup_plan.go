@@ -48,6 +48,11 @@ func (s *Server) issueCleanupPlan(ctx context.Context, preview protocol.CleanupP
 	if revision != s.store.Revision() || (s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending) {
 		return protocol.CleanupPreview{}, errors.New("resource snapshot changed; refresh and preview cleanup again")
 	}
+	// Admission can wait, and the publication reader can outlive the caller.
+	// Recheck after both before issuing or superseding an executable plan.
+	if err := ctx.Err(); err != nil {
+		return protocol.CleanupPreview{}, err
+	}
 	now := time.Now()
 	for taskID, plan := range s.cleanupPlans {
 		if !now.Before(plan.expires) || plan.revision != revision {
