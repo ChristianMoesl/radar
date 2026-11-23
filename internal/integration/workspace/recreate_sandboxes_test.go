@@ -112,7 +112,16 @@ func (r *recreationRunner) Run(_ context.Context, cwd, executable string, args .
 		if name == "--workdir" {
 			name = args[3]
 		}
-		s := r.live[name]
+		for key, runtime := range r.live {
+			if runtime.ID == name {
+				name = key
+				break
+			}
+		}
+		s, found := r.live[name]
+		if !found {
+			return "", errors.New("runtime not found")
+		}
 		s.Status = "running"
 		r.live[name] = s
 		if name == r.failReady {
@@ -120,9 +129,19 @@ func (r *recreationRunner) Run(_ context.Context, cwd, executable string, args .
 		}
 		return "", nil
 	case "stop":
-		s := r.live[args[1]]
+		name := args[1]
+		for key, runtime := range r.live {
+			if runtime.ID == name {
+				name = key
+				break
+			}
+		}
+		s, found := r.live[name]
+		if !found {
+			return "", errors.New("runtime not found")
+		}
 		s.Status = "stopped"
-		r.live[args[1]] = s
+		r.live[name] = s
 		return "", nil
 	}
 	return "", fmt.Errorf("unexpected args %v", args)

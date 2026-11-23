@@ -29,7 +29,7 @@ func (r *recreationOutcomeRunner) Run(ctx context.Context, cwd, name string, arg
 		}
 	}
 	out, err := r.base.Run(ctx, cwd, name, args...)
-	if err == nil && name == "sbx" && len(args) > 1 && ((args[0] == "stop" && args[1] == "sandbox-0") || (args[0] == "exec" && args[1] == "sandbox-0")) {
+	if err == nil && name == "sbx" && len(args) > 1 && ((args[0] == "stop" && args[1] == "new-sandbox-0") || (args[0] == "exec" && args[1] == "new-sandbox-0")) {
 		r.restored = true
 		if r.afterRestore != nil {
 			r.afterRestore()
@@ -236,7 +236,7 @@ func TestSandboxRecreationRequiresObservedReplacement(t *testing.T) {
 								case "stop":
 									restores++
 								case "exec":
-									if c.args[1] == "sandbox-0" {
+									if c.args[1] == "new-sandbox-0" {
 										restores++
 									}
 								}

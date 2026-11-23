@@ -605,10 +605,14 @@ recreation runs.
 Sandboxes are rebuilt sequentially using the existing bounded removal/create
 retry path (at most three transient-create attempts), with a five-minute limit
 per target. Readiness retains its existing 60-second bound. Published ports are
-restored and each target's previous running/stopped state is restored on success.
-Before reporting `recreated`, Radar independently observes a different runtime
-lifetime, absence of the original lifetime (including renamed originals), the
-recorded mounts/loopback IPv4 ports, and the requested running/stopped state.
+restored, then Radar observes an identifiable replacement with recorded mounts
+and a running/stopped state before restoring the previous state. That one
+`stop`/`exec` addresses the observed ID, never a later name holder; no name fallback
+or replay follows an error. This grounds the observed restoration lifetime, not
+provenance from the create command. Earlier readiness/port addressing is unchanged.
+Before reporting `recreated`, Radar independently requires that same replacement
+ID, absence of the original lifetime (including renamed originals), the recorded
+mounts/loopback IPv4 ports, and the requested running/stopped state.
 Identity/state/mount observations bracket the port read under retained workspace
 and sandbox-name admission; registration and cancellation are rechecked. Missing,
 ambiguous, changed or unreadable evidence fails the target without another

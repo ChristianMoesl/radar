@@ -331,13 +331,29 @@ func recreateOneSandbox(ctx context.Context, runner Runner, logger *slog.Logger,
 	if _, _, err := reconcileSandboxPorts(ctx, runner, target.SandboxName, group.Sandbox.Ports); err != nil {
 		return fmt.Errorf("sandbox recreated but port restoration failed: %w", err)
 	}
+	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {
+		return err
+	}
+	replacement, err := observeRecreatedSandboxRuntime(ctx, runner, group, target, "", false)
+	if err != nil {
+		return err
+	}
+	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {
+		return err
+	}
+	// Address only the just-observed lifetime, never a later reusable-name
+	// holder. An error may follow partial changes; do not fall back or replay.
 	client := sbxclient.New(runner)
 	if target.PreviousStatus == "stopped" {
-		if _, err := client.Run(ctx, "", "stop", target.SandboxName); err != nil {
-			return errors.New("sandbox recreated but could not restore stopped state")
-		}
-	} else if _, err := client.Run(ctx, group.Path, "exec", target.SandboxName, "true"); err != nil {
-		return errors.New("sandbox recreated but could not restore running state")
+		_, err = client.Run(ctx, "", "stop", replacement)
+	} else {
+		_, err = client.Run(ctx, group.Path, "exec", replacement, "true")
 	}
-	return observeSandboxRecreation(ctx, runner, root, group, target)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err != nil {
+		return errors.New("sandbox recreated but could not restore previous state")
+	}
+	return observeSandboxRecreation(ctx, runner, root, group, target, replacement)
 }
