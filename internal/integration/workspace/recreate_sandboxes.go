@@ -190,7 +190,7 @@ func validateRecreationCredentialsAndPolicies(ctx context.Context, runner Runner
 		CustomSecrets json.RawMessage `json:"custom_secrets"`
 		EnvOnlyCount  *int            `json:"env_only_count"`
 	}
-	if json.Unmarshal([]byte(output), &secrets) != nil || secrets.Secrets == nil || secrets.CustomSecrets == nil || secrets.EnvOnlyCount == nil || *secrets.EnvOnlyCount < 0 {
+	if !unambiguousRecreationMetadataObject([]byte(output), "secrets", "custom_secrets", "env_only_count") || json.Unmarshal([]byte(output), &secrets) != nil || secrets.Secrets == nil || secrets.CustomSecrets == nil || secrets.EnvOnlyCount == nil || *secrets.EnvOnlyCount < 0 {
 		return errors.New("unrecognized SBX secret metadata; recreation refused")
 	}
 	// Each inventory must independently prove emptiness. Never add untrusted
@@ -211,26 +211,33 @@ func validateRecreationCredentialsAndPolicies(ctx context.Context, runner Runner
 		return errors.New("could not inspect sandbox policies; recreation refused")
 	}
 	var policies struct {
-		Rules *[]struct {
-			Name       string `json:"name"`
-			Scope      string `json:"scope"`
-			Editable   bool   `json:"editable"`
-			Provenance struct {
-				CreatedVia string `json:"created_via"`
-				Source     string `json:"source"`
-			} `json:"provenance"`
-		} `json:"rules"`
+		Rules *[]json.RawMessage `json:"rules"`
 	}
-	if json.Unmarshal([]byte(output), &policies) != nil || policies.Rules == nil {
+	if !unambiguousRecreationMetadataObject([]byte(output), "rules") || json.Unmarshal([]byte(output), &policies) != nil || policies.Rules == nil {
 		return errors.New("unrecognized SBX policy metadata; recreation refused")
 	}
-	for _, rule := range *policies.Rules {
+	for _, raw := range *policies.Rules {
+		var rule struct {
+			Name       string          `json:"name"`
+			Scope      string          `json:"scope"`
+			Editable   *bool           `json:"editable"`
+			Provenance json.RawMessage `json:"provenance"`
+		}
+		if !unambiguousRecreationMetadataObject(raw, "name", "scope", "editable", "provenance") || json.Unmarshal(raw, &rule) != nil {
+			return errors.New("unrecognized SBX policy metadata; recreation refused")
+		}
 		if rule.Scope == "global" {
 			continue
 		}
-		// SBX regenerates this noneditable kit rule from the recorded kit.
-		if rule.Scope == "sandbox:"+name && rule.Name == "kit:"+name && !rule.Editable &&
-			rule.Provenance.CreatedVia == "provisioned" && rule.Provenance.Source == "sandboxes" {
+		// SBX regenerates only an explicitly noneditable, provisioned kit rule.
+		// Missing/null editable evidence must not default to permission to delete.
+		var provenance struct {
+			CreatedVia string `json:"created_via"`
+			Source     string `json:"source"`
+		}
+		if rule.Scope == "sandbox:"+name && rule.Name == "kit:"+name && rule.Editable != nil && !*rule.Editable &&
+			unambiguousRecreationMetadataObject(rule.Provenance, "created_via", "source") && json.Unmarshal(rule.Provenance, &provenance) == nil &&
+			provenance.CreatedVia == "provisioned" && provenance.Source == "sandboxes" {
 			continue
 		}
 		return errors.New("sandbox-specific policies are not recorded by Radar; preserve/reconfigure them before recreation")

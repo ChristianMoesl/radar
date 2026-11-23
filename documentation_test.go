@@ -138,6 +138,7 @@ func TestPiRecreationPreviewContractIsSeparatelyBundled(t *testing.T) {
 		"recreation_preview", "parent_id=<exact registered workspace ID>", "old peers fail closed",
 		"fresh interactive exact-parent/scope confirmation", "PreviewRecreateSandboxes", "planner once",
 		"cooperative native budget is 30 seconds", "secret/policy", "readability", "auto-start",
+		"unambiguous", "explicit nonnull `editable: false`", "missing/null evidence", "Repeated decoded object members",
 		"full private registration/recipe snapshots", "revision drift", "1 MiB", "point-in-time",
 		"preview_id", "recreate", "blocked", "skipped", "runtime_identity_observed",
 		"ownership_evidence", "agent_owner_count", "lease_evidence", "two transient",

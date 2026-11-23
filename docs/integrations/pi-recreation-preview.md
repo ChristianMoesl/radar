@@ -44,6 +44,16 @@ contents. They may contend with another operation; they never reserve admission.
 
 ## Evidence, privacy and limits
 
+The shared native planner and confirmed pre-removal guard require unambiguous
+secret/policy metadata. Repeated decoded object members or noncanonical case-fold
+aliases of safety fields cannot overwrite evidence of secrets or local policies.
+The generated kit-policy exception requires explicit nonnull `editable: false`
+and recorded provisioning provenance; missing/null evidence is not permission to
+delete. Empty inventories, global policies and irrelevant additional metadata
+remain supported. Metadata refusal yields the native `blocked` proposal, not a
+new eligibility claim or an instruction to export secret values. These checks do
+not reserve metadata against later external changes.
+
 The native wrapper resolves exact registration/scope **before** any runner call,
 then brackets the planner with full private registration/recipe snapshots and
 bounded registered-owner/lease observations. The owner scan uses the native
