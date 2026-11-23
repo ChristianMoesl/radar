@@ -234,7 +234,7 @@ func TestRegisteredSandboxIOAllowsUnrelatedRecovery(t *testing.T) {
 						}
 						want := "rm --force lifetime-1"
 						if phase == "retirement" {
-							want = "stop " + owner.Sandbox.Name
+							want = "stop lifetime-1"
 							if strings.Contains(string(calls), "rm ") {
 								t.Fatal("retirement removed runtime")
 							}
