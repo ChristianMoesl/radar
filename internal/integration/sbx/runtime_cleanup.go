@@ -193,7 +193,9 @@ func cleanupRegisteredSandboxAdmitted(ctx context.Context, runner workspace.Runn
 	if strings.ToLower(runtime.Status) == "stopped" {
 		return target, nil
 	}
-	if _, err := client.Run(ctx, "", "stop", target.ResourceID); err != nil {
+	// A reusable name can move after inspection despite Radar's admission.
+	// Stop only the inspected lifetime; never fall back to a name or replay.
+	if _, err := client.Run(ctx, "", "stop", runtime.ID); err != nil {
 		return target, err
 	}
 	if err := refresh(); err != nil {

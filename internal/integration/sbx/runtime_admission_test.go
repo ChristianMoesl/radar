@@ -202,7 +202,7 @@ func TestRegisteredSandboxIORevalidatesEveryOutcome(t *testing.T) {
 								return mutate()
 							}
 						}
-						if command == "sbx stop "+owner.Sandbox.Name {
+						if command == "sbx stop lifetime-1" {
 							if change == "stop-error" {
 								return failure
 							}

@@ -100,9 +100,14 @@ would otherwise authorize it. Activity-driven reopening clears the completion
 time; the review hold keeps the task unfinished after agents settle. Explicit
 Done after reviewing starts both clocks again. Retained registrations keep the
 runtime configuration, so the normal workspace open/recovery flow can restart a
-stopped sandbox and recreate its missing tmux session. A successful SBX stop exit
-alone does not count as retirement: under retained path/name leases, a fresh
-listing must show the same runtime stopped with its registered read/write mount,
+stopped sandbox and recreate its missing tmux session. Retirement sends at most
+one SBX stop to the inspected runtime ID, never the reusable name; reassignment
+of that name cannot redirect the command to a replacement. There is no name
+fallback or automatic replay. This does not reserve future external state, and
+a failed observation may follow a partial stop of the original lifetime.
+A successful SBX stop exit alone does not count as retirement: under retained
+path/name leases, a fresh listing must show the same runtime stopped with its
+registered read/write mount,
 and current registration/filesystem/cancellation checks must still pass. Missing,
 replaced, running or unverifiable post-stop runtimes report failure without
 removal, automatic command replay or dropping registration. This is a bounded

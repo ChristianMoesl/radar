@@ -175,7 +175,7 @@ func TestRegisteredSandboxRetirementRequiresObservedOutcome(t *testing.T) {
 				wantVerified := !noOp && scenario != "stop-error"
 				wantCommands := []string{"sbx ls --json"}
 				if !noOp {
-					wantCommands = append(wantCommands, "sbx stop "+owner.Sandbox.Name)
+					wantCommands = append(wantCommands, "sbx stop lifetime-1")
 				}
 				if wantVerified {
 					wantCommands = append(wantCommands, "sbx ls --json")
