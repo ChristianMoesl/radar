@@ -46,36 +46,43 @@ func (c *Client) ShellExecutable() (string, error) {
 // Preflight never creates a VM, logs in, or restarts a daemon. Run before
 // mutations, including recovery and explicit attachment to an existing anchor.
 func (c *Client) Preflight(ctx context.Context) error {
+	_, err := c.PreflightVersion(ctx)
+	return err
+}
+
+// PreflightVersion returns the validated CLI version from the same preflight.
+func (c *Client) PreflightVersion(ctx context.Context) (string, error) {
 	if err := c.RequireManaged(); err != nil {
-		return err
+		return "", err
 	}
 	if c.goos != "darwin" && c.goos != "linux" {
-		return fmt.Errorf("managed SBX requires macOS or native Linux with KVM")
+		return "", fmt.Errorf("managed SBX requires macOS or native Linux with KVM")
 	}
 	if c.goos == "linux" {
 		if err := checkKVM(); err != nil {
-			return err
+			return "", err
 		}
 	}
 	bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	version, err := c.Run(bounded, "", "version", "--json")
 	if err != nil {
-		return fmt.Errorf("check SBX version: %w", err)
+		return "", fmt.Errorf("check SBX version: %w", err)
 	}
-	if err := ValidateVersion(version); err != nil {
-		return err
+	cliVersion, err := validatedVersion(version)
+	if err != nil {
+		return "", err
 	}
 	if c.goos == "linux" && c.wsl {
 		status, err := c.Run(bounded, "", "daemon", "status", "--json")
 		if err != nil {
-			return fmt.Errorf("check native WSL daemon cache policy: %w", err)
+			return "", fmt.Errorf("check native WSL daemon cache policy: %w", err)
 		}
 		if err := validateDaemonCache(status, os.ReadFile); err != nil {
-			return err
+			return "", err
 		}
 	}
-	return nil
+	return cliVersion, nil
 }
 
 func validateDaemonCache(output string, read func(string) ([]byte, error)) error {

@@ -40,14 +40,14 @@ func observeRecreatedSandboxRuntime(ctx context.Context, runner Runner, group wo
 // Successful commands are not replacement/state/mount/port outcome evidence.
 // These bounded observations are not an atomic reservation against external SBX
 // changes, health attestation or permission to retry any partially applied work.
-func observeSandboxRecreation(ctx context.Context, runner Runner, root string, group workspacegroup.Workspace, target integration.SandboxRecreateTarget, replacement string) error {
+func observeSandboxRecreation(ctx context.Context, runner Runner, root string, group workspacegroup.Workspace, target integration.SandboxRecreateTarget, replacement, selector string) error {
 	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {
 		return err
 	}
 	if _, err := observeRecreatedSandboxRuntime(ctx, runner, group, target, replacement, true); err != nil {
 		return err
 	}
-	bindings, err := listSandboxPortBindings(ctx, runner, replacement)
+	bindings, err := listSandboxPortBindings(ctx, runner, selector)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -58,8 +58,8 @@ func observeSandboxRecreation(ctx context.Context, runner Runner, root string, g
 	if err != nil || len(incompatibleSandboxPorts(bindings)) > 0 || len(portDifference(ports, group.Sandbox.Ports)) > 0 || len(portDifference(group.Sandbox.Ports, ports)) > 0 {
 		return errors.New("sandbox recreation recorded IPv4 ports not observed; runtime retained for inspection")
 	}
-	// The port read addresses only the observed ID; never fall back to a reusable
-	// name. Still reject lifetime/state/mount drift and recheck registration/context.
+	// Bracket the port read with observations of the same ID, and reject
+	// observed lifetime/state/mount drift before accepting its outcome.
 	if _, err := observeRecreatedSandboxRuntime(ctx, runner, group, target, replacement, true); err != nil {
 		return err
 	}

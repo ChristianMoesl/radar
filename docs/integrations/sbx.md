@@ -610,20 +610,28 @@ retry path (at most three transient-create attempts), with a five-minute limit
 per target. Readiness retains its existing 60-second bound. Before restoring
 ports, Radar observes an identifiable replacement with recorded mounts and a
 running/stopped state. Every restoration port read/publish/unpublish addresses
-that observed ID through the existing set-difference policy, never a later name
-holder. The same ID is required again before the single state-restoring
-`stop`/`exec` and through final observations. No name fallback or replay follows
-ID-selector rejection, drift or another error; provider port errors are withheld
-and cancellation remains cancellation. This grounds the observed restoration
+that observed ID by default, through the existing set-difference policy. The same
+ID is required before the single state-restoring `stop`/`exec` and through final
+observations. A command error or observed drift never triggers a selector change
+or replay; provider port errors are withheld and cancellation remains cancellation. This grounds the observed restoration
 lifetime, not provenance from the create command. Earlier readiness addressing
-and general reconciliation helpers are unchanged. Local ID-selector support must
-be accepted by the installed SBX/backend; offline runner tests do not qualify it.
+and general reconciliation helpers are unchanged. Local SBX 0.54.0 is selected
+for name addressing before any removal. On that release Radar still requires the
+confirmed UUID, checks the replacement UUID before port reads and writes, and
+brackets the final port read with UUID/state/mount observations. The workspace
+and name locks cannot prevent an external SBX client from taking over a name
+between a Radar check and SBX resolving the command. Do not modify the target
+directly in SBX during the operation. This compatibility does not change
+cleanup or retirement selectors. Other releases retain ID-addressed commands;
+offline runner tests do not qualify installed backend support. On SBX 0.54.0,
+stopping a sandbox can hide its published bindings; if Radar records ports
+and SBX lists none, the existing port mismatch guard still blocks recreation.
 Before reporting `recreated`, Radar independently requires that same replacement
 ID, absence of the original lifetime (including renamed originals), the recorded
 mounts/loopback IPv4 ports, and the requested running/stopped state.
-The independent final port read also addresses only that observed replacement ID,
-not its reusable name: a temporary name reassignment cannot substitute another
-runtime's ports between the two identity/state/mount observations. ID-selector
+For the default ID-addressed path, the independent final port read addresses
+only that observed replacement ID: a temporary name reassignment cannot
+substitute another runtime's ports between the two identity/state/mount observations. ID-selector
 rejection fails closed, without name fallback or replay. Those observations remain
 under retained workspace and sandbox-name admission; registration and cancellation
 are rechecked. Missing,

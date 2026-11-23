@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -125,6 +126,47 @@ func TestReconcileAdditionalSandboxMountWritableAndRemovalE2E(t *testing.T) {
 	stored := loadTestWorkspace(t, root, primary)
 	if len(stored.Sandbox.AdditionalMounts) != 0 {
 		t.Fatalf("stored additional mounts = %+v", stored.Sandbox.AdditionalMounts)
+	}
+}
+
+func TestRecreateSandboxStateAndPortsE2E(t *testing.T) {
+	for _, state := range []string{"running", "stopped"} {
+		t.Run(state, func(t *testing.T) {
+			ctx, runner, root, primary, name := setupSandboxMountE2E(t)
+			group := loadTestWorkspace(t, root, primary)
+			if state == "running" {
+				listener, err := net.Listen("tcp4", "127.0.0.1:0")
+				if err != nil {
+					t.Fatal(err)
+				}
+				group.Sandbox.Ports = []workspacegroup.SandboxPort{{HostPort: listener.Addr().(*net.TCPAddr).Port, SandboxPort: 8080}}
+				if err := listener.Close(); err != nil {
+					t.Fatal(err)
+				}
+				if _, _, err := reconcileSandboxPorts(ctx, runner, name, group.Sandbox.Ports); err != nil {
+					t.Fatal(err)
+				}
+				if err := workspacegroup.Save(root, workspacegroup.Registry{Version: workspacegroup.Version, Workspaces: []workspacegroup.Workspace{group}}); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := runner.Run(ctx, "", "sbx", "stop", name); err != nil {
+				t.Fatal(err)
+			}
+			request := integration.SandboxRecreateRequest{WorkspaceRoot: root, Workspace: primary}
+			plan, err := PreviewRecreateSandboxes(ctx, runner, request)
+			if err != nil || len(plan.Targets) != 1 || plan.Targets[0].Status != "recreate" || plan.Targets[0].PreviousStatus != state {
+				t.Fatalf("recreation preflight: plan = %+v, err = %v", plan, err)
+			}
+			request.ExpectedPlanID = plan.PlanID
+			result, err := RecreateSandboxes(ctx, runner, nil, request)
+			if err != nil || !result.OK || result.Recreated != 1 {
+				t.Fatalf("recreation: result = %+v, err = %v", result, err)
+			}
+			replacement, found, err := findSandbox(ctx, runner, group.Path, name)
+			if err != nil || !found || replacement.ID == plan.Targets[0].SandboxID || replacement.Status != state {
+				t.Fatalf("replacement not observed %s: runtime = %+v, found = %v, err = %v", state, replacement, found, err)
+			}
+		})
 	}
 }
 

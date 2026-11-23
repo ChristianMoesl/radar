@@ -27,15 +27,16 @@ type recreationRunner struct {
 	failReady     string
 	failPorts     string
 	secretFailure bool
+	namesOnly     bool
 	beforeRun     func([]string)
 }
 
 func (r *recreationRunner) LookPath(string) error { return nil }
 func (r *recreationRunner) Run(_ context.Context, cwd, executable string, args ...string) (string, error) {
 	if executable == "sbx" && len(args) > 0 && args[0] == "version" {
-		return `{"client":{"version":"v0.48.0"}}`, nil
-	}
-	if executable == "sbx" && len(args) > 0 && args[0] == "version" {
+		if r.namesOnly {
+			return `{"client":{"version":"v0.54.0"}}`, nil
+		}
 		return `{"client":{"version":"v0.48.0"}}`, nil
 	}
 	r.calls = append(r.calls, call{cwd: cwd, name: executable, args: append([]string(nil), args...)})
@@ -71,7 +72,7 @@ func (r *recreationRunner) Run(_ context.Context, cwd, executable string, args .
 			return "", fmt.Errorf("unexpected removal args: %v", args)
 		}
 		for name, runtime := range r.live {
-			if runtime.ID == args[2] {
+			if (r.namesOnly && name == args[2]) || (!r.namesOnly && runtime.ID == args[2]) {
 				delete(r.live, name)
 				delete(r.ports, name)
 				return "", nil
@@ -92,7 +93,7 @@ func (r *recreationRunner) Run(_ context.Context, cwd, executable string, args .
 	case "ports":
 		name := args[1]
 		for key, runtime := range r.live {
-			if runtime.ID == name {
+			if !r.namesOnly && runtime.ID == name {
 				name = key
 				break
 			}
@@ -122,7 +123,7 @@ func (r *recreationRunner) Run(_ context.Context, cwd, executable string, args .
 			name = args[3]
 		}
 		for key, runtime := range r.live {
-			if runtime.ID == name {
+			if !r.namesOnly && runtime.ID == name {
 				name = key
 				break
 			}
@@ -140,7 +141,7 @@ func (r *recreationRunner) Run(_ context.Context, cwd, executable string, args .
 	case "stop":
 		name := args[1]
 		for key, runtime := range r.live {
-			if runtime.ID == name {
+			if !r.namesOnly && runtime.ID == name {
 				name = key
 				break
 			}

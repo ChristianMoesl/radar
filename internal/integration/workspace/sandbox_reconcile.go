@@ -137,6 +137,7 @@ func findSandbox(ctx context.Context, runner Runner, workspacePath, preferredNam
 			if sandbox.Name == preferredName {
 				owned := false
 				for _, mount := range append(append([]string(nil), sandbox.Workspaces...), sandbox.Mounts...) {
+					mount = samePathSandboxMount(mount)
 					if sameCleanPath(strings.TrimSuffix(mount, ":ro"), workspacePath) && !strings.HasSuffix(mount, ":ro") {
 						owned = true
 					}
@@ -177,7 +178,22 @@ func sandboxWorkspaceMounts(sandbox listedSandbox) []string {
 	if len(sandbox.Mounts) > 0 {
 		mounts = sandbox.Mounts
 	}
-	return normalizeMountSet(mounts)
+	paths := make([]string, 0, len(mounts))
+	for _, mount := range mounts {
+		paths = append(paths, samePathSandboxMount(mount))
+	}
+	return normalizeMountSet(paths)
+}
+
+// SBX may list a bind as host:guest[:ro]. Radar records only same-path
+// binds, so do not collapse a remapped path into the recorded host path.
+func samePathSandboxMount(mount string) string {
+	spec := strings.TrimSuffix(mount, ":ro")
+	host, guest, pair := strings.Cut(spec, ":")
+	if pair && filepath.IsAbs(host) && host == guest {
+		return host + strings.TrimPrefix(mount, spec)
+	}
+	return mount
 }
 
 func normalizeConfiguredMounts(mounts []string) ([]string, error) {
@@ -218,7 +234,9 @@ func normalizeMountSet(mounts []string) []string {
 			mount = strings.TrimSuffix(mount, ":ro")
 			suffix = ":ro"
 		}
-		mount = filepath.Clean(mount)
+		if !strings.Contains(mount, ":/") {
+			mount = filepath.Clean(mount)
+		}
 		key := mount + suffix
 		if !seen[key] {
 			seen[key] = true
@@ -237,7 +255,8 @@ func normalizeMountSet(mounts []string) []string {
 	for _, current := range candidates {
 		redundant := false
 		for _, parent := range kept {
-			if parent.suffix == current.suffix && pathContains(parent.path, current.path) {
+			// Remapped SBX binds are not redundant under a host parent mount.
+			if parent.suffix == current.suffix && !strings.Contains(parent.path, ":/") && !strings.Contains(current.path, ":/") && pathContains(parent.path, current.path) {
 				redundant = true
 				break
 			}
@@ -271,9 +290,10 @@ var defaultSandboxReconcilePolicy = sandboxReconcilePolicy{
 }
 
 type sandboxReconcilePolicy struct {
-	// Only the initial removal of an explicitly confirmed recreation is pinned.
-	// Failed-create cleanup must observe its own newly created lifetime instead.
+	// Pin an explicitly confirmed recreation or a name-addressed replacement
+	// to its original observation. Failed-create cleanup uses the strict path.
 	confirmedRemovalID string
+	useSandboxName     bool
 	forceRecreate      bool
 	createAttempts     int
 	removalChecks      int
@@ -287,13 +307,34 @@ func reconcileSandbox(ctx context.Context, runner Runner, group workspacegroup.W
 }
 
 func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group workspacegroup.Workspace, logger *slog.Logger, policy sandboxReconcilePolicy) error {
+	policy, err := prepareSandboxReconcilePolicy(ctx, runner, group, policy)
+	if err != nil {
+		return err
+	}
+	return reconcileSandboxPrepared(ctx, runner, group, logger, policy)
+}
+
+func prepareSandboxReconcilePolicy(ctx context.Context, runner Runner, group workspacegroup.Workspace, policy sandboxReconcilePolicy) (sandboxReconcilePolicy, error) {
+	if err := sbxsettings.ValidateReadyCommand(group.Sandbox.ReadyCommand); err != nil {
+		return policy, err
+	}
+	version, err := managedClient(runner).PreflightVersion(ctx)
+	// SBX 0.54.0 lists local UUIDs but resolves lifecycle arguments by name.
+	// Choose the public selector before acting; never retry a failed command
+	// by name or assume an unqualified version requires this compatibility mode.
+	policy.useSandboxName = version == "v0.54.0"
+	return policy, err
+}
+
+func (policy sandboxReconcilePolicy) selector(name, id string) string {
+	if policy.useSandboxName {
+		return name
+	}
+	return id
+}
+
+func reconcileSandboxPrepared(ctx context.Context, runner Runner, group workspacegroup.Workspace, logger *slog.Logger, policy sandboxReconcilePolicy) error {
 	sandbox := group.Sandbox
-	if err := sbxsettings.ValidateReadyCommand(sandbox.ReadyCommand); err != nil {
-		return err
-	}
-	if err := managedClient(runner).Preflight(ctx); err != nil {
-		return err
-	}
 	if sandbox.EnvFile == "" {
 		if err := ensureSharedDirectory(group); err != nil {
 			return err
@@ -330,10 +371,17 @@ func reconcileSandboxWithPolicy(ctx context.Context, runner Runner, group worksp
 			return err
 		}
 	}
+	if policy.useSandboxName && found && policy.confirmedRemovalID == "" {
+		if actual.ID == "" {
+			return errors.New("sandbox has no stable runtime identity; refusing name-addressed replacement")
+		}
+		policy.confirmedRemovalID = actual.ID
+	}
 	if err := removeSandboxForRecreation(ctx, runner, sandbox.Name, group.ID, "before_create", logger, policy); err != nil {
 		return err
 	}
 	policy.confirmedRemovalID = ""
+	policy.useSandboxName = false // An unsuccessful create does not prove ownership of a name.
 
 	attempts := max(policy.createAttempts, 1)
 	for attempt := 1; attempt <= attempts; attempt++ {
@@ -420,6 +468,9 @@ func removeSandboxForRecreation(ctx context.Context, runner Runner, name, worksp
 	if runtime == nil {
 		return completed(0)
 	}
+	if policy.useSandboxName && policy.confirmedRemovalID == "" {
+		return errors.New("sandbox appeared before recreation; inspect before retrying")
+	}
 	current, err := read(runtime.ID)
 	if err != nil {
 		return err
@@ -436,9 +487,10 @@ func removeSandboxForRecreation(ctx context.Context, runner Runner, name, worksp
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// One ID-addressed mutation only. A command error, even "not found", is
-	// not absence evidence and must not allow a new create/retry attempt.
-	if _, err := client.Run(ctx, "", "rm", "--force", runtime.ID); err != nil {
+	// One removal only. In name mode an external SBX client could still change
+	// the name holder before SBX resolves it. A command error is not absence
+	// evidence and must not allow another removal or create attempt.
+	if _, err := client.Run(ctx, "", "rm", "--force", policy.selector(name, runtime.ID)); err != nil {
 		return err
 	}
 	checks := max(policy.removalChecks, 1)

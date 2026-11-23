@@ -1352,6 +1352,17 @@ func protocolPortKey(port workspacegroup.SandboxPort, protocol string) string {
 }
 
 func reconcileSandboxPorts(ctx context.Context, runner Runner, name string, desired []workspacegroup.SandboxPort) (int, int, error) {
+	return reconcileSandboxPortsChecked(ctx, runner, name, desired, nil)
+}
+
+// Recheck the lifetime before each separate provider command when its selector
+// is a reusable name. The caller independently observes the final outcome.
+func reconcileSandboxPortsChecked(ctx context.Context, runner Runner, name string, desired []workspacegroup.SandboxPort, check func() error) (int, int, error) {
+	if check != nil {
+		if err := check(); err != nil {
+			return 0, 0, err
+		}
+	}
 	bindings, err := listSandboxPortBindings(ctx, runner, name)
 	if err != nil {
 		return 0, 0, err
@@ -1359,6 +1370,16 @@ func reconcileSandboxPorts(ctx context.Context, runner Runner, name string, desi
 	actual, err := logicalSandboxPorts(bindings)
 	if err != nil {
 		return 0, 0, err
+	}
+	client := sbxclient.New(runner)
+	update := func(flag, spec string) error {
+		if check != nil {
+			if err := check(); err != nil {
+				return err
+			}
+		}
+		_, err := client.Run(ctx, "", "ports", name, flag, spec)
+		return sbxCommandError(err)
 	}
 	published, unpublished := 0, 0
 	incompatible := portSet(incompatibleSandboxPorts(bindings))
@@ -1378,8 +1399,8 @@ func reconcileSandboxPorts(ctx context.Context, runner Runner, name string, desi
 	}
 	sort.Strings(specs)
 	for _, spec := range specs {
-		if _, err := sbxclient.New(runner).Run(ctx, "", "ports", name, "--unpublish", spec); err != nil {
-			return published, unpublished, sbxCommandError(err)
+		if err := update("--unpublish", spec); err != nil {
+			return published, unpublished, err
 		}
 		unpublished++
 	}
@@ -1390,14 +1411,14 @@ func reconcileSandboxPorts(ctx context.Context, runner Runner, name string, desi
 		}
 	}
 	for _, port := range portDifference(compatibleActual, desired) {
-		if _, err := sbxclient.New(runner).Run(ctx, "", "ports", name, "--unpublish", ipv4PortKey(port)); err != nil {
-			return published, unpublished, sbxCommandError(err)
+		if err := update("--unpublish", ipv4PortKey(port)); err != nil {
+			return published, unpublished, err
 		}
 		unpublished++
 	}
 	for _, port := range portDifference(desired, compatibleActual) {
-		if _, err := sbxclient.New(runner).Run(ctx, "", "ports", name, "--publish", ipv4PortKey(port)); err != nil {
-			return published, unpublished, sbxCommandError(err)
+		if err := update("--publish", ipv4PortKey(port)); err != nil {
+			return published, unpublished, err
 		}
 		published++
 	}

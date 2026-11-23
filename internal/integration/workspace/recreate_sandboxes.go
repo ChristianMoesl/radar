@@ -334,7 +334,11 @@ func recreateOneSandbox(ctx context.Context, runner Runner, logger *slog.Logger,
 	// Do not let the shared reconciler re-adopt a newer lifetime after the
 	// confirmation checks above. Only its first removal targets this lifetime.
 	policy.confirmedRemovalID = target.SandboxID
-	if err := reconcileSandboxWithPolicy(ctx, runner, group, logger, policy); err != nil {
+	policy, err = prepareSandboxReconcilePolicy(ctx, runner, group, policy)
+	if err != nil {
+		return err
+	}
+	if err := reconcileSandboxPrepared(ctx, runner, group, logger, policy); err != nil {
 		return err
 	}
 	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {
@@ -347,9 +351,15 @@ func recreateOneSandbox(ctx context.Context, runner Runner, logger *slog.Logger,
 	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {
 		return err
 	}
-	// Keep the same observed lifetime through every port read/write. The shared
-	// set-difference policy is unchanged; ID rejection must not retry by name.
-	_, _, err = reconcileSandboxPorts(ctx, runner, replacement, group.Sandbox.Ports)
+	selector := policy.selector(target.SandboxName, replacement)
+	var checkPortTarget func() error
+	if policy.useSandboxName {
+		checkPortTarget = func() error {
+			_, err := observeRecreatedSandboxRuntime(ctx, runner, group, target, replacement, false)
+			return err
+		}
+	}
+	_, _, err = reconcileSandboxPortsChecked(ctx, runner, selector, group.Sandbox.Ports, checkPortTarget)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -365,13 +375,13 @@ func recreateOneSandbox(ctx context.Context, runner Runner, logger *slog.Logger,
 	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {
 		return err
 	}
-	// Address only the just-observed lifetime, never a later reusable-name
-	// holder. An error may follow partial changes; do not fall back or replay.
+	// Use the same selector policy as removal and port restoration. Do not
+	// switch selectors or replay on an error, which may follow partial changes.
 	client := sbxclient.New(runner)
 	if target.PreviousStatus == "stopped" {
-		_, err = client.Run(ctx, "", "stop", replacement)
+		_, err = client.Run(ctx, "", "stop", selector)
 	} else {
-		_, err = client.Run(ctx, group.Path, "exec", replacement, "true")
+		_, err = client.Run(ctx, group.Path, "exec", selector, "true")
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -379,5 +389,5 @@ func recreateOneSandbox(ctx context.Context, runner Runner, logger *slog.Logger,
 	if err != nil {
 		return errors.New("sandbox recreated but could not restore previous state")
 	}
-	return observeSandboxRecreation(ctx, runner, root, group, target, replacement)
+	return observeSandboxRecreation(ctx, runner, root, group, target, replacement, selector)
 }

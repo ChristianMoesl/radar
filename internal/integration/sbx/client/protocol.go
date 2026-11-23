@@ -32,17 +32,22 @@ func DecodeList[T any](output string) ([]T, error) {
 // ValidateVersion enforces the minimum stable CLI version without an upper bound.
 // Callers validate command response schemas separately.
 func ValidateVersion(output string) error {
+	_, err := validatedVersion(output)
+	return err
+}
+
+func validatedVersion(output string) (string, error) {
 	var version struct {
 		Client struct {
 			Version string `json:"version"`
 		} `json:"client"`
 	}
 	if err := json.Unmarshal([]byte(output), &version); err != nil {
-		return fmt.Errorf("unexpected sbx version output: %w", err)
+		return "", fmt.Errorf("unexpected sbx version output: %w", err)
 	}
 	var major, minor, patch int
 	if n, err := fmt.Sscanf(version.Client.Version, "v%d.%d.%d", &major, &minor, &patch); err != nil || n != 3 || major < 0 || minor < 0 || patch < 0 || (major == 0 && minor < 48) || version.Client.Version != fmt.Sprintf("v%d.%d.%d", major, minor, patch) {
-		return fmt.Errorf("unsupported SBX version %q: Radar requires SBX 0.48.0 or newer", version.Client.Version)
+		return "", fmt.Errorf("unsupported SBX version %q: Radar requires SBX 0.48.0 or newer", version.Client.Version)
 	}
-	return nil
+	return version.Client.Version, nil
 }
