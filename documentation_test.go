@@ -55,7 +55,7 @@ func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
 		"## Explicit installation-wide collection refresh", "30-second", "collection-only adapter",
 		"## Explicit manual cleanup bundle guard check", "cleanup_check", "(pi-cleanup-check.md)", "complete_cleanup_execution_eligibility",
 		"request_outcome_unknown_do_not_replay", "plan ID establishes", "freshness, not user consent",
-		"does not call ordinary daemon refresh", "cleanup_apply", "schema 32", "native_cleanup_returned_target_summaries", "native_cleanup_execution_boundaries", "provider_call", "attempted_targets", "not_completed_may_be_partial",
+		"does not call ordinary daemon refresh", "cleanup_apply", "schema 33", "native_cleanup_returned_target_summaries", "native_cleanup_execution_boundaries", "provider_call", "attempted_targets", "not_completed_may_be_partial",
 		"complete integration envelope", "Unknown sibling fields", "native evidence shape",
 		"## Durable-agent registration and checkpoint evidence",
 		"complete agent inventory envelope", "Unavailable supervision never bypasses",
@@ -79,7 +79,7 @@ func TestPiCleanupCheckContractIsSeparatelyBundled(t *testing.T) {
 	if err != nil || check.Title != "Pi manual cleanup bundle guard checks" {
 		t.Fatalf("guard-check topic unavailable: %+v %v", check.Topic, err)
 	}
-	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Explicit manual cleanup bundle guard check", "cleanup_check", "entire ordered resource bundle", "fresh interactive exact-task/scope confirmation", "cleanup.Service.CheckBundle", "coordination files/directories", "existing-inode probes", "no-created-lease-files", "cooperative 30-second", "automatically retried", "guards_passed_at_check", "not_passed_or_unavailable", "not be replayed", "last-moment checks", "schema 32", "No apply token"} {
+	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Explicit manual cleanup bundle guard check", "cleanup_check", "entire ordered resource bundle", "fresh interactive exact-task/scope confirmation", "cleanup.Service.CheckBundle", "coordination files/directories", "existing-inode probes", "no-created-lease-files", "cooperative 30-second", "automatically retried", "guards_passed_at_check", "not_passed_or_unavailable", "not be replayed", "last-moment checks", "schema 33", "No apply token"} {
 		if !strings.Contains(check.Content, contract) {
 			t.Errorf("guard-check contract omitted: %q", contract)
 		}
@@ -91,14 +91,14 @@ func TestPiCleanupCheckContractIsSeparatelyBundled(t *testing.T) {
 
 func TestPiPolicyContractsAreSeparatelyBundled(t *testing.T) {
 	diagnostics, err := Read("docs/integrations/pi-diagnostics.md")
-	if err != nil || !strings.Contains(diagnostics.Content, "(pi-policy.md#configuration-policy-and-origins)") || !strings.Contains(diagnostics.Content, "(pi-policy.md#recorded-workspace-policy-diagnostics-schema-32)") {
+	if err != nil || !strings.Contains(diagnostics.Content, "(pi-policy.md#configuration-policy-and-origins)") || !strings.Contains(diagnostics.Content, "(pi-policy.md#recorded-workspace-policy-diagnostics-schema-33)") {
 		t.Fatalf("diagnostics must link both policy contracts: %v", err)
 	}
 	policy, err := Read("docs/integrations/pi-policy.md")
 	if err != nil || policy.Title != "Pi configuration and workspace policy" {
 		t.Fatalf("policy topic unavailable: %+v %v", policy.Topic, err)
 	}
-	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Configuration policy and origins", "CLI-process global defaults", "daemon-process global defaults", "compiled_default", "configuration_file", "At most 64 KiB", "## Recorded workspace policy (diagnostics schema 32)", "registered_workspace_recipe_policy", "workspace_effective_policy", "historical per-setting", "public shape", "not private recipe bytes", "Pi validates the complete envelope", "not a registry/data migration", "separately installed Pi extension", "## Current registered member repository declarations (schema 32)", "current_member_repository_declarations", "registered source repository", "no repository override", "repository_default", "point-in-time checks"} {
+	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Configuration policy and origins", "CLI-process global defaults", "daemon-process global defaults", "compiled_default", "configuration_file", "At most 64 KiB", "## Recorded workspace policy (diagnostics schema 33)", "registered_workspace_recipe_policy", "workspace_effective_policy", "historical per-setting", "public shape", "not private recipe bytes", "Pi validates the complete envelope", "not a registry/data migration", "separately installed Pi extension", "## Current registered member repository declarations (schema 33)", "current_member_repository_declarations", "registered source repository", "no repository override", "repository_default", "point-in-time checks"} {
 		if !strings.Contains(policy.Content, contract) {
 			t.Errorf("policy contract omitted: %q", contract)
 		}
@@ -140,6 +140,9 @@ func TestPiRecreationPreviewContractIsSeparatelyBundled(t *testing.T) {
 		"cooperative native budget is 30 seconds", "secret/policy", "readability", "auto-start",
 		"full private registration/recipe snapshots", "revision drift", "1 MiB", "point-in-time",
 		"preview_id", "recreate", "blocked", "skipped", "runtime_identity_observed",
+		"ownership_evidence", "agent_owner_count", "lease_evidence", "two transient",
+		"without creating coordination files/directories", "same-count owner changes", "same-status inode",
+		"not runtime ownership", "writer admission", "including stopped registrations",
 		"unknown_fresh_execution_guards_not_run", "withheld", "complete available and",
 		"No automatic retry or replay", "not** a native apply plan", "Cleanup apply and runtime controls remain unsupported",
 	} {
@@ -148,7 +151,7 @@ func TestPiRecreationPreviewContractIsSeparatelyBundled(t *testing.T) {
 		}
 	}
 	cli, err := Read("docs/cli.md")
-	if err != nil || !strings.Contains(cli.Content, "(integrations/pi-recreation-preview.md)") || !strings.Contains(cli.Content, "schema 32") {
+	if err != nil || !strings.Contains(cli.Content, "(integrations/pi-recreation-preview.md)") || !strings.Contains(cli.Content, "schema 33") {
 		t.Fatalf("CLI must link the matching-schema native proposal: %v", err)
 	}
 }

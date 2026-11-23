@@ -2,7 +2,7 @@
 
 `radar_diagnostics` section `recreation_preview` adds an **explicit proposal**, not
 recreation execution. CLI, daemon and loaded Pi must match diagnostics **schema
-32**; old peers fail closed, without compatibility or shell fallback. No
+33**; old peers fail closed, without compatibility or shell fallback. No
 persisted format changes. `make install` does not update/reload separately
 installed Pi sources.
 
@@ -37,11 +37,19 @@ interpret its contents. Native preflight can inspect platform/daemon cache-polic
 evidence. SBX read commands can auto-start **its daemon**, not a sandbox/VM.
 There is no implicit credential setup, fallback credential, sandbox creation,
 recreation or service restart. Cancellation is not daemon-auto-start rollback.
+Approval also covers two bounded native agent-registration scans and two transient
+exclusive probes of the existing workspace deletion-lease inode. Probes briefly
+lock/release it without creating coordination files/directories or reading lock
+contents. They may contend with another operation; they never reserve admission.
 
 ## Evidence, privacy and limits
 
 The native wrapper resolves exact registration/scope **before** any runner call,
-then brackets the planner with full private registration/recipe snapshots.
+then brackets the planner with full private registration/recipe snapshots and
+bounded registered-owner/lease observations. The owner scan uses the native
+removal-owner predicate, counts owners including stopped registrations, and reads no runner,
+checkpoint, conversation, token or schedule payload. Missing/unsafe/over-budget
+registration evidence remains unavailable, never a zero-owner claim.
 Registration drift (including private fields and other registered workspaces),
 cancellation, malformed/unsupported registration and invalid target coverage fail
 closed. The diagnostic adapter also rejects pending resource publication before
@@ -50,17 +58,30 @@ Full private registration and native plan are each limited to 1 MiB for this
 projection; native registration parsing and individual native provider reads
 retain their existing implementation limits. These are cooperative, point-in-time
 checks, not atomic exclusion against external SBX changes or ABA detection.
+Changed owner availability/private fingerprint or lease status/inode fingerprint
+rejects the proposal, including same-count owner changes and same-status inode
+replacement. Consistently unavailable observations cannot prove no intervening
+change. Owner scans retain their existing 1,024-entry/1 MiB aggregate/64 KiB file
+budgets. Lease probes use the same canonical identity as native deletion admission;
+missing files are unknown, not free (an unlinked held inode may still exist).
 
 Only these proposal fields are returned:
 
 - `id`: exact registered workspace identity;
 - `preview_id`: opaque `recreation-preview:<sha256>` display fingerprint binding
-  full private registration/recipe and the returned native plan;
+  full private registration/recipe, returned native plan and private observed
+  ownership/lease fingerprints;
 - `status`: the native planner's `recreate`, `blocked` or `skipped` decision;
 - `previous_state`: previously listed `running`, `stopped` or `unknown`;
 - `runtime_identity_observed`: whether the native proposal contained a runtime
   identity, **not** continued identity, ownership, provenance or health;
-- `execution_eligibility`: always `unknown_fresh_execution_guards_not_run`.
+- `ownership_evidence`: `fresh_bounded_registration` or `unavailable`;
+- `agent_owner_count`: a nonnegative count up to 1,024, present only with fresh
+  bounded registration evidence; this is not runtime ownership or holder identity;
+- `lease_evidence`: `unknown_no_lock_file`, `exclusive_available_at_probe`,
+  `contended_at_probe` or `unavailable`, never a lock path or holder payload;
+- `execution_eligibility`: always `unknown_fresh_execution_guards_not_run`, even
+  with a registered owner, contention or an available deletion-lease probe.
 
 Native plan IDs, runtime names/IDs, paths, recipe values/commands, native reason
 text, secret/policy payloads and errors are withheld. `blocked` does not invent a
@@ -75,9 +96,10 @@ errors. No automatic retry or replay.
 The proposed **later** recreation discards sandbox-local state and interrupts
 commands/services, while intending to retain workspace files/registration and
 restore recorded mounts/ports and prior running/stopped state. This request
-performs none of those effects. Native preview metadata checks do not establish
-fresh agent ownership, activity, leases, complete execution eligibility or safe
-retry. The display identity is deliberately **not** a native apply plan: it has no
+performs none of those effects. Registered removal-owner counts and deletion-lease
+observations are not runtime ownership, fresh activity, holder identity or the
+shared deletion/exclusive writer admission used by native recreation. They do not
+invent an execution blocker or establish complete eligibility or safe retry. The display identity is deliberately **not** a native apply plan: it has no
 apply route, one-use execution cache, expiry promise or consent semantics.
 Cleanup apply and runtime controls remain unsupported. Later apply needs its own
 fresh exact-target consent and existing native admission/execution safeguards;

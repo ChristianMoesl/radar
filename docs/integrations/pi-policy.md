@@ -7,7 +7,7 @@
 Overview `settings` are **CLI-process global defaults**. With a matching daemon,
 `daemon.settings` separately reports **daemon-process global defaults** from the
 same native bounded reader executed in the running daemon process. The existing
-`diagnostics` RPC's selector-free `overview` returns this typed schema-32
+`diagnostics` RPC's selector-free `overview` returns this typed schema-33
 projection; it never uses task visibility filters or provider calls. No new public
 tool or general file/configuration endpoint is added.
 
@@ -62,7 +62,7 @@ run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
 not proof that it exists or is running. Missing daemon/origin evidence is
 unavailable, not healthy, empty, repaired or enrolled.
 
-## Recorded workspace policy (diagnostics schema 32)
+## Recorded workspace policy (diagnostics schema 33)
 
 Use `workspace_policy` with `parent_id=<registered workspace ID>` and the normal
 `origin` (default), `feedback` or explicitly requested `installation` scope. This
@@ -90,11 +90,11 @@ Pi validates the complete envelope, page, row and nested recipe before output,
 including unavailable responses. `registered_workspace_recipe_policy` advertises
 this bounded capability; `workspace_effective_policy` remains false.
 
-CLI, daemon and loaded Pi must match schema 32. This is a transport change only,
+CLI, daemon and loaded Pi must match schema 33. This is a transport change only,
 not a registry/data migration; older schema-29 peers fail closed. `make install`
 does not update/reload a separately installed Pi extension.
 
-## Current registered member repository declarations (schema 32)
+## Current registered member repository declarations (schema 33)
 
 For an explicitly requested file inspection, use `repository_policy` with
 `parent_id=<exact registered workspace ID>` and `id=<member row ID from
@@ -133,6 +133,6 @@ policy, observed live configuration, eligibility or publication consent.
 The snapshot binds public shape only, not private configuration bytes.
 Pi validates the complete envelope/page/row/settings, including unavailable
 evidence, before output. `current_member_repository_declarations` advertises
-this capability; `workspace_effective_policy` remains false. Matching schema-32
+this capability; `workspace_effective_policy` remains false. Matching schema-33
 CLI/daemon/loaded Pi is required; schema-29 peers fail closed, with no persisted
 data migration. Separately installed Pi still requires an update/reload.

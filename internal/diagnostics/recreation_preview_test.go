@@ -27,7 +27,7 @@ func (p *recreationDiagnosticProvider) DiagnosticRecreationPreview(ctx context.C
 	return p.run(ctx, id, scope)
 }
 func validRecreationView(id string) protocol.DiagnosticRecreationPreview {
-	return protocol.DiagnosticRecreationPreview{ID: id, PreviewID: "recreation-preview:" + strings.Repeat("a", 64), Status: "recreate", PreviousState: "running", RuntimeIdentityObserved: true, ExecutionEligibility: "unknown_fresh_execution_guards_not_run"}
+	return protocol.DiagnosticRecreationPreview{ID: id, PreviewID: "recreation-preview:" + strings.Repeat("a", 64), Status: "recreate", PreviousState: "running", RuntimeIdentityObserved: true, ExecutionEligibility: "unknown_fresh_execution_guards_not_run", OwnershipEvidence: "unavailable", LeaseEvidence: "unavailable"}
 }
 
 func TestRecreationPreviewUsesOnlyExactNativeCapability(t *testing.T) {

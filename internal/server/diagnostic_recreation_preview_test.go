@@ -30,7 +30,7 @@ func (p *recreationRPCSource) DiagnosticRecreationPreview(_ context.Context, id,
 	if p.pending != nil {
 		*p.pending = true
 	}
-	return protocol.DiagnosticRecreationPreview{ID: id, PreviewID: "recreation-preview:" + strings.Repeat("a", 64), Status: "blocked", PreviousState: "unknown", ExecutionEligibility: "unknown_fresh_execution_guards_not_run"}, nil
+	return protocol.DiagnosticRecreationPreview{ID: id, PreviewID: "recreation-preview:" + strings.Repeat("a", 64), Status: "blocked", PreviousState: "unknown", ExecutionEligibility: "unknown_fresh_execution_guards_not_run", OwnershipEvidence: "unavailable", LeaseEvidence: "unavailable"}, nil
 }
 
 func TestRecreationPreviewStrictRPCNoImplicitDispatch(t *testing.T) {

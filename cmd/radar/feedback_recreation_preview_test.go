@@ -58,7 +58,7 @@ func TestFeedbackRecreationPreviewExactScopeVersionAndEvidence(t *testing.T) {
 						done <- nil
 						return
 					}
-					view := protocol.DiagnosticRecreationPreview{ID: "registered", PreviewID: "recreation-preview:" + strings.Repeat("a", 64), Status: "recreate", PreviousState: "running", RuntimeIdentityObserved: true, ExecutionEligibility: "unknown_fresh_execution_guards_not_run"}
+					view := protocol.DiagnosticRecreationPreview{ID: "registered", PreviewID: "recreation-preview:" + strings.Repeat("a", 64), Status: "recreate", PreviousState: "running", RuntimeIdentityObserved: true, ExecutionEligibility: "unknown_fresh_execution_guards_not_run", OwnershipEvidence: "unavailable", LeaseEvidence: "unavailable"}
 					page := protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: "recreation_preview", Evidence: "explicit_native_exact_workspace_recreation_proposal", Total: 1, Complete: true, Items: []protocol.DiagnosticItem{{ID: "registered", RecreationPreview: &view}}}
 					switch kind {
 					case "old_schema":

@@ -54,7 +54,9 @@ type WorkspacePolicyDiagnostics interface {
 
 // SandboxRecreationPreviewDiagnostics explicitly invokes the native recreation
 // planner for one registered workspace. It can read runtime/secret/policy
-// metadata and local recipe accessibility; it must never execute recreation.
+// metadata and local recipe accessibility, scan bounded registered owners and
+// briefly probe existing deletion-lease inodes; it must never execute recreation.
+// These observations do not establish runtime ownership or writer admission.
 type SandboxRecreationPreviewDiagnostics interface {
 	WorkspaceRegistrationDiagnostics
 	DiagnosticRecreationPreview(context.Context, string, string) (protocol.DiagnosticRecreationPreview, error)
