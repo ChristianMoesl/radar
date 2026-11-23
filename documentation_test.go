@@ -143,6 +143,8 @@ func TestPiRecreationPreviewContractIsSeparatelyBundled(t *testing.T) {
 		"ownership_evidence", "agent_owner_count", "lease_evidence", "two transient",
 		"without creating coordination files/directories", "same-count owner changes", "same-status inode",
 		"not runtime ownership", "writer admission", "including stopped registrations",
+		"one independent native runtime listing", "without replanning or replay",
+		"Ports, secrets and", "policies are not re-read",
 		"unknown_fresh_execution_guards_not_run", "withheld", "complete available and",
 		"No automatic retry or replay", "not** a native apply plan", "Cleanup apply and runtime controls remain unsupported",
 	} {

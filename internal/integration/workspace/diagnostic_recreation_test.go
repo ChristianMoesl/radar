@@ -83,8 +83,8 @@ func TestDiagnosticRecreationNativePlannerParityPrivacyAndNoMutation(t *testing.
 					t.Fatal("unrelated workspace metadata read")
 				}
 			}
-			if listing != 1 {
-				t.Fatalf("native planner repeated: %d", listing)
+			if listing != 2 {
+				t.Fatalf("expected one planner listing and one independent final observation: %d", listing)
 			}
 			assertNoRecreationMutation(t, runner)
 			after, _ := os.ReadFile(workspacegroup.Path(req.WorkspaceRoot))

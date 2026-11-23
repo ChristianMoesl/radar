@@ -10,6 +10,7 @@ import (
 
 	"radar/internal/agentservice"
 	"radar/internal/integration"
+	sbxclient "radar/internal/integration/sbx/client"
 	workspacegroup "radar/internal/integration/workspace/group"
 	"radar/internal/protocol"
 	"radar/internal/workspacelease"
@@ -66,6 +67,30 @@ func diagnosticRecreationPreview(ctx context.Context, runner Runner, root, id, s
 	}
 	target := plan.Targets[0]
 	if target.WorkspaceID != selected.ID || target.WorkspacePath != selected.Path || target.SandboxName != selected.Sandbox.Name {
+		return fail()
+	}
+	// Metadata reads can outlive the planner's initial listing. Observe the
+	// expected lifetime independently, without replanning or adopting a newer
+	// runtime at the reusable name. This is still point-in-time evidence only.
+	probeCtx, cancel := context.WithTimeout(ctx, sandboxObservationTimeout)
+	client := sbxclient.New(runner)
+	var actual *sbxclient.Runtime
+	if target.SandboxID == "" {
+		actual, err = client.FindRuntime(probeCtx, target.SandboxName)
+	} else {
+		actual, err = client.FindRuntimeIdentity(probeCtx, target.SandboxName, target.SandboxID)
+	}
+	probeErr := probeCtx.Err()
+	cancel()
+	if err != nil || probeErr != nil || ctx.Err() != nil {
+		return fail()
+	}
+	if actual == nil {
+		if target.SandboxID != "" {
+			return fail()
+		}
+	} else if actual.ID != target.SandboxID || actual.Status != target.PreviousStatus ||
+		(target.Status == "recreate" && !sameMountSet(selected.Sandbox.Mounts, sandboxWorkspaceMounts(listedSandbox{Workspaces: actual.Workspaces, Mounts: actual.Mounts}))) {
 		return fail()
 	}
 	current, err := workspacegroup.Load(root)

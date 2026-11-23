@@ -54,6 +54,15 @@ Registration drift (including private fields and other registered workspaces),
 cancellation, malformed/unsupported registration and invalid target coverage fail
 closed. The diagnostic adapter also rejects pending resource publication before
 and after the planner, revision drift and unsupported/ambiguous capabilities.
+After metadata reads, one independent native runtime listing must still show the
+same name, lifetime and state, plus recorded mounts for a `recreate` proposal.
+An absent-runtime proposal must still observe absence; it cannot adopt a newly
+appeared runtime. Replacement, rename, disappearance, ambiguous/unavailable
+listing or cancellation invalidates the proposal without replanning or replay.
+Existing private registration/owner/lease checks follow that observation, so
+changes during the final read also invalidate their evidence. Ports, secrets and
+policies are not re-read; this does not attest their continued freshness, exclude
+intervening ABA changes, or reserve safety after the final observation.
 Full private registration and native plan are each limited to 1 MiB for this
 projection; native registration parsing and individual native provider reads
 retain their existing implementation limits. These are cooperative, point-in-time
