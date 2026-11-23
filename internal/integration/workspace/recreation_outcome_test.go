@@ -165,7 +165,7 @@ func TestSandboxRecreationRequiresObservedReplacement(t *testing.T) {
 										cancel()
 									}
 								}
-								if args[0] == "ports" && args[1] == "sandbox-0" && args[2] == "--json" {
+								if args[0] == "ports" && args[1] == "new-sandbox-0" && args[2] == "--json" {
 									portsObserved++
 									switch scenario {
 									case "invalid port exposure":

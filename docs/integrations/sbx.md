@@ -618,8 +618,12 @@ be accepted by the installed SBX/backend; offline runner tests do not qualify it
 Before reporting `recreated`, Radar independently requires that same replacement
 ID, absence of the original lifetime (including renamed originals), the recorded
 mounts/loopback IPv4 ports, and the requested running/stopped state.
-Identity/state/mount observations bracket the port read under retained workspace
-and sandbox-name admission; registration and cancellation are rechecked. Missing,
+The independent final port read also addresses only that observed replacement ID,
+not its reusable name: a temporary name reassignment cannot substitute another
+runtime's ports between the two identity/state/mount observations. ID-selector
+rejection fails closed, without name fallback or replay. Those observations remain
+under retained workspace and sandbox-name admission; registration and cancellation
+are rechecked. Missing,
 ambiguous, changed or unreadable evidence fails the target without another
 removal, recreation or state-restoration attempt. The resulting runtime and
 registration are retained for inspection; failure can follow partial changes.

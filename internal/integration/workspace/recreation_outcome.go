@@ -47,7 +47,7 @@ func observeSandboxRecreation(ctx context.Context, runner Runner, root string, g
 	if _, err := observeRecreatedSandboxRuntime(ctx, runner, group, target, replacement, true); err != nil {
 		return err
 	}
-	bindings, err := listSandboxPortBindings(ctx, runner, target.SandboxName)
+	bindings, err := listSandboxPortBindings(ctx, runner, replacement)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -58,8 +58,8 @@ func observeSandboxRecreation(ctx context.Context, runner Runner, root string, g
 	if err != nil || len(incompatibleSandboxPorts(bindings)) > 0 || len(portDifference(ports, group.Sandbox.Ports)) > 0 || len(portDifference(group.Sandbox.Ports, ports)) > 0 {
 		return errors.New("sandbox recreation recorded IPv4 ports not observed; runtime retained for inspection")
 	}
-	// Port reads address a reusable name. Reject a changed lifetime/state/mount
-	// during that observation, and independently recheck registration/context.
+	// The port read addresses only the observed ID; never fall back to a reusable
+	// name. Still reject lifetime/state/mount drift and recheck registration/context.
 	if _, err := observeRecreatedSandboxRuntime(ctx, runner, group, target, replacement, true); err != nil {
 		return err
 	}
