@@ -91,6 +91,15 @@ func (r *recreationRunner) Run(_ context.Context, cwd, executable string, args .
 		return "", nil
 	case "ports":
 		name := args[1]
+		for key, runtime := range r.live {
+			if runtime.ID == name {
+				name = key
+				break
+			}
+		}
+		if _, found := r.live[name]; !found {
+			return "", errors.New("runtime not found")
+		}
 		if args[2] == "--publish" {
 			if name == r.failPorts {
 				return "", errors.New("port unavailable")

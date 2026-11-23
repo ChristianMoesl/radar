@@ -328,14 +328,29 @@ func recreateOneSandbox(ctx context.Context, runner Runner, logger *slog.Logger,
 	if err := reconcileSandboxWithPolicy(ctx, runner, group, logger, policy); err != nil {
 		return err
 	}
-	if _, _, err := reconcileSandboxPorts(ctx, runner, target.SandboxName, group.Sandbox.Ports); err != nil {
-		return fmt.Errorf("sandbox recreated but port restoration failed: %w", err)
-	}
 	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {
 		return err
 	}
 	replacement, err := observeRecreatedSandboxRuntime(ctx, runner, group, target, "", false)
 	if err != nil {
+		return err
+	}
+	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {
+		return err
+	}
+	// Keep the same observed lifetime through every port read/write. The shared
+	// set-difference policy is unchanged; ID rejection must not retry by name.
+	_, _, err = reconcileSandboxPorts(ctx, runner, replacement, group.Sandbox.Ports)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err != nil {
+		return errors.New("sandbox recreated but port restoration failed; inspect before retrying")
+	}
+	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {
+		return err
+	}
+	if _, err := observeRecreatedSandboxRuntime(ctx, runner, group, target, replacement, false); err != nil {
 		return err
 	}
 	if _, err := activationRegistration(ctx, root, group.Path, group); err != nil {

@@ -9,9 +9,9 @@ import (
 	workspacegroup "radar/internal/integration/workspace/group"
 )
 
-// observeRecreatedSandboxRuntime shares the pre-restoration and final runtime
-// evaluator. The first observation grounds an ID, not creation provenance; final
-// observations additionally require that exact ID and the restored state.
+// observeRecreatedSandboxRuntime shares the pre-port, pre-state and final runtime
+// evaluator. The first observation grounds an ID, not creation provenance; later
+// observations pin that ID, and final observations also require restored state.
 func observeRecreatedSandboxRuntime(ctx context.Context, runner Runner, group workspacegroup.Workspace, target integration.SandboxRecreateTarget, expectedID string, restored bool) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
