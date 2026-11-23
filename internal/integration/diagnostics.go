@@ -52,6 +52,14 @@ type WorkspacePolicyDiagnostics interface {
 	DiagnosticWorkspacePolicy(workspaceID, scope string) (protocol.DiagnosticWorkspacePolicy, error)
 }
 
+// SandboxRecreationPreviewDiagnostics explicitly invokes the native recreation
+// planner for one registered workspace. It can read runtime/secret/policy
+// metadata and local recipe accessibility; it must never execute recreation.
+type SandboxRecreationPreviewDiagnostics interface {
+	WorkspaceRegistrationDiagnostics
+	DiagnosticRecreationPreview(context.Context, string, string) (protocol.DiagnosticRecreationPreview, error)
+}
+
 // RepositoryPolicyDiagnostics reads only one exact registered member's fixed
 // current repository configuration, never referenced files, runtimes or actions.
 // It is a separate explicit file-access capability, not WorkspacePolicyDiagnostics.

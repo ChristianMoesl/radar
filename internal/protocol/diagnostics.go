@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const DiagnosticsVersion = 31
+const DiagnosticsVersion = 32
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -22,7 +22,7 @@ func DiagnosticText(value string) string {
 // DiagnosticsRequest has no mutation or arbitrary filesystem parameters.
 // Workspace is host-resolved scope: lexical filtering for cached reads,
 // exact registered identity for probes.
-// repository_policy, runtime_probe, agent_probe, retirement_preview and cleanup_preview require explicit
+// repository_policy, runtime_probe, agent_probe, retirement_preview, recreation_preview and cleanup_preview require explicit
 // diagnostics-probe RPC. CleanupMode/WorkspaceID are cleanup-preview selectors only.
 // No request can apply a preview. The selector-free overview is the fixed
 // daemon-process configuration projection; no workspace/path override is accepted.
@@ -484,6 +484,7 @@ type DiagnosticItem struct {
 	Operation         *DiagnosticOperation          `json:"operation,omitempty"`
 	CleanupPreview    *DiagnosticCleanupTarget      `json:"cleanup_preview,omitempty"`
 	RetirementPreview *DiagnosticRetirementPreview  `json:"retirement_preview,omitempty"`
+	RecreationPreview *DiagnosticRecreationPreview  `json:"recreation_preview,omitempty"`
 	AgentProbe        *DiagnosticAgentProbe         `json:"agent_probe,omitempty"`
 	Integration       *DiagnosticIntegration        `json:"integration,omitempty"`
 	Runtime           *DiagnosticRuntime            `json:"runtime,omitempty"`

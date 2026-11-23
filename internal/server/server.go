@@ -245,6 +245,19 @@ func (s *Server) handle(conn net.Conn) {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "explicit registered runtime, agent probe or retirement preview selectors are required"})
 				continue
 			}
+			if req.Diagnostics.Section == "recreation_preview" {
+				if !diagnosticRecreationPreviewFields(scanner.Bytes()) || s.resourceSnapshot == nil {
+					_ = encoder.Encode(protocol.Response{OK: false, Error: "exact native recreation preview request and publication state required"})
+					continue
+				}
+				page, err := diagnostics.PreviewRecreation(context.Background(), s.store, *req.Diagnostics, func() bool { return s.resourceSnapshot().ResourceRefreshPending }, s.integrations)
+				if err != nil {
+					_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error()})
+					continue
+				}
+				_ = encoder.Encode(protocol.Response{OK: true, Revision: page.Revision, Diagnostics: &page})
+				continue
+			}
 			pending := s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending
 			page, err := diagnostics.Probe(context.Background(), s.store, *req.Diagnostics, pending, s.integrations)
 			if err != nil {

@@ -82,6 +82,7 @@ export default function(pi) {
     "package/LICENSE", "package/README.md", "package/extensions/pi-radar/feedback.ts", "package/extensions/pi-radar/host-resources.ts", "package/extensions/pi-radar/index.ts",
     "package/extensions/pi-radar/linear.ts",
     "package/extensions/pi-radar/operation-diagnostics.ts",
+    "package/extensions/pi-radar/recreation-preview.ts",
     "package/extensions/pi-radar/refresh-diagnostics.ts",
     "package/extensions/pi-radar/reload-notice.ts", "package/extensions/pi-radar/repository-policy.ts",
     "package/extensions/pi-radar/retirement-preview.ts",

@@ -26,8 +26,11 @@ const RuntimeProbeTimeout = 5 * time.Second
 // retirement_preview is a separate explicit registration-only native planner;
 // cleanup_preview separately invokes manual or expiry planners, which can fetch Git
 // refs and use authenticated provider reads. Execution is not exposed.
-// No section calls collection, general provider refresh, login, startup or
-// reserved leases. Explicit cleanup previews alone can refresh Git refs and
+// recreation_preview explicitly invokes the native recreation planner, including
+// metadata and local recipe-accessibility reads; SBX reads may auto-start its
+// daemon, never a sandbox. It does not expose recreation execution.
+// No section calls collection, general refresh, login, explicit runtime startup
+// or reserved leases. Explicit cleanup previews alone can refresh Git refs and
 // briefly test/release exclusive locks on existing lease files, with consent.
 func Probe(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequest, pending bool, providers integration.Registry) (protocol.DiagnosticsPage, error) {
 	if req.Section != "cleanup_preview" && (req.CleanupMode != "" || req.WorkspaceID != "") {
@@ -35,6 +38,9 @@ func Probe(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequ
 	}
 	if req.Section == "repository_policy" {
 		return repositoryPolicy(ctx, store, req, pending, providers)
+	}
+	if req.Section == "recreation_preview" {
+		return PreviewRecreation(ctx, store, req, func() bool { return pending }, providers)
 	}
 	if req.Section == "cleanup_preview" {
 		return cleanupPreview(ctx, store, req, pending, providers)

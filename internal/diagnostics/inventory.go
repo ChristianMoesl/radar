@@ -241,6 +241,9 @@ func paginate(req protocol.DiagnosticsRequest, items []protocol.DiagnosticItem, 
 	if req.Section == "repository_policy" {
 		page.Limitations = []string{"explicit_exact_registered_member_repository_configuration_only", "current_declarations_not_historical_recipe_or_effective_policy", "no_global_merge_referenced_file_runtime_provider_or_executor_calls", "absent_configuration_is_not_unavailable_repository", "private_values_paths_commands_and_file_hashes_withheld", "snapshot_binds_public_shape_not_private_configuration", "point_in_time_file_and_registration_checks_not_future_reservation"}
 	}
+	if req.Section == "recreation_preview" {
+		page.Limitations = protocol.DiagnosticRecreationPreviewLimitations()
+	}
 	if req.Section == "workspace_policy" {
 		page.Limitations = []string{"exact_registered_workspace_recipe_only", "not_current_repository_or_global_effective_policy", "historical_setting_origins_unknown", "runtime_presence_configuration_and_health_not_probed", "ownership_leases_and_execution_eligibility_not_checked", "no_repository_or_referenced_file_reads_or_maintenance", "private_recipe_values_paths_and_commands_withheld", "snapshot_binds_public_shape_not_private_recipe_values", "single_registration_snapshot_not_future_state_reservation"}
 	}
