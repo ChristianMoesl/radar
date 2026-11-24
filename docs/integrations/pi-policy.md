@@ -132,7 +132,12 @@ repository declarations**, not historical recipe origins, operation-effective
 policy, observed live configuration, eligibility or publication consent.
 The snapshot binds public shape only, not private configuration bytes.
 Pi validates the complete envelope/page/row/settings, including unavailable
-evidence, before output. `current_member_repository_declarations` advertises
+evidence, before output. The daemon also validates the complete finite native
+declaration/unavailable projection before publishing it to any client, and copies
+the provider's settings so later provider writes cannot change the validated page.
+Invalid evidence yields a sanitized refusal, not clipped private values, guessed
+defaults or a fallback read. This checks the public contract, not effective policy
+or future file stability. `current_member_repository_declarations` advertises
 this capability; `workspace_effective_policy` remains false. Matching schema-35
 CLI/daemon/loaded Pi is required; schema-29 peers fail closed, with no persisted
 data migration. Separately installed Pi still requires an update/reload.
