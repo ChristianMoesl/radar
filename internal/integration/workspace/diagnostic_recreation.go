@@ -27,8 +27,17 @@ func (Source) DiagnosticRecreationPreview(ctx context.Context, id, scope string)
 }
 
 func diagnosticRecreationPreview(ctx context.Context, runner Runner, root, id, scope string) (protocol.DiagnosticRecreationPreview, error) {
-	fail := func() (protocol.DiagnosticRecreationPreview, error) {
-		return protocol.DiagnosticRecreationPreview{}, errors.New("native recreation preview unavailable; no recreation requested")
+	view, _, err := captureDiagnosticRecreationPreview(ctx, runner, root, id, scope)
+	return view, err
+}
+
+// Capture the private native confirmation from the same planner invocation as
+// the public proposal. Never recover it by replanning after those observations.
+// The request stays in-process: it has no expiry, one-use or consent authority,
+// and every failed capture must withhold it along with the public projection.
+func captureDiagnosticRecreationPreview(ctx context.Context, runner Runner, root, id, scope string) (protocol.DiagnosticRecreationPreview, integration.SandboxRecreateRequest, error) {
+	fail := func() (protocol.DiagnosticRecreationPreview, integration.SandboxRecreateRequest, error) {
+		return protocol.DiagnosticRecreationPreview{}, integration.SandboxRecreateRequest{}, errors.New("native recreation preview unavailable; no recreation requested")
 	}
 	if ctx.Err() != nil || id == "" || len(id) > 512 || len(scope) > 4096 || (scope != "" && !filepath.IsAbs(scope)) {
 		return fail()
@@ -126,5 +135,5 @@ func diagnosticRecreationPreview(ctx context.Context, runner Runner, root, id, s
 	if !protocol.ValidDiagnosticRecreationPreview(view, id) {
 		return fail()
 	}
-	return view, nil
+	return view, integration.SandboxRecreateRequest{WorkspaceRoot: root, Workspace: selected.Path, ExpectedPlanID: plan.PlanID}, nil
 }

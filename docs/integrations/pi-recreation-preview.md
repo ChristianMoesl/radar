@@ -23,7 +23,11 @@ reach no native callback. Confirmation binds a copied request; editing the
 original while its dialog is open does not change the approved target.
 
 The adapter calls the existing native `PreviewRecreateSandboxes` planner once,
-with the selected registration's path. It does not duplicate recreation policy
+with the selected registration's path. Its internal capture keeps that same
+native confirmation request separate from the public view; rejected observations
+return neither. The existing read adapter discards the private request, which has
+no expiry, one-use or consent authority and is never serialized in the response.
+It does not duplicate recreation policy
 or call `RecreateSandboxes`, Cleanup, ordinary refresh/GC, login, explicit start
 or arbitrary commands. The cooperative native budget is 30 seconds; CLI and Pi
 allow transport margins. Disconnect is not a guaranteed immediate cancellation
