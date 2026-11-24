@@ -31,8 +31,17 @@ func workspacePolicy(store *state.Store, req protocol.DiagnosticsRequest, pendin
 	if view.ID != req.ParentID || view.Origin != "recorded_workspace_registration" || view.SandboxRegistered != (view.Sandbox != nil) {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("workspace recipe evidence invalid")
 	}
-	if recipe := view.Sandbox; recipe != nil && (recipe.ManagedMountCount < 0 || recipe.AdditionalMountCount < 0 || recipe.PortCount < 0) {
-		return protocol.DiagnosticsPage{}, fmt.Errorf("workspace recipe evidence invalid")
+	if recipe := view.Sandbox; recipe != nil {
+		// Detach the provider's public shape before validating and snapshotting
+		// it. Later provider writes must not change an already-published page.
+		copy := *recipe
+		view.Sandbox = &copy
+		for _, count := range []int{copy.ManagedMountCount, copy.AdditionalMountCount, copy.PortCount} {
+			// Match the existing finite Pi contract, not effective native policy.
+			if count < 0 || int64(count) > 1<<53-1 {
+				return protocol.DiagnosticsPage{}, fmt.Errorf("workspace recipe evidence invalid")
+			}
+		}
 	}
 	req.Limit = 1
 	return paginate(req, []protocol.DiagnosticItem{{ID: view.ID, WorkspacePolicy: &view}}, store.Revision(), pending, workspacePolicyEvidence)

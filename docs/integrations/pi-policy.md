@@ -87,8 +87,14 @@ The snapshot binds the **public shape**, not private recipe bytes; an unchanged
 shape does not attest unchanged commands or future resources. A single fresh
 registration observation is not atomic with other inventories or future state.
 Pi validates the complete envelope, page, row and nested recipe before output,
-including unavailable responses. `registered_workspace_recipe_policy` advertises
-this bounded capability; `workspace_effective_policy` remains false.
+including unavailable responses. The native publication boundary also requires
+nonnegative safe-integer mount/port counts and copies the provider's public recipe
+before validation and snapshot assembly. Later provider writes cannot change the
+validated page. Invalid counts return a sanitized refusal, never clipping, guessed
+zero or fallback reads. This finite projection is not effective policy or a
+reservation against concurrent/future native changes.
+`registered_workspace_recipe_policy` advertises this bounded capability;
+`workspace_effective_policy` remains false.
 
 CLI, daemon and loaded Pi must match schema 35. This is a transport change only,
 not a registry/data migration; older schema-29 peers fail closed. `make install`
