@@ -53,7 +53,7 @@ func TestUpdateDaemonIdentityAndOldClientGuard(t *testing.T) {
 	t.Setenv("RADAR_STATE", filepath.Join(root, "state.db"))
 	t.Setenv("RADAR_DISABLE_COLLECTION", "1")
 	// Unix sockets have a short path limit; do not use the long test directory.
-	socketDir, err := os.MkdirTemp("/tmp", "radar-update-test-")
+	socketDir, err := os.MkdirTemp("", "radar-update-test-")
 	if err != nil {
 		t.Fatal(err)
 	}

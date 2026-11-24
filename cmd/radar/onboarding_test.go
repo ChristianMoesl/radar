@@ -96,7 +96,7 @@ esac
 			if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte(script), 0755); err != nil {
 				t.Fatal(err)
 			}
-			short, err := os.MkdirTemp("/tmp", "radar-start-")
+			short, err := os.MkdirTemp("", "radar-start-")
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -64,7 +64,7 @@ func TestDaemonAutomaticallyMigratesLegacyStateBeforeServing(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	socketDir, err := os.MkdirTemp("/tmp", "radar-migrate-")
+	socketDir, err := os.MkdirTemp("", "radar-migrate-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -465,7 +465,7 @@ func TestReadyWorkDoesNotBlockRequestsAndIsJoinedOnShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir, err := os.MkdirTemp("/tmp", "radar-ready-")
+	dir, err := os.MkdirTemp("", "radar-ready-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -42,7 +42,7 @@ func TestForegroundAuthentication(t *testing.T) {
 			name += " refreshes after login"
 		}
 		t.Run(name, func(t *testing.T) {
-			dir, err := os.MkdirTemp("/tmp", "radar-auth-")
+			dir, err := os.MkdirTemp("", "radar-auth-")
 			if err != nil {
 				t.Fatal(err)
 			}

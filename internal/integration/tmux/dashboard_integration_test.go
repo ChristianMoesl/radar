@@ -34,7 +34,7 @@ func TestRealTmuxAttachAndPrefixBinding(t *testing.T) {
 			t.Setenv("TMUX", "")
 			t.Setenv("TERM", "xterm-256color")
 			// Keep Unix socket paths short on macOS.
-			dir, err := os.MkdirTemp("/tmp", "radar-tmux-")
+			dir, err := os.MkdirTemp("", "radar-tmux-")
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -334,7 +334,7 @@ func newIsolatedPaneTmux(t *testing.T, cwd string) isolatedPaneTmux {
 		t.Skip("bash not available for original-shell proof")
 	}
 	// Keep the Unix socket path short regardless of test names or host TMPDIR.
-	dir, err := os.MkdirTemp("/tmp", "radar-tmux-")
+	dir, err := os.MkdirTemp("", "radar-tmux-")
 	if err != nil {
 		t.Fatal(err)
 	}

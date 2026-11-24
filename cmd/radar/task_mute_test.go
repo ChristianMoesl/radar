@@ -48,7 +48,7 @@ func TestTaskMuteAndUnmuteCLIRequests(t *testing.T) {
 	t.Cleanup(func() { jsonOutput = previous })
 	for _, command := range []string{"mute", "unmute"} {
 		t.Run(command, func(t *testing.T) {
-			dir, err := os.MkdirTemp("/tmp", "radar-mute-cli-")
+			dir, err := os.MkdirTemp("", "radar-mute-cli-")
 			if err != nil {
 				t.Fatal(err)
 			}

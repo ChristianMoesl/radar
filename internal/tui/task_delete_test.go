@@ -143,7 +143,7 @@ func TestTaskDeletionScreenScrollsLongPathsWithoutHidingConfirmation(t *testing.
 // or vault. Use a short socket path for macOS as well as Linux.
 func deletionSocket(t *testing.T, response protocol.Response) (string, <-chan protocol.Request) {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "radar-delete-")
+	dir, err := os.MkdirTemp("", "radar-delete-")
 	if err != nil {
 		t.Fatal(err)
 	}

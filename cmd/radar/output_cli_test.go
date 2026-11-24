@@ -120,7 +120,7 @@ func TestOutputCLIInformationalCommands(t *testing.T) {
 
 func outputDaemonFixture(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "radar-output-")
+	dir, err := os.MkdirTemp("", "radar-output-")
 	if err != nil {
 		t.Fatal(err)
 	}

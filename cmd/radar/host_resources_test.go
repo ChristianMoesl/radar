@@ -128,7 +128,7 @@ func TestHostResourceRequestSchemasRejectUnknownFieldsAndTrailingJSON(t *testing
 
 func resourceCacheFixture(t *testing.T, tasks []protocol.Task) (string, func() []string) {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "radar-resource-cache-")
+	dir, err := os.MkdirTemp("", "radar-resource-cache-")
 	if err != nil {
 		t.Fatal(err)
 	}

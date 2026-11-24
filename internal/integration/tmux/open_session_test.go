@@ -336,7 +336,7 @@ func TestNativeOpenSessionUseExactNameAndCreationIdentity(t *testing.T) {
 	t.Setenv("RADAR_SOCKET", filepath.Join(t.TempDir(), "radar.sock"))
 	// Match the existing native fixture convention; macOS sockets need short
 	// paths. This is a private server, never the ambient/default tmux server.
-	dir, err := os.MkdirTemp("/tmp", "rte-")
+	dir, err := os.MkdirTemp("", "rte-")
 	if err != nil {
 		t.Fatal(err)
 	}

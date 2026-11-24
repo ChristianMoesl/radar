@@ -14,7 +14,7 @@ func TestCallWithTimeout(t *testing.T) {
 	for _, stalled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "response", true: "stalled daemon"}[stalled], func(t *testing.T) {
 			// Keep Unix socket paths within macOS's short path limit.
-			dir, err := os.MkdirTemp("/tmp", "radar-client-")
+			dir, err := os.MkdirTemp("", "radar-client-")
 			if err != nil {
 				t.Fatal(err)
 			}

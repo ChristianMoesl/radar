@@ -24,7 +24,7 @@ func TestMuteTaskRequestsAndResponses(t *testing.T) {
 		for _, ok := range []bool{true, false} {
 			t.Run(tc.name+map[bool]string{true: "/success", false: "/daemon-error"}[ok], func(t *testing.T) {
 				// Use a short isolated Unix socket path on both Linux and macOS.
-				dir, err := os.MkdirTemp("/tmp", "radar-mute-client-")
+				dir, err := os.MkdirTemp("", "radar-mute-client-")
 				if err != nil {
 					t.Fatal(err)
 				}

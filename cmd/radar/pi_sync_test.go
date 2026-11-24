@@ -71,7 +71,7 @@ printf '{"name":"%s","version":"%s"}' "$name" "$version" > "$PI_CODING_AGENT_DIR
 	if err := os.WriteFile(filepath.Join(profile, "block"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	socketDir, err := os.MkdirTemp("/tmp", "radar-sync-")
+	socketDir, err := os.MkdirTemp("", "radar-sync-")
 	if err != nil {
 		t.Fatal(err)
 	}

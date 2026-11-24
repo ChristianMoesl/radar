@@ -43,7 +43,7 @@ func TestDashboardOpensWorkspaceSessionsE2E(t *testing.T) {
 		t.Run(fmt.Sprintf("closed=%v/inside_tmux=%v", scenario.closed, scenario.inside), func(t *testing.T) {
 			inside := scenario.inside
 			// Both daemon and tmux Unix socket paths must stay short on macOS.
-			home, err := os.MkdirTemp("/tmp", "radar-reopen-")
+			home, err := os.MkdirTemp("", "radar-reopen-")
 			if err != nil {
 				t.Fatal(err)
 			}

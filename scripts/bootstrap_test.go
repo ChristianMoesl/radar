@@ -659,7 +659,7 @@ BREW
 		cmd.Args = []string{"/bin/bash"}
 		cmd.Stdin = strings.NewReader(script)
 	}
-	cmd.Env = []string{"HOME=" + home, "PATH=" + bin + ":/usr/bin:/bin", "SHELL=" + shell, "BOOTSTRAP_NODE=" + node, "BOOTSTRAP_STATE=" + state, "BOOTSTRAP_LAUNCH=" + filepath.Join(bin, "launch"), "NODE_OPTIONS=--import /must-not-run"}
+	cmd.Env = []string{"TMPDIR=" + os.TempDir(), "HOME=" + home, "PATH=" + bin + ":/usr/bin:/bin", "SHELL=" + shell, "BOOTSTRAP_NODE=" + node, "BOOTSTRAP_STATE=" + state, "BOOTSTRAP_LAUNCH=" + filepath.Join(bin, "launch"), "NODE_OPTIONS=--import /must-not-run"}
 	if linux {
 		cmd.Env = append(cmd.Env, "BOOTSTRAP_PLATFORM=linux")
 	}

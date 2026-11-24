@@ -147,7 +147,7 @@ func TestReleaseInstallAndFirstLaunch(t *testing.T) {
 				t.Fatal("installer should leave config creation to first launch")
 			}
 			// Use a short socket path on macOS; long HOME paths remain part of the test.
-			runtimeDir, err := os.MkdirTemp("/tmp", "radar-install-")
+			runtimeDir, err := os.MkdirTemp("", "radar-install-")
 			if err != nil {
 				t.Fatal(err)
 			}
