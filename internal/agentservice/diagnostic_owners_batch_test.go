@@ -29,6 +29,15 @@ func TestDiagnosticWorkspaceOwnersBatchMatchesNativeGuard(t *testing.T) {
 			t.Fatalf("path count %d, native %d", counts[path], len(owners))
 		}
 	}
+	ids, err := DiagnosticWorkspaceOwnerIDs(context.Background(), paths)
+	if err != nil || !reflect.DeepEqual(ids, native) {
+		t.Fatal("bounded owner IDs differ from native stopped/nested/sibling relations", err)
+	}
+	ids[workspace][0] = "changed-returned-id"
+	fresh, err := DiagnosticWorkspaceOwnerIDs(context.Background(), paths)
+	if err != nil || !reflect.DeepEqual(fresh, native) {
+		t.Fatal("returned owner IDs changed later inspection", err)
+	}
 	many := make([]string, 512)
 	for i := range many {
 		many[i] = fmt.Sprintf("%s/%d", workspace, i)
@@ -48,6 +57,10 @@ func TestDiagnosticWorkspaceOwnersBatchMatchesNativeGuard(t *testing.T) {
 		counts, fingerprint, err := DiagnosticWorkspaceRemovalOwners(context.Background(), invalid)
 		if err == nil || counts != nil || !reflect.DeepEqual(fingerprint, [32]byte{}) {
 			t.Fatalf("invalid batch returned usable evidence: %v %v", counts, err)
+		}
+		ids, err := DiagnosticWorkspaceOwnerIDs(context.Background(), invalid)
+		if err == nil || ids != nil {
+			t.Fatal("invalid batch returned partial owner IDs")
 		}
 	}
 }

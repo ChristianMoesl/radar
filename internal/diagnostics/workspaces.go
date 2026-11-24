@@ -1,6 +1,7 @@
 package diagnostics
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -41,7 +42,16 @@ func workspaceItems(req protocol.DiagnosticsRequest, records []state.TaskRecord,
 		selected = append(selected, group)
 		paths = append(paths, group.Path)
 	}
-	owners, ownerErr := agentservice.WorkspaceRemovalOwners(paths)
+	// Scope first: an empty selection does not need a registration scan. Reuse
+	// the preview scanner's fixed read/entry/aggregate bounds, never production's
+	// unrestricted loader, while retaining full owner IDs for paged resources.
+	var owners map[string][]string
+	var ownerErr error
+	if len(paths) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), RuntimeProbeTimeout)
+		defer cancel()
+		owners, ownerErr = agentservice.DiagnosticWorkspaceOwnerIDs(ctx, paths)
+	}
 	evidence := "fresh_registration_with_cached_task_ownership_including_history"
 	if ownerErr != nil {
 		evidence = "fresh_registration_with_cached_task_ownership_agent_ownership_unavailable"

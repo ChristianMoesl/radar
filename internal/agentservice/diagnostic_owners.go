@@ -23,6 +23,21 @@ import (
 // Up to 512 absolute target paths share one bounded registry pass, not one scan
 // per resource. Counts are per path, not unique owners of the whole bundle.
 func DiagnosticWorkspaceRemovalOwners(ctx context.Context, paths []string) (map[string]int, [32]byte, error) {
+	return diagnosticWorkspaceRemovalOwners(ctx, paths, nil)
+}
+
+// DiagnosticWorkspaceOwnerIDs supplies the same complete bounded registration
+// observation for inventories that already expose owner identities. Partial IDs
+// are discarded on any failure; no second scan or runtime/private-file read.
+func DiagnosticWorkspaceOwnerIDs(ctx context.Context, paths []string) (map[string][]string, error) {
+	owners := make(map[string][]string)
+	if _, _, err := diagnosticWorkspaceRemovalOwners(ctx, paths, owners); err != nil {
+		return nil, err
+	}
+	return owners, nil
+}
+
+func diagnosticWorkspaceRemovalOwners(ctx context.Context, paths []string, owners map[string][]string) (map[string]int, [32]byte, error) {
 	var empty [32]byte
 	unavailable := func() (map[string]int, [32]byte, error) {
 		return nil, empty, fmt.Errorf("registered ownership evidence unavailable")
@@ -40,6 +55,9 @@ func DiagnosticWorkspaceRemovalOwners(ctx context.Context, paths []string) (map[
 			return unavailable()
 		}
 		counts[path] = 0
+		if owners != nil {
+			owners[path] = []string{}
+		}
 	}
 	root, err := Root()
 	if err != nil {
@@ -121,6 +139,9 @@ func DiagnosticWorkspaceRemovalOwners(ctx context.Context, paths []string) (map[
 		for path := range counts {
 			if registrationWithinWorkspace(reg, filepath.Clean(path)) {
 				counts[path]++ // Desired=false still holds ownership, exactly as production.
+				if owners != nil {
+					owners[path] = append(owners[path], reg.ID)
+				}
 			}
 		}
 	}

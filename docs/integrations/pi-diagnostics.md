@@ -697,15 +697,14 @@ task's state/retention does not change its relationship ID. Summary
 cover full lists (including duplicate occurrences), not just shown entries.
 Task counts respect a workspace inventory's `state` filter.
 
-Agent ownership uses the exact production removal-owner lookup, including
-stopped registrations and backing workspaces inside a group. On lookup failure,
-`agent_owner_count` is omitted, summary ownership is `unavailable`, and page
-evidence explicitly ends in `agent_ownership_unavailable`; zero returned owner
-rows then must not be read as no owners. Members/mounts/ports/agent owners are
-fresh registration evidence; task ownership includes cached inactive history.
-Neither is a runtime probe or full cleanup eligibility. No commands, secret-file
-contents, environment values, note bodies or conversation/event payloads are
-read or exposed.
+Ownership shares production's stopped/nested removal relation via no-follow,
+nonblocking regular-file scans: 64KiB/file, 1MiB/scan, 1,024 entries, 512 paths,
+5s budget. Empty selections skip scanning. Unsafe/incomplete scans omit all owner
+IDs and `agent_owner_count`, mark ownership `unavailable` and end page evidence in
+`agent_ownership_unavailable`; no rows is not no owners. Native guards unchanged.
+Members/mounts/ports/agents are registration evidence; task ownership includes
+cached inactive history. These checks are not atomic, runtime probes or cleanup
+eligibility. No private payloads or secrets are read.
 
 Task `authored_identity_count`, `linking_component_records` and `linking_blocked`
 reuse production's active connected components and the exact authored-identity

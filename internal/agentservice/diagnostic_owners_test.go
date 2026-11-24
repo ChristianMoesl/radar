@@ -144,6 +144,10 @@ func TestDiagnosticWorkspaceOwnersUnavailableIsNeverPartial(t *testing.T) {
 			if err == nil || count != nil || snapshot != [32]byte{} || strings.Contains(err.Error(), "private") {
 				t.Fatalf("partial or private evidence returned: count=%v err=%v", count, err)
 			}
+			ids, err := DiagnosticWorkspaceOwnerIDs(ctx, []string{workspace})
+			if err == nil || ids != nil || strings.Contains(err.Error(), "private") {
+				t.Fatal("unsafe registry returned partial or private owner IDs")
+			}
 		})
 	}
 }
