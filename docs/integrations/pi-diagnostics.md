@@ -818,6 +818,9 @@ snapshot file's persistence time, **not** a fresh runner observation or proof of
 liveness. A missing, invalid, oversized or unsupported snapshot is unavailable
 evidence, not zero work or a healthy/stopped runner. Snapshot reads are limited
 to 1 MiB and reject symlinks and non-regular files.
+Cached/live/Pi require positive definition versions, nonnegative safe-integer
+pending/revision and explicit boolean attention. Missing/null fields invalidate
+the snapshot, never default to zero/false; valid zero/false remains evidence.
 
 Production-owned collection/schedule readers expose pending counts, delivery
 problem flags, configured calendar metadata, derived next due times and bounded

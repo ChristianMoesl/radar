@@ -111,22 +111,17 @@ func diagnosticSnapshot(reg Registration, item *protocol.DiagnosticAgent) {
 	}
 	// Decode only allowlisted evidence. Private presentation, tasks, recent
 	// events, action payloads, titles and conversation references are discarded.
-	var snapshot struct {
-		Protocol          int    `json:"protocol"`
-		InstanceID        string `json:"instanceId"`
-		DefinitionVersion int    `json:"definitionVersion"`
-		Pending           int    `json:"pending"`
-		Problem           string `json:"problem"`
-		Presentation      struct {
-			Attention bool `json:"attention"`
-			Revision  int  `json:"revision"`
-		} `json:"presentation"`
+	var snapshot diagnosticRunnerSnapshot
+	if json.Unmarshal(data, &snapshot) != nil {
+		item.SnapshotEvidence = "invalid_or_incompatible"
+		return
 	}
-	if json.Unmarshal(data, &snapshot) != nil || snapshot.Protocol != protocol.AgentProtocolVersion || snapshot.InstanceID != reg.ID || snapshot.Pending < 0 {
+	view := snapshot.projection(reg.ID)
+	if view == nil {
 		item.SnapshotEvidence = "invalid_or_incompatible"
 		return
 	}
 	item.SnapshotEvidence = "cached_runner_snapshot"
 	item.SnapshotSavedAt = diagnosticTime(info.ModTime())
-	item.Snapshot = &protocol.DiagnosticAgentSnapshot{DefinitionVersion: snapshot.DefinitionVersion, Revision: snapshot.Presentation.Revision, Pending: snapshot.Pending, Attention: snapshot.Presentation.Attention, Problem: snapshot.Problem != ""}
+	item.Snapshot = view
 }

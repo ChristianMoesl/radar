@@ -45,22 +45,11 @@ func ProbeDiagnosticAgent(ctx context.Context, workspace, id string) (protocol.D
 				view.Problem = "snapshot_unavailable"
 				// Decode only the public diagnostic counters. Private tasks,
 				// presentations, actions, conversations, errors and PID are ignored.
-				var snapshot struct {
-					Protocol          int    `json:"protocol"`
-					InstanceID        string `json:"instanceId"`
-					DefinitionVersion *int   `json:"definitionVersion"`
-					Pending           *int   `json:"pending"`
-					Problem           string `json:"problem"`
-					Presentation      struct {
-						Attention *bool `json:"attention"`
-						Revision  *int  `json:"revision"`
-					} `json:"presentation"`
-				}
+				var snapshot diagnosticRunnerSnapshot
 				if err = call(ctx, path, "snapshot", nil, &snapshot); err == nil {
 					view.Problem = "invalid_snapshot"
-					validCount := func(value *int) bool { return value != nil && *value >= 0 && int64(*value) <= 9007199254740991 }
-					if runnerIdentityMatches(snapshot.Protocol, snapshot.InstanceID, reg.ID) && validCount(snapshot.DefinitionVersion) && *snapshot.DefinitionVersion > 0 && validCount(snapshot.Pending) && validCount(snapshot.Presentation.Revision) && snapshot.Presentation.Attention != nil {
-						view.Snapshot = &protocol.DiagnosticAgentSnapshot{DefinitionVersion: *snapshot.DefinitionVersion, Pending: *snapshot.Pending, Revision: *snapshot.Presentation.Revision, Attention: *snapshot.Presentation.Attention, Problem: snapshot.Problem != ""}
+					if projected := snapshot.projection(reg.ID); projected != nil {
+						view.Snapshot = projected
 						view.SnapshotEvidence = "fresh_runner_snapshot"
 						view.Problem = "none"
 					}

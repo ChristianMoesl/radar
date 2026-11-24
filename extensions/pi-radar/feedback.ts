@@ -524,7 +524,7 @@ function validateAgentInventory(data: Record<string, unknown>, params: { scope?:
     if (!object(workspace, ["id", "path", "mode", "sandbox"]) || !text(workspace.id) || !text(workspace.path) || !text(workspace.mode, 1539, true) || (workspace.sandbox !== undefined && !text(workspace.sandbox)) || typeof agent.truncated !== "boolean") fail();
     if (agent.snapshot_evidence === "cached_runner_snapshot") {
       const snapshot = agent.snapshot;
-      if (!time(agent.snapshot_saved_at) || !object(snapshot, ["definition_version", "revision", "pending", "attention", "problem"]) || !Number.isSafeInteger(snapshot.definition_version) || !Number.isSafeInteger(snapshot.revision) || !integer(snapshot.pending) || typeof snapshot.attention !== "boolean" || typeof snapshot.problem !== "boolean") fail();
+      if (!time(agent.snapshot_saved_at) || !object(snapshot, ["definition_version", "revision", "pending", "attention", "problem"]) || !integer(snapshot.definition_version) || snapshot.definition_version < 1 || !integer(snapshot.revision) || !integer(snapshot.pending) || typeof snapshot.attention !== "boolean" || typeof snapshot.problem !== "boolean") fail();
     } else if (!["unavailable", "missing_no_runtime_conclusion", "invalid_or_incompatible"].includes(agent.snapshot_evidence) || agent.snapshot !== undefined || agent.snapshot_saved_at !== undefined) fail();
     if (agent.collection_evidence === "fresh_checkpoint") {
       const collection = agent.collection;
