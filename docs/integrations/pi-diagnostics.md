@@ -810,24 +810,22 @@ Stopped registrations still own/protect workspaces; scoped absence is not deleti
 permission. Reads never contact runners, inspect/start runtimes, acquire leases
 or replay outboxes. `runner_evidence` and `lease_evidence` remain unknown.
 
-A compatible persisted runner snapshot provides only definition/presentation
-revision, pending count, attention and a problem flag. `snapshot_saved_at` is the
-snapshot file's persistence time, **not** a fresh runner observation or proof of
-liveness. A missing, invalid, oversized or unsupported snapshot is unavailable
-evidence, not zero work or a healthy/stopped runner. Snapshot reads are limited
-to 1 MiB and reject symlinks and non-regular files.
+Persisted runner snapshots expose definition/presentation revision, pending count,
+attention and a problem flag. `snapshot_saved_at` is persistence time, **not** runner
+observation/liveness. Missing/invalid/unsupported snapshots are unavailable, not
+zero work or healthy/stopped evidence. All three checkpoint readers share 1 MiB,
+no-follow/nonblocking regular-file capture. Observed incomplete reads, size/time
+changes or path replacement withhold bytes/timestamps. These checks are not atomic
+transactions, ABA detection or future reservations.
 Cached/live/Pi require safe-integer counters (positive definition version,
 nonnegative pending/revision) and explicit boolean attention; null/missing is not zero/false.
 Native RPC/snapshot known keys reject duplicate/folded members.
 
 Shared native collection/schedule decoding exposes pending counts, delivery
 problem flags, calendar metadata, next due times and admission timestamps/task IDs,
-not execution or business success. Diagnostic collection reads cap regular files
-at 1 MiB, reject leaf symlinks/FIFOs and observed incomplete/replaced reads.
-Unsafe/invalid evidence is unavailable without a count; missing files retain
-native zero-pending defaults, not proof of collection success. Native outbox
-loading/delivery rules are unchanged. Point-in-time checks are not reservations.
-Scope/configuration filtering precedes collection reads.
+not execution or business success. Unsafe/invalid collection evidence is unavailable
+without a count; missing files retain native zero-pending defaults, not collection
+success. Native loading/delivery is unchanged; scope/configuration precede reads.
 
 Due calculations reuse production scheduling; checkpoint errors cannot reconstruct
 supervision memory. At most 16 schedule summaries include full `schedule_count`
@@ -838,7 +836,8 @@ not change with state/due times. Task `state` filters are rejected.
 
 Schedule inventories and summaries share one projection, production checkpoint
 validation and production due calculation. Diagnostic schedule reads are capped
-at 1 MiB, no-follow/nonblocking and regular-file checked. Missing schedule files
+at 1 MiB, no-follow/nonblocking, regular-file and observed-stability checked.
+Missing schedule files
 mean no configured persisted schedules, exactly as in production, not a stopped
 or healthy runner. Invalid/oversized/unsafe checkpoints make summaries unavailable
 with no schedule count; the schedule inventory fails explicitly, never returning

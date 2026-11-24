@@ -2,10 +2,8 @@ package agentservice
 
 import (
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"radar/internal/protocol"
@@ -93,20 +91,11 @@ func diagnosticTime(value time.Time) string {
 func diagnosticSnapshot(reg Registration, item *protocol.DiagnosticAgent) {
 	item.SnapshotEvidence = "unavailable"
 	dir, _ := instanceDir(reg.ID)
-	file, err := os.OpenFile(filepath.Join(dir, "snapshot.json"), os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
+	data, info, err := diagnosticCheckpoint(filepath.Join(dir, "snapshot.json"))
 	if os.IsNotExist(err) {
 		item.SnapshotEvidence = "missing_no_runtime_conclusion"
 	}
 	if err != nil {
-		return
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > protocol.AgentMaxFrameBytes {
-		return
-	}
-	data, err := io.ReadAll(io.LimitReader(file, protocol.AgentMaxFrameBytes+1))
-	if err != nil || len(data) > protocol.AgentMaxFrameBytes {
 		return
 	}
 	// Decode only allowlisted evidence. Private presentation, tasks, recent

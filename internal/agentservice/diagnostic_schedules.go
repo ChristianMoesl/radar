@@ -4,10 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"io"
 	"os"
-	"syscall"
 	"time"
 
 	"radar/internal/protocol"
@@ -60,7 +57,7 @@ func diagnosticScheduleViews(reg Registration, now time.Time) ([]protocol.Diagno
 }
 
 func diagnosticSchedules(reg Registration) (scheduleState, error) {
-	file, err := os.OpenFile(schedulePath(reg), os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
+	data, _, err := diagnosticCheckpoint(schedulePath(reg))
 	if os.IsNotExist(err) {
 		// Exactly production's missing-checkpoint semantics, not a runner-state
 		// claim: there is no configured schedule in the persisted checkpoint.
@@ -68,18 +65,6 @@ func diagnosticSchedules(reg Registration) (scheduleState, error) {
 	}
 	if err != nil {
 		return scheduleState{}, err
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > protocol.AgentMaxFrameBytes {
-		return scheduleState{}, fmt.Errorf("schedule checkpoint unavailable or exceeds diagnostic read bound")
-	}
-	data, err := io.ReadAll(io.LimitReader(file, protocol.AgentMaxFrameBytes+1))
-	if err != nil {
-		return scheduleState{}, err
-	}
-	if len(data) > protocol.AgentMaxFrameBytes {
-		return scheduleState{}, fmt.Errorf("schedule checkpoint exceeds diagnostic read bound")
 	}
 	return decodeSchedules(data)
 }
