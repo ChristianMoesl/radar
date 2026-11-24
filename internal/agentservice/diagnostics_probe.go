@@ -33,10 +33,7 @@ func ProbeDiagnosticAgent(ctx context.Context, workspace, id string) (protocol.D
 	view := protocol.DiagnosticAgentProbe{ID: reg.ID, Registered: true, Desired: reg.Desired, OwnershipHold: "registered_owner_even_when_stopped", RunnerEvidence: "unknown_not_reached", SnapshotEvidence: "unavailable", Problem: "unavailable", LeaseEvidence: "unknown_not_inspected"}
 	path, err := socketPath(reg.ID)
 	if err == nil {
-		var hello struct {
-			Protocol   int    `json:"protocol"`
-			InstanceID string `json:"instanceId"`
-		}
+		var hello diagnosticRunnerHello
 		if err = call(ctx, path, "hello", nil, &hello); err == nil {
 			if !runnerIdentityMatches(hello.Protocol, hello.InstanceID, reg.ID) {
 				view.Problem = "identity_or_protocol_mismatch"

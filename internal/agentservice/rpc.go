@@ -46,6 +46,26 @@ func call(ctx context.Context, path, method string, params any, target any) erro
 	if len(line) > protocol.AgentMaxFrameBytes {
 		return fmt.Errorf("agent response exceeds 1 MiB")
 	}
+	// Reject ambiguous correlation/outcome members before decoding any target,
+	// including void calls. Missing results and null errors cannot prove a native
+	// action returned successfully. This never retries an uncertain request.
+	members, err := agentResponseObject(line, "jsonrpc", "id", "result", "error")
+	if err != nil {
+		return fmt.Errorf("invalid agent RPC response")
+	}
+	_, hasProtocol := members["jsonrpc"]
+	_, hasID := members["id"]
+	_, hasResult := members["result"]
+	errorValue, hasError := members["error"]
+	if !hasProtocol || !hasID || hasResult == hasError {
+		return fmt.Errorf("invalid agent RPC response")
+	}
+	if hasError {
+		fields, err := agentResponseObject(errorValue, "code", "message")
+		if err != nil || fields["code"] == nil || fields["message"] == nil {
+			return fmt.Errorf("invalid agent RPC response")
+		}
+	}
 	var response struct {
 		JSONRPC string          `json:"jsonrpc"`
 		ID      int             `json:"id"`

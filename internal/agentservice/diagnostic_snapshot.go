@@ -1,6 +1,11 @@
 package agentservice
 
-import "radar/internal/protocol"
+import (
+	"bytes"
+	"encoding/json"
+
+	"radar/internal/protocol"
+)
 
 // Both cached and live diagnostic reads use the same finite native projection.
 // Pointers distinguish missing/null evidence from valid zero counts or false
@@ -16,6 +21,43 @@ type diagnosticRunnerSnapshot struct {
 		Attention *bool `json:"attention"`
 		Revision  *int  `json:"revision"`
 	} `json:"presentation"`
+}
+
+func (snapshot *diagnosticRunnerSnapshot) UnmarshalJSON(raw []byte) error {
+	members, err := agentResponseObject(raw, "protocol", "instanceId", "definitionVersion", "pending", "problem", "presentation")
+	if err != nil {
+		return err
+	}
+	if presentation, ok := members["presentation"]; ok && !bytes.Equal(bytes.TrimSpace(presentation), []byte("null")) {
+		if _, err := agentResponseObject(presentation, "attention", "revision"); err != nil {
+			return err
+		}
+	}
+	type plain diagnosticRunnerSnapshot
+	var value plain
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	*snapshot = diagnosticRunnerSnapshot(value)
+	return nil
+}
+
+type diagnosticRunnerHello struct {
+	Protocol   int    `json:"protocol"`
+	InstanceID string `json:"instanceId"`
+}
+
+func (hello *diagnosticRunnerHello) UnmarshalJSON(raw []byte) error {
+	if _, err := agentResponseObject(raw, "protocol", "instanceId"); err != nil {
+		return err
+	}
+	type plain diagnosticRunnerHello
+	var value plain
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	*hello = diagnosticRunnerHello(value)
+	return nil
 }
 
 func (snapshot diagnosticRunnerSnapshot) projection(expected string) *protocol.DiagnosticAgentSnapshot {
