@@ -17,6 +17,18 @@ import (
 )
 
 var _ integration.SandboxRecreationPreviewDiagnostics = Source{}
+var _ integration.SandboxRecreationDiagnostics = Source{}
+
+// PrepareDiagnosticRecreation is an in-process boundary, never a serialized
+// response. The selected path must be resolved from exact registration by the
+// caller; capture independently checks it and binds the native full plan once.
+func (Source) PrepareDiagnosticRecreation(ctx context.Context, id, scope string) (protocol.DiagnosticRecreationPreview, integration.SandboxRecreateRequest, error) {
+	root, err := DefaultRoot()
+	if err != nil {
+		return protocol.DiagnosticRecreationPreview{}, integration.SandboxRecreateRequest{}, errors.New("native recreation capture unavailable")
+	}
+	return captureDiagnosticRecreationPreview(ctx, ExecRunner{}, root, id, scope)
+}
 
 func (Source) DiagnosticRecreationPreview(ctx context.Context, id, scope string) (protocol.DiagnosticRecreationPreview, error) {
 	root, err := DefaultRoot()

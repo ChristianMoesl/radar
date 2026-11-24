@@ -27,7 +27,18 @@ with the selected registration's path. Its internal capture keeps that same
 native confirmation request separate from the public view; rejected observations
 return neither. The existing read adapter discards the private request, which has
 no expiry, one-use or consent authority and is never serialized in the response.
-It does not duplicate recreation policy
+The in-process server adapter now binds exact registered feedback/scope/target
+identity and the private native confirmation to at most 16 latest-per-workspace,
+60-second, one-use plans. It consumes before apply-time validation, dispatches
+only the existing native executor and records a current-daemon workspace
+operation plus resource-refresh invalidation, including uncertain failures.
+Registered owner counts/deletion-lease probes do not replace native recreation
+writer admission. This backend stage has **no wire route or Pi/CLI apply
+capability**: its private result is deliberately not serializable. A matching
+versioned transport, finite response validation and separately fresh destructive
+exact-target interactive consent are still required before exposing apply.
+
+The public read adapter does not duplicate recreation policy
 or call `RecreateSandboxes`, Cleanup, ordinary refresh/GC, login, explicit start
 or arbitrary commands. The cooperative native budget is 30 seconds; CLI and Pi
 allow transport margins. Disconnect is not a guaranteed immediate cancellation

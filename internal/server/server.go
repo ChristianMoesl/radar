@@ -35,6 +35,7 @@ type Server struct {
 	diagnosticRefresh    func(context.Context) (collector.Result, error)
 	maintenanceMu        sync.Mutex
 	refreshPlan          *diagnosticRefreshPlan
+	recreationPlans      map[string]diagnosticRecreationPlan
 	store                *state.Store
 	logger               *slog.Logger
 	refresh              func()

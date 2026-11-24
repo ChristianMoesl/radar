@@ -62,6 +62,16 @@ type SandboxRecreationPreviewDiagnostics interface {
 	DiagnosticRecreationPreview(context.Context, string, string) (protocol.DiagnosticRecreationPreview, error)
 }
 
+// SandboxRecreationDiagnostics retains the native confirmation from the SAME
+// diagnostic planner invocation, exclusively for in-process exact-plan admission.
+// Its private request is not a wire payload, public plan token or user consent.
+// RecreateSandboxes remains the single production executor and owns all policy.
+type SandboxRecreationDiagnostics interface {
+	SandboxRecreationPreviewDiagnostics
+	WorkspaceSandboxRecreator
+	PrepareDiagnosticRecreation(context.Context, string, string) (protocol.DiagnosticRecreationPreview, SandboxRecreateRequest, error)
+}
+
 // RepositoryPolicyDiagnostics reads only one exact registered member's fixed
 // current repository configuration, never referenced files, runtimes or actions.
 // It is a separate explicit file-access capability, not WorkspacePolicyDiagnostics.
