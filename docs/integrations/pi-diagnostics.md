@@ -27,11 +27,14 @@ yields an identifier/link for the user and `notes.md`; filing does not implement
 the request or close the workspace.
 
 `radar_diagnostics` is a typed host tool available only in enabled feedback
-sessions. The current delivery is **observation, registration-only retirement previews, explicit native manual/expiry cleanup previews, freshly approved manual bundle guard checks, and explicitly confirmed collection-only refresh**: the overview advertises
-its capabilities explicitly. Explicit registered-runtime observations require
-fresh interactive approval. Full provider cleanup eligibility, durable operation history, cleanup apply
-and runtime controls are not yet exposed; unsupported
-requests fail instead of running arbitrary commands or changing state.
+sessions. The current delivery includes observation, registration-only retirement
+previews, explicit native manual/expiry cleanup previews, freshly approved manual
+bundle guard checks, separately confirmed exact-plan manual cleanup apply, and
+explicitly confirmed collection-only refresh. The overview advertises its
+capabilities explicitly. Explicit registered-runtime observations require fresh
+interactive approval. Full provider cleanup eligibility, durable operation history
+and runtime controls remain unsupported; unsupported requests fail instead of
+running arbitrary commands or changing state.
 
 The default `overview` returns the installed CLI version, loaded extension
 version, cached daemon/provider status and a typed `settings` policy projection.
@@ -48,7 +51,8 @@ aggregate evidence and no-replay safeguards. Existing preview promises are uncha
 ## Explicit installation-wide collection refresh
 
 `section: "refresh", scope: "installation"` defaults to `action: "preview"`.
-This is the only maintenance apply currently exposed. Origin/feedback scope,
+Collection refresh and separately confirmed exact-plan manual cleanup are the
+only maintenance apply flows currently exposed. For refresh, origin/feedback scope,
 provider/entity subsets, inventory/log selectors and cleanup selectors are
 rejected; installation-wide **inspection never authorizes mutation**. Preview
 requires a registered feedback workspace and matching daemon but no provider
@@ -261,8 +265,10 @@ login or mutations run. In particular this does not invoke the full cleanup
 previews, which can fetch Git refs. Runtime ownership, fresh activity/review,
 leases and execution preflight remain unverified; pending resource refresh is
 reported, not ignored. The snapshot is not an executable plan, freshness token
-for apply, execution eligibility or user consent. **Maintenance apply and verified operation outcomes are still unsupported.**
-Use the separately approved cleanup preview below for manual or expired native targets.
+for apply, execution eligibility or user consent. **Runtime-retirement apply and verified operation outcomes remain unsupported.**
+Manual cleanup has its own [Separate exact-plan destructive apply](#separate-exact-plan-destructive-apply)
+flow; this registration-only retirement preview cannot authorize it. Use the
+separately approved cleanup preview below for manual or expired native targets.
 Schema 34 must match in the CLI, daemon and loaded Pi extension; update the
 extension sources and reload separately from `make install`.
 
@@ -431,7 +437,8 @@ bounded listing. The observation timestamp is not a guarantee of future state.
 
 The complete runtime probe envelope, page, rows and observations are allowlisted
 before model output. Private siblings, wrong targets and inconsistent evidence
-fail closed, including unavailable replies. Schema 28 and wire shape unchanged.
+fail closed, including unavailable replies. CLI, daemon and loaded Pi must match
+diagnostics schema 34; the runtime observation wire shape is unchanged.
 
 Runtime matches, absence or mismatches establish neither registration ownership,
 lease safety, orphan absence nor cleanup eligibility/consent. Unrelated listing
@@ -786,7 +793,10 @@ fresh drift checks and user consent are **not established**. This is not an
 executable cleanup preview, a full list of provider deletion targets or evidence
 of a completed cleanup/retirement. It performs no filesystem existence checks,
 runtime/network probes, provider refreshes, lease acquisitions or mutations.
-Explicit provider previews and apply adapters remain separate future operations.
+This cached `gc_plan` view does not issue an apply token. Explicit native
+[manual-cleanup previews](#explicit-native-manual-cleanup-previews) and
+[Separate exact-plan destructive apply](#separate-exact-plan-destructive-apply)
+use their own fresh approval and native guards. Expired and runtime-retirement apply remain unsupported.
 
 ## Durable-agent registration and checkpoint evidence
 

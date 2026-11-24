@@ -4,8 +4,11 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+
+	"radar/internal/protocol"
 )
 
 func TestDocumentationCatalog(t *testing.T) {
@@ -179,4 +182,71 @@ func TestPiManualCleanupExactPlanContractIsBundled(t *testing.T) {
 			t.Errorf("manual exact-plan contract omitted %q", contract)
 		}
 	}
+}
+
+func TestPiDiagnosticsMaintenanceCapabilityBoundaries(t *testing.T) {
+	doc, err := Read("docs/integrations/pi-diagnostics.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		heading string
+		want    []string
+		stale   string
+	}{
+		{
+			name:  "overview",
+			want:  []string{"separately confirmed exact-plan manual cleanup apply", "Full provider cleanup eligibility, durable operation history", "runtime controls remain unsupported"},
+			stale: "cleanup apply\nand runtime controls are not yet exposed",
+		},
+		{
+			name:    "collection_refresh",
+			heading: "## Explicit installation-wide collection refresh",
+			want:    []string{"Collection refresh and separately confirmed exact-plan manual cleanup are the", "only maintenance apply flows currently exposed", "installation-wide **inspection never authorizes mutation**"},
+			stale:   "This is the only maintenance apply currently exposed",
+		},
+		{
+			name:    "registration_only_retirement",
+			heading: "## Explicit runtime-retirement target preview",
+			want:    []string{"Runtime-retirement apply and verified operation outcomes remain unsupported", "Separate exact-plan destructive apply"},
+			stale:   "Maintenance apply and verified operation outcomes are still unsupported",
+		},
+		{
+			name:    "cached_gc_plan",
+			heading: "## Cleanup-retention and cached GC-plan explanations",
+			want:    []string{"gc_plan", "does not issue an apply token", "Separate exact-plan destructive apply", "Expired and runtime-retirement apply remain unsupported"},
+			stale:   "Explicit provider previews and apply adapters remain separate future operations",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			section := doc.Content
+			if tc.heading != "" {
+				_, section, _ = strings.Cut(section, tc.heading+"\n")
+				if section == "" {
+					t.Fatalf("missing section %q", tc.heading)
+				}
+			}
+			section, _, _ = strings.Cut(section, "\n## ")
+			for _, contract := range tc.want {
+				if !strings.Contains(section, contract) {
+					t.Errorf("capability boundary omitted: %q", contract)
+				}
+			}
+			if strings.Contains(section, tc.stale) {
+				t.Errorf("obsolete capability claim: %q", tc.stale)
+			}
+		})
+	}
+	t.Run("current_schema", func(t *testing.T) {
+		matches := regexp.MustCompile(`(?i)\bschema ([0-9]+)\b`).FindAllStringSubmatch(doc.Content, -1)
+		if len(matches) == 0 {
+			t.Fatal("diagnostics topic must disclose the matching schema")
+		}
+		for _, match := range matches {
+			if match[1] != strconv.Itoa(protocol.DiagnosticsVersion) {
+				t.Errorf("documentation advertises %q; current diagnostics schema is %d", match[0], protocol.DiagnosticsVersion)
+			}
+		}
+	})
 }
