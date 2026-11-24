@@ -43,15 +43,25 @@ func collectionPath(reg Registration) string {
 	return filepath.Join(dir, "collection.json")
 }
 
+func newCollectionState(reg Registration) collectionState {
+	return collectionState{Version: 1, Source: reg.Collection, Seen: map[string]collectionRevision{}}
+}
+
 func loadCollection(reg Registration) (collectionState, error) {
-	state := collectionState{Version: 1, Source: reg.Collection, Seen: map[string]collectionRevision{}}
 	data, err := os.ReadFile(collectionPath(reg))
 	if errors.Is(err, os.ErrNotExist) {
-		return state, nil
+		return newCollectionState(reg), nil
 	}
 	if err != nil {
-		return state, err
+		return newCollectionState(reg), err
 	}
+	return decodeCollection(reg, data)
+}
+
+// Production and bounded diagnostic reads share the same decoding/defaults.
+// Diagnostic file bounds do not change native outbox loading or delivery rules.
+func decodeCollection(reg Registration, data []byte) (collectionState, error) {
+	state := newCollectionState(reg)
 	if err := json.Unmarshal(data, &state); err != nil {
 		return state, err
 	}

@@ -30,7 +30,7 @@ func DiagnosticAgents(workspace, id string) ([]protocol.DiagnosticAgent, error) 
 		item := protocol.DiagnosticAgent{ID: reg.ID, Registered: true, Desired: reg.Desired, Workspace: binding, OwnershipHold: "registered_owner_even_when_stopped", RunnerEvidence: "unknown_not_probed", LeaseEvidence: "unknown_not_inspected", CollectionEvidence: "not_configured", Schedules: []protocol.DiagnosticAgentSchedule{}, SupervisionEvidence: "unavailable_not_observed"}
 		diagnosticSnapshot(reg, &item)
 		if reg.Collection != "" {
-			checkpoint, err := loadCollection(reg)
+			checkpoint, err := diagnosticCollection(reg)
 			item.CollectionEvidence = "unavailable"
 			if err == nil {
 				item.CollectionEvidence = "fresh_checkpoint"

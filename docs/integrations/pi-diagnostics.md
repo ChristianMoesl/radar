@@ -820,22 +820,23 @@ evidence, not zero work or a healthy/stopped runner. Snapshot reads are limited
 to 1 MiB and reject symlinks and non-regular files.
 Cached/live/Pi require safe-integer counters (positive definition version,
 nonnegative pending/revision) and explicit boolean attention; null/missing is not zero/false.
-Native RPC/diagnostic known keys reject duplicate/folded members.
+Native RPC/snapshot known keys reject duplicate/folded members.
 
-Production-owned collection/schedule readers expose pending counts, delivery
-problem flags, configured calendar metadata, derived next due times and bounded
-admission timestamps/task IDs. Admission is not execution or business success.
-Schedule due calculations reuse production scheduling; cached checkpoint errors
-do not reconstruct in-memory supervision errors. The separate supervision
-projection below supplies available current-daemon error-presence evidence,
-not a change to checkpoint evidence. At most 16 schedule summaries
-are returned per agent with the full `schedule_count` and explicit `truncated`;
-follow `section: "agent_schedules", parent_id: "<agent registration ID>"` to
-page all persisted schedules with the same scope and selectors. Omit `parent_id`
-for the scoped schedule inventory, or use `id` for an exact opaque schedule ID.
-Native bounded schedule IDs are separate from selectable opaque IDs, which hash
-the complete agent/native schedule identity before text clipping. State and due
-time changes do not change that identity. Task `state` filters are rejected.
+Shared native collection/schedule decoding exposes pending counts, delivery
+problem flags, calendar metadata, next due times and admission timestamps/task IDs,
+not execution or business success. Diagnostic collection reads cap regular files
+at 1 MiB, reject leaf symlinks/FIFOs and observed incomplete/replaced reads.
+Unsafe/invalid evidence is unavailable without a count; missing files retain
+native zero-pending defaults, not proof of collection success. Native outbox
+loading/delivery rules are unchanged. Point-in-time checks are not reservations.
+Scope/configuration filtering precedes collection reads.
+
+Due calculations reuse production scheduling; checkpoint errors cannot reconstruct
+supervision memory. At most 16 schedule summaries include full `schedule_count`
+and explicit `truncated`. Page all using `section: "agent_schedules",
+parent_id: "<agent registration ID>"`; omit `parent_id` for scoped inventory or
+select opaque `id`. IDs hash full agent/native identity before clipping and do
+not change with state/due times. Task `state` filters are rejected.
 
 Schedule inventories and summaries share one projection, production checkpoint
 validation and production due calculation. Diagnostic schedule reads are capped
