@@ -354,7 +354,7 @@ func TestDiagnosticRecreationAdmissionObservationsDoNotInventRemovalPolicy(t *te
 	}
 }
 
-func TestDiagnosticRecreationAdmissionInvalidRequestsAndNoPublicRoute(t *testing.T) {
+func TestDiagnosticRecreationAdmissionInvalidRequestsAndTypedPublicRoute(t *testing.T) {
 	s, p, req, _ := recreationAdmissionFixture(t)
 	for name, mutate := range map[string]func(*protocol.DiagnosticMaintenanceRequest){"schema": func(q *protocol.DiagnosticMaintenanceRequest) { q.Schema-- }, "operation": func(q *protocol.DiagnosticMaintenanceRequest) { q.Operation = "cleanup" }, "parent": func(q *protocol.DiagnosticMaintenanceRequest) { q.ParentID = "" }, "oversized_parent": func(q *protocol.DiagnosticMaintenanceRequest) { q.ParentID = strings.Repeat("x", 513) }, "feedback": func(q *protocol.DiagnosticMaintenanceRequest) { q.FeedbackWorkspace = "relative" }, "scope": func(q *protocol.DiagnosticMaintenanceRequest) { q.Scope = "all" }, "workspace": func(q *protocol.DiagnosticMaintenanceRequest) { q.Workspace = "relative" }, "preview_identity": func(q *protocol.DiagnosticMaintenanceRequest) { q.PlanID = strings.Repeat("a", 64) }, "apply_identity": func(q *protocol.DiagnosticMaintenanceRequest) { q.Mode = "apply" }, "mode": func(q *protocol.DiagnosticMaintenanceRequest) { q.Mode = "force" }} {
 		t.Run(name, func(t *testing.T) {
@@ -365,11 +365,12 @@ func TestDiagnosticRecreationAdmissionInvalidRequestsAndNoPublicRoute(t *testing
 			}
 		})
 	}
-	// The staged in-process backend must not accidentally advertise/enable apply.
+	// The version-matched wire route projects only the existing private backend.
 	response := refreshRPC(t, s, protocol.Request{Method: "diagnostics-maintenance", Maintenance: &req})
-	if response.OK || p.prepares != 0 || p.executes != 0 || len(s.recreationPlans) != 0 {
-		t.Fatal("unqualified wire route enabled")
+	if !response.OK || response.DiagnosticRecreation == nil || !protocol.ValidDiagnosticRecreation(*response.DiagnosticRecreation, req) || p.prepares != 1 || p.executes != 0 || len(s.recreationPlans) != 1 {
+		t.Fatal("typed preview not routed to existing backend")
 	}
+
 }
 
 func TestDiagnosticRecreationAdmissionFreezesBeforeCallbacks(t *testing.T) {

@@ -30,8 +30,8 @@ func runFeedbackDiagnostics(args []string) {
 	parentID := flags.String("parent-id", "", "source_refs: task ID; bindings: retained source-ref ID; workspace_resources: registered workspace ID; workspace_policy/repository_policy: required registered workspace ID; agent_schedules: agent registration ID; gc_plan: owning task ID; runtime_probe/retirement_preview/recreation_preview: required registered workspace ID; agent_probe: required agent registration ID; cleanup_preview/cleanup_check: required retained task ID")
 	cleanupMode := flags.String("cleanup-mode", "", "cleanup_preview only: manual (default) or expired")
 	workspaceID := flags.String("workspace-id", "", "expired cleanup_preview only: exact registered GC candidate workspace ID")
-	action := flags.String("action", "preview", "refresh or manual cleanup_preview: preview (default) or exact-plan apply")
-	planID := flags.String("plan-id", "", "refresh/manual cleanup apply only: exact fresh preview ID, not consent")
+	action := flags.String("action", "preview", "refresh, manual cleanup_preview or recreation_preview: preview (default) or exact-plan apply")
+	planID := flags.String("plan-id", "", "refresh/manual cleanup/recreation apply only: exact fresh preview ID, not consent")
 	state := flags.String("state", "", "exact retained task state filter")
 	limit := flags.Int("limit", 20, "page size (inventories 1-50; logs 1-100)")
 	cursor := flags.String("cursor", "", "opaque inventory/log continuation cursor")
@@ -52,7 +52,11 @@ func runFeedbackDiagnostics(args []string) {
 	flags.Visit(func(f *flag.Flag) {
 		if *section == "recreation_preview" {
 			switch f.Name {
-			case "workspace", "section", "scope", "parent-id", "limit", "json":
+			case "workspace", "section", "scope", "parent-id", "action", "json":
+			case "plan-id":
+				if *action != "apply" {
+					invalidSelector = true
+				}
 			default:
 				invalidSelector = true
 			}
@@ -81,7 +85,7 @@ func runFeedbackDiagnostics(args []string) {
 			default:
 				invalidSelector = true
 			}
-		} else if !(*section == "cleanup_preview" && *cleanupMode != "expired") && (f.Name == "action" || f.Name == "plan-id") {
+		} else if *section != "recreation_preview" && !(*section == "cleanup_preview" && *cleanupMode != "expired") && (f.Name == "action" || f.Name == "plan-id") {
 			invalidSelector = true
 		}
 		if *section != "cleanup_preview" && (f.Name == "cleanup-mode" || f.Name == "workspace-id") {
@@ -96,6 +100,14 @@ func runFeedbackDiagnostics(args []string) {
 	})
 	if invalidSelector {
 		fatal(errors.New("diagnostic selectors do not match the selected section"))
+	}
+	if *section == "recreation_preview" {
+		result, err := feedbackRecreation(*current, *scope, *parentID, *action, *planID)
+		if err != nil {
+			fatal(err)
+		}
+		printResult(result)
+		return
 	}
 	if *section == "cleanup_preview" && *cleanupMode != "expired" {
 		if *cleanupMode != "" && *cleanupMode != "manual" {
@@ -161,7 +173,7 @@ func feedbackDiagnostics(current, section string, logQuery logging.LogQuery) (ma
 		"diagnostics_schema": protocol.DiagnosticsVersion, "section": "overview", "version": version.Number, "commit": version.Commit,
 		"built": version.Date, "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"daemon":       map[string]any{"available": false, "reason": "daemon_unavailable"},
-		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "workspace_policy", "repository_policy", "agents", "agent_schedules", "gc_plan", "runtime_probe", "agent_probe", "retirement_preview", "recreation_preview", "cleanup_preview", "cleanup_check", "integrations", "operations", "refresh", "logs"}, "maintenance": true, "collection_only_refresh": true, "cleanup_apply": true, "runtime_controls": false, "runtime_retirement_previews": true, "sandbox_recreation_previews": true, "recreation_preview_bounded_owner_and_lease_evidence": true, "manual_cleanup_previews": true, "manual_cleanup_bundle_guard_checks": true, "complete_cleanup_execution_eligibility": false, "expiry_cleanup_previews": true, "cleanup_preview_lease_contention_probes": true, "runtime_probes": true, "agent_socket_probes": true, "current_daemon_agent_supervision": true, "agent_supervision_history": false, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false, "current_daemon_collection_attempts": true, "current_daemon_managed_operations": true, "native_managed_handler_timing": true, "native_cleanup_completed_phase_aggregates": true, "native_cleanup_returned_target_summaries": true, "native_cleanup_execution_boundaries": true, "durable_operation_history": false, "verified_operation_resource_outcomes": false, "filtered_redacted_log_metadata": true, "raw_log_contents": false, "configuration_policy_origins": true, "daemon_process_configuration": true, "registered_workspace_recipe_policy": true, "current_member_repository_declarations": true, "workspace_effective_policy": false, "daemon_environment": false},
+		"capabilities": map[string]any{"sections": []string{"overview", "tasks", "workspaces", "source_refs", "bindings", "workspace_resources", "workspace_policy", "repository_policy", "agents", "agent_schedules", "gc_plan", "runtime_probe", "agent_probe", "retirement_preview", "recreation_preview", "cleanup_preview", "cleanup_check", "integrations", "operations", "refresh", "logs"}, "maintenance": true, "collection_only_refresh": true, "cleanup_apply": true, "runtime_controls": false, "runtime_retirement_previews": true, "sandbox_recreation_previews": true, "sandbox_recreation_apply": true, "recreation_preview_bounded_owner_and_lease_evidence": true, "manual_cleanup_previews": true, "manual_cleanup_bundle_guard_checks": true, "complete_cleanup_execution_eligibility": false, "expiry_cleanup_previews": true, "cleanup_preview_lease_contention_probes": true, "runtime_probes": true, "agent_socket_probes": true, "current_daemon_agent_supervision": true, "agent_supervision_history": false, "runtime_probes_require_exact_registered_workspace": true, "retained_inventory_requires_matching_daemon": true, "integration_access_checks": false, "integration_collection_history": false, "current_daemon_collection_attempts": true, "current_daemon_managed_operations": true, "native_managed_handler_timing": true, "native_cleanup_completed_phase_aggregates": true, "native_cleanup_returned_target_summaries": true, "native_cleanup_execution_boundaries": true, "durable_operation_history": false, "verified_operation_resource_outcomes": false, "filtered_redacted_log_metadata": true, "raw_log_contents": false, "configuration_policy_origins": true, "daemon_process_configuration": true, "registered_workspace_recipe_policy": true, "current_member_repository_declarations": true, "workspace_effective_policy": false, "daemon_environment": false},
 	}
 	// Native defaults and configuration origins share the exact production
 	// decoder. No arbitrary configuration strings or referenced files escape.
@@ -199,6 +211,9 @@ func feedbackDiagnostics(current, section string, logQuery logging.LogQuery) (ma
 }
 
 func feedbackInventory(current, scope string, req protocol.DiagnosticsRequest) (map[string]any, error) {
+	if req.Section == "recreation_preview" {
+		return nil, errors.New("recreation requires exact typed maintenance preview or one-use apply, not an inventory")
+	}
 	if req.Section == "cleanup_preview" && req.CleanupMode != "expired" {
 		return nil, errors.New("manual cleanup requires complete typed preview/apply, not inventory pages")
 	}
@@ -214,8 +229,8 @@ func feedbackInventory(current, scope string, req protocol.DiagnosticsRequest) (
 	if req.Limit < 1 || req.Limit > 50 || len(req.ID) > 512 || len(req.ParentID) > 512 || len(req.State) > 64 || len(req.Cursor) > 512 {
 		return nil, errors.New("diagnostic selector exceeds bounds")
 	}
-	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "workspace_resources" && req.Section != "workspace_policy" && req.Section != "repository_policy" && req.Section != "agent_schedules" && req.Section != "gc_plan" && req.Section != "runtime_probe" && req.Section != "agent_probe" && req.Section != "retirement_preview" && req.Section != "recreation_preview" && req.Section != "cleanup_preview" {
-		return nil, errors.New("parent-id requires source_refs, bindings, workspace_resources, agent_schedules, gc_plan, runtime_probe, agent_probe, retirement_preview, recreation_preview or cleanup_preview")
+	if req.ParentID != "" && req.Section != "source_refs" && req.Section != "bindings" && req.Section != "workspace_resources" && req.Section != "workspace_policy" && req.Section != "repository_policy" && req.Section != "agent_schedules" && req.Section != "gc_plan" && req.Section != "runtime_probe" && req.Section != "agent_probe" && req.Section != "retirement_preview" && req.Section != "cleanup_preview" {
+		return nil, errors.New("parent-id requires source_refs, bindings, workspace_resources, agent_schedules, gc_plan, runtime_probe, agent_probe, retirement_preview or cleanup_preview")
 	}
 	if (req.Section == "agents" || req.Section == "agent_schedules") && req.State != "" {
 		return nil, errors.New("state filters retained task lifecycle, not agent runner state")
@@ -235,8 +250,8 @@ func feedbackInventory(current, scope string, req protocol.DiagnosticsRequest) (
 	if req.Section == "cleanup_preview" && (req.ParentID == "" || req.State != "") {
 		return nil, errors.New("cleanup preview requires one exact retained task parent and no state filter")
 	}
-	if (req.Section == "retirement_preview" || req.Section == "recreation_preview") && (req.ParentID == "" || req.ID != "" || req.State != "" || req.Cursor != "") {
-		return nil, errors.New("retirement/recreation preview requires an exact registered workspace parent and no row/state/cursor selectors")
+	if (req.Section == "retirement_preview") && (req.ParentID == "" || req.ID != "" || req.State != "" || req.Cursor != "") {
+		return nil, errors.New("retirement preview requires an exact registered workspace parent and no row/state/cursor selectors")
 	}
 	if req.Section == "workspace_policy" && (req.ParentID == "" || req.ID != "" || req.State != "" || req.Cursor != "") {
 		return nil, errors.New("workspace policy requires one exact registered workspace parent and no row/state/cursor selectors")
@@ -272,7 +287,7 @@ func feedbackInventory(current, scope string, req protocol.DiagnosticsRequest) (
 		return result, nil
 	}
 	var response protocol.Response
-	if req.Section == "cleanup_preview" || req.Section == "recreation_preview" {
+	if req.Section == "cleanup_preview" {
 		response, err = client.ProbeDiagnostics(path, req, 32*time.Second)
 	} else if req.Section == "repository_policy" || req.Section == "runtime_probe" || req.Section == "agent_probe" || req.Section == "retirement_preview" {
 		response, err = client.ProbeDiagnostics(path, req, 7*time.Second)
@@ -293,12 +308,7 @@ func feedbackInventory(current, scope string, req protocol.DiagnosticsRequest) (
 	if response.Diagnostics.Schema != protocol.DiagnosticsVersion || response.Diagnostics.Section != req.Section {
 		return nil, errors.New("diagnostic inventory version mismatch")
 	}
-	if req.Section == "recreation_preview" {
-		page := response.Diagnostics
-		if page.Total != 1 || len(page.Items) != 1 || !page.Complete || page.NextCursor != "" || page.ResourceRefreshPending || page.Evidence != "explicit_native_exact_workspace_recreation_proposal" || page.Items[0].ID != req.ParentID || page.Items[0].RecreationPreview == nil || !protocol.ValidDiagnosticRecreationPreview(*page.Items[0].RecreationPreview, req.ParentID) {
-			return nil, errors.New("native recreation preview evidence unavailable")
-		}
-	}
+
 	result["available"] = true
 	result["evidence"] = response.Diagnostics.Evidence
 	result["inventory"] = response.Diagnostics

@@ -53,7 +53,7 @@ func TestRecreationPreviewStrictRPCNoImplicitDispatch(t *testing.T) {
 	for _, field := range []string{`"id":""`, `"state":null`, `"cursor":""`, `"cleanup_mode":null`, `"workspace_id":""`, `"plan_id":"private"`, `"apply":true`, `"command":"private"`, `"raw":null`} {
 		frames = append(frames, strings.Replace(valid, `"limit":20`, `"limit":20,`+field, 1))
 	}
-	for i, frame := range append(frames, valid) {
+	for _, frame := range append(frames, valid) {
 		host, client := net.Pipe()
 		done := make(chan struct{})
 		go func() { defer close(done); s.handle(host) }()
@@ -66,23 +66,8 @@ func TestRecreationPreviewStrictRPCNoImplicitDispatch(t *testing.T) {
 		}
 		client.Close()
 		<-done
-		if i < len(frames) {
-			if result.OK || p.calls != 0 {
-				t.Fatalf("invalid frame reached native planner: %s %+v", frame, result)
-			}
-		} else if !result.OK || p.calls != 1 || result.Diagnostics == nil || result.Diagnostics.Schema != protocol.DiagnosticsVersion || result.Diagnostics.Items[0].RecreationPreview == nil {
-			t.Fatalf("exact native route missing: %+v", result)
+		if result.OK || p.calls != 0 || result.Diagnostics != nil {
+			t.Fatalf("replaced proposal route dispatched native planner: %s %+v", frame, result)
 		}
-	}
-	// Publication can change during the slow native read; do not return a stale proposal.
-	p.pending = &pending
-	req := protocol.DiagnosticsRequest{Section: "recreation_preview", ParentID: "registered", Workspace: "/registered"}
-	result := refreshRPC(t, s, protocol.Request{Method: "diagnostics-probe", Diagnostics: &req})
-	if result.OK || result.Diagnostics != nil || p.calls != 2 {
-		t.Fatal("post-native pending publication accepted")
-	}
-	result = refreshRPC(t, s, protocol.Request{Method: "diagnostics-probe", Diagnostics: &req})
-	if result.OK || p.calls != 2 {
-		t.Fatal("pending publication reached native planner")
 	}
 }

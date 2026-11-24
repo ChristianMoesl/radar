@@ -90,8 +90,9 @@ func callRequest(socketPath string, req protocol.Request, timeout time.Duration)
 	}
 
 	cleanup := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "cleanup"
+	recreation := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "recreate"
 	var reader io.Reader = conn
-	if cleanup {
+	if cleanup || recreation {
 		reader = io.LimitReader(conn, 36*1024+1)
 	}
 	line, err := bufio.NewReader(reader).ReadBytes('\n')
@@ -99,6 +100,13 @@ func callRequest(socketPath string, req protocol.Request, timeout time.Duration)
 		return protocol.Response{}, err
 	}
 
+	if recreation {
+		response, err := decodeDiagnosticRecreation(line)
+		if err == nil && response.OK && (response.DiagnosticRecreation == nil || !protocol.ValidDiagnosticRecreation(*response.DiagnosticRecreation, *req.Maintenance)) {
+			return protocol.Response{}, errors.New("native recreation response does not match exact request; outcome may be unknown, do not replay")
+		}
+		return response, err
+	}
 	if cleanup {
 		response, err := decodeDiagnosticCleanup(line)
 		if err == nil && response.OK && (response.DiagnosticCleanup == nil || !protocol.ValidDiagnosticCleanup(*response.DiagnosticCleanup, *req.Maintenance)) {

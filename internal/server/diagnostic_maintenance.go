@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -36,22 +37,25 @@ func diagnosticMaintenanceFields(raw []byte, operation string) bool {
 	if json.Unmarshal(frame["maintenance"], &fields) != nil {
 		return false
 	}
-	for name := range fields {
+	for name, value := range fields {
+		if operation == "recreate" && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return false
+		}
 		switch name {
 		case "diagnostics_schema", "operation", "mode", "scope":
 		case "plan_id":
-			if operation != "refresh" && operation != "cleanup" {
+			if operation != "refresh" && operation != "cleanup" && operation != "recreate" {
 				return false
 			}
-			if operation == "cleanup" && string(fields["mode"]) != `"apply"` {
+			if (operation == "cleanup" || operation == "recreate") && string(fields["mode"]) != `"apply"` {
 				return false
 			}
 		case "parent_id", "workspace":
-			if operation != "cleanup_check" && operation != "cleanup" {
+			if operation != "cleanup_check" && operation != "cleanup" && operation != "recreate" {
 				return false
 			}
 		case "feedback_workspace":
-			if operation != "cleanup" {
+			if operation != "cleanup" && operation != "recreate" {
 				return false
 			}
 		default:

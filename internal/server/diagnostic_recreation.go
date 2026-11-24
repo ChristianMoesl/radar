@@ -15,8 +15,8 @@ import (
 
 const maxDiagnosticRecreationPlans = 16
 
-// In-process stage of the exact recreation adapter. No wire handler, capability
-// or consent route uses it until the matching CLI/daemon/Pi boundary is shipped.
+// The exact recreation adapter retains private native admission behind its finite
+// version-matched transport. Pi separately requires fresh destructive consent.
 // Neither the request nor the retained native confirmation is client supplied.
 // This is the only recreation admission cache; the native executor still owns
 // all recreation policy and last-moment deletion/writer/lifetime guards.
@@ -234,4 +234,10 @@ func (s *Server) diagnosticRecreation(ctx context.Context, req protocol.Diagnost
 	}
 	s.recreationPlans[before.workspaceID] = diagnosticRecreationPlan{request: recreationBindingRequest(req), scope: before, native: request, view: copyDiagnosticRecreationView(view), expires: now.Add(time.Minute)}
 	return copyDiagnosticRecreationView(view), nil
+}
+
+// Explicit projection only: never marshal the retained request or native result.
+func projectDiagnosticRecreation(v diagnosticRecreationView, req protocol.DiagnosticMaintenanceRequest) protocol.DiagnosticRecreation {
+	v = copyDiagnosticRecreationView(v)
+	return protocol.DiagnosticRecreation{Schema: protocol.DiagnosticsVersion, Operation: "recreate", Mode: v.mode, Scope: req.Scope, FeedbackWorkspaceID: v.feedbackID, ScopeWorkspaceID: v.scopeID, Evidence: "native_exact_workspace_recreation_plan_not_consent", PlanID: v.planID, ExpiresAt: v.expiresAt, Revision: v.revision, Proposal: v.proposal, Problem: v.problem, Outcome: v.outcome, OperationID: v.operationID, ResourceRefreshPending: v.resourceRefreshPending, Limitations: protocol.DiagnosticRecreationLimitations()}
 }

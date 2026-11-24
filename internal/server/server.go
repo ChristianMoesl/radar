@@ -226,6 +226,20 @@ func (s *Server) handle(conn net.Conn) {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "exact typed maintenance request required"})
 				continue
 			}
+			if req.Maintenance.Operation == "recreate" {
+				private, err := s.diagnosticRecreation(context.Background(), *req.Maintenance)
+				if err != nil {
+					_ = encoder.Encode(protocol.Response{OK: false, Error: "exact native recreation unavailable or changed; outcome may be unknown, do not replay or automatically retry"})
+					continue
+				}
+				view := projectDiagnosticRecreation(private, *req.Maintenance)
+				if !protocol.ValidDiagnosticRecreation(view, *req.Maintenance) {
+					_ = encoder.Encode(protocol.Response{OK: false, Error: "native recreation outcome unknown; do not replay or automatically retry"})
+					continue
+				}
+				_ = encoder.Encode(protocol.Response{OK: true, DiagnosticRecreation: &view})
+				continue
+			}
 			if req.Maintenance.Operation == "cleanup" {
 				view, err := s.diagnosticCleanup(context.Background(), *req.Maintenance)
 				if err != nil {
@@ -260,16 +274,7 @@ func (s *Server) handle(conn net.Conn) {
 				continue
 			}
 			if req.Diagnostics.Section == "recreation_preview" {
-				if !diagnosticRecreationPreviewFields(scanner.Bytes()) || s.resourceSnapshot == nil {
-					_ = encoder.Encode(protocol.Response{OK: false, Error: "exact native recreation preview request and publication state required"})
-					continue
-				}
-				page, err := diagnostics.PreviewRecreation(context.Background(), s.store, *req.Diagnostics, func() bool { return s.resourceSnapshot().ResourceRefreshPending }, s.integrations)
-				if err != nil {
-					_ = encoder.Encode(protocol.Response{OK: false, Error: err.Error()})
-					continue
-				}
-				_ = encoder.Encode(protocol.Response{OK: true, Revision: page.Revision, Diagnostics: &page})
+				_ = encoder.Encode(protocol.Response{OK: false, Error: "recreation requires exact typed maintenance preview or one-use apply; no proposal-only probe route"})
 				continue
 			}
 			pending := s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending

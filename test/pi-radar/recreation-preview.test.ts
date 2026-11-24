@@ -1,81 +1,95 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { registerFeedbackSession } from "../../extensions/pi-radar/feedback.ts";
-import { recreationPreviewLimitations } from "../../extensions/pi-radar/recreation-preview.ts";
+import { recreationLimitations } from "../../extensions/pi-radar/recreation-preview.ts";
 
-function fixture(scope="origin", status="recreate", state="running", observed=true): any {
- const evidence="explicit_native_exact_workspace_recreation_proposal";
- return {diagnostics_schema:34,section:"recreation_preview",scope,available:true,feedback_workspace_id:scope==="feedback"?"registered":"feedback",...(scope==="origin"?{origin_workspace_id:"registered"}:{}),evidence,inventory:{diagnostics_schema:34,section:"recreation_preview",evidence,observed_at:"2026-11-23T08:40:00.123456789Z",revision:3,snapshot:"a".repeat(64),total:1,pagination_complete:true,resource_refresh_pending:false,limitations:[...recreationPreviewLimitations],items:[{id:"registered",recreation_preview:{id:"registered",preview_id:"recreation-preview:"+"b".repeat(64),status,previous_state:state,runtime_identity_observed:observed,execution_eligibility:"unknown_fresh_execution_guards_not_run",ownership_evidence:"fresh_bounded_registration",agent_owner_count:0,lease_evidence:"unknown_no_lock_file"}}]}};
+function fixture(scope = "origin", status = "recreate", state = "running", observed = true): any {
+ const feedback = scope === "feedback" ? "registered" : "feedback";
+ return {diagnostics_schema:35,section:"recreation_preview",scope,available:true,feedback_workspace_id:feedback,...(scope==="origin"?{origin_workspace_id:"registered"}:{}),evidence:"native_exact_workspace_recreation_plan_not_consent",recreation:{diagnostics_schema:35,operation:"recreate",mode:"preview",scope,feedback_workspace_id:feedback,...(scope!=="installation"?{scope_workspace_id:"registered"}:{}),evidence:"native_exact_workspace_recreation_plan_not_consent",plan_id:"c".repeat(64),expires_at:new Date(Date.now()+60_000).toISOString(),revision:3,proposal:{id:"registered",preview_id:"recreation-preview:"+"b".repeat(64),status,previous_state:state,runtime_identity_observed:observed,execution_eligibility:"unknown_fresh_execution_guards_not_run",ownership_evidence:"fresh_bounded_registration",agent_owner_count:0,lease_evidence:"unknown_no_lock_file"},problem:"none",outcome:"not_attempted",resource_refresh_pending:false,limitations:[...recreationLimitations]}};
 }
-function harness(data:any=fixture()) {
+function harness(data: any = fixture()) {
  const tools=new Map<string,any>(["mcp__linear__get_project","mcp__linear__save_issue"].map(name=>[name,{name,exposure:"direct"}]));let active=[...tools.keys()];
- const calls:any[]=[],prompts:string[]=[];const approvals:boolean[]=[];
- const ctx:any={cwd:"/work/feedback",hasUI:true,ui:{setStatus(){},confirm:async(title:string,text:string)=>{prompts.push(title+" "+text);return approvals.shift()??false;}}};
- const pi:any={getAllTools:()=>[...tools.values()],getActiveTools:()=>active,setActiveTools:(names:string[])=>{active=names;},registerTool:(tool:any)=>tools.set(tool.name,tool),on(){},exec:async(binary:string,args:string[],options:any)=>{calls.push({binary,args,options});return {code:0,stdout:JSON.stringify(data),stderr:"",killed:false};}};
+ const calls:any[]=[],prompts:string[]=[],approvals:boolean[]=[];
+ const ctx:any={cwd:"/work/feedback",session:"session-one",sessionManager:{getSessionId:()=>ctx.session},hasUI:true,ui:{setStatus(){},confirm:async(title:string,text:string)=>{prompts.push(title+" "+text);return approvals.shift()??false;}}};
+ const h:any={data,calls,prompts,approvals,ctx,tools,mutation:undefined};
+ const pi:any={getAllTools:()=>[...tools.values()],getActiveTools:()=>active,setActiveTools:(names:string[])=>{active=names;},registerTool:(tool:any)=>tools.set(tool.name,tool),on(){},exec:async(binary:string,args:string[],options:any)=>{
+  calls.push({binary,args,options});const response=structuredClone(h.data);
+  if(args.includes("apply")&&response.available===true){Object.assign(response.recreation,{mode:"apply",outcome:"native_restoration_checks_returned",problem:"none",operation_id:"operation",resource_refresh_pending:true});}
+  h.mutation?.(response,args);return {code:0,stdout:JSON.stringify(response),stderr:"",killed:false};
+ }};
  const session=registerFeedbackSession(pi);session.update({feedback:true},ctx);
- return {ctx,pi,tools,calls,prompts,approvals,session,read:(params:any={},signal?:AbortSignal)=>tools.get("radar_diagnostics").execute("call",{section:"recreation_preview",parent_id:"registered",...params},signal,undefined,ctx)};
+ Object.assign(h,{pi,session,read:(params:any={},signal?:AbortSignal)=>tools.get("radar_diagnostics").execute("call",{section:"recreation_preview",parent_id:"registered",...params},signal,undefined,ctx),preview:async(params:any={})=>{approvals.push(true);return h.read(params);},apply:async(params:any={})=>{approvals.push(true);return h.read({action:"apply",plan_id:h.data.recreation.plan_id,...params});}});
+ return h;
 }
-for(const scope of ["origin","feedback","installation"])for(const [status,state,observed]of [["recreate","running",true],["recreate","stopped",true],["blocked","unknown",true],["blocked","unknown",false],["skipped","unknown",false]] as const)test(`native recreation proposal requires exact fresh approval: ${scope}/${status}/${state}/${observed}`,async()=>{
- const data=fixture(scope,status,state,observed),h=harness(data);h.approvals.push(true);
- const result=await h.read({scope,limit:1});assert.deepEqual(result.details.inventory,data.inventory);assert.equal(h.calls.length,1);assert.equal(h.prompts.length,1);assert.equal(h.calls[0].options.timeout,35000);
- assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","recreation_preview","--json","--scope",scope,"--parent-id","registered","--limit","1"]);
- for(const phrase of ["registered",scope,"native recreation planner once","30 seconds","secret/policy metadata","auto-start the SBX daemon","readability only","never read its contents","discards sandbox-local state","Ownership, activity, leases","not full eligibility","not later maintenance","do not automatically retry"])assert.ok(h.prompts[0].includes(phrase),phrase);
- const denied=await h.read({scope});assert.equal(denied.details.cancelled,true);assert.equal(h.calls.length,1);assert.equal(h.prompts.length,2);
+for(const scope of ["origin","feedback","installation"])for(const [status,state,observed]of [["recreate","running",true],["recreate","stopped",true],["blocked","unknown",true],["blocked","unknown",false],["skipped","unknown",false]] as const)test(`recreation exact native preview and separate destructive consent: ${scope}/${status}/${state}/${observed}`,async()=>{
+ const h=harness(fixture(scope,status,state,observed));const result=await h.preview({scope});assert.deepEqual(result.details.recreation,h.data.recreation);assert.equal(h.calls.length,1);assert.equal(h.calls[0].options.timeout,35_000);
+ assert.deepEqual(h.calls[0].args,["feedback-diagnostics","--workspace","/work/feedback","--section","recreation_preview","--json","--scope",scope,"--parent-id","registered","--action","preview"]);
+ for(const phrase of ["registered",scope,"planner once","30 seconds","secret/policy metadata","auto-start the SBX daemon","readability only","never read its contents","including stopped registrations","twice briefly probe/release","without creating coordination files/directories","not runtime ownership, holder identity, writer admission","fingerprint drift","discards sandbox-local state","SEPARATE","No automatic retry or replay"])assert.ok(h.prompts[0].includes(phrase),phrase);
+ if(status!=="recreate"){await assert.rejects(h.apply({scope}));assert.equal(h.calls.length,1);assert.equal(h.prompts.length,1);return;}
+ // Preview approval alone cannot authorize apply. Denial consumes its UI binding.
+ const denied=await h.read({scope,action:"apply",plan_id:h.data.recreation.plan_id});assert.equal(denied.details.cancelled,true);assert.equal(h.calls.length,1);assert.equal(h.prompts.length,2);
+ await assert.rejects(h.apply({scope}));assert.equal(h.calls.length,1);
+ await h.preview({scope});const applied=await h.apply({scope});assert.equal(applied.details.recreation.outcome,"native_restoration_checks_returned");assert.equal(h.calls.length,3);
+ const prompt=h.prompts.at(-1);for(const phrase of [h.data.recreation.plan_id,h.data.recreation.proposal.preview_id,"SEPARATE fresh destructive approval","complete immutable disclosure","discards sandbox-local state","prior running/stopped state","exclusive writer admission","pinned lifetime","not forced cancellation or rollback","not independent live-resource verification","No automatic retry or replay","not later maintenance"])assert.ok(prompt.includes(phrase),phrase);
+ await assert.rejects(h.apply({scope}));assert.equal(h.calls.length,3);
 });
-for(const mode of ["denied","headless","pre_abort","approval_abort","mcp_lost","immutable_request"])test(`recreation proposal approval fails closed or binds immutable request: ${mode}`,async()=>{
- const h=harness();const abort=new AbortController();const params:any={section:"recreation_preview",parent_id:"registered",scope:"origin"};
+for(const mode of ["denied","headless","pre_abort","approval_abort","mcp_lost","workspace_drift","session_drift","context_drift","context_away_back","ui_lost","immutable_request"])test(`recreation preview dispatch is immutable and fail closed: ${mode}`,async()=>{
+ const h=harness(),abort=new AbortController(),params:any={section:"recreation_preview",parent_id:"registered",scope:"origin"};
  if(mode==="headless")h.ctx.hasUI=false;if(mode==="pre_abort")abort.abort();
- h.ctx.ui.confirm=async()=>{if(mode==="approval_abort")abort.abort();if(mode==="mcp_lost")h.tools.clear();if(mode==="immutable_request"){params.parent_id="other";params.scope="installation";}return mode!=="denied";};
+ h.ctx.ui.confirm=async()=>{if(mode==="approval_abort")abort.abort();if(mode==="mcp_lost")h.tools.clear();if(mode==="workspace_drift")h.ctx.cwd="/work/other";if(mode==="session_drift")h.ctx.session="other";if(mode==="context_drift")h.session.update({feedback:true,feedback_origin:"changed"},h.ctx);if(mode==="context_away_back"){h.session.update({feedback:false},h.ctx);h.session.update({feedback:true},h.ctx);}if(mode==="ui_lost")h.ctx.hasUI=false;if(mode==="immutable_request"){params.parent_id="other";params.scope="installation";}return mode!=="denied";};
  const call=h.tools.get("radar_diagnostics").execute("call",params,abort.signal,undefined,h.ctx);
- if(mode==="denied"){assert.equal((await call).details.cancelled,true);}else if(mode==="immutable_request"){await call;assert.ok(h.calls[0].args.includes("registered"));assert.ok(!h.calls[0].args.includes("other"));return;}else await assert.rejects(call);
+ if(mode==="denied")assert.equal((await call).details.cancelled,true);else if(mode==="immutable_request"){await call;assert.ok(h.calls[0].args.includes("registered"));assert.ok(!h.calls[0].args.includes("other"));return;}else await assert.rejects(call);
  assert.equal(h.calls.length,0);
 });
-for(const params of [{parent_id:undefined},{parent_id:""},{parent_id:"x".repeat(513)},{scope:"all"},{id:""},{state:""},{cursor:""},{action:"preview"},{action:"apply"},{plan_id:"b".repeat(64)},{cleanup_mode:"manual"},{workspace_id:"registered"},{limit:51},{limit:0},{since:"2026-11-23 00:00:00"},{command:"private"}])test(`recreation proposal rejects selectors before approval: ${JSON.stringify(params)}`,async()=>{
+for(const params of [{parent_id:undefined},{parent_id:""},{parent_id:"x".repeat(513)},{scope:"all"},{id:""},{state:""},{cursor:""},{action:"force"},{action:"apply"},{plan_id:"b".repeat(64)},{cleanup_mode:"manual"},{workspace_id:"registered"},{limit:1},{since:"2026-11-23 00:00:00"},{command:"private"}])test(`recreation refuses selectors before approval: ${JSON.stringify(params)}`,async()=>{
  const h=harness();h.approvals.push(true);await assert.rejects(h.read(params));assert.deepEqual(h.calls,[]);assert.deepEqual(h.prompts,[]);
 });
 const mutations:Record<string,(d:any)=>void>={
- private_envelope:d=>d.raw="PRIVATE",private_page:d=>d.inventory.raw="PRIVATE",private_row:d=>d.inventory.items[0].raw="PRIVATE",private_view:d=>d.inventory.items[0].recreation_preview.reason="PRIVATE",native_plan:d=>d.inventory.items[0].recreation_preview.plan_id="PRIVATE",recipe:d=>d.inventory.items[0].recreation_preview.recipe={env_file:"PRIVATE"},
- old_schema:d=>d.diagnostics_schema=32,old_page_schema:d=>d.inventory.diagnostics_schema=32,wrong_scope:d=>d.scope="feedback",missing_origin:d=>delete d.origin_workspace_id,wrong_origin:d=>d.origin_workspace_id="other",wrong_parent:d=>d.inventory.items[0].id="other",wrong_view_id:d=>d.inventory.items[0].recreation_preview.id="other",
- bad_preview_id:d=>d.inventory.items[0].recreation_preview.preview_id="b".repeat(64),outcome_claim:d=>d.inventory.items[0].recreation_preview.status="recreated",bad_state:d=>d.inventory.items[0].recreation_preview.previous_state="healthy",absent_identity:d=>d.inventory.items[0].recreation_preview.runtime_identity_observed=false,missing_identity:d=>delete d.inventory.items[0].recreation_preview.runtime_identity_observed,skipped_identity:d=>d.inventory.items[0].recreation_preview.status="skipped",eligibility_claim:d=>d.inventory.items[0].recreation_preview.execution_eligibility="eligible",unknown_recreate:d=>d.inventory.items[0].recreation_preview.previous_state="unknown",
- pending:d=>d.inventory.resource_refresh_pending=true,total:d=>d.inventory.total=2,more_rows:d=>d.inventory.items.push(d.inventory.items[0]),incomplete:d=>d.inventory.pagination_complete=false,cursor:d=>d.inventory.next_cursor="opaque",bad_time:d=>d.inventory.observed_at="2026-02-30T00:00:00Z",bad_revision:d=>d.inventory.revision=-1,bad_snapshot:d=>d.inventory.snapshot="PRIVATE",missing_limits:d=>d.inventory.limitations=[],duplicate_limits:d=>d.inventory.limitations[1]=d.inventory.limitations[0],raw_limits:d=>d.inventory.limitations[0]="PRIVATE",evidence:d=>d.inventory.evidence="verified_outcome",reason:d=>d.reason="PRIVATE",null_page:d=>d.inventory=null,null_row:d=>d.inventory.items[0]=null,null_view:d=>d.inventory.items[0].recreation_preview=null,
+ private_envelope:d=>d.raw="PRIVATE",private_view:d=>d.recreation.raw="PRIVATE",private_proposal:d=>d.recreation.proposal.reason="PRIVATE",native_identity:d=>d.recreation.proposal.expected_plan_id="PRIVATE",recipe:d=>d.recreation.proposal.recipe={env_file:"PRIVATE"},old_schema:d=>d.diagnostics_schema=34,old_view_schema:d=>d.recreation.diagnostics_schema=34,wrong_scope:d=>d.scope="feedback",missing_origin:d=>delete d.origin_workspace_id,wrong_origin:d=>d.origin_workspace_id="other",wrong_parent:d=>d.recreation.proposal.id="other",wrong_feedback:d=>d.recreation.feedback_workspace_id="other",wrong_anchor:d=>d.recreation.scope_workspace_id="other",bad_preview_id:d=>d.recreation.proposal.preview_id="b".repeat(64),bad_plan_id:d=>d.recreation.plan_id="recreation-preview:"+"b".repeat(64),uppercase_plan:d=>d.recreation.plan_id="A".repeat(64),bad_status:d=>d.recreation.proposal.status="recreated",bad_state:d=>d.recreation.proposal.previous_state="healthy",absent_identity:d=>d.recreation.proposal.runtime_identity_observed=false,missing_identity:d=>delete d.recreation.proposal.runtime_identity_observed,skipped_identity:d=>d.recreation.proposal.status="skipped",eligible:d=>d.recreation.proposal.execution_eligibility="eligible",unknown_recreate:d=>d.recreation.proposal.previous_state="unknown",pending:d=>d.recreation.resource_refresh_pending=true,missing_pending:d=>delete d.recreation.resource_refresh_pending,null_pending:d=>d.recreation.resource_refresh_pending=null,preview_operation:d=>d.recreation.operation_id="op",preview_outcome:d=>d.recreation.outcome="native_restoration_checks_returned",bad_time:d=>d.recreation.expires_at="2026-02-30T00:00:00Z",expired:d=>d.recreation.expires_at=new Date(Date.now()-1000).toISOString(),extended:d=>d.recreation.expires_at=new Date(Date.now()+120_000).toISOString(),bad_revision:d=>d.recreation.revision=-1,unsafe_revision:d=>d.recreation.revision=Number.MAX_SAFE_INTEGER+1,missing_limits:d=>d.recreation.limitations=[],duplicate_limits:d=>d.recreation.limitations[1]=d.recreation.limitations[0],private_limits:d=>d.recreation.limitations[0]="PRIVATE",evidence:d=>d.recreation.evidence="verified_outcome",reason:d=>d.reason="PRIVATE",null_view:d=>d.recreation=null,null_proposal:d=>d.recreation.proposal=null,missing_ownership:d=>delete d.recreation.proposal.ownership_evidence,private_ownership:d=>d.recreation.proposal.ownership_evidence="PRIVATE",missing_count:d=>delete d.recreation.proposal.agent_owner_count,unknown_count:d=>d.recreation.proposal.ownership_evidence="unavailable",negative_count:d=>d.recreation.proposal.agent_owner_count=-1,fractional_count:d=>d.recreation.proposal.agent_owner_count=0.5,oversize_count:d=>d.recreation.proposal.agent_owner_count=1025,null_count:d=>d.recreation.proposal.agent_owner_count=null,string_count:d=>d.recreation.proposal.agent_owner_count="0",missing_lease:d=>delete d.recreation.proposal.lease_evidence,private_holder:d=>d.recreation.proposal.lease_evidence="PRIVATE",holder_payload:d=>d.recreation.proposal.lease_holder="PRIVATE",claimed_owner_block:d=>d.recreation.proposal.execution_eligibility="blocked_registered_agent",claimed_lease_block:d=>d.recreation.proposal.execution_eligibility="blocked_lease_contention",
 };
-for(const [name,mutate]of Object.entries(mutations))test(`recreation proposal rejects private or inconsistent evidence: ${name}`,async()=>{
- const data=fixture();mutate(data);const h=harness(data);h.approvals.push(true);await assert.rejects(h.read(),e=>e instanceof Error&&!e.message.includes("PRIVATE"));assert.equal(h.calls.length,1);
+for(const [name,mutate]of Object.entries(mutations))test(`recreation preview rejects private or inconsistent complete disclosure: ${name}`,async()=>{
+ const h=harness();mutate(h.data);h.approvals.push(true);await assert.rejects(h.read(),e=>e instanceof Error&&!e.message.includes("PRIVATE"));assert.equal(h.calls.length,1);await assert.rejects(h.apply());assert.equal(h.calls.length,1);
 });
-for(const reason of ["origin_not_registered","daemon_unavailable","snapshot_changed_restart_pagination"])test(`recreation unavailable evidence is unknown without fallback: ${reason}`,async()=>{
- const data={diagnostics_schema:34,section:"recreation_preview",scope:"origin",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason};const h=harness(data);h.approvals.push(true);assert.equal((await h.read()).details.available,false);assert.equal(h.calls.length,1);
- for(const extra of [{raw:"PRIVATE"},{inventory:fixture().inventory},{reason:"PRIVATE"},{evidence:"explicit_native_exact_workspace_recreation_proposal"}]){const bad=harness({...data,...extra});bad.approvals.push(true);await assert.rejects(bad.read());assert.equal(bad.calls.length,1);}
+for(const lease of ["unknown_no_lock_file","exclusive_available_at_probe","contended_at_probe","unavailable"])for(const owners of [undefined,0,1,1024])test(`recreation observations do not invent native admission policy: ${lease}/${owners}`,async()=>{
+ const h=harness(),v=h.data.recreation.proposal;v.lease_evidence=lease;if(owners===undefined){v.ownership_evidence="unavailable";delete v.agent_owner_count;}else v.agent_owner_count=owners;
+ await h.preview();const result=await h.apply();assert.equal(result.details.recreation.proposal.execution_eligibility,"unknown_fresh_execution_guards_not_run");assert.equal(h.calls.length,2);
 });
-for(const kind of ["transport","nonzero","json","oversized"])test(`recreation proposal sanitizes failures and never retries: ${kind}`,async()=>{
- const h=harness();h.approvals.push(true);h.pi.exec=async()=>{h.calls.push({});if(kind==="transport")throw new Error("PRIVATE transport");return {code:kind==="nonzero"?1:0,stdout:kind==="oversized"?"PRIVATE".repeat(4000):"PRIVATE invalid json",stderr:"PRIVATE",killed:false};};
- await assert.rejects(h.read(),e=>e instanceof Error&&!e.message.includes("PRIVATE")&&e.message.includes("do not automatically retry"));assert.equal(h.calls.length,1);
+for(const reason of ["origin_not_registered","daemon_unavailable","recreation_outcome_unknown_do_not_replay"])test(`recreation unavailable envelope has no fallback: ${reason}`,async()=>{
+ const data={diagnostics_schema:35,section:"recreation_preview",scope:"origin",available:false,feedback_workspace_id:"feedback",...(reason!=="origin_not_registered"?{origin_workspace_id:"registered"}:{}),evidence:"unavailable",reason};const h=harness(data);assert.equal((await h.preview()).details.available,false);await assert.rejects(h.read({action:"apply",plan_id:"c".repeat(64)}));assert.equal(h.calls.length,1);
+ for(const extra of [{raw:"PRIVATE"},{recreation:fixture().recreation},{reason:"PRIVATE"},{evidence:"native_exact_workspace_recreation_plan_not_consent"},{origin_workspace_id:undefined,...(reason==="origin_not_registered"?{scope:"feedback"}:{})}]){const bad=harness({...data,...extra});await assert.rejects(bad.preview());assert.equal(bad.calls.length,1);}
+});
+for(const kind of ["transport","nonzero","json","oversized","duplicate","escaped_duplicate","folded","null","deep","trailing"])test(`recreation frame errors stay sanitized and never replay: ${kind}`,async()=>{
+ const h=harness();await h.preview();h.pi.exec=async()=>{h.calls.push({});if(kind==="transport")throw new Error("PRIVATE");let raw=JSON.stringify(h.data);if(kind==="json")raw="PRIVATE invalid";if(kind==="oversized")raw+=" ".repeat(36*1024);if(kind==="duplicate")raw=raw.replace('"scope":"origin"','"scope":"feedback","scope":"origin"');if(kind==="escaped_duplicate")raw=raw.replace('"scope":"origin"','"sc\\u006fpe":"origin","scope":"origin"');if(kind==="folded")raw=raw.replace('"scope":"origin"','"Scope":"origin"');if(kind==="null")raw="null";if(kind==="deep")raw="[".repeat(18)+raw+"]".repeat(18);if(kind==="trailing")raw+=' {"private":"PRIVATE"}';return {code:kind==="nonzero"?1:0,stdout:raw,stderr:"PRIVATE",killed:false};};
+ await assert.rejects(h.apply(),e=>e instanceof Error&&!e.message.includes("PRIVATE")&&e.message.includes("automatically retry"));assert.equal(h.calls.length,2);await assert.rejects(h.apply());assert.equal(h.calls.length,2);
+});
+for(const mode of ["headless","abort","workspace","session","scope","target","identity","expired","expire_during_approval","superseded","context","concurrent","availability","ui_lost"])test(`recreation apply consumes immutable latest binding before dispatch: ${mode}`,async()=>{
+ const h=harness(),abort=new AbortController();if(mode==="expired")h.data.recreation.expires_at=new Date(Date.now()+1000).toISOString();await h.preview();let params:any={};
+ if(mode==="headless")h.ctx.hasUI=false;if(mode==="abort")abort.abort();if(mode==="workspace")h.ctx.cwd="/work/other";if(mode==="session")h.ctx.session="other";if(mode==="scope")params.scope="installation";if(mode==="target")params.parent_id="other";if(mode==="identity")params.plan_id="d".repeat(64);if(mode==="superseded"){h.data.recreation.plan_id="d".repeat(64);await h.preview();params.plan_id="c".repeat(64);}if(mode==="context")h.session.update({feedback:true},h.ctx);
+ const before=h.calls.length,oldNow=Date.now;
+ try{
+  if(mode==="expired")Date.now=()=>oldNow()+2000;
+  h.ctx.ui.confirm=async()=>{if(mode==="expire_during_approval")Date.now=()=>oldNow()+61_000;if(mode==="availability")h.tools.clear();if(mode==="ui_lost")h.ctx.hasUI=false;if(mode==="concurrent"){h.ctx.hasUI=false;await assert.rejects(h.read());h.ctx.hasUI=true;}return true;};
+  await assert.rejects(h.read({action:"apply",plan_id:h.data.recreation.plan_id,...params},abort.signal));assert.equal(h.calls.length,before);
+ }finally{Date.now=oldNow;}
+ h.ctx.hasUI=true;h.ctx.cwd="/work/feedback";h.ctx.session="session-one";
+ if(h.tools.has("radar_diagnostics"))await assert.rejects(h.apply());assert.equal(h.calls.length,before);
+});
+for(const problem of ["native_error","invalid_or_incomplete_native_result","cancelled_or_timed_out"])test(`recreation partial/unknown returned evidence cannot retry: ${problem}`,async()=>{
+ const h=harness();await h.preview();h.mutation=(d:any)=>Object.assign(d.recreation,{outcome:"unverified_may_be_partial",problem});const result=await h.apply();assert.equal(result.details.recreation.outcome,"unverified_may_be_partial");assert.equal(result.details.recreation.problem,problem);await assert.rejects(h.apply());assert.equal(h.calls.length,2);
+});
+for(const name of ["feedback","origin","scope","target","proposal","plan","expiry","revision","pending","operation","outcome","problem","private"])test(`recreation apply response must match immutable accepted disclosure: ${name}`,async()=>{
+ const h=harness();const result=await h.preview();result.details.recreation.proposal.agent_owner_count=999;result.details.recreation.plan_id="e".repeat(64);
+ h.mutation=(d:any)=>{const v=d.recreation;switch(name){case "feedback":d.feedback_workspace_id=v.feedback_workspace_id="other";break;case "origin":d.origin_workspace_id=v.scope_workspace_id="other";break;case "scope":d.scope=v.scope="installation";delete d.origin_workspace_id;delete v.scope_workspace_id;break;case "target":v.proposal.id="other";break;case "proposal":v.proposal.agent_owner_count=999;break;case "plan":v.plan_id="e".repeat(64);break;case "expiry":v.expires_at=new Date(Date.now()+30_000).toISOString();break;case "revision":v.revision++;break;case "pending":v.resource_refresh_pending=false;break;case "operation":delete v.operation_id;break;case "outcome":v.outcome="verified_recovery";break;case "problem":v.problem="native_error";break;case "private":v.private="PRIVATE";}}
+ await assert.rejects(h.apply(),e=>e instanceof Error&&!e.message.includes("PRIVATE"));assert.equal(h.calls.length,2);await assert.rejects(h.apply());assert.equal(h.calls.length,2);
+});
+test("returned model details cannot rewrite retained recreation consent",async()=>{
+ const h=harness(),result=await h.preview();result.details.feedback_workspace_id="other";result.details.recreation.proposal.agent_owner_count=999;result.details.recreation.plan_id="e".repeat(64);await h.apply();assert.ok(!h.prompts.at(-1).includes('"agent_owner_count":999'));assert.ok(h.prompts.at(-1).includes('"agent_owner_count":0'));assert.equal(h.calls.length,2);
+});
+for(const stage of ["preview","apply"])for(const drift of ["workspace","session","context","abort","ui","mcp"])test(`recreation post-dispatch ${stage} ${drift} never saves or publishes stale evidence`,async()=>{
+ const h=harness(),abort=new AbortController();if(stage==="apply")await h.preview();const original=h.pi.exec;h.pi.exec=async(...args:any[])=>{const result=await original(...args);if(drift==="workspace")h.ctx.cwd="/work/other";if(drift==="session")h.ctx.session="other";if(drift==="context")h.session.update({feedback:true},h.ctx);if(drift==="abort")abort.abort();if(drift==="ui")h.ctx.hasUI=false;if(drift==="mcp")h.tools.clear();return result;};h.approvals.push(true);await assert.rejects(h.read(stage==="apply"?{action:"apply",plan_id:h.data.recreation.plan_id}:{},abort.signal));assert.equal(h.calls.length,stage==="apply"?2:1);
 });
 
-for(const lease of ["unknown_no_lock_file","exclusive_available_at_probe","contended_at_probe","unavailable"])for(const owners of [undefined,0,1,1024])test(`recreation ownership and lease observations do not grant execution: ${lease}/${owners}`,async()=>{
- const data=fixture(),view=data.inventory.items[0].recreation_preview;
- view.lease_evidence=lease;
- if(owners===undefined){view.ownership_evidence="unavailable";delete view.agent_owner_count;}else view.agent_owner_count=owners;
- const h=harness(data);h.approvals.push(true);const result=await h.read();assert.equal(result.details.inventory.items[0].recreation_preview.execution_eligibility,"unknown_fresh_execution_guards_not_run");
- for(const phrase of ["including stopped registrations","twice briefly probe/release","without creating coordination files","not runtime ownership, holder identity, writer admission","fingerprint drift"])assert.ok(h.prompts[0].includes(phrase),phrase);
- assert.equal(h.calls.length,1);
-});
-const ownershipMutations:Record<string,(v:any)=>void>={
- missing_ownership:(v:any)=>delete v.ownership_evidence,
- private_ownership:(v:any)=>v.ownership_evidence="PRIVATE",
- missing_count:(v:any)=>delete v.agent_owner_count,
- unknown_with_count:(v:any)=>v.ownership_evidence="unavailable",
- negative_count:(v:any)=>v.agent_owner_count=-1,
- fractional_count:(v:any)=>v.agent_owner_count=0.5,
- oversize_count:(v:any)=>v.agent_owner_count=1025,
- null_count:(v:any)=>v.agent_owner_count=null,
- string_count:(v:any)=>v.agent_owner_count="0",
- missing_lease:(v:any)=>delete v.lease_evidence,
- private_holder:(v:any)=>v.lease_evidence="PRIVATE-holder",
- holder_payload:(v:any)=>v.lease_holder="PRIVATE-holder",
- claimed_owner_block:(v:any)=>v.execution_eligibility="blocked_registered_agent",
- claimed_lease_block:(v:any)=>v.execution_eligibility="blocked_lease_contention",
-};
-for(const [name,mutate]of Object.entries(ownershipMutations))test(`recreation rejects inconsistent owner or lease evidence: ${name}`,async()=>{
- const data=fixture();mutate(data.inventory.items[0].recreation_preview);const h=harness(data);h.approvals.push(true);
- await assert.rejects(h.read(),e=>e instanceof Error&&!e.message.includes("PRIVATE"));assert.equal(h.calls.length,1);
+for(const changed of [false,true])test(`unavailable recreation apply still binds registered feedback caller: ${changed}`,async()=>{
+ const h=harness();await h.preview();h.mutation=(d:any)=>{delete d.recreation;d.available=false;d.evidence="unavailable";d.reason="recreation_outcome_unknown_do_not_replay";if(changed)d.feedback_workspace_id="other";};
+ if(changed)await assert.rejects(h.apply());else assert.equal((await h.apply()).details.available,false);await assert.rejects(h.apply());assert.equal(h.calls.length,2);
 });

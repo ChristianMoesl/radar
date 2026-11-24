@@ -29,11 +29,11 @@ the request or close the workspace.
 `radar_diagnostics` is a typed host tool available only in enabled feedback
 sessions. The current delivery includes observation, registration-only retirement
 previews, explicit native manual/expiry cleanup previews, freshly approved manual
-bundle guard checks, separately confirmed exact-plan manual cleanup apply, and
-explicitly confirmed collection-only refresh. The overview advertises its
+bundle guard checks, separately confirmed exact-plan manual cleanup apply,
+exact registered-workspace sandbox recreation apply and collection-only refresh. The overview advertises its
 capabilities explicitly. Explicit registered-runtime observations require fresh
 interactive approval. Full provider cleanup eligibility, durable operation history
-and runtime controls remain unsupported; unsupported requests fail instead of
+and other runtime controls remain unsupported; unsupported requests fail instead of
 running arbitrary commands or changing state.
 
 The default `overview` returns the installed CLI version, loaded extension
@@ -51,8 +51,8 @@ aggregate evidence and no-replay safeguards. Existing preview promises are uncha
 ## Explicit installation-wide collection refresh
 
 `section: "refresh", scope: "installation"` defaults to `action: "preview"`.
-Collection refresh and separately confirmed exact-plan manual cleanup are the
-only maintenance apply flows currently exposed. For refresh, origin/feedback scope,
+Collection refresh, exact-plan manual cleanup and exact sandbox recreation are
+the only maintenance apply flows currently exposed. For refresh, origin/feedback scope,
 provider/entity subsets, inventory/log selectors and cleanup selectors are
 rejected; installation-wide **inspection never authorizes mutation**. Preview
 requires a registered feedback workspace and matching daemon but no provider
@@ -85,7 +85,7 @@ in the same feedback workspace. The actual tool accepts only a validated preview
 it has just shown in that workspace, and requires fresh interactive confirmation
 of the exact plan, complete source target set and installation-wide effects.
 Headless apply, canceled approval, expired approval, lost MCP availability or
-unmatched previews fail closed. CLI/Pi/daemon must match **schema 34**; the typed
+unmatched previews fail closed. CLI/Pi/daemon must match **schema 35**; the typed
 maintenance request carries the schema and the daemon rejects mismatches before
 admission. Read/probe RPCs cannot apply maintenance. The fixed CLI form is
 `feedback-diagnostics --section refresh --scope installation --action apply
@@ -179,7 +179,7 @@ provider. Native references and statuses share one atomic cache revision; cursor
 also bind selected scope, registration/capability changes, returned collection
 attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 34; older versions fail closed.
+and extension must all support schema 35; older versions fail closed.
 
 Pi validates the complete integration envelope, page, row and capability allowlist,
 not only the collection subobject. Unknown sibling fields and inconsistent scope,
@@ -269,7 +269,7 @@ for apply, execution eligibility or user consent. **Runtime-retirement apply and
 Manual cleanup has its own [Separate exact-plan destructive apply](#separate-exact-plan-destructive-apply)
 flow; this registration-only retirement preview cannot authorize it. Use the
 separately approved cleanup preview below for manual or expired native targets.
-Schema 34 must match in the CLI, daemon and loaded Pi extension; update the
+Schema 35 must match in the CLI, daemon and loaded Pi extension; update the
 extension sources and reload separately from `make install`.
 
 ## Explicit native manual-cleanup previews
@@ -363,10 +363,12 @@ outcomes must not be replayed. A new deliberate preview and approval is separate
 work, never an automatic recovery attempt. Operations are current-daemon evidence,
 not durable or pre-restart history.
 
+`sandbox_recreation_apply: true` separately advertises exact native recreation
+with fresh destructive consent; other runtime controls remain unsupported.
 `cleanup_apply: true` advertises only this confirmed-manual whole-plan flow;
 `complete_cleanup_execution_eligibility`, `verified_operation_resource_outcomes`
 and `runtime_controls` remain false. CLI, daemon and separately loaded Pi must
-match **schema 34** with no legacy fallback. Install/reload Pi sources separately
+match **schema 35** with no legacy fallback. Install/reload Pi sources separately
 from `make install`. This changes the public transport only: persisted formats,
 known-data expiry and native manual confirmation policy are unchanged. Explicit
 expired proposals below remain read-only, never apply tokens.
@@ -402,7 +404,7 @@ runtime ownership nor leases/consent. Approved existing-inode lease probes retai
 limits; contention blocks the whole bundle despite warning expiry. Existing
 30-second/output/privacy/drift guards apply. No cleanup execution, lease creation
 or reservation, policy change or data removal occurs. Apply remains unsupported;
-CLI, daemon and loaded Pi must match schema 34 without fallback.
+CLI, daemon and loaded Pi must match schema 35 without fallback.
 
 ## Explicit registered-runtime observations
 
@@ -438,7 +440,7 @@ bounded listing. The observation timestamp is not a guarantee of future state.
 The complete runtime probe envelope, page, rows and observations are allowlisted
 before model output. Private siblings, wrong targets and inconsistent evidence
 fail closed, including unavailable replies. CLI, daemon and loaded Pi must match
-diagnostics schema 34; the runtime observation wire shape is unchanged.
+diagnostics schema 35; the runtime observation wire shape is unchanged.
 
 Runtime matches, absence or mismatches establish neither registration ownership,
 lease safety, orphan absence nor cleanup eligibility/consent. Unrelated listing
@@ -480,36 +482,33 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 34; there is no legacy fallback. Separately
+extension must all support schema 35; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-## Exact registered sandbox recreation proposal (diagnostics schema 34)
+## Exact registered sandbox recreation (diagnostics schema 35)
 
-Use `recreation_preview` with one exact registered workspace `parent_id` and fresh
-interactive scope/target approval. It calls the native recreation planner once,
-including SBX runtime/port/secret-policy metadata and local recipe accessibility
-checks. SBX reads may auto-start its daemon, not a sandbox. Only fixed native
-proposal status/state, bounded registered-owner counts, existing-inode deletion-lease
-observations and a privately bound display fingerprint are exposed. Owner/lease
-observations are not runtime ownership, holder identity or writer admission;
-no raw reason, native apply plan, full eligibility, recreation execution or retry
-authority. See the [complete recreation proposal contract](pi-recreation-preview.md).
+Use `recreation_preview` with one exact registered workspace `parent_id`. Fresh
+preview approval covers native reads; apply needs the latest one-use 60-second
+plan AND separate fresh destructive consent in this feedback workspace/Pi session.
+Recreation discards sandbox-local state and interrupts work; native guards remain.
+Native restoration checks are not independent resource verification. No replay or
+automatic retry. See the [complete recreation contract](pi-recreation-preview.md).
 
-## Recorded workspace policy (diagnostics schema 34)
+## Recorded workspace policy (diagnostics schema 35)
 
 Exact-parent `workspace_policy` reads the recorded sandbox recipe shape only,
 never current effective configuration or execution eligibility. See the complete
-[registered recipe contract](pi-policy.md#recorded-workspace-policy-diagnostics-schema-34).
+[registered recipe contract](pi-policy.md#recorded-workspace-policy-diagnostics-schema-35).
 
-## Current repository declarations (diagnostics schema 34)
+## Current repository declarations (diagnostics schema 35)
 
 Explicit `repository_policy` requires an exact registered parent and member row
 ID from `workspace_resources`, plus fresh interactive file-access confirmation.
 It reads only the registered source repository's bounded fixed `.radar.yaml`,
 not the member worktree, referenced files or effective runtime policy. See the
-[complete repository declaration contract](pi-policy.md#current-registered-member-repository-declarations-schema-34).
+[complete repository declaration contract](pi-policy.md#current-registered-member-repository-declarations-schema-35).
 
-## Retained inventories (diagnostics schema 34)
+## Retained inventories (diagnostics schema 35)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -660,7 +659,7 @@ confirmed exact native manual whole-plan flow, never expiry/runtime control. The
 refresh adapter advertises `maintenance` and `collection_only_refresh` as true;
 `manual_cleanup_bundle_guard_checks` separately advertises the explicit guard
 check. `complete_cleanup_execution_eligibility` remains false. CLI, daemon and separately loaded Pi sources must
-match schema 34; `make install` alone does not update/reload installed Pi sources.
+match schema 35; `make install` alone does not update/reload installed Pi sources.
 
 ## Identity and nested drill-down
 
@@ -922,7 +921,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 34; version mismatches fail closed
+extension must support diagnostics schema 35; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.
