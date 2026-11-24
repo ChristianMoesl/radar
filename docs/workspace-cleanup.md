@@ -261,10 +261,13 @@ confirming: manual cleanup can discard local changes and unpublished commits.
 The daemon binds the complete native preview to a random, one-use `plan_id` on
 this existing CLI/TUI path. Only the latest preview for that task is accepted,
 within 60 seconds and at the same cached revision with no pending resource
-refresh. Issuance also rechecks caller cancellation/deadline after waiting for
-plan admission and reading publication state. Observed cancellation refuses a
-new plan without replacing a prior successful preview; this point-in-time check
-does not prevent later cancellation or reserve resources.
+refresh. Issuance reads publication state before its final revision comparison,
+so a revision change during that reader refuses the new native or typed preview
+without retaining it or replacing a prior plan. An earlier identity remains
+subject to its own apply-time revision check; rejection does not revive it.
+Issuance also rechecks caller cancellation/deadline after waiting for admission
+and reading publication state. These point-in-time checks neither prevent later
+drift/cancellation nor reserve resources or grant execution consent.
 Changed targets, private operations or warnings, unissued bundles,
 expired/superseded previews and previews from a previous daemon are rejected
 before execution. The ID is freshness evidence, **not consent**: confirmation

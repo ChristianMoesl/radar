@@ -50,7 +50,9 @@ func (s *Server) issueBoundCleanupPlan(ctx context.Context, preview protocol.Cle
 	defer s.cleanupPlanMu.Unlock()
 	// Provider reads may be slow. Never issue a freshness identity for an input
 	// snapshot that changed while the planner was checking its resources.
-	if revision != s.store.Revision() || (s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending) {
+	// The publication reader can itself advance the store revision; compare only
+	// after it returns, before retaining or superseding any native/typed plan.
+	if (s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending) || revision != s.store.Revision() {
 		return protocol.CleanupPreview{}, errors.New("resource snapshot changed; refresh and preview cleanup again")
 	}
 	// Admission can wait, and the publication reader can outlive the caller.
