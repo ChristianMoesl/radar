@@ -69,6 +69,13 @@ freshness, not user consent.** A preview is not a frozen provider configuration 
 an attestation of effective permissions; native configuration/access is evaluated
 by the existing services at execution.
 
+The daemon rechecks cancellation/deadline after target discovery and preview
+publication reads. Observed cancellation refuses the new preview or apply before
+replacing/consuming a plan, starting an operation or calling the collection adapter.
+An earlier plan retains its own expiry, revision and fresh-consent requirements;
+rejection does not renew it. These point-in-time checks do not force interruption
+of callbacks or prevent cancellation and partial effects after acceptance.
+
 For a separately requested refresh, use `action: "apply", plan_id: "<latest ID>"`
 in the same feedback workspace. The actual tool accepts only a validated preview
 it has just shown in that workspace, and requires fresh interactive confirmation

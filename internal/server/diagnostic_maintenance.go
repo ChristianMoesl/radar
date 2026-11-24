@@ -122,6 +122,12 @@ func (s *Server) maintainDiagnostics(ctx context.Context, req protocol.Diagnosti
 		s.maintenanceMu.Unlock()
 		return protocol.DiagnosticMaintenance{}, err
 	}
+	// Target discovery can outlive the caller. Refuse before issuing a new
+	// preview or consuming an apply plan and creating its managed operation.
+	if err := ctx.Err(); err != nil {
+		s.maintenanceMu.Unlock()
+		return fail("maintenance cancelled during admission")
+	}
 	if req.Mode == "preview" {
 		if s.refreshPlan != nil && s.refreshPlan.consumed && s.refreshPlan.view.Status == "running" {
 			s.maintenanceMu.Unlock()
@@ -134,6 +140,12 @@ func (s *Server) maintainDiagnostics(ctx context.Context, req protocol.Diagnosti
 			return fail("maintenance preview identity unavailable")
 		}
 		pending := s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending
+		// Publication reads can also outlive a preview caller. Preserve an
+		// earlier plan rather than superseding it after observed cancellation.
+		if err := ctx.Err(); err != nil {
+			s.maintenanceMu.Unlock()
+			return fail("maintenance cancelled during admission")
+		}
 		view := protocol.DiagnosticMaintenance{Schema: protocol.DiagnosticsVersion, Operation: "refresh", Mode: "preview", Scope: "installation", Evidence: "native_collection_only_refresh", Status: "preview", Problem: "none", PlanID: hex.EncodeToString(token[:]), ExpiresAt: now.Add(time.Minute).UTC().Format(time.RFC3339Nano), Revision: s.store.Revision(), Targets: targets, Counts: protocol.DiagnosticRefreshCounts{Unverified: len(targets)}, ResourceRefreshPending: pending, Limitations: protocol.DiagnosticRefreshLimitations()}
 		s.refreshPlan = &diagnosticRefreshPlan{view: view, expires: now.Add(time.Minute)}
 		s.maintenanceMu.Unlock()
