@@ -15,7 +15,7 @@ import (
 // deliberately does not call status/Manager.status: those contact live runners
 // and inspect workspace runtimes. Scope is applied before checkpoint reads.
 func DiagnosticAgents(workspace, id string) ([]protocol.DiagnosticAgent, error) {
-	regs, err := registrations()
+	regs, err := diagnosticRegistrations()
 	if err != nil {
 		return nil, err
 	}

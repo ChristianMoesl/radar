@@ -798,18 +798,17 @@ use their own fresh approval and native guards. Expired and runtime-retirement a
 
 ## Durable-agent registration and checkpoint evidence
 
-Use `section: "agents"` with the same origin/feedback/installation scopes and
-revision-bound pagination, or select an exact agent registration with `id`.
-The scope uses the production workspace-ownership relationship, including agents
-whose backing workspace is inside the selected workspace. `state` is a retained
-task-lifecycle filter, not a runner-state filter; it and `parent_id` are rejected
-for this section rather than silently ignored.
+`section: "agents"` supports existing scopes, revision pagination and exact `id`;
+`state`/`parent_id` are rejected. Scope shares production's nested workspace relation.
+Both agent inventories first require a complete bounded registration scan, sharing
+workspace-owner read/entry/aggregate limits. Unsafe registries fail the whole read,
+even for unselected agents; no partial/empty fallback. Missing roots stay empty,
+not created. Scoped checkpoint reads follow successful discovery; native execution
+registration discovery is unchanged.
 
-Each item distinguishes registered desired state from observed runner state.
-An intentionally stopped registration still owns and protects its workspace;
-absence from a scoped inventory is not permission to delete resources. Reads
-never contact a runner socket, inspect/start a runtime, acquire a lease or replay
-an outbox. `runner_evidence` and `lease_evidence` remain explicitly unknown.
+Stopped registrations still own/protect workspaces; scoped absence is not deletion
+permission. Reads never contact runners, inspect/start runtimes, acquire leases
+or replay outboxes. `runner_evidence` and `lease_evidence` remain unknown.
 
 A compatible persisted runner snapshot provides only definition/presentation
 revision, pending count, attention and a problem flag. `snapshot_saved_at` is the

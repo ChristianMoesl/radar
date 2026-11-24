@@ -16,7 +16,7 @@ import (
 // DiagnosticAgentSchedules reads only scoped registrations and persisted schedule
 // checkpoints. A failed checkpoint is unavailable, not a complete empty list.
 func DiagnosticAgentSchedules(workspace, parentID, id string) ([]protocol.DiagnosticAgentScheduleEntry, error) {
-	regs, err := registrations()
+	regs, err := diagnosticRegistrations()
 	if err != nil {
 		return nil, err
 	}
