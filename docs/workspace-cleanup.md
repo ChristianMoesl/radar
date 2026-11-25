@@ -105,6 +105,13 @@ check is not a reservation against later changes; native ownership, activity,
 lease and provider-specific last-moment checks still apply. It adds no diagnostic
 retirement/expiry apply adapter or automatic retry.
 
+Already-missing cleanup results pass through the same final lifecycle guard,
+including cancellation and authored-mutation admission. GC rechecks path absence
+inside that guard before counting the no-op as deleted; a reappearing entry
+(including a dangling symlink) or unavailable inspection is skipped, not removed.
+No provider cleanup is dispatched for that no-op. This is point-in-time path
+absence, not proof that a runtime, registration or unrelated resource is absent.
+
 Busy, waiting, unverifiable activity, and pending handoff writes prevent removal even when an older preview or completion timestamp
 would otherwise authorize it. Activity-driven reopening clears the completion
 time; the review hold keeps the task unfinished after agents settle. Explicit

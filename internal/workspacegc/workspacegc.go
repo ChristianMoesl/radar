@@ -165,23 +165,17 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			continue
 		}
 		preview, err := cleanupService.Preview(ctx, candidate.Task, mode)
-		if err != nil {
-			if mode != integration.CleanupRetire && errors.Is(err, cleanup.ErrNoResources) && pathMissing(candidate.Path) {
-				result.Deleted = append(result.Deleted, candidate)
-				continue // Already gone; the post-GC local refresh drops stale refs.
-			}
+		alreadyMissing := mode != integration.CleanupRetire && errors.Is(err, cleanup.ErrNoResources) && pathMissing(candidate.Path)
+		if err != nil && !alreadyMissing {
 			result.skip(candidate, err, logger)
 			continue
 		}
 		selected, workspaceTarget := SelectTargetsForCandidate(preview, candidate)
-		if workspaceTarget == nil && (candidate.WorkspaceID != "" || !pathMissing(candidate.Path)) {
+		if !alreadyMissing && workspaceTarget == nil && (candidate.WorkspaceID != "" || !pathMissing(candidate.Path)) {
 			result.skip(candidate, fmt.Errorf("matching workspace cleanup target was not found"), logger)
 			continue
 		}
-		if mode != integration.CleanupRetire && len(selected.Targets) == 0 && pathMissing(candidate.Path) {
-			result.Deleted = append(result.Deleted, candidate)
-			continue
-		}
+		alreadyMissing = alreadyMissing || (mode != integration.CleanupRetire && len(selected.Targets) == 0 && pathMissing(candidate.Path))
 		if messages := cleanup.AutomaticBlockingMessages(selected.Targets, mode == integration.CleanupExpired); len(messages) > 0 {
 			result.skip(candidate, errors.New(messages[0]), logger)
 			continue
@@ -193,6 +187,14 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			}
 			if !candidateStillCurrent(store, candidate, now, options) {
 				return fmt.Errorf("task completion changed or workspace candidate changed during cleanup; preview again")
+			}
+			if alreadyMissing {
+				// No provider dispatch is needed, but stale lifecycle or path
+				// evidence must not become a successful deletion result either.
+				if !pathMissing(candidate.Path) {
+					return fmt.Errorf("workspace path is no longer missing or cannot be inspected; preview again")
+				}
+				return ctx.Err()
 			}
 			cleaned, err := cleanupService.Execute(ctx, selected, cleanup.ExecuteOptions{Mode: mode})
 			for _, target := range cleaned.Targets {
@@ -217,7 +219,7 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			continue
 		}
 		result.Deleted = append(result.Deleted, candidate)
-		if logger != nil {
+		if logger != nil && !alreadyMissing {
 			logger.Info("workspace gc deleted workspace", "task", candidate.TaskID, "path", candidate.Path, "expired", mode == integration.CleanupExpired)
 		}
 	}
