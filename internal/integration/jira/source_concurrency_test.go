@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,29 +16,38 @@ import (
 func TestCollectRunsAssignedAndTitleSearchesConcurrently(t *testing.T) {
 	var started atomic.Int32
 	release := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started.Add(1)
 		<-release
 		_ = json.NewEncoder(w).Encode(searchResponse{})
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 	configureJiraSource(t, server.URL, `{}`)
 
-	resultCh := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	resultCh := make(chan struct{})
 	go func() {
-		NewSource().Collect(context.Background(), jiraCollectRequest([]protocol.Task{{ID: 1, Title: "XYZ-7 rollout"}}))
-		resultCh <- struct{}{}
+		defer close(resultCh)
+		NewSource().Collect(ctx, jiraCollectRequest([]protocol.Task{{ID: 1, Title: "XYZ-7 rollout"}}))
 	}()
+	// Join before test-scoped configuration is restored, including a failed
+	// concurrency assertion. A late CLI must not reach the next test's server.
+	t.Cleanup(func() {
+		cancel()
+		unblock()
+		<-resultCh
+	})
 
 	deadline := time.Now().Add(time.Second)
 	for started.Load() < 2 {
 		if time.Now().After(deadline) {
-			close(release)
+			unblock()
 			t.Fatalf("started %d Jira searches, want 2 concurrently", started.Load())
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	close(release)
+	unblock()
 
 	select {
 	case <-resultCh:

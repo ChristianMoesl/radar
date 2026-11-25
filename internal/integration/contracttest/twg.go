@@ -106,7 +106,10 @@ func InstallTWGFixture(t *testing.T, endpoint string) {
 		t.Fatal(err)
 	}
 	bin := t.TempDir()
-	script := "#!/bin/sh\nexec '" + strings.ReplaceAll(binary, "'", "'\\''") + "' -test.run=^TestTWGFixtureProcess$ -- \"$@\"\n"
+	// A race-instrumented fake CLI otherwise sleeps one second on every exit,
+	// including version/profile/doctor checks, before any search can start.
+	// Remove only that delay for this joined helper; preserve other race flags.
+	script := "#!/bin/sh\nGORACE=\"${GORACE:+$GORACE }atexit_sleep_ms=0\" exec '" + strings.ReplaceAll(binary, "'", "'\\''") + "' -test.run=^TestTWGFixtureProcess$ -- \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(bin, "twg"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
