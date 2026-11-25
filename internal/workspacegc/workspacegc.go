@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -190,8 +191,8 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if !candidateStillDone(store, candidate) {
-				return fmt.Errorf("task completion changed during cleanup; preview again")
+			if !candidateStillCurrent(store, candidate, now, options) {
+				return fmt.Errorf("task completion changed or workspace candidate changed during cleanup; preview again")
 			}
 			cleaned, err := cleanupService.Execute(ctx, selected, cleanup.ExecuteOptions{Mode: mode})
 			for _, target := range cleaned.Targets {
@@ -238,19 +239,19 @@ func CandidateMode(candidate Candidate, now time.Time) (integration.CleanupMode,
 	return integration.CleanupRetire, nil
 }
 
-func candidateStillDone(store *state.Store, candidate Candidate) bool {
-	refs := activeRefsByRecord(store.SourceRefs())[candidate.RecordID]
-	if protocol.SourceRefsActivity(refs) != protocol.ActivityIdle {
+// Rebuild from one owned, atomic task/reference snapshot at the final guarded
+// boundary. Completion alone cannot authorize a preview whose owning workspace
+// or linked resources have since changed. Share the original planner, options
+// and decision time; do not escalate retirement into expiry during slow reads.
+// This is a point-in-time comparison, not a reservation against later changes.
+func candidateStillCurrent(store *state.Store, candidate Candidate, now time.Time, options Options) bool {
+	plan, err := BuildPlan(store, now, options)
+	if err != nil {
 		return false
 	}
-	for _, ref := range refs {
-		if ref.AgentReview {
-			return false
-		}
-	}
-	for _, record := range store.Records() {
-		if record.ID == candidate.RecordID {
-			return record.State == "done" && record.DoneAt == candidate.DoneAt
+	for _, current := range plan.Candidates {
+		if reflect.DeepEqual(current, candidate) {
+			return true
 		}
 	}
 	return false

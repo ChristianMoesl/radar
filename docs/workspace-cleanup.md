@@ -94,8 +94,18 @@ local data.
 ## Agent activity and result review
 
 Both automatic stages recheck task completion and reported agent activity
-before destructive execution. Busy, waiting, unverifiable activity, and pending
-handoff writes prevent removal even when an older preview or completion timestamp
+before destructive execution. At the final execution guard, GC rebuilds the
+production candidate plan from one atomic, owned task/reference snapshot using
+the original run's policy and decision time. The selected candidate, including
+its active linked references, must still exactly match the preview input. A
+removed/moved workspace or changed resource bundle is not authorized by an
+unchanged Done timestamp. Changes to unrelated tasks or an unchanged selected
+task republished at a later revision do not invalidate it. This point-in-time
+check is not a reservation against later changes; native ownership, activity,
+lease and provider-specific last-moment checks still apply. It adds no diagnostic
+retirement/expiry apply adapter or automatic retry.
+
+Busy, waiting, unverifiable activity, and pending handoff writes prevent removal even when an older preview or completion timestamp
 would otherwise authorize it. Activity-driven reopening clears the completion
 time; the review hold keeps the task unfinished after agents settle. Explicit
 Done after reviewing starts both clocks again. Retained registrations keep the
