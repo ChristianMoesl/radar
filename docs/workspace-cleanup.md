@@ -123,6 +123,18 @@ check is not a reservation against later changes; native ownership, activity,
 lease and provider-specific last-moment checks still apply. It adds no diagnostic
 retirement/expiry apply adapter or automatic retry.
 
+GC now uses one private per-candidate preparation/execution boundary for both
+stages and standalone cleanup. Preparation selects only that candidate's ordered
+native bundle, mode and already-missing status outside lifecycle admission.
+Execution retains the original policy and decision time, enters the same
+authored-lifecycle guard and performs the final candidate/path checks before
+calling the existing cleanup Service. It does not rerun provider preview, select
+other candidates or switch retirement into expiry. Native error results retain
+the returned successful prefix and dispatch observation, not verified outcomes
+or safe-retry permission. The public GC command still sweeps all candidates;
+this internal sharing adds no exact-target diagnostic endpoint, consent token or
+retirement apply capability.
+
 Already-missing cleanup results pass through the same final lifecycle guard,
 including cancellation and authored-mutation admission. GC rechecks path absence
 inside that guard before counting the no-op as deleted; a reappearing entry
