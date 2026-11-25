@@ -221,11 +221,20 @@ type SourceRef struct {
 	WorkflowState string `json:"workflow_state,omitempty"`
 }
 
+// IsDurableAgent identifies registrations shown separately from task rows.
+func (ref SourceRef) IsDurableAgent() bool {
+	return ref.Source == "agent" && ref.Kind == "agent" && ref.AgentID != ""
+}
+
 type Task struct {
 	// Priority is the retained authored preference, not the effective category.
 	Priority string `json:"priority,omitempty"`
 	// AgentReviewPending means the canonical handoff write must be retried.
 	AgentReviewPending bool `json:"agent_review_pending,omitempty"`
+	// LocalAgentReview is the persisted handoff for a source-only task.
+	LocalAgentReview bool `json:"local_agent_review,omitempty"`
+	// ManualDone distinguishes source-only local completion from source closure.
+	ManualDone bool `json:"manual_done,omitempty"`
 	// AttentionSourceRefID identifies the effective signal, not a filtered-out raw one.
 	AttentionSourceRefID string `json:"attention_source_ref_id,omitempty"`
 	// TrackingOnly retains hidden authored history for source resolvers, not discovery.

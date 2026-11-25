@@ -55,7 +55,8 @@ type persistedState struct {
 }
 
 type TaskRecord struct {
-	AgentReviewPending bool `json:"agent_review_pending,omitempty"`
+	AgentReviewPending bool             `json:"agent_review_pending,omitempty"`
+	ManualLifecycle    *manualLifecycle `json:"manual_lifecycle,omitempty"`
 
 	ID           string        `json:"id"`
 	NumericID    int           `json:"numeric_id"`
@@ -179,17 +180,18 @@ func (s *Store) Load() error {
 }
 
 func (s *Store) SetTasks(items []protocol.Task) {
-	s.setTasks(items, nil, nil)
+	s.setTasks(items, nil, nil, nil)
 }
 
 func (s *Store) SetTasksForSources(items []protocol.Task, sourceNames []string) {
-	s.setTasks(items, sourceScope(sourceNames), nil)
+	s.setTasks(items, sourceScope(sourceNames), nil, nil)
 }
 
 // SetCollection publishes matching task and health observations in one revision
-// and one durable projection write. A nil scope means a complete collection.
-func (s *Store) SetCollection(items []protocol.Task, sourceNames []string, statuses []protocol.SourceStatus) {
-	s.setTasks(items, sourceScope(sourceNames), &statuses)
+// and one durable projection write. A nil scope replaces all observations;
+// complete identifies the fresh sources eligible to reconcile manual lifecycle.
+func (s *Store) SetCollection(items []protocol.Task, sourceNames []string, statuses []protocol.SourceStatus, complete map[string]bool) {
+	s.setTasks(items, sourceScope(sourceNames), &statuses, complete)
 }
 
 func sourceScope(sourceNames []string) map[string]bool {
@@ -206,7 +208,7 @@ func sourceScope(sourceNames []string) map[string]bool {
 	return sources
 }
 
-func (s *Store) setTasks(items []protocol.Task, sources map[string]bool, statuses *[]protocol.SourceStatus) {
+func (s *Store) setTasks(items []protocol.Task, sources map[string]bool, statuses *[]protocol.SourceStatus, complete map[string]bool) {
 	s.mu.Lock()
 	for _, task := range items {
 		if len(authoredIdentities(task.SourceRefs)) > 1 {
@@ -221,6 +223,7 @@ func (s *Store) setTasks(items []protocol.Task, sources map[string]bool, statuse
 		return
 	}
 	s.state = reconcileStateForSources(s.state, items, time.Now().UTC(), sources)
+	reconcileManualLifecycles(s.state, items, complete)
 	s.items = projectTasks(s.state)
 	if statuses != nil {
 		s.state.Sources = append([]protocol.SourceStatus{}, (*statuses)...)
@@ -280,7 +283,9 @@ func (s *Store) Reset() error {
 		record.State = "active"
 		record.Reason = ""
 		record.DoneAt = ""
-		record.SourceRefIDs = nil
+		if record.ManualLifecycle == nil {
+			record.SourceRefIDs = nil
+		}
 		record.Snapshot = protocol.Task{}
 		retained = append(retained, record)
 	}
@@ -385,7 +390,9 @@ func (s *Store) CollectionTasks() []protocol.Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	raw := projectTaskRecords(s.state, true)
+	// Provider resolution must see source-derived state even when the local
+	// dashboard is Done, so providers continue checking for new work.
+	raw := projectTaskRecords(s.state, true, false)
 	items := make([]protocol.Task, len(raw))
 	byTaskID := map[int]int{}
 	for i, task := range raw {
@@ -484,9 +491,7 @@ func (s *Store) Records() []TaskRecord {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	records := make([]TaskRecord, len(s.state.Records))
-	copy(records, s.state.Records)
-	return records
+	return s.effectiveRecordsLocked()
 }
 
 func (s *Store) SourceRefs() []SourceRefRecord {
@@ -1201,10 +1206,10 @@ func hasAuthoritativeProtocolRef(refs []protocol.SourceRef) bool {
 }
 
 func projectTasks(state persistedState) []protocol.Task {
-	return projectTaskRecords(state, false)
+	return projectTaskRecords(state, false, true)
 }
 
-func projectTaskRecords(state persistedState, includeHidden bool) []protocol.Task {
+func projectTaskRecords(state persistedState, includeHidden, applyManual bool) []protocol.Task {
 	activeSourceRefsByRecord := map[string][]protocol.SourceRef{}
 	doneSourceRefsByRecord := map[string][]protocol.SourceRef{}
 	for _, ref := range state.SourceRefs {
@@ -1221,13 +1226,27 @@ func projectTaskRecords(state persistedState, includeHidden bool) []protocol.Tas
 
 	tasks := make([]protocol.Task, 0, len(state.Records))
 	for _, record := range state.Records {
+		refs := activeSourceRefsByRecord[record.ID]
+		if applyManual && record.ManualLifecycle != nil {
+			// Keep local decisions on terminal source rows whose provider only
+			// retains completion for a short window. No active resource can
+			// inherit this history in place of its own provider identity.
+			if record.State == "done" && !hasAuthoritativeProtocolRef(refs) {
+				refs = doneSourceRefsByRecord[record.ID]
+			}
+			record = effectiveLifecycle(record, refs)
+		}
 		if record.State == "done" && olderThan(record.DoneAt, doneTaskDisplayRetention) && !hasUnresolvedWorkspace(activeSourceRefsByRecord[record.ID]) {
 			continue
 		}
 		task := cloneTask(record.Snapshot)
 		task.ID = record.NumericID
 		task.AgentReviewPending = record.AgentReviewPending
-		refs := activeSourceRefsByRecord[record.ID]
+		task.ManualDone = applyManual && record.ManualLifecycle != nil && record.State == "done"
+		task.LocalAgentReview = applyManual && record.ManualLifecycle != nil && record.ManualLifecycle.Review
+		if record.ManualLifecycle == nil || !applyManual {
+			refs = activeSourceRefsByRecord[record.ID]
+		}
 		if record.State == "done" {
 			refs = doneSourceRefsByRecord[record.ID]
 		} else {
@@ -1580,10 +1599,20 @@ func (s *Store) InspectionSnapshot() ([]TaskRecord, []SourceRefRecord, int64) {
 	return s.inspectionRecordsLocked(), s.inspectionSourceRefsLocked(), s.revision
 }
 
+func (s *Store) effectiveRecordsLocked() []TaskRecord {
+	records := slices.Clone(s.state.Records)
+	if slices.ContainsFunc(records, func(record TaskRecord) bool { return record.ManualLifecycle != nil }) {
+		active := activeRefsByRecord(s.state.SourceRefs)
+		for i, record := range records {
+			records[i] = effectiveLifecycle(record, active[record.ID])
+		}
+	}
+	return records
+}
+
 func (s *Store) inspectionRecordsLocked() []TaskRecord {
-	records := make([]TaskRecord, len(s.state.Records))
-	for i, record := range s.state.Records {
-		records[i] = record
+	records := s.effectiveRecordsLocked()
+	for i, record := range records {
 		records[i].SourceRefIDs = slices.Clone(record.SourceRefIDs)
 		records[i].Snapshot = cloneTask(record.Snapshot)
 	}

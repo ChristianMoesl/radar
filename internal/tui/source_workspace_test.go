@@ -79,7 +79,7 @@ esac
 				t.Fatalf("incomplete fixture collection: %+v", result.Sources)
 			}
 		}
-		store.SetCollection(result.Tasks, result.SourceNames, result.Sources)
+		store.SetCollection(result.Tasks, result.SourceNames, result.Sources, nil)
 	}
 	refresh()
 	initial := store.Tasks()

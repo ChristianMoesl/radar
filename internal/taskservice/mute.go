@@ -74,7 +74,7 @@ func (s *Service) setPreference(ctx context.Context, taskID int, author integrat
 		return protocol.Task{}, fmt.Errorf("task %d %s mutation did not return an authored identity", taskID, kind)
 	}
 	result := collector.Collect(ctx, s.store.CollectionTasks(), s.logger, []integration.Source{author})
-	s.applyLocal(result)
+	s.applyLocal(result, nil)
 	if !result.Complete[author.Descriptor().Name] {
 		detail := "collection was incomplete"
 		for _, status := range result.Sources {

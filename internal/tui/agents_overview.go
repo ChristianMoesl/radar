@@ -22,10 +22,6 @@ type agentsOverview struct {
 	query, problem string
 }
 
-func durableAgentRef(ref protocol.SourceRef) bool {
-	return ref.Source == "agent" && ref.Kind == "agent" && ref.AgentID != ""
-}
-
 func agentTitle(ref protocol.SourceRef) string {
 	if title := strings.TrimSpace(ansi.Strip(ref.Title)); title != "" {
 		return title
@@ -43,7 +39,7 @@ func workspaceTasks(tasks []protocol.Task, agents []protocol.SourceRef) []protoc
 	var result []protocol.Task
 	for _, task := range tasks {
 		ignored := func(ref protocol.SourceRef) bool {
-			if durableAgentRef(ref) {
+			if ref.IsDurableAgent() {
 				return true
 			}
 			for _, agent := range agents {
@@ -108,7 +104,7 @@ func (m *model) refreshAgents() {
 	}
 	for _, task := range m.rawTasks {
 		for _, ref := range task.SourceRefs {
-			if durableAgentRef(ref) {
+			if ref.IsDurableAgent() {
 				byID[ref.AgentID] = ref
 			}
 		}

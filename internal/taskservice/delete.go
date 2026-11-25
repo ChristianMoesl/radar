@@ -52,7 +52,7 @@ func (s *Service) DeleteTask(ctx context.Context, preview *protocol.TaskDeletion
 	// be revived by a background collection that started before the deletion.
 	previous := withoutSourceRef(s.store.CollectionTasks(), ref.ID)
 	collected := collector.Collect(ctx, previous, s.logger, []integration.Source{provider})
-	s.applyLocal(collected)
+	s.applyLocal(collected, nil)
 	return result, nil
 }
 

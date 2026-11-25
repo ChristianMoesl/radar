@@ -76,6 +76,8 @@ Muted and Done have selectable headers and start collapsed. Move to a header wit
 
 When the selected task becomes muted or done, the overview stays among active tasks: it selects the next task at that position, or the previous task when handling the last active one. If no active tasks remain, selection moves to a visible section header without expanding it. This applies to successful mutations and background updates; delayed responses do not steal focus after you navigate elsewhere. Unmuting unfinished work, reopening, and priority changes follow the selected task, and Inspect stays on the task being inspected. Done remains sorted by completion time, newest first; equal timestamps keep their existing order, and tasks without a valid completion time appear last. Collapsing does not change its three-day display retention or unresolved-workspace exception.
 
+Press `d` on any unfinished task, even when it has no authored note. This records Done locally without closing the source item or creating a note or workspace. Press `d` again on the completed row in the Done section to reopen it. Activity and cleanup safeguards still apply; marking Done does not run cleanup immediately.
+
 ### Agent results awaiting review
 
 A task whose completion was held by agent work, or which was reopened by resumed

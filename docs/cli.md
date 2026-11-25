@@ -122,6 +122,10 @@ Clone failure can leave a reported `partial_path`. Opening can succeed for some 
 
 See [Git cloning](integrations/git.md#host-source-cloning) and [GitHub opening](integrations/github.md#provider-owned-browser-opening).
 
+## Task completion
+
+Use `radar task done <task-id>` on any unfinished task, including tasks without authored notes. Use `radar task reopen <task-id>` to undo the local completion. Neither command changes external source state, creates a workspace, or runs cleanup immediately.
+
 ## Output for humans and scripts
 
 Commands print readable tables, labeled details, or action summaries by default. The format does not change when stdout is piped. Add **`--json`** for machine-readable output, either before the command or after its arguments:

@@ -103,7 +103,6 @@ func (m model) mainHelpGroups() [][]keyHint {
 		}
 		groups[0] = append(groups[0], keyHint{"n", "new task"})
 	} else if selected {
-		ref, _ := authoredTaskRef(task)
 		for i, hint := range groups[0] {
 			switch hint.keys {
 			case "m":
@@ -113,7 +112,7 @@ func (m model) mainHelpGroups() [][]keyHint {
 				}
 			case "d":
 				groups[0][i].action = "mark done"
-				if ref.Metadata["state"] == "done" {
+				if canReopenTask(task) {
 					groups[0][i].action = "reopen"
 				}
 			case "p":
@@ -157,7 +156,9 @@ func (m model) mainHintAvailable(key string, task protocol.Task, selected bool) 
 		return selected && len(taskLinks(task)) > 0
 	case "p", "P":
 		return selected && task.Attention != "done" && prioritySupported(task)
-	case "d", "D":
+	case "d":
+		return selected && (task.Attention != "done" || canReopenTask(task))
+	case "D":
 		_, authored := authoredTaskRef(task)
 		return selected && authored
 	default:

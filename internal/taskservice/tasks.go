@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -14,7 +16,7 @@ import (
 	"radar/internal/state"
 )
 
-// Service coordinates cache publication with authored mutations. Slow source
+// Service coordinates cache publication with task mutations. Slow source
 // collection stays outside applyMu, so a note edit never waits for remote APIs
 // or Git inspection. Completion/GC also perform a bounded runtime recheck under
 // applyMu. Local and remote collection have separate serialization; publication
@@ -121,6 +123,9 @@ func (s *Service) refreshCollected(ctx context.Context, localOnly bool) collecto
 		s.logger.Debug("collection superseded by resource mutation or cache reset")
 		return collector.Result{Attempts: result.Attempts, Tasks: s.store.CollectionTasks(), Sources: s.store.Sources()}
 	}
+	// Only this batch's complete observations can change local lifecycle.
+	// Combined local snapshots and observations predating mutations cannot.
+	manualComplete := maps.Clone(result.Complete)
 	var observerStatuses []protocol.SourceStatus
 	if !localOnly {
 		observerStatuses = append([]protocol.SourceStatus(nil), result.Sources...)
@@ -133,6 +138,7 @@ func (s *Service) refreshCollected(ctx context.Context, localOnly bool) collecto
 		}
 	}
 	if revision != s.authoringRevision || (!localOnly && resourceRevision != publicationResourceRevision) {
+		manualComplete = nil
 		// A mutation won while collection was in flight. Re-read only the
 		// author and activity sources: a pre-mutation busy snapshot must not
 		// undo explicit Done. Resource drift also needs a complete authoring
@@ -163,15 +169,15 @@ func (s *Service) refreshCollected(ctx context.Context, localOnly bool) collecto
 	}
 	previous = s.store.Tasks()
 	if localOnly {
-		s.applyLocal(result)
+		s.applyLocal(result, manualComplete)
 		if collector.ReconcileAuthoredActivity(ctx, s.store.CollectionTasks(), &result, s.integrations.Sources(), s.logger) {
 			s.authoringRevision++
-			s.applyLocal(result)
+			s.applyLocal(result, nil)
 		} else {
 			s.store.SetSources(mergeSourceStatuses(s.store.Sources(), result.Sources))
 		}
 	} else {
-		s.store.SetCollection(result.Tasks, nil, result.Sources)
+		s.store.SetCollection(result.Tasks, nil, result.Sources, manualComplete)
 		// New contributors must be durably bound before this refresh returns,
 		// even when a mutation fenced its remote snapshot. Only lifecycle is
 		// deferred: stale facts must not undo manual completion or reopening.
@@ -183,7 +189,7 @@ func (s *Service) refreshCollected(ctx context.Context, localOnly bool) collecto
 			reconcile = collector.ReconcileAuthoredBindings
 		}
 		if reconcile(ctx, s.store.CollectionTasks(), &result, s.integrations.Sources(), s.logger) {
-			s.store.SetCollection(result.Tasks, nil, result.Sources)
+			s.store.SetCollection(result.Tasks, nil, result.Sources, nil)
 		}
 		// Reconciliation can write canonical authoring state before reporting a
 		// later error. Fence local reads that overlapped this publication too.
@@ -252,11 +258,11 @@ func (s *Service) localCollectionComplete(result collector.Result) bool {
 	return true
 }
 
-func (s *Service) applyLocal(result collector.Result) {
+func (s *Service) applyLocal(result collector.Result, manualComplete map[string]bool) {
 	if len(result.SourceNames) == 0 {
 		return
 	}
-	s.store.SetCollection(result.Tasks, result.SourceNames, mergeSourceStatuses(s.store.Sources(), result.Sources))
+	s.store.SetCollection(result.Tasks, result.SourceNames, mergeSourceStatuses(s.store.Sources(), result.Sources), manualComplete)
 	if s.localResult.Complete == nil {
 		s.localResult.Complete = map[string]bool{}
 	}
@@ -328,11 +334,14 @@ func (s *Service) MutateTask(ctx context.Context, method string, mutation *proto
 		return s.SetPriority(ctx, mutation.TaskID, mutation.Priority)
 	}
 	provider, err := s.integrations.TaskAuthoring()
-	if err != nil {
+	if err != nil && method != "task-done" && method != "task-reopen" {
 		return protocol.Task{}, err
 	}
 	s.applyMu.Lock()
 	defer s.applyMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return protocol.Task{}, err
+	}
 	var identity integration.AuthoredTaskIdentity
 	switch method {
 	case "task-create":
@@ -342,8 +351,29 @@ func (s *Service) MutateTask(ctx context.Context, method string, mutation *proto
 		if !ok {
 			return protocol.Task{}, fmt.Errorf("task %d not found", mutation.TaskID)
 		}
-		ref, ok := authoredRef(task, provider.Descriptor().Name)
-		if !ok {
+		if (method == "task-done" || method == "task-reopen") && slices.ContainsFunc(task.SourceRefs, protocol.SourceRef.IsDurableAgent) {
+			return protocol.Task{}, fmt.Errorf("task %d is a durable-agent registration, not a task row", mutation.TaskID)
+		}
+		if method == "task-done" {
+			if task.AgentReviewPending {
+				return protocol.Task{}, fmt.Errorf("agent result review could not be saved; refresh to persist the handoff before marking Done")
+			}
+			if err := s.requireIdle(ctx, task); err != nil {
+				return protocol.Task{}, err
+			}
+		}
+		var ref protocol.SourceRef
+		if provider != nil {
+			ref, _ = authoredRef(task, provider.Descriptor().Name)
+		}
+		if ref.ID == "" && (method == "task-done" || method == "task-reopen") {
+			updated, err := s.store.SetManualLifecycle(task.ID, method == "task-done")
+			if err == nil {
+				s.authoringRevision++ // Fence observations that predate the decision.
+			}
+			return updated, err
+		}
+		if ref.ID == "" {
 			return protocol.Task{}, fmt.Errorf("task %d is not authored by %s", mutation.TaskID, provider.Descriptor().Label)
 		}
 		switch method {
@@ -358,12 +388,6 @@ func (s *Service) MutateTask(ctx context.Context, method string, mutation *proto
 				identity, err = details.ReassociateNote(ctx, ref, mutation.NotePath)
 			}
 		case "task-done":
-			if task.AgentReviewPending {
-				return protocol.Task{}, fmt.Errorf("agent result review could not be saved; refresh to persist the handoff before marking Done")
-			}
-			if err := s.requireIdle(ctx, task); err != nil {
-				return protocol.Task{}, err
-			}
 			// Include retained contributors that are absent from the served
 			// projection, not just currently visible source refs.
 			tracked, ok := taskByID(s.store.CollectionTasks(), task.ID)
@@ -388,7 +412,7 @@ func (s *Service) MutateTask(ctx context.Context, method string, mutation *proto
 		refreshSources = append(refreshSources, s.activitySources()...)
 	}
 	result := collector.Collect(ctx, s.store.CollectionTasks(), s.logger, refreshSources)
-	s.applyLocal(result)
+	s.applyLocal(result, nil)
 	for _, task := range s.store.Tasks() {
 		for _, ref := range task.SourceRefs {
 			if ref.ID == identity.SourceRefID {

@@ -222,7 +222,7 @@ func TestIntegrationIdentityClippingDuplicateAndInvalidEvidence(t *testing.T) {
 
 func TestIntegrationReadIncludesHiddenWorkspaceRelationshipsAndOmitsUnknownNativeCounts(t *testing.T) {
 	store, _, path := fixture(t)
-	store.SetCollection([]protocol.Task{{Attention: "done", Title: "private-title", SourceRefs: []protocol.SourceRef{{ID: "provider:ABC-123", EntityID: "provider:ABC-123", Source: "provider", Path: path, Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary, Signal: "done", Metadata: map[string]string{"completed_at": "2026-01-02T10:00:00Z"}}}}}, nil, []protocol.SourceStatus{{Name: "provider", Status: "error", Detail: "private-auth-error", SourceRefCount: 80}, {Name: "unrelated", Status: "ok"}})
+	store.SetCollection([]protocol.Task{{Attention: "done", Title: "private-title", SourceRefs: []protocol.SourceRef{{ID: "provider:ABC-123", EntityID: "provider:ABC-123", Source: "provider", Path: path, Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleWorkItem, Authority: protocol.SourceRefAuthorityPrimary, Signal: "done", Metadata: map[string]string{"completed_at": "2026-01-02T10:00:00Z"}}}}}, nil, []protocol.SourceStatus{{Name: "provider", Status: "error", Detail: "private-auth-error", SourceRefCount: 80}, {Name: "unrelated", Status: "ok"}}, nil)
 	if len(store.Tasks()) != 0 {
 		t.Fatal("fixture must be dashboard-hidden")
 	}

@@ -462,15 +462,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			m.message = ""
 		case "d":
-			if task, ok := m.selectedTask(); ok {
-				ref, ok := authoredTaskRef(task)
-				if !ok {
-					m.message = "Selected task does not support authored lifecycle changes"
-					return m, nil
-				}
+			if task, ok := m.selectedTask(); ok && (task.Attention != "done" || canReopenTask(task)) {
 				m.loading = true
 				m.err = nil
-				return m, m.setAuthoredTaskDone(task, ref.Metadata["state"] != "done")
+				return m, m.setTaskDone(task, !canReopenTask(task))
 			}
 		case "m":
 			if task, ok := m.selectedTask(); ok {
@@ -1270,7 +1265,7 @@ func (m model) createAuthoredTask(title string) tea.Cmd {
 	}
 }
 
-func (m model) setAuthoredTaskDone(task protocol.Task, complete bool) tea.Cmd {
+func (m model) setTaskDone(task protocol.Task, complete bool) tea.Cmd {
 	return func() tea.Msg {
 		var response protocol.Response
 		var err error
@@ -1904,6 +1899,11 @@ func (m model) openRegisteredWorkspace(ref protocol.SourceRef) tea.Cmd {
 	}
 }
 
+func canReopenTask(task protocol.Task) bool {
+	ref, _ := authoredTaskRef(task)
+	return task.ManualDone || ref.Metadata["state"] == "done"
+}
+
 func authoredTaskRef(task protocol.Task) (protocol.SourceRef, bool) {
 	for _, ref := range task.SourceRefs {
 		if ref.Authored {
@@ -2305,7 +2305,7 @@ func resourceIcon(ref protocol.SourceRef) string {
 func overviewSourceRefs(task protocol.Task) []protocol.SourceRef {
 	var refs []protocol.SourceRef
 	for _, ref := range task.SourceRefs {
-		if durableAgentRef(ref) || (ref.Source == "workspace" && ref.Kind == "workspace") {
+		if ref.IsDurableAgent() || (ref.Source == "workspace" && ref.Kind == "workspace") {
 			continue
 		}
 		if resourceIcon(ref) == "" {

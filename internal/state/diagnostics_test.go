@@ -23,7 +23,7 @@ func TestSourceInspectionSnapshotIsAtomicAndDoesNotShareProviderPayloads(t *test
 			item.SourceRefs[0].Metadata = map[string]string{}
 		}
 		item.SourceRefs[0].Metadata["snapshot_marker"] = marker
-		store.SetCollection([]protocol.Task{item}, nil, []protocol.SourceStatus{{Name: "jira", Status: "ok", Detail: marker, SourceRefCount: 1}})
+		store.SetCollection([]protocol.Task{item}, nil, []protocol.SourceStatus{{Name: "jira", Status: "ok", Detail: marker, SourceRefCount: 1}}, nil)
 	}
 	publish("initial")
 	done := make(chan struct{})

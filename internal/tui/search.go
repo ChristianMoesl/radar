@@ -22,7 +22,7 @@ func matchesTaskSearch(task protocol.Task, terms []string) bool {
 	}
 	fields := []string{task.Title, task.Repo}
 	for _, ref := range task.SourceRefs {
-		if durableAgentRef(ref) {
+		if ref.IsDurableAgent() {
 			continue
 		}
 		fields = append(fields, ref.Title, ref.ID, ref.EntityID, ref.Repo, ref.Branch,

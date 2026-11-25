@@ -91,7 +91,7 @@ func ProjectAttention(task Task, policy ContributionPolicy) (Task, bool) {
 func effectiveContribution(task Task, ref SourceRef) (signal, reason string, visible bool) {
 	signal, reason = ref.Signal, ref.Status
 	done := task.Attention == "done"
-	if !done && ref.Authored && (ref.AgentReview || task.AgentReviewPending) && signal != "immediate" {
+	if !done && (task.LocalAgentReview || (ref.Authored && (ref.AgentReview || task.AgentReviewPending))) && signal != "immediate" {
 		if task.Activity == ActivityIdle {
 			signal, reason = "attention", "Agent finished — review result"
 		} else {
@@ -102,7 +102,7 @@ func effectiveContribution(task Task, ref SourceRef) (signal, reason string, vis
 		// A quiet resource never inherits another source's cached signal.
 		signal = "low_priority"
 	}
-	if !done {
+	if !done && !task.LocalAgentReview {
 		if ack := ref.Acknowledgement; ack != nil && task.AcknowledgementCursor != "" &&
 			!ack.Blocking && (ack.Cursor == "" || ack.Cursor <= task.AcknowledgementCursor) {
 			if ack.FallbackSignal != "" {

@@ -53,7 +53,7 @@ func TestCollectionPublishesTaskAndStatusInOneRevisionAndMetadataLeavesRowsUntou
 	}
 	task := makeTask("in_progress", "work", testJiraIssueRef("jira:issue:ABC-1", "Example"))
 	before := store.Revision()
-	store.SetCollection([]protocol.Task{task}, nil, []protocol.SourceStatus{{Name: "jira", Status: "ok", SourceRefCount: 1}})
+	store.SetCollection([]protocol.Task{task}, nil, []protocol.SourceStatus{{Name: "jira", Status: "ok", SourceRefCount: 1}}, nil)
 	tasks, statuses, revision := store.Snapshot()
 	if revision != before+1 || len(tasks) != 1 || len(statuses) != 1 || statuses[0].SourceRefCount != 1 {
 		t.Fatalf("incoherent publication: tasks=%d statuses=%v revision=%d", len(tasks), statuses, revision)
@@ -104,7 +104,7 @@ func TestStatusRetryRecoversFailedTaskProjection(t *testing.T) {
 	statuses := []protocol.SourceStatus{{Name: "jira", Status: "ok"}}
 	first := makeTask("in_progress", "work", testJiraIssueRef("jira:issue:ABC-1", "First"))
 	second := makeTask("in_progress", "work", testJiraIssueRef("jira:issue:ABC-2", "Second"))
-	store.SetCollection([]protocol.Task{first}, nil, statuses)
+	store.SetCollection([]protocol.Task{first}, nil, statuses, nil)
 	if err := os.Rename(dir, dir+"-saved"); err != nil {
 		t.Fatal(err)
 	}

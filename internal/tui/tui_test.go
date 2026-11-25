@@ -271,12 +271,33 @@ func TestAuthoredDoneAndReopenKeys(t *testing.T) {
 	}
 }
 
-func TestAuthoredDoneRejectsNonAuthoredTask(t *testing.T) {
-	m := model{tasks: []protocol.Task{{ID: 7, Attention: "attention"}}}
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-	got := updated.(model)
-	if cmd != nil || !strings.Contains(got.message, "does not support") {
-		t.Fatalf("command=%v message=%q", cmd, got.message)
+func TestSourceOnlyDoneAndReopenKeys(t *testing.T) {
+	for _, tc := range []struct {
+		attention string
+		manual    bool
+		want      string
+	}{
+		{attention: "attention", want: "mark done"},
+		{attention: "done", manual: true, want: "reopen"},
+		{attention: "done"},
+	} {
+		task := protocol.Task{ID: 7, Attention: tc.attention, ManualDone: tc.manual}
+		m := model{tasks: []protocol.Task{task}, expandedSections: map[string]bool{"done": true}}
+		var hint string
+		for _, group := range m.mainHelpGroups() {
+			for _, key := range group {
+				if key.keys == "d" {
+					hint = key.action
+				}
+			}
+		}
+		if hint != tc.want {
+			t.Fatalf("task=%+v: d hint=%q, want %q", task, hint, tc.want)
+		}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+		if (cmd != nil) != (tc.want != "") || updated.(model).loading != (tc.want != "") {
+			t.Fatalf("task=%+v: command=%v loading=%v", task, cmd, updated.(model).loading)
+		}
 	}
 }
 
