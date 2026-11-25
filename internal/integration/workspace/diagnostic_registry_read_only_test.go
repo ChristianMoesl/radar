@@ -16,7 +16,14 @@ func TestDiagnosticWorkspaceRegistryInspectionDoesNotCreateState(t *testing.T) {
 			t.Run(method+"/"+kind, func(t *testing.T) {
 				root := configureWorkspaceRoot(t)
 				anchor := filepath.Join(root, "registered")
-				group := workspacegroup.Workspace{ID: workspacegroup.ID(anchor), Name: "registered", Path: anchor, Members: []workspacegroup.Member{{Path: filepath.Join(anchor, "member"), Repository: t.TempDir(), Branch: "fixture"}}}
+				// macOS temporary roots may include /var -> /private/var. This
+				// accessible-repository control must not ask the native no-follow
+				// policy reader to accept a symlink component.
+				repository, err := filepath.EvalSymlinks(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				group := workspacegroup.Workspace{ID: workspacegroup.ID(anchor), Name: "registered", Path: anchor, Members: []workspacegroup.Member{{Path: filepath.Join(anchor, "member"), Repository: repository, Branch: "fixture"}}}
 				if kind == "missing_registry" {
 					if err := os.MkdirAll(root, 0700); err != nil {
 						t.Fatal(err)
