@@ -460,10 +460,12 @@ not authorize publication, work execution or maintenance.
 
 The fixed host facade sends only native `hello` and `snapshot` RPCs to that
 registration's socket, within one five-second deadline and native 1 MiB response
-frame bounds. Registration is a stable, no-follow regular-file read capped at
-64 KiB, decoded with the production registration rules and rechecked after the
-probe. Invalid/unsafe/out-of-scope registrations fail before socket access;
-registration or daemon-state drift invalidates the result. This is one target
+frame bounds. Native-decoded 64 KiB regular registrations use no-follow root and
+instance directory descriptors. File/directory identities are rechecked after the
+probe; replacement invalidates evidence even if file bytes/inode are unchanged.
+Unsafe/out-of-scope paths fail before socket access. Directory mtime alone is not
+identity drift; checks are not atomic or ABA detection. Registration or daemon-state
+drift invalidates the result. This is one target
 and one result, not a paginated runner sweep; row/state/cursor selectors are
 rejected. A page-size selector does not widen the target set.
 

@@ -7,9 +7,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
+	"golang.org/x/sys/unix"
 	"radar/internal/protocol"
 )
 
@@ -55,7 +55,7 @@ func ProbeDiagnosticAgent(ctx context.Context, workspace, id string) (protocol.D
 		}
 	}
 	_, after, err := diagnosticProbeRegistration(id)
-	if err != nil || before.sum != after.sum || !os.SameFile(before.info, after.info) {
+	if err != nil || before.sum != after.sum || !os.SameFile(before.info, after.info) || !os.SameFile(before.root, after.root) || !os.SameFile(before.instance, after.instance) {
 		return protocol.DiagnosticAgentProbe{}, fmt.Errorf("agent registration changed or unavailable; probe again")
 	}
 	deadline, bounded := ctx.Deadline()
@@ -69,23 +69,48 @@ func ProbeDiagnosticAgent(ctx context.Context, workspace, id string) (protocol.D
 }
 
 type diagnosticRegistrationMarker struct {
-	info os.FileInfo
-	sum  [32]byte
+	info, root, instance os.FileInfo
+	sum                  [32]byte
 }
 
 // The normal loader retains its existing policy. This narrower explicit probe
-// accepts only one bounded stable regular registration, decoded by native rules.
+// accepts one bounded stable regular registration through no-follow root and
+// instance descriptors. Directory identity, not mtime, binds the selected target;
+// unrelated registration/checkpoint writes must not invalidate this exact probe.
 func diagnosticProbeRegistration(id string) (Registration, diagnosticRegistrationMarker, error) {
 	var marker diagnosticRegistrationMarker
 	dir, err := instanceDir(id)
 	if err != nil {
 		return Registration{}, marker, err
 	}
-	path := filepath.Join(dir, "registration.json")
-	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	rootPath := filepath.Dir(dir)
+	flags := unix.O_RDONLY | unix.O_NOFOLLOW | unix.O_NONBLOCK | unix.O_CLOEXEC
+	rootFD, err := unix.Open(rootPath, flags|unix.O_DIRECTORY, 0)
 	if err != nil {
 		return Registration{}, marker, err
 	}
+	root := os.NewFile(uintptr(rootFD), rootPath)
+	defer root.Close()
+	rootInfo, err := root.Stat()
+	if err != nil {
+		return Registration{}, marker, err
+	}
+	instanceFD, err := unix.Openat(rootFD, id, flags|unix.O_DIRECTORY, 0)
+	if err != nil {
+		return Registration{}, marker, err
+	}
+	instance := os.NewFile(uintptr(instanceFD), id)
+	defer instance.Close()
+	instanceInfo, err := instance.Stat()
+	if err != nil {
+		return Registration{}, marker, err
+	}
+	fileFD, err := unix.Openat(instanceFD, "registration.json", flags, 0)
+	if err != nil {
+		return Registration{}, marker, err
+	}
+	path := filepath.Join(dir, "registration.json")
+	file := os.NewFile(uintptr(fileFD), path)
 	defer file.Close()
 	info, err := file.Stat()
 	const bound = 64 * 1024
@@ -98,9 +123,14 @@ func diagnosticProbeRegistration(id string) (Registration, diagnosticRegistratio
 	if err != nil || statErr != nil || pathErr != nil || len(data) > bound || int64(len(data)) != info.Size() || info.Size() != after.Size() || !info.ModTime().Equal(after.ModTime()) || !os.SameFile(info, current) || !current.Mode().IsRegular() || info.Size() != current.Size() || !info.ModTime().Equal(current.ModTime()) {
 		return Registration{}, marker, fmt.Errorf("registration changed or unavailable")
 	}
+	currentRoot, rootErr := os.Lstat(rootPath)
+	currentInstance, instanceErr := os.Lstat(dir)
+	if rootErr != nil || instanceErr != nil || !currentRoot.IsDir() || !currentInstance.IsDir() || !os.SameFile(rootInfo, currentRoot) || !os.SameFile(instanceInfo, currentInstance) {
+		return Registration{}, marker, fmt.Errorf("registration directories changed or unavailable")
+	}
 	reg, err := decodeRegistration(data, id)
 	if err != nil {
 		return Registration{}, marker, err
 	}
-	return reg, diagnosticRegistrationMarker{info: info, sum: sha256.Sum256(data)}, nil
+	return reg, diagnosticRegistrationMarker{info: info, root: rootInfo, instance: instanceInfo, sum: sha256.Sum256(data)}, nil
 }
