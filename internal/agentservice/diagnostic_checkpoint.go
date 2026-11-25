@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"syscall"
+	"path/filepath"
+
+	"golang.org/x/sys/unix"
 
 	"radar/internal/protocol"
 )
@@ -12,12 +14,59 @@ import (
 // Diagnostic checkpoint capture is separate from unrestricted native loaders.
 // Callers retain their own missing-file semantics and shared native decoders.
 func diagnosticCheckpoint(path string) ([]byte, os.FileInfo, error) {
-	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return nil, nil, err
+	return captureDiagnosticCheckpoint(path, readDiagnosticCheckpoint)
+}
+
+// Bind the immediate root and instance directories as well as the leaf. A
+// symlink/replacement ancestor can retain the leaf's inode, bytes and metadata.
+// The reader parameter permits deterministic capture-boundary tests without
+// global hooks. Directory mtime is not identity: unrelated writes are allowed.
+func captureDiagnosticCheckpoint(path string, read func(diagnosticCheckpointFile, string) ([]byte, os.FileInfo, error)) ([]byte, os.FileInfo, error) {
+	dir := filepath.Dir(path)
+	rootPath := filepath.Dir(dir)
+	unavailable := func() ([]byte, os.FileInfo, error) {
+		return nil, nil, fmt.Errorf("checkpoint directories changed or unavailable")
 	}
+	flags := unix.O_RDONLY | unix.O_NOFOLLOW | unix.O_NONBLOCK | unix.O_CLOEXEC
+	rootFD, err := unix.Open(rootPath, flags|unix.O_DIRECTORY, 0)
+	if err != nil {
+		return unavailable()
+	}
+	root := os.NewFile(uintptr(rootFD), rootPath)
+	defer root.Close()
+	rootInfo, err := root.Stat()
+	if err != nil {
+		return unavailable()
+	}
+	instanceFD, err := unix.Openat(rootFD, filepath.Base(dir), flags|unix.O_DIRECTORY, 0)
+	if err != nil {
+		return unavailable()
+	}
+	instance := os.NewFile(uintptr(instanceFD), dir)
+	defer instance.Close()
+	instanceInfo, err := instance.Stat()
+	if err != nil {
+		return unavailable()
+	}
+	stable := func() bool {
+		currentRoot, rootErr := os.Lstat(rootPath)
+		currentInstance, instanceErr := os.Lstat(dir)
+		return rootErr == nil && instanceErr == nil && currentRoot.IsDir() && currentInstance.IsDir() && os.SameFile(rootInfo, currentRoot) && os.SameFile(instanceInfo, currentInstance)
+	}
+	fileFD, err := unix.Openat(instanceFD, filepath.Base(path), flags, 0)
+	if err != nil {
+		if !stable() {
+			return unavailable()
+		}
+		return nil, nil, err // Preserve missing-leaf semantics only under stable directories.
+	}
+	file := os.NewFile(uintptr(fileFD), path)
 	defer file.Close()
-	return readDiagnosticCheckpoint(file, path)
+	data, info, err := read(file, path)
+	if !stable() {
+		return unavailable()
+	}
+	return data, info, err
 }
 
 type diagnosticCheckpointFile interface {

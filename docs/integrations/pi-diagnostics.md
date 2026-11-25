@@ -815,10 +815,10 @@ or replay outboxes. `runner_evidence` and `lease_evidence` remain unknown.
 Persisted runner snapshots expose definition/presentation revision, pending count,
 attention and a problem flag. `snapshot_saved_at` is persistence time, **not** runner
 observation/liveness. Missing/invalid/unsupported snapshots are unavailable, not
-zero work or healthy/stopped evidence. All three checkpoint readers share 1 MiB,
-no-follow/nonblocking regular-file capture. Observed incomplete reads, size/time
-changes or path replacement withhold bytes/timestamps. These checks are not atomic
-transactions, ABA detection or future reservations.
+zero work or healthy/stopped evidence. All three checkpoint readers share 1 MiB and nonblocking no-follow root/instance/leaf
+capture. Directory identity or file changes withhold bytes/timestamps; unrelated
+writes do not. Missing-leaf defaults require valid ancestry. No atomicity, ABA
+protection or future reservation is claimed.
 Cached/live/Pi require safe-integer counters (positive definition version,
 nonnegative pending/revision) and explicit boolean attention; null/missing is not zero/false.
 Native RPC/snapshot known keys reject duplicate/folded members.
