@@ -16,11 +16,11 @@ func (Source) DiagnosticWorkspacePolicy(id, scope string) (protocol.DiagnosticWo
 	if err != nil {
 		return protocol.DiagnosticWorkspacePolicy{}, fmt.Errorf("workspace recipe registration unavailable")
 	}
-	registry, err := workspacegroup.Load(root)
+	registry, err := workspacegroup.DiagnosticLoad(root)
 	if err != nil {
 		return protocol.DiagnosticWorkspacePolicy{}, fmt.Errorf("workspace recipe registration unavailable")
 	}
-	// Load validates duplicate identities/paths and the complete native recipe.
+	// DiagnosticLoad shares native identity/path and complete recipe validation.
 	// Never reconstruct an origin from current files: provenance was not stored.
 	for _, group := range registry.Workspaces {
 		if group.ID != id || (scope != "" && filepath.Clean(scope) != filepath.Clean(group.Path)) {

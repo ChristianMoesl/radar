@@ -119,11 +119,16 @@ func load(root string) (Registry, error) {
 	if err := json.Unmarshal(data, &registry); err != nil {
 		return Registry{}, fmt.Errorf("read %s: %w", Path(root), err)
 	}
+	return validateRegistry(registry, Path(root))
+}
+
+// Share native version and recipe normalization with bounded diagnostic reads.
+func validateRegistry(registry Registry, path string) (Registry, error) {
 	if registry.Version != Version {
 		return Registry{}, fmt.Errorf("unsupported Radar workspace registry version %d", registry.Version)
 	}
 	if err := normalizeAndValidate(&registry); err != nil {
-		return Registry{}, fmt.Errorf("read %s: %w", Path(root), err)
+		return Registry{}, fmt.Errorf("read %s: %w", path, err)
 	}
 	return registry, nil
 }

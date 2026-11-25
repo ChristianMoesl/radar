@@ -45,7 +45,7 @@ func (Source) DiagnosticWorkspaceRegistrations() ([]protocol.DiagnosticWorkspace
 	if err != nil {
 		return nil, err
 	}
-	registry, err := workspacegroup.Load(root)
+	registry, err := workspacegroup.DiagnosticLoad(root)
 	if err != nil {
 		return nil, err
 	}

@@ -31,7 +31,7 @@ func (Source) DiagnosticRepositoryPolicy(ctx context.Context, parent, memberID, 
 }
 
 func diagnosticRepositoryPolicy(ctx context.Context, root, parent, memberID, scope string, capture func(string) (*repositoryConfigurationCapture, string)) (protocol.DiagnosticRepositoryPolicy, error) {
-	registry, err := workspacegroup.Load(root)
+	registry, err := workspacegroup.DiagnosticLoad(root)
 	if err != nil {
 		return protocol.DiagnosticRepositoryPolicy{}, fmt.Errorf("repository policy registration unavailable")
 	}
@@ -123,7 +123,7 @@ func diagnosticRepositoryPolicy(ctx context.Context, root, parent, memberID, sco
 	if ctx.Err() != nil {
 		return unavailable("cancelled_or_timed_out")
 	}
-	after, err := workspacegroup.Load(root)
+	after, err := workspacegroup.DiagnosticLoad(root)
 	beforeJSON, _ := json.Marshal(registry)
 	afterJSON, _ := json.Marshal(after)
 	if err != nil || string(beforeJSON) != string(afterJSON) {

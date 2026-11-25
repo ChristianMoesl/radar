@@ -79,7 +79,16 @@ recipe exposes only kit/kit-path/environment-file/readiness-command presence and
 complete managed-mount, additional-mount and port counts. Names, paths, argv,
 models, environment contents and other raw recipe values are withheld.
 
-The native registration reader validates the registry and exact scoped identity.
+Registration inventories, this recipe projection and before/after repository-policy
+registration reads share a diagnostic-only capture: at most 1 MiB and 1024 workspace
+registrations, no-follow/nonblocking root/file descriptors and observed identity,
+size/time/completeness checks. Absent roots/files remain empty without creation;
+unsafe, invalid, oversized or changed evidence is unavailable, never partial.
+No native mutex or coordination file is opened, created or locked, so an active
+writer does not make inspection wait. Native writers atomically replace the file;
+this observation is not a serializable transaction, ABA protection or execution
+admission. Normal native loading/writing/locking and mutation guards are unchanged.
+The shared native validator retains complete recipe and identity/path validation.
 Missing/invalid/ambiguous/unsupported evidence fails closed, without falling back
 to current files or another scope. No repository, referenced file, provider,
 runtime, ownership or lease checks, collection or maintenance are requested.
