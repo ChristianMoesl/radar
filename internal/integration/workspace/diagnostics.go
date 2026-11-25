@@ -28,7 +28,7 @@ func (Source) DiagnosticRetirementTargets(ctx context.Context, task protocol.Tas
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		planned, err := RuntimeCleanupTargets(task, source)
+		planned, err := runtimeCleanupTargets(task, source, workspacegroup.DiagnosticLoad)
 		if err != nil {
 			return nil, err
 		}

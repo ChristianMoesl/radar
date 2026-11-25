@@ -79,8 +79,9 @@ recipe exposes only kit/kit-path/environment-file/readiness-command presence and
 complete managed-mount, additional-mount and port counts. Names, paths, argv,
 models, environment contents and other raw recipe values are withheld.
 
-Registration inventories, this recipe projection and before/after repository-policy
-registration reads share a diagnostic-only capture: at most 1 MiB and 1024 workspace
+Registration inventories, this recipe projection, registration-only retirement target
+planning (including per-target validation rechecks) and before/after repository-policy
+reads share a diagnostic-only capture: at most 1 MiB and 1024 workspace
 registrations, no-follow/nonblocking root/file descriptors and observed identity,
 size/time/completeness checks. Absent roots/files remain empty without creation;
 unsafe, invalid, oversized or changed evidence is unavailable, never partial.

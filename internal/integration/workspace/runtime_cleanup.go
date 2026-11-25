@@ -11,11 +11,16 @@ import (
 // RuntimeCleanupTargets uses registration, not possibly missing runtime observations.
 // Registration is retained so ordinary open can recover stopped/missing runtimes.
 func RuntimeCleanupTargets(task protocol.Task, source string) ([]protocol.CleanupTarget, error) {
+	return runtimeCleanupTargets(task, source, workspacegroup.Load)
+}
+
+// Diagnostic callers share native projection and validation, not native I/O policy.
+func runtimeCleanupTargets(task protocol.Task, source string, load func(string) (workspacegroup.Registry, error)) ([]protocol.CleanupTarget, error) {
 	root, err := DefaultRoot()
 	if err != nil {
 		return nil, err
 	}
-	registry, err := workspacegroup.Load(root)
+	registry, err := load(root)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +70,7 @@ func RuntimeCleanupTargets(task protocol.Task, source string) ([]protocol.Cleanu
 				target.Operation["runtime_id"] = observed.ID
 			}
 		}
-		if _, err := ValidateRuntimeCleanupTarget(root, target); err != nil {
+		if _, err := validateRuntimeCleanupTarget(root, target, load); err != nil {
 			return nil, err
 		}
 		targets = append(targets, target)
@@ -76,7 +81,11 @@ func RuntimeCleanupTargets(task protocol.Task, source string) ([]protocol.Cleanu
 // ValidateRuntimeCleanupTarget never examines publication or disposable local data.
 // Callers recheck under the note lock before each runtime side effect.
 func ValidateRuntimeCleanupTarget(root string, target protocol.CleanupTarget) (workspacegroup.Workspace, error) {
-	registry, err := workspacegroup.Load(root)
+	return validateRuntimeCleanupTarget(root, target, workspacegroup.Load)
+}
+
+func validateRuntimeCleanupTarget(root string, target protocol.CleanupTarget, load func(string) (workspacegroup.Registry, error)) (workspacegroup.Workspace, error) {
+	registry, err := load(root)
 	if err != nil {
 		return workspacegroup.Workspace{}, err
 	}
