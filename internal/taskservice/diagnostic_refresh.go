@@ -41,9 +41,10 @@ func (s *Service) RefreshDiagnostics(ctx context.Context) (collector.Result, err
 	return remote, ctx.Err()
 }
 
-// A diagnostic deadline must also bound waiting for the shared publication lock.
-// Production callers preserve their normal serialization while cancellation can
-// prevent a not-yet-published observation from starting a later mutation.
+// Bound waiting for shared publication/lifecycle admission with the caller's
+// context while preserving normal serialization. Successful acquisition does not
+// certify continued liveness: callers must recheck cancellation before work that
+// requires a live context.
 func lockCollectionContext(ctx context.Context, mu *sync.Mutex) bool {
 	for ctx.Err() == nil {
 		if mu.TryLock() {

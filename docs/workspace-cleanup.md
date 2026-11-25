@@ -94,7 +94,16 @@ local data.
 ## Agent activity and result review
 
 Both automatic stages recheck task completion and reported agent activity
-before destructive execution. At the final execution guard, GC rebuilds the
+before destructive execution. Waiting for the shared authored-lifecycle admission
+is bounded by the caller's context: cancellation or deadline expiry stops a
+waiting guard before fresh author/activity checks or its execution callback.
+Cancellation is checked again after acquisition; the guard releases only its own
+admission. A live caller still waits for the existing owner and then rechecks
+fresh lifecycle/activity evidence under the same serialization. This does not
+interrupt an already running callback, roll back effects, reserve future safety
+or add a diagnostic retirement/expiry adapter.
+
+At the final execution guard, GC rebuilds the
 production candidate plan from one atomic, owned task/reference snapshot using
 the original run's policy and decision time. The selected candidate, including
 its active linked references, must still exactly match the preview input. A

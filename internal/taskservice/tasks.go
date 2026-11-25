@@ -274,8 +274,17 @@ func (s *Service) applyLocal(result collector.Result, manualComplete map[string]
 // GuardCleanup lets a reopen win during preview, but prevents lifecycle changes
 // between GC's final eligibility check and the destructive provider operations.
 func (s *Service) GuardCleanup(ctx context.Context, task protocol.Task, execute func() error) error {
-	s.applyMu.Lock()
+	// Lifecycle admission can be held by unrelated publication or authoring.
+	// Cancellation must stop the waiter before fresh reads or later execution.
+	if !lockCollectionContext(ctx, &s.applyMu) {
+		return ctx.Err()
+	}
 	defer s.applyMu.Unlock()
+	// Cancellation can win immediately after the helper's last Err read and
+	// successful acquisition. Check again while owning admission.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if current, ok := taskByID(s.store.CollectionTasks(), task.ID); ok && current.AgentReviewPending {
 		return fmt.Errorf("agent result review could not be persisted; refresh before cleanup")
 	}
