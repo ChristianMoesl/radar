@@ -61,7 +61,7 @@ func TestRemoveManagedWorktreeDeletesBranchE2E(t *testing.T) {
 	worktree := filepath.Join(t.TempDir(), "feature")
 	runGitE2E(t, ctx, repo, "worktree", "add", "-b", "feature", worktree)
 	member := workspacegroup.Member{Repository: repo, Path: worktree, Branch: "feature"}
-	if _, err := RemoveManagedWorktree(ctx, ExecRunner{}, member, integration.CleanupSafe); err != nil {
+	if _, err := RemoveManagedWorktree(ctx, ExecRunner{}, member, integration.CleanupSafe, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(worktree); !os.IsNotExist(err) {

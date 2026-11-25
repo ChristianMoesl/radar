@@ -119,10 +119,11 @@ func PlanManagedWorktreeRemoval(ctx context.Context, runner Runner, member works
 	return ManagedWorktreeRemovalPlan{DeleteBranch: true}, nil
 }
 
-// RemoveManagedWorktree removes a registered worktree. Non-protected local
-// branches are deleted using their expected old object ID so branch movement
-// during cleanup fails safely.
-func RemoveManagedWorktree(ctx context.Context, runner Runner, member workspacegroup.Member, mode integration.CleanupMode) (Workspace, error) {
+// RemoveManagedWorktree removes and independently observes a registered worktree.
+// allowBranchDeletion permits the native planner to delete non-protected local
+// branches using their expected old object ID. False preserves a keep-branch
+// preview even if sharing ends, without bypassing admission or outcome checks.
+func RemoveManagedWorktree(ctx context.Context, runner Runner, member workspacegroup.Member, mode integration.CleanupMode, allowBranchDeletion bool) (Workspace, error) {
 	defer phasetiming.Start(ctx, "managed_worktree_removal")()
 	releaseBranch, err := acquireWorktreeBranchMutation(ctx, runner, member.Repository, strings.TrimSpace(member.Branch))
 	if err != nil {
@@ -133,9 +134,12 @@ func RemoveManagedWorktree(ctx context.Context, runner Runner, member workspaceg
 	if err != nil {
 		return Workspace{}, err
 	}
-	plan, err := PlanManagedWorktreeRemoval(ctx, runner, member)
-	if err != nil {
-		return Workspace{}, err
+	plan := ManagedWorktreeRemovalPlan{}
+	if allowBranchDeletion {
+		plan, err = PlanManagedWorktreeRemoval(ctx, runner, member)
+		if err != nil {
+			return Workspace{}, err
+		}
 	}
 	branch := strings.TrimSpace(member.Branch)
 	ref := "refs/heads/" + branch

@@ -72,7 +72,7 @@ func TestSharedBranchIsKeptWhenRemovingOneWorktree(t *testing.T) {
 	if err != nil || plan.DeleteBranch {
 		t.Fatalf("shared branch should be kept: %+v %v", plan, err)
 	}
-	if _, err := RemoveManagedWorktree(ctx, ExecRunner{}, member, integration.CleanupSafe); err != nil {
+	if _, err := RemoveManagedWorktree(ctx, ExecRunner{}, member, integration.CleanupSafe, true); err != nil {
 		t.Fatal(err)
 	}
 	runGitE2E(t, ctx, repo, "show-ref", "--verify", "refs/heads/feature")

@@ -301,7 +301,7 @@ func (Source) cleanupWithMemberScan(ctx context.Context, req integration.Cleanup
 		if req.Target.Operation["delete_branch"] == "" {
 			// A preview that promised to keep a protected/shared branch must not
 			// start deleting it if the other checkout disappears before execution.
-			_, err = workspace.RemoveWorktree(ctx, workspace.ExecRunner{}, member.Path, req.Mode)
+			_, err = workspace.RemoveManagedWorktree(ctx, workspace.ExecRunner{}, member, req.Mode, false)
 		} else {
 			// Automatic cleanup rechecks after preview; explicit user-confirmed
 			// cleanup keeps its existing force semantics.
@@ -322,7 +322,7 @@ func (Source) cleanupWithMemberScan(ctx context.Context, req integration.Cleanup
 					}
 				}
 			}
-			_, err = workspace.RemoveManagedWorktree(ctx, workspace.ExecRunner{}, member, req.Mode)
+			_, err = workspace.RemoveManagedWorktree(ctx, workspace.ExecRunner{}, member, req.Mode, true)
 		}
 		if err != nil {
 			return err

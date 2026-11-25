@@ -141,7 +141,7 @@ func TestManagedGitRemovalRequiresObservedOutcomes(t *testing.T) {
 					case "delete_error":
 						runner.deleteRef = func(context.Context, string, string, ...string) (string, error) { return "", marker }
 					}
-					_, err := RemoveManagedWorktree(ctx, runner, f.member(), mode)
+					_, err := RemoveManagedWorktree(ctx, runner, f.member(), mode, true)
 					if err == nil {
 						t.Fatal("unverified native removal was reported as successful", scenario)
 					}
@@ -181,7 +181,7 @@ func TestManagedGitRemovalRequiresObservedOutcomes(t *testing.T) {
 
 func TestManagedGitRemovalObservedControls(t *testing.T) {
 	for _, mode := range []integration.CleanupMode{integration.CleanupSafe, integration.CleanupConfirmed, integration.CleanupExpired} {
-		for _, kind := range []string{"delete", "protected", "shared"} {
+		for _, kind := range []string{"delete", "protected", "shared", "keep"} {
 			t.Run(fmt.Sprint(mode)+"/"+kind, func(t *testing.T) {
 				f := newBranchMutationFixture(t)
 				member := f.member()
@@ -215,7 +215,7 @@ func TestManagedGitRemovalObservedControls(t *testing.T) {
 					checkAdmission()
 					return runner.ExecRunner.Run(ctx, cwd, name, args...)
 				}
-				result, err := RemoveManagedWorktree(f.ctx, runner, member, mode)
+				result, err := RemoveManagedWorktree(f.ctx, runner, member, mode, kind != "keep")
 				if err != nil || result.Path != f.path {
 					t.Fatalf("valid removal failed: %+v, %v", result, err)
 				}
@@ -273,7 +273,7 @@ func TestManagedGitRemovalRejectsReplacedRepository(t *testing.T) {
 				}
 				return out, nil
 			}
-			_, err := RemoveManagedWorktree(f.ctx, runner, f.member(), integration.CleanupConfirmed)
+			_, err := RemoveManagedWorktree(f.ctx, runner, f.member(), integration.CleanupConfirmed, true)
 			if err == nil || !strings.Contains(err.Error(), "repository changed") || runner.deletes != 0 || runner.listings != 0 {
 				t.Fatalf("replaced repository supplied absence evidence: %v, %+v", err, runner)
 			}
@@ -323,7 +323,7 @@ func TestManagedGitRemovalUsesNativeUnquotedPaths(t *testing.T) {
 				t.Fatal("native branch-preservation precondition changed", plan)
 			}
 			runner := &removalOutcomeRunner{}
-			if _, err := RemoveManagedWorktree(f.ctx, runner, f.member(), integration.CleanupConfirmed); err != nil {
+			if _, err := RemoveManagedWorktree(f.ctx, runner, f.member(), integration.CleanupConfirmed, true); err != nil {
 				t.Fatal(err)
 			}
 			wantDeletes := 0

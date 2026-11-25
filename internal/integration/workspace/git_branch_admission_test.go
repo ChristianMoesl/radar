@@ -89,7 +89,7 @@ func TestGitBranchAdmissionBlocksRecreationBeforeExpectedOIDDeletion(t *testing.
 			unblock := func() { once.Do(func() { close(resume) }) }
 			result := make(chan error, 1)
 			go func() {
-				_, err := RemoveManagedWorktree(f.ctx, runner, f.member(), integration.CleanupSafe)
+				_, err := RemoveManagedWorktree(f.ctx, runner, f.member(), integration.CleanupSafe, true)
 				result <- err
 				close(done)
 			}()
@@ -131,7 +131,7 @@ func TestGitBranchAdmissionBlocksRemovalDuringEnsureRevalidation(t *testing.T) {
 			}()
 			t.Cleanup(func() { unblock(); <-done })
 			waitBranchMutation(t, entered, result)
-			_, err := RemoveManagedWorktree(f.ctx, ExecRunner{}, f.member(), integration.CleanupSafe)
+			_, err := RemoveManagedWorktree(f.ctx, ExecRunner{}, f.member(), integration.CleanupSafe, true)
 			if err == nil || !strings.Contains(err.Error(), "git branch mutation is in use") {
 				t.Fatal("managed deletion bypassed an active same-branch writer", err)
 			}
@@ -156,7 +156,7 @@ func TestGitBranchAdmissionAllowsIndependentWriters(t *testing.T) {
 			unblock := func() { once.Do(func() { close(resume) }) }
 			result := make(chan error, 1)
 			go func() {
-				_, err := RemoveManagedWorktree(f.ctx, runner, f.member(), integration.CleanupSafe)
+				_, err := RemoveManagedWorktree(f.ctx, runner, f.member(), integration.CleanupSafe, true)
 				result <- err
 				close(done)
 			}()
@@ -257,7 +257,7 @@ func TestGitBranchAdmissionReleasesAfterOutcomes(t *testing.T) {
 				if operation == "ensure" {
 					_, err = EnsureWorktree(ctx, runner, WorktreePlan{Repo: f.repo, BranchMode: integration.WorkspaceBranchNew, Name: branch, Branch: branch, Base: "main", Path: filepath.Join(f.root, "fresh"), Root: f.root})
 				} else {
-					_, err = RemoveManagedWorktree(ctx, runner, f.member(), integration.CleanupSafe)
+					_, err = RemoveManagedWorktree(ctx, runner, f.member(), integration.CleanupSafe, true)
 				}
 				if (err == nil) != (kind == "success") {
 					t.Fatal("wrong operation outcome", err)
@@ -314,7 +314,7 @@ func TestGitBranchAdmissionCoversCopyRollbackAndPartialDeletion(t *testing.T) {
 			if kind == "copy-rollback" {
 				_, err = EnsureWorktree(f.ctx, runner, WorktreePlan{Repo: f.repo, BranchMode: integration.WorkspaceBranchNew, Name: branch, Branch: branch, Base: "main", Path: filepath.Join(f.root, "fresh"), Root: f.root})
 			} else {
-				_, err = RemoveManagedWorktree(f.ctx, runner, f.member(), integration.CleanupSafe)
+				_, err = RemoveManagedWorktree(f.ctx, runner, f.member(), integration.CleanupSafe, true)
 			}
 			if err == nil || observed != 1 {
 				t.Fatal("partial outcome boundary not covered", observed, err)
@@ -351,7 +351,7 @@ func TestGitBranchAdmissionPreCancellationHasNoCommands(t *testing.T) {
 			if operation == "ensure" {
 				_, err = EnsureWorktree(ctx, runner, WorktreePlan{Repo: f.repo, BranchMode: integration.WorkspaceBranchExisting, Branch: "feature", Path: f.path, Root: f.root})
 			} else {
-				_, err = RemoveManagedWorktree(ctx, runner, f.member(), integration.CleanupSafe)
+				_, err = RemoveManagedWorktree(ctx, runner, f.member(), integration.CleanupSafe, true)
 			}
 			if !errors.Is(err, context.Canceled) || calls != 0 {
 				t.Fatal("precancelled operation ran commands", calls, err)
@@ -377,7 +377,7 @@ func TestGitBranchAdmissionCoversActualCreation(t *testing.T) {
 			}()
 			t.Cleanup(func() { unblock(); <-done })
 			waitBranchMutation(t, entered, result)
-			if _, err := RemoveManagedWorktree(f.ctx, ExecRunner{}, f.member(), integration.CleanupSafe); err == nil || !strings.Contains(err.Error(), "git branch mutation is in use") {
+			if _, err := RemoveManagedWorktree(f.ctx, ExecRunner{}, f.member(), integration.CleanupSafe, true); err == nil || !strings.Contains(err.Error(), "git branch mutation is in use") {
 				t.Fatal("cleanup bypassed actual worktree creation", err)
 			}
 			unblock()
@@ -387,7 +387,7 @@ func TestGitBranchAdmissionCoversActualCreation(t *testing.T) {
 			if _, err := os.Stat(f.path); err != nil {
 				t.Fatal("creation did not complete", err)
 			}
-			if _, err := RemoveManagedWorktree(f.ctx, ExecRunner{}, f.member(), integration.CleanupSafe); err != nil {
+			if _, err := RemoveManagedWorktree(f.ctx, ExecRunner{}, f.member(), integration.CleanupSafe, true); err != nil {
 				t.Fatal("completed creation leaked branch admission", err)
 			}
 		})
@@ -411,7 +411,7 @@ func TestGitBranchAdmissionPreservesExpectedOIDGuard(t *testing.T) {
 		}
 		return (ExecRunner{}).Run(ctx, cwd, name, args...)
 	}}
-	removed, err := RemoveManagedWorktree(f.ctx, runner, f.member(), integration.CleanupSafe)
+	removed, err := RemoveManagedWorktree(f.ctx, runner, f.member(), integration.CleanupSafe, true)
 	if !moved || err == nil || !strings.Contains(err.Error(), "worktree removed but local branch") || removed.Path != f.path {
 		t.Fatal("moved branch was not an honest partial outcome", removed, err)
 	}

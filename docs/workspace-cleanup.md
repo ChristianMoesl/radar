@@ -189,17 +189,20 @@ change automatic runtime retirement at 24 hours or destructive expiry at seven d
 - **Branch used by another worktree:** remove the selected worktree but keep the
   shared branch and the other checkout. Cleanup must honour a preview that said
   the branch would be kept even if that other checkout subsequently disappears.
-- **Managed branch-removal outcomes:** the native managed remover checks both
-  filesystem absence and a fresh, NUL-delimited Git worktree listing before
-  deleting a local branch. It then independently checks branch absence after
+- **Managed worktree-removal outcomes:** every registered-member removal,
+  including a keep-branch preview, uses the native managed remover to check both
+  filesystem absence and a fresh, NUL-delimited Git worktree listing. A preview
+  that preserves a branch cannot start deleting it after sharing ends. When
+  local branch deletion is allowed, the native planner still protects shared
+  and repository branches before deleting a local branch. It then independently checks branch absence after
   the expected-old-object-ID deletion. Repository/common-directory identities
   stay pinned and branch admission stays held across these observations. Remaining,
   replaced, malformed, unavailable or cancelled evidence fails closed; the
   caller retains member registration and stops later cleanup targets. Earlier
   effects can remain: no rollback or automatic retry is implied. These are
   point-in-time native observations, not future-state guarantees or diagnostic
-  apply authority. Standalone removal, keep-branch-only and already-missing
-  member paths are not covered by this managed branch-remover observation.
+  apply authority. Standalone removal and already-missing member paths are not
+  covered by this managed-remover observation.
 - **Primary repository checkout:** keep it; it is not a removable linked
   worktree. Registering one as a managed workspace member is still a
   configuration problem, not permission to delete the repository.
