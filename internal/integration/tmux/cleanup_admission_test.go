@@ -85,6 +85,11 @@ type fixtureAdmissionProvider struct {
 }
 
 func (p fixtureAdmissionProvider) AdmitCleanup(ctx context.Context, targets []protocol.CleanupTarget, mode integration.CleanupMode) (integration.CleanupProvider, func(), error) {
+	if mode != integration.CleanupRetire {
+		// Model observed disappearance independently of command exit, retaining
+		// cached identities for the existing held/released admission probes.
+		return admitCleanup(ctx, &retirementOutcomeRunner{base: p.runner}, targets, mode, true)
+	}
 	return admitCleanup(ctx, p.runner, targets, mode, true)
 }
 
@@ -170,7 +175,9 @@ func TestCleanupHoldsNativeBundleThroughLaterProvidersAndReleases(t *testing.T) 
 			target := sessionTarget(r, "workspace-alpha")
 			preview := protocol.CleanupPreview{Targets: []protocol.CleanupTarget{target, target, {Source: "fixture"}}}
 			result, err := service.Execute(ctx, preview, cleanup.ExecuteOptions{})
-			if (err != nil) != (outcome != "success") || effects != 1 || len(r.killed) != 2 {
+			// Both native targets return, but the duplicate is now an observed
+			// absence no-op, not permission to repeat the first kill.
+			if (err != nil) != (outcome != "success") || effects != 1 || len(r.killed) != 1 {
 				t.Fatal(result, err, effects, r.killed)
 			}
 			if len(result.Targets) < 2 || result.Targets[0].ResourceID != target.ResourceID {

@@ -328,6 +328,19 @@ proof. An initial complete absent-name listing has no earlier lifetime to attest
 This does not bind a name-only preview to a runtime lifetime or grant safe-retry
 consent. Direct low-level cleanup helpers are outside this Source-route contract.
 
+Ordinary tmux Source cleanup, both standalone and discovered registered-owner
+routes, also requires a fresh exact identity/name observation after one
+ID-addressed kill. Command success alone cannot advance the completed prefix
+or later cleanup targets. Original name/incarnation admission stays held;
+managed routes additionally retain actual-owner path admission and repeat
+registration, filesystem, agent and cancellation checks around the observation.
+An ignored kill, renamed original, replacement or unavailable observation fails
+without another kill or removing registration. Initially absent sessions remain
+no-ops. These are point-in-time native checks, not diagnostic outcome attestation,
+preview-to-lifetime binding for a name-only target, future-state reservation or
+safe-retry consent. Low-level workspace creation rollback is outside this Source
+cleanup contract.
+
 GC results distinguish runtime-retired, deleted and skipped workspaces. `radar gc` also prints paths and skip
 reasons; use `radar gc --json` for structured results.
 

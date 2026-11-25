@@ -100,7 +100,22 @@ func cleanupSessionTarget(ctx context.Context, runner workspace.Runner, target p
 		if _, err := runner.Run(ctx, "", "tmux", "kill-session", "-t", identity.ID); err != nil {
 			return err
 		}
-		return refresh()
+		if err := refresh(); err != nil {
+			return err
+		}
+		// A successful kill exit is not absence evidence. Reuse exact native
+		// identity/name admission while the original bundle remains held.
+		remaining, err := verify()
+		if err != nil {
+			return err
+		}
+		if err := refresh(); err != nil {
+			return err
+		}
+		if remaining.ID != "" {
+			return fmt.Errorf("tmux session still exists after removal; inspect before retrying")
+		}
+		return nil
 	}
 	root, err := workspace.DefaultRoot()
 	if err != nil {

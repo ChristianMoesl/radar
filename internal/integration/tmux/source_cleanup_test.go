@@ -63,11 +63,12 @@ func TestSessionCleanupWaitsOnlyForManagedResources(t *testing.T) {
 			}
 			body := fmt.Sprintf(`#!/bin/sh
 if [ "$1" = display-message ]; then
- if [ "$5" = '#{session_name}' ]; then printf '%%s\n' %q; else printf '%%s\n' '%s'; fi
+ if [ -f %q ]; then printf '12::\n'; elif [ "$5" = '#{session_name}' ]; then printf '%%s\n' %q; else printf '%%s\n' '%s'; fi
  exit 0
 fi
 printf '%%s\n' "$*" >> %q
-`, name, identity, callsPath)
+if [ "$1" = kill-session ]; then : > %q; fi
+`, filepath.Join(home, "tmux-removed"), name, identity, callsPath, filepath.Join(home, "tmux-removed"))
 			t.Setenv("RADAR_SOCKET", filepath.Join(home, "radar.sock"))
 			if err := os.WriteFile(filepath.Join(home, "tmux"), []byte(body), 0o755); err != nil {
 				t.Fatal(err)
@@ -186,7 +187,13 @@ func TestManagedWorkspaceCleanupDoesNotRecursivelyLock(t *testing.T) {
 	for _, name := range []string{"tmux", "sbx"} {
 		body := "#!/bin/sh\nif [ \"$1\" = ls ]; then printf '[]'; fi\nexit 0\n"
 		if name == "tmux" {
-			body = "#!/bin/sh\nif [ \"$1\" = display-message ]; then if [ \"$5\" = '#{session_name}' ]; then echo managed-session; else echo '12:34:$7'; fi; fi\nexit 0\n"
+			body = fmt.Sprintf(`#!/bin/sh
+if [ "$1" = display-message ]; then
+ if [ -f %q ]; then echo '12::'; elif [ "$5" = '#{session_name}' ]; then echo managed-session; else echo '12:34:$7'; fi
+elif [ "$1" = kill-session ]; then : > %q
+fi
+exit 0
+`, filepath.Join(home, "tmux-removed"), filepath.Join(home, "tmux-removed"))
 		}
 		if err := os.WriteFile(filepath.Join(home, name), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
