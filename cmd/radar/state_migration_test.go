@@ -79,8 +79,11 @@ func TestDaemonAutomaticallyMigratesLegacyStateBeforeServing(t *testing.T) {
 		t.Helper()
 		cmd := exec.Command(executable, "-test.run=^TestOutputCLIProcess$")
 		cmd.Dir = root
+		// SQLite cold compilation uses GOMAXPROCS/4 workers. Keep two bounded
+		// compiler workers rather than serializing race-instrumented compilation
+		// under the unchanged daemon-readiness deadline.
 		cmd.Env = []string{
-			"HOME=" + root, "PATH=" + root, "GOMAXPROCS=2", "XDG_CONFIG_HOME=" + configHome,
+			"HOME=" + root, "PATH=" + root, "GOMAXPROCS=8", "XDG_CONFIG_HOME=" + configHome,
 			"XDG_STATE_HOME=" + filepath.Join(root, "state"), "RADAR_STATE=" + database,
 			"RADAR_PID=" + filepath.Join(root, "radar.pid"), "RADAR_SOCKET=" + socketPath,
 			"RADAR_LOG=" + filepath.Join(root, "daemon.log"), "RADAR_LOG_COLOR=0",
