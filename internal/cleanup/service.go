@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"radar/internal/agentservice"
@@ -46,7 +48,14 @@ func (s Service) Preview(ctx context.Context, task protocol.Task, mode integrati
 			}
 			return protocol.CleanupPreview{}, fmt.Errorf("resource check failed for %s: %w; refresh Radar and retry cleanup", strings.Join(resources, ", "), err)
 		}
-		targets = append(targets, providerTargets...)
+		// Own each provider result before calling the next provider. Later planner
+		// or lifecycle callbacks must not rewrite earlier operations or warnings
+		// through borrowed maps/slices, including before daemon plan freezing.
+		for _, target := range providerTargets {
+			target.Operation = maps.Clone(target.Operation)
+			target.Safety = slices.Clone(target.Safety)
+			targets = append(targets, target)
+		}
 	}
 	if len(targets) == 0 {
 		return protocol.CleanupPreview{}, ErrNoResources

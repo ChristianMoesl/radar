@@ -60,6 +60,15 @@ is not permission to delete it before discovering an unsupported later target.
 Valid bundles retain native target order and all ownership/lease/preflight guards;
 provider failures after dispatch can still be partial and require a fresh preview.
 
+The shared native cleanup planner owns each provider's returned operations and
+safety warnings before invoking the next provider. Later provider planning or
+lifecycle callbacks cannot rewrite an earlier target through borrowed maps or
+slices, and changing one returned preview cannot change the provider's values or
+a separately planned preview. Target order, exact native values and nil/empty
+shapes are preserved. This fixes an in-process aliasing boundary; it does not
+freeze external resources, change policy, grant consent, replace last-moment
+guards or add a diagnostic retirement/expiry apply adapter.
+
 The internal native `cleanup.Service.CheckBundle` reuses that exact admission and
 whole-bundle preflight path without calling any provider's `Cleanup`. It releases
 all path, runtime-name, incarnation and provider-discovered admission before
