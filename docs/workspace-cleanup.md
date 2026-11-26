@@ -145,6 +145,19 @@ or safe-retry permission. The public GC command still sweeps all candidates;
 this internal sharing adds no exact-target diagnostic endpoint, consent token or
 retirement apply capability.
 
+The retirement stage now also uses an exact native `RetirementPlan` entry over
+that same boundary. Preparation compares one expected registered GC candidate
+with a fresh owned atomic snapshot, refuses ambiguous identities, non-retirement
+stages and scope drift before native planning, and retains only its complete
+ordered selected bundle. An owned preview copy cannot rewrite retained operations
+or safety notices; execution retains the original policy, time and lifecycle
+callback and delegates to the unchanged candidate/provider execution guards.
+This in-process value is not public transport, fresh registration admission,
+user consent, a one-use cache or safe-replay authority. A typed diagnostic caller
+must still bind fresh registered feedback/target scope, the existing one-use
+plan machinery and separate explicit preview/apply consent. No typed retirement
+endpoint or advertised apply capability is added by this native entry.
+
 Already-missing cleanup results pass through the same final lifecycle guard,
 including cancellation and authored-mutation admission. GC rechecks path absence
 inside that guard before counting the no-op as deleted; a reappearing entry

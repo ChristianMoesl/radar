@@ -158,12 +158,29 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 	}
 	result := Result{Skipped: append([]Skipped(nil), plan.Skipped...)}
 	for _, candidate := range plan.Candidates {
-		prepared, err := prepareCandidateCleanup(ctx, cleanupService, candidate, now, options)
+		mode, err := CandidateMode(candidate, now)
 		if err != nil {
 			result.skip(candidate, err, logger)
 			continue
 		}
-		_, runtimeChanged, err := prepared.execute(ctx, store, cleanupService)
+		var prepared candidateCleanupPlan
+		var retirement RetirementPlan
+		if mode == integration.CleanupRetire {
+			retirement, err = PrepareRetirement(ctx, store, cleanupService, candidate, now, options)
+			prepared = retirement.prepared
+		} else {
+			prepared, err = prepareCandidateCleanup(ctx, cleanupService, candidate, now, options)
+		}
+		if err != nil {
+			result.skip(candidate, err, logger)
+			continue
+		}
+		var runtimeChanged bool
+		if mode == integration.CleanupRetire {
+			_, runtimeChanged, err = retirement.Execute(ctx, store, cleanupService)
+		} else {
+			_, runtimeChanged, err = prepared.execute(ctx, store, cleanupService)
+		}
 		if err != nil {
 			result.skip(candidate, err, logger)
 			continue
