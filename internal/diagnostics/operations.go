@@ -25,6 +25,12 @@ func operationItems(req protocol.DiagnosticsRequest, records []state.TaskRecord,
 			if ref.Snapshot.WorkspaceID != "" && recordInWorkspace([]state.SourceRefRecord{ref}, req.Workspace) {
 				workspaces[ref.Snapshot.WorkspaceID] = true
 			}
+			// Agent refs expose their cached workspace relationship in metadata,
+			// not SourceRef.WorkspaceID. This joins observations only; it is
+			// never fresh ownership or permission to execute the operation.
+			if ref.Snapshot.IsDurableAgent() && ref.Snapshot.Metadata["workspace_id"] != "" && recordInWorkspace([]state.SourceRefRecord{ref}, req.Workspace) {
+				workspaces[ref.Snapshot.Metadata["workspace_id"]] = true
+			}
 		}
 	}
 	items := []protocol.DiagnosticItem{}
@@ -39,7 +45,7 @@ func operationItems(req protocol.DiagnosticsRequest, records []state.TaskRecord,
 		}
 		view := protocol.DiagnosticOperation{ID: clip(op.ID), Kind: "unknown", Status: "unknown", TaskID: op.TaskID, WorkspaceID: clip(op.WorkspaceID), ExecutionEvidence: "unknown_not_captured", TargetEvidence: "unknown_not_captured", CleanupTargetEvidence: "unknown_not_captured", CleanupExecutionEvidence: "unknown_not_captured", TimingEvidence: "unknown_not_captured", PhaseTimingEvidence: "unknown_not_captured"}
 		switch op.Kind {
-		case "refresh", "cleanup", "workspace", "task-create", "task-done", "task-reopen", "task-priority", "task-mute", "task-unmute", "task-title", "task-note", "task-delete":
+		case "agent-stop", "refresh", "cleanup", "workspace", "task-create", "task-done", "task-reopen", "task-priority", "task-mute", "task-unmute", "task-title", "task-note", "task-delete":
 			view.Kind = op.Kind
 		}
 		switch op.Status {

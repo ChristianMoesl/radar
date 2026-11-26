@@ -100,7 +100,7 @@ func stopAdapterFixture(t *testing.T, target string) (*Server, *manualAdapterSou
 	s.integrations = integration.NewRegistry(groups, source)
 	ref := protocol.SourceRef{ID: "agent:instance:worker", EntityID: "agent:instance:worker", Source: "agent", Kind: "agent", AgentID: "worker", Role: protocol.SourceRefRoleAuthoritative, Lifecycle: protocol.SourceRefLifecycleResource, Metadata: map[string]string{"agent_id": "worker", "workspace_id": target, "workspace_path": binding.Path, "execution": "local", "private": "PRIVATE metadata"}}
 	s.store.SetTasks([]protocol.Task{{Title: "PRIVATE task", SourceRefs: []protocol.SourceRef{ref}}})
-	q.Operation = "agent_stop"
+	q.Operation, q.AgentID = "agent_stop", "worker"
 	for _, task := range s.store.Tasks() {
 		for _, r := range task.SourceRefs {
 			if r.AgentID == "worker" {
@@ -405,6 +405,10 @@ func TestDiagnosticAgentStopPrivateNativeErrorAndCancellationAreNotResourceOutco
 			if err != nil || result.problem == "none" || result.outcome != "unverified_may_be_partial" || !result.dispatched || !*pending || stopDesired(t, file) || len(s.cleanupPlans) != 0 {
 				t.Fatal("native partial/cancelled return became success/rollback", result, err)
 			}
+			_, _, operations, _ := s.store.OperationInspectionSnapshot()
+			if len(operations) != 1 || operations[0].ID != result.operationID || operations[0].Kind != "agent-stop" || operations[0].Status != "failed" || operations[0].FinishedAt == "" {
+				t.Fatal("partial/cancelled native handler lost managed failure evidence", operations)
+			}
 		})
 	}
 }
@@ -423,8 +427,9 @@ func TestDiagnosticAgentStopPrivateNativeCannotExecuteBeforeConsumedApply(t *tes
 	}
 }
 
-func TestDiagnosticAgentStopPrivateHasNoPublicTransport(t *testing.T) {
+func TestDiagnosticAgentStopTransportRejectsOldSchema(t *testing.T) {
 	s, _, provider, q, file, pending := stopAdapterFixture(t, "origin")
+	q.Schema--
 	response := refreshRPC(t, s, protocol.Request{Method: "diagnostics-maintenance", Maintenance: &q})
 	if response.OK || provider.prepares != 0 || !stopDesired(t, file) || *pending || len(s.cleanupPlans) != 0 {
 		t.Fatal("private stop unexpectedly enabled RPC", response)

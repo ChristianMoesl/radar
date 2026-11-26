@@ -38,24 +38,28 @@ func diagnosticMaintenanceFields(raw []byte, operation string) bool {
 		return false
 	}
 	for name, value := range fields {
-		if (operation == "recreate" || operation == "retire" || operation == "expire") && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		if (operation == "recreate" || operation == "retire" || operation == "expire" || operation == "agent_stop") && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return false
 		}
 		switch name {
 		case "diagnostics_schema", "operation", "mode", "scope":
 		case "plan_id":
-			if operation != "refresh" && operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" {
+			if operation != "refresh" && operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" && operation != "agent_stop" {
 				return false
 			}
-			if (operation == "cleanup" || (operation == "recreate" || operation == "retire" || operation == "expire")) && string(fields["mode"]) != `"apply"` {
+			if (operation == "cleanup" || (operation == "recreate" || operation == "retire" || operation == "expire" || operation == "agent_stop")) && string(fields["mode"]) != `"apply"` {
+				return false
+			}
+		case "agent_id":
+			if operation != "agent_stop" {
 				return false
 			}
 		case "parent_id", "workspace":
-			if operation != "cleanup_check" && operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" {
+			if operation != "cleanup_check" && operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" && operation != "agent_stop" {
 				return false
 			}
 		case "feedback_workspace":
-			if operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" {
+			if operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" && operation != "agent_stop" {
 				return false
 			}
 		default:
@@ -102,7 +106,7 @@ func (s *Server) maintainDiagnostics(ctx context.Context, req protocol.Diagnosti
 	fail := func(message string) (protocol.DiagnosticMaintenance, error) {
 		return protocol.DiagnosticMaintenance{}, errors.New(message)
 	}
-	if req.Schema != protocol.DiagnosticsVersion || req.Operation != "refresh" || req.ParentID != "" || req.Workspace != "" || req.FeedbackWorkspace != "" || req.Scope != "installation" || (req.Mode != "preview" && req.Mode != "apply") || (req.Mode == "preview" && req.PlanID != "") || (req.Mode == "apply" && (len(req.PlanID) != 64 || !hexPlanID(req.PlanID))) {
+	if req.Schema != protocol.DiagnosticsVersion || req.Operation != "refresh" || req.AgentID != "" || req.ParentID != "" || req.Workspace != "" || req.FeedbackWorkspace != "" || req.Scope != "installation" || (req.Mode != "preview" && req.Mode != "apply") || (req.Mode == "preview" && req.PlanID != "") || (req.Mode == "apply" && (len(req.PlanID) != 64 || !hexPlanID(req.PlanID))) {
 		return fail("maintenance requires explicit installation refresh preview or exact-plan apply")
 	}
 	if err := ctx.Err(); err != nil {

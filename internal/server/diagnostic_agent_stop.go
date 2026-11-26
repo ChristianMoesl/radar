@@ -16,9 +16,8 @@ import (
 	"radar/internal/protocol"
 )
 
-// Private adapter infrastructure only. No protocol handler, CLI, Pi control or
-// consent is enabled here. A public adapter still needs its finite disclosure,
-// version-matched strict transport and separate fresh interruption approval.
+// Native private plan and view behind the finite daemon/client projection.
+// Public CLI/Pi controls still require separate fresh interruption approval.
 // All fields are private: accidentally marshaling a plan or view yields {}.
 type diagnosticAgentStopScope struct {
 	cleanup   diagnostics.ManualCleanupScope
@@ -26,15 +25,16 @@ type diagnosticAgentStopScope struct {
 	ref       [32]byte
 }
 type diagnosticAgentStopView struct {
-	agent, feedback, workspace, planID, expiresAt string
-	taskID                                        int
-	revision                                      int64
-	desired, running, dispatched                  bool
-	mode, problem, outcome                        string
+	agent, record, feedback, workspace, planID, expiresAt, operationID string
+	taskID                                                             int
+	revision                                                           int64
+	desired, running, dispatched                                       bool
+	mode, problem, outcome                                             string
 }
 type diagnosticAgentStopPlan struct {
 	request                     protocol.DiagnosticMaintenanceRequest
 	scope                       diagnosticAgentStopScope
+	operation                   string
 	native                      integration.AgentStopPlan
 	view                        diagnosticAgentStopView
 	expires                     time.Time
@@ -47,10 +47,10 @@ func diagnosticAgentStopUnavailable() error {
 	return errors.New("exact native agent stop unavailable or changed; outcome may be unknown, do not replay or automatically retry")
 }
 func validDiagnosticAgentStopRequest(q protocol.DiagnosticMaintenanceRequest, id string) bool {
-	if q.Operation != "agent_stop" || !diagnosticStopAgentID.MatchString(id) {
+	if q.Operation != "agent_stop" || q.AgentID != id || !diagnosticStopAgentID.MatchString(id) {
 		return false
 	}
-	q.Operation = "recreate"
+	q.Operation, q.AgentID = "recreate", ""
 	return validDiagnosticRecreationRequest(q)
 }
 
@@ -138,6 +138,7 @@ func (s *Server) prepareDiagnosticAgentStop(ctx context.Context, q protocol.Diag
 		if err != nil || current != before || !s.diagnosticRecreationInputsLive(c, before.cleanup.Revision, p.expires) || !p.active.Load() {
 			return diagnosticAgentStopUnavailable()
 		}
+		p.operation = s.store.BeginOperation("agent-stop", before.cleanup.TaskID, before.workspace.ID)
 		p.dispatched.Store(true)
 		return execute()
 	}
@@ -170,7 +171,7 @@ func (s *Server) prepareDiagnosticAgentStop(ctx context.Context, q protocol.Diag
 	if _, err := rand.Read(token[:]); err != nil {
 		return fail()
 	}
-	p.view = diagnosticAgentStopView{agent: id, taskID: before.cleanup.TaskID, feedback: before.cleanup.FeedbackID, workspace: before.workspace.ID, revision: before.cleanup.Revision, desired: preview.Desired, running: preview.Running, planID: hex.EncodeToString(token[:]), expiresAt: expires.UTC().Format(time.RFC3339Nano), mode: "preview", problem: "none", outcome: "native_exact_stop_plan_not_consent"}
+	p.view = diagnosticAgentStopView{agent: id, record: before.cleanup.RecordID, taskID: before.cleanup.TaskID, feedback: before.cleanup.FeedbackID, workspace: before.workspace.ID, revision: before.cleanup.Revision, desired: preview.Desired, running: preview.Running, planID: hex.EncodeToString(token[:]), expiresAt: expires.UTC().Format(time.RFC3339Nano), mode: "preview", problem: "none", outcome: "native_exact_stop_plan_not_consent"}
 	err = s.retainCleanupPlan(ctx, p.view.taskID, p.view.revision, func(now time.Time) (nativeCleanupPlan, error) {
 		if !now.Before(expires) {
 			return nativeCleanupPlan{}, diagnosticAgentStopUnavailable()
@@ -183,8 +184,8 @@ func (s *Server) prepareDiagnosticAgentStop(ctx context.Context, q protocol.Diag
 	return p.view, nil
 }
 
-// In-process execution only, deliberately not wired to an RPC or public client.
-// Future transport must enforce fresh exact interruption consent separately.
+// Trusted callers must enforce fresh exact interruption consent separately.
+// The public CLI/Pi control surface is not enabled by the daemon transport.
 // Consumption precedes scope/cancellation/expiry checks. Lost replies and all
 // failures leave no reusable plan; no rollback or safe retry is implied.
 func (s *Server) applyDiagnosticAgentStop(ctx context.Context, q protocol.DiagnosticMaintenanceRequest, id string) (diagnosticAgentStopView, error) {
@@ -215,7 +216,7 @@ func (s *Server) applyDiagnosticAgentStop(ctx context.Context, q protocol.Diagno
 	defer p.active.Store(false)
 	err := p.native.Execute(ctx)
 	view := p.view
-	view.mode, view.dispatched = "apply", p.dispatched.Load()
+	view.mode, view.dispatched, view.operationID = "apply", p.dispatched.Load(), p.operation
 	if !view.dispatched {
 		return fail()
 	}
@@ -228,6 +229,40 @@ func (s *Server) applyDiagnosticAgentStop(ctx context.Context, q protocol.Diagno
 		if ctx.Err() != nil {
 			view.problem = "cancelled_or_timed_out"
 		}
+	}
+	status := "succeeded"
+	if view.problem != "none" {
+		status = "failed"
+	}
+	s.store.FinishOperation(view.operationID, protocol.ManagedOperation{Status: status, TaskID: view.taskID, WorkspaceID: view.workspace})
+	return view, nil
+}
+
+// The exact native capture/executor remains private; project only fixed facts.
+// No approval, native plan, arbitrary method or target operation crosses the wire.
+func (s *Server) diagnosticAgentStop(ctx context.Context, q protocol.DiagnosticMaintenanceRequest) (protocol.DiagnosticAgentStop, error) {
+	var private diagnosticAgentStopView
+	var err error
+	if q.Mode == "preview" {
+		private, err = s.prepareDiagnosticAgentStop(ctx, q, q.AgentID)
+	} else {
+		private, err = s.applyDiagnosticAgentStop(ctx, q, q.AgentID)
+	}
+	if err != nil {
+		return protocol.DiagnosticAgentStop{}, diagnosticAgentStopUnavailable()
+	}
+	view := protocol.DiagnosticAgentStop{Schema: protocol.DiagnosticsVersion, Operation: "agent_stop", Mode: private.mode, Scope: q.Scope, RecordID: private.record, TaskID: private.taskID, AgentID: private.agent, FeedbackWorkspaceID: private.feedback, AgentWorkspaceID: private.workspace, Evidence: "native_exact_agent_stop_plan_not_consent", PlanID: private.planID, ExpiresAt: private.expiresAt, Revision: private.revision, DesiredBefore: private.desired, RunningBefore: private.running, DispatchEvidence: "not_dispatched", Problem: private.problem, Outcome: "not_attempted", OperationID: private.operationID, ResourceRefreshPending: private.dispatched, Limitations: protocol.DiagnosticAgentStopLimitations()}
+	if q.Scope != "installation" {
+		view.ScopeWorkspaceID = private.workspace
+	}
+	if private.dispatched {
+		view.DispatchEvidence, view.Outcome = "native_stop_callback_entered_not_process_outcome", private.outcome
+	}
+	if !protocol.ValidDiagnosticAgentStop(view, q) {
+		if q.Mode == "preview" {
+			s.discardCleanupPlan(&protocol.CleanupPreview{TaskID: private.taskID, PlanID: private.planID})
+		}
+		return protocol.DiagnosticAgentStop{}, diagnosticAgentStopUnavailable()
 	}
 	return view, nil
 }

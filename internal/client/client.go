@@ -89,12 +89,13 @@ func callRequest(socketPath string, req protocol.Request, timeout time.Duration)
 		return protocol.Response{}, err
 	}
 
+	agentStop := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "agent_stop"
 	cleanup := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "cleanup"
 	expiry := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "expire"
 	retirement := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "retire"
 	recreation := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "recreate"
 	var reader io.Reader = conn
-	if cleanup || recreation || retirement || expiry {
+	if cleanup || recreation || retirement || expiry || agentStop {
 		reader = io.LimitReader(conn, 36*1024+1)
 	}
 	line, err := bufio.NewReader(reader).ReadBytes('\n')
@@ -102,6 +103,13 @@ func callRequest(socketPath string, req protocol.Request, timeout time.Duration)
 		return protocol.Response{}, err
 	}
 
+	if agentStop {
+		response, err := decodeDiagnosticAgentStop(line)
+		if err == nil && response.OK && (response.DiagnosticAgentStop == nil || !protocol.ValidDiagnosticAgentStop(*response.DiagnosticAgentStop, *req.Maintenance)) {
+			return protocol.Response{}, errors.New("native agent-stop response does not match exact request; outcome may be unknown, do not replay")
+		}
+		return response, err
+	}
 	if expiry {
 		response, err := decodeDiagnosticExpiry(line)
 		if err == nil && response.OK && (response.DiagnosticExpiry == nil || !protocol.ValidDiagnosticExpiry(*response.DiagnosticExpiry, *req.Maintenance)) {

@@ -58,7 +58,7 @@ func recreationBindingRequest(req protocol.DiagnosticMaintenanceRequest) protoco
 }
 
 func validDiagnosticRecreationRequest(req protocol.DiagnosticMaintenanceRequest) bool {
-	if req.Schema != protocol.DiagnosticsVersion || req.Operation != "recreate" || req.ParentID == "" || len(req.ParentID) > 512 || len(req.Workspace) > 4096 || len(req.FeedbackWorkspace) > 4096 || !filepath.IsAbs(req.FeedbackWorkspace) || filepath.Clean(req.FeedbackWorkspace) != req.FeedbackWorkspace {
+	if req.AgentID != "" || req.Schema != protocol.DiagnosticsVersion || req.Operation != "recreate" || req.ParentID == "" || len(req.ParentID) > 512 || len(req.Workspace) > 4096 || len(req.FeedbackWorkspace) > 4096 || !filepath.IsAbs(req.FeedbackWorkspace) || filepath.Clean(req.FeedbackWorkspace) != req.FeedbackWorkspace {
 		return false
 	}
 	if req.Scope == "installation" {

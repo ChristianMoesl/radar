@@ -24,7 +24,7 @@ func cleanupBindingRequest(req protocol.DiagnosticMaintenanceRequest) protocol.D
 }
 
 func validDiagnosticCleanupRequest(req protocol.DiagnosticMaintenanceRequest) bool {
-	return req.Schema == protocol.DiagnosticsVersion && req.Operation == "cleanup" && (req.Mode == "preview" && req.PlanID == "" || req.Mode == "apply" && hexPlanID(req.PlanID))
+	return req.AgentID == "" && req.Schema == protocol.DiagnosticsVersion && req.Operation == "cleanup" && (req.Mode == "preview" && req.PlanID == "" || req.Mode == "apply" && hexPlanID(req.PlanID))
 }
 
 func (s *Server) diagnosticCleanup(ctx context.Context, req protocol.DiagnosticMaintenanceRequest) (protocol.DiagnosticCleanup, error) {

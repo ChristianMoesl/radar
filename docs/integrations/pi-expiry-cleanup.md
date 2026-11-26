@@ -61,5 +61,5 @@ independent resource absence**, rollback or safe retry. Errors, cooperative
 30-second timeout, cancellation or lost transport can leave partial changes.
 Never replay, automatically retry or silently replan. Unavailable evidence is
 unknown with no paged/native-old fallback. CLI, daemon and separately loaded Pi
-must match schema37; reload Pi separately from `make install`. No persisted data,
+must match schema38; reload Pi separately from `make install`. No persisted data,
 native expiry deadline or policy changes in this public adapter.

@@ -3,8 +3,8 @@ package protocol
 // DiagnosticMaintenanceRequest is deliberately separate from read/probe selectors.
 // Supports collection refresh, manual bundle guards, exact whole-plan manual cleanup
 // and exact registered-workspace native recreation, retirement and expiry.
-// Expiry transport is daemon/client infrastructure only: public CLI/Pi expiry
-// proposals remain read-only until their separate destructive-consent flow exists.
+// Exact agent-stop transport is daemon/client infrastructure only: public CLI/Pi
+// controls remain unsupported until their separate interruption-consent flow exists.
 // Plans are freshness evidence, never consent or arbitrary execution parameters.
 type DiagnosticMaintenanceRequest struct {
 	Schema            int    `json:"diagnostics_schema"`
@@ -13,6 +13,7 @@ type DiagnosticMaintenanceRequest struct {
 	Scope             string `json:"scope"`
 	PlanID            string `json:"plan_id,omitempty"`
 	ParentID          string `json:"parent_id,omitempty"`
+	AgentID           string `json:"agent_id,omitempty"`           // Exact stop-only agent, never a generic control selector.
 	Workspace         string `json:"workspace,omitempty"`          // CLI-resolved registered scope, never a target path.
 	FeedbackWorkspace string `json:"feedback_workspace,omitempty"` // Exact registered feedback caller for scoped native maintenance.
 }
