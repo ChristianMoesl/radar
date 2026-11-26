@@ -79,6 +79,10 @@ func TestNativeAgentControlsRejectUncertainRunnerEvidence(t *testing.T) {
 		"null_pid":                   strings.Replace(validSnapshot, `"pid":987654`, `"pid":null`, 1),
 		"zero_pid":                   strings.Replace(validSnapshot, `"pid":987654`, `"pid":0`, 1),
 		"negative_pid":               strings.Replace(validSnapshot, `"pid":987654`, `"pid":-1`, 1),
+		"overflow_pid":               strings.Replace(validSnapshot, `"pid":987654`, `"pid":2147483648`, 1),
+		"wrapped_live_pid":           strings.Replace(validSnapshot, `"pid":987654`, `"pid":`+strconv.FormatInt(1<<32+int64(os.Getpid()), 10), 1),
+		"wrapped_dead_pid":           strings.Replace(validSnapshot, `"pid":987654`, `"pid":4295954950`, 1),
+		"js_safe_max_pid":            strings.Replace(validSnapshot, `"pid":987654`, `"pid":9007199254740991`, 1),
 		"unsafe_pid":                 strings.Replace(validSnapshot, `"pid":987654`, `"pid":9007199254740992`, 1),
 		"string_pid":                 strings.Replace(validSnapshot, `"pid":987654`, `"pid":"987654"`, 1),
 		"fraction_pid":               strings.Replace(validSnapshot, `"pid":987654`, `"pid":1.5`, 1),
@@ -231,6 +235,61 @@ func TestNativeAgentValidStatusKeepsPrivateNativePayloadAndNoDiagnosticPIDRequir
 	var projected diagnosticRunnerSnapshot
 	if err := json.Unmarshal([]byte(strings.Replace(snapshot, `"pid":987654,`, ``, 1)), &projected); err != nil || projected.projection(reg.ID) == nil {
 		t.Fatal("native PID guard changed the diagnostic contract")
+	}
+}
+
+func TestNativeAgentSnapshotPIDFitsNativeProcessSelectors(t *testing.T) {
+	for _, value := range []struct {
+		pid   string
+		valid bool
+	}{
+		{"1", true}, {"2147483647", true},
+		{"2147483648", false}, {"4294967296", false},
+		{strconv.FormatInt(1<<32+int64(os.Getpid()), 10), false},
+		{"4295954950", false}, {"9007199254740991", false}, {"9223372036854775807", false},
+	} {
+		t.Run(value.pid, func(t *testing.T) {
+			reg := probeFixture(t)
+			raw := strings.Replace(nativeStatusSnapshot(reg), `"pid":987654`, `"pid":`+value.pid, 1)
+			snapshot, err := decodeRunnerSnapshot([]byte(raw), reg.ID)
+			if (err == nil) != value.valid || (snapshot != nil) != value.valid {
+				t.Error("native snapshot PID escaped the positive signed-32-bit boundary", err)
+			}
+			// The same native decoder guards cached presentation. Rejected
+			// process evidence must not return through the checkpoint fallback.
+			dir, _ := instanceDir(reg.ID)
+			if err := os.WriteFile(filepath.Join(dir, "snapshot.json"), []byte(raw), 0600); err != nil {
+				t.Fatal(err)
+			}
+			view := status(context.Background(), reg)
+			if view.Running || (view.Snapshot != nil) != value.valid {
+				t.Error("native cached snapshot bypassed process-selector validation")
+			}
+			// Diagnostics deliberately ignore PID: the public counters must not
+			// inherit native private-process requirements or perform PID probes.
+			var projected diagnosticRunnerSnapshot
+			if err := json.Unmarshal([]byte(raw), &projected); err != nil || projected.projection(reg.ID) == nil {
+				t.Error("native process-selector validation changed diagnostic projection", err)
+			}
+		})
+	}
+}
+
+func TestNativeAgentOutOfRangeSnapshotCannotDispatchShutdown(t *testing.T) {
+	for _, pid := range []string{"2147483648", "4295954950", strconv.FormatInt(1<<32+int64(os.Getpid()), 10), "9007199254740991"} {
+		t.Run(pid, func(t *testing.T) {
+			reg := probeFixture(t) // No independent PID record to mask the live-path gap.
+			snapshot := strings.Replace(nativeStatusSnapshot(reg), `"pid":987654`, `"pid":`+pid, 1)
+			methods := nativeStatusPeer(t, reg, `{"protocol":1,"instanceId":"worker"}`, snapshot)
+			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
+			defer cancel()
+			if err := stop(ctx, reg); err == nil {
+				t.Error("shutdown acknowledgement certified an out-of-range process selector as stopped")
+			}
+			if !reflect.DeepEqual(methods(), []string{"hello", "snapshot"}) {
+				t.Error("invalid process evidence dispatched shutdown", methods())
+			}
+		})
 	}
 }
 

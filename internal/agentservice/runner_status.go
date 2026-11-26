@@ -41,7 +41,10 @@ func decodeRunnerSnapshot(raw []byte, expected string) (*protocol.AgentSnapshot,
 	if err := json.Unmarshal(raw, &snapshot); err != nil {
 		return nil, fmt.Errorf("invalid agent snapshot")
 	}
-	if !runnerIdentityMatches(snapshot.Protocol, snapshot.InstanceID, expected) || snapshot.PID <= 0 || int64(snapshot.PID) > 9007199254740991 {
+	// A JSON-safe integer is not necessarily a native process selector. Both
+	// supported Unix hosts use signed-32-bit pid_t; never let liveness checks
+	// truncate an unrelated PID or interpret a wrapped process-group selector.
+	if !runnerIdentityMatches(snapshot.Protocol, snapshot.InstanceID, expected) || snapshot.PID <= 0 || int64(snapshot.PID) > 1<<31-1 {
 		return nil, fmt.Errorf("agent snapshot protocol/identity/PID mismatch")
 	}
 	return &snapshot, nil

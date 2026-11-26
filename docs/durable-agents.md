@@ -429,7 +429,10 @@ One detached Node runner owns each instance's native SQLite store. The Go daemon
 Storage defaults to `$XDG_STATE_HOME/radar/agents/<id>` or `~/.local/state/radar/agents/<id>` (`RADAR_AGENT_ROOT` overrides it). Registration/config/token, store format, exclusive-owner SQLite, native agent SQLite, cached snapshot and logs live there. All are separate from the rebuildable tasks cache and disposable workspace. A SQLite exclusive lock prevents a second store owner. Daemon restart reconnects to the runner; runner crashes release the lock and supervision retries with bounded backoff. Intentional stop stays stopped. Killing the owning Node process during a checkpoint resumes native work when restarted.
 
 Lifecycle controls require unambiguous matching native hello/snapshot identities
-and a finite positive snapshot PID. Invalid replies, EOF, RPC errors, cancellation
+and a positive signed-32-bit snapshot PID. Larger JSON-safe integers are not native
+process identities and cannot authorize shutdown or certify a stopped runner;
+invalid cached snapshot PIDs are ignored too. Diagnostic counter projections
+remain independent of PID/private process data. Invalid replies, EOF, RPC errors, cancellation
 and timeouts are not stopped-state evidence, even for an intentionally stopped
 registration: they cannot authorize workspace recovery, runner replacement or
 registration removal. A cached snapshot is presentation only. A missing/refused
