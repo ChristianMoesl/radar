@@ -344,6 +344,12 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 }
 
 func stop(ctx context.Context, reg Registration) error {
+	return stopWithAdmission(ctx, reg, nil)
+}
+
+// A retained exact-stop caller can validate its private capture at the existing
+// final native boundary. Ordinary lifecycle calls retain their original path.
+func stopWithAdmission(ctx context.Context, reg Registration, admit func(protocol.AgentStatus) error) error {
 	path, err := socketPath(reg.ID)
 	if err != nil {
 		return err
@@ -356,10 +362,15 @@ func stop(ctx context.Context, reg Registration) error {
 	if err != nil {
 		return err
 	}
-	if !s.Running {
-		if alive {
-			return fmt.Errorf("runner is unreachable but its process remains alive; inspect logs before removing its registration")
+	if !s.Running && alive {
+		return fmt.Errorf("runner is unreachable but its process remains alive; inspect logs before removing its registration")
+	}
+	if admit != nil {
+		if err := admit(s); err != nil {
+			return err
 		}
+	}
+	if !s.Running {
 		return nil
 	}
 	pid := s.Snapshot.PID
@@ -389,6 +400,21 @@ func stop(ctx context.Context, reg Registration) error {
 			return ctx.Err()
 		}
 	}
+}
+
+// Shared desired-state persistence. A subsequent shutdown failure is not a
+// transaction rollback and must not restore an accepted stop's retry intent.
+func (m *Manager) setDesired(reg Registration, desired bool) (Registration, error) {
+	reg.Desired = desired
+	dir, err := instanceDir(reg.ID)
+	if err != nil {
+		return reg, err
+	}
+	if err := atomicJSON(filepath.Join(dir, "registration.json"), reg); err != nil {
+		return reg, err
+	}
+	delete(m.retry, reg.ID)
+	return reg, nil
 }
 
 func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (json.RawMessage, error) {
@@ -547,11 +573,10 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 			}
 			return encode(plan)
 		}
-		reg.Desired = request.Operation != "stop"
-		if err := atomicJSON(filepath.Join(dir, "registration.json"), reg); err != nil {
+		reg, err = m.setDesired(reg, request.Operation != "stop")
+		if err != nil {
 			return nil, err
 		}
-		delete(m.retry, reg.ID)
 		if request.Operation != "start" {
 			if err := stop(ctx, reg); err != nil {
 				return nil, err

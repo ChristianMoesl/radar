@@ -448,6 +448,20 @@ rechecks the record while waiting for both the snapshot PID and recorded owner
 to exit. These point-in-time checks do not attest the socket peer's OS identity,
 validate all ancestor directories or bind PID records to process incarnations.
 
+The native service also has a private exact-registration stop capture for future
+version-matched maintenance adapters. Capture inspects one registration, its
+workspace binding, listener and independent owner evidence without changing
+intent, preparing a workspace, reading private checkpoints or acquiring a lease.
+It refuses busy/unknown evidence. Its shared-copy, one-use admission expires in
+30 seconds and rechecks registration/root/instance/socket/owner identity and the
+observed runner PID before using the existing native shutdown path. Cancellation,
+drift or a lost reply never restores it. Desired-state persistence is not rolled
+back after a later shutdown failure. These point-in-time guards do not attest a
+PID incarnation or make filesystem checks transactional. This internal boundary
+is not user consent or a public diagnostic/CLI/Pi stop-preview capability;
+`runtime_controls` remains unsupported. Shutdown acknowledgement is not completed
+agent work, a successful checkpoint, released leases or resource absence.
+
 Admission receipts are retained without automatic pruning; event/document history and runner logs can grow. There is no destructive data-deletion CLI. `radar reset` leaves agent data intact. Every registration, including a stopped one, pins its associated workspace against Radar cleanup/expiry. Additional active workspace operations use OS leases. To release the association:
 
 ```sh
