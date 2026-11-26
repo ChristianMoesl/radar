@@ -18,6 +18,12 @@ func TestDiagnosticRuntimeUsesNativeVerifiableListingWithoutWritesOrPayloads(t *
 		{"foreign", `[{"name":"foreign","id":"foreign-id"}]`, "absent", "", "unknown"},
 		{"unidentified foreign", `[{"name":"foreign"}]`, "unknown", "", "unknown"},
 		{"duplicate", `[{"name":"registered","id":"one"},{"name":"registered","id":"two"}]`, "unknown", "", "unknown"},
+		{"aliased target ID", `[{"name":"registered","id":"one"},{"name":"private-alias","id":"one"}]`, "unknown", "", "unknown"},
+		{"reversed target alias", `[{"name":"private-alias","id":"one"},{"name":"registered","id":"one"}]`, "unknown", "", "unknown"},
+		{"absent with duplicate foreign ID", `[{"name":"private-other","id":"two"},{"name":"private-another","id":"two"}]`, "unknown", "", "unknown"},
+		{"absent with duplicate foreign name", `[{"name":"private-other","id":"two"},{"name":"private-other","id":"three"}]`, "unknown", "", "unknown"},
+		{"present with duplicate foreign ID", `[{"name":"registered","id":"one"},{"name":"private-other","id":"two"},{"name":"private-another","id":"two"}]`, "unknown", "", "unknown"},
+		{"present with duplicate foreign name", `[{"name":"registered","id":"one"},{"name":"private-other","id":"two"},{"name":"private-other","id":"three"}]`, "unknown", "", "unknown"},
 		{"null", "null", "unknown", "", "unknown"},
 		{"malformed", "private-error", "unknown", "", "unknown"},
 	} {

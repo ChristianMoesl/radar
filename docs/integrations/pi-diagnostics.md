@@ -402,8 +402,13 @@ runtime-lifetime ID and comparison against active cached native identities for
 that exact workspace/name. Full native identities are compared before hashing
 or clipping; reuse of a name with a different lifetime is explicit. A complete
 identifiable listing may establish absence; malformed, ambiguous, unsupported,
-failed or timed-out evidence is **unknown**, never absence. Shared registered
-names are not probed. Changed registration/cache evidence rejects the result;
+failed or timed-out evidence is **unknown**, never absence. Native SBX listings
+must have unique names and lifetime IDs across **all** rows, even unrelated rows.
+An aliased target or foreign duplicate therefore establishes neither presence
+nor absence. The same native validation guards cleanup/recreation reads and
+retirement outcomes; a successful stop with an ambiguous follow-up listing is
+not a verified retirement and is never replayed. Shared registered names are not
+probed. Changed registration/cache evidence rejects the result;
 changed observations invalidate pagination cursors, and every page repeats the
 bounded listing. The observation timestamp is not a guarantee of future state.
 

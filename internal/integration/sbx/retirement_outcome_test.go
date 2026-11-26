@@ -55,7 +55,7 @@ func TestRegisteredSandboxRetirementRequiresObservedOutcome(t *testing.T) {
 	for _, service := range []bool{false, true} {
 		for _, scenario := range []string{
 			"stopped", "uppercase-stopped", "still-running", "unknown-state", "missing-state",
-			"replacement", "missing", "duplicate", "malformed", "missing-identity", "inspect-error",
+			"replacement", "missing", "duplicate", "aliased-target-id", "duplicate-foreign-id", "duplicate-foreign-name", "malformed", "missing-identity", "inspect-error",
 			"foreign-mount", "read-only-mount", "cancelled", "owner-drift", "anchor-replaced",
 			"unrelated-update", "stop-error", "initial-stopped", "initial-missing",
 		} {
@@ -131,6 +131,12 @@ func TestRegisteredSandboxRetirementRequiresObservedOutcome(t *testing.T) {
 					runner.after = "[]"
 				case "duplicate":
 					runner.after = strings.TrimSuffix(runner.after, "]") + "," + strings.TrimPrefix(runner.after, "[")
+				case "aliased-target-id":
+					runner.after = strings.TrimSuffix(runner.after, "]") + `,{"name":"private-alias","id":"lifetime-1"}]`
+				case "duplicate-foreign-id":
+					runner.after = strings.TrimSuffix(runner.after, "]") + `,{"name":"private-other","id":"two"},{"name":"private-another","id":"two"}]`
+				case "duplicate-foreign-name":
+					runner.after = strings.TrimSuffix(runner.after, "]") + `,{"name":"private-other","id":"two"},{"name":"private-other","id":"three"}]`
 				case "malformed":
 					runner.after = "unparseable"
 				case "missing-identity":

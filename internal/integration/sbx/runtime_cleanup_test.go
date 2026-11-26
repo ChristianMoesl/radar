@@ -40,7 +40,7 @@ func (r *retirementRunner) Run(_ context.Context, _ string, name string, args ..
 }
 
 func TestSandboxRetirementFailsClosedAndNeverRemovesSandbox(t *testing.T) {
-	for _, scenario := range []string{"running", "stopped", "missing", "replaced identity", "missing identity", "foreign mount", "unknown status", "duplicate name", "malformed listing", "inspection failure"} {
+	for _, scenario := range []string{"running", "stopped", "missing", "replaced identity", "missing identity", "foreign mount", "unknown status", "duplicate name", "aliased target ID", "duplicate foreign ID", "duplicate foreign name", "malformed listing", "inspection failure"} {
 		t.Run(scenario, func(t *testing.T) {
 			home := t.TempDir()
 			root := filepath.Join(home, "workspaces")
@@ -86,6 +86,12 @@ func TestSandboxRetirementFailsClosedAndNeverRemovesSandbox(t *testing.T) {
 				runner.listing = "[]"
 			case "duplicate name":
 				runner.listing = "[" + row + "," + row + "]"
+			case "aliased target ID":
+				runner.listing = "[" + row + `,{"name":"private-alias","id":"container-1"}]`
+			case "duplicate foreign ID":
+				runner.listing = "[" + row + `,{"name":"private-other","id":"two"},{"name":"private-another","id":"two"}]`
+			case "duplicate foreign name":
+				runner.listing = "[" + row + `,{"name":"private-other","id":"two"},{"name":"private-other","id":"three"}]`
 			case "malformed listing":
 				runner.listing = "invalid"
 			case "inspection failure":

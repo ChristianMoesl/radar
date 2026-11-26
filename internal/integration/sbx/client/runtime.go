@@ -16,7 +16,8 @@ type Runtime struct {
 }
 
 // FindRuntime returns nil only after a complete, identifiable listing proves
-// absence. Malformed or ambiguous listings must never allow ownership removal.
+// absence. Every row must have a unique name and lifetime ID: ambiguity anywhere
+// invalidates both presence and absence, not just identity-bound removal.
 func (c *Client) FindRuntime(ctx context.Context, name string) (*Runtime, error) {
 	return c.findRuntime(ctx, name, "")
 }
@@ -49,20 +50,15 @@ func (c *Client) findRuntime(ctx context.Context, name, id string) (*Runtime, er
 		if strings.TrimSpace(row.Name) == "" || strings.TrimSpace(row.ID) == "" {
 			return nil, fmt.Errorf("sandbox listing has an unverifiable runtime identity")
 		}
-		if id != "" {
-			if names[row.Name] || ids[row.ID] {
-				return nil, fmt.Errorf("sandbox listing has ambiguous runtime identities")
-			}
-			names[row.Name], ids[row.ID] = true, true
-			if row.ID == id && row.Name != name {
-				return nil, fmt.Errorf("previewed sandbox lifetime remains under a different name; inspect before retrying")
-			}
+		if names[row.Name] || ids[row.ID] {
+			return nil, fmt.Errorf("sandbox listing has ambiguous runtime identities")
+		}
+		names[row.Name], ids[row.ID] = true, true
+		if id != "" && row.ID == id && row.Name != name {
+			return nil, fmt.Errorf("previewed sandbox lifetime remains under a different name; inspect before retrying")
 		}
 		if row.Name != name {
 			continue
-		}
-		if found != nil {
-			return nil, fmt.Errorf("sandbox runtime identity is ambiguous")
 		}
 		copy := row
 		found = &copy
