@@ -34,14 +34,8 @@ func diagnosticRuntime(ctx context.Context, name, output string, problem error) 
 	}
 	var found *session
 	for _, row := range rows {
-		if row.Name == "" {
-			return view
-		}
 		if row.Name != name {
 			continue
-		}
-		if found != nil {
-			return view
 		}
 		copy := row
 		found = &copy

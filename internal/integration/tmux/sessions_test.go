@@ -4,6 +4,7 @@ import (
 	"context"
 	"radar/internal/integration"
 	"slices"
+	"strings"
 	"testing"
 
 	"radar/internal/integration/contracttest"
@@ -27,6 +28,29 @@ func TestParseSessions(t *testing.T) {
 	second := sessions[1]
 	if second.ServerPID != "101" || second.CreatedAt != "1700000002" || second.ID != "$2" || second.Name != "other" || second.AttachedCount != 0 || second.WindowCount != 1 || second.Path != "/tmp" {
 		t.Fatalf("unexpected second session: %#v", second)
+	}
+}
+
+func TestParseSessionsRejectsAmbiguousCompleteListing(t *testing.T) {
+	first := "123\t456\t$1\tprivate-first\t0\t1\t/private-path\n"
+	for name, second := range map[string]string{
+		"aliased session ID":        "123\t456\t$1\tprivate-second\t0\t1\t/private-other\n",
+		"conflicting creation time": "123\t457\t$1\tprivate-second\t0\t1\t/private-other\n",
+		"duplicate session name":    "123\t457\t$2\tprivate-first\t0\t1\t/private-other\n",
+		"mixed server":              "999\t457\t$2\tprivate-second\t0\t1\t/private-other\n",
+		"missing session name":      "123\t457\t$2\t\t0\t1\t/private-other\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, output := range []string{first + second, second + first} {
+				sessions, err := parseSessions(output)
+				if err == nil || sessions != nil {
+					t.Fatalf("ambiguous listing returned usable sessions: %+v %v", sessions, err)
+				}
+				if strings.Contains(err.Error(), "private-") {
+					t.Fatal("private listing identity escaped", err)
+				}
+			}
+		})
 	}
 }
 

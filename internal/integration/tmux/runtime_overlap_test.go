@@ -328,7 +328,7 @@ func TestNativeRetirementBindingRejectsChangedTargetOrMode(t *testing.T) {
 
 func TestNativeRetirementListingRetainsLifetimeAndOwnershipChecks(t *testing.T) {
 	for _, service := range []bool{false, true} {
-		for _, change := range []string{"malformed", "replacement", "foreign-path", "missing", "no-server", "no-server-cancelled", "no-server-drift"} {
+		for _, change := range []string{"malformed", "replacement", "foreign-path", "missing", "aliased-id", "conflicting-created", "duplicate-name", "duplicate-foreign-id", "duplicate-foreign-name", "mixed-server", "missing-foreign-name", "no-server", "no-server-cancelled", "no-server-drift"} {
 			t.Run(fmt.Sprintf("service=%t/%s", service, change), func(t *testing.T) {
 				root, owner, _, target, runner := retirementOverlapFixture(t)
 				ctx, cancel := context.WithCancel(context.Background())
@@ -342,6 +342,24 @@ func TestNativeRetirementListingRetainsLifetimeAndOwnershipChecks(t *testing.T) 
 					runner.base.path = t.TempDir()
 				case "missing":
 					runner.listing = "\n"
+				case "aliased-id", "conflicting-created", "duplicate-name", "duplicate-foreign-id", "duplicate-foreign-name", "mixed-server", "missing-foreign-name":
+					runner.listing = fmt.Sprintf("12\t34\t$7\t%s\t0\t1\t%s\n", owner.SessionName, owner.Path)
+					switch change {
+					case "aliased-id":
+						runner.listing += "12\t34\t$7\tprivate-alias\t0\t1\t/private-path\n"
+					case "conflicting-created":
+						runner.listing += "12\t35\t$7\tprivate-alias\t0\t1\t/private-path\n"
+					case "duplicate-name":
+						runner.listing += fmt.Sprintf("12\t35\t$8\t%s\t0\t1\t/private-path\n", owner.SessionName)
+					case "duplicate-foreign-id":
+						runner.listing += "12\t34\t$8\tprivate-other\t0\t1\t/private-path\n12\t35\t$8\tprivate-another\t0\t1\t/private-path\n"
+					case "duplicate-foreign-name":
+						runner.listing += "12\t34\t$8\tprivate-other\t0\t1\t/private-path\n12\t35\t$9\tprivate-other\t0\t1\t/private-path\n"
+					case "mixed-server":
+						runner.listing += "99\t35\t$8\tprivate-other\t0\t1\t/private-path\n"
+					case "missing-foreign-name":
+						runner.listing += "12\t35\t$8\t\t0\t1\t/private-path\n"
+					}
 				default:
 					runner.hook = func(command string) error {
 						if command != "list-sessions" {
@@ -369,6 +387,9 @@ func TestNativeRetirementListingRetainsLifetimeAndOwnershipChecks(t *testing.T) 
 				wantError := change != "missing" && change != "no-server"
 				if (err != nil) != wantError || len(runner.base.killed) != 0 || result.Operation["runtime_retired"] == "true" {
 					t.Fatal("unsafe listing outcome", result, err, runner.base.killed)
+				}
+				if err != nil && strings.Contains(err.Error(), "private-") {
+					t.Fatal("private listing identity escaped", err)
 				}
 				if change == "no-server-cancelled" && !errors.Is(err, context.Canceled) {
 					t.Fatal("no-server hid cancellation", err)

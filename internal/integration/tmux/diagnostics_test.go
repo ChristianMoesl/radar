@@ -19,6 +19,14 @@ func TestDiagnosticRuntimeUsesNativeLifetimeAndNeverTreatsFailureAsAbsence(t *te
 		{name: "missing lifetime", output: "\t456\t$1\tregistered\t1\t2\t/private-path\n", presence: "unknown"},
 		{name: "missing name", output: "123\t456\t$1\t\t1\t2\t/private-path\n", presence: "unknown"},
 		{name: "duplicate", output: "123\t456\t$1\tregistered\t1\t2\t/path\n123\t456\t$2\tregistered\t1\t2\t/path\n", presence: "unknown"},
+		{name: "aliased target ID", output: "123\t456\t$1\tregistered\t0\t1\t/private-path\n123\t456\t$1\tprivate-alias\t0\t1\t/private-other\n", presence: "unknown"},
+		{name: "reversed target alias", output: "123\t456\t$1\tprivate-alias\t0\t1\t/private-other\n123\t456\t$1\tregistered\t0\t1\t/private-path\n", presence: "unknown"},
+		{name: "conflicting creation time", output: "123\t456\t$1\tregistered\t0\t1\t/private-path\n123\t457\t$1\tprivate-alias\t0\t1\t/private-other\n", presence: "unknown"},
+		{name: "absent with duplicate foreign ID", output: "123\t456\t$1\tprivate-other\t0\t1\t/private-path\n123\t457\t$1\tprivate-another\t0\t1\t/private-other\n", presence: "unknown"},
+		{name: "absent with duplicate foreign name", output: "123\t456\t$1\tprivate-other\t0\t1\t/private-path\n123\t457\t$2\tprivate-other\t0\t1\t/private-other\n", presence: "unknown"},
+		{name: "present with duplicate foreign ID", output: "123\t455\t$0\tregistered\t0\t1\t/private-path\n123\t456\t$1\tprivate-other\t0\t1\t/private-path\n123\t457\t$1\tprivate-another\t0\t1\t/private-other\n", presence: "unknown"},
+		{name: "present with duplicate foreign name", output: "123\t455\t$0\tregistered\t0\t1\t/private-path\n123\t456\t$1\tprivate-other\t0\t1\t/private-path\n123\t457\t$2\tprivate-other\t0\t1\t/private-other\n", presence: "unknown"},
+		{name: "mixed server", output: "123\t456\t$1\tregistered\t0\t1\t/private-path\n999\t457\t$2\tprivate-other\t0\t1\t/private-other\n", presence: "unknown"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			view := diagnosticRuntime(context.Background(), "registered", tc.output, tc.err)

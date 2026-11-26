@@ -88,8 +88,13 @@ func FetchSessions(ctx context.Context, logger *slog.Logger, marks linking.MarkM
 	return sourceRefs, status
 }
 
+// A complete native listing belongs to one server and has one row per session
+// name/ID. Validate all rows before collection, diagnostics or retirement can
+// use a selected row; a valid prefix cannot make ambiguous evidence usable.
 func parseSessions(output string) ([]session, error) {
 	sessions := make([]session, 0)
+	names, ids := map[string]bool{}, map[string]bool{}
+	serverPID := ""
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -100,9 +105,14 @@ func parseSessions(output string) ([]session, error) {
 		if len(fields) != 7 {
 			return nil, fmt.Errorf("unexpected tmux session output: got %d fields", len(fields))
 		}
-		if fields[0] == "" || fields[1] == "" || fields[2] == "" {
-			return nil, fmt.Errorf("unexpected tmux session identity: server pid, creation time, and id are required")
+		if fields[0] == "" || fields[1] == "" || fields[2] == "" || fields[3] == "" {
+			return nil, fmt.Errorf("unexpected tmux session identity: server pid, creation time, id, and name are required")
 		}
+		if (serverPID != "" && serverPID != fields[0]) || names[fields[3]] || ids[fields[2]] {
+			return nil, fmt.Errorf("unexpected tmux session listing: ambiguous server, session name or id")
+		}
+		serverPID = fields[0]
+		names[fields[3]], ids[fields[2]] = true, true
 		attachedCount, err := strconv.Atoi(fields[4])
 		if err != nil {
 			return nil, fmt.Errorf("unexpected tmux session attached count %q", fields[4])

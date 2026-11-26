@@ -407,8 +407,13 @@ must have unique names and lifetime IDs across **all** rows, even unrelated rows
 An aliased target or foreign duplicate therefore establishes neither presence
 nor absence. The same native validation guards cleanup/recreation reads and
 retirement outcomes; a successful stop with an ambiguous follow-up listing is
-not a verified retirement and is never replayed. Shared registered names are not
-probed. Changed registration/cache evidence rejects the result;
+not a verified retirement and is never replayed. Native tmux listings must
+likewise contain one server PID and globally unique nonempty session names/IDs,
+even across unrelated rows or conflicting creation timestamps. Their shared
+parser rejects the complete listing before collection or registered retirement
+can use a valid prefix; diagnostics report unknown and retirement sends no kill.
+Shared registered names are not probed. Changed registration/cache evidence
+rejects the result;
 changed observations invalidate pagination cursors, and every page repeats the
 bounded listing. The observation timestamp is not a guarantee of future state.
 
