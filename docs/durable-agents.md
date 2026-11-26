@@ -428,6 +428,17 @@ One detached Node runner owns each instance's native SQLite store. The Go daemon
 
 Storage defaults to `$XDG_STATE_HOME/radar/agents/<id>` or `~/.local/state/radar/agents/<id>` (`RADAR_AGENT_ROOT` overrides it). Registration/config/token, store format, exclusive-owner SQLite, native agent SQLite, cached snapshot and logs live there. All are separate from the rebuildable tasks cache and disposable workspace. A SQLite exclusive lock prevents a second store owner. Daemon restart reconnects to the runner; runner crashes release the lock and supervision retries with bounded backoff. Intentional stop stays stopped. Killing the owning Node process during a checkpoint resumes native work when restarted.
 
+Lifecycle controls require unambiguous matching native hello/snapshot identities
+and a finite positive snapshot PID. Invalid replies, EOF, RPC errors, cancellation
+and timeouts are not stopped-state evidence, even for an intentionally stopped
+registration: they cannot authorize workspace recovery, runner replacement or
+registration removal. A cached snapshot is presentation only. A missing/refused
+Unix listener retains the normal recovery/removal path only when no recorded
+owner is alive. Shutdown acknowledgement alone is not completion: Radar waits
+for both the snapshot PID and the independently recorded owner to exit. These
+checks do not attest the socket peer's OS identity or turn PID records into
+incarnation-bound process identities.
+
 Admission receipts are retained without automatic pruning; event/document history and runner logs can grow. There is no destructive data-deletion CLI. `radar reset` leaves agent data intact. Every registration, including a stopped one, pins its associated workspace against Radar cleanup/expiry. Additional active workspace operations use OS leases. To release the association:
 
 ```sh

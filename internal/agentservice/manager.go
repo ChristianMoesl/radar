@@ -213,44 +213,6 @@ func hostCommand() (string, []string, error) {
 	return node, []string{host}, err
 }
 
-func status(ctx context.Context, reg Registration) protocol.AgentStatus {
-	dir, _ := instanceDir(reg.ID)
-	result := protocol.AgentStatus{ID: reg.ID, Entrypoint: reg.Entrypoint, DataDir: dir, Desired: reg.Desired, Workspace: reg.Workspace}
-	path, err := socketPath(reg.ID)
-	if err != nil {
-		result.Error = err.Error()
-		return result
-	}
-	var hello struct {
-		Protocol   int    `json:"protocol"`
-		InstanceID string `json:"instanceId"`
-	}
-	if err = call(ctx, path, "hello", nil, &hello); err != nil {
-		if data, readErr := os.ReadFile(filepath.Join(dir, "snapshot.json")); readErr == nil {
-			var snapshot protocol.AgentSnapshot
-			if json.Unmarshal(data, &snapshot) == nil {
-				result.Snapshot = &snapshot
-			}
-		}
-		if reg.Desired {
-			result.Error = "runner unavailable"
-		}
-		return result
-	}
-	if !runnerIdentityMatches(hello.Protocol, hello.InstanceID, reg.ID) {
-		result.Error = "agent protocol/identity mismatch"
-		return result
-	}
-	var snapshot protocol.AgentSnapshot
-	if err = call(ctx, path, "snapshot", nil, &snapshot); err != nil {
-		result.Error = err.Error()
-		return result
-	}
-	result.Running = true
-	result.Snapshot = &snapshot
-	return result
-}
-
 func (m *Manager) status(ctx context.Context, reg Registration) protocol.AgentStatus {
 	result := status(ctx, reg)
 	binding, err := m.workspace.AgentWorkspace(ctx, reg.Workspace.Path)
@@ -273,11 +235,18 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 		if binding != reg.Workspace {
 			return fmt.Errorf("associated workspace identity changed; refusing recovery")
 		}
-		if status(ctx, reg).Running {
+		observed, err := observeRunner(ctx, reg)
+		if err != nil {
+			return err
+		}
+		if observed.Running {
 			return nil
 		}
 	} else if err := stop(ctx, reg); err != nil {
 		return err
+	}
+	if ownerAlive(reg) {
+		return fmt.Errorf("runner process exists but is not ready; inspect its logs before replacement")
 	}
 	dir, _ := instanceDir(reg.ID)
 	binding, _, err := m.workspace.PrepareAgentWorkspace(ctx, integration.AgentWorkspaceRequest{
@@ -294,10 +263,12 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 	if err := atomicJSON(filepath.Join(dir, "registration.json"), reg); err != nil {
 		return err
 	}
-	if s := status(ctx, reg); s.Running {
+	observed, err := observeRunner(ctx, reg)
+	if err != nil {
+		return err
+	}
+	if observed.Running {
 		return nil
-	} else if strings.Contains(s.Error, "mismatch") {
-		return errors.New(s.Error)
 	}
 	if ownerAlive(reg) {
 		return fmt.Errorf("runner process exists but is not ready; inspect its logs before replacement")
@@ -363,7 +334,10 @@ func stop(ctx context.Context, reg Registration) error {
 	if err != nil {
 		return err
 	}
-	s := status(ctx, reg)
+	s, err := observeRunner(ctx, reg)
+	if err != nil {
+		return err
+	}
 	if !s.Running {
 		if ownerAlive(reg) {
 			return fmt.Errorf("runner is unreachable but its process remains alive; inspect logs before removing its registration")
@@ -381,7 +355,10 @@ func stop(ctx context.Context, reg Registration) error {
 	for {
 		select {
 		case <-tick.C:
-			if !runnerProcessAlive(pid) {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if !runnerProcessAlive(pid) && !ownerAlive(reg) {
 				return nil
 			}
 		case <-deadline.C:
@@ -517,7 +494,11 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 		}
 		return encode(map[string]string{"token": token})
 	case "remove":
-		if reg.Desired || status(ctx, reg).Running || ownerAlive(reg) {
+		observed, err := observeRunner(ctx, reg)
+		if err != nil {
+			return nil, err
+		}
+		if reg.Desired || observed.Running || ownerAlive(reg) {
 			return nil, fmt.Errorf("stop the agent before removing its registration")
 		}
 		if err := pauseSchedules(reg); err != nil {

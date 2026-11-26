@@ -42,24 +42,6 @@ func (snapshot *diagnosticRunnerSnapshot) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-type diagnosticRunnerHello struct {
-	Protocol   int    `json:"protocol"`
-	InstanceID string `json:"instanceId"`
-}
-
-func (hello *diagnosticRunnerHello) UnmarshalJSON(raw []byte) error {
-	if _, err := agentResponseObject(raw, "protocol", "instanceId"); err != nil {
-		return err
-	}
-	type plain diagnosticRunnerHello
-	var value plain
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return err
-	}
-	*hello = diagnosticRunnerHello(value)
-	return nil
-}
-
 func (snapshot diagnosticRunnerSnapshot) projection(expected string) *protocol.DiagnosticAgentSnapshot {
 	validCount := func(value *int) bool {
 		return value != nil && *value >= 0 && int64(*value) <= 9007199254740991
