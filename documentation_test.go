@@ -177,7 +177,7 @@ func TestPiManualCleanupExactPlanContractIsBundled(t *testing.T) {
 		"no subset apply", "silent replan", "consumed before live", "coordination", "cleanup.Service.Execute",
 		"cleanup_execution", "attempted Cleanup-call count", "not independently verified resource absence",
 		"not forced cancellation or rollback", "cleanup_apply: true", "schema 37", "persisted formats",
-		"expired proposals below remain read-only",
+		"expiry_cleanup_apply: true", "(pi-expiry-cleanup.md)",
 	} {
 		if !strings.Contains(doc.Content, contract) {
 			t.Errorf("manual exact-plan contract omitted %q", contract)
@@ -198,25 +198,25 @@ func TestPiDiagnosticsMaintenanceCapabilityBoundaries(t *testing.T) {
 	}{
 		{
 			name:  "overview",
-			want:  []string{"separately confirmed exact-plan manual cleanup apply", "Full provider cleanup eligibility, durable operation history", "runtime controls remain unsupported"},
+			want:  []string{"separately confirmed exact-plan manual and expired cleanup apply", "Full provider cleanup eligibility, durable operation history", "runtime controls remain unsupported"},
 			stale: "cleanup apply\nand runtime controls are not yet exposed",
 		},
 		{
 			name:    "collection_refresh",
 			heading: "## Explicit installation-wide collection refresh",
-			want:    []string{"Collection refresh, exact-plan manual cleanup, exact runtime retirement and sandbox", "only maintenance apply flows currently exposed", "installation-wide **inspection never authorizes mutation**"},
+			want:    []string{"Collection refresh, exact-plan manual cleanup, exact runtime retirement, sandbox", "exact registered-workspace expiry", "only maintenance apply flows currently exposed", "installation-wide **inspection never authorizes mutation**"},
 			stale:   "This is the only maintenance apply currently exposed",
 		},
 		{
 			name:    "exact_native_retirement",
 			heading: "## Exact native runtime retirement",
-			want:    []string{"SEPARATE fresh", "complete immutable ordered bundle", "existing bounded per-task cache", "IDs are", "freshness, never consent", "Stopped registered owners block", "unknown ownership refuses", "No destructive expiry escalation or silent replan", "native_bundle_returned_unverified", "not independent verification", "Other typed expiry, reconciliation and runtime controls", "remain unsupported"},
+			want:    []string{"SEPARATE fresh", "complete immutable ordered bundle", "existing bounded per-task cache", "IDs are", "freshness, never consent", "Stopped registered owners block", "unknown ownership refuses", "No destructive expiry escalation or silent replan", "native_bundle_returned_unverified", "not independent verification", "Other typed reconciliation and runtime controls", "remain unsupported"},
 			stale:   "Runtime-retirement apply and verified operation outcomes remain unsupported",
 		},
 		{
 			name:    "cached_gc_plan",
 			heading: "## Cleanup-retention and cached GC-plan explanations",
-			want:    []string{"gc_plan", "does not issue an apply token", "Separate exact-plan destructive apply", "Expired apply remains unsupported", "separate native whole-plan consent flow"},
+			want:    []string{"gc_plan", "does not issue an apply token", "Separate exact-plan destructive apply", "separate whole-plan destructive consent flow", "separate native whole-plan consent flow"},
 			stale:   "Explicit provider previews and apply adapters remain separate future operations",
 		},
 	} {
@@ -250,4 +250,25 @@ func TestPiDiagnosticsMaintenanceCapabilityBoundaries(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestPiExpiryConsentContractIsSeparatelyBundled(t *testing.T) {
+	diagnostics, err := Read("docs/integrations/pi-diagnostics.md")
+	if err != nil || !strings.Contains(diagnostics.Content, "(pi-expiry-cleanup.md)") {
+		t.Fatalf("diagnostics must link bounded expiry consent topic: %v", err)
+	}
+	doc, err := Read("docs/integrations/pi-expiry-cleanup.md")
+	if err != nil || doc.Title != "Exact registered-workspace expiry" {
+		t.Fatalf("expiry topic unavailable: %+v %v", doc.Topic, err)
+	}
+	for _, contract := range []string{
+		"[Pi feedback diagnostics](pi-diagnostics.md)", "cleanup_mode: \"expired\"", "workspace_id", "expired mode rejects `parent_id`", "No row, cursor, limit, state", "provider Cleanup", "seven-day expiry gate", "including other", "fresh", "metadata-read approval", "complete ordered selected bundle", "32 KiB", "Paths, names, branches, messages", "Stopped registered owners block", "unknown", "SEPARATE", "interactive whole-plan destructive data-loss approval", "immutable", "identified Pi session", "never deletion consent", "consume the UI", "60-second monotonic one-use", "trusted", "including unpublished commits", "Missing-member cleanup retains its branch", "remote repositories", "authored-lifecycle", "not", "independent resource absence", "partial changes", "automatically retry or silently replan", "no paged/native-old fallback", "schema37", "No persisted data",
+	} {
+		if !strings.Contains(doc.Content, contract) {
+			t.Errorf("expiry consent contract omitted %q", contract)
+		}
+	}
+	if strings.Contains(diagnostics.Content, "Missing-member cleanup retains its branch") {
+		t.Fatal("keep detailed expiry disclosure in one bounded topic")
+	}
 }
