@@ -52,15 +52,27 @@ func (s Service) Preview(ctx context.Context, task protocol.Task, mode integrati
 		// or lifecycle callbacks must not rewrite earlier operations or warnings
 		// through borrowed maps/slices, including before daemon plan freezing.
 		for _, target := range providerTargets {
-			target.Operation = maps.Clone(target.Operation)
-			target.Safety = slices.Clone(target.Safety)
-			targets = append(targets, target)
+			targets = append(targets, cloneTarget(target))
 		}
 	}
 	if len(targets) == 0 {
 		return protocol.CleanupPreview{}, ErrNoResources
 	}
 	return protocol.CleanupPreview{TaskID: task.ID, TaskTitle: task.Title, Targets: targets}, nil
+}
+
+func cloneTarget(target protocol.CleanupTarget) protocol.CleanupTarget {
+	target.Operation = maps.Clone(target.Operation)
+	target.Safety = slices.Clone(target.Safety)
+	return target
+}
+
+func cloneTargets(targets []protocol.CleanupTarget) []protocol.CleanupTarget {
+	owned := slices.Clone(targets)
+	for i := range owned {
+		owned[i] = cloneTarget(owned[i])
+	}
+	return owned
 }
 
 // CheckBundle runs the same mode, capability, ownership, lease, native admission
@@ -95,6 +107,11 @@ func (s Service) runBundle(ctx context.Context, preview protocol.CleanupPreview,
 	if options.Mode != integration.CleanupSafe && options.Mode != integration.CleanupConfirmed && options.Mode != integration.CleanupExpired && options.Mode != integration.CleanupRetire {
 		return protocol.CleanupResult{}, fmt.Errorf("invalid cleanup mode")
 	}
+	// Retained plans and callers keep their own values. Every later callback
+	// receives another owned copy, so admission/preflight cannot redirect the
+	// bundle after its checks/leases or rewrite an earlier provider's evidence.
+	// This is ownership isolation, not synchronization for concurrent mutation.
+	preview.Targets = cloneTargets(preview.Targets)
 	if options.Mode != integration.CleanupConfirmed {
 		if messages := AutomaticBlockingMessages(preview.Targets, options.Mode == integration.CleanupExpired); len(messages) > 0 {
 			return protocol.CleanupResult{}, errors.New(messages[0])
@@ -184,7 +201,7 @@ func (s Service) runBundle(ctx context.Context, preview protocol.CleanupPreview,
 			if len(targets) == 0 {
 				continue
 			}
-			bound, release, err := admission.AdmitCleanup(ctx, targets, options.Mode)
+			bound, release, err := admission.AdmitCleanup(ctx, cloneTargets(targets), options.Mode)
 			if err != nil {
 				return result, remainingError(preview, result, fmt.Errorf("%s cleanup admission: %w", provider.Descriptor().Name, err))
 			}
@@ -200,7 +217,7 @@ func (s Service) runBundle(ctx context.Context, preview protocol.CleanupPreview,
 			return result, remainingError(preview, result, err)
 		}
 		if preflight, ok := provider.(integration.CleanupPreflightProvider); ok {
-			if err := preflight.PreflightCleanup(ctx, preview.Targets, options.Mode); err != nil {
+			if err := preflight.PreflightCleanup(ctx, cloneTargets(preview.Targets), options.Mode); err != nil {
 				preflightDone()
 				return result, remainingError(preview, result, fmt.Errorf("%s cleanup preflight: %w", provider.Descriptor().Name, err))
 			}
@@ -236,12 +253,14 @@ func (s Service) runBundle(ctx context.Context, preview protocol.CleanupPreview,
 		done := phasetiming.Start(ctx, phase)
 		observation.Stage = "provider_call"
 		observation.AttemptedTargets++
-		cleaned, err := provider.Cleanup(ctx, integration.CleanupRequest{Target: target, Mode: options.Mode})
+		cleaned, err := provider.Cleanup(ctx, integration.CleanupRequest{Target: cloneTarget(target), Mode: options.Mode})
 		done()
 		if err != nil {
 			return result, remainingError(preview, result, fmt.Errorf("%s: %w", resourceLabel(target), err))
 		}
-		result.Targets = append(result.Targets, cleaned)
+		// Providers may retain their returned maps/slices. Freeze each completed
+		// prefix before the next provider, release callback or caller can run.
+		result.Targets = append(result.Targets, cloneTarget(cleaned))
 		observation.Stage = "target_dispatch"
 	}
 	observation.Stage = "completed"

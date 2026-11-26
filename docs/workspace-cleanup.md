@@ -145,6 +145,15 @@ or safe-retry permission. The public GC command still sweeps all candidates;
 this internal sharing is not itself a diagnostic endpoint, consent token or
 apply capability.
 
+Cleanup owns the selected bundle at execution/check entry and passes independent
+copies to each native admission, whole-bundle preflight and provider dispatch.
+A callback cannot redirect later targets after their leases/checks, rewrite a
+retained plan's private operations or safety notices, or alter another callback's
+inputs through shared maps/slices. Each returned successful target is copied
+before later provider and release callbacks, including on partial failure or
+cancellation. This ownership isolation is not synchronization for concurrent
+mutation, a new executor, or independent verification of provider results.
+
 The retirement stage now also uses an exact native `RetirementPlan` entry over
 that same boundary. Preparation compares one expected registered GC candidate
 with a fresh owned atomic snapshot, refuses ambiguous identities, non-retirement
