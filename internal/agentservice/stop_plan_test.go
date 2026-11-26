@@ -10,12 +10,16 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
+	"radar/internal/integration"
 	"radar/internal/protocol"
 )
+
+func allowStopGuard(_ context.Context, execute func() error) error { return execute() }
 
 func stopPlanFixture(t *testing.T) (Registration, *Manager) {
 	t.Helper()
@@ -54,8 +58,8 @@ func TestNativeStopPlanPreviewIsPrivateBoundedAndEffectFree(t *testing.T) {
 			}
 			before, _ := os.ReadFile(filepath.Join(dir, "registration.json"))
 			m.retry[reg.ID] = retryState{attempts: 2}
-			plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace)
-			if err != nil || plan.Preview() != (StopPreview{ID: reg.ID, Desired: true, Running: running}) {
+			plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace, allowStopGuard)
+			if err != nil || plan.Preview() != (integration.AgentStopPreview{ID: reg.ID, Desired: true, Running: running}) {
 				t.Fatalf("unexpected preview %+v %v", plan.Preview(), err)
 			}
 			copy := plan.Preview()
@@ -95,7 +99,7 @@ func TestNativeStopPlanUsesExistingStopAndRetainsWorkspace(t *testing.T) {
 				methods = nativeStatusPeer(t, reg, `{"protocol":1,"instanceId":"worker"}`, nativeStatusSnapshot(reg))
 			}
 			m.retry[reg.ID] = retryState{attempts: 2}
-			plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace)
+			plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace, allowStopGuard)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -227,7 +231,7 @@ func TestNativeStopPlanRefusesInvalidScopeAndUnknownEvidence(t *testing.T) {
 			if kind != "registration_fifo" && kind != "registration_symlink" {
 				before, _ = os.ReadFile(filepath.Join(dir, "registration.json"))
 			}
-			plan, err := m.PrepareStop(ctx, id, expected)
+			plan, err := m.PrepareStop(ctx, id, expected, allowStopGuard)
 			if err == nil || plan.capture != nil || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), reg.Workspace.Path) {
 				t.Fatal("invalid capture admitted or leaked", err)
 			}
@@ -262,7 +266,7 @@ func TestNativeStopPlanConsumesBeforeRefusalAndRejectsDrift(t *testing.T) {
 					return protocol.AgentSnapshot{Protocol: 1, InstanceID: reg.ID, PID: pid}
 				})
 			}
-			plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace)
+			plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace, allowStopGuard)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -352,7 +356,7 @@ func TestNativeStopPlanRevalidatesAtShutdownBoundary(t *testing.T) {
 		}
 		return protocol.AgentSnapshot{Protocol: 1, InstanceID: reg.ID, PID: 987654}
 	})
-	plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace)
+	plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace, allowStopGuard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +400,7 @@ func TestNativeStopPlanPartialFailureNeverRestoresOrReplays(t *testing.T) {
 				}
 				return `{"jsonrpc":"2.0","id":1,"result":{"stopping":true}}`
 			})
-			plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace)
+			plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace, allowStopGuard)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -433,7 +437,7 @@ func TestNativeStopPlanPartialFailureNeverRestoresOrReplays(t *testing.T) {
 
 func TestNativeStopPlanConcurrentCopiesExecuteOnlyOnce(t *testing.T) {
 	reg, m := stopPlanFixture(t)
-	plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace)
+	plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace, allowStopGuard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +458,7 @@ func TestNativeStopPlanConcurrentCopiesExecuteOnlyOnce(t *testing.T) {
 	if succeeded != 1 {
 		t.Fatal("admission was not shared across copies", succeeded)
 	}
-	if err := (StopPlan{}).Execute(context.Background()); err == nil || (StopPlan{}).Preview() != (StopPreview{}) {
+	if err := (StopPlan{}).Execute(context.Background()); err == nil || (StopPlan{}).Preview() != (integration.AgentStopPreview{}) {
 		t.Fatal("zero plan admitted")
 	}
 }
@@ -487,7 +491,7 @@ func TestNativeStopPlanCaptureRejectsInFlightReplacementAndDeadline(t *testing.T
 					return reg.Workspace, nil
 				}}
 			}
-			plan, err := m.PrepareStop(ctx, reg.ID, reg.Workspace)
+			plan, err := m.PrepareStop(ctx, reg.ID, reg.Workspace, allowStopGuard)
 			if err == nil || plan.capture != nil {
 				t.Fatal("in-flight drift/deadline admitted")
 			}
@@ -495,6 +499,189 @@ func TestNativeStopPlanCaptureRejectsInFlightReplacementAndDeadline(t *testing.T
 			got, err := load(reg.ID)
 			if err != nil || !got.Desired {
 				t.Fatal("refused capture changed desired state", err)
+			}
+		})
+	}
+}
+
+func TestNativeStopPlanRetainsGuardAcrossDesiredStateAndShutdown(t *testing.T) {
+	reg, m := stopPlanFixture(t)
+	var held atomic.Bool
+	calls := 0
+	methods := probeServer(t, reg, func(method string) any {
+		if method == "hello" {
+			return map[string]any{"protocol": 1, "instanceId": reg.ID}
+		}
+		if method == "shutdown" {
+			if !held.Load() {
+				t.Error("caller scope admission released before shutdown")
+			}
+			got, err := load(reg.ID)
+			if err != nil || got.Desired {
+				t.Error("shutdown preceded guarded desired-state persistence", err)
+			}
+			return map[string]any{"stopping": true}
+		}
+		return protocol.AgentSnapshot{Protocol: 1, InstanceID: reg.ID, PID: 987654}
+	})
+	guard := func(ctx context.Context, execute func() error) error {
+		calls++
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		held.Store(true)
+		defer held.Store(false)
+		return execute()
+	}
+	plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace, guard)
+	if err != nil || calls != 0 || held.Load() {
+		t.Fatal("capture called final admission", err)
+	}
+	if err := plan.Execute(context.Background()); err != nil || calls != 1 || held.Load() {
+		t.Fatal("guarded native stop failed", err)
+	}
+	shutdowns := 0
+	for _, method := range methods() {
+		if method == "shutdown" {
+			shutdowns++
+		}
+	}
+	if shutdowns != 1 {
+		t.Fatal("guard did not wrap exactly one native shutdown", shutdowns)
+	}
+}
+
+func TestNativeStopPlanGuardRefusalCannotChangeIntentOrEscape(t *testing.T) {
+	for _, kind := range []string{"nil_guard", "denied", "skipped", "cancelled", "expired", "registration_replaced", "retained_callback"} {
+		t.Run(kind, func(t *testing.T) {
+			reg, m := stopPlanFixture(t)
+			methods := nativeStatusPeer(t, reg, `{"protocol":1,"instanceId":"worker"}`, nativeStatusSnapshot(reg))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var retained func() error
+			var plan StopPlan
+			guard := integration.AgentStopGuard(func(_ context.Context, execute func() error) error {
+				switch kind {
+				case "denied":
+					return errors.New("private-caller-scope-error")
+				case "skipped":
+					return nil
+				case "retained_callback":
+					retained = execute
+					return nil
+				case "cancelled":
+					cancel()
+				case "expired":
+					plan.capture.expires = time.Now().Add(-time.Second)
+				case "registration_replaced":
+					dir, _ := instanceDir(reg.ID)
+					if err := atomicJSON(filepath.Join(dir, "registration.json"), reg); err != nil {
+						return err
+					}
+				}
+				return execute()
+			})
+			if kind == "nil_guard" {
+				guard = nil
+			}
+			var err error
+			plan, err = m.PrepareStop(ctx, reg.ID, reg.Workspace, guard)
+			if kind == "nil_guard" {
+				if err == nil || len(methods()) != 0 {
+					t.Fatal("unguarded capture reached runner/admitted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := plan.Execute(ctx); err == nil || strings.Contains(err.Error(), "private") {
+				t.Fatal("guard refusal bypassed or leaked", err)
+			}
+			if err := plan.Execute(context.Background()); err == nil {
+				t.Fatal("guard refusal restored admission")
+			}
+			if retained != nil {
+				var wg sync.WaitGroup
+				for range 4 {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						if err := retained(); err == nil {
+							t.Error("retained callback escaped serialized admission")
+						}
+					}()
+				}
+				wg.Wait()
+			}
+			requireStopNoShutdown(t, methods())
+			got, err := load(reg.ID)
+			if err != nil || !got.Desired {
+				t.Fatal("refused guard changed desired state", err)
+			}
+		})
+	}
+}
+
+func TestNativeStopPlanGuardCannotHideErrorsOrDispatchTwice(t *testing.T) {
+	for _, kind := range []string{"repeat_ignored", "native_error_ignored", "guard_error_after_effects", "cancelled_after_effects", "late_after_success"} {
+		t.Run(kind, func(t *testing.T) {
+			reg, m := stopPlanFixture(t)
+			methods := rawDiagnosticAgentPeer(t, reg, func(method string) string {
+				if method == "hello" {
+					return `{"jsonrpc":"2.0","id":1,"result":{"protocol":1,"instanceId":"worker"}}`
+				}
+				if method == "snapshot" {
+					return `{"jsonrpc":"2.0","id":1,"result":` + nativeStatusSnapshot(reg) + `}`
+				}
+				if kind == "native_error_ignored" {
+					return ""
+				}
+				return `{"jsonrpc":"2.0","id":1,"result":{"stopping":true}}`
+			})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var retained func() error
+			guard := func(_ context.Context, execute func() error) error {
+				retained = execute
+				_ = execute()
+				if kind == "repeat_ignored" {
+					_ = execute()
+				}
+				if kind == "guard_error_after_effects" {
+					return errors.New("private-guard-error")
+				}
+				if kind == "cancelled_after_effects" {
+					cancel()
+				}
+				return nil
+			}
+			plan, err := m.PrepareStop(context.Background(), reg.ID, reg.Workspace, guard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = plan.Execute(ctx)
+			if (kind == "late_after_success") != (err == nil) {
+				t.Fatal("guard hid error or native return lost", err)
+			}
+			if err := retained(); err == nil {
+				t.Fatal("late callback repeated native work")
+			}
+			if err := plan.Execute(context.Background()); err == nil {
+				t.Fatal("completed/uncertain admission replayed")
+			}
+			got, err := load(reg.ID)
+			if err != nil || got.Desired {
+				t.Fatal("accepted effect rolled back or removed registration", err)
+			}
+			shutdowns := 0
+			for _, method := range methods() {
+				if method == "shutdown" {
+					shutdowns++
+				}
+			}
+			if shutdowns != 1 {
+				t.Fatal("guard caused duplicate dispatch", shutdowns)
 			}
 		})
 	}

@@ -454,8 +454,15 @@ workspace binding, listener and independent owner evidence without changing
 intent, preparing a workspace, reading private checkpoints or acquiring a lease.
 It refuses busy/unknown evidence. Its shared-copy, one-use admission expires in
 30 seconds and rechecks registration/root/instance/socket/owner identity and the
-observed runner PID before using the existing native shutdown path. Cancellation,
-drift or a lost reply never restores it. Desired-state persistence is not rolled
+observed runner PID before using the existing native shutdown path. The typed
+integration boundary requires exactly one explicit stop provider; it never falls
+back to generic agent control. Capture retains a required trusted caller guard
+without running it. Apply holds that guard across desired-state persistence and
+native shutdown, rechecking native identity before the first effect. The caller
+must supply fresh authorized scope/publication/consent admission. Missing, denied,
+skipped, repeated or retained-for-later callbacks cannot bypass it or replay work;
+a guard cannot hide a native error. This is still in-process infrastructure, not
+a wire/CLI/Pi adapter. Cancellation, drift or a lost reply never restores it. Desired-state persistence is not rolled
 back after a later shutdown failure. These point-in-time guards do not attest a
 PID incarnation or make filesystem checks transactional. This internal boundary
 is not user consent or a public diagnostic/CLI/Pi stop-preview capability;

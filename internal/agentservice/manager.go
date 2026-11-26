@@ -349,7 +349,7 @@ func stop(ctx context.Context, reg Registration) error {
 
 // A retained exact-stop caller can validate its private capture at the existing
 // final native boundary. Ordinary lifecycle calls retain their original path.
-func stopWithAdmission(ctx context.Context, reg Registration, admit func(protocol.AgentStatus) error) error {
+func stopWithAdmission(ctx context.Context, reg Registration, admit func(protocol.AgentStatus, func() error) error) error {
 	path, err := socketPath(reg.ID)
 	if err != nil {
 		return err
@@ -365,41 +365,42 @@ func stopWithAdmission(ctx context.Context, reg Registration, admit func(protoco
 	if !s.Running && alive {
 		return fmt.Errorf("runner is unreachable but its process remains alive; inspect logs before removing its registration")
 	}
-	if admit != nil {
-		if err := admit(s); err != nil {
+	execute := func() error {
+		if !s.Running {
+			return nil
+		}
+		pid := s.Snapshot.PID
+		if err := call(ctx, path, "shutdown", nil, nil); err != nil {
 			return err
 		}
-	}
-	if !s.Running {
-		return nil
-	}
-	pid := s.Snapshot.PID
-	if err := call(ctx, path, "shutdown", nil, nil); err != nil {
-		return err
-	}
-	deadline := time.NewTimer(6 * time.Second)
-	defer deadline.Stop()
-	tick := time.NewTicker(50 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		select {
-		case <-tick.C:
-			if err := ctx.Err(); err != nil {
-				return err
+		deadline := time.NewTimer(6 * time.Second)
+		defer deadline.Stop()
+		tick := time.NewTicker(50 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-tick.C:
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				alive, err := ownerAlive(reg)
+				if err != nil {
+					return err
+				}
+				if !runnerProcessAlive(pid) && !alive {
+					return nil
+				}
+			case <-deadline.C:
+				return fmt.Errorf("runner did not stop; refusing a second storage owner")
+			case <-ctx.Done():
+				return ctx.Err()
 			}
-			alive, err := ownerAlive(reg)
-			if err != nil {
-				return err
-			}
-			if !runnerProcessAlive(pid) && !alive {
-				return nil
-			}
-		case <-deadline.C:
-			return fmt.Errorf("runner did not stop; refusing a second storage owner")
-		case <-ctx.Done():
-			return ctx.Err()
 		}
 	}
+	if admit != nil {
+		return admit(s, execute)
+	}
+	return execute()
 }
 
 // Shared desired-state persistence. A subsequent shutdown failure is not a

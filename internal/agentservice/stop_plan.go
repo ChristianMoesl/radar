@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"radar/internal/integration"
 	"radar/internal/protocol"
 )
 
@@ -24,6 +25,7 @@ type stopCapture struct {
 	mu       sync.Mutex
 	consumed bool
 	manager  *Manager
+	guard    integration.AgentStopGuard
 	expires  time.Time
 	files    stopFiles
 	reg      Registration
@@ -43,34 +45,26 @@ type stopFiles struct {
 	socket               os.FileInfo
 }
 
-// StopPreview contains only native identity and point-in-time control facts.
-// It is an owned value, not executable payload or independently verified work,
-// lease, checkpoint or business-outcome evidence. Workspace identity stays in the
-// private capture; callers must define their own finite public projection.
-type StopPreview struct {
-	ID      string
-	Desired bool
-	Running bool
-}
-
 func stopPlanUnavailable() error {
 	return errors.New("exact native agent stop unavailable or changed; outcome may be unknown, do not replay or automatically retry")
 }
 
-func (p StopPlan) Preview() StopPreview {
+func (p StopPlan) Preview() integration.AgentStopPreview {
 	if p.capture == nil {
-		return StopPreview{}
+		return integration.AgentStopPreview{}
 	}
 	c := p.capture
-	return StopPreview{ID: c.reg.ID, Desired: c.reg.Desired, Running: c.running}
+	return integration.AgentStopPreview{ID: c.reg.ID, Desired: c.reg.Desired, Running: c.running}
 }
 
 // PrepareStop captures exactly one caller-selected registration and associated
 // workspace. It never prepares a workspace, changes desired state, reads private
 // checkpoints/tokens, acquires a workspace lease or dispatches shutdown. Busy,
-// cancelled and unknown evidence refuse. Native I/O uses a cooperative 5s bound.
-func (m *Manager) PrepareStop(ctx context.Context, id string, expected protocol.AgentWorkspaceBinding) (StopPlan, error) {
-	if ctx.Err() != nil || !validID.MatchString(id) || expected.ID == "" || !filepath.IsAbs(expected.Path) || filepath.Clean(expected.Path) != expected.Path || m.workspace == nil || !m.mu.TryLock() {
+// cancelled and unknown evidence refuse. The non-nil trusted caller guard is
+// retained, never invoked by capture, and cannot be replaced at apply. Native I/O
+// uses a cooperative 5s bound.
+func (m *Manager) PrepareStop(ctx context.Context, id string, expected protocol.AgentWorkspaceBinding, guard integration.AgentStopGuard) (StopPlan, error) {
+	if guard == nil || ctx.Err() != nil || !validID.MatchString(id) || expected.ID == "" || !filepath.IsAbs(expected.Path) || filepath.Clean(expected.Path) != expected.Path || m.workspace == nil || !m.mu.TryLock() {
 		return StopPlan{}, stopPlanUnavailable()
 	}
 	defer m.mu.Unlock()
@@ -96,7 +90,7 @@ func (m *Manager) PrepareStop(ctx context.Context, id string, expected protocol.
 	if err != nil || !files.same(after) || ctx.Err() != nil {
 		return StopPlan{}, stopPlanUnavailable()
 	}
-	c := &stopCapture{manager: m, expires: time.Now().Add(30 * time.Second), files: files, reg: reg, running: observed.Running}
+	c := &stopCapture{manager: m, guard: guard, expires: time.Now().Add(30 * time.Second), files: files, reg: reg, running: observed.Running}
 	if observed.Running {
 		c.pid = observed.Snapshot.PID
 	}
@@ -132,15 +126,53 @@ func (p StopPlan) Execute(ctx context.Context) error {
 	if !c.current(ctx) {
 		return stopPlanUnavailable()
 	}
-	err := stopWithAdmission(ctx, c.reg, func(observed protocol.AgentStatus) error {
+	err := stopWithAdmission(ctx, c.reg, func(observed protocol.AgentStatus, nativeStop func() error) error {
 		if observed.Running != c.running || (observed.Running && observed.Snapshot.PID != c.pid) || !c.current(ctx) {
 			return stopPlanUnavailable()
 		}
-		_, err := m.setDesired(c.reg, false)
-		return err
+		// Scope/publication admission must cover BOTH the first desired-state
+		// write and the original native shutdown, not just checks before I/O.
+		return runStopGuard(ctx, c.guard, func() error {
+			if !c.current(ctx) {
+				return stopPlanUnavailable()
+			}
+			if _, err := m.setDesired(c.reg, false); err != nil {
+				return err
+			}
+			return nativeStop()
+		})
 	})
 	if err != nil {
 		return stopPlanUnavailable() // Never disclose native errors/private paths.
+	}
+	return nil
+}
+
+// Close the execution callback before releasing manager serialization. A guard
+// cannot retain it for later, execute twice, skip it and claim success, or hide a
+// native error. The mutex also drains an already-entered callback before return.
+func runStopGuard(ctx context.Context, guard integration.AgentStopGuard, execute func() error) error {
+	if guard == nil {
+		return stopPlanUnavailable()
+	}
+	var mu sync.Mutex
+	active, calls := true, 0
+	var result error
+	guardErr := guard(ctx, func() error {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		if !active || calls != 1 {
+			return stopPlanUnavailable()
+		}
+		result = execute()
+		return result
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	active = false
+	if calls != 1 || guardErr != nil || result != nil || ctx.Err() != nil {
+		return stopPlanUnavailable()
 	}
 	return nil
 }
