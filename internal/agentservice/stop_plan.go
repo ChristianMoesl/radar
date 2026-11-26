@@ -31,6 +31,7 @@ type stopCapture struct {
 	reg      Registration
 	running  bool
 	pid      int
+	bytes    int
 }
 
 type stopFile struct {
@@ -55,6 +56,30 @@ func (p StopPlan) Preview() integration.AgentStopPreview {
 	}
 	c := p.capture
 	return integration.AgentStopPreview{ID: c.reg.ID, Desired: c.reg.Desired, Running: c.running}
+}
+
+func (p StopPlan) ExpiresAt() time.Time {
+	if p.capture == nil {
+		return time.Time{}
+	}
+	return p.capture.expires
+}
+
+func (p StopPlan) RetainedBytes() int {
+	if p.capture == nil {
+		return 0
+	}
+	return p.capture.bytes
+}
+
+// Budget the retained strings (including registration-only private fields),
+// allocation overhead and fixed file/identity metadata conservatively. Neither
+// checkpoint bytes nor a snapshot is retained. The shared manager and trusted
+// caller guard graph are not copied here; the adapter budgets its own closure.
+func stopCaptureBytes(reg Registration, files stopFiles) int {
+	return 64*1024 + 4*(len(reg.ID)+len(reg.Entrypoint)+len(reg.Collection)+
+		len(reg.Workspace.ID)+len(reg.Workspace.Path)+len(reg.Workspace.Mode)+len(reg.Workspace.Sandbox)+
+		len(files.rootPath)+len(files.socketPath))
 }
 
 // PrepareStop captures exactly one caller-selected registration and associated
@@ -90,7 +115,7 @@ func (m *Manager) PrepareStop(ctx context.Context, id string, expected protocol.
 	if err != nil || !files.same(after) || ctx.Err() != nil {
 		return StopPlan{}, stopPlanUnavailable()
 	}
-	c := &stopCapture{manager: m, guard: guard, expires: time.Now().Add(30 * time.Second), files: files, reg: reg, running: observed.Running}
+	c := &stopCapture{manager: m, guard: guard, expires: time.Now().Add(30 * time.Second), files: files, reg: reg, running: observed.Running, bytes: stopCaptureBytes(reg, files)}
 	if observed.Running {
 		c.pid = observed.Snapshot.PID
 	}

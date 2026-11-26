@@ -26,6 +26,7 @@ type nativeCleanupPlan struct {
 	diagnostic []byte                    // Optional immutable typed adapter context; shares this one-use plan.
 	retirement *diagnosticRetirementPlan // Private native preparation, never transport or client supplied.
 	expiry     *diagnosticExpiryPlan
+	agentStop  *diagnosticAgentStopPlan // Private exact native stop; not a cleanup bundle.
 }
 
 func (s *Server) issueCleanupPlan(ctx context.Context, preview protocol.CleanupPreview, revision int64) (protocol.CleanupPreview, error) {
@@ -51,6 +52,64 @@ func (s *Server) issueBoundNativeCleanupPlan(ctx context.Context, preview protoc
 	if err != nil || len(raw) > maxCleanupPlanBytes {
 		return protocol.CleanupPreview{}, errors.New("cleanup preview exceeds native payload bounds")
 	}
+	err = s.retainCleanupPlan(ctx, preview.TaskID, revision, func(now time.Time) (nativeCleanupPlan, error) {
+		var binding []byte
+		if diagnostic != nil {
+			// Copy all public/private adapter context into the same bounded plan.
+			// No caller-owned slices/maps and no second executable plan cache.
+			copy := *diagnostic
+			copy.View.PlanID, copy.View.ExpiresAt = preview.PlanID, now.Add(time.Minute).UTC().Format(time.RFC3339Nano)
+			binding, err = json.Marshal(copy)
+			if err != nil || len(raw)+len(binding) > maxCleanupPlanBytes {
+				return nativeCleanupPlan{}, errors.New("cleanup adapter context exceeds native payload bounds")
+			}
+		}
+		if retirement != nil {
+			if diagnostic != nil || expiry != nil || retirement.admission == nil || retirement.privateBytes < 1 {
+				return nativeCleanupPlan{}, errors.New("invalid retirement binding")
+			}
+			copy := *retirement
+			copy.binding.View.PlanID, copy.binding.View.ExpiresAt = preview.PlanID, now.Add(time.Minute).UTC().Format(time.RFC3339Nano)
+			binding, err = json.Marshal(copy.binding)
+			if err != nil || len(raw)+len(binding)+retirement.privateBytes > maxCleanupPlanBytes {
+				return nativeCleanupPlan{}, errors.New("retirement adapter context exceeds native payload bounds")
+			}
+			copy.admission.expires = now.Add(time.Minute)
+			retirement = &copy
+		}
+		if expiry != nil {
+			if diagnostic != nil || retirement != nil || expiry.admission == nil || expiry.privateBytes < 1 {
+				return nativeCleanupPlan{}, errors.New("invalid expiry binding")
+			}
+			copy := *expiry
+			copy.binding.View.PlanID, copy.binding.View.ExpiresAt = preview.PlanID, now.Add(time.Minute).UTC().Format(time.RFC3339Nano)
+			request := copy.binding.Request
+			request.Mode = "preview"
+			if !protocol.ValidDiagnosticExpiry(copy.binding.View, request) {
+				return nativeCleanupPlan{}, errors.New("invalid complete expiry disclosure")
+			}
+			binding, err = json.Marshal(copy.binding)
+			// Count both the serialized native payload and the retained native bundle,
+			// plus its private candidate and complete adapter/registration context.
+			if err != nil || 2*len(raw)+len(binding)+expiry.privateBytes > maxCleanupPlanBytes {
+				return nativeCleanupPlan{}, errors.New("expiry adapter context exceeds native payload bounds")
+			}
+			copy.admission.expires = now.Add(time.Minute)
+			copy.binding = diagnosticExpiryBinding{} // The immutable serialized binding is authoritative.
+			expiry = &copy
+		}
+		return nativeCleanupPlan{id: preview.PlanID, payload: raw, revision: revision, expires: now.Add(time.Minute), diagnostic: binding, retirement: retirement, expiry: expiry}, nil
+	})
+	if err != nil {
+		return protocol.CleanupPreview{}, err
+	}
+	return preview, nil
+}
+
+// One bounded per-task retention mechanism for native maintenance. Stop plans
+// share supersession/capacity with cleanup, but never fabricate cleanup targets.
+// Build is local and effect-free. Failed admission must not replace a live plan.
+func (s *Server) retainCleanupPlan(ctx context.Context, taskID int, revision int64, build func(time.Time) (nativeCleanupPlan, error)) error {
 	s.cleanupPlanMu.Lock()
 	defer s.cleanupPlanMu.Unlock()
 	// Provider reads may be slow. Never issue a freshness identity for an input
@@ -58,12 +117,12 @@ func (s *Server) issueBoundNativeCleanupPlan(ctx context.Context, preview protoc
 	// The publication reader can itself advance the store revision; compare only
 	// after it returns, before retaining or superseding any native/typed plan.
 	if (s.resourceSnapshot != nil && s.resourceSnapshot().ResourceRefreshPending) || revision != s.store.Revision() {
-		return protocol.CleanupPreview{}, errors.New("resource snapshot changed; refresh and preview cleanup again")
+		return errors.New("resource snapshot changed; refresh and preview cleanup again")
 	}
 	// Admission can wait, and the publication reader can outlive the caller.
 	// Recheck after both before issuing or superseding an executable plan.
 	if err := ctx.Err(); err != nil {
-		return protocol.CleanupPreview{}, err
+		return err
 	}
 	now := time.Now()
 	for taskID, plan := range s.cleanupPlans {
@@ -71,60 +130,22 @@ func (s *Server) issueBoundNativeCleanupPlan(ctx context.Context, preview protoc
 			delete(s.cleanupPlans, taskID)
 		}
 	}
-	if _, exists := s.cleanupPlans[preview.TaskID]; !exists && len(s.cleanupPlans) >= maxCleanupPlans {
-		return protocol.CleanupPreview{}, errors.New("cleanup preview capacity reached; preview again later")
+	if _, exists := s.cleanupPlans[taskID]; !exists && len(s.cleanupPlans) >= maxCleanupPlans {
+		return errors.New("cleanup preview capacity reached; preview again later")
 	}
 	if s.cleanupPlans == nil {
 		s.cleanupPlans = make(map[int]nativeCleanupPlan)
 	}
-	var binding []byte
-	if diagnostic != nil {
-		// Copy all public/private adapter context into the same bounded plan.
-		// No caller-owned slices/maps and no second executable plan cache.
-		copy := *diagnostic
-		copy.View.PlanID, copy.View.ExpiresAt = preview.PlanID, now.Add(time.Minute).UTC().Format(time.RFC3339Nano)
-		binding, err = json.Marshal(copy)
-		if err != nil || len(raw)+len(binding) > maxCleanupPlanBytes {
-			return protocol.CleanupPreview{}, errors.New("cleanup adapter context exceeds native payload bounds")
-		}
+	plan, err := build(now)
+	if err != nil {
+		return err
 	}
-	if retirement != nil {
-		if diagnostic != nil || expiry != nil || retirement.admission == nil || retirement.privateBytes < 1 {
-			return protocol.CleanupPreview{}, errors.New("invalid retirement binding")
-		}
-		copy := *retirement
-		copy.binding.View.PlanID, copy.binding.View.ExpiresAt = preview.PlanID, now.Add(time.Minute).UTC().Format(time.RFC3339Nano)
-		binding, err = json.Marshal(copy.binding)
-		if err != nil || len(raw)+len(binding)+retirement.privateBytes > maxCleanupPlanBytes {
-			return protocol.CleanupPreview{}, errors.New("retirement adapter context exceeds native payload bounds")
-		}
-		copy.admission.expires = now.Add(time.Minute)
-		retirement = &copy
-	}
-	if expiry != nil {
-		if diagnostic != nil || retirement != nil || expiry.admission == nil || expiry.privateBytes < 1 {
-			return protocol.CleanupPreview{}, errors.New("invalid expiry binding")
-		}
-		copy := *expiry
-		copy.binding.View.PlanID, copy.binding.View.ExpiresAt = preview.PlanID, now.Add(time.Minute).UTC().Format(time.RFC3339Nano)
-		request := copy.binding.Request
-		request.Mode = "preview"
-		if !protocol.ValidDiagnosticExpiry(copy.binding.View, request) {
-			return protocol.CleanupPreview{}, errors.New("invalid complete expiry disclosure")
-		}
-		binding, err = json.Marshal(copy.binding)
-		// Count both the serialized native payload and the retained native bundle,
-		// plus its private candidate and complete adapter/registration context.
-		if err != nil || 2*len(raw)+len(binding)+expiry.privateBytes > maxCleanupPlanBytes {
-			return protocol.CleanupPreview{}, errors.New("expiry adapter context exceeds native payload bounds")
-		}
-		copy.admission.expires = now.Add(time.Minute)
-		copy.binding = diagnosticExpiryBinding{} // The immutable serialized binding is authoritative.
-		expiry = &copy
+	if taskID <= 0 || !hexPlanID(plan.id) || plan.revision != revision || !now.Before(plan.expires) || plan.expires.After(now.Add(time.Minute)) {
+		return errors.New("invalid native maintenance retention")
 	}
 	// Only the latest successfully issued preview for this task can be applied.
-	s.cleanupPlans[preview.TaskID] = nativeCleanupPlan{id: preview.PlanID, payload: raw, revision: revision, expires: now.Add(time.Minute), diagnostic: binding, retirement: retirement, expiry: expiry}
-	return preview, nil
+	s.cleanupPlans[taskID] = plan
+	return nil
 }
 
 func (s *Server) discardCleanupPlan(preview *protocol.CleanupPreview) {
@@ -153,7 +174,7 @@ func (s *Server) takeCleanupPlan(preview *protocol.CleanupPreview) (protocol.Cle
 	// Consume before every remaining check/dispatch. A changed request, lost
 	// reply, cancellation, partial failure or successful reread cannot replay it.
 	delete(s.cleanupPlans, preview.TaskID)
-	if len(plan.diagnostic) != 0 || !time.Now().Before(plan.expires) || plan.revision != s.store.Revision() || !bytes.Equal(raw, plan.payload) {
+	if plan.agentStop != nil || len(plan.diagnostic) != 0 || !time.Now().Before(plan.expires) || plan.revision != s.store.Revision() || !bytes.Equal(raw, plan.payload) {
 		return protocol.CleanupPreview{}, changed
 	}
 	var bound protocol.CleanupPreview

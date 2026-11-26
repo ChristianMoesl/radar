@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"radar/internal/protocol"
 )
@@ -28,6 +29,12 @@ type AgentStopPreview struct {
 // client; the typed caller must retain it in its existing bounded plan machinery.
 type AgentStopPlan interface {
 	Preview() AgentStopPreview
+	// Retention metadata is private admission evidence, never client input.
+	// ExpiresAt preserves the native monotonic deadline. RetainedBytes is a
+	// conservative native-only budget; the caller must also budget its guard
+	// closure and adapter context. Shared manager state is not a per-plan copy.
+	ExpiresAt() time.Time
+	RetainedBytes() int
 	Execute(context.Context) error
 }
 

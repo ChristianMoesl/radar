@@ -469,6 +469,22 @@ is not user consent or a public diagnostic/CLI/Pi stop-preview capability;
 `runtime_controls` remains unsupported. Shutdown acknowledgement is not completed
 agent work, a successful checkpoint, released leases or resource absence.
 
+The daemon's private adapter preparation now binds the exact registered feedback
+caller, origin/feedback/installation scope and current task's exact agent ref.
+Its captured final guard rechecks that scope, revision and resource-publication
+status immediately before native effects. Private plans share the existing
+bounded per-task maintenance retention and supersede cleanup previews, rather
+than creating another cache or fabricated cleanup targets. The native monotonic
+30-second deadline bounds retention; conservative accounting includes private
+native fields and the full adapter/guard context, not just the small preview.
+In-process execution consumes before further validation and invalidates resource
+observations once native dispatch begins, including failed or cancelled returns.
+These checks are point-in-time admission, not a transaction with all concurrent
+collection or filesystem writes. This private preparation/execution is not wired
+to RPC, client, CLI or Pi. The finite public contract, matching-daemon transport,
+latest-preview UI and separate fresh interactive interruption consent are still
+required before exposing it; no public stop capability or consent is added.
+
 Admission receipts are retained without automatic pruning; event/document history and runner logs can grow. There is no destructive data-deletion CLI. `radar reset` leaves agent data intact. Every registration, including a stopped one, pins its associated workspace against Radar cleanup/expiry. Additional active workspace operations use OS leases. To release the association:
 
 ```sh
