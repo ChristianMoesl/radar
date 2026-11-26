@@ -434,10 +434,16 @@ and timeouts are not stopped-state evidence, even for an intentionally stopped
 registration: they cannot authorize workspace recovery, runner replacement or
 registration removal. A cached snapshot is presentation only. A missing/refused
 Unix listener retains the normal recovery/removal path only when no recorded
-owner is alive. Shutdown acknowledgement alone is not completion: Radar waits
-for both the snapshot PID and the independently recorded owner to exit. These
-checks do not attest the socket peer's OS identity or turn PID records into
-incarnation-bound process identities.
+owner is alive. The independent PID record must be a stable regular file opened
+without following its final symlink, at most 64 bytes, containing a positive
+signed-32-bit PID. Missing records retain native semantics; unreadable, malformed,
+unsafe, oversized or changing records are unknown, not dead owners. FIFO reads
+never wait for a writer. Unknown owner evidence blocks replacement, shutdown and
+registration removal without rewriting it; permission-denied liveness means a
+process still exists. Shutdown acknowledgement alone is not completion: Radar
+rechecks the record while waiting for both the snapshot PID and recorded owner
+to exit. These point-in-time checks do not attest the socket peer's OS identity,
+validate all ancestor directories or bind PID records to process incarnations.
 
 Admission receipts are retained without automatic pruning; event/document history and runner logs can grow. There is no destructive data-deletion CLI. `radar reset` leaves agent data intact. Every registration, including a stopped one, pins its associated workspace against Radar cleanup/expiry. Additional active workspace operations use OS leases. To release the association:
 

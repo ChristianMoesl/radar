@@ -255,7 +255,9 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 	} else if err := stop(ctx, reg); err != nil {
 		return err
 	}
-	if ownerAlive(reg) {
+	if alive, err := ownerAlive(reg); err != nil {
+		return err
+	} else if alive {
 		return fmt.Errorf("runner process exists but is not ready; inspect its logs before replacement")
 	}
 	dir, _ := instanceDir(reg.ID)
@@ -280,7 +282,9 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 	if observed.Running {
 		return nil
 	}
-	if ownerAlive(reg) {
+	if alive, err := ownerAlive(reg); err != nil {
+		return err
+	} else if alive {
 		return fmt.Errorf("runner process exists but is not ready; inspect its logs before replacement")
 	}
 	command, args, err := hostCommand()
@@ -348,8 +352,12 @@ func stop(ctx context.Context, reg Registration) error {
 	if err != nil {
 		return err
 	}
+	alive, err := ownerAlive(reg)
+	if err != nil {
+		return err
+	}
 	if !s.Running {
-		if ownerAlive(reg) {
+		if alive {
 			return fmt.Errorf("runner is unreachable but its process remains alive; inspect logs before removing its registration")
 		}
 		return nil
@@ -368,7 +376,11 @@ func stop(ctx context.Context, reg Registration) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if !runnerProcessAlive(pid) && !ownerAlive(reg) {
+			alive, err := ownerAlive(reg)
+			if err != nil {
+				return err
+			}
+			if !runnerProcessAlive(pid) && !alive {
 				return nil
 			}
 		case <-deadline.C:
@@ -508,7 +520,11 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 		if err != nil {
 			return nil, err
 		}
-		if reg.Desired || observed.Running || ownerAlive(reg) {
+		alive, err := ownerAlive(reg)
+		if err != nil {
+			return nil, err
+		}
+		if reg.Desired || observed.Running || alive {
 			return nil, fmt.Errorf("stop the agent before removing its registration")
 		}
 		if err := pauseSchedules(reg); err != nil {
@@ -568,22 +584,6 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 	default:
 		return nil, fmt.Errorf("unknown agent operation %q", request.Operation)
 	}
-}
-
-func ownerAlive(reg Registration) bool {
-	dir, err := instanceDir(reg.ID)
-	if err != nil {
-		return false
-	}
-	data, err := os.ReadFile(filepath.Join(dir, "pid"))
-	if err != nil {
-		return false
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || pid <= 0 {
-		return false
-	}
-	return runnerProcessAlive(pid)
 }
 
 func runnerProcessAlive(pid int) bool {
