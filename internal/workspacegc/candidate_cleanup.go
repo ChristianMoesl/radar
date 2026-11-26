@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"path/filepath"
+	"reflect"
+	"slices"
 	"time"
 
 	"radar/internal/cleanup"
@@ -23,6 +27,58 @@ type candidateCleanupPlan struct {
 	alreadyMissing bool
 	now            time.Time
 	options        Options
+}
+
+// Shared exact registered-stage admission for retirement and expiry. Keep the
+// public entry points mode-specific; no client-selectable native mode/payload.
+func prepareRegisteredCandidateCleanup(ctx context.Context, store *state.Store, service cleanup.Service, expected Candidate, now time.Time, options Options, requiredMode integration.CleanupMode) (candidateCleanupPlan, error) {
+	label := "runtime-retirement"
+	if requiredMode == integration.CleanupExpired {
+		label = "workspace-expiry"
+	}
+	fail := func() (candidateCleanupPlan, error) {
+		return candidateCleanupPlan{}, fmt.Errorf("exact %s candidate unavailable or changed", label)
+	}
+	if store == nil || ctx.Err() != nil || expected.WorkspaceID == "" || !filepath.IsAbs(expected.Path) || filepath.Clean(expected.Path) != expected.Path {
+		return fail()
+	}
+	plan, err := BuildPlan(store, now, options)
+	if err != nil {
+		return fail()
+	}
+	var selected Candidate
+	matches := 0
+	for _, candidate := range plan.Candidates {
+		if candidate.WorkspaceID == expected.WorkspaceID {
+			matches++
+			selected = candidate
+		}
+	}
+	if matches != 1 || !reflect.DeepEqual(selected, expected) {
+		return fail()
+	}
+	mode, err := CandidateMode(selected, now)
+	if err != nil || mode != requiredMode || ctx.Err() != nil {
+		return fail()
+	}
+	prepared, err := prepareCandidateCleanup(ctx, service, selected, now, options)
+	if err != nil {
+		return candidateCleanupPlan{}, err
+	}
+	if prepared.mode != requiredMode || ctx.Err() != nil {
+		return fail()
+	}
+	return prepared, nil
+}
+
+func (p candidateCleanupPlan) preview() protocol.CleanupPreview {
+	preview := p.selected
+	preview.Targets = slices.Clone(preview.Targets)
+	for i := range preview.Targets {
+		preview.Targets[i].Operation = maps.Clone(preview.Targets[i].Operation)
+		preview.Targets[i].Safety = slices.Clone(preview.Targets[i].Safety)
+	}
+	return preview
 }
 
 func prepareCandidateCleanup(ctx context.Context, service cleanup.Service, candidate Candidate, now time.Time, options Options) (candidateCleanupPlan, error) {

@@ -142,8 +142,8 @@ calling the existing cleanup Service. It does not rerun provider preview, select
 other candidates or switch retirement into expiry. Native error results retain
 the returned successful prefix and dispatch observation, not verified outcomes
 or safe-retry permission. The public GC command still sweeps all candidates;
-this internal sharing adds no exact-target diagnostic endpoint, consent token or
-retirement apply capability.
+this internal sharing is not itself a diagnostic endpoint, consent token or
+apply capability.
 
 The retirement stage now also uses an exact native `RetirementPlan` entry over
 that same boundary. Preparation compares one expected registered GC candidate
@@ -155,8 +155,26 @@ callback and delegates to the unchanged candidate/provider execution guards.
 This in-process value is not public transport, fresh registration admission,
 user consent, a one-use cache or safe-replay authority. A typed diagnostic caller
 must still bind fresh registered feedback/target scope, the existing one-use
-plan machinery and separate explicit preview/apply consent. No typed retirement
-endpoint or advertised apply capability is added by this native entry.
+plan machinery and separate explicit preview/apply consent. The schema-36 typed
+retirement adapter now supplies that separate binding; the native entry alone
+never does.
+
+The destructive expiry stage also uses an exact native `ExpiryPlan` over this
+same per-candidate boundary, not a second executor or an installation sweep.
+`PrepareExpiry` accepts only a complete matching registered candidate at or after
+its seven-day deadline, with the original GC retention policy. Manual GC's
+retention option cannot turn an earlier stage or standalone worktree into expiry.
+The whole ordered workspace bundle, including eligible Git targets, is retained;
+private operations and safety notices are owned and returned only as copies.
+Expiring-data warnings keep their native expiry semantics while structural
+blockers remain authoritative. Execution preserves the captured policy, decision
+time and lifecycle callback, rechecks the complete candidate and uses the same
+native ownership, lease and provider guards without replanning. Already-missing
+paths still require the final lifecycle and absence checks. Returned successful
+prefixes, dispatch observations and no-op path evidence are not independent
+runtime/registration absence, rollback or safe-retry authority. This is a native
+sharing foundation only: typed diagnostic expiry apply, its fresh exact-scope
+one-use retention and separate destructive consent remain unsupported.
 
 Already-missing cleanup results pass through the same final lifecycle guard,
 including cancellation and authored-mutation admission. GC rechecks path absence

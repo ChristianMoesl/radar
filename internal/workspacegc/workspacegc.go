@@ -165,9 +165,13 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 		}
 		var prepared candidateCleanupPlan
 		var retirement RetirementPlan
+		var expiry ExpiryPlan
 		if mode == integration.CleanupRetire {
 			retirement, err = PrepareRetirement(ctx, store, cleanupService, candidate, now, options)
 			prepared = retirement.prepared
+		} else if mode == integration.CleanupExpired {
+			expiry, err = PrepareExpiry(ctx, store, cleanupService, candidate, now, options)
+			prepared = expiry.prepared
 		} else {
 			prepared, err = prepareCandidateCleanup(ctx, cleanupService, candidate, now, options)
 		}
@@ -178,6 +182,8 @@ func Run(ctx context.Context, store *state.Store, cleanupService cleanup.Service
 		var runtimeChanged bool
 		if mode == integration.CleanupRetire {
 			_, runtimeChanged, err = retirement.Execute(ctx, store, cleanupService)
+		} else if mode == integration.CleanupExpired {
+			_, runtimeChanged, err = expiry.Execute(ctx, store, cleanupService)
 		} else {
 			_, runtimeChanged, err = prepared.execute(ctx, store, cleanupService)
 		}
