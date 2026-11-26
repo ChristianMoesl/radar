@@ -206,7 +206,7 @@ reads may refresh metadata. All locks are released. Returned aggregate guard
 success is not complete last-moment eligibility, runtime/resource evidence,
 a reservation, apply token or deletion/retry consent. No subset, cursor, state,
 expiry/retirement or action/plan selectors; no automatic replay after unknown
-outcomes. Matching schema 36 is required. See
+outcomes. Matching schema 37 is required. See
 [guard-check safeguards](integrations/pi-cleanup-check.md).
 
 `feedback-diagnostics --section refresh --scope installation` defaults to a
@@ -223,7 +223,7 @@ admission fails without queued work. One-use current-daemon plans expire after
 deadline. Cancellation/disconnect can leave partial changes, not rollback.
 Returned per-source counts are collection attempts, not verified resources;
 missing/canceled evidence stays unverified. Never replay an unknown apply outcome.
-CLI/daemon/Pi schema 36 must match before apply, with no fallback. See
+CLI/daemon/Pi schema 37 must match before apply, with no fallback. See
 [refresh safeguards](integrations/pi-diagnostics.md#explicit-installation-wide-collection-refresh).
 
 `feedback-diagnostics --section operations` pages volatile current-daemon managed
@@ -265,7 +265,7 @@ unknown outcomes. Returned operation/prefix/dispatch evidence is not verified
 resource absence or rollback. Deadlines are cooperative (native 30 seconds),
 not forced cancellation. `--cleanup-mode expired --workspace-id <registered-id>`
 remains a separate paged read-only proposal and rejects apply. Match CLI, daemon
-and loaded Pi schema 36; no persisted-format change or legacy fallback. See
+and loaded Pi schema 37; no persisted-format change or legacy fallback. See
 [cleanup previews and apply](integrations/pi-diagnostics.md#explicit-native-manual-cleanup-previews).
 
 `feedback-diagnostics --section agents` separately exposes available current-daemon
@@ -275,7 +275,7 @@ no retry record is not success or stopped-state evidence. Records are volatile,
 ID-keyed and not registration-lifetime/history attestations; retry deadlines are
 not execution guarantees. Scoped pagination invalidates on shown memory changes.
 See the Pi diagnostics documentation for fields and limitations. CLI, daemon and
-loaded Pi must match schema 36; agent inventory itself exposes no maintenance action.
+loaded Pi must match schema 37; agent inventory itself exposes no maintenance action.
 
 Native cleanup operation inspection also reports bounded executor stop stages and
 provider Cleanup-call counts, never verified resource outcomes or safe retry.
@@ -287,8 +287,8 @@ It accepts origin/feedback/installation scope, but no row/state/cursor selectors
 No registered sandbox is not runtime absence; unavailable registration has no
 fallback. This is not current repository/global effective policy, historical
 setting provenance, live runtime configuration or execution eligibility. CLI,
-daemon and loaded Pi require schema 36, without a persisted-format change. See
-[the policy evidence contract](integrations/pi-policy.md#recorded-workspace-policy-diagnostics-schema-36).
+daemon and loaded Pi require schema 37, without a persisted-format change. See
+[the policy evidence contract](integrations/pi-policy.md#recorded-workspace-policy-diagnostics-schema-37).
 
 `feedback-diagnostics --section repository_policy --parent-id <registered workspace ID>
 --id <member row ID from workspace_resources>` explicitly reads only that registered
@@ -297,7 +297,7 @@ file-access approval; the CLI request itself is explicit local file inspection, 
 publication consent. Ten presence/mode/count declarations never imply effective
 policy. Missing configuration differs from unavailable repository evidence; no
 referenced files, runtime/provider calls or maintenance. See
-[the repository declaration contract](integrations/pi-policy.md#current-registered-member-repository-declarations-schema-36).
+[the repository declaration contract](integrations/pi-policy.md#current-registered-member-repository-declarations-schema-37).
 
 `feedback-diagnostics --section recreation_preview --parent-id <registered-workspace-id>`
 previews one exact registered sandbox (origin by default; feedback/installation
@@ -308,10 +308,10 @@ destructive consent after approved preview. Recreation discards sandbox-local
 state and interrupts commands/services; native guards remain authoritative.
 Native restoration-check returns are not independent resource verification.
 No replay, automatic retry or silent replan after partial/unknown outcomes.
-Matching CLI/daemon/loaded Pi schema 36 is required; no old probe/shell fallback.
+Matching CLI/daemon/loaded Pi schema 37 is required; no old probe/shell fallback.
 See the [recreation contract](integrations/pi-recreation-preview.md).
 
-`feedback-diagnostics --section overview` reports schema-36 typed configuration
+`feedback-diagnostics --section overview` reports schema-37 typed configuration
 policy values and file/default provenance. Its fixed ten-setting allowlist returns
 only booleans, enablement modes and counts from a bounded native configuration
 read, never model strings, paths, commands, secrets or referenced file contents.

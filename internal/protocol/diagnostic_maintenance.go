@@ -2,7 +2,9 @@ package protocol
 
 // DiagnosticMaintenanceRequest is deliberately separate from read/probe selectors.
 // Supports collection refresh, manual bundle guards, exact whole-plan manual cleanup
-// and exact registered-workspace native recreation.
+// and exact registered-workspace native recreation, retirement and expiry.
+// Expiry transport is daemon/client infrastructure only: public CLI/Pi expiry
+// proposals remain read-only until their separate destructive-consent flow exists.
 // Plans are freshness evidence, never consent or arbitrary execution parameters.
 type DiagnosticMaintenanceRequest struct {
 	Schema            int    `json:"diagnostics_schema"`

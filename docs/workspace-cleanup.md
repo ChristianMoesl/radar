@@ -164,7 +164,7 @@ callback and delegates to the unchanged candidate/provider execution guards.
 This in-process value is not public transport, fresh registration admission,
 user consent, a one-use cache or safe-replay authority. A typed diagnostic caller
 must still bind fresh registered feedback/target scope, the existing one-use
-plan machinery and separate explicit preview/apply consent. The schema-36 typed
+plan machinery and separate explicit preview/apply consent. The schema-37 typed
 retirement adapter now supplies that separate binding; the native entry alone
 never does.
 
@@ -496,7 +496,7 @@ login commands keep their terminal's process group.
 
 ### Exact diagnostic runtime retirement
 
-Schema36 `feedback-diagnostics --section retirement_preview --parent-id <registered workspace ID>`
+Schema37 `feedback-diagnostics --section retirement_preview --parent-id <registered workspace ID>`
 uses the same native exact preparation/execution boundary as GC, not its sweep.
 `--action preview` returns one complete ordered selected runtime bundle.
 `--action apply --plan-id <latest ID>` consumes that original per-task plan once;
@@ -517,3 +517,46 @@ preview. Cancellation/disconnect is cooperative, not rollback; returned prefix,
 dispatch, operation and invalidation evidence is not independent resource
 verification or safe retry. Other typed expiry/reconciliation/runtime controls
 remain unsupported. No persisted schema or deployment change is required.
+
+### Exact diagnostic expiry transport foundation
+
+Schema37 also defines a bounded daemon/client `expire` preview/apply transport
+for one exact registered seven-day production GC candidate. This is **not yet a
+public CLI/Pi expiry apply capability**: `cleanup_preview --cleanup-mode expired`
+remains the existing read-only paged proposal and rejects apply. Do not invoke
+this transport as a substitute for a complete interactive consent adapter.
+
+The daemon retains the original production `ExpiryPlan`, candidate, policy,
+time, authored-lifecycle callback and complete ordered native bundle behind the
+existing latest-per-task, 60-second, one-use cleanup identity. It neither sweeps
+nor replans at apply, and accepts no client native targets/candidates, subsets,
+manual mode, stage escalation or executable payload. Each registered member must
+be covered exactly once by worktree removal or targeted missing-member cleanup,
+with the registered runtime targets and workspace anchor. Incomplete, unknown,
+empty/no-op-only, over-budget or structurally blocked disclosures refuse rather
+than returning a partial plan. Complete public disclosure must fit 32 KiB; private
+candidate, bundle and registration context count against the existing 1 MiB plan
+budget. There is no second native cache or executor.
+
+Expiry can discard workspace-local changes and unknown files, sandbox-local
+state, terminal processes and eligible local branches **including unpublished
+commits**. Missing-member cleanup retains its local branch; protected/shared
+branches and remote repositories remain protected by native policy. Workspace
+registration is removed and a completed canonical note may be archived. Expiring
+data warnings do not bypass structural, fresh authored-lifecycle, ownership,
+activity, alias, lease or provider guards. Preview ownership includes stopped
+registered owners; unknown ownership refuses. No lease or lifecycle reservation
+is held by preview. A matching apply consumes the latest plan before fresh
+admission checks, including observed cancellation, and is never restored.
+
+The finite response exposes only fixed effects, branch-effect labels, safety
+counts, deadline and opaque target identities; paths, names, branches, messages
+and native operation maps are withheld. A future public adapter must require
+**separate fresh interactive exact-target whole-plan destructive consent** bound
+to the immutable disclosure, feedback workspace and Pi session before exposing
+apply. Plan freshness and successful preview are not consent. Returned prefix,
+Cleanup-call boundaries, current-daemon operation and resource-invalidation
+observations are not independent removal/absence verification, rollback or safe
+retry. A cooperative deadline or lost reply may leave partial effects: never
+replay, automatically retry or silently replan. No persisted-format change is
+required; all existing CLI/daemon/loaded-Pi diagnostics must match schema37.

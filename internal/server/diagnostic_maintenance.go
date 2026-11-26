@@ -38,24 +38,24 @@ func diagnosticMaintenanceFields(raw []byte, operation string) bool {
 		return false
 	}
 	for name, value := range fields {
-		if (operation == "recreate" || operation == "retire") && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		if (operation == "recreate" || operation == "retire" || operation == "expire") && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return false
 		}
 		switch name {
 		case "diagnostics_schema", "operation", "mode", "scope":
 		case "plan_id":
-			if operation != "refresh" && operation != "cleanup" && operation != "recreate" && operation != "retire" {
+			if operation != "refresh" && operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" {
 				return false
 			}
-			if (operation == "cleanup" || (operation == "recreate" || operation == "retire")) && string(fields["mode"]) != `"apply"` {
+			if (operation == "cleanup" || (operation == "recreate" || operation == "retire" || operation == "expire")) && string(fields["mode"]) != `"apply"` {
 				return false
 			}
 		case "parent_id", "workspace":
-			if operation != "cleanup_check" && operation != "cleanup" && operation != "recreate" && operation != "retire" {
+			if operation != "cleanup_check" && operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" {
 				return false
 			}
 		case "feedback_workspace":
-			if operation != "cleanup" && operation != "recreate" && operation != "retire" {
+			if operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" {
 				return false
 			}
 		default:

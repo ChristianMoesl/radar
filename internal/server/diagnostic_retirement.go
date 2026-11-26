@@ -36,10 +36,11 @@ type diagnosticRetirementAdmission struct {
 	expires   time.Time
 }
 
-// The daemon supplies taskservice.GuardCleanup, never ordinary refresh or GC.
+// The daemon supplies taskservice.GuardCleanup for both exact GC stages, never
+// ordinary refresh or a GC sweep.
 // Final publication, exact scope and candidate/provider checks stay inside it.
-func (s *Server) SetDiagnosticRetirementGuard(guard func(context.Context, protocol.Task, func() error) error) *Server {
-	s.retirementGuard = guard
+func (s *Server) SetDiagnosticGCGuard(guard func(context.Context, protocol.Task, func() error) error) *Server {
+	s.gcGuard = guard
 	return s
 }
 
@@ -54,7 +55,7 @@ func (s *Server) diagnosticRetirement(ctx context.Context, q protocol.Diagnostic
 	fail := func() (protocol.DiagnosticRetirement, error) {
 		return protocol.DiagnosticRetirement{}, errors.New("exact native retirement unavailable or changed; outcome may be unknown, do not replay or automatically retry")
 	}
-	if !validDiagnosticRetirementRequest(q) || ctx.Err() != nil || s.retirementGuard == nil || s.markResourcesPending == nil || s.resourceSnapshot == nil || !s.maintenanceMu.TryLock() {
+	if !validDiagnosticRetirementRequest(q) || ctx.Err() != nil || s.gcGuard == nil || s.markResourcesPending == nil || s.resourceSnapshot == nil || !s.maintenanceMu.TryLock() {
 		return fail()
 	}
 	defer s.maintenanceMu.Unlock()
@@ -183,7 +184,7 @@ func (s *Server) diagnosticRetirement(ctx context.Context, q protocol.Diagnostic
 		}
 		seen[name] = true
 	}
-	guard := s.retirementGuard
+	guard := s.gcGuard
 	admission := &diagnosticRetirementAdmission{}
 	options := workspacegc.Options{WorkspaceRoot: root}
 	// Captures only daemon-owned scope/options. No future user request can replace
@@ -216,7 +217,7 @@ func (s *Server) diagnosticRetirement(ctx context.Context, q protocol.Diagnostic
 		view.ScopeWorkspaceID = before.workspaceID
 	}
 	binding := diagnosticRetirementBinding{Request: cleanupBindingRequest(q), Registration: registration, View: view}
-	issued, err := s.issueBoundNativeCleanupPlan(ctx, preview, before.revision, nil, &diagnosticRetirementPlan{native: native, binding: binding, scope: before, admission: admission, privateBytes: len(nativePayload)})
+	issued, err := s.issueBoundNativeCleanupPlan(ctx, preview, before.revision, nil, &diagnosticRetirementPlan{native: native, binding: binding, scope: before, admission: admission, privateBytes: len(nativePayload)}, nil)
 	if err != nil {
 		return fail()
 	}

@@ -90,10 +90,11 @@ func callRequest(socketPath string, req protocol.Request, timeout time.Duration)
 	}
 
 	cleanup := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "cleanup"
+	expiry := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "expire"
 	retirement := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "retire"
 	recreation := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "recreate"
 	var reader io.Reader = conn
-	if cleanup || recreation || retirement {
+	if cleanup || recreation || retirement || expiry {
 		reader = io.LimitReader(conn, 36*1024+1)
 	}
 	line, err := bufio.NewReader(reader).ReadBytes('\n')
@@ -101,6 +102,13 @@ func callRequest(socketPath string, req protocol.Request, timeout time.Duration)
 		return protocol.Response{}, err
 	}
 
+	if expiry {
+		response, err := decodeDiagnosticExpiry(line)
+		if err == nil && response.OK && (response.DiagnosticExpiry == nil || !protocol.ValidDiagnosticExpiry(*response.DiagnosticExpiry, *req.Maintenance)) {
+			return protocol.Response{}, errors.New("native expiry response does not match exact request; outcome may be unknown, do not replay")
+		}
+		return response, err
+	}
 	if retirement {
 		response, err := decodeDiagnosticRetirement(line)
 		if err == nil && response.OK && (response.DiagnosticRetirement == nil || !protocol.ValidDiagnosticRetirement(*response.DiagnosticRetirement, *req.Maintenance)) {

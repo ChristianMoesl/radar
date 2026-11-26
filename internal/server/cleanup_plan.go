@@ -25,6 +25,7 @@ type nativeCleanupPlan struct {
 	expires    time.Time                 // monotonic deadline; never accepted from a client
 	diagnostic []byte                    // Optional immutable typed adapter context; shares this one-use plan.
 	retirement *diagnosticRetirementPlan // Private native preparation, never transport or client supplied.
+	expiry     *diagnosticExpiryPlan
 }
 
 func (s *Server) issueCleanupPlan(ctx context.Context, preview protocol.CleanupPreview, revision int64) (protocol.CleanupPreview, error) {
@@ -32,9 +33,9 @@ func (s *Server) issueCleanupPlan(ctx context.Context, preview protocol.CleanupP
 }
 
 func (s *Server) issueBoundCleanupPlan(ctx context.Context, preview protocol.CleanupPreview, revision int64, diagnostic *diagnosticCleanupContext) (protocol.CleanupPreview, error) {
-	return s.issueBoundNativeCleanupPlan(ctx, preview, revision, diagnostic, nil)
+	return s.issueBoundNativeCleanupPlan(ctx, preview, revision, diagnostic, nil, nil)
 }
-func (s *Server) issueBoundNativeCleanupPlan(ctx context.Context, preview protocol.CleanupPreview, revision int64, diagnostic *diagnosticCleanupContext, retirement *diagnosticRetirementPlan) (protocol.CleanupPreview, error) {
+func (s *Server) issueBoundNativeCleanupPlan(ctx context.Context, preview protocol.CleanupPreview, revision int64, diagnostic *diagnosticCleanupContext, retirement *diagnosticRetirementPlan, expiry *diagnosticExpiryPlan) (protocol.CleanupPreview, error) {
 	if err := ctx.Err(); err != nil {
 		return protocol.CleanupPreview{}, err
 	}
@@ -88,7 +89,7 @@ func (s *Server) issueBoundNativeCleanupPlan(ctx context.Context, preview protoc
 		}
 	}
 	if retirement != nil {
-		if diagnostic != nil || retirement.admission == nil || retirement.privateBytes < 1 {
+		if diagnostic != nil || expiry != nil || retirement.admission == nil || retirement.privateBytes < 1 {
 			return protocol.CleanupPreview{}, errors.New("invalid retirement binding")
 		}
 		copy := *retirement
@@ -100,8 +101,29 @@ func (s *Server) issueBoundNativeCleanupPlan(ctx context.Context, preview protoc
 		copy.admission.expires = now.Add(time.Minute)
 		retirement = &copy
 	}
+	if expiry != nil {
+		if diagnostic != nil || retirement != nil || expiry.admission == nil || expiry.privateBytes < 1 {
+			return protocol.CleanupPreview{}, errors.New("invalid expiry binding")
+		}
+		copy := *expiry
+		copy.binding.View.PlanID, copy.binding.View.ExpiresAt = preview.PlanID, now.Add(time.Minute).UTC().Format(time.RFC3339Nano)
+		request := copy.binding.Request
+		request.Mode = "preview"
+		if !protocol.ValidDiagnosticExpiry(copy.binding.View, request) {
+			return protocol.CleanupPreview{}, errors.New("invalid complete expiry disclosure")
+		}
+		binding, err = json.Marshal(copy.binding)
+		// Count both the serialized native payload and the retained native bundle,
+		// plus its private candidate and complete adapter/registration context.
+		if err != nil || 2*len(raw)+len(binding)+expiry.privateBytes > maxCleanupPlanBytes {
+			return protocol.CleanupPreview{}, errors.New("expiry adapter context exceeds native payload bounds")
+		}
+		copy.admission.expires = now.Add(time.Minute)
+		copy.binding = diagnosticExpiryBinding{} // The immutable serialized binding is authoritative.
+		expiry = &copy
+	}
 	// Only the latest successfully issued preview for this task can be applied.
-	s.cleanupPlans[preview.TaskID] = nativeCleanupPlan{id: preview.PlanID, payload: raw, revision: revision, expires: now.Add(time.Minute), diagnostic: binding, retirement: retirement}
+	s.cleanupPlans[preview.TaskID] = nativeCleanupPlan{id: preview.PlanID, payload: raw, revision: revision, expires: now.Add(time.Minute), diagnostic: binding, retirement: retirement, expiry: expiry}
 	return preview, nil
 }
 

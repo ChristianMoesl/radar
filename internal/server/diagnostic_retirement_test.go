@@ -88,7 +88,7 @@ func retirementAdapterFixture(t *testing.T) (*Server, *retirementAdapterSource, 
 	store.SetTasks([]protocol.Task{{Title: "PRIVATE title", Attention: "done", SourceRefs: refs}})
 	s.cleanupService = cleanup.New(s.integrations.CleanupProviders())
 	tasks := taskservice.New(store, s.logger, s.integrations)
-	s.SetDiagnosticRetirementGuard(func(ctx context.Context, task protocol.Task, execute func() error) error {
+	s.SetDiagnosticGCGuard(func(ctx context.Context, task protocol.Task, execute func() error) error {
 		p.guards++
 		if p.guardHook != nil {
 			p.guardHook()
@@ -214,7 +214,7 @@ func TestDiagnosticRetirementAdapterPreviewDriftCannotSupersedePrior(t *testing.
 }
 func TestDiagnosticRetirementAdapterMissingGuardFailsClosed(t *testing.T) {
 	s, p, q, _ := retirementAdapterFixture(t)
-	s.retirementGuard = nil
+	s.gcGuard = nil
 	if _, e := s.diagnosticRetirement(context.Background(), q); e == nil || p.previews != 0 || p.calls != 0 || len(s.cleanupPlans) != 0 {
 		t.Fatal("missing lifecycle adapter permitted preview")
 	}
@@ -325,7 +325,7 @@ func TestDiagnosticRetirementAdapterOwnerAndLifecycleAdmissionRefusals(t *testin
 		t.Run(kind, func(t *testing.T) {
 			s, p, q, pending := retirementAdapterFixture(t)
 			if kind == "lifecycle_denied" {
-				s.SetDiagnosticRetirementGuard(func(context.Context, protocol.Task, func() error) error { return errors.New("PRIVATE denial") })
+				s.SetDiagnosticGCGuard(func(context.Context, protocol.Task, func() error) error { return errors.New("PRIVATE denial") })
 			}
 			if kind == "stopped_owner" || kind == "malformed_owner" {
 				dir := filepath.Join(os.Getenv("RADAR_AGENT_ROOT"), "owner")

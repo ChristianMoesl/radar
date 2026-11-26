@@ -36,7 +36,7 @@ type Server struct {
 	maintenanceMu        sync.Mutex
 	refreshPlan          *diagnosticRefreshPlan
 	recreationPlans      map[string]diagnosticRecreationPlan
-	retirementGuard      func(context.Context, protocol.Task, func() error) error
+	gcGuard              func(context.Context, protocol.Task, func() error) error
 	store                *state.Store
 	logger               *slog.Logger
 	refresh              func()
@@ -225,6 +225,15 @@ func (s *Server) handle(conn net.Conn) {
 			decoder.DisallowUnknownFields()
 			if err := decoder.Decode(&boundary); err != nil || boundary.Maintenance == nil || req != (protocol.Request{Method: "diagnostics-maintenance", Maintenance: req.Maintenance}) || !diagnosticMaintenanceFields(scanner.Bytes(), req.Maintenance.Operation) {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "exact typed maintenance request required"})
+				continue
+			}
+			if req.Maintenance.Operation == "expire" {
+				view, err := s.diagnosticExpiry(context.Background(), *req.Maintenance)
+				if err != nil {
+					_ = encoder.Encode(protocol.Response{OK: false, Error: "exact native expiry unavailable or changed; outcome may be unknown, do not replay or automatically retry"})
+					continue
+				}
+				_ = encoder.Encode(protocol.Response{OK: true, DiagnosticExpiry: &view})
 				continue
 			}
 			if req.Maintenance.Operation == "retire" {
