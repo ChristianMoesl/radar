@@ -291,7 +291,18 @@ func (s *Service) GuardCleanup(ctx context.Context, task protocol.Task, execute 
 	// A note can be reopened outside Radar, or a mutation may have written the
 	// note before returning an error. Re-read only the local authoring source;
 	// cached completion alone must not authorize destructive expiry.
-	if author, err := s.integrations.TaskAuthoring(); err == nil {
+	author, authorErr := s.integrations.TaskAuthoring()
+	// A retained authored completion still needs its own current provider. A
+	// missing/ambiguous capability or a different configured author cannot turn
+	// that primary local intent into an unrelated source and skip fresh reads.
+	for _, ref := range task.SourceRefs {
+		if ref.Authored && ref.Lifecycle == protocol.SourceRefLifecycleWorkItem && ref.Authority == protocol.SourceRefAuthorityPrimary {
+			if authorErr != nil || ref.Source != author.Descriptor().Name {
+				return fmt.Errorf("task authoring integration unavailable or changed; cannot verify lifecycle before cleanup")
+			}
+		}
+	}
+	if authorErr == nil {
 		if expected, relevant := authoredRef(task, author.Descriptor().Name); relevant {
 			// No previous snapshots: an unreadable note must not be supplied
 			// from cache. An unrelated invalid note must not block this one.

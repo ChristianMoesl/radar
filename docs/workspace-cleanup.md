@@ -112,6 +112,16 @@ fresh lifecycle/activity evidence under the same serialization. This does not
 interrupt an already running callback, roll back effects, reserve future safety
 or add a diagnostic retirement/expiry adapter.
 
+A retained primary authored work-item completion also requires its own current,
+unambiguous task-authoring integration at that guard. Missing or multiple
+registered authoring capabilities, or a replacement author with a different
+source identity, cannot skip the fresh lifecycle read and authorize cleanup from
+cached completion. The guard refuses before activity/provider execution and does
+not collect or publish a fallback. Tasks with no relevant primary authored
+work-item still do not require an unrelated optional author. This applies to both
+runtime retirement and expiry; recovering the capability does not replay refused
+work or grant diagnostic preview/apply consent.
+
 At the final execution guard, GC rebuilds the
 production candidate plan from one atomic, owned task/reference snapshot using
 the original run's policy and decision time. The selected candidate, including
