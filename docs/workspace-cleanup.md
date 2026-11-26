@@ -515,16 +515,17 @@ Native fresh authored lifecycle, collected-resource, candidate and provider
 ownership/activity/lease guards remain authoritative. No lease is reserved by
 preview. Cancellation/disconnect is cooperative, not rollback; returned prefix,
 dispatch, operation and invalidation evidence is not independent resource
-verification or safe retry. Other typed expiry/reconciliation/runtime controls
+verification or safe retry. Other typed reconciliation/runtime controls
 remain unsupported. No persisted schema or deployment change is required.
 
-### Exact diagnostic expiry transport foundation
+### Exact diagnostic expiry whole-plan consent
 
 Schema37 also defines a bounded daemon/client `expire` preview/apply transport
-for one exact registered seven-day production GC candidate. This is **not yet a
-public CLI/Pi expiry apply capability**: `cleanup_preview --cleanup-mode expired`
-remains the existing read-only paged proposal and rejects apply. Do not invoke
-this transport as a substitute for a complete interactive consent adapter.
+for one exact registered seven-day production GC candidate. The existing public
+CLI/Pi `cleanup_preview --cleanup-mode expired --workspace-id <registered ID>`
+now uses this complete plan flow, not a paged proposal. Expired mode rejects a
+task parent, page or subset; native GC binds the owning task.
+`expiry_cleanup_apply: true` advertises separately confirmed expiry apply.
 
 The daemon retains the original production `ExpiryPlan`, candidate, policy,
 time, authored-lifecycle callback and complete ordered native bundle behind the
@@ -551,10 +552,14 @@ admission checks, including observed cancellation, and is never restored.
 
 The finite response exposes only fixed effects, branch-effect labels, safety
 counts, deadline and opaque target identities; paths, names, branches, messages
-and native operation maps are withheld. A future public adapter must require
+and native operation maps are withheld. The public Pi adapter requires
 **separate fresh interactive exact-target whole-plan destructive consent** bound
-to the immutable disclosure, feedback workspace and Pi session before exposing
-apply. Plan freshness and successful preview are not consent. Returned prefix,
+to the immutable disclosure, feedback workspace, exact scope/target and Pi
+session before dispatching apply. Preview metadata-read approval is separate;
+headless, declined, aborted, expired, superseded or context-drifted approval
+never dispatches apply. Any apply attempt consumes the UI binding. The CLI is
+a trusted transport; it does not itself obtain interactive consent. Plan
+freshness and successful preview are not consent. Returned prefix,
 Cleanup-call boundaries, current-daemon operation and resource-invalidation
 observations are not independent removal/absence verification, rollback or safe
 retry. A cooperative deadline or lost reply may leave partial effects: never

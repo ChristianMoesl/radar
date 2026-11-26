@@ -193,10 +193,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	observed := make(chan protocol.Request, 33)
+	observed := make(chan protocol.Request, 30)
 	done := make(chan error, 1)
 	go func() {
-		for i := 0; i < 33; i++ {
+		for i := 0; i < 30; i++ {
 			conn, err := listener.Accept()
 			if err != nil {
 				done <- err
@@ -215,10 +215,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 				elapsed := int64(0)
 				response.Diagnostics.Items = []protocol.DiagnosticItem{{ID: req.Diagnostics.ID, Operation: &protocol.DiagnosticOperation{ID: req.Diagnostics.ID, Kind: "cleanup", Status: "partial", TimingEvidence: "native_handler_monotonic_elapsed", StartedAt: "2026-11-17T14:00:01Z", FinishedAt: "2026-11-17T14:00:00Z", ElapsedMilliseconds: &elapsed, PhaseTimingEvidence: "native_completed_phase_aggregates", PhaseTimings: []protocol.OperationPhaseTiming{{Phase: "cleanup_execution", CompletedIntervals: 1, ElapsedMilliseconds: 0}}}}}
 			}
-			if i == 31 {
+			if i == 28 {
 				response.Diagnostics.Schema = 99
 			}
-			if i == 32 {
+			if i == 29 {
 				response = protocol.Response{OK: false, Error: "unknown method: diagnostics; private-provider-value"}
 			}
 			err = json.NewEncoder(conn).Encode(response)
@@ -232,6 +232,9 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 	}()
 	for index, scope := range []string{"origin", "feedback", "installation", "origin", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation", "origin", "feedback", "installation"} {
 		section := []string{"tasks", "source_refs", "bindings", "agents", "workspace_resources", "workspace_resources", "workspace_resources", "agent_schedules", "agent_schedules", "agent_schedules", "gc_plan", "gc_plan", "gc_plan", "runtime_probe", "runtime_probe", "runtime_probe", "integrations", "integrations", "integrations", "agent_probe", "agent_probe", "agent_probe", "retirement_preview", "retirement_preview", "retirement_preview", "cleanup_preview", "cleanup_preview", "cleanup_preview", "operations", "operations", "operations"}[index]
+		if section == "cleanup_preview" {
+			continue
+		}
 		parent := ""
 		if index == 1 || index == 2 || section == "workspace_resources" || section == "agent_schedules" || section == "gc_plan" || section == "runtime_probe" || section == "agent_probe" || section == "retirement_preview" || section == "cleanup_preview" {
 			parent = "opaque-parent"
@@ -347,7 +350,7 @@ func TestFeedbackOverviewReturnsNativePolicySourcesWithoutPrivateSettings(t *tes
 		}
 	}
 	capabilities := result["capabilities"].(map[string]any)
-	if capabilities["configuration_policy_origins"] != true || capabilities["daemon_process_configuration"] != true || capabilities["workspace_effective_policy"] != false || capabilities["daemon_environment"] != false || capabilities["maintenance"] != true || capabilities["collection_only_refresh"] != true || capabilities["cleanup_apply"] != true || capabilities["runtime_controls"] != false || capabilities["current_daemon_managed_operations"] != true || capabilities["native_managed_handler_timing"] != true || capabilities["native_cleanup_completed_phase_aggregates"] != true || capabilities["native_cleanup_returned_target_summaries"] != true || capabilities["native_cleanup_execution_boundaries"] != true || capabilities["durable_operation_history"] != false || capabilities["verified_operation_resource_outcomes"] != false || capabilities["cleanup_preview_lease_contention_probes"] != true || capabilities["current_daemon_agent_supervision"] != true || capabilities["agent_supervision_history"] != false {
+	if capabilities["configuration_policy_origins"] != true || capabilities["daemon_process_configuration"] != true || capabilities["workspace_effective_policy"] != false || capabilities["daemon_environment"] != false || capabilities["maintenance"] != true || capabilities["collection_only_refresh"] != true || capabilities["cleanup_apply"] != true || capabilities["expiry_cleanup_apply"] != true || capabilities["runtime_controls"] != false || capabilities["current_daemon_managed_operations"] != true || capabilities["native_managed_handler_timing"] != true || capabilities["native_cleanup_completed_phase_aggregates"] != true || capabilities["native_cleanup_returned_target_summaries"] != true || capabilities["native_cleanup_execution_boundaries"] != true || capabilities["durable_operation_history"] != false || capabilities["verified_operation_resource_outcomes"] != false || capabilities["cleanup_preview_lease_contention_probes"] != true || capabilities["current_daemon_agent_supervision"] != true || capabilities["agent_supervision_history"] != false {
 		t.Fatalf("policy advertised as authority: %+v", capabilities)
 	}
 }

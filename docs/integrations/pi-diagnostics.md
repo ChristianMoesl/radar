@@ -29,7 +29,7 @@ the request or close the workspace.
 `radar_diagnostics` is a typed host tool available only in enabled feedback
 sessions. The current delivery includes observation, exact native runtime-retirement
 preview/apply, explicit native manual/expiry cleanup previews, freshly approved manual
-bundle guard checks, separately confirmed exact-plan manual cleanup apply,
+bundle guard checks, separately confirmed exact-plan manual and expired cleanup apply,
 exact registered-workspace sandbox recreation apply and collection-only refresh. The overview advertises its
 capabilities explicitly. Explicit registered-runtime observations require fresh
 interactive approval. Full provider cleanup eligibility, durable operation history
@@ -254,7 +254,7 @@ registration are preserved. No destructive expiry escalation or silent replan.
 Apply reports an operation ID, successful returned prefix, bounded native dispatch
 evidence when available and resource invalidation. `native_bundle_returned_unverified`
 is not independent verification of resource state. Cancellation/disconnect is
-cooperative, not rollback. Other typed expiry, reconciliation and runtime controls
+cooperative, not rollback. Other typed reconciliation and runtime controls
 remain unsupported. Reload the matching Pi extension separately from `make install`.
 
 ## Explicit native manual-cleanup previews
@@ -350,46 +350,77 @@ not durable or pre-restart history.
 
 `sandbox_recreation_apply: true` separately advertises exact native recreation
 with fresh destructive consent; other runtime controls remain unsupported.
-`cleanup_apply: true` advertises only this confirmed-manual whole-plan flow;
+`cleanup_apply: true` advertises the confirmed-manual whole-plan flow;
+`expiry_cleanup_apply: true` separately advertises exact registered-workspace expiry
+with separate fresh destructive data-loss consent;
 `complete_cleanup_execution_eligibility`, `verified_operation_resource_outcomes`
 and `runtime_controls` remain false. CLI, daemon and separately loaded Pi must
 match **schema 37** with no legacy fallback. Install/reload Pi sources separately
 from `make install`. This changes the public transport only: persisted formats,
 known-data expiry and native manual confirmation policy are unchanged. Explicit
-expired proposals below remain read-only, never apply tokens.
+expiry below uses the same shipped native one-use transport, not paged proposals.
 
-## Explicit expired-cleanup proposals
+## Exact registered-workspace expiry preview and apply
 
-The same `cleanup_preview` section accepts `cleanup_mode: "expired"` plus
-`workspace_id: "<exact registered workspace ID>"` and the owning retained task
-`parent_id`. Manual mode remains the default and rejects `workspace_id`; no
-safe-mode fallback, policy override or apply operation is added. The fixed CLI
-selectors are `--cleanup-mode expired --workspace-id <ID>`.
+Use the existing `cleanup_preview` section with `cleanup_mode: "expired"` and
+`workspace_id: "<exact registered workspace ID>"`. Manual mode remains the default
+and requires its retained-task `parent_id`; **expired mode rejects `parent_id`**
+because native GC selects and binds the owning task. No row, cursor, limit, state
+or subset selectors are accepted. This replaces the previous paged proposal,
+without an alias, compatibility fallback, second native cache or executor.
 
-Expired mode requires a unique current registration and the production cached GC
-candidate/retention/stage gate (`InspectPlan` and `CandidateMode == CleanupExpired`).
-The exact candidate must lie in the selected origin/feedback scope, or in explicit
-installation scope. A different workspace of the same task cannot bypass that
-boundary. Not-done, recent, active/review-held, unregistered, ambiguous, outside-root,
-wrong-stage and refresh-pending candidates fail closed before provider checks.
+```text
+radar feedback-diagnostics --workspace <feedback workspace> --section cleanup_preview --cleanup-mode expired --workspace-id <registered workspace ID> --json
+```
 
-The native expiry planner receives the whole owning task, just as GC does. Its
-provider reads may inspect **other workspaces** and refresh Git reference metadata;
-fresh per-page consent says so. Only proposed effects selected by the production
-`SelectTargetsForCandidate` helper are returned, with a required matching workspace
-anchor. An absent anchor fails unavailable, never an apparently empty/safe plan.
-The complete pre-filter bundle shares the 512-target / 1 MiB evidence budgets and
-private cursor fingerprint, including excluded-resource drift.
+Origin (default), feedback or explicit installation scope bounds this one exact
+registered workspace, never an installation sweep. The unique candidate must pass
+the production cached seven-day expiry gate; wrong-stage, active/review-held,
+recent, unregistered, ambiguous, out-of-scope and refresh-pending targets refuse.
+Native provider reads inspect the whole owning-task bundle, including other
+workspaces, and may refresh Git reference metadata. Preview requires fresh
+interactive exact-target/scope metadata-read approval; it never dispatches
+provider Cleanup or holds execution admission, a lease or lifecycle reservation.
 
-Rows identify `cleanup_mode: "expired"`, exact registered `workspace_id` and native
-`expiry_at`. `automatic_blocker_count` uses native expiry semantics and effective
-safety flags/counts above. The cached expiry gate is not execution eligibility.
-Agent counts include stopped owners; zero/unavailable counts establish neither
-runtime ownership nor leases/consent. Approved existing-inode lease probes retain their point-in-time
-limits; contention blocks the whole bundle despite warning expiry. Existing
-30-second/output/privacy/drift guards apply. No cleanup execution, lease creation
-or reservation, policy change or data removal occurs. Apply remains unsupported;
-CLI, daemon and loaded Pi must match schema 37 without fallback.
+The finite `expiry` response contains the **complete ordered selected bundle**,
+opaque target IDs, fixed effects, local-branch effects, safety counts, native
+`expiry_at`, explicit `data_loss`, preserved remote repositories and an unexpired
+`plan_id`. Every registered member is covered by worktree removal or targeted
+missing-member registration cleanup, with runtimes and the final workspace
+anchor. The whole disclosure must fit 32 KiB, or issuance refuses; never approve
+individual pages or a subset. Paths, names, branches, messages, native operations
+and raw errors are withheld. Stopped registered owners block issuance; unknown
+ownership refuses. Zero automatic blockers and expired data warnings do not
+establish fresh execution eligibility or override structural guards.
+
+`action: "apply"` requires the latest complete unexpired preview returned in this
+feedback workspace, exact scope/target and identified Pi session, then **SEPARATE
+fresh interactive whole-plan destructive data-loss approval** of the immutable
+full disclosure. Preview approval, headless/cached approval, successful checks,
+recommendations and plan identity are never deletion consent. Decline, abort,
+expiry, context/session drift, supersession or any apply attempt consume the UI
+binding. Native matching apply consumes its 60-second monotonic one-use plan
+before fresh admission, never restores it and never replans. The CLI is a trusted
+transport, not a standalone interactive-consent UI; callers must enforce consent.
+
+**Permanent loss** can include local changes and unknown files, worktrees,
+sandbox-local state, terminal processes/contents and eligible local branches
+**including unpublished commits**. Missing-member cleanup retains its branch;
+remote repositories and native protected/shared branches remain protected.
+Registration is removed and a completed canonical note may be archived. The
+original production ExpiryPlan, candidate, seven-day policy/time and fresh
+authored-lifecycle callback remain authoritative, with native ownership, activity,
+alias, lease and last-moment provider guards. No manual substitution or escalation.
+
+Apply repeats the immutable disclosure with finite outcome/problem, operation ID,
+completed prefix, optional Cleanup-call dispatch boundary and
+`resource_refresh_pending: true`. Returned success/dispatch/invalidation is **not
+independent resource absence**, rollback or safe retry. Errors, cooperative
+30-second timeout, cancellation or lost transport can leave partial changes.
+Never replay, automatically retry or silently replan. Unavailable evidence is
+unknown with no paged/native-old fallback. CLI, daemon and separately loaded Pi
+must match schema37; reload Pi separately from `make install`. No persisted data,
+native expiry deadline or policy changes in this public adapter.
 
 ## Explicit registered-runtime observations
 
@@ -642,7 +673,8 @@ Capabilities advertise `current_daemon_managed_operations: true`,
 `native_cleanup_execution_boundaries: true`, but
 `durable_operation_history`, `verified_operation_resource_outcomes` and
 `runtime_controls` remain false. `cleanup_apply` is true only for the separately
-confirmed exact native manual whole-plan flow, never expiry/runtime control. The collection-only
+confirmed exact native manual whole-plan flow; `expiry_cleanup_apply` separately
+advertises exact expiry with destructive consent, not other runtime control. The collection-only
 refresh adapter advertises `maintenance` and `collection_only_refresh` as true;
 `manual_cleanup_bundle_guard_checks` separately advertises the explicit guard
 check. `complete_cleanup_execution_eligibility` remains false. CLI, daemon and separately loaded Pi sources must
@@ -783,7 +815,9 @@ This cached `gc_plan` view does not issue an apply token. Explicit native
 [Separate exact-plan destructive apply](#separate-exact-plan-destructive-apply)
 use their own fresh approval and native guards. Exact runtime retirement uses its
 [separate native whole-plan consent flow](#exact-native-runtime-retirement), never
-this cached explanation as permission. Expired apply remains unsupported.
+this cached explanation as permission. Exact workspace expiry uses its
+[separate whole-plan destructive consent flow](#exact-registered-workspace-expiry-preview-and-apply),
+never the cached explanation as consent.
 
 ## Durable-agent registration and checkpoint evidence
 

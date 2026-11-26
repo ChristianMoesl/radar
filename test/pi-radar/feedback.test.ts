@@ -7,49 +7,30 @@ import { linearAvailable } from "../../extensions/pi-radar/linear.ts";
 
 const cleanupLimitations = ["explicit_exact_retained_task_manual_cleanup_proposal_only", "scope_selects_task_entire_related_resource_bundle_including_other_workspaces", "native_provider_reads_and_git_fetch_prune_may_refresh_reference_metadata", "no_cleanup_execution_or_apply_authority", "cached_task_inputs_with_native_point_in_time_checks", "each_page_repeats_native_preview_with_fresh_approval", "snapshot_is_not_an_executable_plan_or_consent", "registered_owner_counts_are_per_target_not_bundle_permission", "runtime_ownership_activity_and_fresh_execution_guards_not_run", "expiry_policy_and_automatic_eligibility_not_evaluated", "raw_paths_messages_names_and_operations_withheld", "at_most_256_active_refs_and_512_targets", "unknown_safety_notices_remain_unknown", "explicit_existing_inode_exclusive_lease_probes_may_transiently_contend", "missing_lease_file_is_unknown_not_no_leases", "lease_observations_are_point_in_time_not_reservations_or_holder_identity", "observed_lease_inode_or_contention_drift_invalidates_preview"];
 
-function expiredPreviewFixture(scope="origin") {
- const data:any=cleanupProposalFixture(scope),page=data.inventory,v=page.items[0].cleanup_preview;
- data.evidence=page.evidence="explicit_native_expired_cleanup_preview_not_execution_plan";
- page.limitations[0]="explicit_exact_registered_expired_workspace_cleanup_proposal_only";
- page.limitations[1]="effects_selected_by_production_gc_candidate_provider_reads_cover_owning_task";
- page.limitations[9]="production_cached_expiry_gate_and_native_expiring_blockers_not_execution_eligibility";
- v.cleanup_mode="expired";v.workspace_id="registered";v.expiry_at="2026-11-15T18:00:00Z";
- v.safety=[{kind:"local_changes",blocks_automatic:true,expires:true,count:1},{kind:"safety_check_unavailable",blocks_automatic:true,expires:false,count:1}];
- v.safety_notice_count=2;v.automatic_blocker_count=1;
- return data;
-}
 for (const kind of ["other_notice", "deletes_local_data", "disposable_data"]) {
- for (const mode of ["manual", "expired"]) test(`cleanup preview rejects unsupported expiring safety: ${mode}/${kind}`, async () => {
+ for (const mode of ["manual"]) test(`cleanup preview rejects unsupported expiring safety: ${mode}/${kind}`, async () => {
   const h=harness(); h.activate(); h.approvals.push(true);
-  const data:any=mode==="expired"?expiredPreviewFixture():cleanupPreviewFixture();
-  const view=mode==="expired"?data.inventory.items[0].cleanup_preview:data.cleanup.targets[0];
+  const data:any=cleanupPreviewFixture();
+  const view=data.cleanup.targets[0];
   view.safety=[{kind,blocks_automatic:true,expires:true,count:1}];
-  view.safety_notice_count=1; view.automatic_blocker_count=mode==="expired"?0:1;
+  view.safety_notice_count=1; view.automatic_blocker_count=1;
   h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
-  await assert.rejects(h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",parent_id:"record",...(mode==="expired"?{cleanup_mode:"expired",workspace_id:"registered"}:{})},undefined,undefined,h.ctx));
+  await assert.rejects(h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",parent_id:"record",cleanup_mode:"manual"},undefined,undefined,h.ctx));
  });
 }
 for (const kind of ["local_changes", "unpublished_data", "safety_check_unavailable", "unknown_entries", "other_notice"]) {
- for (const mode of ["manual", "expired"]) test(`cleanup preview preserves native expiry classification: ${mode}/${kind}`, async () => {
+ for (const mode of ["manual"]) test(`cleanup preview preserves native expiry classification: ${mode}/${kind}`, async () => {
   const h=harness(); h.activate(); h.approvals.push(true);
-  const data:any=mode==="expired"?expiredPreviewFixture():cleanupPreviewFixture();
-  const view=mode==="expired"?data.inventory.items[0].cleanup_preview:data.cleanup.targets[0];
+  const data:any=cleanupPreviewFixture();
+  const view=data.cleanup.targets[0];
   const expires=kind!=="other_notice";
   view.safety=[{kind,blocks_automatic:true,expires,count:1}];
-  view.safety_notice_count=1; view.automatic_blocker_count=mode==="expired"&&expires?0:1;
+  view.safety_notice_count=1; view.automatic_blocker_count=1;
   h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
-  const result=await h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",parent_id:"record",...(mode==="expired"?{cleanup_mode:"expired",workspace_id:"registered"}:{})},undefined,undefined,h.ctx);
-  assert.deepEqual(mode==="expired"?result.details.inventory.items[0].cleanup_preview:result.details.cleanup.targets[0],JSON.parse(JSON.stringify(view)));
+  const result=await h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",parent_id:"record",cleanup_mode:"manual"},undefined,undefined,h.ctx);
+  assert.deepEqual(result.details.cleanup.targets[0],JSON.parse(JSON.stringify(view)));
  });
 }
-for(const scope of ["origin","feedback","installation"])test(`expired cleanup requires fresh exact candidate approval and ${scope} scope`,async()=>{
- const h=harness();h.activate();h.approvals.push(true);const data=expiredPreviewFixture(scope);
- h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify(data),stderr:"",killed:false};};
- const result=await h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",cleanup_mode:"expired",workspace_id:"registered",parent_id:"record",scope},undefined,undefined,h.ctx);
- assert.equal(result.details.inventory.items[0].cleanup_preview.automatic_blocker_count,1);
- for(const text of ["expired GC","registered","seven-day expiry gate","Scope bounds the exact registered workspace","Provider checks still inspect the whole owning-task bundle","other workspaces","never ownership or execution guards","consent to apply"])assert.ok(h.confirmations[0].includes(text),text);
- const args=h.calls[0].args;assert.equal(args[args.indexOf("--cleanup-mode")+1],"expired");assert.equal(args[args.indexOf("--workspace-id")+1],"registered");
-});
 for(const params of [
  {section:"tasks",cleanup_mode:"expired"}, {section:"logs",workspace_id:"registered"},
  {section:"cleanup_preview",parent_id:"record",cleanup_mode:"safe"},
@@ -60,20 +41,6 @@ for(const params of [
 ])test(`cleanup mode selectors fail before approval: ${JSON.stringify(params)}`,async()=>{
  const h=harness();h.activate();await assert.rejects(h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx));assert.deepEqual(h.calls,[]);assert.deepEqual(h.confirmations,[]);
 });
-for(const kind of ["mode","workspace","deadline","future","impossible-time","blockers","limitations","evidence","private","schema"])test(`expired cleanup rejects invalid mode-specific evidence: ${kind}`,async()=>{
- const h=harness();h.activate();h.approvals.push(true);const data=expiredPreviewFixture(),page=data.inventory,v=page.items[0].cleanup_preview;
- switch(kind){case "mode":v.cleanup_mode="manual";break;case "workspace":v.workspace_id="other";break;case "deadline":delete v.expiry_at;break;case "future":v.expiry_at="2027-01-01T00:00:00Z";break;case "impossible-time":v.expiry_at="2026-02-30T00:00:00Z";break;case "blockers":v.automatic_blocker_count=2;break;case "limitations":page.limitations=[...cleanupLimitations];break;case "evidence":data.evidence=page.evidence="explicit_native_manual_cleanup_preview_not_execution_plan";break;case "private":v.raw_candidate={path:"private"};break;case "schema":page.diagnostics_schema=18;break;}
- h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
- await assert.rejects(h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",cleanup_mode:"expired",workspace_id:"registered",parent_id:"record"},undefined,undefined,h.ctx));
-});
-test("expired cleanup approval binds an immutable workspace and mode",async()=>{
- const h=harness();h.activate();const params={section:"cleanup_preview",parent_id:"record",cleanup_mode:"expired",workspace_id:"registered"};
- h.ctx.ui.confirm=async()=>{params.workspace_id="other";params.cleanup_mode="manual";return true;};
- h.pi.exec=async(binary,args,options)=>{h.calls.push({binary,args,options});return {code:0,stdout:JSON.stringify(expiredPreviewFixture()),stderr:"",killed:false};};
- await h.tools.get("radar_diagnostics").execute("call",params,undefined,undefined,h.ctx);
- assert.ok(h.calls[0].args.includes("registered"));assert.ok(h.calls[0].args.includes("expired"));assert.ok(!h.calls[0].args.includes("other"));
-});
-
 for(const [provider,effect,branch] of [
  ["git","remove_worktree_and_local_changes","delete_local_branch"],
  ["sbx","remove_sandbox_and_local_state",undefined],
@@ -1172,16 +1139,16 @@ for(const reason of ["origin_not_registered","daemon_unavailable","snapshot_chan
 });
 
 
-for (const mode of ["manual", "expired"]) for (const [lease, owners] of [
+for (const mode of ["manual"]) for (const [lease, owners] of [
  ["unknown_no_lock_file", 0], ["unavailable", 0], ["exclusive_available_at_probe", 0],
  ["contended_at_probe", 0], ["contended_at_probe", 1], ["exclusive_available_at_probe", 1],
 ] as const) test(`cleanup lease probe keeps ${mode}/${lease}/${owners} evidence distinct from permission`, async () => {
  const h=harness();h.activate();h.approvals.push(true);
- const data:any=mode==="expired"?expiredPreviewFixture():cleanupPreviewFixture(),v=mode==="expired"?data.inventory.items[0].cleanup_preview:data.cleanup.targets[0];
+ const data:any=cleanupPreviewFixture(),v=data.cleanup.targets[0];
  v.lease_evidence=lease;v.agent_owner_count=owners;v.execution_eligibility=owners>0?"blocked_registered_agent":lease==="contended_at_probe"?"blocked_lease_contention":"unknown_fresh_execution_guards_not_run";
  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
- const call=h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",parent_id:"record",...(mode==="expired"?{cleanup_mode:"expired",workspace_id:"registered"}:{})},undefined,undefined,h.ctx);
- if(mode==="manual"&&(owners>0||lease==="contended_at_probe"))await assert.rejects(call);else {const result=await call;assert.deepEqual(mode==="expired"?result.details.inventory.items[0].cleanup_preview:result.details.cleanup.targets[0],JSON.parse(JSON.stringify(v)));}
+ const call=h.tools.get("radar_diagnostics").execute("call",{section:"cleanup_preview",parent_id:"record",cleanup_mode:"manual"},undefined,undefined,h.ctx);
+ if(owners>0||lease==="contended_at_probe")await assert.rejects(call);else {const result=await call;assert.deepEqual(result.details.cleanup.targets[0],JSON.parse(JSON.stringify(v)));}
  for(const text of ["nonblocking exclusive locks", "transiently contend", "No lease file/directory is created", "no contents are read", "no lock remains reserved", "Lease contention blocks the whole native bundle", "missing/unavailable lease evidence is unknown", "not no active work"])assert.ok(h.confirmations[0].includes(text),text);
 });
 for(const kind of ["absent", "private", "false-clear", "false-ready", "false-block", "missing-is-none", "holder", "private-path", "fingerprint", "pathless-with-owners", "pathless-with-lease", "owner-precedence", "old-envelope", "old-page", "missing-limit", "private-limit"])test(`cleanup lease probe rejects contradictory/private/obsolete evidence: ${kind}`,async()=>{
