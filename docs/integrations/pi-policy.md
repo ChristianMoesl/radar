@@ -7,7 +7,7 @@
 Overview `settings` are **CLI-process global defaults**. With a matching daemon,
 `daemon.settings` separately reports **daemon-process global defaults** from the
 same native bounded reader executed in the running daemon process. The existing
-`diagnostics` RPC's selector-free `overview` returns this typed schema-35
+`diagnostics` RPC's selector-free `overview` returns this typed schema-36
 projection; it never uses task visibility filters or provider calls. No new public
 tool or general file/configuration endpoint is added.
 
@@ -62,7 +62,7 @@ run SBX, tmux, Git, remote probes or workspace startup. A registered resource is
 not proof that it exists or is running. Missing daemon/origin evidence is
 unavailable, not healthy, empty, repaired or enrolled.
 
-## Recorded workspace policy (diagnostics schema 35)
+## Recorded workspace policy (diagnostics schema 36)
 
 Use `workspace_policy` with `parent_id=<registered workspace ID>` and the normal
 `origin` (default), `feedback` or explicitly requested `installation` scope. This
@@ -106,11 +106,11 @@ reservation against concurrent/future native changes.
 `registered_workspace_recipe_policy` advertises this bounded capability;
 `workspace_effective_policy` remains false.
 
-CLI, daemon and loaded Pi must match schema 35. This is a transport change only,
+CLI, daemon and loaded Pi must match schema 36. This is a transport change only,
 not a registry/data migration; older schema-29 peers fail closed. `make install`
 does not update/reload a separately installed Pi extension.
 
-## Current registered member repository declarations (schema 35)
+## Current registered member repository declarations (schema 36)
 
 For an explicitly requested file inspection, use `repository_policy` with
 `parent_id=<exact registered workspace ID>` and `id=<member row ID from
@@ -154,6 +154,6 @@ the provider's settings so later provider writes cannot change the validated pag
 Invalid evidence yields a sanitized refusal, not clipped private values, guessed
 defaults or a fallback read. This checks the public contract, not effective policy
 or future file stability. `current_member_repository_declarations` advertises
-this capability; `workspace_effective_policy` remains false. Matching schema-35
+this capability; `workspace_effective_policy` remains false. Matching schema-36
 CLI/daemon/loaded Pi is required; schema-29 peers fail closed, with no persisted
 data migration. Separately installed Pi still requires an update/reload.
