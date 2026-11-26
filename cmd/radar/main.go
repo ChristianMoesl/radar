@@ -817,7 +817,7 @@ func runDaemon() {
 			return collector.Result{}, fmt.Errorf("source collection disabled")
 		}
 		return tasks.RefreshDiagnostics(refreshCtx)
-	}).SetResourcePublication(tasks.MarkResourceRefreshPending, tasks.ResourceSnapshot).SetTaskMutation(tasks.MutateTask).SetTaskDeletion(tasks.PreviewDeleteTask, tasks.DeleteTask).SetOnReady(syncPackages).ListenAndServe(ctx, path); err != nil {
+	}).SetDiagnosticRetirementGuard(tasks.GuardCleanup).SetResourcePublication(tasks.MarkResourceRefreshPending, tasks.ResourceSnapshot).SetTaskMutation(tasks.MutateTask).SetTaskDeletion(tasks.PreviewDeleteTask, tasks.DeleteTask).SetOnReady(syncPackages).ListenAndServe(ctx, path); err != nil {
 		logger.Error("daemon stopped", "error", err)
 		fatal(err)
 	}

@@ -311,7 +311,7 @@ No replay, automatic retry or silent replan after partial/unknown outcomes.
 Matching CLI/daemon/loaded Pi schema 35 is required; no old probe/shell fallback.
 See the [recreation contract](integrations/pi-recreation-preview.md).
 
-`feedback-diagnostics --section overview` reports schema-35 typed configuration
+`feedback-diagnostics --section overview` reports schema-36 typed configuration
 policy values and file/default provenance. Its fixed ten-setting allowlist returns
 only booleans, enablement modes and counts from a bounded native configuration
 read, never model strings, paths, commands, secrets or referenced file contents.

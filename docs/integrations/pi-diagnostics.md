@@ -220,57 +220,42 @@ revisions, notify task watchers or write the projection database. Raw provider
 messages/results, credentials and private payloads are withheld. Collection and
 native publication policies, access permissions and persisted formats are unchanged.
 
-## Explicit runtime-retirement target preview
+## Exact native runtime retirement
 
-Use `section: "retirement_preview", parent_id: "<registered workspace ID>"`
-with the usual origin (default), feedback or explicitly requested installation
-scope. Even installation scope selects **one exact registered workspace**, not
-a sweep. Row/state/cursor selectors are rejected. Each request requires fresh
-interactive confirmation naming that workspace and scope; headless, declined,
-aborted or lost-MCP requests never issue the host read. The CLI equivalent is
-`radar feedback-diagnostics --workspace <feedback workspace> --section retirement_preview --parent-id <registered workspace ID> --scope origin --json`.
+Schema 36 `section: "retirement_preview", parent_id: "<registered workspace ID>"`
+uses the existing native GC exact retirement planner and final executor, never
+its installation-wide sweep. Origin (default), feedback and installation scope
+still select exactly one registered workspace in the native retirement stage.
+The CLI uses `feedback-diagnostics --section retirement_preview --parent-id <ID>`
+with `--action preview`, then `--action apply --plan-id <latest plan ID>`.
+Unknown selectors, subsets, native targets and expiry/manual-mode substitution
+are rejected. A raw registration-only diagnostic probe remains inspection only.
 
-This narrow preview reuses the production cached GC candidate/retention/stage
-planner and the native `RuntimeCleanupTargets` registration/path checks. It
-requires exactly one matching cached candidate in the **runtime-retirement**
-stage (24 hours through seven days done), including UI-hidden retained tasks.
-Not-yet-ready, expired, ambiguous, missing/unsafe/shared registration and
-unsupported targets fail explicitly; there is no full-cleanup/expiry fallback.
-Only the selected anchor is checked, even if its task has other workspaces.
+Pi requires fresh interactive native-preview approval, then **SEPARATE fresh
+interactive destructive approval** for the complete immutable ordered bundle,
+exact registered target, feedback workspace and Pi session. Preview may read
+providers/runtime metadata and refresh Git metadata for the owning task, including
+its other resources; only the selected complete bundle is retained. It never
+runs provider Cleanup or execution admission. No held lease or final lifecycle
+reservation is implied. Plans use the existing bounded per-task cache, expire
+in 60 seconds or on drift, and are consumed before apply admission. A new plan
+for another workspace on the same task supersedes the previous plan. IDs are
+freshness, never consent. Decline, cancellation, headless or changed context
+never dispatch; lost/partial/unknown outcomes never authorize replay or retry.
 
-At most three allowlisted proposals describe retaining the workspace,
-stopping registered SBX commands/services and removing its tmux session/processes.
-The latter may lose terminal processes/contents. Workspace files, worktrees and
-branches, the sandbox and its local state, and registration are preserved.
-Proposals do **not** prove that any runtime is present, running or needs a stop;
-already missing/stopped resources may require no work. Opaque target IDs,
-notice/blocker counts and fixed effect labels replace raw provider operations,
-names, errors and task/note contents. Registration, target and cache drift, a
-stage change or the five-second evidence budget invalidate the result.
+Opaque ordered target IDs and finite effects/safety-notice counts replace private
+runtime names, operations, paths and messages. Stopped registered owners block
+issuance; unknown ownership refuses. Fresh authored lifecycle, candidate/resource
+publication, provider ownership/activity/lease and last-moment checks remain
+authoritative. Sandbox stops interrupt commands/services; tmux removal loses
+processes/contents. Workspace files, worktrees/branches, sandbox-local state and
+registration are preserved. No destructive expiry escalation or silent replan.
 
-Fresh registered-agent removal ownership is checked with the production decoder
-and ownership rule, including stopped owners and nested backing workspaces.
-`ownership_evidence: fresh_bounded_registration` includes `agent_owner_count`;
-a positive count sets `execution_eligibility: blocked_registered_agent`. Zero
-registered owners never means runtime ownership, lease safety or permission.
-Unsafe, invalid or over-budget registration evidence is `unavailable` with **no
-count**, never an apparently complete zero. The scan reads at most 1024 registry
-entries, 64 KiB per registration and 1 MiB total per pass, inside the shared
-five-second budget. Two private full-registration fingerprints detect drift,
-including unchanged-count owner replacement and availability changes. No private
-registration commands, owner IDs, tokens or checkpoint contents are returned.
-
-No runtime/Git/network probes, Git fetch/prune, lease checks, locks, refresh,
-login or mutations run. In particular this does not invoke the full cleanup
-previews, which can fetch Git refs. Runtime ownership, fresh activity/review,
-leases and execution preflight remain unverified; pending resource refresh is
-reported, not ignored. The snapshot is not an executable plan, freshness token
-for apply, execution eligibility or user consent. **Runtime-retirement apply and verified operation outcomes remain unsupported.**
-Manual cleanup has its own [Separate exact-plan destructive apply](#separate-exact-plan-destructive-apply)
-flow; this registration-only retirement preview cannot authorize it. Use the
-separately approved cleanup preview below for manual or expired native targets.
-Schema 35 must match in the CLI, daemon and loaded Pi extension; update the
-extension sources and reload separately from `make install`.
+Apply reports an operation ID, successful returned prefix, bounded native dispatch
+evidence when available and resource invalidation. `native_bundle_returned_unverified`
+is not independent verification of resource state. Cancellation/disconnect is
+cooperative, not rollback. Other typed expiry, reconciliation and runtime controls
+remain unsupported. Reload the matching Pi extension separately from `make install`.
 
 ## Explicit native manual-cleanup previews
 

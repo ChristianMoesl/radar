@@ -5,7 +5,7 @@ import { workspacePolicyLimitations } from "../../extensions/pi-radar/workspace-
 
 function fixture(scope="origin", attached=true): any {
  const evidence="fresh_registration_recorded_recipe_not_runtime";
- return {diagnostics_schema:35,section:"workspace_policy",scope,available:true,feedback_workspace_id:scope==="feedback"?"registered":"feedback",...(scope==="origin"?{origin_workspace_id:"registered"}:{}),evidence,inventory:{diagnostics_schema:35,section:"workspace_policy",evidence,observed_at:"2026-11-22T07:20:00.000000001Z",revision:2,snapshot:"a".repeat(64),total:1,pagination_complete:true,resource_refresh_pending:false,limitations:[...workspacePolicyLimitations],items:[{id:"registered",workspace_policy:{id:"registered",origin:"recorded_workspace_registration",sandbox_registered:attached,...(attached?{sandbox:{kit_configured:true,kit_path_configured:false,env_file_configured:true,ready_command_configured:true,managed_mount_count:30,additional_mount_count:20,port_count:18}}:{})}}]}};
+ return {diagnostics_schema:36,section:"workspace_policy",scope,available:true,feedback_workspace_id:scope==="feedback"?"registered":"feedback",...(scope==="origin"?{origin_workspace_id:"registered"}:{}),evidence,inventory:{diagnostics_schema:36,section:"workspace_policy",evidence,observed_at:"2026-11-22T07:20:00.000000001Z",revision:2,snapshot:"a".repeat(64),total:1,pagination_complete:true,resource_refresh_pending:false,limitations:[...workspacePolicyLimitations],items:[{id:"registered",workspace_policy:{id:"registered",origin:"recorded_workspace_registration",sandbox_registered:attached,...(attached?{sandbox:{kit_configured:true,kit_path_configured:false,env_file_configured:true,ready_command_configured:true,managed_mount_count:30,additional_mount_count:20,port_count:18}}:{})}}]}};
 }
 function harness(data:any){
  const tools=new Map<string,any>(["mcp__linear__get_project","mcp__linear__save_issue"].map(name=>[name,{name,exposure:"direct"}]));
@@ -35,7 +35,7 @@ for(const [name,mutate]of Object.entries(mutations))test(`registered workspace p
  const data=fixture();mutate(data);const h=harness(data);await assert.rejects(h.read(),error=>error instanceof Error&&!error.message.includes("synthetic-private-recipe"));assert.equal(h.prompts(),0);
 });
 for(const reason of ["origin_not_registered","daemon_unavailable","snapshot_changed_restart_pagination"])test(`registered workspace policy keeps unavailable evidence unknown: ${reason}`,async()=>{
- const data={diagnostics_schema:35,section:"workspace_policy",scope:"origin",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason};
+ const data={diagnostics_schema:36,section:"workspace_policy",scope:"origin",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason};
  const h=harness(data);assert.equal((await h.read()).details.available,false);
  for(const [key,value]of [["inventory",fixture().inventory],["raw","synthetic-private-recipe"],["evidence","fresh_registration_recorded_recipe_not_runtime"],["reason","private-error"]]){
   const broken=harness({...data,[key as string]:value});await assert.rejects(broken.read());

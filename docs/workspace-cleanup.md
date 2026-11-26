@@ -465,3 +465,28 @@ helpers such as `git-remote-https`, when their context expires. Output-pipe
 waiting is additionally bounded to 250 ms so inherited descriptors cannot keep
 a timed-out command—and the cleanup response—blocked indefinitely. Interactive
 login commands keep their terminal's process group.
+
+
+### Exact diagnostic runtime retirement
+
+Schema36 `feedback-diagnostics --section retirement_preview --parent-id <registered workspace ID>`
+uses the same native exact preparation/execution boundary as GC, not its sweep.
+`--action preview` returns one complete ordered selected runtime bundle.
+`--action apply --plan-id <latest ID>` consumes that original per-task plan once;
+no client native targets, subset, manual-cleanup substitution, expiry escalation,
+replay or silent replanning is accepted. The raw registration-only diagnostic
+probe remains inspection, never an executable plan.
+
+Pi requires fresh interactive preview approval for native provider metadata reads,
+then a SEPARATE fresh exact-target whole-plan destructive confirmation for apply,
+matching the immutable disclosure, feedback workspace and Pi session. Plan IDs
+are freshness, not consent. Sandbox stops interrupt commands/services; terminal
+removal loses processes/contents. Workspace files, worktrees/branches, sandbox
+local state and registration are preserved. Safety counts are not private messages
+or full eligibility. Unknown ownership refuses; stopped registered owners block.
+Native fresh authored lifecycle, collected-resource, candidate and provider
+ownership/activity/lease guards remain authoritative. No lease is reserved by
+preview. Cancellation/disconnect is cooperative, not rollback; returned prefix,
+dispatch, operation and invalidation evidence is not independent resource
+verification or safe retry. Other typed expiry/reconciliation/runtime controls
+remain unsupported. No persisted schema or deployment change is required.
