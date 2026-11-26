@@ -684,7 +684,11 @@ Ownership shares production's stopped/nested removal relation via no-follow,
 nonblocking regular-file scans: 64KiB/file, 1MiB/scan, 1,024 entries, 512 paths,
 5s budget. Empty selections skip scanning. Unsafe/incomplete scans omit all owner
 IDs and `agent_owner_count`, mark ownership `unavailable` and end page evidence in
-`agent_ownership_unavailable`; no rows is not no owners. Native guards unchanged.
+`agent_ownership_unavailable`; no rows is not no owners. The shared native
+registration decoder also rejects duplicate/escaped-duplicate members and
+case-folded known names at both registration and workspace-binding boundaries.
+Ambiguity cannot select another workspace, publish a valid registry prefix or
+permit native controls/cleanup; unknown private extension subtrees stay ignored.
 Members/mounts/ports/agents are registration evidence; task ownership includes
 cached inactive history. These checks are not atomic, runtime probes or cleanup
 eligibility. No private payloads or secrets are read.

@@ -33,7 +33,7 @@ func retirementOwner(t *testing.T, path string) string {
 }
 
 func TestRetirementPreviewRegisteredOwnersRemainBlockingAndUnavailableStaysUnknown(t *testing.T) {
-	for _, scenario := range []string{"stopped", "nested", "sibling", "unavailable"} {
+	for _, scenario := range []string{"stopped", "nested", "sibling", "unavailable", "ambiguous_path", "folded_workspace"} {
 		t.Run(scenario, func(t *testing.T) {
 			store, _, group, _ := retirementFixture(t)
 			path := group.Path
@@ -48,12 +48,28 @@ func TestRetirementPreviewRegisteredOwnersRemainBlockingAndUnavailableStaysUnkno
 					t.Fatal(err)
 				}
 			}
+			if scenario == "ambiguous_path" || scenario == "folded_workspace" {
+				data, err := os.ReadFile(file)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if scenario == "ambiguous_path" {
+					value, _ := json.Marshal(path)
+					other, _ := json.Marshal(path + "-private-unrelated")
+					data = []byte(strings.Replace(string(data), `"path":`+string(value), `"path":`+string(value)+`,"path":`+string(other), 1))
+				} else {
+					data = []byte(strings.Replace(string(data), `"workspace":`, `"WORKSPACE":`, 1))
+				}
+				if err := os.WriteFile(file, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			page, err := Probe(context.Background(), store, protocol.DiagnosticsRequest{Section: "retirement_preview", ParentID: group.ID}, false, integration.NewRegistry(workspace.Source{}))
 			if err != nil || len(page.Items) != 1 {
 				t.Fatalf("preview=%+v %v", page, err)
 			}
 			view := page.Items[0].RetirementPreview
-			if scenario == "unavailable" {
+			if scenario == "unavailable" || scenario == "ambiguous_path" || scenario == "folded_workspace" {
 				if view.AgentOwnerCount != nil || view.OwnershipEvidence != "unavailable" || view.ExecutionEligibility != "unknown_fresh_execution_guards_not_run" {
 					t.Fatalf("unavailable ownership became empty or permission: %+v", view)
 				}

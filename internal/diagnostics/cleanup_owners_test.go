@@ -14,7 +14,7 @@ import (
 )
 
 func TestCleanupPreviewRegisteredOwnersNativeParityAcrossBundle(t *testing.T) {
-	for _, scenario := range []string{"stopped", "nested", "sibling", "unavailable", "relative", "no-path"} {
+	for _, scenario := range []string{"stopped", "nested", "sibling", "unavailable", "ambiguous_path", "folded_workspace", "relative", "no-path"} {
 		t.Run(scenario, func(t *testing.T) {
 			store, _, path := fixture(t)
 			store.SetTasks([]protocol.Task{task(path, "test:ABC-123")})
@@ -35,6 +35,22 @@ func TestCleanupPreviewRegisteredOwnersNativeParityAcrossBundle(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if scenario == "ambiguous_path" || scenario == "folded_workspace" {
+				data, err := os.ReadFile(file)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if scenario == "ambiguous_path" {
+					value, _ := json.Marshal(ownerPath)
+					other, _ := json.Marshal(ownerPath + "-private-unrelated")
+					data = []byte(strings.Replace(string(data), `"path":`+string(value), `"path":`+string(value)+`,"path":`+string(other), 1))
+				} else {
+					data = []byte(strings.Replace(string(data), `"workspace":`, `"WORKSPACE":`, 1))
+				}
+				if err := os.WriteFile(file, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if scenario == "relative" {
 				provider.targets[1].Path = "private-relative"
 			}
@@ -45,7 +61,7 @@ func TestCleanupPreviewRegisteredOwnersNativeParityAcrossBundle(t *testing.T) {
 			if err != nil || len(page.Items) != 2 {
 				t.Fatalf("page=%+v %v", page, err)
 			}
-			known := scenario != "unavailable" && scenario != "relative"
+			known := scenario != "unavailable" && scenario != "relative" && scenario != "ambiguous_path" && scenario != "folded_workspace"
 			native, nativeErr := agentservice.WorkspaceRemovalOwners([]string{provider.targets[0].Path, provider.targets[1].Path})
 			if known && nativeErr != nil {
 				t.Fatal(nativeErr)

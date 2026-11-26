@@ -450,6 +450,14 @@ Removal deletes registration only and preserves durable data, the ownership inte
 
 The new ownership-intent format is version 1; it is additive and leaves existing registration, native store, workspace registry and Radar database formats unchanged. Existing explicit registrations require no migration and are not silently converted to managed ownership. Invalid ownership intents are rejected, never reset.
 
+Registration JSON and its workspace binding require exact known member names,
+without duplicates (including escaped duplicates) or case-folded aliases. The
+native decoder bounds registration bytes to 1MiB and each selected object to 64
+members; diagnostic scans retain their narrower bounds. Unknown private extension
+subtrees remain ignored, not ownership evidence. Ambiguous metadata is rejected
+without rewriting it: unavailable ownership cannot become a zero-owner count or
+permission to control a runner or remove resources.
+
 The initial registration/store formats are version 1 and reject invalid/incompatible metadata rather than silently reset it. Definition reload is explicit with `radar agent restart`. Native task versions must remain recoverable; changing unfinished task semantics without a migration/version plan can block work. Future incompatible schema rollouts require inventory and read-only preflight before install, following `AGENTS.md`.
 
 Tests establish process-crash recovery, not a universal host/power-failure guarantee. Native SQLite uses its published adapter transaction/WAL durability; backups and reliable persistent disks remain the operator's responsibility. External effects can happen before a checkpoint records their result. Repository setup commands may rerun after interruption and must be idempotent. Use native replay policies, stable operation IDs and reconciliation appropriate to each API. Never infer exactly-once external effects from atomic event admission.

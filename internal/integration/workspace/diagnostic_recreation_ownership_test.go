@@ -33,7 +33,7 @@ func recreationOwner(t *testing.T, path string, desired bool) string {
 }
 
 func TestDiagnosticRecreationFreshOwnershipAndLeaseEvidence(t *testing.T) {
-	for _, owner := range []string{"none", "stopped", "desired", "nested", "sibling", "unavailable"} {
+	for _, owner := range []string{"none", "stopped", "desired", "nested", "sibling", "unavailable", "ambiguous_path", "folded_workspace"} {
 		for _, lease := range []string{"missing", "available", "contended", "unavailable"} {
 			t.Run(owner+"/"+lease, func(t *testing.T) {
 				withWorkspaceGOOS(t, "darwin")
@@ -56,6 +56,22 @@ func TestDiagnosticRecreationFreshOwnershipAndLeaseEvidence(t *testing.T) {
 					file := recreationOwner(t, path, owner == "desired")
 					if owner == "unavailable" {
 						if err := os.WriteFile(file, []byte("PRIVATE-invalid"), 0600); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if owner == "ambiguous_path" || owner == "folded_workspace" {
+						data, err := os.ReadFile(file)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if owner == "ambiguous_path" {
+							value, _ := json.Marshal(path)
+							other, _ := json.Marshal(path + "-private-unrelated")
+							data = []byte(strings.Replace(string(data), `"path":`+string(value), `"path":`+string(value)+`,"path":`+string(other), 1))
+						} else {
+							data = []byte(strings.Replace(string(data), `"workspace":`, `"WORKSPACE":`, 1))
+						}
+						if err := os.WriteFile(file, data, 0600); err != nil {
 							t.Fatal(err)
 						}
 					}
@@ -89,7 +105,7 @@ func TestDiagnosticRecreationFreshOwnershipAndLeaseEvidence(t *testing.T) {
 				if err := json.Unmarshal(data, &fields); err != nil {
 					t.Fatal(err)
 				}
-				if owner == "unavailable" {
+				if owner == "unavailable" || owner == "ambiguous_path" || owner == "folded_workspace" {
 					if fields["ownership_evidence"] != "unavailable" || fields["agent_owner_count"] != nil {
 						t.Errorf("unavailable ownership became empty: %s", data)
 					}

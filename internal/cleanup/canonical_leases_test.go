@@ -129,3 +129,55 @@ func TestCleanupChecksEachAliasOwnerBeforeDeduplicatingItsLease(t *testing.T) {
 	}
 	release()
 }
+
+func TestCleanupAmbiguousAgentRegistrationRefusesWholeBundleBeforeDispatch(t *testing.T) {
+	for _, kind := range []string{"path_duplicate", "path_folded", "workspace_duplicate", "workspace_folded", "desired_duplicate"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("RADAR_SOCKET", filepath.Join(root, "radar.sock"))
+			t.Setenv("RADAR_AGENT_ROOT", filepath.Join(root, "agents"))
+			path := filepath.Join(root, "workspace")
+			if err := os.Mkdir(path, 0700); err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(root, "agents", "fixture-owner")
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			data, _ := json.Marshal(agentservice.Registration{Version: 1, ID: "fixture-owner", Workspace: protocol.AgentWorkspaceBinding{ID: "fixture", Path: path, Mode: "local"}})
+			value, _ := json.Marshal(path)
+			other, _ := json.Marshal(path + "-unrelated")
+			switch kind {
+			case "path_duplicate":
+				data = []byte(strings.Replace(string(data), `"path":`+string(value), `"path":`+string(value)+`,"path":`+string(other), 1))
+			case "path_folded":
+				data = []byte(strings.Replace(string(data), `"path":`+string(value), `"path":`+string(value)+`,"PATH":`+string(other), 1))
+			case "workspace_duplicate":
+				data = []byte(strings.TrimSuffix(string(data), "}") + `,"workspace":{"id":"other","path":` + string(other) + `,"mode":"local"}}`)
+			case "workspace_folded":
+				data = []byte(strings.Replace(string(data), `"workspace":`, `"WORKSPACE":`, 1))
+			case "desired_duplicate":
+				data = []byte(strings.Replace(string(data), `"desired":false`, `"desired":true,"desired":false`, 1))
+			}
+			file := filepath.Join(dir, "registration.json")
+			if err := os.WriteFile(file, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			calls := []string{}
+			preview := protocol.CleanupPreview{Targets: []protocol.CleanupTarget{{Source: "fixture", Path: root}, {Source: "fixture", Path: path}}}
+			result, err := New([]integration.CleanupProvider{fakeProvider{name: "fixture", calls: &calls}}).Execute(context.Background(), preview, ExecuteOptions{Mode: integration.CleanupConfirmed})
+			if err == nil || !strings.Contains(err.Error(), "invalid or unsupported registration") || len(calls) != 0 || len(result.Targets) != 0 {
+				t.Fatal("ambiguous ownership authorized a provider/bundle prefix", err, calls)
+			}
+			after, err := os.ReadFile(file)
+			if err != nil || string(after) != string(data) {
+				t.Fatal("refusal changed retained metadata", err)
+			}
+			release, err := workspacelease.Acquire(path, true)
+			if err != nil {
+				t.Fatal("refusal leaked ownership admission", err)
+			}
+			release()
+		})
+	}
+}

@@ -145,6 +145,16 @@ func load(id string) (Registration, error) {
 }
 
 func decodeRegistration(data []byte, id string) (Registration, error) {
+	// Ownership and native controls must not choose the last duplicate or a
+	// case-folded alias, including inside the selected workspace binding. Keep
+	// unknown private extension subtrees outside this validation boundary.
+	members, err := agentResponseObject(data, "version", "id", "entrypoint", "desired", "workspace", "collection")
+	if err != nil {
+		return Registration{}, fmt.Errorf("invalid or unsupported registration; preserve agent data")
+	}
+	if _, err := agentResponseObject(members["workspace"], "id", "path", "mode", "sandbox"); err != nil {
+		return Registration{}, fmt.Errorf("invalid or unsupported registration; preserve agent data")
+	}
 	var reg Registration
 	if err := json.Unmarshal(data, &reg); err != nil {
 		return reg, err
