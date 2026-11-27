@@ -177,7 +177,7 @@ func removeWithAdmission(ctx context.Context, reg Registration, admit func(func(
 	if err := stoppedForRemoval(ctx, reg); err != nil {
 		return err
 	}
-	execute := func() error { return removeRegistration(reg, pauseSchedules, os.Remove) }
+	execute := func() error { return removeRegistration(ctx, reg, pauseSchedules, os.Remove) }
 	if admit != nil {
 		return admit(execute)
 	}
@@ -186,7 +186,12 @@ func removeWithAdmission(ctx context.Context, reg Registration, admit func(func(
 
 // Parameters permit deterministic fault/order tests of the real shared effect
 // sequence, without global hooks or replaceable executors in retained plans.
-func removeRegistration(reg Registration, pause func(Registration) error, unlink func(string) error) error {
+// Cancellation is cooperative at each effect boundary, not rollback: a completed
+// pause remains persisted if cancellation prevents the later registration unlink.
+func removeRegistration(ctx context.Context, reg Registration, pause func(Registration) error, unlink func(string) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := pause(reg); err != nil {
 		return err
 	}
@@ -194,7 +199,15 @@ func removeRegistration(reg Registration, pause func(Registration) error, unlink
 	if err != nil {
 		return err
 	}
-	return unlink(filepath.Join(dir, "registration.json"))
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := unlink(filepath.Join(dir, "registration.json")); err != nil {
+		return err
+	}
+	// Cancellation during unlink can follow BOTH effects. Do not report ordinary
+	// native remove as successful, or restore schedules/registration/admission.
+	return ctx.Err()
 }
 
 // Native removal's bounded stable no-follow read and existing decoder. Missing

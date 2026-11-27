@@ -68,6 +68,14 @@ Schedule pause may precede unlink failure or cancellation: effects may be partia
 without rollback. Captured counts are not counts of disabled schedules or outcomes. The finite
 schedule-disable disclosure is not proof that those effects completed.
 
+The single shared native executor checks cooperative cancellation immediately
+before schedule pause and registration unlink, then again after unlink returns.
+Cancellation after a persisted pause prevents the later unlink when observed at
+that boundary: schedules stay disabled and the retained registration still holds
+ownership. Cancellation during unlink may follow both effects; the cancelled
+return never restores schedules, registration or one-use admission. These checks
+are not atomic filesystem cancellation, verified outcomes or safe-retry permission.
+
 Removal uses the same 16-entry per-task maintenance retention and stop/cleanup
 supersession. The original monotonic 30-second expiry is never extended; native
 and complete adapter/guard context share the conservative memory budget. Apply

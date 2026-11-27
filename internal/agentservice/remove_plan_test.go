@@ -452,7 +452,7 @@ func TestNativeRemovalSharedExecutorPauseBeforeUnlinkAndPartialFailure(t *testin
 			writeRemovalSchedule(t, reg)
 			failure := errors.New("private-fault")
 			calls := 0
-			err := removeRegistration(reg, func(r Registration) error {
+			err := removeRegistration(context.Background(), reg, func(r Registration) error {
 				calls++
 				if kind == "pause_failure" {
 					return failure
@@ -503,6 +503,90 @@ func TestNativeRemoveCaptureRechecksInFlightIdentity(t *testing.T) {
 			}}
 			_, err := m.PrepareRemove(ctx, reg.ID, reg.Workspace, allowStopGuard)
 			requireRemovalRefusal(t, err)
+		})
+	}
+}
+
+func TestNativeRemovalSharedExecutorCancellationBetweenEffects(t *testing.T) {
+	for _, boundary := range []string{"before_pause", "deadline_before_pause", "after_pause", "during_unlink", "pause_error_with_cancel", "unlink_error_with_cancel", "success"} {
+		t.Run(boundary, func(t *testing.T) {
+			reg, _ := removePlanFixture(t)
+			writeRemovalSchedule(t, reg)
+			expected, err := loadSchedules(reg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if boundary == "before_pause" {
+				cancel()
+			}
+			if boundary == "deadline_before_pause" {
+				var deadlineCancel context.CancelFunc
+				ctx, deadlineCancel = context.WithDeadline(ctx, time.Now().Add(-time.Second))
+				defer deadlineCancel()
+			}
+			fault := errors.New("private-fixture-fault")
+			var calls []string
+			err = removeRegistration(ctx, reg, func(r Registration) error {
+				calls = append(calls, "pause")
+				if boundary == "pause_error_with_cancel" {
+					cancel()
+					return fault
+				}
+				if err := pauseSchedules(r); err != nil {
+					return err
+				}
+				if boundary == "after_pause" {
+					cancel()
+				}
+				return nil
+			}, func(path string) error {
+				calls = append(calls, "unlink")
+				if boundary == "during_unlink" || boundary == "unlink_error_with_cancel" {
+					cancel()
+				}
+				if boundary == "unlink_error_with_cancel" {
+					return fault
+				}
+				return os.Remove(path)
+			})
+			wantCalls := []string{"pause", "unlink"}
+			wantErr := error(nil)
+			removed, paused := true, true
+			switch boundary {
+			case "before_pause":
+				wantCalls, wantErr, removed, paused = nil, context.Canceled, false, false
+			case "deadline_before_pause":
+				wantCalls, wantErr, removed, paused = nil, context.DeadlineExceeded, false, false
+			case "after_pause":
+				wantCalls, wantErr, removed = []string{"pause"}, context.Canceled, false
+			case "during_unlink":
+				wantErr = context.Canceled // Both effects may already have completed; no rollback.
+			case "pause_error_with_cancel":
+				wantCalls, wantErr, removed, paused = []string{"pause"}, fault, false, false
+			case "unlink_error_with_cancel":
+				wantErr, removed = fault, false
+			}
+			if !errors.Is(err, wantErr) || !reflect.DeepEqual(calls, wantCalls) {
+				t.Fatalf("wrong boundary result: err=%v calls=%v; want err=%v calls=%v", err, calls, wantErr, wantCalls)
+			}
+			if paused {
+				expected.Schedules[0].Enabled = false
+			}
+			actual, readErr := loadSchedules(reg)
+			if readErr != nil || !reflect.DeepEqual(actual, expected) {
+				t.Fatal("cancellation rewrote capture payloads or rolled back effects", readErr)
+			}
+			dir, _ := instanceDir(reg.ID)
+			_, statErr := os.Lstat(filepath.Join(dir, "registration.json"))
+			if removed != os.IsNotExist(statErr) {
+				t.Fatal("registration effect disagrees with cancellation boundary", statErr)
+			}
+			// Preserving this registration after a partial pause preserves its owner hold.
+			if !removed && CheckWorkspaceRemoval(reg.Workspace.Path) == nil {
+				t.Fatal("cancellation released registration ownership")
+			}
 		})
 	}
 }
