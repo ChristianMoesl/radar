@@ -79,7 +79,7 @@ export default function(pi) {
   await exec("pnpm", ["pack", "--out", tarball], { cwd: repository, timeout: 15000 });
   const { stdout: listing } = await exec("tar", ["-tzf", tarball]);
   assert.deepEqual(listing.trim().split("\n").sort(), [
-    "package/LICENSE", "package/README.md", "package/extensions/pi-radar/expiry-cleanup.ts", "package/extensions/pi-radar/feedback.ts", "package/extensions/pi-radar/host-resources.ts", "package/extensions/pi-radar/index.ts",
+    "package/LICENSE", "package/README.md", "package/extensions/pi-radar/agent-stop.ts", "package/extensions/pi-radar/expiry-cleanup.ts", "package/extensions/pi-radar/feedback.ts", "package/extensions/pi-radar/host-resources.ts", "package/extensions/pi-radar/index.ts",
     "package/extensions/pi-radar/linear.ts",
     "package/extensions/pi-radar/manual-cleanup.ts",
     "package/extensions/pi-radar/operation-diagnostics.ts",
@@ -109,6 +109,8 @@ export default function(pi) {
   assert.ok(manifest.peerDependencies.typebox);
   assert.equal(await readFile(join(distribution, "extensions/pi-radar/index.ts"), "utf8"),
     await readFile(join(repository, "extensions/pi-radar/index.ts"), "utf8"));
+  assert.equal(await readFile(join(distribution, "extensions/pi-radar/agent-stop.ts"), "utf8"),
+    await readFile(join(repository, "extensions/pi-radar/agent-stop.ts"), "utf8"));
   await exec(process.execPath, [cli, "install", distribution], { cwd: outside, env, timeout: 15000 });
   const settingsPath = join(agent, "settings.json");
   const settings = JSON.parse(await readFile(settingsPath, "utf8"));
