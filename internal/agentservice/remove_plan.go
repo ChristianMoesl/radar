@@ -47,6 +47,18 @@ func removePlanUnavailable() error {
 	return errors.New("exact native agent removal unavailable or changed; outcome may be partial or unknown, do not replay or automatically retry")
 }
 
+// Context timer notification can lag its absolute deadline. Both are admission
+// boundaries, including between effects and before publishing observations.
+func removalContextError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, bounded := ctx.Deadline(); bounded && !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
 func (p RemovePlan) Preview() integration.AgentRemovePreview {
 	if p.capture == nil {
 		return integration.AgentRemovePreview{}
@@ -74,7 +86,7 @@ func (p RemovePlan) RetainedBytes() int {
 // the native decoder; only bounded file metadata/hash is retained. Busy, unknown,
 // unsafe and cancelled evidence refuses, with cooperative 5s native I/O bound.
 func (m *Manager) PrepareRemove(ctx context.Context, id string, expected protocol.AgentWorkspaceBinding, guard integration.AgentRemoveGuard) (RemovePlan, error) {
-	if guard == nil || ctx.Err() != nil || !validID.MatchString(id) || expected.ID == "" || !filepath.IsAbs(expected.Path) || filepath.Clean(expected.Path) != expected.Path || m.workspace == nil || !m.mu.TryLock() {
+	if guard == nil || removalContextError(ctx) != nil || !validID.MatchString(id) || expected.ID == "" || !filepath.IsAbs(expected.Path) || filepath.Clean(expected.Path) != expected.Path || m.workspace == nil || !m.mu.TryLock() {
 		return RemovePlan{}, removePlanUnavailable()
 	}
 	defer m.mu.Unlock()
@@ -112,6 +124,8 @@ func (m *Manager) PrepareRemove(ctx context.Context, id string, expected protoco
 // Failure/cancellation/lost response may follow effects and never restores a
 // plan, schedules or registration. Nil means handler returned, not absence of
 // resources/other owners, cleanup eligibility, completed work or safe retry.
+// Execution keeps the earliest original expiry, caller deadline and 5s cap;
+// absolute deadlines apply even before their context timer notification.
 func (p RemovePlan) Execute(ctx context.Context) (result error) {
 	if p.capture == nil {
 		return removePlanUnavailable()
@@ -125,17 +139,21 @@ func (p RemovePlan) Execute(ctx context.Context) (result error) {
 	c.consumed = true
 	c.mu.Unlock()
 	m := c.manager
-	if ctx.Err() != nil || !time.Now().Before(c.expires) || !m.mu.TryLock() {
+	if removalContextError(ctx) != nil || !time.Now().Before(c.expires) || !m.mu.TryLock() {
 		return removePlanUnavailable()
 	}
 	defer m.mu.Unlock()
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	deadline := time.Now().Add(5 * time.Second)
+	if c.expires.Before(deadline) {
+		deadline = c.expires
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	var observation integration.AgentRemoveObservation
 	// Publish once, under manager serialization, BEFORE our own deferred cancel.
 	// Later inspection is memory-only; it cannot refresh evidence or admission.
 	defer func() {
-		if ctx.Err() != nil || !time.Now().Before(c.expires) {
+		if removalContextError(ctx) != nil || !time.Now().Before(c.expires) {
 			observation = integration.AgentRemoveObservation{}
 			result = removePlanUnavailable()
 		}
@@ -166,7 +184,7 @@ func (p RemovePlan) Execute(ctx context.Context) (result error) {
 }
 
 func (c *removeCapture) current(ctx context.Context) bool {
-	if ctx.Err() != nil || !time.Now().Before(c.expires) {
+	if removalContextError(ctx) != nil || !time.Now().Before(c.expires) {
 		return false
 	}
 	binding, err := c.manager.workspace.AgentWorkspace(ctx, c.reg.Workspace.Path)
@@ -178,7 +196,7 @@ func (c *removeCapture) current(ctx context.Context) bool {
 		return false
 	}
 	_, schedule, err := removalSchedules(c.reg)
-	return err == nil && sameStopLeaf(c.schedule, schedule) && ctx.Err() == nil && time.Now().Before(c.expires)
+	return err == nil && sameStopLeaf(c.schedule, schedule) && removalContextError(ctx) == nil && time.Now().Before(c.expires)
 }
 
 // Native remove and exact admission use the same independently grounded stopped
@@ -186,7 +204,7 @@ func (c *removeCapture) current(ctx context.Context) bool {
 // evidence. These remain point-in-time checks, not OS peer/PID-incarnation
 // attestation or an atomic transaction with external filesystem/process changes.
 func stoppedForRemoval(ctx context.Context, reg Registration) error {
-	if err := ctx.Err(); err != nil {
+	if err := removalContextError(ctx); err != nil {
 		return err
 	}
 	observed, err := observeRunner(ctx, reg)
@@ -200,7 +218,7 @@ func stoppedForRemoval(ctx context.Context, reg Registration) error {
 	if reg.Desired || observed.Running || alive {
 		return fmt.Errorf("stop the agent before removing its registration")
 	}
-	return ctx.Err()
+	return removalContextError(ctx)
 }
 
 // Caller holds manager serialization. The optional internal admission wraps the
@@ -220,8 +238,9 @@ func removeWithAdmission(ctx context.Context, reg Registration, admit func(func(
 // sequence, without global hooks or replaceable executors in retained plans.
 // Cancellation is cooperative at each effect boundary, not rollback: a completed
 // pause remains persisted if cancellation prevents the later registration unlink.
+// Check absolute expiry as well as Err; timer notification is not admission.
 func removeRegistration(ctx context.Context, reg Registration, pause func(Registration) error, unlink func(string) error) error {
-	if err := ctx.Err(); err != nil {
+	if err := removalContextError(ctx); err != nil {
 		return err
 	}
 	if err := pause(reg); err != nil {
@@ -231,7 +250,7 @@ func removeRegistration(ctx context.Context, reg Registration, pause func(Regist
 	if err != nil {
 		return err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := removalContextError(ctx); err != nil {
 		return err
 	}
 	if err := unlink(filepath.Join(dir, "registration.json")); err != nil {
@@ -239,7 +258,7 @@ func removeRegistration(ctx context.Context, reg Registration, pause func(Regist
 	}
 	// Cancellation during unlink can follow BOTH effects. Do not report ordinary
 	// native remove as successful, or restore schedules/registration/admission.
-	return ctx.Err()
+	return removalContextError(ctx)
 }
 
 // Native removal's bounded stable no-follow read and existing decoder. Missing

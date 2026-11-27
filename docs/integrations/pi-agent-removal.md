@@ -4,7 +4,7 @@ Diagnostics **schema 42** enables section `agent_remove` through the existing
 finite daemon/client transport and single native removal executor:
 `agent_remove_daemon_client_transport: true`, `agent_remove_previews: true`,
 `agent_remove_apply: true`, broad `runtime_controls: false`.
-The existing native `radar agent remove` command is unchanged.
+The native `radar agent remove` command shares the same removal effect sequence.
 
 In the registered feedback workspace, `radar_diagnostics` requires exact retained
 task `parent_id` and registered `agent_id`, with origin (default), feedback or
@@ -100,11 +100,18 @@ that boundary: schedules stay disabled and the retained registration still holds
 ownership. Cancellation during unlink may follow both effects; the cancelled
 return never restores schedules, registration or one-use admission. These checks
 are not atomic filesystem cancellation, verified outcomes or safe-retry permission.
+Absolute caller deadlines apply at these effect boundaries even before context
+timer notification. An expired request cannot start pause; expiry during pause
+withholds the later unlink, and expiry during unlink cannot certify success.
+Accepted effects are not rolled back. Expired postcondition capture stops further
+checkpoint reads and withholds the entire observation, not just its latest field.
 
 Removal uses the same 16-entry per-task maintenance retention and stop/cleanup
 supersession. The original monotonic 30-second expiry is never extended; native
 and complete adapter/guard context share the conservative memory budget. Apply
-consumes before live checks; freshness/approval are separate. Exact task/ref,
+consumes before live checks; freshness/approval are separate. Execution uses the
+earliest original expiry, caller deadline and existing five-second cap. Final
+normalization precedes the call's own deferred cancellation. Exact task/ref,
 registered feedback/scope, revision, resource publication and native identity are
 rechecked INSIDE the retained final guard spanning both effects. Active/unknown
 owners, desired/running agents, drift, pending collection, cancellation and denied

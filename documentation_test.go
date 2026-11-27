@@ -40,6 +40,18 @@ func TestDocumentationCannotReadHostFiles(t *testing.T) {
 	}
 }
 
+func TestDocumentationNativeRemovalAbsoluteExpiryBoundary(t *testing.T) {
+	doc, err := Read("docs/integrations/pi-agent-removal.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contract := range []string{"Absolute caller deadlines apply", "even before context\ntimer notification", "expiry during pause", "expiry during unlink cannot certify success", "Accepted effects are not rolled back", "stops further\ncheckpoint reads", "withholds the entire observation", "earliest original expiry, caller deadline", "five-second cap", "own deferred cancellation"} {
+		if !strings.Contains(doc.Content, contract) {
+			t.Errorf("native removal expiry contract omitted %q", contract)
+		}
+	}
+}
+
 func TestDocumentationRepositoryPolicyCancellationBoundary(t *testing.T) {
 	doc, err := Read("docs/cli.md")
 	if err != nil {

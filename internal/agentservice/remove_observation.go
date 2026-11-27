@@ -32,7 +32,7 @@ func (c *removeCapture) observeRemoval(ctx context.Context, read func(string) ([
 	current := func() bool {
 		root, rootErr := os.Lstat(c.files.rootPath)
 		instance, instanceErr := os.Lstat(dir)
-		return ctx.Err() == nil && time.Now().Before(c.expires) && rootErr == nil && instanceErr == nil &&
+		return removalContextError(ctx) == nil && time.Now().Before(c.expires) && rootErr == nil && instanceErr == nil &&
 			root.IsDir() && instance.IsDir() && sameStopFile(c.files.root, root) && sameStopFile(c.files.instance, instance)
 	}
 	if !current() {
@@ -59,7 +59,7 @@ func (c *removeCapture) observeRemoval(ctx context.Context, read func(string) ([
 		if (err == nil || errors.Is(err, os.ErrNotExist)) && sameStopLeaf(c.schedule, leaf) {
 			observed.Schedules = integration.AgentRemoveSchedulesPaused
 		}
-	} else if err == nil && ctx.Err() == nil {
+	} else if err == nil && removalContextError(ctx) == nil {
 		state, decodeErr := decodeSchedules(data)
 		fingerprint, hashErr := removalScheduleFingerprint(state)
 		if decodeErr == nil && hashErr == nil && fingerprint == c.pausedSchedule {
