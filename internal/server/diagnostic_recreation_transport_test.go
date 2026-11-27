@@ -76,8 +76,8 @@ func TestDiagnosticRecreationTransportRejectsBeforeNativeDispatch(t *testing.T) 
 	raw, _ := json.Marshal(protocol.Request{Method: "diagnostics-maintenance", Maintenance: &q})
 	valid := string(raw)
 	frames := map[string]string{
-		"old_schema":        strings.Replace(valid, `"diagnostics_schema":39`, `"diagnostics_schema":34`, 1),
-		"new_schema":        strings.Replace(valid, `"diagnostics_schema":39`, `"diagnostics_schema":40`, 1),
+		"old_schema":        strings.Replace(valid, `"diagnostics_schema":40`, `"diagnostics_schema":34`, 1),
+		"new_schema":        strings.Replace(valid, `"diagnostics_schema":40`, `"diagnostics_schema":41`, 1),
 		"unknown_envelope":  strings.Replace(valid, `"method":`, `"private":null,"method":`, 1),
 		"folded":            strings.Replace(valid, `"parent_id":`, `"PARENT_ID":`, 1),
 		"duplicate":         strings.Replace(valid, `"operation":"recreate"`, `"operation":"recreate","operation":"recreate"`, 1),

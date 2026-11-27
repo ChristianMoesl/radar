@@ -14,21 +14,22 @@ import (
 	"radar/internal/protocol"
 )
 
-// Private adapter infrastructure only. No protocol handler, CLI, Pi control or
-// consent is enabled here. A public adapter still needs its finite disclosure,
-// version-matched strict transport and separate fresh registration-removal approval.
+// Private native admission behind the strict finite daemon/client projection.
+// No CLI/Pi removal or consent is enabled here. Trusted callers must separately
+// obtain fresh exact-target registration-removal consent.
 // All fields are private: accidentally marshaling a plan or view yields {}.
 type diagnosticAgentRemoveView struct {
-	schedules, enabledSchedules                           int
-	agent, record, feedback, workspace, planID, expiresAt string
-	taskID                                                int
-	revision                                              int64
-	dispatched                                            bool
-	mode, problem, outcome                                string
+	schedules, enabledSchedules                                        int
+	agent, record, feedback, workspace, planID, expiresAt, operationID string
+	taskID                                                             int
+	revision                                                           int64
+	dispatched                                                         bool
+	mode, problem, outcome                                             string
 }
 type diagnosticAgentRemovePlan struct {
 	request                     protocol.DiagnosticMaintenanceRequest
 	scope                       diagnosticAgentScope
+	operation                   string
 	native                      integration.AgentRemovePlan
 	view                        diagnosticAgentRemoveView
 	expires                     time.Time
@@ -82,6 +83,7 @@ func (s *Server) prepareDiagnosticAgentRemove(ctx context.Context, q protocol.Di
 		if err != nil || current != before || !s.diagnosticRecreationInputsLive(c, before.cleanup.Revision, p.expires) || !p.active.Load() {
 			return diagnosticAgentRemoveUnavailable()
 		}
+		p.operation = s.store.BeginOperation("agent-remove", before.cleanup.TaskID, before.workspace.ID)
 		p.dispatched.Store(true)
 		return execute()
 	}
@@ -127,8 +129,8 @@ func (s *Server) prepareDiagnosticAgentRemove(ctx context.Context, q protocol.Di
 	return p.view, nil
 }
 
-// In-process execution only, deliberately not wired to an RPC or public client.
-// Future transport must enforce fresh exact registration-removal consent separately.
+// Trusted callers must enforce fresh exact registration-removal consent separately.
+// The finite daemon/client projection does not enable CLI/Pi removal controls.
 // Consumption precedes scope/cancellation/expiry checks. Lost replies and all
 // failures leave no reusable plan; no rollback or safe retry is implied.
 func (s *Server) applyDiagnosticAgentRemove(ctx context.Context, q protocol.DiagnosticMaintenanceRequest, id string) (diagnosticAgentRemoveView, error) {
@@ -159,7 +161,7 @@ func (s *Server) applyDiagnosticAgentRemove(ctx context.Context, q protocol.Diag
 	defer p.active.Store(false)
 	err := p.native.Execute(ctx)
 	view := p.view
-	view.mode, view.dispatched = "apply", p.dispatched.Load()
+	view.mode, view.dispatched, view.operationID = "apply", p.dispatched.Load(), p.operation
 	if !view.dispatched {
 		return fail()
 	}
@@ -172,6 +174,40 @@ func (s *Server) applyDiagnosticAgentRemove(ctx context.Context, q protocol.Diag
 		if ctx.Err() != nil {
 			view.problem = "cancelled_or_timed_out"
 		}
+	}
+	status := "succeeded"
+	if view.problem != "none" {
+		status = "failed"
+	}
+	s.store.FinishOperation(view.operationID, protocol.ManagedOperation{Status: status, TaskID: view.taskID, WorkspaceID: view.workspace})
+	return view, nil
+}
+
+// Project only fixed facts. Private plan/registration/payload and approval never
+// cross the wire; the original native capture and single executor remain private.
+func (s *Server) diagnosticAgentRemove(ctx context.Context, q protocol.DiagnosticMaintenanceRequest) (protocol.DiagnosticAgentRemove, error) {
+	var private diagnosticAgentRemoveView
+	var err error
+	if q.Mode == "preview" {
+		private, err = s.prepareDiagnosticAgentRemove(ctx, q, q.AgentID)
+	} else {
+		private, err = s.applyDiagnosticAgentRemove(ctx, q, q.AgentID)
+	}
+	if err != nil {
+		return protocol.DiagnosticAgentRemove{}, diagnosticAgentRemoveUnavailable()
+	}
+	view := protocol.DiagnosticAgentRemove{Schema: protocol.DiagnosticsVersion, Operation: "agent_remove", Mode: private.mode, Scope: q.Scope, RecordID: private.record, TaskID: private.taskID, AgentID: private.agent, FeedbackWorkspaceID: private.feedback, AgentWorkspaceID: private.workspace, Evidence: "native_exact_agent_removal_plan_not_consent", PlanID: private.planID, ExpiresAt: private.expiresAt, Revision: private.revision, SchedulesBefore: private.schedules, EnabledSchedulesBefore: private.enabledSchedules, DispatchEvidence: "not_dispatched", Problem: private.problem, Outcome: "not_attempted", OperationID: private.operationID, ResourceRefreshPending: private.dispatched, Limitations: protocol.DiagnosticAgentRemoveLimitations()}
+	if q.Scope != "installation" {
+		view.ScopeWorkspaceID = private.workspace
+	}
+	if private.dispatched {
+		view.DispatchEvidence, view.Outcome = "native_remove_callback_entered_not_resource_outcome", private.outcome
+	}
+	if !protocol.ValidDiagnosticAgentRemove(view, q) {
+		if q.Mode == "preview" {
+			s.discardCleanupPlan(&protocol.CleanupPreview{TaskID: private.taskID, PlanID: private.planID})
+		}
+		return protocol.DiagnosticAgentRemove{}, diagnosticAgentRemoveUnavailable()
 	}
 	return view, nil
 }

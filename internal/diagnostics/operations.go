@@ -45,7 +45,7 @@ func operationItems(req protocol.DiagnosticsRequest, records []state.TaskRecord,
 		}
 		view := protocol.DiagnosticOperation{ID: clip(op.ID), Kind: "unknown", Status: "unknown", TaskID: op.TaskID, WorkspaceID: clip(op.WorkspaceID), ExecutionEvidence: "unknown_not_captured", TargetEvidence: "unknown_not_captured", CleanupTargetEvidence: "unknown_not_captured", CleanupExecutionEvidence: "unknown_not_captured", TimingEvidence: "unknown_not_captured", PhaseTimingEvidence: "unknown_not_captured"}
 		switch op.Kind {
-		case "agent-stop", "refresh", "cleanup", "workspace", "task-create", "task-done", "task-reopen", "task-priority", "task-mute", "task-unmute", "task-title", "task-note", "task-delete":
+		case "agent-remove", "agent-stop", "refresh", "cleanup", "workspace", "task-create", "task-done", "task-reopen", "task-priority", "task-mute", "task-unmute", "task-title", "task-note", "task-delete":
 			view.Kind = op.Kind
 		}
 		switch op.Status {

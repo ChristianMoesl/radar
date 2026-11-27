@@ -38,28 +38,28 @@ func diagnosticMaintenanceFields(raw []byte, operation string) bool {
 		return false
 	}
 	for name, value := range fields {
-		if (operation == "recreate" || operation == "retire" || operation == "expire" || operation == "agent_stop") && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		if (operation == "recreate" || operation == "retire" || operation == "expire" || operation == "agent_stop" || operation == "agent_remove") && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return false
 		}
 		switch name {
 		case "diagnostics_schema", "operation", "mode", "scope":
 		case "plan_id":
-			if operation != "refresh" && operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" && operation != "agent_stop" {
+			if operation != "refresh" && operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" && operation != "agent_stop" && operation != "agent_remove" {
 				return false
 			}
-			if (operation == "cleanup" || (operation == "recreate" || operation == "retire" || operation == "expire" || operation == "agent_stop")) && string(fields["mode"]) != `"apply"` {
+			if (operation == "cleanup" || operation == "recreate" || operation == "retire" || operation == "expire" || operation == "agent_stop" || operation == "agent_remove") && string(fields["mode"]) != `"apply"` {
 				return false
 			}
 		case "agent_id":
-			if operation != "agent_stop" {
+			if operation != "agent_stop" && operation != "agent_remove" {
 				return false
 			}
 		case "parent_id", "workspace":
-			if operation != "cleanup_check" && operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" && operation != "agent_stop" {
+			if operation != "cleanup_check" && operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" && operation != "agent_stop" && operation != "agent_remove" {
 				return false
 			}
 		case "feedback_workspace":
-			if operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" && operation != "agent_stop" {
+			if operation != "cleanup" && operation != "recreate" && operation != "retire" && operation != "expire" && operation != "agent_stop" && operation != "agent_remove" {
 				return false
 			}
 		default:

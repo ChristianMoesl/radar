@@ -446,8 +446,8 @@ func TestDiagnosticAgentRemovePrivateNativeErrorAndCancellationAreNotResourceOut
 				t.Fatal("native partial/cancelled return became success/rollback", result, err)
 			}
 			_, _, operations, _ := s.store.OperationInspectionSnapshot()
-			if len(operations) != 0 {
-				t.Fatal("private-only removal introduced unversioned public managed evidence", operations)
+			if len(operations) != 1 || operations[0].ID != result.operationID || operations[0].Kind != "agent-remove" || operations[0].Status != "failed" || operations[0].FinishedAt == "" {
+				t.Fatal("missing versioned failed native handler evidence", operations)
 			}
 		})
 	}
@@ -467,17 +467,18 @@ func TestDiagnosticAgentRemovePrivateNativeCannotExecuteBeforeConsumedApply(t *t
 	}
 }
 
-func TestDiagnosticAgentRemovePrivateHasNoRPCActivation(t *testing.T) {
+func TestDiagnosticAgentRemoveTransportRejectsPreviousSchemaBeforeNativeCapture(t *testing.T) {
 	for _, mode := range []string{"preview", "apply"} {
 		t.Run(mode, func(t *testing.T) {
 			s, _, provider, q, file, pending := removeAdapterFixture(t, "origin")
 			q.Mode = mode
+			q.Schema--
 			if mode == "apply" {
 				q.PlanID = strings.Repeat("a", 64)
 			}
 			response := refreshRPC(t, s, protocol.Request{Method: "diagnostics-maintenance", Maintenance: &q})
 			if response.OK || provider.prepares != 0 || !removeRegistered(t, file) || *pending || len(s.cleanupPlans) != 0 {
-				t.Fatal("private removal unexpectedly enabled RPC", response)
+				t.Fatal("previous schema removal reached capture", response)
 			}
 		})
 	}

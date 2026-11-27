@@ -89,13 +89,14 @@ func callRequest(socketPath string, req protocol.Request, timeout time.Duration)
 		return protocol.Response{}, err
 	}
 
+	agentRemove := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "agent_remove"
 	agentStop := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "agent_stop"
 	cleanup := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "cleanup"
 	expiry := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "expire"
 	retirement := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "retire"
 	recreation := req.Method == "diagnostics-maintenance" && req.Maintenance != nil && req.Maintenance.Operation == "recreate"
 	var reader io.Reader = conn
-	if cleanup || recreation || retirement || expiry || agentStop {
+	if cleanup || recreation || retirement || expiry || agentStop || agentRemove {
 		reader = io.LimitReader(conn, 36*1024+1)
 	}
 	line, err := bufio.NewReader(reader).ReadBytes('\n')
@@ -103,6 +104,13 @@ func callRequest(socketPath string, req protocol.Request, timeout time.Duration)
 		return protocol.Response{}, err
 	}
 
+	if agentRemove {
+		response, err := decodeDiagnosticAgentRemove(line)
+		if err == nil && response.OK && (response.DiagnosticAgentRemove == nil || !protocol.ValidDiagnosticAgentRemove(*response.DiagnosticAgentRemove, *req.Maintenance)) {
+			return protocol.Response{}, errors.New("native agent-removal response does not match exact request; outcome may be partial or unknown, do not replay")
+		}
+		return response, err
+	}
 	if agentStop {
 		response, err := decodeDiagnosticAgentStop(line)
 		if err == nil && response.OK && (response.DiagnosticAgentStop == nil || !protocol.ValidDiagnosticAgentStop(*response.DiagnosticAgentStop, *req.Maintenance)) {

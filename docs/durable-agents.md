@@ -462,7 +462,7 @@ native shutdown, rechecking native identity before the first effect. The caller
 must supply fresh authorized scope/publication/consent admission. Missing, denied,
 skipped, repeated or retained-for-later callbacks cannot bypass it or replay work;
 a guard cannot hide a native error. This native capture remains private behind
-the finite schema-39 daemon/client projection, not a CLI/Pi stop control. Cancellation, drift or a lost reply never restores it. Desired-state persistence is not rolled
+the finite schema-40 daemon/client projection, not a CLI/Pi stop control. Cancellation, drift or a lost reply never restores it. Desired-state persistence is not rolled
 back after a later shutdown failure. These point-in-time guards do not attest a
 PID incarnation or make filesystem checks transactional. This internal boundary
 is not user consent or a public diagnostic/CLI/Pi stop-preview capability;
@@ -481,7 +481,7 @@ In-process execution consumes before further validation and invalidates resource
 observations once native dispatch begins, including failed or cancelled returns.
 These checks are point-in-time admission, not a transaction with all concurrent
 collection or filesystem writes. [Exact registered-agent stop control](integrations/pi-agent-stop.md)
-projects finite native facts through the strict schema-39 daemon/client/CLI/Pi
+projects finite native facts through the strict schema-40 daemon/client/CLI/Pi
 boundary, with current-daemon managed handler evidence and no startup/replay.
 Pi now binds the complete immutable latest unexpired exact task/agent preview to
 the registered feedback workspace and identified session. Preview reads require
@@ -525,12 +525,16 @@ The original native monotonic expiry is not extended; retained native and comple
 adapter/guard context are budgeted together. Apply consumes before live checks;
 failed/cancelled native return after guard entry invalidates cached resources and
 may be partial, never rollback, safe retry or independently verified outcomes.
-This private prerequisite enables no removal RPC/client/CLI/Pi control or user
-approval, and adds no unversioned public managed-operation evidence. `agent remove`
-remains the explicit native command. A public adapter still needs strict finite
-version-matched disclosure/transport and separate fresh exact-target removal
-consent. No implicit stop, daemon startup, replay, cleanup or sandbox deletion is
-authorized. Schema 39, public capabilities and persisted formats are unchanged.
+A finite schema-40 daemon/client projection now exposes this same admission and
+executor through `diagnostics-maintenance`, operation `agent_remove`. No CLI/Pi
+removal control or user approval is enabled. The existing `agent remove` native
+command is unchanged. [The daemon/client contract](integrations/pi-agent-removal.md)
+discloses schedule-disable, registration-unlink/association-release and preservation
+separately from capture counts and handler-only managed evidence. Trusted callers
+must obtain separate fresh exact-target registration-removal consent. No implicit
+stop, daemon startup, replay, cleanup or sandbox deletion is authorized. All existing
+CLI/daemon/loaded-Pi diagnostics must match schema 40; reload installed Pi sources
+separately. This is not a registry/data migration; persisted formats are unchanged.
 
 The new ownership-intent format is version 1; it is additive and leaves existing registration, native store, workspace registry and Radar database formats unchanged. Existing explicit registrations require no migration and are not silently converted to managed ownership. Invalid ownership intents are rejected, never reset.
 

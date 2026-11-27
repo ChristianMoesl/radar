@@ -227,6 +227,15 @@ func (s *Server) handle(conn net.Conn) {
 				_ = encoder.Encode(protocol.Response{OK: false, Error: "exact typed maintenance request required"})
 				continue
 			}
+			if req.Maintenance.Operation == "agent_remove" {
+				view, err := s.diagnosticAgentRemove(context.Background(), *req.Maintenance)
+				if err != nil {
+					_ = encoder.Encode(protocol.Response{OK: false, Error: diagnosticAgentRemoveUnavailable().Error()})
+					continue
+				}
+				_ = encoder.Encode(protocol.Response{OK: true, DiagnosticAgentRemove: &view})
+				continue
+			}
 			if req.Maintenance.Operation == "agent_stop" {
 				view, err := s.diagnosticAgentStop(context.Background(), *req.Maintenance)
 				if err != nil {
