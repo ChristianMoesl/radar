@@ -64,6 +64,10 @@ includes private native and adapter/guard data. Server retention never extends
 the original native monotonic 30-second expiry. Apply consumes before further
 validation. Drift, expiry, cancellation, refusal or lost replies never restore
 an executable plan or authorize automatic replay, retry or silent replan.
+Native execution uses the earliest of that original expiry, the caller deadline
+and its existing 15-second cap, including connected shutdown I/O. Cancellation
+or expiry observed after effects cannot produce a successful native return;
+already accepted desired-state/shutdown effects are not rolled back.
 
 The complete allowlisted response is at most 32 KiB. It contains public task,
 agent and workspace IDs, freshness, `desired_before`/`running_before` capture

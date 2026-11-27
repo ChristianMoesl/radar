@@ -127,8 +127,10 @@ func (m *Manager) PrepareStop(ctx context.Context, id string, expected protocol.
 // second shutdown executor. Refusal/lost replies do not restore admission.
 // A nil error means native stop returned, not completed agent work, released
 // leases or workspace/sandbox absence. Desired-state writes are not rolled back
-// on later shutdown failure/cancellation. Stopped registrations retain ownership.
-func (p StopPlan) Execute(ctx context.Context) error {
+// on later shutdown failure/cancellation/expiry. Stopped registrations retain
+// ownership. The original monotonic expiry also bounds native execution, and
+// cancellation/expiry observed after effects cannot certify a successful return.
+func (p StopPlan) Execute(ctx context.Context) (result error) {
 	if p.capture == nil {
 		return stopPlanUnavailable()
 	}
@@ -145,8 +147,19 @@ func (p StopPlan) Execute(ctx context.Context) error {
 		return stopPlanUnavailable()
 	}
 	defer m.mu.Unlock()
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	deadline := time.Now().Add(15 * time.Second)
+	if c.expires.Before(deadline) {
+		deadline = c.expires
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
+	// Normalize BEFORE our own deferred cancel. Already accepted desired-state
+	// and shutdown effects remain possible; no rollback or retry is implied.
+	defer func() {
+		if ctx.Err() != nil || !time.Now().Before(c.expires) {
+			result = stopPlanUnavailable()
+		}
+	}()
 	// Reject filesystem/scope drift before contacting a possibly replaced peer.
 	if !c.current(ctx) {
 		return stopPlanUnavailable()

@@ -278,7 +278,7 @@ func TestDocumentationAgentStopInterruptionConsentBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, contract := range []string{"schema 42", "section `agent_stop`", "registered `agent_id`", "identified Pi session", "Headless, denied", "desired-state persistence", "not a consent-token issuer", "every attempt consumes", "Context/session recapture", "--section agent_stop", "agent_stop_daemon_client_transport: true", "agent_stop_previews: true", "agent_stop_apply: true", "runtime_controls", "separate fresh interactive exact-target interruption consent", "immutable latest preview", "Duplicate (including escaped)", "30-second expiry", "16-entry per-task", "32 KiB", "agent-stop", "not_process_outcome", "no rollback or safe-retry", "Persisted formats", "not a registry/data migration"} {
+	for _, contract := range []string{"schema 42", "section `agent_stop`", "registered `agent_id`", "identified Pi session", "Headless, denied", "desired-state persistence", "not a consent-token issuer", "every attempt consumes", "Context/session recapture", "--section agent_stop", "agent_stop_daemon_client_transport: true", "agent_stop_previews: true", "agent_stop_apply: true", "runtime_controls", "separate fresh interactive exact-target interruption consent", "immutable latest preview", "Duplicate (including escaped)", "30-second expiry", "15-second cap", "including connected shutdown I/O", "expiry observed after effects", "16-entry per-task", "32 KiB", "agent-stop", "not_process_outcome", "no rollback or safe-retry", "Persisted formats", "not a registry/data migration"} {
 		if !strings.Contains(doc.Content, contract) {
 			t.Errorf("stop transport contract omitted %q", contract)
 		}
