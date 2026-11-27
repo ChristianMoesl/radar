@@ -10,14 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"radar/internal/integration"
 	"radar/internal/protocol"
 )
-
-// RemoveGuard is trusted in-process caller admission, never client input or
-// consent. Capture retains it without calling it. Apply must synchronously call
-// execute exactly once while fresh scope/publication/approval admission is held.
-// It must not re-enter the serialized manager or retain execute for later.
-type RemoveGuard func(context.Context, func() error) error
 
 // RemovePlan is private exact-registration admission, not a transport, preview
 // token or user consent. Copies share consumption and the original monotonic
@@ -29,8 +24,9 @@ type removeCapture struct {
 	mu       sync.Mutex
 	consumed bool
 	manager  *Manager
-	guard    RemoveGuard
+	guard    integration.AgentRemoveGuard
 	expires  time.Time
+	preview  integration.AgentRemovePreview
 	reg      Registration
 	files    stopFiles // Reuse the exact no-follow registration/owner/socket capture.
 	schedule stopFile
@@ -38,6 +34,13 @@ type removeCapture struct {
 
 func removePlanUnavailable() error {
 	return errors.New("exact native agent removal unavailable or changed; outcome may be partial or unknown, do not replay or automatically retry")
+}
+
+func (p RemovePlan) Preview() integration.AgentRemovePreview {
+	if p.capture == nil {
+		return integration.AgentRemovePreview{}
+	}
+	return p.capture.preview
 }
 
 func (p RemovePlan) ExpiresAt() time.Time {
@@ -59,7 +62,7 @@ func (p RemovePlan) RetainedBytes() int {
 // or reading tokens/store/snapshot payloads. Schedules are decoded transiently by
 // the native decoder; only bounded file metadata/hash is retained. Busy, unknown,
 // unsafe and cancelled evidence refuses, with cooperative 5s native I/O bound.
-func (m *Manager) PrepareRemove(ctx context.Context, id string, expected protocol.AgentWorkspaceBinding, guard RemoveGuard) (RemovePlan, error) {
+func (m *Manager) PrepareRemove(ctx context.Context, id string, expected protocol.AgentWorkspaceBinding, guard integration.AgentRemoveGuard) (RemovePlan, error) {
 	if guard == nil || ctx.Err() != nil || !validID.MatchString(id) || expected.ID == "" || !filepath.IsAbs(expected.Path) || filepath.Clean(expected.Path) != expected.Path || m.workspace == nil || !m.mu.TryLock() {
 		return RemovePlan{}, removePlanUnavailable()
 	}
@@ -70,11 +73,17 @@ func (m *Manager) PrepareRemove(ctx context.Context, id string, expected protoco
 	if err != nil || reg.Workspace != expected {
 		return RemovePlan{}, removePlanUnavailable()
 	}
-	_, schedule, err := removalSchedules(reg)
+	state, schedule, err := removalSchedules(reg)
 	if err != nil {
 		return RemovePlan{}, removePlanUnavailable()
 	}
-	c := &removeCapture{manager: m, guard: guard, expires: time.Now().Add(30 * time.Second), reg: reg, files: files, schedule: schedule}
+	preview := integration.AgentRemovePreview{ID: reg.ID, Schedules: len(state.Schedules)}
+	for _, s := range state.Schedules {
+		if s.Enabled {
+			preview.EnabledSchedules++
+		}
+	}
+	c := &removeCapture{manager: m, guard: guard, expires: time.Now().Add(30 * time.Second), preview: preview, reg: reg, files: files, schedule: schedule}
 	if !c.current(ctx) || stoppedForRemoval(ctx, reg) != nil || !c.current(ctx) {
 		return RemovePlan{}, removePlanUnavailable()
 	}

@@ -40,6 +40,14 @@ func (s *Source) PrepareDiagnosticAgentStop(ctx context.Context, id string, expe
 	return plan, nil
 }
 
+func (s *Source) PrepareDiagnosticAgentRemove(ctx context.Context, id string, expected protocol.AgentWorkspaceBinding, guard integration.AgentRemoveGuard) (integration.AgentRemovePlan, error) {
+	plan, err := s.manager.PrepareRemove(ctx, id, expected, guard)
+	if err != nil {
+		return nil, err
+	}
+	return plan, nil
+}
+
 func (s *Source) DiagnosticAgentSupervision(ids []string) map[string]protocol.DiagnosticAgentSupervision {
 	return s.manager.DiagnosticAgentSupervision(ids)
 }

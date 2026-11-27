@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"radar/internal/integration"
 	"radar/internal/protocol"
 )
 
@@ -74,6 +75,14 @@ func TestNativeRemovePlanEffectFreePrivateCaptureAndRetainedData(t *testing.T) {
 	if err != nil || calls != 0 || !plan.ExpiresAt().After(start) || plan.ExpiresAt().After(time.Now().Add(30*time.Second)) || plan.RetainedBytes() < 64*1024 || plan.RetainedBytes() > 128*1024 {
 		t.Fatal("invalid capture/retention", err)
 	}
+	if plan.Preview() != (integration.AgentRemovePreview{ID: reg.ID, Schedules: 1, EnabledSchedules: 1}) {
+		t.Fatal("preview lost exact native capture facts", plan.Preview())
+	}
+	mutable := plan.Preview()
+	mutable.ID, mutable.Schedules, mutable.EnabledSchedules = "other", 99, 0
+	if plan.Preview() == mutable {
+		t.Fatal("caller changed retained preview")
+	}
 	encoded, err := json.Marshal(plan)
 	if err != nil || string(encoded) != "{}" {
 		t.Fatal("executable evidence serialized", string(encoded), err)
@@ -110,7 +119,7 @@ func TestNativeRemovePlanRefusesUnsafeCapture(t *testing.T) {
 			id, binding := reg.ID, reg.Workspace
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			guard := RemoveGuard(allowStopGuard)
+			guard := integration.AgentRemoveGuard(allowStopGuard)
 			methods := func() []string { return nil }
 			write := func(name, value string) {
 				t.Helper()
@@ -431,7 +440,7 @@ func TestNativeRemovePlanConcurrentCopiesAndOtherOwner(t *testing.T) {
 	}
 	var zero RemovePlan
 	requireRemovalRefusal(t, zero.Execute(context.Background()))
-	if !zero.ExpiresAt().IsZero() || zero.RetainedBytes() != 0 {
+	if !zero.ExpiresAt().IsZero() || zero.RetainedBytes() != 0 || zero.Preview() != (integration.AgentRemovePreview{}) {
 		t.Fatal("zero plan retains evidence")
 	}
 }

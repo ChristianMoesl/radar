@@ -509,11 +509,19 @@ schedule-pause/registration-unlink executor. The original trusted caller guard
 spans both effects. Cancellation, drift, denied admission, retained callbacks and
 unknown/live owners refuse; failure or lost response never restores admission.
 These are point-in-time checks, not an atomic filesystem/process transaction.
-This prerequisite enables no removal RPC, CLI/Pi preview/apply or user approval;
-`agent remove` remains the explicit native command. A later typed adapter still
-needs exact scope/publication admission and separate fresh removal consent. No
-implicit stop, daemon startup, automatic replay, cleanup or sandbox deletion is
-authorized. Schema 39, public capabilities and persisted formats are unchanged.
+One explicitly capable native provider now delegates this admission through a
+private typed interface. Registry selection requires exactly one provider, including
+refusal of duplicate instances or same-name ambiguity; generic agent control or
+a stop provider is never a fallback. The by-value view contains only exact agent
+ID and total/enabled schedule counts at capture, not schedule names/payloads or
+execution/resource outcomes. The source preserves the original guard, deadline
+and shared consumption; the caller must separately budget its adapter/guard.
+This prerequisite enables no daemon removal binding, RPC, CLI/Pi preview/apply or
+user approval; `agent remove` remains the explicit native command. A later adapter
+still needs exact feedback/scope/revision/publication admission, bounded retention
+and separate fresh removal consent. No implicit stop, daemon startup, automatic
+replay, cleanup or sandbox deletion is authorized. Schema 39, public capabilities
+and persisted formats are unchanged.
 
 The new ownership-intent format is version 1; it is additive and leaves existing registration, native store, workspace registry and Radar database formats unchanged. Existing explicit registrations require no migration and are not silently converted to managed ownership. Invalid ownership intents are rejected, never reset.
 
