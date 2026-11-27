@@ -516,12 +516,21 @@ a stop provider is never a fallback. The by-value view contains only exact agent
 ID and total/enabled schedule counts at capture, not schedule names/payloads or
 execution/resource outcomes. The source preserves the original guard, deadline
 and shared consumption; the caller must separately budget its adapter/guard.
-This prerequisite enables no daemon removal binding, RPC, CLI/Pi preview/apply or
-user approval; `agent remove` remains the explicit native command. A later adapter
-still needs exact feedback/scope/revision/publication admission, bounded retention
-and separate fresh removal consent. No implicit stop, daemon startup, automatic
-replay, cleanup or sandbox deletion is authorized. Schema 39, public capabilities
-and persisted formats are unchanged.
+The daemon privately binds the exact current retained task/agent ref and registered
+feedback plus origin/feedback/installation scope through that unique provider.
+Fresh scope, revision and resource-publication admission runs INSIDE the original
+native final guard. Removal shares the existing 16-entry per-task maintenance
+retention and stop/cleanup supersession; no second cache or fake cleanup targets.
+The original native monotonic expiry is not extended; retained native and complete
+adapter/guard context are budgeted together. Apply consumes before live checks;
+failed/cancelled native return after guard entry invalidates cached resources and
+may be partial, never rollback, safe retry or independently verified outcomes.
+This private prerequisite enables no removal RPC/client/CLI/Pi control or user
+approval, and adds no unversioned public managed-operation evidence. `agent remove`
+remains the explicit native command. A public adapter still needs strict finite
+version-matched disclosure/transport and separate fresh exact-target removal
+consent. No implicit stop, daemon startup, replay, cleanup or sandbox deletion is
+authorized. Schema 39, public capabilities and persisted formats are unchanged.
 
 The new ownership-intent format is version 1; it is additive and leaves existing registration, native store, workspace registry and Radar database formats unchanged. Existing explicit registrations require no migration and are not silently converted to managed ownership. Invalid ownership intents are rejected, never reset.
 

@@ -19,7 +19,7 @@ import (
 // Native private plan and view behind the finite daemon/client projection.
 // Public CLI/Pi controls still require separate fresh interruption approval.
 // All fields are private: accidentally marshaling a plan or view yields {}.
-type diagnosticAgentStopScope struct {
+type diagnosticAgentScope struct {
 	cleanup   diagnostics.ManualCleanupScope
 	workspace protocol.AgentWorkspaceBinding
 	ref       [32]byte
@@ -33,7 +33,7 @@ type diagnosticAgentStopView struct {
 }
 type diagnosticAgentStopPlan struct {
 	request                     protocol.DiagnosticMaintenanceRequest
-	scope                       diagnosticAgentStopScope
+	scope                       diagnosticAgentScope
 	operation                   string
 	native                      integration.AgentStopPlan
 	view                        diagnosticAgentStopView
@@ -41,13 +41,13 @@ type diagnosticAgentStopPlan struct {
 	active, entered, dispatched atomic.Bool
 }
 
-var diagnosticStopAgentID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+var diagnosticAgentControlID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 func diagnosticAgentStopUnavailable() error {
 	return errors.New("exact native agent stop unavailable or changed; outcome may be unknown, do not replay or automatically retry")
 }
 func validDiagnosticAgentStopRequest(q protocol.DiagnosticMaintenanceRequest, id string) bool {
-	if q.Operation != "agent_stop" || q.AgentID != id || !diagnosticStopAgentID.MatchString(id) {
+	if q.Operation != "agent_stop" || q.AgentID != id || !diagnosticAgentControlID.MatchString(id) {
 		return false
 	}
 	q.Operation, q.AgentID = "recreate", ""
@@ -56,17 +56,18 @@ func validDiagnosticAgentStopRequest(q protocol.DiagnosticMaintenanceRequest, id
 
 // Bind the exact current production task/ref and the complete registration
 // observation. A task's unrelated in-scope ref cannot authorize a different
-// agent. No native runner, checkpoint, token, lease or workspace preparation is
-// read here; PrepareDiagnosticAgentStop owns native identity/runtime capture.
-func (s *Server) captureDiagnosticAgentStopScope(ctx context.Context, q protocol.DiagnosticMaintenanceRequest, id string) (diagnosticAgentStopScope, error) {
-	fail := diagnosticAgentStopUnavailable()
+// agent. Shared by stop and removal; neither operation broadens this selection.
+// No native runner, checkpoint, token, lease or workspace preparation is
+// read here; each typed native provider owns its identity/runtime capture.
+func (s *Server) captureDiagnosticAgentScope(ctx context.Context, q protocol.DiagnosticMaintenanceRequest, id string) (diagnosticAgentScope, error) {
+	fail := errors.New("exact registered agent scope unavailable")
 	before, err := diagnostics.CaptureManualCleanupScope(ctx, s.store, q, s.integrations)
 	if err != nil {
-		return diagnosticAgentStopScope{}, fail
+		return diagnosticAgentScope{}, fail
 	}
 	task, ok := uniqueCleanupTask(s.filteredTasks(), before.TaskID)
 	if !ok || !diagnostics.ManualCleanupTaskInScope(task, q.Workspace) || len(task.SourceRefs) > 256 {
-		return diagnosticAgentStopScope{}, fail
+		return diagnosticAgentScope{}, fail
 	}
 	var selected protocol.SourceRef
 	matches := 0
@@ -77,15 +78,15 @@ func (s *Server) captureDiagnosticAgentStopScope(ctx context.Context, q protocol
 		}
 	}
 	if matches != 1 || !selected.IsDurableAgent() || selected.ID != "agent:instance:"+id || selected.EntityID != selected.ID || selected.Metadata["agent_id"] != id {
-		return diagnosticAgentStopScope{}, fail
+		return diagnosticAgentScope{}, fail
 	}
 	raw, err := json.Marshal(selected)
 	if err != nil || len(raw) > 64*1024 {
-		return diagnosticAgentStopScope{}, fail
+		return diagnosticAgentScope{}, fail
 	}
 	var groups []protocol.DiagnosticWorkspace
 	if json.Unmarshal([]byte(before.Registration), &groups) != nil {
-		return diagnosticAgentStopScope{}, fail
+		return diagnosticAgentScope{}, fail
 	}
 	var binding protocol.AgentWorkspaceBinding
 	for _, group := range groups {
@@ -97,9 +98,9 @@ func (s *Server) captureDiagnosticAgentStopScope(ctx context.Context, q protocol
 		}
 	}
 	if binding.ID == "" || binding.Mode != selected.Metadata["execution"] || (q.Scope != "installation" && binding.Path != q.Workspace) || ctx.Err() != nil || s.store.Revision() != before.Revision {
-		return diagnosticAgentStopScope{}, fail
+		return diagnosticAgentScope{}, fail
 	}
-	return diagnosticAgentStopScope{cleanup: before, workspace: binding, ref: sha256.Sum256(raw)}, nil
+	return diagnosticAgentScope{cleanup: before, workspace: binding, ref: sha256.Sum256(raw)}, nil
 }
 
 // Preparation retains one native capture with its original final guard in the
@@ -122,7 +123,7 @@ func (s *Server) prepareDiagnosticAgentStop(ctx context.Context, q protocol.Diag
 	if err != nil {
 		return fail()
 	}
-	before, err := s.captureDiagnosticAgentStopScope(ctx, q, id)
+	before, err := s.captureDiagnosticAgentScope(ctx, q, id)
 	if err != nil || !s.diagnosticRecreationInputsLive(ctx, before.cleanup.Revision, time.Time{}) {
 		return fail()
 	}
@@ -134,7 +135,7 @@ func (s *Server) prepareDiagnosticAgentStop(ctx context.Context, q protocol.Diag
 		if !p.active.Load() || !p.entered.CompareAndSwap(false, true) {
 			return diagnosticAgentStopUnavailable()
 		}
-		current, err := s.captureDiagnosticAgentStopScope(c, q, id)
+		current, err := s.captureDiagnosticAgentScope(c, q, id)
 		if err != nil || current != before || !s.diagnosticRecreationInputsLive(c, before.cleanup.Revision, p.expires) || !p.active.Load() {
 			return diagnosticAgentStopUnavailable()
 		}
@@ -152,7 +153,7 @@ func (s *Server) prepareDiagnosticAgentStop(ctx context.Context, q protocol.Diag
 	if preview.ID != id || nativeBytes < 1 || nativeBytes > maxCleanupPlanBytes || expires.IsZero() || expires.After(time.Now().Add(30*time.Second)) {
 		return fail()
 	}
-	after, err := s.captureDiagnosticAgentStopScope(ctx, q, id)
+	after, err := s.captureDiagnosticAgentScope(ctx, q, id)
 	if err != nil || after != before || !s.diagnosticRecreationInputsLive(ctx, before.cleanup.Revision, expires) {
 		return fail()
 	}

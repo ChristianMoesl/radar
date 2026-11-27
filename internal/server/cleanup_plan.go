@@ -19,14 +19,15 @@ const maxCleanupPlanBytes = 1024 * 1024
 // history or consent is recorded. Native providers must still revalidate live
 // ownership, activity, aliases, paths and leases at their execution boundaries.
 type nativeCleanupPlan struct {
-	id         string
-	payload    []byte
-	revision   int64
-	expires    time.Time                 // monotonic deadline; never accepted from a client
-	diagnostic []byte                    // Optional immutable typed adapter context; shares this one-use plan.
-	retirement *diagnosticRetirementPlan // Private native preparation, never transport or client supplied.
-	expiry     *diagnosticExpiryPlan
-	agentStop  *diagnosticAgentStopPlan // Private exact native stop; not a cleanup bundle.
+	id          string
+	payload     []byte
+	revision    int64
+	expires     time.Time                 // monotonic deadline; never accepted from a client
+	diagnostic  []byte                    // Optional immutable typed adapter context; shares this one-use plan.
+	retirement  *diagnosticRetirementPlan // Private native preparation, never transport or client supplied.
+	expiry      *diagnosticExpiryPlan
+	agentStop   *diagnosticAgentStopPlan   // Private exact native stop; not a cleanup bundle.
+	agentRemove *diagnosticAgentRemovePlan // Private exact registration removal, not cleanup.
 }
 
 func (s *Server) issueCleanupPlan(ctx context.Context, preview protocol.CleanupPreview, revision int64) (protocol.CleanupPreview, error) {
@@ -106,7 +107,7 @@ func (s *Server) issueBoundNativeCleanupPlan(ctx context.Context, preview protoc
 	return preview, nil
 }
 
-// One bounded per-task retention mechanism for native maintenance. Stop plans
+// One bounded per-task retention mechanism for native maintenance. Stop/removal
 // share supersession/capacity with cleanup, but never fabricate cleanup targets.
 // Build is local and effect-free. Failed admission must not replace a live plan.
 func (s *Server) retainCleanupPlan(ctx context.Context, taskID int, revision int64, build func(time.Time) (nativeCleanupPlan, error)) error {
@@ -174,7 +175,7 @@ func (s *Server) takeCleanupPlan(preview *protocol.CleanupPreview) (protocol.Cle
 	// Consume before every remaining check/dispatch. A changed request, lost
 	// reply, cancellation, partial failure or successful reread cannot replay it.
 	delete(s.cleanupPlans, preview.TaskID)
-	if plan.agentStop != nil || len(plan.diagnostic) != 0 || !time.Now().Before(plan.expires) || plan.revision != s.store.Revision() || !bytes.Equal(raw, plan.payload) {
+	if plan.agentStop != nil || plan.agentRemove != nil || len(plan.diagnostic) != 0 || !time.Now().Before(plan.expires) || plan.revision != s.store.Revision() || !bytes.Equal(raw, plan.payload) {
 		return protocol.CleanupPreview{}, changed
 	}
 	var bound protocol.CleanupPreview
