@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 	"golang.org/x/sys/unix"
@@ -57,7 +58,11 @@ func diagnosticRepositoryPolicy(ctx context.Context, root, parent, memberID, sco
 		view.Available, view.Evidence, view.Reason, view.Settings = false, "unavailable", reason, []protocol.DiagnosticSetting{}
 		return view, nil
 	}
-	if ctx.Err() != nil {
+	expired := func() bool {
+		deadline, bounded := ctx.Deadline()
+		return ctx.Err() != nil || (bounded && !time.Now().Before(deadline))
+	}
+	if expired() {
 		return unavailable("cancelled_or_timed_out")
 	}
 	captured, reason := capture(repository)
@@ -120,7 +125,7 @@ func diagnosticRepositoryPolicy(ctx context.Context, root, parent, memberID, sco
 	add("sbx.kit.name", strconv.FormatBool(kit.Name != ""))
 	add("sbx.kit.path", strconv.FormatBool(kit.Path != ""))
 	add("sbx.additional_mounts", strconv.Itoa(len(sandbox.AdditionalMounts)))
-	if ctx.Err() != nil {
+	if expired() {
 		return unavailable("cancelled_or_timed_out")
 	}
 	after, err := workspacegroup.DiagnosticLoad(root)
@@ -131,6 +136,11 @@ func diagnosticRepositoryPolicy(ctx context.Context, root, parent, memberID, sco
 	}
 	if !captured.unchanged() {
 		return unavailable("configuration_changed_or_read_incomplete")
+	}
+	// Final registration/configuration revalidation is also part of this
+	// cooperative read. Absolute expiry applies even before Err is notified.
+	if expired() {
+		return unavailable("cancelled_or_timed_out")
 	}
 	view.Available = true
 	view.Evidence = "fresh_bounded_repository_configuration"

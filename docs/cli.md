@@ -306,7 +306,13 @@ source repository's fixed `.radar.yaml` (64 KiB maximum). Pi requires fresh exac
 file-access approval; the CLI request itself is explicit local file inspection, not
 publication consent. Ten presence/mode/count declarations never imply effective
 policy. Missing configuration differs from unavailable repository evidence; no
-referenced files, runtime/provider calls or maintenance. See
+referenced files, runtime/provider calls or maintenance. Cancellation or absolute
+expiry withholds otherwise valid repository declarations, including a missing
+configuration result: evidence becomes `unavailable`, reason is
+`cancelled_or_timed_out`, and settings are empty. Expiry applies before context
+timer notification and after final native registration/configuration revalidation.
+These cooperative checks do not forcibly interrupt filesystem reads or attest
+later freshness. No extra read, cached fallback or automatic retry occurs. See
 [the repository declaration contract](integrations/pi-policy.md#current-registered-member-repository-declarations-schema-42).
 
 `feedback-diagnostics --section recreation_preview --parent-id <registered-workspace-id>`

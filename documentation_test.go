@@ -40,6 +40,18 @@ func TestDocumentationCannotReadHostFiles(t *testing.T) {
 	}
 }
 
+func TestDocumentationRepositoryPolicyCancellationBoundary(t *testing.T) {
+	doc, err := Read("docs/cli.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contract := range []string{"expiry withholds otherwise valid repository declarations", "including a missing", "settings are empty", "timer notification and after final native registration/configuration revalidation", "do not forcibly interrupt filesystem reads", "No extra read, cached fallback or automatic retry"} {
+		if !strings.Contains(doc.Content, contract) {
+			t.Errorf("repository declaration cancellation contract omitted %q", contract)
+		}
+	}
+}
+
 func TestDocumentationRuntimeProbeCancellationBoundary(t *testing.T) {
 	doc, err := Read("docs/cli.md")
 	if err != nil {

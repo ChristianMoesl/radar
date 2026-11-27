@@ -30,6 +30,9 @@ func repositoryPolicy(ctx context.Context, store *state.Store, req protocol.Diag
 	}
 	ctx, cancel := context.WithTimeout(ctx, RuntimeProbeTimeout)
 	defer cancel()
+	if previewExpired(ctx) {
+		return protocol.DiagnosticsPage{}, fmt.Errorf("repository policy cancelled")
+	}
 	view, err := reader.DiagnosticRepositoryPolicy(ctx, req.ParentID, req.ID, req.Workspace)
 	if err != nil {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("repository policy registration unavailable in selected scope")
@@ -47,6 +50,13 @@ func repositoryPolicy(ctx context.Context, store *state.Store, req protocol.Diag
 	view.Settings = append([]protocol.DiagnosticSetting{}, view.Settings...)
 	if !validRepositoryPolicy(view) {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("repository policy evidence invalid")
+	}
+	// A typed provider may finish after cancellation or before an expired
+	// deadline's timer notification. Never publish its declarations as fresh.
+	// Check before our own deferred cancel, preserving healthy observations.
+	if previewExpired(ctx) {
+		view.Available, view.Evidence, view.Reason = false, "unavailable", "cancelled_or_timed_out"
+		view.Settings = []protocol.DiagnosticSetting{}
 	}
 	req.Limit = 1
 	return paginate(req, []protocol.DiagnosticItem{{ID: view.ID, RepositoryPolicy: &view}}, store.Revision(), pending, repositoryPolicyEvidence)
