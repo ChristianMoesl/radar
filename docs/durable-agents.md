@@ -93,6 +93,17 @@ radar agent add ./counter.ts --id counter \
 The same preview/acceptance flags work with `agent start` and `agent restart`
 when recovery needs resource changes. A changed plan requires another preview.
 A preview does not create an ownership intent, note, workspace or sandbox.
+On apply, managed workspace preparation plans and accepts ownership/confirmation
+once under the existing native creation/update and note-relocation locks. The
+full native plan and request go directly to the same resource executor, without
+replanning from a public plan ID. Bundle leases, registration drift checks,
+environment-file validation and per-effect branch/runtime safeguards still apply;
+acceptance does not replace them. An explicitly supplied stale agent plan is
+rejected even when the current preparation needs no resource changes. An intent
+retained before a later failure is not a resource outcome or proof of safe retry.
+This internal preparation boundary is not end-to-end retained startup admission:
+sandbox resumption and final runner checks remain separate. Diagnostic exact
+start/restart controls remain unsupported; broad `runtime_controls` stays false.
 `--workspace <registered-path>` explicitly selects an already prepared workspace
 instead; Radar validates it but does not claim ownership or repair its runtime.
 Native model tools still follow the separate human-confirmation flow described

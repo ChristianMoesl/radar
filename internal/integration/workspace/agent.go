@@ -148,47 +148,57 @@ func prepareAgentWorkspace(ctx context.Context, runner Runner, options CreateOpt
 			return fail(fmt.Errorf("agent workspace requires SBX; refusing host fallback"))
 		}
 	}
-	plan, _, err := planCreate(ctx, runner, options)
-	if err != nil {
-		return fail(err)
+	var binding protocol.AgentWorkspaceBinding
+	var public integration.WorkspaceReconcilePlan
+	admit := func(plan ReconcileWorkspacePlan) error {
+		binding = workspaceBinding(plan.group)
+		if owned && binding != intent.Binding {
+			return fmt.Errorf("agent workspace plan changes its ownership binding")
+		}
+		if plan.group.TaskLinkingKey != options.TaskLinkingKey {
+			return fmt.Errorf("workspace is not owned by this agent")
+		}
+		relative, err := filepath.Rel(binding.Path, req.DataDir)
+		if err != nil {
+			return err
+		}
+		if relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative) {
+			return fmt.Errorf("durable agent data must be outside its disposable workspace")
+		}
+		public = integrationPlan(plan)
+		public.AutoConfirm = autoConfirm
+		if req.Preview {
+			return nil
+		}
+		if req.PlanID != "" && req.PlanID != plan.PlanID {
+			return fmt.Errorf("agent workspace plan changed; preview it again")
+		}
+		if !autoConfirm && len(plan.Changes) > 0 && req.PlanID == "" {
+			return fmt.Errorf("agent workspace confirmation required; use agent add/start --preview and supply the accepted --plan-id and --prepared-note")
+		}
+		if !owned {
+			intent = agentWorkspaceIntent{Version: 1, AgentID: req.ID, Root: plan.root, Binding: binding, Note: plan.Note}
+			return saveAgentWorkspaceIntent(intentPath, intent)
+		}
+		return nil
 	}
-	binding := workspaceBinding(plan.group)
-	if owned && binding != intent.Binding {
-		return fail(fmt.Errorf("agent workspace plan changes its ownership binding"))
-	}
-	if plan.group.TaskLinkingKey != options.TaskLinkingKey {
-		return fail(fmt.Errorf("workspace is not owned by this agent"))
-	}
-	relative, err := filepath.Rel(binding.Path, req.DataDir)
-	if err != nil {
-		return fail(err)
-	}
-	if relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative) {
-		return fail(fmt.Errorf("durable agent data must be outside its disposable workspace"))
-	}
-	public := integrationPlan(plan)
-	public.AutoConfirm = autoConfirm
 	if req.Preview {
-		return binding, public, nil
-	}
-	if req.PlanID != "" && req.PlanID != plan.PlanID {
-		return fail(fmt.Errorf("agent workspace plan changed; preview it again"))
-	}
-	if !autoConfirm && len(plan.Changes) > 0 && req.PlanID == "" {
-		return fail(fmt.Errorf("agent workspace confirmation required; use agent add/start --preview and supply the accepted --plan-id and --prepared-note"))
-	}
-	if !owned {
-		intent = agentWorkspaceIntent{Version: 1, AgentID: req.ID, Root: plan.root, Binding: binding, Note: plan.Note}
-		if err := saveAgentWorkspaceIntent(intentPath, intent); err != nil {
+		plan, _, err := planCreate(ctx, runner, options)
+		if err != nil {
 			return fail(err)
 		}
+		if err := admit(plan); err != nil {
+			return fail(err)
+		}
+		return binding, public, nil
 	}
-	options.Note, options.ExpectedPlanID = plan.Note, plan.PlanID
-	if _, err := Create(ctx, runner, options); err != nil {
+	// Plan and accept once under native creation locks, then apply the SAME
+	// full native plan/request through the existing bundle/effect safeguards.
+	if _, err := createWithAdmission(ctx, runner, options, admit); err != nil {
 		return fail(err)
 	}
 	// exec starts a stopped SBX in place; do not replace it just to resume it.
-	if plan.group.Sandbox != nil {
+	if binding.Mode == "sbx" {
 		if _, err := managedClient(runner).Run(ctx, binding.Path, "exec", "--workdir", binding.Path, binding.Sandbox, "true"); err != nil {
 			return fail(fmt.Errorf("start agent workspace sandbox: %w", err))
 		}

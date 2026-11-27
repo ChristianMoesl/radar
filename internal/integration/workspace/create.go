@@ -220,6 +220,13 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 }
 
 func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
+	return createWithAdmission(ctx, runner, options, nil)
+}
+
+// createWithAdmission lets native agent preparation accept the full plan under
+// the same creation locks that protect its application. The plan and request
+// stay in this call; acceptance never reconstructs them from a public digest.
+func createWithAdmission(ctx context.Context, runner Runner, options CreateOptions, admit func(ReconcileWorkspacePlan) error) (Workspace, error) {
 	logger, logFile, _, err := logging.New()
 	if err != nil {
 		return Workspace{}, fmt.Errorf("open workspace creation log: %w", err)
@@ -244,13 +251,13 @@ func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspac
 	err = workspacegroup.WithNoteLock(root, func() error {
 		noteLockDone()
 		var err error
-		result, err = createWorkspace(ctx, runner, options, logger)
+		result, err = createWorkspace(ctx, runner, options, logger, admit)
 		return err
 	})
 	return result, err
 }
 
-func createWorkspace(ctx context.Context, runner Runner, options CreateOptions, logger *slog.Logger) (Workspace, error) {
+func createWorkspace(ctx context.Context, runner Runner, options CreateOptions, logger *slog.Logger, admit func(ReconcileWorkspacePlan) error) (Workspace, error) {
 	planningDone := phasetiming.Start(ctx, "workspace_planning")
 	plan, request, err := planCreate(ctx, runner, options)
 	planningDone()
@@ -259,6 +266,11 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions, 
 	}
 	if options.ExpectedPlanID != "" && options.ExpectedPlanID != plan.PlanID && !(options.PrepareOnly && !plan.create && len(plan.Changes) == 0) {
 		return Workspace{}, fmt.Errorf("workspace creation plan changed; review it again")
+	}
+	if admit != nil {
+		if err := admit(plan); err != nil {
+			return Workspace{}, err
+		}
 	}
 	if plan.openExisting {
 		if options.PrepareOnly {
