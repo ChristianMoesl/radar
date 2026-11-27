@@ -1,6 +1,6 @@
 # Exact stopped-registration removal: daemon/client contract
 
-Diagnostics **schema 41** enables section `agent_remove` through the existing
+Diagnostics **schema 42** enables section `agent_remove` through the existing
 finite daemon/client transport and single native removal executor:
 `agent_remove_daemon_client_transport: true`, `agent_remove_previews: true`,
 `agent_remove_apply: true`, broad `runtime_controls: false`.
@@ -58,6 +58,31 @@ Complete response validation is canonical, bounded to 32 KiB for the view and
 36 KiB for the envelope, with every required/null member checked and the reply
 bound to the original exact request. Older peers fail closed, without aliases.
 
+Schema 42 also requires a separate finite `observation` object; handler status is
+unchanged. Preview has `evidence: unknown_not_observed`, `registration: unknown`,
+`schedules: unknown`, and no `observed_at`. Apply may retain that unknown evidence
+even after handler success. Otherwise `evidence: bounded_native_checkpoint_reads`
+has a canonical UTC `observed_at` within this apply's original native deadline,
+`registration: original_present | absent | unknown`, and
+`schedules: paused_or_empty_preserved | original_preserved | unknown`.
+These are independently reread exact native checkpoints, not inferred counts or
+handler results. A failed handler may follow observed effects. Cancelled/expired
+requests acquire no detached observations. Invalid native evidence becomes unknown;
+unknown/private/duplicate/null wire members and inconsistent observations fail closed.
+
+The native reader binds ORIGINAL captured root/instance identities around bounded
+no-follow reads and rechecks both leaves afterward. Schedule evidence compares a
+private fingerprint of the complete decoded native state, including pending payloads
+and admission metadata, with only enabled flags cleared. Missing/empty schedules must
+remain preserved; no new file or history is created. `original_preserved` observes
+the original unpaused checkpoint, never a successful pause. No private hashes,
+checkpoint bytes, paths or payloads cross the wire. The timestamp is point-in-time,
+not atomicity or later freshness. Registration absence does not prove runner,
+workspace or sandbox absence, other-owner release, cleanup eligibility or safe retry.
+The observation accessor is immutable and memory-only; no extra execution, implicit
+probe, replay, replan or retry is introduced. Pi validates the complete nested object
+before both text and model-details delivery, separately from unchanged handler status.
+
 Preview performs bounded effect-free native capture of an already stopped exact
 registration. Apply reuses the original single native executor: pause retained
 schedules, then unlink registration, releasing **only this workspace association**.
@@ -98,6 +123,6 @@ refusal, no cleanup target counts/phases are synthesized, and history is neither
 complete nor durable. Schema-matched Pi validates this evidence before model output; neither evidence
 nor handler success authorizes another removal or cleanup.
 
-CLI, daemon and loaded Pi must match schema 41; separately install/reload Pi after
+CLI, daemon and loaded Pi must match schema 42; separately install/reload Pi after
 updating sources (`make install` alone does not reload it). Persisted formats are
 unchanged: not a registry/data migration, no reset or compatibility shim.

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"radar/internal/protocol"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ func recreationWireFixture() []byte {
 }
 func TestDiagnosticRecreationDecoderCompleteShape(t *testing.T) {
 	raw := string(recreationWireFixture())
+	schema := `"diagnostics_schema":` + strconv.Itoa(protocol.DiagnosticsVersion)
 	response, err := decodeDiagnosticRecreation([]byte(raw))
 	if err != nil || response.DiagnosticRecreation == nil || !response.OK {
 		t.Fatal("valid strict view", response, err)
@@ -32,14 +34,14 @@ func TestDiagnosticRecreationDecoderCompleteShape(t *testing.T) {
 		"duplicate":             strings.Replace(raw, `"mode":"preview"`, `"mode":"apply","mode":"preview"`, 1),
 		"escaped_duplicate":     strings.Replace(raw, `"mode":"preview"`, `"m\u006fde":"preview","mode":"preview"`, 1),
 		"missing_ok":            strings.Replace(raw, `,"ok":true`, "", 1),
-		"missing_schema":        strings.Replace(raw, `"diagnostics_schema":41,`, "", 1),
+		"missing_schema":        strings.Replace(raw, schema+",", "", 1),
 		"missing_pending":       strings.Replace(raw, `,"resource_refresh_pending":false`, "", 1),
 		"missing_identity_bool": strings.Replace(raw, `,"runtime_identity_observed":true`, "", 1),
 		"missing_owner":         strings.Replace(raw, `,"agent_owner_count":0`, "", 1),
 		"null_owner":            strings.Replace(raw, `"agent_owner_count":0`, `"agent_owner_count":null`, 1),
 		"null_pending":          strings.Replace(raw, `"resource_refresh_pending":false`, `"resource_refresh_pending":null`, 1),
 		"null_view":             `{"ok":true,"diagnostic_recreation":null}`,
-		"old_schema":            strings.Replace(raw, `"diagnostics_schema":41`, `"diagnostics_schema":34`, 1),
+		"old_schema":            strings.Replace(raw, schema, `"diagnostics_schema":34`, 1),
 		"unknown_outcome":       strings.Replace(raw, `"outcome":"not_attempted"`, `"outcome":"verified_recovery"`, 1),
 		"bad_status":            strings.Replace(raw, `"status":"recreate"`, `"status":"healthy"`, 1),
 		"eligible":              strings.Replace(raw, `"execution_eligibility":"unknown_fresh_execution_guards_not_run"`, `"execution_eligibility":"eligible"`, 1),

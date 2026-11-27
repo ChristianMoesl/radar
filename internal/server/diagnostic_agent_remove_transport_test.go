@@ -124,6 +124,9 @@ func TestDiagnosticAgentRemoveTransportNativeClientExactPlanManagedEvidence(t *t
 			if err != nil || !response.OK || v == nil || v.OperationID == "" || !protocol.ValidDiagnosticAgentRemove(*v, q) || v.Outcome != "native_handler_returned_unverified" || v.SchedulesBefore != 2 || v.EnabledSchedulesBefore != 1 || !v.ResourceRefreshPending || !*pending || removeRegistered(t, file) {
 				t.Fatal("finite native apply failed/overclaimed", response, err)
 			}
+			if v.Observation.Evidence != "bounded_native_checkpoint_reads" || v.Observation.Registration != "absent" || v.Observation.Schedules != "paused_or_empty_preserved" || v.Observation.ObservedAt == "" {
+				t.Fatal("real native observations lost across finite client transport", v.Observation)
+			}
 			_, _, ops, _ := s.store.OperationInspectionSnapshot()
 			if len(ops) != 1 || ops[0].ID != v.OperationID || ops[0].Kind != "agent-remove" || ops[0].Status != "succeeded" || ops[0].WorkspaceID != target {
 				t.Fatal("missing/wrong managed dispatch evidence", ops)

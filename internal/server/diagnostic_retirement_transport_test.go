@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"radar/internal/client"
 	"radar/internal/protocol"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,9 +17,10 @@ func TestDiagnosticRetirementTransportRejectsBeforeNativeDispatch(t *testing.T) 
 	s, p, q, _ := retirementAdapterFixture(t)
 	raw, _ := json.Marshal(protocol.Request{Method: "diagnostics-maintenance", Maintenance: &q})
 	valid := string(raw)
+	schema := `"diagnostics_schema":` + strconv.Itoa(protocol.DiagnosticsVersion)
 	frames := map[string]string{
-		"old_schema":        strings.Replace(valid, `"diagnostics_schema":41`, `"diagnostics_schema":35`, 1),
-		"new_schema":        strings.Replace(valid, `"diagnostics_schema":41`, `"diagnostics_schema":42`, 1),
+		"old_schema":        strings.Replace(valid, schema, `"diagnostics_schema":35`, 1),
+		"new_schema":        strings.Replace(valid, schema, `"diagnostics_schema":`+strconv.Itoa(protocol.DiagnosticsVersion+1), 1),
 		"unknown_envelope":  strings.Replace(valid, `"method":`, `"private":null,"method":`, 1),
 		"folded":            strings.Replace(valid, `"parent_id":`, `"PARENT_ID":`, 1),
 		"duplicate":         strings.Replace(valid, `"operation":"retire"`, `"operation":"retire","operation":"retire"`, 1),

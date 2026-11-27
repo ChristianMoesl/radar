@@ -11,32 +11,63 @@ import (
 )
 
 // DiagnosticAgentRemove is a finite stopped-registration removal disclosure, not
-// a private registration, executable plan, consent or independently verified outcome.
+// a private registration, executable plan, consent or whole-resource outcome.
 // Trusted callers must obtain separate fresh exact-target removal consent. Counts
 // describe captured schedules, never disabled schedules or post-apply ownership.
 type DiagnosticAgentRemove struct {
-	Schema                 int      `json:"diagnostics_schema"`
-	Operation              string   `json:"operation"`
-	Mode                   string   `json:"mode"`
-	Scope                  string   `json:"scope"`
-	RecordID               string   `json:"record_id"`
-	TaskID                 int      `json:"task_id"`
-	AgentID                string   `json:"agent_id"`
-	FeedbackWorkspaceID    string   `json:"feedback_workspace_id"`
-	ScopeWorkspaceID       string   `json:"scope_workspace_id,omitempty"`
-	AgentWorkspaceID       string   `json:"agent_workspace_id"`
-	Evidence               string   `json:"evidence"`
-	PlanID                 string   `json:"plan_id"`
-	ExpiresAt              string   `json:"expires_at"`
-	Revision               int64    `json:"revision"`
-	SchedulesBefore        int      `json:"schedules_before"`
-	EnabledSchedulesBefore int      `json:"enabled_schedules_before"`
-	DispatchEvidence       string   `json:"dispatch_evidence"`
-	Problem                string   `json:"problem"`
-	Outcome                string   `json:"outcome"`
-	OperationID            string   `json:"operation_id,omitempty"`
-	ResourceRefreshPending bool     `json:"resource_refresh_pending"`
-	Limitations            []string `json:"limitations"`
+	Schema                 int                              `json:"diagnostics_schema"`
+	Operation              string                           `json:"operation"`
+	Mode                   string                           `json:"mode"`
+	Scope                  string                           `json:"scope"`
+	RecordID               string                           `json:"record_id"`
+	TaskID                 int                              `json:"task_id"`
+	AgentID                string                           `json:"agent_id"`
+	FeedbackWorkspaceID    string                           `json:"feedback_workspace_id"`
+	ScopeWorkspaceID       string                           `json:"scope_workspace_id,omitempty"`
+	AgentWorkspaceID       string                           `json:"agent_workspace_id"`
+	Evidence               string                           `json:"evidence"`
+	PlanID                 string                           `json:"plan_id"`
+	ExpiresAt              string                           `json:"expires_at"`
+	Revision               int64                            `json:"revision"`
+	SchedulesBefore        int                              `json:"schedules_before"`
+	EnabledSchedulesBefore int                              `json:"enabled_schedules_before"`
+	DispatchEvidence       string                           `json:"dispatch_evidence"`
+	Problem                string                           `json:"problem"`
+	Outcome                string                           `json:"outcome"`
+	OperationID            string                           `json:"operation_id,omitempty"`
+	ResourceRefreshPending bool                             `json:"resource_refresh_pending"`
+	Observation            DiagnosticAgentRemoveObservation `json:"observation"`
+	Limitations            []string                         `json:"limitations"`
+}
+
+// Finite checkpoint evidence independent of handler status. No private hashes,
+// paths or checkpoint contents; unknown is never inferred from handler return.
+type DiagnosticAgentRemoveObservation struct {
+	Evidence     string `json:"evidence"`
+	Registration string `json:"registration"`
+	Schedules    string `json:"schedules"`
+	ObservedAt   string `json:"observed_at,omitempty"`
+}
+
+func UnknownDiagnosticAgentRemoveObservation() DiagnosticAgentRemoveObservation {
+	return DiagnosticAgentRemoveObservation{Evidence: "unknown_not_observed", Registration: "unknown", Schedules: "unknown"}
+}
+
+func validDiagnosticAgentRemoveObservation(v DiagnosticAgentRemove) bool {
+	o := v.Observation
+	if o.Evidence == "unknown_not_observed" {
+		return o == UnknownDiagnosticAgentRemoveObservation()
+	}
+	if v.Mode != "apply" || v.Problem == "cancelled_or_timed_out" || o.Evidence != "bounded_native_checkpoint_reads" ||
+		(o.Registration != "unknown" && o.Registration != "original_present" && o.Registration != "absent") ||
+		(o.Schedules != "unknown" && o.Schedules != "paused_or_empty_preserved" && o.Schedules != "original_preserved") ||
+		(o.Schedules == "original_preserved" && (v.SchedulesBefore == 0 || v.EnabledSchedulesBefore == 0)) {
+		return false
+	}
+	at, err := time.Parse(time.RFC3339Nano, o.ObservedAt)
+	expires, expiryErr := time.Parse(time.RFC3339Nano, v.ExpiresAt)
+	return err == nil && expiryErr == nil && at.Year() >= 1 && len(o.ObservedAt) <= 35 && at.UTC().Format(time.RFC3339Nano) == o.ObservedAt &&
+		!at.Before(expires.Add(-30*time.Second)) && !at.After(expires) && !at.After(time.Now())
 }
 
 func DiagnosticAgentRemoveLimitations() []string {
@@ -54,6 +85,10 @@ func DiagnosticAgentRemoveLimitations() []string {
 		"point_in_time_guards_not_atomic_filesystem_or_collection_transactions_or_peer_pid_attestation",
 		"schedule_pause_may_precede_unlink_failure_cancellation_or_lost_reply_no_rollback_or_safe_retry",
 		"native_callback_and_handler_return_not_resource_absence_cleanup_eligibility_or_independent_outcomes",
+		"observation_independently_rereads_only_exact_native_registration_and_complete_retained_schedule_state",
+		"original_directory_and_leaf_identity_checks_point_in_time_not_atomic_or_later_freshness",
+		"unknown_observations_never_inferred_from_handler_success_or_capture_counts",
+		"observed_registration_absence_not_runner_workspace_sandbox_absence_other_owner_release_or_safe_retry",
 		"resource_refresh_pending_requires_independent_recollection_not_verified_resource_outcomes",
 		"no_automatic_replay_retry_silent_replan_start_stop_restart_cleanup_or_sandbox_deletion",
 		"current_daemon_managed_handler_evidence_not_complete_or_durable_history",
@@ -78,7 +113,7 @@ func ValidDiagnosticAgentRemove(v DiagnosticAgentRemove, q DiagnosticMaintenance
 		return false
 	}
 	raw, err := json.Marshal(v)
-	if err != nil || len(raw) > 32*1024 {
+	if err != nil || len(raw) > 32*1024 || !validDiagnosticAgentRemoveObservation(v) {
 		return false
 	}
 	if q.Mode == "preview" {

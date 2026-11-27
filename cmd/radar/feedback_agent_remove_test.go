@@ -61,7 +61,7 @@ func TestFeedbackAgentRemoveExactTaskAgentScopeAndFiniteEvidence(t *testing.T) {
 							done <- nil
 							return
 						}
-						v := protocol.DiagnosticAgentRemove{Schema: protocol.DiagnosticsVersion, Operation: "agent_remove", Mode: mode, Scope: scope, RecordID: "record", TaskID: 7, AgentID: "worker", FeedbackWorkspaceID: workspacegroup.ID(anchor), ScopeWorkspaceID: scopeID, AgentWorkspaceID: target, Evidence: "native_exact_agent_removal_plan_not_consent", PlanID: strings.Repeat("c", 64), ExpiresAt: time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano), Revision: 1, SchedulesBefore: 3, EnabledSchedulesBefore: 2, DispatchEvidence: "not_dispatched", Problem: "none", Outcome: "not_attempted", Limitations: protocol.DiagnosticAgentRemoveLimitations()}
+						v := protocol.DiagnosticAgentRemove{Schema: protocol.DiagnosticsVersion, Operation: "agent_remove", Mode: mode, Scope: scope, RecordID: "record", TaskID: 7, AgentID: "worker", FeedbackWorkspaceID: workspacegroup.ID(anchor), ScopeWorkspaceID: scopeID, AgentWorkspaceID: target, Evidence: "native_exact_agent_removal_plan_not_consent", PlanID: strings.Repeat("c", 64), ExpiresAt: time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano), Revision: 1, SchedulesBefore: 3, EnabledSchedulesBefore: 2, DispatchEvidence: "not_dispatched", Problem: "none", Outcome: "not_attempted", Observation: protocol.UnknownDiagnosticAgentRemoveObservation(), Limitations: protocol.DiagnosticAgentRemoveLimitations()}
 						if mode == "apply" {
 							v.Outcome, v.DispatchEvidence, v.OperationID, v.ResourceRefreshPending = "native_handler_returned_unverified", "native_remove_callback_entered_not_resource_outcome", "operation", true
 						}

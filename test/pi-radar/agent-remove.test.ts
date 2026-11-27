@@ -7,7 +7,7 @@ import { agentRemoveLimitations } from "../../extensions/pi-radar/agent-remove.t
 
 function fixture(scope = "origin", desired = 3, running = 1): any {
  const target = scope === "feedback" ? "feedback" : "registered";
- return {diagnostics_schema:41,section:"agent_remove",scope,available:true,feedback_workspace_id:"feedback",...(scope==="origin"?{origin_workspace_id:target}:{}),evidence:"native_exact_agent_removal_plan_not_consent",agent_remove:{diagnostics_schema:41,operation:"agent_remove",mode:"preview",scope,record_id:"record",task_id:7,agent_id:"worker",feedback_workspace_id:"feedback",...(scope!=="installation"?{scope_workspace_id:target}:{}),agent_workspace_id:target,evidence:"native_exact_agent_removal_plan_not_consent",plan_id:"c".repeat(64),expires_at:new Date(Date.now()+30_000).toISOString(),revision:3,schedules_before:desired,enabled_schedules_before:running,dispatch_evidence:"not_dispatched",problem:"none",outcome:"not_attempted",resource_refresh_pending:false,limitations:[...agentRemoveLimitations]}};
+ return {diagnostics_schema:42,section:"agent_remove",scope,available:true,feedback_workspace_id:"feedback",...(scope==="origin"?{origin_workspace_id:target}:{}),evidence:"native_exact_agent_removal_plan_not_consent",agent_remove:{diagnostics_schema:42,operation:"agent_remove",mode:"preview",scope,record_id:"record",task_id:7,agent_id:"worker",feedback_workspace_id:"feedback",...(scope!=="installation"?{scope_workspace_id:target}:{}),agent_workspace_id:target,evidence:"native_exact_agent_removal_plan_not_consent",plan_id:"c".repeat(64),expires_at:new Date(Date.now()+30_000).toISOString(),revision:3,schedules_before:desired,enabled_schedules_before:running,dispatch_evidence:"not_dispatched",problem:"none",outcome:"not_attempted",resource_refresh_pending:false,observation:{evidence:"unknown_not_observed",registration:"unknown",schedules:"unknown"},limitations:[...agentRemoveLimitations]}};
 }
 function harness(data: any = fixture()) {
  const tools = new Map<string, any>(["mcp__linear__get_project","mcp__linear__save_issue"].map(name=>[name,{name,exposure:"direct"}]));let active=[...tools.keys()];
@@ -75,7 +75,7 @@ for(const stage of ["preview","apply"])for(const drift of ["workspace","session"
  const h=harness(),abort=new AbortController();if(stage==="apply")await h.preview();const original=h.pi.exec;h.pi.exec=async(...args:any[])=>{const result=await original(...args);if(drift==="workspace")h.ctx.cwd="/work/other";if(drift==="session")h.ctx.session="other";if(drift==="context")h.session.update({feedback:true},h.ctx);if(drift==="abort")abort.abort();if(drift==="ui")h.ctx.hasUI=false;if(drift==="mcp")h.tools.clear();return result;};h.approvals.push(true);await assert.rejects(h.read(stage==="apply"?{action:"apply",plan_id:h.data.agent_remove.plan_id}:{},abort.signal));assert.equal(h.calls.length,stage==="apply"?2:1);
 });
 for(const scope of ["origin","feedback","installation"])for(const reason of ["origin_not_registered","daemon_unavailable","agent_remove_outcome_unknown_do_not_replay"])test(`removal unavailable evidence does not fall back ${scope}/${reason}`,async()=>{
- const data={diagnostics_schema:41,section:"agent_remove",scope,available:false,feedback_workspace_id:"feedback",...(scope==="origin"&&reason!=="origin_not_registered"?{origin_workspace_id:"registered"}:{}),evidence:"unavailable",reason};const h=harness(data);
+ const data={diagnostics_schema:42,section:"agent_remove",scope,available:false,feedback_workspace_id:"feedback",...(scope==="origin"&&reason!=="origin_not_registered"?{origin_workspace_id:"registered"}:{}),evidence:"unavailable",reason};const h=harness(data);
  if(reason==="origin_not_registered"&&scope!=="origin"){await assert.rejects(h.preview({scope}));return;}
  assert.equal((await h.preview({scope})).details.available,false);await assert.rejects(h.read({scope,action:"apply",plan_id:"c".repeat(64)}));assert.equal(h.calls.length,1);
  for(const extra of [{raw:"PRIVATE"},{agent_remove:fixture(scope).agent_remove},{reason:"PRIVATE"},{evidence:"native_exact_agent_removal_plan_not_consent"},{feedback_workspace_id:null}]){const bad=harness({...data,...extra});await assert.rejects(bad.preview({scope}));assert.equal(bad.calls.length,1);}
@@ -104,7 +104,7 @@ for (const direction of ["stop-to-remove", "remove-to-stop"]) test(`separate con
  const removal = fixture(), stop = structuredClone(removal);
  const v = stop.agent_remove; delete stop.agent_remove;
  stop.section = v.operation = "agent_stop"; stop.evidence = v.evidence = "native_exact_agent_stop_plan_not_consent";
- delete v.schedules_before; delete v.enabled_schedules_before;
+ delete v.schedules_before; delete v.enabled_schedules_before; delete v.observation;
  Object.assign(v, { desired_before: false, running_before: false, limitations: [...agentStopLimitations] }); stop.agent_stop = v;
  const first = direction === "stop-to-remove" ? "agent_stop" : "agent_remove", second = direction === "stop-to-remove" ? "agent_remove" : "agent_stop";
  const h = harness(first === "agent_stop" ? stop : removal);
@@ -116,4 +116,29 @@ for (const direction of ["stop-to-remove", "remove-to-stop"]) test(`separate con
  // Even returning to the original operation cannot revive the old preview.
  await assert.rejects(h.read({ section: first, action: "apply", plan_id: "c".repeat(64) }));
  assert.equal(h.calls.length, 1);
+});
+
+const nativeTime = () => new Date(Date.now() - 1).toISOString().replace(/(\.\d*?)0+Z$/, "$1Z").replace(".Z", "Z");
+function observedFixture() { const d = fixture(); d.agent_remove.expires_at = new Date(Date.now() + 29_000).toISOString(); return d; }
+function observed() { return {evidence:"bounded_native_checkpoint_reads",registration:"absent",schedules:"paused_or_empty_preserved",observed_at:nativeTime()}; }
+for (const registration of ["unknown","original_present","absent"]) for (const schedules of ["unknown","original_preserved","paused_or_empty_preserved"]) for (const failed of [false,true]) test(`removal checkpoint observation is separate from handler ${registration}/${schedules}/${failed}`, async () => {
+ const h = harness(observedFixture()); await h.preview();
+ h.mutation = (d:any) => { d.agent_remove.observation = {...observed(),registration,schedules}; if (failed) Object.assign(d.agent_remove,{outcome:"unverified_may_be_partial",problem:"native_error"}); };
+ const result = await h.apply(); assert.equal(result.details.agent_remove.observation.registration,registration); assert.equal(result.details.agent_remove.observation.schedules,schedules); assert.equal(result.details.agent_remove.problem,failed?"native_error":"none");
+ await assert.rejects(h.apply()); assert.equal(h.calls.length,2);
+});
+const badObservations: Record<string,(v:any)=>void> = {
+ missing:v=>delete v.observation, null:v=>v.observation=null, extra:v=>v.observation.hash="PRIVATE", checkpoint:v=>v.observation.checkpoint={payload:"PRIVATE"}, registration:v=>v.observation.registration="PRIVATE", schedule:v=>v.observation.schedules="PRIVATE", evidence:v=>v.observation.evidence="PRIVATE", missing_time:v=>delete v.observation.observed_at, null_time:v=>v.observation.observed_at=null,
+ private_time:v=>v.observation.observed_at="PRIVATE", future:v=>v.observation.observed_at=new Date(Date.now()+1000).toISOString(), stale:v=>v.observation.observed_at=new Date(Date.now()-60_000).toISOString(), offset:v=>v.observation.observed_at="2026-11-27T13:00:00+00:00", noncanonical:v=>v.observation.observed_at=nativeTime().replace("Z","0Z"),
+ unknown_time:v=>v.observation.evidence="unknown_not_observed", cancelled:v=>Object.assign(v,{problem:"cancelled_or_timed_out",outcome:"unverified_may_be_partial"}), old_schema:v=>v.diagnostics_schema=41,
+};
+for (const key of ["evidence","registration","schedules"]) for (const mode of ["missing","null"]) badObservations[`${key}_${mode}`] = v=>{if(mode==="missing")delete v.observation[key];else v.observation[key]=null;};
+for (const [kind, mutate] of Object.entries(badObservations)) test(`removal rejects private or inconsistent nested observation ${kind}`, async () => {
+ const h = harness(observedFixture()); await h.preview(); h.mutation=(d:any)=>{d.agent_remove.observation=observed();mutate(d.agent_remove);};
+ await assert.rejects(h.apply(),e=>e instanceof Error&&!e.message.includes("PRIVATE")); assert.equal(h.calls.length,2); await assert.rejects(h.apply()); assert.equal(h.calls.length,2);
+});
+test("preview cannot advertise already-observed checkpoint outcomes", async () => { const d=observedFixture();d.agent_remove.observation=observed();await assert.rejects(harness(d).preview()); });
+test("nested observation nanosecond order is checked without Date truncation", async () => {
+ const h=harness(observedFixture());h.data.agent_remove.expires_at=new Date(Date.now()+29_000).toISOString().replace(/\.\d{3}Z$/,".123456781Z");await h.preview();
+ h.mutation=(d:any)=>d.agent_remove.observation={...observed(),observed_at:d.agent_remove.expires_at.replace("123456781","123456782")};await assert.rejects(h.apply());assert.equal(h.calls.length,2);
 });

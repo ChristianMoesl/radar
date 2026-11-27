@@ -25,6 +25,7 @@ type diagnosticAgentRemoveView struct {
 	revision                                                           int64
 	dispatched                                                         bool
 	mode, problem, outcome                                             string
+	observation                                                        protocol.DiagnosticAgentRemoveObservation
 }
 type diagnosticAgentRemovePlan struct {
 	request                     protocol.DiagnosticMaintenanceRequest
@@ -159,12 +160,11 @@ func (s *Server) applyDiagnosticAgentRemove(ctx context.Context, q protocol.Diag
 	defer cancel()
 	p.active.Store(true)
 	defer p.active.Store(false)
+	started := time.Now()
 	err := p.native.Execute(ctx)
-	// Native Observation is intentionally not projected by schema 41. Keep
-	// handler evidence unchanged until the finite wire/CLI/Pi contracts are
-	// updated together; nil/error alone never establishes resource outcomes.
 	view := p.view
 	view.mode, view.dispatched, view.operationID = "apply", p.dispatched.Load(), p.operation
+	view.observation = protocol.UnknownDiagnosticAgentRemoveObservation()
 	if !view.dispatched {
 		return fail()
 	}
@@ -177,6 +177,13 @@ func (s *Server) applyDiagnosticAgentRemove(ctx context.Context, q protocol.Diag
 		if ctx.Err() != nil {
 			view.problem = "cancelled_or_timed_out"
 		}
+	}
+	if ctx.Err() == nil {
+		view.observation = projectAgentRemoveObservation(p.native.Observation(), started, p.expires)
+	}
+	if ctx.Err() != nil {
+		view.problem, view.outcome = "cancelled_or_timed_out", "unverified_may_be_partial"
+		view.observation = protocol.UnknownDiagnosticAgentRemoveObservation()
 	}
 	status := "succeeded"
 	if view.problem != "none" {
@@ -200,11 +207,13 @@ func (s *Server) diagnosticAgentRemove(ctx context.Context, q protocol.Diagnosti
 		return protocol.DiagnosticAgentRemove{}, diagnosticAgentRemoveUnavailable()
 	}
 	view := protocol.DiagnosticAgentRemove{Schema: protocol.DiagnosticsVersion, Operation: "agent_remove", Mode: private.mode, Scope: q.Scope, RecordID: private.record, TaskID: private.taskID, AgentID: private.agent, FeedbackWorkspaceID: private.feedback, AgentWorkspaceID: private.workspace, Evidence: "native_exact_agent_removal_plan_not_consent", PlanID: private.planID, ExpiresAt: private.expiresAt, Revision: private.revision, SchedulesBefore: private.schedules, EnabledSchedulesBefore: private.enabledSchedules, DispatchEvidence: "not_dispatched", Problem: private.problem, Outcome: "not_attempted", OperationID: private.operationID, ResourceRefreshPending: private.dispatched, Limitations: protocol.DiagnosticAgentRemoveLimitations()}
+	view.Observation = protocol.UnknownDiagnosticAgentRemoveObservation()
 	if q.Scope != "installation" {
 		view.ScopeWorkspaceID = private.workspace
 	}
 	if private.dispatched {
 		view.DispatchEvidence, view.Outcome = "native_remove_callback_entered_not_resource_outcome", private.outcome
+		view.Observation = private.observation
 	}
 	if !protocol.ValidDiagnosticAgentRemove(view, q) {
 		if q.Mode == "preview" {
