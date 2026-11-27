@@ -12,14 +12,25 @@ import (
 	"radar/internal/protocol"
 )
 
-func call(ctx context.Context, path, method string, params any, target any) error {
+func call(ctx context.Context, path, method string, params any, target any) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	// Check before our own deferred cancel: a cancelled transport must not
+	// certify success, even if decoding finished concurrently with cancellation.
+	defer func() {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+	}()
 	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", path)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+	// DialContext only governs connection establishment. A fixed deadline alone
+	// leaves connected reads/writes waiting after explicit caller cancellation.
+	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopClose()
 	deadline, _ := ctx.Deadline()
 	_ = conn.SetDeadline(deadline)
 	request := struct {
@@ -34,6 +45,9 @@ func call(ctx context.Context, path, method string, params any, target any) erro
 	}
 	if len(encoded) > protocol.AgentMaxFrameBytes {
 		return fmt.Errorf("agent request exceeds 1 MiB")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if _, err := conn.Write(append(encoded, '\n')); err != nil {
 		return err
@@ -83,6 +97,9 @@ func call(ctx context.Context, path, method string, params any, target any) erro
 	}
 	if response.Error != nil {
 		return &protocol.AgentRPCError{Code: response.Error.Code, Message: response.Error.Message}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if target != nil {
 		return json.Unmarshal(response.Result, target)

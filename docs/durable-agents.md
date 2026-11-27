@@ -426,6 +426,16 @@ Examples require explicit `fixture: true` to use the deterministic local model. 
 
 One detached Node runner owns each instance's native SQLite store. The Go daemon uses newline JSON-RPC 2.0 over a private Unix socket, protocol **1**: `hello`, `deliver`, `interact`, `snapshot`, `watch`, `conversation`, `shutdown`. Stdout/stderr go to `runner.log`. RPC IDs are transient; source/event IDs identify durable admission. The host commits a receipt and a native event task atomically. The optional collection outbox holds only observations awaiting admission; execution lives in native tasks. There is no promise of execution ordering across independent tasks. Definitions implement their concurrency and routing policies.
 
+The shared native RPC keeps its five-second cap and any earlier caller deadline.
+Caller cancellation closes the connected socket to interrupt pending I/O, not
+just the initial dial. Cancellation is checked before writing the encoded request,
+before decoding a result into its target and again before returning. An observed
+cancellation cannot certify RPC success, including a void shutdown reply. These
+are cooperative point-in-time checks: bytes already sent may have taken effect,
+and target decoding already entered is not rolled back. Closing the connection
+does not revoke native admission, undo shutdown/delivery, prove a resource outcome
+or authorize automatic retry/replay. No transport retry is added.
+
 Storage defaults to `$XDG_STATE_HOME/radar/agents/<id>` or `~/.local/state/radar/agents/<id>` (`RADAR_AGENT_ROOT` overrides it). Registration/config/token, store format, exclusive-owner SQLite, native agent SQLite, cached snapshot and logs live there. All are separate from the rebuildable tasks cache and disposable workspace. A SQLite exclusive lock prevents a second store owner. Daemon restart reconnects to the runner; runner crashes release the lock and supervision retries with bounded backoff. Intentional stop stays stopped. Killing the owning Node process during a checkpoint resumes native work when restarted.
 
 Lifecycle controls require unambiguous matching native hello/snapshot identities

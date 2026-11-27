@@ -314,3 +314,15 @@ func TestDiagnosticAgentRemovalExactConsentContract(t *testing.T) {
 		t.Fatal("missing native removal contract link", err)
 	}
 }
+
+func TestDocumentationNativeAgentRPCCancellationBoundary(t *testing.T) {
+	doc, err := Read("docs/durable-agents.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"five-second cap", "cancellation closes the connected socket", "before writing the encoded request", "before decoding a result into its target", "void shutdown reply", "target decoding already entered is not rolled back", "No transport retry is added"} {
+		if !strings.Contains(doc.Content, want) {
+			t.Errorf("missing native RPC cancellation contract %q", want)
+		}
+	}
+}
