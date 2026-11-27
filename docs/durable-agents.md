@@ -98,7 +98,13 @@ once under the existing native creation/update and note-relocation locks. The
 full native plan and request go directly to the same resource executor, without
 replanning from a public plan ID. Bundle leases, registration drift checks,
 environment-file validation and per-effect branch/runtime safeguards still apply;
-acceptance does not replace them. An explicitly supplied stale agent plan is
+acceptance does not replace them. Retained ownership also requires the full
+native plan's canonical note path and effective linking key to match the original
+ownership intent, including on preview and no-change recovery. A registry change
+between the initial ownership read and native planning cannot become a newly
+trusted note identity. An initially registered but unattached note can still be
+completed from the original intent; a changed association is never overwritten.
+An explicitly supplied stale agent plan is
 rejected even when the current preparation needs no resource changes. An intent
 retained before a later failure is not a resource outcome or proof of safe retry.
 Successful resource preparation keeps its original creation/note locks and

@@ -155,6 +155,11 @@ func prepareAgentWorkspace(ctx context.Context, runner Runner, options CreateOpt
 		if owned && binding != intent.Binding {
 			return fmt.Errorf("agent workspace plan changes its ownership binding")
 		}
+		// Native planning can read a newer registry than the ownership check.
+		// Never adopt its changed note association as the retained identity.
+		if owned && (!sameCleanPath(plan.group.NotePath, intent.Note.Path) || plan.group.NoteKey() != intent.Note.LinkingKey) {
+			return fmt.Errorf("agent-owned workspace canonical note identity changed; refusing recovery")
+		}
 		if plan.group.TaskLinkingKey != options.TaskLinkingKey {
 			return fmt.Errorf("workspace is not owned by this agent")
 		}
