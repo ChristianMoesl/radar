@@ -157,7 +157,7 @@ func (p StopPlan) Execute(ctx context.Context) error {
 		}
 		// Scope/publication admission must cover BOTH the first desired-state
 		// write and the original native shutdown, not just checks before I/O.
-		return runStopGuard(ctx, c.guard, func() error {
+		return runNativeGuard(ctx, c.guard, func() error {
 			if !c.current(ctx) {
 				return stopPlanUnavailable()
 			}
@@ -176,7 +176,9 @@ func (p StopPlan) Execute(ctx context.Context) error {
 // Close the execution callback before releasing manager serialization. A guard
 // cannot retain it for later, execute twice, skip it and claim success, or hide a
 // native error. The mutex also drains an already-entered callback before return.
-func runStopGuard(ctx context.Context, guard integration.AgentStopGuard, execute func() error) error {
+// Shared by private stop and removal admission; callers sanitize these internal
+// enforcement errors to their own operation-specific refusal.
+func runNativeGuard(ctx context.Context, guard func(context.Context, func() error) error, execute func() error) error {
 	if guard == nil {
 		return stopPlanUnavailable()
 	}
@@ -273,9 +275,10 @@ func sameStopFile(a, b os.FileInfo) bool {
 	return os.SameFile(a, b) && a.Mode() == b.Mode()
 }
 
+func sameStopLeaf(x, y stopFile) bool {
+	return sameStopFile(x.info, y.info) && x.hash == y.hash && (x.info == nil || x.info.Size() == y.info.Size() && x.info.ModTime().Equal(y.info.ModTime()))
+}
+
 func (a stopFiles) same(b stopFiles) bool {
-	sameLeaf := func(x, y stopFile) bool {
-		return sameStopFile(x.info, y.info) && x.hash == y.hash && (x.info == nil || x.info.Size() == y.info.Size() && x.info.ModTime().Equal(y.info.ModTime()))
-	}
-	return a.rootPath == b.rootPath && a.socketPath == b.socketPath && sameStopFile(a.root, b.root) && sameStopFile(a.instance, b.instance) && sameStopFile(a.socket, b.socket) && sameLeaf(a.registration, b.registration) && sameLeaf(a.owner, b.owner)
+	return a.rootPath == b.rootPath && a.socketPath == b.socketPath && sameStopFile(a.root, b.root) && sameStopFile(a.instance, b.instance) && sameStopFile(a.socket, b.socket) && sameStopLeaf(a.registration, b.registration) && sameStopLeaf(a.owner, b.owner)
 }

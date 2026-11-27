@@ -498,7 +498,22 @@ radar agent stop counter
 radar agent remove counter
 ```
 
-Removal deletes registration only and preserves durable data, the ownership intent, workspace, sandbox and canonical note. It does not stop or delete the sandbox. The workspace becomes eligible for the existing explicit cleanup/expiry policies after its association is released. Archive it before any deliberate filesystem deletion. Reusing an ID reopens that retained store, so only use compatible definition code. Restore a removed managed registration with `agent add` and the same ID and compatible entrypoint/config; it reuses the retained ownership intent automatically. Explicit bindings still require their original `--workspace`. Never point an ID at unrelated retained work.
+Removal first requires a stable regular schedule checkpoint of at most 1MiB (or no checkpoint); unsafe, oversized or invalid state is preserved and refused, never reset. It pauses retained schedules before deleting registration, and preserves durable data, the ownership intent, workspace, sandbox and canonical note. It does not stop or delete the sandbox. Releasing this association does not establish cleanup eligibility: other owners, activity, leases and existing explicit cleanup/expiry policies still apply. If registration unlink fails after schedules were paused, that partial change is not rolled back or permission to retry. Archive retained data before any deliberate filesystem deletion. Reusing an ID reopens that retained store, so only use compatible definition code. Restore a removed managed registration with `agent add` and the same ID and compatible entrypoint/config; it reuses the retained ownership intent automatically. Explicit bindings still require their original `--workspace`. Never point an ID at unrelated retained work.
+
+The native manager also has private exact stopped-registration removal admission.
+Capture is effect-free, bounded and no-follow; it retains registration, workspace,
+schedule and independent owner/socket identities, not checkpoint payloads. Copies
+share one-use admission and the original monotonic 30-second expiry. Apply consumes
+before refusal and reuses ordinary removal's stopped-owner checks and single
+schedule-pause/registration-unlink executor. The original trusted caller guard
+spans both effects. Cancellation, drift, denied admission, retained callbacks and
+unknown/live owners refuse; failure or lost response never restores admission.
+These are point-in-time checks, not an atomic filesystem/process transaction.
+This prerequisite enables no removal RPC, CLI/Pi preview/apply or user approval;
+`agent remove` remains the explicit native command. A later typed adapter still
+needs exact scope/publication admission and separate fresh removal consent. No
+implicit stop, daemon startup, automatic replay, cleanup or sandbox deletion is
+authorized. Schema 39, public capabilities and persisted formats are unchanged.
 
 The new ownership-intent format is version 1; it is additive and leaves existing registration, native store, workspace registry and Radar database formats unchanged. Existing explicit registrations require no migration and are not silently converted to managed ownership. Invalid ownership intents are rejected, never reset.
 

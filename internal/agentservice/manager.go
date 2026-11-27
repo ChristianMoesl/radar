@@ -543,21 +543,7 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 		}
 		return encode(map[string]string{"token": token})
 	case "remove":
-		observed, err := observeRunner(ctx, reg)
-		if err != nil {
-			return nil, err
-		}
-		alive, err := ownerAlive(reg)
-		if err != nil {
-			return nil, err
-		}
-		if reg.Desired || observed.Running || alive {
-			return nil, fmt.Errorf("stop the agent before removing its registration")
-		}
-		if err := pauseSchedules(reg); err != nil {
-			return nil, err
-		}
-		if err := os.Remove(filepath.Join(dir, "registration.json")); err != nil {
+		if err := removeWithAdmission(ctx, reg, nil); err != nil {
 			return nil, err
 		}
 		return encode(map[string]string{"id": reg.ID, "data_dir": dir, "status": "registration removed; durable data retained"})

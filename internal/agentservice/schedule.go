@@ -251,7 +251,7 @@ func (m *Manager) handleSchedule(reg Registration, request protocol.AgentRequest
 }
 
 func pauseSchedules(reg Registration) error {
-	state, err := loadSchedules(reg)
+	state, _, err := removalSchedules(reg)
 	if err != nil || len(state.Schedules) == 0 {
 		return err
 	}
