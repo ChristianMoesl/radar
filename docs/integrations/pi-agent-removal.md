@@ -1,14 +1,42 @@
 # Exact stopped-registration removal: daemon/client contract
 
-Diagnostics **schema 40** adds finite daemon/client `agent_remove` preview/apply
-transport only. `agent_remove_daemon_client_transport: true`, but
-`agent_remove_previews: false`, `agent_remove_apply: false` and broad
-`runtime_controls: false`: there is no feedback CLI section or Pi removal tool.
-The existing native `radar agent remove` command is unchanged. Neither transport
-nor a plan ID is a consent-token issuer. The trusted adapter boundary is explicit. Trusted callers require **SEPARATE fresh
-interactive exact-target registration-removal consent** after an immutable latest
-preview before apply. Existing stop consent cannot approve removal; removal never
-implicitly stops a running agent or permits cleanup/deletion.
+Diagnostics **schema 41** enables section `agent_remove` through the existing
+finite daemon/client transport and single native removal executor:
+`agent_remove_daemon_client_transport: true`, `agent_remove_previews: true`,
+`agent_remove_apply: true`, broad `runtime_controls: false`.
+The existing native `radar agent remove` command is unchanged.
+
+In the registered feedback workspace, `radar_diagnostics` requires exact retained
+task `parent_id` and registered `agent_id`, with origin (default), feedback or
+explicit installation scope. Preview requires fresh interactive exact-target
+metadata-read approval. Apply requires the **immutable latest preview** in this
+feedback workspace and **identified Pi session**, plus **SEPARATE fresh interactive
+exact-target registration-removal consent** for its complete disclosure. Stop
+consent is never removal consent. Removal never implicitly stops a running agent
+or permits cleanup or sandbox deletion. No row/page/subset or generic-control selectors.
+
+Headless, denied, cancelled, expired, superseded, changed-workspace/session/context
+or mismatched-target requests refuse before dispatch. Context/session recapture
+and any other diagnostics section invalidate local approval freshness; every
+attempt consumes it before validation or confirmation. Returned model details
+cannot mutate the retained immutable disclosure. The native original one-use
+30-second deadline is not extended during confirmation. Concurrent confirmations
+invalidate older in-flight attempts. Failure, cancellation and unknown replies
+never replan, retry or replay automatically.
+
+The local CLI is a **trusted adapter, not a consent-token issuer**. It does not
+prompt or authenticate interactive consent itself; direct callers own that boundary.
+Pi always obtains separate fresh approval before invoking this dedicated adapter:
+
+```sh
+radar feedback-diagnostics --workspace <registered-feedback-workspace> \
+  --section agent_remove --scope origin --parent-id <exact-task> \
+  --agent-id <registered-agent> --action preview --json
+# Apply only after separate fresh exact-target removal consent:
+radar feedback-diagnostics --workspace <registered-feedback-workspace> \
+  --section agent_remove --scope origin --parent-id <same-exact-task> \
+  --agent-id <same-registered-agent> --action apply --plan-id <latest-plan-id> --json
+```
 
 The dedicated `diagnostics-maintenance` RPC accepts only the exact typed envelope:
 `diagnostics_schema`, operation `agent_remove`, mode `preview` or `apply`, scope
@@ -59,9 +87,9 @@ are failed handler evidence even if partial effects occurred. Resource observati
 become pending after guard entry even on later failure/cancellation; independently
 recollect rather than replay. No operation is created for preview or pre-dispatch
 refusal, no cleanup target counts/phases are synthesized, and history is neither
-complete nor durable. Schema-matched Pi may inspect this evidence without gaining
-removal controls or requesting consent.
+complete nor durable. Schema-matched Pi validates this evidence before model output; neither evidence
+nor handler success authorizes another removal or cleanup.
 
-CLI, daemon and loaded Pi must match schema 40; separately install/reload Pi after
+CLI, daemon and loaded Pi must match schema 41; separately install/reload Pi after
 updating sources (`make install` alone does not reload it). Persisted formats are
 unchanged: not a registry/data migration, no reset or compatibility shim.

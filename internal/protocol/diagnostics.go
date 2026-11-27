@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const DiagnosticsVersion = 40
+const DiagnosticsVersion = 41
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.

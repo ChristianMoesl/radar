@@ -86,7 +86,7 @@ in the same feedback workspace. The actual tool accepts only a validated preview
 it has just shown in that workspace, and requires fresh interactive confirmation
 of the exact plan, complete source target set and installation-wide effects.
 Headless apply, canceled approval, expired approval, lost MCP availability or
-unmatched previews fail closed. CLI/Pi/daemon must match **schema 40**; the typed
+unmatched previews fail closed. CLI/Pi/daemon must match **schema 41**; the typed
 maintenance request carries the schema and the daemon rejects mismatches before
 admission. Read/probe RPCs cannot apply maintenance. The fixed CLI form is
 `feedback-diagnostics --section refresh --scope installation --action apply
@@ -180,7 +180,7 @@ provider. Native references and statuses share one atomic cache revision; cursor
 also bind selected scope, registration/capability changes, returned collection
 attempts and pending publication.
 IDs hash full native provider identity before clipping display text. CLI, daemon
-and extension must all support schema 40; older versions fail closed.
+and extension must all support schema 41; older versions fail closed.
 
 Pi validates the complete integration envelope, page, row and capability allowlist,
 not only the collection subobject. Unknown sibling fields and inconsistent scope,
@@ -223,7 +223,7 @@ native publication policies, access permissions and persisted formats are unchan
 
 ## Exact native runtime retirement
 
-Schema 40 `section: "retirement_preview", parent_id: "<registered workspace ID>"`
+Schema 41 `section: "retirement_preview", parent_id: "<registered workspace ID>"`
 uses the existing native GC exact retirement planner and final executor, never
 its installation-wide sweep. Origin (default), feedback and installation scope
 still select exactly one registered workspace in the native retirement stage.
@@ -356,7 +356,7 @@ with fresh destructive consent; other runtime controls remain unsupported.
 with separate fresh destructive data-loss consent;
 `complete_cleanup_execution_eligibility`, `verified_operation_resource_outcomes`
 and `runtime_controls` remain false. CLI, daemon and separately loaded Pi must
-match **schema 40** with no legacy fallback. Install/reload Pi sources separately
+match **schema 41** with no legacy fallback. Install/reload Pi sources separately
 from `make install`. This changes the public transport only: persisted formats,
 known-data expiry and native manual confirmation policy are unchanged. Explicit
 expiry below uses the same shipped native one-use transport, not paged proposals.
@@ -421,7 +421,7 @@ bounded listing. The observation timestamp is not a guarantee of future state.
 The complete runtime probe envelope, page, rows and observations are allowlisted
 before model output. Private siblings, wrong targets and inconsistent evidence
 fail closed, including unavailable replies. CLI, daemon and loaded Pi must match
-diagnostics schema 40; the runtime observation wire shape is unchanged.
+diagnostics schema 41; the runtime observation wire shape is unchanged.
 
 Runtime matches, absence or mismatches establish neither registration ownership,
 lease safety, orphan absence nor cleanup eligibility/consent. Unrelated listing
@@ -465,10 +465,10 @@ workspace health, lease state or cleanup eligibility.
 The exact CLI adapter is `radar feedback-diagnostics --workspace <registered
 feedback workspace> --section agent_probe --parent-id <agent registration ID>
 --json`; cached `diagnostics` RPC cannot contact a runner. CLI, daemon and Pi
-extension must all support schema 40; there is no legacy fallback. Separately
+extension must all support schema 41; there is no legacy fallback. Separately
 installed extensions require matching sources/reload.
 
-## Exact registered sandbox recreation (diagnostics schema 40)
+## Exact registered sandbox recreation (diagnostics schema 41)
 
 Use `recreation_preview` with one exact registered workspace `parent_id`. Fresh
 preview approval covers native reads; apply needs the latest one-use 60-second
@@ -477,21 +477,21 @@ Recreation discards sandbox-local state and interrupts work; native guards remai
 Native restoration checks are not independent resource verification. No replay or
 automatic retry. See the [complete recreation contract](pi-recreation-preview.md).
 
-## Recorded workspace policy (diagnostics schema 40)
+## Recorded workspace policy (diagnostics schema 41)
 
 Exact-parent `workspace_policy` reads the recorded sandbox recipe shape only,
 never current effective configuration or execution eligibility. See the complete
-[registered recipe contract](pi-policy.md#recorded-workspace-policy-diagnostics-schema-40).
+[registered recipe contract](pi-policy.md#recorded-workspace-policy-diagnostics-schema-41).
 
-## Current repository declarations (diagnostics schema 40)
+## Current repository declarations (diagnostics schema 41)
 
 Explicit `repository_policy` requires an exact registered parent and member row
 ID from `workspace_resources`, plus fresh interactive file-access confirmation.
 It reads only the registered source repository's bounded fixed `.radar.yaml`,
 not the member worktree, referenced files or effective runtime policy. See the
-[complete repository declaration contract](pi-policy.md#current-registered-member-repository-declarations-schema-40).
+[complete repository declaration contract](pi-policy.md#current-registered-member-repository-declarations-schema-41).
 
-## Retained inventories (diagnostics schema 40)
+## Retained inventories (diagnostics schema 41)
 
 Use `section: "tasks"` or `"workspaces"` to inspect records omitted from the
 dashboard. `scope` is `"origin"` by default, `"feedback"` for the current feedback
@@ -643,7 +643,7 @@ advertises exact expiry with destructive consent, not other runtime control. The
 refresh adapter advertises `maintenance` and `collection_only_refresh` as true;
 `manual_cleanup_bundle_guard_checks` separately advertises the explicit guard
 check. `complete_cleanup_execution_eligibility` remains false. CLI, daemon and separately loaded Pi sources must
-match schema 40; `make install` alone does not update/reload installed Pi sources.
+match schema 41; `make install` alone does not update/reload installed Pi sources.
 
 ## Identity and nested drill-down
 
@@ -914,7 +914,7 @@ facts. `revision`, `snapshot`, `evidence`, source `observed_at`,
 reads from cached observations. Reads never start the daemon, refresh providers,
 export raw state, read note/conversation contents or serialize credentials,
 environment files, startup commands or full configuration. CLI, daemon and
-extension must support diagnostics schema 40; version mismatches fail closed
+extension must support diagnostics schema 41; version mismatches fail closed
 without a legacy command/state-export fallback. Update the CLI and the actual
 Pi extension source together, then reload Pi; `make install` alone does not
 update a separately installed npm extension.
@@ -970,12 +970,12 @@ normal workspace boundary; no live state/config/socket mounts are needed.
 
 The dashboard learns MCP creation availability through the existing per-session
 loaded-version reports, refreshed every five seconds and removed on shutdown.
-Reports contain availability metadata, not MCP configuration, tokens or tool
-arguments. The dashboard ignores stale/dead-process reports and other Pi profiles.
+Reports omit MCP configuration, tokens and tool arguments; stale/dead-process
+reports and other Pi profiles are ignored.
 The session revalidates against its live tool registry before diagnostics or
 Linear writes; missing MCP availability never enables a direct API fallback.
 
-## Exact registered-agent stop (schema 40)
+## Exact registered-agent stop (schema 41)
 
 [Exact registered-agent stop](pi-agent-stop.md): `agent_stop_previews: true` and
 `agent_stop_apply: true`, but `runtime_controls: false`. Exact task/agent/scope
@@ -984,4 +984,4 @@ consent on the immutable latest unexpired preview in this registered feedback
 workspace and identified Pi session. Preserve registration/data/sandbox and stopped
 ownership; handler return is not process exit. No startup/replay/retry or other controls.
 
-[Removal daemon/client only](pi-agent-removal.md); CLI/Pi removal remains unsupported.
+[Exact removal with separate consent](pi-agent-removal.md); no implicit stop or deletion.

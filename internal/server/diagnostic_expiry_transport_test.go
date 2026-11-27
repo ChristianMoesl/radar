@@ -17,8 +17,8 @@ func TestDiagnosticExpiryTransportRejectsBeforeNativeDispatch(t *testing.T) {
 	raw, _ := json.Marshal(protocol.Request{Method: "diagnostics-maintenance", Maintenance: &q})
 	valid := string(raw)
 	frames := map[string]string{
-		"old_schema":        strings.Replace(valid, `"diagnostics_schema":40`, `"diagnostics_schema":35`, 1),
-		"new_schema":        strings.Replace(valid, `"diagnostics_schema":40`, `"diagnostics_schema":41`, 1),
+		"old_schema":        strings.Replace(valid, `"diagnostics_schema":41`, `"diagnostics_schema":35`, 1),
+		"new_schema":        strings.Replace(valid, `"diagnostics_schema":41`, `"diagnostics_schema":42`, 1),
 		"unknown_envelope":  strings.Replace(valid, `"method":`, `"private":null,"method":`, 1),
 		"folded":            strings.Replace(valid, `"parent_id":`, `"PARENT_ID":`, 1),
 		"duplicate":         strings.Replace(valid, `"operation":"expire"`, `"operation":"expire","operation":"expire"`, 1),

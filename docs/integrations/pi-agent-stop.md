@@ -4,7 +4,7 @@
 
 ## Exact CLI/Pi interruption consent
 
-Diagnostics schema 40 exposes `radar_diagnostics` section `agent_stop` with exact
+Diagnostics schema 41 exposes `radar_diagnostics` section `agent_stop` with exact
 retained task `parent_id` and registered `agent_id`. Overview advertises
 `agent_stop_daemon_client_transport: true`, `agent_stop_previews: true` and
 `agent_stop_apply: true`; broad `runtime_controls` remains false. Start, restart,
