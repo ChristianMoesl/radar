@@ -526,6 +526,25 @@ a stop provider is never a fallback. The by-value view contains only exact agent
 ID and total/enabled schedule counts at capture, not schedule names/payloads or
 execution/resource outcomes. The source preserves the original guard, deadline
 and shared consumption; the caller must separately budget its adapter/guard.
+The private native plan now publishes a shared immutable `Observation()` only
+after its first attempted execution finishes. This memory-only value is separate
+from the handler error: a failed handler can follow observed effects, while nil
+does not prove postconditions. Bounded no-follow registration and schedule rereads
+bind the ORIGINAL captured root/instance identities before and after both reads.
+Registration evidence is original-present, absent or unknown; reappearing or
+unsafe replacement registrations cannot prove absence. Schedule evidence compares
+a fixed private fingerprint of the complete decoded native state, including
+pending payloads and admission metadata, with only enabled flags cleared. Original
+missing/empty schedules must remain unchanged; they are never created by observation.
+The original preserved checkpoint can instead be observed without claiming pause.
+No private payload or history is retained. Cancelled/expired requests acquire no
+detached observations; unsafe fields stay unknown. The timestamp bounds completed
+point-in-time reads, not an atomic snapshot, later freshness, runner/workspace/sandbox
+absence, other-owner release, cleanup eligibility or safe retry. Copies share the
+same result; inspection never performs I/O or restores consumed admission.
+These native-only observations are NOT projected by schema 41. Existing daemon,
+CLI and Pi responses remain handler-only, pending a coordinated finite contract
+change; public capabilities and persisted formats are unchanged.
 The daemon privately binds the exact current retained task/agent ref and registered
 feedback plus origin/feedback/installation scope through that unique provider.
 Fresh scope, revision and resource-publication admission runs INSIDE the original

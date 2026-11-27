@@ -326,3 +326,15 @@ func TestDocumentationNativeAgentRPCCancellationBoundary(t *testing.T) {
 		}
 	}
 }
+
+func TestDocumentationNativeRemovalObservationsRemainPrivate(t *testing.T) {
+	doc, err := Read("docs/durable-agents.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"shared immutable `Observation()`", "separate\nfrom the handler error", "ORIGINAL captured root/instance identities", "complete decoded native state", "pending payloads and admission metadata", "missing/empty schedules must remain unchanged", "No private payload or history is retained", "Cancelled/expired requests acquire no", "inspection never performs I/O", "native-only observations are NOT projected by schema 41", "public capabilities and persisted formats are unchanged"} {
+		if !strings.Contains(doc.Content, want) {
+			t.Errorf("missing private native removal observation boundary %q", want)
+		}
+	}
+}

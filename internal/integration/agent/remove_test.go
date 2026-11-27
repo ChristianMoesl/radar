@@ -156,12 +156,26 @@ func TestAgentRemoveSourceDelegatesOriginalNativeAdmission(t *testing.T) {
 				}
 			}
 			copy := plan
+			if plan.Observation() != (integration.AgentRemoveObservation{}) {
+				t.Fatal("provider fabricated postconditions before execution")
+			}
 			err = plan.Execute(ctx)
 			if (kind == "allowed") != (err == nil) || err != nil && strings.Contains(err.Error(), "private") {
 				t.Fatal("source bypassed/lost native admission or leaked error", err)
 			}
 			if err := copy.Execute(context.Background()); err == nil {
 				t.Fatal("interface copy replayed native admission")
+			}
+			observed := plan.Observation()
+			if kind == "allowed" || kind == "double_callback" || kind == "error_after_effects" {
+				if observed.Registration != integration.AgentRemoveRegistrationAbsent || observed.Schedules != integration.AgentRemoveSchedulesPaused || observed.ObservedAt.IsZero() {
+					t.Fatal("provider lost independent native observations", observed)
+				}
+			} else if observed != (integration.AgentRemoveObservation{}) {
+				t.Fatal("provider inferred evidence from refusal/cancellation", observed)
+			}
+			if copy.Observation() != observed {
+				t.Fatal("provider copy changed immutable native result")
 			}
 			if retained != nil {
 				if err := retained(); err == nil {

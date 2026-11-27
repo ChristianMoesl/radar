@@ -255,10 +255,16 @@ func pauseSchedules(reg Registration) error {
 	if err != nil || len(state.Schedules) == 0 {
 		return err
 	}
+	return atomicJSON(schedulePath(reg), pausedScheduleState(state))
+}
+
+// The executor and retained postcondition capture use the same native transform.
+// State is transient: callers must not retain checkpoint/pending payload copies.
+func pausedScheduleState(state scheduleState) scheduleState {
 	for i := range state.Schedules {
 		state.Schedules[i].Enabled = false
 	}
-	return atomicJSON(schedulePath(reg), state)
+	return state
 }
 
 func (m *Manager) scheduleStatus(reg Registration, status *protocol.AgentStatus) {

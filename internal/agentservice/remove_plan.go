@@ -21,15 +21,26 @@ import (
 type RemovePlan struct{ capture *removeCapture }
 
 type removeCapture struct {
-	mu       sync.Mutex
-	consumed bool
-	manager  *Manager
-	guard    integration.AgentRemoveGuard
-	expires  time.Time
-	preview  integration.AgentRemovePreview
-	reg      Registration
-	files    stopFiles // Reuse the exact no-follow registration/owner/socket capture.
-	schedule stopFile
+	mu             sync.Mutex
+	consumed       bool
+	manager        *Manager
+	guard          integration.AgentRemoveGuard
+	expires        time.Time
+	preview        integration.AgentRemovePreview
+	reg            Registration
+	files          stopFiles // Reuse the exact no-follow registration/owner/socket capture.
+	schedule       stopFile
+	pausedSchedule [32]byte
+	observation    integration.AgentRemoveObservation
+}
+
+func (p RemovePlan) Observation() integration.AgentRemoveObservation {
+	if p.capture == nil {
+		return integration.AgentRemoveObservation{}
+	}
+	p.capture.mu.Lock()
+	defer p.capture.mu.Unlock()
+	return p.capture.observation
 }
 
 func removePlanUnavailable() error {
@@ -83,7 +94,11 @@ func (m *Manager) PrepareRemove(ctx context.Context, id string, expected protoco
 			preview.EnabledSchedules++
 		}
 	}
-	c := &removeCapture{manager: m, guard: guard, expires: time.Now().Add(30 * time.Second), preview: preview, reg: reg, files: files, schedule: schedule}
+	paused, err := removalScheduleFingerprint(pausedScheduleState(state))
+	if err != nil {
+		return RemovePlan{}, removePlanUnavailable()
+	}
+	c := &removeCapture{manager: m, guard: guard, expires: time.Now().Add(30 * time.Second), preview: preview, reg: reg, files: files, schedule: schedule, pausedSchedule: paused}
 	if !c.current(ctx) || stoppedForRemoval(ctx, reg) != nil || !c.current(ctx) {
 		return RemovePlan{}, removePlanUnavailable()
 	}
@@ -97,7 +112,7 @@ func (m *Manager) PrepareRemove(ctx context.Context, id string, expected protoco
 // Failure/cancellation/lost response may follow effects and never restores a
 // plan, schedules or registration. Nil means handler returned, not absence of
 // resources/other owners, cleanup eligibility, completed work or safe retry.
-func (p RemovePlan) Execute(ctx context.Context) error {
+func (p RemovePlan) Execute(ctx context.Context) (result error) {
 	if p.capture == nil {
 		return removePlanUnavailable()
 	}
@@ -116,17 +131,34 @@ func (p RemovePlan) Execute(ctx context.Context) error {
 	defer m.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	var observation integration.AgentRemoveObservation
+	// Publish once, under manager serialization, BEFORE our own deferred cancel.
+	// Later inspection is memory-only; it cannot refresh evidence or admission.
+	defer func() {
+		if ctx.Err() != nil || !time.Now().Before(c.expires) {
+			observation = integration.AgentRemoveObservation{}
+			result = removePlanUnavailable()
+		}
+		c.mu.Lock()
+		c.observation = observation
+		c.mu.Unlock()
+	}()
 	if !c.current(ctx) {
 		return removePlanUnavailable()
 	}
+	attempted := false
 	err := removeWithAdmission(ctx, c.reg, func(execute func() error) error {
 		return runNativeGuard(ctx, c.guard, func() error {
 			if !c.current(ctx) || stoppedForRemoval(ctx, c.reg) != nil || !c.current(ctx) {
 				return removePlanUnavailable()
 			}
+			attempted = true
 			return execute()
 		})
 	})
+	if attempted {
+		observation = c.observeRemoval(ctx, diagnosticCheckpoint)
+	}
 	if err != nil {
 		return removePlanUnavailable() // No private paths, payloads or native errors.
 	}

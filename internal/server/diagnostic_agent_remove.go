@@ -160,6 +160,9 @@ func (s *Server) applyDiagnosticAgentRemove(ctx context.Context, q protocol.Diag
 	p.active.Store(true)
 	defer p.active.Store(false)
 	err := p.native.Execute(ctx)
+	// Native Observation is intentionally not projected by schema 41. Keep
+	// handler evidence unchanged until the finite wire/CLI/Pi contracts are
+	// updated together; nil/error alone never establishes resource outcomes.
 	view := p.view
 	view.mode, view.dispatched, view.operationID = "apply", p.dispatched.Load(), p.operation
 	if !view.dispatched {
