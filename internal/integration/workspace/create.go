@@ -220,13 +220,14 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 }
 
 func Create(ctx context.Context, runner Runner, options CreateOptions) (Workspace, error) {
-	return createWithAdmission(ctx, runner, options, nil)
+	return createWithAdmission(ctx, runner, options, nil, nil)
 }
 
 // createWithAdmission lets native agent preparation accept the full plan under
 // the same creation locks that protect its application. The plan and request
 // stay in this call; acceptance never reconstructs them from a public digest.
-func createWithAdmission(ctx context.Context, runner Runner, options CreateOptions, admit func(ReconcileWorkspacePlan) error) (Workspace, error) {
+// Successful completion also stays inside the original locks and bundle leases.
+func createWithAdmission(ctx context.Context, runner Runner, options CreateOptions, admit func(ReconcileWorkspacePlan) error, complete func(context.Context, ReconcileWorkspacePlan) error) (Workspace, error) {
 	logger, logFile, _, err := logging.New()
 	if err != nil {
 		return Workspace{}, fmt.Errorf("open workspace creation log: %w", err)
@@ -251,13 +252,13 @@ func createWithAdmission(ctx context.Context, runner Runner, options CreateOptio
 	err = workspacegroup.WithNoteLock(root, func() error {
 		noteLockDone()
 		var err error
-		result, err = createWorkspace(ctx, runner, options, logger, admit)
+		result, err = createWorkspace(ctx, runner, options, logger, admit, complete)
 		return err
 	})
 	return result, err
 }
 
-func createWorkspace(ctx context.Context, runner Runner, options CreateOptions, logger *slog.Logger, admit func(ReconcileWorkspacePlan) error) (Workspace, error) {
+func createWorkspace(ctx context.Context, runner Runner, options CreateOptions, logger *slog.Logger, admit func(ReconcileWorkspacePlan) error, complete func(context.Context, ReconcileWorkspacePlan) error) (Workspace, error) {
 	planningDone := phasetiming.Start(ctx, "workspace_planning")
 	plan, request, err := planCreate(ctx, runner, options)
 	planningDone()
@@ -295,6 +296,17 @@ func createWorkspace(ctx context.Context, runner Runner, options CreateOptions, 
 			return Workspace{}, err
 		}
 	}
+	// The single native effect sequence returns before completion, while the
+	// original bundle and outer creation/note locks are still held. Never run
+	// completion on a native error or during panic unwinding.
+	created, err := applyCreationPlan(ctx, runner, options, logger, plan, request)
+	if err == nil && complete != nil {
+		err = complete(ctx, plan)
+	}
+	return created, err
+}
+
+func applyCreationPlan(ctx context.Context, runner Runner, options CreateOptions, logger *slog.Logger, plan ReconcileWorkspacePlan, request ReconcileWorkspaceRequest) (Workspace, error) {
 	// tmux closes a popup with SIGTERM and a PTY hangup. Creation is still
 	// owned by this process; finish it before restoring normal handling.
 	if plan.group.Sandbox != nil && options.Switch && !options.PrepareOnly {

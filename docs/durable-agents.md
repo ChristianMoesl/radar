@@ -101,8 +101,17 @@ environment-file validation and per-effect branch/runtime safeguards still apply
 acceptance does not replace them. An explicitly supplied stale agent plan is
 rejected even when the current preparation needs no resource changes. An intent
 retained before a later failure is not a resource outcome or proof of safe retry.
+Successful resource preparation keeps its original creation/note locks and
+current/desired bundle leases through sandbox resumption and final workspace
+binding verification. A detached full applied-registration snapshot uses the
+native registry's own codec/normalization, not a public digest or a freshly
+trusted baseline. Full registration drift is checked before/after resumption
+and after verification. Native resource failures skip completion; resume or
+verification failures do not roll back accepted notes, registration or runtime
+effects, and all paths release admission. This is cooperative exclusion of
+Radar writers, not a transaction against external SBX actors or safe-retry proof.
 This internal preparation boundary is not end-to-end retained startup admission:
-sandbox resumption and final runner checks remain separate. Diagnostic exact
+final agent-runner launch/readiness checks remain separate. Diagnostic exact
 start/restart controls remain unsupported; broad `runtime_controls` stays false.
 `--workspace <registered-path>` explicitly selects an already prepared workspace
 instead; Radar validates it but does not claim ownership or repair its runtime.

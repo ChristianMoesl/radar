@@ -380,7 +380,7 @@ func TestDocumentationNativeAgentPreparationSinglePlanBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"once under the existing native creation/update and note-relocation locks", "full native plan and request", "without\nreplanning from a public plan ID", "Bundle leases, registration drift checks", "per-effect branch/runtime safeguards", "stale agent plan", "no resource changes", "not a resource outcome or proof of safe retry", "not end-to-end retained startup admission", "sandbox resumption and final runner checks remain separate", "start/restart controls remain unsupported", "runtime_controls"} {
+	for _, want := range []string{"once under the existing native creation/update and note-relocation locks", "full native plan and request", "without\nreplanning from a public plan ID", "Bundle leases, registration drift checks", "per-effect branch/runtime safeguards", "stale agent plan", "no resource changes", "not a resource outcome or proof of safe retry", "not end-to-end retained startup admission", "current/desired bundle leases through sandbox resumption", "native registry's own codec/normalization", "not a public digest or a freshly", "Full registration drift is checked before/after resumption", "Native resource failures skip completion", "failures do not roll back accepted notes", "all paths release admission", "not a transaction against external SBX actors", "final agent-runner launch/readiness checks remain separate", "start/restart controls remain unsupported", "runtime_controls"} {
 		if !strings.Contains(doc.Content, want) {
 			t.Errorf("missing native agent preparation boundary %q", want)
 		}

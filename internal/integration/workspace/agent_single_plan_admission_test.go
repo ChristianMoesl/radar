@@ -30,7 +30,7 @@ func TestNativeCreationAdmissionFailureReleasesLocksBeforeEffects(t *testing.T) 
 				}
 				cancel()
 				return nil
-			})
+			}, nil)
 			want := denied
 			if mode == "cancelled" {
 				want = context.Canceled
@@ -68,7 +68,7 @@ func TestNativeCreationAdmissionRetainsFinalRegistrationCheck(t *testing.T) {
 			registry.Workspaces[0].SessionName = "concurrent-replacement"
 			return nil
 		})
-	})
+	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "workspace registration changed") {
 		t.Fatal("acceptance bypassed native final registration revalidation", err)
 	}

@@ -192,25 +192,45 @@ func prepareAgentWorkspace(ctx context.Context, runner Runner, options CreateOpt
 		}
 		return binding, public, nil
 	}
-	// Plan and accept once under native creation locks, then apply the SAME
-	// full native plan/request through the existing bundle/effect safeguards.
-	if _, err := createWithAdmission(ctx, runner, options, admit); err != nil {
-		return fail(err)
-	}
-	// exec starts a stopped SBX in place; do not replace it just to resume it.
-	if binding.Mode == "sbx" {
-		if _, err := managedClient(runner).Run(ctx, binding.Path, "exec", "--workdir", binding.Path, binding.Sandbox, "true"); err != nil {
-			return fail(fmt.Errorf("start agent workspace sandbox: %w", err))
+	complete := func(ctx context.Context, plan ReconcileWorkspacePlan) error {
+		// Compare the complete private applied plan in the native persisted
+		// representation, not a public digest or a newly trusted baseline.
+		expected, err := workspacegroup.RegistrationSnapshot(plan.group)
+		if err != nil {
+			return err
 		}
+		if _, err := activationRegistration(ctx, plan.root, binding.Path, expected); err != nil {
+			return err
+		}
+		// exec starts a stopped SBX in place; do not replace it just to resume
+		// it. The original current/desired bundle admission is still held.
+		if binding.Mode == "sbx" {
+			if _, err := managedClient(runner).Run(ctx, binding.Path, "exec", "--workdir", binding.Path, binding.Sandbox, "true"); err != nil {
+				return fmt.Errorf("start agent workspace sandbox: %w", err)
+			}
+		}
+		if _, err := activationRegistration(ctx, plan.root, binding.Path, expected); err != nil {
+			return err
+		}
+		verified, err := agentWorkspace(ctx, runner, binding.Path, options.Sandbox)
+		if err != nil {
+			return err
+		}
+		if err := verifyExecutionBinding(verified, &binding); err != nil {
+			return err
+		}
+		if _, err := activationRegistration(ctx, plan.root, binding.Path, expected); err != nil {
+			return err
+		}
+		binding = verified
+		return nil
 	}
-	verified, err := agentWorkspace(ctx, runner, binding.Path, options.Sandbox)
-	if err != nil {
+	// Plan and accept once, apply the SAME native plan/request, and finish
+	// resumption/verification without dropping native locks or bundle leases.
+	if _, err := createWithAdmission(ctx, runner, options, admit, complete); err != nil {
 		return fail(err)
 	}
-	if err := verifyExecutionBinding(verified, &binding); err != nil {
-		return fail(err)
-	}
-	return verified, public, nil
+	return binding, public, nil
 }
 
 func workspaceBinding(registered workspacegroup.Workspace) protocol.AgentWorkspaceBinding {
