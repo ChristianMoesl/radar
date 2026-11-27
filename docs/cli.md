@@ -280,6 +280,16 @@ loaded Pi must match schema 42; agent inventory itself exposes no maintenance ac
 Native cleanup operation inspection also reports bounded executor stop stages and
 provider Cleanup-call counts, never verified resource outcomes or safe retry.
 
+`feedback-diagnostics --section runtime_probe --parent-id <registered workspace ID>`
+requires fresh exact-target read approval, never ownership or cleanup consent.
+Cancellation or expiry at the last provider or final registration revalidation
+withholds the **whole selected runtime page**, including earlier observations:
+presence/state become unknown, identity comparison is `not_observed`, and the
+problem is `cancelled_or_timed_out`. Absolute expiry applies even before its
+context timer notification. No extra probe, cached fallback or automatic retry
+is performed; ownership/leases remain uninspected. These cooperative checks do
+not establish a later-fresh observation, orphan absence or resource outcomes.
+
 `feedback-diagnostics --section workspace_policy --parent-id <registered workspace ID>`
 reads the exact scoped **recorded sandbox recipe shape**: fixed presence flags
 and complete mount/port counts, never raw names, paths, argv or referenced files.

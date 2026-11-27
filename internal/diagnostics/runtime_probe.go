@@ -59,7 +59,7 @@ func Probe(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequ
 	}
 	ctx, cancel := context.WithTimeout(ctx, RuntimeProbeTimeout)
 	defer cancel()
-	if ctx.Err() != nil {
+	if previewExpired(ctx) {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("runtime probe cancelled")
 	}
 	provider, err := providers.WorkspaceDiagnostics()
@@ -128,14 +128,14 @@ func Probe(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequ
 		}
 		probe, probeErr := providers.RuntimeProbe(source)
 		switch {
-		case ctx.Err() != nil:
+		case previewExpired(ctx):
 			view.Observation.Problem = "cancelled_or_timed_out"
 		case owners != 1:
 			view.Observation.Problem = "shared_registered_name"
 		case probeErr == nil:
 			view.Observation = runtimeObservation(probe.DiagnosticRuntime(ctx, name))
 		}
-		if ctx.Err() != nil {
+		if previewExpired(ctx) {
 			view.Observation = protocol.DiagnosticRuntimeObservation{Presence: "unknown", State: "unknown", Problem: "cancelled_or_timed_out"}
 		}
 		if view.Observation.Presence == "present" {
@@ -165,6 +165,16 @@ func Probe(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequ
 	}
 	if store.Revision() != revision {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic snapshot changed; probe again")
+	}
+	// A later provider or final registration read can observe cancellation after
+	// earlier rows were captured. Withhold the ENTIRE selected result, not just
+	// the current/off-page row. Also check the absolute deadline: its timer may
+	// not have notified Err yet. Do this before our own deferred cancellation.
+	if previewExpired(ctx) {
+		for _, item := range items {
+			item.Runtime.Observation = protocol.DiagnosticRuntimeObservation{Presence: "unknown", State: "unknown", Problem: "cancelled_or_timed_out"}
+			item.Runtime.IdentityComparison = "not_observed"
+		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return paginate(req, items, revision, pending, "explicit_runtime_probe_with_cached_identity_comparison")

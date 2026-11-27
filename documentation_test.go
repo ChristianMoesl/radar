@@ -40,6 +40,18 @@ func TestDocumentationCannotReadHostFiles(t *testing.T) {
 	}
 }
 
+func TestDocumentationRuntimeProbeCancellationBoundary(t *testing.T) {
+	doc, err := Read("docs/cli.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contract := range []string{"whole selected runtime page", "including earlier observations", "final registration revalidation", "`not_observed`", "`cancelled_or_timed_out`", "Absolute expiry applies", "No extra probe, cached fallback or automatic retry", "ownership/leases remain uninspected"} {
+		if !strings.Contains(doc.Content, contract) {
+			t.Errorf("runtime probe cancellation contract omitted %q", contract)
+		}
+	}
+}
+
 func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
 	guide, err := Read("docs/integrations/pi.md")
 	if err != nil || !strings.Contains(guide.Content, "[Pi feedback diagnostics](pi-diagnostics.md)") {
