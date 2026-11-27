@@ -58,10 +58,12 @@ func planCreate(ctx context.Context, runner Runner, options CreateOptions) (Reco
 		if err != nil {
 			return fail(err)
 		}
-		if !found {
+		if found {
+			return planPrepareExisting(ctx, runner, root, registered, options)
+		}
+		if !options.agentCreationRecovery {
 			return fail(fmt.Errorf("preparation workspace must already be registered"))
 		}
-		return planPrepareExisting(ctx, runner, root, registered, options)
 	}
 	members := append([]DesiredWorkspaceWorktree{}, options.Worktrees...)
 	if options.Repo != "" {

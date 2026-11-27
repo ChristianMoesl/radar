@@ -144,6 +144,10 @@ type CreateOptions struct {
 	ForkPiSession           string
 	TaskLinkingKey          string
 	NotePath                string
+
+	// Only initial agent-add recovery may plan its retained unregistered
+	// anchor. Native acceptance still checks the original binding and note.
+	agentCreationRecovery bool
 }
 
 type Workspace struct {

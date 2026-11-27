@@ -179,7 +179,14 @@ Registration is initially stopped. Config is a non-secret JSON object supplied u
 Registration persists the canonical workspace ID, path and execution binding.
 An agent-owned version-1 `workspace.json` beside the native store records its
 original prepared note and resource identity before creation. Interrupted adds
-reuse that intent instead of creating another workspace or note. A stopped
+reuse that intent instead of creating another workspace or note. If initial
+bundle admission failed before any workspace registration or anchor was created,
+a fresh add preview/apply can resume creation at the exact retained anchor,
+including an originally collision-qualified path. This is initial-add recovery
+only, not permission to replace an already bound agent's missing registration.
+The original binding and canonical-note identity, fresh plan confirmation and
+native leases still apply. Occupied anchors are refused rather than adopted,
+cleared or renamed; the retained intent is never rewritten. A stopped
 registration stays stopped, and status/inspection never starts resources.
 
 Start/restart and desired-running supervision prepare the owned workspace before
@@ -190,7 +197,8 @@ repair to release its workspace lease; native work resumes after recovery. Resou
 changes respect `workspace.auto_confirm`; when disabled, a recovery needing a new
 plan remains visibly blocked until `agent start --preview` and accepted apply.
 
-Missing/replaced workspace registrations or anchors, changed ownership or execution
+For already bound agents, missing/replaced workspace registrations or anchors,
+changed ownership or execution
 bindings, invalid ownership metadata, and failed provisioning/readiness checks fail
 visibly without adopting unrelated resources. A workspace configured for SBX never
 falls back to host execution. Global SBX policy also rejects an explicit host-only

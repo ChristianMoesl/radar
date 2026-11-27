@@ -144,8 +144,14 @@ func prepareAgentWorkspace(ctx context.Context, runner Runner, options CreateOpt
 			if info, err := os.Stat(registered.Path); err != nil || !info.IsDir() {
 				return fail(fmt.Errorf("agent-owned workspace anchor is missing: %s", registered.Path))
 			}
-		} else if intent.Binding.Mode == "sbx" && !options.Sandbox {
-			return fail(fmt.Errorf("agent workspace requires SBX; refusing host fallback"))
+		} else {
+			if intent.Binding.Mode == "sbx" && !options.Sandbox {
+				return fail(fmt.Errorf("agent workspace requires SBX; refusing host fallback"))
+			}
+			// The initial add retained intent before native bundle admission,
+			// but never registered its anchor. Keep the exact original Path;
+			// choosing a new default could rebind a collision-qualified intent.
+			options.agentCreationRecovery = true
 		}
 	}
 	var binding protocol.AgentWorkspaceBinding
