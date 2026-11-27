@@ -462,7 +462,7 @@ native shutdown, rechecking native identity before the first effect. The caller
 must supply fresh authorized scope/publication/consent admission. Missing, denied,
 skipped, repeated or retained-for-later callbacks cannot bypass it or replay work;
 a guard cannot hide a native error. This native capture remains private behind
-the finite schema-38 daemon/client projection, not a CLI/Pi stop control. Cancellation, drift or a lost reply never restores it. Desired-state persistence is not rolled
+the finite schema-39 daemon/client projection, not a CLI/Pi stop control. Cancellation, drift or a lost reply never restores it. Desired-state persistence is not rolled
 back after a later shutdown failure. These point-in-time guards do not attest a
 PID incarnation or make filesystem checks transactional. This internal boundary
 is not user consent or a public diagnostic/CLI/Pi stop-preview capability;
@@ -480,12 +480,16 @@ native fields and the full adapter/guard context, not just the small preview.
 In-process execution consumes before further validation and invalidates resource
 observations once native dispatch begins, including failed or cancelled returns.
 These checks are point-in-time admission, not a transaction with all concurrent
-collection or filesystem writes. [Exact registered-agent stop transport](integrations/pi-agent-stop.md)
-now projects only finite native facts through the strict schema-38 daemon/client
+collection or filesystem writes. [Exact registered-agent stop control](integrations/pi-agent-stop.md)
+projects finite native facts through the strict schema-39 daemon/client/CLI/Pi
 boundary, with current-daemon managed handler evidence and no startup/replay.
-CLI/Pi stop controls remain unsupported until the latest immutable preview UI
-and separate fresh interactive interruption consent are implemented. No public
-CLI/Pi stop capability or consent is added.
+Pi now binds the complete immutable latest unexpired exact task/agent preview to
+the registered feedback workspace and identified session. Preview reads require
+fresh interactive approval; apply requires separate fresh exact-target interruption
+consent. Desired false/native shutdown may interrupt unfinished work, not remove
+registration/data/sandbox. Handler return is not process exit or verified resource
+outcomes; broad runtime controls remain unsupported. No automatic retry or silent
+replan after cancellation, failure or a lost reply. Persisted formats are unchanged.
 
 Admission receipts are retained without automatic pruning; event/document history and runner logs can grow. There is no destructive data-deletion CLI. `radar reset` leaves agent data intact. Every registration, including a stopped one, pins its associated workspace against Radar cleanup/expiry. Additional active workspace operations use OS leases. To release the association:
 

@@ -1,18 +1,41 @@
-# Exact registered-agent stop transport
+# Exact registered-agent stop
 
 [Pi feedback diagnostics](pi-diagnostics.md) · [Durable agents](../durable-agents.md)
 
-## Daemon/client infrastructure only
+## Exact CLI/Pi interruption consent
 
-Diagnostics schema 38 adds the finite `agent_stop` maintenance transport. This
-is **not a CLI/Pi stop control** or an approval mechanism. Overview advertises
-`agent_stop_daemon_client_transport: true`, `agent_stop_previews: false` and
-`agent_stop_apply: false`; broad `runtime_controls` remains false. The existing
-Pi sections cannot invoke this operation. A future CLI/Pi adapter must obtain
-separate fresh interactive exact-target interruption consent, bind the complete
-immutable latest preview to this feedback workspace/session, and refuse
-headless, denied, changed or expired approval. Preview reads need their own
-fresh exact-target approval. A plan ID is freshness, never user consent.
+Diagnostics schema 39 exposes `radar_diagnostics` section `agent_stop` with exact
+retained task `parent_id` and registered `agent_id`. Overview advertises
+`agent_stop_daemon_client_transport: true`, `agent_stop_previews: true` and
+`agent_stop_apply: true`; broad `runtime_controls` remains false. Start, restart,
+remove, sandbox stop and generic agent controls are unsupported.
+
+Preview reads require fresh interactive exact-target approval. Apply requires
+**separate fresh interactive exact-target interruption consent** covering the
+complete immutable latest preview in this registered feedback workspace and
+identified Pi session. A plan ID is freshness, never user consent. The prompt
+discloses desired-state persistence, possible interruption of unfinished work,
+stopped registration ownership, preservation and unknown/partial outcomes.
+Headless, denied, changed, superseded, expired or stale approval fails closed;
+every attempt consumes the local preview binding before validation/confirmation.
+Context/session recapture or another diagnostics request invalidates it. No
+cached approval, subset, automatic retry, replay or silent replan is accepted.
+The original native 30-second expiry remains authoritative during confirmation.
+
+The trusted local CLI adapter resolves only registered paths and invokes the
+finite maintenance transport; it is not a consent-token issuer or a second
+executor. Pi, not a client-supplied approval flag, owns interactive consent:
+
+```sh
+radar feedback-diagnostics --workspace <feedback workspace> --section agent_stop --parent-id <retained task> --agent-id <registered agent> --scope origin --action preview --json
+# Only after separate exact-target interruption approval of that complete preview:
+radar feedback-diagnostics --workspace <feedback workspace> --section agent_stop --parent-id <retained task> --agent-id <registered agent> --scope origin --action apply --plan-id <latest plan ID> --json
+```
+
+Only exact stop selectors are accepted, including rejection of explicitly empty
+or default-valued unrelated selectors. Other sections reject `agent_id`. The
+complete allowlisted response must match the retained immutable disclosure even
+if the model mutates returned details; unavailable evidence has no fallback.
 
 The dedicated typed `diagnostics-maintenance` request uses operation
 `agent_stop`, mode `preview` or `apply`, exact retained task `parent_id`, exact

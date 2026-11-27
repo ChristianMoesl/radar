@@ -12,8 +12,8 @@ import (
 
 // DiagnosticAgentStop is a finite native-handler disclosure, never a private
 // registration, executable plan, user-consent record or process-outcome claim.
-// Daemon/client infrastructure only until the CLI/Pi interruption consent flow
-// exists. Captured running/desired facts are explicitly before execution.
+// Trusted adapters must separately obtain fresh exact-target interruption consent.
+// Captured running/desired facts are explicitly before execution.
 type DiagnosticAgentStop struct {
 	Schema                 int      `json:"diagnostics_schema"`
 	Operation              string   `json:"operation"`

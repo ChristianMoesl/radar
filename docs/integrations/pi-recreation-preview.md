@@ -2,7 +2,7 @@
 
 `radar_diagnostics` section `recreation_preview` now supports exact native preview
 and one-use apply through the **existing** recreation backend and executor. CLI,
-daemon and loaded Pi must match diagnostics **schema 38**; old peers fail closed
+daemon and loaded Pi must match diagnostics **schema 39**; old peers fail closed
 without a compatibility, probe, cached or shell fallback. No persisted format
 changes. `make install` does not update/reload separately installed Pi sources.
 
