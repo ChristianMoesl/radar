@@ -239,6 +239,13 @@ func (m *Manager) status(ctx context.Context, reg Registration) protocol.AgentSt
 }
 
 func (m *Manager) start(ctx context.Context, reg Registration, request protocol.AgentRequest) error {
+	persistDesired := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		_, err := m.setDesired(reg, reg.Desired)
+		return err
+	}
 	// Runner work can hold a workspace lease. Stop it before repairing its runtime,
 	// never underneath an active native tool invocation.
 	if binding, err := m.workspace.AgentWorkspace(ctx, reg.Workspace.Path); err == nil {
@@ -250,7 +257,7 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 			return err
 		}
 		if observed.Running {
-			return nil
+			return persistDesired()
 		}
 	} else if err := stop(ctx, reg); err != nil {
 		return err
@@ -272,7 +279,7 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 		return fmt.Errorf("associated workspace identity changed; refusing to recover agent work")
 	}
 	reg.Workspace = binding
-	if err := atomicJSON(filepath.Join(dir, "registration.json"), reg); err != nil {
+	if err := persistDesired(); err != nil {
 		return err
 	}
 	observed, err := observeRunner(ctx, reg)
@@ -560,9 +567,15 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 			}
 			return encode(plan)
 		}
-		reg, err = m.setDesired(reg, request.Operation != "stop")
-		if err != nil {
-			return nil, err
+		if request.Operation == "stop" {
+			reg, err = m.setDesired(reg, false)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			// Keep start intent in memory until native preparation accepts it.
+			// Persisting it here would let supervision retry a refused request.
+			reg.Desired = true
 		}
 		if request.Operation != "start" {
 			if err := stop(ctx, reg); err != nil {

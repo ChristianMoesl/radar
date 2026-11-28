@@ -189,6 +189,21 @@ native leases still apply. Occupied anchors are refused rather than adopted,
 cleared or renamed; the retained intent is never rewritten. A stopped
 registration stays stopped, and status/inspection never starts resources.
 
+A start/restart request does not persist new desired-running intent or clear
+retry evidence before successful native workspace preparation. Before that
+boundary, a stale or denied plan, busy bundle, changed binding, uncertain runner
+or observed cancellation leaves the previous desired state unchanged; a stopped
+registration cannot become
+an automatic supervisor retry because that request was refused. An already
+healthy matching runner needs no preparation before accepting desired state.
+Successful preparation persists intent before runner launch, so later launch or
+readiness failure can still leave accepted desired-running intent and resource
+effects. These partial effects are not rolled back. Restart can already have
+stopped its old runner before a preparation refusal; this is not atomic restart
+or retained preview-to-launch authority. Existing desired-running registrations
+retain their prior supervision intent, and accepted stop still persists stopped
+intent before shutdown rather than restoring it on failure.
+
 Start/restart and desired-running supervision prepare the owned workspace before
 launching the runner: stopped sandboxes resume in place, missing sandboxes are
 recreated through ordinary reconciliation, and existing members, mounts and ports
