@@ -52,22 +52,49 @@ func (c client) get(ctx context.Context, path string) (document, error) {
 	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") {
 		return document{}, fmt.Errorf("invalid Terraform API path")
 	}
+	operation := terraformReadOperation(path)
 	data, err := c.run(ctx, "api", path, "--method=GET")
 	if err != nil {
 		// Keep known context outcomes, never subprocess diagnostics.
 		if errors.Is(err, context.DeadlineExceeded) {
-			return document{}, fmt.Errorf("tfctl read timed out: %w", context.DeadlineExceeded)
+			return document{}, fmt.Errorf("tfctl %s read timed out: %w", operation, context.DeadlineExceeded)
 		}
 		if errors.Is(err, context.Canceled) {
-			return document{}, fmt.Errorf("tfctl read canceled: %w", context.Canceled)
+			return document{}, fmt.Errorf("tfctl %s read canceled: %w", operation, context.Canceled)
 		}
-		return document{}, fmt.Errorf("Terraform read failed; check tfctl authentication, access and connectivity")
+		return document{}, fmt.Errorf("Terraform %s read failed; check tfctl authentication, access and connectivity", operation)
 	}
 	var doc document
 	if json.Unmarshal([]byte(data), &doc) != nil || len(doc.Data) == 0 || len(doc.Errors) != 0 {
-		return document{}, fmt.Errorf("tfctl returned an invalid API response")
+		return document{}, fmt.Errorf("tfctl returned an invalid API response (%s read)", operation)
 	}
 	return doc, nil
+}
+
+// Finite labels for attempted native reads, never an endpoint/selector echo or
+// a diagnosis of an opaque CLI failure. This does not grant path eligibility,
+// inspect private CLI output, infer HTTP status or change retry policy.
+func terraformReadOperation(path string) string {
+	route, _, _ := strings.Cut(path, "?")
+	parts := strings.Split(route, "/")
+	switch {
+	case route == "/account/details":
+		return "account"
+	case len(parts) == 4 && parts[1] == "organizations" && parts[2] != "" && parts[3] == "workspaces":
+		return "workspace list"
+	case len(parts) == 5 && parts[1] == "organizations" && parts[2] != "" && parts[3] == "workspaces" && parts[4] != "":
+		return "workspace"
+	case len(parts) == 4 && parts[1] == "workspaces" && validID(parts[2], "ws-") && parts[3] == "runs":
+		return "run list"
+	case len(parts) == 3 && parts[1] == "runs" && validID(parts[2], "run-"):
+		return "run"
+	case len(parts) == 3 && parts[1] == "plans" && validID(parts[2], "plan-"):
+		return "plan"
+	case len(parts) == 4 && parts[1] == "configuration-versions" && validID(parts[2], "cv-") && parts[3] == "ingress-attributes":
+		return "ingress"
+	default:
+		return "API"
+	}
 }
 
 type session struct {

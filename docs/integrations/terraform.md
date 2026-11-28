@@ -87,6 +87,16 @@ Optional plan counts/VCS context can be unavailable without changing confirmed
 run state; absent counts remain unavailable rather than becoming zero. Radar
 reads plan metadata, not full execution-plan JSON, state, variables, or plan logs.
 
+Sanitized read failures identify only the attempted operation: account,
+workspace, workspace list, run list, run, plan, ingress, or an unclassified API
+read. Labels never echo the request URL/query, remote IDs, CLI profile,
+credentials, response body or subprocess diagnostics. They identify where a
+read was attempted, not whether authentication, permissions, connectivity or
+an HTTP status caused the failure. Timeout/cancellation identity, the single
+paced run-list timeout retry and optional-metadata behavior remain unchanged.
+Historical generic errors cannot be retroactively attributed to an operation
+or root cause from a later labeled failure or successful qualification.
+
 ## Refs, attention, and completion
 
 The stable identity is `terraform:run:<service-host>:<run-id>`, independent of
