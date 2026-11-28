@@ -1011,6 +1011,20 @@ for (const [name,mutate] of Object.entries({
  h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});await assert.rejects(h.diagnostic("integrations"));assert.deepEqual(h.confirmations,[]);
 });
 
+for (const field of ["started_at", "collection_started_at", "finished_at"]) {
+ for (const [name, fraction] of [["excess precision", ".1234567891"], ["oversized fraction", "."+"1".repeat(4096)], ["comma fraction", ",1"]]) {
+  test(`integration collection rejects native timestamp boundary mismatch: ${field}/${name}`, async()=>{
+   const h=harness();h.activate();const data=integrationCollectionFixture();
+   const collection=data.inventory.items[0].integration.collection;
+   collection.latest[field]="2026-11-16T17:01:01"+fraction+"Z";
+   if(field==="started_at")collection.latest.collection_started_at=collection.latest.finished_at;
+   if(field==="finished_at")collection.last_complete_collection_finished_at=collection.latest.finished_at;
+   h.pi.exec=async()=>({code:0,stdout:JSON.stringify(data),stderr:"",killed:false});
+   await assert.rejects(h.diagnostic("integrations"));assert.deepEqual(h.confirmations,[]);
+  });
+ }
+}
+
 function daemonOverviewFixture() {
  const settings=policyFixture();settings.scope="daemon_process_global_defaults";
  settings.settings[0]={key:"workspace.auto_confirm",value:"false",origin:"configuration_file",declaration:"value"};

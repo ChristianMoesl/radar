@@ -193,15 +193,15 @@ sources require an update/reload; `make install` alone does not replace them.
 
 ## Current-daemon collection attempt evidence
 
-`integrations` includes `collection_evidence` and, when available, `collection`:
-the latest returned native Status/Collect/ResolveBindings envelope, with UTC
-start/finish times, an optional actual collection-start time, and a finite
-`complete`, `incomplete`, `skipped_before_collection` or
-`cancelled_or_timed_out` outcome. `last_complete_collection_finished_at` retains
-the latest complete native collection across later failures/skips. A skipped
-precheck is not a collection. `complete` requires the native collection/bound
-lookup completeness flag, final status `ok`, and a non-cancelled envelope; it
-does not establish reconciliation, publication or business success.
+`integrations` includes `collection_evidence` and optional `collection`: the
+returned Status/Collect/ResolveBindings envelope. Bounded canonical
+UTC RFC3339Nano times are retained; malformed aliases or excess precision discard
+the attempt, never become normalized evidence. Outcomes: `complete`,
+`incomplete`, `skipped_before_collection`, `cancelled_or_timed_out`.
+`last_complete_collection_finished_at` retains the last complete collection
+across later failures/skips. A skipped precheck is not collection. `complete`
+requires collection/bound lookup completeness, final status `ok` and a
+non-cancelled envelope, not reconciliation, publication or business success.
 
 This is bounded latest-per-provider evidence in the **current daemon's memory**,
 not a persisted history platform. Restarted/unobserved sources are unknown;

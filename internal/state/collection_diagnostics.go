@@ -38,17 +38,17 @@ func (s *Store) RecordCollectionAttempts(attempts map[string]protocol.Diagnostic
 }
 
 func validCollectionAttempt(attempt protocol.DiagnosticCollectionAttempt) bool {
-	start, err := time.Parse(time.RFC3339Nano, attempt.StartedAt)
-	if err != nil || start.IsZero() || start.Location() != time.UTC {
+	start, ok := collectionDiagnosticTime(attempt.StartedAt)
+	if !ok {
 		return false
 	}
-	finish, err := time.Parse(time.RFC3339Nano, attempt.FinishedAt)
-	if err != nil || finish.IsZero() || finish.Before(start) || finish.Location() != time.UTC {
+	finish, ok := collectionDiagnosticTime(attempt.FinishedAt)
+	if !ok || finish.Before(start) {
 		return false
 	}
 	if attempt.CollectionStartedAt != "" {
-		collection, err := time.Parse(time.RFC3339Nano, attempt.CollectionStartedAt)
-		if err != nil || collection.IsZero() || collection.Before(start) || finish.Before(collection) || collection.Location() != time.UTC {
+		collection, ok := collectionDiagnosticTime(attempt.CollectionStartedAt)
+		if !ok || collection.Before(start) || finish.Before(collection) {
 			return false
 		}
 	}
@@ -62,4 +62,16 @@ func validCollectionAttempt(attempt protocol.DiagnosticCollectionAttempt) bool {
 	default:
 		return false
 	}
+}
+
+// Retain only the bounded native formatter's UTC representation. Go's parser
+// also accepts comma decimals and silently truncates excess fractional digits;
+// keeping that original text would violate the public diagnostic time boundary.
+// Never normalize an invalid observation into new evidence.
+func collectionDiagnosticTime(value string) (time.Time, bool) {
+	if len(value) < 20 || len(value) > 30 {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	return parsed, err == nil && !parsed.IsZero() && parsed.Year() >= 1 && parsed.UTC().Format(time.RFC3339Nano) == value
 }
