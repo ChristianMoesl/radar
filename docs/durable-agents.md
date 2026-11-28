@@ -122,8 +122,12 @@ non-serialized in-process continuation reuses the existing startup sequence;
 it is not a second executor or consent. It requires the expected binding, never
 runs for preview or initial add, and is called only after successful workspace
 preparation/verification. Full applied registration is checked again after the
-continuation returns. Missing/repeated completion or a swallowed completion
-failure cannot trigger a post-preparation fallback launch. Cancellation, native
+continuation returns. The manager closes and drains its continuation before
+releasing serialization, including native errors and panic unwinding. Retained
+callbacks cannot execute later, and a recovered startup panic cannot become
+successful completion. Already-entered callbacks drain before return; this does
+not grant an asynchronous provider a new admission. Missing/repeated completion
+or a swallowed completion failure cannot trigger a post-preparation fallback launch. Cancellation, native
 errors and panic unwinding release admission without rolling back accepted
 provisioning, desired state or a runner already started. Shared agent tool leases
 remain compatible; no runtime-lifetime writer lock is held. Explicit workspace

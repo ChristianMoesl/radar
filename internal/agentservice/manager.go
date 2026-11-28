@@ -268,14 +268,7 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 		return fmt.Errorf("runner process exists but is not ready; inspect its logs before replacement")
 	}
 	dir, _ := instanceDir(reg.ID)
-	completed := 0
-	var completionErr error
-	complete := func(ctx context.Context, binding protocol.AgentWorkspaceBinding) (err error) {
-		completed++
-		defer func() { completionErr = err }()
-		if completed != 1 {
-			return fmt.Errorf("agent workspace runner completion repeated; refusing replay")
-		}
+	finishStartup := func(ctx context.Context, binding protocol.AgentWorkspaceBinding) error {
 		if binding != reg.Workspace {
 			return fmt.Errorf("associated workspace identity changed; refusing to recover agent work")
 		}
@@ -350,10 +343,41 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 			}
 		}
 	}
+	// Close and drain this continuation before releasing manager serialization,
+	// including native errors and panic unwinding. A retained provider callback
+	// cannot persist intent or launch later, outside its original admission.
+	var completionMu sync.Mutex
+	active, completed := true, 0
+	var completionErr error
+	closeCompletion := func() {
+		completionMu.Lock()
+		defer completionMu.Unlock()
+		active = false
+	}
+	defer closeCompletion()
+	complete := func(ctx context.Context, binding protocol.AgentWorkspaceBinding) error {
+		completionMu.Lock()
+		defer completionMu.Unlock()
+		if !active {
+			return fmt.Errorf("agent workspace runner completion closed; refusing late execution")
+		}
+		completed++
+		if completed != 1 {
+			completionErr = fmt.Errorf("agent workspace runner completion repeated; refusing replay")
+			return completionErr
+		}
+		// Keep failure sticky if the provider recovers a startup panic. Only a
+		// normal return from the original sequence can establish its result.
+		completionErr = fmt.Errorf("agent workspace runner completion interrupted; refusing fallback")
+		err := finishStartup(ctx, binding)
+		completionErr = err
+		return err
+	}
 	binding, _, err := m.workspace.PrepareAgentWorkspace(ctx, integration.AgentWorkspaceRequest{
 		ID: reg.ID, DataDir: dir, Path: reg.Workspace.Path, Expected: &reg.Workspace,
 		PlanID: request.PlanID, Note: request.PreparedNote, Complete: complete,
 	})
+	closeCompletion()
 	if err != nil {
 		return err
 	}
