@@ -563,6 +563,19 @@ is not user consent or a public diagnostic/CLI/Pi stop-preview capability;
 `runtime_controls` remains unsupported. Shutdown acknowledgement is not completed
 agent work, a successful checkpoint, released leases or resource absence.
 
+The private native stop plan also publishes an immutable shared `Observation()`
+after an attempted effect sequence. It independently reads the matching stopped
+definition (or exact original preserved registration), probes the selected native
+listener and checks recorded-owner and captured snapshot-PID liveness. No listener
+plus no live observed owner is point-in-time evidence, not PID-incarnation
+attestation, completed work, released leases or workspace/sandbox absence. The
+original directories and observed registration/owner/socket leaves must remain
+stable across these bounded reads. Unsafe, replaced, cancelled or expired evidence
+is unknown; partial native errors do not imply rollback or erase observed facts.
+Inspection is memory-only, never a fresh probe or restored admission. Private
+extensions are not native definition fields. This internal typed observation is
+not yet a daemon/CLI/Pi result field; public stop results remain handler evidence.
+
 The daemon's private adapter preparation now binds the exact registered feedback
 caller, origin/feedback/installation scope and current task's exact agent ref.
 Its captured final guard rechecks that scope, revision and resource-publication

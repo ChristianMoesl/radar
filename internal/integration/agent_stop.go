@@ -24,6 +24,32 @@ type AgentStopPreview struct {
 	Running bool
 }
 
+// AgentStopObservation is independently read native postcondition evidence, not
+// the executor's return, attribution to this attempt or permission to retry.
+// Empty fields/zero time mean unknown/not observed. A stopped definition matches
+// the captured native definition with Desired=false; unknown private extensions
+// are not definition fields. Original-preserved binds the original raw file.
+// Runner absence requires no listener, no live recorded owner and (if captured)
+// no live original snapshot PID. These point-in-time checks attest neither PID
+// incarnation nor completed work, released leases or workspace/sandbox absence.
+type AgentStopObservation struct {
+	ObservedAt   time.Time
+	Registration AgentStopRegistrationState
+	Runner       AgentStopRunnerState
+}
+
+type AgentStopRegistrationState string
+type AgentStopRunnerState string
+
+const (
+	AgentStopRegistrationUnknown  AgentStopRegistrationState = ""
+	AgentStopRegistrationStopped  AgentStopRegistrationState = "matching_stopped_definition"
+	AgentStopRegistrationOriginal AgentStopRegistrationState = "original_preserved"
+	AgentStopRunnerUnknown        AgentStopRunnerState       = ""
+	AgentStopRunnerPresent        AgentStopRunnerState       = "matching_listener_present"
+	AgentStopRunnerAbsent         AgentStopRunnerState       = "no_listener_and_no_live_observed_owner"
+)
+
 // AgentStopPlan retains native-only evidence and the original caller guard.
 // Copies share one-use admission. It must not be serialized or accepted from a
 // client; the typed caller must retain it in its existing bounded plan machinery.
@@ -36,6 +62,10 @@ type AgentStopPlan interface {
 	ExpiresAt() time.Time
 	RetainedBytes() int
 	Execute(context.Context) error
+	// Shared immutable observation published after the first attempted native
+	// execution finishes. Inspection performs no I/O and cannot restore admission.
+	// Cancelled/expired/pre-effect-refused attempts retain unknown evidence.
+	Observation() AgentStopObservation
 }
 
 // AgentStopDiagnostics is separate from first-provider generic AgentManager

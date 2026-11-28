@@ -22,16 +22,26 @@ import (
 type StopPlan struct{ capture *stopCapture }
 
 type stopCapture struct {
-	mu       sync.Mutex
-	consumed bool
-	manager  *Manager
-	guard    integration.AgentStopGuard
-	expires  time.Time
-	files    stopFiles
-	reg      Registration
-	running  bool
-	pid      int
-	bytes    int
+	mu          sync.Mutex
+	consumed    bool
+	manager     *Manager
+	guard       integration.AgentStopGuard
+	expires     time.Time
+	files       stopFiles
+	reg         Registration
+	running     bool
+	pid         int
+	bytes       int
+	observation integration.AgentStopObservation
+}
+
+func (p StopPlan) Observation() integration.AgentStopObservation {
+	if p.capture == nil {
+		return integration.AgentStopObservation{}
+	}
+	p.capture.mu.Lock()
+	defer p.capture.mu.Unlock()
+	return p.capture.observation
 }
 
 type stopFile struct {
@@ -153,17 +163,23 @@ func (p StopPlan) Execute(ctx context.Context) (result error) {
 	}
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
+	var observation integration.AgentStopObservation
 	// Normalize BEFORE our own deferred cancel. Already accepted desired-state
 	// and shutdown effects remain possible; no rollback or retry is implied.
 	defer func() {
-		if ctx.Err() != nil || !time.Now().Before(c.expires) {
+		if removalContextError(ctx) != nil || !time.Now().Before(c.expires) {
+			observation = integration.AgentStopObservation{}
 			result = stopPlanUnavailable()
 		}
+		c.mu.Lock()
+		c.observation = observation
+		c.mu.Unlock()
 	}()
 	// Reject filesystem/scope drift before contacting a possibly replaced peer.
 	if !c.current(ctx) {
 		return stopPlanUnavailable()
 	}
+	attempted := false
 	err := stopWithAdmission(ctx, c.reg, func(observed protocol.AgentStatus, nativeStop func() error) error {
 		if observed.Running != c.running || (observed.Running && observed.Snapshot.PID != c.pid) || !c.current(ctx) {
 			return stopPlanUnavailable()
@@ -174,12 +190,16 @@ func (p StopPlan) Execute(ctx context.Context) (result error) {
 			if !c.current(ctx) {
 				return stopPlanUnavailable()
 			}
+			attempted = true
 			if _, err := m.setDesired(c.reg, false); err != nil {
 				return err
 			}
 			return nativeStop()
 		})
 	})
+	if attempted {
+		observation = c.observeStop(ctx, captureStopFiles, observeRunner)
+	}
 	if err != nil {
 		return stopPlanUnavailable() // Never disclose native errors/private paths.
 	}

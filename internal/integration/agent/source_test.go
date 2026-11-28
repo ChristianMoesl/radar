@@ -112,6 +112,9 @@ func TestAgentStopSourceDelegatesGuardedNativeCaptureWithoutGenericControl(t *te
 			if err != nil || plan.Preview() != (integration.AgentStopPreview{ID: reg.ID, Desired: true, Running: false}) || calls != 0 || workspace.prepares != 0 {
 				t.Fatal("native capture lost facts or performed admission/preparation", err)
 			}
+			if plan.Observation() != (integration.AgentStopObservation{}) {
+				t.Fatal("source capture fabricated postconditions")
+			}
 			encoded, _ := json.Marshal(plan)
 			if string(encoded) != "{}" {
 				t.Fatal("native plan serialized", string(encoded))
@@ -123,6 +126,14 @@ func TestAgentStopSourceDelegatesGuardedNativeCaptureWithoutGenericControl(t *te
 			err = plan.Execute(context.Background())
 			if (kind == "allowed") != (err == nil) {
 				t.Fatal("typed source bypassed/lost native admission", err)
+			}
+			observed := plan.Observation()
+			if kind == "allowed" {
+				if observed.Registration != integration.AgentStopRegistrationStopped || observed.Runner != integration.AgentStopRunnerAbsent || observed.ObservedAt.IsZero() {
+					t.Fatal("source lost independent native observations", observed)
+				}
+			} else if observed != (integration.AgentStopObservation{}) {
+				t.Fatal("source refusal fabricated observations", observed)
 			}
 			if err := plan.Execute(context.Background()); err == nil {
 				t.Fatal("source admission replayed")

@@ -309,6 +309,18 @@ func TestPiExpiryConsentContractIsSeparatelyBundled(t *testing.T) {
 	}
 }
 
+func TestDocumentationNativeStopIndependentObservation(t *testing.T) {
+	doc, err := Read("docs/durable-agents.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contract := range []string{"private native stop plan", "immutable shared `Observation()`", "matching stopped", "captured snapshot-PID liveness", "observed registration/owner/socket leaves", "Inspection is memory-only", "not yet a daemon/CLI/Pi result field", "public stop results remain handler evidence"} {
+		if !strings.Contains(doc.Content, contract) {
+			t.Errorf("native stop observation contract omitted %q", contract)
+		}
+	}
+}
+
 func TestDocumentationNativeStopRemoveGuardLifetime(t *testing.T) {
 	doc, err := Read("docs/durable-agents.md")
 	if err != nil {
