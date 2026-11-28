@@ -190,7 +190,8 @@ func (p StopPlan) Execute(ctx context.Context) (result error) {
 // cannot retain it for later, execute twice, skip it and claim success, or hide a
 // native error. The mutex also drains an already-entered callback before return.
 // Shared by private stop and removal admission; callers sanitize these internal
-// enforcement errors to their own operation-specific refusal.
+// enforcement errors to their own operation-specific refusal. Panic unwinding
+// closes and drains too; a recovered effect panic cannot become success.
 func runNativeGuard(ctx context.Context, guard func(context.Context, func() error) error, execute func() error) error {
 	if guard == nil {
 		return stopPlanUnavailable()
@@ -198,6 +199,11 @@ func runNativeGuard(ctx context.Context, guard func(context.Context, func() erro
 	var mu sync.Mutex
 	active, calls := true, 0
 	var result error
+	defer func() {
+		mu.Lock()
+		defer mu.Unlock()
+		active = false
+	}()
 	guardErr := guard(ctx, func() error {
 		mu.Lock()
 		defer mu.Unlock()
@@ -205,6 +211,9 @@ func runNativeGuard(ctx context.Context, guard func(context.Context, func() erro
 		if !active || calls != 1 {
 			return stopPlanUnavailable()
 		}
+		// Only a normal native return can establish completion. If the guard
+		// recovers an effect panic, retain failure rather than the zero nil.
+		result = stopPlanUnavailable()
 		result = execute()
 		return result
 	})

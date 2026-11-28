@@ -309,6 +309,18 @@ func TestPiExpiryConsentContractIsSeparatelyBundled(t *testing.T) {
 	}
 }
 
+func TestDocumentationNativeStopRemoveGuardLifetime(t *testing.T) {
+	doc, err := Read("docs/durable-agents.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contract := range []string{"Stop and removal close and drain their shared", "before releasing manager serialization", "including guard panic", "A recovered native callback panic remains failure", "Already-entered callbacks drain without rollback", "an asynchronous caller fresh scope or resource admission"} {
+		if !strings.Contains(doc.Content, contract) {
+			t.Errorf("native guard lifetime contract omitted %q", contract)
+		}
+	}
+}
+
 func TestDocumentationAgentStopInterruptionConsentBoundary(t *testing.T) {
 	doc, err := Read("docs/integrations/pi-agent-stop.md")
 	if err != nil {

@@ -550,7 +550,12 @@ without running it. Apply holds that guard across desired-state persistence and
 native shutdown, rechecking native identity before the first effect. The caller
 must supply fresh authorized scope/publication/consent admission. Missing, denied,
 skipped, repeated or retained-for-later callbacks cannot bypass it or replay work;
-a guard cannot hide a native error. This native capture remains private behind
+a guard cannot hide a native error. Stop and removal close and drain their shared
+execution callback before releasing manager serialization, including guard panic
+unwinding. A recovered native callback panic remains failure, never successful
+completion. Already-entered callbacks drain without rollback; this does not grant
+an asynchronous caller fresh scope or resource admission. This native capture
+remains private behind
 the finite schema-42 daemon/client projection, not a CLI/Pi stop control. Cancellation, drift or a lost reply never restores it. Desired-state persistence is not rolled
 back after a later shutdown failure. These point-in-time guards do not attest a
 PID incarnation or make filesystem checks transactional. This internal boundary
