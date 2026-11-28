@@ -80,6 +80,9 @@ func prepareAgentWorkspace(ctx context.Context, runner Runner, options CreateOpt
 	fail := func(err error) (protocol.AgentWorkspaceBinding, integration.WorkspaceReconcilePlan, error) {
 		return protocol.AgentWorkspaceBinding{}, integration.WorkspaceReconcilePlan{}, err
 	}
+	if req.Complete != nil && req.Expected == nil {
+		return fail(fmt.Errorf("agent runner completion requires its expected workspace binding"))
+	}
 	intentPath := filepath.Join(req.DataDir, "workspace.json")
 	var intent agentWorkspaceIntent
 	data, err := os.ReadFile(intentPath)
@@ -111,6 +114,17 @@ func prepareAgentWorkspace(ctx context.Context, runner Runner, options CreateOpt
 		}
 		if req.Preview {
 			return fail(fmt.Errorf("an explicitly bound workspace is not agent-managed; use workspace reconciliation"))
+		}
+		if req.Complete != nil {
+			if err := ctx.Err(); err != nil {
+				return fail(err)
+			}
+			if err := req.Complete(ctx, binding); err != nil {
+				return fail(err)
+			}
+			if err := ctx.Err(); err != nil {
+				return fail(err)
+			}
 		}
 		return binding, integration.WorkspaceReconcilePlan{}, nil
 	} else if req.Expected != nil {
@@ -234,6 +248,14 @@ func prepareAgentWorkspace(ctx context.Context, runner Runner, options CreateOpt
 			return err
 		}
 		binding = verified
+		if req.Complete != nil {
+			if err := req.Complete(ctx, binding); err != nil {
+				return err
+			}
+			if _, err := activationRegistration(ctx, plan.root, binding.Path, expected); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	// Plan and accept once, apply the SAME native plan/request, and finish

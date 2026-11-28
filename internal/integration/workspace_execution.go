@@ -31,6 +31,11 @@ type AgentWorkspaceRequest struct {
 	PlanID   string
 	Note     json.RawMessage
 	Expected *protocol.AgentWorkspaceBinding
+	// Complete runs synchronously once after successful preparation of the
+	// expected binding, never on preview or initial add. Managed workspaces keep
+	// native admission through this trusted in-process continuation. Explicit
+	// bindings remain validation-only. This is not a transport field or consent.
+	Complete func(context.Context, protocol.AgentWorkspaceBinding) error `json:"-"`
 }
 
 type AgentWorkspaceManager interface {

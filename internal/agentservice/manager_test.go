@@ -158,9 +158,16 @@ func (f workspaceFixture) AgentWorkspace(ctx context.Context, path string) (prot
 	return f.lookup(ctx, path)
 }
 func (f workspaceFixture) PrepareAgentWorkspace(ctx context.Context, req integration.AgentWorkspaceRequest) (protocol.AgentWorkspaceBinding, integration.WorkspaceReconcilePlan, error) {
+	var binding protocol.AgentWorkspaceBinding
+	var plan integration.WorkspaceReconcilePlan
+	var err error
 	if f.prepare != nil {
-		return f.prepare(ctx, req)
+		binding, plan, err = f.prepare(ctx, req)
+	} else {
+		binding, err = f.lookup(ctx, req.Path)
 	}
-	binding, err := f.lookup(ctx, req.Path)
-	return binding, integration.WorkspaceReconcilePlan{}, err
+	if err == nil && !req.Preview && req.Complete != nil {
+		err = req.Complete(ctx, binding)
+	}
+	return binding, plan, err
 }

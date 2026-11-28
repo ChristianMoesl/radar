@@ -116,9 +116,22 @@ and after verification. Native resource failures skip completion; resume or
 verification failures do not roll back accepted notes, registration or runtime
 effects, and all paths release admission. This is cooperative exclusion of
 Radar writers, not a transaction against external SBX actors or safe-retry proof.
-This internal preparation boundary is not end-to-end retained startup admission:
-final agent-runner launch/readiness checks remain separate. Diagnostic exact
-start/restart controls remain unsupported; broad `runtime_controls` stays false.
+For managed registrations, native runner launch/readiness now stays inside the
+same creation/note locks and original full bundle admission. A synchronous,
+non-serialized in-process continuation reuses the existing startup sequence;
+it is not a second executor or consent. It requires the expected binding, never
+runs for preview or initial add, and is called only after successful workspace
+preparation/verification. Full applied registration is checked again after the
+continuation returns. Missing/repeated completion or a swallowed completion
+failure cannot trigger a post-preparation fallback launch. Cancellation, native
+errors and panic unwinding release admission without rolling back accepted
+provisioning, desired state or a runner already started. Shared agent tool leases
+remain compatible; no runtime-lifetime writer lock is held. Explicit workspace
+bindings remain validation-only and do not gain managed-resource admission.
+This in-call boundary is not end-to-end retained startup admission: there is no
+retained exact agent-registration/owner preview across separate requests.
+Diagnostic exact start/restart controls remain unsupported; broad
+`runtime_controls` stays false.
 `--workspace <registered-path>` explicitly selects an already prepared workspace
 instead; Radar validates it but does not claim ownership or repair its runtime.
 Native model tools still follow the separate human-confirmation flow described

@@ -239,7 +239,7 @@ func (m *Manager) status(ctx context.Context, reg Registration) protocol.AgentSt
 }
 
 func (m *Manager) start(ctx context.Context, reg Registration, request protocol.AgentRequest) error {
-	persistDesired := func() error {
+	persistDesired := func(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -257,7 +257,7 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 			return err
 		}
 		if observed.Running {
-			return persistDesired()
+			return persistDesired(ctx)
 		}
 	} else if err := stop(ctx, reg); err != nil {
 		return err
@@ -268,86 +268,102 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 		return fmt.Errorf("runner process exists but is not ready; inspect its logs before replacement")
 	}
 	dir, _ := instanceDir(reg.ID)
+	completed := 0
+	var completionErr error
+	complete := func(ctx context.Context, binding protocol.AgentWorkspaceBinding) (err error) {
+		completed++
+		defer func() { completionErr = err }()
+		if completed != 1 {
+			return fmt.Errorf("agent workspace runner completion repeated; refusing replay")
+		}
+		if binding != reg.Workspace {
+			return fmt.Errorf("associated workspace identity changed; refusing to recover agent work")
+		}
+		reg.Workspace = binding
+		if err := persistDesired(ctx); err != nil {
+			return err
+		}
+		observed, err := observeRunner(ctx, reg)
+		if err != nil {
+			return err
+		}
+		if observed.Running {
+			return nil
+		}
+		if alive, err := ownerAlive(reg); err != nil {
+			return err
+		} else if alive {
+			return fmt.Errorf("runner process exists but is not ready; inspect its logs before replacement")
+		}
+		command, args, err := hostCommand()
+		if err != nil {
+			return err
+		}
+		path, err := socketPath(reg.ID)
+		if err != nil {
+			return err
+		}
+		if err := socket.EnsureDir(path); err != nil {
+			return err
+		}
+		log, err := os.OpenFile(filepath.Join(dir, "runner.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if err != nil {
+			return err
+		}
+		defer log.Close()
+		args = append(args, "--id", reg.ID, "--entrypoint", reg.Entrypoint, "--data-dir", dir, "--config", filepath.Join(dir, "config.json"), "--socket", path)
+		args = append(args, "--workspace", reg.Workspace.Path, "--workspace-id", reg.Workspace.ID)
+		cmd := exec.Command(command, args...)
+		daemonSocket, _ := socket.Path()
+		cmd.Env = append(os.Environ(), "RADAR_SOCKET="+daemonSocket)
+		if os.Getenv("RADAR_BINARY") == "" {
+			if executable, err := os.Executable(); err == nil {
+				cmd.Env = append(cmd.Env, "RADAR_BINARY="+executable)
+			}
+		}
+		cmd.Stdout = log
+		cmd.Stderr = log
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		finished := make(chan error, 1)
+		go func() { finished <- cmd.Wait() }()
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		deadline := time.NewTimer(8 * time.Second)
+		defer deadline.Stop()
+		for {
+			select {
+			case err := <-finished:
+				return fmt.Errorf("runner exited before ready (%v); see %s", err, filepath.Join(dir, "runner.log"))
+			case <-ticker.C:
+				if s := status(ctx, reg); s.Running {
+					return nil
+				}
+			case <-deadline.C:
+				_ = cmd.Process.Kill()
+				return fmt.Errorf("runner startup timed out; inspect %s", filepath.Join(dir, "runner.log"))
+			case <-ctx.Done():
+				_ = cmd.Process.Kill()
+				return ctx.Err()
+			}
+		}
+	}
 	binding, _, err := m.workspace.PrepareAgentWorkspace(ctx, integration.AgentWorkspaceRequest{
 		ID: reg.ID, DataDir: dir, Path: reg.Workspace.Path, Expected: &reg.Workspace,
-		PlanID: request.PlanID, Note: request.PreparedNote,
+		PlanID: request.PlanID, Note: request.PreparedNote, Complete: complete,
 	})
 	if err != nil {
 		return err
 	}
-	if binding != reg.Workspace {
-		return fmt.Errorf("associated workspace identity changed; refusing to recover agent work")
+	if completionErr != nil {
+		return completionErr
 	}
-	reg.Workspace = binding
-	if err := persistDesired(); err != nil {
-		return err
+	if completed != 1 || binding != reg.Workspace {
+		return fmt.Errorf("agent workspace runner completion unavailable or binding changed; refusing fallback")
 	}
-	observed, err := observeRunner(ctx, reg)
-	if err != nil {
-		return err
-	}
-	if observed.Running {
-		return nil
-	}
-	if alive, err := ownerAlive(reg); err != nil {
-		return err
-	} else if alive {
-		return fmt.Errorf("runner process exists but is not ready; inspect its logs before replacement")
-	}
-	command, args, err := hostCommand()
-	if err != nil {
-		return err
-	}
-	path, err := socketPath(reg.ID)
-	if err != nil {
-		return err
-	}
-	if err := socket.EnsureDir(path); err != nil {
-		return err
-	}
-	log, err := os.OpenFile(filepath.Join(dir, "runner.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if err != nil {
-		return err
-	}
-	defer log.Close()
-	args = append(args, "--id", reg.ID, "--entrypoint", reg.Entrypoint, "--data-dir", dir, "--config", filepath.Join(dir, "config.json"), "--socket", path)
-	args = append(args, "--workspace", reg.Workspace.Path, "--workspace-id", reg.Workspace.ID)
-	cmd := exec.Command(command, args...)
-	daemonSocket, _ := socket.Path()
-	cmd.Env = append(os.Environ(), "RADAR_SOCKET="+daemonSocket)
-	if os.Getenv("RADAR_BINARY") == "" {
-		if executable, err := os.Executable(); err == nil {
-			cmd.Env = append(cmd.Env, "RADAR_BINARY="+executable)
-		}
-	}
-	cmd.Stdout = log
-	cmd.Stderr = log
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	finished := make(chan error, 1)
-	go func() { finished <- cmd.Wait() }()
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	deadline := time.NewTimer(8 * time.Second)
-	defer deadline.Stop()
-	for {
-		select {
-		case err := <-finished:
-			return fmt.Errorf("runner exited before ready (%v); see %s", err, filepath.Join(dir, "runner.log"))
-		case <-ticker.C:
-			if s := status(ctx, reg); s.Running {
-				return nil
-			}
-		case <-deadline.C:
-			_ = cmd.Process.Kill()
-			return fmt.Errorf("runner startup timed out; inspect %s", filepath.Join(dir, "runner.log"))
-		case <-ctx.Done():
-			_ = cmd.Process.Kill()
-			return ctx.Err()
-		}
-	}
+	return ctx.Err()
 }
 
 func stop(ctx context.Context, reg Registration) error {
