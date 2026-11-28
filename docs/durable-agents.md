@@ -515,6 +515,15 @@ and target decoding already entered is not rolled back. Closing the connection
 does not revoke native admission, undo shutdown/delivery, prove a resource outcome
 or authorize automatic retry/replay. No transport retry is added.
 
+Native startup also checks absolute caller expiry, even before timer notification,
+before entering workspace preparation and immediately before launching the runner
+after host/socket/log preparation. Successful original and in-admission completion
+returns are normalized against their own deadlines; an earlier completion deadline
+cannot be swallowed by a provider. Existing native errors are preserved. Accepted
+desired-state writes or an already launched/adopted runner are not rolled back or
+proved absent, and an expired return grants no automatic retry. These point-in-time
+checks are not retained cross-request startup preview authority or new controls.
+
 Storage defaults to `$XDG_STATE_HOME/radar/agents/<id>` or `~/.local/state/radar/agents/<id>` (`RADAR_AGENT_ROOT` overrides it). Registration/config/token, store format, exclusive-owner SQLite, native agent SQLite, cached snapshot and logs live there. All are separate from the rebuildable tasks cache and disposable workspace. A SQLite exclusive lock prevents a second store owner. Daemon restart reconnects to the runner; runner crashes release the lock and supervision retries with bounded backoff. Intentional stop stays stopped. Killing the owning Node process during a checkpoint resumes native work when restarted.
 
 Lifecycle controls require unambiguous matching native hello/snapshot identities

@@ -238,7 +238,14 @@ func (m *Manager) status(ctx context.Context, reg Registration) protocol.AgentSt
 	return result
 }
 
-func (m *Manager) start(ctx context.Context, reg Registration, request protocol.AgentRequest) error {
+func (m *Manager) start(ctx context.Context, reg Registration, request protocol.AgentRequest) (result error) {
+	// Timer notification may lag an absolute deadline. Accepted effects remain,
+	// but a late successful preparation cannot certify startup success.
+	defer func() {
+		if result == nil {
+			result = removalContextError(ctx)
+		}
+	}()
 	registration, err := captureStartRegistration(ctx, reg)
 	if err != nil {
 		return err
@@ -275,7 +282,14 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 		return fmt.Errorf("runner process exists but is not ready; inspect its logs before replacement")
 	}
 	dir, _ := instanceDir(reg.ID)
-	finishStartup := func(ctx context.Context, binding protocol.AgentWorkspaceBinding) error {
+	finishStartup := func(ctx context.Context, binding protocol.AgentWorkspaceBinding) (result error) {
+		// The provider may supply an earlier completion deadline than the outer
+		// request. Keep its failure sticky even if the provider swallows it.
+		defer func() {
+			if result == nil {
+				result = removalContextError(ctx)
+			}
+		}()
 		if binding != reg.Workspace {
 			return fmt.Errorf("associated workspace identity changed; refusing to recover agent work")
 		}
@@ -324,6 +338,11 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 		cmd.Stdout = log
 		cmd.Stderr = log
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		// Host payload/socket/log preparation can outlive the caller deadline.
+		// Refuse before launching, without undoing already accepted intent.
+		if err := removalContextError(ctx); err != nil {
+			return err
+		}
 		if err := cmd.Start(); err != nil {
 			return err
 		}
@@ -378,6 +397,9 @@ func (m *Manager) start(ctx context.Context, reg Registration, request protocol.
 		completionErr = fmt.Errorf("agent workspace runner completion interrupted; refusing fallback")
 		err := finishStartup(ctx, binding)
 		completionErr = err
+		return err
+	}
+	if err := removalContextError(ctx); err != nil {
 		return err
 	}
 	binding, _, err := m.workspace.PrepareAgentWorkspace(ctx, integration.AgentWorkspaceRequest{

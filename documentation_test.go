@@ -422,3 +422,15 @@ func TestDocumentationPublicStopObservationBoundary(t *testing.T) {
 		}
 	}
 }
+
+func TestDocumentationNativeStartupAbsoluteExpiry(t *testing.T) {
+	doc, err := Read("docs/durable-agents.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contract := range []string{"absolute caller expiry, even before timer notification", "immediately before launching the runner", "earlier completion deadline", "Existing native errors are preserved", "not rolled back", "no automatic retry", "not retained cross-request startup preview authority"} {
+		if !strings.Contains(doc.Content, contract) {
+			t.Errorf("native startup expiry contract omitted %q", contract)
+		}
+	}
+}
