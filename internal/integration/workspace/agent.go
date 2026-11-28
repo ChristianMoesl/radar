@@ -26,6 +26,37 @@ type agentWorkspaceIntent struct {
 	Note    *DesiredWorkspaceNote          `json:"note"`
 }
 
+func decodeAgentWorkspaceNote(data []byte) (DesiredWorkspaceNote, error) {
+	var note DesiredWorkspaceNote
+	// Reuse the native metadata member rules, including decoded escaped keys.
+	// Private extension subtrees are not workspace identity or note authority.
+	if !unambiguousRecreationMetadataObject(data, "create", "title", "path", "linking_key") || json.Unmarshal(data, &note) != nil {
+		return DesiredWorkspaceNote{}, fmt.Errorf("invalid or ambiguous agent workspace note; preserve agent data")
+	}
+	return note, nil
+}
+
+func decodeAgentWorkspaceIntent(data []byte) (agentWorkspaceIntent, error) {
+	var intent agentWorkspaceIntent
+	unavailable := func() (agentWorkspaceIntent, error) {
+		return agentWorkspaceIntent{}, fmt.Errorf("invalid or ambiguous agent workspace ownership intent; preserve agent data")
+	}
+	if !unambiguousRecreationMetadataObject(data, "version", "agent_id", "root", "binding", "note") {
+		return unavailable()
+	}
+	var members map[string]json.RawMessage
+	if json.Unmarshal(data, &members) != nil || !unambiguousRecreationMetadataObject(members["binding"], "id", "path", "mode", "sandbox") {
+		return unavailable()
+	}
+	if _, err := decodeAgentWorkspaceNote(members["note"]); err != nil {
+		return unavailable()
+	}
+	if json.Unmarshal(data, &intent) != nil {
+		return unavailable()
+	}
+	return intent, nil
+}
+
 // AgentWorkspaceNote returns the existing dedicated-workspace ownership proof
 // for dashboard presentation. Explicit bindings have no intent. This read-only
 // inspection never provisions, repairs, migrates or rewrites retained work.
@@ -37,9 +68,9 @@ func AgentWorkspaceNote(id, dataDir string, binding protocol.AgentWorkspaceBindi
 	if err != nil {
 		return nil, err
 	}
-	var intent agentWorkspaceIntent
-	if err := json.Unmarshal(data, &intent); err != nil {
-		return nil, fmt.Errorf("invalid agent workspace ownership: %w", err)
+	intent, err := decodeAgentWorkspaceIntent(data)
+	if err != nil {
+		return nil, err
 	}
 	if intent.Version != 1 || intent.AgentID != id || intent.Binding != binding || binding.ID == "" || intent.Root == "" || intent.Note == nil || intent.Note.Path == "" || intent.Note.LinkingKey == "" {
 		return nil, fmt.Errorf("agent workspace ownership identity changed")
@@ -91,8 +122,9 @@ func prepareAgentWorkspace(ctx context.Context, runner Runner, options CreateOpt
 		return fail(err)
 	}
 	if owned {
-		if err := json.Unmarshal(data, &intent); err != nil {
-			return fail(fmt.Errorf("invalid agent workspace intent; preserve agent data: %w", err))
+		intent, err = decodeAgentWorkspaceIntent(data)
+		if err != nil {
+			return fail(err)
 		}
 		if intent.Version != 1 || intent.AgentID != req.ID || intent.Root == "" || intent.Binding.ID == "" || intent.Binding.Path == "" || intent.Note == nil || intent.Note.Path == "" || intent.Note.LinkingKey == "" {
 			return fail(fmt.Errorf("invalid or unsupported agent workspace intent; preserve agent data"))
@@ -133,8 +165,8 @@ func prepareAgentWorkspace(ctx context.Context, runner Runner, options CreateOpt
 	options.PrepareOnly, options.Switch = true, false
 	options.Name, options.TaskLinkingKey = "agent-"+req.ID, "radar.agent:"+req.ID
 	if len(req.Note) != 0 {
-		var note DesiredWorkspaceNote
-		if err := json.Unmarshal(req.Note, &note); err != nil {
+		note, err := decodeAgentWorkspaceNote(req.Note)
+		if err != nil {
 			return fail(err)
 		}
 		if owned && (note.Path != intent.Note.Path || note.LinkingKey != intent.Note.LinkingKey) {

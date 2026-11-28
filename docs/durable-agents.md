@@ -679,6 +679,16 @@ separately. This is not a registry/data migration; persisted formats are unchang
 
 The new ownership-intent format is version 1; it is additive and leaves existing registration, native store, workspace registry and Radar database formats unchanged. Existing explicit registrations require no migration and are not silently converted to managed ownership. Invalid ownership intents are rejected, never reset.
 
+Retained `workspace.json` intent, nested binding/note, and explicitly supplied
+prepared-note objects require exact known member names with no duplicates
+(including escaped duplicates) or case-folded aliases. Ownership-note inspection
+and native preparation refuse ambiguous identities before workspace planning,
+provisioning/resumption or runner completion; they never normalize or repair the
+retained evidence. Valid native optional defaults and unknown private extension
+subtrees remain accepted, but those subtrees do not supply ownership authority.
+This changes no persisted version/layout, schema44 capability or executor and
+does not establish cross-request retained startup admission or retry consent.
+
 Registration JSON and its workspace binding require exact known member names,
 without duplicates (including escaped duplicates) or case-folded aliases. The
 native decoder bounds registration bytes to 1MiB and each selected object to 64

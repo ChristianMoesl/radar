@@ -76,6 +76,18 @@ func TestDocumentationRuntimeProbeCancellationBoundary(t *testing.T) {
 	}
 }
 
+func TestDocumentationAgentWorkspaceIntentMemberAuthority(t *testing.T) {
+	doc, err := Read("docs/durable-agents.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contract := range []string{"Retained `workspace.json` intent", "nested binding/note", "prepared-note objects", "no duplicates", "escaped duplicates", "case-folded aliases", "before workspace planning", "never normalize or repair", "unknown private extension", "no persisted version/layout", "does not establish cross-request retained startup admission or retry consent"} {
+		if !strings.Contains(doc.Content, contract) {
+			t.Errorf("native retained-intent contract omitted %q", contract)
+		}
+	}
+}
+
 func TestDocumentationRuntimeRegisteredOwnersBoundedContract(t *testing.T) {
 	doc, err := Read("docs/integrations/pi-runtime-probe.md")
 	if err != nil || doc.Title != "Pi registered-runtime observations" {
